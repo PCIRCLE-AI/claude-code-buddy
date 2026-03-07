@@ -84,8 +84,8 @@ export class StdinBufferManager {
     // Resume stdin for normal operation
     try {
       process.stdin.resume();
-    } catch {
-      // stdin may not be resumable (e.g., already destroyed)
+    } catch (err) {
+      process.stderr.write(`[StdinBufferManager] Failed to resume stdin: ${err instanceof Error ? err.message : String(err)}\n`);
     }
   }
 

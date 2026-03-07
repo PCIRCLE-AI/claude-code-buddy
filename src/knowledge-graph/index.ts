@@ -39,7 +39,8 @@ const VALID_RELATION_TYPE_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
  * common whitespace like \t, \n, \r which may appear in legitimate content).
  * Matches: U+0000-U+0008, U+000B, U+000C, U+000E-U+001F, U+007F, U+0080-U+009F
  */
-const CONTROL_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\x80-\x9F]/;
+// Import shared constant from KGSearchEngine to avoid duplication
+import { CONTROL_CHAR_PATTERN } from './KGSearchEngine.js';
 
 export class KnowledgeGraph {
   private db: Database.Database;

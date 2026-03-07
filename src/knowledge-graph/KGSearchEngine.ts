@@ -33,7 +33,7 @@ export interface SemanticSearchResult {
  * Regex to detect control characters (C0 and C1 control codes, excluding
  * common whitespace like \t, \n, \r which may appear in legitimate content).
  */
-const CONTROL_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\x80-\x9F]/;
+export const CONTROL_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\x80-\x9F]/;
 
 /**
  * Context object providing KGSearchEngine access to KnowledgeGraph internals

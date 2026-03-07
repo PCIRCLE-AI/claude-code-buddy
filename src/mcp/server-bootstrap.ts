@@ -286,12 +286,16 @@ process.on('unhandledRejection', (reason: unknown, _promise: Promise<unknown>) =
   );
 });
 
-process.on('uncaughtException', (error: Error) => {
-  process.stderr.write(
-    `[MeMesh] Uncaught Exception: ${error.message}\n${error.stack || ''}\n`
-  );
-  process.exit(1);
-});
+// Note: daemon mode registers its own uncaughtException handler with socket cleanup
+// This module-level handler is for standalone/proxy modes only
+if (!process.env.MEMESH_DAEMON_MODE) {
+  process.on('uncaughtException', (error: Error) => {
+    process.stderr.write(
+      `[MeMesh] Uncaught Exception: ${error.message}\n${error.stack || ''}\n`
+    );
+    process.exit(1);
+  });
+}
 
 /**
  * Start as the daemon (first instance)
@@ -300,6 +304,8 @@ async function startAsDaemon(bootstrapper: DaemonBootstrap, version: string) {
   // CRITICAL: Set MCP_SERVER_MODE BEFORE importing logger to disable console output
   // This prevents stdout pollution that breaks JSON-RPC communication
   process.env.MCP_SERVER_MODE = 'true';
+  // Signal daemon mode so module-level handlers defer to daemon-specific cleanup handlers
+  process.env.MEMESH_DAEMON_MODE = '1';
 
   const { logger } = await import('../utils/logger.js');
   const { DaemonSocketServer } = await import('./daemon/DaemonSocketServer.js');
@@ -588,6 +594,7 @@ function startMCPServer() {
     }, SHUTDOWN_TIMEOUT_MS);
 
     try {
+      // Cleanup work would go here
       clearTimeout(shutdownTimeout);
       process.exit(0);
     } catch {
