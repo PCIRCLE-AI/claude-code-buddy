@@ -27,8 +27,10 @@ import {
   queryActivePlans,
   renderTimelineCompact,
 } from './hook-utils.js';
+import { buildSessionRecallQuery, formatRecallOutput } from './session-start-recall-utils.js';
 import fs from 'fs';
 import path from 'path';
+import { execFileSync } from 'child_process';
 
 // ============================================================================
 // File Paths
@@ -444,6 +446,67 @@ function displayActivePlans() {
   }
 }
 
+/**
+ * Proactive memory recall — queries KG for memories related to current project.
+ * Uses project name + last 3 git commits as search query.
+ */
+function recallProactiveMemories() {
+  try {
+    const projectName = path.basename(process.cwd());
+
+    let recentCommits = [];
+    try {
+      const gitOutput = execFileSync('git', ['log', '--oneline', '-3', '--format=%s'], {
+        timeout: 3000,
+        encoding: 'utf-8',
+        cwd: process.cwd(),
+      });
+      recentCommits = gitOutput.trim().split('\n').filter(Boolean);
+    } catch {
+      // Not a git repo or no commits
+    }
+
+    const query = buildSessionRecallQuery(projectName, recentCommits);
+    if (!query) return;
+
+    // Build FTS5 tokens
+    const ftsTokens = query.split(/\s+/)
+      .filter(t => t.length > 2)
+      .slice(0, 10)
+      .map(t => `"${t.replace(/"/g, '""')}"*`)
+      .join(' OR ');
+
+    if (!ftsTokens) return;
+
+    const sql = `
+      SELECT e.name, e.type,
+        (SELECT json_group_array(content) FROM observations o WHERE o.entity_id = e.id) as observations_json
+      FROM entities e
+      JOIN entities_fts ON entities_fts.rowid = e.id
+      WHERE entities_fts MATCH ?
+      ORDER BY bm25(entities_fts, 10.0, 5.0)
+      LIMIT 5
+    `;
+
+    const result = sqliteQueryJSON(MEMESH_DB_PATH, sql, [ftsTokens]);
+    if (!result || result.length === 0) return;
+
+    const formatted = result.map(r => ({
+      name: r.name,
+      observations: JSON.parse(r.observations_json || '[]').filter(Boolean).slice(0, 3),
+      similarity: 0.5,
+    }));
+
+    const output = formatRecallOutput(formatted);
+    if (output) {
+      console.log('\n  Proactive Memory Recall:');
+      console.log(output);
+    }
+  } catch (error) {
+    logError('proactive-recall', error);
+  }
+}
+
 function sessionStart() {
   console.log('\n🚀 Smart-Agents Session Started\n');
 
@@ -457,6 +520,9 @@ function sessionStart() {
   // Auto-recall last session's key points from MeMesh
   const recalledMemory = recallRecentKeyPoints();
   displayRecalledMemory(recalledMemory);
+
+  // Proactive memory recall (project context + recent commits)
+  recallProactiveMemories();
 
   // Display active plans (beta)
   displayActivePlans();
