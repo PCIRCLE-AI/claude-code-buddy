@@ -42,8 +42,8 @@ export default defineConfig({
     },
 
     // File patterns
-    include: ['src/**/*.test.ts', 'src/**/*.spec.ts', 'tests/**/*.test.ts', 'tests/**/*.spec.ts'],
-    exclude: ['node_modules', 'dist'],
+    include: ['src/**/*.test.ts', 'src/**/*.spec.ts', 'tests/**/*.test.ts', 'tests/**/*.spec.ts', 'scripts/**/*.test.js'],
+    exclude: ['node_modules', 'dist', 'scripts/hooks/__tests__/hooks.test.js'],
 
     // Explicit cleanup on test completion
     teardownTimeout: 5000,
