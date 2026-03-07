@@ -8,8 +8,10 @@ env.allowRemoteModels = true;
 export class EmbeddingService {
     static DIMENSIONS = 384;
     static MODEL_NAME = 'Xenova/all-MiniLM-L6-v2';
+    static MAX_CACHE_SIZE = 500;
     extractor = null;
     initialized = false;
+    cache = new Map();
     async initialize() {
         if (this.initialized) {
             return;
@@ -34,19 +36,32 @@ export class EmbeddingService {
         if (!this.extractor) {
             throw new Error('EmbeddingService not initialized. Call initialize() first.');
         }
+        const cached = this.cache.get(text);
+        if (cached) {
+            return new Float32Array(cached);
+        }
         const result = await this.extractor(text, {
             pooling: 'mean',
             normalize: true,
         });
-        return new Float32Array(result.data);
+        const embedding = new Float32Array(result.data);
+        if (this.cache.size >= EmbeddingService.MAX_CACHE_SIZE) {
+            const firstKey = this.cache.keys().next().value;
+            if (firstKey !== undefined)
+                this.cache.delete(firstKey);
+        }
+        this.cache.set(text, new Float32Array(embedding));
+        return embedding;
     }
     async encodeBatch(texts) {
-        const embeddings = [];
-        for (const text of texts) {
-            const embedding = await this.encode(text);
-            embeddings.push(embedding);
+        const chunkSize = 10;
+        const results = [];
+        for (let i = 0; i < texts.length; i += chunkSize) {
+            const chunk = texts.slice(i, i + chunkSize);
+            const chunkResults = await Promise.all(chunk.map(text => this.encode(text)));
+            results.push(...chunkResults);
         }
-        return embeddings;
+        return results;
     }
     cosineSimilarity(a, b) {
         if (a.length !== b.length) {
@@ -72,6 +87,7 @@ export class EmbeddingService {
     async dispose() {
         this.extractor = null;
         this.initialized = false;
+        this.cache.clear();
         logger.debug('EmbeddingService disposed');
     }
 }
@@ -97,6 +113,13 @@ export class LazyEmbeddingService {
             })();
         }
         return this.initPromise;
+    }
+    static async preload() {
+        try {
+            await LazyEmbeddingService.get();
+        }
+        catch {
+        }
     }
     static async dispose() {
         if (this.instance) {

@@ -1,4 +1,5 @@
 export { UnifiedMemoryStore } from './UnifiedMemoryStore.js';
+export { MemorySearchEngine } from './MemorySearchEngine.js';
 export { MistakePatternEngine } from './MistakePatternEngine.js';
 export { EnhancedRetrieval } from './EnhancedRetrieval.js';
 export { UserPreferenceEngine } from './UserPreferenceEngine.js';

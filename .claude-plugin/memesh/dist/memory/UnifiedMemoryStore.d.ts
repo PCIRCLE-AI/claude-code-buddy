@@ -2,6 +2,7 @@ import { KnowledgeGraph } from '../knowledge-graph/index.js';
 import type { UnifiedMemory, MemoryType, SearchOptions } from './types/unified-memory.js';
 export declare class UnifiedMemoryStore {
     private knowledgeGraph;
+    private readonly searchEngine;
     constructor(knowledgeGraph: KnowledgeGraph);
     static create(dbPath?: string): Promise<UnifiedMemoryStore>;
     store(memory: UnifiedMemory, context?: {

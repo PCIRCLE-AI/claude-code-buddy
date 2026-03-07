@@ -40,31 +40,25 @@ export const createEntitiesTool = {
         required: ['entities'],
     },
     async handler(args, knowledgeGraph) {
-        const created = [];
-        const errors = [];
-        for (const entity of args.entities) {
-            try {
-                const tags = entity.tags || [];
-                const hasScope = tags.some(tag => tag.startsWith('scope:'));
-                if (!hasScope) {
-                    tags.push('scope:project');
-                }
-                await knowledgeGraph.createEntity({
-                    name: entity.name,
-                    entityType: entity.entityType,
-                    observations: entity.observations,
-                    tags,
-                    metadata: entity.metadata,
-                });
-                created.push(entity.name);
+        const preparedEntities = args.entities.map(entity => {
+            const tags = entity.tags || [];
+            const hasScope = tags.some(tag => tag.startsWith('scope:'));
+            if (!hasScope) {
+                tags.push('scope:project');
             }
-            catch (error) {
-                errors.push({
-                    name: entity.name,
-                    error: error instanceof Error ? error.message : String(error),
-                });
-            }
-        }
+            return {
+                name: entity.name,
+                entityType: entity.entityType,
+                observations: entity.observations,
+                tags,
+                metadata: entity.metadata,
+            };
+        });
+        const results = knowledgeGraph.createEntitiesBatch(preparedEntities);
+        const created = results.filter(r => r.success).map(r => r.name);
+        const errors = results
+            .filter(r => !r.success)
+            .map(r => ({ name: r.name, error: r.error }));
         return {
             created,
             count: created.length,

@@ -34,14 +34,11 @@ export declare class HookIntegration {
     private buildCheckpointDetails;
     private ensureProjectMemoryInitialized;
     onButlerTrigger(callback: (context: CheckpointContext) => void): void;
-    private static readonly TEST_FILE_PATTERNS;
-    private static readonly TEST_COMMAND_PATTERNS;
     private isTestFile;
     private isTestCommand;
     private isGitAddCommand;
     private isGitCommitCommand;
     private extractGitCommitMessage;
-    private findGitCommitSegment;
     private isValidTestResults;
     private shouldRecordError;
     private recordErrorFromOutput;

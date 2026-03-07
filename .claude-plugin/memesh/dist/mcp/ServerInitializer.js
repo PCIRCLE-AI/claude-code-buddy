@@ -101,7 +101,7 @@ export class ServerInitializer {
             const samplingClient = new SamplingClient(async (_request) => {
                 throw new Error('Sampling not yet connected. This will be wired when MCP SDK sampling is available.');
             });
-            const toolHandlers = new ToolHandlers(agentRegistry, skillManager, uninstallManager, checkpointDetector, hookIntegration, projectMemoryManager, knowledgeGraph, ui, samplingClient, unifiedMemoryStore);
+            const toolHandlers = new ToolHandlers(skillManager, uninstallManager, checkpointDetector, hookIntegration, projectMemoryManager, knowledgeGraph, ui, samplingClient, unifiedMemoryStore);
             const buddyHandlers = new BuddyHandlers(formatter, projectMemoryManager, projectAutoTracker, knowledgeGraph);
             return {
                 formatter,

@@ -1,7 +1,7 @@
 # MeMesh Architecture
 
-**Version**: 2.9.0
-**Last Updated**: 2026-02-25
+**Version**: 2.9.2
+**Last Updated**: 2026-03-08
 **Status**: Active
 
 ---
@@ -19,30 +19,47 @@ MeMesh is a Model Context Protocol (MCP) server that enhances Claude Code with p
                          │ MCP Protocol (JSON-RPC over stdio)
 ┌────────────────────────┴────────────────────────────────────┐
 │                    MCP Server Layer (src/mcp/)               │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │ Tool Handlers│  │   Resources  │  │   Prompts    │      │
-│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘      │
-└─────────┼──────────────────┼──────────────────┼─────────────┘
-          │                  │                  │
-┌─────────┴──────────────────┴──────────────────┴─────────────┐
-│                    Core Business Logic                       │
+│  ┌──────────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │  ToolHandlers    │  │   Resources  │  │   Prompts    │  │
+│  │  (facade)        │  └──────┬───────┘  └──────┬───────┘  │
+│  │  ├ MemoryTool    │         │                  │          │
+│  │  ├ SystemTool    │         │                  │          │
+│  │  └ HookTool      │         │                  │          │
+│  └────────┬─────────┘         │                  │          │
+│  ┌────────┴─────────┐         │                  │          │
+│  │StdinBufferManager│         │                  │          │
+│  └──────────────────┘         │                  │          │
+└─────────┼─────────────────────┼──────────────────┼──────────┘
+          │                     │                  │
+┌─────────┴─────────────────────┴──────────────────┴──────────┐
+│                    Core Business Logic                        │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │  Memory System (src/memory/)                         │   │
 │  │  ├─ UnifiedMemoryStore                               │   │
+│  │  ├─ MemorySearchEngine (search/filter/rank/dedup)    │   │
 │  │  ├─ ProjectAutoTracker                               │   │
 │  │  ├─ MistakePatternEngine                             │   │
-│  │  └─ AutoTagger                                        │   │
+│  │  └─ AutoTagger                                       │   │
 │  └──────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │  Knowledge Graph (src/knowledge-graph/)              │   │
-│  │  ├─ FTS5 Full-Text Search                            │   │
-│  │  ├─ Vector Similarity Search                         │   │
+│  │  ├─ KGSearchEngine (FTS5 + semantic + hybrid search) │   │
+│  │  ├─ createEntitiesBatch() (batch transactions)       │   │
 │  │  └─ Entity Relationship Management                   │   │
 │  └──────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │  Embeddings (src/embeddings/)                        │   │
-│  │  ├─ Model Manager (Xenova/bge-small-en-v1.5)        │   │
-│  │  └─ Vector Storage (sqlite-vec)                     │   │
+│  │  ├─ EmbeddingService (LRU cache, batch encode)       │   │
+│  │  ├─ VectorSearchAdapter (Strategy interface)         │   │
+│  │  │  ├─ SqliteVecAdapter (sqlite-vec 0.1.3)           │   │
+│  │  │  └─ InMemoryVectorAdapter (pure TS, testing)      │   │
+│  │  └─ ModelManager (Xenova/all-MiniLM-L6-v2, 384-dim) │   │
+│  └──────────────────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  Core (src/core/)                                    │   │
+│  │  ├─ HookIntegration → GitCommandParser               │   │
+│  │  ├─ CheckpointDetector                               │   │
+│  │  └─ HealthCheck, ResourceMonitor                     │   │
 │  └──────────────────────────────────────────────────────┘   │
 └──────────────────────────┬───────────────────────────────────┘
                            │
@@ -67,9 +84,14 @@ MeMesh is a Model Context Protocol (MCP) server that enhances Claude Code with p
 
 **Components**:
 - **server.ts**: MCP server initialization and lifecycle management
-- **server-bootstrap.js**: Entry point for npm binary
-- **ToolHandlers.ts**: Implements MCP tool handlers for buddy-* commands
-- **BuddyCommands.ts**: Command definitions and routing logic
+- **server-bootstrap.ts**: Entry point for npm binary; handles CLI vs MCP mode detection, daemon/proxy bootstrap, global `unhandledRejection`/`uncaughtException` handlers, and background ONNX model preloading in daemon mode
+- **StdinBufferManager.ts**: Pauses and buffers stdin during bootstrap to prevent "Method not found" errors when Claude Code sends `initialize` before the transport is connected
+- **ToolHandlers.ts**: Thin facade (~137 lines) that dispatches to focused sub-handlers:
+  - **MemoryToolHandler.ts**: Entity/relation/recall/mistake operations
+  - **SystemToolHandler.ts**: Skills, uninstall, test generation
+  - **HookToolHandler.ts**: Hook tool-use tracking
+- **ToolRouter.ts**: Routes incoming MCP tool calls to ToolHandlers
+- **BuddyCommands.ts**: Command definitions and help text (no longer handles routing)
 - **ToolDefinitions.ts**: MCP tool schema definitions
 - **validation.ts**: Input validation using Zod schemas
 - **ProgressReporter.ts**: Real-time progress updates to Claude Code
@@ -90,6 +112,13 @@ MeMesh is a Model Context Protocol (MCP) server that enhances Claude Code with p
 - Semantic search using embeddings
 - FTS5 full-text search integration
 
+#### MemorySearchEngine
+- Search logic extracted from UnifiedMemoryStore
+- Content-based query filtering (substring match)
+- Search filter application (time range, importance, type, limit)
+- Result deduplication by content hash
+- Relevance ranking via SmartMemoryQuery delegation
+
 #### ProjectAutoTracker
 - Automatic tracking of project context
 - File change detection via chokidar
@@ -107,9 +136,9 @@ MeMesh is a Model Context Protocol (MCP) server that enhances Claude Code with p
 
 **Data Flow**:
 ```
-User Input → Memory Ingestion → Vector Embedding → SQLite Storage
-                                                     ↓
-User Query ← Similarity Search ← Vector Search + FTS5 Search
+User Input -> Memory Ingestion -> Vector Embedding -> SQLite Storage
+                                                       |
+User Query <- Similarity Search <- Vector Search + FTS5 Search
 ```
 
 ---
@@ -118,11 +147,19 @@ User Query ← Similarity Search ← Vector Search + FTS5 Search
 
 **Purpose**: Structured knowledge representation with relationships and semantic search.
 
-**Features**:
+**Components**:
+
+#### KnowledgeGraph (`index.ts`)
+- Entity and relationship CRUD
+- Uses injected `VectorSearchAdapter` instance (via constructor) instead of static VectorExtension
+- `createEntitiesBatch()`: Wraps all entity creations in a single SQLite transaction for significantly better write performance; individual failures are caught without aborting the batch
+
+#### KGSearchEngine (`KGSearchEngine.ts`)
+- Extracted from KnowledgeGraph to separate search concerns from CRUD
 - **FTS5 Full-Text Search**: Fast keyword-based search
-- **Vector Similarity**: Semantic search using embeddings
-- **Entity Relationships**: Graph-based entity connections
-- **Hybrid Search**: Combines FTS5 and vector search for optimal results
+- **Semantic Search**: Vector similarity via injected VectorSearchAdapter
+- **Hybrid Search**: Combines FTS5 and vector results for optimal recall
+- Receives dependencies via constructor to avoid circular imports
 
 **Database Schema**:
 ```sql
@@ -137,19 +174,67 @@ fts_entities (content) -- FTS5 virtual table
 
 **Purpose**: Convert text to vector representations for semantic search.
 
-**Model**: `Xenova/bge-small-en-v1.5` (384 dimensions)
+**Model**: `Xenova/all-MiniLM-L6-v2` (384 dimensions)
 - Small footprint (~25 MB)
-- Fast inference
+- Fast inference via ONNX runtime
 - Good quality for code/technical text
 
 **Components**:
-- **ModelManager.ts**: Model loading and caching
-- **EmbeddingService.ts**: Batch embedding generation
-- **Integration**: sqlite-vec for vector storage and similarity search
+
+#### ModelManager.ts
+- Model download and validation
+- Cross-platform model directory resolution
+- Environment variable overrides (`MEMESH_MODEL_DIR`, `MEMESH_DATA_DIR`)
+
+#### EmbeddingService.ts
+- Batch embedding generation via `encodeBatch()` (parallel chunks of 10)
+- **LRU cache**: 500-entry cache for text embeddings; cache hits resolve nearly instantly
+- Cosine similarity calculation
+- Lazy-loading singleton (`LazyEmbeddingService`) for efficient resource management
+- ONNX model preloading in daemon mode eliminates 10-20s cold start
+
+#### VectorSearchAdapter.ts (Strategy Pattern Interface)
+- Decouples vector search from specific implementations
+- Defines operations: `loadExtension`, `createVectorTable`, `insertEmbedding`, `deleteEmbedding`, `knnSearch`, `getEmbedding`, `hasEmbedding`, `getEmbeddingCount`
+
+#### SqliteVecAdapter.ts
+- Concrete `VectorSearchAdapter` implementation using sqlite-vec
+- sqlite-vec pinned to v0.1.3 (stable)
+- Handles extension loading, virtual table creation, KNN search
+
+#### InMemoryVectorAdapter.ts
+- Pure TypeScript implementation (no native dependencies)
+- Uses in-memory Map + brute-force cosine similarity
+- Enables tests without native module compilation
 
 ---
 
-### 5. Database Layer (`src/db/`)
+### 5. Core Layer (`src/core/`)
+
+**Purpose**: Shared business logic components.
+
+**Components**:
+
+#### HookIntegration.ts
+- Bridges Claude Code hooks with the checkpoint detection system
+- Monitors Write, Edit, Bash tool execution
+- Delegates git command detection to **GitCommandParser**
+
+#### GitCommandParser.ts
+- Extracted from HookIntegration for reusability
+- Static methods for git command classification (`isGitAdd`, `isGitCommit`, `extractCommitMessage`)
+- Test file/command detection (`isTestFile`, `isTestCommand`)
+
+#### CheckpointDetector.ts
+- Detects workflow checkpoints from tool execution patterns
+- Checkpoint types: `code-written`, `test-complete`, `commit-ready`, `committed`
+
+#### HealthCheck.ts / ResourceMonitor.ts
+- System health monitoring and resource usage tracking
+
+---
+
+### 6. Database Layer (`src/db/`)
 
 **Purpose**: Persistent storage with connection pooling and migrations.
 
@@ -170,7 +255,7 @@ fts_entities (content) -- FTS5 virtual table
 
 ---
 
-### 6. Integration Layer (`src/integrations/`)
+### 7. Integration Layer (`src/integrations/`)
 
 **Purpose**: External system integrations and session management.
 
@@ -182,7 +267,7 @@ fts_entities (content) -- FTS5 virtual table
 
 ---
 
-### 7. UI Layer (`src/ui/`)
+### 8. UI Layer (`src/ui/`)
 
 **Purpose**: Rich terminal UI for progress indication and data visualization.
 
@@ -194,7 +279,7 @@ fts_entities (content) -- FTS5 virtual table
 
 ---
 
-### 8. Core Utilities
+### 9. Utilities
 
 #### Config (`src/config/`)
 - Environment variable management
@@ -213,6 +298,7 @@ fts_entities (content) -- FTS5 virtual table
 #### Utils (`src/utils/`)
 - Logger (winston)
 - Rate limiter
+- LRU cache utilities
 - Validation helpers
 
 ---
@@ -223,19 +309,19 @@ fts_entities (content) -- FTS5 virtual table
 
 ```
 buddy-do "implement auth"
-  ↓
-ToolHandler validates input
-  ↓
+  |
+ToolHandlers facade -> MemoryToolHandler
+  |
 UnifiedMemoryStore.create()
-  ↓
-Generate embedding (384-dim vector)
-  ↓
+  |
+Generate embedding (384-dim vector, LRU cache check)
+  |
 Store in SQLite (memories + embeddings tables)
-  ↓
+  |
 Index in FTS5
-  ↓
+  |
 Auto-tag (category detection)
-  ↓
+  |
 Return success to Claude Code
 ```
 
@@ -243,18 +329,36 @@ Return success to Claude Code
 
 ```
 buddy-remember "auth"
-  ↓
-UnifiedMemoryStore.search()
-  ↓
+  |
+ToolHandlers facade -> MemoryToolHandler
+  |
+UnifiedMemoryStore.search() -> MemorySearchEngine
+  |
 Parallel search:
-  ├─ FTS5 keyword search
-  └─ Vector similarity search (cosine)
-  ↓
-Merge and rank results
-  ↓
+  |- FTS5 keyword search
+  |- Vector similarity search (cosine)
+  |
+Merge, deduplicate, and rank results
+  |
 Format response (ResponseFormatter)
-  ↓
+  |
 Return to Claude Code
+```
+
+### 3. Knowledge Graph Batch Creation
+
+```
+memesh-create-entities [{...}, {...}, ...]
+  |
+ToolHandlers facade -> MemoryToolHandler
+  |
+KnowledgeGraph.createEntitiesBatch()
+  |
+Single SQLite transaction wrapping N entity inserts
+  |
+Per-entity: validate -> insert -> FTS5 index -> generate embedding
+  |
+Return per-entity success/failure results
 ```
 
 ---
@@ -267,7 +371,15 @@ Return to Claude Code
 | FTS5 search | < 5ms | Scales with corpus size |
 | Vector search | < 20ms | 384-dim cosine similarity |
 | Hybrid search | < 25ms | FTS5 + vector combined |
-| Embedding generation | ~50ms | Batched for efficiency |
+| Embedding generation | ~50ms | First call; cached hits < 1ms |
+| Embedding batch (10) | ~100ms | Parallel chunks of 10 |
+| Batch entity creation | ~N*5ms | Single transaction, amortized |
+
+**Performance optimizations (v2.9.2)**:
+- **Embedding LRU cache**: 500-entry cache eliminates redundant ONNX inference for repeated text
+- **Batch transactions**: `createEntitiesBatch()` uses a single SQLite transaction instead of N separate ones
+- **ONNX preloading**: Daemon mode preloads the embedding model in the background, eliminating 10-20s cold start on first semantic search
+- **encodeBatch parallelization**: Texts are encoded in parallel chunks of 10 for improved throughput
 
 ---
 
@@ -287,9 +399,10 @@ Return to Claude Code
 ### Adding New MCP Tools
 
 1. Define tool schema in `ToolDefinitions.ts`
-2. Implement handler in `ToolHandlers.ts`
-3. Add validation schema
-4. Update documentation
+2. Implement handler in the appropriate sub-handler (`MemoryToolHandler.ts`, `SystemToolHandler.ts`, or `HookToolHandler.ts`)
+3. Register dispatch in `ToolHandlers.ts` facade
+4. Add validation schema
+5. Update documentation
 
 ### Adding New Memory Types
 
@@ -298,38 +411,18 @@ Return to Claude Code
 3. Implement CRUD operations
 4. Add embedding support if needed
 
+### Adding New Vector Search Backends
+
+1. Implement `VectorSearchAdapter` interface
+2. Handle extension loading, table creation, CRUD, and KNN search
+3. Inject into KnowledgeGraph constructor
+
 ### Adding New Integrations
 
 1. Create new directory in `src/integrations/`
 2. Implement integration interface
 3. Add configuration
 4. Register with core system
-
----
-
-## Testing Strategy
-
-- **Unit Tests**: `vitest` for individual components
-- **Integration Tests**: End-to-end memory flows
-- **E2E Tests**: Full MCP protocol testing
-- **Installation Tests**: Verify npm package installation
-
-**Coverage Target**: ≥ 80% for critical paths
-
----
-
-## Deployment
-
-**Distribution**: npm package `@pcircle/memesh`
-
-**Installation**:
-```bash
-npm install -g @pcircle/memesh
-```
-
-**Binary**: `dist/mcp/server-bootstrap.js` (executable)
-
-**Claude Code Integration**: MCP configuration in `~/.claude/mcp_settings.json`
 
 ---
 
@@ -342,16 +435,16 @@ MeMesh supports three deployment modes to accommodate different environments:
 **When**: better-sqlite3 is available
 
 **Features**:
-- ✅ Full local Knowledge Graph with SQLite
-- ✅ All memory tools (buddy-do, buddy-remember, memesh-create-entities)
-- ✅ Vector embeddings and semantic search
-- ✅ FTS5 full-text search
+- Full local Knowledge Graph with SQLite
+- All memory tools (buddy-do, buddy-remember, memesh-create-entities)
+- Vector embeddings and semantic search
+- FTS5 full-text search
 
 **Architecture**:
 ```
-Claude Code ─stdio─► MCP Server
-                          │
-                          ▼
+Claude Code -stdio-> MCP Server
+                          |
+                          v
                    KnowledgeGraph
                    (SQLite+Vec)
 ```
@@ -369,13 +462,13 @@ Claude Code ─stdio─► MCP Server
 **When**: better-sqlite3 unavailable + MEMESH_API_KEY is configured
 
 **Features**:
-- ✅ MCP server starts successfully
-- ✅ Basic commands (buddy-help, memesh-generate-tests)
-- ❌ Local memory tools disabled (buddy-do, buddy-remember, memesh-create-entities, memesh-hook-tool-use, memesh-record-mistake, memesh-metrics)
+- MCP server starts successfully
+- Basic commands (buddy-help, memesh-generate-tests)
+- Local memory tools disabled (buddy-do, buddy-remember, memesh-create-entities, memesh-hook-tool-use, memesh-record-mistake, memesh-metrics)
 
 **Error Messages**:
 ```
-❌ Tool 'buddy-remember' is not available in cloud-only mode.
+Tool 'buddy-remember' is not available in cloud-only mode.
 
 This MCP server is running without local SQLite storage (better-sqlite3 unavailable).
 
@@ -388,9 +481,9 @@ Local SQLite storage is required for memory features.
 
 **Architecture**:
 ```
-Claude Code ─stdio─► MCP Server (Cloud-Only)
-                          │
-                          ▼
+Claude Code -stdio-> MCP Server (Cloud-Only)
+                          |
+                          v
                     Basic Tools Only
                     (no local storage)
 ```
@@ -500,11 +593,36 @@ See [docs/COWORK_SUPPORT.md](./COWORK_SUPPORT.md) for detailed Cowork support do
 
 ---
 
+## Testing Strategy
+
+- **Unit Tests**: `vitest` for individual components
+- **Integration Tests**: End-to-end memory flows
+- **E2E Tests**: Full MCP protocol testing
+- **Installation Tests**: Verify npm package installation
+
+**Coverage Target**: >= 80% for critical paths
+
+---
+
+## Deployment
+
+**Distribution**: npm package `@pcircle/memesh`
+
+**Installation**:
+```bash
+npm install -g @pcircle/memesh
+```
+
+**Binary**: `dist/mcp/server-bootstrap.js` (executable)
+
+**Claude Code Integration**: MCP configuration in `~/.claude/mcp_settings.json`
+
+---
+
 ## Future Architecture Considerations
 
 - **Multi-Model Support**: Pluggable AI providers
 - **Distributed Memory**: Sync across devices
-- **Performance Optimization**: Caching layer for frequent queries
 - **Plugin System**: User-defined extensions
 - **Web Dashboard**: Browser-based memory management
 

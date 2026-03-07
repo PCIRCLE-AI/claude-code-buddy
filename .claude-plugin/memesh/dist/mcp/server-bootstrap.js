@@ -1,57 +1,7 @@
 #!/usr/bin/env node
+import { StdinBufferManager } from './StdinBufferManager.js';
 let mcpClientConnected = false;
-const stdinBuffer = [];
-let stdinBufferingActive = false;
-function startStdinBuffering() {
-    if (stdinBufferingActive)
-        return;
-    stdinBufferingActive = true;
-    if (!process.stdin.readable) {
-        stdinBufferingActive = false;
-        return;
-    }
-    try {
-        process.stdin.pause();
-    }
-    catch (err) {
-        stdinBufferingActive = false;
-        return;
-    }
-    const bufferHandler = (chunk) => {
-        stdinBuffer.push(chunk);
-    };
-    const errorHandler = (err) => {
-        process.stderr.write(`[Bootstrap] stdin error during buffering: ${err.message}\n`);
-        stopStdinBufferingAndReplay();
-    };
-    process.stdin.on('data', bufferHandler);
-    process.stdin.once('error', errorHandler);
-    startStdinBuffering._handler = bufferHandler;
-    startStdinBuffering._errorHandler = errorHandler;
-}
-function stopStdinBufferingAndReplay() {
-    if (!stdinBufferingActive)
-        return;
-    stdinBufferingActive = false;
-    const handler = startStdinBuffering._handler;
-    if (handler) {
-        process.stdin.removeListener('data', handler);
-    }
-    const errorHandler = startStdinBuffering._errorHandler;
-    if (errorHandler) {
-        process.stdin.removeListener('error', errorHandler);
-    }
-    if (stdinBuffer.length > 0) {
-        const combined = Buffer.concat(stdinBuffer);
-        stdinBuffer.length = 0;
-        process.stdin.unshift(combined);
-    }
-    try {
-        process.stdin.resume();
-    }
-    catch {
-    }
-}
+const stdinManager = new StdinBufferManager();
 const args = process.argv.slice(2);
 const hasCliArgs = args.length > 0;
 if (hasCliArgs) {
@@ -147,7 +97,7 @@ ${chalk.default.bold('Documentation:')}
 }
 async function bootstrapWithDaemon() {
     process.env.MCP_SERVER_MODE = 'true';
-    startStdinBuffering();
+    stdinManager.start();
     try {
         const { DaemonBootstrap, isDaemonDisabled } = await import('./daemon/DaemonBootstrap.js');
         const { logger } = await import('../utils/logger.js');
@@ -204,6 +154,15 @@ function setupSignalHandlers(shutdownFn) {
     process.once('SIGTERM', () => shutdownFn('SIGTERM'));
     process.once('SIGINT', () => shutdownFn('SIGINT'));
 }
+process.on('unhandledRejection', (reason, _promise) => {
+    const errorMessage = reason instanceof Error ? reason.message : String(reason);
+    const errorStack = reason instanceof Error ? reason.stack : undefined;
+    process.stderr.write(`[MeMesh] Unhandled Promise Rejection: ${errorMessage}\n${errorStack || ''}\n`);
+});
+process.on('uncaughtException', (error) => {
+    process.stderr.write(`[MeMesh] Uncaught Exception: ${error.message}\n${error.stack || ''}\n`);
+    process.exit(1);
+});
 async function startAsDaemon(bootstrapper, version) {
     process.env.MCP_SERVER_MODE = 'true';
     const { logger } = await import('../utils/logger.js');
@@ -233,7 +192,7 @@ async function startAsDaemon(bootstrapper, version) {
             bootstrapper.getTransport().cleanup();
         }
         catch { }
-        stopStdinBufferingAndReplay();
+        stdinManager.stopAndReplay();
         logger.warn('[Daemon] Falling back to standalone mode');
         startMCPServer();
         return;
@@ -267,13 +226,13 @@ async function startAsDaemon(bootstrapper, version) {
         }
         catch { }
         logger.warn('[Daemon] Socket server unavailable, falling back to standalone mode');
-        stopStdinBufferingAndReplay();
+        stdinManager.stopAndReplay();
         await mcpServer.start();
         startMCPClientWatchdog();
         return;
     }
     logger.info('[Daemon] Socket server started', { path: transport.getPath() });
-    stopStdinBufferingAndReplay();
+    stdinManager.stopAndReplay();
     await mcpServer.start();
     socketServer.setMcpHandler(async (request) => {
         return mcpServer.handleRequest(request);
@@ -329,6 +288,10 @@ async function startAsDaemon(bootstrapper, version) {
         process.exit(1);
     });
     startMCPClientWatchdog();
+    import('../embeddings/EmbeddingService.js').then(({ LazyEmbeddingService }) => {
+        LazyEmbeddingService.preload().catch(() => {
+        });
+    });
 }
 async function startAsProxy(bootstrapper) {
     process.env.MCP_SERVER_MODE = 'true';
@@ -356,7 +319,7 @@ async function startAsProxy(bootstrapper) {
         logger.info('[Proxy] Daemon requested shutdown', { reason });
         process.exit(0);
     });
-    stopStdinBufferingAndReplay();
+    stdinManager.stopAndReplay();
     try {
         await proxyClient.start();
     }
@@ -385,7 +348,7 @@ function startMCPServer() {
             startMCPClientWatchdog();
             const { ClaudeCodeBuddyMCPServer } = await import('./server.js');
             const mcpServer = await ClaudeCodeBuddyMCPServer.create();
-            stopStdinBufferingAndReplay();
+            stdinManager.stopAndReplay();
             await mcpServer.start();
         }
         catch (error) {
@@ -422,5 +385,4 @@ function startMCPServer() {
     process.once('SIGINT', () => shutdown('SIGINT'));
     bootstrap();
 }
-export {};
 //# sourceMappingURL=server-bootstrap.js.map

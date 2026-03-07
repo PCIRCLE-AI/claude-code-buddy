@@ -3,8 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { createHash } from 'crypto';
 import { logger } from '../utils/logger.js';
 import { ValidationError, OperationError } from '../errors/index.js';
-import { SmartMemoryQuery } from './SmartMemoryQuery.js';
 import { AutoTagger } from './AutoTagger.js';
+import { MemorySearchEngine } from './MemorySearchEngine.js';
 function extractErrorInfo(error) {
     if (error instanceof Error) {
         return {
@@ -45,8 +45,10 @@ const MEMORY_ID_PREFIX = 'unified-memory-';
 const MAX_METADATA_SIZE = 1024 * 1024;
 export class UnifiedMemoryStore {
     knowledgeGraph;
+    searchEngine;
     constructor(knowledgeGraph) {
         this.knowledgeGraph = knowledgeGraph;
+        this.searchEngine = new MemorySearchEngine();
     }
     static async create(dbPath) {
         try {
@@ -299,11 +301,7 @@ export class UnifiedMemoryStore {
                 limit: Math.min(finalLimit * 10, 1000),
             };
             const baseResults = await this.traditionalSearch(query, candidateOptions);
-            const deduplicatedResults = this.deduplicateResults(baseResults);
-            const smartQuery = new SmartMemoryQuery();
-            const rankedResults = smartQuery.search(query, deduplicatedResults, options);
-            const finalResults = rankedResults.slice(0, finalLimit);
-            return finalResults;
+            return this.searchEngine.processSearchResults(query, baseResults, options, finalLimit);
         }
         catch (error) {
             logger.error(`[UnifiedMemoryStore] Search failed: ${error}`);
@@ -350,10 +348,7 @@ export class UnifiedMemoryStore {
                 entities = entities.filter((e) => e.tags && options.tags.some((t) => e.tags.includes(t)));
             }
             let memories = entities.map((e) => this.entityToMemory(e)).filter((m) => m !== null);
-            if (query && query.trim()) {
-                const lowerQuery = query.toLowerCase();
-                memories = memories.filter((m) => m.content.toLowerCase().includes(lowerQuery) || m.context?.toLowerCase().includes(lowerQuery));
-            }
+            memories = this.searchEngine.filterByQuery(memories, query);
             memories = this.applySearchFilters(memories, options);
             return memories;
         }
@@ -372,61 +367,10 @@ export class UnifiedMemoryStore {
         }
     }
     applySearchFilters(memories, options) {
-        let filtered = memories;
-        if (options?.timeRange && options.timeRange !== 'all') {
-            const now = new Date();
-            let cutoffDate;
-            switch (options.timeRange) {
-                case 'last-24h':
-                    cutoffDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-                    break;
-                case 'last-7-days':
-                    cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-                    break;
-                case 'last-30-days':
-                    cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-                    break;
-                default:
-                    cutoffDate = new Date(0);
-            }
-            filtered = filtered.filter((m) => m.timestamp.getTime() >= cutoffDate.getTime());
-        }
-        if (options?.minImportance !== undefined) {
-            filtered = filtered.filter((m) => m.importance >= options.minImportance);
-        }
-        if (options?.types && options.types.length > 0) {
-            filtered = filtered.filter((m) => options.types.includes(m.type));
-        }
-        if (options?.limit && filtered.length > options.limit) {
-            filtered = filtered.slice(0, options.limit);
-        }
-        return filtered;
+        return this.searchEngine.applySearchFilters(memories, options);
     }
     deduplicateResults(memories) {
-        if (memories.length <= 1) {
-            return memories;
-        }
-        const seen = new Map();
-        for (const memory of memories) {
-            const contentHash = memory.content === ''
-                ? `empty:${memory.id ?? uuidv4()}`
-                : createHash('sha256').update(memory.content).digest('hex');
-            const existing = seen.get(contentHash);
-            if (!existing) {
-                seen.set(contentHash, memory);
-            }
-            else {
-                const memoryImportance = Number.isFinite(memory.importance) ? memory.importance : 0;
-                const existingImportance = Number.isFinite(existing.importance) ? existing.importance : 0;
-                const shouldReplace = memoryImportance > existingImportance ||
-                    (memoryImportance === existingImportance &&
-                        memory.timestamp.getTime() > existing.timestamp.getTime());
-                if (shouldReplace) {
-                    seen.set(contentHash, memory);
-                }
-            }
-        }
-        return Array.from(seen.values());
+        return this.searchEngine.deduplicateResults(memories);
     }
     async searchByType(type, options) {
         return this.search('', { ...options, types: [type] });

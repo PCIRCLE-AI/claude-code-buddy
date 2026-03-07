@@ -134,6 +134,12 @@ export class StdioProxyClient extends EventEmitter {
         }
         catch (error) {
             this.connecting = false;
+            if (this.socket) {
+                this.socket.destroy();
+                this.socket = null;
+            }
+            this.receiveBuffer = '';
+            this.handshakeBuffer = '';
             throw error;
         }
     }

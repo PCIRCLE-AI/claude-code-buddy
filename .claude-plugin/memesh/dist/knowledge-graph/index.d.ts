@@ -1,15 +1,14 @@
 import type { Entity, Relation, SearchQuery, RelationTrace } from './types.js';
-export interface SemanticSearchResult {
-    entity: Entity;
-    similarity: number;
-}
+import type { SemanticSearchResult } from './KGSearchEngine.js';
+export type { SemanticSearchResult } from './KGSearchEngine.js';
 export declare class KnowledgeGraph {
     private db;
     private queryCache;
     private vectorEnabled;
-    private vectorExt;
+    private vectorAdapter;
     private vectorInitPromise;
     private pendingEmbeddings;
+    private searchEngine;
     private constructor();
     private validateEntityName;
     private validateRelationType;
@@ -22,6 +21,18 @@ export declare class KnowledgeGraph {
     private searchFTS5;
     private prepareFTS5Query;
     createEntity(entity: Entity): string;
+    createEntitiesBatch(entities: Array<{
+        name: string;
+        entityType: string;
+        observations: string[];
+        tags?: string[];
+        metadata?: Record<string, unknown>;
+        contentHash?: string;
+    }>): Array<{
+        name: string;
+        success: boolean;
+        error?: string;
+    }>;
     createRelation(relation: Relation): void;
     searchEntities(query: SearchQuery): Entity[];
     getEntity(name: string): Entity | null;
@@ -42,7 +53,6 @@ export declare class KnowledgeGraph {
         limit?: number;
         minSimilarity?: number;
     }): Promise<SemanticSearchResult[]>;
-    private keywordSearchAsSemanticResults;
     isVectorSearchEnabled(): boolean;
     close(): Promise<void>;
     transaction<T>(fn: () => T): T;

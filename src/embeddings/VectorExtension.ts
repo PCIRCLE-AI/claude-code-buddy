@@ -31,15 +31,9 @@ import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
 import { logger } from '../utils/logger.js';
 
-/**
- * Result from KNN search
- */
-export interface KnnSearchResult {
-  /** Name of the entity */
-  entityName: string;
-  /** Distance from query vector (lower = more similar for cosine distance) */
-  distance: number;
-}
+// Re-export from canonical source for backward compatibility
+import type { KnnSearchResult } from './VectorSearchAdapter.js';
+export type { KnnSearchResult } from './VectorSearchAdapter.js';
 
 /**
  * Default embedding dimensions for all-MiniLM-L6-v2 model
