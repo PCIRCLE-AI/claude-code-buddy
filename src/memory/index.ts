@@ -15,6 +15,10 @@ export { UnifiedMemoryStore } from './UnifiedMemoryStore.js';
 // Memory search engine (search, filter, rank, dedup)
 export { MemorySearchEngine } from './MemorySearchEngine.js';
 
+// Proactive memory recall (session-start, test-failure, error-detection triggers)
+export { ProactiveRecaller } from './ProactiveRecaller.js';
+export type { RecallTrigger, RecallContext, RecallResult } from './ProactiveRecaller.js';
+
 // Mistake Pattern Engine for prevention rules
 export { MistakePatternEngine } from './MistakePatternEngine.js';
 
