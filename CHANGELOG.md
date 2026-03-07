@@ -7,6 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.9.2] - 2026-03-08
+
+### Architecture Refactoring
+
+- **VectorSearchAdapter** (Strategy pattern) — decouples vector search from sqlite-vec
+  - `SqliteVecAdapter`: sqlite-vec implementation (pinned to v0.1.3 stable)
+  - `InMemoryVectorAdapter`: pure TypeScript implementation for testing without native deps
+  - KnowledgeGraph now uses injected adapter instance instead of static VectorExtension
+- **ToolHandlers decomposition** — split 922-line monolith into 3 focused sub-handlers
+  - `MemoryToolHandler`: entity/relation/recall/mistake operations
+  - `SystemToolHandler`: skills, uninstall, test generation
+  - `HookToolHandler`: hook tool-use tracking
+  - ToolHandlers.ts reduced to ~130-line facade
+- **KGSearchEngine** — extracted FTS5, semantic, and hybrid search from KnowledgeGraph
+- **MemorySearchEngine** — extracted search/filter/rank/dedup from UnifiedMemoryStore
+- **GitCommandParser** — extracted git command detection from HookIntegration
+- **StdinBufferManager** — extracted stdin buffering from server-bootstrap.ts
+
+### Performance
+
+- **Embedding LRU cache** — 500-entry cache eliminates redundant ONNX inference
+- **Batch transactions** — `createEntitiesBatch()` wraps N inserts in single transaction
+- **ONNX preloading** — daemon mode preloads model in background (eliminates 10-20s cold start)
+- **encodeBatch parallelization** — texts encoded in parallel chunks of 10
+
+### Fixed
+
+- Global `unhandledRejection` and `uncaughtException` handlers in server-bootstrap
+- Embedding failure log level upgraded from DEBUG to WARN
+- Socket cleanup in `StdioProxyClient.connectToDaemon()` error path
+- Duplicate `CONTROL_CHAR_PATTERN` constant unified
+- Duplicate `uncaughtException` handler prevented in daemon mode
+- StdinBufferManager catch block now logs errors instead of silent swallow
+
+### Removed
+
+- 6 unused npm dependencies (ink, ink-spinner, multer, cors, form-data, log-update)
+- 4 dead utility modules (money.ts, toonify-adapter.ts, toonify.ts, tracing/middleware.ts)
+- Unused AgentRegistry injection from ToolHandlers
+
+### Documentation
+
+- Added project CLAUDE.md with mandatory documentation-code synchronization rules
+- Updated ARCHITECTURE.md to reflect all architectural changes
+- Fixed embedding model references (bge-small-en-v1.5 → all-MiniLM-L6-v2)
+
+## [2.9.1] - 2026-03-01
+
+### Security
+
+- Updated plugin dependencies to resolve Dependabot alerts
+- Removed orphaned dist files and scripts from previously removed features
+
 ## [2.9.0] - 2026-02-25
 
 ### Added
