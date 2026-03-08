@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.10.2] - 2026-03-09
+
+### Changed
+
+- Clean up changelog entries
+
 ## [2.10.1] - 2026-03-09
 
 ### Fixed
@@ -15,7 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Untrack local-only files from git (CLAUDE.md, .claude/, media/demo-video/, Dockerfile.test)
+- Streamline repository for professional open source standards
+- Simplify documentation and build configuration
 
 ## [2.10.0] - 2026-03-08
 
