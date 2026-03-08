@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <!-- V2: Dark slate bg, teal/cyan nodes, organic layout -->
+  <defs>
+    <linearGradient id="bg2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0F172A"/>
+      <stop offset="100%" style="stop-color:#1E293B"/>
+    </linearGradient>
+  </defs>
+  <circle cx="60" cy="60" r="56" fill="url(#bg2)" stroke="#334155" stroke-width="1.5"/>
+  <!-- Edges -->
+  <g stroke="#0EA5E9" stroke-width="1" opacity="0.4">
+    <line x1="42" y1="28" x2="75" y2="30"/>
+    <line x1="42" y1="28" x2="28" y2="55"/>
+    <line x1="75" y1="30" x2="95" y2="50"/>
+    <line x1="28" y1="55" x2="35" y2="82"/>
+    <line x1="95" y1="50" x2="85" y2="78"/>
+    <line x1="35" y1="82" x2="62" y2="95"/>
+    <line x1="85" y1="78" x2="62" y2="95"/>
+    <line x1="42" y1="28" x2="60" y2="55"/>
+    <line x1="75" y1="30" x2="60" y2="55"/>
+    <line x1="28" y1="55" x2="60" y2="55"/>
+    <line x1="95" y1="50" x2="60" y2="55"/>
+    <line x1="35" y1="82" x2="60" y2="55"/>
+    <line x1="85" y1="78" x2="60" y2="55"/>
+    <line x1="62" y1="95" x2="60" y2="55"/>
+    <line x1="28" y1="55" x2="75" y2="30"/>
+    <line x1="42" y1="28" x2="95" y2="50"/>
+  </g>
+  <!-- Glow on edges from center -->
+  <g stroke="#22D3EE" stroke-width="0.8" opacity="0.25">
+    <line x1="60" y1="55" x2="42" y2="28"/>
+    <line x1="60" y1="55" x2="75" y2="30"/>
+    <line x1="60" y1="55" x2="95" y2="50"/>
+    <line x1="60" y1="55" x2="85" y2="78"/>
+    <line x1="60" y1="55" x2="62" y2="95"/>
+    <line x1="60" y1="55" x2="35" y2="82"/>
+    <line x1="60" y1="55" x2="28" y2="55"/>
+  </g>
+  <!-- Outer nodes -->
+  <circle cx="42" cy="28" r="4.5" fill="#0891B2" stroke="#67E8F9" stroke-width="0.8"/>
+  <circle cx="75" cy="30" r="4" fill="#0891B2" stroke="#67E8F9" stroke-width="0.8"/>
+  <circle cx="28" cy="55" r="4" fill="#0891B2" stroke="#67E8F9" stroke-width="0.8"/>
+  <circle cx="95" cy="50" r="4.5" fill="#0891B2" stroke="#67E8F9" stroke-width="0.8"/>
+  <circle cx="35" cy="82" r="4" fill="#0891B2" stroke="#67E8F9" stroke-width="0.8"/>
+  <circle cx="85" cy="78" r="4.5" fill="#0891B2" stroke="#67E8F9" stroke-width="0.8"/>
+  <circle cx="62" cy="95" r="4" fill="#0891B2" stroke="#67E8F9" stroke-width="0.8"/>
+  <!-- Center hub node -->
+  <circle cx="60" cy="55" r="9" fill="#06B6D4" stroke="#A5F3FC" stroke-width="1.5"/>
+  <circle cx="60" cy="55" r="3.5" fill="#CFFAFE" opacity="0.5"/>
+</svg>

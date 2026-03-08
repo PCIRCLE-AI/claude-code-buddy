@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/%F0%9F%A7%A0-MeMesh-blueviolet?style=for-the-badge" alt="MeMesh" />
+<img src="docs/images/memesh-logo.svg" alt="MeMesh" width="80" />
 
 # MeMesh
 
@@ -161,6 +161,32 @@ buddy-remember "why we chose PostgreSQL"
 | Windows | ✅ (建議 WSL2) |
 
 **可搭配使用：** Claude Code CLI · VS Code Extension · Cursor (透過 MCP) · 任何相容 MCP 的編輯器
+
+---
+
+## 視覺化瀏覽器（Streamlit UI）
+
+MeMesh 內建互動式 Web UI，讓你直觀地探索知識圖譜。
+
+**Dashboard** — 知識庫總覽，包含實體統計、類型分佈、標籤趨勢與成長曲線。
+
+<div align="center">
+<img src="docs/images/streamlit-dashboard.png" alt="MeMesh Dashboard" width="800" />
+</div>
+
+**KG Explorer** — 互動式圖譜視覺化，支援按顏色區分實體類型、關係連線、FTS5 全文搜尋，以及按類型、標籤和日期範圍篩選。
+
+<div align="center">
+<img src="docs/images/streamlit-kg-explorer.png" alt="MeMesh KG Explorer" width="800" />
+</div>
+
+**快速啟動：**
+
+```bash
+cd streamlit
+pip install -r requirements.txt
+streamlit run app.py
+```
 
 ---
 

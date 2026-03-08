@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/%F0%9F%A7%A0-MeMesh-blueviolet?style=for-the-badge" alt="MeMesh" />
+<img src="docs/images/memesh-logo.svg" alt="MeMesh" width="80" />
 
 # MeMesh
 
@@ -161,6 +161,32 @@ All data stays on your machine. Decisions kept 90 days, session notes 30 days.
 | Windows | ✅ (WSL2 recommended) |
 
 **Works with:** Claude Code CLI · VS Code Extension · Cursor (via MCP) · Any MCP-compatible editor
+
+---
+
+## Visual Explorer (Streamlit UI)
+
+MeMesh includes an interactive web UI for exploring your knowledge graph visually.
+
+**Dashboard** — Overview of your knowledge base with entity statistics, type distribution, tag trends, and growth over time.
+
+<div align="center">
+<img src="docs/images/streamlit-dashboard.png" alt="MeMesh Dashboard" width="800" />
+</div>
+
+**KG Explorer** — Interactive graph visualization with color-coded entity types, relation edges, FTS5 full-text search, and filtering by type, tags, and date range.
+
+<div align="center">
+<img src="docs/images/streamlit-kg-explorer.png" alt="MeMesh KG Explorer" width="800" />
+</div>
+
+**Quick start:**
+
+```bash
+cd streamlit
+pip install -r requirements.txt
+streamlit run app.py
+```
 
 ---
 

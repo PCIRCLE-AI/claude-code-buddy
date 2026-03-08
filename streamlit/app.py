@@ -4,15 +4,19 @@ MeMesh Streamlit UI — Main Entry Point
 Launch: streamlit run streamlit/app.py
 """
 
+from pathlib import Path
+
 import streamlit as st
 from path_resolver import resolve_db_path
 from db import get_connection, is_fts5_available
+
+LOGO_PATH = Path(__file__).parent.parent / "docs" / "images" / "memesh-logo.svg"
 
 
 def main():
     st.set_page_config(
         page_title="MeMesh Explorer",
-        page_icon="🧠",
+        page_icon="◉",
         layout="wide",
     )
 
@@ -54,7 +58,9 @@ def main():
         st.sidebar.info("ℹ️ FTS5 not available. Using basic text search.")
 
     # --- Sidebar Navigation ---
-    st.sidebar.title("🧠 MeMesh")
+    if LOGO_PATH.exists():
+        st.sidebar.image(str(LOGO_PATH), width=48)
+    st.sidebar.title("MeMesh")
     page = st.sidebar.radio(
         "Navigation",
         ["Dashboard", "KG Explorer"],
