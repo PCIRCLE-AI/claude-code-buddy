@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "Official PCIRCLE AI marketplace for Claude Code plugins - productivity tools, AI enhancements, and developer utilities",
-    "version": "2.9.2"
+    "version": "2.9.3"
   },
   "plugins": [
     {
       "name": "memesh",
       "description": "MeMesh — Persistent memory plugin for Claude Code. Remembers architecture decisions, coding patterns, and project context across sessions.",
-      "version": "2.9.2",
+      "version": "2.9.3",
       "author": {
         "name": "PCIRCLE AI"
       },

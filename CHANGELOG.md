@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.9.3] - 2026-03-08
+
 ### Added
 
 - **ProactiveRecaller** — automatically surfaces relevant memories based on context triggers
@@ -21,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cleaned up on entity deletion
 - **Batch embedding** — `createEntitiesBatch()` uses `encodeBatch()` instead of N individual `encode()` calls
   - Combined with hash dedup for maximum efficiency
+
+### Fixed
+
+- Update all repository URLs from `claude-code-buddy` to `memesh-plugin`
+- Sync `marketplace.json` version to match package version
+- Update dependencies to resolve security vulnerabilities (express-rate-limit, ip-address)
 
 ## [2.9.2] - 2026-03-08
 
