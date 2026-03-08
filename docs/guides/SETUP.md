@@ -1,4 +1,4 @@
-# MeMesh Setup Guide
+# MeMesh Plugin Setup Guide
 
 ## Quick Installation (Recommended)
 

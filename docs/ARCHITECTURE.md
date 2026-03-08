@@ -1,4 +1,4 @@
-# MeMesh Architecture
+# MeMesh Plugin Architecture
 
 **Version**: 2.10.0
 **Last Updated**: 2026-03-08
@@ -8,7 +8,7 @@
 
 ## Overview
 
-MeMesh is a Model Context Protocol (MCP) server that enhances Claude Code with persistent memory, context-aware task execution, and knowledge management capabilities. It follows a layered architecture designed for extensibility, performance, and reliability.
+MeMesh Plugin is a Model Context Protocol (MCP) server that enhances Claude Code with persistent memory, context-aware task execution, and knowledge management capabilities. It follows a layered architecture designed for extensibility, performance, and reliability.
 
 ## Architecture Diagram
 
@@ -39,8 +39,7 @@ MeMesh is a Model Context Protocol (MCP) server that enhances Claude Code with p
 │  │  ├─ MemorySearchEngine (search/filter/rank/dedup)    │   │
 │  │  ├─ ProjectAutoTracker                               │   │
 │  │  ├─ ProactiveRecaller (session/test/error triggers)   │   │
-│  │  ├─ MistakePatternEngine                             │   │
-│  │  └─ AutoTagger                                       │   │
+│  │  └─ MistakePatternEngine                             │   │
 │  └──────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │  Knowledge Graph (src/knowledge-graph/)              │   │
@@ -127,7 +126,7 @@ MeMesh is a Model Context Protocol (MCP) server that enhances Claude Code with p
 - Content-based query filtering (substring match)
 - Search filter application (time range, importance, type, limit)
 - Result deduplication by content hash
-- Relevance ranking via SmartMemoryQuery delegation
+- Relevance ranking (multi-factor scoring: exact match, tag match, TF, recency)
 
 #### ProjectAutoTracker
 - Automatic tracking of project context
@@ -145,11 +144,6 @@ MeMesh is a Model Context Protocol (MCP) server that enhances Claude Code with p
 - Learns from user corrections
 - Detects recurring mistakes
 - Suggests improvements
-
-#### AutoTagger
-- Automatic tag generation for memories
-- Category detection
-- Relevance scoring
 
 **Data Flow**:
 ```

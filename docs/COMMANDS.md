@@ -1,6 +1,6 @@
-# MeMesh Commands Reference
+# MeMesh Plugin Commands Reference
 
-Complete reference for all MeMesh commands and tools.
+Complete reference for all MeMesh Plugin commands and tools.
 
 **Version**: 2.10.0
 **Last Updated**: 2026-03-08

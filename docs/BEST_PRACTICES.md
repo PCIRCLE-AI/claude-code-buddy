@@ -1,5 +1,5 @@
 # Best Practices
-## Effective Workflows for MeMesh
+## Effective Workflows for MeMesh Plugin
 
 This guide provides proven workflows and best practices for using MeMesh effectively in your daily development work.
 

@@ -2,11 +2,11 @@
 
 <img src="https://img.shields.io/badge/%F0%9F%A7%A0-MeMesh-blueviolet?style=for-the-badge" alt="MeMesh" />
 
-# MeMesh
+# MeMesh Plugin
 
 ### 你的 AI 编程会话值得拥有记忆。
 
-MeMesh 为 Claude Code 提供持久的、可搜索的记忆 — 让每次会话都能承接上次的成果。
+MeMesh Plugin 为 Claude Code 提供持久的、可搜索的记忆 — 让每次会话都能承接上次的成果。
 
 [![npm version](https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=cb3837)](https://www.npmjs.com/package/@pcircle/memesh)
 [![Downloads](https://img.shields.io/npm/dm/@pcircle/memesh?style=flat-square&color=blue)](https://www.npmjs.com/package/@pcircle/memesh)

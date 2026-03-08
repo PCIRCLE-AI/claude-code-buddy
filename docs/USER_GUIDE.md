@@ -1,7 +1,7 @@
 # User Guide
-## Complete Reference for MeMesh
+## Complete Reference for MeMesh Plugin
 
-Welcome to the complete MeMesh User Guide! This guide provides detailed information about all commands, features, and workflows.
+Welcome to the complete MeMesh Plugin User Guide! This guide provides detailed information about all commands, features, and workflows.
 
 ---
 
@@ -24,9 +24,9 @@ Welcome to the complete MeMesh User Guide! This guide provides detailed informat
 
 ## Introduction
 
-### What is MeMesh?
+### What is MeMesh Plugin?
 
-MeMesh is a persistent memory plugin for Claude Code that helps you:
+MeMesh Plugin is a persistent memory plugin for Claude Code that helps you:
 
 - **Remember across sessions**: Persistent knowledge graph storage
 - **Execute tasks with context**: Memory-enhanced task execution
@@ -35,10 +35,10 @@ MeMesh is a persistent memory plugin for Claude Code that helps you:
 
 ### Architecture Overview
 
-MeMesh runs as a local-first MCP server:
+MeMesh Plugin runs as a local-first MCP server:
 
 ```
-Claude Code ──stdio──► MeMesh MCP Server
+Claude Code ──stdio──► MeMesh Plugin
                               │
                     ┌─────────┼─────────┐
                     ▼         ▼         ▼

@@ -1,6 +1,6 @@
-# Contributing to MeMesh
+# Contributing to MeMesh Plugin
 
-**Welcome! We're excited that you're interested in contributing to MeMesh.**
+**Welcome! We're excited that you're interested in contributing to MeMesh Plugin.**
 
 This document provides guidelines for contributing code, documentation, bug reports, and feature requests.
 

@@ -1,4 +1,4 @@
-# MeMesh Configuration Management
+# MeMesh Plugin Configuration Management
 
 The `memesh config` command provides utilities for managing your MeMesh configuration.
 

@@ -1,6 +1,6 @@
 # Quick Start Guide (2 Minutes)
 
-Get MeMesh running in under 2 minutes.
+Get MeMesh Plugin running in under 2 minutes.
 
 ## Prerequisites
 

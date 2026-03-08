@@ -1,6 +1,6 @@
 # Quick Install Guide
 
-Get MeMesh up and running in under 2 minutes!
+Get MeMesh Plugin up and running in under 2 minutes!
 
 ---
 
@@ -76,14 +76,12 @@ When you install MeMesh, you get access to:
 2. **buddy-remember** - Project memory recall with semantic search
 3. **buddy-help** - Command documentation and help
 
-**MeMesh Tools (4 tools):**
-4. **memesh-record-mistake** - Error recording for continuous learning (⚠️ `buddy-record-mistake` deprecated)
-5. **memesh-create-entities** - Create and store knowledge entities (⚠️ `create-entities` deprecated)
-6. **memesh-hook-tool-use** - Hook event processing (⚠️ `hook-tool-use` deprecated)
-7. **memesh-generate-tests** - Automatic test generation (⚠️ `generate-tests` deprecated)
-
-**Cloud Sync (1 tool):**
-8. **memesh-cloud-sync** - Sync memories to MeMesh Cloud (optional)
+**MeMesh Tools (5 tools):**
+4. **memesh-record-mistake** - Record mistakes for continuous learning (⚠️ `buddy-record-mistake` deprecated)
+5. **memesh-create-entities** - Create knowledge entities with auto-relations (⚠️ `create-entities` deprecated)
+6. **memesh-hook-tool-use** - Process tool execution events (⚠️ `hook-tool-use` deprecated)
+7. **memesh-generate-tests** - Generate test cases from specs or code (⚠️ `generate-tests` deprecated)
+8. **memesh-metrics** - View session metrics and memory status
 
 ### Core Features
 

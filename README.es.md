@@ -2,11 +2,11 @@
 
 <img src="https://img.shields.io/badge/%F0%9F%A7%A0-MeMesh-blueviolet?style=for-the-badge" alt="MeMesh" />
 
-# MeMesh
+# MeMesh Plugin
 
 ### Tus sesiones de programación con IA merecen memoria.
 
-MeMesh le da a Claude Code una memoria persistente y consultable — para que cada sesión se base en la anterior.
+MeMesh Plugin le da a Claude Code una memoria persistente y consultable — para que cada sesión se base en la anterior.
 
 [![npm version](https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=cb3837)](https://www.npmjs.com/package/@pcircle/memesh)
 [![Downloads](https://img.shields.io/npm/dm/@pcircle/memesh?style=flat-square&color=blue)](https://www.npmjs.com/package/@pcircle/memesh)

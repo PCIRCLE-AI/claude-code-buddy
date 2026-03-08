@@ -1,13 +1,13 @@
-# MeMesh Documentation
+# MeMesh Plugin Documentation
 
-Welcome to the MeMesh documentation.
+Welcome to the MeMesh Plugin documentation.
 
 ---
 
 ## Getting Started
 - **[Getting Started](./GETTING_STARTED.md)** — New users start here
 - **[Quick Install](./QUICK_INSTALL.md)** — 2-minute setup
-- **[Quick Start](./QUICK_START.md)** — First 5 minutes with MeMesh
+- **[Quick Start](./QUICK_START.md)** — First 5 minutes with MeMesh Plugin
 - **[Upgrade Guide](./UPGRADE.md)** — Upgrading from a previous version
 
 ## User Reference

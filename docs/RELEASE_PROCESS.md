@@ -1,6 +1,6 @@
-# MeMesh Release Process
+# MeMesh Plugin Release Process
 
-This document describes the complete release process for MeMesh, including versioning, changelog maintenance, and automated publishing.
+This document describes the complete release process for MeMesh Plugin, including versioning, changelog maintenance, and automated publishing.
 
 ## Overview
 
