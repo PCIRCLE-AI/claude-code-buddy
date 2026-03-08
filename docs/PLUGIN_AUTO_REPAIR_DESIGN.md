@@ -21,7 +21,7 @@ Automatic health check and repair system for MeMesh/CCB plugin installation to p
    - `~/.claude/plugins/known_marketplaces.json`
    - `~/.claude/plugins/marketplaces/pcircle-ai` (symlink)
    - `~/.claude/settings.json`
-   - `~/.claude/mcp_settings.json`
+   - `.claude-plugin/memesh/.mcp.json` (plugin MCP configuration)
    - `.claude-plugin/memesh/dist/mcp/server-bootstrap.js`
 
 2. **Configuration Validity**
@@ -29,7 +29,7 @@ Automatic health check and repair system for MeMesh/CCB plugin installation to p
    - `known_marketplaces.json` has `pcircle-ai` entry
    - Symlink points to correct location and target exists
    - `settings.json` has `memesh@pcircle-ai: true`
-   - `mcp_settings.json` has `memesh` server with correct path
+   - `.mcp.json` has correct MCP server configuration
 
 3. **Version Consistency** (optional deep check)
    - All 4 version files match
@@ -68,8 +68,8 @@ Automatic health check and repair system for MeMesh/CCB plugin installation to p
 | Symlink broken/missing | Recreate symlink |
 | settings.json missing enabledPlugins | Add object with memesh@pcircle-ai |
 | memesh@pcircle-ai = false | Set to true |
-| mcp_settings.json missing memesh | Add memesh entry |
-| memesh config incorrect | Update config |
+| `.mcp.json` missing memesh config | Regenerate `.mcp.json` |
+| memesh config incorrect in `.mcp.json` | Update config |
 
 **Backup Strategy**:
 - Before modifying any file: `cp file file.backup-{timestamp}`

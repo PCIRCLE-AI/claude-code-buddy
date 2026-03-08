@@ -164,5 +164,5 @@ Common error types:
 
 ---
 
-**Version**: 2.9.4
+**Version**: 2.10.0
 **Last Updated**: 2026-03-08

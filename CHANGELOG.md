@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.10.0] - 2026-03-08
+
+### Added
+
+- **Streamlit Visual Explorer** — interactive web UI for exploring the knowledge graph
+  - **Dashboard page**: entity/relation/observation/tag counts, entity type distribution (pie chart), top tags (bar chart), entity growth over time (line chart), recent entities table
+  - **KG Explorer page**: interactive graph visualization with color-coded entity types and relation edges, FTS5 full-text search, filtering by type/tags/date range, adjustable node count
+  - Uses `streamlit-agraph` (vis.js) for graph rendering with physics-based layout
+  - Automatic database path resolution (`~/.memesh/` and legacy `~/.claude-code-buddy/`)
+- **Auto-relation inference** — entities created via `create-entities` now automatically infer relations
+  - Intra-batch relations between newly created entities sharing topic keywords
+  - New-to-existing relations linking new entities with relevant existing ones
+  - Semantic relation types: `similar_to`, `solves`, `caused_by`, `enabled_by`, `depends_on`, `follows_pattern`
+- **Relation backfill script** (`streamlit/backfill_relations.py`) — 3-layer strategy for existing entities
+  - Layer 1: Topic/project clustering via name prefix matching
+  - Layer 2: Cross-type semantic relations within topic clusters
+  - Layer 3: Tag-based similarity (entities sharing 2+ tags)
+  - Supports `--dry-run` and `--db-path` flags, idempotent via INSERT OR IGNORE
+- **KG-style SVG logo** — replaced emoji badge with clean vector knowledge graph icon
+
+### Fixed
+
+- FTS5 false unavailability on Streamlit hot-reload (removed stale module-level cache)
+- JSON injection in backfill relation metadata (f-string → `json.dumps`)
+- Keyword false positives in auto-relation inference (minimum 4-char filter)
+- Removed dead code (`insert_relations`, unused `KNOWN_PREFIXES` constant)
+
 ## [2.9.3] - 2026-03-08
 
 ### Added

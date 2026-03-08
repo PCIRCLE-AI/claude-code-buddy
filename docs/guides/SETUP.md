@@ -42,22 +42,15 @@ cp .env.example .env
 npm run build
 ```
 
-### Step 4: Configure Claude Code MCP Server
+### Step 4: Configure MCP Server
 
-Edit `~/.claude/mcp_settings.json` and add the MeMesh MCP server:
+MeMesh is a Claude Code Plugin. The MCP server is auto-managed via the plugin's `.mcp.json` file — no manual configuration of `~/.claude/mcp_settings.json` is needed.
 
-```json
-{
-  "mcpServers": {
-    "memesh": {
-      "command": "node",
-      "args": ["/path/to/claude-code-buddy/dist/mcp/server-bootstrap.js"]
-    }
-  }
-}
+If auto-configuration did not work, run the setup wizard:
+
+```bash
+memesh setup
 ```
-
-**Important**: Replace `/path/to/claude-code-buddy` with the actual project path.
 
 ### Step 5: Restart Claude Code
 
@@ -78,7 +71,7 @@ Please use claude-code-buddy to review this code...
 - [ ] Node.js >= 20 installed
 - [ ] Project dependencies installed (`npm install`)
 - [ ] TypeScript compiled (`npm run build`)
-- [ ] MCP server configured in `~/.claude/mcp_settings.json`
+- [ ] MCP server auto-configured via plugin's `.mcp.json` (or run `memesh setup` if needed)
 - [ ] Claude Code restarted
 
 ## Common Issues (V2.0)
@@ -86,7 +79,7 @@ Please use claude-code-buddy to review this code...
 ### Q: MCP server fails to start
 
 **Solutions**:
-1. Check if `~/.claude/mcp_settings.json` path is correct
+1. Check if the plugin's `.mcp.json` is correctly configured (or run `memesh setup`)
 2. Confirm `npm run build` executed successfully
 3. Check Claude Code logs: `~/.claude/logs/`
 4. Try running manually: `npm run mcp`

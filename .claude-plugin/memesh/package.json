@@ -1,6 +1,6 @@
 {
   "name": "@pcircle/memesh",
-  "version": "2.9.4",
+  "version": "2.10.0",
   "description": "MeMesh — Persistent memory plugin for Claude Code. Remembers architecture decisions, coding patterns, and project context across sessions.",
   "main": "dist/index.js",
   "type": "module",
@@ -9,12 +9,15 @@
   },
   "files": [
     "dist/",
+    ".claude-plugin/plugin.json",
+    ".mcp.json",
+    "hooks/hooks.json",
+    "skills/",
     "scripts/postinstall-new.js",
     "scripts/postinstall-lib.js",
-    "scripts/skills/",
+    "scripts/health-check.js",
     "scripts/hooks/",
     "plugin.json",
-    "mcp.json",
     "README.md",
     "README.zh-TW.md",
     "LICENSE"

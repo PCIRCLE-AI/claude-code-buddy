@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/%F0%9F%A7%A0-MeMesh-blueviolet?style=for-the-badge" alt="MeMesh" />
+<img src="docs/images/memesh-logo.svg" alt="MeMesh" width="80" />
 
 # MeMesh
 
@@ -134,7 +134,7 @@ buddy-remember "API design decisions"
 buddy-remember "why we chose PostgreSQL"
 ```
 
-All data stays on your machine. Decisions kept 90 days, session notes 30 days.
+All data stays on your machine with automatic 90-day retention.
 
 ---
 
@@ -164,15 +164,89 @@ All data stays on your machine. Decisions kept 90 days, session notes 30 days.
 
 ---
 
+## Visual Explorer (Streamlit UI)
+
+MeMesh includes an interactive web UI for exploring your knowledge graph visually.
+
+**Dashboard** — Overview of your knowledge base with entity statistics, type distribution, tag trends, and growth over time.
+
+<div align="center">
+<img src="docs/images/streamlit-dashboard.png" alt="MeMesh Dashboard" width="800" />
+</div>
+
+**KG Explorer** — Interactive graph visualization with color-coded entity types, relation edges, FTS5 full-text search, and filtering by type, tags, and date range.
+
+<div align="center">
+<img src="docs/images/streamlit-kg-explorer.png" alt="MeMesh KG Explorer" width="800" />
+</div>
+
+**Quick start:**
+
+```bash
+cd streamlit
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+---
+
 ## Architecture
 
-MeMesh runs as a local MCP server alongside Claude Code:
+```mermaid
+graph TB
+    CC[Claude Code CLI] <-->|MCP Protocol| MCP[MCP Server]
 
-- **Knowledge Graph** — SQLite-backed entity store with FTS5 full-text search
-- **Vector Embeddings** — ONNX runtime for semantic similarity (runs 100% locally)
-- **Content Dedup** — SHA-256 hashing skips redundant embedding computation
-- **Batch Processing** — Efficient bulk operations for large knowledge bases
-- **Hook System** — Proactive recall on session start, test failures, and errors
+    MCP --> TH[Tool Handlers]
+    TH --> MT[Memory Tools]
+    TH --> ST[System Tools]
+    TH --> HT[Hook Tools]
+
+    MT --> UMS[Unified Memory Store]
+    MT --> KG[Knowledge Graph]
+
+    UMS --> SE[Search Engine]
+    KG --> FTS[FTS5 Full-Text Search]
+    KG --> VS[Vector Search]
+
+    VS --> EMB[ONNX Embeddings]
+    VS --> SVA[sqlite-vec Adapter]
+
+    KG --> DB[(SQLite DB)]
+    UMS --> DB
+
+    DB -.->|Read-Only| ST_UI[Streamlit Visual Explorer]
+
+    style CC fill:#4F46E5,color:#fff
+    style MCP fill:#7C3AED,color:#fff
+    style DB fill:#0891B2,color:#fff
+    style ST_UI fill:#06B6D4,color:#fff
+    style EMB fill:#10B981,color:#fff
+```
+
+**How memory flows through the system:**
+
+```mermaid
+sequenceDiagram
+    participant U as You (in Claude Code)
+    participant M as MeMesh MCP
+    participant KG as Knowledge Graph
+    participant E as Embeddings (ONNX)
+
+    U->>M: "Use JWT for auth"
+    M->>KG: Create entity (decision)
+    KG->>E: Generate embedding (local)
+    E-->>KG: 384-dim vector
+    KG-->>M: Stored + auto-relations inferred
+
+    Note over U,E: Next session...
+
+    U->>M: buddy-remember "auth"
+    M->>KG: Hybrid search (FTS5 + semantic)
+    KG->>E: Encode query
+    E-->>KG: Query vector
+    KG-->>M: Ranked results
+    M-->>U: "You decided JWT for auth because..."
+```
 
 Everything runs locally. No cloud. No API calls. Your data never leaves your machine.
 

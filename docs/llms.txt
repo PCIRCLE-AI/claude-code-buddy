@@ -14,7 +14,7 @@ MeMesh is a Claude Code plugin that provides persistent memory via MCP (Model Co
 **License**: MIT
 **Language**: TypeScript
 **Platform**: Node.js 20+
-**Latest Version**: 2.9.4 (2026-03-08)
+**Latest Version**: 2.10.0 (2026-03-08)
 
 ## Quick Start
 
@@ -31,21 +31,7 @@ cd claude-code-buddy
 ```
 
 ### Configuration (Claude Code CLI)
-Add to `~/.claude/mcp_settings.json`:
-```json
-{
-  "mcpServers": {
-    "memesh": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@pcircle/memesh"],
-      "env": {
-        "NODE_ENV": "production"
-      }
-    }
-  }
-}
-```
+MeMesh is a Claude Code Plugin. The MCP server is auto-managed via the plugin's `.mcp.json` file — no manual configuration of `~/.claude/mcp_settings.json` is needed. Simply install and restart Claude Code.
 
 ## Core Features
 
@@ -108,21 +94,25 @@ New CLI tools for managing MCP server processes:
 ### Directory Structure
 ```
 src/
-├── mcp/              # MCP server implementation
-├── agents/           # Specialized capability agents
-├── orchestrator/     # Task routing and orchestration
-├── memory/           # Project memory management
-├── evolution/        # Learning and adaptation
-├── core/             # Core functionality
-└── utils/            # Utilities
+├── mcp/               # MCP server, tools, handlers
+├── memory/            # Memory management (UnifiedMemoryStore)
+├── knowledge-graph/   # Knowledge graph (KGSearchEngine, FTS5+semantic)
+├── embeddings/        # Vector search (sqlite-vec, ONNX)
+├── core/              # Core logic (HookIntegration, GitCommandParser)
+├── db/                # Database management (DatabaseManager)
+├── cli/               # CLI commands
+├── config/            # Configuration management
+├── management/        # Process management
+├── tools/             # Tool utilities
+├── utils/             # Shared utilities
+└── ui/                # UI components (progress, status)
 ```
 
 ### Key Files
-- `src/mcp/server.ts` - Main MCP server
-- `src/orchestrator/index.ts` - Task orchestrator
-- `src/agents/knowledge/KnowledgeGraph.ts` - Knowledge graph
-- `src/memory/ProjectAutoTracker.ts` - Auto-tracking
-- `scripts/manage-mcp-processes.sh` - Process management CLI
+- `src/mcp/server-bootstrap.ts` - MCP server entry point (3 modes: daemon/proxy/standalone)
+- `src/knowledge-graph/index.ts` - Knowledge graph with vector search
+- `src/memory/UnifiedMemoryStore.ts` - Central memory management
+- `src/embeddings/EmbeddingService.ts` - ONNX embedding with LRU cache
 
 ## API Reference
 
@@ -222,6 +212,14 @@ Process management guide: `docs/MCP_PROCESS_MANAGEMENT.md`
 - **Discussions**: https://github.com/PCIRCLE-AI/claude-code-buddy/discussions
 
 ## Recent Updates
+
+### v2.10.0 (2026-03-08)
+- **Visual Explorer (Streamlit UI)**: Interactive web dashboard and knowledge graph explorer
+  - Dashboard with entity stats, type distribution, tag trends, growth charts
+  - KG Explorer with interactive graph, color-coded nodes/edges, FTS5 search, filters
+- **Auto-relation inference**: Entities created via `create-entities` now auto-infer relations
+- **Relation backfill script**: 3-layer strategy for existing entities (topic, cross-type, tags)
+- New KG-style SVG logo replacing emoji badge
 
 ### v2.9.0 (2026-02-25)
 - MCP Spec 2025-11-25 compliance (outputSchema + annotations for all tools)

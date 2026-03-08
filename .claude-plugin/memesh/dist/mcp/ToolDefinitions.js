@@ -289,6 +289,7 @@ Record:
         name: 'memesh-create-entities',
         aliases: ['create-entities'],
         description: `✨ MeMesh: Create entities in Knowledge Graph - record decisions, features, bug fixes, and lessons learned.
+Automatically infers relations between new entities and existing knowledge based on type and topic similarity.
 
 **What to Record:**
 • Technical decisions (e.g., "chose JWT over sessions for auth")

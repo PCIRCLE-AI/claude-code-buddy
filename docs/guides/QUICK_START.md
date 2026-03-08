@@ -113,10 +113,11 @@ Now that you're up and running, explore more:
 **Symptom:** Claude Code can't connect to MeMesh
 
 **Solutions:**
-1. Verify `config.json` path is correct:
+1. Verify plugin is installed and enabled:
    ```bash
-   # Check file exists
-   cat ~/.claude/mcp_settings.json
+   # Check plugin registration
+   cat ~/.claude/plugins/known_marketplaces.json
+   cat ~/.claude/settings.json  # should have enabledPlugins.memesh@pcircle-ai = true
    ```
 
 2. Ensure absolute path is used:

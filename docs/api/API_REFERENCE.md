@@ -1,6 +1,6 @@
 # MeMesh MCP Server - API Reference
 
-**Version**: 2.9.4
+**Version**: 2.10.0
 **Last Updated**: 2026-03-08
 **Protocol**: Model Context Protocol (MCP)
 
@@ -58,28 +58,11 @@ Router      Knowledge Graph
 
 ## Authentication & Connection
 
-MeMesh operates as an MCP server and requires configuration in Claude Code's settings.
+MeMesh is a Claude Code Plugin. The MCP server is auto-managed via the plugin's `.mcp.json` file — no manual configuration of `~/.claude/mcp_settings.json` is needed.
 
-**Configuration File Location**:
-- **Claude Code CLI**: `~/.claude/mcp_settings.json`
-- **Claude Desktop (macOS)**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Claude Desktop (Windows)**: `%APPDATA%\Claude\claude_desktop_config.json`
-- **Claude Desktop (Linux)**: `~/.config/Claude/claude_desktop_config.json`
+Simply install MeMesh and restart Claude Code. The plugin system handles MCP server registration automatically.
 
-**Basic Configuration**:
-```json
-{
-  "mcpServers": {
-    "memesh": {
-      "command": "npx",
-      "args": ["-y", "@pcircle/memesh"],
-      "env": {
-        "DEBUG": "false"
-      }
-    }
-  }
-}
-```
+**If auto-configuration fails**, run `memesh setup` to reconfigure.
 
 **Advanced Configuration**:
 ```json
@@ -834,13 +817,36 @@ Response: (Shows detailed help for buddy-do command)
 
 ```typescript
 {
-  created: string[],        // Names of created entities
-  count: number,            // Number created
-  errors?: Array<{          // Errors if any
+  created: string[],           // Names of created entities
+  count: number,               // Number created
+  autoRelationsCreated: number, // Auto-inferred relations created (v2.9.3+)
+  errors?: Array<{             // Errors if any
     name: string,
     error: string
   }>
 }
+```
+
+#### Auto-Relation Inference (v2.9.3+)
+
+After creating entities, MeMesh automatically infers and creates relations between new entities and existing entities that share topic keywords. This is a best-effort feature — it never blocks entity creation.
+
+**How it works:**
+1. Topic keywords are extracted from entity names (first 2 words, 3+ characters)
+2. New entities are compared against each other and against existing entities
+3. Relations are inferred based on entity type combinations:
+
+| Entity A Type | Entity B Type | Relation Created |
+|--------------|--------------|-----------------|
+| `bug_fix` | `feature` | bug_fix `solves` feature |
+| `decision` | `feature` | feature `enabled_by` decision |
+| `lesson_learned` | `bug_fix` | lesson_learned `caused_by` bug_fix |
+| Same type | Same type | `similar_to` |
+
+**Limits:**
+- Maximum 50 auto-relations per batch (`MAX_AUTO_RELATIONS`)
+- Session-specific types excluded (`session_keypoint`, `session_identity`, `task_start`, `session_summary`)
+- Duplicate relations silently skipped (UNIQUE constraint)
 ```
 
 #### Examples

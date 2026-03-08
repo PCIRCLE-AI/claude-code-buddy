@@ -70,6 +70,8 @@ export function readJSONFile(path) {
         return JSON.parse(content);
     }
     catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`[readJSONFile] Failed to parse ${path}: ${msg}\n`);
         return null;
     }
 }
@@ -93,6 +95,8 @@ export function backupFile(path) {
         return backupPath;
     }
     catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`[backupFile] Failed to backup ${path}: ${msg}\n`);
         return null;
     }
 }
@@ -196,69 +200,26 @@ export async function ensurePluginEnabled(claudeDir = join(homedir(), '.claude')
     writeJSONFile(settingsFile, settings);
 }
 // ============================================================================
-// MCP Configuration
-// ============================================================================
-/**
- * Ensure MCP is configured in mcp_settings.json
- */
-export async function ensureMCPConfigured(installPath, mode, claudeDir = join(homedir(), '.claude')) {
-    const mcpSettingsFile = join(claudeDir, 'mcp_settings.json');
-
-    // Read existing config or create new
-    let config = readJSONFile(mcpSettingsFile) || { mcpServers: {} };
-    if (!config.mcpServers) {
-        config.mcpServers = {};
-    }
-
-    // Configure memesh entry based on mode
-    if (mode === 'global') {
-        // Global install: use npx (always uses latest published version)
-        config.mcpServers.memesh = {
-            command: 'npx',
-            args: ['-y', '@pcircle/memesh'],
-            env: { NODE_ENV: 'production' }
-        };
-    } else {
-        // Local dev: use node + absolute path (for testing)
-        const serverPath = join(installPath, 'dist', 'mcp', 'server-bootstrap.js');
-        config.mcpServers.memesh = {
-            command: 'node',
-            args: [serverPath]
-        };
-    }
-
-    // Remove legacy claude-code-buddy entry if exists
-    if (config.mcpServers['claude-code-buddy']) {
-        delete config.mcpServers['claude-code-buddy'];
-    }
-
-    // Write back
-    writeJSONFile(mcpSettingsFile, config);
-}
-// ============================================================================
 // Backward Compatibility
 // ============================================================================
 /**
- * Detect and fix legacy installations
+ * Detect and fix legacy installations.
+ * Only fixes marketplace, symlink, and plugin enablement.
+ * MCP and hooks are handled by the plugin system via .mcp.json and hooks/hooks.json.
  */
 export async function detectAndFixLegacyInstall(installPath, claudeDir = join(homedir(), '.claude')) {
     const marketplacesFile = join(claudeDir, 'plugins', 'known_marketplaces.json');
-    const mcpSettingsFile = join(claudeDir, 'mcp_settings.json');
     const symlinkPath = join(claudeDir, 'plugins', 'marketplaces', 'pcircle-ai');
     // Check if marketplace registered
     const marketplaces = readJSONFile(marketplacesFile);
     const hasMarketplace = marketplaces && marketplaces['pcircle-ai'];
-    // Check if MCP configured
-    const mcpSettings = readJSONFile(mcpSettingsFile);
-    const hasMCP = mcpSettings && mcpSettings.mcpServers && mcpSettings.mcpServers.memesh;
     // Check if symlink exists
     const hasSymlink = existsSync(symlinkPath);
     // If everything is correct, return ok
-    if (hasMarketplace && hasMCP && hasSymlink) {
+    if (hasMarketplace && hasSymlink) {
         return 'ok';
     }
     // Legacy installation detected - fix it
-    const mode = detectInstallMode(installPath);
     // Fix marketplace
     if (!hasMarketplace) {
         await ensureMarketplaceRegistered(installPath, claudeDir);
@@ -269,9 +230,13 @@ export async function detectAndFixLegacyInstall(installPath, claudeDir = join(ho
     }
     // Fix plugin enablement
     await ensurePluginEnabled(claudeDir);
-    // Fix MCP config
-    if (!hasMCP) {
-        await ensureMCPConfigured(installPath, mode, claudeDir);
+    // Clean up legacy MCP config if it exists (plugin system handles MCP now)
+    const mcpSettingsFile = join(claudeDir, 'mcp_settings.json');
+    const mcpSettings = readJSONFile(mcpSettingsFile);
+    if (mcpSettings?.mcpServers?.memesh || mcpSettings?.mcpServers?.['claude-code-buddy']) {
+        delete mcpSettings.mcpServers.memesh;
+        delete mcpSettings.mcpServers['claude-code-buddy'];
+        writeJSONFile(mcpSettingsFile, mcpSettings);
     }
     return 'fixed';
 }

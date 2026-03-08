@@ -61,9 +61,9 @@ export class TestEnvironment {
       }, null, 2)
     );
 
-    // Create mcp.json
+    // Create .mcp.json
     writeFileSync(
-      join(this.installPath, 'mcp.json'),
+      join(this.installPath, '.mcp.json'),
       JSON.stringify({
         mcpServers: {
           memesh: {

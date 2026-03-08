@@ -1,5 +1,8 @@
 /**
  * Integration Tests - End-to-End Scenarios
+ *
+ * Tests plugin installation logic (marketplace, symlink, plugin enablement).
+ * MCP and hooks are handled by the Claude Code plugin system via .mcp.json and hooks/hooks.json.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -9,7 +12,6 @@ import {
   ensureMarketplaceRegistered,
   ensureSymlinkExists,
   ensurePluginEnabled,
-  ensureMCPConfigured,
   detectAndFixLegacyInstall
 } from '../../scripts/postinstall-lib';
 
@@ -58,11 +60,11 @@ describe('Integration: Plugin Enablement', () => {
   });
 });
 
-describe('Integration: MCP Configuration', () => {
+describe('Integration: Legacy MCP Cleanup', () => {
   let env: TestEnvironment;
 
   beforeEach(() => {
-    env = new TestEnvironment('mcp-config');
+    env = new TestEnvironment('mcp-cleanup');
     env.setup();
   });
 
@@ -70,34 +72,32 @@ describe('Integration: MCP Configuration', () => {
     env.cleanup();
   });
 
-  it('should configure MCP for global install', async () => {
-    // Given: global install mode
-    const mode = 'global';
+  it('should clean up legacy MCP config during legacy fix', async () => {
+    // Given: legacy MCP config with memesh entry
+    env.createFile('mcp_settings.json', JSON.stringify({
+      mcpServers: {
+        memesh: {
+          command: 'npx',
+          args: ['-y', '@pcircle/memesh']
+        },
+        'other-server': {
+          command: 'node',
+          args: ['/other/path']
+        }
+      }
+    }, null, 2));
 
-    // When: ensureMCPConfigured()
-    await ensureMCPConfigured(env.installPath, mode, env.claudeDir);
+    // When: detectAndFixLegacyInstall()
+    await detectAndFixLegacyInstall(env.installPath, env.claudeDir);
 
-    // Then: MCP configured with npx
+    // Then: memesh removed from mcp_settings, other servers preserved
     const config = JSON.parse(env.readFile('mcp_settings.json'));
-    expect(config.mcpServers.memesh.command).toBe('npx');
-    expect(config.mcpServers.memesh.args).toContain('@pcircle/memesh');
+    expect(config.mcpServers.memesh).toBeUndefined();
+    expect(config.mcpServers['other-server']).toBeDefined();
   });
 
-  it('should configure MCP for local dev', async () => {
-    // Given: local dev mode
-    const mode = 'local';
-
-    // When: ensureMCPConfigured()
-    await ensureMCPConfigured(env.installPath, mode, env.claudeDir);
-
-    // Then: MCP configured with node + absolute path
-    const config = JSON.parse(env.readFile('mcp_settings.json'));
-    expect(config.mcpServers.memesh.command).toBe('node');
-    expect(config.mcpServers.memesh.args[0]).toContain('server-bootstrap.js');
-  });
-
-  it('should remove legacy claude-code-buddy entry', async () => {
-    // Given: MCP config with legacy entry
+  it('should clean up legacy claude-code-buddy MCP entry', async () => {
+    // Given: legacy MCP config with claude-code-buddy entry
     env.createFile('mcp_settings.json', JSON.stringify({
       mcpServers: {
         'claude-code-buddy': {
@@ -107,13 +107,12 @@ describe('Integration: MCP Configuration', () => {
       }
     }, null, 2));
 
-    // When: ensureMCPConfigured()
-    await ensureMCPConfigured(env.installPath, 'local', env.claudeDir);
+    // When: detectAndFixLegacyInstall()
+    await detectAndFixLegacyInstall(env.installPath, env.claudeDir);
 
-    // Then: legacy removed, memesh added
+    // Then: legacy entry removed
     const config = JSON.parse(env.readFile('mcp_settings.json'));
     expect(config.mcpServers['claude-code-buddy']).toBeUndefined();
-    expect(config.mcpServers.memesh).toBeDefined();
   });
 });
 
@@ -171,14 +170,12 @@ describe('Integration: Complete Installation Flow (E2E)', () => {
 
   it('should complete fresh installation successfully', async () => {
     // Given: clean system (no ~/.claude setup)
-    const mode = detectInstallMode(env.installPath);
     const installPath = env.installPath;
 
-    // When: run complete installation
+    // When: run complete installation (no MCP config — plugin system handles it)
     await ensureMarketplaceRegistered(installPath, env.claudeDir);
     await ensureSymlinkExists(installPath, env.marketplacesDir);
     await ensurePluginEnabled(env.claudeDir);
-    await ensureMCPConfigured(installPath, mode, env.claudeDir);
 
     // Then: all components configured correctly
     // 1. Marketplace registered
@@ -192,10 +189,6 @@ describe('Integration: Complete Installation Flow (E2E)', () => {
     // 3. Plugin enabled
     const settings = JSON.parse(env.readFile('settings.json'));
     expect(settings.enabledPlugins['memesh@pcircle-ai']).toBe(true);
-
-    // 4. MCP configured
-    const mcp = JSON.parse(env.readFile('mcp_settings.json'));
-    expect(mcp.mcpServers.memesh).toBeDefined();
   });
 
   it('should upgrade from v2.8.4 successfully', async () => {

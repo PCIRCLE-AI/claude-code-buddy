@@ -134,7 +134,7 @@ buddy-remember "API design decisions"
 buddy-remember "why we chose PostgreSQL"
 ```
 
-ข้อมูลทั้งหมดอยู่บนเครื่องของคุณ การตัดสินใจเก็บไว้ 90 วัน บันทึกเซสชันเก็บไว้ 30 วัน
+ข้อมูลทั้งหมดอยู่บนเครื่องของคุณ พร้อมการเก็บรักษาอัตโนมัติ 90 วัน
 
 ---
 
@@ -166,7 +166,7 @@ buddy-remember "why we chose PostgreSQL"
 
 ## สถาปัตยกรรม
 
-MeMesh ทำงานเป็นเซิร์ฟเวอร์ MCP บนเครื่องควบคู่กับ Claude Code:
+MeMesh ทำงานเป็นปลั๊กอิน Claude Code บนเครื่อง พร้อมคอมโพเนนต์ MCP ในตัว:
 
 - **Knowledge Graph** — ที่เก็บ entity บน SQLite พร้อมการค้นหาข้อความเต็มรูปแบบ FTS5
 - **Vector Embeddings** — ONNX runtime สำหรับความคล้ายคลึงเชิงความหมาย (ทำงานบนเครื่อง 100%)

@@ -2,7 +2,7 @@
 
 Complete reference for all MeMesh commands and tools.
 
-**Version**: 2.9.4
+**Version**: 2.10.0
 **Last Updated**: 2026-03-08
 
 ## Table of Contents
@@ -64,6 +64,9 @@ Recall project memory - past decisions, architecture choices, bug fixes, and pat
 **Parameters:**
 - `query` (required): What to search for
 - `limit` (optional): Max number of results (1-50, default: 10)
+- `mode` (optional): Search mode — `fts5` (keyword), `semantic` (AI similarity), `hybrid` (both combined). Default: `hybrid`
+- `matchThreshold` (optional): Minimum match score (0-1). Higher values return fewer but more relevant results. Default: 0.3
+- `allProjects` (optional): Search across ALL projects, not just the current one. Default: false
 
 **Examples:**
 ```bash
@@ -145,7 +148,10 @@ MCP tool version of `buddy remember` command.
 ```json
 {
   "query": "string (required) - Search query",
-  "limit": "number (optional) - Max results (1-50, default: 10)"
+  "limit": "number (optional) - Max results (1-50, default: 10)",
+  "mode": "string (optional) - Search mode: 'semantic', 'keyword', 'hybrid' (default: 'hybrid')",
+  "matchThreshold": "number (optional) - Minimum match score 0-1 (default: 0.3)",
+  "allProjects": "boolean (optional) - Search all projects (default: false)"
 }
 ```
 
@@ -153,7 +159,9 @@ MCP tool version of `buddy remember` command.
 ```json
 {
   "query": "authentication approach",
-  "limit": 10
+  "limit": 10,
+  "mode": "hybrid",
+  "matchThreshold": 0.5
 }
 ```
 
@@ -453,8 +461,9 @@ If buddy commands aren't recognized:
 
 1. **Verify MCP Integration:**
    ```bash
-   # Check Claude Code config
-   cat ~/.claude/mcp_settings.json
+   # MeMesh MCP is auto-managed via the plugin's .mcp.json
+   # If auto-configuration failed, run:
+   memesh setup
    ```
 
 2. **Restart Claude Code:**

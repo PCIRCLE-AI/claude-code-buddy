@@ -60,16 +60,11 @@ cd claude-code-buddy
 npm install && npm run build
 ```
 
-Then configure MCP in `~/.claude/mcp_settings.json`:
-```json
-{
-  "mcpServers": {
-    "memesh": {
-      "command": "node",
-      "args": ["/absolute/path/to/claude-code-buddy/dist/mcp/server-bootstrap.js"]
-    }
-  }
-}
+MeMesh is a Claude Code Plugin — the MCP server is auto-managed via the plugin's `.mcp.json` file. No manual configuration of `~/.claude/mcp_settings.json` is needed.
+
+If auto-configuration did not work, run:
+```bash
+memesh setup
 ```
 
 </details>
@@ -87,7 +82,7 @@ buddy-help
 
 **Expected output:**
 ```
-MeMesh v2.9.4 - Persistent Memory for Claude Code
+MeMesh v2.10.0 - Persistent Memory for Claude Code
 
 Available Commands:
   buddy-do <task>        - Execute any development task
@@ -372,6 +367,6 @@ Install MeMesh, run `buddy-help`, and never explain your architecture twice agai
 
 ---
 
-**Version**: 2.9.4
+**Version**: 2.10.0
 **Last Updated**: 2026-03-08
 **Not affiliated with Anthropic PBC** • Independent open-source project

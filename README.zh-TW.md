@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/%F0%9F%A7%A0-MeMesh-blueviolet?style=for-the-badge" alt="MeMesh" />
+<img src="docs/images/memesh-logo.svg" alt="MeMesh" width="80" />
 
 # MeMesh
 
@@ -134,7 +134,7 @@ buddy-remember "API design decisions"
 buddy-remember "why we chose PostgreSQL"
 ```
 
-所有資料都存在你的電腦上。決策保留 90 天，session 筆記保留 30 天。
+所有資料都存在你的電腦上，統一採用 90 天自動保留機制。
 
 ---
 
@@ -164,15 +164,89 @@ buddy-remember "why we chose PostgreSQL"
 
 ---
 
+## 視覺化瀏覽器（Streamlit UI）
+
+MeMesh 內建互動式 Web UI，讓你直觀地探索知識圖譜。
+
+**Dashboard** — 知識庫總覽，包含實體統計、類型分佈、標籤趨勢與成長曲線。
+
+<div align="center">
+<img src="docs/images/streamlit-dashboard.png" alt="MeMesh Dashboard" width="800" />
+</div>
+
+**KG Explorer** — 互動式圖譜視覺化，支援按顏色區分實體類型、關係連線、FTS5 全文搜尋，以及按類型、標籤和日期範圍篩選。
+
+<div align="center">
+<img src="docs/images/streamlit-kg-explorer.png" alt="MeMesh KG Explorer" width="800" />
+</div>
+
+**快速啟動：**
+
+```bash
+cd streamlit
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+---
+
 ## 架構
 
-MeMesh 作為本地 MCP 伺服器與 Claude Code 並行運作：
+```mermaid
+graph TB
+    CC[Claude Code CLI] <-->|MCP Protocol| MCP[MCP Server]
 
-- **知識圖譜** — SQLite 支援的實體儲存，搭配 FTS5 全文搜尋
-- **向量嵌入** — ONNX 執行環境實現語意相似度（100% 本地運行）
-- **內容去重** — SHA-256 雜湊跳過重複的嵌入運算
-- **批次處理** — 針對大型知識庫的高效批量操作
-- **Hook 系統** — 在 session 啟動、測試失敗和錯誤時主動回憶
+    MCP --> TH[Tool Handlers]
+    TH --> MT[Memory Tools]
+    TH --> ST[System Tools]
+    TH --> HT[Hook Tools]
+
+    MT --> UMS[Unified Memory Store]
+    MT --> KG[Knowledge Graph]
+
+    UMS --> SE[Search Engine]
+    KG --> FTS[FTS5 全文搜尋]
+    KG --> VS[向量搜尋]
+
+    VS --> EMB[ONNX 嵌入模型]
+    VS --> SVA[sqlite-vec Adapter]
+
+    KG --> DB[(SQLite DB)]
+    UMS --> DB
+
+    DB -.->|唯讀| ST_UI[Streamlit 視覺化瀏覽器]
+
+    style CC fill:#4F46E5,color:#fff
+    style MCP fill:#7C3AED,color:#fff
+    style DB fill:#0891B2,color:#fff
+    style ST_UI fill:#06B6D4,color:#fff
+    style EMB fill:#10B981,color:#fff
+```
+
+**記憶如何在系統中流動：**
+
+```mermaid
+sequenceDiagram
+    participant U as 你（在 Claude Code 中）
+    participant M as MeMesh MCP
+    participant KG as 知識圖譜
+    participant E as 嵌入模型（ONNX）
+
+    U->>M: 「使用 JWT 做認證」
+    M->>KG: 建立實體（decision）
+    KG->>E: 產生嵌入向量（本地）
+    E-->>KG: 384 維向量
+    KG-->>M: 已儲存 + 自動推斷關係
+
+    Note over U,E: 下一個 session...
+
+    U->>M: buddy-remember "auth"
+    M->>KG: 混合搜尋（FTS5 + 語意）
+    KG->>E: 編碼查詢
+    E-->>KG: 查詢向量
+    KG-->>M: 排序後的結果
+    M-->>U: 「你決定用 JWT 做認證，因為...」
+```
 
 一切在本地運行。沒有雲端。沒有 API 呼叫。你的資料永遠不會離開你的電腦。
 

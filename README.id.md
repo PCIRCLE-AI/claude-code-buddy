@@ -134,7 +134,7 @@ buddy-remember "API design decisions"
 buddy-remember "why we chose PostgreSQL"
 ```
 
-Semua data tetap di mesin Anda. Keputusan disimpan 90 hari, catatan sesi 30 hari.
+Semua data tetap di mesin Anda dengan retensi otomatis 90 hari.
 
 ---
 
@@ -166,7 +166,7 @@ Semua data tetap di mesin Anda. Keputusan disimpan 90 hari, catatan sesi 30 hari
 
 ## Arsitektur
 
-MeMesh berjalan sebagai server MCP lokal berdampingan dengan Claude Code:
+MeMesh berjalan sebagai plugin Claude Code secara lokal, dengan komponen MCP terintegrasi:
 
 - **Knowledge Graph** — Penyimpanan entitas berbasis SQLite dengan pencarian teks lengkap FTS5
 - **Vector Embeddings** — Runtime ONNX untuk kesamaan semantik (berjalan 100% lokal)

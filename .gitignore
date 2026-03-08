@@ -109,6 +109,7 @@ __pycache__/
 *.so
 .Python
 venv/
+.venv/
 env/
 ENV/
 
@@ -415,3 +416,4 @@ A2A_MULTI_AGENT_TEST.md
 
 # Archive directory (internal reference only)
 .archive/
+docs/images/memesh-logo-preview.png

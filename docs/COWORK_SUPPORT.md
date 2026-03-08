@@ -87,16 +87,9 @@ npm install -g @pcircle/memesh
 # Or use via npx
 npx @pcircle/memesh --help
 
-# Configure in Claude Code
-# Add to ~/.claude/mcp_settings.json:
-{
-  "mcpServers": {
-    "memesh": {
-      "command": "npx",
-      "args": ["-y", "@pcircle/memesh"]
-    }
-  }
-}
+# MeMesh is a Claude Code Plugin — the MCP server is auto-managed
+# via the plugin's .mcp.json file. No manual configuration of
+# ~/.claude/mcp_settings.json is needed. Just restart Claude Code.
 ```
 
 ## Expected Behavior

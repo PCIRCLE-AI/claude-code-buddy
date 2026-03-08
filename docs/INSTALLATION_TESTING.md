@@ -97,7 +97,7 @@ test -f .claude-plugin/memesh/.claude-plugin/plugin.json && echo "✅ plugin.jso
 - When modifying the following files:
   - `package.json`
   - `plugin.json`
-  - `mcp.json`
+  - `.mcp.json`
   - `scripts/**`
   - `src/**`
 
@@ -161,7 +161,7 @@ Stage 5: Security Checks
 ### ✅ What We Can Guarantee (~70-80%)
 
 **Build & Package Level**:
-- ✅ JSON format correct (package.json, plugin.json, mcp.json)
+- ✅ JSON format correct (package.json, plugin.json, .mcp.json)
 - ✅ File structure meets Claude Code standards
 - ✅ TypeScript compiles successfully
 - ✅ npm package can be packaged normally
@@ -250,7 +250,7 @@ To address this 20-30% testing gap:
 2. **Check JSON Format**
    ```bash
    node -e "require('./plugin.json')"
-   node -e "require('./mcp.json')"
+   node -e "require('./.mcp.json')"
    ```
 
 3. **Rebuild**

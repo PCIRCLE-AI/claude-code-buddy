@@ -18,7 +18,7 @@ npm install -g @pcircle/memesh
 
 **What happens automatically:**
 - ✅ Installs MeMesh globally
-- ✅ Auto-configures `~/.claude/mcp_settings.json`
+- ✅ MCP server auto-managed via the plugin's `.mcp.json` (no manual config needed)
 - ✅ Ready to use immediately
 
 **Next step:**
@@ -49,7 +49,7 @@ cd claude-code-buddy
 - ✅ Checks prerequisites (Node.js 20+)
 - ✅ Installs dependencies
 - ✅ Builds the project
-- ✅ Auto-configures `~/.claude/mcp_settings.json`
+- ✅ MCP server auto-managed via the plugin's `.mcp.json` (no manual config needed)
 
 **Next step:**
 ```bash
@@ -145,22 +145,9 @@ buddy-remember "database choice"
 
 ### Custom Environment Variables
 
-You can customize MeMesh behavior via environment variables in your MCP config:
+MeMesh is a Claude Code Plugin. The MCP server is auto-managed via the plugin's `.mcp.json` file — no manual configuration of `~/.claude/mcp_settings.json` is needed.
 
-```json
-{
-  "mcpServers": {
-    "memesh": {
-      "command": "npx",
-      "args": ["-y", "@pcircle/memesh"],
-      "env": {
-        "CCB_LOG_LEVEL": "debug",
-        "CCB_KNOWLEDGE_DB_PATH": "/custom/path/knowledge.db"
-      }
-    }
-  }
-}
-```
+If you need to customize environment variables, you can set them in the plugin's `.mcp.json`:
 
 **Available Variables:**
 - `CCB_LOG_LEVEL`: Logging level (`debug`, `info`, `warn`, `error`)
@@ -169,21 +156,10 @@ You can customize MeMesh behavior via environment variables in your MCP config:
 
 ### Local Development Configuration
 
-If you're developing MeMesh locally, configure to use your local build:
+If you're developing MeMesh locally, the plugin's `.mcp.json` handles MCP configuration automatically. If auto-configuration fails, run:
 
-**Edit `~/.claude/mcp_settings.json`:**
-```json
-{
-  "mcpServers": {
-    "memesh": {
-      "command": "node",
-      "args": ["/absolute/path/to/claude-code-buddy/dist/mcp/server-bootstrap.js"],
-      "env": {
-        "NODE_ENV": "development"
-      }
-    }
-  }
-}
+```bash
+memesh setup
 ```
 
 ---
