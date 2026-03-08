@@ -20,8 +20,6 @@ Speicher, intelligente Aufgabenanalyse und Workflow-Automatisierung — in einem
 
 ## Warum dieses Projekt existiert
 
-Ich liebe Claude Code. Es hat verändert, wie ich Software entwickle.
-
 Dieses Projekt entstand, weil ich mehr Menschen helfen wollte — besonders Programmier-Einsteigern — das Beste aus Claude Code fürs Vibe Coding herauszuholen. Mir ist aufgefallen: Wenn Projekte wachsen, wird es schwer, alle Entscheidungen über Sitzungen hinweg nachzuverfolgen. Also habe ich ein Plugin gebaut (mit Claude Code natürlich), das sich für euch erinnert.
 
 > **Hinweis**: Dieses Projekt hieß ursprünglich „Claude Code Buddy" und wurde in MeMesh Plugin umbenannt, um mögliche Markenrechtsprobleme zu vermeiden.

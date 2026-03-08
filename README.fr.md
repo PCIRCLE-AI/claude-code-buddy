@@ -20,8 +20,6 @@ Mémoire, analyse intelligente des tâches et automatisation — dans un seul pl
 
 ## Pourquoi ce projet existe
 
-J'adore Claude Code. Il a changé ma façon de créer des logiciels.
-
 Ce projet est né de mon envie d'aider plus de gens — en particulier les débutants en programmation — à tirer le meilleur parti de Claude Code pour le vibe coding. J'ai remarqué que quand les projets grandissent, il devient difficile de suivre toutes les décisions prises entre les sessions. Alors j'ai créé un plugin (avec Claude Code, bien sûr) qui s'en souvient pour vous.
 
 > **Note** : Ce projet s'appelait à l'origine « Claude Code Buddy » et a été renommé MeMesh Plugin pour éviter d'éventuels problèmes de marque.

@@ -20,8 +20,6 @@
 
 ## 為什麼做這個專案
 
-我很喜歡 Claude Code，它改變了我寫軟體的方式。
-
 這個專案的起點很簡單：我想幫助更多人 — 特別是剛接觸程式的新手 — 更好地用 Claude Code 來 vibe coding。我發現當專案越來越大，很難記住跨 session 做過的所有決策。所以我（跟 Claude Code 一起）做了一個插件，幫你記住。
 
 > **備註**：本專案原名「Claude Code Buddy」，為避免潛在商標問題已更名為 MeMesh Plugin。
