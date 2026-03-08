@@ -16,8 +16,9 @@ Welcome to the complete MeMesh User Guide! This guide provides detailed informat
 5. [Memory System](#memory-system)
 6. [Task Execution](#task-execution)
 7. [Configuration](#configuration)
-8. [Advanced Usage](#advanced-usage)
-9. [Troubleshooting](#troubleshooting)
+8. [Visual Explorer (Streamlit UI)](#visual-explorer-streamlit-ui)
+9. [Advanced Usage](#advanced-usage)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -1137,6 +1138,54 @@ Setup user authentication with JWT
   }
 }
 ```
+
+---
+
+## Visual Explorer (Streamlit UI)
+
+MeMesh includes an interactive web UI for exploring your knowledge graph visually.
+
+### Setup
+
+```bash
+cd streamlit
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+### Dashboard
+
+The dashboard provides an overview of your knowledge base:
+
+- **Statistics cards**: Entity, relation, observation, and tag counts
+- **Entity Type Distribution**: Pie chart showing the breakdown of entity types
+- **Top Tags**: Bar chart of most frequently used tags over time
+- **Entity Growth**: Cumulative growth chart (day/week/month granularity)
+- **Recent Entities**: Table of latest entities with tag and observation counts
+
+### KG Explorer
+
+The Knowledge Graph Explorer provides an interactive graph visualization:
+
+- **Interactive graph**: Drag, zoom, and hover over nodes and edges
+- **Color-coded nodes**: Each entity type has a distinct color
+- **Relation edges**: Color-coded by relation type (similar_to, solves, caused_by, etc.)
+- **Filters**: Search by text (FTS5), entity type, tags, and date range
+- **Adjustable density**: Slider to control the number of displayed nodes (10–300)
+
+### Backfilling Relations
+
+If you have existing entities without relations, run the backfill script:
+
+```bash
+# Preview what will be created
+python streamlit/backfill_relations.py --dry-run
+
+# Execute (creates relations in the database)
+python streamlit/backfill_relations.py
+```
+
+The script uses a 3-layer strategy: topic/project clustering, cross-type semantic relations, and tag-based similarity.
 
 ---
 

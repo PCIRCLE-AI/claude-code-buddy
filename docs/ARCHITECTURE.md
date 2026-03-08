@@ -1,6 +1,6 @@
 # MeMesh Architecture
 
-**Version**: 2.9.4
+**Version**: 2.10.0
 **Last Updated**: 2026-03-08
 **Status**: Active
 
@@ -73,6 +73,14 @@ MeMesh is a Model Context Protocol (MCP) server that enhances Claude Code with p
 │  │  ├─ Migrations & Schema                              │   │
 │  │  └─ FTS5 + Vector Extensions                         │   │
 │  └──────────────────────────────────────────────────────┘   │
+└──────────────────────────┬───────────────────────────────────┘
+                           │ SQLite (read-only)
+┌──────────────────────────┴───────────────────────────────────┐
+│                   Visual Explorer (streamlit/)                │
+│  ├─ Dashboard: stats, charts (Plotly), entity growth          │
+│  ├─ KG Explorer: interactive graph (streamlit-agraph/vis.js)  │
+│  ├─ FTS5 full-text search + type/tag/date filters             │
+│  └─ Relation backfill script (3-layer strategy)               │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -295,7 +303,25 @@ embedding_hashes (entity_name PK, hash) -- Content hash for embedding dedup
 
 ---
 
-### 9. Utilities
+### 9. Visual Explorer (`streamlit/`)
+
+**Purpose**: Interactive web UI for exploring and visualizing the knowledge graph.
+
+**Components**:
+- **app.py**: Entry point, page routing, sidebar navigation with SVG logo
+- **db.py**: SQLite query layer — search, graph data, CRUD, FTS5 support
+- **path_resolver.py**: Auto-detects database at `~/.memesh/` or legacy `~/.claude-code-buddy/`
+- **views/dashboard.py**: Statistics cards, entity type pie chart, tag bar chart, growth line chart, recent entities table (Plotly)
+- **views/explorer.py**: Interactive graph visualization (`streamlit-agraph` / vis.js), color-coded entity types and relation edges, physics-based layout
+- **backfill_relations.py**: CLI script to generate relations for existing entities (3 layers: topic clustering, cross-type semantic, tag similarity)
+
+**Tech Stack**: Streamlit, streamlit-agraph, Plotly, Pandas
+
+**Data Access**: Read-only SQLite connection to the same `knowledge-graph.db` used by the MCP server.
+
+---
+
+### 10. Utilities
 
 #### Config (`src/config/`)
 - Environment variable management

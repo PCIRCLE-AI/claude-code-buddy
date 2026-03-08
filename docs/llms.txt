@@ -14,7 +14,7 @@ MeMesh is a Claude Code plugin that provides persistent memory via MCP (Model Co
 **License**: MIT
 **Language**: TypeScript
 **Platform**: Node.js 20+
-**Latest Version**: 2.9.4 (2026-03-08)
+**Latest Version**: 2.10.0 (2026-03-08)
 
 ## Quick Start
 
@@ -115,6 +115,13 @@ src/
 ├── evolution/        # Learning and adaptation
 ├── core/             # Core functionality
 └── utils/            # Utilities
+streamlit/
+├── app.py            # Streamlit UI entry point
+├── db.py             # SQLite query layer
+├── views/
+│   ├── dashboard.py  # Statistics and charts
+│   └── explorer.py   # Interactive KG graph
+└── backfill_relations.py  # Relation backfill script
 ```
 
 ### Key Files
@@ -222,6 +229,14 @@ Process management guide: `docs/MCP_PROCESS_MANAGEMENT.md`
 - **Discussions**: https://github.com/PCIRCLE-AI/claude-code-buddy/discussions
 
 ## Recent Updates
+
+### v2.10.0 (2026-03-08)
+- **Visual Explorer (Streamlit UI)**: Interactive web dashboard and knowledge graph explorer
+  - Dashboard with entity stats, type distribution, tag trends, growth charts
+  - KG Explorer with interactive graph, color-coded nodes/edges, FTS5 search, filters
+- **Auto-relation inference**: Entities created via `create-entities` now auto-infer relations
+- **Relation backfill script**: 3-layer strategy for existing entities (topic, cross-type, tags)
+- New KG-style SVG logo replacing emoji badge
 
 ### v2.9.0 (2026-02-25)
 - MCP Spec 2025-11-25 compliance (outputSchema + annotations for all tools)

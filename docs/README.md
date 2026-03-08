@@ -13,6 +13,7 @@ Welcome to the MeMesh documentation.
 ## User Reference
 - **[User Guide](./USER_GUIDE.md)** — End-to-end usage
 - **[Commands Reference](./COMMANDS.md)** — Buddy commands and MCP tools
+- **[Visual Explorer (Streamlit UI)](./USER_GUIDE.md#visual-explorer-streamlit-ui)** — Interactive knowledge graph dashboard and explorer
 - **[Troubleshooting](./TROUBLESHOOTING.md)** — Common issues and fixes
 
 ## Developer
@@ -34,4 +35,4 @@ Welcome to the MeMesh documentation.
 
 ---
 
-**Version**: 2.9.4 | **Last Updated**: 2026-03-08
+**Version**: 2.10.0 | **Last Updated**: 2026-03-08
