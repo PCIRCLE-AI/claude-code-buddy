@@ -24,7 +24,7 @@
   "scripts": {
     "postinstall": "node scripts/postinstall-new.js",
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && npm run copy:resources && chmod +x dist/mcp/server-bootstrap.js && npm run prepare:plugin",
+    "build": "tsc && npm run copy:resources && chmod +x dist/mcp/server-bootstrap.js && chmod +x scripts/hooks/*.js && npm run prepare:plugin",
     "copy:resources": "mkdir -p dist/mcp/resources && cp -r src/mcp/resources/*.md dist/mcp/resources/",
     "build:plugin": "npm run build",
     "prepare:plugin": "node scripts/prepare-plugin.js",
