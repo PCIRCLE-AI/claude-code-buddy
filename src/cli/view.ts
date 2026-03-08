@@ -192,7 +192,7 @@ export function generateDashboardHtml(dbPath?: string): string {
   const resolvedPath =
     dbPath ??
     process.env.MEMESH_DB_PATH ??
-    path.join(os.homedir(), '.memesh', 'memesh.db');
+    path.join(os.homedir(), '.memesh', 'knowledge-graph.db');
 
   const data = queryData(resolvedPath);
   const dataJson = escapeJsonForHtml(JSON.stringify(data));
@@ -518,7 +518,7 @@ const isDirectRun =
 if (isDirectRun) {
   const dbPath =
     process.env.MEMESH_DB_PATH ??
-    path.join(os.homedir(), '.memesh', 'memesh.db');
+    path.join(os.homedir(), '.memesh', 'knowledge-graph.db');
 
   const html = generateDashboardHtml(dbPath);
   const outPath = path.join(os.tmpdir(), 'memesh-dashboard.html');

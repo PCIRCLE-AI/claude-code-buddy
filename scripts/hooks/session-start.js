@@ -16,7 +16,7 @@ process.stdin.on('end', () => {
     const projectName = basename(data.cwd || process.cwd());
 
     // Find database
-    const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'memesh.db');
+    const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
     if (!existsSync(dbPath)) {
       output('MeMesh: No database found. Memories will be created as you work.');
       return;

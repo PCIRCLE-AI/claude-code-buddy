@@ -34,7 +34,7 @@ MeMesh gives Claude Code persistent memory through 3 tools and 2 hooks:
 
 ## How it works
 
-- **Storage**: SQLite database at `~/.memesh/memesh.db`
+- **Storage**: SQLite database at `~/.memesh/knowledge-graph.db`
 - **Search**: FTS5 full-text search
 - **Isolation**: Tag-based project filtering (`project:<name>`)
 - **Schema**: Entities, Observations, Relations, Tags

@@ -78,7 +78,7 @@ process.stdin.on('end', () => {
     const projectName = basename(data.cwd || process.cwd());
 
     // Open database (create dir if needed)
-    const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'memesh.db');
+    const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
     const dbDir = process.env.MEMESH_DB_PATH
       ? join(process.env.MEMESH_DB_PATH, '..')
       : join(homedir(), '.memesh');

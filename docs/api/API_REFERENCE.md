@@ -215,7 +215,7 @@ memesh-view
 
 **Behavior**:
 
-1. Opens the MeMesh database (`~/.memesh/memesh.db`)
+1. Opens the MeMesh database (`~/.memesh/knowledge-graph.db`)
 2. Reads all entities, observations, relations, and tags
 3. Generates a self-contained HTML file with:
    - **Knowledge graph** -- D3.js force-directed graph showing entities and relations

@@ -26,7 +26,7 @@ Manages the SQLite connection lifecycle and schema initialization.
 - Schema: Creates tables (`entities`, `observations`, `relations`, `tags`) and FTS5 virtual table (`entities_fts`)
 - Pragmas: WAL journal mode, foreign keys enabled
 
-Default database path: `~/.memesh/memesh.db` (overridable via `MEMESH_DB_PATH`).
+Default database path: `~/.memesh/knowledge-graph.db` (overridable via `MEMESH_DB_PATH`).
 
 ### knowledge-graph.ts -- Knowledge Graph
 

@@ -60,7 +60,7 @@ export function openDatabase(dbPath?: string): Database.Database {
 
   const resolvedPath = dbPath
     ?? process.env.MEMESH_DB_PATH
-    ?? path.join(os.homedir(), '.memesh', 'memesh.db');
+    ?? path.join(os.homedir(), '.memesh', 'knowledge-graph.db');
 
   const dir = path.dirname(resolvedPath);
   fs.mkdirSync(dir, { recursive: true });
