@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`memesh-view` CLI command** — generates self-contained HTML dashboard with D3.js force-directed knowledge graph, searchable entity table, and statistics
 - Fixed vitest pool from `threads` to `forks` to prevent SIGSEGV with better-sqlite3 native module
 
-## [3.0.0-alpha.1] - 2026-03-09
+## [2.11.0] - 2026-03-09
 
 ### Breaking Changes
 

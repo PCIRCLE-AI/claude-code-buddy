@@ -10,7 +10,7 @@ import { openDatabase, closeDatabase } from '../db.js';
 import { handleTool, TOOL_DEFINITIONS } from './tools.js';
 
 const server = new Server(
-  { name: 'memesh', version: '3.0.0-alpha.1' },
+  { name: 'memesh', version: '2.11.0' },
   { capabilities: { tools: {} } }
 );
 
