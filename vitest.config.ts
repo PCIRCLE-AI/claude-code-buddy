@@ -7,12 +7,12 @@ export default defineConfig({
     // Result: 56 zombie processes accumulating over 10+ hours
 
     // OPTION 1: Use threads with singleThread mode (recommended)
-    pool: 'threads',
+    pool: 'forks',
     // Vitest 4.x: poolOptions moved to top-level
-    singleThread: true,
+    singleFork: true,
     // Explicit limits as fallback
-    maxThreads: 1,
-    minThreads: 1,
+    maxForks: 1,
+    minForks: 1,
 
     // OPTION 2: Disable file parallelism entirely
     fileParallelism: false,
@@ -20,9 +20,6 @@ export default defineConfig({
     // Force test timeout to prevent hanging
     testTimeout: 30000, // 30 seconds max per test
     hookTimeout: 10000, // 10 seconds for hooks
-
-    // Global setup/teardown
-    globalSetup: './vitest.global-setup.ts',
 
     // Environment configuration
     environment: 'node',
