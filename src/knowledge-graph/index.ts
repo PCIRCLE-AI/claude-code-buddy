@@ -17,6 +17,7 @@ import { getDataPath, getDataDirectory } from '../utils/PathResolver.js';
 import { validateNonEmptyString } from '../utils/validation.js';
 import { KGSearchEngine } from './KGSearchEngine.js';
 import type { SemanticSearchResult } from './KGSearchEngine.js';
+import { ContentHasher } from './ContentHasher.js';
 
 // Re-export for backward compatibility
 export type { SemanticSearchResult } from './KGSearchEngine.js';
@@ -305,6 +306,14 @@ export class KnowledgeGraph {
 
     this.db.exec(fts5Schema);
 
+    // Embedding hash table for dedup (skip re-embedding unchanged entities)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS embedding_hashes (
+        entity_name TEXT PRIMARY KEY,
+        hash TEXT NOT NULL
+      );
+    `);
+
     // Run schema migrations
     this.runMigrations();
 
@@ -482,7 +491,7 @@ export class KnowledgeGraph {
    * @param entity Entity to create
    * @returns Actual entity name (same as input if new, existing name if deduplicated)
    */
-  createEntity(entity: Entity): string {
+  createEntity(entity: Entity, skipEmbedding = false): string {
     // Validate entity name before any database operations
     this.validateEntityName(entity.name);
 
@@ -594,7 +603,8 @@ export class KnowledgeGraph {
       this.queryCache.invalidatePattern(/^entities:/);
 
       // Generate embedding asynchronously (fire-and-forget, never blocks entity creation)
-      if (this.vectorEnabled) {
+      // skipEmbedding=true when called from createEntitiesBatch (batch generates after transaction)
+      if (this.vectorEnabled && !skipEmbedding) {
         this.generateEmbeddingAsync(entity.name, entity.observations);
       }
 
@@ -662,7 +672,7 @@ export class KnowledgeGraph {
             tags: entity.tags,
             metadata: entity.metadata,
             contentHash: entity.contentHash,
-          });
+          }, true); // skipEmbedding: batch generates after transaction
           results.push({ name: entity.name, success: true });
         } catch (error) {
           results.push({
@@ -679,6 +689,11 @@ export class KnowledgeGraph {
     // Invalidate cache once after all entities are created (instead of per-entity)
     this.queryCache.invalidatePattern(/^entities:/);
     this.queryCache.invalidatePattern(/^stats:/);
+
+    // Batch-generate embeddings for successfully created entities (after transaction commits)
+    if (this.vectorEnabled) {
+      this.generateBatchEmbeddingsAsync(entities, results);
+    }
 
     return results;
   }
@@ -945,6 +960,13 @@ export class KnowledgeGraph {
         }
       }
 
+      // Clean up embedding hash for dedup tracking
+      try {
+        this.db.prepare('DELETE FROM embedding_hashes WHERE entity_name = ?').run(name);
+      } catch {
+        // Non-critical — orphaned hash entry is harmless
+      }
+
       // Delete the entity (cascade will handle observations, tags, and relations)
       const stmt = this.db.prepare('DELETE FROM entities WHERE name = ?');
       return stmt.run(name);
@@ -970,12 +992,32 @@ export class KnowledgeGraph {
     const text = [entityName, ...(observations || [])].join(' ');
     const adapter = this.vectorAdapter;
 
+    // Hash-based dedup: skip ONNX inference if content unchanged
+    const newHash = ContentHasher.hashEmbeddingSource(entityName, observations || []);
+    try {
+      const existing = this.db
+        .prepare('SELECT hash FROM embedding_hashes WHERE entity_name = ?')
+        .get(entityName) as { hash: string } | undefined;
+      if (existing && existing.hash === newHash) {
+        logger.debug(`[KG] Embedding hash unchanged, skipping: ${entityName}`);
+        return;
+      }
+    } catch {
+      // Table might not exist in older DBs — proceed with generation
+    }
+
     const task = (async () => {
       try {
         const { LazyEmbeddingService } = await import('../embeddings/EmbeddingService.js');
         const service = await LazyEmbeddingService.get();
         const embedding = await service.encode(text);
         adapter.insertEmbedding(this.db, entityName, embedding);
+
+        // Store hash for future dedup
+        this.db.prepare(
+          'INSERT OR REPLACE INTO embedding_hashes (entity_name, hash) VALUES (?, ?)'
+        ).run(entityName, newHash);
+
         logger.debug(`[KG] Embedding generated for: ${entityName}`);
       } catch (error) {
         logger.warn('[KG] Embedding generation failed', {
@@ -986,6 +1028,81 @@ export class KnowledgeGraph {
     })();
 
     // Track the task and auto-remove when it settles
+    this.pendingEmbeddings.add(task);
+    task.finally(() => this.pendingEmbeddings.delete(task));
+  }
+
+  /**
+   * Generate embeddings for a batch of entities using encodeBatch().
+   * Skips entities that failed creation or whose content hash is unchanged.
+   */
+  private generateBatchEmbeddingsAsync(
+    entities: Array<{ name: string; observations: string[] }>,
+    results: Array<{ name: string; success: boolean }>
+  ): void {
+    if (!this.vectorAdapter) return;
+    const adapter = this.vectorAdapter;
+
+    // Filter to successfully created entities with hash-based dedup
+    // ContentHasher imported at top of file
+    const toEmbed: Array<{ name: string; text: string; hash: string }> = [];
+
+    for (let i = 0; i < entities.length; i++) {
+      if (!results[i]?.success) continue;
+
+      const entity = entities[i];
+      const newHash = ContentHasher.hashEmbeddingSource(entity.name, entity.observations);
+
+      try {
+        const existing = this.db
+          .prepare('SELECT hash FROM embedding_hashes WHERE entity_name = ?')
+          .get(entity.name) as { hash: string } | undefined;
+        if (existing && existing.hash === newHash) {
+          logger.debug(`[KG] Batch: embedding hash unchanged, skipping: ${entity.name}`);
+          continue;
+        }
+      } catch {
+        // Table might not exist — proceed
+      }
+
+      toEmbed.push({
+        name: entity.name,
+        text: [entity.name, ...entity.observations].join(' '),
+        hash: newHash,
+      });
+    }
+
+    if (toEmbed.length === 0) return;
+
+    const task = (async () => {
+      try {
+        const { LazyEmbeddingService } = await import('../embeddings/EmbeddingService.js');
+        const service = await LazyEmbeddingService.get();
+        const embeddings = await service.encodeBatch(toEmbed.map(e => e.text));
+
+        for (let i = 0; i < toEmbed.length; i++) {
+          try {
+            adapter.insertEmbedding(this.db, toEmbed[i].name, embeddings[i]);
+            this.db.prepare(
+              'INSERT OR REPLACE INTO embedding_hashes (entity_name, hash) VALUES (?, ?)'
+            ).run(toEmbed[i].name, toEmbed[i].hash);
+          } catch (error) {
+            logger.warn('[KG] Batch embedding insert failed', {
+              entity: toEmbed[i].name,
+              reason: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+
+        logger.debug(`[KG] Batch embeddings generated for ${toEmbed.length} entities`);
+      } catch (error) {
+        logger.warn('[KG] Batch embedding generation failed', {
+          count: toEmbed.length,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })();
+
     this.pendingEmbeddings.add(task);
     task.finally(() => this.pendingEmbeddings.delete(task));
   }
