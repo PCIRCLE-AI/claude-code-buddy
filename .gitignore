@@ -1,3 +1,6 @@
+# Claude Code project instructions (local only)
+CLAUDE.md
+
 # Dependencies
 node_modules/
 # package-lock.json should be committed for reproducible builds
