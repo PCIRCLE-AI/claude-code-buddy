@@ -53,6 +53,18 @@ src/
 
 Dependencies: `better-sqlite3`, `@modelcontextprotocol/sdk`, `zod`
 
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `memesh-view` | Generate and open an interactive HTML dashboard showing a D3.js knowledge graph visualization, searchable entity table, and memory statistics |
+
+Run after installing globally:
+
+```bash
+memesh-view
+```
+
 ## Development
 
 ```bash

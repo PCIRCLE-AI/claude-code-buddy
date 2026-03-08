@@ -201,6 +201,32 @@ Common errors:
 
 ---
 
+## CLI Commands
+
+### memesh-view
+
+Generate and open an interactive HTML dashboard for exploring stored knowledge.
+
+**Usage**:
+
+```bash
+memesh-view
+```
+
+**Behavior**:
+
+1. Opens the MeMesh database (`~/.memesh/memesh.db`)
+2. Reads all entities, observations, relations, and tags
+3. Generates a self-contained HTML file with:
+   - **Knowledge graph** -- D3.js force-directed graph showing entities and relations
+   - **Entity table** -- Searchable, sortable table of all entities with observations and tags
+   - **Statistics** -- Total entities, observations, relations, and tags
+4. Opens the HTML file in the default browser
+
+No arguments or options required. The dashboard is a static HTML file that can be shared or archived.
+
+---
+
 ## Connection
 
 MeMesh runs as a stdio MCP server. Claude Code manages the connection automatically via the plugin's `.mcp.json` configuration.

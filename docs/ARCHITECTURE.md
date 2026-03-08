@@ -64,6 +64,15 @@ Defines 3 tools with Zod validation schemas and handler functions:
 
 The `handleTool(name, args)` dispatcher validates input via Zod, then delegates to the appropriate handler.
 
+### cli/view.ts -- CLI Dashboard
+
+Generates a self-contained HTML dashboard for visualizing the knowledge graph.
+
+- `memesh-view` CLI command (registered in `package.json` bin)
+- Reads all entities, observations, relations, and tags from the database
+- Produces a single HTML file with embedded D3.js force-directed graph, searchable entity table, and statistics
+- Opens the generated file in the default browser
+
 ---
 
 ## Data Flow
@@ -163,7 +172,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 | `tests/hooks/session-start.test.ts` | 6 | Session start hook behavior |
 | `tests/hooks/post-commit.test.ts` | 7 | Post commit hook behavior |
 
-Framework: vitest (single-thread mode).
+Framework: vitest (forks pool mode to avoid SIGSEGV with native modules).
 
 ---
 

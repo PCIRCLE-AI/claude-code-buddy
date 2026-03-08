@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "memesh": "dist/mcp/server.js"
+    "memesh": "dist/mcp/server.js",
+    "memesh-view": "dist/cli/view.js"
   },
   "files": [
     "dist/",
@@ -17,7 +18,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && chmod +x dist/mcp/server.js && chmod +x scripts/hooks/*.js",
+    "build": "tsc && chmod +x dist/mcp/server.js && chmod +x dist/cli/view.js && chmod +x scripts/hooks/*.js",
     "test": "vitest",
     "typecheck": "tsc --noEmit",
     "start": "node dist/mcp/server.js"
