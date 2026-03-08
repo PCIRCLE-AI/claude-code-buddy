@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import json
 import re
 import sqlite3
 from collections import defaultdict
@@ -254,33 +255,6 @@ def layer3_tag_similarity(entities, tags_by_entity):
     return relations
 
 
-def insert_relations(conn, relations, dry_run=False):
-    """Insert relations into database. Returns (inserted, skipped) counts."""
-    inserted = 0
-    skipped = 0
-
-    for from_id, to_id, rel_type, source in relations:
-        metadata = f'{{"source": "{source}"}}'
-        if dry_run:
-            inserted += 1
-            continue
-
-        try:
-            with conn:
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type, metadata)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (from_id, to_id, rel_type, metadata),
-                )
-                if conn.total_changes > 0:
-                    inserted += 1
-        except sqlite3.IntegrityError:
-            skipped += 1
-
-    return inserted, skipped
-
 
 def main():
     args = parse_args()
@@ -357,7 +331,7 @@ def main():
         skipped = 0
         with conn:
             for from_id, to_id, rel_type, source in all_relations:
-                metadata = f'{{"source": "{source}"}}'
+                metadata = json.dumps({"source": source})
                 cursor = conn.execute(
                     """
                     INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type, metadata)

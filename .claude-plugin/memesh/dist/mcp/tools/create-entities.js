@@ -82,9 +82,6 @@ export const createEntitiesTool = {
 };
 // --- Auto-relation helper functions ---
 
-// Known project/topic prefixes for keyword extraction
-const KNOWN_PREFIXES = ['memesh', 'a2a', 'agentgigdao', 'nba', 'polytrador'];
-
 // Entity types to exclude from relation matching (session-specific, not core knowledge)
 const EXCLUDED_TYPES = new Set([
     'session_keypoint', 'session_identity', 'task_start', 'session_summary'
@@ -99,7 +96,7 @@ function _extractTopicKeywords(name) {
     // Remove date suffixes like "2026-01-03"
     const cleaned = name.replace(/\d{4}-\d{2}-\d{2}/g, '').trim();
     // Split on spaces, hyphens, underscores
-    const words = cleaned.split(/[\s_-]+/).filter(w => w.length > 1);
+    const words = cleaned.split(/[\s_-]+/).filter(w => w.length >= 4);
     // Take first 2 significant words
     const keywords = words.slice(0, 2).map(w => w.toLowerCase());
     return keywords;
