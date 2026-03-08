@@ -1,6 +1,6 @@
 # CLI Parameters Reference
 
-Complete reference for all MeMesh CLI commands and their parameters.
+Complete reference for all MeMesh Plugin CLI commands and their parameters.
 
 ---
 

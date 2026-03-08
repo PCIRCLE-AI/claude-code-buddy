@@ -2,11 +2,11 @@
 
 <img src="docs/images/memesh-logo.svg" alt="MeMesh" width="80" />
 
-# MeMesh
+# MeMesh Plugin
 
 ### Your AI coding sessions deserve memory.
 
-MeMesh gives Claude Code persistent, searchable memory — so every session builds on the last.
+MeMesh Plugin gives Claude Code persistent, searchable memory — so every session builds on the last.
 
 [![npm version](https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=cb3837)](https://www.npmjs.com/package/@pcircle/memesh)
 [![Downloads](https://img.shields.io/npm/dm/@pcircle/memesh?style=flat-square&color=blue)](https://www.npmjs.com/package/@pcircle/memesh)
@@ -32,7 +32,7 @@ npm install -g @pcircle/memesh
 
 You're deep into a project with Claude Code. You made important decisions three sessions ago — which auth library, why you chose that database schema, what patterns to follow. But Claude doesn't remember. You repeat yourself. You lose context. You waste time.
 
-**MeMesh fixes this.** It gives Claude a persistent, searchable memory that grows with your project.
+**MeMesh Plugin fixes this.** It gives Claude a persistent, searchable memory that grows with your project.
 
 ---
 
@@ -140,7 +140,7 @@ All data stays on your machine with automatic 90-day retention.
 
 ## How is this different from CLAUDE.md?
 
-| | CLAUDE.md | MeMesh |
+| | CLAUDE.md | MeMesh Plugin |
 |---|-----------|--------|
 | **Purpose** | Static instructions for Claude | Living memory that grows with your project |
 | **Search** | Manual text search | Semantic search by meaning |
@@ -148,7 +148,7 @@ All data stays on your machine with automatic 90-day retention.
 | **Recall** | Always loaded (can get long) | Surfaces relevant context on demand |
 | **Scope** | General preferences | Project-specific knowledge graph |
 
-**They work together.** CLAUDE.md tells Claude *how* to work. MeMesh remembers *what* you've built.
+**They work together.** CLAUDE.md tells Claude *how* to work. MeMesh Plugin remembers *what* you've built.
 
 ---
 
@@ -166,7 +166,7 @@ All data stays on your machine with automatic 90-day retention.
 
 ## Visual Explorer (Streamlit UI)
 
-MeMesh includes an interactive web UI for exploring your knowledge graph visually.
+MeMesh Plugin includes an interactive web UI for exploring your knowledge graph visually.
 
 **Dashboard** — Overview of your knowledge base with entity statistics, type distribution, tag trends, and growth over time.
 
@@ -228,7 +228,7 @@ graph TB
 ```mermaid
 sequenceDiagram
     participant U as You (in Claude Code)
-    participant M as MeMesh MCP
+    participant M as MeMesh Plugin
     participant KG as Knowledge Graph
     participant E as Embeddings (ONNX)
 

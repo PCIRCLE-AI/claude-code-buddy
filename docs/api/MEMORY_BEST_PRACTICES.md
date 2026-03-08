@@ -1,6 +1,6 @@
 # Memory System Best Practices
 
-**Complete guide for effective memory management with MeMesh memory features**
+**Complete guide for effective memory management with MeMesh Plugin memory features**
 
 This guide covers battle-tested strategies for maximizing the value of your memory system through smart tagging, importance scoring, search optimization, and auto-memory configuration.
 
@@ -155,7 +155,7 @@ Avoid storing low-value information that clutters search results.
 
 ### Understanding Search Ranking
 
-SmartMemoryQuery uses a **multi-factor scoring system**:
+MemorySearchEngine uses a **multi-factor scoring system**:
 
 \`\`\`
 Final Score = (Content Match + Tag Match + TF Score)
@@ -216,14 +216,15 @@ await memoryStore.searchByType('mistake', 'security');
 
 **Customize tag generation:**
 \`\`\`typescript
-const autoTagger = new AutoTagger();
-
-// Generate tags with custom tags preserved
-const tags = autoTagger.generateTags(
-  content,
-  ['custom-tag', 'team-specific'], // Won't be overwritten
-  { projectPath: '/frontend' }      // Context for better detection
-);
+// Tags are generated inline during memory storage in UnifiedMemoryStore.
+// Custom tags you provide are preserved and merged with auto-detected tags.
+await memoryStore.store({
+  type: 'knowledge',
+  content: content,
+  tags: ['custom-tag', 'team-specific'], // Preserved; auto-detected tags are added
+  importance: 0.7,
+  timestamp: new Date(),
+}, { projectPath: '/frontend' });
 \`\`\`
 
 ### Auto-Memory Recorder Configuration
@@ -298,11 +299,11 @@ await memoryStore.searchByType('decision', 'architecture');
 
 **Limit result sets early:**
 \`\`\`typescript
-const smartQuery = new SmartMemoryQuery();
-
-// Better: filter candidates early
-const candidates = allMemories.filter(m => m.importance >= 0.6);
-const results = smartQuery.search('query', candidates).slice(0, 20);
+// Better: use built-in filters to reduce search space early
+const results = await memoryStore.search('query', {
+  minImportance: 0.6,
+  limit: 20,
+});
 \`\`\`
 
 ---

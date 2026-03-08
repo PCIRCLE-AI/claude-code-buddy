@@ -1,12 +1,12 @@
-# Getting Started with MeMesh
+# Getting Started with MeMesh Plugin
 
 **Install Time**: 2 minutes • **First Memory**: 30 seconds • **Ready to Code**: Immediately
 
 ---
 
-## What is MeMesh?
+## What is MeMesh Plugin?
 
-**MeMesh gives Claude Code a persistent memory.** Simple as that.
+**MeMesh Plugin gives Claude Code a persistent memory.** Simple as that.
 
 Every project you work on, every decision you make, every bug you fix—Claude remembers it all. No more re-explaining your architecture every session. No more "As I mentioned earlier..." No more starting from scratch.
 

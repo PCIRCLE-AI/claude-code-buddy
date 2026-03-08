@@ -1,6 +1,6 @@
 {
   "name": "memesh",
-  "description": "MeMesh — Persistent memory plugin for Claude Code. Remembers architecture decisions, coding patterns, and project context across sessions.",
+  "description": "MeMesh Plugin — Persistent memory plugin for Claude Code. Remembers architecture decisions, coding patterns, and project context across sessions.",
   "author": {
     "name": "PCIRCLE AI"
   },

@@ -1,6 +1,6 @@
-# 🔄 Upgrade Guide: Claude Code Buddy → MeMesh
+# 🔄 Upgrade Guide: Claude Code Buddy → MeMesh Plugin
 
-> **Important**: MeMesh was previously known as "Claude Code Buddy (CCB)". This guide helps existing users upgrade safely without losing any data.
+> **Important**: MeMesh Plugin was previously known as "Claude Code Buddy (CCB)". This guide helps existing users upgrade safely without losing any data.
 
 ---
 

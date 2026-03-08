@@ -2,11 +2,11 @@
 
 <img src="docs/images/memesh-logo.svg" alt="MeMesh" width="80" />
 
-# MeMesh
+# MeMesh Plugin
 
 ### 你的 AI 程式開發應該有記憶。
 
-MeMesh 賦予 Claude Code 持久、可搜尋的記憶 — 讓每次對話都能延續上一次的成果。
+MeMesh Plugin 賦予 Claude Code 持久、可搜尋的記憶 — 讓每次對話都能延續上一次的成果。
 
 [![npm version](https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=cb3837)](https://www.npmjs.com/package/@pcircle/memesh)
 [![Downloads](https://img.shields.io/npm/dm/@pcircle/memesh?style=flat-square&color=blue)](https://www.npmjs.com/package/@pcircle/memesh)
@@ -228,7 +228,7 @@ graph TB
 ```mermaid
 sequenceDiagram
     participant U as 你（在 Claude Code 中）
-    participant M as MeMesh MCP
+    participant M as MeMesh Plugin
     participant KG as 知識圖譜
     participant E as 嵌入模型（ONNX）
 

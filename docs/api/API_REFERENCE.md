@@ -1,4 +1,4 @@
-# MeMesh MCP Server - API Reference
+# MeMesh Plugin - API Reference
 
 **Version**: 2.10.0
 **Last Updated**: 2026-03-08
@@ -17,22 +17,22 @@
    - [buddy-help](#buddy-help)
 5. [Knowledge Graph Tools](#knowledge-graph-tools)
    - [memesh-create-entities](#memesh-create-entities)
-   - [recall-memory](#recall-memory)
-   - [add-observations](#add-observations)
-   - [create-relations](#create-relations)
-6. [System Tools](#system-tools)
-   - [health-check](#health-check)
+6. [Learning & Automation Tools](#learning--automation-tools)
+   - [memesh-record-mistake](#memesh-record-mistake)
+   - [memesh-hook-tool-use](#memesh-hook-tool-use)
+7. [System Tools](#system-tools)
    - [memesh-generate-tests](#memesh-generate-tests)
-7. [Data Models](#data-models)
-8. [Error Reference](#error-reference)
-9. [Integration Examples](#integration-examples)
-10. [Rate Limits & Performance](#rate-limits--performance)
+   - [memesh-metrics](#memesh-metrics)
+8. [Data Models](#data-models)
+9. [Error Reference](#error-reference)
+10. [Integration Examples](#integration-examples)
+11. [Rate Limits & Performance](#rate-limits--performance)
 
 ---
 
 ## Introduction
 
-MeMesh is an MCP (Model Context Protocol) server that provides persistent memory management, context-aware task execution, and knowledge graph capabilities for Claude Code. This API reference documents all available MCP tools, their parameters, responses, and usage patterns.
+MeMesh Plugin is an MCP (Model Context Protocol) server that provides persistent memory management, context-aware task execution, and knowledge graph capabilities for Claude Code. This API reference documents all available MCP tools, their parameters, responses, and usage patterns.
 
 **Key Features**:
 - Context-aware task execution with memory integration
@@ -47,7 +47,7 @@ Claude Code CLI
       ↓
 MCP Protocol
       ↓
-MeMesh MCP Server
+MeMesh Plugin
       ↓
    ┌──────┴──────┐
    ↓             ↓
@@ -58,9 +58,9 @@ Router      Knowledge Graph
 
 ## Authentication & Connection
 
-MeMesh is a Claude Code Plugin. The MCP server is auto-managed via the plugin's `.mcp.json` file — no manual configuration of `~/.claude/mcp_settings.json` is needed.
+MeMesh Plugin is a Claude Code Plugin. The MCP server is auto-managed via the plugin's `.mcp.json` file — no manual configuration of `~/.claude/mcp_settings.json` is needed.
 
-Simply install MeMesh and restart Claude Code. The plugin system handles MCP server registration automatically.
+Simply install MeMesh Plugin and restart Claude Code. The plugin system handles MCP server registration automatically.
 
 **If auto-configuration fails**, run `memesh setup` to reconfigure.
 
@@ -107,17 +107,21 @@ MeMesh provides 8 MCP tools organized into three categories:
 
 | Tool | Purpose | Complexity |
 |------|---------|-----------|
-| `memesh-create-entities` | Create knowledge entities with relationships | Advanced |
-| `recall-memory` | Low-level memory search with filters | Advanced |
-| `add-observations` | Add observations to existing entities | Advanced |
-| `create-relations` | Link entities with typed relationships | Advanced |
+| `memesh-create-entities` | Create knowledge entities with auto-relations | Advanced |
+
+### Learning & Automation Tools
+
+| Tool | Purpose | Complexity |
+|------|---------|-----------|
+| `memesh-record-mistake` | Record mistakes for continuous learning | Medium |
+| `memesh-hook-tool-use` | Process tool execution events (auto-triggered) | Internal |
 
 ### System Tools
 
 | Tool | Purpose | Complexity |
 |------|---------|-----------|
-| `health-check` | Monitor system health | Simple |
-| `memesh-generate-tests` | Generate test cases | Medium |
+| `memesh-generate-tests` | Generate test cases from specs or code | Medium |
+| `memesh-metrics` | View session metrics and memory status | Simple |
 
 ---
 
@@ -142,8 +146,7 @@ MeMesh provides 8 MCP tools organized into three categories:
   "properties": {
     "task": {
       "type": "string",
-      "description": "Task description for MeMesh to execute with memory context",
-      "minLength": 1
+      "description": "Task description to analyze and enrich (e.g., 'setup authentication', 'fix login bug')"
     }
   },
   "required": ["task"]
@@ -383,15 +386,28 @@ Extracted metadata:
   "properties": {
     "query": {
       "type": "string",
-      "description": "What to remember/recall from project memory",
-      "minLength": 1
+      "description": "Search query (natural language supported for semantic search)"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["semantic", "keyword", "hybrid"],
+      "description": "Search mode: semantic (AI similarity), keyword (exact match), hybrid (both combined). Default: hybrid"
     },
     "limit": {
       "type": "number",
-      "description": "Maximum number of memories to retrieve",
-      "default": 5,
+      "description": "Maximum number of results to return (1-50, default: 10)",
       "minimum": 1,
       "maximum": 50
+    },
+    "matchThreshold": {
+      "type": "number",
+      "description": "Minimum match score (0-1). Higher values return fewer but more relevant results. Default: 0.3",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "allProjects": {
+      "type": "boolean",
+      "description": "Search across all projects (default: false, searches only current project + global memories)"
     }
   },
   "required": ["query"]
@@ -402,8 +418,11 @@ Extracted metadata:
 
 | Parameter | Type | Required | Default | Description | Example |
 |-----------|------|----------|---------|-------------|---------|
-| `query` | string | Yes | - | Search query or information to store | "why did we choose PostgreSQL?" |
-| `limit` | number | No | 5 | Max number of results (1-50) | 10 |
+| `query` | string | Yes | - | Search query (natural language supported) | "why did we choose PostgreSQL?" |
+| `mode` | string | No | hybrid | Search mode: `semantic`, `keyword`, `hybrid` | "keyword" |
+| `limit` | number | No | 10 | Max number of results (1-50) | 20 |
+| `matchThreshold` | number | No | 0.3 | Minimum match score (0-1) | 0.5 |
+| `allProjects` | boolean | No | false | Search across all projects | true |
 
 #### Response Format
 
@@ -1029,16 +1048,21 @@ Becomes:
 
 ---
 
-### recall-memory
+---
 
-**Purpose**: Low-level memory search with advanced filtering options.
+## Learning & Automation Tools
+
+### memesh-record-mistake
+
+**Purpose**: Record AI mistakes for learning and prevention — enables systematic improvement from user feedback.
+
+**Aliases**: `buddy-record-mistake` (deprecated, will be removed in v3.0.0)
 
 **Use Cases**:
-- Advanced memory searches with filters
-- Time-range based queries
-- Tag-filtered searches
-- Entity type filtering
-- Programmatic memory access
+- User explicitly corrects AI behavior or approach
+- Violated a documented procedure or guideline
+- Made incorrect assumptions instead of asking
+- Skipped validation step and caused problems
 
 #### Input Schema
 
@@ -1046,135 +1070,91 @@ Becomes:
 {
   "type": "object",
   "properties": {
-    "limit": {
-      "type": "number",
-      "description": "Maximum number of memories to return",
-      "default": 10
-    },
-    "query": {
+    "action": {
       "type": "string",
-      "description": "Optional search query to filter memories"
+      "description": "What action the AI took (the mistake)"
+    },
+    "errorType": {
+      "type": "string",
+      "description": "Error classification",
+      "enum": [
+        "procedure-violation",
+        "workflow-skip",
+        "assumption-error",
+        "validation-skip",
+        "responsibility-lack",
+        "firefighting",
+        "dependency-miss",
+        "integration-error",
+        "deployment-error"
+      ]
+    },
+    "userCorrection": {
+      "type": "string",
+      "description": "User's correction/feedback"
+    },
+    "correctMethod": {
+      "type": "string",
+      "description": "What should have been done instead"
+    },
+    "impact": {
+      "type": "string",
+      "description": "Impact of the mistake"
+    },
+    "preventionMethod": {
+      "type": "string",
+      "description": "How to prevent this in the future"
+    },
+    "relatedRule": {
+      "type": "string",
+      "description": "Related rule/guideline (optional)"
+    },
+    "context": {
+      "type": "object",
+      "description": "Additional context (optional)"
     }
-  }
+  },
+  "required": ["action", "errorType", "userCorrection", "correctMethod", "impact", "preventionMethod"]
 }
 ```
 
 #### Parameters
 
-| Parameter | Type | Required | Default | Description | Example |
-|-----------|------|----------|---------|-------------|---------|
-| `limit` | number | No | 10 | Max results to return | 20 |
-| `query` | string | No | - | Search query filter | "authentication" |
+| Parameter | Type | Required | Description | Example |
+|-----------|------|----------|-------------|---------|
+| `action` | string | Yes | What action the AI took | "Edited file without reading first" |
+| `errorType` | string | Yes | Error classification (see enum) | "procedure-violation" |
+| `userCorrection` | string | Yes | User's correction/feedback | "Must read file before editing" |
+| `correctMethod` | string | Yes | What should have been done | "Use Read tool first" |
+| `impact` | string | Yes | Impact of the mistake | "Broke file indentation" |
+| `preventionMethod` | string | Yes | How to prevent in future | "ALWAYS Read before Edit" |
+| `relatedRule` | string | No | Related rule/guideline | "READ_BEFORE_EDIT" |
+| `context` | object | No | Additional context | `{}` |
 
-#### Response Format
-
-```typescript
-{
-  memories: Array<{
-    type: string,           // Entity type
-    observations: string[], // Array of observations
-    timestamp?: string      // ISO timestamp
-  }>
-}
-```
-
-#### Examples
-
-**Example 1: Recent Work Recall**
+#### Example
 
 Request:
 ```json
 {
-  "limit": 10
+  "action": "Edited ServerInitializer.ts without reading file first",
+  "errorType": "procedure-violation",
+  "userCorrection": "Must read file before editing - broke indentation",
+  "correctMethod": "Use Read tool first to see exact content and formatting, then Edit",
+  "impact": "Broke file indentation, required re-edit, wasted user time",
+  "preventionMethod": "ALWAYS invoke Read tool before Edit tool - no exceptions",
+  "relatedRule": "READ_BEFORE_EDIT (Anti-Hallucination Protocol)"
 }
 ```
-
-Response:
-```json
-{
-  "memories": [
-    {
-      "type": "code_change",
-      "observations": [
-        "Updated authentication middleware",
-        "Added JWT validation"
-      ],
-      "timestamp": "2026-02-03T10:00:00Z"
-    },
-    {
-      "type": "test_result",
-      "observations": [
-        "All tests passing: 245/245",
-        "Coverage: 87%"
-      ],
-      "timestamp": "2026-02-03T09:45:00Z"
-    }
-  ]
-}
-```
-
-**Example 2: Filtered Search**
-
-Request:
-```json
-{
-  "limit": 5,
-  "query": "database"
-}
-```
-
-Response:
-```json
-{
-  "memories": [
-    {
-      "type": "decision",
-      "observations": [
-        "Chose PostgreSQL for production",
-        "Better JSON support than MySQL"
-      ],
-      "timestamp": "2026-02-01T14:30:00Z"
-    }
-  ]
-}
-```
-
-#### Comparison with buddy-remember
-
-| Feature | recall-memory | buddy-remember |
-|---------|--------------|----------------|
-| Complexity | Advanced | Simple |
-| Response format | Raw JSON | Formatted text |
-| Auto-detection | No | Yes (storage vs recall) |
-| Filtering | Basic (query/limit) | Automatic semantic search |
-| Use case | Programmatic access | User-friendly interface |
-
-#### Best Practices
-
-✅ **Use recall-memory when**:
-- Building programmatic tools
-- Need raw JSON responses
-- Simple filtering is sufficient
-- Integrating with other systems
-
-✅ **Use buddy-remember when**:
-- Interactive use in Claude Code
-- Need formatted responses
-- Want auto-storage detection
-- Prefer user-friendly interface
 
 ---
 
-### add-observations
+### memesh-hook-tool-use
 
-**Purpose**: Add new observations to existing entities in the knowledge graph.
+**Purpose**: Process tool execution events from Claude Code CLI for workflow automation.
 
-**Use Cases**:
-- Update entities with new information
-- Add notes to decisions
-- Track changes to features
-- Document additional findings
-- Append investigation results
+**Aliases**: `hook-tool-use` (deprecated, will be removed in v3.0.0)
+
+**Note**: This tool is auto-triggered by Claude Code hooks. Do not call manually.
 
 #### Input Schema
 
@@ -1182,651 +1162,49 @@ Response:
 {
   "type": "object",
   "properties": {
-    "observations": {
-      "type": "array",
-      "description": "Array of observations to add",
-      "items": {
-        "type": "object",
-        "properties": {
-          "entityName": {
-            "type": "string",
-            "description": "Name of entity to update"
-          },
-          "contents": {
-            "type": "array",
-            "items": { "type": "string" },
-            "description": "Observations to add"
-          }
-        },
-        "required": ["entityName", "contents"]
-      }
+    "toolName": {
+      "type": "string",
+      "description": "Tool name executed by Claude Code (e.g., 'Write', 'Edit', 'Bash')"
+    },
+    "arguments": {
+      "type": "object",
+      "description": "Tool arguments payload (tool-specific)"
+    },
+    "success": {
+      "type": "boolean",
+      "description": "Whether the tool execution succeeded"
+    },
+    "duration": {
+      "type": "number",
+      "description": "Execution duration in milliseconds (optional)"
+    },
+    "tokensUsed": {
+      "type": "number",
+      "description": "Tokens used by the tool call (optional)"
+    },
+    "output": {
+      "type": "string",
+      "description": "Tool output (optional)"
     }
   },
-  "required": ["observations"]
+  "required": ["toolName", "success"]
 }
 ```
 
 #### Parameters
 
-| Field | Type | Required | Description | Example |
-|-------|------|----------|-------------|---------|
-| `observations` | array | Yes | Array of observation objects | See examples |
-| `observations[].entityName` | string | Yes | Entity to update | "PostgreSQL Decision" |
-| `observations[].contents` | array | Yes | Observations to add | ["Added replication", "Performance improved 40%"] |
-
-#### Response Format
-
-```typescript
-{
-  updated: string[],        // Names of updated entities
-  count: number,            // Number updated
-  notFound?: string[],      // Entities not found
-  errors?: Array<{          // Errors if any
-    entityName: string,
-    error: string
-  }>
-}
-```
-
-#### Examples
-
-**Example 1: Update Single Entity**
-
-Request:
-```json
-{
-  "observations": [
-    {
-      "entityName": "PostgreSQL Database Choice 2026-02-03",
-      "contents": [
-        "Added read replicas for scalability",
-        "Performance improved by 40%",
-        "Currently handling 1M requests/day"
-      ]
-    }
-  ]
-}
-```
-
-Response:
-```json
-{
-  "updated": ["PostgreSQL Database Choice 2026-02-03"],
-  "count": 1
-}
-```
-
-**Example 2: Update Multiple Entities**
-
-Request:
-```json
-{
-  "observations": [
-    {
-      "entityName": "User Authentication Feature",
-      "contents": [
-        "Added OAuth support for GitHub",
-        "Social login working in production"
-      ]
-    },
-    {
-      "entityName": "Authentication API Endpoints",
-      "contents": [
-        "POST /api/v1/auth/oauth/github added",
-        "Handles callback and token exchange"
-      ]
-    }
-  ]
-}
-```
-
-Response:
-```json
-{
-  "updated": [
-    "User Authentication Feature",
-    "Authentication API Endpoints"
-  ],
-  "count": 2
-}
-```
-
-**Example 3: Entity Not Found**
-
-Request:
-```json
-{
-  "observations": [
-    {
-      "entityName": "Non-existent Entity",
-      "contents": ["New observation"]
-    }
-  ]
-}
-```
-
-Response:
-```json
-{
-  "updated": [],
-  "count": 0,
-  "notFound": ["Non-existent Entity"]
-}
-```
-
-#### Concurrency Behavior
-
-**Note**: Uses get-then-update pattern:
-- Sufficient for single-user CLI usage
-- Not suitable for concurrent access
-- Uses `INSERT OR REPLACE` for atomic updates at SQL level
-- Sequential processing minimizes race condition window
-
-#### Best Practices
-
-✅ **Do**:
-- Add meaningful observations
-- Include timestamps in content if relevant
-- Update entities incrementally as you learn
-- Check entity exists first (use recall-memory)
-
-❌ **Don't**:
-- Add duplicate observations
-- Use for creating new entities (use memesh-create-entities)
-- Expect full ACID transactions across multiple entities
-
-#### Error Responses
-
-```typescript
-// Entity not found
-{
-  updated: [],
-  count: 0,
-  notFound: ["Entity Name"]
-}
-
-// Update error
-{
-  updated: ["Entity 1"],
-  count: 1,
-  errors: [
-    {
-      entityName: "Entity 2",
-      error: "Database write failed"
-    }
-  ]
-}
-
-// Validation error
-{
-  error: "Validation failed: entityName is required",
-  code: "VALIDATION_FAILED"
-}
-```
-
----
-
-### create-relations
-
-**Purpose**: Create typed relationships between entities in the knowledge graph.
-
-**Use Cases**:
-- Link decisions to implementations
-- Show bug causes and fixes
-- Document dependencies
-- Map feature relationships
-- Build knowledge graph structure
-
-#### Input Schema
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "relations": {
-      "type": "array",
-      "description": "Array of relations to create",
-      "items": {
-        "type": "object",
-        "properties": {
-          "from": {
-            "type": "string",
-            "description": "Source entity name"
-          },
-          "to": {
-            "type": "string",
-            "description": "Target entity name"
-          },
-          "relationType": {
-            "type": "string",
-            "description": "Type of relationship"
-          },
-          "metadata": {
-            "type": "object",
-            "description": "Optional metadata"
-          }
-        },
-        "required": ["from", "to", "relationType"]
-      }
-    }
-  },
-  "required": ["relations"]
-}
-```
-
-#### Parameters
-
-| Field | Type | Required | Description | Example |
-|-------|------|----------|-------------|---------|
-| `relations` | array | Yes | Array of relation objects | See examples |
-| `relations[].from` | string | Yes | Source entity name | "User Auth Feature" |
-| `relations[].to` | string | Yes | Target entity name | "JWT Decision" |
-| `relations[].relationType` | string | Yes | Relationship type (see types below) | "depends_on" |
-| `relations[].metadata` | object | No | Custom metadata | { "strength": "high" } |
-
-#### Relation Types
-
-| Type | Description | Direction | Example |
-|------|-------------|-----------|---------|
-| `caused_by` | A caused by B | A ← B | Bug caused_by code change |
-| `enabled_by` | A enabled by B | A ← B | Feature enabled_by library |
-| `follows_pattern` | A follows pattern from B | A → B | Code follows_pattern best practice |
-| `solves` | A solves B | A → B | Fix solves bug |
-| `replaced_by` | A replaced by B | A → B | Old API replaced_by new API |
-| `depends_on` | A depends on B | A → B | Feature depends_on database |
-| `similar_to` | A similar to B | A ↔ B | Bug similar_to previous bug |
-| `evolved_from` | A evolved from B | A ← B | Feature evolved_from prototype |
-
-#### Response Format
-
-```typescript
-{
-  created: Array<{
-    from: string,
-    to: string,
-    type: string
-  }>,
-  count: number,
-  missingEntities?: string[],  // Entities that don't exist
-  errors?: Array<{
-    from: string,
-    to: string,
-    error: string
-  }>
-}
-```
-
-#### Examples
-
-**Example 1: Feature Dependencies**
-
-Request:
-```json
-{
-  "relations": [
-    {
-      "from": "User Authentication Feature",
-      "to": "PostgreSQL Database Choice 2026-02-03",
-      "relationType": "depends_on",
-      "metadata": {
-        "reason": "Stores user credentials and sessions"
-      }
-    },
-    {
-      "from": "User Authentication Feature",
-      "to": "JWT Library Decision",
-      "relationType": "enabled_by",
-      "metadata": {
-        "library": "jsonwebtoken"
-      }
-    }
-  ]
-}
-```
-
-Response:
-```json
-{
-  "created": [
-    {
-      "from": "User Authentication Feature",
-      "to": "PostgreSQL Database Choice 2026-02-03",
-      "type": "depends_on"
-    },
-    {
-      "from": "User Authentication Feature",
-      "to": "JWT Library Decision",
-      "type": "enabled_by"
-    }
-  ],
-  "count": 2
-}
-```
-
-**Example 2: Bug Fix Relationships**
-
-Request:
-```json
-{
-  "relations": [
-    {
-      "from": "Session Timeout Bug",
-      "to": "Cookie Domain Misconfiguration",
-      "relationType": "caused_by"
-    },
-    {
-      "from": "Session Config Update",
-      "to": "Session Timeout Bug",
-      "relationType": "solves"
-    }
-  ]
-}
-```
-
-Response:
-```json
-{
-  "created": [
-    {
-      "from": "Session Timeout Bug",
-      "to": "Cookie Domain Misconfiguration",
-      "type": "caused_by"
-    },
-    {
-      "from": "Session Config Update",
-      "to": "Session Timeout Bug",
-      "type": "solves"
-    }
-  ],
-  "count": 2
-}
-```
-
-**Example 3: Missing Entities**
-
-Request:
-```json
-{
-  "relations": [
-    {
-      "from": "Existing Entity",
-      "to": "Non-existent Entity",
-      "relationType": "depends_on"
-    }
-  ]
-}
-```
-
-Response:
-```json
-{
-  "created": [],
-  "count": 0,
-  "missingEntities": ["Non-existent Entity"]
-}
-```
-
-#### Validation
-
-Both source and target entities must exist before creating a relation. The tool verifies entity existence before creating relationships.
-
-#### Best Practices
-
-✅ **Do**:
-- Create entities before relations
-- Use meaningful relation types
-- Add metadata for context
-- Document why relationships exist
-- Build relationships incrementally
-
-❌ **Don't**:
-- Create circular dependencies without reason
-- Use generic relation types (be specific)
-- Forget to verify entities exist
-- Create duplicate relations
-
-#### Use Cases by Relation Type
-
-**`depends_on`**: Technical dependencies
-- Feature → Library
-- Service → Database
-- Component → Configuration
-
-**`caused_by`**: Root cause analysis
-- Bug → Code Change
-- Issue → Configuration Error
-- Failure → Missing Dependency
-
-**`solves`**: Problem resolution
-- Fix → Bug
-- Workaround → Issue
-- Optimization → Performance Problem
-
-**`enabled_by`**: Enablement tracking
-- Feature → Technology Choice
-- Capability → Tool Integration
-- Improvement → Library Update
-
-**`follows_pattern`**: Pattern adoption
-- Implementation → Best Practice
-- Code → Design Pattern
-- Solution → Reference Implementation
-
-#### Error Responses
-
-```typescript
-// Missing entities
-{
-  created: [],
-  count: 0,
-  missingEntities: ["Entity A", "Entity B"]
-}
-
-// Partial success
-{
-  created: [{ from: "A", to: "B", type: "depends_on" }],
-  count: 1,
-  errors: [
-    {
-      from: "C",
-      to: "D",
-      error: "Database constraint violation"
-    }
-  ]
-}
-
-// Validation error
-{
-  error: "Validation failed: relationType is required",
-  code: "VALIDATION_FAILED"
-}
-```
+| Parameter | Type | Required | Description | Example |
+|-----------|------|----------|-------------|---------|
+| `toolName` | string | Yes | Tool executed by Claude Code | "Write" |
+| `success` | boolean | Yes | Whether execution succeeded | true |
+| `arguments` | object | No | Tool arguments payload | `{"file_path": "..."}` |
+| `duration` | number | No | Duration in milliseconds | 150 |
+| `tokensUsed` | number | No | Tokens used by tool call | 500 |
+| `output` | string | No | Tool output | "File written" |
 
 ---
 
 ## System Tools
-
-### health-check
-
-**Purpose**: Monitor MeMesh system health and component status.
-
-**Use Cases**:
-- Verify system is operational
-- Diagnose connection issues
-- Check database status
-- Monitor resource usage
-- Troubleshoot problems
-
-#### Input Schema
-
-```json
-{
-  "type": "object",
-  "properties": {}
-}
-```
-
-#### Parameters
-
-None. This tool requires no parameters.
-
-#### Response Format
-
-```typescript
-{
-  content: [
-    {
-      type: "text",
-      text: string  // Formatted health status
-    }
-  ]
-}
-```
-
-**Response Structure** (parsed from formatted text):
-- Overall status (healthy/degraded/unhealthy)
-- Component statuses
-  - Database
-  - Filesystem
-  - Memory
-- Uptime
-- Resource metrics
-
-#### Examples
-
-**Example 1: Healthy System**
-
-Request:
-```json
-{}
-```
-
-Response:
-```
-✓ HEALTH CHECK - HEALTHY
-
-System Status: All components operational
-
-────────────────────────────────────
-
-Components:
-  ✓ Database: healthy (5ms)
-  ✓ Filesystem: healthy (2ms)
-  ✓ Memory: healthy (98% available)
-
-────────────────────────────────────
-
-Metrics:
-  Uptime: 12h 34m
-  Total checks: 1,234
-  Last check: 2026-02-03T10:30:00Z
-
-Duration: 15ms
-```
-
-**Example 2: Degraded System**
-
-Response:
-```
-⚠ HEALTH CHECK - DEGRADED
-
-System Status: Some components experiencing issues
-
-────────────────────────────────────
-
-Components:
-  ✓ Database: healthy (5ms)
-  ⚠ Filesystem: degraded (High disk usage: 92%)
-  ✓ Memory: healthy (95% available)
-
-────────────────────────────────────
-
-Recommendations:
-  1. Check disk space and clean up old files
-  2. Consider increasing storage capacity
-
-Duration: 18ms
-```
-
-**Example 3: Unhealthy System**
-
-Response:
-```
-✗ HEALTH CHECK - UNHEALTHY
-
-System Status: Critical components unavailable
-
-────────────────────────────────────
-
-Components:
-  ✗ Database: unhealthy (Connection timeout)
-  ✓ Filesystem: healthy (3ms)
-  ✓ Memory: healthy (97% available)
-
-────────────────────────────────────
-
-Recommendations:
-  1. Restart MeMesh server
-  2. Check database file permissions
-  3. Verify MEMESH_DATA_DIR is accessible
-
-Duration: 5002ms
-```
-
-#### Health Status Levels
-
-| Status | Description | Action Required |
-|--------|-------------|-----------------|
-| Healthy | All components operational | None |
-| Degraded | Some components have warnings | Monitor, plan fixes |
-| Unhealthy | Critical components down | Immediate action |
-
-#### Component Checks
-
-**Database**:
-- SQLite connection test
-- Write/read verification
-- Query performance
-
-**Filesystem**:
-- Data directory accessibility
-- Disk space availability
-- File permissions
-
-**Memory**:
-- Available RAM
-- Usage trends
-- Resource limits
-
-#### Best Practices
-
-✅ **Use health-check when**:
-- First time setting up MeMesh
-- Troubleshooting connection issues
-- After system updates
-- Before important operations
-- Periodically to monitor health
-
-✅ **Interpret results**:
-- Healthy: All clear to proceed
-- Degraded: Note warnings, proceed with caution
-- Unhealthy: Fix issues before continuing
-
-#### Error Responses
-
-```typescript
-// Health check itself failed
-{
-  content: [
-    {
-      type: "text",
-      text: "Health check failed: timeout after 5000ms"
-    }
-  ]
-}
-```
-
----
 
 ### memesh-generate-tests
 
@@ -1971,6 +1349,49 @@ Adjust imports and syntax as needed for your framework.
 {
   error: "Provide either specification or code, not both",
   code: "VALIDATION_FAILED"
+}
+```
+
+---
+
+### memesh-metrics
+
+**Purpose**: View MeMesh session metrics, routing configuration, and memory status.
+
+#### Input Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "section": {
+      "type": "string",
+      "enum": ["all", "session", "routing", "memory"],
+      "description": "Which metrics section to return (default: 'all')"
+    }
+  }
+}
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Default | Description | Example |
+|-----------|------|----------|---------|-------------|---------|
+| `section` | string | No | "all" | Which metrics section to return | "session" |
+
+#### Section Details
+
+- **all** (default): Returns everything below
+- **session**: Current session state — modified files, tested files, code review status
+- **routing**: Active model rules, planning enforcement, dry-run gate, recent audit log
+- **memory**: Knowledge graph size and status
+
+#### Example
+
+Request:
+```json
+{
+  "section": "memory"
 }
 ```
 
@@ -2447,11 +1868,10 @@ await createRelations({
 | `buddy-remember` (store) | 50-200ms | Simple database insert |
 | `buddy-remember` (search) | 100-500ms | Depends on graph size |
 | `memesh-create-entities` | 50-200ms per entity | Batch operations faster |
-| `recall-memory` | 100-300ms | Direct database query |
-| `add-observations` | 100-300ms | Get-then-update pattern |
-| `create-relations` | 150-400ms | Validates both entities first |
-| `health-check` | 10-100ms | All checks in parallel |
+| `memesh-record-mistake` | 50-200ms | Database insert |
+| `memesh-hook-tool-use` | 10-100ms | Event processing |
 | `memesh-generate-tests` | 1000-5000ms | Uses LLM sampling |
+| `memesh-metrics` | 10-100ms | Read-only aggregation |
 
 ### Rate Limits
 
@@ -2462,8 +1882,7 @@ await createRelations({
 
 **Best Practices**:
 - Batch entity creation when possible
-- Avoid excessive polling of health-check
-- Cache recall-memory results when appropriate
+- Cache buddy-remember results when appropriate
 - Use appropriate query limits
 
 ### Resource Usage
@@ -2482,19 +1901,18 @@ await createRelations({
 **CPU**:
 - Most operations: Low CPU usage
 - memesh-generate-tests: Medium CPU (LLM sampling)
-- health-check: Minimal CPU
+- memesh-metrics: Minimal CPU
 
 ### Optimization Tips
 
 ✅ **Optimize Performance**:
 - Batch memesh-create-entities operations
 - Use appropriate limit parameters
-- Avoid unnecessary health-checks
 - Cache buddy-remember searches
 - Clean up old entities periodically
 
 ✅ **Monitor Usage**:
-- Check health-check regularly
+- Use memesh-metrics to check memory status
 - Monitor database file size
 - Track operation latency
 - Review error rates
@@ -2530,6 +1948,6 @@ await createRelations({
 
 ---
 
-**MeMesh MCP Server** - Persistent memory and context-aware task execution for Claude Code
+**MeMesh Plugin** - Persistent memory and context-aware task execution for Claude Code
 
 *For questions or issues, please visit the GitHub repository or open an issue.*

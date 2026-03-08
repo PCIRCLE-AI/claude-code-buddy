@@ -2,7 +2,7 @@
 
 ## Current Status: Partial Support (Cloud-Only Mode)
 
-MeMesh plugin can run in **Claude Desktop Cowork** environments, but with limited functionality due to native module restrictions in the Cowork sandbox.
+MeMesh Plugin can run in **Claude Desktop Cowork** environments, but with limited functionality due to native module restrictions in the Cowork sandbox.
 
 ### ✅ What Works
 

@@ -2,11 +2,11 @@
 
 <img src="https://img.shields.io/badge/%F0%9F%A7%A0-MeMesh-blueviolet?style=for-the-badge" alt="MeMesh" />
 
-# MeMesh
+# MeMesh Plugin
 
 ### เซสชันเขียนโค้ดกับ AI ของคุณสมควรมีหน่วยความจำ
 
-MeMesh มอบหน่วยความจำถาวรที่ค้นหาได้ให้ Claude Code — ทำให้ทุกเซสชันต่อยอดจากเซสชันก่อนหน้า
+MeMesh Plugin มอบหน่วยความจำถาวรที่ค้นหาได้ให้ Claude Code — ทำให้ทุกเซสชันต่อยอดจากเซสชันก่อนหน้า
 
 [![npm version](https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=cb3837)](https://www.npmjs.com/package/@pcircle/memesh)
 [![Downloads](https://img.shields.io/npm/dm/@pcircle/memesh?style=flat-square&color=blue)](https://www.npmjs.com/package/@pcircle/memesh)

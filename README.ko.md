@@ -2,11 +2,11 @@
 
 <img src="https://img.shields.io/badge/%F0%9F%A7%A0-MeMesh-blueviolet?style=for-the-badge" alt="MeMesh" />
 
-# MeMesh
+# MeMesh Plugin
 
 ### AI 코딩 세션에도 기억이 필요합니다.
 
-MeMesh는 Claude Code에 영구적이고 검색 가능한 메모리를 제공하여, 모든 세션이 이전 세션 위에 쌓이도록 합니다.
+MeMesh Plugin은 Claude Code에 영구적이고 검색 가능한 메모리를 제공하여, 모든 세션이 이전 세션 위에 쌓이도록 합니다.
 
 [![npm version](https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=cb3837)](https://www.npmjs.com/package/@pcircle/memesh)
 [![Downloads](https://img.shields.io/npm/dm/@pcircle/memesh?style=flat-square&color=blue)](https://www.npmjs.com/package/@pcircle/memesh)

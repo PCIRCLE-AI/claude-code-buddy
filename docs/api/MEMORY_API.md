@@ -1,13 +1,12 @@
 # Memory API Reference
 
-Complete API documentation for MeMesh memory system.
+Complete API documentation for MeMesh Plugin memory system.
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [UnifiedMemoryStore](#unifiedmemorystore)
-- [SmartMemoryQuery](#smartmemoryquery)
-- [AutoTagger](#autotagger)
+- [MemorySearchEngine](#memorysearchengine)
 - [AutoMemoryRecorder](#automemoryrecorder)
 - [Types](#types)
 - [Best Practices](#best-practices)
@@ -213,119 +212,48 @@ const deleted = await memoryStore.delete('unified-memory-123');
 
 ---
 
-## SmartMemoryQuery
+## MemorySearchEngine
 
-Context-aware memory search with relevance ranking.
+Search logic extracted from UnifiedMemoryStore. Handles content-based query filtering, search filter application, result deduplication, and relevance ranking.
 
-### Constructor
+### Usage
 
-```typescript
-import { SmartMemoryQuery } from '@pcircle/memesh/memory/SmartMemoryQuery';
+MemorySearchEngine is used internally by UnifiedMemoryStore. It is not instantiated directly — search operations are accessed through `UnifiedMemoryStore.search()`.
 
-const smartQuery = new SmartMemoryQuery();
-```
+### Search Scoring
 
-### Methods
-
-#### `search(query, memories, options?)`
-
-Search and rank memories by relevance.
-
-**Parameters:**
-- `query: string` - Search query
-- `memories: UnifiedMemory[]` - Memory set to search
-- `options?: SearchOptions & { techStack?: string[] }` - Search options
-
-**Returns:** `UnifiedMemory[]` - Ranked memories (highest score first)
-
-**Example:**
-
-```typescript
-const allMemories = await memoryStore.search('');
-const results = smartQuery.search('JWT authentication', allMemories, {
-  techStack: ['nodejs', 'express'],
-});
-
-// Results are ranked by relevance:
-// - Exact content match: +100 points
-// - Tag match: +50 per tag
-// - TF content scoring: up to +20
-// - Tech stack boost: 1.5x
-// - Importance multiplier
-// - Recency boost
-```
-
-**Scoring Formula:**
+MemorySearchEngine uses a **multi-factor scoring system**:
 
 ```
-score = (100 * exact_match + 50 * tag_matches + TF_score)
-      * tech_boost
-      * importance
-      * recency_boost
+Final Score = (Content Match + Tag Match + TF Score)
+              × Tech Stack Boost
+              × Importance
+              × Recency Boost
 ```
 
----
+**Scoring breakdown:**
+- **Exact content match**: +100 points
+- **Tag match**: +50 points per matching tag
+- **TF score**: 0-20 points based on term frequency
+- **Tech stack boost**: 1.5× if matches tech stack
+- **Importance**: 0.0-1.0 multiplier
+- **Recency boost**: 1.2× if <7 days, 1.1× if <30 days
 
-## AutoTagger
+### Features
 
-Intelligent tag generation from content.
+- Content-based query filtering (substring match)
+- Search filter application (time range, importance, type, limit)
+- Result deduplication by content hash
+- Relevance ranking via multi-factor scoring
 
-### Constructor
+### Tagging
 
-```typescript
-import { AutoTagger } from '@pcircle/memesh/memory/AutoTagger';
+Tags are generated inline during memory storage in UnifiedMemoryStore. The tagging logic detects:
 
-const tagger = new AutoTagger();
-```
-
-### Methods
-
-#### `generateTags(content, existingTags, context?)`
-
-Generate tags from content.
-
-**Parameters:**
-- `content: string` - Memory content to analyze
-- `existingTags: string[]` - User-provided tags
-- `context?: { projectPath?: string }` - Optional context
-
-**Returns:** `string[]` - Combined tags (existing + auto-generated, deduplicated)
-
-**Example:**
-
-```typescript
-const tags = tagger.generateTags(
-  'Use PostgreSQL for database because of JSONB support',
-  ['database'],
-  { projectPath: '/my/project' }
-);
-
-console.log(tags);
-// Output: [
-//   'database',
-//   'tech:postgresql',
-//   'domain:database',
-//   'scope:project'
-// ]
-```
-
-**Detection Coverage:**
-
-- **Tech Stack (50+ technologies)**:
-  - Languages: TypeScript, JavaScript, Python, Java, Go, Rust, etc.
-  - Frameworks: React, Vue, Next.js, Express, Django, etc.
-  - Databases: PostgreSQL, MongoDB, Redis, etc.
-  - Tools: Docker, Kubernetes, AWS, Git, etc.
-
-- **Domain Areas (8 categories)**:
-  - Frontend, Backend, Database, Auth, Security, Testing, Performance, DevOps
-
-- **Design Patterns (11 patterns)**:
-  - Singleton, Factory, Repository, Observer, Strategy, etc.
-
-- **Scope Tags**:
-  - `scope:project` - Project-specific memory
-  - `scope:global` - Global knowledge
+- **Tech Stack (50+ technologies)**: Languages, frameworks, databases, tools
+- **Domain Areas (8 categories)**: Frontend, Backend, Database, Auth, Security, Testing, Performance, DevOps
+- **Design Patterns (11 patterns)**: Singleton, Factory, Repository, Observer, Strategy, etc.
+- **Scope Tags**: `scope:project` (project-specific), `scope:global` (global knowledge)
 
 ---
 
@@ -557,7 +485,7 @@ type TimeRange = 'last-24h' | 'last-7-days' | 'last-30-days' | 'all';
 - ✅ Use hyphens for multi-word tags
 - ✅ Be specific (`react-hooks` not just `react`)
 - ✅ Include domain tags (`domain:auth`, `domain:frontend`)
-- ✅ Let AutoTagger handle tech detection
+- ✅ Let the inline auto-tagging handle tech detection
 
 **Don't:**
 - ❌ Use spaces in tags

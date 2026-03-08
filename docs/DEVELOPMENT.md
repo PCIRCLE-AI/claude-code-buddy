@@ -1,6 +1,6 @@
 # Development Guide
 
-This guide covers the day-to-day development workflow for MeMesh contributors. For contribution guidelines and release processes, see [CONTRIBUTING.md](../CONTRIBUTING.md).
+This guide covers the day-to-day development workflow for MeMesh Plugin contributors. For contribution guidelines and release processes, see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Table of Contents
 

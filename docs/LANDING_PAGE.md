@@ -1,4 +1,4 @@
-# MeMesh — Searchable Project Memory for Claude Code
+# MeMesh Plugin — Searchable Project Memory for Claude Code
 
 > Remember decisions, patterns, and context — across every session.
 

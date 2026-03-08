@@ -1,6 +1,6 @@
 # Error Reference
 
-Complete reference of MeMesh error types, codes, and solutions.
+Complete reference of MeMesh Plugin error types, codes, and solutions.
 
 ---
 

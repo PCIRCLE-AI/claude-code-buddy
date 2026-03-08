@@ -2,11 +2,11 @@
 
 <img src="https://img.shields.io/badge/%F0%9F%A7%A0-MeMesh-blueviolet?style=for-the-badge" alt="MeMesh" />
 
-# MeMesh
+# MeMesh Plugin
 
 ### Các phiên lập trình AI của bạn xứng đáng có bộ nhớ.
 
-MeMesh mang đến cho Claude Code bộ nhớ bền vững, có thể tìm kiếm — để mỗi phiên làm việc đều kế thừa từ phiên trước.
+MeMesh Plugin mang đến cho Claude Code bộ nhớ bền vững, có thể tìm kiếm — để mỗi phiên làm việc đều kế thừa từ phiên trước.
 
 [![npm version](https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=cb3837)](https://www.npmjs.com/package/@pcircle/memesh)
 [![Downloads](https://img.shields.io/npm/dm/@pcircle/memesh?style=flat-square&color=blue)](https://www.npmjs.com/package/@pcircle/memesh)

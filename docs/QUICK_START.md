@@ -1,7 +1,7 @@
 # Quick Start Guide
-## Get Started with MeMesh in 5 Minutes
+## Get Started with MeMesh Plugin in 5 Minutes
 
-Welcome to MeMesh! This guide will help you set up and start using MeMesh in less than 5 minutes.
+Welcome to MeMesh Plugin! This guide will help you set up and start using MeMesh Plugin in less than 5 minutes.
 
 ---
 

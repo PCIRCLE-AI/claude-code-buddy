@@ -1,11 +1,11 @@
-# MeMesh - AI Assistant Context
+# MeMesh Plugin - AI Assistant Context
 
 > Persistent memory plugin for Claude Code
 > Remembers your architecture decisions, coding patterns, and project context across sessions
 
 ## Project Overview
 
-MeMesh is a Claude Code plugin that provides persistent memory via MCP (Model Context Protocol):
+MeMesh Plugin is a Claude Code plugin that provides persistent memory via MCP (Model Context Protocol):
 - **Project Memory**: Knowledge graph remembering architecture decisions and coding patterns
 - **Cross-Session Recall**: Query past decisions, patterns, and learnings anytime
 - **Auto-Tracking**: Automatic session summaries and context capture
@@ -99,7 +99,7 @@ src/
 ├── knowledge-graph/   # Knowledge graph (KGSearchEngine, FTS5+semantic)
 ├── embeddings/        # Vector search (sqlite-vec, ONNX)
 ├── core/              # Core logic (HookIntegration, GitCommandParser)
-├── db/                # Database management (DatabaseManager)
+├── db/                # Database management (ConnectionPool, QueryCache)
 ├── cli/               # CLI commands
 ├── config/            # Configuration management
 ├── management/        # Process management

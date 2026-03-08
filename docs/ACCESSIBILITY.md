@@ -1,6 +1,6 @@
 # Accessibility Guide
 
-MeMesh is committed to providing an accessible experience for all users, including those using assistive technologies.
+MeMesh Plugin is committed to providing an accessible experience for all users, including those using assistive technologies.
 
 ## Screen Reader Support
 

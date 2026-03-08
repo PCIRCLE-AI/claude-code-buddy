@@ -2,11 +2,11 @@
 
 <img src="https://img.shields.io/badge/%F0%9F%A7%A0-MeMesh-blueviolet?style=for-the-badge" alt="MeMesh" />
 
-# MeMesh
+# MeMesh Plugin
 
 ### あなたの AI コーディングセッションにはメモリが必要です。
 
-MeMesh は Claude Code に永続的で検索可能なメモリを提供し、すべてのセッションが前回の続きから始まります。
+MeMesh Plugin は Claude Code に永続的で検索可能なメモリを提供し、すべてのセッションが前回の続きから始まります。
 
 [![npm version](https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=cb3837)](https://www.npmjs.com/package/@pcircle/memesh)
 [![Downloads](https://img.shields.io/npm/dm/@pcircle/memesh?style=flat-square&color=blue)](https://www.npmjs.com/package/@pcircle/memesh)
