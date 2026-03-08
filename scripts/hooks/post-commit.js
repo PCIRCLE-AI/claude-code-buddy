@@ -24,6 +24,18 @@ CREATE TABLE IF NOT EXISTS observations (
   FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS relations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  from_entity_id INTEGER NOT NULL,
+  to_entity_id INTEGER NOT NULL,
+  relation_type TEXT NOT NULL,
+  metadata JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (from_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
+  FOREIGN KEY (to_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
+  UNIQUE(from_entity_id, to_entity_id, relation_type)
+);
+
 CREATE TABLE IF NOT EXISTS tags (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   entity_id INTEGER NOT NULL,
@@ -34,6 +46,8 @@ CREATE TABLE IF NOT EXISTS tags (
 CREATE INDEX IF NOT EXISTS idx_tags_entity ON tags(entity_id);
 CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
 CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
+CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
+CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
   name, observations, content='',
