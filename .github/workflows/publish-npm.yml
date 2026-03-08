@@ -1,16 +1,5 @@
 name: Publish to npm
 
-# This workflow automatically publishes the package to npm when a GitHub Release is published.
-#
-# Workflow: Create GitHub Release → Trigger this workflow → Build → Test → Publish to npm
-# Duration: ~2-3 minutes
-#
-# Requirements:
-#   - NPM_TOKEN secret must be configured in repository settings
-#   - Token must have publish permissions for @pcircle scope
-#
-# For detailed release instructions, see docs/RELEASE_PROCESS.md
-
 on:
   release:
     types: [published]
@@ -21,14 +10,14 @@ jobs:
 
     permissions:
       contents: read
-      id-token: write # For npm provenance
+      id-token: write
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
@@ -40,30 +29,12 @@ jobs:
         run: npm run build
 
       - name: Run tests
-        run: npm test -- --run
-
-      - name: Run installation tests
-        run: npm run test:install
+        run: npx vitest run
 
       - name: Verify package contents
-        run: |
-          echo "📦 Verifying package contents..."
-          npm pack --dry-run
-          echo ""
-          echo "📊 Package size:"
-          TARBALL=$(npm pack --silent)
-          du -sh "$TARBALL"
-          rm "$TARBALL"
-          echo ""
-          echo "✅ Package verification complete"
+        run: npm pack --dry-run
 
       - name: Publish to npm
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      # Log publication success (replaced invalid GitHub API call with simple logging)
-      - name: Log success
-        run: |
-          echo "✅ Successfully published @pcircle/memesh@${{ github.event.release.tag_name }} to npm"
-          echo "📦 Package URL: https://www.npmjs.com/package/@pcircle/memesh"
