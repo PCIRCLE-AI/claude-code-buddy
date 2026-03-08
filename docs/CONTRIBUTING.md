@@ -930,6 +930,6 @@ By contributing, you agree that your contributions will be licensed under the MI
 
 ---
 
-**Version**: 2.10.0
+**Version**: 2.10.1
 **Last Updated**: 2026-03-08
 **Maintainer**: MeMesh Team

@@ -1,6 +1,6 @@
 # MeMesh Plugin - API Reference
 
-**Version**: 2.10.0
+**Version**: 2.10.1
 **Last Updated**: 2026-03-08
 **Protocol**: Model Context Protocol (MCP)
 

@@ -1,6 +1,6 @@
 {
   "name": "@pcircle/memesh",
-  "version": "2.10.0",
+  "version": "2.10.1",
   "description": "MeMesh — Persistent memory plugin for Claude Code. Remembers architecture decisions, coding patterns, and project context across sessions.",
   "main": "dist/index.js",
   "type": "module",

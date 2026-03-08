@@ -2,7 +2,7 @@
 
 Complete reference for all MeMesh Plugin commands and tools.
 
-**Version**: 2.10.0
+**Version**: 2.10.1
 **Last Updated**: 2026-03-08
 
 ## Table of Contents
