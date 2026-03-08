@@ -41,32 +41,21 @@ memesh setup
 
 ### Alternative: Manual Setup
 
-If you prefer manual configuration:
+If auto-configuration did not work:
 
 1. **Install MeMesh**:
    ```bash
    npm install -g @pcircle/memesh
    ```
 
-2. **Locate Claude Code config**:
-   - Claude Code CLI: `~/.claude/mcp_settings.json`
-   - Claude Desktop (macOS): `~/Library/Application Support/Claude/claude_desktop_config.json`
-   - Claude Desktop (Windows): `%APPDATA%\Claude\claude_desktop_config.json`
-
-3. **Add MCP server configuration**:
-   ```json
-   {
-     "mcpServers": {
-       "memesh": {
-         "command": "npx",
-         "args": ["-y", "@pcircle/memesh"],
-         "env": {}
-       }
-     }
-   }
+2. **Run the setup wizard**:
+   ```bash
+   memesh setup
    ```
 
-4. **Restart Claude Code**:
+   MeMesh is a Claude Code Plugin — the MCP server is auto-managed via the plugin's `.mcp.json` file. No manual editing of `~/.claude/mcp_settings.json` is needed.
+
+3. **Restart Claude Code**:
    - Close and reopen Claude Code completely
    - Wait for MCP servers to initialize (~5 seconds)
 

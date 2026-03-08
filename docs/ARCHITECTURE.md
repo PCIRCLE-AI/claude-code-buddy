@@ -661,7 +661,7 @@ npm install -g @pcircle/memesh
 
 **Binary**: `dist/mcp/server-bootstrap.js` (executable)
 
-**Claude Code Integration**: MCP configuration in `~/.claude/mcp_settings.json`
+**Claude Code Integration**: MCP server auto-managed via the plugin's `.mcp.json` (no manual configuration of `~/.claude/mcp_settings.json` needed)
 
 ---
 

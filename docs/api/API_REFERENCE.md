@@ -58,28 +58,11 @@ Router      Knowledge Graph
 
 ## Authentication & Connection
 
-MeMesh operates as an MCP server and requires configuration in Claude Code's settings.
+MeMesh is a Claude Code Plugin. The MCP server is auto-managed via the plugin's `.mcp.json` file — no manual configuration of `~/.claude/mcp_settings.json` is needed.
 
-**Configuration File Location**:
-- **Claude Code CLI**: `~/.claude/mcp_settings.json`
-- **Claude Desktop (macOS)**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Claude Desktop (Windows)**: `%APPDATA%\Claude\claude_desktop_config.json`
-- **Claude Desktop (Linux)**: `~/.config/Claude/claude_desktop_config.json`
+Simply install MeMesh and restart Claude Code. The plugin system handles MCP server registration automatically.
 
-**Basic Configuration**:
-```json
-{
-  "mcpServers": {
-    "memesh": {
-      "command": "npx",
-      "args": ["-y", "@pcircle/memesh"],
-      "env": {
-        "DEBUG": "false"
-      }
-    }
-  }
-}
-```
+**If auto-configuration fails**, run `memesh setup` to reconfigure.
 
 **Advanced Configuration**:
 ```json

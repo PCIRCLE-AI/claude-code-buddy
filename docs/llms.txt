@@ -31,21 +31,7 @@ cd claude-code-buddy
 ```
 
 ### Configuration (Claude Code CLI)
-Add to `~/.claude/mcp_settings.json`:
-```json
-{
-  "mcpServers": {
-    "memesh": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@pcircle/memesh"],
-      "env": {
-        "NODE_ENV": "production"
-      }
-    }
-  }
-}
-```
+MeMesh is a Claude Code Plugin. The MCP server is auto-managed via the plugin's `.mcp.json` file — no manual configuration of `~/.claude/mcp_settings.json` is needed. Simply install and restart Claude Code.
 
 ## Core Features
 

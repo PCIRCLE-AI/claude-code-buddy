@@ -461,8 +461,9 @@ If buddy commands aren't recognized:
 
 1. **Verify MCP Integration:**
    ```bash
-   # Check Claude Code config
-   cat ~/.claude/mcp_settings.json
+   # MeMesh MCP is auto-managed via the plugin's .mcp.json
+   # If auto-configuration failed, run:
+   memesh setup
    ```
 
 2. **Restart Claude Code:**

@@ -198,8 +198,8 @@ Before you start, ensure:
 
 4. ✅ **Note your current MCP configuration** (we'll update it later)
    ```bash
-   # Find your config file
-   cat ~/.claude/mcp_settings.json 2>/dev/null || \
+   # MeMesh plugin auto-manages MCP via .mcp.json — check plugin status:
+   cat ~/.claude/plugins/known_marketplaces.json 2>/dev/null || \
    cat ~/Library/Application\ Support/Claude/claude_desktop_config.json 2>/dev/null
    ```
 
@@ -261,7 +261,7 @@ npm run setup
 #### Option B: Manual Update
 
 1. Find your MCP config file:
-   - Claude Code CLI: `~/.claude/mcp_settings.json`
+   - Claude Code CLI: Auto-managed via plugin's `.mcp.json` (no manual editing needed)
    - Claude Desktop: `~/.config/claude/claude_desktop_config.json`
 
 2. Open the file and update:
@@ -390,11 +390,10 @@ cp -r ~/.claude-code-buddy-backup-YYYYMMDD ~/.memesh
 
 **Fix**:
 ```bash
-# Edit config and remove old entry:
-nano ~/.claude/mcp_settings.json
-
-# Keep only "memesh" entry, delete "claude-code-buddy" entry
-# Restart Claude Code
+# MeMesh plugin auto-manages MCP config. To fix conflicts:
+# 1. Remove legacy entries from ~/.claude/mcp_settings.json (if exists)
+# 2. The plugin's .mcp.json handles MCP configuration automatically
+# 3. Restart Claude Code
 ```
 
 ---

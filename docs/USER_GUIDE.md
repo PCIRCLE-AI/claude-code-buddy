@@ -1093,51 +1093,22 @@ Setup user authentication with JWT
 
 ## Configuration
 
-### MCP Configuration File
+### MCP Configuration
 
-**Location**:
-- **Claude Code CLI**: `~/.claude/mcp_settings.json`
-- **Claude Desktop (macOS)**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- **Claude Desktop (Windows)**: `%APPDATA%\Claude\claude_desktop_config.json`
-- **Claude Desktop (Linux)**: `~/.config/Claude/claude_desktop_config.json`
+MeMesh is a Claude Code Plugin. The MCP server is auto-managed via the plugin's `.mcp.json` file — no manual configuration of `~/.claude/mcp_settings.json` is needed.
 
-**Structure**:
-```json
-{
-  "mcpServers": {
-    "memesh": {
-      "command": "npx",
-      "args": ["-y", "@pcircle/memesh"],
-      "env": {
-        "DEBUG": "false"
-      }
-    }
-  }
-}
-```
+Simply install MeMesh and restart Claude Code. If auto-configuration fails, run `memesh setup`.
+
+**For Claude Desktop** (not Claude Code CLI), see the Claude Desktop documentation for MCP configuration locations:
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
 **Environment Variables**:
 
 - `DEBUG`: Enable debug logging (true/false)
 - `MEMESH_DATA_DIR`: Custom data directory (default: ~/.memesh)
 - `MEMESH_LOG_LEVEL`: Log level (error/warn/info/debug)
-
-**Custom Configuration**:
-```json
-{
-  "mcpServers": {
-    "memesh": {
-      "command": "npx",
-      "args": ["-y", "@pcircle/memesh"],
-      "env": {
-        "DEBUG": "true",
-        "MEMESH_DATA_DIR": "/custom/path/to/data",
-        "MEMESH_LOG_LEVEL": "debug"
-      }
-    }
-  }
-}
-```
 
 ---
 
@@ -1302,22 +1273,7 @@ For detailed troubleshooting, see [TROUBLESHOOTING.md](./TROUBLESHOOTING.md).
 
 ### Debug Mode
 
-Enable debug logging:
-
-```json
-{
-  "mcpServers": {
-    "memesh": {
-      "command": "npx",
-      "args": ["-y", "@pcircle/memesh"],
-      "env": {
-        "DEBUG": "true",
-        "MEMESH_LOG_LEVEL": "debug"
-      }
-    }
-  }
-}
-```
+Enable debug logging by setting environment variables `DEBUG=true` and `MEMESH_LOG_LEVEL=debug` in the plugin's `.mcp.json` configuration.
 
 Check logs:
 - **macOS**: `~/Library/Logs/Claude/`
