@@ -21,9 +21,6 @@ export default defineConfig({
     testTimeout: 30000, // 30 seconds max per test
     hookTimeout: 10000, // 10 seconds for hooks
 
-    // Global setup/teardown
-    globalSetup: './vitest.global-setup.ts',
-
     // Environment configuration
     environment: 'node',
 
