@@ -2,10 +2,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { MetricsStore } from '../../src/ui/MetricsStore.js';
 import type { AttributionMessage } from '../../src/ui/types.js';
+import { ValidationError } from '../../src/errors/index.js';
 import { existsSync, unlinkSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 
 describe('MetricsStore', () => {
-  const testStorePath = '/tmp/test-metrics-store.json';
+  const testStorePath = join(homedir(), '.memesh-test-metrics-store.json');
   let store: MetricsStore;
 
   beforeEach(() => {
@@ -128,6 +131,36 @@ describe('MetricsStore', () => {
     const metrics = newStore.getCurrentSessionMetrics();
     expect(metrics.tasksCompleted).toBe(1);
     expect(metrics.totalTimeSaved).toBe(10);
+  });
+
+  describe('path traversal protection', () => {
+    it('should throw ValidationError when path is outside home directory', () => {
+      expect(() => new MetricsStore('/etc/test-memesh-metrics.json')).toThrow(ValidationError);
+    });
+
+    it('should include path details in the ValidationError context', () => {
+      let thrown: unknown;
+      try {
+        new MetricsStore('/etc/test-memesh-metrics.json');
+      } catch (err) {
+        thrown = err;
+      }
+
+      expect(thrown).toBeInstanceOf(ValidationError);
+      const ve = thrown as ValidationError;
+      expect(ve.message).toContain('home or data directory');
+      expect(ve.context?.provided).toBe('/etc/test-memesh-metrics.json');
+    });
+
+    it('should throw ValidationError for path with .. traversal that escapes home', () => {
+      const escapingPath = join(homedir(), '..', '..', 'etc', 'passwd');
+      expect(() => new MetricsStore(escapingPath)).toThrow(ValidationError);
+    });
+
+    it('should accept a path within the home directory without throwing', () => {
+      const validPath = join(homedir(), '.memesh-test-validation-check.json');
+      expect(() => new MetricsStore(validPath)).not.toThrow();
+    });
   });
 
   it('should generate daily summary report', async () => {

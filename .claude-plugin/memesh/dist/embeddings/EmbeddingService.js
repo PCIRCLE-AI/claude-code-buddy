@@ -2,6 +2,7 @@ import path from 'path';
 import { pipeline, env } from '@xenova/transformers';
 import { ModelManager } from './ModelManager.js';
 import { logger } from '../utils/logger.js';
+import { LRUCache } from '../utils/lru-cache.js';
 const modelDir = new ModelManager().getModelDir();
 env.cacheDir = path.dirname(modelDir);
 env.allowRemoteModels = true;
@@ -11,7 +12,7 @@ export class EmbeddingService {
     static MAX_CACHE_SIZE = 500;
     extractor = null;
     initialized = false;
-    cache = new Map();
+    cache = new LRUCache({ maxSize: EmbeddingService.MAX_CACHE_SIZE });
     async initialize() {
         if (this.initialized) {
             return;
@@ -45,11 +46,6 @@ export class EmbeddingService {
             normalize: true,
         });
         const embedding = new Float32Array(result.data);
-        if (this.cache.size >= EmbeddingService.MAX_CACHE_SIZE) {
-            const firstKey = this.cache.keys().next().value;
-            if (firstKey !== undefined)
-                this.cache.delete(firstKey);
-        }
         this.cache.set(text, new Float32Array(embedding));
         return embedding;
     }

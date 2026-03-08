@@ -15,6 +15,7 @@ export interface KGSearchEngineContext {
     getEntity: (name: string) => Entity | null;
     queryCache: QueryCache<string, any>;
 }
+export declare const MAX_FTS5_QUERY_LENGTH = 500;
 export declare class KGSearchEngine {
     private readonly ctx;
     constructor(context: KGSearchEngineContext);

@@ -546,7 +546,11 @@ function trackFileModifications(toolData, currentSession) {
     currentSession.modifiedFiles = [];
   }
 
+  const MAX_MODIFIED_FILES = 100;
   if (!currentSession.modifiedFiles.includes(filePath)) {
+    if (currentSession.modifiedFiles.length >= MAX_MODIFIED_FILES) {
+      currentSession.modifiedFiles.shift(); // Remove oldest entry
+    }
     currentSession.modifiedFiles.push(filePath);
   }
 }

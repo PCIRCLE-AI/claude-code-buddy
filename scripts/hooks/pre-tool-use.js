@@ -125,11 +125,21 @@ function mergeResponses(responses) {
 // Routing Config
 // ============================================================================
 
+/** Module-level cache for routing config (30-second TTL) */
+let _routingConfigCache = null;
+let _routingConfigTimestamp = 0;
+const ROUTING_CONFIG_TTL_MS = 30_000;
+
 /**
  * Load routing config with fallback defaults.
  * Creates default config if file doesn't exist.
+ * Results are cached for 30 seconds to avoid repeated file I/O.
  */
 function loadRoutingConfig() {
+  const now = Date.now();
+  if (_routingConfigCache && (now - _routingConfigTimestamp) < ROUTING_CONFIG_TTL_MS) {
+    return _routingConfigCache;
+  }
   const defaults = {
     version: 1,
     modelRouting: {
@@ -156,7 +166,10 @@ function loadRoutingConfig() {
   try {
     if (fs.existsSync(ROUTING_CONFIG_FILE)) {
       const config = JSON.parse(fs.readFileSync(ROUTING_CONFIG_FILE, 'utf-8'));
-      return { ...defaults, ...config };
+      const merged = { ...defaults, ...config };
+      _routingConfigCache = merged;
+      _routingConfigTimestamp = now;
+      return merged;
     }
   } catch (error) {
     logError('loadRoutingConfig', error);
@@ -173,6 +186,8 @@ function loadRoutingConfig() {
     // Non-critical — works with in-memory defaults
   }
 
+  _routingConfigCache = defaults;
+  _routingConfigTimestamp = now;
   return defaults;
 }
 
@@ -185,10 +200,24 @@ function loadRoutingConfig() {
  * @param {string} entry - Log entry
  * @param {Object} config - Routing config
  */
+const AUDIT_LOG_MAX_BYTES = 1_048_576; // 1 MB
+const AUDIT_LOG_KEEP_LINES = 500;
+
 function auditLog(entry, config) {
   if (!config.auditLog) return;
 
   try {
+    // Rotate if log exceeds 1 MB: keep only the last 500 lines
+    if (fs.existsSync(ROUTING_AUDIT_LOG)) {
+      const stat = fs.statSync(ROUTING_AUDIT_LOG);
+      if (stat.size > AUDIT_LOG_MAX_BYTES) {
+        const content = fs.readFileSync(ROUTING_AUDIT_LOG, 'utf-8');
+        const lines = content.split('\n');
+        const truncated = lines.slice(-AUDIT_LOG_KEEP_LINES).join('\n');
+        fs.writeFileSync(ROUTING_AUDIT_LOG, truncated);
+      }
+    }
+
     const timestamp = new Date().toISOString();
     const line = `[${timestamp}] ${entry}\n`;
     fs.appendFileSync(ROUTING_AUDIT_LOG, line);

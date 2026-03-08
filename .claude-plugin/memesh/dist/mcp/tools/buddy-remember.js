@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { logger } from '../../utils/logger.js';
+import { getRecoverySuggestion } from '../../utils/errorHandler.js';
 export const BuddyRememberInputSchema = z.object({
     query: z.string().trim().min(1).describe('Search query (natural language supported for semantic search)'),
     mode: z
@@ -15,13 +16,13 @@ export const BuddyRememberInputSchema = z.object({
         .optional()
         .default(10)
         .describe('Maximum number of results to return'),
-    minSimilarity: z
+    matchThreshold: z
         .number()
         .min(0)
         .max(1)
         .optional()
         .default(0.3)
-        .describe('Minimum similarity score (0-1) for semantic/hybrid search'),
+        .describe('Minimum match score (0-1). Higher values return fewer but more relevant results. Default: 0.3'),
     allProjects: z
         .boolean()
         .optional()
@@ -94,8 +95,15 @@ async function semanticSearch(knowledgeGraph, query, limit, minSimilarity, optio
             allProjects: options?.allProjects,
         });
         try {
-            const results = await knowledgeGraph.semanticSearch(query, { limit, minSimilarity });
-            return results;
+            let results = await knowledgeGraph.semanticSearch(query, { limit: limit * 2, minSimilarity });
+            if (options?.projectPath && !options?.allProjects) {
+                results = results.filter(r => {
+                    const tags = r.entity.tags || [];
+                    return tags.some(t => t === 'scope:project' || t === 'scope:global');
+                });
+            }
+            results = results.slice(0, limit);
+            return { results, actualMethod: 'semantic' };
         }
         catch (error) {
             logger.warn('[buddy-remember] Semantic search failed, falling back to keyword', {
@@ -112,7 +120,12 @@ async function semanticSearch(knowledgeGraph, query, limit, minSimilarity, optio
             reason: 'KnowledgeGraph does not support semanticSearch method',
         });
     }
-    return keywordSearch(knowledgeGraph, query, limit, options);
+    const results = await keywordSearch(knowledgeGraph, query, limit, options);
+    return {
+        results,
+        actualMethod: 'keyword',
+        fallbackNote: 'Semantic search unavailable, using keyword search',
+    };
 }
 function hasHybridSearch(kg) {
     return 'hybridSearch' in kg && typeof kg.hybridSearch === 'function';
@@ -127,8 +140,15 @@ async function hybridSearch(knowledgeGraph, query, limit, minSimilarity, options
             allProjects: options?.allProjects,
         });
         try {
-            const results = await knowledgeGraph.hybridSearch(query, { limit, minSimilarity });
-            return results;
+            let results = await knowledgeGraph.hybridSearch(query, { limit: limit * 2, minSimilarity });
+            if (options?.projectPath && !options?.allProjects) {
+                results = results.filter(r => {
+                    const tags = r.entity.tags || [];
+                    return tags.some(t => t === 'scope:project' || t === 'scope:global');
+                });
+            }
+            results = results.slice(0, limit);
+            return { results, actualMethod: 'hybrid' };
         }
         catch (error) {
             logger.warn('[buddy-remember] Hybrid search failed, falling back to semantic', {
@@ -144,14 +164,20 @@ async function hybridSearch(knowledgeGraph, query, limit, minSimilarity, options
             minSimilarity,
         });
     }
-    return semanticSearch(knowledgeGraph, query, limit, minSimilarity, options);
+    const fallback = await semanticSearch(knowledgeGraph, query, limit, minSimilarity, options);
+    return {
+        results: fallback.results,
+        actualMethod: fallback.actualMethod,
+        fallbackNote: fallback.fallbackNote || `Hybrid search unavailable, used ${fallback.actualMethod} search`,
+    };
 }
 export async function executeBuddyRemember(input, projectMemory, formatter, knowledgeGraph) {
-    const { query, mode = 'hybrid', limit = 10, minSimilarity = 0.3, allProjects = false } = input;
+    const { query, mode = 'hybrid', limit = 10, matchThreshold: minSimilarity = 0.3, allProjects = false } = input;
     try {
         let results;
         let searchMethod;
         const projectPath = allProjects ? undefined : process.cwd();
+        let fallbackNote;
         if (!knowledgeGraph) {
             logger.debug('[buddy-remember] No knowledge graph provided, using projectMemory.search', {
                 projectPath,
@@ -167,20 +193,27 @@ export async function executeBuddyRemember(input, projectMemory, formatter, know
         }
         else {
             const searchOptions = { projectPath, allProjects };
+            const scopeLabel = allProjects ? 'all projects' : 'current project';
             switch (mode) {
-                case 'semantic':
-                    results = await semanticSearch(knowledgeGraph, query, limit, minSimilarity, searchOptions);
-                    searchMethod = allProjects ? 'semantic search (all projects)' : 'semantic search (current project)';
+                case 'semantic': {
+                    const searchResult = await semanticSearch(knowledgeGraph, query, limit, minSimilarity, searchOptions);
+                    results = searchResult.results;
+                    searchMethod = `${searchResult.actualMethod} search (${scopeLabel})`;
+                    fallbackNote = searchResult.fallbackNote;
                     break;
+                }
                 case 'keyword':
                     results = await keywordSearch(knowledgeGraph, query, limit, searchOptions);
-                    searchMethod = allProjects ? 'keyword search (all projects)' : 'keyword search (current project)';
+                    searchMethod = `keyword search (${scopeLabel})`;
                     break;
                 case 'hybrid':
-                default:
-                    results = await hybridSearch(knowledgeGraph, query, limit, minSimilarity, searchOptions);
-                    searchMethod = allProjects ? 'hybrid search (all projects)' : 'hybrid search (current project)';
+                default: {
+                    const searchResult = await hybridSearch(knowledgeGraph, query, limit, minSimilarity, searchOptions);
+                    results = searchResult.results;
+                    searchMethod = `${searchResult.actualMethod} search (${scopeLabel})`;
+                    fallbackNote = searchResult.fallbackNote;
                     break;
+                }
             }
         }
         if (results.length === 0) {
@@ -192,6 +225,7 @@ export async function executeBuddyRemember(input, projectMemory, formatter, know
                     query,
                     mode,
                     searchMethod,
+                    ...(fallbackNote && { fallbackNote }),
                     count: 0,
                     suggestions: [
                         'Try a broader search term',
@@ -219,6 +253,7 @@ export async function executeBuddyRemember(input, projectMemory, formatter, know
                 query,
                 mode,
                 searchMethod,
+                ...(fallbackNote && { fallbackNote }),
                 count: results.length,
                 memories: results.map(r => ({
                     ...r.entity,
@@ -243,11 +278,18 @@ export async function executeBuddyRemember(input, projectMemory, formatter, know
             mode,
             error: errorObj.message,
         });
+        const recovery = getRecoverySuggestion(errorObj);
         const formattedError = formatter.format({
             agentType: 'buddy-remember',
             taskDescription: `Search project memory: ${query}`,
             status: 'error',
             error: errorObj,
+            ...(recovery && {
+                results: {
+                    recoverySuggestion: recovery.suggestion,
+                    recoveryCategory: recovery.category,
+                },
+            }),
         });
         return {
             content: [

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { logger } from '../../utils/logger.js';
+import { getRecoverySuggestion } from '../../utils/errorHandler.js';
 export const BuddyDoInputSchema = z.object({
     task: z.string().trim().min(1).describe('Task description for MeMesh to process'),
 });
@@ -42,8 +43,16 @@ const TASK_PATTERNS = [
     },
 ];
 function detectTaskType(task) {
+    if (task.trim().length < 10) {
+        return null;
+    }
     for (const pattern of TASK_PATTERNS) {
-        if (pattern.patterns.some(p => p.test(task))) {
+        const matchedPattern = pattern.patterns.find(p => p.test(task));
+        if (matchedPattern) {
+            const match = task.match(matchedPattern);
+            if (match && match[0].length <= 5 && task.length > 80) {
+                continue;
+            }
             return { type: pattern.type, skills: pattern.skills, approach: pattern.approach };
         }
     }
@@ -156,11 +165,18 @@ export async function executeBuddyDo(input, formatter, autoTracker, knowledgeGra
     catch (error) {
         const errorObj = error instanceof Error ? error : new Error(String(error));
         logger.error('buddy_do task failed', { taskId, error: errorObj.message });
+        const recovery = getRecoverySuggestion(errorObj);
         const formattedError = formatter.format({
             agentType: 'buddy-do',
             taskDescription: input.task,
             status: 'error',
             error: errorObj,
+            ...(recovery && {
+                results: {
+                    recoverySuggestion: recovery.suggestion,
+                    recoveryCategory: recovery.category,
+                },
+            }),
         });
         return {
             content: [

@@ -54,6 +54,9 @@ export interface KGSearchEngineContext {
   queryCache: QueryCache<string, any>;
 }
 
+/** Maximum allowed query length for FTS5 searches (chars). Queries exceeding this are truncated. */
+export const MAX_FTS5_QUERY_LENGTH = 500;
+
 export class KGSearchEngine {
   private readonly ctx: KGSearchEngineContext;
 
@@ -127,7 +130,6 @@ export class KGSearchEngine {
    * Validates query length and token count to prevent DoS.
    */
   prepareFTS5Query(query: string): string {
-    const MAX_QUERY_LENGTH = 10000;
     const MAX_TOKENS = 100;
 
     let normalized = query.trim().replace(/\s+/g, ' ');
@@ -135,9 +137,9 @@ export class KGSearchEngine {
       return '';
     }
 
-    if (normalized.length > MAX_QUERY_LENGTH) {
-      logger.warn(`[KG] FTS5 query too long (${normalized.length} chars), truncating to ${MAX_QUERY_LENGTH}`);
-      normalized = normalized.substring(0, MAX_QUERY_LENGTH);
+    if (normalized.length > MAX_FTS5_QUERY_LENGTH) {
+      logger.warn(`[KG] FTS5 query exceeds hard limit (${normalized.length} chars > ${MAX_FTS5_QUERY_LENGTH}), truncating`);
+      normalized = normalized.substring(0, MAX_FTS5_QUERY_LENGTH);
     }
 
     let tokens = normalized.split(' ').filter(t => t.length > 0);

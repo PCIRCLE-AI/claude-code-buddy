@@ -284,7 +284,14 @@ ${chalk.dim('Need help? Open an issue: https://github.com/PCIRCLE-AI/claude-code
   );
 
   // Exit with appropriate code
-  process.exit(allSuccess ? 0 : 0); // Non-fatal warnings still exit 0
+  // Critical failures (MCP config, plugin registration) → exit 1
+  // Non-critical failures (skills, symlink already exists) → exit 0
+  const hasCriticalFailure = !results.mcpConfigured && results.mode !== 'local';
+  const hasPluginFailure = !results.pluginEnabled;
+  if (hasCriticalFailure || hasPluginFailure) {
+    process.exit(1);
+  }
+  process.exit(0);
 }
 
 // ============================================================================

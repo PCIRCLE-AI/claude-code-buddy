@@ -1,11 +1,13 @@
 // src/ui/MetricsStore.ts
 import path from 'path';
+import os from 'os';
 import { promises as fs } from 'fs';
 import { randomBytes } from 'crypto';
 import type { SessionMetrics, AttributionMessage } from './types.js';
 import { resolveUserPath } from '../utils/paths.js';
 import { logger } from '../utils/logger.js';
-import { getDataPath } from '../utils/PathResolver.js';
+import { getDataPath, getDataDirectory } from '../utils/PathResolver.js';
+import { ValidationError } from '../errors/index.js';
 
 /**
  * Stores and manages productivity metrics
@@ -16,7 +18,23 @@ export class MetricsStore {
 
   constructor(storePath?: string) {
     // Use PathResolver for default path, or resolve user-provided path
-    this.storePath = storePath ? resolveUserPath(storePath) : getDataPath('metrics.json');
+    if (storePath) {
+      const resolved = resolveUserPath(storePath);
+      const homeDir = os.homedir();
+      const dataDir = getDataDirectory();
+      const normalized = path.normalize(resolved);
+      if (!normalized.startsWith(homeDir + path.sep) && normalized !== homeDir &&
+          !normalized.startsWith(dataDir + path.sep) && normalized !== dataDir) {
+        throw new ValidationError('Metrics store path must be within user home or data directory', {
+          provided: storePath,
+          resolved: normalized,
+          allowedBases: [homeDir, dataDir],
+        });
+      }
+      this.storePath = resolved;
+    } else {
+      this.storePath = getDataPath('metrics.json');
+    }
     this.currentSession = this.createNewSession();
   }
 

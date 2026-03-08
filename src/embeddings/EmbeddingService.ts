@@ -31,6 +31,7 @@ import path from 'path';
 import { pipeline, env } from '@xenova/transformers';
 import { ModelManager } from './ModelManager.js';
 import { logger } from '../utils/logger.js';
+import { LRUCache } from '../utils/lru-cache.js';
 
 // Configure transformers.js to use local cache
 const modelDir = new ModelManager().getModelDir();
@@ -62,7 +63,7 @@ export class EmbeddingService {
   private initialized = false;
 
   /** LRU cache for text embeddings (text -> Float32Array) */
-  private cache = new Map<string, Float32Array>();
+  private cache = new LRUCache<Float32Array>({ maxSize: EmbeddingService.MAX_CACHE_SIZE });
 
   /**
    * Initialize the embedding service (loads model)
@@ -140,11 +141,7 @@ export class EmbeddingService {
     // Result is a Tensor - extract data as Float32Array
     const embedding = new Float32Array(result.data as ArrayLike<number>);
 
-    // Add to cache with LRU eviction
-    if (this.cache.size >= EmbeddingService.MAX_CACHE_SIZE) {
-      const firstKey = this.cache.keys().next().value;
-      if (firstKey !== undefined) this.cache.delete(firstKey);
-    }
+    // Add to cache (LRU eviction handled automatically by LRUCache)
     this.cache.set(text, new Float32Array(embedding)); // Store copy in cache
 
     return embedding;

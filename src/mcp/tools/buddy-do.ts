@@ -3,6 +3,7 @@ import type { ResponseFormatter } from '../../ui/ResponseFormatter.js';
 import type { ProjectAutoTracker } from '../../memory/ProjectAutoTracker.js';
 import type { KnowledgeGraph } from '../../knowledge-graph/index.js';
 import { logger } from '../../utils/logger.js';
+import { getRecoverySuggestion } from '../../utils/errorHandler.js';
 
 export const BuddyDoInputSchema = z.object({
   task: z.string().trim().min(1).describe('Task description for MeMesh to process'),
@@ -54,11 +55,28 @@ const TASK_PATTERNS: Array<{ type: string; patterns: RegExp[]; skills: string[];
 ];
 
 /**
- * Detect task type from description
+ * Detect task type from description.
+ *
+ * Returns null (general) when:
+ * - Task is too short (< 10 chars) to meaningfully classify
+ * - The matched keyword is a small fraction of a long description,
+ *   suggesting the match is incidental rather than defining
  */
 function detectTaskType(task: string): { type: string; skills: string[]; approach: string } | null {
+  // Too short to classify reliably
+  if (task.trim().length < 10) {
+    return null;
+  }
+
   for (const pattern of TASK_PATTERNS) {
-    if (pattern.patterns.some(p => p.test(task))) {
+    const matchedPattern = pattern.patterns.find(p => p.test(task));
+    if (matchedPattern) {
+      // Check if the match is too generic: if the keyword is very short
+      // relative to a long task description, the match is likely incidental
+      const match = task.match(matchedPattern);
+      if (match && match[0].length <= 5 && task.length > 80) {
+        continue;
+      }
       return { type: pattern.type, skills: pattern.skills, approach: pattern.approach };
     }
   }
@@ -234,11 +252,19 @@ export async function executeBuddyDo(
 
     logger.error('buddy_do task failed', { taskId, error: errorObj.message });
 
+    const recovery = getRecoverySuggestion(errorObj);
+
     const formattedError = formatter.format({
       agentType: 'buddy-do',
       taskDescription: input.task,
       status: 'error',
       error: errorObj,
+      ...(recovery && {
+        results: {
+          recoverySuggestion: recovery.suggestion,
+          recoveryCategory: recovery.category,
+        },
+      }),
     });
 
     return {

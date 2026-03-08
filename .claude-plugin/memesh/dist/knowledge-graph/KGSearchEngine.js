@@ -3,6 +3,7 @@ import { logger } from '../utils/logger.js';
 import { safeJsonParse } from '../utils/json.js';
 import { validateNonEmptyString } from '../utils/validation.js';
 export const CONTROL_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\x80-\x9F]/;
+export const MAX_FTS5_QUERY_LENGTH = 500;
 export class KGSearchEngine {
     ctx;
     constructor(context) {
@@ -47,15 +48,14 @@ export class KGSearchEngine {
         }
     }
     prepareFTS5Query(query) {
-        const MAX_QUERY_LENGTH = 10000;
         const MAX_TOKENS = 100;
         let normalized = query.trim().replace(/\s+/g, ' ');
         if (!normalized) {
             return '';
         }
-        if (normalized.length > MAX_QUERY_LENGTH) {
-            logger.warn(`[KG] FTS5 query too long (${normalized.length} chars), truncating to ${MAX_QUERY_LENGTH}`);
-            normalized = normalized.substring(0, MAX_QUERY_LENGTH);
+        if (normalized.length > MAX_FTS5_QUERY_LENGTH) {
+            logger.warn(`[KG] FTS5 query exceeds hard limit (${normalized.length} chars > ${MAX_FTS5_QUERY_LENGTH}), truncating`);
+            normalized = normalized.substring(0, MAX_FTS5_QUERY_LENGTH);
         }
         let tokens = normalized.split(' ').filter(t => t.length > 0);
         if (tokens.length === 0) {

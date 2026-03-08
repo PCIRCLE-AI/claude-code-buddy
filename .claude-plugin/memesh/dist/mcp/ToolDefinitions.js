@@ -72,7 +72,7 @@ This prevents memory mixing across different projects.
 Examples:
 - buddy-remember "how do we handle authentication" -> finds JWT, OAuth, session memories in CURRENT project
 - buddy-remember "database" mode=keyword -> exact keyword match in CURRENT project only
-- buddy-remember "user login" mode=semantic minSimilarity=0.5 -> high-quality semantic matches in CURRENT project
+- buddy-remember "user login" mode=semantic matchThreshold=0.5 -> high-quality semantic matches in CURRENT project
 - buddy-remember "API patterns" allProjects=true -> search across ALL projects (cross-project search)
 
 The default 'hybrid' mode combines semantic understanding with keyword matching for best results.`,
@@ -94,9 +94,9 @@ The default 'hybrid' mode combines semantic understanding with keyword matching 
                     minimum: 1,
                     maximum: 50,
                 },
-                minSimilarity: {
+                matchThreshold: {
                     type: 'number',
-                    description: 'Minimum similarity score (0-1) for semantic/hybrid search. Default: 0.3',
+                    description: 'Minimum match score (0-1). Higher values return fewer but more relevant results. Default: 0.3',
                     minimum: 0,
                     maximum: 1,
                 },

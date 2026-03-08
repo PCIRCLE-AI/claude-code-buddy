@@ -605,6 +605,14 @@ export class ConnectionPool {
         throw new Error('Failed to enable foreign_keys pragma - database integrity cannot be guaranteed');
       }
     } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.includes('SQLITE_FULL')) {
+        logger.error('[ConnectionPool] Database disk full. Consider freeing disk space.', {
+          dbPath: this.dbPath,
+          error: errMsg,
+        });
+        throw new Error('SQLITE_FULL: Database disk full. Consider freeing disk space.');
+      }
       logger.error('[ConnectionPool] CRITICAL: Failed to enable foreign key constraints', { error });
       throw new Error(
         `Cannot create connection: foreign key constraints failed to enable. ` +
@@ -681,7 +689,15 @@ export class ConnectionPool {
       // Simple query to test connection is responsive
       db.prepare('SELECT 1').get();
       return db.open;
-    } catch {
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('SQLITE_FULL')) {
+        logger.error('[ConnectionPool] Database disk full. Consider freeing disk space.', {
+          dbPath: this.dbPath,
+          error: msg,
+        });
+        throw new Error('SQLITE_FULL: Database disk full. Consider freeing disk space.');
+      }
       return false;
     }
   }

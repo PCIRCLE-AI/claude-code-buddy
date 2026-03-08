@@ -8,6 +8,50 @@ If you're in a hurry:
 
 ---
 
+## Diagnostic Flowchart
+
+Use this decision tree to quickly find your solution:
+
+```
+Start: What's the problem?
+│
+├─ "Tools not found / command not found"
+│  ├─ Is MeMesh installed? → npm list -g @pcircle/memesh
+│  │  ├─ NOT installed → npm install -g @pcircle/memesh
+│  │  └─ Installed → Run: memesh setup → Restart Claude Code
+│  └─ Still failing? → Check Node.js >= v20: node --version
+│
+├─ "MCP Server Connection Failed"
+│  ├─ Restart Claude Code completely (quit + reopen)
+│  ├─ Still failing? → memesh config validate
+│  │  ├─ Config invalid → memesh setup
+│  │  └─ Config valid → Check for orphaned processes:
+│  │     npm run processes:kill → Restart Claude Code
+│  └─ Still failing? → Check daemon: memesh daemon status
+│
+├─ "Memory not persisting"
+│  ├─ Does database exist? → ls ~/.memesh/database.db
+│  │  ├─ Missing → memesh setup (re-creates it)
+│  │  └─ Exists → Check permissions: ls -la ~/.memesh/
+│  └─ Permissions OK? → memesh config validate
+│
+├─ "Slow or hanging"
+│  ├─ Kill processes → pkill -f memesh
+│  ├─ Check orphans → npm run processes:orphaned
+│  └─ Restart Claude Code
+│
+├─ "Permission denied"
+│  ├─ During install? → Use nvm, avoid sudo
+│  └─ During runtime? → chmod 700 ~/.memesh/ && chmod 644 ~/.memesh/database.db
+│
+└─ "Database corruption / SQLITE_CORRUPT"
+   ├─ Backup: cp ~/.memesh/database.db ~/.memesh/database.db.bak
+   ├─ Delete: rm ~/.memesh/database.db
+   └─ Restart Claude Code (database re-created automatically)
+```
+
+---
+
 ## Quick Diagnostic Commands
 
 Before troubleshooting, run these commands to gather information:
@@ -23,7 +67,10 @@ npm --version   # Should be >= v9.0.0
 # 3. Validate MCP configuration
 memesh config validate
 
-# 4. Test MeMesh directly
+# 4. Check daemon status
+memesh daemon status
+
+# 5. Test MeMesh directly
 npx @pcircle/memesh --help
 ```
 
@@ -33,6 +80,7 @@ npx @pcircle/memesh --help
 
 - [Most Common Issues](#most-common-issues)
 - [Performance & Persistence](#performance--persistence)
+- [Error Reference](#error-reference)
 - [Getting Help](#getting-help)
 
 ---
@@ -93,14 +141,28 @@ Then restart Claude Code.
 
 ---
 
-## Getting Help
+---
 
-1. **Quick Start:** [docs/QUICK_START.md](./QUICK_START.md)
-2. **Report Issue:** `memesh report-issue`
-3. **GitHub:** [Issues](https://github.com/PCIRCLE-AI/claude-code-buddy/issues)
-4. **Discussions:** [GitHub Discussions](https://github.com/PCIRCLE-AI/claude-code-buddy/discussions)
+## Error Reference
+
+For a complete list of error codes, messages, and solutions, see **[ERROR_REFERENCE.md](./ERROR_REFERENCE.md)**.
+
+Common error types:
+- **ValidationError**: Invalid input — check parameters
+- **StateError**: System not ready — run `memesh setup`
+- **OperationError**: Operation failed — check disk space, permissions
+- **ConfigurationError**: Missing config — run `memesh config validate`
 
 ---
 
-**Version**: 2.9.0
-**Last Updated**: 2026-02-25
+## Getting Help
+
+1. **Quick Start:** [docs/QUICK_START.md](./QUICK_START.md)
+2. **CLI Parameters:** [docs/CLI_PARAMETERS.md](./CLI_PARAMETERS.md)
+3. **Error Reference:** [docs/ERROR_REFERENCE.md](./ERROR_REFERENCE.md)
+4. **Report Issue:** `memesh report-issue`
+
+---
+
+**Version**: 2.9.3
+**Last Updated**: 2026-03-08

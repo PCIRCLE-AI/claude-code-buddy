@@ -119,6 +119,29 @@ export class BetterSqlite3Adapter implements IDatabaseAdapter {
 
       const db = new Database(dbPath, options);
 
+      // Run quick integrity check on file-based databases
+      if (dbPath !== ':memory:') {
+        try {
+          const result = db.pragma('quick_check', { simple: true }) as string;
+          if (result !== 'ok') {
+            logger.warn('[BetterSqlite3Adapter] Database quick_check failed', {
+              dbPath,
+              result,
+            });
+            db.close();
+            throw new Error(`Database integrity check failed: ${result}`);
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith('Database integrity check failed')) {
+            throw error;
+          }
+          logger.warn('[BetterSqlite3Adapter] Could not run quick_check pragma', {
+            dbPath,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
       logger.debug('[BetterSqlite3Adapter] Successfully loaded native module', {
         dbPath,
         inMemory: dbPath === ':memory:',

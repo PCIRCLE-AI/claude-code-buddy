@@ -502,7 +502,11 @@ export class UnifiedMemoryStore {
                     }
                     metadata = JSON.parse(metadataStr);
                 }
-                catch {
+                catch (parseError) {
+                    logger.warn(`[UnifiedMemoryStore] Failed to parse metadata for entity ${entity.name}`, {
+                        error: parseError instanceof Error ? parseError.message : String(parseError),
+                        entityName: entity.name,
+                    });
                 }
             }
         }
