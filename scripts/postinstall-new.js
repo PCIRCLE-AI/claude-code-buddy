@@ -32,6 +32,7 @@ import {
   ensureSymlinkExists,
   ensurePluginEnabled,
   ensureMCPConfigured,
+  ensureHooksInstalled,
   detectAndFixLegacyInstall
 } from './postinstall-lib.js';
 
@@ -190,7 +191,28 @@ async function main() {
       }
     }
 
-    // Step 6: Legacy Installation Fix
+    // Step 6: Hook Installation
+    try {
+      const hookResult = ensureHooksInstalled(installPath, claudeDir);
+      results.hooksInstalled = hookResult.installed;
+      results.hooksSkipped = hookResult.skipped;
+
+      if (hookResult.installed.length > 0) {
+        console.log(chalk.green(`  ✅ Hooks installed: ${hookResult.installed.join(', ')}`));
+      } else if (hookResult.skipped.length > 0) {
+        console.log(chalk.dim(`  ℹ️  Hooks already configured (${hookResult.skipped.length} existing)`));
+      }
+
+      if (hookResult.errors.length > 0) {
+        results.errors.push(`Hooks: ${hookResult.errors.join('; ')}`);
+        console.log(chalk.yellow(`  ⚠️  Some hooks failed: ${hookResult.errors.join(', ')}`));
+      }
+    } catch (error) {
+      results.errors.push(`Hooks: ${error.message}`);
+      console.log(chalk.yellow(`  ⚠️  Hook installation failed (non-fatal)`));
+    }
+
+    // Step 7: Legacy Installation Fix (renumbered)
     try {
       const legacyStatus = await detectAndFixLegacyInstall(installPath, claudeDir);
       results.legacyFixed = legacyStatus;
@@ -204,7 +226,7 @@ async function main() {
       console.log(chalk.dim('  ℹ️  Legacy check skipped'));
     }
 
-    // Step 7: Install Bundled Skills
+    // Step 8: Install Bundled Skills
     try {
       const skillResult = installBundledSkills(claudeDir);
       results.skillsInstalled = skillResult.installed;
@@ -250,9 +272,10 @@ ${chalk.bold('Installation Summary:')}
   ${results.mcpConfigured ? '✅' : '⚠️'}  MCP: ${results.mcpConfigured ? 'Configured' : 'Failed'}
 
 ${chalk.bold('What You Got:')}
-  ${chalk.cyan('•')} 8 MCP tools (persistent memory, semantic search, task routing, cloud sync)
+  ${chalk.cyan('•')} 8 MCP tools (persistent memory, semantic search, task routing)
+  ${chalk.cyan('•')} Auto-memory hooks (session recall, work tracking, smart routing)
   ${chalk.cyan('•')} Vector semantic search with ONNX embeddings (runs 100% locally)
-  ${chalk.cyan('•')} Auto-memory with smart knowledge graph
+  ${chalk.cyan('•')} Auto-relation inference in knowledge graph
   ${chalk.cyan('•')} Local-first architecture (all data stored locally)
 
 ${chalk.bold('Next Steps:')}

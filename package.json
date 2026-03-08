@@ -11,6 +11,7 @@
     "dist/",
     "scripts/postinstall-new.js",
     "scripts/postinstall-lib.js",
+    "scripts/health-check.js",
     "scripts/skills/",
     "scripts/hooks/",
     "plugin.json",

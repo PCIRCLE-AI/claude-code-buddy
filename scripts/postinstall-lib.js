@@ -236,6 +236,124 @@ export async function ensureMCPConfigured(installPath, mode, claudeDir = join(ho
     writeJSONFile(mcpSettingsFile, config);
 }
 // ============================================================================
+// Hook Installation
+// ============================================================================
+
+/**
+ * Hook files to install and their event type mappings.
+ * Each hook is copied to ~/.claude/hooks/ and registered in settings.json.
+ */
+const HOOK_DEFINITIONS = [
+  { file: 'session-start.js', event: 'SessionStart', matcher: '*' },
+  { file: 'post-tool-use.js', event: 'PostToolUse', matcher: '*' },
+  { file: 'stop.js', event: 'Stop', matcher: '*' },
+];
+
+/**
+ * Utility files that hooks depend on (copied but not registered as hooks)
+ */
+const HOOK_UTILITIES = [
+  'hook-utils.js',
+  'session-start-recall-utils.js',
+  'post-tool-use-recall-utils.js',
+  'post-commit.js',
+  'subagent-stop.js',
+  'pre-tool-use.js',
+];
+
+/**
+ * Install MeMesh hooks to ~/.claude/hooks/ and register in settings.json.
+ *
+ * Strategy:
+ * 1. Copy hook files + utilities to ~/.claude/hooks/
+ * 2. Register hooks in ~/.claude/settings.json under "hooks" key
+ * 3. Skip if user already has a hook for the same event (don't overwrite user config)
+ * 4. Track which hooks came from MeMesh via a marker comment in the file
+ *
+ * @param {string} installPath - Path to the installed package (contains scripts/hooks/)
+ * @param {string} claudeDir - Path to ~/.claude
+ * @returns {{ installed: string[], skipped: string[], errors: string[] }}
+ */
+export function ensureHooksInstalled(installPath, claudeDir = join(homedir(), '.claude')) {
+  const result = { installed: [], skipped: [], errors: [] };
+  const sourceDir = join(installPath, 'scripts', 'hooks');
+  const targetDir = join(claudeDir, 'hooks');
+  const settingsFile = join(claudeDir, 'settings.json');
+
+  // Ensure hooks directory exists
+  ensureDirectory(targetDir);
+
+  // 1. Copy all hook files + utilities
+  const allFiles = [...HOOK_DEFINITIONS.map(h => h.file), ...HOOK_UTILITIES];
+  for (const fileName of allFiles) {
+    const src = join(sourceDir, fileName);
+    const dst = join(targetDir, fileName);
+    try {
+      if (!existsSync(src)) continue;
+
+      // Check if target exists and is newer (user modified it)
+      if (existsSync(dst)) {
+        const srcContent = readFileSync(src, 'utf-8');
+        const dstContent = readFileSync(dst, 'utf-8');
+        // Skip if identical
+        if (srcContent === dstContent) continue;
+        // If target has user modifications (no MeMesh marker), skip
+        if (!dstContent.includes('@memesh-managed') && !dstContent.includes('MeMesh')) {
+          result.skipped.push(fileName);
+          continue;
+        }
+      }
+
+      copyFileSync(src, dst);
+    } catch (error) {
+      result.errors.push(`${fileName}: ${error.message}`);
+    }
+  }
+
+  // 2. Register hooks in settings.json
+  let settings = readJSONFile(settingsFile) || {};
+  if (!settings.hooks) {
+    settings.hooks = {};
+  }
+
+  for (const hookDef of HOOK_DEFINITIONS) {
+    const { file: hookFile, event, matcher } = hookDef;
+    const hookCommand = join('~/.claude/hooks', hookFile);
+
+    // Ensure event array exists
+    if (!settings.hooks[event]) {
+      settings.hooks[event] = [];
+    }
+
+    // Check if MeMesh hook is already registered for this event
+    const existingEntry = settings.hooks[event].find(entry => {
+      if (!entry.hooks) return false;
+      return entry.hooks.some(h => h.command && h.command.includes(hookFile));
+    });
+
+    if (existingEntry) {
+      result.skipped.push(`${event}:${hookFile}`);
+      continue;
+    }
+
+    // Register the hook
+    settings.hooks[event].push({
+      matcher,
+      hooks: [{
+        type: 'command',
+        command: hookCommand,
+      }],
+    });
+    result.installed.push(`${event}:${hookFile}`);
+  }
+
+  // Write settings back
+  writeJSONFile(settingsFile, settings);
+
+  return result;
+}
+
+// ============================================================================
 // Backward Compatibility
 // ============================================================================
 /**
