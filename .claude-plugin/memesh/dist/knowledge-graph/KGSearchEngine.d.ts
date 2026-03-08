@@ -6,6 +6,7 @@ export interface SemanticSearchResult {
     entity: Entity;
     similarity: number;
 }
+export declare const CONTROL_CHAR_PATTERN: RegExp;
 export interface KGSearchEngineContext {
     db: Database.Database;
     getVectorAdapter: () => VectorSearchAdapter | null;

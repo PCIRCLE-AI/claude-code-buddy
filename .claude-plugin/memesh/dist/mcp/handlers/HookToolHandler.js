@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import { ValidationError } from '../../errors/index.js';
 import { handleError, logError } from '../../utils/errorHandler.js';
 import { HookToolUseInputSchema, formatValidationError, } from '../validation.js';
@@ -37,11 +40,29 @@ export class HookToolHandler {
                 tokensUsed: validatedInput.tokensUsed,
                 output: validatedInput.output,
             });
+            let recallContext = '';
+            try {
+                const recallFile = path.join(os.homedir(), '.claude', 'state', 'proactive-recall.json');
+                if (fs.existsSync(recallFile)) {
+                    const raw = fs.readFileSync(recallFile, 'utf-8');
+                    const recallData = JSON.parse(raw);
+                    if (Date.now() - recallData.timestamp < 30_000 && recallData.results?.length > 0) {
+                        const lines = recallData.results.map((r) => {
+                            const obs = r.observations.slice(0, 2).join('; ');
+                            return `  - ${r.name}: ${obs}`;
+                        });
+                        recallContext = `\n\n[Proactive Recall - ${recallData.trigger}]\n${lines.join('\n')}`;
+                        fs.unlinkSync(recallFile);
+                    }
+                }
+            }
+            catch {
+            }
             return {
                 content: [
                     {
                         type: 'text',
-                        text: JSON.stringify({ success: true }, null, 2),
+                        text: JSON.stringify({ success: true }, null, 2) + recallContext,
                     },
                 ],
             };

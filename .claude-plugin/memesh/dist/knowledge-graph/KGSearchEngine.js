@@ -2,7 +2,7 @@ import { ValidationError } from '../errors/index.js';
 import { logger } from '../utils/logger.js';
 import { safeJsonParse } from '../utils/json.js';
 import { validateNonEmptyString } from '../utils/validation.js';
-const CONTROL_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\x80-\x9F]/;
+export const CONTROL_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\x80-\x9F]/;
 export class KGSearchEngine {
     ctx;
     constructor(context) {

@@ -92,7 +92,7 @@
     "onnxruntime-node": "^1.23.2",
     "ora": "^9.0.0",
     "sqlite": "^5.1.1",
-    "sqlite-vec": "^0.1.7-alpha.2",
+    "sqlite-vec": "0.1.3",
     "uuid": "^13.0.0",
     "winston": "^3.19.0",
     "zod": "^4.3.5"

@@ -7,9 +7,10 @@ import { safeJsonParse, safeJsonStringify } from '../utils/json.js';
 import { getDataPath, getDataDirectory } from '../utils/PathResolver.js';
 import { validateNonEmptyString } from '../utils/validation.js';
 import { KGSearchEngine } from './KGSearchEngine.js';
+import { ContentHasher } from './ContentHasher.js';
 const MAX_ENTITY_NAME_LENGTH = 512;
 const VALID_RELATION_TYPE_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
-const CONTROL_CHAR_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\x80-\x9F]/;
+import { CONTROL_CHAR_PATTERN } from './KGSearchEngine.js';
 export class KnowledgeGraph {
     db;
     queryCache;
@@ -164,6 +165,12 @@ export class KnowledgeGraph {
       );
     `;
         this.db.exec(fts5Schema);
+        this.db.exec(`
+      CREATE TABLE IF NOT EXISTS embedding_hashes (
+        entity_name TEXT PRIMARY KEY,
+        hash TEXT NOT NULL
+      );
+    `);
         this.runMigrations();
         this.initVectorSearch();
     }
@@ -262,7 +269,7 @@ export class KnowledgeGraph {
     prepareFTS5Query(query) {
         return this.searchEngine.prepareFTS5Query(query);
     }
-    createEntity(entity) {
+    createEntity(entity, skipEmbedding = false) {
         this.validateEntityName(entity.name);
         try {
             if (entity.contentHash) {
@@ -325,7 +332,7 @@ export class KnowledgeGraph {
                 return entity.name;
             })();
             this.queryCache.invalidatePattern(/^entities:/);
-            if (this.vectorEnabled) {
+            if (this.vectorEnabled && !skipEmbedding) {
                 this.generateEmbeddingAsync(entity.name, entity.observations);
             }
             logger.info(`[KG] Created entity: ${entity.name} (type: ${entity.entityType})`);
@@ -361,7 +368,7 @@ export class KnowledgeGraph {
                         tags: entity.tags,
                         metadata: entity.metadata,
                         contentHash: entity.contentHash,
-                    });
+                    }, true);
                     results.push({ name: entity.name, success: true });
                 }
                 catch (error) {
@@ -376,6 +383,9 @@ export class KnowledgeGraph {
         transaction();
         this.queryCache.invalidatePattern(/^entities:/);
         this.queryCache.invalidatePattern(/^stats:/);
+        if (this.vectorEnabled) {
+            this.generateBatchEmbeddingsAsync(entities, results);
+        }
         return results;
     }
     createRelation(relation) {
@@ -520,6 +530,11 @@ export class KnowledgeGraph {
                     });
                 }
             }
+            try {
+                this.db.prepare('DELETE FROM embedding_hashes WHERE entity_name = ?').run(name);
+            }
+            catch {
+            }
             const stmt = this.db.prepare('DELETE FROM entities WHERE name = ?');
             return stmt.run(name);
         })();
@@ -535,17 +550,88 @@ export class KnowledgeGraph {
             return;
         const text = [entityName, ...(observations || [])].join(' ');
         const adapter = this.vectorAdapter;
+        const newHash = ContentHasher.hashEmbeddingSource(entityName, observations || []);
+        try {
+            const existing = this.db
+                .prepare('SELECT hash FROM embedding_hashes WHERE entity_name = ?')
+                .get(entityName);
+            if (existing && existing.hash === newHash) {
+                logger.debug(`[KG] Embedding hash unchanged, skipping: ${entityName}`);
+                return;
+            }
+        }
+        catch {
+        }
         const task = (async () => {
             try {
                 const { LazyEmbeddingService } = await import('../embeddings/EmbeddingService.js');
                 const service = await LazyEmbeddingService.get();
                 const embedding = await service.encode(text);
                 adapter.insertEmbedding(this.db, entityName, embedding);
+                this.db.prepare('INSERT OR REPLACE INTO embedding_hashes (entity_name, hash) VALUES (?, ?)').run(entityName, newHash);
                 logger.debug(`[KG] Embedding generated for: ${entityName}`);
             }
             catch (error) {
                 logger.warn('[KG] Embedding generation failed', {
                     entity: entityName,
+                    reason: error instanceof Error ? error.message : String(error),
+                });
+            }
+        })();
+        this.pendingEmbeddings.add(task);
+        task.finally(() => this.pendingEmbeddings.delete(task));
+    }
+    generateBatchEmbeddingsAsync(entities, results) {
+        if (!this.vectorAdapter)
+            return;
+        const adapter = this.vectorAdapter;
+        const toEmbed = [];
+        for (let i = 0; i < entities.length; i++) {
+            if (!results[i]?.success)
+                continue;
+            const entity = entities[i];
+            const newHash = ContentHasher.hashEmbeddingSource(entity.name, entity.observations);
+            try {
+                const existing = this.db
+                    .prepare('SELECT hash FROM embedding_hashes WHERE entity_name = ?')
+                    .get(entity.name);
+                if (existing && existing.hash === newHash) {
+                    logger.debug(`[KG] Batch: embedding hash unchanged, skipping: ${entity.name}`);
+                    continue;
+                }
+            }
+            catch {
+            }
+            toEmbed.push({
+                name: entity.name,
+                text: [entity.name, ...entity.observations].join(' '),
+                hash: newHash,
+            });
+        }
+        if (toEmbed.length === 0)
+            return;
+        const task = (async () => {
+            try {
+                const { LazyEmbeddingService } = await import('../embeddings/EmbeddingService.js');
+                const service = await LazyEmbeddingService.get();
+                const embeddings = await service.encodeBatch(toEmbed.map(e => e.text));
+                for (let i = 0; i < toEmbed.length; i++) {
+                    try {
+                        adapter.insertEmbedding(this.db, toEmbed[i].name, embeddings[i]);
+                        this.db.prepare('INSERT OR REPLACE INTO embedding_hashes (entity_name, hash) VALUES (?, ?)').run(toEmbed[i].name, toEmbed[i].hash);
+                    }
+                    catch (error) {
+                        logger.warn('[KG] Batch embedding insert failed', {
+                            entity: toEmbed[i].name,
+                            reason: error instanceof Error ? error.message : String(error),
+                        });
+                    }
+                }
+                logger.debug(`[KG] Batch embeddings generated for ${toEmbed.length} entities`);
+            }
+            catch (error) {
+                logger.warn('[KG] Batch embedding generation failed', {
+                    count: toEmbed.length,
                     reason: error instanceof Error ? error.message : String(error),
                 });
             }

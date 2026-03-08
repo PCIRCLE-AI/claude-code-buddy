@@ -159,12 +159,15 @@ process.on('unhandledRejection', (reason, _promise) => {
     const errorStack = reason instanceof Error ? reason.stack : undefined;
     process.stderr.write(`[MeMesh] Unhandled Promise Rejection: ${errorMessage}\n${errorStack || ''}\n`);
 });
-process.on('uncaughtException', (error) => {
-    process.stderr.write(`[MeMesh] Uncaught Exception: ${error.message}\n${error.stack || ''}\n`);
-    process.exit(1);
-});
+if (!process.env.MEMESH_DAEMON_MODE) {
+    process.on('uncaughtException', (error) => {
+        process.stderr.write(`[MeMesh] Uncaught Exception: ${error.message}\n${error.stack || ''}\n`);
+        process.exit(1);
+    });
+}
 async function startAsDaemon(bootstrapper, version) {
     process.env.MCP_SERVER_MODE = 'true';
+    process.env.MEMESH_DAEMON_MODE = '1';
     const { logger } = await import('../utils/logger.js');
     const { DaemonSocketServer } = await import('./daemon/DaemonSocketServer.js');
     const { DaemonLockManager } = await import('./daemon/DaemonLockManager.js');

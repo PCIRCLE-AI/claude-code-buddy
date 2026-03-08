@@ -1,8 +1,6 @@
 import Database from 'better-sqlite3';
-export interface KnnSearchResult {
-    entityName: string;
-    distance: number;
-}
+import type { KnnSearchResult } from './VectorSearchAdapter.js';
+export type { KnnSearchResult } from './VectorSearchAdapter.js';
 export declare const DEFAULT_EMBEDDING_DIMENSIONS = 384;
 export declare class VectorExtension {
     private static extensionLoaded;

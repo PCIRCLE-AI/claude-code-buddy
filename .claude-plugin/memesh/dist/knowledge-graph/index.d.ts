@@ -20,7 +20,7 @@ export declare class KnowledgeGraph {
     private escapeLikePattern;
     private searchFTS5;
     private prepareFTS5Query;
-    createEntity(entity: Entity): string;
+    createEntity(entity: Entity, skipEmbedding?: boolean): string;
     createEntitiesBatch(entities: Array<{
         name: string;
         entityType: string;
@@ -44,6 +44,7 @@ export declare class KnowledgeGraph {
     };
     deleteEntity(name: string): boolean;
     private generateEmbeddingAsync;
+    private generateBatchEmbeddingsAsync;
     semanticSearch(query: string, options?: {
         limit?: number;
         minSimilarity?: number;

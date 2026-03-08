@@ -118,7 +118,10 @@ export class LazyEmbeddingService {
         try {
             await LazyEmbeddingService.get();
         }
-        catch {
+        catch (err) {
+            logger.debug('ONNX model preload failed (will load on first use)', {
+                error: err instanceof Error ? err.message : String(err),
+            });
         }
     }
     static async dispose() {

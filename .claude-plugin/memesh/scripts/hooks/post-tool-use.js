@@ -34,6 +34,7 @@ import {
   updateEntityMetadata,
   addObservation,
 } from './hook-utils.js';
+import { isTestCommand, extractTestFailureContext, buildTestFailureQuery, buildErrorQuery } from './post-tool-use-recall-utils.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -730,6 +731,81 @@ function detectPlanFile(toolData) {
 }
 
 // ============================================================================
+// Proactive Recall on Test Failure / Error Detection
+// ============================================================================
+
+/**
+ * Trigger proactive recall on test failure or error detection.
+ * Writes results to proactive-recall.json for HookToolHandler.
+ * @param {Object} toolData - Normalized tool data
+ */
+function triggerProactiveRecall(toolData) {
+  try {
+    const recallFile = path.join(STATE_DIR, 'proactive-recall.json');
+    let query = null;
+    let trigger = null;
+
+    // Test failure detection
+    if (toolData.toolName === 'Bash' && toolData.arguments?.command) {
+      if (isTestCommand(toolData.arguments.command) && !toolData.success) {
+        const ctx = extractTestFailureContext(toolData._raw?.output || '');
+        if (ctx) {
+          query = buildTestFailureQuery(ctx.testName, ctx.errorMessage);
+          trigger = 'test-failure';
+        }
+      }
+    }
+
+    // Error detection (non-test failures)
+    if (!trigger && !toolData.success && toolData._raw?.output) {
+      const errorMatch = toolData._raw.output.match(/(\w*Error):\s*(.+)/);
+      if (errorMatch) {
+        query = buildErrorQuery(errorMatch[1], errorMatch[2]);
+        trigger = 'error-detection';
+      }
+    }
+
+    if (!query || !trigger) return;
+
+    // Build FTS5 query
+    const ftsTokens = query.split(/\s+/)
+      .filter(t => t.length > 2)
+      .slice(0, 8)
+      .map(t => `"${t.replace(/"/g, '""')}"*`)
+      .join(' OR ');
+
+    if (!ftsTokens) return;
+
+    const sql = `
+      SELECT e.name,
+        (SELECT json_group_array(content) FROM observations o WHERE o.entity_id = e.id) as observations_json
+      FROM entities e
+      JOIN entities_fts ON entities_fts.rowid = e.id
+      WHERE entities_fts MATCH ?
+      ORDER BY bm25(entities_fts, 10.0, 5.0)
+      LIMIT 3
+    `;
+
+    const result = sqliteQueryJSON(MEMESH_DB_PATH, sql, [ftsTokens]);
+    if (!result || result.length === 0) return;
+
+    const recallData = {
+      trigger,
+      query,
+      timestamp: Date.now(),
+      results: result.map(r => ({
+        name: r.name,
+        observations: JSON.parse(r.observations_json || '[]').filter(Boolean).slice(0, 2),
+      })),
+    };
+
+    writeJSONFile(recallFile, recallData);
+  } catch (error) {
+    logError('proactive-recall-trigger', error);
+  }
+}
+
+// ============================================================================
 // Main PostToolUse Logic
 // ============================================================================
 
@@ -777,6 +853,9 @@ async function postToolUse() {
 
     // Detect anomalies
     const anomalies = detectAnomalies(toolData, sessionContext);
+
+    // Trigger proactive recall on test failure or error
+    triggerProactiveRecall(toolData);
 
     // Fire async writes in parallel
     const pendingWrites = [contextWritePromise];

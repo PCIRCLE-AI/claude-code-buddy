@@ -48,7 +48,8 @@ export class StdinBufferManager {
         try {
             process.stdin.resume();
         }
-        catch {
+        catch (err) {
+            process.stderr.write(`[StdinBufferManager] Failed to resume stdin: ${err instanceof Error ? err.message : String(err)}\n`);
         }
     }
     isActive() {
