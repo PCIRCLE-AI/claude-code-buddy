@@ -149,6 +149,28 @@ data/*.db-shm
 data/*.db-wal
 data/vectorstore/
 
+# Redundant/internal docs (keep only essential docs in docs/)
+docs/CONTRIBUTING.md
+docs/ACCESSIBILITY.md
+docs/CLI_CONFIG_COMMANDS.md
+docs/CLI_PARAMETERS.md
+docs/COWORK_SUPPORT.md
+docs/INSTALLATION_TESTING.md
+docs/LANDING_PAGE.md
+docs/PLUGIN_AUTO_REPAIR_DESIGN.md
+docs/QUICK_INSTALL.md
+docs/QUICK_START.md
+docs/README.md
+docs/RELEASE_PROCESS.md
+docs/UPGRADE.md
+docs/api/MEMORY_API.md
+docs/api/MEMORY_BEST_PRACTICES.md
+docs/api/MODELS.md
+docs/guides/CLAUDE_CODE_INSTALLATION.md
+docs/guides/SETUP.md
+docs/guides/QUICK_START.md
+docs/guides/auto-memory-system.md
+
 # Documentation - DO NOT PUSH PLANNING/ARCHIVE DOCS
 docs/archive/**
 !docs/archive/README.md
@@ -338,14 +360,15 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 
-# Demo video project (not part of plugin)
-media/demo-video/
-
-# Test-only Docker
+# Non-core project files
+media/
+examples/
+landing-page/
 Dockerfile.test
-
-# Demo setup script
 demo-setup.sh
+.env.example
+typedoc.json
+MIGRATION.md
 
 # Design assets (local use only)
 assets/
