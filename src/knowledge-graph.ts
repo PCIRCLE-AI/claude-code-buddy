@@ -51,25 +51,27 @@ export class KnowledgeGraph {
       .get(name) as { id: number };
     const entityId = row.id;
 
+    // Capture previous obs text before inserting new ones (for FTS rebuild)
+    const prevObs = this.db
+      .prepare('SELECT content FROM observations WHERE entity_id = ?')
+      .all(entityId) as { content: string }[];
+    const prevObsText =
+      prevObs.length > 0
+        ? prevObs.map((o) => o.content).join(' ')
+        : undefined;
+
     // Add observations
     if (opts?.observations?.length) {
-      // Capture previous obs text before inserting new ones (for FTS rebuild)
-      const prevObs = this.db
-        .prepare('SELECT content FROM observations WHERE entity_id = ?')
-        .all(entityId) as { content: string }[];
-      const prevObsText =
-        prevObs.length > 0
-          ? prevObs.map((o) => o.content).join(' ')
-          : undefined;
-
       const insertObs = this.db.prepare(
         'INSERT INTO observations (entity_id, content) VALUES (?, ?)'
       );
       for (const obs of opts.observations) {
         insertObs.run(entityId, obs);
       }
-      this.rebuildFts(entityId, name, prevObsText);
     }
+
+    // Always rebuild FTS so the entity name is indexed (even without observations)
+    this.rebuildFts(entityId, name, prevObsText);
 
     // Add tags
     if (opts?.tags?.length) {
