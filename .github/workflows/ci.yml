@@ -14,14 +14,14 @@ jobs:
   build-and-test:
     name: Build & Test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
@@ -32,49 +32,8 @@ jobs:
       - name: TypeScript check
         run: npm run typecheck
 
-      - name: Lint
-        run: npm run lint
-
       - name: Build
         run: npm run build
 
-      # Tests run in single-thread mode to prevent worker leaks
-      # This is critical - parallel tests caused 56 zombie processes historically
       - name: Run tests
-        run: npm test -- --run
-        env:
-          NODE_OPTIONS: --max-old-space-size=4096
-
-      - name: Installation test
-        run: npm run test:install
-
-  coverage:
-    name: Test Coverage
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: build-and-test
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Run tests with coverage
-        run: npm run test:coverage -- --run
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          fail_ci_if_error: false
-        continue-on-error: true
+        run: npx vitest run

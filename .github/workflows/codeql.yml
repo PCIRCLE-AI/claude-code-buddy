@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Run weekly on Monday at 00:00 UTC
     - cron: '0 0 * * 1'
 
 jobs:
@@ -25,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
