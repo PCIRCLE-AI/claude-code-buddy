@@ -158,8 +158,8 @@ export function logMemorySave(message) {
   try {
     ensureDir(STATE_DIR);
     fs.appendFileSync(MEMORY_LOG_PATH, logLine);
-  } catch {
-    // Silent fail
+  } catch (logErr) {
+    process.stderr.write(`[logMemorySave FAILED] ${message} (log error: ${logErr.message})\n`);
   }
 }
 

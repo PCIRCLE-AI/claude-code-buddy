@@ -112,6 +112,8 @@ export function readJSONFile<T>(path: string): T | null {
     }
     return JSON.parse(content) as T;
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`[readJSONFile] Failed to parse ${path}: ${msg}\n`);
     return null;
   }
 }
@@ -137,6 +139,8 @@ export function backupFile(path: string): string | null {
     copyFileSync(path, backupPath);
     return backupPath;
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`[backupFile] Failed to backup ${path}: ${msg}\n`);
     return null;
   }
 }

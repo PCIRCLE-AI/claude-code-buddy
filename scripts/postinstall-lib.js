@@ -70,6 +70,8 @@ export function readJSONFile(path) {
         return JSON.parse(content);
     }
     catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`[readJSONFile] Failed to parse ${path}: ${msg}\n`);
         return null;
     }
 }
@@ -93,6 +95,8 @@ export function backupFile(path) {
         return backupPath;
     }
     catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`[backupFile] Failed to backup ${path}: ${msg}\n`);
         return null;
     }
 }

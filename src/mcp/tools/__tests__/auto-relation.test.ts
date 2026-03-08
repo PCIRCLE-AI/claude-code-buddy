@@ -113,18 +113,18 @@ describe('Auto-relation inference', () => {
       expect(result.autoRelationsCreated).toBe(1);
     });
 
-    it('should filter out words shorter than 4 characters', async () => {
-      // "API" is only 3 chars, "fix" is 3 chars — no keywords extracted
+    it('should filter out words shorter than 3 characters', async () => {
+      // "do" is only 2 chars, "it" is 2 chars — no keywords extracted
       const result = await createEntitiesTool.handler(
         {
           entities: [
             {
-              name: 'API fix one',
+              name: 'do it ab',
               entityType: 'feature',
               observations: ['First'],
             },
             {
-              name: 'API fix two',
+              name: 'do it cd',
               entityType: 'feature',
               observations: ['Second'],
             },
@@ -133,7 +133,7 @@ describe('Auto-relation inference', () => {
         mockKnowledgeGraph
       );
 
-      // No keywords >= 4 chars, so no topic sharing, no relations
+      // No keywords >= 3 chars, so no topic sharing, no relations
       expect(result.autoRelationsCreated).toBe(0);
     });
 

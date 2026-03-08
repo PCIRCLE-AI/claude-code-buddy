@@ -256,8 +256,8 @@ function recallFromSQLite() {
     let parsedMetadata = {};
     try {
       parsedMetadata = JSON.parse(row.metadata || '{}');
-    } catch {
-      // Ignore parse errors
+    } catch (parseErr) {
+      logError('recallFromSQLite:metadata-parse', parseErr);
     }
 
     return {
@@ -393,8 +393,8 @@ function reloadClaudeMd() {
         console.log('');
         return;
       }
-    } catch {
-      // Skip unreadable files
+    } catch (readErr) {
+      logError(`reloadClaudeMd:${candidate}`, readErr);
     }
   }
 }

@@ -121,7 +121,7 @@ export const createEntitiesTool = {
     } catch (autoRelErr: unknown) {
       // Log but don't break entity creation
       const msg = autoRelErr instanceof Error ? autoRelErr.message : String(autoRelErr);
-      console.error('[create-entities] auto-relation inference failed:', msg);
+      process.stderr.write(`[create-entities] auto-relation inference failed: ${msg}\n`);
     }
 
     return {
@@ -140,6 +140,9 @@ const EXCLUDED_TYPES = new Set([
   'session_keypoint', 'session_identity', 'task_start', 'session_summary'
 ]);
 
+/** Maximum number of auto-relations to create per batch to prevent unbounded growth */
+const MAX_AUTO_RELATIONS = 50;
+
 /**
  * Extract topic keywords from an entity name.
  * Takes the first 1-2 words that are at least 4 characters long, lowercased.
@@ -147,7 +150,7 @@ const EXCLUDED_TYPES = new Set([
  */
 function _extractTopicKeywords(name: string): string[] {
   const cleaned = name.replace(/\d{4}-\d{2}-\d{2}/g, '').trim();
-  const words = cleaned.split(/[\s_-]+/).filter(w => w.length >= 4);
+  const words = cleaned.split(/[\s_-]+/).filter(w => w.length >= 3);
   return words.slice(0, 2).map(w => w.toLowerCase());
 }
 
@@ -156,6 +159,21 @@ function _extractTopicKeywords(name: string): string[] {
  */
 function _sharesTopic(keywordsA: string[], keywordsB: string[]): boolean {
   return keywordsA.some(k => keywordsB.includes(k));
+}
+
+/** Expected error patterns for relation creation (not worth logging) */
+const EXPECTED_RELATION_ERRORS = [
+  /not found/i,
+  /UNIQUE constraint/i,
+  /already exists/i,
+];
+
+/**
+ * Check if an error message is an expected relation-creation error.
+ * Uses regex patterns instead of fragile string matching.
+ */
+function _isExpectedRelationError(message: string): boolean {
+  return EXPECTED_RELATION_ERRORS.some(pattern => pattern.test(message));
 }
 
 interface RelationResult {
@@ -235,8 +253,8 @@ function _inferAndCreateRelations(
   const createdList = Array.from(createdMap.values());
 
   // 1. Relate new entities to each other (within the batch)
-  for (let i = 0; i < createdList.length; i++) {
-    for (let j = i + 1; j < createdList.length; j++) {
+  for (let i = 0; i < createdList.length && relationsCreated < MAX_AUTO_RELATIONS; i++) {
+    for (let j = i + 1; j < createdList.length && relationsCreated < MAX_AUTO_RELATIONS; j++) {
       const a = createdList[i];
       const b = createdList[j];
       if (!_sharesTopic(a.keywords, b.keywords)) continue;
@@ -251,10 +269,10 @@ function _inferAndCreateRelations(
           });
           relationsCreated++;
         } catch (e: unknown) {
-          // Expected: NotFoundError (entity deleted between check and create)
+          // Expected: NotFoundError, UNIQUE constraint (duplicate relation)
           // Unexpected: anything else — log it
-          if (e instanceof Error && !e.message.includes('not found')) {
-            console.error('[auto-relation] unexpected error:', e.message);
+          if (e instanceof Error && !_isExpectedRelationError(e.message)) {
+            process.stderr.write(`[auto-relation] unexpected error: ${e.message}\n`);
           }
         }
       }
@@ -263,6 +281,7 @@ function _inferAndCreateRelations(
 
   // 2. For each new entity, find existing entities with matching topic keywords
   for (const newEntity of createdList) {
+    if (relationsCreated >= MAX_AUTO_RELATIONS) break;
     if (newEntity.keywords.length === 0) continue;
 
     const candidateNames = new Set<string>();
@@ -281,7 +300,7 @@ function _inferAndCreateRelations(
       } catch (e: unknown) {
         // Search failures are non-critical; log unexpected ones
         if (e instanceof Error && !e.message.includes('not found')) {
-          console.error('[auto-relation] search error:', e.message);
+          process.stderr.write(`[auto-relation] search error: ${e.message}\n`);
         }
       }
     }
@@ -309,8 +328,8 @@ function _inferAndCreateRelations(
         }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
-        if (!msg.includes('UNIQUE constraint')) {
-          console.error('[auto-relation] unexpected error:', msg);
+        if (!_isExpectedRelationError(msg)) {
+          process.stderr.write(`[auto-relation] unexpected error: ${msg}\n`);
         }
       }
     }
