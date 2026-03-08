@@ -1,5 +1,6 @@
 """KG Explorer page — interactive graph with streamlit-agraph."""
 
+import html
 import sqlite3
 import streamlit as st
 from streamlit_agraph import agraph, Node, Edge, Config
@@ -47,6 +48,7 @@ def render_explorer(conn: sqlite3.Connection):
         _render_content(conn)
     except sqlite3.Error as e:
         st.error(f"**Database error:** {e}")
+        st.info("Check that the database file exists and is not corrupted. Try restarting the application.")
 
 
 def _render_content(conn: sqlite3.Connection):
@@ -72,7 +74,7 @@ def _render_content(conn: sqlite3.Connection):
                 f'<span style="display:inline-block;width:12px;height:12px;'
                 f'border-radius:50%;background:{TYPE_COLORS.get(t, DEFAULT_COLOR)};'
                 f'margin-right:4px;vertical-align:middle;"></span>'
-                f'<span style="vertical-align:middle;margin-right:10px;font-size:0.85em;">{t}</span>'
+                f'<span style="vertical-align:middle;margin-right:10px;font-size:0.85em;">{html.escape(t)}</span>'
                 for t in selected_types
             )
             st.markdown(legend_html, unsafe_allow_html=True)
@@ -84,7 +86,7 @@ def _render_content(conn: sqlite3.Connection):
         edge_legend_html = " ".join(
             f'<span style="display:inline-block;width:20px;height:3px;'
             f'background:{color};margin-right:4px;vertical-align:middle;"></span>'
-            f'<span style="vertical-align:middle;margin-right:8px;font-size:0.8em;">{rtype}</span>'
+            f'<span style="vertical-align:middle;margin-right:8px;font-size:0.8em;">{html.escape(rtype)}</span>'
             for rtype, color in EDGE_COLORS.items()
         )
         st.markdown(edge_legend_html, unsafe_allow_html=True)

@@ -142,8 +142,8 @@ export function logError(context, error) {
   try {
     ensureDir(STATE_DIR);
     fs.appendFileSync(ERROR_LOG_PATH, logLine);
-  } catch {
-    // Silent fail - can't log the logging error
+  } catch (logErr) {
+    process.stderr.write(`[logError FAILED] ${context}: ${message} (log error: ${logErr.message})\n`);
   }
 }
 

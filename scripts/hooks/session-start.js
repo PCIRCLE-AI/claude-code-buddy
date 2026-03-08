@@ -84,8 +84,8 @@ function checkCCBAvailability() {
         }
       }
     }
-  } catch {
-    // Ignore parse errors
+  } catch (err) {
+    logError('checkCCBAvailability:mcp_settings', err);
   }
 
   // Check heartbeat file (MeMesh writes this when running)
@@ -101,8 +101,8 @@ function checkCCBAvailability() {
         result.running = true;
       }
     }
-  } catch {
-    // Ignore errors
+  } catch (err) {
+    logError('checkCCBAvailability:heartbeat', err);
   }
 
   return result;
@@ -601,13 +601,13 @@ function sessionStart() {
   // Hook stdout is only visible to Claude (system-reminder), not the user.
   // Instruct Claude to briefly acknowledge MeMesh in its first response,
   // so the user knows the plugin is active and helping.
-  const sessionCount = recalledMemory?.length || 0;
+  const sessionCount = recalledMemory?.keyPoints?.length || 0;
   const hasRecommendations = recommendations.recommendedSkills?.length > 0;
   const hasPatterns = recommendations.detectedPatterns?.length > 0;
 
   const ackParts = [];
   if (sessionCount > 0) {
-    ackParts.push(`recalled ${sessionCount} recent session(s)`);
+    ackParts.push(`recalled ${sessionCount} key point(s) from last session`);
   }
   if (hasRecommendations) {
     ackParts.push(`${recommendations.recommendedSkills.length} skill recommendation(s)`);

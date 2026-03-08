@@ -56,6 +56,7 @@ export declare const createEntitiesTool: {
     handler(args: CreateEntitiesArgs, knowledgeGraph: KnowledgeGraph): Promise<{
         created: string[];
         count: number;
+        autoRelationsCreated: number;
         errors: {
             name: string;
             error: string;

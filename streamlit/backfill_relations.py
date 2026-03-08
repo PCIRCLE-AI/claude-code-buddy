@@ -36,7 +36,7 @@ PROJECT_PREFIXES = [
 # Cross-type relation rules: (from_type, relation, to_type)
 CROSS_TYPE_RULES = [
     ("bug_fix", "solves", "feature"),
-    ("decision", "enabled_by", "feature"),
+    ("feature", "enabled_by", "decision"),
     ("lesson_learned", "caused_by", "bug_fix"),
     ("lesson_learned", "follows_pattern", "best_practice"),
     ("mistake", "caused_by", "bug_fix"),
@@ -62,8 +62,9 @@ def parse_args():
 
 def load_entities(conn):
     """Load all non-auto entities."""
+    placeholders = ",".join("?" * len(SKIP_TYPES))
     rows = conn.execute(
-        "SELECT id, name, type FROM entities WHERE type NOT IN (?, ?, ?, ?)",
+        f"SELECT id, name, type FROM entities WHERE type NOT IN ({placeholders})",
         tuple(SKIP_TYPES),
     ).fetchall()
     return [{"id": r[0], "name": r[1], "type": r[2]} for r in rows]
@@ -71,12 +72,13 @@ def load_entities(conn):
 
 def load_tags(conn):
     """Load tags per entity, skipping noise tags."""
+    placeholders = ",".join("?" * len(SKIP_TYPES))
     rows = conn.execute(
-        """
+        f"""
         SELECT t.entity_id, t.tag
         FROM tags t
         JOIN entities e ON e.id = t.entity_id
-        WHERE e.type NOT IN (?, ?, ?, ?)
+        WHERE e.type NOT IN ({placeholders})
         """,
         tuple(SKIP_TYPES),
     ).fetchall()
@@ -268,97 +270,107 @@ def main():
     print(f"Mode: {'DRY RUN (no changes)' if args.dry_run else 'LIVE (inserting relations)'}")
     print()
 
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("PRAGMA foreign_keys = ON")
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA foreign_keys = ON")
+    except sqlite3.Error as e:
+        print(f"ERROR: Could not connect to database: {e}")
+        return
 
-    # Load data
-    entities = load_entities(conn)
-    tags_by_entity = load_tags(conn)
-    print(f"Loaded {len(entities)} entities (excluding auto types)")
-    print(f"Loaded tags for {len(tags_by_entity)} entities")
-    print()
+    try:
+        # Load data
+        entities = load_entities(conn)
+        tags_by_entity = load_tags(conn)
+        print(f"Loaded {len(entities)} entities (excluding auto types)")
+        print(f"Loaded tags for {len(tags_by_entity)} entities")
+        print()
 
-    # Track relation counts before
-    before_count = conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0]
+        # Track relation counts before
+        before_count = conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0]
 
-    # Layer 1: Topic clustering
-    print("--- Layer 1: Topic/Project Clustering (similar_to) ---")
-    l1_relations = layer1_topic_clustering(entities, conn)
-    print(f"  Generated {len(l1_relations)} relations")
+        # Layer 1: Topic clustering
+        print("--- Layer 1: Topic/Project Clustering (similar_to) ---")
+        l1_relations = layer1_topic_clustering(entities, conn)
+        print(f"  Generated {len(l1_relations)} relations")
 
-    # Layer 2: Cross-type semantic
-    print("--- Layer 2: Cross-Type Semantic Relations ---")
-    l2_relations = layer2_cross_type(entities, conn)
-    print(f"  Generated {len(l2_relations)} relations")
+        # Layer 2: Cross-type semantic
+        print("--- Layer 2: Cross-Type Semantic Relations ---")
+        l2_relations = layer2_cross_type(entities, conn)
+        print(f"  Generated {len(l2_relations)} relations")
 
-    # Layer 3: Tag similarity
-    print("--- Layer 3: Tag-Based Similarity (similar_to) ---")
-    l3_relations = layer3_tag_similarity(entities, tags_by_entity)
-    print(f"  Generated {len(l3_relations)} relations")
+        # Layer 3: Tag similarity
+        print("--- Layer 3: Tag-Based Similarity (similar_to) ---")
+        l3_relations = layer3_tag_similarity(entities, tags_by_entity)
+        print(f"  Generated {len(l3_relations)} relations")
 
-    # Deduplicate across layers (keep first occurrence)
-    all_relations = []
-    seen = set()
-    for rel in l1_relations + l2_relations + l3_relations:
-        key = (rel[0], rel[1], rel[2])
-        # Also check reverse for similar_to (symmetric)
-        rev_key = (rel[1], rel[0], rel[2])
-        if key not in seen and rev_key not in seen:
-            all_relations.append(rel)
-            seen.add(key)
+        # Deduplicate across layers (keep first occurrence)
+        all_relations = []
+        seen = set()
+        for rel in l1_relations + l2_relations + l3_relations:
+            key = (rel[0], rel[1], rel[2])
+            # Also check reverse for similar_to (symmetric)
+            rev_key = (rel[1], rel[0], rel[2])
+            if key not in seen and rev_key not in seen:
+                all_relations.append(rel)
+                seen.add(key)
 
-    print(f"\nTotal unique relations to insert: {len(all_relations)}")
-    print()
+        print(f"\nTotal unique relations to insert: {len(all_relations)}")
+        print()
 
-    # Insert
-    if args.dry_run:
-        # Show sample relations
-        print("Sample relations (first 20):")
-        # Look up entity names for display
-        id_to_name = {e["id"]: e["name"] for e in entities}
-        for from_id, to_id, rel_type, source in all_relations[:20]:
-            from_name = id_to_name.get(from_id, f"#{from_id}")
-            to_name = id_to_name.get(to_id, f"#{to_id}")
-            # Truncate names for readability
-            from_short = from_name[:40] + ("..." if len(from_name) > 40 else "")
-            to_short = to_name[:40] + ("..." if len(to_name) > 40 else "")
-            print(f"  [{rel_type}] {from_short} -> {to_short}  (source: {source})")
+        # Insert
+        if args.dry_run:
+            # Show sample relations
+            print("Sample relations (first 20):")
+            id_to_name = {e["id"]: e["name"] for e in entities}
+            for from_id, to_id, rel_type, source in all_relations[:20]:
+                from_name = id_to_name.get(from_id, f"#{from_id}")
+                to_name = id_to_name.get(to_id, f"#{to_id}")
+                from_short = from_name[:40] + ("..." if len(from_name) > 40 else "")
+                to_short = to_name[:40] + ("..." if len(to_name) > 40 else "")
+                print(f"  [{rel_type}] {from_short} -> {to_short}  (source: {source})")
 
-        print(f"\nDRY RUN: Would insert {len(all_relations)} relations. No changes made.")
-    else:
-        # Use a single transaction for all inserts
-        inserted = 0
-        skipped = 0
-        with conn:
-            for from_id, to_id, rel_type, source in all_relations:
-                metadata = json.dumps({"source": source})
-                cursor = conn.execute(
-                    """
-                    INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type, metadata)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (from_id, to_id, rel_type, metadata),
-                )
-                if cursor.rowcount > 0:
-                    inserted += 1
-                else:
-                    skipped += 1
+            print(f"\nDRY RUN: Would insert {len(all_relations)} relations. No changes made.")
+        else:
+            inserted = 0
+            skipped = 0
+            try:
+                with conn:
+                    for from_id, to_id, rel_type, source in all_relations:
+                        metadata = json.dumps({"source": source})
+                        cursor = conn.execute(
+                            """
+                            INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type, metadata)
+                            VALUES (?, ?, ?, ?)
+                            """,
+                            (from_id, to_id, rel_type, metadata),
+                        )
+                        if cursor.rowcount > 0:
+                            inserted += 1
+                        else:
+                            skipped += 1
+            except sqlite3.Error as e:
+                print(f"\nERROR: Database operation failed after {inserted} inserts: {e}")
+                print("The database may be partially updated.")
+                return
 
-        after_count = conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0]
-        print(f"Inserted: {inserted}")
-        print(f"Skipped (duplicates): {skipped}")
-        print(f"Relations before: {before_count}")
-        print(f"Relations after:  {after_count}")
+            after_count = conn.execute("SELECT COUNT(*) FROM relations").fetchone()[0]
+            print(f"Inserted: {inserted}")
+            print(f"Skipped (duplicates): {skipped}")
+            print(f"Relations before: {before_count}")
+            print(f"Relations after:  {after_count}")
 
-        # Show breakdown by relation_type
-        print("\nRelations by type:")
-        for row in conn.execute(
-            "SELECT relation_type, COUNT(*) FROM relations GROUP BY relation_type ORDER BY COUNT(*) DESC"
-        ).fetchall():
-            print(f"  {row[0]}: {row[1]}")
+            # Show breakdown by relation_type
+            print("\nRelations by type:")
+            for row in conn.execute(
+                "SELECT relation_type, COUNT(*) FROM relations GROUP BY relation_type ORDER BY COUNT(*) DESC"
+            ).fetchall():
+                print(f"  {row[0]}: {row[1]}")
 
-    conn.close()
-    print("\nDone.")
+        print("\nDone.")
+    except sqlite3.Error as e:
+        print(f"\nERROR: Unexpected database error: {e}")
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

@@ -260,6 +260,9 @@ export class MemoryToolHandler {
             text += `  - ${error.name}: ${error.error}\n`;
           });
         }
+        if (result.autoRelationsCreated && result.autoRelationsCreated > 0) {
+          text += `\nAuto-created ${result.autoRelationsCreated} ${result.autoRelationsCreated === 1 ? 'relation' : 'relations'} based on topic matching.\n`;
+        }
       }
 
       text += '\n' + '='.repeat(60) + '\n';

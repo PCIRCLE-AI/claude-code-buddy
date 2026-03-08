@@ -313,8 +313,10 @@ def delete_entity(conn: sqlite3.Connection, entity_id: int) -> bool:
                     "INSERT INTO entities_fts(entities_fts, rowid, name, observations) VALUES('delete', ?, ?, '')",
                     (entity_id, row[0])
                 )
-            except sqlite3.OperationalError:
-                pass  # FTS5 entry may not exist
+            except sqlite3.OperationalError as e:
+                if "no such table" not in str(e):
+                    import logging
+                    logging.warning(f"FTS5 cleanup failed for entity {entity_id}: {e}")
         # CASCADE handles observations, tags, relations
         conn.execute("DELETE FROM entities WHERE id = ?", (entity_id,))
     return True
