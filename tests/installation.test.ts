@@ -61,4 +61,21 @@ describe('Installation Verification', () => {
       expect(fs.existsSync('scripts/install-helpers.js')).toBe(true);
     });
   });
+
+  describe('Hook Scripts', () => {
+    const hookFiles = [
+      'scripts/hooks/session-start.js',
+      'scripts/hooks/pre-tool-use.js',
+      'scripts/hooks/post-tool-use.js',
+      'scripts/hooks/post-commit.js',
+      'scripts/hooks/stop.js',
+      'scripts/hooks/subagent-stop.js',
+    ];
+
+    it.each(hookFiles)('%s should exist and be executable', (hookPath) => {
+      expect(fs.existsSync(hookPath)).toBe(true);
+      const stat = fs.statSync(hookPath);
+      expect(stat.mode & 0o111).toBeTruthy();
+    });
+  });
 });
