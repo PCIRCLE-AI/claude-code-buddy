@@ -1,66 +1,28 @@
 {
   "name": "@pcircle/memesh",
-  "version": "2.10.1",
-  "description": "MeMesh — Persistent memory plugin for Claude Code. Remembers architecture decisions, coding patterns, and project context across sessions.",
+  "version": "3.0.0-alpha.1",
+  "description": "MeMesh — Minimal persistent memory plugin for Claude Code.",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "memesh": "dist/mcp/server-bootstrap.js"
+    "memesh": "dist/mcp/server.js",
+    "memesh-view": "dist/cli/view.js"
   },
   "files": [
     "dist/",
     ".mcp.json",
     "hooks/hooks.json",
-    "scripts/postinstall-new.js",
-    "scripts/postinstall-lib.js",
-    "scripts/health-check.js",
     "scripts/hooks/",
-    "scripts/skills/",
     "plugin.json",
     "README.md",
-    "README.zh-TW.md",
     "LICENSE"
   ],
   "scripts": {
-    "postinstall": "node scripts/postinstall-new.js",
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc && npm run copy:resources && chmod +x dist/mcp/server-bootstrap.js && npm run prepare:plugin",
-    "copy:resources": "mkdir -p dist/mcp/resources && cp -r src/mcp/resources/*.md dist/mcp/resources/",
-    "build:plugin": "npm run build",
-    "prepare:plugin": "node scripts/prepare-plugin.js",
-    "start": "node dist/index.js",
+    "build": "tsc && chmod +x dist/mcp/server.js && chmod +x dist/cli/view.js && chmod +x scripts/hooks/*.js",
     "test": "vitest",
-    "test:coverage": "vitest --coverage",
-    "test:e2e": "echo '⚠️  WARNING: Use test:e2e:safe instead to prevent system freeze!' && exit 1",
-    "test:e2e:safe": "./scripts/e2e-resource-monitor.sh vitest run --config vitest.e2e.config.ts",
-    "test:integration": "./scripts/e2e-resource-monitor.sh vitest run --config vitest.config.ts tests/**/*.test.ts",
-    "lint": "eslint src --ext .ts",
-    "format": "prettier --write 'src/**/*.ts'",
     "typecheck": "tsc --noEmit",
-    "cred": "tsx src/cli/index.ts cred",
-    "mcp": "node dist/mcp/server-bootstrap.js",
-    "docs": "typedoc",
-    "docs:watch": "typedoc --watch",
-    "verify:mcp": "./scripts/verify-mcp-stdio.sh",
-    "test:install": "./scripts/test-installation.sh",
-    "prepublishOnly": "npm run test:install",
-    "processes:list": "./scripts/manage-mcp-processes.sh list",
-    "processes:kill": "./scripts/manage-mcp-processes.sh kill",
-    "processes:restart": "./scripts/manage-mcp-processes.sh restart",
-    "processes:orphaned": "./scripts/manage-mcp-processes.sh orphaned",
-    "processes:config": "./scripts/manage-mcp-processes.sh config",
-    "verify:migration": "tsx scripts/verify-migration.ts",
-    "backfill-embeddings": "tsx scripts/backfill-embeddings.ts"
+    "start": "node dist/mcp/server.js"
   },
-  "keywords": [
-    "claude",
-    "claude-code",
-    "claude-code-plugin",
-    "mcp",
-    "ai-memory",
-    "knowledge-graph",
-    "persistent-memory"
-  ],
   "author": "PCIRCLE-AI",
   "license": "MIT",
   "homepage": "https://github.com/PCIRCLE-AI/claude-code-buddy",
@@ -68,62 +30,18 @@
     "type": "git",
     "url": "git+https://github.com/PCIRCLE-AI/claude-code-buddy.git"
   },
-  "bugs": {
-    "url": "https://github.com/PCIRCLE-AI/claude-code-buddy/issues"
-  },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.78.0",
-    "@modelcontextprotocol/sdk": "^1.25.3",
-    "@types/fs-extra": "^11.0.4",
-    "@types/inquirer": "^9.0.9",
-    "@xenova/transformers": "^2.17.2",
-    "asciichart": "^1.5.25",
     "better-sqlite3": "^12.6.2",
-    "boxen": "^8.0.1",
-    "chalk": "^5.6.2",
-    "chokidar": "^5.0.0",
-    "cli-spinners": "^3.4.0",
-    "cli-table3": "^0.6.5",
-    "commander": "^14.0.2",
-    "dotenv": "^17.2.3",
-    "express": "^5.2.1",
-    "fs-extra": "^11.3.3",
-    "glob": "^13.0.0",
-    "inquirer": "^13.2.2",
-    "minimatch": "^10.1.1",
-    "onnxruntime-node": "^1.23.2",
-    "ora": "^9.0.0",
-    "sqlite": "^5.1.1",
-    "sqlite-vec": "0.1.3",
-    "uuid": "^13.0.0",
-    "winston": "^3.19.0",
+    "@modelcontextprotocol/sdk": "^1.25.3",
     "zod": "^4.3.5"
   },
   "devDependencies": {
-    "@types/asciichart": "^1.5.8",
     "@types/better-sqlite3": "^7.6.13",
-    "@types/express": "^5.0.6",
     "@types/node": "^25.0.9",
-    "@types/supertest": "^6.0.3",
-    "@types/uuid": "^11.0.0",
-    "@types/winston": "^2.4.4",
-    "@typescript-eslint/eslint-plugin": "^8.56.1",
-    "@typescript-eslint/parser": "^8.56.1",
-    "@vitest/coverage-v8": "^4.0.17",
-    "ajv": "^8.17.1",
-    "eslint": "^10.0.2",
-    "prettier": "^3.8.0",
-    "supertest": "^7.2.2",
-    "tsx": "^4.19.2",
-    "typedoc": "^0.28.16",
     "typescript": "^5.9.3",
     "vitest": "^4.0.17"
   },
-  "overrides": {
-    "hono": "4.11.10"
-  },
   "engines": {
-    "node": ">=20.0.0",
-    "npm": ">=9.0.0"
+    "node": ">=20.0.0"
   }
 }

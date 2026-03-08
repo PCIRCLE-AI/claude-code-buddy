@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`memesh-view` CLI command** — generates self-contained HTML dashboard with D3.js force-directed knowledge graph, searchable entity table, and statistics
+- Fixed vitest pool from `threads` to `forks` to prevent SIGSEGV with better-sqlite3 native module
+
+## [3.0.0-alpha.1] - 2026-03-09
+
+### Breaking Changes
+
+- **Minimal core rewrite** — stripped from 50+ source files to 5, 26 dependencies to 3
+- **3 MCP tools only**: `remember`, `recall`, `forget` (removed buddy-do, buddy-help, memesh-hook-tool-use, memesh-generate-tests, memesh-metrics)
+- **2 hooks only**: session-start, post-commit (removed pre-tool-use, post-tool-use, stop, subagent-stop)
+
+### Removed
+
+- Vector search (ONNX embeddings, sqlite-vec, EmbeddingService)
+- Daemon/proxy server modes (standalone only)
+- CLI features (commander, inquirer, interactive prompts)
+- HTTP server (express)
+- All UI formatting (chalk, boxen, ora, cli-spinners, cli-table3, asciichart)
+- Logging framework (winston)
+- 23 production dependencies
+
+### Architecture
+
+- **Database**: Direct better-sqlite3 with FTS5 full-text search
+- **Server**: Standalone MCP via StdioServerTransport
+- **Validation**: Zod schemas for all tool inputs
+- **Backward compatible**: Existing DB data (entities, observations, relations, tags) preserved and queryable
+
+## [2.10.2] - 2026-03-09
+
+### Changed
+
+- Clean up changelog entries
+
 ## [2.10.1] - 2026-03-09
 
 ### Fixed
@@ -15,7 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Untrack local-only files from git (CLAUDE.md, .claude/, media/demo-video/, Dockerfile.test)
+- Streamline repository for professional open source standards
+- Simplify documentation and build configuration
 
 ## [2.10.0] - 2026-03-08
 
