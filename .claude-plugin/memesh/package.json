@@ -61,13 +61,13 @@
   ],
   "author": "PCIRCLE-AI",
   "license": "MIT",
-  "homepage": "https://github.com/PCIRCLE-AI/memesh-plugin",
+  "homepage": "https://github.com/PCIRCLE-AI/claude-code-buddy",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PCIRCLE-AI/memesh-plugin.git"
+    "url": "git+https://github.com/PCIRCLE-AI/claude-code-buddy.git"
   },
   "bugs": {
-    "url": "https://github.com/PCIRCLE-AI/memesh-plugin/issues"
+    "url": "https://github.com/PCIRCLE-AI/claude-code-buddy/issues"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

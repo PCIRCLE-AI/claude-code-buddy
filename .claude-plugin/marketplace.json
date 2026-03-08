@@ -16,12 +16,12 @@
       "author": {
         "name": "PCIRCLE AI"
       },
-      "homepage": "https://github.com/PCIRCLE-AI/memesh-plugin",
-      "repository": "https://github.com/PCIRCLE-AI/memesh-plugin",
+      "homepage": "https://github.com/PCIRCLE-AI/claude-code-buddy",
+      "repository": "https://github.com/PCIRCLE-AI/claude-code-buddy",
       "license": "MIT",
       "source": {
         "source": "github",
-        "repo": "PCIRCLE-AI/memesh-plugin"
+        "repo": "PCIRCLE-AI/claude-code-buddy"
       },
       "keywords": ["mcp", "productivity", "memory", "knowledge-graph", "persistent-memory", "developer-tools"],
       "category": "productivity",
