@@ -4,7 +4,7 @@
  * MeMesh Plugin Health Check
  *
  * Fast, non-invasive validation of plugin installation.
- * Checks all 4 critical paths and reports issues without modifying anything.
+ * Supports both npm global install and local dev install.
  *
  * Exit codes:
  *   0 - All healthy
@@ -27,18 +27,46 @@ const verbose = process.argv.includes('--verbose');
 const json = process.argv.includes('--json');
 
 /**
+ * Detect installation mode based on directory structure.
+ * - 'npm-global': installed via npm install -g (dist/ is in package root)
+ * - 'dev': running from project source (needs .claude-plugin/memesh/dist/)
+ * - 'plugin': installed via /plugin marketplace add (managed by Claude Code)
+ */
+function detectInstallMode() {
+  // If dist/mcp/server-bootstrap.js exists at package root, it's npm or plugin install
+  if (existsSync(join(projectRoot, 'dist', 'mcp', 'server-bootstrap.js'))) {
+    // Check if we're inside node_modules (npm global)
+    if (projectRoot.includes('node_modules')) {
+      return 'npm-global';
+    }
+    // Check if src/ exists (dev environment)
+    if (existsSync(join(projectRoot, 'src'))) {
+      return 'dev';
+    }
+    return 'plugin';
+  }
+  // Fallback: dev mode without build
+  return 'dev';
+}
+
+const installMode = detectInstallMode();
+
+/**
  * Health check result structure
  */
 const result = {
   healthy: true,
+  installMode,
   issues: [],
   timestamp: new Date().toISOString(),
   checks: {
     dist: false,
+    pluginJson: false,
+    mcpJson: false,
+    hooks: false,
     marketplace: false,
     symlink: false,
     settings: false,
-    mcp: false
   }
 };
 
@@ -58,95 +86,181 @@ function addIssue(path, severity, message, repairable = true) {
  * Log success message
  */
 function logSuccess(message) {
-  if (!silent && !json && verbose) {
-    console.log(`   ✅ ${message}`);
+  if (!silent && !json) {
+    if (verbose) {
+      console.log(`   ✅ ${message}`);
+    }
   }
 }
 
 // ============================================================================
-// Check 1: Dist directory exists (required for all other checks)
+// Start
 // ============================================================================
 
-if (!silent && !json) console.log('🔍 Checking MeMesh plugin installation...\n');
+if (!silent && !json) {
+  console.log('🔍 Checking MeMesh Plugin installation...\n');
+  console.log(`   Mode: ${installMode}`);
+  console.log(`   Path: ${projectRoot}\n`);
+}
 
-const distPath = join(projectRoot, '.claude-plugin', 'memesh', 'dist', 'mcp', 'server-bootstrap.js');
+// ============================================================================
+// Check 1: Server bootstrap exists
+// ============================================================================
 
-if (!existsSync(distPath)) {
-  addIssue('dist', 'error', 'Plugin not built (.claude-plugin/memesh/dist/ missing)', false);
-  result.checks.dist = false;
+const serverPath = installMode === 'dev'
+  ? join(projectRoot, '.claude-plugin', 'memesh', 'dist', 'mcp', 'server-bootstrap.js')
+  : join(projectRoot, 'dist', 'mcp', 'server-bootstrap.js');
+
+if (!existsSync(serverPath)) {
+  const hint = installMode === 'dev' ? 'Run: npm run build' : 'Reinstall: npm install -g @pcircle/memesh';
+  addIssue('dist', 'error', `server-bootstrap.js not found at ${serverPath}`, false);
 
   if (!silent && !json) {
-    console.error('\n❌ Plugin not built. Run: npm run build\n');
+    console.error(`\n❌ Plugin not built. ${hint}\n`);
   }
 
   if (json) {
     console.log(JSON.stringify(result, null, 2));
   }
 
-  process.exit(2); // Fatal error
+  process.exit(2);
 } else {
   result.checks.dist = true;
-  logSuccess('Plugin dist/ exists');
+  logSuccess('server-bootstrap.js exists');
 }
 
 // ============================================================================
-// Check 2: Marketplace registration
+// Check 2: plugin.json exists and is valid
 // ============================================================================
 
-const knownMarketplacesPath = join(homedir(), '.claude', 'plugins', 'known_marketplaces.json');
-const claudePluginRoot = join(projectRoot, '.claude-plugin');
+const pluginJsonPath = join(projectRoot, 'plugin.json');
 
 try {
-  if (!existsSync(knownMarketplacesPath)) {
-    addIssue('marketplace', 'error', 'known_marketplaces.json not found');
+  if (!existsSync(pluginJsonPath)) {
+    addIssue('pluginJson', 'error', 'plugin.json not found');
   } else {
-    const content = readFileSync(knownMarketplacesPath, 'utf-8');
-    const marketplaces = JSON.parse(content);
-
-    if (!marketplaces['pcircle-ai']) {
-      addIssue('marketplace', 'error', 'pcircle-ai marketplace not registered');
+    const plugin = JSON.parse(readFileSync(pluginJsonPath, 'utf-8'));
+    if (!plugin.name || !plugin.version) {
+      addIssue('pluginJson', 'error', 'plugin.json missing name or version');
     } else {
-      const entry = marketplaces['pcircle-ai'];
-      const expectedPath = claudePluginRoot;
+      result.checks.pluginJson = true;
+      logSuccess(`plugin.json valid (${plugin.name} v${plugin.version})`);
+    }
+  }
+} catch (error) {
+  addIssue('pluginJson', 'error', `Failed to parse plugin.json: ${error.message}`);
+}
 
-      if (entry.source?.path !== expectedPath) {
-        addIssue('marketplace', 'warning', `Marketplace path incorrect (expected: ${expectedPath}, got: ${entry.source?.path})`);
-      } else {
-        result.checks.marketplace = true;
-        logSuccess('Marketplace registered correctly');
+// ============================================================================
+// Check 3: .mcp.json exists and is valid
+// ============================================================================
+
+const mcpJsonPath = join(projectRoot, '.mcp.json');
+
+try {
+  if (!existsSync(mcpJsonPath)) {
+    addIssue('mcpJson', 'error', '.mcp.json not found');
+  } else {
+    const mcp = JSON.parse(readFileSync(mcpJsonPath, 'utf-8'));
+    if (!mcp.mcpServers?.memesh) {
+      addIssue('mcpJson', 'error', '.mcp.json missing memesh server definition');
+    } else {
+      result.checks.mcpJson = true;
+      logSuccess('.mcp.json valid');
+    }
+  }
+} catch (error) {
+  addIssue('mcpJson', 'error', `Failed to parse .mcp.json: ${error.message}`);
+}
+
+// ============================================================================
+// Check 4: hooks/hooks.json exists and scripts are present
+// ============================================================================
+
+const hooksJsonPath = join(projectRoot, 'hooks', 'hooks.json');
+
+try {
+  if (!existsSync(hooksJsonPath)) {
+    addIssue('hooks', 'error', 'hooks/hooks.json not found');
+  } else {
+    const hooksConfig = JSON.parse(readFileSync(hooksJsonPath, 'utf-8'));
+    const events = Object.keys(hooksConfig.hooks || {});
+
+    if (events.length === 0) {
+      addIssue('hooks', 'warning', 'No hook events defined');
+    } else {
+      let allScriptsExist = true;
+      for (const event of events) {
+        for (const entry of hooksConfig.hooks[event]) {
+          for (const hook of entry.hooks) {
+            const scriptPath = hook.command.replace('${CLAUDE_PLUGIN_ROOT}', projectRoot);
+            if (!existsSync(scriptPath)) {
+              addIssue('hooks', 'error', `Hook script missing: ${scriptPath}`);
+              allScriptsExist = false;
+            }
+          }
+        }
+      }
+      if (allScriptsExist) {
+        result.checks.hooks = true;
+        logSuccess(`hooks valid (${events.length} events)`);
       }
     }
   }
 } catch (error) {
-  addIssue('marketplace', 'error', `Failed to parse known_marketplaces.json: ${error.message}`);
+  addIssue('hooks', 'error', `Failed to parse hooks.json: ${error.message}`);
 }
 
 // ============================================================================
-// Check 3: Symlink validity
+// Check 5: Marketplace registration (npm-global and dev modes)
+// ============================================================================
+
+const knownMarketplacesPath = join(homedir(), '.claude', 'plugins', 'known_marketplaces.json');
+
+try {
+  if (!existsSync(knownMarketplacesPath)) {
+    addIssue('marketplace', 'warning', 'known_marketplaces.json not found (plugin may be installed via /plugin command)');
+  } else {
+    const content = readFileSync(knownMarketplacesPath, 'utf-8');
+    const marketplaces = JSON.parse(content);
+
+    if (marketplaces['pcircle-ai']) {
+      result.checks.marketplace = true;
+      logSuccess('Marketplace registered');
+    } else {
+      addIssue('marketplace', 'warning', 'pcircle-ai not in known_marketplaces.json (may be installed via /plugin command)');
+    }
+  }
+} catch (error) {
+  addIssue('marketplace', 'error', `Failed to check marketplace: ${error.message}`);
+}
+
+// ============================================================================
+// Check 6: Symlink or plugin discovery
 // ============================================================================
 
 const symlinkPath = join(homedir(), '.claude', 'plugins', 'marketplaces', 'pcircle-ai');
 
 try {
   if (!existsSync(symlinkPath)) {
-    addIssue('symlink', 'error', 'Marketplace symlink not found');
+    addIssue('symlink', 'warning', 'Marketplace symlink not found (may be installed via /plugin command)');
   } else {
     const stats = lstatSync(symlinkPath);
 
-    if (!stats.isSymbolicLink()) {
-      addIssue('symlink', 'error', 'Marketplace path is not a symlink');
-    } else {
+    if (stats.isSymbolicLink()) {
       const target = realpathSync(symlinkPath);
-      const expectedTarget = realpathSync(claudePluginRoot);
-
-      if (target !== expectedTarget) {
-        addIssue('symlink', 'warning', `Symlink points to wrong location (expected: ${expectedTarget}, got: ${target})`);
-      } else if (!existsSync(target)) {
-        addIssue('symlink', 'error', 'Symlink target does not exist');
+      if (!existsSync(target)) {
+        addIssue('symlink', 'error', 'Symlink target does not exist (broken symlink)');
       } else {
         result.checks.symlink = true;
-        logSuccess('Symlink valid');
+        logSuccess(`Symlink valid → ${target}`);
       }
+    } else if (stats.isDirectory()) {
+      // Could be a direct clone (plugin marketplace install)
+      result.checks.symlink = true;
+      logSuccess('Plugin directory exists (marketplace install)');
+    } else {
+      addIssue('symlink', 'error', 'Marketplace path is not a symlink or directory');
     }
   }
 } catch (error) {
@@ -154,22 +268,22 @@ try {
 }
 
 // ============================================================================
-// Check 4: Plugin enabled in settings
+// Check 7: Plugin enabled in settings
 // ============================================================================
 
 const settingsPath = join(homedir(), '.claude', 'settings.json');
 
 try {
   if (!existsSync(settingsPath)) {
-    addIssue('settings', 'error', 'settings.json not found');
+    addIssue('settings', 'warning', 'settings.json not found');
   } else {
     const content = readFileSync(settingsPath, 'utf-8');
     const settings = JSON.parse(content);
 
     if (!settings.enabledPlugins) {
-      addIssue('settings', 'error', 'enabledPlugins object missing');
+      addIssue('settings', 'warning', 'enabledPlugins not found in settings.json');
     } else if (!settings.enabledPlugins['memesh@pcircle-ai']) {
-      addIssue('settings', 'error', 'memesh@pcircle-ai not enabled');
+      addIssue('settings', 'warning', 'memesh@pcircle-ai not enabled (may need to enable via /plugin command)');
     } else if (settings.enabledPlugins['memesh@pcircle-ai'] !== true) {
       addIssue('settings', 'warning', 'memesh@pcircle-ai is disabled');
     } else {
@@ -178,48 +292,7 @@ try {
     }
   }
 } catch (error) {
-  addIssue('settings', 'error', `Failed to parse settings.json: ${error.message}`);
-}
-
-// ============================================================================
-// Check 5: MCP server configuration
-// ============================================================================
-
-const mcpSettingsPath = join(homedir(), '.claude', 'mcp_settings.json');
-const expectedMcpPath = distPath;
-
-try {
-  if (!existsSync(mcpSettingsPath)) {
-    addIssue('mcp', 'error', 'mcp_settings.json not found');
-  } else {
-    const content = readFileSync(mcpSettingsPath, 'utf-8');
-    const mcpSettings = JSON.parse(content);
-
-    if (!mcpSettings.mcpServers) {
-      addIssue('mcp', 'error', 'mcpServers object missing');
-    } else if (!mcpSettings.mcpServers.memesh) {
-      addIssue('mcp', 'error', 'memesh server not configured');
-    } else {
-      const memeshConfig = mcpSettings.mcpServers.memesh;
-
-      // Check command
-      if (memeshConfig.command !== 'node') {
-        addIssue('mcp', 'warning', 'MCP server command should be "node"');
-      }
-
-      // Check args
-      if (!Array.isArray(memeshConfig.args) || memeshConfig.args.length === 0) {
-        addIssue('mcp', 'error', 'MCP server args missing');
-      } else if (memeshConfig.args[0] !== expectedMcpPath) {
-        addIssue('mcp', 'warning', `MCP server path incorrect (expected: ${expectedMcpPath}, got: ${memeshConfig.args[0]})`);
-      } else {
-        result.checks.mcp = true;
-        logSuccess('MCP server configured correctly');
-      }
-    }
-  }
-} catch (error) {
-  addIssue('mcp', 'error', `Failed to parse mcp_settings.json: ${error.message}`);
+  addIssue('settings', 'error', `Failed to check settings: ${error.message}`);
 }
 
 // ============================================================================
@@ -235,21 +308,24 @@ if (json) {
     console.log('✅ All checks passed - plugin installation healthy');
     console.log('═'.repeat(60));
   } else {
-    const errorCount = result.issues.filter(i => i.severity === 'error').length;
-    const warningCount = result.issues.filter(i => i.severity === 'warning').length;
-    const repairableCount = result.issues.filter(i => i.repairable).length;
+    const errors = result.issues.filter(i => i.severity === 'error');
+    const warnings = result.issues.filter(i => i.severity === 'warning');
 
-    console.log(`❌ Found ${result.issues.length} issue(s): ${errorCount} error(s), ${warningCount} warning(s)`);
+    if (errors.length > 0) {
+      console.log(`❌ Found ${errors.length} error(s), ${warnings.length} warning(s)`);
+    } else {
+      console.log(`⚠️  Found ${warnings.length} warning(s) (non-critical)`);
+    }
     console.log('═'.repeat(60));
 
-    if (repairableCount > 0) {
-      console.log(`\n🔧 ${repairableCount} issue(s) are auto-repairable. Run: npm run health:repair\n`);
-    } else {
-      console.log('\n⚠️  Issues require manual intervention. Run: npm run build\n');
+    if (errors.length > 0) {
+      const hint = installMode === 'dev' ? 'npm run build' : 'npm install -g @pcircle/memesh';
+      console.log(`\n🔧 Fix errors first. Try: ${hint}\n`);
     }
   }
 }
 
-// Exit with appropriate code
-const hasUnrepairableIssues = result.issues.some(i => !i.repairable);
-process.exit(result.healthy ? 0 : (hasUnrepairableIssues ? 2 : 1));
+// Exit: errors → 1 or 2, warnings only → 0
+const hasErrors = result.issues.some(i => i.severity === 'error');
+const hasUnrepairableErrors = result.issues.some(i => i.severity === 'error' && !i.repairable);
+process.exit(hasErrors ? (hasUnrepairableErrors ? 2 : 1) : 0);
