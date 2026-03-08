@@ -134,7 +134,7 @@ buddy-remember "API design decisions"
 buddy-remember "why we chose PostgreSQL"
 ```
 
-所有資料都存在你的電腦上。決策保留 90 天，session 筆記保留 30 天。
+所有資料都存在你的電腦上，統一採用 90 天自動保留機制。
 
 ---
 

@@ -108,28 +108,25 @@ New CLI tools for managing MCP server processes:
 ### Directory Structure
 ```
 src/
-├── mcp/              # MCP server implementation
-├── agents/           # Specialized capability agents
-├── orchestrator/     # Task routing and orchestration
-├── memory/           # Project memory management
-├── evolution/        # Learning and adaptation
-├── core/             # Core functionality
-└── utils/            # Utilities
-streamlit/
-├── app.py            # Streamlit UI entry point
-├── db.py             # SQLite query layer
-├── views/
-│   ├── dashboard.py  # Statistics and charts
-│   └── explorer.py   # Interactive KG graph
-└── backfill_relations.py  # Relation backfill script
+├── mcp/               # MCP server, tools, handlers
+├── memory/            # Memory management (UnifiedMemoryStore)
+├── knowledge-graph/   # Knowledge graph (KGSearchEngine, FTS5+semantic)
+├── embeddings/        # Vector search (sqlite-vec, ONNX)
+├── core/              # Core logic (HookIntegration, GitCommandParser)
+├── db/                # Database management (DatabaseManager)
+├── cli/               # CLI commands
+├── config/            # Configuration management
+├── management/        # Process management
+├── tools/             # Tool utilities
+├── utils/             # Shared utilities
+└── ui/                # UI components (progress, status)
 ```
 
 ### Key Files
-- `src/mcp/server.ts` - Main MCP server
-- `src/orchestrator/index.ts` - Task orchestrator
-- `src/agents/knowledge/KnowledgeGraph.ts` - Knowledge graph
-- `src/memory/ProjectAutoTracker.ts` - Auto-tracking
-- `scripts/manage-mcp-processes.sh` - Process management CLI
+- `src/mcp/server-bootstrap.ts` - MCP server entry point (3 modes: daemon/proxy/standalone)
+- `src/knowledge-graph/index.ts` - Knowledge graph with vector search
+- `src/memory/UnifiedMemoryStore.ts` - Central memory management
+- `src/embeddings/EmbeddingService.ts` - ONNX embedding with LRU cache
 
 ## API Reference
 

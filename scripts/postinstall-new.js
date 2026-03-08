@@ -273,7 +273,7 @@ ${chalk.bold('Installation Summary:')}
 
 ${chalk.bold('What You Got:')}
   ${chalk.cyan('•')} 8 MCP tools (persistent memory, semantic search, task routing)
-  ${chalk.cyan('•')} Auto-memory hooks (session recall, work tracking, smart routing)
+  ${chalk.cyan('•')} 6 auto-hooks (session recall, commit tracking, smart routing, pre-tool-use gate)
   ${chalk.cyan('•')} Vector semantic search with ONNX embeddings (runs 100% locally)
   ${chalk.cyan('•')} Auto-relation inference in knowledge graph
   ${chalk.cyan('•')} Local-first architecture (all data stored locally)

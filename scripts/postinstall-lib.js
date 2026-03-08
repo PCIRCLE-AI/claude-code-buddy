@@ -3,7 +3,7 @@
  *
  * Implements plugin installation logic with backward compatibility
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, unlinkSync, copyFileSync, lstatSync, realpathSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, unlinkSync, copyFileSync, lstatSync, realpathSync, readdirSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 // ============================================================================
@@ -246,7 +246,10 @@ export async function ensureMCPConfigured(installPath, mode, claudeDir = join(ho
 const HOOK_DEFINITIONS = [
   { file: 'session-start.js', event: 'SessionStart', matcher: '*' },
   { file: 'post-tool-use.js', event: 'PostToolUse', matcher: '*' },
+  { file: 'post-commit.js', event: 'PostToolUse', matcher: '*' },
   { file: 'stop.js', event: 'Stop', matcher: '*' },
+  { file: 'subagent-stop.js', event: 'Stop', matcher: '*' },
+  { file: 'pre-tool-use.js', event: 'PreToolUse', matcher: '*' },
 ];
 
 /**
@@ -256,9 +259,13 @@ const HOOK_UTILITIES = [
   'hook-utils.js',
   'session-start-recall-utils.js',
   'post-tool-use-recall-utils.js',
-  'post-commit.js',
-  'subagent-stop.js',
-  'pre-tool-use.js',
+];
+
+/**
+ * Directories that hooks depend on (copied recursively)
+ */
+const HOOK_DIRECTORIES = [
+  'templates',
 ];
 
 /**
@@ -307,6 +314,29 @@ export function ensureHooksInstalled(installPath, claudeDir = join(homedir(), '.
       copyFileSync(src, dst);
     } catch (error) {
       result.errors.push(`${fileName}: ${error.message}`);
+    }
+  }
+
+  // 1b. Copy hook directories (e.g., templates/)
+  for (const dirName of HOOK_DIRECTORIES) {
+    const srcDir = join(sourceDir, dirName);
+    const dstDir = join(targetDir, dirName);
+    try {
+      if (!existsSync(srcDir)) continue;
+      ensureDirectory(dstDir);
+
+      // Copy all files in the directory
+      const entries = readdirSync(srcDir);
+      for (const entry of entries) {
+        const srcFile = join(srcDir, entry);
+        const dstFile = join(dstDir, entry);
+        // Only copy files (not subdirectories)
+        if (statSync(srcFile).isFile()) {
+          copyFileSync(srcFile, dstFile);
+        }
+      }
+    } catch (error) {
+      result.errors.push(`${dirName}/: ${error.message}`);
     }
   }
 

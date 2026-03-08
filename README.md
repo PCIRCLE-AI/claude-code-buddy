@@ -134,7 +134,7 @@ buddy-remember "API design decisions"
 buddy-remember "why we chose PostgreSQL"
 ```
 
-All data stays on your machine. Decisions kept 90 days, session notes 30 days.
+All data stays on your machine with automatic 90-day retention.
 
 ---
 
