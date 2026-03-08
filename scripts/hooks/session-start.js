@@ -24,74 +24,76 @@ process.stdin.on('end', () => {
 
     const Database = require('better-sqlite3');
     const db = new Database(dbPath, { readonly: true });
-    db.pragma('journal_mode = WAL');
+    try {
+      db.pragma('journal_mode = WAL');
 
-    // Check if tables exist (db may exist but be empty)
-    const tableCheck = db.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='entities'"
-    ).get();
-    if (!tableCheck) {
+      // Check if tables exist (db may exist but be empty)
+      const tableCheck = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='entities'"
+      ).get();
+      if (!tableCheck) {
+        output('MeMesh: Database exists but no memories stored yet.');
+        return;
+      }
+
+      // Query project-specific recent entities with their observations
+      const projectTag = `project:${projectName}`;
+      const projectEntities = db.prepare(`
+        SELECT DISTINCT e.id, e.name, e.type, e.created_at
+        FROM entities e
+        JOIN tags t ON t.entity_id = e.id
+        WHERE t.tag = ?
+        ORDER BY e.id DESC
+        LIMIT 10
+      `).all(projectTag);
+
+      // Fetch observations for each entity (up to 3 per entity)
+      const getObservations = db.prepare(
+        'SELECT content FROM observations WHERE entity_id = ? ORDER BY id DESC LIMIT 3'
+      );
+
+      // Query global recent entities
+      const recentEntities = db.prepare(`
+        SELECT id, name, type, created_at
+        FROM entities
+        ORDER BY id DESC
+        LIMIT 5
+      `).all();
+
+      // Build recall message
+      const lines = [];
+      if (projectEntities.length > 0) {
+        lines.push(`Project "${projectName}" memories (${projectEntities.length}):`);
+        for (const e of projectEntities) {
+          lines.push(`  - [${e.type}] ${e.name}`);
+          const obs = getObservations.all(e.id);
+          for (const o of obs) {
+            lines.push(`    ${o.content}`);
+          }
+        }
+      }
+      if (recentEntities.length > 0) {
+        lines.push('');
+        lines.push('Recent memories:');
+        for (const e of recentEntities) {
+          lines.push(`  - [${e.type}] ${e.name}`);
+          const obs = getObservations.all(e.id);
+          for (const o of obs) {
+            lines.push(`    ${o.content}`);
+          }
+        }
+      }
+      if (lines.length === 0) {
+        lines.push('MeMesh: No memories found yet. Use remember tool to store knowledge.');
+      }
+
+      output(lines.join('\n'));
+    } finally {
       db.close();
-      output('MeMesh: Database exists but no memories stored yet.');
-      return;
     }
-
-    // Query project-specific recent entities with their observations
-    const projectTag = `project:${projectName}`;
-    const projectEntities = db.prepare(`
-      SELECT DISTINCT e.id, e.name, e.type, e.created_at
-      FROM entities e
-      JOIN tags t ON t.entity_id = e.id
-      WHERE t.tag = ?
-      ORDER BY e.id DESC
-      LIMIT 10
-    `).all(projectTag);
-
-    // Fetch observations for each entity (up to 3 per entity)
-    const getObservations = db.prepare(
-      'SELECT content FROM observations WHERE entity_id = ? ORDER BY id DESC LIMIT 3'
-    );
-
-    // Query global recent entities
-    const recentEntities = db.prepare(`
-      SELECT id, name, type, created_at
-      FROM entities
-      ORDER BY id DESC
-      LIMIT 5
-    `).all();
-
-    // Build recall message
-    const lines = [];
-    if (projectEntities.length > 0) {
-      lines.push(`Project "${projectName}" memories (${projectEntities.length}):`);
-      for (const e of projectEntities) {
-        lines.push(`  - [${e.type}] ${e.name}`);
-        const obs = getObservations.all(e.id);
-        for (const o of obs) {
-          lines.push(`    ${o.content}`);
-        }
-      }
-    }
-    if (recentEntities.length > 0) {
-      lines.push('');
-      lines.push('Recent memories:');
-      for (const e of recentEntities) {
-        lines.push(`  - [${e.type}] ${e.name}`);
-        const obs = getObservations.all(e.id);
-        for (const o of obs) {
-          lines.push(`    ${o.content}`);
-        }
-      }
-    }
-    if (lines.length === 0) {
-      lines.push('MeMesh: No memories found yet. Use remember tool to store knowledge.');
-    }
-
-    db.close();
-    output(lines.join('\n'));
   } catch (err) {
-    // Hooks must never crash Claude Code
-    output('MeMesh: Session start completed.');
+    // Hooks must never crash Claude Code — but report honestly
+    output(`MeMesh: Session start failed (${err?.message || 'unknown error'}). Memories not loaded.`);
   }
 });
 

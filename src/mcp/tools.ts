@@ -233,5 +233,9 @@ export function handleTool(name: string, args: any): ToolResult {
     return fail(message);
   }
 
-  return handler(parsed.data);
+  try {
+    return handler(parsed.data);
+  } catch (err: any) {
+    return fail(`Tool "${name}" failed: ${err.message}`);
+  }
 }

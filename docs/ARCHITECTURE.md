@@ -161,7 +161,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 ## Testing
 
-6 test files, 63 tests total:
+7 test files, 73 tests total:
 
 | File | Tests | What it covers |
 |------|-------|---------------|
@@ -171,6 +171,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 | `tests/installation.test.ts` | 7 | Package structure, required files exist |
 | `tests/hooks/session-start.test.ts` | 6 | Session start hook behavior |
 | `tests/hooks/post-commit.test.ts` | 7 | Post commit hook behavior |
+| `tests/cli/view.test.ts` | 10 | CLI dashboard generator, XSS prevention |
 
 Framework: vitest (forks pool mode to avoid SIGSEGV with native modules).
 

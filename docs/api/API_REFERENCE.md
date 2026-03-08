@@ -236,7 +236,8 @@ MeMesh runs as a stdio MCP server. Claude Code manages the connection automatica
   "mcpServers": {
     "memesh": {
       "command": "node",
-      "args": ["dist/mcp/server.js"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js"],
+      "env": { "NODE_ENV": "production" }
     }
   }
 }

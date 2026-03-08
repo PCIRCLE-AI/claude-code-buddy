@@ -2,19 +2,11 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    // CRITICAL: Disable parallelism to prevent worker pool leaks
-    // Issue: Worker processes (vitest 1-6) were not being terminated
-    // Result: 56 zombie processes accumulating over 10+ hours
-
-    // OPTION 1: Use threads with singleThread mode (recommended)
+    // Use forks pool to prevent SIGSEGV with better-sqlite3 native module
     pool: 'forks',
-    // Vitest 4.x: poolOptions moved to top-level
     singleFork: true,
-    // Explicit limits as fallback
     maxForks: 1,
     minForks: 1,
-
-    // OPTION 2: Disable file parallelism entirely
     fileParallelism: false,
 
     // Force test timeout to prevent hanging
@@ -40,7 +32,7 @@ export default defineConfig({
 
     // File patterns
     include: ['src/**/*.test.ts', 'src/**/*.spec.ts', 'tests/**/*.test.ts', 'tests/**/*.spec.ts', 'scripts/**/*.test.js'],
-    exclude: ['node_modules', 'dist', 'scripts/hooks/__tests__/hooks.test.js'],
+    exclude: ['node_modules', 'dist'],
 
     // Explicit cleanup on test completion
     teardownTimeout: 5000,

@@ -86,40 +86,51 @@ process.stdin.on('end', () => {
 
     const Database = require('better-sqlite3');
     const db = new Database(dbPath);
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
+    try {
+      db.pragma('journal_mode = WAL');
+      db.pragma('foreign_keys = ON');
 
-    // Ensure schema exists
-    db.exec(SCHEMA_SQL);
+      // Ensure schema exists
+      db.exec(SCHEMA_SQL);
 
-    const entityName = `commit-${commitHash}`;
+      const entityName = `commit-${commitHash}`;
 
-    // Insert entity
-    db.prepare('INSERT OR IGNORE INTO entities (name, type) VALUES (?, ?)').run(entityName, 'commit');
-    const entity = db.prepare('SELECT id FROM entities WHERE name = ?').get(entityName);
-    if (entity) {
-      // Add observation
-      db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, commitMsg);
+      // Check if this is a new or existing entity
+      const insertResult = db.prepare('INSERT OR IGNORE INTO entities (name, type) VALUES (?, ?)').run(entityName, 'commit');
+      const isNew = insertResult.changes > 0;
+      const entity = db.prepare('SELECT id FROM entities WHERE name = ?').get(entityName);
+      if (entity) {
+        // Capture existing observations for FTS delete (before inserting new one)
+        const prevObs = isNew
+          ? []
+          : db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(entity.id);
+        const prevObsText = isNew ? undefined : prevObs.map(o => o.content).join(' ');
 
-      // Add project tag (check first since no unique constraint)
-      const projectTag = `project:${projectName}`;
-      const existingTag = db.prepare('SELECT id FROM tags WHERE entity_id = ? AND tag = ?').get(entity.id, projectTag);
-      if (!existingTag) {
-        db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(entity.id, projectTag);
+        // Add observation
+        db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, commitMsg);
+
+        // Add project tag (check first since no unique constraint)
+        const projectTag = `project:${projectName}`;
+        const existingTag = db.prepare('SELECT id FROM tags WHERE entity_id = ? AND tag = ?').get(entity.id, projectTag);
+        if (!existingTag) {
+          db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(entity.id, projectTag);
+        }
+
+        // Update FTS index — delete old entry first if entity existed
+        if (prevObsText !== undefined) {
+          db.prepare("INSERT INTO entities_fts(entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)").run(entity.id, entityName, prevObsText);
+        }
+        // Fetch all observations (including the one just added) for the new FTS entry
+        const allObs = db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(entity.id);
+        const allObsText = allObs.map(o => o.content).join(' ');
+        db.prepare('INSERT INTO entities_fts(rowid, name, observations) VALUES(?, ?, ?)').run(entity.id, entityName, allObsText);
       }
-
-      // Update FTS index
-      try {
-        db.prepare("INSERT INTO entities_fts(entities_fts, rowid, name, observations) VALUES('delete', ?, ?, '')").run(entity.id, entityName);
-      } catch {
-        // Ignore if no previous entry
-      }
-      db.prepare('INSERT INTO entities_fts(rowid, name, observations) VALUES(?, ?, ?)').run(entity.id, entityName, commitMsg);
+    } finally {
+      db.close();
     }
-
-    db.close();
   } catch (err) {
-    // Never crash Claude Code
+    // Never crash Claude Code — but leave a trace for debugging
+    try { process.stderr.write(`[memesh post-commit] ${err?.message || err}\n`); } catch {}
   }
   exit0();
 });

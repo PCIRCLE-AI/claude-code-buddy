@@ -51,7 +51,8 @@ function queryData(dbPath: string): DashboardData {
   let db: Database.Database;
   try {
     db = new Database(dbPath, { readonly: true });
-  } catch {
+  } catch (err: any) {
+    console.error(`[memesh-view] Cannot open database at ${dbPath}: ${err.message}`);
     return emptyData;
   }
 
@@ -177,9 +178,9 @@ function queryData(dbPath: string): DashboardData {
  */
 function escapeJsonForHtml(json: string): string {
   return json
+    .replace(/&/g, '\\u0026')
     .replace(/</g, '\\u003c')
     .replace(/>/g, '\\u003e')
-    .replace(/&/g, '\\u0026')
     .replace(/\u2028/g, '\\u2028')
     .replace(/\u2029/g, '\\u2029');
 }

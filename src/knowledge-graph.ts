@@ -40,25 +40,28 @@ export class KnowledgeGraph {
     opts?: { observations?: string[]; tags?: string[]; metadata?: any }
   ): number {
     // INSERT OR IGNORE — if entity already exists, get its id
-    this.db
+    const insertResult = this.db
       .prepare(
         'INSERT OR IGNORE INTO entities (name, type, metadata) VALUES (?, ?, ?)'
       )
       .run(name, type, opts?.metadata ? JSON.stringify(opts.metadata) : null);
+    const isNewEntity = insertResult.changes > 0;
 
     const row = this.db
       .prepare('SELECT id FROM entities WHERE name = ?')
       .get(name) as { id: number };
     const entityId = row.id;
 
-    // Capture previous obs text before inserting new ones (for FTS rebuild)
-    const prevObs = this.db
-      .prepare('SELECT content FROM observations WHERE entity_id = ?')
-      .all(entityId) as { content: string }[];
-    const prevObsText =
-      prevObs.length > 0
-        ? prevObs.map((o) => o.content).join(' ')
-        : undefined;
+    // For existing entities, capture current obs text to delete old FTS entry before rebuild.
+    // For new entities, no prior FTS entry exists — pass undefined to skip delete.
+    const prevObs = isNewEntity
+      ? []
+      : (this.db
+          .prepare('SELECT content FROM observations WHERE entity_id = ?')
+          .all(entityId) as { content: string }[]);
+    const prevObsText = isNewEntity
+      ? undefined
+      : prevObs.map((o) => o.content).join(' ');
 
     // Add observations
     if (opts?.observations?.length) {
@@ -191,19 +194,25 @@ export class KnowledgeGraph {
     // Use FTS5 MATCH to find entity names
     // Escape double quotes and wrap each token in quotes for safe FTS5 matching
     const sanitized = query.replace(/"/g, '""').trim();
-    const ftsQuery = sanitized
-      .split(/\s+/)
-      .map((token) => `"${token}"`)
-      .join(' ');
+    const tokens = sanitized.split(/\s+/).filter((t) => t.length > 0);
+    if (tokens.length === 0) return this.listRecent(limit);
+    const ftsQuery = tokens.map((token) => `"${token}"`).join(' ');
     // Contentless FTS5: columns return null, so join via rowid → entities.id
-    const ftsRows = this.db
-      .prepare(
-        `SELECT e.name FROM entities_fts f
-         JOIN entities e ON e.id = f.rowid
-         WHERE entities_fts MATCH ?
-         LIMIT ?`
-      )
-      .all(ftsQuery, limit) as { name: string }[];
+    let ftsRows: { name: string }[];
+    try {
+      ftsRows = this.db
+        .prepare(
+          `SELECT e.name FROM entities_fts f
+           JOIN entities e ON e.id = f.rowid
+           WHERE entities_fts MATCH ?
+           LIMIT ?`
+        )
+        .all(ftsQuery, limit) as { name: string }[];
+    } catch (err: any) {
+      // FTS5 syntax error from user query — return empty results
+      if (err.message?.includes('fts5')) return [];
+      throw err;
+    }
 
     if (ftsRows.length === 0) return [];
 
