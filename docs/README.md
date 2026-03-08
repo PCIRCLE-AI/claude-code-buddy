@@ -34,4 +34,4 @@ Welcome to the MeMesh documentation.
 
 ---
 
-**Version**: 2.9.0 | **Last Updated**: 2026-02-25
+**Version**: 2.9.4 | **Last Updated**: 2026-03-08

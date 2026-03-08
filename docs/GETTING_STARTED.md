@@ -87,7 +87,7 @@ buddy-help
 
 **Expected output:**
 ```
-MeMesh v2.9.0 - Persistent Memory for Claude Code
+MeMesh v2.9.4 - Persistent Memory for Claude Code
 
 Available Commands:
   buddy-do <task>        - Execute any development task
@@ -372,6 +372,6 @@ Install MeMesh, run `buddy-help`, and never explain your architecture twice agai
 
 ---
 
-**Version**: 2.9.0
-**Last Updated**: 2026-02-25
+**Version**: 2.9.4
+**Last Updated**: 2026-03-08
 **Not affiliated with Anthropic PBC** • Independent open-source project
