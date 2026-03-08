@@ -37,8 +37,8 @@ describe('Installation Verification', () => {
       expect(pkg.version).toMatch(/^\d+\.\d+\.\d+$/);
     });
 
-    it('should have .env.example', () => {
-      expect(fs.existsSync('.env.example')).toBe(true);
+    it('should have plugin.json', () => {
+      expect(fs.existsSync('plugin.json')).toBe(true);
     });
   });
 
