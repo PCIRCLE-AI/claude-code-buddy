@@ -1,32 +1,4 @@
-# CODEOWNERS for Claude Code Buddy
-# These owners will be requested for review when someone opens a PR
+# CODEOWNERS for MeMesh Plugin
 
 # Default owner for everything
 * @kevintseng
-
-# Core MCP functionality
-/src/mcp/ @kevintseng
-
-# Memory and Knowledge Graph
-/src/memory/ @kevintseng
-/src/knowledge-graph/ @kevintseng
-
-# Agent system
-/src/agents/ @kevintseng
-
-# Orchestrator
-/src/orchestrator/ @kevintseng
-
-# Core functionality
-/src/core/ @kevintseng
-
-# CI/CD
-/.github/ @kevintseng
-
-# Package configuration
-/package.json @kevintseng
-/tsconfig.json @kevintseng
-
-# Documentation
-*.md @kevintseng
-/docs/ @kevintseng
