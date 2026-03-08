@@ -134,7 +134,7 @@ buddy-remember "API design decisions"
 buddy-remember "why we chose PostgreSQL"
 ```
 
-所有数据都保存在你的本机上。决策保留 90 天，会话笔记保留 30 天。
+所有数据都保存在你的本机上，自动保留 90 天。
 
 ---
 
@@ -166,7 +166,7 @@ buddy-remember "why we chose PostgreSQL"
 
 ## 架构
 
-MeMesh 作为本地 MCP 服务器与 Claude Code 一起运行：
+MeMesh 作为 Claude Code 插件在本地运行，内含 MCP 组件：
 
 - **知识图谱** — 基于 SQLite 的实体存储，支持 FTS5 全文搜索
 - **向量嵌入** — ONNX 运行时实现语义相似度（100% 本地运行）

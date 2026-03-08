@@ -3,7 +3,7 @@
  *
  * Implements plugin installation logic with backward compatibility
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, unlinkSync, copyFileSync, lstatSync, realpathSync, readdirSync, statSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, symlinkSync, unlinkSync, copyFileSync, lstatSync, realpathSync } from 'fs';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
 // ============================================================================
@@ -196,217 +196,26 @@ export async function ensurePluginEnabled(claudeDir = join(homedir(), '.claude')
     writeJSONFile(settingsFile, settings);
 }
 // ============================================================================
-// MCP Configuration
-// ============================================================================
-/**
- * Ensure MCP is configured in mcp_settings.json
- */
-export async function ensureMCPConfigured(installPath, mode, claudeDir = join(homedir(), '.claude')) {
-    const mcpSettingsFile = join(claudeDir, 'mcp_settings.json');
-
-    // Read existing config or create new
-    let config = readJSONFile(mcpSettingsFile) || { mcpServers: {} };
-    if (!config.mcpServers) {
-        config.mcpServers = {};
-    }
-
-    // Configure memesh entry based on mode
-    if (mode === 'global') {
-        // Global install: use npx (always uses latest published version)
-        config.mcpServers.memesh = {
-            command: 'npx',
-            args: ['-y', '@pcircle/memesh'],
-            env: { NODE_ENV: 'production' }
-        };
-    } else {
-        // Local dev: use node + absolute path (for testing)
-        const serverPath = join(installPath, 'dist', 'mcp', 'server-bootstrap.js');
-        config.mcpServers.memesh = {
-            command: 'node',
-            args: [serverPath]
-        };
-    }
-
-    // Remove legacy claude-code-buddy entry if exists
-    if (config.mcpServers['claude-code-buddy']) {
-        delete config.mcpServers['claude-code-buddy'];
-    }
-
-    // Write back
-    writeJSONFile(mcpSettingsFile, config);
-}
-// ============================================================================
-// Hook Installation
-// ============================================================================
-
-/**
- * Hook files to install and their event type mappings.
- * Each hook is copied to ~/.claude/hooks/ and registered in settings.json.
- */
-const HOOK_DEFINITIONS = [
-  { file: 'session-start.js', event: 'SessionStart', matcher: '*' },
-  { file: 'post-tool-use.js', event: 'PostToolUse', matcher: '*' },
-  { file: 'post-commit.js', event: 'PostToolUse', matcher: '*' },
-  { file: 'stop.js', event: 'Stop', matcher: '*' },
-  { file: 'subagent-stop.js', event: 'Stop', matcher: '*' },
-  { file: 'pre-tool-use.js', event: 'PreToolUse', matcher: '*' },
-];
-
-/**
- * Utility files that hooks depend on (copied but not registered as hooks)
- */
-const HOOK_UTILITIES = [
-  'hook-utils.js',
-  'session-start-recall-utils.js',
-  'post-tool-use-recall-utils.js',
-];
-
-/**
- * Directories that hooks depend on (copied recursively)
- */
-const HOOK_DIRECTORIES = [
-  'templates',
-];
-
-/**
- * Install MeMesh hooks to ~/.claude/hooks/ and register in settings.json.
- *
- * Strategy:
- * 1. Copy hook files + utilities to ~/.claude/hooks/
- * 2. Register hooks in ~/.claude/settings.json under "hooks" key
- * 3. Skip if user already has a hook for the same event (don't overwrite user config)
- * 4. Track which hooks came from MeMesh via a marker comment in the file
- *
- * @param {string} installPath - Path to the installed package (contains scripts/hooks/)
- * @param {string} claudeDir - Path to ~/.claude
- * @returns {{ installed: string[], skipped: string[], errors: string[] }}
- */
-export function ensureHooksInstalled(installPath, claudeDir = join(homedir(), '.claude')) {
-  const result = { installed: [], skipped: [], errors: [] };
-  const sourceDir = join(installPath, 'scripts', 'hooks');
-  const targetDir = join(claudeDir, 'hooks');
-  const settingsFile = join(claudeDir, 'settings.json');
-
-  // Ensure hooks directory exists
-  ensureDirectory(targetDir);
-
-  // 1. Copy all hook files + utilities
-  const allFiles = [...HOOK_DEFINITIONS.map(h => h.file), ...HOOK_UTILITIES];
-  for (const fileName of allFiles) {
-    const src = join(sourceDir, fileName);
-    const dst = join(targetDir, fileName);
-    try {
-      if (!existsSync(src)) continue;
-
-      // Check if target exists and is newer (user modified it)
-      if (existsSync(dst)) {
-        const srcContent = readFileSync(src, 'utf-8');
-        const dstContent = readFileSync(dst, 'utf-8');
-        // Skip if identical
-        if (srcContent === dstContent) continue;
-        // If target has user modifications (no MeMesh marker), skip
-        if (!dstContent.includes('@memesh-managed') && !dstContent.includes('MeMesh')) {
-          result.skipped.push(fileName);
-          continue;
-        }
-      }
-
-      copyFileSync(src, dst);
-    } catch (error) {
-      result.errors.push(`${fileName}: ${error.message}`);
-    }
-  }
-
-  // 1b. Copy hook directories (e.g., templates/)
-  for (const dirName of HOOK_DIRECTORIES) {
-    const srcDir = join(sourceDir, dirName);
-    const dstDir = join(targetDir, dirName);
-    try {
-      if (!existsSync(srcDir)) continue;
-      ensureDirectory(dstDir);
-
-      // Copy all files in the directory
-      const entries = readdirSync(srcDir);
-      for (const entry of entries) {
-        const srcFile = join(srcDir, entry);
-        const dstFile = join(dstDir, entry);
-        // Only copy files (not subdirectories)
-        if (statSync(srcFile).isFile()) {
-          copyFileSync(srcFile, dstFile);
-        }
-      }
-    } catch (error) {
-      result.errors.push(`${dirName}/: ${error.message}`);
-    }
-  }
-
-  // 2. Register hooks in settings.json
-  let settings = readJSONFile(settingsFile) || {};
-  if (!settings.hooks) {
-    settings.hooks = {};
-  }
-
-  for (const hookDef of HOOK_DEFINITIONS) {
-    const { file: hookFile, event, matcher } = hookDef;
-    const hookCommand = join('~/.claude/hooks', hookFile);
-
-    // Ensure event array exists
-    if (!settings.hooks[event]) {
-      settings.hooks[event] = [];
-    }
-
-    // Check if MeMesh hook is already registered for this event
-    const existingEntry = settings.hooks[event].find(entry => {
-      if (!entry.hooks) return false;
-      return entry.hooks.some(h => h.command && h.command.includes(hookFile));
-    });
-
-    if (existingEntry) {
-      result.skipped.push(`${event}:${hookFile}`);
-      continue;
-    }
-
-    // Register the hook
-    settings.hooks[event].push({
-      matcher,
-      hooks: [{
-        type: 'command',
-        command: hookCommand,
-      }],
-    });
-    result.installed.push(`${event}:${hookFile}`);
-  }
-
-  // Write settings back
-  writeJSONFile(settingsFile, settings);
-
-  return result;
-}
-
-// ============================================================================
 // Backward Compatibility
 // ============================================================================
 /**
- * Detect and fix legacy installations
+ * Detect and fix legacy installations.
+ * Only fixes marketplace, symlink, and plugin enablement.
+ * MCP and hooks are handled by the plugin system via .mcp.json and hooks/hooks.json.
  */
 export async function detectAndFixLegacyInstall(installPath, claudeDir = join(homedir(), '.claude')) {
     const marketplacesFile = join(claudeDir, 'plugins', 'known_marketplaces.json');
-    const mcpSettingsFile = join(claudeDir, 'mcp_settings.json');
     const symlinkPath = join(claudeDir, 'plugins', 'marketplaces', 'pcircle-ai');
     // Check if marketplace registered
     const marketplaces = readJSONFile(marketplacesFile);
     const hasMarketplace = marketplaces && marketplaces['pcircle-ai'];
-    // Check if MCP configured
-    const mcpSettings = readJSONFile(mcpSettingsFile);
-    const hasMCP = mcpSettings && mcpSettings.mcpServers && mcpSettings.mcpServers.memesh;
     // Check if symlink exists
     const hasSymlink = existsSync(symlinkPath);
     // If everything is correct, return ok
-    if (hasMarketplace && hasMCP && hasSymlink) {
+    if (hasMarketplace && hasSymlink) {
         return 'ok';
     }
     // Legacy installation detected - fix it
-    const mode = detectInstallMode(installPath);
     // Fix marketplace
     if (!hasMarketplace) {
         await ensureMarketplaceRegistered(installPath, claudeDir);
@@ -417,9 +226,13 @@ export async function detectAndFixLegacyInstall(installPath, claudeDir = join(ho
     }
     // Fix plugin enablement
     await ensurePluginEnabled(claudeDir);
-    // Fix MCP config
-    if (!hasMCP) {
-        await ensureMCPConfigured(installPath, mode, claudeDir);
+    // Clean up legacy MCP config if it exists (plugin system handles MCP now)
+    const mcpSettingsFile = join(claudeDir, 'mcp_settings.json');
+    const mcpSettings = readJSONFile(mcpSettingsFile);
+    if (mcpSettings?.mcpServers?.memesh || mcpSettings?.mcpServers?.['claude-code-buddy']) {
+        delete mcpSettings.mcpServers.memesh;
+        delete mcpSettings.mcpServers['claude-code-buddy'];
+        writeJSONFile(mcpSettingsFile, mcpSettings);
     }
     return 'fixed';
 }

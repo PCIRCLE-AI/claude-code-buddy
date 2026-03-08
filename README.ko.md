@@ -134,7 +134,7 @@ buddy-remember "API design decisions"
 buddy-remember "why we chose PostgreSQL"
 ```
 
-모든 데이터는 로컬 머신에 저장됩니다. 결정사항은 90일, 세션 노트는 30일간 보관됩니다.
+모든 데이터는 로컬 머신에 저장되며, 자동으로 90일간 보관됩니다.
 
 ---
 
@@ -166,7 +166,7 @@ buddy-remember "why we chose PostgreSQL"
 
 ## 아키텍처
 
-MeMesh는 Claude Code와 함께 로컬 MCP 서버로 실행됩니다:
+MeMesh는 Claude Code 플러그인으로 로컬에서 실행되며, MCP 컴포넌트를 포함합니다:
 
 - **Knowledge Graph** — FTS5 전문 검색을 갖춘 SQLite 기반 엔티티 저장소
 - **Vector Embeddings** — 의미 유사도를 위한 ONNX 런타임 (100% 로컬 실행)

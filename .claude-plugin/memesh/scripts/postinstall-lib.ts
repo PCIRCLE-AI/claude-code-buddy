@@ -265,85 +265,34 @@ export async function ensurePluginEnabled(
 }
 
 // ============================================================================
-// MCP Configuration
-// ============================================================================
-
-/**
- * Ensure MCP is configured in mcp_settings.json
- */
-export async function ensureMCPConfigured(
-  installPath: string,
-  mode: InstallMode,
-  claudeDir: string = join(homedir(), '.claude')
-): Promise<void> {
-  const mcpSettingsFile = join(claudeDir, 'mcp_settings.json');
-
-  // Read existing config or create new
-  let config: any = readJSONFile(mcpSettingsFile) || { mcpServers: {} };
-
-  if (!config.mcpServers) {
-    config.mcpServers = {};
-  }
-
-  // Configure memesh entry based on mode
-  if (mode === 'global') {
-    config.mcpServers.memesh = {
-      command: 'npx',
-      args: ['-y', '@pcircle/memesh'],
-      env: { NODE_ENV: 'production' }
-    };
-  } else {
-    const serverPath = join(installPath, 'dist', 'mcp', 'server-bootstrap.js');
-    config.mcpServers.memesh = {
-      command: 'node',
-      args: [serverPath],
-      env: { NODE_ENV: 'production' }
-    };
-  }
-
-  // Remove legacy claude-code-buddy entry if exists
-  if (config.mcpServers['claude-code-buddy']) {
-    delete config.mcpServers['claude-code-buddy'];
-  }
-
-  // Write back
-  writeJSONFile(mcpSettingsFile, config);
-}
-
-// ============================================================================
 // Backward Compatibility
 // ============================================================================
 
 /**
- * Detect and fix legacy installations
+ * Detect and fix legacy installations.
+ * Only fixes marketplace, symlink, and plugin enablement.
+ * MCP and hooks are handled by the plugin system via .mcp.json and hooks/hooks.json.
  */
 export async function detectAndFixLegacyInstall(
   installPath: string,
   claudeDir: string = join(homedir(), '.claude')
-): Promise<'ok' | 'v2.8.4-legacy' | 'v2.8.3-legacy' | 'fixed'> {
+): Promise<'ok' | 'fixed'> {
   const marketplacesFile = join(claudeDir, 'plugins', 'known_marketplaces.json');
-  const mcpSettingsFile = join(claudeDir, 'mcp_settings.json');
   const symlinkPath = join(claudeDir, 'plugins', 'marketplaces', 'pcircle-ai');
 
   // Check if marketplace registered
   const marketplaces = readJSONFile<KnownMarketplaces>(marketplacesFile);
   const hasMarketplace = marketplaces && marketplaces['pcircle-ai'];
 
-  // Check if MCP configured
-  const mcpSettings = readJSONFile<any>(mcpSettingsFile);
-  const hasMCP = mcpSettings && mcpSettings.mcpServers && mcpSettings.mcpServers.memesh;
-
   // Check if symlink exists
   const hasSymlink = existsSync(symlinkPath);
 
   // If everything is correct, return ok
-  if (hasMarketplace && hasMCP && hasSymlink) {
+  if (hasMarketplace && hasSymlink) {
     return 'ok';
   }
 
   // Legacy installation detected - fix it
-  const mode = detectInstallMode(installPath);
-
   // Fix marketplace
   if (!hasMarketplace) {
     await ensureMarketplaceRegistered(installPath, claudeDir);
@@ -357,9 +306,13 @@ export async function detectAndFixLegacyInstall(
   // Fix plugin enablement
   await ensurePluginEnabled(claudeDir);
 
-  // Fix MCP config
-  if (!hasMCP) {
-    await ensureMCPConfigured(installPath, mode, claudeDir);
+  // Clean up legacy MCP config if it exists (plugin system handles MCP now)
+  const mcpSettingsFile = join(claudeDir, 'mcp_settings.json');
+  const mcpSettings = readJSONFile<any>(mcpSettingsFile);
+  if (mcpSettings?.mcpServers?.memesh || mcpSettings?.mcpServers?.['claude-code-buddy']) {
+    delete mcpSettings.mcpServers.memesh;
+    delete mcpSettings.mcpServers['claude-code-buddy'];
+    writeJSONFile(mcpSettingsFile, mcpSettings);
   }
 
   return 'fixed';

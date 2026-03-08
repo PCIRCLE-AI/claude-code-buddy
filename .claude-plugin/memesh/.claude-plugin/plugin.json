@@ -4,8 +4,12 @@
   "author": {
     "name": "PCIRCLE AI"
   },
-  "version": "2.9.3",
+  "version": "2.10.0",
   "homepage": "https://github.com/PCIRCLE-AI/claude-code-buddy",
   "repository": "https://github.com/PCIRCLE-AI/claude-code-buddy",
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": ["claude-code", "mcp", "knowledge-graph", "ai-memory", "persistent-memory"],
+  "mcpServers": "./.mcp.json",
+  "hooks": "./hooks/hooks.json",
+  "skills": "./skills/"
 }

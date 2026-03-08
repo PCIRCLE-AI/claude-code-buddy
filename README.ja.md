@@ -134,7 +134,7 @@ buddy-remember "API design decisions"
 buddy-remember "why we chose PostgreSQL"
 ```
 
-すべてのデータはローカルマシンに保存されます。決定事項は 90 日間、セッションノートは 30 日間保持されます。
+すべてのデータはローカルマシンに保存され、自動的に 90 日間保持されます。
 
 ---
 
@@ -166,7 +166,7 @@ buddy-remember "why we chose PostgreSQL"
 
 ## アーキテクチャ
 
-MeMesh は Claude Code と並行してローカル MCP サーバーとして動作します：
+MeMesh は Claude Code プラグインとしてローカルで動作し、MCP コンポーネントを内蔵しています：
 
 - **ナレッジグラフ** — FTS5 全文検索を備えた SQLite ベースのエンティティストア
 - **ベクトル埋め込み** — セマンティック類似性のための ONNX ランタイム（100% ローカルで動作）

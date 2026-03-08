@@ -117,22 +117,56 @@ try {
   process.exit(1);
 }
 
-// Step 5.5: Copy mcp.json to plugin root directory
-console.log('\n5.5️⃣ Copying mcp.json to plugin directory...');
-const sourceMcpJson = join(projectRoot, 'mcp.json');
+// Step 5.5: Copy .mcp.json to plugin root directory
+console.log('\n5.5️⃣ Copying .mcp.json to plugin directory...');
+const sourceMcpJson = join(projectRoot, '.mcp.json');
 const targetMcpJson = join(pluginRootDir, '.mcp.json');
 
 if (!existsSync(sourceMcpJson)) {
-  console.error('   ❌ Error: mcp.json not found. Please create it at project root.');
+  console.error('   ❌ Error: .mcp.json not found. Please create it at project root.');
   process.exit(1);
 }
 
 try {
   copyFileSync(sourceMcpJson, targetMcpJson);
-  console.log('   ✅ Copied mcp.json → .claude-plugin/memesh/.mcp.json');
+  console.log('   ✅ Copied .mcp.json → .claude-plugin/memesh/.mcp.json');
 } catch (error) {
-  console.error('   ❌ Error copying mcp.json:', error.message);
+  console.error('   ❌ Error copying .mcp.json:', error.message);
   process.exit(1);
+}
+
+// Step 5.6: Copy hooks/hooks.json to plugin directory
+console.log('\n5.6️⃣ Copying hooks/hooks.json to plugin directory...');
+const sourceHooksJson = join(projectRoot, 'hooks', 'hooks.json');
+const targetHooksDir = join(pluginRootDir, 'hooks');
+const targetHooksJson = join(targetHooksDir, 'hooks.json');
+
+try {
+  mkdirSync(targetHooksDir, { recursive: true });
+  if (existsSync(sourceHooksJson)) {
+    copyFileSync(sourceHooksJson, targetHooksJson);
+    console.log('   ✅ Copied hooks/hooks.json → .claude-plugin/memesh/hooks/');
+  } else {
+    console.log('   ⚠️  hooks/hooks.json not found, skipping');
+  }
+} catch (error) {
+  console.error('   ❌ Error copying hooks/hooks.json:', error.message);
+}
+
+// Step 5.7: Copy skills/ directory to plugin directory
+console.log('\n5.7️⃣ Copying skills/ to plugin directory...');
+const sourceSkills = join(projectRoot, 'skills');
+const targetSkills = join(pluginRootDir, 'skills');
+
+try {
+  if (existsSync(sourceSkills)) {
+    cpSync(sourceSkills, targetSkills, { recursive: true });
+    console.log('   ✅ Copied skills/ → .claude-plugin/memesh/skills/');
+  } else {
+    console.log('   ⚠️  skills/ directory not found, skipping');
+  }
+} catch (error) {
+  console.error('   ❌ Error copying skills/:', error.message);
 }
 
 // Step 6: Install production dependencies
@@ -157,8 +191,10 @@ const requiredFiles = [
   join(pluginRootDir, 'dist', 'mcp', 'server-bootstrap.js'),
   join(pluginRootDir, 'package.json'),
   join(pluginRootDir, 'node_modules'),
-  join(pluginMetadataDir, 'plugin.json'),  // In .claude-plugin/ subdirectory
-  join(pluginRootDir, '.mcp.json'),         // MCP server configuration
+  join(pluginMetadataDir, 'plugin.json'),   // In .claude-plugin/ subdirectory
+  join(pluginRootDir, '.mcp.json'),          // MCP server configuration
+  join(pluginRootDir, 'hooks', 'hooks.json'), // Hook declarations
+  join(pluginRootDir, 'scripts', 'hooks'),   // Hook scripts
 ];
 
 let allFilesExist = true;
@@ -176,74 +212,9 @@ if (!allFilesExist) {
   process.exit(1);
 }
 
-// Step 8: Configure ~/.claude/mcp_settings.json
-console.log('\n8️⃣ Configuring ~/.claude/mcp_settings.json...');
-
-const mcpServerPath = join(pluginRootDir, 'dist', 'mcp', 'server-bootstrap.js');
-validatePathWithinParent(mcpServerPath, pluginRootDir);
-const mcpServerName = 'memesh';
-const mcpSettingsPath = join(homedir(), '.claude', 'mcp_settings.json');
-let mcpSettingsConfigured = false;
-
-try {
-  // Ensure ~/.claude directory exists (recursive: true handles existing directory safely, avoids TOCTOU race condition)
-  const claudeDir = join(homedir(), '.claude');
-  mkdirSync(claudeDir, { recursive: true });
-  console.log(`   ✅ Ensured: ${claudeDir}`);
-
-  // Read existing config or create new one
-  let mcpConfig = { mcpServers: {} };
-  if (existsSync(mcpSettingsPath)) {
-    try {
-      const existingContent = readFileSync(mcpSettingsPath, 'utf-8').trim();
-      if (existingContent) {
-        mcpConfig = JSON.parse(existingContent);
-        if (!mcpConfig.mcpServers) {
-          mcpConfig.mcpServers = {};
-        }
-      }
-    } catch (e) {
-      if (e.code === 'ENOENT') {
-        console.log('   ℹ️  No existing MCP config found, creating new one');
-      } else if (e instanceof SyntaxError) {
-        const backupPath = `${mcpSettingsPath}.backup-${Date.now()}`;
-        try { copyFileSync(mcpSettingsPath, backupPath); } catch {}
-        console.log(`   ⚠️  Corrupted MCP config backed up to: ${backupPath}`);
-      } else {
-        console.error(`   ❌ Unexpected error reading MCP config: ${e.code || e.message}`);
-        throw e;
-      }
-      mcpConfig = { mcpServers: {} };
-    }
-  }
-
-  // Configure memesh entry with absolute path (for local dev)
-  mcpConfig.mcpServers.memesh = {
-    command: 'node',
-    args: [mcpServerPath],
-    env: {
-      NODE_ENV: 'production'
-    }
-  };
-
-  // Remove legacy entry if exists
-  if (mcpConfig.mcpServers['claude-code-buddy']) {
-    delete mcpConfig.mcpServers['claude-code-buddy'];
-    console.log('   ✅ Removed legacy "claude-code-buddy" entry');
-  }
-
-  // Write config (directory already ensured above with mkdirSync recursive)
-  writeFileSync(mcpSettingsPath, JSON.stringify(mcpConfig, null, 2) + '\n', 'utf-8');
-  mcpSettingsConfigured = true;
-  console.log(`   ✅ MCP settings configured at: ${mcpSettingsPath}`);
-  console.log(`   ✅ Server path: ${mcpServerPath}`);
-} catch (error) {
-  console.log(`   ⚠️  Could not configure MCP settings: ${error.message}`);
-  console.log('   You may need to manually configure ~/.claude/mcp_settings.json');
-}
-
-// Step 9: Register marketplace in known_marketplaces.json
-console.log('\n9️⃣ Registering marketplace in Claude Code...');
+// Step 8: Register marketplace in known_marketplaces.json
+// (MCP is handled by plugin system via .mcp.json — no manual mcp_settings.json config needed)
+console.log('\n8️⃣ Registering marketplace in Claude Code...');
 
 const pluginsDir = join(homedir(), '.claude', 'plugins');
 const marketplacesDir = join(pluginsDir, 'marketplaces');
@@ -334,8 +305,8 @@ try {
   process.exit(1);
 }
 
-// Step 10: Enable plugin in settings.json
-console.log('\n🔟 Enabling plugin in Claude Code settings...');
+// Step 9: Enable plugin in settings.json
+console.log('\n9️⃣ Enabling plugin in Claude Code settings...');
 
 const settingsPath = join(homedir(), '.claude', 'settings.json');
 
@@ -390,7 +361,10 @@ console.log('\n📦 Plugin structure:');
 console.log('   .claude-plugin/memesh/');
 console.log('   ├── .claude-plugin/');
 console.log('   │   └── plugin.json       ← Plugin metadata');
-console.log('   ├── .mcp.json             ← MCP server config');
+console.log('   ├── .mcp.json             ← MCP server config (auto-managed)');
+console.log('   ├── hooks/');
+console.log('   │   └── hooks.json        ← Hook declarations (auto-managed)');
+console.log('   ├── skills/               ← Skills (auto-discovered)');
 console.log('   ├── dist/                 ← Build output');
 console.log('   ├── node_modules/         ← Dependencies');
 console.log('   ├── package.json');
@@ -401,13 +375,10 @@ console.log('   ✅ Marketplace: pcircle-ai');
 console.log('   ✅ Symlink: ~/.claude/plugins/marketplaces/pcircle-ai');
 console.log('   ✅ Enabled: memesh@pcircle-ai');
 
-console.log('\n🔧 MCP Configuration:');
-if (mcpSettingsConfigured) {
-  console.log(`   ✅ Auto-configured at: ${mcpSettingsPath}`);
-} else {
-  console.log('   ⚠️  Manual configuration required');
-  console.log(`   Add memesh entry to: ${mcpSettingsPath}`);
-}
+console.log('\n🔧 Plugin Components (auto-managed by Claude Code):');
+console.log('   ✅ MCP Server: via .mcp.json');
+console.log('   ✅ Hooks: via hooks/hooks.json');
+console.log('   ✅ Skills: via skills/ directory');
 
 console.log('\n🚀 Next Steps:');
 console.log('   1. Restart Claude Code completely (quit and reopen)');
@@ -416,8 +387,8 @@ console.log('   3. Test: Run "buddy-help" command');
 
 console.log('\n💡 Troubleshooting:');
 console.log('   - If tools not showing: Check ~/.claude/plugins/known_marketplaces.json');
-console.log('   - If MCP not loading: Check ~/.claude/mcp_settings.json');
 console.log('   - If plugin disabled: Check ~/.claude/settings.json enabledPlugins');
+console.log('   - Hooks/MCP/Skills are auto-managed — no manual config needed');
 
 console.log('\n📝 Note: This is a local dev installation.');
 console.log('   For production, users should install via: npm install -g @pcircle/memesh');

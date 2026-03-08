@@ -9,12 +9,15 @@
   },
   "files": [
     "dist/",
+    ".claude-plugin/plugin.json",
+    ".mcp.json",
+    "hooks/hooks.json",
+    "skills/",
     "scripts/postinstall-new.js",
     "scripts/postinstall-lib.js",
-    "scripts/skills/",
+    "scripts/health-check.js",
     "scripts/hooks/",
     "plugin.json",
-    "mcp.json",
     "README.md",
     "README.zh-TW.md",
     "LICENSE"

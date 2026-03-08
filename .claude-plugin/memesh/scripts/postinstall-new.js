@@ -1,22 +1,23 @@
 #!/usr/bin/env node
 /**
- * Post-install script for MeMesh (v2.8.5+)
+ * Post-install script for MeMesh Plugin
  *
- * Complete plugin installation with backward compatibility
+ * Following official Claude Code Plugin spec:
+ * - MCP servers: handled by plugin system via .mcp.json
+ * - Hooks: handled by plugin system via hooks/hooks.json
+ * - Skills: auto-discovered by plugin system from skills/
  *
- * Installation flow:
+ * This script only does:
  * 1. Detect install mode (global/local)
  * 2. Register marketplace
  * 3. Create symlink
  * 4. Enable plugin
- * 5. Configure MCP
- * 6. Fix legacy installations
+ * 5. Fix legacy installations
  */
 
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { homedir } from 'os';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, statSync } from 'fs';
 import chalk from 'chalk';
 import boxen from 'boxen';
 
@@ -24,92 +25,15 @@ import boxen from 'boxen';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Import functions from postinstall-lib.js (compiled from postinstall-lib.ts)
+// Import functions from postinstall-lib.js
 import {
   detectInstallMode,
   getPluginInstallPath,
   ensureMarketplaceRegistered,
   ensureSymlinkExists,
   ensurePluginEnabled,
-  ensureMCPConfigured,
-  ensureHooksInstalled,
   detectAndFixLegacyInstall
 } from './postinstall-lib.js';
-
-// ============================================================================
-// Bundled Skills Installation
-// ============================================================================
-
-/**
- * Install bundled skills to ~/.claude/skills/sa:<name>/
- * Skills are shipped in scripts/skills/<name>/SKILL.md
- * Only installs if skill doesn't exist or bundled version is newer.
- *
- * @param {string} claudeDir - Path to ~/.claude
- * @returns {{ installed: string[], skipped: string[], errors: string[] }}
- */
-function installBundledSkills(claudeDir) {
-  const result = { installed: [], skipped: [], errors: [] };
-  const bundledDir = join(__dirname, 'skills');
-  const skillsDir = join(claudeDir, 'skills');
-
-  if (!existsSync(bundledDir)) {
-    return result;
-  }
-
-  // Ensure skills directory exists
-  mkdirSync(skillsDir, { recursive: true });
-
-  // Read all bundled skills
-  let entries;
-  try {
-    entries = readdirSync(bundledDir, { withFileTypes: true });
-  } catch {
-    return result;
-  }
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-
-    const skillName = entry.name;
-    const prefixedName = `sa:${skillName}`;
-    const sourceFile = join(bundledDir, skillName, 'SKILL.md');
-    const targetDir = join(skillsDir, prefixedName);
-    const targetFile = join(targetDir, 'SKILL.md');
-
-    try {
-      // Read source first — if it doesn't exist, skip (no TOCTOU with existsSync)
-      let content;
-      let sourceStat;
-      try {
-        content = readFileSync(sourceFile, 'utf-8');
-        sourceStat = statSync(sourceFile);
-      } catch {
-        continue; // source doesn't exist, skip
-      }
-
-      // Skip if target exists and is newer than source
-      try {
-        const targetStat = statSync(targetFile);
-        if (targetStat.mtimeMs >= sourceStat.mtimeMs) {
-          result.skipped.push(skillName);
-          continue;
-        }
-      } catch {
-        // target doesn't exist yet, proceed to install
-      }
-
-      // Install: create dir + write SKILL.md
-      mkdirSync(targetDir, { recursive: true });
-      writeFileSync(targetFile, content, 'utf-8');
-      result.installed.push(skillName);
-    } catch (error) {
-      result.errors.push(`${skillName}: ${error.message}`);
-    }
-  }
-
-  return result;
-}
 
 // ============================================================================
 // Main Installation Flow
@@ -124,7 +48,6 @@ async function main() {
     marketplace: false,
     symlink: false,
     pluginEnabled: false,
-    mcpConfigured: false,
     legacyFixed: null,
     errors: []
   };
@@ -173,46 +96,7 @@ async function main() {
       console.log(chalk.yellow(`  ⚠️  Plugin enablement failed (non-fatal)`));
     }
 
-    // Step 5: MCP Configuration
-    // IMPORTANT: Skip MCP config for local dev to prevent path pollution
-    // (see v2.9.0 Issue 2: Local Development Path Pollution)
-    if (mode === 'local') {
-      console.log(chalk.yellow('  ⚠️  Skipping MCP configuration (local development mode)'));
-      console.log(chalk.gray('     This prevents writing local dev paths to ~/.claude/mcp_settings.json'));
-      results.mcpConfigured = false;
-    } else {
-      try {
-        await ensureMCPConfigured(installPath, mode, claudeDir);
-        results.mcpConfigured = true;
-        console.log(chalk.green('  ✅ MCP configured'));
-      } catch (error) {
-        results.errors.push(`MCP: ${error.message}`);
-        console.log(chalk.yellow(`  ⚠️  MCP configuration failed (non-fatal)`));
-      }
-    }
-
-    // Step 6: Hook Installation
-    try {
-      const hookResult = ensureHooksInstalled(installPath, claudeDir);
-      results.hooksInstalled = hookResult.installed;
-      results.hooksSkipped = hookResult.skipped;
-
-      if (hookResult.installed.length > 0) {
-        console.log(chalk.green(`  ✅ Hooks installed: ${hookResult.installed.join(', ')}`));
-      } else if (hookResult.skipped.length > 0) {
-        console.log(chalk.dim(`  ℹ️  Hooks already configured (${hookResult.skipped.length} existing)`));
-      }
-
-      if (hookResult.errors.length > 0) {
-        results.errors.push(`Hooks: ${hookResult.errors.join('; ')}`);
-        console.log(chalk.yellow(`  ⚠️  Some hooks failed: ${hookResult.errors.join(', ')}`));
-      }
-    } catch (error) {
-      results.errors.push(`Hooks: ${error.message}`);
-      console.log(chalk.yellow(`  ⚠️  Hook installation failed (non-fatal)`));
-    }
-
-    // Step 7: Legacy Installation Fix (renumbered)
+    // Step 5: Legacy Installation Fix
     try {
       const legacyStatus = await detectAndFixLegacyInstall(installPath, claudeDir);
       results.legacyFixed = legacyStatus;
@@ -226,25 +110,6 @@ async function main() {
       console.log(chalk.dim('  ℹ️  Legacy check skipped'));
     }
 
-    // Step 8: Install Bundled Skills
-    try {
-      const skillResult = installBundledSkills(claudeDir);
-      results.skillsInstalled = skillResult.installed;
-      results.skillsSkipped = skillResult.skipped;
-
-      if (skillResult.installed.length > 0) {
-        console.log(chalk.green(`  ✅ Skills installed: ${skillResult.installed.join(', ')}`));
-      } else if (skillResult.skipped.length > 0) {
-        console.log(chalk.dim(`  ℹ️  Skills up to date (${skillResult.skipped.length} already installed)`));
-      }
-
-      if (skillResult.errors.length > 0) {
-        results.errors.push(`Skills: ${skillResult.errors.join('; ')}`);
-      }
-    } catch (error) {
-      console.log(chalk.dim('  ℹ️  Skills installation skipped'));
-    }
-
   } catch (error) {
     console.error(chalk.red('\n❌ Installation failed:'), error.message);
     console.error(chalk.yellow('\n💡 You can configure manually (see instructions below)\n'));
@@ -254,8 +119,7 @@ async function main() {
   // Display Installation Summary
   // ============================================================================
 
-  const allSuccess = results.marketplace && results.symlink &&
-                     results.pluginEnabled && results.mcpConfigured;
+  const allSuccess = results.marketplace && results.symlink && results.pluginEnabled;
 
   const statusIcon = allSuccess ? '✅' : (results.errors.length > 0 ? '⚠️' : '✅');
   const statusText = allSuccess
@@ -269,14 +133,13 @@ ${chalk.bold('Installation Summary:')}
   ${results.marketplace ? '✅' : '⚠️'}  Marketplace: ${results.marketplace ? 'Registered' : 'Failed'}
   ${results.symlink ? '✅' : '⚠️'}  Symlink: ${results.symlink ? 'Created' : 'Failed'}
   ${results.pluginEnabled ? '✅' : '⚠️'}  Plugin: ${results.pluginEnabled ? 'Enabled' : 'Failed'}
-  ${results.mcpConfigured ? '✅' : '⚠️'}  MCP: ${results.mcpConfigured ? 'Configured' : 'Failed'}
 
-${chalk.bold('What You Got:')}
-  ${chalk.cyan('•')} 8 MCP tools (persistent memory, semantic search, task routing)
-  ${chalk.cyan('•')} 6 auto-hooks (session recall, commit tracking, smart routing, pre-tool-use gate)
+${chalk.bold('Plugin Components (auto-managed by Claude Code):')}
+  ${chalk.cyan('•')} MCP Server: 8 tools (persistent memory, semantic search, task routing)
+  ${chalk.cyan('•')} Hooks: 6 auto-hooks (session recall, commit tracking, smart routing)
+  ${chalk.cyan('•')} Skills: Comprehensive code review
   ${chalk.cyan('•')} Vector semantic search with ONNX embeddings (runs 100% locally)
   ${chalk.cyan('•')} Auto-relation inference in knowledge graph
-  ${chalk.cyan('•')} Local-first architecture (all data stored locally)
 
 ${chalk.bold('Next Steps:')}
   ${chalk.yellow('1.')} ${chalk.bold('Restart Claude Code')}
@@ -307,9 +170,9 @@ ${chalk.dim('Need help? Open an issue: https://github.com/PCIRCLE-AI/claude-code
   );
 
   // Exit with appropriate code
-  // Critical failures (MCP config, plugin registration) → exit 1
-  // Non-critical failures (skills, symlink already exists) → exit 0
-  const hasCriticalFailure = !results.mcpConfigured && results.mode !== 'local';
+  // Critical failures (plugin registration) → exit 1
+  // Non-critical failures (symlink already exists) → exit 0
+  const hasCriticalFailure = !results.marketplace && !results.symlink;
   const hasPluginFailure = !results.pluginEnabled;
   if (hasCriticalFailure || hasPluginFailure) {
     process.exit(1);

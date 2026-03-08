@@ -134,7 +134,7 @@ buddy-remember "API design decisions"
 buddy-remember "why we chose PostgreSQL"
 ```
 
-Alle Daten bleiben auf deinem Rechner. Entscheidungen werden 90 Tage aufbewahrt, Sitzungsnotizen 30 Tage.
+Alle Daten bleiben auf deinem Rechner mit automatischer 90-Tage-Aufbewahrung.
 
 ---
 
@@ -166,7 +166,7 @@ Alle Daten bleiben auf deinem Rechner. Entscheidungen werden 90 Tage aufbewahrt,
 
 ## Architektur
 
-MeMesh läuft als lokaler MCP-Server neben Claude Code:
+MeMesh läuft als Claude Code Plugin lokal mit integrierter MCP-Komponente:
 
 - **Knowledge Graph** — SQLite-basierter Entity-Speicher mit FTS5-Volltextsuche
 - **Vector Embeddings** — ONNX Runtime für semantische Ähnlichkeit (läuft 100% lokal)
