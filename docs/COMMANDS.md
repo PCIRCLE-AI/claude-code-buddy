@@ -64,7 +64,7 @@ Recall project memory - past decisions, architecture choices, bug fixes, and pat
 **Parameters:**
 - `query` (required): What to search for
 - `limit` (optional): Max number of results (1-50, default: 10)
-- `mode` (optional): Search mode — `fts5` (keyword), `semantic` (AI similarity), `hybrid` (both combined). Default: `hybrid`
+- `mode` (optional): Search mode — `keyword` (exact match), `semantic` (AI similarity), `hybrid` (both combined). Default: `hybrid`
 - `matchThreshold` (optional): Minimum match score (0-1). Higher values return fewer but more relevant results. Default: 0.3
 - `allProjects` (optional): Search across ALL projects, not just the current one. Default: false
 
@@ -229,7 +229,7 @@ Internal hook event ingestion for workflow automation and memory tracking (auto-
 
 Record errors and mistakes for learning and prevention.
 
-**Aliases:** `record-mistake` (deprecated, will be removed in v3.0.0)
+**Aliases:** `buddy-record-mistake`
 
 **Input Schema:**
 ```json
@@ -272,7 +272,7 @@ Create knowledge entities with explicit relationships for fine-grained control o
   "entities": "array (required) - Array of entity objects",
   "entity.name": "string (required) - Unique entity name",
   "entity.entityType": "string (required) - Entity type",
-  "entity.observations": "array (optional) - Array of observation strings",
+  "entity.observations": "array (required) - Array of observation strings",
   "entity.tags": "array (optional) - Array of tag strings"
 }
 ```
@@ -303,7 +303,7 @@ View session metrics and tool usage statistics.
 **Input Schema:**
 ```json
 {
-  "period": "string (optional) - Time period: 'session' | 'day' | 'week' (default: 'session')"
+  "section": "string (optional) - Which metrics section: 'all' | 'session' | 'routing' | 'memory' (default: 'all')"
 }
 ```
 

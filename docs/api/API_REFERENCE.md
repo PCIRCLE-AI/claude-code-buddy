@@ -23,10 +23,10 @@
 7. [System Tools](#system-tools)
    - [memesh-generate-tests](#memesh-generate-tests)
    - [memesh-metrics](#memesh-metrics)
-7. [Data Models](#data-models)
-8. [Error Reference](#error-reference)
-9. [Integration Examples](#integration-examples)
-10. [Rate Limits & Performance](#rate-limits--performance)
+8. [Data Models](#data-models)
+9. [Error Reference](#error-reference)
+10. [Integration Examples](#integration-examples)
+11. [Rate Limits & Performance](#rate-limits--performance)
 
 ---
 
@@ -146,8 +146,7 @@ MeMesh provides 8 MCP tools organized into three categories:
   "properties": {
     "task": {
       "type": "string",
-      "description": "Task description for MeMesh to execute with memory context",
-      "minLength": 1
+      "description": "Task description to analyze and enrich (e.g., 'setup authentication', 'fix login bug')"
     }
   },
   "required": ["task"]
@@ -387,15 +386,28 @@ Extracted metadata:
   "properties": {
     "query": {
       "type": "string",
-      "description": "What to remember/recall from project memory",
-      "minLength": 1
+      "description": "Search query (natural language supported for semantic search)"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["semantic", "keyword", "hybrid"],
+      "description": "Search mode: semantic (AI similarity), keyword (exact match), hybrid (both combined). Default: hybrid"
     },
     "limit": {
       "type": "number",
-      "description": "Maximum number of memories to retrieve",
-      "default": 5,
+      "description": "Maximum number of results to return (1-50, default: 10)",
       "minimum": 1,
       "maximum": 50
+    },
+    "matchThreshold": {
+      "type": "number",
+      "description": "Minimum match score (0-1). Higher values return fewer but more relevant results. Default: 0.3",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "allProjects": {
+      "type": "boolean",
+      "description": "Search across all projects (default: false, searches only current project + global memories)"
     }
   },
   "required": ["query"]
@@ -406,8 +418,11 @@ Extracted metadata:
 
 | Parameter | Type | Required | Default | Description | Example |
 |-----------|------|----------|---------|-------------|---------|
-| `query` | string | Yes | - | Search query or information to store | "why did we choose PostgreSQL?" |
-| `limit` | number | No | 5 | Max number of results (1-50) | 10 |
+| `query` | string | Yes | - | Search query (natural language supported) | "why did we choose PostgreSQL?" |
+| `mode` | string | No | hybrid | Search mode: `semantic`, `keyword`, `hybrid` | "keyword" |
+| `limit` | number | No | 10 | Max number of results (1-50) | 20 |
+| `matchThreshold` | number | No | 0.3 | Minimum match score (0-1) | 0.5 |
+| `allProjects` | boolean | No | false | Search across all projects | true |
 
 #### Response Format
 

@@ -228,7 +228,7 @@ graph TB
 ```mermaid
 sequenceDiagram
     participant U as 你（在 Claude Code 中）
-    participant M as MeMesh MCP
+    participant M as MeMesh Plugin
     participant KG as 知識圖譜
     participant E as 嵌入模型（ONNX）
 

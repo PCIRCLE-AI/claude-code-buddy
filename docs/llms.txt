@@ -99,7 +99,7 @@ src/
 ├── knowledge-graph/   # Knowledge graph (KGSearchEngine, FTS5+semantic)
 ├── embeddings/        # Vector search (sqlite-vec, ONNX)
 ├── core/              # Core logic (HookIntegration, GitCommandParser)
-├── db/                # Database management (DatabaseManager)
+├── db/                # Database management (ConnectionPool, QueryCache)
 ├── cli/               # CLI commands
 ├── config/            # Configuration management
 ├── management/        # Process management
