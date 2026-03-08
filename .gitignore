@@ -54,12 +54,6 @@ logs/
 # === TypeScript ===
 *.tsbuildinfo
 
-# === Python ===
-__pycache__/
-*.py[cod]
-venv/
-.venv/
-
 # === Temp files ===
 tmp/
 temp/
@@ -76,7 +70,6 @@ landing-page/
 benchmarks/
 experiments/
 .archive/
-typedoc.json
 MIGRATION.md
 Dockerfile.test
 

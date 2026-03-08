@@ -110,8 +110,10 @@ Tool call: recall({query, tag, limit})
 Tool call: forget({name})
   -> Zod validation (ForgetSchema)
   -> KnowledgeGraph.deleteEntity(name)
-     -> Delete FTS5 entry (contentless delete syntax)
-     -> DELETE FROM entities (CASCADE handles children)
+     -> SELECT entity by name (return false if not found)
+     -> SELECT all observations for entity (needed for FTS5 delete)
+     -> Delete FTS5 entry (contentless delete requires original indexed values)
+     -> DELETE FROM entities (CASCADE handles observations, relations, tags)
   -> Return {deleted: true/false}
 ```
 
@@ -123,7 +125,7 @@ Tool call: forget({name})
 -- Core tables
 entities (id PK, name UNIQUE, type, created_at, metadata JSON)
 observations (id PK, entity_id FK, content, created_at)
-relations (id PK, from_entity_id FK, to_entity_id FK, relation_type, metadata JSON, UNIQUE constraint)
+relations (id PK, from_entity_id FK, to_entity_id FK, relation_type, metadata JSON, created_at, UNIQUE constraint)
 tags (id PK, entity_id FK, tag)
 
 -- Indexes

@@ -7,12 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.11.0] - 2026-03-09
+
 ### Added
 
 - **`memesh-view` CLI command** — generates self-contained HTML dashboard with D3.js force-directed knowledge graph, searchable entity table, and statistics
-- Fixed vitest pool from `threads` to `forks` to prevent SIGSEGV with better-sqlite3 native module
-
-## [2.11.0] - 2026-03-09
 
 ### Breaking Changes
 
@@ -29,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - All UI formatting (chalk, boxen, ora, cli-spinners, cli-table3, asciichart)
 - Logging framework (winston)
 - 23 production dependencies
+
+### Fixed
+
+- vitest pool from `threads` to `forks` to prevent SIGSEGV with better-sqlite3 native module
 
 ### Architecture
 
@@ -366,7 +369,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `hook-tool-use` → `memesh-hook-tool-use`
   - `generate-tests` → `memesh-generate-tests`
 
-  **Migration**: Old names still work via aliases with deprecation warnings. Aliases will be removed in v3.0.0. See [UPGRADE.md](docs/UPGRADE.md) for details.
+  **Migration**: Old tool names were removed in v2.11.0.
 
 ### Added
 
