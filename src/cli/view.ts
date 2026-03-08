@@ -395,16 +395,41 @@ renderEntityTable('');
 
 // --- D3.js Force Graph ---
 (function renderGraph() {
-  if (DATA.entities.length === 0) return;
+  if (DATA.relations.length === 0 && DATA.entities.length === 0) return;
 
   var svg = d3.select('#graph');
   var width = svg.node().getBoundingClientRect().width || 800;
-  var height = 500;
+
+  // Only show the most connected entities to keep graph readable
+  var MAX_GRAPH_NODES = 40;
+  var degreeMap = {};
+  DATA.relations.forEach(function(r) {
+    degreeMap[r.from] = (degreeMap[r.from] || 0) + 1;
+    degreeMap[r.to] = (degreeMap[r.to] || 0) + 1;
+  });
+
+  // Sort by connection count, take top N
+  var topNames = Object.entries(degreeMap)
+    .sort(function(a, b) { return b[1] - a[1]; })
+    .slice(0, MAX_GRAPH_NODES)
+    .map(function(e) { return e[0]; });
+  var topSet = new Set(topNames);
+
+  // If no relations, show top 50 entities instead
+  var graphEntities = topSet.size > 0
+    ? DATA.entities.filter(function(e) { return topSet.has(e.name); })
+    : DATA.entities.slice(0, 50);
+
+  if (graphEntities.length === 0) return;
+
+  // Scale height based on node count
+  var height = Math.max(500, Math.min(700, graphEntities.length * 6));
   svg.attr('viewBox', [0, 0, width, height]);
+  svg.style('height', height + 'px');
 
   var color = d3.scaleOrdinal(d3.schemeTableau10);
 
-  var nodes = DATA.entities.map(function(e) {
+  var nodes = graphEntities.map(function(e) {
     return {
       id: e.name,
       type: e.type,
@@ -419,8 +444,8 @@ renderEntityTable('');
     .map(function(r) { return { source: r.from, target: r.to, type: r.type }; });
 
   var simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(function(d) { return d.id; }).distance(100))
-    .force('charge', d3.forceManyBody().strength(-200))
+    .force('link', d3.forceLink(links).id(function(d) { return d.id; }).distance(200))
+    .force('charge', d3.forceManyBody().strength(-500))
     .force('center', d3.forceCenter(width / 2, height / 2))
     .force('collision', d3.forceCollide().radius(function(d) { return d.radius + 4; }));
 
@@ -463,7 +488,7 @@ renderEntityTable('');
     .selectAll('text')
     .data(nodes)
     .join('text')
-    .text(function(d) { return d.id; })
+    .text(function(d) { return d.id.length > 35 ? d.id.slice(0, 35) + '...' : d.id; })
     .attr('dx', function(d) { return d.radius + 4; })
     .attr('dy', 4);
 

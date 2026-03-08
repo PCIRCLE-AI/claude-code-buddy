@@ -65,6 +65,8 @@ Run after installing globally:
 memesh-view
 ```
 
+![MeMesh Dashboard](docs/images/dashboard-screenshot.png)
+
 ## Development
 
 ```bash
