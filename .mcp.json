@@ -2,11 +2,8 @@
   "mcpServers": {
     "memesh": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/mcp/server-bootstrap.js"],
-      "env": {
-        "NODE_ENV": "production",
-        "MEMESH_DISABLE_DAEMON": "1"
-      }
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js"],
+      "env": { "NODE_ENV": "production" }
     }
   }
 }
