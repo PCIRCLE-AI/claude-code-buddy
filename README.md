@@ -24,6 +24,8 @@ npm install -g @pcircle/memesh
 
 </div>
 
+> **Note**: This project was originally called "Claude Code Buddy" and has been renamed to MeMesh Plugin to avoid potential trademark issues.
+
 ---
 
 ## The Problem

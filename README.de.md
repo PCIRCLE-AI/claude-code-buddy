@@ -1,75 +1,106 @@
 <div align="center">
 
-# 🧠 MeMesh Plugin
+<img src="https://img.shields.io/badge/%F0%9F%A7%A0-MeMesh-blueviolet?style=for-the-badge" alt="MeMesh" />
 
-### Produktivitäts-Plugin für Claude Code
+# MeMesh
 
-Speicher, intelligente Aufgabenanalyse und Workflow-Automatisierung — in einem Plugin.
+### Deine KI-Coding-Sitzungen verdienen ein Gedächtnis.
 
-[![npm version](https://img.shields.io/npm/v/@pcircle/memesh)](https://www.npmjs.com/package/@pcircle/memesh)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
+MeMesh gibt Claude Code ein persistentes, durchsuchbares Gedächtnis — damit jede Sitzung auf der vorherigen aufbaut.
 
-[Installation](#installation) • [Verwendung](#verwendung) • [Fehlerbehebung](#fehlerbehebung)
-
-[English](README.md) • [繁體中文](README.zh-TW.md) • [简体中文](README.zh-CN.md) • [日本語](README.ja.md) • [한국어](README.ko.md) • [Français](README.fr.md) • **Deutsch** • [Español](README.es.md) • [Tiếng Việt](README.vi.md) • [ภาษาไทย](README.th.md) • [Bahasa Indonesia](README.id.md)
-
-</div>
-
----
-
-## Warum dieses Projekt existiert
-
-Dieses Projekt entstand, weil ich mehr Menschen helfen wollte — besonders Programmier-Einsteigern — das Beste aus Claude Code fürs Vibe Coding herauszuholen. Mir ist aufgefallen: Wenn Projekte wachsen, wird es schwer, alle Entscheidungen über Sitzungen hinweg nachzuverfolgen. Also habe ich ein Plugin gebaut (mit Claude Code natürlich), das sich für euch erinnert.
-
-> **Hinweis**: Dieses Projekt hieß ursprünglich „Claude Code Buddy" und wurde in MeMesh Plugin umbenannt, um mögliche Markenrechtsprobleme zu vermeiden.
-
-## Was kann es?
-
-MeMesh Plugin macht Claude Code schlauer und produktiver. Es ist nicht nur ein Speicher — es ist ein komplettes Toolkit:
-
-**Durchsuchbarer Projektspeicher** — Entscheidungen, Muster und Lektionen werden automatisch gespeichert. Suche nach Bedeutung, nicht nur Schlüsselwörtern. Fragt „Warum haben wir PostgreSQL gewählt?" und bekommt sofort Antworten.
-
-**Intelligente Aufgabenanalyse** — Bei `buddy-do "Authentifizierung hinzufügen"` analysiert MeMesh die Aufgabe, zieht relevanten Kontext aus vergangener Arbeit und liefert einen angereicherten Plan vor der Ausführung.
-
-**Workflow-Automatisierung** — MeMesh arbeitet im Hintergrund automatisch:
-- Zeigt beim Sitzungsstart eine Zusammenfassung der letzten Arbeit
-- Verfolgt geänderte und getestete Dateien
-- Erinnert vor dem Commit an Code-Review
-- Routet Aufgaben zum optimalen Modell
-
-**Aus Fehlern lernen** — Fehler und Korrekturen aufzeichnen, um eine Wissensbasis aufzubauen und wiederholte Fehler zu vermeiden.
-
-**Wie unterscheidet sich das vom eingebauten Gedächtnis von Claude?**
-
-Claude Code hat bereits Auto Memory und CLAUDE.md — super für allgemeine Einstellungen. MeMesh fügt projektbezogene **dedizierte Tools** hinzu: bedeutungsbasiert durchsuchbarer Speicher, Aufgabenanalyse mit vergangenem Kontext und automatisierte Workflows, die jede Sitzung produktiver machen.
-
-So kann man es sich vorstellen:
-- **CLAUDE.md** = eure Bedienungsanleitung für Claude
-- **MeMesh** = durchsuchbares Notizbuch + intelligenter Assistent, der mit eurem Projekt wächst
-
----
-
-## Installation
-
-**Ihr braucht**: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) und Node.js 20+
+[![npm version](https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=cb3837)](https://www.npmjs.com/package/@pcircle/memesh)
+[![Downloads](https://img.shields.io/npm/dm/@pcircle/memesh?style=flat-square&color=blue)](https://www.npmjs.com/package/@pcircle/memesh)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square)](https://nodejs.org)
+[![MCP](https://img.shields.io/badge/MCP-compatible-purple?style=flat-square)](https://modelcontextprotocol.io)
 
 ```bash
 npm install -g @pcircle/memesh
 ```
 
-Claude Code neu starten. Fertig.
+[Loslegen](#loslegen) · [So funktioniert es](#so-funktioniert-es) · [Befehle](#befehle) · [Dokumentation](docs/USER_GUIDE.md)
 
-**Funktioniert es?** — Tippt das in Claude Code ein:
+[English](README.md) · [繁體中文](README.zh-TW.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Français](README.fr.md) · **Deutsch** · [Español](README.es.md) · [Tiếng Việt](README.vi.md) · [ภาษาไทย](README.th.md) · [Bahasa Indonesia](README.id.md)
+
+</div>
+
+> **Hinweis**: Dieses Projekt hieß ursprünglich „Claude Code Buddy" und wurde in MeMesh Plugin umbenannt, um mögliche Markenrechtsprobleme zu vermeiden.
+
+---
+
+## Das Problem
+
+Du steckst mitten in einem Projekt mit Claude Code. Vor drei Sitzungen hast du wichtige Entscheidungen getroffen — welche Auth-Bibliothek, warum dieses Datenbankschema, welche Muster zu verwenden sind. Aber Claude erinnert sich nicht. Du wiederholst dich. Der Kontext geht verloren. Du verschwendest Zeit.
+
+**MeMesh löst das.** Es gibt Claude ein persistentes, durchsuchbares Gedächtnis, das mit deinem Projekt wächst.
+
+---
+
+## So funktioniert es
+
+<table>
+<tr>
+<td width="50%">
+
+### Vor MeMesh
+```
+Sitzung 1: "Verwende JWT für Auth"
+Sitzung 2: "Warum haben wir JWT gewählt?"
+Sitzung 3: "Moment, welche Auth-Bibliothek nutzen wir?"
+```
+Du wiederholst Entscheidungen. Claude vergisst den Kontext. Der Fortschritt stockt.
+
+</td>
+<td width="50%">
+
+### Nach MeMesh
+```
+Sitzung 1: "Verwende JWT für Auth" → gespeichert
+Sitzung 2: buddy-remember "auth" → sofortiger Abruf
+Sitzung 3: Kontext wird beim Start automatisch geladen
+```
+Jede Sitzung knüpft dort an, wo du aufgehört hast.
+
+</td>
+</tr>
+</table>
+
+---
+
+## Was du bekommst
+
+**Durchsuchbares Projektgedächtnis** — Frage „Was haben wir über Auth entschieden?" und erhalte sofort eine semantisch abgeglichene Antwort. Keine Stichwortsuche — *Bedeutungssuche*, angetrieben durch lokale ONNX-Embeddings.
+
+**Intelligente Aufgabenanalyse** — `buddy-do "Benutzer-Auth hinzufügen"` führt nicht einfach aus. Es zieht relevanten Kontext aus vergangenen Sitzungen, prüft welche Muster du etabliert hast und erstellt einen angereicherten Plan, bevor eine einzige Zeile geschrieben wird.
+
+**Proaktiver Abruf** — MeMesh ruft automatisch relevante Erinnerungen ab, wenn du eine Sitzung startest, ein Test fehlschlägt oder ein Fehler auftritt. Kein manuelles Suchen nötig.
+
+**Workflow-Automatisierung** — Sitzungszusammenfassungen beim Start. Verfolgung von Dateiänderungen. Code-Review-Erinnerungen vor Commits. Alles läuft leise im Hintergrund.
+
+**Aus Fehlern lernen** — Fehler und Korrekturen aufzeichnen, um eine Wissensbasis aufzubauen. Derselbe Fehler passiert nicht zweimal.
+
+---
+
+## Loslegen
+
+**Voraussetzungen**: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) + Node.js 20+
+
+```bash
+npm install -g @pcircle/memesh
+```
+
+Claude Code neu starten. Das war's.
+
+**Überprüfen** — tippe in Claude Code:
 
 ```
 buddy-help
 ```
 
-Ihr solltet eine Liste von Befehlen sehen.
+Du solltest eine Liste der verfügbaren Befehle sehen.
 
 <details>
-<summary>Aus dem Quellcode installieren (für Mitwirkende)</summary>
+<summary><strong>Aus dem Quellcode installieren</strong> (für Mitwirkende)</summary>
 
 ```bash
 git clone https://github.com/PCIRCLE-AI/claude-code-buddy.git
@@ -81,76 +112,88 @@ npm install && npm run build
 
 ---
 
-## Verwendung
+## Befehle
 
-MeMesh fügt 3 Befehle zu Claude Code hinzu:
-
-| Befehl | Funktion |
-|--------|----------|
-| `buddy-do "Aufgabe"` | Aufgabe mit Speicherkontext ausführen |
-| `buddy-remember "Thema"` | Vergangene Entscheidungen und Kontext suchen |
+| Befehl | Was er tut |
+|--------|-----------|
+| `buddy-do "Aufgabe"` | Aufgabe mit vollem Gedächtniskontext ausführen |
+| `buddy-remember "Thema"` | Vergangene Entscheidungen und Kontext durchsuchen |
 | `buddy-help` | Verfügbare Befehle anzeigen |
 
-**Beispiele:**
+**Praxisbeispiele:**
 
 ```bash
-buddy-do "erkläre diese Codebase"
-buddy-do "füge Benutzerauthentifizierung hinzu"
-buddy-remember "API-Design-Entscheidungen"
-buddy-remember "warum haben wir PostgreSQL gewählt"
+# Sich in einer neuen Codebase orientieren
+buddy-do "explain this codebase"
+
+# Features mit Kontext aus vergangener Arbeit bauen
+buddy-do "add user authentication"
+
+# Nachvollziehen, warum Entscheidungen getroffen wurden
+buddy-remember "API design decisions"
+buddy-remember "why we chose PostgreSQL"
 ```
 
-Alle Daten werden lokal auf eurem Rechner gespeichert. Entscheidungen werden 90 Tage aufbewahrt, Sitzungsnotizen 30 Tage.
+Alle Daten bleiben auf deinem Rechner. Entscheidungen werden 90 Tage aufbewahrt, Sitzungsnotizen 30 Tage.
 
 ---
 
-## Unterstützte Plattformen
+## Wie unterscheidet sich das von CLAUDE.md?
+
+| | CLAUDE.md | MeMesh |
+|---|-----------|--------|
+| **Zweck** | Statische Anweisungen für Claude | Lebendiges Gedächtnis, das mit deinem Projekt wächst |
+| **Suche** | Manuelle Textsuche | Semantische Suche nach Bedeutung |
+| **Aktualisierung** | Du bearbeitest manuell | Erfasst Entscheidungen automatisch während der Arbeit |
+| **Abruf** | Wird immer geladen (kann lang werden) | Zeigt relevanten Kontext bei Bedarf |
+| **Umfang** | Allgemeine Präferenzen | Projektspezifischer Wissensgraph |
+
+**Sie ergänzen sich.** CLAUDE.md sagt Claude, *wie* er arbeiten soll. MeMesh erinnert sich daran, *was* ihr gebaut habt.
+
+---
+
+## Plattformunterstützung
 
 | Plattform | Status |
 |-----------|--------|
-| **macOS** | ✅ Funktioniert |
-| **Linux** | ✅ Funktioniert |
-| **Windows** | ✅ Funktioniert (WSL2 empfohlen) |
+| macOS | ✅ |
+| Linux | ✅ |
+| Windows | ✅ (WSL2 empfohlen) |
 
-**Kompatibel mit:**
-- Claude Code CLI (Terminal)
-- Claude Code VS Code Extension
-- Cursor (über MCP)
-- Andere MCP-kompatible Editoren
-
-**Claude Desktop (Cowork)**: Grundbefehle funktionieren, aber Speicherfunktionen benötigen die CLI-Version. Siehe [Cowork-Details](docs/COWORK_SUPPORT.md).
+**Funktioniert mit:** Claude Code CLI · VS Code Extension · Cursor (via MCP) · Jeder MCP-kompatible Editor
 
 ---
 
-## Fehlerbehebung
+## Architektur
 
-**MeMesh erscheint nicht?**
+MeMesh läuft als lokaler MCP-Server neben Claude Code:
 
-```bash
-# Installation prüfen
-npm list -g @pcircle/memesh
+- **Knowledge Graph** — SQLite-basierter Entity-Speicher mit FTS5-Volltextsuche
+- **Vector Embeddings** — ONNX Runtime für semantische Ähnlichkeit (läuft 100% lokal)
+- **Content Dedup** — SHA-256-Hashing überspringt redundante Embedding-Berechnungen
+- **Batch Processing** — Effiziente Massenoperationen für große Wissensbasen
+- **Hook System** — Proaktiver Abruf bei Sitzungsstart, Testfehlern und Fehlern
 
-# Node.js-Version prüfen (20+ benötigt)
-node --version
-
-# Setup erneut ausführen
-memesh setup
-```
-
-Dann Claude Code vollständig neu starten.
-
-Weitere Hilfe: [Fehlerbehebungsanleitung](docs/TROUBLESHOOTING.md)
+Alles läuft lokal. Keine Cloud. Keine API-Aufrufe. Deine Daten verlassen nie deinen Rechner.
 
 ---
 
-## Mehr erfahren
+## Dokumentation
 
-- **[Erste Schritte](docs/GETTING_STARTED.md)** — Schritt-für-Schritt-Einrichtung
-- **[Benutzerhandbuch](docs/USER_GUIDE.md)** — Vollständige Anleitung mit Beispielen
-- **[Befehle](docs/COMMANDS.md)** — Alle verfügbaren Befehle
-- **[Architektur](docs/ARCHITECTURE.md)** — Wie es unter der Haube funktioniert
-- **[Mitwirken](CONTRIBUTING.md)** — Helfen? Hier starten
-- **[Entwicklungsanleitung](docs/DEVELOPMENT.md)** — Für Mitwirkende
+| Dokument | Beschreibung |
+|----------|-------------|
+| [Erste Schritte](docs/GETTING_STARTED.md) | Schritt-für-Schritt-Einrichtungsanleitung |
+| [Benutzerhandbuch](docs/USER_GUIDE.md) | Vollständige Anleitung mit Beispielen |
+| [Befehle](docs/COMMANDS.md) | Komplette Befehlsreferenz |
+| [Architektur](docs/ARCHITECTURE.md) | Technischer Tiefgang |
+| [Mitwirken](CONTRIBUTING.md) | Richtlinien für Beiträge |
+| [Entwicklung](docs/DEVELOPMENT.md) | Entwicklungsumgebung für Mitwirkende |
+
+---
+
+## Mitwirken
+
+Beiträge sind willkommen! Siehe [CONTRIBUTING.md](CONTRIBUTING.md) für den Einstieg.
 
 ---
 
@@ -162,8 +205,8 @@ MIT — Siehe [LICENSE](LICENSE)
 
 <div align="center">
 
-Etwas funktioniert nicht? [Issue eröffnen](https://github.com/PCIRCLE-AI/claude-code-buddy/issues/new) — wir antworten schnell.
+**Gebaut mit Claude Code, für Claude Code.**
 
-[Bug melden](https://github.com/PCIRCLE-AI/claude-code-buddy/issues/new?labels=bug&template=bug_report.yml) • [Feature anfragen](https://github.com/PCIRCLE-AI/claude-code-buddy/discussions)
+[Bug melden](https://github.com/PCIRCLE-AI/claude-code-buddy/issues/new?labels=bug&template=bug_report.yml) · [Feature anfragen](https://github.com/PCIRCLE-AI/claude-code-buddy/discussions) · [Hilfe erhalten](https://github.com/PCIRCLE-AI/claude-code-buddy/issues/new)
 
 </div>

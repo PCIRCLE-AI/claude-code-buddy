@@ -1,58 +1,89 @@
 <div align="center">
 
-# 🧠 MeMesh Plugin
+<img src="https://img.shields.io/badge/%F0%9F%A7%A0-MeMesh-blueviolet?style=for-the-badge" alt="MeMesh" />
 
-### Plugin năng suất cho Claude Code
+# MeMesh
 
-Bộ nhớ, phân tích tác vụ thông minh và tự động hóa quy trình — tất cả trong một plugin.
+### Các phiên lập trình AI của bạn xứng đáng có bộ nhớ.
 
-[![npm version](https://img.shields.io/npm/v/@pcircle/memesh)](https://www.npmjs.com/package/@pcircle/memesh)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
+MeMesh mang đến cho Claude Code bộ nhớ bền vững, có thể tìm kiếm — để mỗi phiên làm việc đều kế thừa từ phiên trước.
 
-[Cài đặt](#cài-đặt) • [Cách dùng](#cách-dùng) • [Xử lý sự cố](#xử-lý-sự-cố)
+[![npm version](https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=cb3837)](https://www.npmjs.com/package/@pcircle/memesh)
+[![Downloads](https://img.shields.io/npm/dm/@pcircle/memesh?style=flat-square&color=blue)](https://www.npmjs.com/package/@pcircle/memesh)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square)](https://nodejs.org)
+[![MCP](https://img.shields.io/badge/MCP-compatible-purple?style=flat-square)](https://modelcontextprotocol.io)
 
-[English](README.md) • [繁體中文](README.zh-TW.md) • [简体中文](README.zh-CN.md) • [日本語](README.ja.md) • [한국어](README.ko.md) • [Français](README.fr.md) • [Deutsch](README.de.md) • [Español](README.es.md) • **Tiếng Việt** • [ภาษาไทย](README.th.md) • [Bahasa Indonesia](README.id.md)
+```bash
+npm install -g @pcircle/memesh
+```
+
+[Bắt đầu](#bắt-đầu) · [Cách hoạt động](#cách-hoạt-động) · [Lệnh](#lệnh) · [Tài liệu](docs/USER_GUIDE.md)
+
+[English](README.md) · [繁體中文](README.zh-TW.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Español](README.es.md) · **Tiếng Việt** · [ภาษาไทย](README.th.md) · [Bahasa Indonesia](README.id.md)
 
 </div>
 
----
-
-## Tại sao tạo dự án này
-
-Dự án này bắt đầu vì tôi muốn giúp nhiều người hơn — đặc biệt là những người mới học lập trình — tận dụng tối đa Claude Code cho vibe coding. Một điều tôi nhận ra: khi dự án lớn dần, rất khó để theo dõi tất cả các quyết định đã được đưa ra qua các phiên làm việc. Vì vậy tôi đã xây dựng một plugin (cùng với Claude Code, tất nhiên) để ghi nhớ giúp bạn.
-
 > **Lưu ý**: Dự án này ban đầu có tên "Claude Code Buddy" và đã được đổi tên thành MeMesh Plugin để tránh các vấn đề về thương hiệu.
 
-## Nó làm được gì?
+---
 
-MeMesh Plugin giúp Claude Code thông minh hơn và năng suất hơn. Không chỉ là bộ nhớ — mà là bộ công cụ hoàn chỉnh:
+## Vấn đề
 
-**Bộ nhớ dự án có thể tìm kiếm** — Tự động lưu các quyết định, mẫu thiết kế và bài học. Tìm kiếm theo ý nghĩa, không chỉ từ khóa. Hỏi "chúng ta đã quyết định gì về auth?" và nhận câu trả lời ngay.
+Bạn đang làm việc sâu với Claude Code trên một dự án. Bạn đã đưa ra những quyết định quan trọng cách đây ba phiên — thư viện xác thực nào, tại sao chọn schema cơ sở dữ liệu đó, những mẫu thiết kế nào cần tuân theo. Nhưng Claude không nhớ. Bạn phải lặp lại. Bạn mất ngữ cảnh. Bạn lãng phí thời gian.
 
-**Phân tích tác vụ thông minh** — Khi bạn gõ `buddy-do "thêm auth"`, MeMesh phân tích tác vụ, lấy ngữ cảnh liên quan từ công việc trước đó, và đưa ra kế hoạch đầy đủ trước khi thực hiện.
-
-**Tự động hóa quy trình** — MeMesh tự động làm việc nền:
-- Hiển thị tóm tắt phiên trước khi bắt đầu
-- Theo dõi các file đã sửa và kiểm thử
-- Nhắc review code trước khi commit
-- Định tuyến tác vụ đến model tối ưu
-
-**Học từ lỗi** — Ghi lại lỗi và cách sửa để xây dựng cơ sở tri thức và tránh lặp lại sai lầm.
-
-**Khác gì so với bộ nhớ tích hợp của Claude?**
-
-Claude Code đã có auto memory và CLAUDE.md — tốt cho cài đặt chung. MeMesh bổ sung **công cụ chuyên dụng cho dự án**: bộ nhớ tìm kiếm theo ý nghĩa, phân tích tác vụ với ngữ cảnh trước đó, và quy trình tự động giúp mỗi phiên làm việc hiệu quả hơn.
-
-Hãy nghĩ như thế này:
-- **CLAUDE.md** = sách hướng dẫn sử dụng cho Claude
-- **MeMesh** = sổ tay tìm kiếm được + trợ lý thông minh phát triển cùng dự án
+**MeMesh giải quyết vấn đề này.** Nó cung cấp cho Claude bộ nhớ bền vững, có thể tìm kiếm, phát triển cùng dự án của bạn.
 
 ---
 
-## Cài đặt
+## Cách hoạt động
 
-**Bạn cần**: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) và Node.js 20+
+<table>
+<tr>
+<td width="50%">
+
+### Trước MeMesh
+```
+Phiên 1: "Dùng JWT cho auth"
+Phiên 2: "Tại sao mình chọn JWT nhỉ?"
+Phiên 3: "Khoan, mình đang dùng thư viện auth nào?"
+```
+Bạn lặp lại các quyết định. Claude quên ngữ cảnh. Tiến độ bị đình trệ.
+
+</td>
+<td width="50%">
+
+### Sau MeMesh
+```
+Phiên 1: "Dùng JWT cho auth" → đã lưu
+Phiên 2: buddy-remember "auth" → nhớ lại ngay
+Phiên 3: Ngữ cảnh tự động tải khi bắt đầu
+```
+Mỗi phiên đều tiếp nối từ nơi bạn dừng lại.
+
+</td>
+</tr>
+</table>
+
+---
+
+## Bạn được gì
+
+**Bộ nhớ dự án có thể tìm kiếm** — Hỏi "chúng ta đã quyết định gì về auth?" và nhận câu trả lời ngay lập tức, khớp theo ngữ nghĩa. Không phải tìm kiếm từ khóa — mà là tìm kiếm theo *ý nghĩa*, sử dụng ONNX embeddings chạy cục bộ.
+
+**Phân tích tác vụ thông minh** — `buddy-do "thêm user auth"` không chỉ đơn giản thực thi. Nó lấy ngữ cảnh liên quan từ các phiên trước, kiểm tra những mẫu thiết kế bạn đã thiết lập, và xây dựng kế hoạch chi tiết trước khi viết một dòng code nào.
+
+**Gợi nhớ chủ động** — MeMesh tự động hiển thị các ký ức liên quan khi bạn bắt đầu phiên, gặp lỗi kiểm thử, hoặc gặp lỗi. Không cần tìm kiếm thủ công.
+
+**Tự động hóa quy trình** — Tóm tắt phiên khi khởi động. Theo dõi thay đổi file. Nhắc review code trước khi commit. Tất cả chạy ngầm trong nền.
+
+**Học từ lỗi** — Ghi lại lỗi và cách sửa để xây dựng cơ sở tri thức. Cùng một lỗi không xảy ra hai lần.
+
+---
+
+## Bắt đầu
+
+**Yêu cầu**: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) + Node.js 20+
 
 ```bash
 npm install -g @pcircle/memesh
@@ -60,16 +91,16 @@ npm install -g @pcircle/memesh
 
 Khởi động lại Claude Code. Xong.
 
-**Kiểm tra hoạt động** — gõ lệnh này trong Claude Code:
+**Kiểm tra** — gõ trong Claude Code:
 
 ```
 buddy-help
 ```
 
-Bạn sẽ thấy danh sách các lệnh.
+Bạn sẽ thấy danh sách các lệnh có sẵn.
 
 <details>
-<summary>Cài đặt từ mã nguồn (cho người đóng góp)</summary>
+<summary><strong>Cài đặt từ mã nguồn</strong> (dành cho người đóng góp)</summary>
 
 ```bash
 git clone https://github.com/PCIRCLE-AI/claude-code-buddy.git
@@ -81,76 +112,88 @@ npm install && npm run build
 
 ---
 
-## Cách dùng
-
-MeMesh thêm 3 lệnh vào Claude Code:
+## Lệnh
 
 | Lệnh | Chức năng |
-|------|-----------|
-| `buddy-do "nhiệm vụ"` | Chạy nhiệm vụ với ngữ cảnh bộ nhớ |
+|---------|-------------|
+| `buddy-do "tác vụ"` | Thực thi tác vụ với đầy đủ ngữ cảnh bộ nhớ |
 | `buddy-remember "chủ đề"` | Tìm kiếm các quyết định và ngữ cảnh trước đó |
 | `buddy-help` | Hiển thị các lệnh có sẵn |
 
-**Ví dụ:**
+**Ví dụ thực tế:**
 
 ```bash
-buddy-do "giải thích codebase này"
-buddy-do "thêm xác thực người dùng"
-buddy-remember "quyết định thiết kế API"
-buddy-remember "tại sao chọn PostgreSQL"
+# Làm quen với một codebase mới
+buddy-do "explain this codebase"
+
+# Xây dựng tính năng với ngữ cảnh từ công việc trước
+buddy-do "add user authentication"
+
+# Nhớ lại lý do đưa ra quyết định
+buddy-remember "API design decisions"
+buddy-remember "why we chose PostgreSQL"
 ```
 
-Tất cả dữ liệu được lưu trên máy của bạn. Các quyết định được giữ 90 ngày, ghi chú phiên được giữ 30 ngày.
+Tất cả dữ liệu nằm trên máy bạn. Các quyết định được giữ 90 ngày, ghi chú phiên 30 ngày.
+
+---
+
+## Khác gì so với CLAUDE.md?
+
+| | CLAUDE.md | MeMesh |
+|---|-----------|--------|
+| **Mục đích** | Hướng dẫn tĩnh cho Claude | Bộ nhớ sống, phát triển cùng dự án |
+| **Tìm kiếm** | Tìm kiếm văn bản thủ công | Tìm kiếm ngữ nghĩa theo ý nghĩa |
+| **Cập nhật** | Bạn chỉnh sửa thủ công | Tự động ghi lại quyết định khi bạn làm việc |
+| **Gợi nhớ** | Luôn được tải (có thể rất dài) | Hiển thị ngữ cảnh liên quan theo yêu cầu |
+| **Phạm vi** | Tùy chọn chung | Đồ thị tri thức theo dự án |
+
+**Chúng hoạt động cùng nhau.** CLAUDE.md cho Claude biết *cách* làm việc. MeMesh ghi nhớ *những gì* bạn đã xây dựng.
 
 ---
 
 ## Nền tảng hỗ trợ
 
 | Nền tảng | Trạng thái |
-|----------|-----------|
-| **macOS** | ✅ Hoạt động |
-| **Linux** | ✅ Hoạt động |
-| **Windows** | ✅ Hoạt động (khuyên dùng WSL2) |
+|----------|--------|
+| macOS | ✅ |
+| Linux | ✅ |
+| Windows | ✅ (khuyên dùng WSL2) |
 
-**Hoạt động với:**
-- Claude Code CLI (terminal)
-- Claude Code VS Code Extension
-- Cursor (qua MCP)
-- Các editor tương thích MCP khác
-
-**Claude Desktop (Cowork)**: Các lệnh cơ bản hoạt động, nhưng tính năng bộ nhớ cần phiên bản CLI. Xem [chi tiết Cowork](docs/COWORK_SUPPORT.md).
+**Hoạt động với:** Claude Code CLI · VS Code Extension · Cursor (qua MCP) · Bất kỳ editor tương thích MCP nào
 
 ---
 
-## Xử lý sự cố
+## Kiến trúc
 
-**MeMesh không hiển thị?**
+MeMesh chạy như một MCP server cục bộ bên cạnh Claude Code:
 
-```bash
-# Kiểm tra đã cài đặt chưa
-npm list -g @pcircle/memesh
+- **Knowledge Graph** — Kho lưu trữ thực thể dựa trên SQLite với tìm kiếm toàn văn FTS5
+- **Vector Embeddings** — ONNX runtime cho tương đồng ngữ nghĩa (chạy 100% cục bộ)
+- **Content Dedup** — Băm SHA-256 bỏ qua tính toán embedding trùng lặp
+- **Batch Processing** — Xử lý hàng loạt hiệu quả cho cơ sở tri thức lớn
+- **Hook System** — Gợi nhớ chủ động khi bắt đầu phiên, lỗi kiểm thử và lỗi chung
 
-# Kiểm tra phiên bản Node.js (cần 20+)
-node --version
-
-# Chạy lại setup
-memesh setup
-```
-
-Sau đó khởi động lại Claude Code hoàn toàn.
-
-Thêm trợ giúp: [Hướng dẫn xử lý sự cố](docs/TROUBLESHOOTING.md)
+Mọi thứ chạy cục bộ. Không cloud. Không gọi API. Dữ liệu của bạn không bao giờ rời khỏi máy.
 
 ---
 
-## Tìm hiểu thêm
+## Tài liệu
 
-- **[Bắt đầu](docs/GETTING_STARTED.md)** — Hướng dẫn cài đặt từng bước
-- **[Hướng dẫn sử dụng](docs/USER_GUIDE.md)** — Hướng dẫn đầy đủ với ví dụ
-- **[Lệnh](docs/COMMANDS.md)** — Tất cả các lệnh có sẵn
-- **[Kiến trúc](docs/ARCHITECTURE.md)** — Cách hoạt động bên trong
-- **[Đóng góp](CONTRIBUTING.md)** — Muốn giúp? Bắt đầu tại đây
-- **[Hướng dẫn phát triển](docs/DEVELOPMENT.md)** — Cho người đóng góp
+| Tài liệu | Mô tả |
+|-----|-------------|
+| [Bắt đầu](docs/GETTING_STARTED.md) | Hướng dẫn cài đặt từng bước |
+| [Hướng dẫn sử dụng](docs/USER_GUIDE.md) | Hướng dẫn đầy đủ với ví dụ |
+| [Lệnh](docs/COMMANDS.md) | Tham chiếu lệnh đầy đủ |
+| [Kiến trúc](docs/ARCHITECTURE.md) | Phân tích kỹ thuật chuyên sâu |
+| [Đóng góp](CONTRIBUTING.md) | Hướng dẫn đóng góp |
+| [Phát triển](docs/DEVELOPMENT.md) | Cài đặt môi trường cho người đóng góp |
+
+---
+
+## Đóng góp
+
+Chúng tôi hoan nghênh đóng góp! Xem [CONTRIBUTING.md](CONTRIBUTING.md) để bắt đầu.
 
 ---
 
@@ -162,8 +205,8 @@ MIT — Xem [LICENSE](LICENSE)
 
 <div align="center">
 
-Có vấn đề? [Mở Issue](https://github.com/PCIRCLE-AI/claude-code-buddy/issues/new) — chúng tôi phản hồi nhanh.
+**Được xây dựng với Claude Code, cho Claude Code.**
 
-[Báo lỗi](https://github.com/PCIRCLE-AI/claude-code-buddy/issues/new?labels=bug&template=bug_report.yml) • [Yêu cầu tính năng](https://github.com/PCIRCLE-AI/claude-code-buddy/discussions)
+[Báo lỗi](https://github.com/PCIRCLE-AI/claude-code-buddy/issues/new?labels=bug&template=bug_report.yml) · [Yêu cầu tính năng](https://github.com/PCIRCLE-AI/claude-code-buddy/discussions) · [Trợ giúp](https://github.com/PCIRCLE-AI/claude-code-buddy/issues/new)
 
 </div>

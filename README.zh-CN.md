@@ -1,75 +1,106 @@
 <div align="center">
 
-# 🧠 MeMesh Plugin
+<img src="https://img.shields.io/badge/%F0%9F%A7%A0-MeMesh-blueviolet?style=for-the-badge" alt="MeMesh" />
 
-### Claude Code 的生产力插件
+# MeMesh
 
-记忆、智能任务分析、工作流自动化 — 一个插件搞定。
+### 你的 AI 编程会话值得拥有记忆。
 
-[![npm version](https://img.shields.io/npm/v/@pcircle/memesh)](https://www.npmjs.com/package/@pcircle/memesh)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![MCP](https://img.shields.io/badge/MCP-compatible-purple.svg)](https://modelcontextprotocol.io)
+MeMesh 为 Claude Code 提供持久的、可搜索的记忆 — 让每次会话都能承接上次的成果。
 
-[安装](#安装) • [使用方法](#使用方法) • [故障排除](#故障排除)
-
-[English](README.md) • [繁體中文](README.zh-TW.md) • **简体中文** • [日本語](README.ja.md) • [한국어](README.ko.md) • [Français](README.fr.md) • [Deutsch](README.de.md) • [Español](README.es.md) • [Tiếng Việt](README.vi.md) • [ภาษาไทย](README.th.md) • [Bahasa Indonesia](README.id.md)
-
-</div>
-
----
-
-## 为什么做这个项目
-
-这个项目的起点很简单：我想帮助更多人 — 特别是刚接触编程的新手 — 更好地用 Claude Code 来 vibe coding。我发现当项目越来越大，很难记住跨 session 做过的所有决策。所以我（跟 Claude Code 一起）做了一个插件，帮你记住。
-
-> **备注**：本项目原名「Claude Code Buddy」，为避免潜在商标问题已更名为 MeMesh Plugin。
-
-## 它能做什么？
-
-MeMesh Plugin 让 Claude Code 更聪明、更有生产力。不只是记忆 — 它是一整套工具：
-
-**可搜索的项目记忆** — 工作时自动保存决策、模式和经验教训。用语义搜索，不只是关键字。问「我们之前怎么决定 auth 的？」就能马上得到答案。
-
-**智能任务分析** — 当你说 `buddy-do "加上用户认证"`，MeMesh 会分析任务、从过去的工作中拉出相关上下文，在执行前给你一个完整的计划。
-
-**工作流自动化** — MeMesh 在后台自动帮你：
-- 开始新 session 时显示上次工作摘要
-- 追踪你改了哪些文件、测试了哪些
-- 在 commit 前提醒你做 code review
-- 把任务分配到最合适的模型（搜索用快的、规划用强的）
-
-**从错误中学习** — 记录错误和修复方式，避免重蹈覆辙。MeMesh 会建立一个什么有效、什么不行的知识库。
-
-**跟 Claude 内建记忆有什么不同？**
-
-Claude Code 已经有 auto memory 和 CLAUDE.md — 很适合存一般偏好和指令。MeMesh 在此基础上增加了项目级的**专用工具**：可用语义搜索的记忆、能拉取过去上下文的任务分析、以及让每个 session 都更有效率的自动化工作流。
-
-简单来说：
-- **CLAUDE.md** = 你写给 Claude 的使用手册
-- **MeMesh** = 可搜索的笔记本 + 随项目成长而学习的智能助手
-
----
-
-## 安装
-
-**你需要**：[Claude Code](https://docs.anthropic.com/en/docs/claude-code) 和 Node.js 20+
+[![npm version](https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=cb3837)](https://www.npmjs.com/package/@pcircle/memesh)
+[![Downloads](https://img.shields.io/npm/dm/@pcircle/memesh?style=flat-square&color=blue)](https://www.npmjs.com/package/@pcircle/memesh)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square)](https://nodejs.org)
+[![MCP](https://img.shields.io/badge/MCP-compatible-purple?style=flat-square)](https://modelcontextprotocol.io)
 
 ```bash
 npm install -g @pcircle/memesh
 ```
 
-重启 Claude Code，完成。
+[快速开始](#快速开始) · [运作原理](#运作原理) · [命令](#命令) · [文档](docs/USER_GUIDE.md)
 
-**确认安装成功** — 在 Claude Code 中输入：
+[English](README.md) · [繁體中文](README.zh-TW.md) · **简体中文** · [日本語](README.ja.md) · [한국어](README.ko.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Español](README.es.md) · [Tiếng Việt](README.vi.md) · [ภาษาไทย](README.th.md) · [Bahasa Indonesia](README.id.md)
+
+</div>
+
+> **注意**：本项目原名「Claude Code Buddy」，为避免潜在的商标问题已更名为 MeMesh Plugin。
+
+---
+
+## 问题所在
+
+你正在用 Claude Code 深入开发一个项目。三个会话之前你做了重要决策 — 选了哪个认证库、为什么选择那个数据库架构、该遵循什么模式。但 Claude 不记得了。你不断重复自己说过的话。你失去了上下文。你浪费了时间。
+
+**MeMesh 解决了这个问题。** 它为 Claude 提供一个持久的、可搜索的记忆，随着你的项目一起成长。
+
+---
+
+## 运作原理
+
+<table>
+<tr>
+<td width="50%">
+
+### 没有 MeMesh 之前
+```
+Session 1: "用 JWT 做认证"
+Session 2: "我们当时为什么选 JWT 来着？"
+Session 3: "等等，我们用的是什么认证库？"
+```
+你不断重复决策。Claude 忘记上下文。进度停滞。
+
+</td>
+<td width="50%">
+
+### 有了 MeMesh 之后
+```
+Session 1: "用 JWT 做认证" → 已保存
+Session 2: buddy-remember "auth" → 即时回忆
+Session 3: 启动时自动加载上下文
+```
+每次会话都能从上次中断的地方继续。
+
+</td>
+</tr>
+</table>
+
+---
+
+## 你能获得什么
+
+**可搜索的项目记忆** — 问"我们之前怎么决定 auth 的？"就能得到即时的、语义匹配的答案。不是关键字搜索 — 是*语义*搜索，由本地 ONNX 嵌入驱动。
+
+**智能任务分析** — `buddy-do "添加用户认证"` 不只是执行。它会从过去的会话中提取相关上下文，检查你已建立的模式，并在写任何一行代码之前制定完整的计划。
+
+**主动回忆** — MeMesh 在你开始会话、遇到测试失败或出现错误时，自动浮现相关记忆。无需手动搜索。
+
+**工作流自动化** — 启动时展示会话回顾。文件变更追踪。提交前的代码审查提醒。所有这些都在后台静默运行。
+
+**错误学习** — 记录错误和修复方式，构建知识库。同样的错误不会再犯第二次。
+
+---
+
+## 快速开始
+
+**前提条件**：[Claude Code](https://docs.anthropic.com/en/docs/claude-code) + Node.js 20+
+
+```bash
+npm install -g @pcircle/memesh
+```
+
+重启 Claude Code。搞定。
+
+**验证** — 在 Claude Code 中输入：
 
 ```
 buddy-help
 ```
 
-看到指令列表就代表安装成功。
+你应该能看到可用命令列表。
 
 <details>
-<summary>从源码安装（给贡献者）</summary>
+<summary><strong>从源码安装</strong>（贡献者）</summary>
 
 ```bash
 git clone https://github.com/PCIRCLE-AI/claude-code-buddy.git
@@ -81,76 +112,88 @@ npm install && npm run build
 
 ---
 
-## 使用方法
+## 命令
 
-MeMesh 在 Claude Code 中增加 3 个指令：
-
-| 指令 | 功能 |
-|------|------|
-| `buddy-do "任务"` | 带着记忆上下文执行任务 |
+| 命令 | 功能 |
+|---------|-------------|
+| `buddy-do "任务"` | 带着完整记忆上下文执行任务 |
 | `buddy-remember "主题"` | 搜索过去的决策和上下文 |
-| `buddy-help` | 显示可用指令 |
+| `buddy-help` | 显示可用命令 |
 
-**示例：**
+**实际示例：**
 
 ```bash
-buddy-do "解释这个 codebase"
-buddy-do "加上用户认证"
-buddy-remember "API 设计决策"
-buddy-remember "为什么选 PostgreSQL"
+# 快速了解一个陌生的代码库
+buddy-do "explain this codebase"
+
+# 带着过去工作的上下文构建功能
+buddy-do "add user authentication"
+
+# 回忆当初为什么做了那些决策
+buddy-remember "API design decisions"
+buddy-remember "why we chose PostgreSQL"
 ```
 
-所有数据都存在你的电脑上。决策保留 90 天，session 笔记保留 30 天。
+所有数据都保存在你的本机上。决策保留 90 天，会话笔记保留 30 天。
 
 ---
 
-## 支持环境
+## 这和 CLAUDE.md 有什么不同？
+
+| | CLAUDE.md | MeMesh |
+|---|-----------|--------|
+| **用途** | 给 Claude 的静态指令 | 随项目成长的活记忆 |
+| **搜索** | 手动文本搜索 | 基于语义的意义搜索 |
+| **更新** | 你手动编辑 | 工作时自动捕获决策 |
+| **回忆** | 始终加载（可能变得很长） | 按需浮现相关上下文 |
+| **范围** | 通用偏好设置 | 项目专属的知识图谱 |
+
+**它们协同工作。** CLAUDE.md 告诉 Claude *怎么*工作。MeMesh 记住你*做了*什么。
+
+---
+
+## 平台支持
 
 | 平台 | 状态 |
-|------|------|
-| **macOS** | ✅ 正常 |
-| **Linux** | ✅ 正常 |
-| **Windows** | ✅ 正常（建议 WSL2）|
+|----------|--------|
+| macOS | ✅ |
+| Linux | ✅ |
+| Windows | ✅（建议使用 WSL2） |
 
-**可搭配使用：**
-- Claude Code CLI（终端）
-- Claude Code VS Code 扩展
-- Cursor（通过 MCP）
-- 其他兼容 MCP 的编辑器
-
-**Claude Desktop (Cowork)**：基本指令可用，记忆功能需使用 CLI 版本。详见 [Cowork 说明](docs/COWORK_SUPPORT.md)。
+**兼容：** Claude Code CLI · VS Code 扩展 · Cursor（通过 MCP） · 任何兼容 MCP 的编辑器
 
 ---
 
-## 故障排除
+## 架构
 
-**MeMesh 没出现？**
+MeMesh 作为本地 MCP 服务器与 Claude Code 一起运行：
 
-```bash
-# 确认已安装
-npm list -g @pcircle/memesh
+- **知识图谱** — 基于 SQLite 的实体存储，支持 FTS5 全文搜索
+- **向量嵌入** — ONNX 运行时实现语义相似度（100% 本地运行）
+- **内容去重** — SHA-256 哈希跳过冗余的嵌入计算
+- **批量处理** — 高效的批量操作，适用于大型知识库
+- **Hook 系统** — 在会话开始、测试失败和错误发生时主动回忆
 
-# 确认 Node.js 版本（需要 20+）
-node --version
-
-# 重新设置
-memesh setup
-```
-
-然后完全重启 Claude Code。
-
-更多说明：[故障排除指南](docs/TROUBLESHOOTING.md)
+一切都在本地运行。无需云服务。无需 API 调用。你的数据永远不会离开你的机器。
 
 ---
 
-## 了解更多
+## 文档
 
-- **[快速开始](docs/GETTING_STARTED.md)** — 一步步安装教程
-- **[使用指南](docs/USER_GUIDE.md)** — 完整使用示例
-- **[指令参考](docs/COMMANDS.md)** — 所有可用指令
-- **[架构说明](docs/ARCHITECTURE.md)** — 内部运作原理
-- **[贡献指南](CONTRIBUTING.md)** — 想帮忙？从这里开始
-- **[开发指南](docs/DEVELOPMENT.md)** — 给贡献者
+| 文档 | 说明 |
+|-----|-------------|
+| [快速开始](docs/GETTING_STARTED.md) | 分步设置指南 |
+| [使用指南](docs/USER_GUIDE.md) | 完整使用指南与示例 |
+| [命令参考](docs/COMMANDS.md) | 完整命令参考 |
+| [架构说明](docs/ARCHITECTURE.md) | 技术深度解析 |
+| [贡献指南](CONTRIBUTING.md) | 贡献指南 |
+| [开发指南](docs/DEVELOPMENT.md) | 贡献者开发设置 |
+
+---
+
+## 贡献
+
+欢迎贡献！请参阅 [CONTRIBUTING.md](CONTRIBUTING.md) 开始。
 
 ---
 
@@ -162,8 +205,8 @@ MIT — 详见 [LICENSE](LICENSE)
 
 <div align="center">
 
-遇到问题？[提交 Issue](https://github.com/PCIRCLE-AI/claude-code-buddy/issues/new) — 我们会快速回应。
+**用 Claude Code 构建，为 Claude Code 而生。**
 
-[提交 Bug](https://github.com/PCIRCLE-AI/claude-code-buddy/issues/new?labels=bug&template=bug_report.yml) • [功能请求](https://github.com/PCIRCLE-AI/claude-code-buddy/discussions)
+[报告 Bug](https://github.com/PCIRCLE-AI/claude-code-buddy/issues/new?labels=bug&template=bug_report.yml) · [功能请求](https://github.com/PCIRCLE-AI/claude-code-buddy/discussions) · [获取帮助](https://github.com/PCIRCLE-AI/claude-code-buddy/issues/new)
 
 </div>
