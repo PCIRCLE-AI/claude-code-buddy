@@ -38,12 +38,14 @@ MeMesh is a Model Context Protocol (MCP) server that enhances Claude Code with p
 │  │  ├─ UnifiedMemoryStore                               │   │
 │  │  ├─ MemorySearchEngine (search/filter/rank/dedup)    │   │
 │  │  ├─ ProjectAutoTracker                               │   │
+│  │  ├─ ProactiveRecaller (session/test/error triggers)   │   │
 │  │  ├─ MistakePatternEngine                             │   │
 │  │  └─ AutoTagger                                       │   │
 │  └──────────────────────────────────────────────────────┘   │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │  Knowledge Graph (src/knowledge-graph/)              │   │
 │  │  ├─ KGSearchEngine (FTS5 + semantic + hybrid search) │   │
+│  │  ├─ ContentHasher (SHA-256 embedding dedup)          │   │
 │  │  ├─ createEntitiesBatch() (batch transactions)       │   │
 │  │  └─ Entity Relationship Management                   │   │
 │  └──────────────────────────────────────────────────────┘   │
@@ -124,6 +126,13 @@ MeMesh is a Model Context Protocol (MCP) server that enhances Claude Code with p
 - File change detection via chokidar
 - Git integration for tracking commits
 
+#### ProactiveRecaller
+- Automatically surfaces relevant memories based on trigger context
+- Three triggers: `session-start` (hook output injection, top 5, >0.5 similarity), `test-failure` (top 3, >0.6), `error-detection` (top 3, >0.6)
+- Builds optimized search queries per trigger type (strips conventional commit prefixes, extracts test names, isolates first error line)
+- Session-start: integrated into `scripts/hooks/session-start.js` via FTS5 query
+- Test/error: integrated into `scripts/hooks/post-tool-use.js` → writes `proactive-recall.json` → `HookToolHandler` reads and appends to MCP response
+
 #### MistakePatternEngine
 - Learns from user corrections
 - Detects recurring mistakes
@@ -154,6 +163,12 @@ User Query <- Similarity Search <- Vector Search + FTS5 Search
 - Uses injected `VectorSearchAdapter` instance (via constructor) instead of static VectorExtension
 - `createEntitiesBatch()`: Wraps all entity creations in a single SQLite transaction for significantly better write performance; individual failures are caught without aborting the batch
 
+#### ContentHasher (`ContentHasher.ts`)
+- SHA-256 hash (truncated to 16 hex chars) of entity name + observations
+- Used by `generateEmbeddingAsync` and `generateBatchEmbeddingsAsync` to skip ONNX inference when content unchanged
+- Hash stored in `embedding_hashes` side table (vec0 virtual tables don't support ALTER TABLE)
+- Cleaned up on entity deletion
+
 #### KGSearchEngine (`KGSearchEngine.ts`)
 - Extracted from KnowledgeGraph to separate search concerns from CRUD
 - **FTS5 Full-Text Search**: Fast keyword-based search
@@ -166,6 +181,7 @@ User Query <- Similarity Search <- Vector Search + FTS5 Search
 entities (id, type, content, metadata, embedding[384])
 relationships (source_id, target_id, type, metadata)
 fts_entities (content) -- FTS5 virtual table
+embedding_hashes (entity_name PK, hash) -- Content hash for embedding dedup
 ```
 
 ---
@@ -356,7 +372,9 @@ KnowledgeGraph.createEntitiesBatch()
   |
 Single SQLite transaction wrapping N entity inserts
   |
-Per-entity: validate -> insert -> FTS5 index -> generate embedding
+Per-entity: validate -> insert -> FTS5 index (embedding skipped)
+  |
+After transaction: hash-dedup check -> encodeBatch() -> bulk insert embeddings
   |
 Return per-entity success/failure results
 ```
@@ -375,11 +393,13 @@ Return per-entity success/failure results
 | Embedding batch (10) | ~100ms | Parallel chunks of 10 |
 | Batch entity creation | ~N*5ms | Single transaction, amortized |
 
-**Performance optimizations (v2.9.2)**:
+**Performance optimizations (v2.9.2+)**:
 - **Embedding LRU cache**: 500-entry cache eliminates redundant ONNX inference for repeated text
 - **Batch transactions**: `createEntitiesBatch()` uses a single SQLite transaction instead of N separate ones
 - **ONNX preloading**: Daemon mode preloads the embedding model in the background, eliminating 10-20s cold start on first semantic search
 - **encodeBatch parallelization**: Texts are encoded in parallel chunks of 10 for improved throughput
+- **Content hash dedup**: SHA-256 hash check skips ONNX inference when entity content unchanged (embedding_hashes table)
+- **Batch embedding**: `createEntitiesBatch` uses `encodeBatch()` instead of N individual `encode()` calls
 
 ---
 

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **ProactiveRecaller** — automatically surfaces relevant memories based on context triggers
+  - `session-start`: injects top 5 memories (>0.5 similarity) into hook output using project name + recent commits
+  - `test-failure`: recalls top 3 memories (>0.6 similarity) matching test name + error message
+  - `error-detection`: recalls top 3 memories (>0.6 similarity) matching error type + first line
+  - Session-start: integrated into `scripts/hooks/session-start.js` via FTS5 query
+  - Test/error: integrated via `post-tool-use.js` → `proactive-recall.json` → `HookToolHandler`
+- **ContentHasher** — SHA-256 hash-based embedding deduplication
+  - Skips ONNX inference when entity content (name + observations) unchanged
+  - `embedding_hashes` side table (vec0 virtual tables don't support ALTER TABLE)
+  - Cleaned up on entity deletion
+- **Batch embedding** — `createEntitiesBatch()` uses `encodeBatch()` instead of N individual `encode()` calls
+  - Combined with hash dedup for maximum efficiency
+
 ## [2.9.2] - 2026-03-08
 
 ### Architecture Refactoring
