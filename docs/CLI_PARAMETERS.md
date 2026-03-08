@@ -368,5 +368,3 @@ npm run processes:config     # Show process configuration
 
 ---
 
-**Version**: 2.10.1
-**Last Updated**: 2026-03-08

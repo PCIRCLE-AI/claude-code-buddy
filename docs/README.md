@@ -35,4 +35,3 @@ Welcome to the MeMesh Plugin documentation.
 
 ---
 
-**Version**: 2.10.1 | **Last Updated**: 2026-03-08

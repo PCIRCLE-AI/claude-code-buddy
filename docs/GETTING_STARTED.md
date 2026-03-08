@@ -367,6 +367,4 @@ Install MeMesh, run `buddy-help`, and never explain your architecture twice agai
 
 ---
 
-**Version**: 2.10.1
-**Last Updated**: 2026-03-08
 **Not affiliated with Anthropic PBC** • Independent open-source project

@@ -198,5 +198,4 @@ When reporting Cowork-specific issues, select **"Claude Desktop (Cowork)"** in t
 
 ---
 
-**Last Updated**: 2026-02-25
 **Status**: Partial support (cloud-only mode functional, memory tools disabled)
