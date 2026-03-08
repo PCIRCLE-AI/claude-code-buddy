@@ -63,10 +63,10 @@ def main():
 
     # --- Page Routing ---
     if page == "Dashboard":
-        from pages.dashboard import render_dashboard
+        from views.dashboard import render_dashboard
         render_dashboard(conn)
     else:
-        from pages.explorer import render_explorer
+        from views.explorer import render_explorer
         render_explorer(conn)
 
 

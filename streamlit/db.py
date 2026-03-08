@@ -14,19 +14,16 @@ def get_connection(db_path: str) -> sqlite3.Connection:
     conn.execute("PRAGMA busy_timeout=10000")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
-
-    # Check FTS5 availability and store on the connection object
-    try:
-        conn.execute("SELECT * FROM entities_fts LIMIT 0")
-        conn._fts5_available = True
-    except sqlite3.OperationalError:
-        conn._fts5_available = False
-
     return conn
 
 
 def is_fts5_available(conn: sqlite3.Connection) -> bool:
-    return getattr(conn, '_fts5_available', False)
+    """Check if FTS5 table exists. Cheap query, safe to call per-request."""
+    try:
+        conn.execute("SELECT * FROM entities_fts LIMIT 0")
+        return True
+    except sqlite3.OperationalError:
+        return False
 
 
 # --- LIKE Fallback Helper ---
