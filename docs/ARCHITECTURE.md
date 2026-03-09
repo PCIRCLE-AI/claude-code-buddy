@@ -164,19 +164,18 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 ## Testing
 
-7 test files, 73 tests total:
+The automated test suite covers:
 
-| File | Tests | What it covers |
-|------|-------|---------------|
-| `tests/db.test.ts` | 10 | Database lifecycle, schema, FTS5 setup |
-| `tests/knowledge-graph.test.ts` | 18 | Entity CRUD, relations, search, batch ops |
-| `tests/tools.test.ts` | 15 | Tool validation, handler behavior, dispatcher |
-| `tests/installation.test.ts` | 7 | Package structure, required files exist |
-| `tests/hooks/session-start.test.ts` | 6 | Session start hook behavior |
-| `tests/hooks/post-commit.test.ts` | 7 | Post commit hook behavior |
-| `tests/cli/view.test.ts` | 10 | CLI dashboard generator, XSS prevention |
+- database lifecycle and schema setup
+- knowledge graph CRUD, relations, FTS search, and tag filtering
+- MCP tool validation and dispatch
+- hook behavior for session start and post-commit flows
+- dashboard HTML generation and XSS escaping
+- repository/package structure checks
 
 Framework: vitest (forks pool mode to avoid SIGSEGV with native modules).
+
+For release safety, `npm run test:packaged` creates a real npm tarball, extracts it, and verifies the published artifact still contains the required runtime files, hook scripts, bundled D3 asset, and package exports.
 
 ---
 

@@ -78,10 +78,16 @@ scripts/hooks/
 
 ```bash
 npm install
-npm run build       # TypeScript compile + chmod executables
-npm test            # 73 tests (vitest, BDD style)
+npm run build       # TypeScript compile + bundle assets + set executables
+npm test -- --run   # Run the vitest suite once
 npm run typecheck   # tsc --noEmit
+npm run test:packaged   # Pack/install smoke test for the published artifact
 ```
+
+## Project Policies
+
+- Contributor workflow: [CONTRIBUTING.md](CONTRIBUTING.md)
+- Security reporting: [SECURITY.md](SECURITY.md)
 
 ## License
 

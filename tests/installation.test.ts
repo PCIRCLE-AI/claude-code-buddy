@@ -42,8 +42,10 @@ describe('Installation Verification', () => {
 
     it.each(hookFiles)('%s should exist and be executable', (hookPath) => {
       expect(fs.existsSync(hookPath)).toBe(true);
-      const stat = fs.statSync(hookPath);
-      expect(stat.mode & 0o111).toBeTruthy();
+      if (process.platform !== 'win32') {
+        const stat = fs.statSync(hookPath);
+        expect(stat.mode & 0o111).toBeTruthy();
+      }
     });
   });
 });

@@ -18,14 +18,26 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && node scripts/copy-cli-assets.mjs && chmod +x dist/mcp/server.js && chmod +x dist/cli/view.js && chmod +x scripts/hooks/*.js",
+    "build": "tsc && node scripts/copy-cli-assets.mjs && node scripts/set-executable-bits.mjs",
     "test": "vitest",
+    "test:packaged": "node scripts/smoke-packed-artifact.mjs",
     "typecheck": "tsc --noEmit",
     "start": "node dist/mcp/server.js"
   },
   "author": "PCIRCLE-AI",
   "license": "MIT",
   "homepage": "https://github.com/PCIRCLE-AI/claude-code-buddy",
+  "bugs": {
+    "url": "https://github.com/PCIRCLE-AI/claude-code-buddy/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "mcp",
+    "model-context-protocol",
+    "memory",
+    "sqlite",
+    "knowledge-graph"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/PCIRCLE-AI/claude-code-buddy.git"

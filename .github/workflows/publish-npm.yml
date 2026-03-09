@@ -29,7 +29,10 @@ jobs:
         run: npm run build
 
       - name: Run tests
-        run: npx vitest run
+        run: npm test -- --run
+
+      - name: Smoke test packaged artifact
+        run: npm run test:packaged
 
       - name: Verify package contents
         run: npm pack --dry-run
