@@ -30,6 +30,11 @@ interface DashboardData {
   };
 }
 
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const bundledD3 = fs
+  .readFileSync(path.join(moduleDir, 'assets', 'd3.v7.min.js'), 'utf8')
+  .replace(/<\/script/gi, '<\\/script');
+
 function queryData(dbPath: string): DashboardData {
   const emptyData: DashboardData = {
     entities: [],
@@ -204,8 +209,10 @@ export function generateDashboardHtml(dbPath?: string): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MeMesh Dashboard</title>
-  <!-- d3.js for force-directed graph -->
-  <script src="https://d3js.org/d3.v7.min.js"><\/script>
+  <!-- bundled d3.js -->
+  <script>
+${bundledD3}
+  <\/script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {

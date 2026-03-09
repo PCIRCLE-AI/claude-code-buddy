@@ -45,6 +45,13 @@ CREATE TABLE IF NOT EXISTS tags (
 
 CREATE INDEX IF NOT EXISTS idx_tags_entity ON tags(entity_id);
 CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
+DELETE FROM tags
+WHERE id NOT IN (
+  SELECT MIN(id)
+  FROM tags
+  GROUP BY entity_id, tag
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag);
 CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);
@@ -109,12 +116,9 @@ process.stdin.on('end', () => {
         // Add observation
         db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, commitMsg);
 
-        // Add project tag (check first since no unique constraint)
+        // Add project tag
         const projectTag = `project:${projectName}`;
-        const existingTag = db.prepare('SELECT id FROM tags WHERE entity_id = ? AND tag = ?').get(entity.id, projectTag);
-        if (!existingTag) {
-          db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(entity.id, projectTag);
-        }
+        db.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)').run(entity.id, projectTag);
 
         // Update FTS index — delete old entry first if entity existed
         if (prevObsText !== undefined) {

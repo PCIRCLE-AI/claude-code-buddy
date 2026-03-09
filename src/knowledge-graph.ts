@@ -79,7 +79,7 @@ export class KnowledgeGraph {
     // Add tags
     if (opts?.tags?.length) {
       const insertTag = this.db.prepare(
-        'INSERT INTO tags (entity_id, tag) VALUES (?, ?)'
+        'INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)'
       );
       for (const tag of opts.tags) {
         insertTag.run(entityId, tag);
@@ -188,6 +188,9 @@ export class KnowledgeGraph {
     const limit = opts?.limit ?? 20;
 
     if (!query || query.trim() === '') {
+      if (opts?.tag) {
+        return this.listRecentByTag(opts.tag, limit);
+      }
       return this.listRecent(limit);
     }
 
@@ -198,16 +201,31 @@ export class KnowledgeGraph {
     if (tokens.length === 0) return this.listRecent(limit);
     const ftsQuery = tokens.map((token) => `"${token}"`).join(' ');
     // Contentless FTS5: columns return null, so join via rowid → entities.id
-    let ftsRows: { name: string }[];
+    let ftsRows: Array<{ id: number; name: string }>;
     try {
-      ftsRows = this.db
-        .prepare(
-          `SELECT e.name FROM entities_fts f
-           JOIN entities e ON e.id = f.rowid
-           WHERE entities_fts MATCH ?
-           LIMIT ?`
-        )
-        .all(ftsQuery, limit) as { name: string }[];
+      if (opts?.tag) {
+        ftsRows = this.db
+          .prepare(
+            `SELECT DISTINCT e.id, e.name FROM entities_fts f
+             JOIN entities e ON e.id = f.rowid
+             JOIN tags t ON t.entity_id = e.id
+             WHERE entities_fts MATCH ?
+               AND t.tag = ?
+             ORDER BY e.id DESC
+             LIMIT ?`
+          )
+          .all(ftsQuery, opts.tag, limit) as Array<{ id: number; name: string }>;
+      } else {
+        ftsRows = this.db
+          .prepare(
+            `SELECT e.id, e.name FROM entities_fts f
+             JOIN entities e ON e.id = f.rowid
+             WHERE entities_fts MATCH ?
+             ORDER BY e.id DESC
+             LIMIT ?`
+          )
+          .all(ftsQuery, limit) as Array<{ id: number; name: string }>;
+      }
     } catch (err: any) {
       // FTS5 syntax error from user query — return empty results
       if (err.message?.includes('fts5')) return [];
@@ -222,10 +240,6 @@ export class KnowledgeGraph {
       const entity = this.getEntity(ftsRow.name);
       if (!entity) continue;
 
-      if (opts?.tag) {
-        if (!entity.tags.includes(opts.tag)) continue;
-      }
-
       results.push(entity);
     }
 
@@ -236,6 +250,23 @@ export class KnowledgeGraph {
     const rows = this.db
       .prepare('SELECT name FROM entities ORDER BY id DESC LIMIT ?')
       .all(limit ?? 20) as { name: string }[];
+
+    return rows
+      .map((r) => this.getEntity(r.name))
+      .filter((e): e is Entity => e !== null);
+  }
+
+  private listRecentByTag(tag: string, limit: number): Entity[] {
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT e.name
+         FROM entities e
+         JOIN tags t ON t.entity_id = e.id
+         WHERE t.tag = ?
+         ORDER BY e.id DESC
+         LIMIT ?`
+      )
+      .all(tag, limit) as { name: string }[];
 
     return rows
       .map((r) => this.getEntity(r.name))

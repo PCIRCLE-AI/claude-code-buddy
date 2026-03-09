@@ -70,7 +70,7 @@ Generates a self-contained HTML dashboard for visualizing the knowledge graph.
 
 - `memesh-view` CLI command (registered in `package.json` bin)
 - Reads all entities, observations, relations, and tags from the database
-- Produces a single HTML file with embedded D3.js force-directed graph, searchable entity table, and statistics
+- Produces a single HTML file with bundled local D3.js, searchable entity table, and statistics
 - Opens the generated file in the default browser
 
 ---
@@ -86,7 +86,8 @@ Tool call: remember({name, type, observations, tags, relations})
      -> INSERT OR IGNORE into entities
      -> INSERT observations
      -> Rebuild FTS5 index
-     -> INSERT tags
+     -> INSERT OR IGNORE tags
+     -> Preserve original type on duplicate entity names
   -> KnowledgeGraph.createRelation() for each relation
   -> Return {stored: true, entityId, ...}
 ```
@@ -98,9 +99,9 @@ Tool call: recall({query, tag, limit})
   -> Zod validation (RecallSchema)
   -> KnowledgeGraph.search(query, {tag, limit})
      -> FTS5 MATCH query against entities_fts
+     -> Apply tag filtering in SQL when specified
      -> JOIN to entities table (contentless FTS5)
      -> For each match: getEntity() to load full data
-     -> Filter by tag if specified
   -> Return Entity[]
 ```
 

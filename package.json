@@ -18,7 +18,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && chmod +x dist/mcp/server.js && chmod +x dist/cli/view.js && chmod +x scripts/hooks/*.js",
+    "build": "tsc && node scripts/copy-cli-assets.mjs && chmod +x dist/mcp/server.js && chmod +x dist/cli/view.js && chmod +x scripts/hooks/*.js",
     "test": "vitest",
     "typecheck": "tsc --noEmit",
     "start": "node dist/mcp/server.js"

@@ -95,6 +95,19 @@ describe('Feature: Knowledge Graph', () => {
       expect(entity!.observations).toContain('Second observation');
     });
 
+    it('should dedupe tags and preserve original type on duplicate entity', () => {
+      kg.createEntity('TypeScript', 'language', {
+        tags: ['frontend'],
+      });
+      kg.createEntity('TypeScript', 'runtime', {
+        tags: ['frontend', 'typed'],
+      });
+
+      const entity = kg.getEntity('TypeScript');
+      expect(entity!.type).toBe('language');
+      expect([...entity!.tags].sort()).toEqual(['frontend', 'typed']);
+    });
+
     it('should batch create all entities in single transaction', () => {
       const entities: CreateEntityInput[] = [
         {
@@ -155,6 +168,34 @@ describe('Feature: Knowledge Graph', () => {
       expect(results[0].name).toBe('React');
     });
 
+    it('should apply limit after tag filtering', () => {
+      kg.createEntity('TaggedOne', 'framework', {
+        observations: ['shared query terms'],
+        tags: ['frontend'],
+      });
+      kg.createEntity('TaggedTwo', 'framework', {
+        observations: ['shared query terms'],
+        tags: ['frontend'],
+      });
+      kg.createEntity('UntaggedLatestOne', 'framework', {
+        observations: ['shared query terms'],
+      });
+      kg.createEntity('UntaggedLatestTwo', 'framework', {
+        observations: ['shared query terms'],
+      });
+
+      const results = kg.search('shared query terms', {
+        tag: 'frontend',
+        limit: 2,
+      });
+
+      expect(results).toHaveLength(2);
+      expect(results.map((r) => r.name).sort()).toEqual([
+        'TaggedOne',
+        'TaggedTwo',
+      ]);
+    });
+
     it('should return related entities via getEntity', () => {
       kg.createEntity('React', 'framework', {
         observations: ['Component-based UI library'],
@@ -199,6 +240,22 @@ describe('Feature: Knowledge Graph', () => {
       // Should be ordered by created_at DESC
       expect(results[0].name).toBe('Beta');
       expect(results[1].name).toBe('Alpha');
+    });
+
+    it('should filter recent results by tag when no query is provided', () => {
+      kg.createEntity('Alpha', 'test', {
+        tags: ['project:a'],
+      });
+      kg.createEntity('Beta', 'test', {
+        tags: ['project:b'],
+      });
+      kg.createEntity('Gamma', 'test', {
+        tags: ['project:a'],
+      });
+
+      const results = kg.search(undefined, { tag: 'project:a', limit: 5 });
+
+      expect(results.map((r) => r.name)).toEqual(['Gamma', 'Alpha']);
     });
   });
 

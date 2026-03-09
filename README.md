@@ -36,7 +36,7 @@ MeMesh gives Claude Code persistent memory through 3 MCP tools, 2 hooks, and a C
 
 | Command | Description |
 |---------|-------------|
-| `memesh-view` | Generate and open an interactive HTML dashboard |
+| `memesh-view` | Generate and open an interactive HTML dashboard with bundled local D3 |
 
 ```bash
 memesh-view
@@ -49,6 +49,8 @@ memesh-view
 - **Storage**: SQLite database at `~/.memesh/knowledge-graph.db`
 - **Search**: FTS5 full-text search (no vector embeddings)
 - **Isolation**: Tag-based project filtering (`project:<name>`)
+- **Upserts**: Reusing an entity name appends observations, preserves the original type, and dedupes tags
+- **Dashboard**: `memesh-view` bundles D3 locally, so the generated HTML works offline
 - **Schema**: entities, observations, relations, tags + FTS5 virtual table
 - **Validation**: All tool inputs validated with Zod schemas
 

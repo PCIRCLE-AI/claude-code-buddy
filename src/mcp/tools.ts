@@ -41,7 +41,7 @@ export const TOOL_DEFINITIONS = [
         name: {
           type: 'string',
           description:
-            'Unique entity name (e.g., "auth-decision", "jwt-pattern")',
+            'Unique entity name (e.g., "auth-decision", "jwt-pattern"). Reusing a name appends observations and dedupes tags instead of replacing the entity.',
         },
         type: {
           type: 'string',

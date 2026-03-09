@@ -43,6 +43,13 @@ CREATE TABLE IF NOT EXISTS tags (
 
 CREATE INDEX IF NOT EXISTS idx_tags_entity ON tags(entity_id);
 CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
+DELETE FROM tags
+WHERE id NOT IN (
+  SELECT MIN(id)
+  FROM tags
+  GROUP BY entity_id, tag
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag);
 CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);

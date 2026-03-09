@@ -146,6 +146,8 @@ describe('Feature: Post-Commit Hook', () => {
     const db = openDb();
     const entities = db.prepare('SELECT * FROM entities WHERE name = ?').all('commit-aaa1111');
     expect(entities).toHaveLength(1);
+    const tags = db.prepare('SELECT * FROM tags WHERE entity_id = ?').all(entities[0].id);
+    expect(tags).toHaveLength(1);
     // But observations may be duplicated (each hook run adds one)
     const obs = db.prepare('SELECT * FROM observations WHERE entity_id = ?').all(entities[0].id);
     expect(obs.length).toBeGreaterThanOrEqual(1);

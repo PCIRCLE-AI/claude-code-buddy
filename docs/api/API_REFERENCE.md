@@ -15,6 +15,8 @@ MeMesh exposes 3 tools via MCP.
 
 Store knowledge as an entity with observations, tags, and relations.
 
+If `remember` is called again with an existing `name`, MeMesh treats it as an append-style upsert: new observations are appended, tags are deduped, and the original entity type is retained.
+
 **Input Schema**:
 
 | Parameter | Type | Required | Description |
@@ -217,13 +219,13 @@ memesh-view
 
 1. Opens the MeMesh database (`~/.memesh/knowledge-graph.db`)
 2. Reads all entities, observations, relations, and tags
-3. Generates a self-contained HTML file with:
+3. Generates a self-contained HTML file with bundled local D3.js and:
    - **Knowledge graph** -- D3.js force-directed graph showing entities and relations
    - **Entity table** -- Searchable, sortable table of all entities with observations and tags
    - **Statistics** -- Total entities, observations, relations, and tags
 4. Opens the HTML file in the default browser
 
-No arguments or options required. The dashboard is a static HTML file that can be shared or archived.
+No arguments or options required. The dashboard is a static HTML file that can be shared, archived, and opened offline.
 
 ---
 

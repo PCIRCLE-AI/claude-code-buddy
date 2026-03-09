@@ -235,14 +235,15 @@ describe('Feature: MeMesh View Dashboard', () => {
   });
 
   describe('Scenario: D3.js graph visualization', () => {
-    it('Given the generated HTML, Then it includes D3.js CDN link', () => {
+    it('Given the generated HTML, Then it bundles D3.js locally', () => {
       const db = new Database(testDbPath);
       db.exec(SCHEMA_SQL);
       db.close();
 
       const html = generateDashboardHtml(testDbPath);
 
-      expect(html).toContain('d3js.org');
+      expect(html).toContain('bundled d3.js');
+      expect(html).not.toContain('<script src="https://d3js.org/d3.v7.min.js">');
       expect(html).toContain('d3.forceSimulation');
     });
 

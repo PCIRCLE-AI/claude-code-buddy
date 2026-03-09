@@ -1,1 +1,0 @@
-{"version":3,"file":"URITemplateHandler.d.ts","sourceRoot":"","sources":["../../../src/mcp/resources/URITemplateHandler.ts"],"names":[],"mappings":"AAOA,MAAM,WAAW,iBAAiB;IAChC,CAAC,GAAG,EAAE,MAAM,GAAG,MAAM,CAAC;CACvB;AAED,qBAAa,kBAAkB;IAQ7B,aAAa,CAAC,QAAQ,EAAE,MAAM,EAAE,GAAG,EAAE,MAAM,GAAG,iBAAiB,GAAG,IAAI;IAwCtE,OAAO,CAAC,QAAQ,EAAE,MAAM,EAAE,GAAG,EAAE,MAAM,GAAG,OAAO;CAGhD"}

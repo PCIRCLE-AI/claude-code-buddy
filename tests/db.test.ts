@@ -105,6 +105,7 @@ describe('Feature: Database Management', () => {
       ).all().map((r: any) => r.name);
       expect(indexes).toContain('idx_tags_entity');
       expect(indexes).toContain('idx_tags_tag');
+      expect(indexes).toContain('idx_tags_entity_tag_unique');
       expect(indexes).toContain('idx_observations_entity');
       expect(indexes).toContain('idx_relations_from');
       expect(indexes).toContain('idx_relations_to');

@@ -1,1 +1,0 @@
-{"version":3,"file":"AutoTagger.d.ts","sourceRoot":"","sources":["../../src/memory/AutoTagger.ts"],"names":[],"mappings":"AAeA,qBAAa,UAAU;IASd,YAAY,CACjB,OAAO,EAAE,MAAM,EACf,YAAY,EAAE,MAAM,EAAE,EACtB,OAAO,CAAC,EAAE;QAAE,WAAW,CAAC,EAAE,MAAM,CAAA;KAAE,GACjC,MAAM,EAAE;IAkCX,OAAO,CAAC,eAAe;IAsHvB,OAAO,CAAC,iBAAiB;IAoDzB,OAAO,CAAC,oBAAoB;CA6B7B"}
