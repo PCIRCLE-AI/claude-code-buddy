@@ -336,15 +336,10 @@ export class KnowledgeGraph {
       throw err;
     }
 
-    // Fetch full entities from FTS results
-    const results: Entity[] = [];
-    const seenIds = new Set<number>();
-    for (const ftsRow of ftsRows) {
-      const entity = this.getEntity(ftsRow.name);
-      if (!entity) continue;
-      seenIds.add(ftsRow.id);
-      results.push(entity);
-    }
+    // Fetch full entities from FTS results (batch hydration)
+    const ftsIds = ftsRows.map(r => r.id);
+    const results = this.getEntitiesByIds(ftsIds);
+    const seenIds = new Set(ftsIds);
 
     // When includeArchived is true, archived entities are not in FTS5 (removed by archiveEntity).
     // Supplement with a direct SQL search over archived entities' observations and names.
@@ -371,12 +366,9 @@ export class KnowledgeGraph {
         )
         .all(...archivedParams, limit) as Array<{ id: number; name: string }>;
 
-      for (const row of archivedRows) {
-        if (seenIds.has(row.id)) continue;
-        const entity = this.getEntity(row.name);
-        if (!entity) continue;
-        results.push(entity);
-      }
+      const archivedIds = archivedRows.map(r => r.id).filter(id => !seenIds.has(id));
+      const archivedEntities = this.getEntitiesByIds(archivedIds);
+      results.push(...archivedEntities);
     }
 
     const entityIds = results.map((e) => e.id);
