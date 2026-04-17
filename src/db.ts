@@ -78,6 +78,13 @@ export function openDatabase(dbPath?: string): Database.Database {
   db.exec(SCHEMA_SQL);
   db.exec(FTS_SQL);
 
+  // Migrate: add status column if missing (v2.11 -> v2.12)
+  const columns = db.prepare("PRAGMA table_info(entities)").all() as any[];
+  if (!columns.some((c: any) => c.name === 'status')) {
+    db.exec("ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)");
+  }
+
   return db;
 }
 
