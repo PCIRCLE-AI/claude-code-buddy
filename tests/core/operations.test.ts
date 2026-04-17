@@ -203,3 +203,60 @@ describe('Core Operations: forget', () => {
     expect(result.message).toContain('not found');
   });
 });
+
+// ── Namespace ────────────────────────────────────────────────────────────────
+
+describe('Core Operations: namespace', () => {
+  it('remember stores entity with specified namespace', () => {
+    remember({ name: 'team-doc', type: 'doc', namespace: 'team' });
+    const results = recall({ query: 'team-doc', namespace: 'team' });
+    expect(results).toHaveLength(1);
+    expect(results[0].namespace).toBe('team');
+  });
+
+  it('remember defaults to personal namespace when omitted', () => {
+    remember({ name: 'my-note', type: 'note' });
+    const results = recall({ query: 'my-note' });
+    expect(results).toHaveLength(1);
+    expect(results[0].namespace).toBe('personal');
+  });
+
+  it('recall with namespace filters to matching namespace only', () => {
+    remember({ name: 'p-note', type: 'note', observations: ['shared term'], namespace: 'personal' });
+    remember({ name: 't-note', type: 'note', observations: ['shared term'], namespace: 'team' });
+
+    const personal = recall({ query: 'shared term', namespace: 'personal' });
+    expect(personal).toHaveLength(1);
+    expect(personal[0].name).toBe('p-note');
+
+    const team = recall({ query: 'shared term', namespace: 'team' });
+    expect(team).toHaveLength(1);
+    expect(team[0].name).toBe('t-note');
+  });
+
+  it('recall without namespace returns all namespaces', () => {
+    remember({ name: 'cross-a', type: 'note', observations: ['xns data'], namespace: 'personal' });
+    remember({ name: 'cross-b', type: 'note', observations: ['xns data'], namespace: 'team' });
+
+    const all = recall({ query: 'xns data' });
+    const names = all.map((e) => e.name);
+    expect(names).toContain('cross-a');
+    expect(names).toContain('cross-b');
+  });
+
+  it('cross_project=true ignores tag filter and searches all projects', () => {
+    remember({ name: 'proj-a-entity', type: 'note', observations: ['cross proj obs'], tags: ['project:alpha'] });
+    remember({ name: 'proj-b-entity', type: 'note', observations: ['cross proj obs'], tags: ['project:beta'] });
+
+    // Without cross_project, tag filter restricts results
+    const limited = recall({ query: 'cross proj obs', tag: 'project:alpha' });
+    expect(limited).toHaveLength(1);
+    expect(limited[0].name).toBe('proj-a-entity');
+
+    // With cross_project=true, tag filter is ignored — both should be found
+    const all = recall({ query: 'cross proj obs', tag: 'project:alpha', cross_project: true });
+    const names = all.map((e) => e.name);
+    expect(names).toContain('proj-a-entity');
+    expect(names).toContain('proj-b-entity');
+  });
+});

@@ -586,4 +586,104 @@ describe('Feature: Knowledge Graph', () => {
       expect(results[0].name).toBe('UniqueProjectName');
     });
   });
+
+  describe('Namespace', () => {
+    it('should create entity with explicit namespace', () => {
+      kg.createEntity('team-pattern', 'pattern', { namespace: 'team' });
+      const entity = kg.getEntity('team-pattern');
+      expect(entity).not.toBeNull();
+      expect(entity!.namespace).toBe('team');
+    });
+
+    it('should default to personal namespace when not specified', () => {
+      kg.createEntity('my-note', 'note');
+      const entity = kg.getEntity('my-note');
+      expect(entity).not.toBeNull();
+      expect(entity!.namespace).toBe('personal');
+    });
+
+    it('should create entity with global namespace', () => {
+      kg.createEntity('global-rule', 'rule', { namespace: 'global' });
+      const entity = kg.getEntity('global-rule');
+      expect(entity!.namespace).toBe('global');
+    });
+
+    it('should filter search results by namespace', () => {
+      kg.createEntity('personal-note', 'note', {
+        observations: ['personal data'],
+        namespace: 'personal',
+      });
+      kg.createEntity('team-note', 'note', {
+        observations: ['team data'],
+        namespace: 'team',
+      });
+
+      const personalResults = kg.search('data', { namespace: 'personal' });
+      expect(personalResults).toHaveLength(1);
+      expect(personalResults[0].name).toBe('personal-note');
+
+      const teamResults = kg.search('data', { namespace: 'team' });
+      expect(teamResults).toHaveLength(1);
+      expect(teamResults[0].name).toBe('team-note');
+    });
+
+    it('should return all namespaces when namespace filter is omitted', () => {
+      kg.createEntity('note-a', 'note', {
+        observations: ['shared query'],
+        namespace: 'personal',
+      });
+      kg.createEntity('note-b', 'note', {
+        observations: ['shared query'],
+        namespace: 'team',
+      });
+
+      const allResults = kg.search('shared query');
+      expect(allResults.length).toBeGreaterThanOrEqual(2);
+      const names = allResults.map((e) => e.name);
+      expect(names).toContain('note-a');
+      expect(names).toContain('note-b');
+    });
+
+    it('should filter listRecent by namespace', () => {
+      kg.createEntity('personal-entity', 'note', { namespace: 'personal' });
+      kg.createEntity('team-entity', 'note', { namespace: 'team' });
+
+      const personalList = kg.listRecent(10, false, 'personal');
+      const names = personalList.map((e) => e.name);
+      expect(names).toContain('personal-entity');
+      expect(names).not.toContain('team-entity');
+    });
+
+    it('should filter tag-based search by namespace', () => {
+      kg.createEntity('tagged-personal', 'note', {
+        observations: ['tagged content'],
+        tags: ['shared-tag'],
+        namespace: 'personal',
+      });
+      kg.createEntity('tagged-team', 'note', {
+        observations: ['tagged content'],
+        tags: ['shared-tag'],
+        namespace: 'team',
+      });
+
+      const personalTagResults = kg.search('tagged content', {
+        tag: 'shared-tag',
+        namespace: 'personal',
+      });
+      expect(personalTagResults).toHaveLength(1);
+      expect(personalTagResults[0].name).toBe('tagged-personal');
+    });
+
+    it('should not change namespace of existing entity on re-remember', () => {
+      kg.createEntity('stable-entity', 'note', { namespace: 'team' });
+      // Re-create with different namespace — INSERT OR IGNORE means namespace stays unchanged
+      kg.createEntity('stable-entity', 'note', {
+        observations: ['new obs'],
+        namespace: 'personal',
+      });
+      const entity = kg.getEntity('stable-entity');
+      expect(entity!.namespace).toBe('team');
+      expect(entity!.observations).toContain('new obs');
+    });
+  });
 });
