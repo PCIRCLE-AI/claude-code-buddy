@@ -102,7 +102,8 @@ memesh recall "query"      # Search knowledge
 memesh forget --name "x"   # Archive entity
 memesh consolidate         # Compress verbose entities (Smart Mode)
 memesh config list         # Show configuration
-memesh setup               # Configure LLM provider (30 seconds)
+memesh config set llm.provider anthropic  # Configure LLM
+memesh config set llm.api-key sk-ant-*** # Set API key
 memesh serve               # Start HTTP API server
 memesh status              # Show capabilities and version
 memesh update              # Update to latest version

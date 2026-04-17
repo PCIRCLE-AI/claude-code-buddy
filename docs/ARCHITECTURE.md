@@ -25,7 +25,7 @@ MeMesh is a universal AI memory layer. It provides 4 operations (`remember`, `re
 
 ## Core/Transport Architecture
 
-MeMesh v2.13 separates concerns into two layers:
+MeMesh separates concerns into two layers:
 
 **Core** (`src/core/`) — pure business logic with zero transport dependencies:
 - `types.ts` — shared TypeScript interfaces (zero external deps)

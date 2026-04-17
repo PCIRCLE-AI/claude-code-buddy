@@ -152,7 +152,7 @@ The CLI prints conflict warnings below the results; the `--json` flag outputs th
 
 Archive an entity (soft-delete) or remove a specific observation.
 
-**Behavior (v2.12):** `forget` does not permanently delete data. Entities are archived and hidden from normal recall, but preserved in the database. Use `include_archived: true` in recall to see archived entities.
+**Behavior:** `forget` does not permanently delete data. Entities are archived and hidden from normal recall, but preserved in the database. Use `include_archived: true` in recall to see archived entities.
 
 **Input Schema**:
 
