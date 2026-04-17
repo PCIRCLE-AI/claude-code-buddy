@@ -162,29 +162,47 @@ describe('recall', () => {
 // ── Forget ──────────────────────────────────────────────────────────────
 
 describe('forget', () => {
-  it('deletes an existing entity', () => {
-    handleTool('remember', { name: 'temp-note', type: 'note' });
+  it('archives an entity instead of deleting it', () => {
+    handleTool('remember', {
+      name: 'old-design', type: 'decision', observations: ['Use REST'],
+    });
 
-    const result = handleTool('forget', { name: 'temp-note' });
+    const result = handleTool('forget', { name: 'old-design' });
     const data = JSON.parse(result.content[0].text);
-    expect(data.deleted).toBe(true);
+    expect(data.archived).toBe(true);
+    expect(data.name).toBe('old-design');
 
-    // Verify it's gone
-    const recall = handleTool('recall', { query: 'temp-note' });
-    const recallData = JSON.parse(recall.content[0].text);
-    expect(recallData).toEqual([]);
+    // Hidden from normal recall
+    const recall = handleTool('recall', { query: 'REST' });
+    expect(JSON.parse(recall.content[0].text)).toEqual([]);
+
+    // Visible with include_archived
+    const recallAll = handleTool('recall', { query: 'REST', include_archived: true });
+    const allData = JSON.parse(recallAll.content[0].text);
+    expect(allData).toHaveLength(1);
+    expect(allData[0].archived).toBe(true);
   });
 
-  it('returns not-found message for non-existent entity', () => {
-    const result = handleTool('forget', { name: 'does-not-exist' });
+  it('removes a specific observation without archiving', () => {
+    handleTool('remember', {
+      name: 'design', type: 'decision', observations: ['Use JWT', 'Use RS256'],
+    });
+
+    const result = handleTool('forget', { name: 'design', observation: 'Use JWT' });
     const data = JSON.parse(result.content[0].text);
-    expect(data.deleted).toBe(false);
+    expect(data.observation_removed).toBe(true);
+    expect(data.remaining_observations).toBe(1);
+
+    // Entity still active and searchable
+    const recall = handleTool('recall', { query: 'RS256' });
+    expect(JSON.parse(recall.content[0].text)).toHaveLength(1);
+  });
+
+  it('returns not-found for non-existent entity', () => {
+    const result = handleTool('forget', { name: 'ghost' });
+    const data = JSON.parse(result.content[0].text);
+    expect(data.archived).toBe(false);
     expect(data.message).toContain('not found');
-  });
-
-  it('returns validation error when name is missing', () => {
-    const result = handleTool('forget', {});
-    expect(result.isError).toBe(true);
   });
 
   it('rejects forget with empty name', () => {

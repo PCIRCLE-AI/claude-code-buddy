@@ -20,10 +20,12 @@ const RecallSchema = z.object({
   query: z.string().optional(),
   tag: z.string().optional(),
   limit: z.number().int().min(1).max(100).optional(),
+  include_archived: z.boolean().optional(),
 });
 
 const ForgetSchema = z.object({
   name: z.string().min(1),
+  observation: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -101,6 +103,10 @@ export const TOOL_DEFINITIONS = [
           type: 'number',
           description: 'Max results (default: 20, max: 100)',
         },
+        include_archived: {
+          type: 'boolean',
+          description: 'Include archived (forgotten) entities in results. Default: false.',
+        },
       },
       additionalProperties: false,
     },
@@ -108,11 +114,15 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'forget',
     description:
-      'Delete an entity and all its associated observations, relations, and tags.',
+      'Archive an entity (soft-delete) or remove a specific observation. Archived entities are hidden from recall but preserved in the database. To remove just one observation, pass the observation parameter.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        name: { type: 'string', description: 'Entity name to delete' },
+        name: { type: 'string', description: 'Entity name to archive or modify' },
+        observation: {
+          type: 'string',
+          description: 'If provided, only this specific observation is removed (entity stays active). If omitted, the entire entity is archived.',
+        },
       },
       required: ['name'],
       additionalProperties: false,
@@ -186,6 +196,7 @@ function handleRecall(args: z.infer<typeof RecallSchema>): ToolResult {
   const entities = kg.search(args.query, {
     tag: args.tag,
     limit: args.limit,
+    includeArchived: args.include_archived,
   });
 
   return ok(entities);
@@ -195,13 +206,25 @@ function handleForget(args: z.infer<typeof ForgetSchema>): ToolResult {
   const db = getDatabase();
   const kg = new KnowledgeGraph(db);
 
-  const result = kg.deleteEntity(args.name);
-
-  if (!result.deleted) {
-    return ok({ deleted: false, message: `Entity "${args.name}" not found` });
+  // Observation-level forget: remove specific observation, keep entity active
+  if (args.observation) {
+    const result = kg.removeObservation(args.name, args.observation);
+    return ok({
+      observation_removed: result.removed,
+      name: args.name,
+      observation: args.observation,
+      remaining_observations: result.remainingObservations,
+    });
   }
 
-  return ok({ deleted: true, name: args.name });
+  // Entity-level forget: archive (soft-delete)
+  const result = kg.archiveEntity(args.name);
+
+  if (!result.archived) {
+    return ok({ archived: false, message: `Entity "${args.name}" not found` });
+  }
+
+  return ok({ archived: true, name: args.name });
 }
 
 // ---------------------------------------------------------------------------
