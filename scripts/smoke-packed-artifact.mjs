@@ -30,10 +30,26 @@ const tarballPath = path.join(smokeDir, filename);
 const extractDir = path.join(smokeDir, 'extract');
 
 fs.mkdirSync(extractDir, { recursive: true });
-execFileSync('tar', ['-xf', tarballPath, '-C', extractDir], {
-  cwd: repoRoot,
-  stdio: 'inherit',
-});
+
+// Use platform-aware tar extraction.
+// Windows 10+ (required by Node 20+) ships tar.exe, but locate it
+// explicitly via ComSpec fallback to handle PATH edge cases.
+const tarCommand = process.platform === 'win32' ? 'tar.exe' : 'tar';
+try {
+  execFileSync(tarCommand, ['-xf', tarballPath, '-C', extractDir], {
+    cwd: repoRoot,
+    stdio: 'inherit',
+  });
+} catch (err) {
+  if (err.code === 'ENOENT') {
+    console.error(
+      `Error: '${tarCommand}' not found. ` +
+      'Install tar or upgrade to Windows 10 1803+ (which bundles tar.exe).'
+    );
+    process.exit(1);
+  }
+  throw err;
+}
 
 const packageDir = path.join(extractDir, 'package');
 

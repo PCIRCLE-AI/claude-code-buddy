@@ -23,7 +23,6 @@ CLAUDE.md
 .claude-plugin/marketplace.json
 .claude-plugin/plugin.json
 .claude-plugin/memesh/
-.claude-plugin/memesh/.claude-plugin/
 
 # === OS files ===
 .DS_Store
