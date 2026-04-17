@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'preact/hooks';
 import { api, type ConfigData } from '../lib/api';
 
+function capitalize(s: string): string {
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 export function SettingsTab() {
   const [config, setConfig] = useState<ConfigData | null>(null);
   const [provider, setProvider] = useState('');
@@ -52,11 +57,11 @@ export function SettingsTab() {
             <div class="stat-lbl">{caps?.searchLevel ? 'Smart Mode' : 'Core'}</div>
           </div>
           <div class="stat">
-            <div class="stat-val" style={{ fontSize: 14 }}>{caps?.embeddings || '—'}</div>
+            <div class="stat-val" style={{ fontSize: 14 }}>{capitalize(caps?.embeddings || '—')}</div>
             <div class="stat-lbl">Embeddings</div>
           </div>
           <div class="stat">
-            <div class="stat-val" style={{ fontSize: 14 }}>{caps?.llm?.provider || 'None'}</div>
+            <div class="stat-val" style={{ fontSize: 14 }}>{capitalize(caps?.llm?.provider || 'None')}</div>
             <div class="stat-lbl">LLM Provider</div>
           </div>
         </div>
@@ -66,16 +71,16 @@ export function SettingsTab() {
       <div class="card">
         <div class="card-title">LLM Provider</div>
         <div style={{ display: 'flex', gap: 16, marginBottom: 14 }}>
-          {['anthropic', 'openai', 'ollama'].map((p) => (
-            <label key={p} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 13 }}>
+          {([['anthropic', 'Anthropic (Claude)'], ['openai', 'OpenAI'], ['ollama', 'Ollama (Local)']] as const).map(([val, label]) => (
+            <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 13 }}>
               <input
                 type="radio"
                 name="provider"
-                value={p}
-                checked={provider === p}
-                onChange={() => setProvider(p)}
+                value={val}
+                checked={provider === val}
+                onChange={() => setProvider(val)}
               />
-              {p.charAt(0).toUpperCase() + p.slice(1)}
+              {label}
             </label>
           ))}
         </div>

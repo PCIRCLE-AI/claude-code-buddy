@@ -2,18 +2,22 @@ import { useState, useEffect } from 'preact/hooks';
 import { api, type Entity } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
 
+const PAGE_SIZE = 30;
+
 export function BrowseTab({ manage }: { manage?: boolean }) {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [page, setPage] = useState(0);
 
   async function load() {
     setLoading(true);
     setError('');
     try {
-      const data = await api<Entity[]>('GET', '/v1/entities?limit=200&status=all');
+      const data = await api<Entity[]>('GET', '/v1/entities?limit=500&status=all');
       setEntities(data || []);
+      setPage(0);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -22,6 +26,9 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
   }
 
   useEffect(() => { load(); }, []);
+
+  // Reset page when filter changes
+  useEffect(() => { setPage(0); }, [filter]);
 
   const f = filter.toLowerCase();
   const filtered = entities.filter((e) => {
@@ -37,13 +44,17 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
   const active = filtered.filter((e) => !e.archived && e.status !== 'archived');
   const archived = filtered.filter((e) => e.archived || e.status === 'archived');
 
+  // Paginate active items
+  const totalPages = Math.ceil(active.length / PAGE_SIZE);
+  const pageItems = active.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
   async function handleArchive(name: string) {
     if (!confirm(`Archive "${name}"?`)) return;
     try {
       await api('POST', '/v1/forget', { name });
       load();
     } catch (e: any) {
-      alert('Error: ' + e.message);
+      setError('Failed to archive: ' + e.message);
     }
   }
 
@@ -52,30 +63,37 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
       await api('POST', '/v1/remember', { name, type: 'restored' });
       load();
     } catch (e: any) {
-      alert('Error: ' + e.message);
+      setError('Failed to restore: ' + e.message);
     }
   }
 
   return (
     <div>
       <div class="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div class="card-title" style={{ margin: 0 }}>
-            {manage ? 'Manage Memories' : 'All Memories'}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div>
+            <div class="card-title" style={{ margin: 0 }}>
+              {manage ? 'Manage Memories' : 'All Memories'}
+            </div>
+            {!loading && (
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+                {active.length.toLocaleString()} active{archived.length > 0 ? ` · ${archived.length} archived` : ''}
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
               type="search"
-              placeholder="Filter…"
+              placeholder="Filter by content, type, or tag…"
               value={filter}
               onInput={(e) => setFilter((e.target as HTMLInputElement).value)}
-              style={{ width: 220 }}
+              style={{ width: 260 }}
             />
-            <button class="btn btn-sm" onClick={load}>↻ Refresh</button>
+            <button class="btn btn-sm" onClick={load}>↻</button>
           </div>
         </div>
 
-        {error && <div class="error-box">{error}</div>}
+        {error && <div class="error-box" style={{ marginBottom: 12 }}>{error}</div>}
         {loading && <div class="empty"><div class="loading" /></div>}
 
         {!loading && filtered.length === 0 && (
@@ -85,10 +103,10 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
           </div>
         )}
 
-        {!loading && active.length > 0 && (
+        {!loading && pageItems.length > 0 && (
           <div>
-            {active.map((e) => (
-              <div key={e.id} style={{ borderBottom: '1px solid var(--border-subtle)', padding: '12px 0' }}>
+            {pageItems.map((e) => (
+              <div key={e.id} style={{ borderBottom: '1px solid var(--border-subtle)', padding: '14px 0' }}>
                 <MemoryRow
                   entity={e}
                   highlight={filter}
@@ -98,16 +116,27 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
                 />
               </div>
             ))}
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: '16px 0', fontSize: 13 }}>
+                <button class="btn btn-sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>← Prev</button>
+                <span style={{ color: 'var(--text-3)', fontFamily: 'var(--mono)', fontSize: 12 }}>
+                  {page + 1} / {totalPages}
+                </span>
+                <button class="btn btn-sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Next →</button>
+              </div>
+            )}
           </div>
         )}
 
         {!loading && archived.length > 0 && (
           <div style={{ marginTop: 20 }}>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
               Archived ({archived.length})
             </div>
-            {archived.map((e) => (
-              <div key={e.id} style={{ borderBottom: '1px solid var(--border-subtle)', padding: '12px 0' }}>
+            {archived.slice(0, 10).map((e) => (
+              <div key={e.id} style={{ borderBottom: '1px solid var(--border-subtle)', padding: '14px 0' }}>
                 <MemoryRow
                   entity={e}
                   highlight={filter}
@@ -117,6 +146,11 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
                 />
               </div>
             ))}
+            {archived.length > 10 && (
+              <div style={{ fontSize: 12, color: 'var(--text-3)', padding: '12px 0', textAlign: 'center' }}>
+                +{archived.length - 10} more archived memories
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -65,35 +65,50 @@ export function AnalyticsTab() {
         </div>
       </div>
 
-      {/* Top recalled */}
+      {/* Top recalled — show meaningful preview, not raw commit hashes */}
       {topRecalled.length > 0 && (
         <div class="card">
           <div class="card-title">Most Recalled</div>
-          {topRecalled.map((e, i) => (
-            <div key={e.id} class="insight">
-              <span class="insight-icon" style={{ fontSize: 14, color: 'var(--text-3)' }}>#{i + 1}</span>
-              <span class="insight-text" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {e.observations?.[0] || e.name}
-              </span>
-              <span class="insight-val">{e.access_count}×</span>
-            </div>
-          ))}
+          {topRecalled.map((e, i) => {
+            // Find the most meaningful observation (skip raw commit/session metadata)
+            const skipPrefixes = ['Commit:', '[SESSION]', 'Branch:', 'Diff stats:', 'Details:', '[WORK]', '[FOCUS]', '[SUMMARY]', 'Session edited', 'Total tool calls', 'Duration:'];
+            const preview = (e.observations || []).find(o =>
+              !skipPrefixes.some(p => o.startsWith(p)) && o.length > 10
+            ) || e.observations?.[0] || e.name;
+            const truncated = preview.length > 80 ? preview.slice(0, 80) + '…' : preview;
+            return (
+              <div key={e.id} class="insight">
+                <span class="insight-icon" style={{ fontSize: 14, color: 'var(--text-3)' }}>#{i + 1}</span>
+                <span class="insight-text" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {truncated}
+                </span>
+                <span class="insight-val">{e.access_count}×</span>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* Topics */}
-      {stats.tagDistribution.length > 0 && (
-        <div class="card">
-          <div class="card-title">Topics</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {stats.tagDistribution.slice(0, 30).map((t) => (
-              <span key={t.tag} class="tag" style={{ fontSize: Math.max(11, Math.min(16, 10 + t.count)) + 'px' }}>
-                {t.tag} <span style={{ opacity: 0.5 }}>({t.count})</span>
-              </span>
-            ))}
+      {/* Topics — filter out internal/system tags, show only user-meaningful ones */}
+      {(() => {
+        const internalPrefixes = ['auto_saved', 'auto-tracked', 'session_end', 'session:', 'source:', 'scope:', 'date:', 'urgency:'];
+        const userTags = stats.tagDistribution.filter(t =>
+          !internalPrefixes.some(p => t.tag.startsWith(p)) &&
+          !/^\d{4}-\d{2}-\d{2}/.test(t.tag)  // filter date-only tags like "2026-03-26"
+        );
+        return userTags.length > 0 ? (
+          <div class="card">
+            <div class="card-title">Topics</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {userTags.slice(0, 30).map((t) => (
+                <span key={t.tag} class="tag" style={{ fontSize: Math.max(11, Math.min(15, 10 + Math.log2(t.count + 1))) + 'px' }}>
+                  {t.tag} <span style={{ opacity: 0.5 }}>({t.count})</span>
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        ) : null;
+      })()}
     </div>
   );
 }
