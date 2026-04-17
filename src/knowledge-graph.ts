@@ -288,6 +288,33 @@ export class KnowledgeGraph {
     txn();
   }
 
+  /**
+   * Find contradicting entity pairs in a set of results.
+   * Returns array of conflict descriptions.
+   */
+  findConflicts(entityNames: string[]): string[] {
+    if (entityNames.length < 2) return [];
+
+    const conflicts: string[] = [];
+    const placeholders = entityNames.map(() => '?').join(',');
+
+    const rows = this.db.prepare(`
+      SELECT e_from.name AS from_name, e_to.name AS to_name
+      FROM relations r
+      JOIN entities e_from ON r.from_entity_id = e_from.id
+      JOIN entities e_to ON r.to_entity_id = e_to.id
+      WHERE r.relation_type = 'contradicts'
+        AND e_from.name IN (${placeholders})
+        AND e_to.name IN (${placeholders})
+    `).all(...entityNames, ...entityNames) as any[];
+
+    for (const row of rows) {
+      conflicts.push(`"${row.from_name}" contradicts "${row.to_name}"`);
+    }
+
+    return conflicts;
+  }
+
   listRecent(limit?: number, includeArchived?: boolean): Entity[] {
     const statusFilter = includeArchived ? '' : "WHERE status = 'active'";
     const rows = this.db
