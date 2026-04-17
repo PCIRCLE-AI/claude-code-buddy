@@ -70,6 +70,7 @@ const requiredFiles = [
   'dist/core/failure-analyzer.js',
   'dist/core/lesson-engine.js',
   // Dist — transports
+  'dist/transports/schemas.js',
   'dist/mcp/server.js',
   'dist/transports/mcp/handlers.js',
   'dist/transports/http/server.js',
