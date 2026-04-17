@@ -51,7 +51,7 @@ memesh-mcp      # stdio MCP server
 
 ## What it does
 
-MeMesh gives any AI persistent memory through 4 MCP tools, 4 hooks, and an interactive dashboard:
+MeMesh gives any AI persistent memory through 6 MCP tools, 4 hooks, and an interactive dashboard:
 
 ### MCP Tools
 
@@ -61,6 +61,8 @@ MeMesh gives any AI persistent memory through 4 MCP tools, 4 hooks, and an inter
 | `recall` | Search with multi-factor scoring, LLM query expansion (Smart Mode), and conflict detection |
 | `forget` | Archive knowledge (soft-delete) or remove specific observations |
 | `consolidate` | Compress verbose entities into dense summaries via LLM (Smart Mode) |
+| `export` | Export memories as JSON for sharing or backup |
+| `import` | Import memories from JSON with merge strategies (skip/overwrite/append) |
 
 ### Transports
 
@@ -99,8 +101,13 @@ Run `memesh` to open the interactive web dashboard:
 memesh                     # Open interactive dashboard in browser
 memesh remember ...        # Store knowledge
 memesh recall "query"      # Search knowledge
+memesh recall "auth" --cross-project  # Search across all projects
 memesh forget --name "x"   # Archive entity
 memesh consolidate         # Compress verbose entities (Smart Mode)
+memesh export              # Export all memories to JSON (stdout)
+memesh export --namespace team --output team.json  # Export a specific namespace
+memesh import memories.json              # Import memories (default: skip duplicates)
+memesh import memories.json --merge overwrite  # Import with overwrite strategy
 memesh config list         # Show configuration
 memesh config set llm.provider anthropic  # Configure LLM
 memesh config set llm.api-key sk-ant-*** # Set API key
@@ -133,6 +140,13 @@ Requires: `memesh serve` running.
 - **Auto-decay**: Stale memories (30+ days unused) gradually fade in ranking — never deleted
 - **LLM Compression**: `memesh consolidate` compresses verbose entities into dense summaries
 - **Smart Session-Start**: Loads top-N memories by relevance score (not all memories)
+
+### Cross-Project & Team Collaboration
+
+- **Namespaces**: `personal` (default), `team`, `global` — organize memories by scope
+- **Export/Import**: `memesh export > memories.json` / `memesh import memories.json`
+- **Cross-project recall**: `memesh recall "auth" --cross-project` searches all projects
+- **Team sharing**: Export team namespace, share via git, team members import
 
 ## How it works
 

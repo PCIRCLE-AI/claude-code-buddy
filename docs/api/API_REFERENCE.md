@@ -1,14 +1,14 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 3.0.0-rc.1
+**Version**: 3.0.0
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 ---
 
 ## Tools
 
-MeMesh exposes 4 tools via MCP.
+MeMesh exposes 6 tools via MCP.
 
 ---
 
@@ -27,6 +27,7 @@ If `remember` is called again with an existing `name`, MeMesh treats it as an ap
 | `observations` | string[] | No | Key facts or observations about this entity |
 | `tags` | string[] | No | Tags for filtering (e.g., `"project:myapp"`, `"type:decision"`) |
 | `relations` | object[] | No | Relations to other entities |
+| `namespace` | string | No | Namespace scope: `"personal"` (default), `"team"`, or `"global"` |
 
 **Relations object**:
 
@@ -93,6 +94,8 @@ Search and retrieve stored knowledge. Uses FTS5 full-text search with optional t
 | `tag` | string | No | Filter by tag (e.g., `"project:myapp"`) |
 | `limit` | number | No | Max results (default: 20, max: 100) |
 | `include_archived` | boolean | No | Include archived (forgotten) entities in results (default: false) |
+| `namespace` | string | No | Filter to a specific namespace (`"personal"`, `"team"`, `"global"`) |
+| `cross_project` | boolean | No | When `true`, lifts project-tag filter and searches all namespaces (default: false) |
 
 **Response**:
 
@@ -183,6 +186,103 @@ Compress verbose entity observations using LLM. Requires Smart Mode.
 
 ---
 
+### export
+
+Export memories to a portable JSON bundle. Use for backup, sharing with teammates, or migrating between machines.
+
+**Input Schema**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `namespace` | string | No | Export only entities from this namespace (`"personal"`, `"team"`, `"global"`). Omit to export all namespaces. |
+| `tag` | string | No | Export only entities matching this tag (e.g., `"project:myapp"`) |
+| `names` | string[] | No | Export a specific set of entity names |
+| `include_archived` | boolean | No | Include archived entities in the export (default: false) |
+
+**Response**:
+
+```json
+{
+  "version": "3.0.0",
+  "exported_at": "2026-04-17T00:00:00.000Z",
+  "entity_count": 12,
+  "entities": [
+    {
+      "name": "auth-decision",
+      "type": "decision",
+      "namespace": "team",
+      "observations": ["Use OAuth 2.0"],
+      "tags": ["project:myapp", "topic:auth"],
+      "relations": [],
+      "metadata": {},
+      "confidence": 1.0
+    }
+  ]
+}
+```
+
+**Examples**:
+
+```json
+// Export all memories
+{}
+
+// Export team namespace only
+{"namespace": "team"}
+
+// Export specific project
+{"tag": "project:myapp"}
+```
+
+---
+
+### import
+
+Import memories from a JSON bundle produced by `export`. Three merge strategies control how conflicts with existing entities are resolved.
+
+**Input Schema**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `bundle` | object | Yes | The JSON bundle produced by `export` |
+| `merge` | string | No | Merge strategy for conflicts: `"skip"` (default), `"overwrite"`, or `"append"` |
+| `namespace_override` | string | No | Force all imported entities into this namespace, ignoring namespace stored in the bundle |
+
+**Merge Strategies**:
+
+| Strategy | Behaviour on existing entity |
+|----------|------------------------------|
+| `skip` | Keep existing entity unchanged, discard imported copy |
+| `overwrite` | Replace existing entity's observations and tags with imported values |
+| `append` | Append imported observations to existing, deduplicate tags |
+
+**Response**:
+
+```json
+{
+  "imported": 10,
+  "skipped": 2,
+  "overwritten": 0,
+  "appended": 0,
+  "errors": []
+}
+```
+
+**Examples**:
+
+```json
+// Import with default (skip duplicates)
+{"bundle": {...}}
+
+// Import and overwrite conflicts
+{"bundle": {...}, "merge": "overwrite"}
+
+// Import into team namespace
+{"bundle": {...}, "namespace_override": "team"}
+```
+
+---
+
 ## Data Model
 
 ### Entity
@@ -192,6 +292,7 @@ Compress verbose entity observations using LLM. Requires Smart Mode.
 | `id` | number | Auto-incremented primary key |
 | `name` | string | Unique entity name |
 | `type` | string | Entity type |
+| `namespace` | string | Namespace scope (`"personal"`, `"team"`, `"global"`) |
 | `created_at` | string | ISO timestamp |
 | `metadata` | object | Optional JSON metadata |
 | `observations` | string[] | Associated observations |
@@ -238,6 +339,8 @@ Start: `memesh serve` (default: `localhost:3737`)
 | POST | /v1/recall | Search knowledge |
 | POST | /v1/forget | Archive or remove observation |
 | POST | /v1/consolidate | Compress entity observations via LLM (Smart Mode required) |
+| POST | /v1/export | Export memories as JSON bundle |
+| POST | /v1/import | Import memories from JSON bundle with merge strategy |
 | GET | /v1/entities | List entities (pagination) |
 | GET | /v1/entities/:name | Get single entity |
 | GET | /v1/config | Get current config and detected capabilities |

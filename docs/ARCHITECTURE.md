@@ -1,12 +1,12 @@
 # MeMesh Plugin Architecture
 
-**Version**: 3.0.0-beta.1
+**Version**: 3.0.0
 
 ---
 
 ## Overview
 
-MeMesh is a universal AI memory layer. It provides 4 operations (`remember`, `recall`, `forget`, `consolidate`) accessible via three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
+MeMesh is a universal AI memory layer. It provides 6 operations (`remember`, `recall`, `forget`, `consolidate`, `export`, `import`) accessible via three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings. Entities can be scoped to namespaces (`personal`, `team`, `global`) and shared across projects via JSON export/import.
 
 ```
                      ┌─────────────┐
@@ -29,7 +29,7 @@ MeMesh separates concerns into two layers:
 
 **Core** (`src/core/`) — pure business logic with zero transport dependencies:
 - `types.ts` — shared TypeScript interfaces (zero external deps)
-- `operations.ts` — `remember`, `recall`, `forget` as pure functions called by all transports
+- `operations.ts` — `remember`, `recall`, `forget`, `export`, `import` as pure functions called by all transports
 - `config.ts` — config management + capability detection (sqlite-vec availability); exports `logCapabilities()` for startup logging
 - `scoring.ts` — multi-factor scoring engine: weights search relevance, recency, frequency, confidence, temporal validity; exports `rankEntities()` used by all recall paths
 - `query-expander.ts` — LLM-powered query expansion (Level 1): expands a user query into related terms using a configured LLM (Anthropic/OpenAI/Ollama)
@@ -137,6 +137,8 @@ Thin adapter: validates input via Zod, delegates to `core/operations`, wraps res
 | `recall` | RecallSchema | Delegates to `operations.recallEnhanced()` |
 | `forget` | ForgetSchema | Delegates to `operations.forget()` |
 | `consolidate` | ConsolidateSchema | Delegates to `operations.consolidate()` |
+| `export` | ExportSchema | Delegates to `operations.exportMemories()` |
+| `import` | ImportSchema | Delegates to `operations.importMemories()` |
 
 ### transports/http/server.ts -- HTTP REST API Server
 
@@ -220,7 +222,7 @@ Tool call: forget({name})
 
 ```sql
 -- Core tables
-entities (id PK, name UNIQUE, type, created_at, metadata JSON, status, access_count, last_accessed_at, confidence, valid_from, valid_until)
+entities (id PK, name UNIQUE, type, created_at, metadata JSON, status, access_count, last_accessed_at, confidence, valid_from, valid_until, namespace DEFAULT 'personal')
 observations (id PK, entity_id FK, content, created_at)
 relations (id PK, from_entity_id FK, to_entity_id FK, relation_type, metadata JSON, created_at, UNIQUE constraint)
 tags (id PK, entity_id FK, tag)
@@ -351,6 +353,42 @@ For release safety, `npm run test:packaged` creates a real npm tarball, extracts
 - Score = confidence (40%) + frequency (30%) + recency (30%)
 - Default N=10, configurable via MEMESH_SESSION_LIMIT
 - Concise format: "• name (type): first observation"
+
+---
+
+## Cross-Project Collaboration (v3.0.0)
+
+### Namespaces
+
+Entities carry a `namespace` field (`personal` | `team` | `global`, default: `personal`). Namespaces allow:
+
+- **personal** — private to the individual user / current project
+- **team** — shared across a team; visible when `--cross-project` or namespace filter is applied
+- **global** — available in all recall contexts regardless of project tag
+
+### Export / Import
+
+`operations.exportMemories(opts)` serialises matching entities (filtered by namespace, tags, or names) to a structured JSON bundle. `operations.importMemories(bundle, mergeStrategy)` deserialises and inserts entities with one of three merge strategies:
+
+| Strategy | Behaviour on conflict |
+|----------|-----------------------|
+| `skip` (default) | Keep existing entity, discard imported copy |
+| `overwrite` | Replace existing entity's observations and tags |
+| `append` | Append imported observations, dedup tags |
+
+### Cross-Project Recall
+
+`recall` accepts a `cross_project: true` flag. When set, the project-tag filter is lifted and FTS5 search spans all namespaces. The same multi-factor scoring applies.
+
+### Team Sharing Workflow
+
+```bash
+# Exporter
+memesh export --namespace team --output team-memories.json
+
+# Importers (each team member)
+memesh import team-memories.json --merge skip
+```
 
 ---
 
