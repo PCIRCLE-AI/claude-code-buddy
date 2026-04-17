@@ -26,9 +26,9 @@
   },
   "author": "PCIRCLE-AI",
   "license": "MIT",
-  "homepage": "https://github.com/PCIRCLE-AI/claude-code-buddy",
+  "homepage": "https://github.com/PCIRCLE-AI/memesh-llm-memory",
   "bugs": {
-    "url": "https://github.com/PCIRCLE-AI/claude-code-buddy/issues"
+    "url": "https://github.com/PCIRCLE-AI/memesh-llm-memory/issues"
   },
   "keywords": [
     "claude-code",
@@ -40,7 +40,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PCIRCLE-AI/claude-code-buddy.git"
+    "url": "git+https://github.com/PCIRCLE-AI/memesh-llm-memory.git"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

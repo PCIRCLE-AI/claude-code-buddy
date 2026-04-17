@@ -9,10 +9,10 @@ body:
         Have a question about MeMesh? We're happy to help!
 
         Before asking, please check:
-        - [README.md](https://github.com/PCIRCLE-AI/claude-code-buddy/blob/main/README.md)
-        - [QUICK_START.md](https://github.com/PCIRCLE-AI/claude-code-buddy/blob/main/docs/QUICK_START.md)
-        - [COMMANDS.md](https://github.com/PCIRCLE-AI/claude-code-buddy/blob/main/docs/COMMANDS.md)
-        - [Existing issues](https://github.com/PCIRCLE-AI/claude-code-buddy/issues)
+        - [README.md](https://github.com/PCIRCLE-AI/memesh-llm-memory/blob/main/README.md)
+        - [QUICK_START.md](https://github.com/PCIRCLE-AI/memesh-llm-memory/blob/main/docs/QUICK_START.md)
+        - [COMMANDS.md](https://github.com/PCIRCLE-AI/memesh-llm-memory/blob/main/docs/COMMANDS.md)
+        - [Existing issues](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues)
 
   - type: dropdown
     id: topic

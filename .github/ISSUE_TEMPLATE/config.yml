@@ -1,17 +1,17 @@
 blank_issues_enabled: false
 contact_links:
   - name: 📚 Documentation
-    url: https://github.com/PCIRCLE-AI/claude-code-buddy#documentation
+    url: https://github.com/PCIRCLE-AI/memesh-llm-memory#documentation
     about: Read the full documentation including user guide, architecture, and API reference
   - name: 💬 GitHub Discussions
-    url: https://github.com/PCIRCLE-AI/claude-code-buddy/discussions
+    url: https://github.com/PCIRCLE-AI/memesh-llm-memory/discussions
     about: Ask questions, share ideas, and discuss with the community
   - name: 🔒 Security Vulnerabilities
-    url: https://github.com/PCIRCLE-AI/claude-code-buddy/security/advisories/new
+    url: https://github.com/PCIRCLE-AI/memesh-llm-memory/security/advisories/new
     about: Report security vulnerabilities privately (DO NOT use public issues)
   - name: 📖 Troubleshooting Guide
-    url: https://github.com/PCIRCLE-AI/claude-code-buddy/blob/main/docs/TROUBLESHOOTING.md
+    url: https://github.com/PCIRCLE-AI/memesh-llm-memory/blob/main/docs/TROUBLESHOOTING.md
     about: Check common issues and solutions before opening an issue
   - name: 💡 Feature Ideas & Roadmap
-    url: https://github.com/PCIRCLE-AI/claude-code-buddy/discussions/categories/ideas
+    url: https://github.com/PCIRCLE-AI/memesh-llm-memory/discussions/categories/ideas
     about: Discuss feature ideas and see what's on the roadmap
