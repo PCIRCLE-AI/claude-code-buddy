@@ -7,6 +7,24 @@ Minimal persistent memory plugin for Claude Code. Remembers decisions, patterns,
 [![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen?style=flat-square)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-purple?style=flat-square)](https://modelcontextprotocol.io)
 
+## Why MeMesh?
+
+Anthropic ships a built-in [Memory Tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/memory-tool) in the Messages API. MeMesh solves a different problem:
+
+| | MeMesh | Anthropic Memory Tool |
+|---|---|---|
+| **Data location** | Local SQLite on your machine | Anthropic cloud |
+| **Data model** | Knowledge graph (entities + relations + tags) | Key-value store |
+| **Search** | FTS5 full-text search | Exact key lookup |
+| **Visualization** | Interactive D3.js dashboard | None |
+| **Integration** | Claude Code plugin with auto-hooks | Messages API parameter |
+| **Privacy** | 100% offline, zero data leaves your machine | Data sent to Anthropic |
+| **Extensibility** | Open source, hackable SQLite | Closed API |
+
+**Choose MeMesh when:** you want local-first, structured knowledge that survives across projects, with full-text search and visual exploration.
+
+**Choose Anthropic Memory Tool when:** you want zero-setup cloud memory tightly integrated with the Messages API.
+
 ## Installation
 
 ```bash
