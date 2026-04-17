@@ -510,4 +510,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-For detailed changes, see the [commit history](https://github.com/PCIRCLE-AI/claude-code-buddy/commits/main).
+For detailed changes, see the [commit history](https://github.com/PCIRCLE-AI/memesh-llm-memory/commits/main).

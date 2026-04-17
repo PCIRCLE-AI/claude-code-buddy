@@ -1,7 +1,7 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 2.12.0
+**Version**: 2.13.0
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 ---
@@ -195,6 +195,45 @@ Common errors:
 - Unknown tool name
 - Zod validation failure (missing required fields, invalid types)
 - Entity not found (for relations in `remember`)
+
+---
+
+## HTTP REST API
+
+Start: `memesh serve` (default: `localhost:3737`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /v1/health | Health check + version + entity count |
+| POST | /v1/remember | Store knowledge |
+| POST | /v1/recall | Search knowledge |
+| POST | /v1/forget | Archive or remove observation |
+| GET | /v1/entities | List entities (pagination) |
+| GET | /v1/entities/:name | Get single entity |
+
+All responses: `{ success: true, data: ... }` or `{ success: false, error: "..." }`
+
+Request/response bodies for `POST /v1/remember`, `/v1/recall`, and `/v1/forget` mirror the MCP tool schemas above (same field names, same types).
+
+**Example**:
+
+```bash
+# Start the server
+memesh serve
+
+# Store knowledge
+curl -s -X POST http://localhost:3737/v1/remember \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"auth-decision","type":"decision","observations":["Use OAuth 2.0"]}'
+
+# Search knowledge
+curl -s -X POST http://localhost:3737/v1/recall \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"auth"}'
+
+# Health check
+curl -s http://localhost:3737/v1/health
+```
 
 ---
 

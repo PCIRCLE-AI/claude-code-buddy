@@ -15,7 +15,7 @@ Do not report security vulnerabilities in public GitHub issues.
 
 Use one of these private channels instead:
 
-1. GitHub Security Advisories: https://github.com/PCIRCLE-AI/claude-code-buddy/security/advisories/new
+1. GitHub Security Advisories: https://github.com/PCIRCLE-AI/memesh-llm-memory/security/advisories/new
 2. Email: `security@memesh.ai`
 3. Backup email: `support@pcircle.ai` with subject `SECURITY VULNERABILITY`
 

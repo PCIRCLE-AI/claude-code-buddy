@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import * as sqliteVec from 'sqlite-vec';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
@@ -84,6 +85,17 @@ export function openDatabase(dbPath?: string): Database.Database {
     db.exec("ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
     db.exec("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)");
   }
+
+  // Load sqlite-vec extension for vector similarity search
+  sqliteVec.load(db);
+
+  // Create vector table for entity embeddings (if not exists)
+  // 384 dimensions = all-MiniLM-L6-v2 embedding size
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS entities_vec USING vec0(
+      embedding float[384]
+    );
+  `);
 
   return db;
 }

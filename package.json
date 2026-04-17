@@ -1,11 +1,13 @@
 {
   "name": "@pcircle/memesh",
-  "version": "2.12.0",
-  "description": "MeMesh — Minimal persistent memory plugin for Claude Code.",
+  "version": "2.13.0",
+  "description": "MeMesh — The lightest universal AI memory layer. One SQLite file, any LLM, zero cloud.",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "memesh": "dist/mcp/server.js",
+    "memesh": "dist/transports/cli/cli.js",
+    "memesh-mcp": "dist/mcp/server.js",
+    "memesh-http": "dist/transports/http/server.js",
     "memesh-view": "dist/cli/view.js"
   },
   "files": [
@@ -26,9 +28,9 @@
   },
   "author": "PCIRCLE-AI",
   "license": "MIT",
-  "homepage": "https://github.com/PCIRCLE-AI/claude-code-buddy",
+  "homepage": "https://github.com/PCIRCLE-AI/memesh-llm-memory",
   "bugs": {
-    "url": "https://github.com/PCIRCLE-AI/claude-code-buddy/issues"
+    "url": "https://github.com/PCIRCLE-AI/memesh-llm-memory/issues"
   },
   "keywords": [
     "claude-code",
@@ -40,15 +42,19 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/PCIRCLE-AI/claude-code-buddy.git"
+    "url": "git+https://github.com/PCIRCLE-AI/memesh-llm-memory.git"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.9.0",
+    "commander": "^14.0.3",
+    "express": "^5.2.1",
+    "sqlite-vec": "^0.1.9",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.6",
     "@types/node": "^25.0.9",
     "typescript": "^5.9.3",
     "vitest": "^4.0.17"

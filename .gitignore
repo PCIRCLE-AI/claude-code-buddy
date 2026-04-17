@@ -77,26 +77,7 @@ Dockerfile.test
 docs/archive/
 docs/plans/
 docs/internal/
-docs/guides/auto-memory-system.md
-docs/guides/SETUP.md
-docs/guides/QUICK_START.md
-docs/guides/CLAUDE_CODE_INSTALLATION.md
-docs/CONTRIBUTING.md
-docs/ACCESSIBILITY.md
-docs/CLI_CONFIG_COMMANDS.md
-docs/CLI_PARAMETERS.md
-docs/COWORK_SUPPORT.md
-docs/INSTALLATION_TESTING.md
-docs/LANDING_PAGE.md
-docs/PLUGIN_AUTO_REPAIR_DESIGN.md
-docs/QUICK_INSTALL.md
-docs/QUICK_START.md
-docs/README.md
-docs/RELEASE_PROCESS.md
-docs/UPGRADE.md
-docs/api/MEMORY_API.md
-docs/api/MEMORY_BEST_PRACTICES.md
-docs/api/MODELS.md
+docs/guides/
 
 # === Sensitive markdown patterns ===
 *-private.md
@@ -109,4 +90,5 @@ docs/api/MODELS.md
 # === Browser automation ===
 .playwright-mcp/
 
-.codex/context/
+# === AI tool caches ===
+.codex/
