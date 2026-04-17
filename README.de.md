@@ -17,127 +17,182 @@
 
 ---
 
-Deine KI vergisst zwischen Sessions alles. **MeMesh löst dieses Problem.**
+## Das Problem
 
-Einmal installieren, in 30 Sekunden konfigurieren, und jedes KI-Tool das du verwendest — Claude, GPT, LLaMA oder ein beliebiger MCP-Client — erhält dauerhaftes, durchsuchbares und sich weiterentwickelndes Gedächtnis. Kein Cloud-Dienst. Kein Neo4j. Keine Vektordatenbank. Nur eine SQLite-Datei.
+Deine KI vergisst zwischen Sessions alles. Jede Entscheidung, jeder Bugfix, jede Erkenntnis — weg. Du erklärst denselben Kontext immer wieder, Claude entdeckt dieselben Muster erneut, und das KI-Wissen deines Teams wird jedes Mal auf null zurückgesetzt.
+
+**MeMesh gibt jeder KI ein dauerhaftes, durchsuchbares und sich weiterentwickelndes Gedächtnis.**
+
+---
+
+## In 60 Sekunden Loslegen
+
+### Schritt 1: Installieren
 
 ```bash
 npm install -g @pcircle/memesh
 ```
 
----
-
-## Dashboard
-
-<p align="center">
-  <img src="docs/images/dashboard-search.png" alt="MeMesh Search" width="100%" />
-</p>
-
-<p align="center">
-  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics" width="100%" />
-</p>
-
-<p align="center">
-  <img src="docs/images/dashboard-browse.png" alt="MeMesh Browse" width="100%" />
-</p>
-
-Starte `memesh`, um das interaktive Dashboard mit Suche, Durchsuchen, Analyse, Verwaltung und Einstellungen zu öffnen.
-
----
-
-## Schnellstart
+### Schritt 2: Deine KI erinnert sich
 
 ```bash
-# Eine Erinnerung speichern
 memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
-
-# Erinnerungen suchen (im Smart-Modus findet "login security" auch "OAuth")
-memesh recall "login security"
-
-# Veraltete Erinnerungen archivieren (Soft-Delete — nichts geht verloren)
-memesh forget --name "old-auth-design"
-
-# Dashboard öffnen
-memesh
-
-# HTTP API starten (für Python SDK und Integrationen)
-memesh serve
 ```
 
-### Python
+### Schritt 3: Deine KI ruft ab
 
+```bash
+memesh recall "login security"
+# → Findet "OAuth 2.0 with PKCE", obwohl du andere Wörter verwendet hast
+```
+
+**Das war's.** MeMesh erinnert und ruft nun über Sessions hinweg ab.
+
+Öffne das Dashboard, um dein Gedächtnis zu erkunden:
+
+```bash
+memesh
+```
+
+<p align="center">
+  <img src="docs/images/dashboard-search.png" alt="MeMesh Search — finde jede Erinnerung sofort" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — verstehe das Wissen deiner KI" width="100%" />
+</p>
+
+---
+
+## Für Wen ist Das?
+
+| Wenn du... | hilft dir MeMesh... |
+|---------------|---------------------|
+| **Entwickler der Claude Code nutzt** | Entscheidungen, Muster und Erkenntnisse sitzungsübergreifend automatisch zu merken |
+| **Team, das mit LLMs entwickelt** | Team-Wissen per Export/Import zu teilen und den KI-Kontext aller synchron zu halten |
+| **KI-Agent-Entwickler** | Deinen Agenten über MCP, HTTP API oder Python SDK dauerhaftes Gedächtnis zu geben |
+| **Power-User mit mehreren KI-Tools** | Eine Gedächtnisschicht für Claude, GPT, LLaMA, Ollama oder jeden MCP-Client |
+
+---
+
+## Funktioniert mit Allem
+
+<table>
+<tr>
+<td width="33%" align="center">
+
+**Claude Code / Desktop**
+```bash
+memesh-mcp
+```
+MCP-Protokoll (automatisch konfiguriert)
+
+</td>
+<td width="33%" align="center">
+
+**Python / LangChain**
 ```python
 from memesh import MeMesh
-
-m = MeMesh()  # connects to localhost:3737
-m.remember("auth", "decision", observations=["Use OAuth 2.0 with PKCE"])
-results = m.recall("auth")
+m = MeMesh()
+m.recall("auth")
 ```
+`pip install memesh`
 
-### Beliebige LLMs (OpenAI function calling Format)
+</td>
+<td width="33%" align="center">
+
+**Beliebige LLMs (OpenAI-Format)**
+```bash
+memesh export-schema \
+  --format openai
+```
+Tools in jeden API-Aufruf einfügen
+
+</td>
+</tr>
+</table>
+
+---
+
+## Warum Nicht Einfach Mem0 / Zep?
+
+| | **MeMesh** | Mem0 | Zep |
+|---|---|---|---|
+| **Installationszeit** | 5 Sekunden | 30–60 Minuten | 30+ Minuten |
+| **Einrichtung** | `npm i -g` — fertig | Neo4j + VectorDB + API-Schlüssel | Neo4j + Konfiguration |
+| **Speicherung** | Einzelne SQLite-Datei | Neo4j + Qdrant | Neo4j |
+| **Offline nutzbar** | Ja, immer | Nein | Nein |
+| **Dashboard** | Integriert (5 Tabs) | Keins | Keins |
+| **Abhängigkeiten** | 6 | 20+ | 10+ |
+| **Preis** | Dauerhaft kostenlos | Kostenlose Stufe / Kostenpflichtig | Kostenlose Stufe / Kostenpflichtig |
+
+**MeMesh tauscht:** Enterprise-Multi-Tenant-Funktionen gegen **sofortige Einrichtung, kein Infrastrukturaufwand und 100 % Datenschutz**.
+
+---
+
+## Was Automatisch Passiert
+
+Du musst nicht alles manuell merken. MeMesh hat **4 Hooks**, die Wissen erfassen, ohne dass du etwas tun musst:
+
+| Wann | Was MeMesh tut |
+|------|------------------|
+| **Zu Beginn jeder Session** | Lädt deine relevantesten Erinnerungen (nach Scoring-Algorithmus gerankt) |
+| **Nach jedem `git commit`** | Erfasst was du geändert hast, mit Diff-Statistiken |
+| **Wenn Claude beendet** | Erfasst bearbeitete Dateien, behobene Fehler und getroffene Entscheidungen |
+| **Vor der Kontextkomprimierung** | Sichert Wissen, bevor es durch Kontextgrenzen verloren geht |
+
+> **Jederzeit deaktivierbar:** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## Intelligente Funktionen
+
+**🧠 Smart Search** — Suche nach „login security" und finde Erinnerungen über „OAuth PKCE". MeMesh erweitert Suchanfragen mit verwandten Begriffen über das konfigurierte LLM.
+
+**📊 Scored Ranking** — Ergebnisse gerankt nach Relevanz (35 %) + letzter Nutzung (25 %) + Häufigkeit (20 %) + Vertrauen (15 %) + ob die Info noch aktuell ist (5 %).
+
+**🔄 Wissensentwicklung** — Entscheidungen ändern sich. `forget` archiviert alte Erinnerungen (löscht nie). `supersedes`-Beziehungen verknüpfen Alt mit Neu. Deine KI sieht immer die neueste Version.
+
+**⚠️ Konflikterkennung** — Wenn zwei Erinnerungen sich widersprechen, warnt MeMesh dich.
+
+**📦 Team-Sharing** — `memesh export > team-knowledge.json` → mit Team teilen → `memesh import team-knowledge.json`
+
+---
+
+## Smart Mode Freischalten (Optional)
+
+MeMesh funktioniert standardmäßig vollständig offline. Füge einen LLM-API-Schlüssel hinzu, um intelligentere Suche zu aktivieren:
 
 ```bash
-memesh export-schema --format openai
-# → JSON array of tools, paste into your OpenAI/Claude/Gemini API call
+memesh config set llm.provider anthropic
+memesh config set llm.api-key sk-ant-...
 ```
 
----
+Oder verwende den Einstellungs-Tab im Dashboard (visuelle Einrichtung):
 
-## Warum MeMesh?
+```bash
+memesh  # öffnet Dashboard → Einstellungs-Tab
+```
 
-Die meisten KI-Gedächtnislösungen benötigen Neo4j, Vektordatenbanken, API-Schlüssel und mehr als 30 Minuten Einrichtungszeit. MeMesh braucht **einen einzigen Befehl**.
-
-| | **MeMesh** | Mem0 | Zep | Anthropic Memory |
-|---|---|---|---|---|
-| **Installation** | `npm i -g` (5 Sek.) | pip + Neo4j + VectorDB | pip + Neo4j | Integriert (Cloud) |
-| **Speicherung** | Einzelne SQLite-Datei | Neo4j + Qdrant | Neo4j | Cloud |
-| **Suche** | FTS5 + Scoring + LLM-Erweiterung | Semantisch + BM25 | Temporaler Graph | Schlüsselsuche |
-| **Datenschutz** | 100% lokal, immer | Cloud-Option | Self-Hosting | Cloud |
-| **Abhängigkeiten** | 6 | 20+ | 10+ | 0 (aber Cloud-gebunden) |
-| **Offline** | Ja | Nein | Nein | Nein |
-| **Dashboard** | Integriert (5 Tabs) | Keins | Keins | Keins |
-| **Preis** | Kostenlos | Kostenlos/Kostenpflichtig | Kostenlos/Kostenpflichtig | In API enthalten |
+| | Level 0 (Standard) | Level 1 (Smart Mode) |
+|---|---|---|
+| **Suche** | FTS5 Keyword-Matching | + LLM-Anfrageerweiterung (~97 % Recall) |
+| **Auto-Erfassung** — | Regelbasierte Muster | + LLM extrahiert Entscheidungen & Erkenntnisse |
+| **Komprimierung** | Nicht verfügbar | `consolidate` komprimiert ausführliche Erinnerungen |
+| **Kosten** | Kostenlos, kein API-Schlüssel | ~0,0001 $ pro Suche (Haiku) |
 
 ---
 
-## Funktionen
-
-### 6 Gedächtnistools
+## Alle 6 Gedächtnis-Tools
 
 | Tool | Funktion |
 |------|-------------|
-| **remember** | Speichert Wissen mit Beobachtungen, Beziehungen und Tags |
-| **recall** | Intelligente Suche mit Multi-Faktor-Scoring und LLM-Anfrageerweiterung |
-| **forget** | Soft-Archivierung (kein Löschen) oder Entfernen spezifischer Beobachtungen |
-| **consolidate** | LLM-gestützte Komprimierung ausführlicher Erinnerungen |
-| **export** | Teilt Erinnerungen als JSON zwischen Projekten oder Teammitgliedern |
-| **import** | Importiert Erinnerungen mit Zusammenführungsstrategien (überspringen / überschreiben / anhängen) |
-
-### 3 Zugriffsmethoden
-
-| Methode | Befehl | Am besten für |
-|--------|---------|----------|
-| **CLI** | `memesh` | Terminal, Scripting, CI/CD |
-| **HTTP API** | `memesh serve` | Python SDK, Dashboard, Integrationen |
-| **MCP** | `memesh-mcp` | Claude Code, Claude Desktop, beliebige MCP-Clients |
-
-### 4 automatische Erfassungs-Hooks
-
-| Hook | Auslöser | Was erfasst wird |
-|------|---------|-----------------|
-| **Session Start** | Jede Session | Lädt die relevantesten Erinnerungen |
-| **Post Commit** | Nach `git commit` | Speichert Commit mit Diff-Statistiken |
-| **Session Summary** | Wenn Claude beendet | Bearbeitete Dateien, behobene Fehler, getroffene Entscheidungen |
-| **Pre-Compact** | Vor der Kompaktierung | Sichert Wissen bevor der Kontext verloren geht |
-
-### Intelligente Funktionen
-
-- **Wissensentwicklung** — `forget` archiviert, löscht nicht. `supersedes`-Beziehungen ersetzen alte Entscheidungen durch neue. Die Geschichte bleibt erhalten.
-- **Intelligentes Abrufen** — LLM erweitert deine Suchanfrage um verwandte Begriffe. "login security" findet "OAuth PKCE".
-- **Multi-Faktor-Scoring** — Ergebnisse werden nach Relevanz (35%) + Aktualität (25%) + Häufigkeit (20%) + Vertrauen (15%) + zeitlicher Gültigkeit (5%) sortiert.
-- **Konflikterkennnung** — Warnt, wenn Erinnerungen sich widersprechen.
-- **Automatischer Verfall** — Veraltete Erinnerungen (30+ Tage ungenutzt) sinken langsam im Ranking. Niemals gelöscht.
-- **Namensräume** — `personal`, `team`, `global` Bereiche zum Organisieren und Teilen.
+| `remember` | Speichert Wissen mit Beobachtungen, Beziehungen und Tags |
+| `recall` | Intelligente Suche mit Multi-Faktor-Scoring und LLM-Anfrageerweiterung |
+| `forget` | Soft-Archivierung (kein Löschen) oder Entfernen spezifischer Beobachtungen |
+| `consolidate` | LLM-gestützte Komprimierung ausführlicher Erinnerungen |
+| `export` | Teilt Erinnerungen als JSON zwischen Projekten oder Teammitgliedern |
+| `import` | Importiert Erinnerungen mit Zusammenführungsstrategien (überspringen / überschreiben / anhängen) |
 
 ---
 
@@ -158,32 +213,22 @@ Die meisten KI-Gedächtnislösungen benötigen Neo4j, Vektordatenbanken, API-Sch
                     (~/.memesh/knowledge-graph.db)
 ```
 
-Der **Kern** ist framework-unabhängig — dieselbe `remember`/`recall`/`forget`-Logik läuft identisch, egal ob sie vom Terminal, HTTP oder MCP aufgerufen wird.
-
-**Abhängigkeiten**: `better-sqlite3`, `sqlite-vec`, `@modelcontextprotocol/sdk`, `zod`, `express`, `commander`
+Der Kern ist framework-unabhängig. Dieselbe Logik läuft vom Terminal, HTTP oder MCP aus.
 
 ---
 
-## Entwicklung
+## Mitwirken
 
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory
-npm install
-npm run build
+cd memesh-llm-memory && npm install && npm run build
 npm test -- --run    # 289 tests
 ```
 
-Dashboard-Entwicklung:
-```bash
-cd dashboard
-npm install
-npm run dev          # Vite dev server with hot reload
-npm run build        # Build to single HTML file
-```
+Dashboard: `cd dashboard && npm install && npm run dev`
 
 ---
 
-## Lizenz
-
-MIT — [PCIRCLE AI](https://pcircle.ai)
+<p align="center">
+  <strong>MIT</strong> — Erstellt von <a href="https://pcircle.ai">PCIRCLE AI</a>
+</p>

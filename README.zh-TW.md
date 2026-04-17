@@ -17,127 +17,182 @@
 
 ---
 
-你的 AI 在每次對話結束後都會忘記一切。**MeMesh 解決了這個問題。**
+## 問題所在
 
-安裝一次，30 秒完成設定，你使用的每一個 AI 工具 — Claude、GPT、LLaMA，或任何 MCP 客戶端 — 都能獲得持久、可搜尋、持續進化的記憶。無需雲端。無需 Neo4j。無需向量資料庫。只要一個 SQLite 檔案。
+你的 AI 在每次對話結束後都會忘記一切。每一個決策、每一次修復、每一個學到的教訓——全部歸零。你不斷重新解釋相同的背景，Claude 反覆重新發現相同的模式，而你的 AI 知識庫每次都從零開始。
+
+**MeMesh 讓每個 AI 都能擁有持久、可搜尋、持續進化的記憶。**
+
+---
+
+## 60 秒快速上手
+
+### 步驟一：安裝
 
 ```bash
 npm install -g @pcircle/memesh
 ```
 
----
-
-## 儀表板
-
-<p align="center">
-  <img src="docs/images/dashboard-search.png" alt="MeMesh Search" width="100%" />
-</p>
-
-<p align="center">
-  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics" width="100%" />
-</p>
-
-<p align="center">
-  <img src="docs/images/dashboard-browse.png" alt="MeMesh Browse" width="100%" />
-</p>
-
-執行 `memesh` 開啟互動式儀表板，包含搜尋、瀏覽、分析、管理與設定五大功能頁籤。
-
----
-
-## 快速上手
+### 步驟二：AI 開始記憶
 
 ```bash
-# 儲存一條記憶
 memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
-
-# 搜尋記憶（智慧模式下搜尋「login security」也能找到「OAuth」）
-memesh recall "login security"
-
-# 封存過時的記憶（軟刪除，資料永不真正消失）
-memesh forget --name "old-auth-design"
-
-# 開啟儀表板
-memesh
-
-# 啟動 HTTP API（供 Python SDK 與第三方整合使用）
-memesh serve
 ```
 
-### Python
+### 步驟三：AI 召回記憶
 
+```bash
+memesh recall "login security"
+# → 搜尋「login security」也能找到「OAuth 2.0 with PKCE」
+```
+
+**就這樣。** MeMesh 已開始在不同對話之間記憶與召回。
+
+執行以下指令探索你的記憶庫：
+
+```bash
+memesh
+```
+
+<p align="center">
+  <img src="docs/images/dashboard-search.png" alt="MeMesh Search — 瞬間找到任何記憶" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — 深入了解 AI 的知識" width="100%" />
+</p>
+
+---
+
+## 這是為誰設計的？
+
+| 如果你是… | MeMesh 能幫你… |
+|---------------|---------------------|
+| **使用 Claude Code 的開發者** | 自動記憶決策、模式與每次對話中的心得 |
+| **以 LLM 打造產品的團隊** | 透過匯出/匯入共享團隊知識，讓每個人的 AI 脈絡保持一致 |
+| **AI Agent 開發者** | 透過 MCP、HTTP API 或 Python SDK 賦予 Agent 持久記憶 |
+| **同時使用多款 AI 工具的重度用戶** | 一個記憶層，相容 Claude、GPT、LLaMA、Ollama 或任何 MCP 客戶端 |
+
+---
+
+## 與所有工具相容
+
+<table>
+<tr>
+<td width="33%" align="center">
+
+**Claude Code / Desktop**
+```bash
+memesh-mcp
+```
+MCP 協議（自動設定）
+
+</td>
+<td width="33%" align="center">
+
+**Python / LangChain**
 ```python
 from memesh import MeMesh
-
-m = MeMesh()  # connects to localhost:3737
-m.remember("auth", "decision", observations=["Use OAuth 2.0 with PKCE"])
-results = m.recall("auth")
+m = MeMesh()
+m.recall("auth")
 ```
+`pip install memesh`
 
-### 任何 LLM（OpenAI function calling 格式）
+</td>
+<td width="33%" align="center">
+
+**任何 LLM（OpenAI 格式）**
+```bash
+memesh export-schema \
+  --format openai
+```
+貼入任何 API 呼叫
+
+</td>
+</tr>
+</table>
+
+---
+
+## 為何不用 Mem0 / Zep？
+
+| | **MeMesh** | Mem0 | Zep |
+|---|---|---|---|
+| **安裝時間** | 5 秒 | 30–60 分鐘 | 30+ 分鐘 |
+| **設定方式** | `npm i -g` — 完成 | Neo4j + VectorDB + API 金鑰 | Neo4j + 設定 |
+| **儲存方式** | 單一 SQLite 檔案 | Neo4j + Qdrant | Neo4j |
+| **離線使用** | 支援，始終如此 | 不支援 | 不支援 |
+| **儀表板** | 內建（5 個頁籤） | 無 | 無 |
+| **依賴套件** | 6 | 20+ | 10+ |
+| **價格** | 永久免費 | 免費方案／付費 | 免費方案／付費 |
+
+**MeMesh 的取捨：** 放棄企業級多租戶功能，換來**即時安裝、零基礎設施、百分之百隱私**。
+
+---
+
+## 自動運作的功能
+
+你不需要手動記憶每一件事。MeMesh 有 **4 個 Hook**，在你不做任何事的情況下自動擷取知識：
+
+| 時機 | MeMesh 做了什麼 |
+|------|------------------|
+| **每次工作階段開始** | 依評分演算法載入最相關的記憶 |
+| **每次 `git commit` 後** | 記錄你的變更內容與差異統計 |
+| **Claude 結束時** | 擷取已編輯的檔案、已修復的錯誤及做出的決策 |
+| **上下文壓縮前** | 在知識因上下文限制消失前儲存起來 |
+
+> **隨時退出：** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## 智慧功能
+
+**🧠 智慧搜尋** — 搜尋「login security」就能找到關於「OAuth PKCE」的記憶。MeMesh 使用你設定的 LLM 將查詢擴展為相關詞彙。
+
+**📊 評分排名** — 結果依相關性（35%）+ 最近使用時間（25%）+ 使用頻率（20%）+ 可信度（15%）+ 資訊時效性（5%）排序。
+
+**🔄 知識演進** — 決策會改變。`forget` 是封存舊記憶（從不真正刪除）。`supersedes` 關係將舊記憶與新記憶連結。你的 AI 始終看到最新版本。
+
+**⚠️ 衝突偵測** — 若有兩條記憶相互矛盾，MeMesh 會發出警告。
+
+**📦 團隊共享** — `memesh export > team-knowledge.json` → 分享給團隊 → `memesh import team-knowledge.json`
+
+---
+
+## 啟用智慧模式（選用）
+
+MeMesh 預設完全離線運作。加入 LLM API 金鑰即可解鎖更聰明的搜尋：
 
 ```bash
-memesh export-schema --format openai
-# → JSON array of tools, paste into your OpenAI/Claude/Gemini API call
+memesh config set llm.provider anthropic
+memesh config set llm.api-key sk-ant-...
 ```
 
----
+或使用儀表板的設定頁籤（視覺化設定）：
 
-## 為什麼選擇 MeMesh？
+```bash
+memesh  # 開啟儀表板 → 設定頁籤
+```
 
-大多數 AI 記憶解決方案需要 Neo4j、向量資料庫、API 金鑰，以及超過 30 分鐘的設定時間。MeMesh 只需要**一條指令**。
-
-| | **MeMesh** | Mem0 | Zep | Anthropic Memory |
-|---|---|---|---|---|
-| **安裝** | `npm i -g`（5 秒） | pip + Neo4j + VectorDB | pip + Neo4j | 內建（雲端） |
-| **儲存** | 單一 SQLite 檔案 | Neo4j + Qdrant | Neo4j | 雲端 |
-| **搜尋** | FTS5 + 評分 + LLM 查詢擴展 | 語意搜尋 + BM25 | 時序圖 | 關鍵字查找 |
-| **隱私** | 100% 本地，始終如此 | 雲端選項 | 自架 | 雲端 |
-| **依賴套件** | 6 | 20+ | 10+ | 0（但鎖定雲端） |
-| **離線使用** | 支援 | 不支援 | 不支援 | 不支援 |
-| **儀表板** | 內建（5 個頁籤） | 無 | 無 | 無 |
-| **價格** | 免費 | 免費／付費 | 免費／付費 | 含於 API 方案 |
+| | 第 0 級（預設） | 第 1 級（智慧模式） |
+|---|---|---|
+| **搜尋** | FTS5 關鍵字匹配 | + LLM 查詢擴展（約 97% 召回率） |
+| **自動擷取** | 規則式模式 | + LLM 擷取決策與心得 |
+| **壓縮** | 不支援 | `consolidate` 壓縮冗長記憶 |
+| **費用** | 免費，無需 API 金鑰 | 約 $0.0001 每次搜尋（Haiku） |
 
 ---
 
-## 功能特色
-
-### 6 個記憶工具
+## 全部 6 個記憶工具
 
 | 工具 | 功能說明 |
 |------|-------------|
-| **remember** | 儲存知識，支援觀察記錄、關聯關係與標籤 |
-| **recall** | 智慧搜尋，結合多因子評分與 LLM 查詢擴展 |
-| **forget** | 軟封存（資料永不真正刪除）或移除特定觀察記錄 |
-| **consolidate** | 利用 LLM 壓縮冗長的記憶內容 |
-| **export** | 將記憶以 JSON 格式分享給其他專案或團隊成員 |
-| **import** | 匯入記憶，支援多種合併策略（跳過 / 覆寫 / 附加） |
-
-### 3 種存取方式
-
-| 方式 | 指令 | 最適合 |
-|--------|---------|----------|
-| **CLI** | `memesh` | 終端機、腳本自動化、CI/CD |
-| **HTTP API** | `memesh serve` | Python SDK、儀表板、第三方整合 |
-| **MCP** | `memesh-mcp` | Claude Code、Claude Desktop、任何 MCP 客戶端 |
-
-### 4 個自動擷取 Hook
-
-| Hook | 觸發時機 | 擷取內容 |
-|------|---------|-----------------|
-| **Session Start** | 每次工作階段開始 | 依相關性載入你的頂部記憶 |
-| **Post Commit** | `git commit` 之後 | 記錄提交內容與差異統計 |
-| **Session Summary** | Claude 結束時 | 編輯的檔案、修復的錯誤、做出的決策 |
-| **Pre-Compact** | 壓縮前 | 在上下文消失前儲存知識 |
-
-### 智慧功能
-
-- **知識演進** — `forget` 是封存，不是刪除。`supersedes` 關係以新決策取代舊決策，歷史完整保留。
-- **智慧召回** — LLM 將你的搜尋查詢擴展為相關詞彙。搜尋「login security」即可找到「OAuth PKCE」。
-- **多因子評分** — 結果依相關性（35%）、時效性（25%）、使用頻率（20%）、可信度（15%）與時間有效性（5%）排序。
-- **衝突偵測** — 當記憶互相矛盾時發出警告。
-- **自動衰減** — 超過 30 天未使用的陳舊記憶排名會逐漸降低，但永不刪除。
-- **命名空間** — `personal`、`team`、`global` 三種範圍，方便組織與共享。
+| `remember` | 儲存知識，支援觀察記錄、關聯關係與標籤 |
+| `recall` | 智慧搜尋，結合多因子評分與 LLM 查詢擴展 |
+| `forget` | 軟封存（從不真正刪除）或移除特定觀察記錄 |
+| `consolidate` | LLM 驅動的冗長記憶壓縮 |
+| `export` | 將記憶以 JSON 格式分享給其他專案或團隊成員 |
+| `import` | 匯入記憶，支援合併策略（跳過 / 覆寫 / 附加） |
 
 ---
 
@@ -158,32 +213,22 @@ memesh export-schema --format openai
                     (~/.memesh/knowledge-graph.db)
 ```
 
-**核心引擎**與框架無關 — 無論從終端機、HTTP 還是 MCP 呼叫，`remember`/`recall`/`forget` 的邏輯完全相同。
-
-**依賴套件**：`better-sqlite3`、`sqlite-vec`、`@modelcontextprotocol/sdk`、`zod`、`express`、`commander`
+核心引擎與框架無關。無論從終端機、HTTP 還是 MCP 呼叫，邏輯完全相同。
 
 ---
 
-## 開發
+## 貢獻
 
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory
-npm install
-npm run build
+cd memesh-llm-memory && npm install && npm run build
 npm test -- --run    # 289 tests
 ```
 
-儀表板開發：
-```bash
-cd dashboard
-npm install
-npm run dev          # Vite dev server with hot reload
-npm run build        # Build to single HTML file
-```
+儀表板：`cd dashboard && npm install && npm run dev`
 
 ---
 
-## 授權條款
-
-MIT — [PCIRCLE AI](https://pcircle.ai)
+<p align="center">
+  <strong>MIT</strong> — 由 <a href="https://pcircle.ai">PCIRCLE AI</a> 開發
+</p>

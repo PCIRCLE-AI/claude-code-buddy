@@ -17,127 +17,182 @@
 
 ---
 
-AI는 세션이 끝나면 모든 것을 잊어버립니다. **MeMesh가 이 문제를 해결합니다.**
+## 문제의 본질
 
-한 번 설치하고 30초 만에 설정하면, 사용하는 모든 AI 도구 — Claude, GPT, LLaMA, 또는 MCP 클라이언트 — 가 영속적이고 검색 가능한, 계속 진화하는 메모리를 갖게 됩니다. 클라우드 없이. Neo4j 없이. 벡터 데이터베이스 없이. SQLite 파일 하나면 충분합니다.
+AI는 세션이 끝날 때마다 모든 것을 잊어버립니다. 모든 결정, 모든 버그 수정, 모든 교훈——사라집니다. 같은 맥락을 반복해서 설명하고, Claude는 같은 패턴을 다시 발견하며, 팀의 AI 지식은 매번 제로로 초기화됩니다.
+
+**MeMesh는 모든 AI에게 지속적이고, 검색 가능하며, 진화하는 메모리를 제공합니다.**
+
+---
+
+## 60초 만에 시작하기
+
+### 1단계: 설치
 
 ```bash
 npm install -g @pcircle/memesh
 ```
 
----
-
-## 대시보드
-
-<p align="center">
-  <img src="docs/images/dashboard-search.png" alt="MeMesh Search" width="100%" />
-</p>
-
-<p align="center">
-  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics" width="100%" />
-</p>
-
-<p align="center">
-  <img src="docs/images/dashboard-browse.png" alt="MeMesh Browse" width="100%" />
-</p>
-
-`memesh`를 실행하면 검색, 탐색, 분석, 관리, 설정 5개 탭이 있는 인터랙티브 대시보드가 열립니다.
-
----
-
-## 빠른 시작
+### 2단계: AI가 기억하기
 
 ```bash
-# 메모리 저장하기
 memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
-
-# 메모리 검색하기 (스마트 모드에서 "login security"로 검색해도 "OAuth"를 찾습니다)
-memesh recall "login security"
-
-# 오래된 메모리 보관하기 (소프트 삭제 — 데이터는 영원히 사라지지 않습니다)
-memesh forget --name "old-auth-design"
-
-# 대시보드 열기
-memesh
-
-# HTTP API 시작하기 (Python SDK, 외부 연동용)
-memesh serve
 ```
 
-### Python
+### 3단계: AI가 떠올리기
 
+```bash
+memesh recall "login security"
+# → 다른 단어로 검색해도 "OAuth 2.0 with PKCE"를 찾아냅니다
+```
+
+**끝입니다.** MeMesh가 세션을 넘나들며 기억하고 떠올리기 시작했습니다.
+
+대시보드를 열어 메모리를 탐색해보세요:
+
+```bash
+memesh
+```
+
+<p align="center">
+  <img src="docs/images/dashboard-search.png" alt="MeMesh Search — 어떤 메모리도 즉시 검색" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — AI의 지식을 한눈에 파악" width="100%" />
+</p>
+
+---
+
+## 누구를 위한 도구인가?
+
+| 당신이…라면 | MeMesh가 이렇게 도와줍니다 |
+|---------------|---------------------|
+| **Claude Code를 사용하는 개발자** | 결정, 패턴, 교훈을 세션을 넘나들며 자동으로 기억 |
+| **LLM으로 제품을 만드는 팀** | 내보내기/가져오기로 팀 지식을 공유하고 모두의 AI 맥락을 정렬 |
+| **AI 에이전트 개발자** | MCP, HTTP API, Python SDK를 통해 에이전트에 지속 메모리 부여 |
+| **여러 AI 도구를 쓰는 파워 유저** | Claude, GPT, LLaMA, Ollama 또는 모든 MCP 클라이언트와 작동하는 단일 메모리 레이어 |
+
+---
+
+## 모든 것과 연동
+
+<table>
+<tr>
+<td width="33%" align="center">
+
+**Claude Code / Desktop**
+```bash
+memesh-mcp
+```
+MCP 프로토콜 (자동 설정)
+
+</td>
+<td width="33%" align="center">
+
+**Python / LangChain**
 ```python
 from memesh import MeMesh
-
-m = MeMesh()  # connects to localhost:3737
-m.remember("auth", "decision", observations=["Use OAuth 2.0 with PKCE"])
-results = m.recall("auth")
+m = MeMesh()
+m.recall("auth")
 ```
+`pip install memesh`
 
-### 모든 LLM (OpenAI function calling 형식)
+</td>
+<td width="33%" align="center">
+
+**모든 LLM (OpenAI 형식)**
+```bash
+memesh export-schema \
+  --format openai
+```
+어떤 API 호출에도 붙여넣기
+
+</td>
+</tr>
+</table>
+
+---
+
+## 왜 Mem0 / Zep가 아닌가?
+
+| | **MeMesh** | Mem0 | Zep |
+|---|---|---|---|
+| **설치 시간** | 5초 | 30~60분 | 30분 이상 |
+| **설정 방법** | `npm i -g` — 완료 | Neo4j + VectorDB + API 키 | Neo4j + 설정 |
+| **저장소** | SQLite 파일 하나 | Neo4j + Qdrant | Neo4j |
+| **오프라인 사용** | 항상 가능 | 불가 | 불가 |
+| **대시보드** | 내장 (5개 탭) | 없음 | 없음 |
+| **의존성** | 6개 | 20개 이상 | 10개 이상 |
+| **가격** | 영구 무료 | 무료 티어 / 유료 | 무료 티어 / 유료 |
+
+**MeMesh의 트레이드오프:** 엔터프라이즈급 멀티테넌트 기능을 포기하는 대신 **즉시 설치, 제로 인프라, 100% 프라이버시**를 얻습니다.
+
+---
+
+## 자동으로 일어나는 일들
+
+모든 것을 직접 기억할 필요가 없습니다. MeMesh에는 **4개의 훅**이 있어 아무것도 하지 않아도 지식을 자동으로 포착합니다:
+
+| 언제 | MeMesh가 하는 일 |
+|------|------------------|
+| **모든 세션 시작 시** | 스코어링 알고리즘으로 가장 관련성 높은 메모리를 로드 |
+| **모든 `git commit` 후** | 변경 내용과 diff 통계를 기록 |
+| **Claude 종료 시** | 편집한 파일, 수정한 오류, 내린 결정을 포착 |
+| **컨텍스트 압축 전** | 컨텍스트 한계로 사라지기 전에 지식을 저장 |
+
+> **언제든 비활성화:** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## 스마트 기능
+
+**🧠 스마트 검색** — "login security"를 검색하면 "OAuth PKCE"에 관한 메모리를 찾아냅니다. 설정한 LLM을 이용해 쿼리를 관련 용어로 확장합니다.
+
+**📊 점수 기반 순위** — 결과는 관련성(35%) + 최근 사용 시각(25%) + 사용 빈도(20%) + 신뢰도(15%) + 정보 유효성(5%)으로 순위를 매깁니다.
+
+**🔄 지식 진화** — 결정은 바뀝니다. `forget`은 오래된 메모리를 아카이브합니다(절대 삭제하지 않습니다). `supersedes` 관계가 이전 것과 새 것을 연결합니다. AI는 항상 최신 버전을 참조합니다.
+
+**⚠️ 충돌 감지** — 두 메모리가 서로 모순될 경우 MeMesh가 경고를 보냅니다.
+
+**📦 팀 공유** — `memesh export > team-knowledge.json` → 팀과 공유 → `memesh import team-knowledge.json`
+
+---
+
+## 스마트 모드 활성화 (선택 사항)
+
+MeMesh는 기본적으로 완전히 오프라인으로 동작합니다. LLM API 키를 추가하면 더 스마트한 검색을 사용할 수 있습니다:
 
 ```bash
-memesh export-schema --format openai
-# → JSON array of tools, paste into your OpenAI/Claude/Gemini API call
+memesh config set llm.provider anthropic
+memesh config set llm.api-key sk-ant-...
 ```
 
----
+또는 대시보드 설정 탭에서 시각적으로 설정:
 
-## 왜 MeMesh인가?
+```bash
+memesh  # 대시보드 열기 → 설정 탭
+```
 
-대부분의 AI 메모리 솔루션은 Neo4j, 벡터 데이터베이스, API 키, 그리고 30분 이상의 설정 시간이 필요합니다. MeMesh는 **명령어 하나**면 충분합니다.
-
-| | **MeMesh** | Mem0 | Zep | Anthropic Memory |
-|---|---|---|---|---|
-| **설치** | `npm i -g` (5초) | pip + Neo4j + VectorDB | pip + Neo4j | 내장 (클라우드) |
-| **저장소** | SQLite 파일 하나 | Neo4j + Qdrant | Neo4j | 클라우드 |
-| **검색** | FTS5 + 스코어링 + LLM 쿼리 확장 | 시맨틱 + BM25 | 시간 그래프 | 키 검색 |
-| **프라이버시** | 100% 로컬, 항상 | 클라우드 옵션 | 자체 호스팅 | 클라우드 |
-| **의존성** | 6개 | 20개 이상 | 10개 이상 | 0개 (단, 클라우드 종속) |
-| **오프라인** | 지원 | 미지원 | 미지원 | 미지원 |
-| **대시보드** | 내장 (5개 탭) | 없음 | 없음 | 없음 |
-| **가격** | 무료 | 무료/유료 | 무료/유료 | API 포함 |
+| | 레벨 0 (기본값) | 레벨 1 (스마트 모드) |
+|---|---|---|
+| **검색** | FTS5 키워드 매칭 | + LLM 쿼리 확장 (~97% 재현율) |
+| **자동 포착** | 규칙 기반 패턴 | + LLM이 결정 & 교훈 추출 |
+| **압축** | 사용 불가 | `consolidate`로 장황한 메모리 압축 |
+| **비용** | 무료, API 키 불필요 | 검색당 ~$0.0001 (Haiku) |
 
 ---
 
-## 기능
-
-### 6가지 메모리 도구
+## 전체 6가지 메모리 도구
 
 | 도구 | 기능 |
 |------|-------------|
-| **remember** | 관찰 기록, 관계, 태그와 함께 지식 저장 |
-| **recall** | 다중 요소 스코어링과 LLM 쿼리 확장을 활용한 스마트 검색 |
-| **forget** | 소프트 보관 (삭제 없음) 또는 특정 관찰 기록 제거 |
-| **consolidate** | LLM을 이용한 장황한 메모리 압축 |
-| **export** | 메모리를 JSON으로 프로젝트 또는 팀원과 공유 |
-| **import** | 병합 전략(건너뛰기 / 덮어쓰기 / 추가)을 선택해 메모리 가져오기 |
-
-### 3가지 접근 방법
-
-| 방법 | 명령어 | 최적 용도 |
-|--------|---------|----------|
-| **CLI** | `memesh` | 터미널, 스크립팅, CI/CD |
-| **HTTP API** | `memesh serve` | Python SDK, 대시보드, 외부 연동 |
-| **MCP** | `memesh-mcp` | Claude Code, Claude Desktop, 모든 MCP 클라이언트 |
-
-### 4가지 자동 캡처 훅
-
-| 훅 | 트리거 | 캡처 내용 |
-|------|---------|-----------------|
-| **Session Start** | 매 세션 시작 | 관련성 상위 메모리 로드 |
-| **Post Commit** | `git commit` 후 | 변경 통계와 함께 커밋 기록 |
-| **Session Summary** | Claude 종료 시 | 편집 파일, 수정된 오류, 결정 사항 |
-| **Pre-Compact** | 컴팩션 전 | 컨텍스트 소실 전 지식 저장 |
-
-### 스마트 기능
-
-- **지식 진화** — `forget`은 보관이지 삭제가 아닙니다. `supersedes` 관계로 오래된 결정을 새것으로 교체하면서 역사는 고스란히 보존됩니다.
-- **스마트 리콜** — LLM이 검색 쿼리를 연관 용어로 확장합니다. "login security"로 "OAuth PKCE"를 찾을 수 있습니다.
-- **다중 요소 스코어링** — 결과는 관련성(35%) + 최신성(25%) + 빈도(20%) + 신뢰도(15%) + 시간적 유효성(5%)으로 순위를 매깁니다.
-- **충돌 감지** — 메모리가 서로 모순될 때 경고합니다.
-- **자동 감쇠** — 30일 이상 사용되지 않은 낡은 메모리는 순위가 서서히 내려갑니다. 삭제는 없습니다.
-- **네임스페이스** — `personal`, `team`, `global` 범위로 정리하고 공유할 수 있습니다.
+| `remember` | 관찰 기록, 관계, 태그와 함께 지식 저장 |
+| `recall` | 다중 요소 스코어링과 LLM 쿼리 확장을 활용한 스마트 검색 |
+| `forget` | 소프트 아카이브(절대 삭제 없음) 또는 특정 관찰 기록 제거 |
+| `consolidate` | LLM 기반 장황한 메모리 압축 |
+| `export` | 메모리를 JSON으로 프로젝트 또는 팀원과 공유 |
+| `import` | 병합 전략(건너뛰기 / 덮어쓰기 / 추가)을 선택해 메모리 가져오기 |
 
 ---
 
@@ -158,32 +213,22 @@ memesh export-schema --format openai
                     (~/.memesh/knowledge-graph.db)
 ```
 
-**코어 엔진**은 프레임워크에 독립적입니다 — `remember`/`recall`/`forget` 로직은 터미널, HTTP, MCP 어디서 호출하든 동일하게 작동합니다.
-
-**의존성**: `better-sqlite3`, `sqlite-vec`, `@modelcontextprotocol/sdk`, `zod`, `express`, `commander`
+코어는 프레임워크 독립적. 터미널, HTTP, MCP 어디서 호출해도 동일한 로직이 실행됩니다.
 
 ---
 
-## 개발
+## 기여하기
 
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory
-npm install
-npm run build
+cd memesh-llm-memory && npm install && npm run build
 npm test -- --run    # 289 tests
 ```
 
-대시보드 개발:
-```bash
-cd dashboard
-npm install
-npm run dev          # Vite dev server with hot reload
-npm run build        # Build to single HTML file
-```
+대시보드: `cd dashboard && npm install && npm run dev`
 
 ---
 
-## 라이선스
-
-MIT — [PCIRCLE AI](https://pcircle.ai)
+<p align="center">
+  <strong>MIT</strong> — <a href="https://pcircle.ai">PCIRCLE AI</a> 제작
+</p>

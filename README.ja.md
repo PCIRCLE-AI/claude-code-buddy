@@ -17,127 +17,182 @@
 
 ---
 
-AI はセッションをまたぐとすべてを忘れてしまいます。**MeMesh がその問題を解決します。**
+## 問題の本質
 
-一度インストールして 30 秒で設定すれば、あなたが使うすべての AI ツール — Claude、GPT、LLaMA、または任意の MCP クライアント — が永続的で検索可能な、進化し続けるメモリを持てます。クラウド不要。Neo4j 不要。ベクターデータベース不要。SQLite ファイル 1 つだけ。
+AI はセッションをまたぐたびにすべてを忘れます。すべての決断、すべてのバグ修正、すべての学び——消えてしまいます。同じコンテキストを何度も説明し直し、Claude は同じパターンを再発見し、チームの AI 知識は毎回ゼロにリセットされます。
+
+**MeMesh はすべての AI に、永続的で検索可能な、進化し続けるメモリを与えます。**
+
+---
+
+## 60 秒で始める
+
+### ステップ 1: インストール
 
 ```bash
 npm install -g @pcircle/memesh
 ```
 
----
-
-## ダッシュボード
-
-<p align="center">
-  <img src="docs/images/dashboard-search.png" alt="MeMesh Search" width="100%" />
-</p>
-
-<p align="center">
-  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics" width="100%" />
-</p>
-
-<p align="center">
-  <img src="docs/images/dashboard-browse.png" alt="MeMesh Browse" width="100%" />
-</p>
-
-`memesh` を実行してインタラクティブなダッシュボードを開きます。検索・ブラウズ・アナリティクス・管理・設定の 5 つのタブが利用できます。
-
----
-
-## クイックスタート
+### ステップ 2: AI が記憶する
 
 ```bash
-# メモリを保存する
 memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
-
-# メモリを検索する（スマートモードでは「login security」で「OAuth」も見つかります）
-memesh recall "login security"
-
-# 古いメモリをアーカイブする（ソフト削除で、データは永遠に失われません）
-memesh forget --name "old-auth-design"
-
-# ダッシュボードを開く
-memesh
-
-# HTTP API を起動する（Python SDK・外部連携向け）
-memesh serve
 ```
 
-### Python
+### ステップ 3: AI が思い出す
 
+```bash
+memesh recall "login security"
+# → 別の言葉で検索しても「OAuth 2.0 with PKCE」が見つかります
+```
+
+**以上です。** MeMesh はセッションをまたいで記憶・想起を始めています。
+
+ダッシュボードを開いてメモリを探索してみましょう：
+
+```bash
+memesh
+```
+
+<p align="center">
+  <img src="docs/images/dashboard-search.png" alt="MeMesh Search — 任意のメモリを瞬時に検索" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — AI の知識を可視化" width="100%" />
+</p>
+
+---
+
+## 誰のためのツールか？
+
+| あなたが…なら | MeMesh はこう役立てます |
+|---------------|---------------------|
+| **Claude Code を使う開発者** | 決断・パターン・学びをセッションをまたいで自動的に記憶 |
+| **LLM でプロダクトを作るチーム** | エクスポート/インポートでチーム知識を共有し、全員の AI コンテキストを統一 |
+| **AI エージェント開発者** | MCP・HTTP API・Python SDK 経由でエージェントに永続メモリを付与 |
+| **複数の AI ツールを使うパワーユーザー** | Claude・GPT・LLaMA・Ollama または任意の MCP クライアントで使える共通メモリ層 |
+
+---
+
+## あらゆるものと連携
+
+<table>
+<tr>
+<td width="33%" align="center">
+
+**Claude Code / Desktop**
+```bash
+memesh-mcp
+```
+MCP プロトコル（自動設定済み）
+
+</td>
+<td width="33%" align="center">
+
+**Python / LangChain**
 ```python
 from memesh import MeMesh
-
-m = MeMesh()  # connects to localhost:3737
-m.remember("auth", "decision", observations=["Use OAuth 2.0 with PKCE"])
-results = m.recall("auth")
+m = MeMesh()
+m.recall("auth")
 ```
+`pip install memesh`
 
-### あらゆる LLM（OpenAI function calling 形式）
+</td>
+<td width="33%" align="center">
+
+**任意の LLM（OpenAI 形式）**
+```bash
+memesh export-schema \
+  --format openai
+```
+任意の API 呼び出しに貼り付け
+
+</td>
+</tr>
+</table>
+
+---
+
+## なぜ Mem0 / Zep ではないのか？
+
+| | **MeMesh** | Mem0 | Zep |
+|---|---|---|---|
+| **セットアップ時間** | 5 秒 | 30〜60 分 | 30 分以上 |
+| **設定方法** | `npm i-g` — 完了 | Neo4j + VectorDB + API キー | Neo4j + 設定 |
+| **ストレージ** | SQLite ファイル 1 つ | Neo4j + Qdrant | Neo4j |
+| **オフライン利用** | 常時対応 | 非対応 | 非対応 |
+| **ダッシュボード** | 組み込み（5 タブ） | なし | なし |
+| **依存関係** | 6 | 20+ | 10+ |
+| **価格** | 永久無料 | 無料枠 / 有料 | 無料枠 / 有料 |
+
+**MeMesh のトレードオフ：** エンタープライズ向けマルチテナント機能を省き、**即時セットアップ・インフラ不要・完全プライバシー**を実現しています。
+
+---
+
+## 自動で動く仕組み
+
+すべてを手動で記憶する必要はありません。MeMesh には **4 つのフック**があり、何もしなくても知識を自動的にキャプチャします：
+
+| タイミング | MeMesh が行うこと |
+|------|------------------|
+| **セッション開始時** | スコアリングアルゴリズムで最も関連性の高いメモリを読み込む |
+| **`git commit` 後** | 変更内容と差分統計を記録する |
+| **Claude 終了時** | 編集したファイル・修正したエラー・下した決断をキャプチャする |
+| **コンテキスト圧縮前** | コンテキスト上限で失われる前に知識を保存する |
+
+> **いつでも無効化：** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## スマート機能
+
+**🧠 スマート検索** — 「login security」で「OAuth PKCE」に関するメモリが見つかります。設定した LLM を使ってクエリを関連語に展開します。
+
+**📊 スコアリングランキング** — 結果は関連性（35%）+ 最終使用日（25%）+ 使用頻度（20%）+ 信頼度（15%）+ 情報の有効期限（5%）で順位付けされます。
+
+**🔄 知識の進化** — 決断は変わります。`forget` は古いメモリをアーカイブします（削除はしません）。`supersedes` の関係で古いものと新しいものをつなぎます。AI は常に最新版を参照します。
+
+**⚠️ 矛盾検出** — 2 つのメモリが相互に矛盾している場合、MeMesh が警告を出します。
+
+**📦 チーム共有** — `memesh export > team-knowledge.json` → チームと共有 → `memesh import team-knowledge.json`
+
+---
+
+## スマートモードを有効にする（任意）
+
+MeMesh はデフォルトで完全にオフラインで動作します。LLM API キーを追加するとより賢い検索が使えます：
 
 ```bash
-memesh export-schema --format openai
-# → JSON array of tools, paste into your OpenAI/Claude/Gemini API call
+memesh config set llm.provider anthropic
+memesh config set llm.api-key sk-ant-...
 ```
 
----
+またはダッシュボードの設定タブで視覚的に設定：
 
-## なぜ MeMesh なのか？
+```bash
+memesh  # ダッシュボードを開く → 設定タブ
+```
 
-多くの AI メモリソリューションは Neo4j、ベクターデータベース、API キー、そして 30 分以上のセットアップ時間を必要とします。MeMesh は**コマンド 1 つ**で済みます。
-
-| | **MeMesh** | Mem0 | Zep | Anthropic Memory |
-|---|---|---|---|---|
-| **インストール** | `npm i -g`（5 秒） | pip + Neo4j + VectorDB | pip + Neo4j | 組み込み（クラウド） |
-| **ストレージ** | SQLite ファイル 1 つ | Neo4j + Qdrant | Neo4j | クラウド |
-| **検索** | FTS5 + スコアリング + LLM クエリ拡張 | セマンティック + BM25 | 時系列グラフ | キー検索 |
-| **プライバシー** | 常に 100% ローカル | クラウドオプションあり | セルフホスト | クラウド |
-| **依存関係** | 6 | 20+ | 10+ | 0（ただしクラウド依存） |
-| **オフライン** | 対応 | 非対応 | 非対応 | 非対応 |
-| **ダッシュボード** | 組み込み（5 タブ） | なし | なし | なし |
-| **価格** | 無料 | 無料/有料 | 無料/有料 | API に含む |
+| | レベル 0（デフォルト） | レベル 1（スマートモード） |
+|---|---|---|
+| **検索** | FTS5 キーワードマッチング | + LLM クエリ展開（約 97% 再現率） |
+| **自動キャプチャ** | ルールベースのパターン | + LLM が決断・学びを抽出 |
+| **圧縮** | 利用不可 | `consolidate` で冗長なメモリを圧縮 |
+| **コスト** | 無料・API キー不要 | 検索 1 回約 $0.0001（Haiku） |
 
 ---
 
-## 機能
-
-### 6 つのメモリツール
+## 全 6 つのメモリツール
 
 | ツール | 機能 |
 |------|-------------|
-| **remember** | 観察記録・関係性・タグとともに知識を保存 |
-| **recall** | 多因子スコアリングと LLM クエリ拡張によるスマート検索 |
-| **forget** | ソフトアーカイブ（完全削除なし）または特定の観察記録を削除 |
-| **consolidate** | LLM を使って冗長なメモリを圧縮 |
-| **export** | メモリを JSON 形式でプロジェクトやチームメンバーと共有 |
-| **import** | マージ戦略（スキップ / 上書き / 追加）を選んでメモリをインポート |
-
-### 3 つのアクセス方法
-
-| 方法 | コマンド | 最適な用途 |
-|--------|---------|----------|
-| **CLI** | `memesh` | ターミナル・スクリプト・CI/CD |
-| **HTTP API** | `memesh serve` | Python SDK・ダッシュボード・外部連携 |
-| **MCP** | `memesh-mcp` | Claude Code・Claude Desktop・任意の MCP クライアント |
-
-### 4 つの自動キャプチャフック
-
-| フック | トリガー | キャプチャ内容 |
-|------|---------|-----------------|
-| **Session Start** | セッション開始時 | 関連性上位のメモリを読み込む |
-| **Post Commit** | `git commit` 後 | 差分統計付きでコミットを記録 |
-| **Session Summary** | Claude 終了時 | 編集ファイル・修正エラー・下した決断 |
-| **Pre-Compact** | コンパクション前 | コンテキスト消失前に知識を保存 |
-
-### スマート機能
-
-- **知識の進化** — `forget` はアーカイブであり削除ではありません。`supersedes` の関係で古い決断を新しいものに置き換えながら、履歴は完全に保持されます。
-- **スマートリコール** — LLM が検索クエリを関連語に展開します。「login security」で「OAuth PKCE」が見つかります。
-- **多因子スコアリング** — 結果は関連性（35%）・新鮮さ（25%）・使用頻度（20%）・信頼度（15%）・時間的有効性（5%）で順位付けされます。
-- **矛盾検出** — メモリが互いに矛盾するときに警告を発します。
-- **自動減衰** — 30 日以上使われていない古いメモリはランクが徐々に下がりますが、削除はされません。
-- **ネームスペース** — `personal`・`team`・`global` のスコープで整理・共有が可能です。
+| `remember` | 観察記録・関係性・タグとともに知識を保存 |
+| `recall` | 多因子スコアリングと LLM クエリ展開によるスマート検索 |
+| `forget` | ソフトアーカイブ（完全削除なし）または特定の観察記録を削除 |
+| `consolidate` | LLM を使って冗長なメモリを圧縮 |
+| `export` | メモリを JSON でプロジェクトやチームメンバーと共有 |
+| `import` | マージ戦略（スキップ / 上書き / 追加）を選んでメモリをインポート |
 
 ---
 
@@ -158,32 +213,22 @@ memesh export-schema --format openai
                     (~/.memesh/knowledge-graph.db)
 ```
 
-**コアエンジン**はフレームワークに依存しません — `remember`/`recall`/`forget` のロジックは、ターミナル・HTTP・MCP のいずれから呼び出しても同一です。
-
-**依存関係**：`better-sqlite3`、`sqlite-vec`、`@modelcontextprotocol/sdk`、`zod`、`express`、`commander`
+コアはフレームワーク非依存。ターミナル・HTTP・MCP のいずれから呼び出しても、同じロジックが実行されます。
 
 ---
 
-## 開発
+## コントリビュート
 
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory
-npm install
-npm run build
+cd memesh-llm-memory && npm install && npm run build
 npm test -- --run    # 289 tests
 ```
 
-ダッシュボード開発：
-```bash
-cd dashboard
-npm install
-npm run dev          # Vite dev server with hot reload
-npm run build        # Build to single HTML file
-```
+ダッシュボード：`cd dashboard && npm install && npm run dev`
 
 ---
 
-## ライセンス
-
-MIT — [PCIRCLE AI](https://pcircle.ai)
+<p align="center">
+  <strong>MIT</strong> — <a href="https://pcircle.ai">PCIRCLE AI</a> 制作
+</p>

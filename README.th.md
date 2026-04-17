@@ -17,127 +17,182 @@
 
 ---
 
-AI ของคุณลืมทุกอย่างระหว่าง session **MeMesh แก้ปัญหานี้ได้**
+## ปัญหาที่เกิดขึ้น
 
-ติดตั้งครั้งเดียว ตั้งค่าใน 30 วินาที แล้วทุกเครื่องมือ AI ที่คุณใช้ — Claude, GPT, LLaMA หรือ MCP client ใดก็ตาม — จะมีหน่วยความจำที่คงทน ค้นหาได้ และพัฒนาอย่างต่อเนื่อง ไม่ต้องใช้คลาวด์ ไม่ต้องใช้ Neo4j ไม่ต้องใช้ฐานข้อมูลเวกเตอร์ แค่ไฟล์ SQLite เดียวเท่านั้น
+AI ของคุณลืมทุกอย่างหลังจากจบแต่ละ session ทุกการตัดสินใจ ทุกการแก้บัก ทุกบทเรียนที่ได้รับ — หายไปหมด คุณต้องอธิบายบริบทเดิมซ้ำแล้วซ้ำเล่า Claude ค้นพบ pattern เดิมอีกครั้ง และความรู้ AI ของทีมก็รีเซ็ตกลับเป็นศูนย์ทุกครั้ง
+
+**MeMesh มอบหน่วยความจำที่ยั่งยืน ค้นหาได้ และพัฒนาอยู่เสมอให้กับทุก AI**
+
+---
+
+## เริ่มต้นใน 60 วินาที
+
+### ขั้นตอนที่ 1: ติดตั้ง
 
 ```bash
 npm install -g @pcircle/memesh
 ```
 
----
-
-## แดชบอร์ด
-
-<p align="center">
-  <img src="docs/images/dashboard-search.png" alt="MeMesh Search" width="100%" />
-</p>
-
-<p align="center">
-  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics" width="100%" />
-</p>
-
-<p align="center">
-  <img src="docs/images/dashboard-browse.png" alt="MeMesh Browse" width="100%" />
-</p>
-
-รัน `memesh` เพื่อเปิดแดชบอร์ดแบบโต้ตอบที่มี 5 แท็บ ได้แก่ ค้นหา เรียกดู วิเคราะห์ จัดการ และตั้งค่า
-
----
-
-## เริ่มต้นอย่างรวดเร็ว
+### ขั้นตอนที่ 2: AI ของคุณจดจำ
 
 ```bash
-# บันทึกความจำ
 memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
-
-# ค้นหาความจำ (โหมดอัจฉริยะ: ค้น "login security" ก็พบ "OAuth" ได้)
-memesh recall "login security"
-
-# เก็บถาวรความจำที่ล้าสมัย (ลบแบบนุ่มนวล — ไม่มีอะไรหายไปตลอดกาล)
-memesh forget --name "old-auth-design"
-
-# เปิดแดชบอร์ด
-memesh
-
-# เริ่ม HTTP API (สำหรับ Python SDK และการเชื่อมต่อภายนอก)
-memesh serve
 ```
 
-### Python
+### ขั้นตอนที่ 3: AI ของคุณเรียกคืน
 
+```bash
+memesh recall "login security"
+# → ค้นพบ "OAuth 2.0 with PKCE" แม้จะค้นด้วยคำอื่น
+```
+
+**แค่นี้เอง** MeMesh เริ่มจดจำและเรียกคืนข้ามแต่ละ session แล้ว
+
+เปิด dashboard เพื่อสำรวจหน่วยความจำของคุณ:
+
+```bash
+memesh
+```
+
+<p align="center">
+  <img src="docs/images/dashboard-search.png" alt="MeMesh Search — ค้นหาความจำใดก็ได้ทันที" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — ทำความเข้าใจความรู้ของ AI คุณ" width="100%" />
+</p>
+
+---
+
+## เหมาะสำหรับใคร?
+
+| ถ้าคุณเป็น... | MeMesh ช่วยคุณ... |
+|---------------|---------------------|
+| **นักพัฒนาที่ใช้ Claude Code** | จดจำการตัดสินใจ pattern และบทเรียนข้าม session โดยอัตโนมัติ |
+| **ทีมที่สร้างผลิตภัณฑ์ด้วย LLM** | แชร์ความรู้ของทีมผ่านการส่งออก/นำเข้า และรักษา AI context ของทุกคนให้สอดคล้องกัน |
+| **นักพัฒนา AI agent** | มอบหน่วยความจำถาวรให้กับ agent ผ่าน MCP, HTTP API หรือ Python SDK |
+| **ผู้ใช้ขั้นสูงที่มีเครื่องมือ AI หลายตัว** | เลเยอร์หน่วยความจำเดียวที่ใช้ได้กับ Claude, GPT, LLaMA, Ollama หรือ MCP client ใดก็ได้ |
+
+---
+
+## ทำงานร่วมกับทุกอย่าง
+
+<table>
+<tr>
+<td width="33%" align="center">
+
+**Claude Code / Desktop**
+```bash
+memesh-mcp
+```
+โปรโตคอล MCP (ตั้งค่าอัตโนมัติ)
+
+</td>
+<td width="33%" align="center">
+
+**Python / LangChain**
 ```python
 from memesh import MeMesh
-
-m = MeMesh()  # connects to localhost:3737
-m.remember("auth", "decision", observations=["Use OAuth 2.0 with PKCE"])
-results = m.recall("auth")
+m = MeMesh()
+m.recall("auth")
 ```
+`pip install memesh`
 
-### ทุก LLM (รูปแบบ OpenAI function calling)
+</td>
+<td width="33%" align="center">
+
+**ทุก LLM (รูปแบบ OpenAI)**
+```bash
+memesh export-schema \
+  --format openai
+```
+วาง tools ลงใน API call ใดก็ได้
+
+</td>
+</tr>
+</table>
+
+---
+
+## ทำไมไม่ใช้ Mem0 / Zep?
+
+| | **MeMesh** | Mem0 | Zep |
+|---|---|---|---|
+| **เวลาติดตั้ง** | 5 วินาที | 30–60 นาที | 30+ นาที |
+| **การตั้งค่า** | `npm i -g` — เสร็จ | Neo4j + VectorDB + API key | Neo4j + config |
+| **การจัดเก็บ** | ไฟล์ SQLite เดียว | Neo4j + Qdrant | Neo4j |
+| **ใช้ออฟไลน์ได้** | ได้ เสมอ | ไม่ได้ | ไม่ได้ |
+| **Dashboard** | ในตัว (5 แท็บ) | ไม่มี | ไม่มี |
+| **Dependencies** | 6 | 20+ | 10+ |
+| **ราคา** | ฟรีตลอดชีพ | แผนฟรี / เสียเงิน | แผนฟรี / เสียเงิน |
+
+**MeMesh แลกเปลี่ยน:** ฟีเจอร์ multi-tenant ระดับ enterprise เพื่อ**ติดตั้งทันที ไม่ต้องการ infrastructure และความเป็นส่วนตัว 100%**
+
+---
+
+## สิ่งที่เกิดขึ้นโดยอัตโนมัติ
+
+คุณไม่ต้องจดจำทุกอย่างด้วยตัวเอง MeMesh มี **4 hook** ที่จับความรู้โดยที่คุณไม่ต้องทำอะไร:
+
+| เมื่อไหร่ | MeMesh ทำอะไร |
+|------|------------------|
+| **ทุกครั้งที่เริ่ม session** | โหลดความจำที่เกี่ยวข้องมากที่สุดของคุณ (จัดอันดับด้วย scoring algorithm) |
+| **หลังทุก `git commit`** | บันทึกสิ่งที่คุณเปลี่ยน พร้อมสถิติ diff |
+| **เมื่อ Claude หยุดทำงาน** | จับไฟล์ที่แก้ไข บักที่แก้ไขแล้ว และการตัดสินใจที่เกิดขึ้น |
+| **ก่อนการบีบอัด context** | บันทึกความรู้ก่อนที่จะหายไปเพราะข้อจำกัดของ context |
+
+> **ปิดใช้งานได้ตลอดเวลา:** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## ฟีเจอร์อัจฉริยะ
+
+**🧠 Smart Search** — ค้น "login security" แล้วพบความจำเกี่ยวกับ "OAuth PKCE" MeMesh ขยายคำค้นด้วยคำที่เกี่ยวข้องผ่าน LLM ที่ตั้งค่าไว้
+
+**📊 Scored Ranking** — ผลลัพธ์จัดอันดับตาม ความเกี่ยวข้อง (35%) + ใช้ล่าสุดเมื่อไหร่ (25%) + ความถี่ (20%) + ความน่าเชื่อถือ (15%) + ข้อมูลยังทันสมัยหรือไม่ (5%)
+
+**🔄 Knowledge Evolution** — การตัดสินใจเปลี่ยนแปลงได้ `forget` เก็บถาวรความจำเก่า (ไม่ลบจริงๆ) ความสัมพันธ์ `supersedes` เชื่อมโยงเก่ากับใหม่ AI ของคุณเห็นเวอร์ชันล่าสุดเสมอ
+
+**⚠️ Conflict Detection** — ถ้ามีความจำสองอันที่ขัดแย้งกัน MeMesh จะแจ้งเตือน
+
+**📦 Team Sharing** — `memesh export > team-knowledge.json` → แชร์กับทีม → `memesh import team-knowledge.json`
+
+---
+
+## เปิดใช้ Smart Mode (ไม่บังคับ)
+
+MeMesh ทำงานออฟไลน์สมบูรณ์แบบโดยค่าเริ่มต้น เพิ่ม LLM API key เพื่อปลดล็อกการค้นหาที่ฉลาดขึ้น:
 
 ```bash
-memesh export-schema --format openai
-# → JSON array of tools, paste into your OpenAI/Claude/Gemini API call
+memesh config set llm.provider anthropic
+memesh config set llm.api-key sk-ant-...
 ```
 
----
+หรือใช้แท็บ Settings ใน dashboard (ตั้งค่าแบบ visual):
 
-## ทำไมต้อง MeMesh?
+```bash
+memesh  # เปิด dashboard → แท็บ Settings
+```
 
-โซลูชันหน่วยความจำ AI ส่วนใหญ่ต้องการ Neo4j ฐานข้อมูลเวกเตอร์ API key และเวลาตั้งค่ากว่า 30 นาที MeMesh ใช้เพียง**คำสั่งเดียว**
-
-| | **MeMesh** | Mem0 | Zep | Anthropic Memory |
-|---|---|---|---|---|
-| **ติดตั้ง** | `npm i -g` (5 วินาที) | pip + Neo4j + VectorDB | pip + Neo4j | ในตัว (คลาวด์) |
-| **จัดเก็บ** | ไฟล์ SQLite เดียว | Neo4j + Qdrant | Neo4j | คลาวด์ |
-| **ค้นหา** | FTS5 + scoring + LLM ขยายคำค้น | Semantic + BM25 | Temporal graph | ค้นหาด้วยคีย์ |
-| **ความเป็นส่วนตัว** | 100% ในเครื่อง เสมอ | ตัวเลือกคลาวด์ | Self-host | คลาวด์ |
-| **ความต้องการ** | 6 | 20+ | 10+ | 0 (แต่ผูกกับคลาวด์) |
-| **ออฟไลน์** | ใช่ | ไม่ | ไม่ | ไม่ |
-| **แดชบอร์ด** | ในตัว (5 แท็บ) | ไม่มี | ไม่มี | ไม่มี |
-| **ราคา** | ฟรี | ฟรี/เสียเงิน | ฟรี/เสียเงิน | รวมกับ API |
+| | ระดับ 0 (ค่าเริ่มต้น) | ระดับ 1 (Smart Mode) |
+|---|---|---|
+| **การค้นหา** | FTS5 keyword matching | + LLM query expansion (~97% recall) |
+| **Auto-capture** | Pattern ตามกฎ | + LLM ดึงการตัดสินใจและบทเรียน |
+| **การบีบอัด** | ไม่มี | `consolidate` บีบอัดความจำที่ยาวเกิน |
+| **ค่าใช้จ่าย** | ฟรี ไม่ต้องใช้ API key | ~$0.0001 ต่อการค้นหา (Haiku) |
 
 ---
 
-## ฟีเจอร์
-
-### เครื่องมือหน่วยความจำ 6 อย่าง
+## เครื่องมือหน่วยความจำทั้ง 6 อย่าง
 
 | เครื่องมือ | หน้าที่ |
 |------|-------------|
-| **remember** | บันทึกความรู้พร้อมการสังเกต ความสัมพันธ์ และแท็ก |
-| **recall** | ค้นหาอัจฉริยะด้วยการให้คะแนนหลายปัจจัยและการขยายคำค้นด้วย LLM |
-| **forget** | เก็บถาวรแบบนุ่มนวล (ไม่ลบจริง) หรือลบการสังเกตเฉพาะ |
-| **consolidate** | บีบอัดความจำที่ยืดเยื้อด้วย LLM |
-| **export** | แชร์ความจำในรูปแบบ JSON ระหว่างโปรเจกต์หรือสมาชิกทีม |
-| **import** | นำเข้าความจำด้วยกลยุทธ์การรวม (ข้าม / เขียนทับ / ต่อท้าย) |
-
-### 3 วิธีการเข้าถึง
-
-| วิธี | คำสั่ง | เหมาะที่สุดสำหรับ |
-|--------|---------|----------|
-| **CLI** | `memesh` | เทอร์มินัล สคริปต์ CI/CD |
-| **HTTP API** | `memesh serve` | Python SDK แดชบอร์ด การเชื่อมต่อ |
-| **MCP** | `memesh-mcp` | Claude Code, Claude Desktop, MCP client ทุกตัว |
-
-### 4 Hook จับข้อมูลอัตโนมัติ
-
-| Hook | ทริกเกอร์ | สิ่งที่จับได้ |
-|------|---------|-----------------|
-| **Session Start** | ทุก session | โหลดความจำสำคัญตามความเกี่ยวข้อง |
-| **Post Commit** | หลัง `git commit` | บันทึก commit พร้อมสถิติ diff |
-| **Session Summary** | เมื่อ Claude หยุด | ไฟล์ที่แก้ไข ข้อผิดพลาดที่แก้ไข การตัดสินใจที่เกิดขึ้น |
-| **Pre-Compact** | ก่อนการบีบอัด | บันทึกความรู้ก่อน context หาย |
-
-### ฟีเจอร์อัจฉริยะ
-
-- **วิวัฒนาการของความรู้** — `forget` คือการเก็บถาวร ไม่ใช่การลบ ความสัมพันธ์ `supersedes` แทนที่การตัดสินใจเก่าด้วยอันใหม่ ประวัติถูกเก็บรักษาไว้
-- **การเรียกคืนอัจฉริยะ** — LLM ขยายคำค้นหาของคุณเป็นคำที่เกี่ยวข้อง "login security" พบ "OAuth PKCE" ได้
-- **การให้คะแนนหลายปัจจัย** — ผลลัพธ์เรียงตามความเกี่ยวข้อง (35%) + ความใหม่ (25%) + ความถี่ (20%) + ความน่าเชื่อถือ (15%) + ความถูกต้องตามเวลา (5%)
-- **การตรวจจับความขัดแย้ง** — เตือนเมื่อความจำขัดแย้งกัน
-- **การสลายตัวอัตโนมัติ** — ความจำที่ล้าสมัย (ไม่ได้ใช้ 30+ วัน) จะลดอันดับลงเรื่อย ๆ แต่ไม่ถูกลบ
-- **Namespace** — ขอบเขต `personal`, `team`, `global` สำหรับจัดระเบียบและแชร์
+| `remember` | บันทึกความรู้พร้อมการสังเกต ความสัมพันธ์ และแท็ก |
+| `recall` | ค้นหาอัจฉริยะด้วย multi-factor scoring และการขยายคำค้นด้วย LLM |
+| `forget` | เก็บถาวรแบบนุ่มนวล (ไม่ลบจริง) หรือลบการสังเกตเฉพาะ |
+| `consolidate` | บีบอัดความจำที่ยืดเยื้อด้วย LLM |
+| `export` | แชร์ความจำในรูปแบบ JSON ระหว่างโปรเจกต์หรือสมาชิกทีม |
+| `import` | นำเข้าความจำด้วยกลยุทธ์การรวม (ข้าม / เขียนทับ / ต่อท้าย) |
 
 ---
 
@@ -158,32 +213,22 @@ memesh export-schema --format openai
                     (~/.memesh/knowledge-graph.db)
 ```
 
-**Core** ไม่ขึ้นกับ framework — ตรรกะ `remember`/`recall`/`forget` เดียวกันทำงานเหมือนกันทุกประการ ไม่ว่าจะเรียกจากเทอร์มินัล HTTP หรือ MCP
-
-**ความต้องการ**: `better-sqlite3`, `sqlite-vec`, `@modelcontextprotocol/sdk`, `zod`, `express`, `commander`
+Core ไม่ขึ้นกับ framework ตรรกะเดียวกันทำงานจาก terminal, HTTP หรือ MCP
 
 ---
 
-## การพัฒนา
+## การมีส่วนร่วม
 
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory
-npm install
-npm run build
+cd memesh-llm-memory && npm install && npm run build
 npm test -- --run    # 289 tests
 ```
 
-การพัฒนาแดชบอร์ด:
-```bash
-cd dashboard
-npm install
-npm run dev          # Vite dev server with hot reload
-npm run build        # Build to single HTML file
-```
+Dashboard: `cd dashboard && npm install && npm run dev`
 
 ---
 
-## ใบอนุญาต
-
-MIT — [PCIRCLE AI](https://pcircle.ai)
+<p align="center">
+  <strong>MIT</strong> — สร้างโดย <a href="https://pcircle.ai">PCIRCLE AI</a>
+</p>
