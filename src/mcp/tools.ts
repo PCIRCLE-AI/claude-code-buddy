@@ -177,6 +177,19 @@ function handleRemember(args: z.infer<typeof RememberSchema>): ToolResult {
     }
   }
 
+  // Auto-archive entities that are superseded
+  const superseded: string[] = [];
+  if (args.relations) {
+    for (const rel of relationsCreated) {
+      if (rel.type === 'supersedes') {
+        const archiveResult = kg.archiveEntity(rel.to);
+        if (archiveResult.archived) {
+          superseded.push(rel.to);
+        }
+      }
+    }
+  }
+
   return ok({
     stored: true,
     entityId,
@@ -185,6 +198,7 @@ function handleRemember(args: z.infer<typeof RememberSchema>): ToolResult {
     observations: args.observations?.length ?? 0,
     tags: args.tags?.length ?? 0,
     relations: relationsCreated.length,
+    ...(superseded.length > 0 ? { superseded } : {}),
     ...(relationErrors.length > 0 ? { relationErrors } : {}),
   });
 }

@@ -79,6 +79,31 @@ describe('remember', () => {
     expect(data[0].observations).toContain('Use RS256 for JWT signing');
   });
 
+  it('auto-archives entity when superseded by new remember', () => {
+    handleTool('remember', { name: 'auth-v2', type: 'decision', observations: ['Use JWT'] });
+    handleTool('remember', {
+      name: 'auth-v3', type: 'decision', observations: ['Use OAuth 2.0'],
+      relations: [{ to: 'auth-v2', type: 'supersedes' }],
+    });
+
+    // auth-v2 should be auto-archived
+    const recallOld = handleTool('recall', { query: 'JWT' });
+    expect(JSON.parse(recallOld.content[0].text)).toEqual([]);
+
+    // auth-v3 should be active
+    const recallNew = handleTool('recall', { query: 'OAuth' });
+    const data = JSON.parse(recallNew.content[0].text);
+    expect(data).toHaveLength(1);
+    expect(data[0].name).toBe('auth-v3');
+
+    // Both visible with include_archived
+    const recallAll = handleTool('recall', { include_archived: true });
+    const allData = JSON.parse(recallAll.content[0].text);
+    const names = allData.map((e: any) => e.name);
+    expect(names).toContain('auth-v2');
+    expect(names).toContain('auth-v3');
+  });
+
   it('reports relation errors without failing overall', () => {
     const result = handleTool('remember', {
       name: 'auth-decision',
