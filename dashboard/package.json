@@ -1,0 +1,20 @@
+{
+  "name": "memesh-dashboard",
+  "private": true,
+  "version": "3.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "preact": "^10.25.0"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.9.0",
+    "typescript": "^5.9.0",
+    "vite": "^6.3.0",
+    "vite-plugin-singlefile": "^2.0.0"
+  }
+}

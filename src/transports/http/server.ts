@@ -7,7 +7,8 @@ import { remember, recallEnhanced, forget, consolidate, exportMemories, importMe
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
-import { generateLiveDashboardHtml } from '../../cli/view.js';
+// Dashboard: serve Preact SPA build (single HTML file)
+// Falls back to legacy template if Preact build not found
 
 // Zod schemas for HTTP input validation (same rules as MCP handlers)
 const RememberBody = z.object({
@@ -80,7 +81,14 @@ app.use(express.json());
 
 // --- Dashboard ---
 app.get('/dashboard', (_req, res) => {
-  res.type('html').send(generateLiveDashboardHtml());
+  // Serve Preact SPA build (preferred)
+  const dashboardPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../dashboard/dist/index.html');
+  if (fs.existsSync(dashboardPath)) {
+    res.type('html').sendFile(dashboardPath);
+  } else {
+    // Fallback to legacy template
+    import('../../cli/view.js').then(m => res.type('html').send(m.generateLiveDashboardHtml()));
+  }
 });
 
 // --- Health ---
