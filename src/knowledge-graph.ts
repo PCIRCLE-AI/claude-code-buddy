@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
-import type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
+import type { Entity, Relation, CreateEntityInput, SearchOptions, EntityRow } from './core/types.js';
 
 export class KnowledgeGraph {
   constructor(private db: Database.Database) {}
@@ -121,19 +121,19 @@ export class KnowledgeGraph {
       .prepare(
         'SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, valid_from, valid_until, namespace FROM entities WHERE name = ?'
       )
-      .get(name) as any | undefined;
+      .get(name) as EntityRow | undefined;
 
     if (!row) return null;
 
-    const observations = this.db
+    const observations = (this.db
       .prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id')
-      .all(row.id)
-      .map((o: any) => o.content);
+      .all(row.id) as Array<{ content: string }>)
+      .map((o) => o.content);
 
-    const tags = this.db
+    const tags = (this.db
       .prepare('SELECT tag FROM tags WHERE entity_id = ?')
-      .all(row.id)
-      .map((t: any) => t.tag);
+      .all(row.id) as Array<{ tag: string }>)
+      .map((t) => t.tag);
 
     const relations = this.getRelations(name);
 
@@ -165,7 +165,7 @@ export class KnowledgeGraph {
          JOIN entities e_to ON r.to_entity_id = e_to.id
          WHERE e_from.name = ?`
       )
-      .all(entityName) as any[];
+      .all(entityName) as Array<{ from: string; to: string; type: string; metadata: string | null }>;
 
     return rows.map((r) => ({
       from: r.from,
@@ -320,7 +320,7 @@ export class KnowledgeGraph {
       WHERE r.relation_type = 'contradicts'
         AND e_from.name IN (${placeholders})
         AND e_to.name IN (${placeholders})
-    `).all(...entityNames, ...entityNames) as any[];
+    `).all(...entityNames, ...entityNames) as Array<{ from_name: string; to_name: string }>;
 
     for (const row of rows) {
       conflicts.push(`"${row.from_name}" contradicts "${row.to_name}"`);

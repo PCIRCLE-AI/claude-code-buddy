@@ -7,6 +7,7 @@ import { remember, recallEnhanced, forget, consolidate, exportMemories, importMe
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
+import type { CountRow } from '../../core/types.js';
 import {
   RememberSchema as RememberBody, RecallSchema as RecallBody,
   ForgetSchema as ForgetBody, ConsolidateSchema as ConsolidateBody,
@@ -77,7 +78,7 @@ app.get('/dashboard', (_req, res) => {
 app.get('/v1/health', (_req, res) => {
   try {
     const db = getDatabase();
-    const count = db.prepare('SELECT COUNT(*) as c FROM entities').get() as any;
+    const count = db.prepare('SELECT COUNT(*) as c FROM entities').get() as CountRow;
     res.json({ success: true, data: { status: 'ok', version: packageVersion, entity_count: count.c } });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -271,10 +272,10 @@ app.get('/v1/graph', (_req, res) => {
 app.get('/v1/stats', (_req, res) => {
   try {
     const db = getDatabase();
-    const entities = db.prepare('SELECT COUNT(*) as c FROM entities').get() as any;
-    const observations = db.prepare('SELECT COUNT(*) as c FROM observations').get() as any;
-    const relations = db.prepare('SELECT COUNT(*) as c FROM relations').get() as any;
-    const tags = db.prepare('SELECT COUNT(DISTINCT tag) as c FROM tags').get() as any;
+    const entities = db.prepare('SELECT COUNT(*) as c FROM entities').get() as CountRow;
+    const observations = db.prepare('SELECT COUNT(*) as c FROM observations').get() as CountRow;
+    const relations = db.prepare('SELECT COUNT(*) as c FROM relations').get() as CountRow;
+    const tags = db.prepare('SELECT COUNT(DISTINCT tag) as c FROM tags').get() as CountRow;
 
     const typeDistribution = db.prepare('SELECT type, COUNT(*) as count FROM entities GROUP BY type ORDER BY count DESC LIMIT 50').all();
     const tagDistribution = db.prepare('SELECT tag, COUNT(*) as count FROM tags GROUP BY tag ORDER BY count DESC LIMIT 30').all();
