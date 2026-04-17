@@ -1,12 +1,20 @@
 {
   "name": "memesh",
   "description": "MeMesh — The lightest universal AI memory layer. One SQLite file, any LLM, zero cloud.",
-  "author": { "name": "PCIRCLE AI" },
-  "version": "3.0.0",
+  "author": {
+    "name": "PCIRCLE AI"
+  },
+  "version": "3.0.1",
   "homepage": "https://github.com/PCIRCLE-AI/memesh-llm-memory",
   "repository": "https://github.com/PCIRCLE-AI/memesh-llm-memory",
   "license": "MIT",
-  "keywords": ["claude-code", "mcp", "knowledge-graph", "ai-memory"],
+  "keywords": [
+    "claude-code",
+    "mcp",
+    "knowledge-graph",
+    "ai-memory"
+  ],
   "mcpServers": "./.mcp.json",
-  "hooks": "./hooks/hooks.json"
+  "hooks": "./hooks/hooks.json",
+  "skills": "./skills"
 }
