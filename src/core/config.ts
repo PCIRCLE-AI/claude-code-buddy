@@ -102,6 +102,20 @@ export function detectCapabilities(config?: MeMeshConfig): Capabilities {
   };
 }
 
+// --- Startup Capability Logging ---
+
+/**
+ * Log detected capabilities to stderr on server startup.
+ * Uses stderr so it doesn't interfere with MCP stdio transport.
+ */
+export function logCapabilities(config?: MeMeshConfig): void {
+  const caps = detectCapabilities(config);
+  process.stderr.write(`MeMesh: Level ${caps.searchLevel} (${caps.searchLevel === 1 ? 'Smart Mode' : 'Core'})\n`);
+  if (caps.llm) {
+    process.stderr.write(`MeMesh: LLM: ${caps.llm.provider} (${caps.llm.model ?? 'default'})\n`);
+  }
+}
+
 // --- Config Path Exports (for testing) ---
 
 export function getConfigDir(): string { return CONFIG_DIR; }

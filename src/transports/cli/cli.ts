@@ -4,8 +4,9 @@ import { Command } from 'commander';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { openDatabase, closeDatabase } from '../../db.js';
+import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
 import { remember, recallEnhanced, forget } from '../../core/operations.js';
+import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { readConfig, updateConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 
 const packageJsonPath = path.resolve(
@@ -67,8 +68,15 @@ program
         limit: parseInt(opts.limit),
         include_archived: opts.includeArchived,
       });
+      const kg = new KnowledgeGraph(getDatabase());
+      const conflicts = kg.findConflicts(entities.map(e => e.name));
+
       if (opts.json) {
-        console.log(JSON.stringify(entities));
+        if (conflicts.length > 0) {
+          console.log(JSON.stringify({ entities, conflicts }));
+        } else {
+          console.log(JSON.stringify(entities));
+        }
       } else if (entities.length === 0) {
         console.log('No results found.');
       } else {
@@ -83,6 +91,12 @@ program
           }
         }
         console.log(`\n${entities.length} result(s)`);
+        if (conflicts.length > 0) {
+          console.log('\nWarning: Conflicts detected:');
+          for (const c of conflicts) {
+            console.log(`  ${c}`);
+          }
+        }
       }
     } finally {
       closeDatabase();

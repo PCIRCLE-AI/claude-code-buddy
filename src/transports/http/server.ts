@@ -6,6 +6,7 @@ import { openDatabase, closeDatabase } from '../../db.js';
 import { remember, recallEnhanced, forget } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
+import { logCapabilities } from '../../core/config.js';
 
 // Zod schemas for HTTP input validation (same rules as MCP handlers)
 const RememberBody = z.object({
@@ -77,7 +78,13 @@ app.post('/v1/recall', async (req, res) => {
   try {
     // recallEnhanced: uses LLM query expansion when configured, falls back otherwise
     const entities = await recallEnhanced(parsed.data);
-    res.json({ success: true, data: entities });
+    const kg = new KnowledgeGraph(getDatabase());
+    const conflicts = kg.findConflicts(entities.map(e => e.name));
+    if (conflicts.length > 0) {
+      res.json({ success: true, data: { entities, conflicts } });
+    } else {
+      res.json({ success: true, data: entities });
+    }
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
   }
@@ -134,6 +141,7 @@ const PORT = parseInt(process.env.MEMESH_HTTP_PORT || '3737');
 
 export function startServer(host = HOST, port = PORT): ReturnType<typeof app.listen> {
   openDatabase();
+  logCapabilities();
   const server = app.listen(port, host, () => {
     console.log(`MeMesh HTTP server running at http://${host}:${port}`);
   });

@@ -1,6 +1,6 @@
 # MeMesh Plugin Architecture
 
-**Version**: 2.14.0
+**Version**: 2.15.0
 
 ---
 
@@ -30,7 +30,9 @@ MeMesh v2.13 separates concerns into two layers:
 **Core** (`src/core/`) — pure business logic with zero transport dependencies:
 - `types.ts` — shared TypeScript interfaces (zero external deps)
 - `operations.ts` — `remember`, `recall`, `forget` as pure functions called by all transports
-- `config.ts` — config management + capability detection (sqlite-vec availability)
+- `config.ts` — config management + capability detection (sqlite-vec availability); exports `logCapabilities()` for startup logging
+- `scoring.ts` — multi-factor scoring engine: weights search relevance, recency, frequency, confidence, temporal validity; exports `rankEntities()` used by all recall paths
+- `query-expander.ts` — LLM-powered query expansion (Level 1): expands a user query into related terms using a configured LLM (Anthropic/OpenAI/Ollama)
 - `version-check.ts` — npm registry version check for update notifications
 
 **Transports** (`src/transports/`) — thin adapters that expose core operations:
@@ -48,22 +50,24 @@ This separation means the same `remember`/`recall`/`forget` logic runs identical
 src/
 ├── core/
 │   ├── types.ts           # Shared types (zero external deps)
-│   ├── operations.ts      # remember/recall/forget pure functions
-│   ├── config.ts          # Config management + capability detection
+│   ├── operations.ts      # remember/recall/forget pure functions (scoring applied here)
+│   ├── config.ts          # Config management + capability detection + logCapabilities()
+│   ├── scoring.ts         # Multi-factor scoring engine (rankEntities)
+│   ├── query-expander.ts  # LLM query expansion (Level 1)
 │   └── version-check.ts   # npm registry version check
 ├── db.ts                  # SQLite + FTS5 + sqlite-vec + migrations
-├── knowledge-graph.ts     # Entity CRUD, relations, FTS5 search
+├── knowledge-graph.ts     # Entity CRUD, relations, FTS5 search, findConflicts
 ├── index.ts               # Package exports
 ├── cli/
 │   └── view.ts            # HTML dashboard generator
 └── transports/
     ├── mcp/
-    │   ├── handlers.ts    # MCP tool handlers (Zod + ToolResult wrapper)
-    │   └── server.ts      # MCP stdio server
+    │   ├── handlers.ts    # MCP tool handlers (Zod + ToolResult wrapper + conflict detection)
+    │   └── server.ts      # MCP stdio server (logs capabilities on startup)
     ├── http/
-    │   └── server.ts      # Express REST API server
+    │   └── server.ts      # Express REST API server (logs capabilities on startup, conflict detection)
     └── cli/
-        └── cli.ts         # Commander CLI
+        └── cli.ts         # Commander CLI (conflict warnings in recall output)
 ```
 
 ---
@@ -76,7 +80,11 @@ src/
 
 **operations.ts** — Pure functions implementing `remember`, `recall`, and `forget`. All three transports delegate here — no transport-specific logic leaks into business logic.
 
-**config.ts** — Config management: reads `MEMESH_DB_PATH` and other environment variables, detects sqlite-vec availability, exposes a typed config object to transports and core functions.
+**config.ts** — Config management: reads `MEMESH_DB_PATH` and other environment variables, detects sqlite-vec availability, exposes a typed config object to transports and core functions. `logCapabilities()` logs detected search level and LLM provider to stderr on server startup (safe for MCP stdio transport).
+
+**scoring.ts** — Multi-factor scoring engine. `scoreEntity()` combines five signals: search relevance (0.35), recency via exponential decay (0.25), access frequency via log normalization (0.20), confidence (0.15), and temporal validity (0.05). `rankEntities()` sorts any entity list by score descending. Applied in all recall paths (`recall()` and `recallEnhanced()`).
+
+**query-expander.ts** — LLM-powered query expansion (Level 1). When a LLM is configured (Anthropic, OpenAI, or Ollama), `expandQuery()` generates related search terms for a user query. Results from expanded terms are merged with original-query results and re-ranked by score (original query = 1.0 relevance, expanded terms = 0.7 relevance).
 
 **version-check.ts** — Queries the npm registry for the latest `@pcircle/memesh` version and emits an update notification if the installed version is behind.
 
@@ -107,8 +115,9 @@ CRUD operations and full-text search over the entity graph.
 - `getRelations(entityName)` -- All outgoing relations for an entity
 
 **Search**:
-- `search(query?, opts?)` -- FTS5 MATCH query with optional tag filtering
+- `search(query?, opts?)` -- FTS5 MATCH query with optional tag filtering; tracks access on returned entities
 - `listRecent(limit?)` -- Most recent entities by ID
+- `findConflicts(entityNames[])` -- Returns conflict descriptions for any `contradicts` relations among the given entity names; surfaced as warnings by all three transports
 
 FTS5 is configured as a contentless virtual table (`content=''`). The `rebuildFts()` method handles explicit insert/delete operations required by contentless FTS5.
 
@@ -167,12 +176,13 @@ Tool call: remember({name, type, observations, tags, relations})
 ```
 Tool call: recall({query, tag, limit})
   -> Zod validation (RecallSchema)
-  -> KnowledgeGraph.search(query, {tag, limit})
-     -> FTS5 MATCH query against entities_fts
-     -> Apply tag filtering in SQL when specified
-     -> JOIN to entities table (contentless FTS5)
-     -> For each match: getEntity() to load full data
-  -> Return Entity[]
+  -> recallEnhanced() in core/operations
+     -> If LLM configured: expandQuery() generates related terms (Level 1)
+     -> KnowledgeGraph.search() for each term (original=1.0, expanded=0.7 relevance)
+     -> Merge results de-duped by entity name
+     -> rankEntities() applies multi-factor scoring (relevance, recency, frequency, confidence, temporal validity)
+     -> KnowledgeGraph.findConflicts() checks for contradicts relations among results
+  -> If conflicts: return {entities, conflicts}; else return Entity[]
 ```
 
 ### Delete knowledge (forget)
@@ -194,7 +204,7 @@ Tool call: forget({name})
 
 ```sql
 -- Core tables
-entities (id PK, name UNIQUE, type, created_at, metadata JSON)
+entities (id PK, name UNIQUE, type, created_at, metadata JSON, status, access_count, last_accessed_at, confidence, valid_from, valid_until)
 observations (id PK, entity_id FK, content, created_at)
 relations (id PK, from_entity_id FK, to_entity_id FK, relation_type, metadata JSON, created_at, UNIQUE constraint)
 tags (id PK, entity_id FK, tag)

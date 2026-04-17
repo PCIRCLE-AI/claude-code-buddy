@@ -1,7 +1,7 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 2.14.0
+**Version**: 2.15.0
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 ---
@@ -83,7 +83,7 @@ If a relation target does not exist, the entity is still stored and `relationErr
 
 ### recall
 
-Search and retrieve stored knowledge. Uses FTS5 full-text search with optional tag filtering. Call with no query to list recent memories.
+Search and retrieve stored knowledge. Uses FTS5 full-text search with optional tag filtering and multi-factor scoring. When an LLM is configured (Smart Mode, Level 1), the query is expanded into related terms before searching. Results are ranked by a weighted combination of search relevance, recency, access frequency, confidence, and temporal validity. Call with no query to list recent memories.
 
 **Input Schema**:
 
@@ -96,7 +96,7 @@ Search and retrieve stored knowledge. Uses FTS5 full-text search with optional t
 
 **Response**:
 
-Returns an array of matching entities:
+Returns an array of matching entities ranked by multi-factor score (relevance, recency, frequency, confidence, temporal validity):
 
 ```json
 [
@@ -116,6 +116,19 @@ Returns an array of matching entities:
   }
 ]
 ```
+
+**Conflict detection**: When any pair of returned entities have a `contradicts` relation, the response is wrapped as:
+
+```json
+{
+  "entities": [...],
+  "conflicts": [
+    "\"no-jwt\" contradicts \"use-jwt\""
+  ]
+}
+```
+
+The CLI prints conflict warnings below the results; the `--json` flag outputs the wrapped form.
 
 **Examples**:
 
