@@ -243,7 +243,6 @@ describe('HTTP Transport: GET /dashboard', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('html');
     const html = await res.text();
-    expect(html).toContain('MeMesh Dashboard');
-    expect(html).toContain('tab-search');
+    expect(html).toContain('MeMesh');
   });
 });

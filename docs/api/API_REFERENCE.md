@@ -1,14 +1,14 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 2.16.0
+**Version**: 3.0.0
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 ---
 
 ## Tools
 
-MeMesh exposes 3 tools via MCP.
+MeMesh exposes 6 tools via MCP.
 
 ---
 
@@ -27,6 +27,7 @@ If `remember` is called again with an existing `name`, MeMesh treats it as an ap
 | `observations` | string[] | No | Key facts or observations about this entity |
 | `tags` | string[] | No | Tags for filtering (e.g., `"project:myapp"`, `"type:decision"`) |
 | `relations` | object[] | No | Relations to other entities |
+| `namespace` | string | No | Namespace scope: `"personal"` (default), `"team"`, or `"global"` |
 
 **Relations object**:
 
@@ -93,6 +94,8 @@ Search and retrieve stored knowledge. Uses FTS5 full-text search with optional t
 | `tag` | string | No | Filter by tag (e.g., `"project:myapp"`) |
 | `limit` | number | No | Max results (default: 20, max: 100) |
 | `include_archived` | boolean | No | Include archived (forgotten) entities in results (default: false) |
+| `namespace` | string | No | Filter to a specific namespace (`"personal"`, `"team"`, `"global"`) |
+| `cross_project` | boolean | No | When `true`, lifts project-tag filter and searches all namespaces (default: false) |
 
 **Response**:
 
@@ -152,7 +155,7 @@ The CLI prints conflict warnings below the results; the `--json` flag outputs th
 
 Archive an entity (soft-delete) or remove a specific observation.
 
-**Behavior (v2.12):** `forget` does not permanently delete data. Entities are archived and hidden from normal recall, but preserved in the database. Use `include_archived: true` in recall to see archived entities.
+**Behavior:** `forget` does not permanently delete data. Entities are archived and hidden from normal recall, but preserved in the database. Use `include_archived: true` in recall to see archived entities.
 
 **Input Schema**:
 
@@ -167,6 +170,119 @@ Archive an entity (soft-delete) or remove a specific observation.
 
 ---
 
+### consolidate
+
+Compress verbose entity observations using LLM. Requires Smart Mode.
+
+**Input Schema**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | No | Specific entity to consolidate |
+| `tag` | string | No | Consolidate all entities with this tag |
+| `min_observations` | number | No | Minimum observations to trigger (default: 5) |
+
+**Response**: `{ consolidated, entities_processed, observations_before, observations_after, error? }`
+
+---
+
+### export
+
+Export memories to a portable JSON bundle. Use for backup, sharing with teammates, or migrating between machines.
+
+**Input Schema**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `namespace` | string | No | Export only entities from this namespace (`"personal"`, `"team"`, `"global"`). Omit to export all namespaces. |
+| `tag` | string | No | Export only entities matching this tag (e.g., `"project:myapp"`) |
+| `names` | string[] | No | Export a specific set of entity names |
+| `include_archived` | boolean | No | Include archived entities in the export (default: false) |
+
+**Response**:
+
+```json
+{
+  "version": "3.0.0",
+  "exported_at": "2026-04-17T00:00:00.000Z",
+  "entity_count": 12,
+  "entities": [
+    {
+      "name": "auth-decision",
+      "type": "decision",
+      "namespace": "team",
+      "observations": ["Use OAuth 2.0"],
+      "tags": ["project:myapp", "topic:auth"],
+      "relations": [],
+      "metadata": {},
+      "confidence": 1.0
+    }
+  ]
+}
+```
+
+**Examples**:
+
+```json
+// Export all memories
+{}
+
+// Export team namespace only
+{"namespace": "team"}
+
+// Export specific project
+{"tag": "project:myapp"}
+```
+
+---
+
+### import
+
+Import memories from a JSON bundle produced by `export`. Three merge strategies control how conflicts with existing entities are resolved.
+
+**Input Schema**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `bundle` | object | Yes | The JSON bundle produced by `export` |
+| `merge` | string | No | Merge strategy for conflicts: `"skip"` (default), `"overwrite"`, or `"append"` |
+| `namespace_override` | string | No | Force all imported entities into this namespace, ignoring namespace stored in the bundle |
+
+**Merge Strategies**:
+
+| Strategy | Behaviour on existing entity |
+|----------|------------------------------|
+| `skip` | Keep existing entity unchanged, discard imported copy |
+| `overwrite` | Replace existing entity's observations and tags with imported values |
+| `append` | Append imported observations to existing, deduplicate tags |
+
+**Response**:
+
+```json
+{
+  "imported": 10,
+  "skipped": 2,
+  "overwritten": 0,
+  "appended": 0,
+  "errors": []
+}
+```
+
+**Examples**:
+
+```json
+// Import with default (skip duplicates)
+{"bundle": {...}}
+
+// Import and overwrite conflicts
+{"bundle": {...}, "merge": "overwrite"}
+
+// Import into team namespace
+{"bundle": {...}, "namespace_override": "team"}
+```
+
+---
+
 ## Data Model
 
 ### Entity
@@ -176,6 +292,7 @@ Archive an entity (soft-delete) or remove a specific observation.
 | `id` | number | Auto-incremented primary key |
 | `name` | string | Unique entity name |
 | `type` | string | Entity type |
+| `namespace` | string | Namespace scope (`"personal"`, `"team"`, `"global"`) |
 | `created_at` | string | ISO timestamp |
 | `metadata` | object | Optional JSON metadata |
 | `observations` | string[] | Associated observations |
@@ -221,6 +338,9 @@ Start: `memesh serve` (default: `localhost:3737`)
 | POST | /v1/remember | Store knowledge |
 | POST | /v1/recall | Search knowledge |
 | POST | /v1/forget | Archive or remove observation |
+| POST | /v1/consolidate | Compress entity observations via LLM (Smart Mode required) |
+| POST | /v1/export | Export memories as JSON bundle |
+| POST | /v1/import | Import memories from JSON bundle with merge strategy |
 | GET | /v1/entities | List entities (pagination) |
 | GET | /v1/entities/:name | Get single entity |
 | GET | /v1/config | Get current config and detected capabilities |
@@ -331,6 +451,94 @@ curl -s http://localhost:3737/v1/health
 ---
 
 ## CLI Commands
+
+### memesh export-schema
+
+Export MeMesh tools in OpenAI function calling format. Use this to integrate MeMesh with any OpenAI-compatible API or SDK.
+
+**Usage**:
+
+```bash
+memesh export-schema
+memesh export-schema --format openai
+```
+
+**Options**:
+
+| Option | Description |
+|--------|-------------|
+| `--format <format>` | Output format. Currently only `openai` is supported (default: `openai`). |
+
+**Output**: A JSON array of OpenAI function calling tool definitions:
+
+```json
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "memesh_remember",
+      "description": "Store knowledge as an entity with observations, tags, and relations.",
+      "parameters": { ... }
+    }
+  },
+  ...
+]
+```
+
+The exported schema can be passed directly to the OpenAI `tools` parameter or any OpenAI-compatible API:
+
+```python
+import json, openai
+
+with open("schema.json") as f:
+    tools = json.load(f)
+
+client = openai.OpenAI()
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Remember that we use OAuth"}],
+    tools=tools,
+)
+```
+
+Or generate on the fly:
+
+```bash
+memesh export-schema | python -c "
+import json, sys, openai
+tools = json.load(sys.stdin)
+# pass tools to your OpenAI call
+"
+```
+
+---
+
+### Python SDK
+
+MeMesh includes a Python SDK that connects to a running `memesh serve` instance.
+
+**Installation**:
+
+```bash
+pip install memesh
+```
+
+**Requires**: `memesh serve` running (default: `localhost:3737`).
+
+**Usage**:
+
+```python
+from memesh import MeMesh
+
+m = MeMesh()  # connects to localhost:3737
+m.remember("auth", "decision", observations=["Use OAuth"])
+results = m.recall("auth")
+m.forget("old-design")
+```
+
+See `packages/python-sdk/` for full SDK source and documentation.
+
+---
 
 ### memesh-view
 

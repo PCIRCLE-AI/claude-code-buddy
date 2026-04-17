@@ -8,14 +8,15 @@ export class KnowledgeGraph {
   createEntity(
     name: string,
     type: string,
-    opts?: { observations?: string[]; tags?: string[]; metadata?: any }
+    opts?: { observations?: string[]; tags?: string[]; metadata?: any; namespace?: string }
   ): number {
     // INSERT OR IGNORE — if entity already exists, get its id
+    // namespace is set on creation only; existing entities keep their original namespace
     const insertResult = this.db
       .prepare(
-        'INSERT OR IGNORE INTO entities (name, type, metadata) VALUES (?, ?, ?)'
+        'INSERT OR IGNORE INTO entities (name, type, metadata, namespace) VALUES (?, ?, ?, ?)'
       )
-      .run(name, type, opts?.metadata ? JSON.stringify(opts.metadata) : null);
+      .run(name, type, opts?.metadata ? JSON.stringify(opts.metadata) : null, opts?.namespace ?? 'personal');
     const isNewEntity = insertResult.changes > 0;
 
     const row = this.db
@@ -76,6 +77,7 @@ export class KnowledgeGraph {
           observations: e.observations,
           tags: e.tags,
           metadata: e.metadata,
+          namespace: e.namespace,
         });
       }
     });
@@ -117,7 +119,7 @@ export class KnowledgeGraph {
   getEntity(name: string): Entity | null {
     const row = this.db
       .prepare(
-        'SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, valid_from, valid_until FROM entities WHERE name = ?'
+        'SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, valid_from, valid_until, namespace FROM entities WHERE name = ?'
       )
       .get(name) as any | undefined;
 
@@ -150,6 +152,7 @@ export class KnowledgeGraph {
       confidence: row.confidence ?? 1.0,
       valid_from: row.valid_from ?? undefined,
       valid_until: row.valid_until ?? undefined,
+      namespace: row.namespace ?? 'personal',
     };
   }
 
@@ -177,23 +180,27 @@ export class KnowledgeGraph {
 
     if (!query || query.trim() === '') {
       if (opts?.tag) {
-        return this.listRecentByTag(opts.tag, limit, opts?.includeArchived);
+        return this.listRecentByTag(opts.tag, limit, opts?.includeArchived, opts?.namespace);
       }
-      return this.listRecent(limit, opts?.includeArchived);
+      return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
     }
 
     // Use FTS5 MATCH to find entity names
     // Escape double quotes and wrap each token in quotes for safe FTS5 matching
     const sanitized = query.replace(/"/g, '""').trim();
     const tokens = sanitized.split(/\s+/).filter((t) => t.length > 0);
-    if (tokens.length === 0) return this.listRecent(limit, opts?.includeArchived);
+    if (tokens.length === 0) return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
     const ftsQuery = tokens.map((token) => `"${token}"`).join(' ');
     // Contentless FTS5: columns return null, so join via rowid → entities.id
     // Archived entities are removed from FTS5 by archiveEntity(), so status filter is a safety net.
     const statusFilter = opts?.includeArchived ? '' : "AND e.status = 'active'";
+    const namespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
     let ftsRows: Array<{ id: number; name: string }>;
     try {
       if (opts?.tag) {
+        const params: any[] = [ftsQuery, opts.tag];
+        if (opts?.namespace) params.push(opts.namespace);
+        params.push(limit);
         ftsRows = this.db
           .prepare(
             `SELECT DISTINCT e.id, e.name FROM entities_fts f
@@ -202,21 +209,26 @@ export class KnowledgeGraph {
              WHERE entities_fts MATCH ?
                AND t.tag = ?
                ${statusFilter}
+               ${namespaceFilter}
              ORDER BY e.id DESC
              LIMIT ?`
           )
-          .all(ftsQuery, opts.tag, limit) as Array<{ id: number; name: string }>;
+          .all(...params) as Array<{ id: number; name: string }>;
       } else {
+        const params: any[] = [ftsQuery];
+        if (opts?.namespace) params.push(opts.namespace);
+        params.push(limit);
         ftsRows = this.db
           .prepare(
             `SELECT e.id, e.name FROM entities_fts f
              JOIN entities e ON e.id = f.rowid
              WHERE entities_fts MATCH ?
                ${statusFilter}
+               ${namespaceFilter}
              ORDER BY e.id DESC
              LIMIT ?`
           )
-          .all(ftsQuery, limit) as Array<{ id: number; name: string }>;
+          .all(...params) as Array<{ id: number; name: string }>;
       }
     } catch (err: any) {
       // FTS5 syntax error from user query — return empty results
@@ -239,9 +251,10 @@ export class KnowledgeGraph {
     if (opts?.includeArchived) {
       const tagJoin = opts?.tag ? 'JOIN tags t ON t.entity_id = e.id' : '';
       const tagFilter = opts?.tag ? 'AND t.tag = ?' : '';
-      const archivedParams: any[] = opts?.tag
-        ? [`%${query}%`, `%${query}%`, opts.tag]
-        : [`%${query}%`, `%${query}%`];
+      const archivedNamespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
+      const archivedParams: any[] = [`%${query}%`, `%${query}%`];
+      if (opts?.tag) archivedParams.push(opts.tag);
+      if (opts?.namespace) archivedParams.push(opts.namespace);
 
       const archivedRows = this.db
         .prepare(
@@ -252,6 +265,7 @@ export class KnowledgeGraph {
            WHERE e.status = 'archived'
              AND (e.name LIKE ? OR o.content LIKE ?)
              ${tagFilter}
+             ${archivedNamespaceFilter}
            ORDER BY e.id DESC
            LIMIT ?`
         )
@@ -315,11 +329,15 @@ export class KnowledgeGraph {
     return conflicts;
   }
 
-  listRecent(limit?: number, includeArchived?: boolean): Entity[] {
-    const statusFilter = includeArchived ? '' : "WHERE status = 'active'";
+  listRecent(limit?: number, includeArchived?: boolean, namespace?: string): Entity[] {
+    const statusFilter = includeArchived ? '' : "AND status = 'active'";
+    const namespaceFilter = namespace ? 'AND namespace = ?' : '';
+    const params: any[] = [];
+    if (namespace) params.push(namespace);
+    params.push(limit ?? 20);
     const rows = this.db
-      .prepare(`SELECT name FROM entities ${statusFilter} ORDER BY id DESC LIMIT ?`)
-      .all(limit ?? 20) as { name: string }[];
+      .prepare(`SELECT name FROM entities WHERE 1=1 ${statusFilter} ${namespaceFilter} ORDER BY id DESC LIMIT ?`)
+      .all(...params) as { name: string }[];
 
     const results = rows
       .map((r) => this.getEntity(r.name))
@@ -330,8 +348,12 @@ export class KnowledgeGraph {
     return results;
   }
 
-  private listRecentByTag(tag: string, limit: number, includeArchived?: boolean): Entity[] {
+  private listRecentByTag(tag: string, limit: number, includeArchived?: boolean, namespace?: string): Entity[] {
     const statusFilter = includeArchived ? '' : "AND e.status = 'active'";
+    const namespaceFilter = namespace ? 'AND e.namespace = ?' : '';
+    const params: any[] = [tag];
+    if (namespace) params.push(namespace);
+    params.push(limit);
     const rows = this.db
       .prepare(
         `SELECT DISTINCT e.name
@@ -339,10 +361,11 @@ export class KnowledgeGraph {
          JOIN tags t ON t.entity_id = e.id
          WHERE t.tag = ?
          ${statusFilter}
+         ${namespaceFilter}
          ORDER BY e.id DESC
          LIMIT ?`
       )
-      .all(tag, limit) as { name: string }[];
+      .all(...params) as { name: string }[];
 
     const results = rows
       .map((r) => this.getEntity(r.name))

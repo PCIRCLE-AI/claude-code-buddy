@@ -3,11 +3,12 @@
 import express from 'express';
 import { z } from 'zod';
 import { openDatabase, closeDatabase } from '../../db.js';
-import { remember, recallEnhanced, forget } from '../../core/operations.js';
+import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
-import { generateLiveDashboardHtml } from '../../cli/view.js';
+// Dashboard: serve Preact SPA build (single HTML file)
+// Falls back to legacy template if Preact build not found
 
 // Zod schemas for HTTP input validation (same rules as MCP handlers)
 const RememberBody = z.object({
@@ -16,6 +17,7 @@ const RememberBody = z.object({
   observations: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
   relations: z.array(z.object({ to: z.string().min(1), type: z.string().min(1) })).optional(),
+  namespace: z.enum(['personal', 'team', 'global']).optional(),
 });
 
 const RecallBody = z.object({
@@ -23,11 +25,45 @@ const RecallBody = z.object({
   tag: z.string().optional(),
   limit: z.number().int().min(1).max(100).optional(),
   include_archived: z.boolean().optional(),
+  namespace: z.enum(['personal', 'team', 'global']).optional(),
+  cross_project: z.boolean().optional(),
 });
 
 const ForgetBody = z.object({
   name: z.string().min(1),
   observation: z.string().optional(),
+});
+
+const ConsolidateBody = z.object({
+  name: z.string().optional(),
+  tag: z.string().optional(),
+  min_observations: z.number().int().min(1).optional(),
+});
+
+const ExportBody = z.object({
+  tag: z.string().optional(),
+  namespace: z.string().optional(),
+  limit: z.number().int().min(1).max(10000).optional(),
+});
+
+const ExportResultBody = z.object({
+  version: z.string(),
+  exported_at: z.string(),
+  entity_count: z.number(),
+  entities: z.array(z.object({
+    name: z.string().min(1).max(255),
+    type: z.string().min(1).max(100),
+    namespace: z.string(),
+    observations: z.array(z.string().max(10000)),
+    tags: z.array(z.string().max(255)),
+    relations: z.array(z.object({ to: z.string().min(1).max(255), type: z.string().min(1).max(100) })),
+  })),
+});
+
+const ImportBody = z.object({
+  data: ExportResultBody,
+  namespace: z.string().optional(),
+  merge_strategy: z.enum(['skip', 'overwrite', 'append']),
 });
 import fs from 'fs';
 import path from 'path';
@@ -45,7 +81,14 @@ app.use(express.json());
 
 // --- Dashboard ---
 app.get('/dashboard', (_req, res) => {
-  res.type('html').send(generateLiveDashboardHtml());
+  // Serve Preact SPA build (preferred)
+  const dashboardPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../dashboard/dist/index.html');
+  if (fs.existsSync(dashboardPath)) {
+    res.type('html').sendFile(dashboardPath);
+  } else {
+    // Fallback to legacy template
+    import('../../cli/view.js').then(m => res.type('html').send(m.generateLiveDashboardHtml()));
+  }
 });
 
 // --- Health ---
@@ -111,6 +154,51 @@ app.post('/v1/forget', (req, res) => {
   }
 });
 
+// --- Consolidate ---
+app.post('/v1/consolidate', async (req, res) => {
+  const parsed = ConsolidateBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+    return;
+  }
+  try {
+    const result = await consolidate(parsed.data);
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// --- Export ---
+app.post('/v1/export', (req, res) => {
+  const parsed = ExportBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+    return;
+  }
+  try {
+    const result = exportMemories(parsed.data);
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// --- Import ---
+app.post('/v1/import', (req, res) => {
+  const parsed = ImportBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+    return;
+  }
+  try {
+    const result = importMemories(parsed.data);
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
 // --- Config ---
 app.get('/v1/config', (_req, res) => {
   try {
@@ -126,9 +214,26 @@ app.get('/v1/config', (_req, res) => {
   }
 });
 
+const ConfigBody = z.object({
+  llm: z.object({
+    provider: z.enum(['anthropic', 'openai', 'ollama']),
+    model: z.string().optional(),
+    apiKey: z.string().optional(),
+  }).optional(),
+  autoCapture: z.boolean().optional(),
+  sessionLimit: z.number().int().min(1).max(100).optional(),
+  theme: z.enum(['light', 'dark']).optional(),
+  setupCompleted: z.boolean().optional(),
+}).passthrough();
+
 app.post('/v1/config', (req, res) => {
+  const parsed = ConfigBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+    return;
+  }
   try {
-    const updated = updateConfig(req.body);
+    const updated = updateConfig(parsed.data);
     // Mask API key before returning
     const safeUpdated = { ...updated };
     if (safeUpdated.llm?.apiKey) {

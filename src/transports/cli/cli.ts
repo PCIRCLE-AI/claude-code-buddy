@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
-import { remember, recallEnhanced, forget } from '../../core/operations.js';
+import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { readConfig, updateConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 
@@ -29,6 +29,7 @@ program
   .requiredOption('--type <type>', 'Entity type')
   .option('--obs <observations...>', 'Observations (space-separated)')
   .option('--tags <tags...>', 'Tags (space-separated)')
+  .option('--namespace <namespace>', 'Namespace: personal, team, or global (default: personal)')
   .option('--json', 'Output as JSON')
   .action((opts) => {
     openDatabase();
@@ -38,6 +39,7 @@ program
         type: opts.type,
         observations: opts.obs,
         tags: opts.tags,
+        namespace: opts.namespace,
       });
       if (opts.json) {
         console.log(JSON.stringify(result));
@@ -57,6 +59,8 @@ program
   .option('--tag <tag>', 'Filter by tag')
   .option('--limit <n>', 'Max results', '20')
   .option('--include-archived', 'Include archived entities')
+  .option('--namespace <namespace>', 'Filter by namespace: personal, team, or global')
+  .option('--cross-project', 'Search across all project tags (ignores --tag filter)')
   .option('--json', 'Output as JSON')
   .action(async (query, opts) => {
     openDatabase();
@@ -67,6 +71,8 @@ program
         tag: opts.tag,
         limit: parseInt(opts.limit),
         include_archived: opts.includeArchived,
+        namespace: opts.namespace,
+        cross_project: opts.crossProject,
       });
       const kg = new KnowledgeGraph(getDatabase());
       const conflicts = kg.findConflicts(entities.map(e => e.name));
@@ -131,6 +137,89 @@ program
     }
   });
 
+// --- consolidate ---
+program
+  .command('consolidate')
+  .description('Compress verbose entity observations using an LLM (requires Smart Mode)')
+  .option('--name <name>', 'Specific entity to consolidate')
+  .option('--tag <tag>', 'Consolidate all entities with this tag')
+  .option('--min-obs <n>', 'Minimum observations to trigger (default: 5)', '5')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    openDatabase();
+    try {
+      const result = await consolidate({
+        name: opts.name,
+        tag: opts.tag,
+        min_observations: parseInt(opts.minObs),
+      });
+      if (opts.json) {
+        console.log(JSON.stringify(result));
+      } else if (result.error) {
+        console.error(`Error: ${result.error}`);
+        process.exitCode = 1;
+      } else if (result.consolidated === 0) {
+        console.log('No entities consolidated (none met the minimum observations threshold).');
+      } else {
+        console.log(`Consolidated ${result.consolidated} entity/entities.`);
+        console.log(`Observations: ${result.observations_before} -> ${result.observations_after}`);
+        if (result.entities_processed.length > 0) {
+          console.log(`Processed: ${result.entities_processed.join(', ')}`);
+        }
+      }
+    } finally {
+      closeDatabase();
+    }
+  });
+
+// --- export ---
+program
+  .command('export')
+  .description('Export memories as JSON for sharing or backup')
+  .option('--tag <tag>', 'Export only entities with this tag')
+  .option('--namespace <ns>', 'Export only from this namespace (personal, team, global)')
+  .option('--limit <n>', 'Max entities to export', '1000')
+  .action((opts) => {
+    openDatabase();
+    try {
+      const result = exportMemories({
+        tag: opts.tag,
+        namespace: opts.namespace,
+        limit: parseInt(opts.limit),
+      });
+      console.log(JSON.stringify(result, null, 2));
+    } finally {
+      closeDatabase();
+    }
+  });
+
+// --- import ---
+program
+  .command('import')
+  .description('Import memories from a JSON export file')
+  .argument('<file>', 'Path to JSON export file')
+  .option('--namespace <ns>', 'Override namespace for all imported entities')
+  .option('--merge <strategy>', 'Merge strategy: skip | overwrite | append', 'skip')
+  .action((file, opts) => {
+    openDatabase();
+    try {
+      const raw = fs.readFileSync(file, 'utf8');
+      const data = JSON.parse(raw);
+      const result = importMemories({
+        data,
+        namespace: opts.namespace,
+        merge_strategy: opts.merge as 'skip' | 'overwrite' | 'append',
+      });
+      console.log(`Imported: ${result.imported}, Skipped: ${result.skipped}, Appended: ${result.appended}`);
+      if (result.errors.length > 0) {
+        console.error(`Errors:\n  ${result.errors.join('\n  ')}`);
+        process.exitCode = 1;
+      }
+    } finally {
+      closeDatabase();
+    }
+  });
+
 // --- config ---
 const configCmd = program.command('config').description('Manage configuration');
 
@@ -159,7 +248,12 @@ configCmd
   .action((key, value) => {
     const config = readConfig();
     if (key === 'llm.provider') {
-      config.llm = { ...config.llm, provider: value as any };
+      const validProviders = ['anthropic', 'openai', 'ollama'] as const;
+      if (!validProviders.includes(value as any)) {
+        console.error(`Invalid provider: ${value}. Must be one of: ${validProviders.join(', ')}`);
+        process.exit(1);
+      }
+      config.llm = { ...config.llm, provider: value as 'anthropic' | 'openai' | 'ollama' };
     } else if (key === 'llm.api-key') {
       config.llm = { ...config.llm, provider: config.llm?.provider || 'anthropic', apiKey: value };
     } else if (key === 'llm.model') {
@@ -188,6 +282,21 @@ configCmd
     }
     updateConfig(config);
     console.log(`✅ Removed ${key}`);
+  });
+
+// --- export-schema ---
+program
+  .command('export-schema')
+  .description('Export MeMesh tools in OpenAI function calling format')
+  .option('--format <format>', 'Output format (openai)', 'openai')
+  .action(async (opts) => {
+    const { exportOpenAITools } = await import('../../core/schema-export.js');
+    if (opts.format === 'openai') {
+      console.log(JSON.stringify(exportOpenAITools(), null, 2));
+    } else {
+      console.error(`Unknown format: ${opts.format}. Available: openai`);
+      process.exit(1);
+    }
   });
 
 // --- serve (start HTTP server) ---
