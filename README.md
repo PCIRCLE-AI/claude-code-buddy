@@ -17,127 +17,182 @@
 
 ---
 
-Your AI forgets everything between sessions. **MeMesh fixes that.**
+## The Problem
 
-Install once, configure in 30 seconds, and every AI tool you use — Claude, GPT, LLaMA, or any MCP client — gets persistent, searchable, evolving memory. No cloud. No Neo4j. No vector database. Just one SQLite file.
+Your AI forgets everything between sessions. Every decision, every bug fix, every lesson learned — gone. You re-explain the same context, Claude re-discovers the same patterns, and your team's AI knowledge resets to zero.
+
+**MeMesh gives every AI persistent, searchable, evolving memory.**
+
+---
+
+## Get Started in 60 Seconds
+
+### Step 1: Install
 
 ```bash
 npm install -g @pcircle/memesh
 ```
 
----
-
-## Dashboard
-
-<p align="center">
-  <img src="docs/images/dashboard-search.png" alt="MeMesh Search" width="100%" />
-</p>
-
-<p align="center">
-  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics" width="100%" />
-</p>
-
-<p align="center">
-  <img src="docs/images/dashboard-browse.png" alt="MeMesh Browse" width="100%" />
-</p>
-
-Run `memesh` to open the interactive dashboard with Search, Browse, Analytics, Manage, and Settings.
-
----
-
-## Quick Start
+### Step 2: Your AI remembers
 
 ```bash
-# Store a memory
 memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
-
-# Search memories (finds "OAuth" even if you search "login security" with Smart Mode)
-memesh recall "login security"
-
-# Archive outdated memories (soft-delete, never lost)
-memesh forget --name "old-auth-design"
-
-# Open the dashboard
-memesh
-
-# Start HTTP API (for Python SDK, integrations)
-memesh serve
 ```
 
-### Python
+### Step 3: Your AI recalls
 
+```bash
+memesh recall "login security"
+# → Finds "OAuth 2.0 with PKCE" even though you searched different words
+```
+
+**That's it.** MeMesh is now remembering and recalling across sessions.
+
+Open the dashboard to explore your memory:
+
+```bash
+memesh
+```
+
+<p align="center">
+  <img src="docs/images/dashboard-search.png" alt="MeMesh Search — find any memory instantly" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — understand your AI's knowledge" width="100%" />
+</p>
+
+---
+
+## Who Is This For?
+
+| If you are... | MeMesh helps you... |
+|---------------|---------------------|
+| **A developer using Claude Code** | Remember decisions, patterns, and lessons across sessions automatically |
+| **A team building with LLMs** | Share team knowledge via export/import, keep everyone's AI context aligned |
+| **An AI agent developer** | Give your agents persistent memory via MCP, HTTP API, or Python SDK |
+| **A power user with multiple AI tools** | One memory layer that works with Claude, GPT, LLaMA, Ollama, or any MCP client |
+
+---
+
+## Works With Everything
+
+<table>
+<tr>
+<td width="33%" align="center">
+
+**Claude Code / Desktop**
+```bash
+memesh-mcp
+```
+MCP protocol (auto-configured)
+
+</td>
+<td width="33%" align="center">
+
+**Python / LangChain**
 ```python
 from memesh import MeMesh
-
-m = MeMesh()  # connects to localhost:3737
-m.remember("auth", "decision", observations=["Use OAuth 2.0 with PKCE"])
-results = m.recall("auth")
+m = MeMesh()
+m.recall("auth")
 ```
+`pip install memesh`
 
-### Any LLM (OpenAI function calling format)
+</td>
+<td width="33%" align="center">
+
+**Any LLM (OpenAI format)**
+```bash
+memesh export-schema \
+  --format openai
+```
+Paste tools into any API call
+
+</td>
+</tr>
+</table>
+
+---
+
+## Why Not Just Use Mem0 / Zep?
+
+| | **MeMesh** | Mem0 | Zep |
+|---|---|---|---|
+| **Install time** | 5 seconds | 30-60 minutes | 30+ minutes |
+| **Setup** | `npm i -g` — done | Neo4j + VectorDB + API keys | Neo4j + config |
+| **Storage** | Single SQLite file | Neo4j + Qdrant | Neo4j |
+| **Works offline** | Yes, always | No | No |
+| **Dashboard** | Built-in (5 tabs) | None | None |
+| **Dependencies** | 6 | 20+ | 10+ |
+| **Price** | Free forever | Free tier / Paid | Free tier / Paid |
+
+**MeMesh trades:** enterprise-scale multi-tenant features for **instant setup, zero infrastructure, and 100% privacy**.
+
+---
+
+## What Happens Automatically
+
+You don't need to manually remember everything. MeMesh has **4 hooks** that capture knowledge without you doing anything:
+
+| When | What MeMesh does |
+|------|------------------|
+| **Every session start** | Loads your most relevant memories (ranked by scoring algorithm) |
+| **After every `git commit`** | Records what you changed, with diff stats |
+| **When Claude stops** | Captures files edited, errors fixed, and decisions made |
+| **Before context compaction** | Saves knowledge before it's lost to context limits |
+
+> **Opt out anytime:** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## Smart Features
+
+**🧠 Smart Search** — Search "login security" and find memories about "OAuth PKCE". MeMesh expands queries with related terms using your configured LLM.
+
+**📊 Scored Ranking** — Results ranked by relevance (35%) + how recently you used it (25%) + how often (20%) + confidence (15%) + whether the info is still current (5%).
+
+**🔄 Knowledge Evolution** — Decisions change. `forget` archives old memories (never deletes). `supersedes` relations link old → new. Your AI always sees the latest version.
+
+**⚠️ Conflict Detection** — If you have two memories that contradict each other, MeMesh warns you.
+
+**📦 Team Sharing** — `memesh export > team-knowledge.json` → share with your team → `memesh import team-knowledge.json`
+
+---
+
+## Unlock Smart Mode (Optional)
+
+MeMesh works fully offline out of the box. Add an LLM API key to unlock smarter search:
 
 ```bash
-memesh export-schema --format openai
-# → JSON array of tools, paste into your OpenAI/Claude/Gemini API call
+memesh config set llm.provider anthropic
+memesh config set llm.api-key sk-ant-...
 ```
 
----
+Or use the dashboard Settings tab (visual setup):
 
-## Why MeMesh?
+```bash
+memesh  # opens dashboard → Settings tab
+```
 
-Most AI memory solutions need Neo4j, vector databases, API keys, and 30+ minutes of setup. MeMesh needs **one command**.
-
-| | **MeMesh** | Mem0 | Zep | Anthropic Memory |
-|---|---|---|---|---|
-| **Install** | `npm i -g` (5 sec) | pip + Neo4j + VectorDB | pip + Neo4j | Built-in (cloud) |
-| **Storage** | Single SQLite file | Neo4j + Qdrant | Neo4j | Cloud |
-| **Search** | FTS5 + scoring + LLM expansion | Semantic + BM25 | Temporal graph | Key lookup |
-| **Privacy** | 100% local, always | Cloud option | Self-host | Cloud |
-| **Dependencies** | 6 | 20+ | 10+ | 0 (but cloud-locked) |
-| **Offline** | Yes | No | No | No |
-| **Dashboard** | Built-in (5 tabs) | None | None | None |
-| **Price** | Free | Free/Paid | Free/Paid | Included w/ API |
+| | Level 0 (default) | Level 1 (Smart Mode) |
+|---|---|---|
+| **Search** | FTS5 keyword matching | + LLM query expansion (~97% recall) |
+| **Auto-capture** | Rule-based patterns | + LLM extracts decisions & lessons |
+| **Compression** | Not available | `consolidate` compresses verbose memories |
+| **Cost** | Free, no API key | ~$0.0001 per search (Haiku) |
 
 ---
 
-## Features
-
-### 6 Memory Tools
+## All 6 Memory Tools
 
 | Tool | What it does |
 |------|-------------|
-| **remember** | Store knowledge with observations, relations, and tags |
-| **recall** | Smart search with multi-factor scoring and LLM query expansion |
-| **forget** | Soft-archive (never deletes) or remove specific observations |
-| **consolidate** | LLM-powered compression of verbose memories |
-| **export** | Share memories as JSON between projects or team members |
-| **import** | Import memories with merge strategies (skip / overwrite / append) |
-
-### 3 Access Methods
-
-| Method | Command | Best for |
-|--------|---------|----------|
-| **CLI** | `memesh` | Terminal, scripting, CI/CD |
-| **HTTP API** | `memesh serve` | Python SDK, dashboard, integrations |
-| **MCP** | `memesh-mcp` | Claude Code, Claude Desktop, any MCP client |
-
-### 4 Auto-Capture Hooks
-
-| Hook | Trigger | What it captures |
-|------|---------|-----------------|
-| **Session Start** | Every session | Loads your top memories by relevance |
-| **Post Commit** | After `git commit` | Records commit with diff stats |
-| **Session Summary** | When Claude stops | Files edited, errors fixed, decisions made |
-| **Pre-Compact** | Before compaction | Saves knowledge before context is lost |
-
-### Smart Features
-
-- **Knowledge Evolution** — `forget` archives, not deletes. `supersedes` relations replace old decisions with new ones. History is preserved.
-- **Smart Recall** — LLM expands your search query into related terms. "login security" finds "OAuth PKCE".
-- **Multi-Factor Scoring** — Results ranked by relevance (35%) + recency (25%) + frequency (20%) + confidence (15%) + temporal validity (5%).
-- **Conflict Detection** — Warns when memories contradict each other.
-- **Auto-Decay** — Stale memories (30+ days unused) gradually fade in ranking. Never deleted.
-- **Namespaces** — `personal`, `team`, `global` scopes for organizing and sharing.
+| `remember` | Store knowledge with observations, relations, and tags |
+| `recall` | Smart search with multi-factor scoring and LLM query expansion |
+| `forget` | Soft-archive (never deletes) or remove specific observations |
+| `consolidate` | LLM-powered compression of verbose memories |
+| `export` | Share memories as JSON between projects or team members |
+| `import` | Import memories with merge strategies (skip / overwrite / append) |
 
 ---
 
@@ -158,32 +213,22 @@ Most AI memory solutions need Neo4j, vector databases, API keys, and 30+ minutes
                     (~/.memesh/knowledge-graph.db)
 ```
 
-**Core** is framework-agnostic — the same `remember`/`recall`/`forget` logic runs identically whether invoked from terminal, HTTP, or MCP.
-
-**Dependencies**: `better-sqlite3`, `sqlite-vec`, `@modelcontextprotocol/sdk`, `zod`, `express`, `commander`
+Core is framework-agnostic. Same logic runs from terminal, HTTP, or MCP.
 
 ---
 
-## Development
+## Contributing
 
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory
-npm install
-npm run build
+cd memesh-llm-memory && npm install && npm run build
 npm test -- --run    # 289 tests
 ```
 
-Dashboard development:
-```bash
-cd dashboard
-npm install
-npm run dev          # Vite dev server with hot reload
-npm run build        # Build to single HTML file
-```
+Dashboard: `cd dashboard && npm install && npm run dev`
 
 ---
 
-## License
-
-MIT — [PCIRCLE AI](https://pcircle.ai)
+<p align="center">
+  <strong>MIT</strong> — Made by <a href="https://pcircle.ai">PCIRCLE AI</a>
+</p>
