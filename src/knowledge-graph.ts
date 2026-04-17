@@ -304,6 +304,38 @@ export class KnowledgeGraph {
     return { archived: true, name, previousStatus: row.status };
   }
 
+  removeObservation(
+    entityName: string,
+    observationContent: string
+  ): { removed: boolean; remainingObservations: number } {
+    const row = this.db
+      .prepare('SELECT id FROM entities WHERE name = ?')
+      .get(entityName) as { id: number } | undefined;
+
+    if (!row) return { removed: false, remainingObservations: 0 };
+
+    const prevObs = this.db
+      .prepare('SELECT content FROM observations WHERE entity_id = ?')
+      .all(row.id) as { content: string }[];
+    const prevObsText = prevObs.map((o) => o.content).join(' ');
+
+    const deleteResult = this.db
+      .prepare('DELETE FROM observations WHERE entity_id = ? AND content = ?')
+      .run(row.id, observationContent);
+
+    if (deleteResult.changes === 0) {
+      return { removed: false, remainingObservations: prevObs.length };
+    }
+
+    this.rebuildFts(row.id, entityName, prevObsText);
+
+    const remaining = this.db
+      .prepare('SELECT COUNT(*) as c FROM observations WHERE entity_id = ?')
+      .get(row.id) as { c: number };
+
+    return { removed: true, remainingObservations: remaining.c };
+  }
+
   /** @deprecated Use archiveEntity() instead. Retained for admin/testing only. */
   private deleteEntity(name: string): { deleted: boolean } {
     const row = this.db

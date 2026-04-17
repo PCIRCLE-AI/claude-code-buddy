@@ -346,6 +346,69 @@ describe('Feature: Knowledge Graph', () => {
     });
   });
 
+  describe('Observation-level forget', () => {
+    it('should remove a specific observation and rebuild FTS', () => {
+      kg.createEntity('Design', 'decision', {
+        observations: ['Use JWT', 'Use RS256', 'Rotate keys'],
+      });
+
+      const result = kg.removeObservation('Design', 'Use JWT');
+      expect(result).toEqual({ removed: true, remainingObservations: 2 });
+
+      const entity = kg.getEntity('Design');
+      expect(entity!.observations).toEqual(['Use RS256', 'Rotate keys']);
+
+      // FTS should find "RS256" but not "JWT"
+      expect(kg.search('RS256')).toHaveLength(1);
+      expect(kg.search('JWT')).toEqual([]);
+    });
+
+    it('should return removed:false for non-matching observation', () => {
+      kg.createEntity('Design', 'decision', {
+        observations: ['Use JWT'],
+      });
+
+      const result = kg.removeObservation('Design', 'nonexistent');
+      expect(result).toEqual({ removed: false, remainingObservations: 1 });
+    });
+
+    it('should return removed:false for non-existent entity', () => {
+      const result = kg.removeObservation('Ghost', 'anything');
+      expect(result).toEqual({ removed: false, remainingObservations: 0 });
+    });
+  });
+
+  describe('Reactivation via Remember', () => {
+    it('should reactivate archived entity when remembered again', () => {
+      kg.createEntity('OldDesign', 'decision', {
+        observations: ['Use REST'],
+      });
+      kg.archiveEntity('OldDesign');
+
+      // Verify archived in DB
+      const archivedRow = db.prepare("SELECT status FROM entities WHERE name = 'OldDesign'").get() as any;
+      expect(archivedRow.status).toBe('archived');
+
+      // Remember again — should reactivate
+      kg.createEntity('OldDesign', 'decision', {
+        observations: ['Use GraphQL'],
+      });
+
+      // Verify reactivated
+      const reactivatedRow = db.prepare("SELECT status FROM entities WHERE name = 'OldDesign'").get() as any;
+      expect(reactivatedRow.status).toBe('active');
+
+      // Observations appended
+      const entity = kg.getEntity('OldDesign');
+      expect(entity!.observations).toContain('Use REST');
+      expect(entity!.observations).toContain('Use GraphQL');
+
+      // FTS5 rebuilt — searchable again
+      expect(kg.search('REST')).toHaveLength(1);
+      expect(kg.search('GraphQL')).toHaveLength(1);
+    });
+  });
+
   describe('Edge Cases', () => {
     it('should throw when creating relation with non-existent entity', () => {
       kg.createEntity('Exists', 'test');
