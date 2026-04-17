@@ -7,72 +7,12 @@ import { remember, recallEnhanced, forget, consolidate, exportMemories, importMe
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
-// Dashboard: serve Preact SPA build (single HTML file)
-// Falls back to legacy template if Preact build not found
-
-// Zod schemas for HTTP input validation (same rules as MCP handlers)
-const RememberBody = z.object({
-  name: z.string().min(1),
-  type: z.string().min(1),
-  observations: z.array(z.string()).optional(),
-  tags: z.array(z.string()).optional(),
-  relations: z.array(z.object({ to: z.string().min(1), type: z.string().min(1) })).optional(),
-  namespace: z.enum(['personal', 'team', 'global']).optional(),
-});
-
-const RecallBody = z.object({
-  query: z.string().optional(),
-  tag: z.string().optional(),
-  limit: z.number().int().min(1).max(100).optional(),
-  include_archived: z.boolean().optional(),
-  namespace: z.enum(['personal', 'team', 'global']).optional(),
-  cross_project: z.boolean().optional(),
-});
-
-const ForgetBody = z.object({
-  name: z.string().min(1),
-  observation: z.string().optional(),
-});
-
-const ConsolidateBody = z.object({
-  name: z.string().optional(),
-  tag: z.string().optional(),
-  min_observations: z.number().int().min(1).optional(),
-});
-
-const ExportBody = z.object({
-  tag: z.string().optional(),
-  namespace: z.string().optional(),
-  limit: z.number().int().min(1).max(10000).optional(),
-});
-
-const ExportResultBody = z.object({
-  version: z.string(),
-  exported_at: z.string(),
-  entity_count: z.number(),
-  entities: z.array(z.object({
-    name: z.string().min(1).max(255),
-    type: z.string().min(1).max(100),
-    namespace: z.string(),
-    observations: z.array(z.string().max(10000)),
-    tags: z.array(z.string().max(255)),
-    relations: z.array(z.object({ to: z.string().min(1).max(255), type: z.string().min(1).max(100) })),
-  })),
-});
-
-const ImportBody = z.object({
-  data: ExportResultBody,
-  namespace: z.string().optional(),
-  merge_strategy: z.enum(['skip', 'overwrite', 'append']),
-});
-
-const LearnBody = z.object({
-  error: z.string().min(1),
-  fix: z.string().min(1),
-  root_cause: z.string().optional(),
-  prevention: z.string().optional(),
-  severity: z.enum(['critical', 'major', 'minor']).optional(),
-});
+import {
+  RememberSchema as RememberBody, RecallSchema as RecallBody,
+  ForgetSchema as ForgetBody, ConsolidateSchema as ConsolidateBody,
+  ExportSchema as ExportBody, ImportSchema as ImportBody,
+  LearnSchema as LearnBody,
+} from '../schemas.js';
 
 import fs from 'fs';
 import path from 'path';
@@ -86,7 +26,7 @@ const packageVersion =
   JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')).version ?? '0.0.0';
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 // --- Rate limiting (in-memory, no external deps) ---
 const rateLimitWindowMs = 60_000; // 1 minute
@@ -127,7 +67,9 @@ app.get('/dashboard', (_req, res) => {
     res.type('html').sendFile(dashboardPath);
   } else {
     // Fallback to legacy template
-    import('../../cli/view.js').then(m => res.type('html').send(m.generateLiveDashboardHtml()));
+    import('../../cli/view.js')
+      .then(m => res.type('html').send(m.generateLiveDashboardHtml()))
+      .catch(() => res.status(500).send('Dashboard unavailable'));
   }
 });
 
@@ -334,7 +276,7 @@ app.get('/v1/stats', (_req, res) => {
     const relations = db.prepare('SELECT COUNT(*) as c FROM relations').get() as any;
     const tags = db.prepare('SELECT COUNT(DISTINCT tag) as c FROM tags').get() as any;
 
-    const typeDistribution = db.prepare('SELECT type, COUNT(*) as count FROM entities GROUP BY type ORDER BY count DESC').all();
+    const typeDistribution = db.prepare('SELECT type, COUNT(*) as count FROM entities GROUP BY type ORDER BY count DESC LIMIT 50').all();
     const tagDistribution = db.prepare('SELECT tag, COUNT(*) as count FROM tags GROUP BY tag ORDER BY count DESC LIMIT 30').all();
     const statusDistribution = db.prepare("SELECT status, COUNT(*) as count FROM entities GROUP BY status").all();
 
