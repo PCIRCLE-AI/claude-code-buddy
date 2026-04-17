@@ -140,6 +140,57 @@ app.post('/v1/config', (req, res) => {
   }
 });
 
+// --- Graph data (entities + relations) ---
+app.get('/v1/graph', (_req, res) => {
+  try {
+    const db = getDatabase();
+    const kg = new KnowledgeGraph(db);
+    const entities = kg.listRecent(500, true); // include archived
+
+    // Get all relations with entity names
+    const relations = db.prepare(`
+      SELECT e_from.name AS "from", e_to.name AS "to", r.relation_type AS type
+      FROM relations r
+      JOIN entities e_from ON r.from_entity_id = e_from.id
+      JOIN entities e_to ON r.to_entity_id = e_to.id
+    `).all();
+
+    res.json({ success: true, data: { entities, relations } });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// --- Stats ---
+app.get('/v1/stats', (_req, res) => {
+  try {
+    const db = getDatabase();
+    const entities = db.prepare('SELECT COUNT(*) as c FROM entities').get() as any;
+    const observations = db.prepare('SELECT COUNT(*) as c FROM observations').get() as any;
+    const relations = db.prepare('SELECT COUNT(*) as c FROM relations').get() as any;
+    const tags = db.prepare('SELECT COUNT(DISTINCT tag) as c FROM tags').get() as any;
+
+    const typeDistribution = db.prepare('SELECT type, COUNT(*) as count FROM entities GROUP BY type ORDER BY count DESC').all();
+    const tagDistribution = db.prepare('SELECT tag, COUNT(*) as count FROM tags GROUP BY tag ORDER BY count DESC LIMIT 30').all();
+    const statusDistribution = db.prepare("SELECT status, COUNT(*) as count FROM entities GROUP BY status").all();
+
+    res.json({
+      success: true,
+      data: {
+        totalEntities: entities.c,
+        totalObservations: observations.c,
+        totalRelations: relations.c,
+        totalTags: tags.c,
+        typeDistribution,
+        tagDistribution,
+        statusDistribution,
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // --- List entities ---
 app.get('/v1/entities', (req, res) => {
   try {

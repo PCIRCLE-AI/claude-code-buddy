@@ -572,6 +572,9 @@ export function generateLiveDashboardHtml(): string {
     .header { background: #1a1a2e; color: white; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
     .header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
     .header .meta { opacity: 0.6; font-size: 13px; display: flex; gap: 16px; align-items: center; }
+    .header-right { display: flex; gap: 10px; align-items: center; }
+    .theme-btn { background: none; border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 14px; }
+    .theme-btn:hover { background: rgba(255,255,255,0.1); }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; display: inline-block; margin-right: 6px; }
     .dot.error { background: #f87171; }
     .nav { display: flex; background: white; border-bottom: 1px solid #e0e0e0; padding: 0 16px; overflow-x: auto; }
@@ -585,13 +588,15 @@ export function generateLiveDashboardHtml(): string {
     .card h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #1a1a2e; }
     input, button { font-family: inherit; font-size: 14px; }
     .search-row { display: flex; gap: 8px; margin-bottom: 16px; }
-    .search-input { flex: 1; padding: 9px 14px; border: 1px solid #ddd; border-radius: 6px; outline: none; }
+    .search-input { flex: 1; padding: 9px 14px; border: 1px solid #ddd; border-radius: 6px; outline: none; background: white; color: #1a1a2e; }
     .search-input:focus { border-color: #4361ee; }
     .btn { padding: 9px 18px; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; }
     .btn-primary { background: #4361ee; color: white; }
     .btn-primary:hover { background: #3651d4; }
     .btn-secondary { background: #f0f0f0; color: #333; }
     .btn-secondary:hover { background: #e0e0e0; }
+    .btn-danger { background: #fee2e2; color: #991b1b; }
+    .btn-danger:hover { background: #fecaca; }
     .btn-sm { padding: 6px 12px; font-size: 13px; }
     table { width: 100%; border-collapse: collapse; }
     th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
@@ -639,6 +644,93 @@ export function generateLiveDashboardHtml(): string {
     .wizard-step-dot.active { background: #4361ee; }
     .wizard-step-dot.done { background: #4ade80; }
     .wizard-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
+    /* Analytics */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .stat-card { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 16px; text-align: center; }
+    .stat-card .stat-value { font-size: 32px; font-weight: 700; color: #4361ee; }
+    .stat-card .stat-label { font-size: 13px; color: #888; margin-top: 2px; }
+    .bar-chart { margin-bottom: 20px; }
+    .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+    .bar-label { width: 140px; flex-shrink: 0; color: #444; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar-track { flex: 1; background: #f0f0f0; border-radius: 4px; height: 16px; overflow: hidden; }
+    .bar-fill { height: 100%; background: #4361ee; border-radius: 4px; transition: width 0.3s; }
+    .bar-count { width: 36px; text-align: right; color: #888; flex-shrink: 0; }
+    .tag-cloud { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tag-pill { display: inline-block; padding: 3px 10px; border-radius: 12px; background: #e0e7ff; color: #3730a3; font-size: 12px; font-weight: 500; cursor: default; }
+    /* Timeline */
+    .chain { display: flex; align-items: center; flex-wrap: wrap; gap: 0; margin-bottom: 20px; padding: 16px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; }
+    .chain-node { background: white; border: 1px solid #ddd; border-radius: 6px; padding: 8px 14px; font-size: 13px; position: relative; }
+    .chain-node.archived { opacity: 0.5; }
+    .chain-node .cn-name { font-weight: 600; color: #1a1a2e; }
+    .chain-node .cn-type { font-size: 11px; color: #888; }
+    .chain-arrow { font-size: 18px; color: #4361ee; padding: 0 6px; flex-shrink: 0; }
+    /* Graph */
+    .graph-svg-wrap { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; overflow: hidden; }
+    .graph-svg-wrap svg { width: 100%; height: 520px; display: block; }
+    .graph-controls { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; font-size: 13px; color: #888; }
+    /* Manage */
+    .manage-action-cell { display: flex; gap: 6px; flex-wrap: wrap; }
+    /* Feedback widget */
+    #feedback-btn { position: fixed; bottom: 24px; right: 24px; background: #4361ee; color: white; border: none; border-radius: 24px; padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(67,97,238,0.4); z-index: 900; transition: background 0.15s, transform 0.15s; }
+    #feedback-btn:hover { background: #3651d4; transform: translateY(-1px); }
+    #feedback-panel { position: fixed; bottom: 76px; right: 24px; width: 320px; background: white; border: 1px solid #ddd; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.15); padding: 20px; z-index: 900; display: none; }
+    #feedback-panel.open { display: block; }
+    #feedback-panel h3 { font-size: 15px; font-weight: 700; margin-bottom: 14px; color: #1a1a2e; }
+    .fb-radio-group { display: flex; gap: 8px; margin-bottom: 12px; }
+    .fb-radio { display: flex; align-items: center; gap: 5px; padding: 5px 10px; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; font-size: 13px; }
+    .fb-radio.selected { border-color: #4361ee; background: #f0f3ff; color: #4361ee; }
+    .fb-radio input { accent-color: #4361ee; }
+    #fb-desc { width: 100%; height: 80px; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; resize: vertical; outline: none; margin-bottom: 10px; background: white; color: #1a1a2e; }
+    #fb-desc:focus { border-color: #4361ee; }
+    .fb-sys-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666; margin-bottom: 12px; }
+    /* Dark mode */
+    body.dark { background: #0d1117; color: #c9d1d9; }
+    body.dark .header { background: #010409; }
+    body.dark .nav { background: #161b22; border-color: #30363d; }
+    body.dark .nav button { color: #8b949e; }
+    body.dark .nav button.active { color: #c9d1d9; border-bottom-color: #58a6ff; }
+    body.dark .nav button:hover:not(.active) { color: #c9d1d9; background: #21262d; }
+    body.dark .card { background: #161b22; border: 1px solid #30363d; box-shadow: none; }
+    body.dark .card h2 { color: #c9d1d9; }
+    body.dark th { background: #0d1117; color: #8b949e; }
+    body.dark td { border-color: #21262d; }
+    body.dark tr:hover td { background: #1c2128; }
+    body.dark .search-input { background: #0d1117; color: #c9d1d9; border-color: #30363d; }
+    body.dark .search-input:focus { border-color: #58a6ff; }
+    body.dark .btn-secondary { background: #21262d; color: #c9d1d9; }
+    body.dark .btn-secondary:hover { background: #30363d; }
+    body.dark .btn-danger { background: #3d1f1f; color: #f87171; }
+    body.dark .btn-danger:hover { background: #4d2020; }
+    body.dark .result-box { background: #0d1117; border-color: #30363d; color: #c9d1d9; }
+    body.dark .result-box.error { background: #2d1b1b; border-color: #5c2626; color: #f87171; }
+    body.dark .stat-card { background: #0d1117; border-color: #30363d; }
+    body.dark .stat-card .stat-value { color: #58a6ff; }
+    body.dark .stat-card .stat-label { color: #8b949e; }
+    body.dark .bar-track { background: #21262d; }
+    body.dark .bar-fill { background: #58a6ff; }
+    body.dark .bar-label { color: #c9d1d9; }
+    body.dark .tag-pill { background: #1c2128; color: #79c0ff; border: 1px solid #30363d; }
+    body.dark .chain { background: #0d1117; border-color: #30363d; }
+    body.dark .chain-node { background: #161b22; border-color: #30363d; }
+    body.dark .chain-node .cn-name { color: #c9d1d9; }
+    body.dark .graph-svg-wrap { background: #0d1117; border-color: #30363d; }
+    body.dark .cap-item { background: #0d1117; border-color: #30363d; }
+    body.dark .cap-item .cap-value { color: #c9d1d9; }
+    body.dark .settings-section h3 { border-color: #30363d; color: #c9d1d9; }
+    body.dark .form-label { color: #c9d1d9; }
+    body.dark .provider-radio { border-color: #30363d; color: #c9d1d9; }
+    body.dark .provider-radio.selected { background: #1c2128; border-color: #58a6ff; color: #79c0ff; }
+    body.dark #feedback-panel { background: #161b22; border-color: #30363d; }
+    body.dark #feedback-panel h3 { color: #c9d1d9; }
+    body.dark .fb-radio { border-color: #30363d; color: #c9d1d9; }
+    body.dark .fb-radio.selected { border-color: #58a6ff; background: #1c2128; color: #79c0ff; }
+    body.dark #fb-desc { background: #0d1117; color: #c9d1d9; border-color: #30363d; }
+    body.dark .fb-sys-row { color: #8b949e; }
+    body.dark .wizard-modal { background: #161b22; }
+    body.dark .wizard-modal h2 { color: #c9d1d9; }
+    body.dark .wizard-modal .subtitle { color: #8b949e; }
+    body.dark .wizard-step-dot { background: #30363d; }
+    body.dark .placeholder { color: #484f58; }
   `.trim();
 
   // The inline script uses only createElement / textContent for all user data.
@@ -647,6 +739,9 @@ export function generateLiveDashboardHtml(): string {
 (function () {
   'use strict';
 
+  var _currentVersion = '';
+  var _currentSearchLevel = '';
+
   // ---- API ----
   async function apiCall(method, path, body) {
     var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
@@ -654,6 +749,23 @@ export function generateLiveDashboardHtml(): string {
     var res = await fetch(path, opts);
     return res.json();
   }
+
+  // ---- Dark mode ----
+  (function initTheme() {
+    var saved = localStorage.getItem('memesh-theme');
+    if (saved === 'dark') { document.body.classList.add('dark'); }
+    var themeBtn = document.getElementById('theme-btn');
+    if (themeBtn) {
+      themeBtn.textContent = document.body.classList.contains('dark') ? '\\u2600\\ufe0f' : '\\ud83c\\udf19';
+      themeBtn.addEventListener('click', function () {
+        document.body.classList.toggle('dark');
+        var isDark = document.body.classList.contains('dark');
+        themeBtn.textContent = isDark ? '\\u2600\\ufe0f' : '\\ud83c\\udf19';
+        localStorage.setItem('memesh-theme', isDark ? 'dark' : 'light');
+        try { apiCall('POST', '/v1/config', { theme: isDark ? 'dark' : 'light' }); } catch (_) {}
+      });
+    }
+  })();
 
   // ---- Tab switching ----
   document.getElementById('nav').addEventListener('click', function (e) {
@@ -665,6 +777,10 @@ export function generateLiveDashboardHtml(): string {
     document.querySelectorAll('.tab-content').forEach(function (el) { el.classList.remove('active'); });
     document.getElementById('tab-' + tab).classList.add('active');
     if (tab === 'browse') loadBrowse();
+    if (tab === 'graph') loadGraph();
+    if (tab === 'analytics') loadAnalytics();
+    if (tab === 'timeline') loadTimeline();
+    if (tab === 'manage') loadManage();
     if (tab === 'settings') loadSettings();
   });
 
@@ -675,6 +791,7 @@ export function generateLiveDashboardHtml(): string {
     try {
       var data = await apiCall('GET', '/v1/health');
       if (!data.success) throw new Error(data.error || 'API error');
+      _currentVersion = data.data.version || '';
       var dot = document.createElement('span');
       dot.className = 'dot';
       indicator.textContent = '';
@@ -822,6 +939,616 @@ export function generateLiveDashboardHtml(): string {
   browseFilter.addEventListener('input', function () { renderBrowseTable(this.value); });
   document.getElementById('browse-refresh').addEventListener('click', loadBrowse);
 
+  // ---- Graph tab ----
+  var graphLoaded = false;
+
+  async function loadGraph() {
+    if (graphLoaded) return;
+    graphLoaded = true;
+    var wrap = document.getElementById('graph-svg-wrap');
+    showSpinner(wrap);
+    try {
+      var data = await apiCall('GET', '/v1/graph');
+      if (!data.success) throw new Error(data.error || 'Failed to load graph');
+      renderGraph(data.data.entities || [], data.data.relations || [], wrap);
+    } catch (err) {
+      showError(wrap, err.message);
+      graphLoaded = false;
+    }
+  }
+
+  function renderGraph(entities, relations, container) {
+    container.textContent = '';
+
+    if (entities.length === 0) {
+      showPlaceholder(container, 'No entities yet. Start remembering to build your graph.');
+      return;
+    }
+
+    var svgNS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '520');
+    container.appendChild(svg);
+
+    var width = container.clientWidth || 900;
+    var height = 520;
+
+    // Only show top connected nodes to keep graph readable
+    var MAX_NODES = 60;
+    var degreeMap = {};
+    relations.forEach(function (r) {
+      degreeMap[r.from] = (degreeMap[r.from] || 0) + 1;
+      degreeMap[r.to] = (degreeMap[r.to] || 0) + 1;
+    });
+
+    var topNames;
+    if (Object.keys(degreeMap).length > 0) {
+      topNames = new Set(
+        Object.entries(degreeMap)
+          .sort(function (a, b) { return b[1] - a[1]; })
+          .slice(0, MAX_NODES)
+          .map(function (e) { return e[0]; })
+      );
+    } else {
+      topNames = new Set(entities.slice(0, MAX_NODES).map(function (e) { return e.name; }));
+    }
+
+    var graphEntities = entities.filter(function (e) { return topNames.has(e.name); });
+    if (graphEntities.length === 0) graphEntities = entities.slice(0, MAX_NODES);
+
+    var colorPalette = ['#4361ee','#e63946','#2a9d8f','#e9c46a','#f4a261','#a8dadc','#6d6875','#b5838d','#e9724c','#c5283d'];
+    var typeColorMap = {};
+    var colorIdx = 0;
+    graphEntities.forEach(function (e) {
+      if (!typeColorMap[e.type]) {
+        typeColorMap[e.type] = colorPalette[colorIdx % colorPalette.length];
+        colorIdx++;
+      }
+    });
+
+    // Build nodes and links
+    var nodeMap = {};
+    var nodes = graphEntities.map(function (e, i) {
+      var n = { id: e.name, type: e.type, status: e.status, obs: e.observations ? e.observations.length : 0, x: 0, y: 0, vx: 0, vy: 0, fx: null, fy: null };
+      nodeMap[e.name] = n;
+      return n;
+    });
+
+    var links = relations
+      .filter(function (r) { return nodeMap[r.from] && nodeMap[r.to]; })
+      .map(function (r) { return { source: r.from, target: r.to, type: r.type }; });
+
+    // Force simulation using pure JS (no D3 needed for basic layout)
+    // Initialize positions in a circle
+    nodes.forEach(function (n, i) {
+      var angle = (2 * Math.PI * i) / nodes.length;
+      var r = Math.min(width, height) * 0.35;
+      n.x = width / 2 + r * Math.cos(angle);
+      n.y = height / 2 + r * Math.sin(angle);
+    });
+
+    // Create SVG elements using D3 (bundled)
+    var d3svg = d3.select(svg);
+    d3svg.attr('viewBox', [0, 0, width, height]);
+
+    // Arrow markers for links
+    var defs = d3svg.append('defs');
+    defs.append('marker')
+      .attr('id', 'arrow')
+      .attr('viewBox', '0 0 10 10').attr('refX', 18).attr('refY', 5)
+      .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
+      .append('path').attr('d', 'M 0 0 L 10 5 L 0 10 z').attr('fill', '#94a3b8');
+
+    var g = d3svg.append('g');
+
+    d3svg.call(d3.zoom().scaleExtent([0.2, 5]).on('zoom', function (event) {
+      g.attr('transform', event.transform);
+    }));
+
+    var linkSel = g.append('g')
+      .selectAll('line').data(links).join('line')
+      .attr('stroke', '#94a3b8').attr('stroke-width', 1.2)
+      .attr('marker-end', 'url(#arrow)');
+
+    var linkLabel = g.append('g')
+      .selectAll('text').data(links).join('text')
+      .attr('font-size', 9).attr('fill', '#94a3b8').attr('text-anchor', 'middle')
+      .text(function (d) { return d.type; });
+
+    var nodeSel = g.append('g')
+      .selectAll('circle').data(nodes).join('circle')
+      .attr('r', function (d) { return 6 + Math.min(d.obs, 5); })
+      .attr('fill', function (d) { return typeColorMap[d.type] || '#4361ee'; })
+      .attr('stroke', '#fff').attr('stroke-width', 1.5)
+      .attr('opacity', function (d) { return d.status === 'archived' ? 0.35 : 1; })
+      .call(d3.drag()
+        .on('start', function (event, d) { if (!event.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+        .on('drag', function (event, d) { d.fx = event.x; d.fy = event.y; })
+        .on('end', function (event, d) { if (!event.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+    var labelSel = g.append('g')
+      .selectAll('text').data(nodes).join('text')
+      .attr('font-size', 11).attr('fill', '#374151').attr('dy', 4)
+      .text(function (d) { return d.id.length > 30 ? d.id.slice(0, 30) + '…' : d.id; });
+
+    // Tooltip
+    var ttEl = document.getElementById('live-tooltip');
+    nodeSel.on('mouseover', function (event, d) {
+      ttEl.style.display = 'block';
+      ttEl.querySelector('.tt-name').textContent = d.id;
+      ttEl.querySelector('.tt-type').textContent = d.type + (d.status === 'archived' ? ' [archived]' : '');
+      ttEl.querySelector('.tt-obs').textContent = d.obs + ' observation' + (d.obs !== 1 ? 's' : '');
+    }).on('mousemove', function (event) {
+      ttEl.style.left = (event.pageX + 14) + 'px';
+      ttEl.style.top = (event.pageY - 10) + 'px';
+    }).on('mouseout', function () { ttEl.style.display = 'none'; });
+
+    var sim = d3.forceSimulation(nodes)
+      .force('link', d3.forceLink(links).id(function (d) { return d.id; }).distance(150))
+      .force('charge', d3.forceManyBody().strength(-400))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collision', d3.forceCollide().radius(22));
+
+    sim.on('tick', function () {
+      linkSel
+        .attr('x1', function (d) { return d.source.x; }).attr('y1', function (d) { return d.source.y; })
+        .attr('x2', function (d) { return d.target.x; }).attr('y2', function (d) { return d.target.y; });
+      linkLabel
+        .attr('x', function (d) { return (d.source.x + d.target.x) / 2; })
+        .attr('y', function (d) { return (d.source.y + d.target.y) / 2; });
+      nodeSel.attr('cx', function (d) { return d.x; }).attr('cy', function (d) { return d.y; });
+      labelSel.attr('x', function (d) { return d.x + 10; }).attr('y', function (d) { return d.y; });
+    });
+
+    // Legend
+    var legend = document.createElement('div');
+    legend.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:12px;';
+    Object.entries(typeColorMap).forEach(function (pair) {
+      var item = document.createElement('span');
+      item.style.cssText = 'display:flex;align-items:center;gap:4px;';
+      var dot = document.createElement('span');
+      dot.style.cssText = 'width:10px;height:10px;border-radius:50%;display:inline-block;background:' + pair[1] + ';';
+      var lbl = document.createElement('span');
+      lbl.textContent = pair[0];
+      item.appendChild(dot);
+      item.appendChild(lbl);
+      legend.appendChild(item);
+    });
+    container.appendChild(legend);
+  }
+
+  // ---- Analytics tab ----
+  var analyticsLoaded = false;
+
+  async function loadAnalytics() {
+    if (analyticsLoaded) return;
+    analyticsLoaded = true;
+    var container = document.getElementById('analytics-body');
+    showSpinner(container);
+    try {
+      var data = await apiCall('GET', '/v1/stats');
+      if (!data.success) throw new Error(data.error || 'Failed to load stats');
+      renderAnalytics(data.data, container);
+    } catch (err) {
+      showError(container, err.message);
+      analyticsLoaded = false;
+    }
+  }
+
+  function renderAnalytics(stats, container) {
+    container.textContent = '';
+
+    // Stats grid
+    var grid = document.createElement('div');
+    grid.className = 'stats-grid';
+    [
+      { label: 'Entities', value: stats.totalEntities },
+      { label: 'Observations', value: stats.totalObservations },
+      { label: 'Relations', value: stats.totalRelations },
+      { label: 'Unique Tags', value: stats.totalTags },
+    ].forEach(function (c) {
+      var card = document.createElement('div');
+      card.className = 'stat-card';
+      var val = document.createElement('div');
+      val.className = 'stat-value';
+      val.textContent = String(c.value);
+      var lbl = document.createElement('div');
+      lbl.className = 'stat-label';
+      lbl.textContent = c.label;
+      card.appendChild(val);
+      card.appendChild(lbl);
+      grid.appendChild(card);
+    });
+    container.appendChild(grid);
+
+    // Status distribution
+    if (stats.statusDistribution && stats.statusDistribution.length > 0) {
+      var statusTitle = document.createElement('h3');
+      statusTitle.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;color:#666;';
+      statusTitle.textContent = 'Status Distribution';
+      container.appendChild(statusTitle);
+      var statusGrid = document.createElement('div');
+      statusGrid.className = 'stats-grid';
+      stats.statusDistribution.forEach(function (s) {
+        var card = document.createElement('div');
+        card.className = 'stat-card';
+        var val = document.createElement('div');
+        val.className = 'stat-value';
+        val.textContent = String(s.count);
+        var lbl = document.createElement('div');
+        lbl.className = 'stat-label';
+        lbl.textContent = s.status || 'active';
+        card.appendChild(val);
+        card.appendChild(lbl);
+        statusGrid.appendChild(card);
+      });
+      container.appendChild(statusGrid);
+    }
+
+    // Type distribution bar chart
+    if (stats.typeDistribution && stats.typeDistribution.length > 0) {
+      var typeTitle = document.createElement('h3');
+      typeTitle.style.cssText = 'font-size:14px;font-weight:600;margin:16px 0 10px;color:#666;';
+      typeTitle.textContent = 'Type Distribution';
+      container.appendChild(typeTitle);
+
+      var maxCount = stats.typeDistribution[0].count || 1;
+      var barChart = document.createElement('div');
+      barChart.className = 'bar-chart';
+      stats.typeDistribution.forEach(function (t) {
+        var row = document.createElement('div');
+        row.className = 'bar-row';
+        var lbl = document.createElement('div');
+        lbl.className = 'bar-label';
+        lbl.textContent = t.type;
+        lbl.title = t.type;
+        var track = document.createElement('div');
+        track.className = 'bar-track';
+        var fill = document.createElement('div');
+        fill.className = 'bar-fill';
+        fill.style.width = Math.round((t.count / maxCount) * 100) + '%';
+        track.appendChild(fill);
+        var cnt = document.createElement('div');
+        cnt.className = 'bar-count';
+        cnt.textContent = String(t.count);
+        row.appendChild(lbl);
+        row.appendChild(track);
+        row.appendChild(cnt);
+        barChart.appendChild(row);
+      });
+      container.appendChild(barChart);
+    }
+
+    // Tag cloud
+    if (stats.tagDistribution && stats.tagDistribution.length > 0) {
+      var tagTitle = document.createElement('h3');
+      tagTitle.style.cssText = 'font-size:14px;font-weight:600;margin:16px 0 10px;color:#666;';
+      tagTitle.textContent = 'Top Tags';
+      container.appendChild(tagTitle);
+
+      var maxTagCount = stats.tagDistribution[0].count || 1;
+      var tagCloud = document.createElement('div');
+      tagCloud.className = 'tag-cloud';
+      stats.tagDistribution.forEach(function (t) {
+        var pill = document.createElement('span');
+        pill.className = 'tag-pill';
+        var scale = 0.8 + (t.count / maxTagCount) * 0.9;
+        pill.style.fontSize = Math.round(scale * 13) + 'px';
+        pill.title = t.count + ' entities';
+        pill.textContent = t.tag;
+        tagCloud.appendChild(pill);
+      });
+      container.appendChild(tagCloud);
+    }
+
+    if (!stats.typeDistribution || stats.typeDistribution.length === 0) {
+      showPlaceholder(container, 'No data yet. Start adding entities.');
+    }
+  }
+
+  // ---- Timeline tab ----
+  var timelineLoaded = false;
+
+  async function loadTimeline() {
+    if (timelineLoaded) return;
+    timelineLoaded = true;
+    var container = document.getElementById('timeline-body');
+    showSpinner(container);
+    try {
+      var data = await apiCall('GET', '/v1/graph');
+      if (!data.success) throw new Error(data.error || 'Failed to load graph');
+      renderTimeline(data.data.entities || [], data.data.relations || [], container);
+    } catch (err) {
+      showError(container, err.message);
+      timelineLoaded = false;
+    }
+  }
+
+  function renderTimeline(entities, relations, container) {
+    container.textContent = '';
+
+    // Build entity map
+    var entityMap = {};
+    entities.forEach(function (e) { entityMap[e.name] = e; });
+
+    // Find supersedes relations
+    var supersedes = relations.filter(function (r) { return r.type === 'supersedes'; });
+
+    if (supersedes.length === 0) {
+      showPlaceholder(container, 'No evolution chains yet. Use "supersedes" relations to track knowledge evolution.');
+      return;
+    }
+
+    // Build chains: find roots (nodes that are not a "to" in any supersedes)
+    var hasIncoming = new Set(supersedes.map(function (r) { return r.to; }));
+    var roots = [...new Set(supersedes.map(function (r) { return r.from; }))].filter(function (name) {
+      return !hasIncoming.has(name);
+    });
+
+    // If no pure roots, just use all froms
+    if (roots.length === 0) {
+      roots = [...new Set(supersedes.map(function (r) { return r.from; }))];
+    }
+
+    // Build adjacency: from -> [to, ...]
+    var nextMap = {};
+    supersedes.forEach(function (r) {
+      if (!nextMap[r.from]) nextMap[r.from] = [];
+      nextMap[r.from].push(r.to);
+    });
+
+    // Walk each chain
+    var visited = new Set();
+    var chainCount = 0;
+
+    roots.forEach(function (root) {
+      if (visited.has(root)) return;
+      var chain = [];
+      var cursor = root;
+      var safety = 0;
+      while (cursor && !visited.has(cursor) && safety < 50) {
+        visited.add(cursor);
+        chain.push(cursor);
+        var nexts = nextMap[cursor];
+        cursor = nexts && nexts[0];
+        safety++;
+      }
+      if (chain.length < 2) return;
+      chainCount++;
+
+      var chainEl = document.createElement('div');
+      chainEl.className = 'chain';
+
+      chain.forEach(function (name, idx) {
+        if (idx > 0) {
+          var arrow = document.createElement('span');
+          arrow.className = 'chain-arrow';
+          arrow.textContent = '\\u2192';
+          chainEl.appendChild(arrow);
+        }
+        var node = document.createElement('div');
+        var ent = entityMap[name];
+        node.className = 'chain-node' + (ent && ent.status === 'archived' ? ' archived' : '');
+        var nameEl = document.createElement('div');
+        nameEl.className = 'cn-name';
+        nameEl.textContent = name;
+        var typeEl = document.createElement('div');
+        typeEl.className = 'cn-type';
+        typeEl.textContent = ent ? ent.type : '';
+        node.appendChild(nameEl);
+        node.appendChild(typeEl);
+        chainEl.appendChild(node);
+      });
+
+      container.appendChild(chainEl);
+    });
+
+    if (chainCount === 0) {
+      showPlaceholder(container, 'No multi-step evolution chains found.');
+    }
+  }
+
+  // ---- Manage tab ----
+  var allManageEntities = [];
+  var manageFilter = '';
+
+  async function loadManage() {
+    var tableWrap = document.getElementById('manage-table-wrap');
+    if (!tableWrap) return;
+    showSpinner(tableWrap);
+    try {
+      var data = await apiCall('GET', '/v1/entities?limit=500&status=all');
+      if (!data.success) throw new Error(data.error || 'Failed to load');
+      allManageEntities = data.data || [];
+      renderManageTable();
+    } catch (err) {
+      showError(tableWrap, err.message);
+    }
+  }
+
+  function renderManageTable() {
+    var filterInput = document.getElementById('manage-filter');
+    var f = (filterInput ? filterInput.value : manageFilter).toLowerCase();
+    var rows = allManageEntities.filter(function (e) {
+      return !f || e.name.toLowerCase().includes(f) || e.type.toLowerCase().includes(f);
+    });
+
+    var tableWrap = document.getElementById('manage-table-wrap');
+    if (!tableWrap) return;
+    tableWrap.textContent = '';
+
+    if (rows.length === 0) {
+      showPlaceholder(tableWrap, 'No entities found');
+      return;
+    }
+
+    var table = document.createElement('table');
+    var thead = document.createElement('thead');
+    var hrow = document.createElement('tr');
+    ['Name', 'Type', 'Status', 'Obs', 'Tags', 'Actions'].forEach(function (h) {
+      var th = document.createElement('th');
+      th.textContent = h;
+      hrow.appendChild(th);
+    });
+    thead.appendChild(hrow);
+    table.appendChild(thead);
+
+    var tbody = document.createElement('tbody');
+    rows.forEach(function (e) {
+      var status = e.status || 'active';
+      var tr = document.createElement('tr');
+      if (status === 'archived') tr.style.opacity = '0.6';
+
+      var tdName = document.createElement('td');
+      tdName.className = 'entity-name';
+      tdName.textContent = e.name;
+      tr.appendChild(tdName);
+
+      var tdType = document.createElement('td');
+      var typeBadge = document.createElement('span');
+      typeBadge.className = 'badge badge-type';
+      typeBadge.textContent = e.type;
+      tdType.appendChild(typeBadge);
+      tr.appendChild(tdType);
+
+      var tdStatus = document.createElement('td');
+      var sb = document.createElement('span');
+      sb.className = 'badge badge-' + (status === 'archived' ? 'archived' : 'active');
+      sb.textContent = status;
+      tdStatus.appendChild(sb);
+      tr.appendChild(tdStatus);
+
+      var tdObs = document.createElement('td');
+      tdObs.className = 'entity-obs';
+      tdObs.textContent = String(e.observations ? e.observations.length : 0);
+      tr.appendChild(tdObs);
+
+      var tdTags = document.createElement('td');
+      tdTags.className = 'entity-obs';
+      tdTags.textContent = e.tags ? e.tags.join(', ') : '';
+      tr.appendChild(tdTags);
+
+      var tdActions = document.createElement('td');
+      var actCell = document.createElement('div');
+      actCell.className = 'manage-action-cell';
+
+      if (status === 'archived') {
+        var restoreBtn = document.createElement('button');
+        restoreBtn.className = 'btn btn-sm btn-secondary';
+        restoreBtn.textContent = 'Restore';
+        restoreBtn.addEventListener('click', function () {
+          restoreBtn.disabled = true;
+          restoreBtn.textContent = '...';
+          apiCall('POST', '/v1/remember', { name: e.name, type: e.type, observations: [], tags: [] })
+            .then(function () { loadManage(); })
+            .catch(function (err) {
+              restoreBtn.disabled = false;
+              restoreBtn.textContent = 'Restore';
+              alert('Error: ' + err.message);
+            });
+        });
+        actCell.appendChild(restoreBtn);
+      } else {
+        var archiveBtn = document.createElement('button');
+        archiveBtn.className = 'btn btn-sm btn-danger';
+        archiveBtn.textContent = 'Archive';
+        archiveBtn.addEventListener('click', function () {
+          if (!confirm('Archive entity "' + e.name + '"? It will be hidden but not deleted.')) return;
+          archiveBtn.disabled = true;
+          archiveBtn.textContent = '...';
+          apiCall('POST', '/v1/forget', { name: e.name })
+            .then(function () { loadManage(); })
+            .catch(function (err) {
+              archiveBtn.disabled = false;
+              archiveBtn.textContent = 'Archive';
+              alert('Error: ' + err.message);
+            });
+        });
+        actCell.appendChild(archiveBtn);
+      }
+
+      // Remove observation button (only if entity has observations)
+      if (e.observations && e.observations.length > 0) {
+        var rmObsBtn = document.createElement('button');
+        rmObsBtn.className = 'btn btn-sm btn-secondary';
+        rmObsBtn.textContent = 'Remove obs';
+        rmObsBtn.addEventListener('click', function () {
+          var obs = prompt('Which observation to remove?\\n\\n' + e.observations.join('\\n---\\n'));
+          if (!obs) return;
+          var trimmed = obs.trim();
+          if (!trimmed) return;
+          rmObsBtn.disabled = true;
+          apiCall('POST', '/v1/forget', { name: e.name, observation: trimmed })
+            .then(function () { loadManage(); })
+            .catch(function (err) {
+              rmObsBtn.disabled = false;
+              alert('Error: ' + err.message);
+            });
+        });
+        actCell.appendChild(rmObsBtn);
+      }
+
+      tdActions.appendChild(actCell);
+      tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    tableWrap.appendChild(table);
+  }
+
+  document.getElementById('manage-filter').addEventListener('input', function () { renderManageTable(); });
+  document.getElementById('manage-refresh').addEventListener('click', loadManage);
+
+  // ---- Feedback widget ----
+  (function initFeedback() {
+    var btn = document.getElementById('feedback-btn');
+    var panel = document.getElementById('feedback-panel');
+    if (!btn || !panel) return;
+
+    var fbType = 'bug';
+
+    btn.addEventListener('click', function () {
+      panel.classList.toggle('open');
+    });
+
+    // Radio group selection
+    panel.querySelectorAll('.fb-radio input').forEach(function (radio) {
+      radio.addEventListener('change', function () {
+        panel.querySelectorAll('.fb-radio').forEach(function (el) { el.classList.remove('selected'); });
+        radio.parentElement.classList.add('selected');
+        fbType = radio.value;
+      });
+    });
+
+    var submitBtn = document.getElementById('fb-submit');
+    if (submitBtn) {
+      submitBtn.addEventListener('click', function () {
+        var desc = document.getElementById('fb-desc').value.trim();
+        if (!desc) { document.getElementById('fb-desc').focus(); return; }
+        var includeSys = document.getElementById('fb-sys').checked;
+        var labels = 'feedback,from-dashboard,' + fbType;
+        var title = encodeURIComponent('[' + fbType + '] ' + desc.slice(0, 50));
+        var bodyText = '## Description\\n' + desc;
+        if (includeSys) {
+          bodyText += '\\n\\n## System Info\\nVersion: ' + _currentVersion + '\\nSearch Level: ' + _currentSearchLevel;
+        }
+        var body = encodeURIComponent(bodyText);
+        window.open('https://github.com/PCIRCLE-AI/memesh-llm-memory/issues/new?title=' + title + '&body=' + body + '&labels=' + labels, '_blank');
+        panel.classList.remove('open');
+        document.getElementById('fb-desc').value = '';
+      });
+    }
+
+    // Close panel on outside click
+    document.addEventListener('click', function (e) {
+      if (!panel.contains(e.target) && e.target !== btn) {
+        panel.classList.remove('open');
+      }
+    });
+  })();
+
   // ---- Settings tab ----
   var settingsLoaded = false;
 
@@ -872,6 +1599,7 @@ export function generateLiveDashboardHtml(): string {
     }
 
     var searchLevel = caps.searchLevel !== undefined ? caps.searchLevel : '?';
+    _currentSearchLevel = String(searchLevel);
     addCap('Search Level', searchLevel === 1 ? 'Smart Mode' : 'Core FTS5', searchLevel === 1);
     addCap('Embeddings', caps.embeddings || 'tfidf', caps.embeddings && caps.embeddings !== 'tfidf');
     var llmProvider = (caps.llm && caps.llm.provider) ? caps.llm.provider : 'None';
@@ -1344,14 +2072,21 @@ export function generateLiveDashboardHtml(): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MeMesh Dashboard</title>
   <style>${CSS}</style>
+  <!-- bundled d3.js -->
+  <script>
+${bundledD3}
+  <\/script>
 </head>
 <body>
 
 <div class="header">
   <h1>MeMesh</h1>
-  <div class="meta">
-    <span id="health-indicator"><span class="dot"></span>Connecting\u2026</span>
-    <span id="version-label"></span>
+  <div class="header-right">
+    <div class="meta">
+      <span id="health-indicator"><span class="dot"></span>Connecting\u2026</span>
+      <span id="version-label"></span>
+    </div>
+    <button class="theme-btn" id="theme-btn" title="Toggle dark/light mode">\ud83c\udf19</button>
   </div>
 </div>
 
@@ -1360,8 +2095,8 @@ export function generateLiveDashboardHtml(): string {
   <button data-tab="browse">Browse</button>
   <button data-tab="graph">Graph</button>
   <button data-tab="analytics">Analytics</button>
-  <button data-tab="manage">Manage</button>
   <button data-tab="timeline">Timeline</button>
+  <button data-tab="manage">Manage</button>
   <button data-tab="settings">Settings</button>
 </nav>
 
@@ -1391,25 +2126,39 @@ export function generateLiveDashboardHtml(): string {
 
   <div class="tab-content" id="tab-graph">
     <div class="card">
-      <div class="placeholder"><div class="icon">&#9672;</div><p>Graph tab \u2014 coming in M4.4</p></div>
+      <h2>Knowledge Graph</h2>
+      <div class="graph-controls">
+        <span>Scroll to zoom \u00b7 Drag nodes \u00b7 Pan with mouse</span>
+      </div>
+      <div class="graph-svg-wrap" id="graph-svg-wrap"></div>
     </div>
   </div>
 
   <div class="tab-content" id="tab-analytics">
     <div class="card">
-      <div class="placeholder"><div class="icon">&#128202;</div><p>Analytics tab \u2014 coming in M4.4</p></div>
-    </div>
-  </div>
-
-  <div class="tab-content" id="tab-manage">
-    <div class="card">
-      <div class="placeholder"><div class="icon">&#9881;</div><p>Manage tab \u2014 coming in M4.5</p></div>
+      <h2>Analytics</h2>
+      <div id="analytics-body"></div>
     </div>
   </div>
 
   <div class="tab-content" id="tab-timeline">
     <div class="card">
-      <div class="placeholder"><div class="icon">&#128337;</div><p>Timeline tab \u2014 coming in M4.4</p></div>
+      <h2>Evolution Timeline</h2>
+      <p style="font-size:13px;color:#888;margin-bottom:16px;">Entities connected by \u201csupersedes\u201d relations, showing knowledge evolution chains.</p>
+      <div id="timeline-body"></div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-manage">
+    <div class="card">
+      <h2>Manage Entities</h2>
+      <div class="search-row">
+        <input class="search-input" id="manage-filter" type="text" placeholder="Filter by name or type\u2026" />
+        <button class="btn btn-secondary" id="manage-refresh">Refresh</button>
+      </div>
+      <div id="manage-body">
+        <div id="manage-table-wrap"></div>
+      </div>
     </div>
   </div>
 
@@ -1429,6 +2178,30 @@ export function generateLiveDashboardHtml(): string {
     <div id="wizard-content"></div>
     <div class="wizard-actions" id="wizard-actions"></div>
   </div>
+</div>
+
+<!-- Graph tooltip -->
+<div id="live-tooltip" style="position:absolute;pointer-events:none;background:#1c2128;border:1px solid #30363d;border-radius:6px;padding:10px 14px;font-size:13px;max-width:260px;display:none;z-index:50;color:#c9d1d9;">
+  <div class="tt-name" style="font-weight:600;color:#f0f6fc;"></div>
+  <div class="tt-type" style="color:#8b949e;font-size:12px;"></div>
+  <div class="tt-obs" style="margin-top:4px;color:#c9d1d9;"></div>
+</div>
+
+<!-- Feedback widget -->
+<button id="feedback-btn">&#x1f4ac; Feedback</button>
+<div id="feedback-panel">
+  <h3>Send Feedback</h3>
+  <div class="fb-radio-group">
+    <label class="fb-radio selected"><input type="radio" name="fb-type" value="bug" checked /> Bug</label>
+    <label class="fb-radio"><input type="radio" name="fb-type" value="feature" /> Feature</label>
+    <label class="fb-radio"><input type="radio" name="fb-type" value="question" /> Question</label>
+  </div>
+  <textarea id="fb-desc" placeholder="Describe your feedback\u2026"></textarea>
+  <div class="fb-sys-row">
+    <input type="checkbox" id="fb-sys" checked style="accent-color:#4361ee;" />
+    <label for="fb-sys">Include system info</label>
+  </div>
+  <button class="btn btn-primary" id="fb-submit" style="width:100%;">Open GitHub Issue</button>
 </div>
 
 <script>${SCRIPT}<\/script>
