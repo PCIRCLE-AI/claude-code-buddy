@@ -6,7 +6,7 @@
 
 ## Overview
 
-MeMesh is a universal AI memory layer. It provides 3 operations (`remember`, `recall`, `forget`) accessible via three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
+MeMesh is a universal AI memory layer. It provides 4 operations (`remember`, `recall`, `forget`, `consolidate`) accessible via three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
 
 ```
                      ┌─────────────┐
@@ -54,6 +54,8 @@ src/
 │   ├── config.ts          # Config management + capability detection + logCapabilities()
 │   ├── scoring.ts         # Multi-factor scoring engine (rankEntities)
 │   ├── query-expander.ts  # LLM query expansion (Level 1)
+│   ├── extractor.ts       # Session knowledge extraction (rule-based + LLM)
+│   ├── lifecycle.ts       # Auto-decay + consolidation orchestration
 │   └── version-check.ts   # npm registry version check
 ├── db.ts                  # SQLite + FTS5 + sqlite-vec + migrations
 ├── knowledge-graph.ts     # Entity CRUD, relations, FTS5 search, findConflicts
@@ -132,8 +134,9 @@ Thin adapter: validates input via Zod, delegates to `core/operations`, wraps res
 | Tool | Schema | Handler |
 |------|--------|---------|
 | `remember` | RememberSchema | Delegates to `operations.remember()` |
-| `recall` | RecallSchema | Delegates to `operations.recall()` |
+| `recall` | RecallSchema | Delegates to `operations.recallEnhanced()` |
 | `forget` | ForgetSchema | Delegates to `operations.forget()` |
+| `consolidate` | ConsolidateSchema | Delegates to `operations.consolidate()` |
 
 ### transports/http/server.ts -- HTTP REST API Server
 

@@ -1,6 +1,6 @@
-# MeMesh Plugin
+# MeMesh
 
-The lightest universal AI memory layer. One SQLite file, any LLM, zero cloud.
+**The lightest universal AI memory layer.** One SQLite file, any LLM, zero cloud.
 
 [![npm version](https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=cb3837)](https://www.npmjs.com/package/@pcircle/memesh)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
@@ -15,7 +15,7 @@ Anthropic ships a built-in [Memory Tool](https://platform.claude.com/docs/en/age
 |---|---|---|
 | **Data location** | Local SQLite on your machine | Anthropic cloud |
 | **Data model** | Knowledge graph (entities + relations + tags) | Key-value store |
-| **Search** | FTS5 full-text search | Exact key lookup |
+| **Search** | FTS5 + vector + LLM expansion + multi-factor scoring | Exact key lookup |
 | **Visualization** | Interactive D3.js dashboard | None |
 | **Integration** | Claude Code plugin with auto-hooks | Messages API parameter |
 | **Privacy** | 100% offline, zero data leaves your machine | Data sent to Anthropic |
@@ -42,8 +42,8 @@ memesh forget --name "old-design"
 # Start HTTP API server (for Python SDK, dashboard, integrations)
 memesh serve
 
-# Open web dashboard
-memesh          # (no args = opens dashboard, coming in v2.16)
+# Open web dashboard (7-tab interactive UI)
+memesh          # no args = opens dashboard in browser
 
 # Use as MCP server (for Claude Code, Claude Desktop)
 memesh-mcp      # stdio MCP server
@@ -51,15 +51,16 @@ memesh-mcp      # stdio MCP server
 
 ## What it does
 
-MeMesh gives Claude Code persistent memory through 3 MCP tools, 4 hooks, and a CLI dashboard:
+MeMesh gives any AI persistent memory through 4 MCP tools, 4 hooks, and an interactive dashboard:
 
 ### MCP Tools
 
 | Tool | Description |
 |------|-------------|
 | `remember` | Store knowledge — entities with observations, relations, and tags |
-| `recall` | Search stored knowledge via FTS5 full-text search with scoring, Smart Recall (LLM query expansion), and conflict detection |
+| `recall` | Search with multi-factor scoring, LLM query expansion (Smart Mode), and conflict detection |
 | `forget` | Archive knowledge (soft-delete) or remove specific observations |
+| `consolidate` | Compress verbose entities into dense summaries via LLM (Smart Mode) |
 
 ### Transports
 
@@ -92,17 +93,21 @@ Run `memesh` to open the interactive web dashboard:
 | Timeline | Knowledge evolution chain visualization |
 | Settings | LLM provider setup, API key management |
 
-### CLI
-
-| Command | Description |
-|---------|-------------|
-| `memesh-view` | Generate and open an interactive HTML dashboard with bundled local D3 |
+### CLI Commands
 
 ```bash
-memesh-view
+memesh                     # Open interactive dashboard in browser
+memesh remember ...        # Store knowledge
+memesh recall "query"      # Search knowledge
+memesh forget --name "x"   # Archive entity
+memesh consolidate         # Compress verbose entities (Smart Mode)
+memesh config list         # Show configuration
+memesh setup               # Configure LLM provider (30 seconds)
+memesh serve               # Start HTTP API server
+memesh status              # Show capabilities and version
+memesh update              # Update to latest version
+memesh-view                # Legacy static dashboard
 ```
-
-![MeMesh Dashboard](docs/images/dashboard-screenshot.png)
 
 ### Memory Lifecycle
 
@@ -128,21 +133,32 @@ memesh-view
 
 ```
 src/
+├── core/
+│   ├── types.ts           # Shared types (zero external deps)
+│   ├── operations.ts      # remember/recall/forget/consolidate pure functions
+│   ├── config.ts          # Config management + capability detection
+│   ├── scoring.ts         # Multi-factor scoring engine
+│   ├── query-expander.ts  # LLM query expansion (Smart Mode)
+│   ├── extractor.ts       # Session knowledge extraction
+│   ├── lifecycle.ts       # Auto-decay + consolidation
+│   └── version-check.ts   # npm version check
+├── db.ts                  # SQLite + FTS5 + sqlite-vec + migrations + auto-decay
+├── knowledge-graph.ts     # Entity CRUD, relations, FTS5 search, access tracking
 ├── cli/
-│   └── view.ts           # HTML dashboard generator (D3.js graph + stats)
-├── db.ts                 # SQLite database (open/close/migrate, FTS5)
-├── knowledge-graph.ts    # Entity CRUD, relations, FTS5 search
-├── index.ts              # Package exports
-└── mcp/
-    ├── server.ts         # MCP server entry point (stdio transport)
-    └── tools.ts          # 3 tool handlers + Zod validation
+│   └── view.ts            # Dashboard generator (static + live)
+└── transports/
+    ├── mcp/               # MCP stdio server (memesh-mcp)
+    ├── http/              # Express REST API (memesh serve)
+    └── cli/               # Commander CLI (memesh)
 
 scripts/hooks/
-├── session-start.js      # Auto-recall on session start
-└── post-commit.js        # Git commit tracking
+├── session-start.js       # Smart recall (top-N by score)
+├── post-commit.js         # Git commit tracking with diff stats
+├── session-summary.js     # Session auto-capture (Stop hook)
+└── pre-compact.js         # PreCompact knowledge save
 ```
 
-**Dependencies** (3): `better-sqlite3`, `@modelcontextprotocol/sdk`, `zod`
+**Dependencies**: `better-sqlite3`, `sqlite-vec`, `@modelcontextprotocol/sdk`, `zod`, `express`, `commander`
 
 ## Development
 
