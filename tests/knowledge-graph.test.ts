@@ -259,6 +259,43 @@ describe('Feature: Knowledge Graph', () => {
     });
   });
 
+  describe('Archive (Soft Forget)', () => {
+    it('should archive entity without deleting data', () => {
+      kg.createEntity('OldDesign', 'decision', {
+        observations: ['Use REST API'],
+        tags: ['project:x'],
+      });
+
+      const result = kg.archiveEntity('OldDesign');
+      expect(result).toEqual({ archived: true, name: 'OldDesign', previousStatus: 'active' });
+
+      // Entity still in DB with all data
+      const row = db.prepare("SELECT status FROM entities WHERE name = ?").get('OldDesign') as any;
+      expect(row.status).toBe('archived');
+
+      const entity = kg.getEntity('OldDesign');
+      expect(entity).not.toBeNull();
+      expect(entity!.observations).toContain('Use REST API');
+      expect(entity!.tags).toContain('project:x');
+    });
+
+    it('should remove archived entity from FTS5 index', () => {
+      kg.createEntity('OldDesign', 'decision', {
+        observations: ['Use REST API'],
+      });
+
+      kg.archiveEntity('OldDesign');
+
+      const results = kg.search('REST');
+      expect(results).toEqual([]);
+    });
+
+    it('should return { archived: false } for non-existent entity', () => {
+      const result = kg.archiveEntity('Ghost');
+      expect(result).toEqual({ archived: false });
+    });
+  });
+
   describe('Forget (Delete)', () => {
     it('should cascade delete entity, observations, relations, tags, and FTS', () => {
       kg.createEntity('ToDelete', 'test', {
@@ -268,7 +305,7 @@ describe('Feature: Knowledge Graph', () => {
       kg.createEntity('Related', 'test');
       kg.createRelation('ToDelete', 'Related', 'links-to');
 
-      const result = kg.deleteEntity('ToDelete');
+      const result = (kg as any).deleteEntity('ToDelete');
       expect(result).toEqual({ deleted: true });
 
       // Entity gone
@@ -304,7 +341,7 @@ describe('Feature: Knowledge Graph', () => {
     });
 
     it('should return { deleted: false } for non-existent entity', () => {
-      const result = kg.deleteEntity('DoesNotExist');
+      const result = (kg as any).deleteEntity('DoesNotExist');
       expect(result).toEqual({ deleted: false });
     });
   });

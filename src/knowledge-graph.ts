@@ -273,7 +273,39 @@ export class KnowledgeGraph {
       .filter((e): e is Entity => e !== null);
   }
 
-  deleteEntity(name: string): { deleted: boolean } {
+  archiveEntity(name: string): { archived: boolean; name?: string; previousStatus?: string } {
+    const row = this.db
+      .prepare('SELECT id, status FROM entities WHERE name = ?')
+      .get(name) as { id: number; status: string } | undefined;
+
+    if (!row) return { archived: false };
+
+    // Remove from FTS5 index (archived entities should not be searchable)
+    const allObs = this.db
+      .prepare('SELECT content FROM observations WHERE entity_id = ?')
+      .all(row.id) as { content: string }[];
+    const obsText = allObs.map((o) => o.content).join(' ');
+
+    try {
+      this.db
+        .prepare(
+          "INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)"
+        )
+        .run(row.id, name, obsText);
+    } catch {
+      // FTS entry may not exist if already archived — ignore
+    }
+
+    // Set status to archived
+    this.db
+      .prepare("UPDATE entities SET status = 'archived' WHERE id = ?")
+      .run(row.id);
+
+    return { archived: true, name, previousStatus: row.status };
+  }
+
+  /** @deprecated Use archiveEntity() instead. Retained for admin/testing only. */
+  private deleteEntity(name: string): { deleted: boolean } {
     const row = this.db
       .prepare('SELECT id FROM entities WHERE name = ?')
       .get(name) as { id: number } | undefined;
