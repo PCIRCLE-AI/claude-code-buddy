@@ -72,11 +72,13 @@ export const TOOL_DEFINITIONS = [
               },
             },
             required: ['to', 'type'],
+            additionalProperties: false,
           },
           description: 'Relations to other entities',
         },
       },
       required: ['name', 'type'],
+      additionalProperties: false,
     },
   },
   {
@@ -100,6 +102,7 @@ export const TOOL_DEFINITIONS = [
           description: 'Max results (default: 20, max: 100)',
         },
       },
+      additionalProperties: false,
     },
   },
   {
@@ -112,6 +115,7 @@ export const TOOL_DEFINITIONS = [
         name: { type: 'string', description: 'Entity name to delete' },
       },
       required: ['name'],
+      additionalProperties: false,
     },
   },
 ] as const;
