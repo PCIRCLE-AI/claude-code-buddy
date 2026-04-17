@@ -67,7 +67,7 @@ describe('Feature: MeMesh View Dashboard', () => {
       expect(html).toContain('<!DOCTYPE html>');
       expect(html).toContain('<html');
       expect(html).toContain('</html>');
-      expect(html).toContain('MeMesh Dashboard');
+      expect(html).toContain('MeMesh LLM Memory');
       expect(html).toContain('d3.js');
     });
 

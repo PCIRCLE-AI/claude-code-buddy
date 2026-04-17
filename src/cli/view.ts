@@ -215,7 +215,7 @@ export function generateDashboardHtml(dbPath?: string): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MeMesh Dashboard</title>
+  <title>MeMesh LLM Memory — Dashboard</title>
   <!-- bundled d3.js -->
   <script>
 ${bundledD3}
@@ -283,7 +283,8 @@ ${bundledD3}
 </head>
 <body>
 <div class="container">
-  <h1>MeMesh Dashboard</h1>
+  <h1>MeMesh LLM Memory</h1>
+  <p style="font-size:12px;color:#8b949e;margin-bottom:20px;">powered by pcircle.ai</p>
 
   <div class="stats" id="stats"></div>
 
@@ -2194,7 +2195,7 @@ export function generateLiveDashboardHtml(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MeMesh Dashboard</title>
+  <title>MeMesh LLM Memory — Dashboard</title>
   <style>${CSS}</style>
   <!-- bundled d3.js -->
   <script>
@@ -2204,7 +2205,7 @@ ${bundledD3}
 <body>
 
 <div class="header">
-  <h1>MeMesh</h1>
+  <div><h1 style="margin:0;line-height:1.2">MeMesh LLM Memory</h1><span style="font-size:11px;opacity:0.6">powered by pcircle.ai</span></div>
   <div class="header-right">
     <div class="meta">
       <span id="health-indicator"><span class="dot"></span>Connecting\u2026</span>
