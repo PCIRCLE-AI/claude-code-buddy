@@ -109,3 +109,5 @@ docs/api/MODELS.md
 
 # === Browser automation ===
 .playwright-mcp/
+
+.codex/context/
