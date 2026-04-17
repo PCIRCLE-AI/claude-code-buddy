@@ -146,6 +146,17 @@ describe('recall', () => {
     const data = JSON.parse(result.content[0].text);
     expect(data.length).toBe(1);
   });
+
+  it('rejects recall with limit=0', () => {
+    const result = handleTool('recall', { limit: 0 });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('limit');
+  });
+
+  it('rejects recall with limit=101', () => {
+    const result = handleTool('recall', { limit: 101 });
+    expect(result.isError).toBe(true);
+  });
 });
 
 // ── Forget ──────────────────────────────────────────────────────────────
@@ -173,6 +184,11 @@ describe('forget', () => {
 
   it('returns validation error when name is missing', () => {
     const result = handleTool('forget', {});
+    expect(result.isError).toBe(true);
+  });
+
+  it('rejects forget with empty name', () => {
+    const result = handleTool('forget', { name: '' });
     expect(result.isError).toBe(true);
   });
 });
