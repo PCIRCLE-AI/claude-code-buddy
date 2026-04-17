@@ -409,6 +409,45 @@ describe('Feature: Knowledge Graph', () => {
     });
   });
 
+  describe('Recall respects archive status', () => {
+    beforeEach(() => {
+      kg.createEntity('Active1', 'test', { observations: ['shared term'] });
+      kg.createEntity('Active2', 'test', { observations: ['shared term'] });
+      kg.createEntity('Archived1', 'test', { observations: ['shared term'] });
+      kg.archiveEntity('Archived1');
+    });
+
+    it('should exclude archived entities from search by default', () => {
+      const results = kg.search('shared');
+      expect(results).toHaveLength(2);
+      expect(results.map((r) => r.name).sort()).toEqual(['Active1', 'Active2']);
+    });
+
+    it('should include archived entities when includeArchived is true', () => {
+      const results = kg.search('shared', { includeArchived: true });
+      expect(results).toHaveLength(3);
+    });
+
+    it('should exclude archived from listRecent by default', () => {
+      const results = kg.listRecent();
+      expect(results).toHaveLength(2);
+    });
+
+    it('should include archived in listRecent when includeArchived is true', () => {
+      const results = kg.listRecent(20, true);
+      expect(results).toHaveLength(3);
+    });
+
+    it('should mark archived entities with archived:true in response', () => {
+      const results = kg.search('shared', { includeArchived: true });
+      const archived = results.find((e) => e.name === 'Archived1');
+      expect(archived?.archived).toBe(true);
+
+      const active = results.find((e) => e.name === 'Active1');
+      expect(active?.archived).toBeUndefined();
+    });
+  });
+
   describe('Edge Cases', () => {
     it('should throw when creating relation with non-existent entity', () => {
       kg.createEntity('Exists', 'test');

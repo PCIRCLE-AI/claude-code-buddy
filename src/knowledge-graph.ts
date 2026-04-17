@@ -9,6 +9,7 @@ export interface Entity {
   observations: string[];
   tags: string[];
   relations?: Relation[];
+  archived?: boolean;  // true when status='archived', omitted when active
 }
 
 export interface Relation {
@@ -29,6 +30,7 @@ export interface CreateEntityInput {
 export interface SearchOptions {
   tag?: string;
   limit?: number;
+  includeArchived?: boolean;
 }
 
 export class KnowledgeGraph {
@@ -145,7 +147,7 @@ export class KnowledgeGraph {
 
   getEntity(name: string): Entity | null {
     const row = this.db
-      .prepare('SELECT id, name, type, created_at, metadata FROM entities WHERE name = ?')
+      .prepare('SELECT id, name, type, created_at, metadata, status FROM entities WHERE name = ?')
       .get(name) as any | undefined;
 
     if (!row) return null;
@@ -171,6 +173,7 @@ export class KnowledgeGraph {
       observations,
       tags,
       relations: relations.length > 0 ? relations : undefined,
+      ...(row.status === 'archived' ? { archived: true } : {}),
     };
   }
 
@@ -198,18 +201,20 @@ export class KnowledgeGraph {
 
     if (!query || query.trim() === '') {
       if (opts?.tag) {
-        return this.listRecentByTag(opts.tag, limit);
+        return this.listRecentByTag(opts.tag, limit, opts?.includeArchived);
       }
-      return this.listRecent(limit);
+      return this.listRecent(limit, opts?.includeArchived);
     }
 
     // Use FTS5 MATCH to find entity names
     // Escape double quotes and wrap each token in quotes for safe FTS5 matching
     const sanitized = query.replace(/"/g, '""').trim();
     const tokens = sanitized.split(/\s+/).filter((t) => t.length > 0);
-    if (tokens.length === 0) return this.listRecent(limit);
+    if (tokens.length === 0) return this.listRecent(limit, opts?.includeArchived);
     const ftsQuery = tokens.map((token) => `"${token}"`).join(' ');
     // Contentless FTS5: columns return null, so join via rowid → entities.id
+    // Archived entities are removed from FTS5 by archiveEntity(), so status filter is a safety net.
+    const statusFilter = opts?.includeArchived ? '' : "AND e.status = 'active'";
     let ftsRows: Array<{ id: number; name: string }>;
     try {
       if (opts?.tag) {
@@ -220,6 +225,7 @@ export class KnowledgeGraph {
              JOIN tags t ON t.entity_id = e.id
              WHERE entities_fts MATCH ?
                AND t.tag = ?
+               ${statusFilter}
              ORDER BY e.id DESC
              LIMIT ?`
           )
@@ -230,6 +236,7 @@ export class KnowledgeGraph {
             `SELECT e.id, e.name FROM entities_fts f
              JOIN entities e ON e.id = f.rowid
              WHERE entities_fts MATCH ?
+               ${statusFilter}
              ORDER BY e.id DESC
              LIMIT ?`
           )
@@ -241,23 +248,54 @@ export class KnowledgeGraph {
       throw err;
     }
 
-    if (ftsRows.length === 0) return [];
-
-    // Fetch full entities, optionally filtering by tag
+    // Fetch full entities from FTS results
     const results: Entity[] = [];
+    const seenIds = new Set<number>();
     for (const ftsRow of ftsRows) {
       const entity = this.getEntity(ftsRow.name);
       if (!entity) continue;
-
+      seenIds.add(ftsRow.id);
       results.push(entity);
+    }
+
+    // When includeArchived is true, archived entities are not in FTS5 (removed by archiveEntity).
+    // Supplement with a direct SQL search over archived entities' observations and names.
+    if (opts?.includeArchived) {
+      const tagJoin = opts?.tag ? 'JOIN tags t ON t.entity_id = e.id' : '';
+      const tagFilter = opts?.tag ? 'AND t.tag = ?' : '';
+      const archivedParams: any[] = opts?.tag
+        ? [`%${query}%`, `%${query}%`, opts.tag]
+        : [`%${query}%`, `%${query}%`];
+
+      const archivedRows = this.db
+        .prepare(
+          `SELECT DISTINCT e.id, e.name
+           FROM entities e
+           LEFT JOIN observations o ON o.entity_id = e.id
+           ${tagJoin}
+           WHERE e.status = 'archived'
+             AND (e.name LIKE ? OR o.content LIKE ?)
+             ${tagFilter}
+           ORDER BY e.id DESC
+           LIMIT ?`
+        )
+        .all(...archivedParams, limit) as Array<{ id: number; name: string }>;
+
+      for (const row of archivedRows) {
+        if (seenIds.has(row.id)) continue;
+        const entity = this.getEntity(row.name);
+        if (!entity) continue;
+        results.push(entity);
+      }
     }
 
     return results;
   }
 
-  listRecent(limit?: number): Entity[] {
+  listRecent(limit?: number, includeArchived?: boolean): Entity[] {
+    const statusFilter = includeArchived ? '' : "WHERE status = 'active'";
     const rows = this.db
-      .prepare('SELECT name FROM entities ORDER BY id DESC LIMIT ?')
+      .prepare(`SELECT name FROM entities ${statusFilter} ORDER BY id DESC LIMIT ?`)
       .all(limit ?? 20) as { name: string }[];
 
     return rows
@@ -265,13 +303,15 @@ export class KnowledgeGraph {
       .filter((e): e is Entity => e !== null);
   }
 
-  private listRecentByTag(tag: string, limit: number): Entity[] {
+  private listRecentByTag(tag: string, limit: number, includeArchived?: boolean): Entity[] {
+    const statusFilter = includeArchived ? '' : "AND e.status = 'active'";
     const rows = this.db
       .prepare(
         `SELECT DISTINCT e.name
          FROM entities e
          JOIN tags t ON t.entity_id = e.id
          WHERE t.tag = ?
+         ${statusFilter}
          ORDER BY e.id DESC
          LIMIT ?`
       )
