@@ -105,10 +105,28 @@ memesh config list         # Show configuration
 memesh config set llm.provider anthropic  # Configure LLM
 memesh config set llm.api-key sk-ant-*** # Set API key
 memesh serve               # Start HTTP API server
+memesh export-schema       # Export tools in OpenAI function calling format
 memesh status              # Show capabilities and version
 memesh update              # Update to latest version
 memesh-view                # Legacy static dashboard
 ```
+
+### Python SDK
+
+```bash
+pip install memesh
+```
+
+```python
+from memesh import MeMesh
+
+m = MeMesh()  # connects to localhost:3737
+m.remember("auth", "decision", observations=["Use OAuth"])
+results = m.recall("auth")
+m.forget("old-design")
+```
+
+Requires: `memesh serve` running.
 
 ### Memory Lifecycle
 

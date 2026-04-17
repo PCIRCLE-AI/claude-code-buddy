@@ -1,7 +1,7 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 3.0.0-beta.1
+**Version**: 3.0.0-rc.1
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 ---
@@ -348,6 +348,94 @@ curl -s http://localhost:3737/v1/health
 ---
 
 ## CLI Commands
+
+### memesh export-schema
+
+Export MeMesh tools in OpenAI function calling format. Use this to integrate MeMesh with any OpenAI-compatible API or SDK.
+
+**Usage**:
+
+```bash
+memesh export-schema
+memesh export-schema --format openai
+```
+
+**Options**:
+
+| Option | Description |
+|--------|-------------|
+| `--format <format>` | Output format. Currently only `openai` is supported (default: `openai`). |
+
+**Output**: A JSON array of OpenAI function calling tool definitions:
+
+```json
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "memesh_remember",
+      "description": "Store knowledge as an entity with observations, tags, and relations.",
+      "parameters": { ... }
+    }
+  },
+  ...
+]
+```
+
+The exported schema can be passed directly to the OpenAI `tools` parameter or any OpenAI-compatible API:
+
+```python
+import json, openai
+
+with open("schema.json") as f:
+    tools = json.load(f)
+
+client = openai.OpenAI()
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Remember that we use OAuth"}],
+    tools=tools,
+)
+```
+
+Or generate on the fly:
+
+```bash
+memesh export-schema | python -c "
+import json, sys, openai
+tools = json.load(sys.stdin)
+# pass tools to your OpenAI call
+"
+```
+
+---
+
+### Python SDK
+
+MeMesh includes a Python SDK that connects to a running `memesh serve` instance.
+
+**Installation**:
+
+```bash
+pip install memesh
+```
+
+**Requires**: `memesh serve` running (default: `localhost:3737`).
+
+**Usage**:
+
+```python
+from memesh import MeMesh
+
+m = MeMesh()  # connects to localhost:3737
+m.remember("auth", "decision", observations=["Use OAuth"])
+results = m.recall("auth")
+m.forget("old-design")
+```
+
+See `packages/python-sdk/` for full SDK source and documentation.
+
+---
 
 ### memesh-view
 
