@@ -1,6 +1,6 @@
 # MeMesh Plugin Architecture
 
-**Version**: 2.13.0
+**Version**: 2.14.0
 
 ---
 
@@ -218,6 +218,15 @@ Foreign key cascades: deleting an entity automatically deletes its observations,
 
 Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific lifecycle events.
 
+### Hook Scripts (4 hooks)
+
+| Hook | Event | Purpose |
+|------|-------|---------|
+| session-start.js | SessionStart | Auto-recall project memories |
+| post-commit.js | PostToolUse (Bash) | Record git commits with diff stats |
+| session-summary.js | Stop | Auto-capture session knowledge |
+| pre-compact.js | PreCompact | Save knowledge before compaction |
+
 ### Session Start (`scripts/hooks/session-start.js`)
 
 - **Trigger**: `SessionStart` event (every new Claude Code session)
@@ -228,7 +237,19 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 - **Trigger**: `PostToolUse` event on `Bash` tool
 - **Matcher**: `Bash` (filters for git commit commands)
-- **Behavior**: Detects git commit messages from tool output, creates a `commit` entity with the commit message as an observation, tags with the project name
+- **Behavior**: Detects git commit messages from tool output, creates a `commit` entity with the commit message as an observation, tags with the project name; includes diff stats (files changed, insertions, deletions)
+
+### Session Summary (`scripts/hooks/session-summary.js`)
+
+- **Trigger**: `Stop` event (when Claude finishes responding)
+- **Matcher**: `*` (all sessions)
+- **Behavior**: Extracts session knowledge (files edited, errors fixed, decisions made) and stores it as entities in the knowledge graph; opt-out via `MEMESH_AUTO_CAPTURE=false`
+
+### Pre-Compact (`scripts/hooks/pre-compact.js`)
+
+- **Trigger**: `PreCompact` event (before context compaction)
+- **Matcher**: `*` (all sessions)
+- **Behavior**: Saves a snapshot of session knowledge before context is compacted, ensuring memories are not lost during long sessions; opt-out via `MEMESH_AUTO_CAPTURE=false`
 
 ---
 

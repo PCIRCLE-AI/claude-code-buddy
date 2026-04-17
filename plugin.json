@@ -2,7 +2,7 @@
   "name": "memesh",
   "description": "MeMesh — The lightest universal AI memory layer. One SQLite file, any LLM, zero cloud.",
   "author": { "name": "PCIRCLE AI" },
-  "version": "2.13.0",
+  "version": "2.14.0",
   "homepage": "https://github.com/PCIRCLE-AI/memesh-llm-memory",
   "repository": "https://github.com/PCIRCLE-AI/memesh-llm-memory",
   "license": "MIT",
