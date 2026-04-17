@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase } from '../../db.js';
-import { remember, recall, forget } from '../../core/operations.js';
+import { remember, recallEnhanced, forget } from '../../core/operations.js';
 import { readConfig, updateConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 
 const packageJsonPath = path.resolve(
@@ -57,10 +57,11 @@ program
   .option('--limit <n>', 'Max results', '20')
   .option('--include-archived', 'Include archived entities')
   .option('--json', 'Output as JSON')
-  .action((query, opts) => {
+  .action(async (query, opts) => {
     openDatabase();
     try {
-      const entities = recall({
+      // recallEnhanced: uses LLM query expansion when configured, falls back otherwise
+      const entities = await recallEnhanced({
         query: query || undefined,
         tag: opts.tag,
         limit: parseInt(opts.limit),

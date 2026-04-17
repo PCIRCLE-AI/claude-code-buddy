@@ -22,8 +22,8 @@ afterEach(() => {
 // ── Remember ────────────────────────────────────────────────────────────
 
 describe('remember', () => {
-  it('stores an entity and returns confirmation', () => {
-    const result = handleTool('remember', {
+  it('stores an entity and returns confirmation', async () => {
+    const result = await handleTool('remember', {
       name: 'auth-decision',
       type: 'decision',
     });
@@ -35,11 +35,11 @@ describe('remember', () => {
     expect(data.type).toBe('decision');
   });
 
-  it('stores tags and relations', () => {
+  it('stores tags and relations', async () => {
     // Create target entity first so relation can be established
-    handleTool('remember', { name: 'jwt-pattern', type: 'pattern' });
+    await handleTool('remember', { name: 'jwt-pattern', type: 'pattern' });
 
-    const result = handleTool('remember', {
+    const result = await handleTool('remember', {
       name: 'auth-decision',
       type: 'decision',
       tags: ['project:myapp', 'type:decision'],
@@ -52,60 +52,60 @@ describe('remember', () => {
     expect(data.relations).toBe(1);
   });
 
-  it('returns validation error when name is missing', () => {
-    const result = handleTool('remember', { type: 'decision' });
+  it('returns validation error when name is missing', async () => {
+    const result = await handleTool('remember', { type: 'decision' });
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('name');
   });
 
-  it('returns validation error when name is empty', () => {
-    const result = handleTool('remember', { name: '', type: 'decision' });
+  it('returns validation error when name is empty', async () => {
+    const result = await handleTool('remember', { name: '', type: 'decision' });
 
     expect(result.isError).toBe(true);
   });
 
-  it('stores observations that are searchable', () => {
-    handleTool('remember', {
+  it('stores observations that are searchable', async () => {
+    await handleTool('remember', {
       name: 'jwt-lesson',
       type: 'lesson',
       observations: ['Use RS256 for JWT signing', 'Rotate keys quarterly'],
     });
 
-    const result = handleTool('recall', { query: 'RS256' });
+    const result = await handleTool('recall', { query: 'RS256' });
     const data = JSON.parse(result.content[0].text);
     expect(data.length).toBe(1);
     expect(data[0].name).toBe('jwt-lesson');
     expect(data[0].observations).toContain('Use RS256 for JWT signing');
   });
 
-  it('auto-archives entity when superseded by new remember', () => {
-    handleTool('remember', { name: 'auth-v2', type: 'decision', observations: ['Use JWT'] });
-    handleTool('remember', {
+  it('auto-archives entity when superseded by new remember', async () => {
+    await handleTool('remember', { name: 'auth-v2', type: 'decision', observations: ['Use JWT'] });
+    await handleTool('remember', {
       name: 'auth-v3', type: 'decision', observations: ['Use OAuth 2.0'],
       relations: [{ to: 'auth-v2', type: 'supersedes' }],
     });
 
     // auth-v2 should be auto-archived
-    const recallOld = handleTool('recall', { query: 'JWT' });
+    const recallOld = await handleTool('recall', { query: 'JWT' });
     expect(JSON.parse(recallOld.content[0].text)).toEqual([]);
 
     // auth-v3 should be active
-    const recallNew = handleTool('recall', { query: 'OAuth' });
+    const recallNew = await handleTool('recall', { query: 'OAuth' });
     const data = JSON.parse(recallNew.content[0].text);
     expect(data).toHaveLength(1);
     expect(data[0].name).toBe('auth-v3');
 
     // Both visible with include_archived
-    const recallAll = handleTool('recall', { include_archived: true });
+    const recallAll = await handleTool('recall', { include_archived: true });
     const allData = JSON.parse(recallAll.content[0].text);
     const names = allData.map((e: any) => e.name);
     expect(names).toContain('auth-v2');
     expect(names).toContain('auth-v3');
   });
 
-  it('reports relation errors without failing overall', () => {
-    const result = handleTool('remember', {
+  it('reports relation errors without failing overall', async () => {
+    const result = await handleTool('remember', {
       name: 'auth-decision',
       type: 'decision',
       relations: [{ to: 'nonexistent-entity', type: 'related-to' }],
@@ -122,14 +122,14 @@ describe('remember', () => {
 // ── Recall ──────────────────────────────────────────────────────────────
 
 describe('recall', () => {
-  beforeEach(() => {
-    handleTool('remember', {
+  beforeEach(async () => {
+    await handleTool('remember', {
       name: 'auth-pattern',
       type: 'pattern',
       observations: ['JWT tokens for stateless auth'],
       tags: ['project:myapp'],
     });
-    handleTool('remember', {
+    await handleTool('remember', {
       name: 'db-decision',
       type: 'decision',
       observations: ['Use PostgreSQL for persistence'],
@@ -137,15 +137,15 @@ describe('recall', () => {
     });
   });
 
-  it('finds entities by query', () => {
-    const result = handleTool('recall', { query: 'auth' });
+  it('finds entities by query', async () => {
+    const result = await handleTool('recall', { query: 'auth' });
     const data = JSON.parse(result.content[0].text);
     expect(data.length).toBeGreaterThanOrEqual(1);
     expect(data.some((e: any) => e.name === 'auth-pattern')).toBe(true);
   });
 
-  it('filters by tag', () => {
-    const result = handleTool('recall', {
+  it('filters by tag', async () => {
+    const result = await handleTool('recall', {
       query: 'auth',
       tag: 'project:myapp',
     });
@@ -154,32 +154,32 @@ describe('recall', () => {
     expect(data[0].name).toBe('auth-pattern');
   });
 
-  it('lists recent when no query provided', () => {
-    const result = handleTool('recall', {});
+  it('lists recent when no query provided', async () => {
+    const result = await handleTool('recall', {});
     const data = JSON.parse(result.content[0].text);
     expect(data.length).toBe(2);
   });
 
-  it('returns empty array when nothing matches', () => {
-    const result = handleTool('recall', { query: 'nonexistent-xyz-123' });
+  it('returns empty array when nothing matches', async () => {
+    const result = await handleTool('recall', { query: 'nonexistent-xyz-123' });
     const data = JSON.parse(result.content[0].text);
     expect(data).toEqual([]);
   });
 
-  it('respects limit parameter', () => {
-    const result = handleTool('recall', { limit: 1 });
+  it('respects limit parameter', async () => {
+    const result = await handleTool('recall', { limit: 1 });
     const data = JSON.parse(result.content[0].text);
     expect(data.length).toBe(1);
   });
 
-  it('rejects recall with limit=0', () => {
-    const result = handleTool('recall', { limit: 0 });
+  it('rejects recall with limit=0', async () => {
+    const result = await handleTool('recall', { limit: 0 });
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('limit');
   });
 
-  it('rejects recall with limit=101', () => {
-    const result = handleTool('recall', { limit: 101 });
+  it('rejects recall with limit=101', async () => {
+    const result = await handleTool('recall', { limit: 101 });
     expect(result.isError).toBe(true);
   });
 });
@@ -187,51 +187,51 @@ describe('recall', () => {
 // ── Forget ──────────────────────────────────────────────────────────────
 
 describe('forget', () => {
-  it('archives an entity instead of deleting it', () => {
-    handleTool('remember', {
+  it('archives an entity instead of deleting it', async () => {
+    await handleTool('remember', {
       name: 'old-design', type: 'decision', observations: ['Use REST'],
     });
 
-    const result = handleTool('forget', { name: 'old-design' });
+    const result = await handleTool('forget', { name: 'old-design' });
     const data = JSON.parse(result.content[0].text);
     expect(data.archived).toBe(true);
     expect(data.name).toBe('old-design');
 
     // Hidden from normal recall
-    const recall = handleTool('recall', { query: 'REST' });
+    const recall = await handleTool('recall', { query: 'REST' });
     expect(JSON.parse(recall.content[0].text)).toEqual([]);
 
     // Visible with include_archived
-    const recallAll = handleTool('recall', { query: 'REST', include_archived: true });
+    const recallAll = await handleTool('recall', { query: 'REST', include_archived: true });
     const allData = JSON.parse(recallAll.content[0].text);
     expect(allData).toHaveLength(1);
     expect(allData[0].archived).toBe(true);
   });
 
-  it('removes a specific observation without archiving', () => {
-    handleTool('remember', {
+  it('removes a specific observation without archiving', async () => {
+    await handleTool('remember', {
       name: 'design', type: 'decision', observations: ['Use JWT', 'Use RS256'],
     });
 
-    const result = handleTool('forget', { name: 'design', observation: 'Use JWT' });
+    const result = await handleTool('forget', { name: 'design', observation: 'Use JWT' });
     const data = JSON.parse(result.content[0].text);
     expect(data.observation_removed).toBe(true);
     expect(data.remaining_observations).toBe(1);
 
     // Entity still active and searchable
-    const recall = handleTool('recall', { query: 'RS256' });
+    const recall = await handleTool('recall', { query: 'RS256' });
     expect(JSON.parse(recall.content[0].text)).toHaveLength(1);
   });
 
-  it('returns not-found for non-existent entity', () => {
-    const result = handleTool('forget', { name: 'ghost' });
+  it('returns not-found for non-existent entity', async () => {
+    const result = await handleTool('forget', { name: 'ghost' });
     const data = JSON.parse(result.content[0].text);
     expect(data.archived).toBe(false);
     expect(data.message).toContain('not found');
   });
 
-  it('rejects forget with empty name', () => {
-    const result = handleTool('forget', { name: '' });
+  it('rejects forget with empty name', async () => {
+    const result = await handleTool('forget', { name: '' });
     expect(result.isError).toBe(true);
   });
 });
@@ -239,8 +239,8 @@ describe('forget', () => {
 // ── Unknown tool ────────────────────────────────────────────────────────
 
 describe('unknown tool', () => {
-  it('returns error for unknown tool name', () => {
-    const result = handleTool('nonexistent', {});
+  it('returns error for unknown tool name', async () => {
+    const result = await handleTool('nonexistent', {});
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('Unknown tool');
   });

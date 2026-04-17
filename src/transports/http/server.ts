@@ -3,7 +3,7 @@
 import express from 'express';
 import { z } from 'zod';
 import { openDatabase, closeDatabase } from '../../db.js';
-import { remember, recall, forget } from '../../core/operations.js';
+import { remember, recallEnhanced, forget } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 
@@ -68,14 +68,15 @@ app.post('/v1/remember', (req, res) => {
 });
 
 // --- Recall ---
-app.post('/v1/recall', (req, res) => {
+app.post('/v1/recall', async (req, res) => {
   const parsed = RecallBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
     return;
   }
   try {
-    const entities = recall(parsed.data);
+    // recallEnhanced: uses LLM query expansion when configured, falls back otherwise
+    const entities = await recallEnhanced(parsed.data);
     res.json({ success: true, data: entities });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
