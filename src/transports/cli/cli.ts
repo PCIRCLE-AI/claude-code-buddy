@@ -187,4 +187,48 @@ program
     startServer(opts.host, parseInt(opts.port));
   });
 
+// --- update ---
+program
+  .command('update')
+  .description('Update MeMesh to latest version')
+  .action(async () => {
+    const { checkForUpdate } = await import('../../core/version-check.js');
+    const check = await checkForUpdate(pkg.version);
+
+    if (!check.updateAvailable) {
+      console.log(`✅ Already on latest version (${pkg.version})`);
+      return;
+    }
+
+    console.log(`🔄 Updating ${pkg.version} → ${check.latestVersion}...`);
+
+    const { execFileSync } = await import('child_process');
+    try {
+      execFileSync('npm', ['install', '-g', `@pcircle/memesh@${check.latestVersion}`], { stdio: 'inherit' });
+      console.log(`✅ Updated to ${check.latestVersion}`);
+    } catch {
+      console.error('❌ Update failed. Try manually: npm install -g @pcircle/memesh@latest');
+      process.exit(1);
+    }
+  });
+
+// --- status ---
+program
+  .command('status')
+  .description('Show MeMesh status and capabilities')
+  .action(async () => {
+    const caps = detectCapabilities();
+    const { getLastUpdateCheck } = await import('../../core/version-check.js');
+    const update = getLastUpdateCheck();
+
+    console.log(`MeMesh v${pkg.version}`);
+    console.log(`Search level: ${caps.searchLevel} (${caps.searchLevel === 1 ? 'Smart Mode' : 'Core'})`);
+    console.log(`Embeddings: ${caps.embeddings}`);
+    console.log(`LLM: ${caps.llm ? `${caps.llm.provider} (${caps.llm.model})` : 'not configured'}`);
+
+    if (update?.updateAvailable) {
+      console.log(`\n🔄 Update available: ${update.latestVersion} (run: memesh update)`);
+    }
+  });
+
 program.parse();
