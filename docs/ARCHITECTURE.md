@@ -50,7 +50,9 @@ This separation means the same `remember`/`recall`/`forget` logic runs identical
 src/
 ├── core/
 │   ├── types.ts           # Shared types (zero external deps)
-│   ├── operations.ts      # remember/recall/forget pure functions (scoring applied here)
+│   ├── operations.ts      # remember/recall/forget/learn + re-exports consolidate/export/import
+│   ├── consolidator.ts    # LLM-powered observation compression (extracted from operations)
+│   ├── serializer.ts      # Export/import memory snapshots (extracted from operations)
 │   ├── config.ts          # Config management + capability detection + logCapabilities()
 │   ├── scoring.ts         # Multi-factor scoring engine (rankEntities)
 │   ├── query-expander.ts  # LLM query expansion (Level 1)

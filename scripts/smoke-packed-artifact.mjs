@@ -69,6 +69,8 @@ const requiredFiles = [
   'dist/core/scoring.js',
   'dist/core/failure-analyzer.js',
   'dist/core/lesson-engine.js',
+  'dist/core/consolidator.js',
+  'dist/core/serializer.js',
   // Dist — transports
   'dist/transports/schemas.js',
   'dist/mcp/server.js',
