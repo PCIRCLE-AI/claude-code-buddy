@@ -51,7 +51,12 @@ export function writeConfig(config: MeMeshConfig): void {
 }
 
 export function updateConfig(partial: Partial<MeMeshConfig>): MeMeshConfig {
-  const config = { ...readConfig(), ...partial };
+  const existing = readConfig();
+  // Deep-merge llm object to preserve apiKey when only provider/model change
+  const config = { ...existing, ...partial };
+  if (partial.llm && existing.llm) {
+    config.llm = { ...existing.llm, ...partial.llm };
+  }
   writeConfig(config);
   return config;
 }

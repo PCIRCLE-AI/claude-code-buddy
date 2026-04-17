@@ -263,6 +263,10 @@ app.get('/v1/config', (_req, res) => {
     if (safeConfig.llm?.apiKey) {
       safeConfig.llm = { ...safeConfig.llm, apiKey: '***' };
     }
+    // Also mask API key in capabilities (detectCapabilities returns llm config with raw key)
+    if (caps.llm?.apiKey) {
+      caps.llm = { ...caps.llm, apiKey: '***' };
+    }
     res.json({ success: true, data: { config: safeConfig, capabilities: caps } });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
