@@ -117,7 +117,7 @@ export class KnowledgeGraph {
   getEntity(name: string): Entity | null {
     const row = this.db
       .prepare(
-        'SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, valid_from, valid_until FROM entities WHERE name = ?'
+        'SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, valid_from, valid_until, namespace FROM entities WHERE name = ?'
       )
       .get(name) as any | undefined;
 
@@ -150,6 +150,7 @@ export class KnowledgeGraph {
       confidence: row.confidence ?? 1.0,
       valid_from: row.valid_from ?? undefined,
       valid_until: row.valid_until ?? undefined,
+      namespace: row.namespace ?? 'personal',
     };
   }
 

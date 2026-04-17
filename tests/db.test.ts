@@ -164,4 +164,21 @@ describe('Feature: Database Management', () => {
       expect(info.some((c: any) => c.name === 'last_accessed_at')).toBe(true);
     });
   });
+
+  describe('Scenario: Namespace column migration (v3.0.0-rc -> v3.0.0)', () => {
+    it('should have namespace column with default personal', () => {
+      const db = openDatabase(testDbPath);
+      const info = db.prepare("PRAGMA table_info(entities)").all() as any[];
+      const col = info.find((c: any) => c.name === 'namespace');
+      expect(col).toBeDefined();
+      expect(col.dflt_value).toBe("'personal'");
+    });
+
+    it('should have index on namespace column', () => {
+      const db = openDatabase(testDbPath);
+      const indexes = db.prepare("PRAGMA index_list(entities)").all() as any[];
+      const idx = indexes.find((i: any) => i.name === 'idx_entities_namespace');
+      expect(idx).toBeDefined();
+    });
+  });
 });

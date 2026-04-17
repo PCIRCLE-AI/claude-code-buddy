@@ -20,6 +20,7 @@ export interface Entity {
   confidence?: number;
   valid_from?: string;
   valid_until?: string;
+  namespace?: string;  // 'personal' | 'team' | 'global'
 }
 
 export interface Relation {
@@ -90,4 +91,18 @@ export interface ForgetResult {
   observation_removed?: boolean;
   observation?: string;
   remaining_observations?: number;
+}
+
+export interface ConsolidateInput {
+  name?: string;           // specific entity to consolidate
+  tag?: string;            // consolidate all entities with this tag
+  min_observations?: number; // minimum observations to trigger (default: 5)
+}
+
+export interface ConsolidateResult {
+  consolidated: number;
+  entities_processed: string[];
+  observations_before: number;
+  observations_after: number;
+  error?: string;
 }

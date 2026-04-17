@@ -97,6 +97,12 @@ export function openDatabase(dbPath?: string): Database.Database {
     db.exec("ALTER TABLE entities ADD COLUMN valid_until TIMESTAMP");
   }
 
+  // Migrate: add namespace column if missing (v3.0.0-rc -> v3.0.0)
+  if (!scoringCols.some((c: any) => c.name === 'namespace')) {
+    db.exec("ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace)");
+  }
+
   // Run auto-decay: reduce confidence for stale entities (throttled to once per 24h)
   runAutoDecay(db);
 
