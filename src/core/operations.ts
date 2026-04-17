@@ -11,6 +11,7 @@
 
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
+import { expandQuery, isExpansionAvailable } from './query-expander.js';
 import type {
   RememberInput,
   RememberResult,
@@ -84,6 +85,49 @@ export function recall(args: RecallInput): Entity[] {
   const db = getDatabase();
   const kg = new KnowledgeGraph(db);
 
+  return kg.search(args.query, {
+    tag: args.tag,
+    limit: args.limit,
+    includeArchived: args.include_archived,
+  });
+}
+
+/**
+ * Enhanced recall with optional LLM query expansion (async, Level 1).
+ * When an LLM is configured, expands the query into related terms before searching.
+ * Merges results from all expanded terms, de-duped by entity name.
+ * Falls back to regular sync recall if expansion is unavailable or fails.
+ */
+export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
+  const db = getDatabase();
+  const kg = new KnowledgeGraph(db);
+
+  if (args.query && isExpansionAvailable()) {
+    try {
+      const expandedTerms = await expandQuery(args.query);
+      // Search with each expanded term and merge results (de-duped by name)
+      const allResults = new Map<string, Entity>();
+
+      for (const term of expandedTerms) {
+        const results = kg.search(term, {
+          tag: args.tag,
+          limit: args.limit,
+          includeArchived: args.include_archived,
+        });
+        for (const entity of results) {
+          if (!allResults.has(entity.name)) {
+            allResults.set(entity.name, entity);
+          }
+        }
+      }
+
+      return [...allResults.values()].slice(0, args.limit ?? 20);
+    } catch {
+      // Fallback to regular search on any expansion error
+    }
+  }
+
+  // Level 0: regular FTS5 search (no LLM expansion)
   return kg.search(args.query, {
     tag: args.tag,
     limit: args.limit,
