@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'preact/hooks';
 import { api, type StatsData, type Entity } from '../lib/api';
+import { t } from '../lib/i18n';
 
 export function AnalyticsTab() {
   const [stats, setStats] = useState<StatsData | null>(null);
@@ -17,7 +18,7 @@ export function AnalyticsTab() {
   }, []);
 
   if (loading) return <div class="empty"><div class="loading" /></div>;
-  if (!stats) return <div class="error-box">Failed to load analytics</div>;
+  if (!stats) return <div class="error-box">{t('common.error')}: Failed to load analytics</div>;
 
   const now = Date.now();
   const weekMs = 7 * 24 * 60 * 60 * 1000;
@@ -39,28 +40,28 @@ export function AnalyticsTab() {
     <div>
       {/* Stats row */}
       <div class="stats-row">
-        <div class="stat"><div class="stat-val">{stats.totalEntities.toLocaleString()}</div><div class="stat-lbl">Total Memories</div></div>
-        <div class="stat"><div class="stat-val">{stats.totalObservations.toLocaleString()}</div><div class="stat-lbl">Knowledge Facts</div></div>
-        <div class="stat"><div class="stat-val">{stats.totalRelations.toLocaleString()}</div><div class="stat-lbl">Connections</div></div>
-        <div class="stat"><div class="stat-val">{stats.totalTags.toLocaleString()}</div><div class="stat-lbl">Topics</div></div>
+        <div class="stat"><div class="stat-val">{stats.totalEntities.toLocaleString()}</div><div class="stat-lbl">{t('analytics.totalMemories')}</div></div>
+        <div class="stat"><div class="stat-val">{stats.totalObservations.toLocaleString()}</div><div class="stat-lbl">{t('analytics.knowledgeFacts')}</div></div>
+        <div class="stat"><div class="stat-val">{stats.totalRelations.toLocaleString()}</div><div class="stat-lbl">{t('analytics.connections')}</div></div>
+        <div class="stat"><div class="stat-val">{stats.totalTags.toLocaleString()}</div><div class="stat-lbl">{t('analytics.topics')}</div></div>
       </div>
 
       {/* Insights */}
       <div class="card">
-        <div class="card-title">Insights</div>
+        <div class="card-title">{t('analytics.insights')}</div>
         <div class="insight">
           <span class="insight-icon">📝</span>
-          <span class="insight-text">This week</span>
-          <span class="insight-val">{thisWeek} new</span>
+          <span class="insight-text">{t('analytics.thisWeek')}</span>
+          <span class="insight-val">{thisWeek} {t('analytics.new')}</span>
         </div>
         <div class="insight">
           <span class="insight-icon">💤</span>
-          <span class="insight-text">Stale (30+ days unused)</span>
+          <span class="insight-text">{t('analytics.stale')}</span>
           <span class="insight-val">{stale}</span>
         </div>
         <div class="insight">
           <span class="insight-icon">📦</span>
-          <span class="insight-text">Archived</span>
+          <span class="insight-text">{t('analytics.archivedLabel')}</span>
           <span class="insight-val">{archivedCount}</span>
         </div>
       </div>
@@ -68,7 +69,7 @@ export function AnalyticsTab() {
       {/* Top recalled — show meaningful preview, not raw commit hashes */}
       {topRecalled.length > 0 && (
         <div class="card">
-          <div class="card-title">Most Recalled</div>
+          <div class="card-title">{t('analytics.mostRecalled')}</div>
           {topRecalled.map((e, i) => {
             // Find the most meaningful observation (skip raw commit/session metadata)
             const skipPrefixes = ['Commit:', '[SESSION]', 'Branch:', 'Diff stats:', 'Details:', '[WORK]', '[FOCUS]', '[SUMMARY]', 'Session edited', 'Total tool calls', 'Duration:'];
@@ -92,17 +93,17 @@ export function AnalyticsTab() {
       {/* Topics — filter out internal/system tags, show only user-meaningful ones */}
       {(() => {
         const internalPrefixes = ['auto_saved', 'auto-tracked', 'session_end', 'session:', 'source:', 'scope:', 'date:', 'urgency:'];
-        const userTags = stats.tagDistribution.filter(t =>
-          !internalPrefixes.some(p => t.tag.startsWith(p)) &&
-          !/^\d{4}-\d{2}-\d{2}/.test(t.tag)  // filter date-only tags like "2026-03-26"
+        const userTags = stats.tagDistribution.filter(tg =>
+          !internalPrefixes.some(p => tg.tag.startsWith(p)) &&
+          !/^\d{4}-\d{2}-\d{2}/.test(tg.tag)  // filter date-only tags like "2026-03-26"
         );
         return userTags.length > 0 ? (
           <div class="card">
-            <div class="card-title">Topics</div>
+            <div class="card-title">{t('analytics.topics')}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {userTags.slice(0, 30).map((t) => (
-                <span key={t.tag} class="tag" style={{ fontSize: Math.max(11, Math.min(15, 10 + Math.log2(t.count + 1))) + 'px' }}>
-                  {t.tag} <span style={{ opacity: 0.5 }}>({t.count})</span>
+              {userTags.slice(0, 30).map((tg) => (
+                <span key={tg.tag} class="tag" style={{ fontSize: Math.max(11, Math.min(15, 10 + Math.log2(tg.count + 1))) + 'px' }}>
+                  {tg.tag} <span style={{ opacity: 0.5 }}>({tg.count})</span>
                 </span>
               ))}
             </div>

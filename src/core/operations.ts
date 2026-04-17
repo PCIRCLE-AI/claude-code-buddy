@@ -13,6 +13,8 @@ import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { expandQuery, isExpansionAvailable } from './query-expander.js';
 import { rankEntities } from './scoring.js';
+import { createExplicitLesson } from './lesson-engine.js';
+import path from 'path';
 import type {
   RememberInput,
   RememberResult,
@@ -25,6 +27,8 @@ import type {
   ExportResult,
   ImportInput,
   ImportResult,
+  LearnInput,
+  LearnResult,
   Entity,
 } from './types.js';
 import { detectCapabilities } from './config.js';
@@ -439,6 +443,32 @@ export function importMemories(args: ImportInput): ImportResult {
   }
 
   return { imported, skipped, appended, errors };
+}
+
+/**
+ * Create a structured lesson_learned entity from explicit user input.
+ * Does not require an LLM — the user provides the structured fields directly.
+ * Uses createExplicitLesson from lesson-engine to build and store the entity.
+ */
+export function learn(args: LearnInput): LearnResult {
+  const projectName = path.basename(process.cwd());
+
+  const result = createExplicitLesson(
+    args.error,
+    args.fix,
+    projectName,
+    {
+      rootCause: args.root_cause,
+      prevention: args.prevention,
+      severity: args.severity,
+    }
+  );
+
+  return {
+    learned: true,
+    name: result.name,
+    type: 'lesson_learned',
+  };
 }
 
 /**

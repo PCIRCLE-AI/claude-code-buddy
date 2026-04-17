@@ -144,3 +144,17 @@ export interface ImportResult {
   appended: number;
   errors: string[];
 }
+
+export interface LearnInput {
+  error: string;
+  fix: string;
+  root_cause?: string;
+  prevention?: string;
+  severity?: 'critical' | 'major' | 'minor';
+}
+
+export interface LearnResult {
+  learned: boolean;
+  name: string;
+  type: string;
+}

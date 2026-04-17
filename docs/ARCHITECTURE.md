@@ -1,12 +1,12 @@
 # MeMesh Plugin Architecture
 
-**Version**: 3.0.0
+**Version**: 3.1.0
 
 ---
 
 ## Overview
 
-MeMesh is a universal AI memory layer. It provides 6 operations (`remember`, `recall`, `forget`, `consolidate`, `export`, `import`) accessible via three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings. Entities can be scoped to namespaces (`personal`, `team`, `global`) and shared across projects via JSON export/import.
+MeMesh is a universal AI memory layer. It provides 7 operations (`remember`, `recall`, `forget`, `consolidate`, `export`, `import`, `learn`) accessible via three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings. Entities can be scoped to namespaces (`personal`, `team`, `global`) and shared across projects via JSON export/import. MeMesh includes self-improving memory: LLM-powered failure analysis automatically creates structured lessons from session errors, with proactive warnings at session start.
 
 ```
                      ┌─────────────┐
@@ -56,6 +56,8 @@ src/
 │   ├── query-expander.ts  # LLM query expansion (Level 1)
 │   ├── extractor.ts       # Session knowledge extraction (rule-based + LLM)
 │   ├── lifecycle.ts       # Auto-decay + consolidation orchestration
+│   ├── failure-analyzer.ts # LLM-powered failure analysis → StructuredLesson
+│   ├── lesson-engine.ts   # Structured lesson creation, upsert, project query
 │   └── version-check.ts   # npm registry version check
 ├── db.ts                  # SQLite + FTS5 + sqlite-vec + migrations
 ├── knowledge-graph.ts     # Entity CRUD, relations, FTS5 search, findConflicts
@@ -80,13 +82,17 @@ src/
 
 **types.ts** — Shared TypeScript interfaces used across all transports. No external dependencies.
 
-**operations.ts** — Pure functions implementing `remember`, `recall`, and `forget`. All three transports delegate here — no transport-specific logic leaks into business logic.
+**operations.ts** — Pure functions implementing `remember`, `recall`, `forget`, `learn`, and others. All three transports delegate here — no transport-specific logic leaks into business logic.
 
 **config.ts** — Config management: reads `MEMESH_DB_PATH` and other environment variables, detects sqlite-vec availability, exposes a typed config object to transports and core functions. `logCapabilities()` logs detected search level and LLM provider to stderr on server startup (safe for MCP stdio transport).
 
 **scoring.ts** — Multi-factor scoring engine. `scoreEntity()` combines five signals: search relevance (0.35), recency via exponential decay (0.25), access frequency via log normalization (0.20), confidence (0.15), and temporal validity (0.05). `rankEntities()` sorts any entity list by score descending. Applied in all recall paths (`recall()` and `recallEnhanced()`).
 
 **query-expander.ts** — LLM-powered query expansion (Level 1). When a LLM is configured (Anthropic, OpenAI, or Ollama), `expandQuery()` generates related search terms for a user query. Results from expanded terms are merged with original-query results and re-ranked by score (original query = 1.0 relevance, expanded terms = 0.7 relevance).
+
+**failure-analyzer.ts** — LLM-powered failure analysis (Level 1). `analyzeFailure()` takes session errors and files edited, sends them to the configured LLM, and returns a `StructuredLesson` with error, root cause, fix, prevention, error/fix patterns, and severity. Used by the Stop hook to automatically create lessons from session failures.
+
+**lesson-engine.ts** — Structured lesson management. `createLesson()` stores a `StructuredLesson` as a `lesson_learned` entity with upsert-safe naming (`lesson-{project}-{errorPattern}`). Same error pattern in different sessions updates the existing lesson. `createExplicitLesson()` supports the `learn` MCP tool. `findProjectLessons()` queries lessons for proactive warnings.
 
 **version-check.ts** — Queries the npm registry for the latest `@pcircle/memesh` version and emits an update notification if the installed version is behind.
 
@@ -139,6 +145,7 @@ Thin adapter: validates input via Zod, delegates to `core/operations`, wraps res
 | `consolidate` | ConsolidateSchema | Delegates to `operations.consolidate()` |
 | `export` | ExportSchema | Delegates to `operations.exportMemories()` |
 | `import` | ImportSchema | Delegates to `operations.importMemories()` |
+| `learn` | LearnSchema | Delegates to `operations.learn()` |
 
 ### transports/http/server.ts -- HTTP REST API Server
 
@@ -259,7 +266,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 - **Trigger**: `SessionStart` event (every new Claude Code session)
 - **Matcher**: `*` (all sessions)
-- **Behavior**: Opens the database, queries recent entities tagged with the current project, outputs a summary for Claude to use as context
+- **Behavior**: Opens the database, queries recent entities tagged with the current project, outputs a summary for Claude to use as context. Also shows proactive warnings for known `lesson_learned` entities matching the current project
 
 ### Post Commit (`scripts/hooks/post-commit.js`)
 
@@ -271,7 +278,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 - **Trigger**: `Stop` event (when Claude finishes responding)
 - **Matcher**: `*` (all sessions)
-- **Behavior**: Extracts session knowledge (files edited, errors fixed, decisions made) and stores it as entities in the knowledge graph; opt-out via `MEMESH_AUTO_CAPTURE=false`
+- **Behavior**: Extracts session knowledge (files edited, errors fixed, decisions made) and stores it as entities in the knowledge graph. When LLM is configured (Level 1), additionally runs failure analysis to create structured `lesson_learned` entities from session errors. Opt-out via `MEMESH_AUTO_CAPTURE=false`
 
 ### Pre-Compact (`scripts/hooks/pre-compact.js`)
 
@@ -389,6 +396,56 @@ memesh export --namespace team --output team-memories.json
 # Importers (each team member)
 memesh import team-memories.json --merge skip
 ```
+
+---
+
+## Self-Improving Memory (v3.1.0)
+
+MeMesh automatically learns from session failures and proactively warns about known pitfalls.
+
+### Architecture
+
+```
+Session with errors
+  → Stop hook detects errors + files edited
+  → analyzeFailure() sends to LLM (Level 1 only)
+  → StructuredLesson { error, rootCause, fix, prevention, patterns }
+  → createLesson() stores as lesson_learned entity (upsert-safe naming)
+  → Next session: session-start queries lessons → proactive warnings
+```
+
+### Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| Failure Analyzer | `src/core/failure-analyzer.ts` | LLM-powered root cause analysis |
+| Lesson Engine | `src/core/lesson-engine.ts` | Structured lesson CRUD + upsert dedup |
+| Stop Hook Integration | `scripts/hooks/session-summary.js` | Auto-triggers analysis after sessions |
+| Proactive Warnings | `scripts/hooks/session-start.js` | Shows known lessons at session start |
+| Learn Tool | All transports | Explicit lesson creation (7th MCP tool) |
+
+### Lesson Entity Structure
+
+```
+type: "lesson_learned"
+name: "lesson-{project}-{errorPattern}" (upsert-safe)
+observations:
+  - "Error: <what went wrong>"
+  - "Root cause: <why>"
+  - "Fix: <what fixed it>"
+  - "Prevention: <how to avoid>"
+tags:
+  - "project:{name}"
+  - "error-pattern:{category}"
+  - "severity:{level}"
+  - "source:auto-learned" | "source:explicit"
+```
+
+### Feedback Loop
+
+- **Positive signal**: `recall()` increments `access_count` — frequently recalled lessons rank higher
+- **Negative signal**: Auto-decay reduces confidence of unused lessons (30+ days → `confidence *= 0.9`)
+- **Recurrence**: Same error pattern upserts existing lesson, appending observations as recurrence evidence
 
 ---
 

@@ -54,16 +54,39 @@ try {
 const packageDir = path.join(extractDir, 'package');
 
 const requiredFiles = [
+  // Core
   'package.json',
-  'dist/index.js',
-  'dist/mcp/server.js',
-  'dist/cli/view.js',
-  'dist/cli/assets/d3.v7.min.js',
-  'scripts/hooks/session-start.js',
-  'scripts/hooks/post-commit.js',
   'plugin.json',
   '.mcp.json',
   'hooks/hooks.json',
+  // Dist — core engine
+  'dist/index.js',
+  'dist/db.js',
+  'dist/knowledge-graph.js',
+  'dist/core/operations.js',
+  'dist/core/types.js',
+  'dist/core/config.js',
+  'dist/core/scoring.js',
+  'dist/core/failure-analyzer.js',
+  'dist/core/lesson-engine.js',
+  // Dist — transports
+  'dist/mcp/server.js',
+  'dist/transports/mcp/handlers.js',
+  'dist/transports/http/server.js',
+  'dist/transports/cli/cli.js',
+  // Dist — dashboard assets
+  'dist/cli/view.js',
+  'dist/cli/assets/d3.v7.min.js',
+  // Hooks (4)
+  'scripts/hooks/session-start.js',
+  'scripts/hooks/post-commit.js',
+  'scripts/hooks/session-summary.js',
+  'scripts/hooks/pre-compact.js',
+  // Skills (2)
+  'skills/memesh/SKILL.md',
+  'skills/memesh-review/SKILL.md',
+  // Dashboard build
+  'dashboard/dist/index.html',
 ];
 
 for (const relativePath of requiredFiles) {

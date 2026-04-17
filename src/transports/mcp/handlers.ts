@@ -5,7 +5,7 @@
 // =============================================================================
 
 import { z } from 'zod';
-import { remember, recall, recallEnhanced, forget, consolidate, exportMemories, importMemories } from '../../core/operations.js';
+import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 
@@ -68,6 +68,14 @@ const ImportSchema = z.object({
   data: ExportResultSchema,
   namespace: z.string().optional(),
   merge_strategy: z.enum(['skip', 'overwrite', 'append']),
+});
+
+const LearnSchema = z.object({
+  error: z.string().min(1),
+  fix: z.string().min(1),
+  root_cause: z.string().optional(),
+  prevention: z.string().optional(),
+  severity: z.enum(['critical', 'major', 'minor']).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -232,6 +240,26 @@ export const TOOL_DEFINITIONS = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'learn',
+    description: 'Record a structured lesson from a mistake or discovery. Creates a lesson_learned entity with error, root cause, fix, and prevention.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        error: { type: 'string', description: 'What went wrong' },
+        fix: { type: 'string', description: 'What fixed it' },
+        root_cause: { type: 'string', description: 'Why it happened (optional)' },
+        prevention: { type: 'string', description: 'How to prevent it next time (optional)' },
+        severity: {
+          type: 'string',
+          enum: ['critical', 'major', 'minor'],
+          description: 'Severity level (default: minor)',
+        },
+      },
+      required: ['error', 'fix'],
+      additionalProperties: false,
+    },
+  },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -305,6 +333,11 @@ export async function handleTool(name: string, args: any): Promise<ToolResult> {
       const r = parseOrFail(ImportSchema, args);
       if (!r.ok) return r.result;
       return ok(importMemories(r.data));
+    }
+    if (name === 'learn') {
+      const r = parseOrFail(LearnSchema, args);
+      if (!r.ok) return r.result;
+      return ok(learn(r.data));
     }
     return fail(`Unknown tool: ${name}`);
   } catch (err: any) {

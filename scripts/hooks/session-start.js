@@ -127,7 +127,44 @@ process.stdin.on('end', () => {
         return;
       }
 
-      const memorySummary = lines.join('\n');
+      let memorySummary = lines.join('\n');
+
+      // --- Proactive lesson warnings ---
+      try {
+        const lessonEntities = db.prepare(`
+          SELECT DISTINCT e.id, e.name, e.confidence
+          FROM entities e
+          JOIN tags t ON t.entity_id = e.id
+          WHERE e.type = 'lesson_learned'
+            AND e.status = 'active'
+            AND t.tag = ?
+          ORDER BY CASE WHEN e.confidence IS NULL THEN 0.5 ELSE e.confidence END DESC,
+                   CASE WHEN e.access_count IS NULL THEN 0 ELSE e.access_count END DESC
+          LIMIT 5
+        `).all(projectTag);
+
+        if (lessonEntities.length > 0) {
+          memorySummary += '\n\n⚠️ Known lessons for this project:\n';
+          for (const lesson of lessonEntities) {
+            // Load ALL observations per lesson (not fragile LIKE pattern)
+            const allObs = db.prepare(
+              'SELECT content FROM observations WHERE entity_id = ? ORDER BY id'
+            ).all(lesson.id);
+
+            // Find the Prevention line
+            const prevention = allObs.find(o => o.content.startsWith('Prevention:'));
+            const display = prevention
+              ? prevention.content.replace(/^Prevention:\s*/, '')
+              : (allObs[allObs.length - 1]?.content || lesson.name);
+
+            const conf = typeof lesson.confidence === 'number' ? lesson.confidence.toFixed(1) : '1.0';
+            memorySummary += `• ${display} (confidence: ${conf})\n`;
+          }
+        }
+      } catch {
+        // Lesson query failed — don't break session start
+      }
+
       const hookOutput = {
         suppressOutput: true,
         hookSpecificOutput: {

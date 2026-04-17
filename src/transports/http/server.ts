@@ -3,7 +3,7 @@
 import express from 'express';
 import { z } from 'zod';
 import { openDatabase, closeDatabase } from '../../db.js';
-import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories } from '../../core/operations.js';
+import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
@@ -65,6 +65,15 @@ const ImportBody = z.object({
   namespace: z.string().optional(),
   merge_strategy: z.enum(['skip', 'overwrite', 'append']),
 });
+
+const LearnBody = z.object({
+  error: z.string().min(1),
+  fix: z.string().min(1),
+  root_cause: z.string().optional(),
+  prevention: z.string().optional(),
+  severity: z.enum(['critical', 'major', 'minor']).optional(),
+});
+
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -78,6 +87,37 @@ const packageVersion =
 
 const app = express();
 app.use(express.json());
+
+// --- Rate limiting (in-memory, no external deps) ---
+const rateLimitWindowMs = 60_000; // 1 minute
+const rateLimitMax = 120; // max requests per window per IP
+const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+
+app.use((req, res, next) => {
+  const ip = req.ip || 'unknown';
+  const now = Date.now();
+  let entry = rateLimitStore.get(ip);
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + rateLimitWindowMs };
+    rateLimitStore.set(ip, entry);
+  }
+  entry.count++;
+  res.setHeader('X-RateLimit-Limit', String(rateLimitMax));
+  res.setHeader('X-RateLimit-Remaining', String(Math.max(0, rateLimitMax - entry.count)));
+  if (entry.count > rateLimitMax) {
+    res.status(429).json({ success: false, error: 'Too many requests. Try again in 1 minute.' });
+    return;
+  }
+  next();
+});
+
+// Clean up stale rate limit entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitStore) {
+    if (now > entry.resetAt) rateLimitStore.delete(ip);
+  }
+}, 300_000).unref();
 
 // --- Dashboard ---
 app.get('/dashboard', (_req, res) => {
@@ -199,6 +239,21 @@ app.post('/v1/import', (req, res) => {
   }
 });
 
+// --- Learn ---
+app.post('/v1/learn', (req, res) => {
+  const parsed = LearnBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+    return;
+  }
+  try {
+    const result = learn(parsed.data);
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
 // --- Config ---
 app.get('/v1/config', (_req, res) => {
   try {
@@ -207,6 +262,10 @@ app.get('/v1/config', (_req, res) => {
     const safeConfig = { ...config };
     if (safeConfig.llm?.apiKey) {
       safeConfig.llm = { ...safeConfig.llm, apiKey: '***' };
+    }
+    // Also mask API key in capabilities (detectCapabilities returns llm config with raw key)
+    if (caps.llm?.apiKey) {
+      caps.llm = { ...caps.llm, apiKey: '***' };
     }
     res.json({ success: true, data: { config: safeConfig, capabilities: caps } });
   } catch (err: any) {

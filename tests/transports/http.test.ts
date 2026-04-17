@@ -235,6 +235,43 @@ describe('HTTP Transport: GET /v1/graph', () => {
   });
 });
 
+// ── Learn ─────────────────────────────────────────────────────────────────────
+
+describe('HTTP Transport: POST /v1/learn', () => {
+  it('creates a lesson_learned entity and returns learned=true', async () => {
+    const res = await req('POST', '/v1/learn', { error: 'NullPointerException', fix: 'Added null guard' });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.learned).toBe(true);
+    expect(res.body.data.type).toBe('lesson_learned');
+    expect(res.body.data.name).toContain('lesson-');
+  });
+
+  it('accepts optional fields', async () => {
+    const res = await req('POST', '/v1/learn', {
+      error: 'DB timeout on write',
+      fix: 'Increased write timeout',
+      root_cause: 'Default timeout too low',
+      prevention: 'Always configure timeouts explicitly',
+      severity: 'major',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  it('returns 400 when error field is missing', async () => {
+    const res = await req('POST', '/v1/learn', { fix: 'Some fix' });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('returns 400 when fix field is missing', async () => {
+    const res = await req('POST', '/v1/learn', { error: 'Some error' });
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+  });
+});
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 describe('HTTP Transport: GET /dashboard', () => {

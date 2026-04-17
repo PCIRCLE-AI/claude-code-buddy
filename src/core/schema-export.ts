@@ -66,5 +66,23 @@ export function exportOpenAITools(): object[] {
         },
       },
     },
+    {
+      type: 'function',
+      function: {
+        name: 'memesh_learn',
+        description: 'Record a structured lesson from a mistake or discovery.',
+        parameters: {
+          type: 'object',
+          properties: {
+            error: { type: 'string', description: 'What went wrong' },
+            fix: { type: 'string', description: 'What fixed it' },
+            root_cause: { type: 'string', description: 'Why it happened' },
+            prevention: { type: 'string', description: 'How to prevent it next time' },
+            severity: { type: 'string', enum: ['critical', 'major', 'minor'], description: 'Severity level' },
+          },
+          required: ['error', 'fix'],
+        },
+      },
+    },
   ];
 }

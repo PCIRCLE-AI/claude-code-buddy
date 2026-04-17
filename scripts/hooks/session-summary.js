@@ -6,8 +6,9 @@
 
 import { createRequire } from 'module';
 import { homedir } from 'os';
-import { join, basename } from 'path';
+import { join, basename, dirname } from 'path';
 import { existsSync, mkdirSync, readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
 
@@ -118,7 +119,7 @@ function parseTranscript(transcriptPath) {
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { input += chunk; });
-process.stdin.on('end', () => {
+process.stdin.on('end', async () => {
   try {
     if (!input.trim()) return exit0();
 
@@ -239,6 +240,37 @@ process.stdin.on('end', () => {
       }
     } finally {
       db.close();
+    }
+
+    // ── LLM-powered failure analysis (Level 1 only) ──────────────────────
+    // Runs AFTER the hook's own DB is closed.
+    // Uses the core module's DB singleton (openDatabase/closeDatabase).
+    // Wrapped in its own try/catch — never blocks rule-based extraction.
+    if (errorsEncountered.length > 0 && filesEdited.length > 0) {
+      try {
+        const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT
+          || dirname(dirname(fileURLToPath(import.meta.url)));
+        const configMod = await import(join(pluginRoot, 'dist/core/config.js'));
+        const config = configMod.readConfig();
+
+        if (config.llm) {
+          const { openDatabase, closeDatabase } = await import(join(pluginRoot, 'dist/db.js'));
+          const { analyzeFailure } = await import(join(pluginRoot, 'dist/core/failure-analyzer.js'));
+          const { createLesson } = await import(join(pluginRoot, 'dist/core/lesson-engine.js'));
+
+          openDatabase();
+          try {
+            const lesson = await analyzeFailure(errorsEncountered, filesEdited, config.llm);
+            if (lesson) {
+              createLesson(lesson, projectName);
+            }
+          } finally {
+            closeDatabase();
+          }
+        }
+      } catch {
+        // LLM analysis failed — rule-based extraction already captured the session
+      }
     }
   } catch (err) {
     // Never crash Claude Code — leave a trace for debugging
