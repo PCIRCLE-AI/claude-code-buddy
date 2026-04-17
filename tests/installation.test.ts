@@ -25,12 +25,14 @@ describe('Installation Verification', () => {
       expect(fs.existsSync('.mcp.json')).toBe(true);
     });
 
-    it('should have hooks.json with 2 hooks', () => {
+    it('should have hooks.json with 4 hooks', () => {
       const hooks = JSON.parse(fs.readFileSync('hooks/hooks.json', 'utf8'));
       const hookTypes = Object.keys(hooks.hooks);
-      expect(hookTypes).toHaveLength(2);
+      expect(hookTypes).toHaveLength(4);
       expect(hookTypes).toContain('SessionStart');
       expect(hookTypes).toContain('PostToolUse');
+      expect(hookTypes).toContain('Stop');
+      expect(hookTypes).toContain('PreCompact');
     });
   });
 
@@ -38,6 +40,8 @@ describe('Installation Verification', () => {
     const hookFiles = [
       'scripts/hooks/session-start.js',
       'scripts/hooks/post-commit.js',
+      'scripts/hooks/session-summary.js',
+      'scripts/hooks/pre-compact.js',
     ];
 
     it.each(hookFiles)('%s should exist and be executable', (hookPath) => {
