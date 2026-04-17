@@ -156,6 +156,106 @@ export class KnowledgeGraph {
     };
   }
 
+  getEntitiesByIds(ids: number[]): Entity[] {
+    if (ids.length === 0) return [];
+
+    const placeholders = ids.map(() => '?').join(',');
+
+    // Batch query 1: entities
+    const entityRows = this.db
+      .prepare(
+        `SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, valid_from, valid_until, namespace
+         FROM entities WHERE id IN (${placeholders})`
+      )
+      .all(...ids) as EntityRow[];
+
+    // Index entity rows by id for fast lookup
+    const entityMap = new Map<number, EntityRow>();
+    for (const row of entityRows) {
+      entityMap.set(row.id, row);
+    }
+
+    // Batch query 2: observations (ordered by id to match getEntity behavior)
+    const obsRows = this.db
+      .prepare(
+        `SELECT entity_id, content FROM observations WHERE entity_id IN (${placeholders}) ORDER BY id`
+      )
+      .all(...ids) as Array<{ entity_id: number; content: string }>;
+
+    const obsMap = new Map<number, string[]>();
+    for (const row of obsRows) {
+      if (!obsMap.has(row.entity_id)) obsMap.set(row.entity_id, []);
+      obsMap.get(row.entity_id)!.push(row.content);
+    }
+
+    // Batch query 3: tags
+    const tagRows = this.db
+      .prepare(
+        `SELECT entity_id, tag FROM tags WHERE entity_id IN (${placeholders})`
+      )
+      .all(...ids) as Array<{ entity_id: number; tag: string }>;
+
+    const tagMap = new Map<number, string[]>();
+    for (const row of tagRows) {
+      if (!tagMap.has(row.entity_id)) tagMap.set(row.entity_id, []);
+      tagMap.get(row.entity_id)!.push(row.tag);
+    }
+
+    // Batch query 4: relations (from_entity_id perspective, matching getRelations)
+    const relRows = this.db
+      .prepare(
+        `SELECT r.from_entity_id, e_from.name AS "from", e_to.name AS "to",
+                r.relation_type AS type, r.metadata
+         FROM relations r
+         JOIN entities e_from ON r.from_entity_id = e_from.id
+         JOIN entities e_to ON r.to_entity_id = e_to.id
+         WHERE r.from_entity_id IN (${placeholders})`
+      )
+      .all(...ids) as Array<{ from_entity_id: number; from: string; to: string; type: string; metadata: string | null }>;
+
+    const relMap = new Map<number, Relation[]>();
+    for (const row of relRows) {
+      if (!relMap.has(row.from_entity_id)) relMap.set(row.from_entity_id, []);
+      relMap.get(row.from_entity_id)!.push({
+        from: row.from,
+        to: row.to,
+        type: row.type,
+        metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+      });
+    }
+
+    // Build Entity objects in input order, skipping missing ids
+    const results: Entity[] = [];
+    for (const id of ids) {
+      const row = entityMap.get(id);
+      if (!row) continue;
+
+      const observations = obsMap.get(id) ?? [];
+      const tags = tagMap.get(id) ?? [];
+      const relations = relMap.get(id) ?? [];
+
+      results.push({
+        id: row.id,
+        name: row.name,
+        type: row.type,
+        created_at: row.created_at,
+        metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+        observations,
+        tags,
+        relations: relations.length > 0 ? relations : undefined,
+        ...(row.status === 'archived' ? { archived: true } : {}),
+        access_count: row.access_count ?? 0,
+        last_accessed_at: row.last_accessed_at ?? undefined,
+        confidence: row.confidence ?? 1.0,
+        valid_from: row.valid_from ?? undefined,
+        valid_until: row.valid_until ?? undefined,
+        namespace: row.namespace ?? 'personal',
+      });
+    }
+
+    return results;
+  }
+
   getRelations(entityName: string): Relation[] {
     const rows = this.db
       .prepare(
