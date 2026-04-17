@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 
 import { createRequire } from 'module';
-import { execFileSync } from 'child_process';
 import { homedir } from 'os';
 import { join, basename } from 'path';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync } from 'fs';
 
 const require = createRequire(import.meta.url);
 
@@ -63,32 +62,75 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
 );
 `;
 
+// Timeout guard: always exit within 10 seconds
+const TIMEOUT_MS = 10000;
+const timeoutHandle = setTimeout(() => {
+  try { process.stderr.write('[memesh pre-compact] Timed out after 10s\n'); } catch {}
+  process.exit(0);
+}, TIMEOUT_MS);
+timeoutHandle.unref();
+
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { input += chunk; });
 process.stdin.on('end', () => {
   try {
+    // Opt-out check
+    if (process.env.MEMESH_AUTO_CAPTURE === 'false') {
+      return exit0();
+    }
+
     const data = JSON.parse(input);
+    const sessionId = data.session_id || 'unknown';
+    const transcriptPath = data.transcript_path || '';
+    const cwd = data.cwd || process.cwd();
+    const reason = data.reason || 'auto';
+    const projectName = basename(cwd);
 
-    // Only process Bash tool outputs
-    if (data.tool_name !== 'Bash') return exit0();
-    const toolOutput = typeof data.tool_output === 'string'
-      ? data.tool_output
-      : JSON.stringify(data.tool_output || '');
+    // Parse transcript to gather insights
+    let toolCallCount = 0;
+    const editedFiles = new Set();
 
-    // Detect git commit in output
-    // Pattern: [branch hash] commit message
-    const commitMatch = toolOutput.match(/\[[\w/.-]+ ([a-f0-9]{7,})\] (.+)/);
-    if (!commitMatch) return exit0();
+    if (transcriptPath && existsSync(transcriptPath)) {
+      try {
+        const lines = readFileSync(transcriptPath, 'utf8').split('\n');
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const entry = JSON.parse(line);
+            // Count tool uses from assistant message content blocks
+            if (entry.role === 'assistant' && Array.isArray(entry.content)) {
+              for (const block of entry.content) {
+                if (block.type === 'tool_use') {
+                  toolCallCount++;
+                  // Track file edits
+                  const name = block.name || '';
+                  if (name === 'Edit' || name === 'Write' || name === 'MultiEdit') {
+                    const filePath = block.input?.file_path || block.input?.path || '';
+                    if (filePath) editedFiles.add(basename(filePath));
+                  }
+                }
+              }
+            }
+          } catch {
+            // Skip malformed lines
+          }
+        }
+      } catch {
+        // Transcript read failed — proceed with zero counts
+      }
+    }
 
-    const branchMatch = commitMatch[0].match(/^\[([^\s]+)\s/);
-    const branch = branchMatch ? branchMatch[1] : 'unknown';
+    const insightCount = editedFiles.size + (toolCallCount > 0 ? 1 : 0);
+    const entityName = `pre-compact-${sessionId}`;
 
-    const commitHash = commitMatch[1];
-    const commitMsg = commitMatch[2];
-    const projectName = basename(data.cwd || process.cwd());
+    // Build observation content
+    const obsLines = [`Compaction reason: ${reason}`, `Tool calls: ${toolCallCount}`];
+    if (editedFiles.size > 0) {
+      obsLines.push(`Files edited: ${Array.from(editedFiles).join(', ')}`);
+    }
 
-    // Open database (create dir if needed)
+    // Open (or create) database
     const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
     const dbDir = process.env.MEMESH_DB_PATH
       ? join(process.env.MEMESH_DB_PATH, '..')
@@ -100,55 +142,35 @@ process.stdin.on('end', () => {
     try {
       db.pragma('journal_mode = WAL');
       db.pragma('foreign_keys = ON');
-
-      // Ensure schema exists
       db.exec(SCHEMA_SQL);
 
-      const entityName = `commit-${commitHash}`;
-
-      // Check if this is a new or existing entity
-      const insertResult = db.prepare('INSERT OR IGNORE INTO entities (name, type) VALUES (?, ?)').run(entityName, 'commit');
+      // Upsert entity
+      const insertResult = db.prepare('INSERT OR IGNORE INTO entities (name, type) VALUES (?, ?)').run(entityName, 'session-summary');
       const isNew = insertResult.changes > 0;
       const entity = db.prepare('SELECT id FROM entities WHERE name = ?').get(entityName);
+
       if (entity) {
-        // Capture existing observations for FTS delete (before inserting new one)
+        // Capture existing observations for FTS delete
         const prevObs = isNew
           ? []
           : db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(entity.id);
         const prevObsText = isNew ? undefined : prevObs.map(o => o.content).join(' ');
 
-        // Add observations
-        db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, commitMsg);
-        db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, `Branch: ${branch}`);
-
-        // Add richer diff stats as an observation (backward compatible — failures are silently ignored)
-        try {
-          const stat = execFileSync('git', ['show', '--stat', '--format=', commitHash], {
-            cwd: data.cwd || process.cwd(),
-            encoding: 'utf8',
-            timeout: 5000,
-          }).trim();
-          if (stat) {
-            // Last non-empty line is the summary, e.g. "3 files changed, 45 insertions(+), 12 deletions(-)"
-            const statLines = stat.split('\n').filter(l => l.trim());
-            const summary = statLines[statLines.length - 1]?.trim() || '';
-            if (summary) {
-              db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, `Diff stats: ${summary}`);
-            }
-          }
-        } catch {
-          // git show failed — no diff stats recorded, existing behavior unchanged
+        // Insert each observation line
+        for (const line of obsLines) {
+          db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, line);
         }
 
-        // Add project tag
-        const projectTag = `project:${projectName}`;
-        db.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)').run(entity.id, projectTag);
+        // Add tags
+        const tags = ['source:auto-capture', 'urgency:pre-compact', `project:${projectName}`];
+        for (const tag of tags) {
+          db.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)').run(entity.id, tag);
+        }
 
-        // Update FTS index — delete old entry first if entity existed
+        // Update FTS
         if (prevObsText !== undefined) {
           db.prepare("INSERT INTO entities_fts(entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)").run(entity.id, entityName, prevObsText);
         }
-        // Fetch all observations (including the one just added) for the new FTS entry
         const allObs = db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(entity.id);
         const allObsText = allObs.map(o => o.content).join(' ');
         db.prepare('INSERT INTO entities_fts(rowid, name, observations) VALUES(?, ?, ?)').run(entity.id, entityName, allObsText);
@@ -156,11 +178,18 @@ process.stdin.on('end', () => {
     } finally {
       db.close();
     }
+
+    const hookOutput = {
+      hookSpecificOutput: {
+        hookEventName: 'PreCompact',
+        additionalContext: `Saved ${insightCount} insights to MeMesh before compaction`,
+      },
+    };
+    console.log(JSON.stringify(hookOutput));
   } catch (err) {
-    // Never crash Claude Code — but leave a trace for debugging
-    try { process.stderr.write(`[memesh post-commit] ${err?.message || err}\n`); } catch {}
+    // Hooks must never crash Claude Code — exit cleanly
+    try { process.stderr.write(`[memesh pre-compact] ${err?.message || err}\n`); } catch {}
   }
-  console.log(JSON.stringify({ suppressOutput: true }));
   exit0();
 });
 

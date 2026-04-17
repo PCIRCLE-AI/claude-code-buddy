@@ -51,7 +51,7 @@ memesh-mcp      # stdio MCP server
 
 ## What it does
 
-MeMesh gives Claude Code persistent memory through 3 MCP tools, 2 hooks, and a CLI dashboard:
+MeMesh gives Claude Code persistent memory through 3 MCP tools, 4 hooks, and a CLI dashboard:
 
 ### MCP Tools
 
@@ -75,6 +75,8 @@ MeMesh gives Claude Code persistent memory through 3 MCP tools, 2 hooks, and a C
 |------|-------|------|
 | Session Start | `SessionStart` | Auto-recalls project-specific + recent global memories |
 | Post Commit | `PostToolUse` (Bash) | Records git commits as knowledge entities |
+| Session Summary | `Stop` | Auto-captures session knowledge (files edited, errors fixed) |
+| Pre-Compact | `PreCompact` | Saves knowledge before context compaction |
 
 ### CLI
 
@@ -98,6 +100,7 @@ memesh-view
 - **Schema**: entities, observations, relations, tags + FTS5 virtual table
 - **Validation**: All tool inputs validated with Zod schemas
 - **Knowledge Evolution**: `forget` archives rather than deletes — old memories are preserved but hidden. Use `supersedes` relations to replace old designs with new ones.
+- **Session Auto-Capture**: Stop and PreCompact hooks automatically extract and store session knowledge. Opt-out: set `MEMESH_AUTO_CAPTURE=false`.
 
 ## Architecture
 
