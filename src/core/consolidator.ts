@@ -7,7 +7,7 @@ import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { detectCapabilities } from './config.js';
 import type { LLMConfig } from './config.js';
-import type { ConsolidateInput, ConsolidateResult, Entity } from './types.js';
+import type { AnthropicResponse, ConsolidateInput, ConsolidateResult, Entity, OllamaResponse, OpenAIResponse } from './types.js';
 
 /**
  * Compress verbose entity observations using an LLM (Level 1 / Smart Mode only).
@@ -121,7 +121,7 @@ async function compressObservations(observations: string[], llmConfig: LLMConfig
       }),
     });
     if (!response.ok) throw new Error(`Anthropic API error: ${response.status}`);
-    const data = await response.json() as any;
+    const data = await response.json() as AnthropicResponse;
     text = data.content?.[0]?.text || '[]';
   } else if (llmConfig.provider === 'openai') {
     const apiKey = llmConfig.apiKey || process.env.OPENAI_API_KEY;
@@ -140,7 +140,7 @@ async function compressObservations(observations: string[], llmConfig: LLMConfig
       }),
     });
     if (!response.ok) throw new Error(`OpenAI API error: ${response.status}`);
-    const data = await response.json() as any;
+    const data = await response.json() as OpenAIResponse;
     text = data.choices?.[0]?.message?.content || '[]';
   } else if (llmConfig.provider === 'ollama') {
     const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
@@ -154,7 +154,7 @@ async function compressObservations(observations: string[], llmConfig: LLMConfig
       }),
     });
     if (!response.ok) throw new Error(`Ollama error: ${response.status}`);
-    const data = await response.json() as any;
+    const data = await response.json() as OllamaResponse;
     text = data.response || '[]';
   } else {
     return observations;

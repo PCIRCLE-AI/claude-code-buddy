@@ -1,5 +1,6 @@
 import { detectCapabilities } from './config.js';
 import type { LLMConfig } from './config.js';
+import type { AnthropicResponse, OpenAIResponse, OllamaResponse } from './types.js';
 
 /**
  * Expand a search query into related keywords using an LLM.
@@ -54,7 +55,7 @@ async function callAnthropic(prompt: string, config: LLMConfig): Promise<string[
   });
 
   if (!response.ok) throw new Error(`Anthropic API error: ${response.status}`);
-  const data = await response.json() as any;
+  const data = await response.json() as AnthropicResponse;
   const text = data.content?.[0]?.text || '[]';
   return parseKeywords(text);
 }
@@ -77,7 +78,7 @@ async function callOpenAI(prompt: string, config: LLMConfig): Promise<string[]> 
   });
 
   if (!response.ok) throw new Error(`OpenAI API error: ${response.status}`);
-  const data = await response.json() as any;
+  const data = await response.json() as OpenAIResponse;
   const text = data.choices?.[0]?.message?.content || '[]';
   return parseKeywords(text);
 }
@@ -96,7 +97,7 @@ async function callOllama(prompt: string, config: LLMConfig): Promise<string[]> 
   });
 
   if (!response.ok) throw new Error(`Ollama error: ${response.status}`);
-  const data = await response.json() as any;
+  const data = await response.json() as OllamaResponse;
   return parseKeywords(data.response || '[]');
 }
 

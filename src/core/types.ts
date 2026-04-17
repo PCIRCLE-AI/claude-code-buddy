@@ -217,3 +217,19 @@ export interface PragmaColumnRow {
   dflt_value: string | null;
   pk: number;
 }
+
+// ---------------------------------------------------------------------------
+// LLM API response types — replace `as any` on response.json()
+// ---------------------------------------------------------------------------
+
+export interface AnthropicResponse {
+  content?: Array<{ text?: string }>;
+}
+
+export interface OpenAIResponse {
+  choices?: Array<{ message?: { content?: string } }>;
+}
+
+export interface OllamaResponse {
+  response?: string;
+}
