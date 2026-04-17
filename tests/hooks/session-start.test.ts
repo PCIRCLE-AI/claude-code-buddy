@@ -135,6 +135,47 @@ describe('Feature: Session Start Hook', () => {
     expect(additionalContext).toContain('[note] global-item');
   });
 
+  it('Scenario: Archived entities are excluded from session recall', () => {
+    const Database = require('better-sqlite3');
+    const db = new Database(dbPath);
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    db.prepare('CREATE TABLE IF NOT EXISTS entities (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, type TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, metadata JSON, status TEXT NOT NULL DEFAULT \'active\')').run();
+    db.prepare('CREATE TABLE IF NOT EXISTS observations (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id INTEGER NOT NULL, content TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE)').run();
+    db.prepare('CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id INTEGER NOT NULL, tag TEXT NOT NULL, FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE)').run();
+    // Active entity with project tag
+    db.prepare("INSERT INTO entities (name, type, status) VALUES (?, ?, 'active')").run('active-module', 'component');
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Active observation');
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(1, 'project:archivetest');
+    // Archived entity with same project tag
+    db.prepare("INSERT INTO entities (name, type, status) VALUES (?, ?, 'archived')").run('archived-module', 'component');
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(2, 'Archived observation');
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(2, 'project:archivetest');
+    // Archived entity in global (no project tag)
+    db.prepare("INSERT INTO entities (name, type, status) VALUES (?, ?, 'archived')").run('archived-global', 'note');
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(3, 'Archived global');
+    db.close();
+
+    const output = runHook({ cwd: '/tmp/archivetest' });
+    const additionalContext = (output as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    expect(additionalContext).toContain('[component] active-module');
+    expect(additionalContext).not.toContain('archived-module');
+    expect(additionalContext).not.toContain('archived-global');
+  });
+
+  it('Scenario: Backward compat — DBs without status column return all entities', () => {
+    // createTestDb() intentionally omits the status column (v2.11 schema)
+    const db = createTestDb();
+    db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('legacy-entity', 'note');
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Legacy note');
+    db.close();
+
+    const output = runHook({ cwd: '/tmp/anyproject' });
+    const additionalContext = (output as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    expect(additionalContext).toContain('[note] legacy-entity');
+    expect(additionalContext).toContain('Legacy note');
+  });
+
   it('Scenario: Always exits with valid JSON output on invalid input', () => {
     const hookPath = path.resolve('scripts/hooks/session-start.js');
     const result = execFileSync('node', [hookPath], {

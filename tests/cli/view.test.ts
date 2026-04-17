@@ -217,6 +217,42 @@ describe('Feature: MeMesh View Dashboard', () => {
     });
   });
 
+  describe('Scenario: Archived entity visual distinction in dashboard', () => {
+    it('Given an archived entity, When I generate the dashboard, Then HTML contains archived indicator', () => {
+      const db = new Database(testDbPath);
+      db.prepare('CREATE TABLE IF NOT EXISTS entities (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, type TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, metadata JSON, status TEXT NOT NULL DEFAULT \'active\')').run();
+      db.prepare('CREATE TABLE IF NOT EXISTS observations (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id INTEGER NOT NULL, content TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE)').run();
+      db.prepare('CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id INTEGER NOT NULL, tag TEXT NOT NULL, FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE)').run();
+      db.prepare("INSERT INTO entities (name, type, status) VALUES (?, ?, 'active')").run('ActiveThing', 'concept');
+      db.prepare("INSERT INTO entities (name, type, status) VALUES (?, ?, 'archived')").run('ArchivedThing', 'concept');
+      db.close();
+
+      const html = generateDashboardHtml(testDbPath);
+
+      // Both entities should be present in the data
+      expect(html).toContain('ActiveThing');
+      expect(html).toContain('ArchivedThing');
+      // Archived status should be embedded in the data payload
+      expect(html).toContain('"status":"archived"');
+      expect(html).toContain('"status":"active"');
+      // Dashboard JavaScript includes archived indicator logic
+      expect(html).toContain('[archived]');
+      expect(html).toContain('opacity');
+    });
+
+    it('Given a DB without status column, When I generate the dashboard, Then it still works', () => {
+      const db = new Database(testDbPath);
+      db.prepare('CREATE TABLE IF NOT EXISTS entities (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, type TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)').run();
+      db.prepare("INSERT INTO entities (name, type) VALUES (?, ?)").run('LegacyThing', 'note');
+      db.close();
+
+      const html = generateDashboardHtml(testDbPath);
+
+      expect(html).toContain('LegacyThing');
+      expect(html).toContain('"status":"active"');
+    });
+  });
+
   describe('Scenario: XSS prevention in embedded data', () => {
     it('Given entity names with HTML characters, When I generate the dashboard, Then they are escaped', () => {
       const db = new Database(testDbPath);
