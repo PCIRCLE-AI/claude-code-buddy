@@ -1041,13 +1041,17 @@ export function generateLiveDashboardHtml(): string {
   }
 
   // ---- Shared: build entity table from array using only DOM APIs ----
+  // Redesigned: shows Time (locale) | Memory Preview | Source/Type | Status | Tags
+  // Entity name is secondary — first observation preview is the primary content
   function buildEntityTable(entities, highlightTerm) {
     var table = document.createElement('table');
     var thead = document.createElement('thead');
     var hrow = document.createElement('tr');
-    ['Name', 'Type', 'Status', 'Obs', 'Tags'].forEach(function (h) {
+    ['Time', 'Memory', 'Type', 'Status', 'Tags'].forEach(function (h) {
       var th = document.createElement('th');
       th.textContent = h;
+      if (h === 'Memory') th.style.width = '45%';
+      if (h === 'Time') th.style.width = '140px';
       hrow.appendChild(th);
     });
     thead.appendChild(hrow);
@@ -1056,16 +1060,47 @@ export function generateLiveDashboardHtml(): string {
     entities.forEach(function (e) {
       var status = e.archived ? 'archived' : (e.status || 'active');
       var tr = document.createElement('tr');
+      if (status === 'archived') tr.style.opacity = '0.5';
 
-      var tdName = document.createElement('td');
-      tdName.className = 'entity-name';
-      if (highlightTerm) {
-        highlightText(tdName, e.name, highlightTerm);
-      } else {
-        tdName.textContent = e.name;
+      // Time column — locale-formatted timestamp
+      var tdTime = document.createElement('td');
+      tdTime.style.cssText = 'font-family:var(--font-mono);font-size:11px;color:var(--text-muted);white-space:nowrap;';
+      try {
+        var d = new Date(e.created_at);
+        tdTime.textContent = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      } catch (_) {
+        tdTime.textContent = e.created_at || '—';
       }
-      tr.appendChild(tdName);
+      tdTime.title = e.created_at || '';
+      tr.appendChild(tdTime);
 
+      // Memory column — first observation as preview, entity name as secondary
+      var tdMemory = document.createElement('td');
+      var memoryContent = document.createElement('div');
+
+      // Primary: first observation (the actual useful content)
+      var preview = document.createElement('div');
+      preview.style.cssText = 'font-size:13px;line-height:1.5;margin-bottom:2px;';
+      var firstObs = (e.observations && e.observations.length > 0) ? e.observations[0] : '(no observations)';
+      var previewText = firstObs.length > 120 ? firstObs.slice(0, 120) + '\\u2026' : firstObs;
+      if (highlightTerm) {
+        highlightText(preview, previewText, highlightTerm);
+      } else {
+        preview.textContent = previewText;
+      }
+      memoryContent.appendChild(preview);
+
+      // Secondary: entity name (technical identifier) + observation count
+      var meta = document.createElement('div');
+      meta.style.cssText = 'font-size:11px;color:var(--text-muted);font-family:var(--font-mono);';
+      var obsCount = e.observations ? e.observations.length : 0;
+      meta.textContent = e.name + (obsCount > 1 ? ' \\u00b7 ' + obsCount + ' observations' : '');
+      memoryContent.appendChild(meta);
+
+      tdMemory.appendChild(memoryContent);
+      tr.appendChild(tdMemory);
+
+      // Type badge
       var tdType = document.createElement('td');
       var typeBadge = document.createElement('span');
       typeBadge.className = 'badge badge-type';
@@ -1073,6 +1108,7 @@ export function generateLiveDashboardHtml(): string {
       tdType.appendChild(typeBadge);
       tr.appendChild(tdType);
 
+      // Status badge
       var tdStatus = document.createElement('td');
       var statusBadge = document.createElement('span');
       statusBadge.className = 'badge badge-' + (status === 'archived' ? 'archived' : 'active');
@@ -1080,14 +1116,23 @@ export function generateLiveDashboardHtml(): string {
       tdStatus.appendChild(statusBadge);
       tr.appendChild(tdStatus);
 
-      var tdObs = document.createElement('td');
-      tdObs.className = 'entity-obs';
-      tdObs.textContent = String(e.observations ? e.observations.length : 0);
-      tr.appendChild(tdObs);
-
+      // Tags
       var tdTags = document.createElement('td');
-      tdTags.className = 'entity-obs';
-      tdTags.textContent = e.tags ? e.tags.join(', ') : '';
+      if (e.tags && e.tags.length > 0) {
+        e.tags.slice(0, 3).forEach(function (t) {
+          var pill = document.createElement('span');
+          pill.className = 'tag-pill';
+          pill.textContent = t;
+          tdTags.appendChild(pill);
+        });
+        if (e.tags.length > 3) {
+          var more = document.createElement('span');
+          more.className = 'tag-pill';
+          more.style.opacity = '0.6';
+          more.textContent = '+' + (e.tags.length - 3);
+          tdTags.appendChild(more);
+        }
+      }
       tr.appendChild(tdTags);
 
       tbody.appendChild(tr);
