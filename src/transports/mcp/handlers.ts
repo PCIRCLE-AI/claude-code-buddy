@@ -5,7 +5,9 @@
 // =============================================================================
 
 import { z } from 'zod';
-import { remember, recall, forget } from '../../core/operations.js';
+import { remember, recall, recallEnhanced, forget } from '../../core/operations.js';
+import { KnowledgeGraph } from '../../knowledge-graph.js';
+import { getDatabase } from '../../db.js';
 
 // ---------------------------------------------------------------------------
 // Zod validation schemas (transport-layer responsibility)
@@ -168,7 +170,7 @@ function parseOrFail<T>(schema: z.ZodType<T>, args: unknown): { ok: true; data: 
   return { ok: true, data: parsed.data };
 }
 
-export function handleTool(name: string, args: any): ToolResult {
+export async function handleTool(name: string, args: any): Promise<ToolResult> {
   try {
     if (name === 'remember') {
       const r = parseOrFail(RememberSchema, args);
@@ -178,7 +180,14 @@ export function handleTool(name: string, args: any): ToolResult {
     if (name === 'recall') {
       const r = parseOrFail(RecallSchema, args);
       if (!r.ok) return r.result;
-      return ok(recall(r.data));
+      // Use recallEnhanced — internally falls back to sync recall if no LLM configured
+      const entities = await recallEnhanced(r.data);
+      const kg = new KnowledgeGraph(getDatabase());
+      const conflicts = kg.findConflicts(entities.map(e => e.name));
+      if (conflicts.length > 0) {
+        return ok({ entities, conflicts });
+      }
+      return ok(entities);
     }
     if (name === 'forget') {
       const r = parseOrFail(ForgetSchema, args);

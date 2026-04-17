@@ -448,6 +448,105 @@ describe('Feature: Knowledge Graph', () => {
     });
   });
 
+  describe('Access Tracking', () => {
+    it('should increment access_count on search', () => {
+      kg.createEntity('Test', 'note', { observations: ['some data'] });
+
+      // Before search
+      const before = kg.getEntity('Test');
+      expect(before!.access_count).toBe(0);
+
+      // Search (triggers trackAccess)
+      kg.search('data');
+
+      // After search
+      const after = kg.getEntity('Test');
+      expect(after!.access_count).toBe(1);
+      expect(after!.last_accessed_at).toBeDefined();
+    });
+
+    it('should increment on each recall', () => {
+      kg.createEntity('Multi', 'note', { observations: ['test data'] });
+      kg.search('test');
+      kg.search('test');
+      kg.search('test');
+
+      const entity = kg.getEntity('Multi');
+      expect(entity!.access_count).toBe(3);
+    });
+
+    it('should increment access_count on listRecent', () => {
+      kg.createEntity('RecentEntity', 'note', { observations: ['content'] });
+
+      const before = kg.getEntity('RecentEntity');
+      expect(before!.access_count).toBe(0);
+
+      kg.listRecent();
+
+      const after = kg.getEntity('RecentEntity');
+      expect(after!.access_count).toBe(1);
+    });
+
+    it('should increment access_count when search falls back to listRecent (empty query)', () => {
+      kg.createEntity('FallbackTest', 'note', { observations: ['data'] });
+
+      kg.search('');
+
+      const entity = kg.getEntity('FallbackTest');
+      expect(entity!.access_count).toBe(1);
+    });
+  });
+
+  describe('Conflict Detection', () => {
+    it('should detect contradicting entities', () => {
+      kg.createEntity('use-jwt', 'decision', { observations: ['Always use JWT'] });
+      kg.createEntity('no-jwt', 'decision', { observations: ['Never use JWT'] });
+      kg.createRelation('no-jwt', 'use-jwt', 'contradicts');
+
+      const conflicts = kg.findConflicts(['use-jwt', 'no-jwt']);
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0]).toContain('contradicts');
+    });
+
+    it('should return empty for non-conflicting entities', () => {
+      kg.createEntity('a', 'note');
+      kg.createEntity('b', 'note');
+
+      const conflicts = kg.findConflicts(['a', 'b']);
+      expect(conflicts).toEqual([]);
+    });
+
+    it('should handle single entity', () => {
+      expect(kg.findConflicts(['a'])).toEqual([]);
+    });
+
+    it('should handle empty array', () => {
+      expect(kg.findConflicts([])).toEqual([]);
+    });
+
+    it('should not flag non-contradicts relations as conflicts', () => {
+      kg.createEntity('ParentA', 'decision');
+      kg.createEntity('ChildB', 'decision');
+      kg.createRelation('ParentA', 'ChildB', 'relates-to');
+
+      const conflicts = kg.findConflicts(['ParentA', 'ChildB']);
+      expect(conflicts).toEqual([]);
+    });
+
+    it('should detect both directions of contradicts', () => {
+      kg.createEntity('X', 'decision', { observations: ['prefer X'] });
+      kg.createEntity('Y', 'decision', { observations: ['prefer Y'] });
+      kg.createEntity('Z', 'decision', { observations: ['prefer Z'] });
+      kg.createRelation('X', 'Y', 'contradicts');
+      kg.createRelation('Z', 'Y', 'contradicts');
+
+      const conflicts = kg.findConflicts(['X', 'Y', 'Z']);
+      expect(conflicts).toHaveLength(2);
+      expect(conflicts.some((c) => c.includes('"X" contradicts "Y"'))).toBe(true);
+      expect(conflicts.some((c) => c.includes('"Z" contradicts "Y"'))).toBe(true);
+    });
+  });
+
   describe('Edge Cases', () => {
     it('should throw when creating relation with non-existent entity', () => {
       kg.createEntity('Exists', 'test');

@@ -116,7 +116,9 @@ export class KnowledgeGraph {
 
   getEntity(name: string): Entity | null {
     const row = this.db
-      .prepare('SELECT id, name, type, created_at, metadata, status FROM entities WHERE name = ?')
+      .prepare(
+        'SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, valid_from, valid_until FROM entities WHERE name = ?'
+      )
       .get(name) as any | undefined;
 
     if (!row) return null;
@@ -143,6 +145,11 @@ export class KnowledgeGraph {
       tags,
       relations: relations.length > 0 ? relations : undefined,
       ...(row.status === 'archived' ? { archived: true } : {}),
+      access_count: row.access_count ?? 0,
+      last_accessed_at: row.last_accessed_at ?? undefined,
+      confidence: row.confidence ?? 1.0,
+      valid_from: row.valid_from ?? undefined,
+      valid_until: row.valid_until ?? undefined,
     };
   }
 
@@ -258,7 +265,54 @@ export class KnowledgeGraph {
       }
     }
 
+    const entityIds = results.map((e) => e.id);
+    this.trackAccess(entityIds);
     return results;
+  }
+
+  /**
+   * Increment access_count and update last_accessed_at for entities.
+   * Called after search/recall returns results.
+   */
+  trackAccess(entityIds: number[]): void {
+    if (entityIds.length === 0) return;
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare(
+      'UPDATE entities SET access_count = access_count + 1, last_accessed_at = ? WHERE id = ?'
+    );
+    const txn = this.db.transaction(() => {
+      for (const id of entityIds) {
+        stmt.run(now, id);
+      }
+    });
+    txn();
+  }
+
+  /**
+   * Find contradicting entity pairs in a set of results.
+   * Returns array of conflict descriptions.
+   */
+  findConflicts(entityNames: string[]): string[] {
+    if (entityNames.length < 2) return [];
+
+    const conflicts: string[] = [];
+    const placeholders = entityNames.map(() => '?').join(',');
+
+    const rows = this.db.prepare(`
+      SELECT e_from.name AS from_name, e_to.name AS to_name
+      FROM relations r
+      JOIN entities e_from ON r.from_entity_id = e_from.id
+      JOIN entities e_to ON r.to_entity_id = e_to.id
+      WHERE r.relation_type = 'contradicts'
+        AND e_from.name IN (${placeholders})
+        AND e_to.name IN (${placeholders})
+    `).all(...entityNames, ...entityNames) as any[];
+
+    for (const row of rows) {
+      conflicts.push(`"${row.from_name}" contradicts "${row.to_name}"`);
+    }
+
+    return conflicts;
   }
 
   listRecent(limit?: number, includeArchived?: boolean): Entity[] {
@@ -267,9 +321,13 @@ export class KnowledgeGraph {
       .prepare(`SELECT name FROM entities ${statusFilter} ORDER BY id DESC LIMIT ?`)
       .all(limit ?? 20) as { name: string }[];
 
-    return rows
+    const results = rows
       .map((r) => this.getEntity(r.name))
       .filter((e): e is Entity => e !== null);
+
+    const entityIds = results.map((e) => e.id);
+    this.trackAccess(entityIds);
+    return results;
   }
 
   private listRecentByTag(tag: string, limit: number, includeArchived?: boolean): Entity[] {
@@ -286,9 +344,13 @@ export class KnowledgeGraph {
       )
       .all(tag, limit) as { name: string }[];
 
-    return rows
+    const results = rows
       .map((r) => this.getEntity(r.name))
       .filter((e): e is Entity => e !== null);
+
+    const entityIds = results.map((e) => e.id);
+    this.trackAccess(entityIds);
+    return results;
   }
 
   archiveEntity(name: string): { archived: boolean; name?: string; previousStatus?: string } {

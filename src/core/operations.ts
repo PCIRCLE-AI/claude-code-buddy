@@ -11,6 +11,8 @@
 
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
+import { expandQuery, isExpansionAvailable } from './query-expander.js';
+import { rankEntities } from './scoring.js';
 import type {
   RememberInput,
   RememberResult,
@@ -78,17 +80,87 @@ export function remember(args: RememberInput): RememberResult {
 /**
  * Search and retrieve stored knowledge.
  * Uses FTS5 full-text search with optional tag filtering.
+ * Results are ranked by multi-factor score (recency, frequency, confidence, temporal validity).
  * Empty query returns recent entities.
  */
 export function recall(args: RecallInput): Entity[] {
   const db = getDatabase();
   const kg = new KnowledgeGraph(db);
 
-  return kg.search(args.query, {
+  const entities = kg.search(args.query, {
     tag: args.tag,
     limit: args.limit,
     includeArchived: args.include_archived,
   });
+
+  // Build relevance map: FTS results get 1.0 relevance, recent-list gets 0.5
+  const relevanceMap = new Map<string, number>();
+  for (const e of entities) {
+    relevanceMap.set(e.name, args.query ? 1.0 : 0.5);
+  }
+
+  return rankEntities(entities, relevanceMap).slice(0, args.limit ?? 20);
+}
+
+/**
+ * Enhanced recall with optional LLM query expansion (async, Level 1).
+ * When an LLM is configured, expands the query into related terms before searching.
+ * Merges results from all expanded terms, de-duped by entity name.
+ * Results are ranked by multi-factor score (relevance, recency, frequency, confidence, temporal validity).
+ * Falls back to regular sync recall if expansion is unavailable or fails.
+ */
+export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
+  const db = getDatabase();
+  const kg = new KnowledgeGraph(db);
+
+  if (args.query && isExpansionAvailable()) {
+    try {
+      const expandedTerms = await expandQuery(args.query);
+      // Search with each expanded term and merge results (de-duped by name).
+      // First term (original query) gets 1.0 relevance, expanded terms get 0.7.
+      const allResults = new Map<string, Entity>();
+      const relevanceMap = new Map<string, number>();
+
+      for (let i = 0; i < expandedTerms.length; i++) {
+        const termRelevance = i === 0 ? 1.0 : 0.7;
+        const results = kg.search(expandedTerms[i], {
+          tag: args.tag,
+          limit: args.limit,
+          includeArchived: args.include_archived,
+        });
+        for (const entity of results) {
+          if (!allResults.has(entity.name)) {
+            allResults.set(entity.name, entity);
+          }
+          // Keep the highest relevance if found by multiple terms
+          const existing = relevanceMap.get(entity.name) ?? 0;
+          if (termRelevance > existing) {
+            relevanceMap.set(entity.name, termRelevance);
+          }
+        }
+      }
+
+      const merged = [...allResults.values()];
+      return rankEntities(merged, relevanceMap).slice(0, args.limit ?? 20);
+    } catch {
+      // Fallback to regular search on any expansion error
+    }
+  }
+
+  // Level 0: regular FTS5 search (no LLM expansion)
+  const entities = kg.search(args.query, {
+    tag: args.tag,
+    limit: args.limit,
+    includeArchived: args.include_archived,
+  });
+
+  // Build relevance map: FTS results get 1.0, recent-list gets 0.5
+  const relevanceMap = new Map<string, number>();
+  for (const e of entities) {
+    relevanceMap.set(e.name, args.query ? 1.0 : 0.5);
+  }
+
+  return rankEntities(entities, relevanceMap).slice(0, args.limit ?? 20);
 }
 
 /**

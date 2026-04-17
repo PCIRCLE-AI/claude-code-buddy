@@ -58,7 +58,7 @@ MeMesh gives Claude Code persistent memory through 3 MCP tools, 4 hooks, and a C
 | Tool | Description |
 |------|-------------|
 | `remember` | Store knowledge — entities with observations, relations, and tags |
-| `recall` | Search stored knowledge via FTS5 full-text search with optional tag filtering |
+| `recall` | Search stored knowledge via FTS5 full-text search with scoring, Smart Recall (LLM query expansion), and conflict detection |
 | `forget` | Archive knowledge (soft-delete) or remove specific observations |
 
 ### Transports
@@ -93,7 +93,9 @@ memesh-view
 ## How it works
 
 - **Storage**: SQLite database at `~/.memesh/knowledge-graph.db`
-- **Search**: FTS5 full-text search (no vector embeddings)
+- **Search**: FTS5 full-text search with multi-factor scoring (recency, frequency, confidence, temporal validity)
+- **Smart Recall**: When an LLM is configured, queries are expanded into related terms before searching (Level 1 / Smart Mode). Results from all terms are merged and re-ranked by score.
+- **Conflict Detection**: Recall warns when any returned entities have `contradicts` relations — surfaced as warnings in CLI output and as a `conflicts` field in MCP/HTTP responses.
 - **Isolation**: Tag-based project filtering (`project:<name>`)
 - **Upserts**: Reusing an entity name appends observations, preserves the original type, and dedupes tags
 - **Dashboard**: `memesh-view` bundles D3 locally, so the generated HTML works offline
