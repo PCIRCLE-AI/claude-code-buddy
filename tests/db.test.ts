@@ -138,4 +138,30 @@ describe('Feature: Database Management', () => {
       expect(tables).toHaveLength(1);
     });
   });
+
+  describe('Scenario: Scoring and temporal columns migration (v2.14 -> v2.15)', () => {
+    it('should have access_count column with default 0', () => {
+      const db = openDatabase(testDbPath);
+      const info = db.prepare("PRAGMA table_info(entities)").all() as any[];
+      const col = info.find((c: any) => c.name === 'access_count');
+      expect(col).toBeDefined();
+      expect(col.dflt_value).toBe('0');
+    });
+
+    it('should have confidence column with default 1.0', () => {
+      const db = openDatabase(testDbPath);
+      const info = db.prepare("PRAGMA table_info(entities)").all() as any[];
+      const col = info.find((c: any) => c.name === 'confidence');
+      expect(col).toBeDefined();
+      expect(col.dflt_value).toBe('1.0');
+    });
+
+    it('should have temporal columns (valid_from, valid_until, last_accessed_at)', () => {
+      const db = openDatabase(testDbPath);
+      const info = db.prepare("PRAGMA table_info(entities)").all() as any[];
+      expect(info.some((c: any) => c.name === 'valid_from')).toBe(true);
+      expect(info.some((c: any) => c.name === 'valid_until')).toBe(true);
+      expect(info.some((c: any) => c.name === 'last_accessed_at')).toBe(true);
+    });
+  });
 });

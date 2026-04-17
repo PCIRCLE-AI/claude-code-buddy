@@ -86,6 +86,16 @@ export function openDatabase(dbPath?: string): Database.Database {
     db.exec("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)");
   }
 
+  // Migrate: add scoring columns if missing (v2.14 -> v2.15)
+  const scoringCols = db.prepare("PRAGMA table_info(entities)").all() as any[];
+  if (!scoringCols.some((c: any) => c.name === 'access_count')) {
+    db.exec("ALTER TABLE entities ADD COLUMN access_count INTEGER DEFAULT 0");
+    db.exec("ALTER TABLE entities ADD COLUMN last_accessed_at TIMESTAMP");
+    db.exec("ALTER TABLE entities ADD COLUMN confidence REAL DEFAULT 1.0");
+    db.exec("ALTER TABLE entities ADD COLUMN valid_from TIMESTAMP");
+    db.exec("ALTER TABLE entities ADD COLUMN valid_until TIMESTAMP");
+  }
+
   // Load sqlite-vec extension for vector similarity search
   sqliteVec.load(db);
 

@@ -116,7 +116,9 @@ export class KnowledgeGraph {
 
   getEntity(name: string): Entity | null {
     const row = this.db
-      .prepare('SELECT id, name, type, created_at, metadata, status FROM entities WHERE name = ?')
+      .prepare(
+        'SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, valid_from, valid_until FROM entities WHERE name = ?'
+      )
       .get(name) as any | undefined;
 
     if (!row) return null;
@@ -143,6 +145,11 @@ export class KnowledgeGraph {
       tags,
       relations: relations.length > 0 ? relations : undefined,
       ...(row.status === 'archived' ? { archived: true } : {}),
+      access_count: row.access_count ?? 0,
+      last_accessed_at: row.last_accessed_at ?? undefined,
+      confidence: row.confidence ?? 1.0,
+      valid_from: row.valid_from ?? undefined,
+      valid_until: row.valid_until ?? undefined,
     };
   }
 

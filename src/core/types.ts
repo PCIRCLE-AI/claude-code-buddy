@@ -15,6 +15,11 @@ export interface Entity {
   tags: string[];
   relations?: Relation[];
   archived?: boolean;
+  access_count?: number;
+  last_accessed_at?: string;
+  confidence?: number;
+  valid_from?: string;
+  valid_until?: string;
 }
 
 export interface Relation {
