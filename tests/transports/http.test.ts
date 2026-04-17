@@ -186,3 +186,64 @@ describe('HTTP Transport: POST /v1/forget', () => {
     expect(res.body.data.archived).toBe(false);
   });
 });
+
+// ── Config ────────────────────────────────────────────────────────────────────
+
+describe('HTTP Transport: GET /v1/config', () => {
+  it('returns config and capabilities', async () => {
+    const res = await req('GET', '/v1/config');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.capabilities).toBeDefined();
+    expect(res.body.data.capabilities.fts5).toBe(true);
+  });
+});
+
+describe('HTTP Transport: POST /v1/config', () => {
+  it('saves config and returns updated config', async () => {
+    const res = await req('POST', '/v1/config', { theme: 'dark' });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+});
+
+// ── Stats ─────────────────────────────────────────────────────────────────────
+
+describe('HTTP Transport: GET /v1/stats', () => {
+  beforeAll(async () => {
+    await req('POST', '/v1/remember', { name: 'stats-test', type: 'note', observations: ['data'] });
+  });
+
+  it('returns aggregate counts', async () => {
+    const res = await req('GET', '/v1/stats');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.totalEntities).toBeGreaterThanOrEqual(1);
+    expect(res.body.data.typeDistribution).toBeDefined();
+  });
+});
+
+// ── Graph ─────────────────────────────────────────────────────────────────────
+
+describe('HTTP Transport: GET /v1/graph', () => {
+  it('returns entities and relations', async () => {
+    const res = await req('GET', '/v1/graph');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.entities).toBeDefined();
+    expect(res.body.data.relations).toBeDefined();
+  });
+});
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+describe('HTTP Transport: GET /dashboard', () => {
+  it('returns HTML with dashboard content', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/dashboard`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('html');
+    const html = await res.text();
+    expect(html).toContain('MeMesh Dashboard');
+    expect(html).toContain('tab-search');
+  });
+});

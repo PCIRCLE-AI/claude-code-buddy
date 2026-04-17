@@ -1,7 +1,7 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 2.15.0
+**Version**: 2.16.0
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 ---
@@ -223,8 +223,88 @@ Start: `memesh serve` (default: `localhost:3737`)
 | POST | /v1/forget | Archive or remove observation |
 | GET | /v1/entities | List entities (pagination) |
 | GET | /v1/entities/:name | Get single entity |
+| GET | /v1/config | Get current config and detected capabilities |
+| POST | /v1/config | Save config (partial update) |
+| GET | /v1/stats | Aggregate counts: entities, observations, relations, tags; type/tag/status distributions |
+| GET | /v1/graph | All entities + all relations (for graph visualization) |
+| GET | /dashboard | Interactive web dashboard (HTML) |
 
 All responses: `{ success: true, data: ... }` or `{ success: false, error: "..." }`
+
+### GET /v1/config
+
+Returns the current configuration and detected capabilities. API keys are masked in the response.
+
+**Response**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "config": { "theme": "dark", "autoCapture": true },
+    "capabilities": {
+      "fts5": true,
+      "vectorSearch": true,
+      "scoring": true,
+      "knowledgeEvolution": true,
+      "embeddings": "tfidf",
+      "llm": null,
+      "searchLevel": 0
+    }
+  }
+}
+```
+
+### POST /v1/config
+
+Save a partial config update. Fields not provided are preserved.
+
+**Request body**: Any subset of `MeMeshConfig` fields (`theme`, `autoCapture`, `sessionLimit`, `llm`, etc.)
+
+**Response**: `{ success: true, data: <updated config> }` (API key masked if present)
+
+### GET /v1/stats
+
+Returns aggregate counts and distributions for the knowledge graph.
+
+**Response**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "totalEntities": 42,
+    "totalObservations": 128,
+    "totalRelations": 15,
+    "totalTags": 30,
+    "typeDistribution": [{"type": "decision", "count": 12}, ...],
+    "tagDistribution": [{"tag": "project:myapp", "count": 8}, ...],
+    "statusDistribution": [{"status": "active", "count": 40}, {"status": "archived", "count": 2}]
+  }
+}
+```
+
+### GET /v1/graph
+
+Returns all entities (including archived) and all relations, suitable for graph visualization.
+
+**Response**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "entities": [...],
+    "relations": [{"from": "auth-decision", "to": "api-design", "type": "related-to"}, ...]
+  }
+}
+```
+
+### GET /dashboard
+
+Returns the full interactive MeMesh Dashboard as a self-contained HTML page. Served by the HTTP server — no separate build step needed.
+
+**Usage**: Open `http://localhost:3737/dashboard` in a browser, or run `memesh` (no args) to auto-open it.
 
 Request/response bodies for `POST /v1/remember`, `/v1/recall`, and `/v1/forget` mirror the MCP tool schemas above (same field names, same types).
 
