@@ -1,6 +1,6 @@
 # MeMesh Plugin
 
-Minimal persistent memory plugin for Claude Code. Remembers decisions, patterns, and context across sessions.
+The lightest universal AI memory layer. One SQLite file, any LLM, zero cloud.
 
 [![npm version](https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=cb3837)](https://www.npmjs.com/package/@pcircle/memesh)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
@@ -31,6 +31,24 @@ Anthropic ships a built-in [Memory Tool](https://platform.claude.com/docs/en/age
 npm install -g @pcircle/memesh
 ```
 
+### Quick Start
+
+```bash
+# Use as CLI
+memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0"
+memesh recall "auth"
+memesh forget --name "old-design"
+
+# Start HTTP API server (for Python SDK, dashboard, integrations)
+memesh serve
+
+# Open web dashboard
+memesh          # (no args = opens dashboard, coming in v2.16)
+
+# Use as MCP server (for Claude Code, Claude Desktop)
+memesh-mcp      # stdio MCP server
+```
+
 ## What it does
 
 MeMesh gives Claude Code persistent memory through 3 MCP tools, 2 hooks, and a CLI dashboard:
@@ -42,6 +60,14 @@ MeMesh gives Claude Code persistent memory through 3 MCP tools, 2 hooks, and a C
 | `remember` | Store knowledge — entities with observations, relations, and tags |
 | `recall` | Search stored knowledge via FTS5 full-text search with optional tag filtering |
 | `forget` | Archive knowledge (soft-delete) or remove specific observations |
+
+### Transports
+
+| Transport | Command | Use For |
+|-----------|---------|---------|
+| CLI | `memesh` | Direct terminal usage, scripting, CI/CD |
+| HTTP REST | `memesh serve` | Python SDK, dashboard, integrations |
+| MCP | `memesh-mcp` | Claude Code, Claude Desktop, MCP clients |
 
 ### Hooks
 

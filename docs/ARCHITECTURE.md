@@ -1,20 +1,84 @@
 # MeMesh Plugin Architecture
 
-**Version**: 2.11.0
+**Version**: 2.13.0
 
 ---
 
 ## Overview
 
-MeMesh is a minimal persistent memory plugin for Claude Code. It provides 3 MCP tools (`remember`, `recall`, `forget`) and 2 hooks (session start, post commit), backed by SQLite with FTS5 full-text search.
+MeMesh is a universal AI memory layer. It provides 3 operations (`remember`, `recall`, `forget`) accessible via three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
 
 ```
-Claude Code CLI <--stdio--> MCP Server <--> KnowledgeGraph <--> SQLite (FTS5)
+                     ┌─────────────┐
+                     │  core/      │
+                     │  operations │
+                     └──────┬──────┘
+            ┌───────────────┼───────────────┐
+            │               │               │
+     transports/cli   transports/http  transports/mcp
+     (memesh CLI)     (memesh serve)   (memesh-mcp)
+                             │
+                     KnowledgeGraph
+                             │
+                     SQLite (FTS5 + sqlite-vec)
+```
+
+## Core/Transport Architecture
+
+MeMesh v2.13 separates concerns into two layers:
+
+**Core** (`src/core/`) — pure business logic with zero transport dependencies:
+- `types.ts` — shared TypeScript interfaces (zero external deps)
+- `operations.ts` — `remember`, `recall`, `forget` as pure functions called by all transports
+- `config.ts` — config management + capability detection (sqlite-vec availability)
+- `version-check.ts` — npm registry version check for update notifications
+
+**Transports** (`src/transports/`) — thin adapters that expose core operations:
+- `cli/cli.ts` — Commander CLI (`memesh` command)
+- `http/server.ts` — Express REST API server (`memesh serve`, default port 3737)
+- `mcp/server.ts` + `mcp/handlers.ts` — stdio MCP server (`memesh-mcp`)
+
+This separation means the same `remember`/`recall`/`forget` logic runs identically whether invoked from a terminal, an HTTP request, or an MCP tool call.
+
+---
+
+## Source Structure
+
+```
+src/
+├── core/
+│   ├── types.ts           # Shared types (zero external deps)
+│   ├── operations.ts      # remember/recall/forget pure functions
+│   ├── config.ts          # Config management + capability detection
+│   └── version-check.ts   # npm registry version check
+├── db.ts                  # SQLite + FTS5 + sqlite-vec + migrations
+├── knowledge-graph.ts     # Entity CRUD, relations, FTS5 search
+├── index.ts               # Package exports
+├── cli/
+│   └── view.ts            # HTML dashboard generator
+└── transports/
+    ├── mcp/
+    │   ├── handlers.ts    # MCP tool handlers (Zod + ToolResult wrapper)
+    │   └── server.ts      # MCP stdio server
+    ├── http/
+    │   └── server.ts      # Express REST API server
+    └── cli/
+        └── cli.ts         # Commander CLI
 ```
 
 ---
 
 ## Modules
+
+### src/core/ -- Core Layer
+
+**types.ts** — Shared TypeScript interfaces used across all transports. No external dependencies.
+
+**operations.ts** — Pure functions implementing `remember`, `recall`, and `forget`. All three transports delegate here — no transport-specific logic leaks into business logic.
+
+**config.ts** — Config management: reads `MEMESH_DB_PATH` and other environment variables, detects sqlite-vec availability, exposes a typed config object to transports and core functions.
+
+**version-check.ts** — Queries the npm registry for the latest `@pcircle/memesh` version and emits an update notification if the installed version is behind.
 
 ### db.ts -- Database Layer
 
@@ -48,23 +112,29 @@ CRUD operations and full-text search over the entity graph.
 
 FTS5 is configured as a contentless virtual table (`content=''`). The `rebuildFts()` method handles explicit insert/delete operations required by contentless FTS5.
 
-### mcp/server.ts -- MCP Server
+### transports/mcp/server.ts -- MCP Server
 
-Entry point. Creates the MCP server with stdio transport, registers tool handlers, opens the database on startup.
+Entry point for the `memesh-mcp` binary. Creates the MCP server with stdio transport, registers tool handlers from `handlers.ts`, opens the database on startup.
 
-### mcp/tools.ts -- Tool Handlers
+### transports/mcp/handlers.ts -- MCP Tool Handlers
 
-Defines 3 tools with Zod validation schemas and handler functions:
+Thin adapter: validates input via Zod, delegates to `core/operations`, wraps result in MCP `ToolResult` format.
 
 | Tool | Schema | Handler |
 |------|--------|---------|
-| `remember` | RememberSchema | Creates entity, adds observations/tags/relations |
-| `recall` | RecallSchema | Searches via FTS5, returns matching entities |
-| `forget` | ForgetSchema | Deletes entity by name |
+| `remember` | RememberSchema | Delegates to `operations.remember()` |
+| `recall` | RecallSchema | Delegates to `operations.recall()` |
+| `forget` | ForgetSchema | Delegates to `operations.forget()` |
 
-The `handleTool(name, args)` dispatcher validates input via Zod, then delegates to the appropriate handler.
+### transports/http/server.ts -- HTTP REST API Server
 
-### cli/view.ts -- CLI Dashboard
+Express server exposed via `memesh serve` (default port 3737). Delegates all operations to `core/operations`. See [HTTP REST API](#http-rest-api) in the API Reference.
+
+### transports/cli/cli.ts -- CLI
+
+Commander-based CLI exposed via the `memesh` binary. Supports `remember`, `recall`, `forget`, `serve`, and `update` subcommands.
+
+### cli/view.ts -- Dashboard Generator
 
 Generates a self-contained HTML dashboard for visualizing the knowledge graph.
 
