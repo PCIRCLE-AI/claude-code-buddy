@@ -128,4 +128,14 @@ describe('Feature: Database Management', () => {
       expect(statusIdx).toBeDefined();
     });
   });
+
+  describe('Scenario: Vector table setup', () => {
+    it('should have entities_vec virtual table', () => {
+      const db = openDatabase(testDbPath);
+      const tables = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='entities_vec'"
+      ).all();
+      expect(tables).toHaveLength(1);
+    });
+  });
 });
