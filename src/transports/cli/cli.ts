@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
-import { remember, recallEnhanced, forget } from '../../core/operations.js';
+import { remember, recallEnhanced, forget, consolidate } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { readConfig, updateConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 
@@ -131,6 +131,41 @@ program
     }
   });
 
+// --- consolidate ---
+program
+  .command('consolidate')
+  .description('Compress verbose entity observations using an LLM (requires Smart Mode)')
+  .option('--name <name>', 'Specific entity to consolidate')
+  .option('--tag <tag>', 'Consolidate all entities with this tag')
+  .option('--min-obs <n>', 'Minimum observations to trigger (default: 5)', '5')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    openDatabase();
+    try {
+      const result = await consolidate({
+        name: opts.name,
+        tag: opts.tag,
+        min_observations: parseInt(opts.minObs),
+      });
+      if (opts.json) {
+        console.log(JSON.stringify(result));
+      } else if (result.error) {
+        console.error(`Error: ${result.error}`);
+        process.exitCode = 1;
+      } else if (result.consolidated === 0) {
+        console.log('No entities consolidated (none met the minimum observations threshold).');
+      } else {
+        console.log(`Consolidated ${result.consolidated} entity/entities.`);
+        console.log(`Observations: ${result.observations_before} -> ${result.observations_after}`);
+        if (result.entities_processed.length > 0) {
+          console.log(`Processed: ${result.entities_processed.join(', ')}`);
+        }
+      }
+    } finally {
+      closeDatabase();
+    }
+  });
+
 // --- config ---
 const configCmd = program.command('config').description('Manage configuration');
 
@@ -193,6 +228,21 @@ configCmd
     }
     updateConfig(config);
     console.log(`✅ Removed ${key}`);
+  });
+
+// --- export-schema ---
+program
+  .command('export-schema')
+  .description('Export MeMesh tools in OpenAI function calling format')
+  .option('--format <format>', 'Output format (openai)', 'openai')
+  .action(async (opts) => {
+    const { exportOpenAITools } = await import('../../core/schema-export.js');
+    if (opts.format === 'openai') {
+      console.log(JSON.stringify(exportOpenAITools(), null, 2));
+    } else {
+      console.error(`Unknown format: ${opts.format}. Available: openai`);
+      process.exit(1);
+    }
   });
 
 // --- serve (start HTTP server) ---
