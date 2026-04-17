@@ -48,18 +48,27 @@ export class KnowledgeGraph {
     const isNewEntity = insertResult.changes > 0;
 
     const row = this.db
-      .prepare('SELECT id FROM entities WHERE name = ?')
-      .get(name) as { id: number };
+      .prepare('SELECT id, status FROM entities WHERE name = ?')
+      .get(name) as { id: number; status: string };
     const entityId = row.id;
+
+    // Reactivate archived entities on re-remember
+    const wasArchived = !isNewEntity && row.status === 'archived';
+    if (wasArchived) {
+      this.db
+        .prepare("UPDATE entities SET status = 'active' WHERE name = ?")
+        .run(name);
+    }
 
     // For existing entities, capture current obs text to delete old FTS entry before rebuild.
     // For new entities, no prior FTS entry exists — pass undefined to skip delete.
-    const prevObs = isNewEntity
+    // For previously archived entities, the FTS entry was already removed by archiveEntity — also pass undefined.
+    const prevObs = isNewEntity || wasArchived
       ? []
       : (this.db
           .prepare('SELECT content FROM observations WHERE entity_id = ?')
           .all(entityId) as { content: string }[]);
-    const prevObsText = isNewEntity
+    const prevObsText = isNewEntity || wasArchived
       ? undefined
       : prevObs.map((o) => o.content).join(' ');
 
