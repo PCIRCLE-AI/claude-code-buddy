@@ -567,8 +567,9 @@ if (isDirectRun) {
     path.join(os.homedir(), '.memesh', 'knowledge-graph.db');
 
   const html = generateDashboardHtml(dbPath);
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-'));
-  const outPath = path.join(tmpDir, 'dashboard.html');
+  const dashboardDir = path.join(os.homedir(), '.memesh');
+  fs.mkdirSync(dashboardDir, { recursive: true });
+  const outPath = path.join(dashboardDir, 'dashboard.html');
   fs.writeFileSync(outPath, html, { encoding: 'utf-8', mode: 0o600 });
 
   // Open in default browser

@@ -1,37 +1,6 @@
 import Database from 'better-sqlite3';
-
-export interface Entity {
-  id: number;
-  name: string;
-  type: string;
-  created_at: string;
-  metadata?: any;
-  observations: string[];
-  tags: string[];
-  relations?: Relation[];
-  archived?: boolean;  // true when status='archived', omitted when active
-}
-
-export interface Relation {
-  from: string;
-  to: string;
-  type: string;
-  metadata?: any;
-}
-
-export interface CreateEntityInput {
-  name: string;
-  type: string;
-  observations?: string[];
-  tags?: string[];
-  metadata?: any;
-}
-
-export interface SearchOptions {
-  tag?: string;
-  limit?: number;
-  includeArchived?: boolean;
-}
+export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
+import type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
 
 export class KnowledgeGraph {
   constructor(private db: Database.Database) {}

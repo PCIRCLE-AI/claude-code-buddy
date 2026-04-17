@@ -1,10 +1,32 @@
 #!/usr/bin/env node
 
 import express from 'express';
+import { z } from 'zod';
 import { openDatabase, closeDatabase } from '../../db.js';
 import { remember, recall, forget } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
+
+// Zod schemas for HTTP input validation (same rules as MCP handlers)
+const RememberBody = z.object({
+  name: z.string().min(1),
+  type: z.string().min(1),
+  observations: z.array(z.string()).optional(),
+  tags: z.array(z.string()).optional(),
+  relations: z.array(z.object({ to: z.string().min(1), type: z.string().min(1) })).optional(),
+});
+
+const RecallBody = z.object({
+  query: z.string().optional(),
+  tag: z.string().optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  include_archived: z.boolean().optional(),
+});
+
+const ForgetBody = z.object({
+  name: z.string().min(1),
+  observation: z.string().optional(),
+});
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -32,8 +54,13 @@ app.get('/v1/health', (_req, res) => {
 
 // --- Remember ---
 app.post('/v1/remember', (req, res) => {
+  const parsed = RememberBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+    return;
+  }
   try {
-    const result = remember(req.body);
+    const result = remember(parsed.data);
     res.json({ success: true, data: result });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
@@ -42,8 +69,13 @@ app.post('/v1/remember', (req, res) => {
 
 // --- Recall ---
 app.post('/v1/recall', (req, res) => {
+  const parsed = RecallBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+    return;
+  }
   try {
-    const entities = recall(req.body);
+    const entities = recall(parsed.data);
     res.json({ success: true, data: entities });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
@@ -52,8 +84,13 @@ app.post('/v1/recall', (req, res) => {
 
 // --- Forget ---
 app.post('/v1/forget', (req, res) => {
+  const parsed = ForgetBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+    return;
+  }
   try {
-    const result = forget(req.body);
+    const result = forget(parsed.data);
     res.json({ success: true, data: result });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });

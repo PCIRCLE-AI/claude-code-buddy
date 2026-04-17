@@ -182,7 +182,6 @@ program
   .option('--port <port>', 'Port number', '3737')
   .option('--host <host>', 'Host to bind', '127.0.0.1')
   .action(async (opts) => {
-    // TODO: import from ../http/server.js once M1.4 HTTP transport is complete
     const { startServer } = await import('../http/server.js');
     startServer(opts.host, parseInt(opts.port));
   });
