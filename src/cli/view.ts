@@ -578,7 +578,7 @@ export function generateLiveDashboardHtml(): string {
     .dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; display: inline-block; margin-right: 6px; }
     .dot.error { background: #f87171; }
     .nav { display: flex; background: white; border-bottom: 1px solid #e0e0e0; padding: 0 16px; overflow-x: auto; }
-    .nav button { padding: 12px 16px; border: none; background: none; cursor: pointer; font-size: 14px; color: #666; border-bottom: 2px solid transparent; white-space: nowrap; }
+    .nav button { padding: 12px 16px; border: none; background: none; cursor: pointer; font-size: 14px; color: #666; border-bottom: 2px solid transparent; white-space: nowrap; transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease; }
     .nav button.active { color: #1a1a2e; border-bottom-color: #4361ee; font-weight: 600; }
     .nav button:hover:not(.active) { color: #1a1a2e; background: #f5f5f5; }
     .content { max-width: 1200px; margin: 24px auto; padding: 0 24px; }
@@ -598,11 +598,14 @@ export function generateLiveDashboardHtml(): string {
     .btn-danger { background: #fee2e2; color: #991b1b; }
     .btn-danger:hover { background: #fecaca; }
     .btn-sm { padding: 6px 12px; font-size: 13px; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { width: 100%; border-collapse: collapse; table-layout: auto; min-width: 500px; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #f0f0f0; word-break: break-word; }
     th { font-weight: 600; color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; background: #fafafa; }
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: #fafbff; }
+    table tbody tr:hover { background: #f8f9fa; }
+    body.dark table tbody tr:hover { background: #1c2333; }
     .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
     .badge-active { background: #dcfce7; color: #166534; }
     .badge-archived { background: #fee2e2; color: #991b1b; }
@@ -731,6 +734,21 @@ export function generateLiveDashboardHtml(): string {
     body.dark .wizard-modal .subtitle { color: #8b949e; }
     body.dark .wizard-step-dot { background: #30363d; }
     body.dark .placeholder { color: #484f58; }
+    @media (max-width: 768px) {
+      .content { padding: 0 12px; margin: 12px auto; }
+      .nav { flex-wrap: wrap; }
+      .nav button { padding: 10px 10px; font-size: 12px; flex: 1; min-width: 0; }
+      .header h1 { font-size: 16px; }
+      .search-row { flex-direction: column; gap: 8px; }
+      .search-input { min-width: auto; width: 100%; }
+      .card { padding: 14px; }
+      #feedback-panel { width: calc(100vw - 48px); right: 24px; }
+      #feedback-btn { bottom: 16px; right: 16px; font-size: 14px; padding: 10px 14px; }
+    }
+    @media (max-width: 480px) {
+      .nav button { font-size: 11px; padding: 8px 6px; }
+      .header { padding: 10px 16px; }
+    }
   `.trim();
 
   // The inline script uses only createElement / textContent for all user data.
@@ -744,10 +762,20 @@ export function generateLiveDashboardHtml(): string {
 
   // ---- API ----
   async function apiCall(method, path, body) {
-    var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
-    if (body !== undefined) opts.body = JSON.stringify(body);
-    var res = await fetch(path, opts);
-    return res.json();
+    var controller = new AbortController();
+    var timeout = setTimeout(function() { controller.abort(); }, 10000);
+    try {
+      var opts = { method: method, headers: { 'Content-Type': 'application/json' }, signal: controller.signal };
+      if (body !== undefined) opts.body = JSON.stringify(body);
+      var res = await fetch(path, opts);
+      clearTimeout(timeout);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return await res.json();
+    } catch (err) {
+      clearTimeout(timeout);
+      if (err.name === 'AbortError') throw new Error('Request timed out (10s)');
+      throw err;
+    }
   }
 
   // ---- Dark mode ----
@@ -763,6 +791,14 @@ export function generateLiveDashboardHtml(): string {
         themeBtn.textContent = isDark ? '\\u2600\\ufe0f' : '\\ud83c\\udf19';
         localStorage.setItem('memesh-theme', isDark ? 'dark' : 'light');
         try { apiCall('POST', '/v1/config', { theme: isDark ? 'dark' : 'light' }); } catch (_) {}
+        // Update graph label colors if graph has been rendered
+        var newLabelColor = isDark ? '#c9d1d9' : '#374151';
+        var graphWrap = document.getElementById('graph-svg-wrap');
+        if (graphWrap) {
+          graphWrap.querySelectorAll('svg g text:not([font-size="9"])').forEach(function(el) {
+            el.setAttribute('fill', newLabelColor);
+          });
+        }
       });
     }
   })();
@@ -808,7 +844,7 @@ export function generateLiveDashboardHtml(): string {
   }
 
   // ---- Shared: build entity table from array using only DOM APIs ----
-  function buildEntityTable(entities) {
+  function buildEntityTable(entities, highlightTerm) {
     var table = document.createElement('table');
     var thead = document.createElement('thead');
     var hrow = document.createElement('tr');
@@ -826,7 +862,11 @@ export function generateLiveDashboardHtml(): string {
 
       var tdName = document.createElement('td');
       tdName.className = 'entity-name';
-      tdName.textContent = e.name;
+      if (highlightTerm) {
+        highlightText(tdName, e.name, highlightTerm);
+      } else {
+        tdName.textContent = e.name;
+      }
       tr.appendChild(tdName);
 
       var tdType = document.createElement('td');
@@ -856,7 +896,10 @@ export function generateLiveDashboardHtml(): string {
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
-    return table;
+    var wrap = document.createElement('div');
+    wrap.className = 'table-wrap';
+    wrap.appendChild(table);
+    return wrap;
   }
 
   function showError(container, msg) {
@@ -885,6 +928,31 @@ export function generateLiveDashboardHtml(): string {
     container.appendChild(wrap);
   }
 
+  // ---- Search term highlighting (XSS-safe via createElement/textContent) ----
+  function highlightText(container, text, term) {
+    if (!term) { container.textContent = text; return; }
+    var lower = text.toLowerCase();
+    var lowerTerm = term.toLowerCase();
+    var termLen = lowerTerm.length;
+    if (termLen === 0) { container.textContent = text; return; }
+    var pos = 0;
+    while (pos < text.length) {
+      var idx = lower.indexOf(lowerTerm, pos);
+      if (idx === -1) {
+        container.appendChild(document.createTextNode(text.slice(pos)));
+        break;
+      }
+      if (idx > pos) {
+        container.appendChild(document.createTextNode(text.slice(pos, idx)));
+      }
+      var mark = document.createElement('mark');
+      mark.style.cssText = 'background:#fef08a;color:inherit;padding:1px 2px;border-radius:2px;';
+      mark.textContent = text.slice(idx, idx + termLen);
+      container.appendChild(mark);
+      pos = idx + termLen;
+    }
+  }
+
   // ---- Search tab ----
   var searchInput = document.getElementById('search-query');
   var searchBtn = document.getElementById('search-btn');
@@ -900,7 +968,7 @@ export function generateLiveDashboardHtml(): string {
       if (!data.success) { showError(searchResults, data.error || 'Unknown error'); return; }
       var entities = Array.isArray(data.data) ? data.data : (data.data.entities || []);
       if (entities.length === 0) { showPlaceholder(searchResults, 'No results for "' + q + '"'); return; }
-      searchResults.appendChild(buildEntityTable(entities));
+      searchResults.appendChild(buildEntityTable(entities, q));
     } catch (err) {
       showError(searchResults, err.message);
     }
@@ -933,7 +1001,7 @@ export function generateLiveDashboardHtml(): string {
     });
     browseWrap.textContent = '';
     if (rows.length === 0) { showPlaceholder(browseWrap, 'No entities found'); return; }
-    browseWrap.appendChild(buildEntityTable(rows));
+    browseWrap.appendChild(buildEntityTable(rows, filter || ''));
   }
 
   browseFilter.addEventListener('input', function () { renderBrowseTable(this.value); });
@@ -1067,9 +1135,10 @@ export function generateLiveDashboardHtml(): string {
         .on('drag', function (event, d) { d.fx = event.x; d.fy = event.y; })
         .on('end', function (event, d) { if (!event.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }));
 
+    var labelColor = document.body.classList.contains('dark') ? '#c9d1d9' : '#374151';
     var labelSel = g.append('g')
       .selectAll('text').data(nodes).join('text')
-      .attr('font-size', 11).attr('fill', '#374151').attr('dy', 4)
+      .attr('font-size', 11).attr('fill', labelColor).attr('dy', 4)
       .text(function (d) { return d.id.length > 30 ? d.id.slice(0, 30) + '…' : d.id; });
 
     // Tooltip
@@ -1445,7 +1514,11 @@ export function generateLiveDashboardHtml(): string {
             .catch(function (err) {
               restoreBtn.disabled = false;
               restoreBtn.textContent = 'Restore';
-              alert('Error: ' + err.message);
+              var errEl = document.createElement('div');
+              errEl.style.cssText = 'color:#dc2626;padding:8px 12px;background:#fef2f2;border-radius:6px;margin-top:8px;font-size:13px;';
+              errEl.textContent = 'Error: ' + err.message;
+              actCell.appendChild(errEl);
+              setTimeout(function() { errEl.remove(); }, 5000);
             });
         });
         actCell.appendChild(restoreBtn);
@@ -1462,7 +1535,11 @@ export function generateLiveDashboardHtml(): string {
             .catch(function (err) {
               archiveBtn.disabled = false;
               archiveBtn.textContent = 'Archive';
-              alert('Error: ' + err.message);
+              var errEl = document.createElement('div');
+              errEl.style.cssText = 'color:#dc2626;padding:8px 12px;background:#fef2f2;border-radius:6px;margin-top:8px;font-size:13px;';
+              errEl.textContent = 'Error: ' + err.message;
+              actCell.appendChild(errEl);
+              setTimeout(function() { errEl.remove(); }, 5000);
             });
         });
         actCell.appendChild(archiveBtn);
@@ -1474,17 +1551,59 @@ export function generateLiveDashboardHtml(): string {
         rmObsBtn.className = 'btn btn-sm btn-secondary';
         rmObsBtn.textContent = 'Remove obs';
         rmObsBtn.addEventListener('click', function () {
-          var obs = prompt('Which observation to remove?\\n\\n' + e.observations.join('\\n---\\n'));
-          if (!obs) return;
-          var trimmed = obs.trim();
-          if (!trimmed) return;
-          rmObsBtn.disabled = true;
-          apiCall('POST', '/v1/forget', { name: e.name, observation: trimmed })
-            .then(function () { loadManage(); })
-            .catch(function (err) {
-              rmObsBtn.disabled = false;
-              alert('Error: ' + err.message);
-            });
+          var modal = document.createElement('div');
+          modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:1000;';
+          var box = document.createElement('div');
+          box.className = 'card';
+          box.style.cssText = 'max-width:500px;width:90%;max-height:80vh;overflow-y:auto;';
+          var title = document.createElement('h3');
+          title.textContent = 'Remove Observation';
+          title.style.marginBottom = '12px';
+          box.appendChild(title);
+          e.observations.forEach(function(obsText) {
+            var label = document.createElement('label');
+            label.style.cssText = 'display:block;padding:8px;margin:4px 0;border:1px solid #ddd;border-radius:6px;cursor:pointer;font-size:13px;';
+            var radio = document.createElement('input');
+            radio.type = 'radio';
+            radio.name = 'obs-select-' + e.name;
+            radio.value = obsText;
+            radio.style.marginRight = '8px';
+            label.appendChild(radio);
+            label.appendChild(document.createTextNode(obsText.length > 120 ? obsText.slice(0, 120) + '...' : obsText));
+            box.appendChild(label);
+          });
+          var modalErrEl = document.createElement('div');
+          modalErrEl.style.cssText = 'color:#dc2626;font-size:13px;min-height:18px;margin-top:8px;';
+          box.appendChild(modalErrEl);
+          var btnRow = document.createElement('div');
+          btnRow.style.cssText = 'display:flex;gap:8px;margin-top:12px;justify-content:flex-end;';
+          var cancelBtn = document.createElement('button');
+          cancelBtn.className = 'btn btn-secondary';
+          cancelBtn.textContent = 'Cancel';
+          cancelBtn.addEventListener('click', function() { modal.remove(); });
+          btnRow.appendChild(cancelBtn);
+          var removeBtn = document.createElement('button');
+          removeBtn.className = 'btn btn-primary';
+          removeBtn.style.background = '#dc2626';
+          removeBtn.textContent = 'Remove Selected';
+          removeBtn.addEventListener('click', function() {
+            var selected = box.querySelector('input[name="obs-select-' + e.name + '"]:checked');
+            if (!selected) { modalErrEl.textContent = 'Select an observation first.'; return; }
+            removeBtn.disabled = true;
+            removeBtn.textContent = '...';
+            apiCall('POST', '/v1/forget', { name: e.name, observation: selected.value })
+              .then(function() { modal.remove(); loadManage(); })
+              .catch(function(err) {
+                removeBtn.disabled = false;
+                removeBtn.textContent = 'Remove Selected';
+                modalErrEl.textContent = 'Error: ' + err.message;
+              });
+          });
+          btnRow.appendChild(removeBtn);
+          box.appendChild(btnRow);
+          modal.appendChild(box);
+          modal.addEventListener('click', function(ev) { if (ev.target === modal) modal.remove(); });
+          document.body.appendChild(modal);
         });
         actCell.appendChild(rmObsBtn);
       }
@@ -1495,7 +1614,10 @@ export function generateLiveDashboardHtml(): string {
     });
 
     table.appendChild(tbody);
-    tableWrap.appendChild(table);
+    var manageTableOuter = document.createElement('div');
+    manageTableOuter.className = 'table-wrap';
+    manageTableOuter.appendChild(table);
+    tableWrap.appendChild(manageTableOuter);
   }
 
   document.getElementById('manage-filter').addEventListener('input', function () { renderManageTable(); });
@@ -2042,9 +2164,11 @@ export function generateLiveDashboardHtml(): string {
     apiCall('POST', '/v1/config', { setupCompleted: true });
   }
 
-  // Close wizard on overlay click outside modal
+  // Overlay click does NOT close wizard — user must use Skip or complete setup
   document.getElementById('wizard-overlay').addEventListener('click', function (e) {
-    if (e.target === this) closeWizard();
+    if (e.target === this) {
+      // Intentionally do nothing — prevent accidental dismissal
+    }
   });
 
   // ---- Init ----
