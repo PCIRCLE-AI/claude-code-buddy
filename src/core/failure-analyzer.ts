@@ -1,4 +1,5 @@
 import type { LLMConfig } from './config.js';
+import type { AnthropicResponse, OpenAIResponse, OllamaResponse } from './types.js';
 
 export interface StructuredLesson {
   error: string;
@@ -62,7 +63,7 @@ async function callLLM(prompt: string, config: LLMConfig): Promise<string> {
       body: JSON.stringify({ model: config.model || 'claude-haiku-4-5', max_tokens: 300, messages: [{ role: 'user', content: prompt }] }),
     });
     if (!res.ok) throw new Error(`API ${res.status}`);
-    const data = await res.json() as any;
+    const data = await res.json() as AnthropicResponse;
     return data.content?.[0]?.text || '';
   }
 
@@ -74,7 +75,7 @@ async function callLLM(prompt: string, config: LLMConfig): Promise<string> {
       body: JSON.stringify({ model: config.model || 'gpt-4o-mini', max_tokens: 300, messages: [{ role: 'user', content: prompt }] }),
     });
     if (!res.ok) throw new Error(`API ${res.status}`);
-    const data = await res.json() as any;
+    const data = await res.json() as OpenAIResponse;
     return data.choices?.[0]?.message?.content || '';
   }
 
@@ -86,7 +87,7 @@ async function callLLM(prompt: string, config: LLMConfig): Promise<string> {
       body: JSON.stringify({ model: config.model || 'llama3.2', prompt, stream: false }),
     });
     if (!res.ok) throw new Error(`Ollama ${res.status}`);
-    const data = await res.json() as any;
+    const data = await res.json() as OllamaResponse;
     return data.response || '';
   }
 

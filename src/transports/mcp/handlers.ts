@@ -8,75 +8,10 @@ import { z } from 'zod';
 import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
-
-// ---------------------------------------------------------------------------
-// Zod validation schemas (transport-layer responsibility)
-// ---------------------------------------------------------------------------
-
-const RememberSchema = z.object({
-  name: z.string().min(1),
-  type: z.string().min(1),
-  observations: z.array(z.string()).optional(),
-  tags: z.array(z.string()).optional(),
-  relations: z
-    .array(z.object({ to: z.string().min(1), type: z.string().min(1) }))
-    .optional(),
-  namespace: z.enum(['personal', 'team', 'global']).optional(),
-});
-
-const RecallSchema = z.object({
-  query: z.string().optional(),
-  tag: z.string().optional(),
-  limit: z.number().int().min(1).max(100).optional(),
-  include_archived: z.boolean().optional(),
-  namespace: z.enum(['personal', 'team', 'global']).optional(),
-  cross_project: z.boolean().optional(),
-});
-
-const ForgetSchema = z.object({
-  name: z.string().min(1),
-  observation: z.string().optional(),
-});
-
-const ConsolidateSchema = z.object({
-  name: z.string().optional(),
-  tag: z.string().optional(),
-  min_observations: z.number().int().min(1).optional(),
-});
-
-const ExportSchema = z.object({
-  tag: z.string().optional(),
-  namespace: z.string().optional(),
-  limit: z.number().int().min(1).max(10000).optional(),
-});
-
-const ExportResultSchema = z.object({
-  version: z.string(),
-  exported_at: z.string(),
-  entity_count: z.number(),
-  entities: z.array(z.object({
-    name: z.string().min(1).max(255),
-    type: z.string().min(1).max(100),
-    namespace: z.string(),
-    observations: z.array(z.string().max(10000)),
-    tags: z.array(z.string().max(255)),
-    relations: z.array(z.object({ to: z.string().min(1).max(255), type: z.string().min(1).max(100) })),
-  })),
-});
-
-const ImportSchema = z.object({
-  data: ExportResultSchema,
-  namespace: z.string().optional(),
-  merge_strategy: z.enum(['skip', 'overwrite', 'append']),
-});
-
-const LearnSchema = z.object({
-  error: z.string().min(1),
-  fix: z.string().min(1),
-  root_cause: z.string().optional(),
-  prevention: z.string().optional(),
-  severity: z.enum(['critical', 'major', 'minor']).optional(),
-});
+import {
+  RememberSchema, RecallSchema, ForgetSchema, ConsolidateSchema,
+  ExportSchema, ExportResultSchema, ImportSchema, LearnSchema,
+} from '../schemas.js';
 
 // ---------------------------------------------------------------------------
 // Tool definitions (MCP-specific format)

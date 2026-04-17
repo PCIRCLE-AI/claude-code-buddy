@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import { runAutoDecay } from './core/lifecycle.js';
+import type { PragmaColumnRow } from './core/types.js';
 
 let db: Database.Database | null = null;
 
@@ -81,15 +82,15 @@ export function openDatabase(dbPath?: string): Database.Database {
   db.exec(FTS_SQL);
 
   // Migrate: add status column if missing (v2.11 -> v2.12)
-  const columns = db.prepare("PRAGMA table_info(entities)").all() as any[];
-  if (!columns.some((c: any) => c.name === 'status')) {
+  const columns = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
+  if (!columns.some((c) => c.name === 'status')) {
     db.exec("ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
     db.exec("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)");
   }
 
   // Migrate: add scoring columns if missing (v2.14 -> v2.15)
-  const scoringCols = db.prepare("PRAGMA table_info(entities)").all() as any[];
-  if (!scoringCols.some((c: any) => c.name === 'access_count')) {
+  const scoringCols = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
+  if (!scoringCols.some((c) => c.name === 'access_count')) {
     db.exec("ALTER TABLE entities ADD COLUMN access_count INTEGER DEFAULT 0");
     db.exec("ALTER TABLE entities ADD COLUMN last_accessed_at TIMESTAMP");
     db.exec("ALTER TABLE entities ADD COLUMN confidence REAL DEFAULT 1.0");
@@ -98,7 +99,7 @@ export function openDatabase(dbPath?: string): Database.Database {
   }
 
   // Migrate: add namespace column if missing (v3.0.0-rc -> v3.0.0)
-  if (!scoringCols.some((c: any) => c.name === 'namespace')) {
+  if (!scoringCols.some((c) => c.name === 'namespace')) {
     db.exec("ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
     db.exec("CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace)");
   }

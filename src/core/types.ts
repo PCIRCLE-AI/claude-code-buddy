@@ -158,3 +158,78 @@ export interface LearnResult {
   name: string;
   type: string;
 }
+
+// ---------------------------------------------------------------------------
+// SQLite row types — replace `as any` casts on query results
+// ---------------------------------------------------------------------------
+
+export interface EntityRow {
+  id: number;
+  name: string;
+  type: string;
+  created_at: string;
+  metadata: string | null;
+  status: string;
+  access_count: number;
+  last_accessed_at: string | null;
+  confidence: number;
+  valid_from: string | null;
+  valid_until: string | null;
+  namespace: string;
+}
+
+export interface ObservationRow {
+  id: number;
+  entity_id: number;
+  content: string;
+  created_at: string;
+}
+
+export interface TagRow {
+  id: number;
+  entity_id: number;
+  tag: string;
+}
+
+export interface RelationRow {
+  id: number;
+  from_entity_id: number;
+  to_entity_id: number;
+  relation_type: string;
+  metadata: string | null;
+  created_at: string;
+}
+
+export interface CountRow {
+  c: number;
+}
+
+export interface FtsRow {
+  id: number;
+  name: string;
+}
+
+export interface PragmaColumnRow {
+  cid: number;
+  name: string;
+  type: string;
+  notnull: number;
+  dflt_value: string | null;
+  pk: number;
+}
+
+// ---------------------------------------------------------------------------
+// LLM API response types — replace `as any` on response.json()
+// ---------------------------------------------------------------------------
+
+export interface AnthropicResponse {
+  content?: Array<{ text?: string }>;
+}
+
+export interface OpenAIResponse {
+  choices?: Array<{ message?: { content?: string } }>;
+}
+
+export interface OllamaResponse {
+  response?: string;
+}

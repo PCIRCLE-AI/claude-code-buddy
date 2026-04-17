@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
-import type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
+import type { Entity, Relation, CreateEntityInput, SearchOptions, EntityRow } from './core/types.js';
 
 export class KnowledgeGraph {
   constructor(private db: Database.Database) {}
@@ -121,19 +121,19 @@ export class KnowledgeGraph {
       .prepare(
         'SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, valid_from, valid_until, namespace FROM entities WHERE name = ?'
       )
-      .get(name) as any | undefined;
+      .get(name) as EntityRow | undefined;
 
     if (!row) return null;
 
-    const observations = this.db
+    const observations = (this.db
       .prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id')
-      .all(row.id)
-      .map((o: any) => o.content);
+      .all(row.id) as Array<{ content: string }>)
+      .map((o) => o.content);
 
-    const tags = this.db
+    const tags = (this.db
       .prepare('SELECT tag FROM tags WHERE entity_id = ?')
-      .all(row.id)
-      .map((t: any) => t.tag);
+      .all(row.id) as Array<{ tag: string }>)
+      .map((t) => t.tag);
 
     const relations = this.getRelations(name);
 
@@ -156,6 +156,106 @@ export class KnowledgeGraph {
     };
   }
 
+  getEntitiesByIds(ids: number[]): Entity[] {
+    if (ids.length === 0) return [];
+
+    const placeholders = ids.map(() => '?').join(',');
+
+    // Batch query 1: entities
+    const entityRows = this.db
+      .prepare(
+        `SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, valid_from, valid_until, namespace
+         FROM entities WHERE id IN (${placeholders})`
+      )
+      .all(...ids) as EntityRow[];
+
+    // Index entity rows by id for fast lookup
+    const entityMap = new Map<number, EntityRow>();
+    for (const row of entityRows) {
+      entityMap.set(row.id, row);
+    }
+
+    // Batch query 2: observations (ordered by id to match getEntity behavior)
+    const obsRows = this.db
+      .prepare(
+        `SELECT entity_id, content FROM observations WHERE entity_id IN (${placeholders}) ORDER BY id`
+      )
+      .all(...ids) as Array<{ entity_id: number; content: string }>;
+
+    const obsMap = new Map<number, string[]>();
+    for (const row of obsRows) {
+      if (!obsMap.has(row.entity_id)) obsMap.set(row.entity_id, []);
+      obsMap.get(row.entity_id)!.push(row.content);
+    }
+
+    // Batch query 3: tags
+    const tagRows = this.db
+      .prepare(
+        `SELECT entity_id, tag FROM tags WHERE entity_id IN (${placeholders})`
+      )
+      .all(...ids) as Array<{ entity_id: number; tag: string }>;
+
+    const tagMap = new Map<number, string[]>();
+    for (const row of tagRows) {
+      if (!tagMap.has(row.entity_id)) tagMap.set(row.entity_id, []);
+      tagMap.get(row.entity_id)!.push(row.tag);
+    }
+
+    // Batch query 4: relations (from_entity_id perspective, matching getRelations)
+    const relRows = this.db
+      .prepare(
+        `SELECT r.from_entity_id, e_from.name AS "from", e_to.name AS "to",
+                r.relation_type AS type, r.metadata
+         FROM relations r
+         JOIN entities e_from ON r.from_entity_id = e_from.id
+         JOIN entities e_to ON r.to_entity_id = e_to.id
+         WHERE r.from_entity_id IN (${placeholders})`
+      )
+      .all(...ids) as Array<{ from_entity_id: number; from: string; to: string; type: string; metadata: string | null }>;
+
+    const relMap = new Map<number, Relation[]>();
+    for (const row of relRows) {
+      if (!relMap.has(row.from_entity_id)) relMap.set(row.from_entity_id, []);
+      relMap.get(row.from_entity_id)!.push({
+        from: row.from,
+        to: row.to,
+        type: row.type,
+        metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+      });
+    }
+
+    // Build Entity objects in input order, skipping missing ids
+    const results: Entity[] = [];
+    for (const id of ids) {
+      const row = entityMap.get(id);
+      if (!row) continue;
+
+      const observations = obsMap.get(id) ?? [];
+      const tags = tagMap.get(id) ?? [];
+      const relations = relMap.get(id) ?? [];
+
+      results.push({
+        id: row.id,
+        name: row.name,
+        type: row.type,
+        created_at: row.created_at,
+        metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+        observations,
+        tags,
+        relations: relations.length > 0 ? relations : undefined,
+        ...(row.status === 'archived' ? { archived: true } : {}),
+        access_count: row.access_count ?? 0,
+        last_accessed_at: row.last_accessed_at ?? undefined,
+        confidence: row.confidence ?? 1.0,
+        valid_from: row.valid_from ?? undefined,
+        valid_until: row.valid_until ?? undefined,
+        namespace: row.namespace ?? 'personal',
+      });
+    }
+
+    return results;
+  }
+
   getRelations(entityName: string): Relation[] {
     const rows = this.db
       .prepare(
@@ -165,7 +265,7 @@ export class KnowledgeGraph {
          JOIN entities e_to ON r.to_entity_id = e_to.id
          WHERE e_from.name = ?`
       )
-      .all(entityName) as any[];
+      .all(entityName) as Array<{ from: string; to: string; type: string; metadata: string | null }>;
 
     return rows.map((r) => ({
       from: r.from,
@@ -236,15 +336,10 @@ export class KnowledgeGraph {
       throw err;
     }
 
-    // Fetch full entities from FTS results
-    const results: Entity[] = [];
-    const seenIds = new Set<number>();
-    for (const ftsRow of ftsRows) {
-      const entity = this.getEntity(ftsRow.name);
-      if (!entity) continue;
-      seenIds.add(ftsRow.id);
-      results.push(entity);
-    }
+    // Fetch full entities from FTS results (batch hydration)
+    const ftsIds = ftsRows.map(r => r.id);
+    const results = this.getEntitiesByIds(ftsIds);
+    const seenIds = new Set(ftsIds);
 
     // When includeArchived is true, archived entities are not in FTS5 (removed by archiveEntity).
     // Supplement with a direct SQL search over archived entities' observations and names.
@@ -271,12 +366,9 @@ export class KnowledgeGraph {
         )
         .all(...archivedParams, limit) as Array<{ id: number; name: string }>;
 
-      for (const row of archivedRows) {
-        if (seenIds.has(row.id)) continue;
-        const entity = this.getEntity(row.name);
-        if (!entity) continue;
-        results.push(entity);
-      }
+      const archivedIds = archivedRows.map(r => r.id).filter(id => !seenIds.has(id));
+      const archivedEntities = this.getEntitiesByIds(archivedIds);
+      results.push(...archivedEntities);
     }
 
     const entityIds = results.map((e) => e.id);
@@ -320,7 +412,7 @@ export class KnowledgeGraph {
       WHERE r.relation_type = 'contradicts'
         AND e_from.name IN (${placeholders})
         AND e_to.name IN (${placeholders})
-    `).all(...entityNames, ...entityNames) as any[];
+    `).all(...entityNames, ...entityNames) as Array<{ from_name: string; to_name: string }>;
 
     for (const row of rows) {
       conflicts.push(`"${row.from_name}" contradicts "${row.to_name}"`);
