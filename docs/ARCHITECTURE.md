@@ -162,6 +162,28 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 ---
 
+## Ecosystem Compatibility
+
+MeMesh works with any MCP-compatible client:
+
+| Client | Integration Method |
+|--------|-------------------|
+| Claude Code | Plugin (native, via plugin.json + hooks) |
+| Claude Managed Agents | MCP connector (beta, via session config) |
+| Claude Desktop | MCP server config |
+| Custom apps | Direct stdio MCP connection |
+
+### Anthropic API Feature Alignment
+
+| Feature | Relevance to MeMesh |
+|---------|---------------------|
+| Prompt Caching | Session-start memories benefit from automatic caching |
+| Compaction | MeMesh memories survive compaction (external DB) |
+| Memory Tool | MeMesh offers local-first structured alternative |
+| Agent Skills | MeMesh can be loaded as a custom Agent Skill |
+
+---
+
 ## Testing
 
 The automated test suite covers:
