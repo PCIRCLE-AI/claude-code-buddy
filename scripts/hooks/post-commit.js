@@ -80,6 +80,9 @@ process.stdin.on('end', () => {
     const commitMatch = toolOutput.match(/\[[\w/.-]+ ([a-f0-9]{7,})\] (.+)/);
     if (!commitMatch) return exit0();
 
+    const branchMatch = commitMatch[0].match(/^\[([^\s]+)\s/);
+    const branch = branchMatch ? branchMatch[1] : 'unknown';
+
     const commitHash = commitMatch[1];
     const commitMsg = commitMatch[2];
     const projectName = basename(data.cwd || process.cwd());
@@ -113,8 +116,9 @@ process.stdin.on('end', () => {
           : db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(entity.id);
         const prevObsText = isNew ? undefined : prevObs.map(o => o.content).join(' ');
 
-        // Add observation
+        // Add observations
         db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, commitMsg);
+        db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, `Branch: ${branch}`);
 
         // Add project tag
         const projectTag = `project:${projectName}`;
@@ -136,6 +140,7 @@ process.stdin.on('end', () => {
     // Never crash Claude Code — but leave a trace for debugging
     try { process.stderr.write(`[memesh post-commit] ${err?.message || err}\n`); } catch {}
   }
+  console.log(JSON.stringify({ suppressOutput: true }));
   exit0();
 });
 

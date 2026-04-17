@@ -154,6 +154,44 @@ describe('Feature: Post-Commit Hook', () => {
     db.close();
   });
 
+  it('Scenario: Branch name extracted from commit output -> stored as observation', () => {
+    const input = {
+      tool_name: 'Bash',
+      cwd: '/tmp/myproject',
+      tool_input: { command: 'git commit -m "feat: new feature"' },
+      tool_output: '[feature/my-branch a1b2c3d] feat: new feature\n 1 file changed',
+    };
+
+    runHook(input);
+
+    const db = openDb();
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-a1b2c3d');
+    expect(entity).toBeTruthy();
+    const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id').all(entity.id);
+    const branchObs = obs.find((o: { content: string }) => o.content.startsWith('Branch:'));
+    expect(branchObs).toBeTruthy();
+    expect(branchObs.content).toBe('Branch: feature/my-branch');
+    db.close();
+  });
+
+  it('Scenario: Hook output includes suppressOutput flag', () => {
+    const hookPath = path.resolve('scripts/hooks/post-commit.js');
+    const input = {
+      tool_name: 'Bash',
+      cwd: '/tmp/myproject',
+      tool_input: { command: 'git commit -m "fix: something"' },
+      tool_output: '[main b2c3d4e] fix: something\n 1 file changed',
+    };
+    const result = execFileSync('node', [hookPath], {
+      input: JSON.stringify(input),
+      env: { ...process.env, MEMESH_DB_PATH: dbPath },
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    const parsed = JSON.parse(result.trim());
+    expect(parsed.suppressOutput).toBe(true);
+  });
+
   it('Scenario: Invalid JSON input -> exits cleanly', () => {
     const hookPath = path.resolve('scripts/hooks/post-commit.js');
     // Should not throw
