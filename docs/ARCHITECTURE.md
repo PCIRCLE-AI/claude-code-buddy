@@ -1,6 +1,6 @@
 # MeMesh Plugin Architecture
 
-**Version**: 2.15.0
+**Version**: 2.16.0
 
 ---
 
@@ -145,12 +145,25 @@ Commander-based CLI exposed via the `memesh` binary. Supports `remember`, `recal
 
 ### cli/view.ts -- Dashboard Generator
 
-Generates a self-contained HTML dashboard for visualizing the knowledge graph.
+Generates the interactive MeMesh Dashboard served by the HTTP server and the legacy `memesh-view` CLI command.
 
-- `memesh-view` CLI command (registered in `package.json` bin)
-- Reads all entities, observations, relations, and tags from the database
-- Produces a single HTML file with bundled local D3.js, searchable entity table, and statistics
-- Opens the generated file in the default browser
+- `memesh-view` CLI command (registered in `package.json` bin): generates a static file and opens it in the default browser
+- `generateLiveDashboardHtml()`: exported function consumed by `GET /dashboard` in the HTTP server — returns the full HTML string for live serving
+- The dashboard is a single self-contained HTML page with bundled local D3.js, styled with Tailwind CDN
+
+**Dashboard tabs (v2.16.0)**:
+
+| Tab | Feature |
+|-----|---------|
+| Search | Real-time search with keyword highlighting |
+| Browse | Paginated entity list with type/status filters |
+| Graph | D3.js force-directed knowledge graph |
+| Analytics | Stats cards, type distribution chart, tag cloud |
+| Manage | Archive/restore entities, remove individual observations |
+| Timeline | Knowledge evolution chain visualization |
+| Settings | LLM provider setup, API key management, theme toggle |
+
+The Settings tab communicates with `GET /v1/config` and `POST /v1/config`. The Manage tab uses `POST /v1/forget`. All data tabs fetch from `/v1/stats`, `/v1/graph`, `/v1/entities`, and `/v1/recall`.
 
 ---
 

@@ -78,6 +78,20 @@ MeMesh gives Claude Code persistent memory through 3 MCP tools, 4 hooks, and a C
 | Session Summary | `Stop` | Auto-captures session knowledge (files edited, errors fixed) |
 | Pre-Compact | `PreCompact` | Saves knowledge before context compaction |
 
+### Dashboard
+
+Run `memesh` to open the interactive web dashboard:
+
+| Tab | Feature |
+|-----|---------|
+| Search | Real-time search with keyword highlighting |
+| Browse | Paginated entity list with filters |
+| Graph | D3.js force-directed knowledge graph |
+| Analytics | Stats, type distribution, tag cloud |
+| Manage | Archive/restore entities, remove observations |
+| Timeline | Knowledge evolution chain visualization |
+| Settings | LLM provider setup, API key management |
+
 ### CLI
 
 | Command | Description |

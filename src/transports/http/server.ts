@@ -6,7 +6,8 @@ import { openDatabase, closeDatabase } from '../../db.js';
 import { remember, recallEnhanced, forget } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
-import { logCapabilities } from '../../core/config.js';
+import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
+import { generateLiveDashboardHtml } from '../../cli/view.js';
 
 // Zod schemas for HTTP input validation (same rules as MCP handlers)
 const RememberBody = z.object({
@@ -41,6 +42,11 @@ const packageVersion =
 
 const app = express();
 app.use(express.json());
+
+// --- Dashboard ---
+app.get('/dashboard', (_req, res) => {
+  res.type('html').send(generateLiveDashboardHtml());
+});
 
 // --- Health ---
 app.get('/v1/health', (_req, res) => {
@@ -102,6 +108,86 @@ app.post('/v1/forget', (req, res) => {
     res.json({ success: true, data: result });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// --- Config ---
+app.get('/v1/config', (_req, res) => {
+  try {
+    const config = readConfig();
+    const caps = detectCapabilities(config);
+    const safeConfig = { ...config };
+    if (safeConfig.llm?.apiKey) {
+      safeConfig.llm = { ...safeConfig.llm, apiKey: '***' };
+    }
+    res.json({ success: true, data: { config: safeConfig, capabilities: caps } });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/v1/config', (req, res) => {
+  try {
+    const updated = updateConfig(req.body);
+    // Mask API key before returning
+    const safeUpdated = { ...updated };
+    if (safeUpdated.llm?.apiKey) {
+      safeUpdated.llm = { ...safeUpdated.llm, apiKey: '***' };
+    }
+    res.json({ success: true, data: safeUpdated });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// --- Graph data (entities + relations) ---
+app.get('/v1/graph', (_req, res) => {
+  try {
+    const db = getDatabase();
+    const kg = new KnowledgeGraph(db);
+    const entities = kg.listRecent(500, true); // include archived
+
+    // Get all relations with entity names
+    const relations = db.prepare(`
+      SELECT e_from.name AS "from", e_to.name AS "to", r.relation_type AS type
+      FROM relations r
+      JOIN entities e_from ON r.from_entity_id = e_from.id
+      JOIN entities e_to ON r.to_entity_id = e_to.id
+    `).all();
+
+    res.json({ success: true, data: { entities, relations } });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// --- Stats ---
+app.get('/v1/stats', (_req, res) => {
+  try {
+    const db = getDatabase();
+    const entities = db.prepare('SELECT COUNT(*) as c FROM entities').get() as any;
+    const observations = db.prepare('SELECT COUNT(*) as c FROM observations').get() as any;
+    const relations = db.prepare('SELECT COUNT(*) as c FROM relations').get() as any;
+    const tags = db.prepare('SELECT COUNT(DISTINCT tag) as c FROM tags').get() as any;
+
+    const typeDistribution = db.prepare('SELECT type, COUNT(*) as count FROM entities GROUP BY type ORDER BY count DESC').all();
+    const tagDistribution = db.prepare('SELECT tag, COUNT(*) as count FROM tags GROUP BY tag ORDER BY count DESC LIMIT 30').all();
+    const statusDistribution = db.prepare("SELECT status, COUNT(*) as count FROM entities GROUP BY status").all();
+
+    res.json({
+      success: true,
+      data: {
+        totalEntities: entities.c,
+        totalObservations: observations.c,
+        totalRelations: relations.c,
+        totalTags: tags.c,
+        typeDistribution,
+        tagDistribution,
+        statusDistribution,
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
