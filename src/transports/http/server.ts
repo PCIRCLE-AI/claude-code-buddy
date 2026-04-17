@@ -50,12 +50,12 @@ const ExportResultBody = z.object({
   exported_at: z.string(),
   entity_count: z.number(),
   entities: z.array(z.object({
-    name: z.string(),
-    type: z.string(),
+    name: z.string().min(1).max(255),
+    type: z.string().min(1).max(100),
     namespace: z.string(),
-    observations: z.array(z.string()),
-    tags: z.array(z.string()),
-    relations: z.array(z.object({ to: z.string(), type: z.string() })),
+    observations: z.array(z.string().max(10000)),
+    tags: z.array(z.string().max(255)),
+    relations: z.array(z.object({ to: z.string().min(1).max(255), type: z.string().min(1).max(100) })),
   })),
 });
 
