@@ -5,7 +5,7 @@
 // =============================================================================
 
 import { z } from 'zod';
-import { remember, recall, recallEnhanced, forget } from '../../core/operations.js';
+import { remember, recall, recallEnhanced, forget, consolidate, exportMemories, importMemories } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 
@@ -21,6 +21,7 @@ const RememberSchema = z.object({
   relations: z
     .array(z.object({ to: z.string().min(1), type: z.string().min(1) }))
     .optional(),
+  namespace: z.enum(['personal', 'team', 'global']).optional(),
 });
 
 const RecallSchema = z.object({
@@ -28,11 +29,45 @@ const RecallSchema = z.object({
   tag: z.string().optional(),
   limit: z.number().int().min(1).max(100).optional(),
   include_archived: z.boolean().optional(),
+  namespace: z.enum(['personal', 'team', 'global']).optional(),
+  cross_project: z.boolean().optional(),
 });
 
 const ForgetSchema = z.object({
   name: z.string().min(1),
   observation: z.string().optional(),
+});
+
+const ConsolidateSchema = z.object({
+  name: z.string().optional(),
+  tag: z.string().optional(),
+  min_observations: z.number().int().min(1).optional(),
+});
+
+const ExportSchema = z.object({
+  tag: z.string().optional(),
+  namespace: z.string().optional(),
+  limit: z.number().int().min(1).max(10000).optional(),
+});
+
+const ExportResultSchema = z.object({
+  version: z.string(),
+  exported_at: z.string(),
+  entity_count: z.number(),
+  entities: z.array(z.object({
+    name: z.string(),
+    type: z.string(),
+    namespace: z.string(),
+    observations: z.array(z.string()),
+    tags: z.array(z.string()),
+    relations: z.array(z.object({ to: z.string(), type: z.string() })),
+  })),
+});
+
+const ImportSchema = z.object({
+  data: ExportResultSchema,
+  namespace: z.string().optional(),
+  merge_strategy: z.enum(['skip', 'overwrite', 'append']),
 });
 
 // ---------------------------------------------------------------------------
@@ -85,6 +120,11 @@ export const TOOL_DEFINITIONS = [
           },
           description: 'Relations to other entities',
         },
+        namespace: {
+          type: 'string',
+          enum: ['personal', 'team', 'global'],
+          description: 'Namespace for organizing the entity (default: "personal")',
+        },
       },
       required: ['name', 'type'],
       additionalProperties: false,
@@ -114,6 +154,15 @@ export const TOOL_DEFINITIONS = [
           type: 'boolean',
           description: 'Include archived (forgotten) entities in results. Default: false.',
         },
+        namespace: {
+          type: 'string',
+          enum: ['personal', 'team', 'global'],
+          description: 'Filter results by namespace. Omit to search all namespaces.',
+        },
+        cross_project: {
+          type: 'boolean',
+          description: 'Search across all project tags (ignores tag filter). Default: false.',
+        },
       },
       additionalProperties: false,
     },
@@ -132,6 +181,54 @@ export const TOOL_DEFINITIONS = [
         },
       },
       required: ['name'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'consolidate',
+    description:
+      'Compress verbose entity observations using an LLM into 2–3 dense sentences that preserve all key facts. Requires Smart Mode (run: memesh setup). Original observations are replaced by the LLM summary.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        name: { type: 'string', description: 'Specific entity name to consolidate' },
+        tag: { type: 'string', description: 'Consolidate all entities with this tag' },
+        min_observations: {
+          type: 'number',
+          description: 'Minimum observations required to trigger consolidation (default: 5)',
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'export',
+    description: 'Export memories as JSON for sharing or backup. Returns a portable snapshot of entities and their observations, tags, and relations.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        tag: { type: 'string', description: 'Export only entities with this tag' },
+        namespace: { type: 'string', description: 'Export only from this namespace (personal, team, global)' },
+        limit: { type: 'number', description: 'Max entities to export (default: 1000)' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'import',
+    description: 'Import memories from a JSON export snapshot. Supports skip, append, or overwrite strategies for handling existing entities.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        data: { type: 'object', description: 'Export JSON data (from the export tool)' },
+        namespace: { type: 'string', description: 'Override namespace for all imported entities' },
+        merge_strategy: {
+          type: 'string',
+          enum: ['skip', 'overwrite', 'append'],
+          description: 'How to handle existing entities: skip (default) = leave untouched, append = add observations, overwrite = archive existing and recreate',
+        },
+      },
+      required: ['data', 'merge_strategy'],
       additionalProperties: false,
     },
   },
@@ -193,6 +290,21 @@ export async function handleTool(name: string, args: any): Promise<ToolResult> {
       const r = parseOrFail(ForgetSchema, args);
       if (!r.ok) return r.result;
       return ok(forget(r.data));
+    }
+    if (name === 'consolidate') {
+      const r = parseOrFail(ConsolidateSchema, args);
+      if (!r.ok) return r.result;
+      return ok(await consolidate(r.data));
+    }
+    if (name === 'export') {
+      const r = parseOrFail(ExportSchema, args);
+      if (!r.ok) return r.result;
+      return ok(exportMemories(r.data));
+    }
+    if (name === 'import') {
+      const r = parseOrFail(ImportSchema, args);
+      if (!r.ok) return r.result;
+      return ok(importMemories(r.data));
     }
     return fail(`Unknown tool: ${name}`);
   } catch (err: any) {

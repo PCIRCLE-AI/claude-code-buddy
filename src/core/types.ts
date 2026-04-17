@@ -38,12 +38,14 @@ export interface CreateEntityInput {
   observations?: string[];
   tags?: string[];
   metadata?: any;
+  namespace?: string;
 }
 
 export interface SearchOptions {
   tag?: string;
   limit?: number;
   includeArchived?: boolean;
+  namespace?: string;  // filter by namespace; omit to search all namespaces
 }
 
 // --- Operation Input Types (what transports pass to core) ---
@@ -54,6 +56,7 @@ export interface RememberInput {
   observations?: string[];
   tags?: string[];
   relations?: Array<{ to: string; type: string }>;
+  namespace?: string;  // 'personal' | 'team' | 'global' (default: 'personal')
 }
 
 export interface RecallInput {
@@ -61,6 +64,8 @@ export interface RecallInput {
   tag?: string;
   limit?: number;
   include_archived?: boolean;
+  namespace?: string;       // filter by namespace; omit to search all namespaces
+  cross_project?: boolean;  // search across all project tags (default: false)
 }
 
 export interface ForgetInput {
@@ -105,4 +110,37 @@ export interface ConsolidateResult {
   observations_before: number;
   observations_after: number;
   error?: string;
+}
+
+export interface ExportInput {
+  tag?: string;
+  namespace?: string;
+  limit?: number;
+}
+
+export interface ExportResult {
+  version: string;
+  exported_at: string;
+  entity_count: number;
+  entities: Array<{
+    name: string;
+    type: string;
+    namespace: string;
+    observations: string[];
+    tags: string[];
+    relations: Array<{ to: string; type: string }>;
+  }>;
+}
+
+export interface ImportInput {
+  data: ExportResult;
+  namespace?: string;       // override namespace for all imported entities
+  merge_strategy: 'skip' | 'overwrite' | 'append';
+}
+
+export interface ImportResult {
+  imported: number;
+  skipped: number;
+  appended: number;
+  errors: string[];
 }
