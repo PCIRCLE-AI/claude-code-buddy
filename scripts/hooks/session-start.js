@@ -36,12 +36,41 @@ process.stdin.on('end', () => {
         return;
       }
 
-      // Check if status column exists (backward compat with v2.11 DBs)
-      const hasStatus = db.prepare("PRAGMA table_info(entities)").all()
-        .some(col => col.name === 'status');
-      const statusFilter = hasStatus ? "AND e.status = 'active'" : '';
+      // Inspect available columns for backward compat
+      const columns = db.prepare("PRAGMA table_info(entities)").all();
+      const colNames = new Set(columns.map(col => col.name));
 
-      // Query project-specific recent entities with their observations
+      const hasStatus = colNames.has('status');
+      const hasScoringCols = colNames.has('access_count') && colNames.has('last_accessed_at') && colNames.has('confidence');
+
+      const statusFilter = hasStatus ? "AND e.status = 'active'" : '';
+      const recentStatusFilter = hasStatus ? "WHERE status = 'active'" : '';
+
+      // Configurable limit: how many top-N entities to load per section
+      const sessionLimit = parseInt(process.env.MEMESH_SESSION_LIMIT || '10', 10);
+
+      // Build scoring ORDER BY clause (or fallback to insertion order)
+      const scoringOrderBy = hasScoringCols
+        ? `ORDER BY
+            CASE WHEN e.confidence IS NULL THEN 0.5 ELSE e.confidence END * 0.4
+            + CASE WHEN e.access_count IS NULL THEN 0
+                   ELSE MIN(CAST(e.access_count AS REAL) / 50.0, 1.0) END * 0.3
+            + CASE WHEN e.last_accessed_at IS NULL THEN 0.3
+                   ELSE MIN(1.0, 1.0 / (1.0 + (julianday('now') - julianday(e.last_accessed_at)) / 30.0)) END * 0.3
+            DESC`
+        : 'ORDER BY e.id DESC';
+
+      const recentScoringOrderBy = hasScoringCols
+        ? `ORDER BY
+            CASE WHEN confidence IS NULL THEN 0.5 ELSE confidence END * 0.4
+            + CASE WHEN access_count IS NULL THEN 0
+                   ELSE MIN(CAST(access_count AS REAL) / 50.0, 1.0) END * 0.3
+            + CASE WHEN last_accessed_at IS NULL THEN 0.3
+                   ELSE MIN(1.0, 1.0 / (1.0 + (julianday('now') - julianday(last_accessed_at)) / 30.0)) END * 0.3
+            DESC`
+        : 'ORDER BY id DESC';
+
+      // Query project-specific top-N entities by relevance score
       const projectTag = `project:${projectName}`;
       const projectEntities = db.prepare(`
         SELECT DISTINCT e.id, e.name, e.type, e.created_at
@@ -49,50 +78,53 @@ process.stdin.on('end', () => {
         JOIN tags t ON t.entity_id = e.id
         WHERE t.tag = ?
         ${statusFilter}
-        ORDER BY e.id DESC
-        LIMIT 10
-      `).all(projectTag);
+        ${scoringOrderBy}
+        LIMIT ?
+      `).all(projectTag, sessionLimit);
 
-      // Fetch observations for each entity (up to 3 per entity)
-      const getObservations = db.prepare(
-        'SELECT content FROM observations WHERE entity_id = ? ORDER BY id DESC LIMIT 3'
+      // Fetch the first observation for each entity (for concise summary)
+      const getFirstObservation = db.prepare(
+        'SELECT content FROM observations WHERE entity_id = ? ORDER BY id ASC LIMIT 1'
       );
 
-      // Query global recent entities
-      const recentStatusFilter = hasStatus ? "WHERE status = 'active'" : '';
+      // Query global recent/top entities (exclude project-tagged ones for this project)
       const recentEntities = db.prepare(`
         SELECT id, name, type, created_at
         FROM entities
         ${recentStatusFilter}
-        ORDER BY id DESC
+        ${recentScoringOrderBy}
         LIMIT 5
       `).all();
+
+      // Format entity as concise bullet: "• name (type): first observation (truncated)"
+      function formatEntity(entity) {
+        const obs = getFirstObservation.get(entity.id);
+        const snippet = obs ? obs.content.slice(0, 100) : '';
+        return snippet
+          ? `• ${entity.name} (${entity.type}): ${snippet}`
+          : `• ${entity.name} (${entity.type})`;
+      }
 
       // Build recall message
       const lines = [];
       if (projectEntities.length > 0) {
-        lines.push(`Project "${projectName}" memories (${projectEntities.length}):`);
+        const label = hasScoringCols ? `top ${projectEntities.length} by relevance` : `${projectEntities.length}`;
+        lines.push(`Project "${projectName}" memories (${label}):`);
         for (const e of projectEntities) {
-          lines.push(`  - [${e.type}] ${e.name}`);
-          const obs = getObservations.all(e.id);
-          for (const o of obs) {
-            lines.push(`    ${o.content}`);
-          }
+          lines.push(formatEntity(e));
         }
       }
       if (recentEntities.length > 0) {
-        lines.push('');
+        if (lines.length > 0) lines.push('');
         lines.push('Recent memories:');
         for (const e of recentEntities) {
-          lines.push(`  - [${e.type}] ${e.name}`);
-          const obs = getObservations.all(e.id);
-          for (const o of obs) {
-            lines.push(`    ${o.content}`);
-          }
+          lines.push(formatEntity(e));
         }
       }
+
+      // No memories at all — output nothing (don't clutter session)
       if (lines.length === 0) {
-        lines.push('MeMesh: No memories found yet. Use remember tool to store knowledge.');
+        return;
       }
 
       const memorySummary = lines.join('\n');
