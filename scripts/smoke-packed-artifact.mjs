@@ -67,6 +67,8 @@ const requiredFiles = [
   'dist/core/types.js',
   'dist/core/config.js',
   'dist/core/scoring.js',
+  'dist/core/failure-analyzer.js',
+  'dist/core/lesson-engine.js',
   // Dist — transports
   'dist/mcp/server.js',
   'dist/transports/mcp/handlers.js',

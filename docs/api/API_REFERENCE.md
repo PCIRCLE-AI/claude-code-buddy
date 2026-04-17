@@ -1,14 +1,14 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 3.0.0
+**Version**: 3.1.0
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 ---
 
 ## Tools
 
-MeMesh exposes 6 tools via MCP.
+MeMesh exposes 7 tools via MCP.
 
 ---
 
@@ -283,6 +283,53 @@ Import memories from a JSON bundle produced by `export`. Three merge strategies 
 
 ---
 
+### learn
+
+Record a structured lesson from a mistake or discovery. Creates a `lesson_learned` entity with structured observations for error, root cause, fix, and prevention.
+
+**Input Schema**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `error` | string | Yes | What went wrong |
+| `fix` | string | Yes | What fixed it |
+| `root_cause` | string | No | Why it happened |
+| `prevention` | string | No | How to prevent it next time |
+| `severity` | string | No | Severity level: `"critical"`, `"major"`, or `"minor"` (default: `"minor"`) |
+
+**Response**:
+
+```json
+{
+  "name": "lesson-myproject-null-reference",
+  "stored": true,
+  "entityId": 42,
+  "observations": 4,
+  "tags": 4
+}
+```
+
+**Examples**:
+
+```json
+// Record a lesson from a bug fix
+{
+  "error": "TypeError: Cannot read property of null",
+  "fix": "Added optional chaining (?.) on API response",
+  "root_cause": "API response can be null on timeout",
+  "prevention": "Always validate API responses before accessing nested properties",
+  "severity": "major"
+}
+
+// Minimal lesson (only required fields)
+{
+  "error": "Tests fail with SIGSEGV in native module",
+  "fix": "Changed vitest pool from threads to forks"
+}
+```
+
+---
+
 ## Data Model
 
 ### Entity
@@ -341,6 +388,7 @@ Start: `memesh serve` (default: `localhost:3737`)
 | POST | /v1/consolidate | Compress entity observations via LLM (Smart Mode required) |
 | POST | /v1/export | Export memories as JSON bundle |
 | POST | /v1/import | Import memories from JSON bundle with merge strategy |
+| POST | /v1/learn | Record structured lesson from mistake or discovery |
 | GET | /v1/entities | List entities (pagination) |
 | GET | /v1/entities/:name | Get single entity |
 | GET | /v1/config | Get current config and detected capabilities |
