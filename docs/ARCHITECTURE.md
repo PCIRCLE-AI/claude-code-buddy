@@ -65,11 +65,12 @@ src/
 ├── cli/
 │   └── view.ts            # HTML dashboard generator
 └── transports/
+    ├── schemas.ts         # Shared Zod validation schemas (single source of truth)
     ├── mcp/
-    │   ├── handlers.ts    # MCP tool handlers (Zod + ToolResult wrapper + conflict detection)
+    │   ├── handlers.ts    # MCP tool handlers (imports schemas, ToolResult wrapper, conflict detection)
     │   └── server.ts      # MCP stdio server (logs capabilities on startup)
     ├── http/
-    │   └── server.ts      # Express REST API server (logs capabilities on startup, conflict detection)
+    │   └── server.ts      # Express REST API server (imports schemas, 1MB body limit, rate limiting)
     └── cli/
         └── cli.ts         # Commander CLI (conflict warnings in recall output)
 ```
@@ -135,7 +136,7 @@ Entry point for the `memesh-mcp` binary. Creates the MCP server with stdio trans
 
 ### transports/mcp/handlers.ts -- MCP Tool Handlers
 
-Thin adapter: validates input via Zod, delegates to `core/operations`, wraps result in MCP `ToolResult` format.
+Thin adapter: imports shared Zod schemas from `transports/schemas.ts`, validates input, delegates to `core/operations`, wraps result in MCP `ToolResult` format.
 
 | Tool | Schema | Handler |
 |------|--------|---------|
