@@ -233,7 +233,10 @@ configCmd
     if (config.llm) {
       console.log(`  LLM provider: ${config.llm.provider}`);
       console.log(`  LLM model: ${config.llm.model || 'default'}`);
-      if (config.llm.apiKey) console.log(`  API key: ${maskApiKey(config.llm.apiKey)}`);
+      if (config.llm.apiKey) {
+        const masked = maskApiKey(config.llm.apiKey); // never logs raw key
+        console.log(`  API key: ${masked}`);
+      }
     } else {
       console.log('  LLM provider: not configured');
     }

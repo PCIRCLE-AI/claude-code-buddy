@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { recencyScore, frequencyScore, temporalValidityScore, scoreEntity, rankEntities, DEFAULT_WEIGHTS } from '../../src/core/scoring.js';
+import { recencyScore, frequencyScore, temporalValidityScore, scoreEntity, rankEntities } from '../../src/core/scoring.js';
 
 describe('Scoring Engine', () => {
   describe('recencyScore', () => {
