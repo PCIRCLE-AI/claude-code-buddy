@@ -282,4 +282,43 @@ describe('Feature: Session Start Hook', () => {
     // The full 150-char string should NOT appear
     expect(additionalContext).not.toContain('A'.repeat(150));
   });
+
+  it('Scenario: Proactive lesson warnings — lesson_learned entities shown with Prevention hint', () => {
+    const projectTag = 'project:lessontest';
+    const db = createScoringDb();
+
+    // Add a regular entity so the hook has something to display (avoids early return)
+    db.prepare("INSERT INTO entities (name, type, confidence, status) VALUES (?, ?, ?, ?)")
+      .run('regular-entity', 'note', 1.0, 'active');
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Regular entity note');
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(1, projectTag);
+
+    // Add lesson_learned entity with a Prevention observation
+    db.prepare("INSERT INTO entities (name, type, confidence, status) VALUES (?, ?, ?, ?)")
+      .run('lesson-test-null-reference', 'lesson_learned', 1.5, 'active');
+    const lessonId = (db.prepare('SELECT id FROM entities WHERE name = ?').get('lesson-test-null-reference') as { id: number }).id;
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(lessonId, 'Context: API integration');
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(lessonId, 'Prevention: Always validate API responses before accessing properties');
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(lessonId, projectTag);
+    db.close();
+
+    const output = runHook({ cwd: '/tmp/lessontest' });
+    const additionalContext = (output as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    expect(additionalContext).toContain('Known lessons');
+    expect(additionalContext).toContain('Always validate API responses before accessing properties');
+    expect(additionalContext).toContain('confidence: 1.5');
+  });
+
+  it('Scenario: Lesson warnings — no lessons -> no warning section appended', () => {
+    const db = createScoringDb();
+    db.prepare("INSERT INTO entities (name, type, confidence, status) VALUES (?, ?, ?, ?)")
+      .run('normal-entity', 'component', 1.0, 'active');
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Normal component');
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(1, 'project:nolessontest');
+    db.close();
+
+    const output = runHook({ cwd: '/tmp/nolessontest' });
+    const additionalContext = (output as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    expect(additionalContext).not.toContain('Known lessons');
+  });
 });
