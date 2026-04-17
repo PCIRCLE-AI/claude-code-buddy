@@ -41,7 +41,7 @@ MeMesh gives Claude Code persistent memory through 3 MCP tools, 2 hooks, and a C
 |------|-------------|
 | `remember` | Store knowledge — entities with observations, relations, and tags |
 | `recall` | Search stored knowledge via FTS5 full-text search with optional tag filtering |
-| `forget` | Delete stored knowledge by name (cascades to observations, relations, tags) |
+| `forget` | Archive knowledge (soft-delete) or remove specific observations |
 
 ### Hooks
 
@@ -71,6 +71,7 @@ memesh-view
 - **Dashboard**: `memesh-view` bundles D3 locally, so the generated HTML works offline
 - **Schema**: entities, observations, relations, tags + FTS5 virtual table
 - **Validation**: All tool inputs validated with Zod schemas
+- **Knowledge Evolution**: `forget` archives rather than deletes — old memories are preserved but hidden. Use `supersedes` relations to replace old designs with new ones.
 
 ## Architecture
 

@@ -162,6 +162,20 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 ---
 
+## Knowledge Evolution
+
+MeMesh supports knowledge lifecycle management through soft-delete and supersedes semantics:
+
+- **Archive (soft-delete):** `forget` sets entity status to 'archived', removing it from FTS5 search but preserving all data (observations, relations, tags)
+- **Observation-level forget:** Remove specific observations without archiving the entity
+- **Supersedes relations:** `remember` with `relations: [{type: "supersedes"}]` auto-archives the old entity, creating a knowledge evolution chain
+- **Reactivation:** `remember` on an archived entity automatically reactivates it (status → 'active', FTS5 rebuilt)
+- **Include archived:** `recall` with `include_archived: true` shows all entities including archived ones, marked with `archived: true`
+
+Data lifecycle: `active` → `archived` (never deleted). Archived entities can be reactivated by calling `remember` with the same name.
+
+---
+
 ## Ecosystem Compatibility
 
 MeMesh works with any MCP-compatible client:
