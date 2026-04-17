@@ -265,7 +265,27 @@ export class KnowledgeGraph {
       }
     }
 
+    const entityIds = results.map((e) => e.id);
+    this.trackAccess(entityIds);
     return results;
+  }
+
+  /**
+   * Increment access_count and update last_accessed_at for entities.
+   * Called after search/recall returns results.
+   */
+  trackAccess(entityIds: number[]): void {
+    if (entityIds.length === 0) return;
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare(
+      'UPDATE entities SET access_count = access_count + 1, last_accessed_at = ? WHERE id = ?'
+    );
+    const txn = this.db.transaction(() => {
+      for (const id of entityIds) {
+        stmt.run(now, id);
+      }
+    });
+    txn();
   }
 
   listRecent(limit?: number, includeArchived?: boolean): Entity[] {
@@ -274,9 +294,13 @@ export class KnowledgeGraph {
       .prepare(`SELECT name FROM entities ${statusFilter} ORDER BY id DESC LIMIT ?`)
       .all(limit ?? 20) as { name: string }[];
 
-    return rows
+    const results = rows
       .map((r) => this.getEntity(r.name))
       .filter((e): e is Entity => e !== null);
+
+    const entityIds = results.map((e) => e.id);
+    this.trackAccess(entityIds);
+    return results;
   }
 
   private listRecentByTag(tag: string, limit: number, includeArchived?: boolean): Entity[] {
@@ -293,9 +317,13 @@ export class KnowledgeGraph {
       )
       .all(tag, limit) as { name: string }[];
 
-    return rows
+    const results = rows
       .map((r) => this.getEntity(r.name))
       .filter((e): e is Entity => e !== null);
+
+    const entityIds = results.map((e) => e.id);
+    this.trackAccess(entityIds);
+    return results;
   }
 
   archiveEntity(name: string): { archived: boolean; name?: string; previousStatus?: string } {

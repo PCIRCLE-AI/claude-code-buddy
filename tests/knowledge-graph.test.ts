@@ -448,6 +448,55 @@ describe('Feature: Knowledge Graph', () => {
     });
   });
 
+  describe('Access Tracking', () => {
+    it('should increment access_count on search', () => {
+      kg.createEntity('Test', 'note', { observations: ['some data'] });
+
+      // Before search
+      const before = kg.getEntity('Test');
+      expect(before!.access_count).toBe(0);
+
+      // Search (triggers trackAccess)
+      kg.search('data');
+
+      // After search
+      const after = kg.getEntity('Test');
+      expect(after!.access_count).toBe(1);
+      expect(after!.last_accessed_at).toBeDefined();
+    });
+
+    it('should increment on each recall', () => {
+      kg.createEntity('Multi', 'note', { observations: ['test data'] });
+      kg.search('test');
+      kg.search('test');
+      kg.search('test');
+
+      const entity = kg.getEntity('Multi');
+      expect(entity!.access_count).toBe(3);
+    });
+
+    it('should increment access_count on listRecent', () => {
+      kg.createEntity('RecentEntity', 'note', { observations: ['content'] });
+
+      const before = kg.getEntity('RecentEntity');
+      expect(before!.access_count).toBe(0);
+
+      kg.listRecent();
+
+      const after = kg.getEntity('RecentEntity');
+      expect(after!.access_count).toBe(1);
+    });
+
+    it('should increment access_count when search falls back to listRecent (empty query)', () => {
+      kg.createEntity('FallbackTest', 'note', { observations: ['data'] });
+
+      kg.search('');
+
+      const entity = kg.getEntity('FallbackTest');
+      expect(entity!.access_count).toBe(1);
+    });
+  });
+
   describe('Edge Cases', () => {
     it('should throw when creating relation with non-existent entity', () => {
       kg.createEntity('Exists', 'test');
