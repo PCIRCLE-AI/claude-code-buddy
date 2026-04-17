@@ -95,6 +95,19 @@ describe('Feature: Knowledge Graph', () => {
       expect(entity!.observations).toContain('Second observation');
     });
 
+    it('should dedupe tags and preserve original type on duplicate entity', () => {
+      kg.createEntity('TypeScript', 'language', {
+        tags: ['frontend'],
+      });
+      kg.createEntity('TypeScript', 'runtime', {
+        tags: ['frontend', 'typed'],
+      });
+
+      const entity = kg.getEntity('TypeScript');
+      expect(entity!.type).toBe('language');
+      expect([...entity!.tags].sort()).toEqual(['frontend', 'typed']);
+    });
+
     it('should batch create all entities in single transaction', () => {
       const entities: CreateEntityInput[] = [
         {
@@ -155,6 +168,34 @@ describe('Feature: Knowledge Graph', () => {
       expect(results[0].name).toBe('React');
     });
 
+    it('should apply limit after tag filtering', () => {
+      kg.createEntity('TaggedOne', 'framework', {
+        observations: ['shared query terms'],
+        tags: ['frontend'],
+      });
+      kg.createEntity('TaggedTwo', 'framework', {
+        observations: ['shared query terms'],
+        tags: ['frontend'],
+      });
+      kg.createEntity('UntaggedLatestOne', 'framework', {
+        observations: ['shared query terms'],
+      });
+      kg.createEntity('UntaggedLatestTwo', 'framework', {
+        observations: ['shared query terms'],
+      });
+
+      const results = kg.search('shared query terms', {
+        tag: 'frontend',
+        limit: 2,
+      });
+
+      expect(results).toHaveLength(2);
+      expect(results.map((r) => r.name).sort()).toEqual([
+        'TaggedOne',
+        'TaggedTwo',
+      ]);
+    });
+
     it('should return related entities via getEntity', () => {
       kg.createEntity('React', 'framework', {
         observations: ['Component-based UI library'],
@@ -200,6 +241,59 @@ describe('Feature: Knowledge Graph', () => {
       expect(results[0].name).toBe('Beta');
       expect(results[1].name).toBe('Alpha');
     });
+
+    it('should filter recent results by tag when no query is provided', () => {
+      kg.createEntity('Alpha', 'test', {
+        tags: ['project:a'],
+      });
+      kg.createEntity('Beta', 'test', {
+        tags: ['project:b'],
+      });
+      kg.createEntity('Gamma', 'test', {
+        tags: ['project:a'],
+      });
+
+      const results = kg.search(undefined, { tag: 'project:a', limit: 5 });
+
+      expect(results.map((r) => r.name)).toEqual(['Gamma', 'Alpha']);
+    });
+  });
+
+  describe('Archive (Soft Forget)', () => {
+    it('should archive entity without deleting data', () => {
+      kg.createEntity('OldDesign', 'decision', {
+        observations: ['Use REST API'],
+        tags: ['project:x'],
+      });
+
+      const result = kg.archiveEntity('OldDesign');
+      expect(result).toEqual({ archived: true, name: 'OldDesign', previousStatus: 'active' });
+
+      // Entity still in DB with all data
+      const row = db.prepare("SELECT status FROM entities WHERE name = ?").get('OldDesign') as any;
+      expect(row.status).toBe('archived');
+
+      const entity = kg.getEntity('OldDesign');
+      expect(entity).not.toBeNull();
+      expect(entity!.observations).toContain('Use REST API');
+      expect(entity!.tags).toContain('project:x');
+    });
+
+    it('should remove archived entity from FTS5 index', () => {
+      kg.createEntity('OldDesign', 'decision', {
+        observations: ['Use REST API'],
+      });
+
+      kg.archiveEntity('OldDesign');
+
+      const results = kg.search('REST');
+      expect(results).toEqual([]);
+    });
+
+    it('should return { archived: false } for non-existent entity', () => {
+      const result = kg.archiveEntity('Ghost');
+      expect(result).toEqual({ archived: false });
+    });
   });
 
   describe('Forget (Delete)', () => {
@@ -211,7 +305,7 @@ describe('Feature: Knowledge Graph', () => {
       kg.createEntity('Related', 'test');
       kg.createRelation('ToDelete', 'Related', 'links-to');
 
-      const result = kg.deleteEntity('ToDelete');
+      const result = (kg as any).deleteEntity('ToDelete');
       expect(result).toEqual({ deleted: true });
 
       // Entity gone
@@ -247,8 +341,110 @@ describe('Feature: Knowledge Graph', () => {
     });
 
     it('should return { deleted: false } for non-existent entity', () => {
-      const result = kg.deleteEntity('DoesNotExist');
+      const result = (kg as any).deleteEntity('DoesNotExist');
       expect(result).toEqual({ deleted: false });
+    });
+  });
+
+  describe('Observation-level forget', () => {
+    it('should remove a specific observation and rebuild FTS', () => {
+      kg.createEntity('Design', 'decision', {
+        observations: ['Use JWT', 'Use RS256', 'Rotate keys'],
+      });
+
+      const result = kg.removeObservation('Design', 'Use JWT');
+      expect(result).toEqual({ removed: true, remainingObservations: 2 });
+
+      const entity = kg.getEntity('Design');
+      expect(entity!.observations).toEqual(['Use RS256', 'Rotate keys']);
+
+      // FTS should find "RS256" but not "JWT"
+      expect(kg.search('RS256')).toHaveLength(1);
+      expect(kg.search('JWT')).toEqual([]);
+    });
+
+    it('should return removed:false for non-matching observation', () => {
+      kg.createEntity('Design', 'decision', {
+        observations: ['Use JWT'],
+      });
+
+      const result = kg.removeObservation('Design', 'nonexistent');
+      expect(result).toEqual({ removed: false, remainingObservations: 1 });
+    });
+
+    it('should return removed:false for non-existent entity', () => {
+      const result = kg.removeObservation('Ghost', 'anything');
+      expect(result).toEqual({ removed: false, remainingObservations: 0 });
+    });
+  });
+
+  describe('Reactivation via Remember', () => {
+    it('should reactivate archived entity when remembered again', () => {
+      kg.createEntity('OldDesign', 'decision', {
+        observations: ['Use REST'],
+      });
+      kg.archiveEntity('OldDesign');
+
+      // Verify archived in DB
+      const archivedRow = db.prepare("SELECT status FROM entities WHERE name = 'OldDesign'").get() as any;
+      expect(archivedRow.status).toBe('archived');
+
+      // Remember again — should reactivate
+      kg.createEntity('OldDesign', 'decision', {
+        observations: ['Use GraphQL'],
+      });
+
+      // Verify reactivated
+      const reactivatedRow = db.prepare("SELECT status FROM entities WHERE name = 'OldDesign'").get() as any;
+      expect(reactivatedRow.status).toBe('active');
+
+      // Observations appended
+      const entity = kg.getEntity('OldDesign');
+      expect(entity!.observations).toContain('Use REST');
+      expect(entity!.observations).toContain('Use GraphQL');
+
+      // FTS5 rebuilt — searchable again
+      expect(kg.search('REST')).toHaveLength(1);
+      expect(kg.search('GraphQL')).toHaveLength(1);
+    });
+  });
+
+  describe('Recall respects archive status', () => {
+    beforeEach(() => {
+      kg.createEntity('Active1', 'test', { observations: ['shared term'] });
+      kg.createEntity('Active2', 'test', { observations: ['shared term'] });
+      kg.createEntity('Archived1', 'test', { observations: ['shared term'] });
+      kg.archiveEntity('Archived1');
+    });
+
+    it('should exclude archived entities from search by default', () => {
+      const results = kg.search('shared');
+      expect(results).toHaveLength(2);
+      expect(results.map((r) => r.name).sort()).toEqual(['Active1', 'Active2']);
+    });
+
+    it('should include archived entities when includeArchived is true', () => {
+      const results = kg.search('shared', { includeArchived: true });
+      expect(results).toHaveLength(3);
+    });
+
+    it('should exclude archived from listRecent by default', () => {
+      const results = kg.listRecent();
+      expect(results).toHaveLength(2);
+    });
+
+    it('should include archived in listRecent when includeArchived is true', () => {
+      const results = kg.listRecent(20, true);
+      expect(results).toHaveLength(3);
+    });
+
+    it('should mark archived entities with archived:true in response', () => {
+      const results = kg.search('shared', { includeArchived: true });
+      const archived = results.find((e) => e.name === 'Archived1');
+      expect(archived?.archived).toBe(true);
+
+      const active = results.find((e) => e.name === 'Active1');
+      expect(active?.archived).toBeUndefined();
     });
   });
 

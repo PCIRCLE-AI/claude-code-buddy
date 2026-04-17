@@ -70,7 +70,7 @@ Generates a self-contained HTML dashboard for visualizing the knowledge graph.
 
 - `memesh-view` CLI command (registered in `package.json` bin)
 - Reads all entities, observations, relations, and tags from the database
-- Produces a single HTML file with embedded D3.js force-directed graph, searchable entity table, and statistics
+- Produces a single HTML file with bundled local D3.js, searchable entity table, and statistics
 - Opens the generated file in the default browser
 
 ---
@@ -86,7 +86,8 @@ Tool call: remember({name, type, observations, tags, relations})
      -> INSERT OR IGNORE into entities
      -> INSERT observations
      -> Rebuild FTS5 index
-     -> INSERT tags
+     -> INSERT OR IGNORE tags
+     -> Preserve original type on duplicate entity names
   -> KnowledgeGraph.createRelation() for each relation
   -> Return {stored: true, entityId, ...}
 ```
@@ -98,9 +99,9 @@ Tool call: recall({query, tag, limit})
   -> Zod validation (RecallSchema)
   -> KnowledgeGraph.search(query, {tag, limit})
      -> FTS5 MATCH query against entities_fts
+     -> Apply tag filtering in SQL when specified
      -> JOIN to entities table (contentless FTS5)
      -> For each match: getEntity() to load full data
-     -> Filter by tag if specified
   -> Return Entity[]
 ```
 
@@ -161,21 +162,56 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 ---
 
+## Knowledge Evolution
+
+MeMesh supports knowledge lifecycle management through soft-delete and supersedes semantics:
+
+- **Archive (soft-delete):** `forget` sets entity status to 'archived', removing it from FTS5 search but preserving all data (observations, relations, tags)
+- **Observation-level forget:** Remove specific observations without archiving the entity
+- **Supersedes relations:** `remember` with `relations: [{type: "supersedes"}]` auto-archives the old entity, creating a knowledge evolution chain
+- **Reactivation:** `remember` on an archived entity automatically reactivates it (status → 'active', FTS5 rebuilt)
+- **Include archived:** `recall` with `include_archived: true` shows all entities including archived ones, marked with `archived: true`
+
+Data lifecycle: `active` → `archived` (never deleted). Archived entities can be reactivated by calling `remember` with the same name.
+
+---
+
+## Ecosystem Compatibility
+
+MeMesh works with any MCP-compatible client:
+
+| Client | Integration Method |
+|--------|-------------------|
+| Claude Code | Plugin (native, via plugin.json + hooks) |
+| Claude Managed Agents | MCP connector (beta, via session config) |
+| Claude Desktop | MCP server config |
+| Custom apps | Direct stdio MCP connection |
+
+### Anthropic API Feature Alignment
+
+| Feature | Relevance to MeMesh |
+|---------|---------------------|
+| Prompt Caching | Session-start memories benefit from automatic caching |
+| Compaction | MeMesh memories survive compaction (external DB) |
+| Memory Tool | MeMesh offers local-first structured alternative |
+| Agent Skills | MeMesh can be loaded as a custom Agent Skill |
+
+---
+
 ## Testing
 
-7 test files, 73 tests total:
+The automated test suite covers:
 
-| File | Tests | What it covers |
-|------|-------|---------------|
-| `tests/db.test.ts` | 10 | Database lifecycle, schema, FTS5 setup |
-| `tests/knowledge-graph.test.ts` | 18 | Entity CRUD, relations, search, batch ops |
-| `tests/tools.test.ts` | 15 | Tool validation, handler behavior, dispatcher |
-| `tests/installation.test.ts` | 7 | Package structure, required files exist |
-| `tests/hooks/session-start.test.ts` | 6 | Session start hook behavior |
-| `tests/hooks/post-commit.test.ts` | 7 | Post commit hook behavior |
-| `tests/cli/view.test.ts` | 10 | CLI dashboard generator, XSS prevention |
+- database lifecycle and schema setup
+- knowledge graph CRUD, relations, FTS search, and tag filtering
+- MCP tool validation and dispatch
+- hook behavior for session start and post-commit flows
+- dashboard HTML generation and XSS escaping
+- repository/package structure checks
 
 Framework: vitest (forks pool mode to avoid SIGSEGV with native modules).
+
+For release safety, `npm run test:packaged` creates a real npm tarball, extracts it, and verifies the published artifact still contains the required runtime files, hook scripts, bundled D3 asset, and package exports.
 
 ---
 

@@ -79,6 +79,31 @@ describe('remember', () => {
     expect(data[0].observations).toContain('Use RS256 for JWT signing');
   });
 
+  it('auto-archives entity when superseded by new remember', () => {
+    handleTool('remember', { name: 'auth-v2', type: 'decision', observations: ['Use JWT'] });
+    handleTool('remember', {
+      name: 'auth-v3', type: 'decision', observations: ['Use OAuth 2.0'],
+      relations: [{ to: 'auth-v2', type: 'supersedes' }],
+    });
+
+    // auth-v2 should be auto-archived
+    const recallOld = handleTool('recall', { query: 'JWT' });
+    expect(JSON.parse(recallOld.content[0].text)).toEqual([]);
+
+    // auth-v3 should be active
+    const recallNew = handleTool('recall', { query: 'OAuth' });
+    const data = JSON.parse(recallNew.content[0].text);
+    expect(data).toHaveLength(1);
+    expect(data[0].name).toBe('auth-v3');
+
+    // Both visible with include_archived
+    const recallAll = handleTool('recall', { include_archived: true });
+    const allData = JSON.parse(recallAll.content[0].text);
+    const names = allData.map((e: any) => e.name);
+    expect(names).toContain('auth-v2');
+    expect(names).toContain('auth-v3');
+  });
+
   it('reports relation errors without failing overall', () => {
     const result = handleTool('remember', {
       name: 'auth-decision',
@@ -146,33 +171,67 @@ describe('recall', () => {
     const data = JSON.parse(result.content[0].text);
     expect(data.length).toBe(1);
   });
+
+  it('rejects recall with limit=0', () => {
+    const result = handleTool('recall', { limit: 0 });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('limit');
+  });
+
+  it('rejects recall with limit=101', () => {
+    const result = handleTool('recall', { limit: 101 });
+    expect(result.isError).toBe(true);
+  });
 });
 
 // ── Forget ──────────────────────────────────────────────────────────────
 
 describe('forget', () => {
-  it('deletes an existing entity', () => {
-    handleTool('remember', { name: 'temp-note', type: 'note' });
+  it('archives an entity instead of deleting it', () => {
+    handleTool('remember', {
+      name: 'old-design', type: 'decision', observations: ['Use REST'],
+    });
 
-    const result = handleTool('forget', { name: 'temp-note' });
+    const result = handleTool('forget', { name: 'old-design' });
     const data = JSON.parse(result.content[0].text);
-    expect(data.deleted).toBe(true);
+    expect(data.archived).toBe(true);
+    expect(data.name).toBe('old-design');
 
-    // Verify it's gone
-    const recall = handleTool('recall', { query: 'temp-note' });
-    const recallData = JSON.parse(recall.content[0].text);
-    expect(recallData).toEqual([]);
+    // Hidden from normal recall
+    const recall = handleTool('recall', { query: 'REST' });
+    expect(JSON.parse(recall.content[0].text)).toEqual([]);
+
+    // Visible with include_archived
+    const recallAll = handleTool('recall', { query: 'REST', include_archived: true });
+    const allData = JSON.parse(recallAll.content[0].text);
+    expect(allData).toHaveLength(1);
+    expect(allData[0].archived).toBe(true);
   });
 
-  it('returns not-found message for non-existent entity', () => {
-    const result = handleTool('forget', { name: 'does-not-exist' });
+  it('removes a specific observation without archiving', () => {
+    handleTool('remember', {
+      name: 'design', type: 'decision', observations: ['Use JWT', 'Use RS256'],
+    });
+
+    const result = handleTool('forget', { name: 'design', observation: 'Use JWT' });
     const data = JSON.parse(result.content[0].text);
-    expect(data.deleted).toBe(false);
+    expect(data.observation_removed).toBe(true);
+    expect(data.remaining_observations).toBe(1);
+
+    // Entity still active and searchable
+    const recall = handleTool('recall', { query: 'RS256' });
+    expect(JSON.parse(recall.content[0].text)).toHaveLength(1);
+  });
+
+  it('returns not-found for non-existent entity', () => {
+    const result = handleTool('forget', { name: 'ghost' });
+    const data = JSON.parse(result.content[0].text);
+    expect(data.archived).toBe(false);
     expect(data.message).toContain('not found');
   });
 
-  it('returns validation error when name is missing', () => {
-    const result = handleTool('forget', {});
+  it('rejects forget with empty name', () => {
+    const result = handleTool('forget', { name: '' });
     expect(result.isError).toBe(true);
   });
 });

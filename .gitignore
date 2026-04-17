@@ -22,7 +22,7 @@ CLAUDE.md
 .claude/
 .claude-plugin/marketplace.json
 .claude-plugin/plugin.json
-.claude-plugin/memesh/.claude-plugin/
+.claude-plugin/memesh/
 
 # === OS files ===
 .DS_Store
@@ -108,3 +108,5 @@ docs/api/MODELS.md
 
 # === Browser automation ===
 .playwright-mcp/
+
+.codex/context/

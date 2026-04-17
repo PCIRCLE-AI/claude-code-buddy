@@ -105,9 +105,27 @@ describe('Feature: Database Management', () => {
       ).all().map((r: any) => r.name);
       expect(indexes).toContain('idx_tags_entity');
       expect(indexes).toContain('idx_tags_tag');
+      expect(indexes).toContain('idx_tags_entity_tag_unique');
       expect(indexes).toContain('idx_observations_entity');
       expect(indexes).toContain('idx_relations_from');
       expect(indexes).toContain('idx_relations_to');
+    });
+  });
+
+  describe('Scenario: Status column migration', () => {
+    it('should have status column on entities table with default active', () => {
+      const db = openDatabase(testDbPath);
+      const info = db.prepare("PRAGMA table_info(entities)").all() as any[];
+      const statusCol = info.find((col: any) => col.name === 'status');
+      expect(statusCol).toBeDefined();
+      expect(statusCol.dflt_value).toBe("'active'");
+    });
+
+    it('should have index on entities status column', () => {
+      const db = openDatabase(testDbPath);
+      const indexes = db.prepare("PRAGMA index_list(entities)").all() as any[];
+      const statusIdx = indexes.find((idx: any) => idx.name === 'idx_entities_status');
+      expect(statusIdx).toBeDefined();
     });
   });
 });

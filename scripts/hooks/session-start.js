@@ -36,6 +36,11 @@ process.stdin.on('end', () => {
         return;
       }
 
+      // Check if status column exists (backward compat with v2.11 DBs)
+      const hasStatus = db.prepare("PRAGMA table_info(entities)").all()
+        .some(col => col.name === 'status');
+      const statusFilter = hasStatus ? "AND e.status = 'active'" : '';
+
       // Query project-specific recent entities with their observations
       const projectTag = `project:${projectName}`;
       const projectEntities = db.prepare(`
@@ -43,6 +48,7 @@ process.stdin.on('end', () => {
         FROM entities e
         JOIN tags t ON t.entity_id = e.id
         WHERE t.tag = ?
+        ${statusFilter}
         ORDER BY e.id DESC
         LIMIT 10
       `).all(projectTag);
@@ -53,9 +59,11 @@ process.stdin.on('end', () => {
       );
 
       // Query global recent entities
+      const recentStatusFilter = hasStatus ? "WHERE status = 'active'" : '';
       const recentEntities = db.prepare(`
         SELECT id, name, type, created_at
         FROM entities
+        ${recentStatusFilter}
         ORDER BY id DESC
         LIMIT 5
       `).all();
@@ -87,16 +95,24 @@ process.stdin.on('end', () => {
         lines.push('MeMesh: No memories found yet. Use remember tool to store knowledge.');
       }
 
-      output(lines.join('\n'));
+      const memorySummary = lines.join('\n');
+      const hookOutput = {
+        suppressOutput: true,
+        hookSpecificOutput: {
+          hookEventName: 'SessionStart',
+          additionalContext: memorySummary,
+        },
+      };
+      console.log(JSON.stringify(hookOutput));
     } finally {
       db.close();
     }
   } catch (err) {
     // Hooks must never crash Claude Code — but report honestly
-    output(`MeMesh: Session start failed (${err?.message || 'unknown error'}). Memories not loaded.`);
+    console.log(JSON.stringify({ systemMessage: `MeMesh: Session start failed (${err?.message || 'unknown error'}). Memories not loaded.` }));
   }
 });
 
 function output(text) {
-  console.log(JSON.stringify({ result: text }));
+  console.log(JSON.stringify({ systemMessage: text }));
 }

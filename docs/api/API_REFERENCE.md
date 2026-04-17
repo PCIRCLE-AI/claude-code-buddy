@@ -1,7 +1,8 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 2.11.0
+**Version**: 2.12.0
+**Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 ---
 
@@ -14,6 +15,8 @@ MeMesh exposes 3 tools via MCP.
 ### remember
 
 Store knowledge as an entity with observations, tags, and relations.
+
+If `remember` is called again with an existing `name`, MeMesh treats it as an append-style upsert: new observations are appended, tags are deduped, and the original entity type is retained.
 
 **Input Schema**:
 
@@ -47,6 +50,8 @@ Store knowledge as an entity with observations, tags, and relations.
 ```
 
 If a relation target does not exist, the entity is still stored and `relationErrors` is included in the response.
+
+**Supersedes behavior:** When a relation has type `"supersedes"`, the target entity is automatically archived. This enables knowledge evolution — new designs replace old ones without losing history.
 
 **Examples**:
 
@@ -87,6 +92,7 @@ Search and retrieve stored knowledge. Uses FTS5 full-text search with optional t
 | `query` | string | No | Search query (FTS5 full-text search). Leave empty to list recent entities. |
 | `tag` | string | No | Filter by tag (e.g., `"project:myapp"`) |
 | `limit` | number | No | Max results (default: 20, max: 100) |
+| `include_archived` | boolean | No | Include archived (forgotten) entities in results (default: false) |
 
 **Response**:
 
@@ -131,29 +137,20 @@ Returns an array of matching entities:
 
 ### forget
 
-Delete an entity and all its associated observations, relations, and tags.
+Archive an entity (soft-delete) or remove a specific observation.
+
+**Behavior (v2.12):** `forget` does not permanently delete data. Entities are archived and hidden from normal recall, but preserved in the database. Use `include_archived: true` in recall to see archived entities.
 
 **Input Schema**:
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `name` | string | Yes | Entity name to delete |
+| `name` | string | Yes | Entity name to archive or modify |
+| `observation` | string | No | If provided, only this observation is removed (entity stays active). If omitted, the entire entity is archived. |
 
-**Response**:
-
-```json
-// Entity found and deleted
-{"deleted": true, "name": "auth-decision"}
-
-// Entity not found
-{"deleted": false, "message": "Entity \"auth-decision\" not found"}
-```
-
-**Example**:
-
-```json
-{"name": "auth-decision"}
-```
+**Modes:**
+- **Entity archive** (no observation): Archives the entire entity. Hidden from recall by default.
+- **Observation removal** (with observation): Removes one specific observation. Entity stays active.
 
 ---
 
@@ -217,13 +214,13 @@ memesh-view
 
 1. Opens the MeMesh database (`~/.memesh/knowledge-graph.db`)
 2. Reads all entities, observations, relations, and tags
-3. Generates a self-contained HTML file with:
+3. Generates a self-contained HTML file with bundled local D3.js and:
    - **Knowledge graph** -- D3.js force-directed graph showing entities and relations
    - **Entity table** -- Searchable, sortable table of all entities with observations and tags
    - **Statistics** -- Total entities, observations, relations, and tags
 4. Opens the HTML file in the default browser
 
-No arguments or options required. The dashboard is a static HTML file that can be shared or archived.
+No arguments or options required. The dashboard is a static HTML file that can be shared, archived, and opened offline.
 
 ---
 

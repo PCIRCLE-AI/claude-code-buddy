@@ -12,6 +12,7 @@ interface DashboardData {
     id: number;
     name: string;
     type: string;
+    status: string;
     observations: string[];
     tags: string[];
   }>;
@@ -29,6 +30,11 @@ interface DashboardData {
     tagDistribution: Record<string, number>;
   };
 }
+
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const bundledD3 = fs
+  .readFileSync(path.join(moduleDir, 'assets', 'd3.v7.min.js'), 'utf8')
+  .replace(/<\/script/gi, '<\\/script');
 
 function queryData(dbPath: string): DashboardData {
   const emptyData: DashboardData = {
@@ -69,10 +75,15 @@ function queryData(dbPath: string): DashboardData {
       return emptyData;
     }
 
-    // Query entities
+    // Check if status column exists (backward compat with v2.11 DBs)
+    const hasStatus = (db.prepare('PRAGMA table_info(entities)').all() as Array<{ name: string }>)
+      .some((col) => col.name === 'status');
+    const statusSelect = hasStatus ? ', status' : ", 'active' AS status";
+
+    // Query entities (include all — archived are shown with visual distinction)
     const entityRows = db
-      .prepare('SELECT id, name, type FROM entities LIMIT 5000')
-      .all() as Array<{ id: number; name: string; type: string }>;
+      .prepare(`SELECT id, name, type${statusSelect} FROM entities LIMIT 5000`)
+      .all() as Array<{ id: number; name: string; type: string; status: string }>;
 
     // Query observations
     const obsRows = tables.includes('observations')
@@ -129,6 +140,7 @@ function queryData(dbPath: string): DashboardData {
       id: e.id,
       name: e.name,
       type: e.type,
+      status: e.status,
       observations: obsByEntity.get(e.id) ?? [],
       tags: tagsByEntity.get(e.id) ?? [],
     }));
@@ -204,8 +216,10 @@ export function generateDashboardHtml(dbPath?: string): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MeMesh Dashboard</title>
-  <!-- d3.js for force-directed graph -->
-  <script src="https://d3js.org/d3.v7.min.js"><\/script>
+  <!-- bundled d3.js -->
+  <script>
+${bundledD3}
+  <\/script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -281,7 +295,7 @@ export function generateDashboardHtml(dbPath?: string): string {
     <input class="search-box" id="search" type="text" placeholder="Search entities...">
     <div class="entity-table-wrap">
       <table>
-        <thead><tr><th>Name</th><th>Type</th><th>Observations</th><th>Tags</th></tr></thead>
+        <thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Observations</th><th>Tags</th></tr></thead>
         <tbody id="entity-tbody"></tbody>
       </table>
     </div>
@@ -357,12 +371,16 @@ function renderEntityTable(filter) {
     return;
   }
   filtered.forEach(function(e) {
+    var isArchived = e.status === 'archived';
     var tr = document.createElement('tr');
-    var tdName = document.createElement('td'); tdName.textContent = e.name;
+    if (isArchived) { tr.style.opacity = '0.4'; }
+    var tdName = document.createElement('td');
+    tdName.textContent = isArchived ? e.name + ' [archived]' : e.name;
     var tdType = document.createElement('td'); tdType.textContent = e.type;
+    var tdStatus = document.createElement('td'); tdStatus.textContent = e.status || 'active';
     var tdObs = document.createElement('td'); tdObs.textContent = String(e.observations.length);
     var tdTags = document.createElement('td'); tdTags.textContent = e.tags.join(', ');
-    tr.appendChild(tdName); tr.appendChild(tdType); tr.appendChild(tdObs); tr.appendChild(tdTags);
+    tr.appendChild(tdName); tr.appendChild(tdType); tr.appendChild(tdStatus); tr.appendChild(tdObs); tr.appendChild(tdTags);
     tbody.appendChild(tr);
   });
 }
@@ -434,6 +452,7 @@ renderEntityTable('');
     return {
       id: e.name,
       type: e.type,
+      status: e.status,
       observations: e.observations,
       radius: 6 + Math.min(e.observations.length, 5),
     };
@@ -482,6 +501,7 @@ renderEntityTable('');
     .attr('fill', function(d) { return color(d.type); })
     .attr('stroke', '#0d1117')
     .attr('stroke-width', 1.5)
+    .style('opacity', function(d) { return d.status === 'archived' ? 0.4 : 1; })
     .call(drag(simulation));
 
   // Node labels

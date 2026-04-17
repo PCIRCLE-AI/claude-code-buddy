@@ -1,1 +1,0 @@
-{"version":3,"file":"TaskLogsHandler.d.ts","sourceRoot":"","sources":["../../../../src/mcp/resources/handlers/TaskLogsHandler.ts"],"names":[],"mappings":"AACA,OAAO,EAAE,eAAe,EAAE,MAAM,wBAAwB,CAAC;AACzD,OAAO,EAAE,iBAAiB,EAAE,MAAM,0BAA0B,CAAC;AAS7D,qBAAa,eAAe;IAOpB,MAAM,CAAC,MAAM,EAAE,iBAAiB,GAAG,OAAO,CAAC,eAAe,CAAC;YA+BnD,aAAa;CAoB5B"}

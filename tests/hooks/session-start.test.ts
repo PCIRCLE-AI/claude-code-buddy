@@ -20,7 +20,7 @@ describe('Feature: Session Start Hook', () => {
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 
-  function runHook(input: object): { result: string } {
+  function runHook(input: object): Record<string, unknown> {
     const hookPath = path.resolve('scripts/hooks/session-start.js');
     const jsonInput = JSON.stringify(input);
     const result = execFileSync('node', [hookPath], {
@@ -71,7 +71,7 @@ describe('Feature: Session Start Hook', () => {
 
   it('Scenario: No database exists -> welcome message', () => {
     const output = runHook({ cwd: '/tmp/myproject' });
-    expect(output.result).toContain('No database found');
+    expect(output.systemMessage as string).toContain('No database found');
   });
 
   it('Scenario: Empty database (no entities table) -> graceful message', () => {
@@ -82,7 +82,7 @@ describe('Feature: Session Start Hook', () => {
 
     const output = runHook({ cwd: '/tmp/myproject' });
     // Empty db hits the catch block or table check — either way, no crash
-    expect(output.result).toBeTruthy();
+    expect(output.systemMessage).toBeTruthy();
   });
 
   it('Scenario: Database with project memories -> recalls them with observations', () => {
@@ -94,10 +94,12 @@ describe('Feature: Session Start Hook', () => {
     db.close();
 
     const output = runHook({ cwd: '/tmp/myproject' });
-    expect(output.result).toContain('Project "myproject" memories');
-    expect(output.result).toContain('[component] auth-module');
-    expect(output.result).toContain('Uses bcrypt for password hashing');
-    expect(output.result).toContain('Handles JWT token validation');
+    const hookOutput = output as { suppressOutput: boolean; hookSpecificOutput: { hookEventName: string; additionalContext: string } };
+    expect(hookOutput.suppressOutput).toBe(true);
+    expect(hookOutput.hookSpecificOutput.additionalContext).toContain('Project "myproject" memories');
+    expect(hookOutput.hookSpecificOutput.additionalContext).toContain('[component] auth-module');
+    expect(hookOutput.hookSpecificOutput.additionalContext).toContain('Uses bcrypt for password hashing');
+    expect(hookOutput.hookSpecificOutput.additionalContext).toContain('Handles JWT token validation');
   });
 
   it('Scenario: Database with no matching project -> shows only recent memories', () => {
@@ -107,10 +109,11 @@ describe('Feature: Session Start Hook', () => {
     db.close();
 
     const output = runHook({ cwd: '/tmp/other-project' });
-    expect(output.result).not.toContain('Project "other-project" memories');
-    expect(output.result).toContain('Recent memories');
-    expect(output.result).toContain('[note] some-entity');
-    expect(output.result).toContain('A note about something');
+    const additionalContext = (output as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    expect(additionalContext).not.toContain('Project "other-project" memories');
+    expect(additionalContext).toContain('Recent memories');
+    expect(additionalContext).toContain('[note] some-entity');
+    expect(additionalContext).toContain('A note about something');
   });
 
   it('Scenario: Database with both project and global memories -> shows both', () => {
@@ -125,10 +128,52 @@ describe('Feature: Session Start Hook', () => {
     db.close();
 
     const output = runHook({ cwd: '/tmp/testproj' });
-    expect(output.result).toContain('Project "testproj" memories');
-    expect(output.result).toContain('[feature] project-item');
-    expect(output.result).toContain('Recent memories');
-    expect(output.result).toContain('[note] global-item');
+    const additionalContext = (output as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    expect(additionalContext).toContain('Project "testproj" memories');
+    expect(additionalContext).toContain('[feature] project-item');
+    expect(additionalContext).toContain('Recent memories');
+    expect(additionalContext).toContain('[note] global-item');
+  });
+
+  it('Scenario: Archived entities are excluded from session recall', () => {
+    const Database = require('better-sqlite3');
+    const db = new Database(dbPath);
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    db.prepare('CREATE TABLE IF NOT EXISTS entities (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, type TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, metadata JSON, status TEXT NOT NULL DEFAULT \'active\')').run();
+    db.prepare('CREATE TABLE IF NOT EXISTS observations (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id INTEGER NOT NULL, content TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE)').run();
+    db.prepare('CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, entity_id INTEGER NOT NULL, tag TEXT NOT NULL, FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE)').run();
+    // Active entity with project tag
+    db.prepare("INSERT INTO entities (name, type, status) VALUES (?, ?, 'active')").run('active-module', 'component');
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Active observation');
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(1, 'project:archivetest');
+    // Archived entity with same project tag
+    db.prepare("INSERT INTO entities (name, type, status) VALUES (?, ?, 'archived')").run('archived-module', 'component');
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(2, 'Archived observation');
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(2, 'project:archivetest');
+    // Archived entity in global (no project tag)
+    db.prepare("INSERT INTO entities (name, type, status) VALUES (?, ?, 'archived')").run('archived-global', 'note');
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(3, 'Archived global');
+    db.close();
+
+    const output = runHook({ cwd: '/tmp/archivetest' });
+    const additionalContext = (output as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    expect(additionalContext).toContain('[component] active-module');
+    expect(additionalContext).not.toContain('archived-module');
+    expect(additionalContext).not.toContain('archived-global');
+  });
+
+  it('Scenario: Backward compat — DBs without status column return all entities', () => {
+    // createTestDb() intentionally omits the status column (v2.11 schema)
+    const db = createTestDb();
+    db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('legacy-entity', 'note');
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Legacy note');
+    db.close();
+
+    const output = runHook({ cwd: '/tmp/anyproject' });
+    const additionalContext = (output as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    expect(additionalContext).toContain('[note] legacy-entity');
+    expect(additionalContext).toContain('Legacy note');
   });
 
   it('Scenario: Always exits with valid JSON output on invalid input', () => {
@@ -140,7 +185,7 @@ describe('Feature: Session Start Hook', () => {
       timeout: 15000,
     });
     const parsed = JSON.parse(result.trim());
-    expect(parsed).toHaveProperty('result');
-    expect(typeof parsed.result).toBe('string');
+    expect(parsed).toHaveProperty('systemMessage');
+    expect(typeof parsed.systemMessage).toBe('string');
   });
 });

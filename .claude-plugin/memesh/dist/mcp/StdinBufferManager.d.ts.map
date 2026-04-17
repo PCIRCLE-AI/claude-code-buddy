@@ -1,1 +1,0 @@
-{"version":3,"file":"StdinBufferManager.d.ts","sourceRoot":"","sources":["../../src/mcp/StdinBufferManager.ts"],"names":[],"mappings":"AAUA,qBAAa,kBAAkB;IAC7B,OAAO,CAAC,MAAM,CAAgB;IAC9B,OAAO,CAAC,MAAM,CAAS;IACvB,OAAO,CAAC,WAAW,CAA0C;IAC7D,OAAO,CAAC,YAAY,CAAuC;IAM3D,KAAK,IAAI,IAAI;IAqCb,aAAa,IAAI,IAAI;IAqCrB,QAAQ,IAAI,OAAO;IAOnB,aAAa,IAAI,MAAM;CAGxB"}

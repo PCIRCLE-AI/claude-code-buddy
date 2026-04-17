@@ -45,6 +45,13 @@ CREATE TABLE IF NOT EXISTS tags (
 
 CREATE INDEX IF NOT EXISTS idx_tags_entity ON tags(entity_id);
 CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
+DELETE FROM tags
+WHERE id NOT IN (
+  SELECT MIN(id)
+  FROM tags
+  GROUP BY entity_id, tag
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag);
 CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);
@@ -72,6 +79,9 @@ process.stdin.on('end', () => {
     // Pattern: [branch hash] commit message
     const commitMatch = toolOutput.match(/\[[\w/.-]+ ([a-f0-9]{7,})\] (.+)/);
     if (!commitMatch) return exit0();
+
+    const branchMatch = commitMatch[0].match(/^\[([^\s]+)\s/);
+    const branch = branchMatch ? branchMatch[1] : 'unknown';
 
     const commitHash = commitMatch[1];
     const commitMsg = commitMatch[2];
@@ -106,15 +116,13 @@ process.stdin.on('end', () => {
           : db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(entity.id);
         const prevObsText = isNew ? undefined : prevObs.map(o => o.content).join(' ');
 
-        // Add observation
+        // Add observations
         db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, commitMsg);
+        db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, `Branch: ${branch}`);
 
-        // Add project tag (check first since no unique constraint)
+        // Add project tag
         const projectTag = `project:${projectName}`;
-        const existingTag = db.prepare('SELECT id FROM tags WHERE entity_id = ? AND tag = ?').get(entity.id, projectTag);
-        if (!existingTag) {
-          db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(entity.id, projectTag);
-        }
+        db.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)').run(entity.id, projectTag);
 
         // Update FTS index — delete old entry first if entity existed
         if (prevObsText !== undefined) {
@@ -132,6 +140,7 @@ process.stdin.on('end', () => {
     // Never crash Claude Code — but leave a trace for debugging
     try { process.stderr.write(`[memesh post-commit] ${err?.message || err}\n`); } catch {}
   }
+  console.log(JSON.stringify({ suppressOutput: true }));
   exit0();
 });
 

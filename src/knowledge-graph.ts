@@ -9,6 +9,7 @@ export interface Entity {
   observations: string[];
   tags: string[];
   relations?: Relation[];
+  archived?: boolean;  // true when status='archived', omitted when active
 }
 
 export interface Relation {
@@ -29,6 +30,7 @@ export interface CreateEntityInput {
 export interface SearchOptions {
   tag?: string;
   limit?: number;
+  includeArchived?: boolean;
 }
 
 export class KnowledgeGraph {
@@ -48,18 +50,27 @@ export class KnowledgeGraph {
     const isNewEntity = insertResult.changes > 0;
 
     const row = this.db
-      .prepare('SELECT id FROM entities WHERE name = ?')
-      .get(name) as { id: number };
+      .prepare('SELECT id, status FROM entities WHERE name = ?')
+      .get(name) as { id: number; status: string };
     const entityId = row.id;
+
+    // Reactivate archived entities on re-remember
+    const wasArchived = !isNewEntity && row.status === 'archived';
+    if (wasArchived) {
+      this.db
+        .prepare("UPDATE entities SET status = 'active' WHERE name = ?")
+        .run(name);
+    }
 
     // For existing entities, capture current obs text to delete old FTS entry before rebuild.
     // For new entities, no prior FTS entry exists — pass undefined to skip delete.
-    const prevObs = isNewEntity
+    // For previously archived entities, the FTS entry was already removed by archiveEntity — also pass undefined.
+    const prevObs = isNewEntity || wasArchived
       ? []
       : (this.db
           .prepare('SELECT content FROM observations WHERE entity_id = ?')
           .all(entityId) as { content: string }[]);
-    const prevObsText = isNewEntity
+    const prevObsText = isNewEntity || wasArchived
       ? undefined
       : prevObs.map((o) => o.content).join(' ');
 
@@ -79,7 +90,7 @@ export class KnowledgeGraph {
     // Add tags
     if (opts?.tags?.length) {
       const insertTag = this.db.prepare(
-        'INSERT INTO tags (entity_id, tag) VALUES (?, ?)'
+        'INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)'
       );
       for (const tag of opts.tags) {
         insertTag.run(entityId, tag);
@@ -136,7 +147,7 @@ export class KnowledgeGraph {
 
   getEntity(name: string): Entity | null {
     const row = this.db
-      .prepare('SELECT id, name, type, created_at, metadata FROM entities WHERE name = ?')
+      .prepare('SELECT id, name, type, created_at, metadata, status FROM entities WHERE name = ?')
       .get(name) as any | undefined;
 
     if (!row) return null;
@@ -162,6 +173,7 @@ export class KnowledgeGraph {
       observations,
       tags,
       relations: relations.length > 0 ? relations : undefined,
+      ...(row.status === 'archived' ? { archived: true } : {}),
     };
   }
 
@@ -188,53 +200,102 @@ export class KnowledgeGraph {
     const limit = opts?.limit ?? 20;
 
     if (!query || query.trim() === '') {
-      return this.listRecent(limit);
+      if (opts?.tag) {
+        return this.listRecentByTag(opts.tag, limit, opts?.includeArchived);
+      }
+      return this.listRecent(limit, opts?.includeArchived);
     }
 
     // Use FTS5 MATCH to find entity names
     // Escape double quotes and wrap each token in quotes for safe FTS5 matching
     const sanitized = query.replace(/"/g, '""').trim();
     const tokens = sanitized.split(/\s+/).filter((t) => t.length > 0);
-    if (tokens.length === 0) return this.listRecent(limit);
+    if (tokens.length === 0) return this.listRecent(limit, opts?.includeArchived);
     const ftsQuery = tokens.map((token) => `"${token}"`).join(' ');
     // Contentless FTS5: columns return null, so join via rowid → entities.id
-    let ftsRows: { name: string }[];
+    // Archived entities are removed from FTS5 by archiveEntity(), so status filter is a safety net.
+    const statusFilter = opts?.includeArchived ? '' : "AND e.status = 'active'";
+    let ftsRows: Array<{ id: number; name: string }>;
     try {
-      ftsRows = this.db
-        .prepare(
-          `SELECT e.name FROM entities_fts f
-           JOIN entities e ON e.id = f.rowid
-           WHERE entities_fts MATCH ?
-           LIMIT ?`
-        )
-        .all(ftsQuery, limit) as { name: string }[];
+      if (opts?.tag) {
+        ftsRows = this.db
+          .prepare(
+            `SELECT DISTINCT e.id, e.name FROM entities_fts f
+             JOIN entities e ON e.id = f.rowid
+             JOIN tags t ON t.entity_id = e.id
+             WHERE entities_fts MATCH ?
+               AND t.tag = ?
+               ${statusFilter}
+             ORDER BY e.id DESC
+             LIMIT ?`
+          )
+          .all(ftsQuery, opts.tag, limit) as Array<{ id: number; name: string }>;
+      } else {
+        ftsRows = this.db
+          .prepare(
+            `SELECT e.id, e.name FROM entities_fts f
+             JOIN entities e ON e.id = f.rowid
+             WHERE entities_fts MATCH ?
+               ${statusFilter}
+             ORDER BY e.id DESC
+             LIMIT ?`
+          )
+          .all(ftsQuery, limit) as Array<{ id: number; name: string }>;
+      }
     } catch (err: any) {
       // FTS5 syntax error from user query — return empty results
       if (err.message?.includes('fts5')) return [];
       throw err;
     }
 
-    if (ftsRows.length === 0) return [];
-
-    // Fetch full entities, optionally filtering by tag
+    // Fetch full entities from FTS results
     const results: Entity[] = [];
+    const seenIds = new Set<number>();
     for (const ftsRow of ftsRows) {
       const entity = this.getEntity(ftsRow.name);
       if (!entity) continue;
-
-      if (opts?.tag) {
-        if (!entity.tags.includes(opts.tag)) continue;
-      }
-
+      seenIds.add(ftsRow.id);
       results.push(entity);
+    }
+
+    // When includeArchived is true, archived entities are not in FTS5 (removed by archiveEntity).
+    // Supplement with a direct SQL search over archived entities' observations and names.
+    if (opts?.includeArchived) {
+      const tagJoin = opts?.tag ? 'JOIN tags t ON t.entity_id = e.id' : '';
+      const tagFilter = opts?.tag ? 'AND t.tag = ?' : '';
+      const archivedParams: any[] = opts?.tag
+        ? [`%${query}%`, `%${query}%`, opts.tag]
+        : [`%${query}%`, `%${query}%`];
+
+      const archivedRows = this.db
+        .prepare(
+          `SELECT DISTINCT e.id, e.name
+           FROM entities e
+           LEFT JOIN observations o ON o.entity_id = e.id
+           ${tagJoin}
+           WHERE e.status = 'archived'
+             AND (e.name LIKE ? OR o.content LIKE ?)
+             ${tagFilter}
+           ORDER BY e.id DESC
+           LIMIT ?`
+        )
+        .all(...archivedParams, limit) as Array<{ id: number; name: string }>;
+
+      for (const row of archivedRows) {
+        if (seenIds.has(row.id)) continue;
+        const entity = this.getEntity(row.name);
+        if (!entity) continue;
+        results.push(entity);
+      }
     }
 
     return results;
   }
 
-  listRecent(limit?: number): Entity[] {
+  listRecent(limit?: number, includeArchived?: boolean): Entity[] {
+    const statusFilter = includeArchived ? '' : "WHERE status = 'active'";
     const rows = this.db
-      .prepare('SELECT name FROM entities ORDER BY id DESC LIMIT ?')
+      .prepare(`SELECT name FROM entities ${statusFilter} ORDER BY id DESC LIMIT ?`)
       .all(limit ?? 20) as { name: string }[];
 
     return rows
@@ -242,7 +303,90 @@ export class KnowledgeGraph {
       .filter((e): e is Entity => e !== null);
   }
 
-  deleteEntity(name: string): { deleted: boolean } {
+  private listRecentByTag(tag: string, limit: number, includeArchived?: boolean): Entity[] {
+    const statusFilter = includeArchived ? '' : "AND e.status = 'active'";
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT e.name
+         FROM entities e
+         JOIN tags t ON t.entity_id = e.id
+         WHERE t.tag = ?
+         ${statusFilter}
+         ORDER BY e.id DESC
+         LIMIT ?`
+      )
+      .all(tag, limit) as { name: string }[];
+
+    return rows
+      .map((r) => this.getEntity(r.name))
+      .filter((e): e is Entity => e !== null);
+  }
+
+  archiveEntity(name: string): { archived: boolean; name?: string; previousStatus?: string } {
+    const row = this.db
+      .prepare('SELECT id, status FROM entities WHERE name = ?')
+      .get(name) as { id: number; status: string } | undefined;
+
+    if (!row) return { archived: false };
+
+    // Remove from FTS5 index (archived entities should not be searchable)
+    const allObs = this.db
+      .prepare('SELECT content FROM observations WHERE entity_id = ?')
+      .all(row.id) as { content: string }[];
+    const obsText = allObs.map((o) => o.content).join(' ');
+
+    try {
+      this.db
+        .prepare(
+          "INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)"
+        )
+        .run(row.id, name, obsText);
+    } catch {
+      // FTS entry may not exist if already archived — ignore
+    }
+
+    // Set status to archived
+    this.db
+      .prepare("UPDATE entities SET status = 'archived' WHERE id = ?")
+      .run(row.id);
+
+    return { archived: true, name, previousStatus: row.status };
+  }
+
+  removeObservation(
+    entityName: string,
+    observationContent: string
+  ): { removed: boolean; remainingObservations: number } {
+    const row = this.db
+      .prepare('SELECT id FROM entities WHERE name = ?')
+      .get(entityName) as { id: number } | undefined;
+
+    if (!row) return { removed: false, remainingObservations: 0 };
+
+    const prevObs = this.db
+      .prepare('SELECT content FROM observations WHERE entity_id = ?')
+      .all(row.id) as { content: string }[];
+    const prevObsText = prevObs.map((o) => o.content).join(' ');
+
+    const deleteResult = this.db
+      .prepare('DELETE FROM observations WHERE entity_id = ? AND content = ?')
+      .run(row.id, observationContent);
+
+    if (deleteResult.changes === 0) {
+      return { removed: false, remainingObservations: prevObs.length };
+    }
+
+    this.rebuildFts(row.id, entityName, prevObsText);
+
+    const remaining = this.db
+      .prepare('SELECT COUNT(*) as c FROM observations WHERE entity_id = ?')
+      .get(row.id) as { c: number };
+
+    return { removed: true, remainingObservations: remaining.c };
+  }
+
+  /** @deprecated Use archiveEntity() instead. Retained for admin/testing only. */
+  private deleteEntity(name: string): { deleted: boolean } {
     const row = this.db
       .prepare('SELECT id FROM entities WHERE name = ?')
       .get(name) as { id: number } | undefined;
