@@ -592,6 +592,7 @@ export function generateLiveDashboardHtml(): string {
     .btn-primary:hover { background: #3651d4; }
     .btn-secondary { background: #f0f0f0; color: #333; }
     .btn-secondary:hover { background: #e0e0e0; }
+    .btn-sm { padding: 6px 12px; font-size: 13px; }
     table { width: 100%; border-collapse: collapse; }
     th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
     th { font-weight: 600; color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; background: #fafafa; }
@@ -609,6 +610,35 @@ export function generateLiveDashboardHtml(): string {
     @keyframes spin { to { transform: rotate(360deg); } }
     .entity-name { font-weight: 500; }
     .entity-obs { color: #888; font-size: 12px; }
+    /* Settings */
+    .settings-section { margin-bottom: 28px; }
+    .settings-section h3 { font-size: 14px; font-weight: 600; color: #1a1a2e; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #f0f0f0; }
+    .form-group { margin-bottom: 14px; }
+    .form-label { display: block; font-size: 13px; font-weight: 600; color: #444; margin-bottom: 5px; }
+    .form-hint { font-size: 12px; color: #888; margin-top: 4px; }
+    .provider-radio-group { display: flex; gap: 12px; flex-wrap: wrap; }
+    .provider-radio { display: flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; transition: border-color 0.15s; }
+    .provider-radio:hover { border-color: #4361ee; }
+    .provider-radio.selected { border-color: #4361ee; background: #f0f3ff; }
+    .provider-radio input[type=radio] { accent-color: #4361ee; }
+    .cap-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .cap-item { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 10px 12px; font-size: 12px; }
+    .cap-item .cap-label { color: #888; margin-bottom: 2px; }
+    .cap-item .cap-value { font-weight: 600; color: #1a1a2e; }
+    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+    .status-dot.ok { background: #4ade80; }
+    .status-dot.warn { background: #facc15; }
+    /* Welcome wizard modal */
+    .wizard-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .wizard-overlay.hidden { display: none; }
+    .wizard-modal { background: white; border-radius: 12px; padding: 32px; max-width: 520px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+    .wizard-modal h2 { font-size: 22px; font-weight: 700; margin-bottom: 8px; color: #1a1a2e; }
+    .wizard-modal .subtitle { color: #666; font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
+    .wizard-steps { display: flex; gap: 6px; margin-bottom: 28px; }
+    .wizard-step-dot { flex: 1; height: 3px; background: #e0e0e0; border-radius: 2px; transition: background 0.2s; }
+    .wizard-step-dot.active { background: #4361ee; }
+    .wizard-step-dot.done { background: #4ade80; }
+    .wizard-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
   `.trim();
 
   // The inline script uses only createElement / textContent for all user data.
@@ -635,6 +665,7 @@ export function generateLiveDashboardHtml(): string {
     document.querySelectorAll('.tab-content').forEach(function (el) { el.classList.remove('active'); });
     document.getElementById('tab-' + tab).classList.add('active');
     if (tab === 'browse') loadBrowse();
+    if (tab === 'settings') loadSettings();
   });
 
   // ---- Health check ----
@@ -791,9 +822,518 @@ export function generateLiveDashboardHtml(): string {
   browseFilter.addEventListener('input', function () { renderBrowseTable(this.value); });
   document.getElementById('browse-refresh').addEventListener('click', loadBrowse);
 
+  // ---- Settings tab ----
+  var settingsLoaded = false;
+
+  async function loadSettings() {
+    if (settingsLoaded) return;
+    settingsLoaded = false; // allow re-render on each visit to reflect saved state
+    var body = document.getElementById('settings-body');
+    body.textContent = '';
+
+    var configRes;
+    try {
+      configRes = await apiCall('GET', '/v1/config');
+    } catch (err) {
+      showError(body, 'Failed to load config: ' + err.message);
+      return;
+    }
+
+    var currentConfig = (configRes.success && configRes.data && configRes.data.config) || {};
+    var caps = (configRes.success && configRes.data && configRes.data.capabilities) || {};
+
+    // --- Capabilities section ---
+    var capSection = document.createElement('div');
+    capSection.className = 'settings-section';
+    var capH3 = document.createElement('h3');
+    capH3.textContent = 'Current Capabilities';
+    capSection.appendChild(capH3);
+
+    var capGrid = document.createElement('div');
+    capGrid.className = 'cap-grid';
+
+    function addCap(label, value, good) {
+      var item = document.createElement('div');
+      item.className = 'cap-item';
+      var lbl = document.createElement('div');
+      lbl.className = 'cap-label';
+      lbl.textContent = label;
+      var val = document.createElement('div');
+      val.className = 'cap-value';
+      if (good !== undefined) {
+        var dot = document.createElement('span');
+        dot.className = 'status-dot ' + (good ? 'ok' : 'warn');
+        val.appendChild(dot);
+      }
+      val.appendChild(document.createTextNode(String(value)));
+      item.appendChild(lbl);
+      item.appendChild(val);
+      capGrid.appendChild(item);
+    }
+
+    var searchLevel = caps.searchLevel !== undefined ? caps.searchLevel : '?';
+    addCap('Search Level', searchLevel === 1 ? 'Smart Mode' : 'Core FTS5', searchLevel === 1);
+    addCap('Embeddings', caps.embeddings || 'tfidf', caps.embeddings && caps.embeddings !== 'tfidf');
+    var llmProvider = (caps.llm && caps.llm.provider) ? caps.llm.provider : 'None';
+    addCap('LLM Provider', llmProvider, !!caps.llm);
+    var llmModel = (caps.llm && caps.llm.model) ? caps.llm.model : '\u2014';
+    addCap('LLM Model', llmModel, !!caps.llm);
+
+    capSection.appendChild(capGrid);
+    body.appendChild(capSection);
+
+    // --- LLM Provider section ---
+    var llmSection = document.createElement('div');
+    llmSection.className = 'settings-section';
+    var llmH3 = document.createElement('h3');
+    llmH3.textContent = 'LLM Provider';
+    llmSection.appendChild(llmH3);
+
+    var providerGroup = document.createElement('div');
+    providerGroup.className = 'form-group';
+    var providerLabel = document.createElement('label');
+    providerLabel.className = 'form-label';
+    providerLabel.textContent = 'Provider';
+    providerGroup.appendChild(providerLabel);
+
+    var radioGroup = document.createElement('div');
+    radioGroup.className = 'provider-radio-group';
+    var currentProvider = (currentConfig.llm && currentConfig.llm.provider) || '';
+
+    ['anthropic', 'openai', 'ollama'].forEach(function (p) {
+      var wrapper = document.createElement('label');
+      wrapper.className = 'provider-radio' + (currentProvider === p ? ' selected' : '');
+
+      var radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'llm-provider';
+      radio.value = p;
+      if (currentProvider === p) radio.checked = true;
+
+      radio.addEventListener('change', function () {
+        document.querySelectorAll('.provider-radio').forEach(function (el) { el.classList.remove('selected'); });
+        wrapper.classList.add('selected');
+        apiKeyGroup.style.display = p === 'ollama' ? 'none' : 'block';
+        modelGroup.style.display = 'block';
+      });
+
+      wrapper.appendChild(radio);
+      wrapper.appendChild(document.createTextNode(p.charAt(0).toUpperCase() + p.slice(1)));
+      radioGroup.appendChild(wrapper);
+    });
+
+    providerGroup.appendChild(radioGroup);
+    llmSection.appendChild(providerGroup);
+
+    // API Key input
+    var apiKeyGroup = document.createElement('div');
+    apiKeyGroup.className = 'form-group';
+    apiKeyGroup.style.display = currentProvider && currentProvider !== 'ollama' ? 'block' : (currentProvider === 'ollama' ? 'none' : 'none');
+
+    var apiKeyLabel = document.createElement('label');
+    apiKeyLabel.className = 'form-label';
+    apiKeyLabel.textContent = 'API Key';
+    apiKeyGroup.appendChild(apiKeyLabel);
+
+    var apiKeyInput = document.createElement('input');
+    apiKeyInput.type = 'password';
+    apiKeyInput.className = 'search-input';
+    apiKeyInput.placeholder = 'sk-ant-api03-\u2026 or sk-\u2026';
+    apiKeyInput.style.width = '100%';
+    apiKeyInput.autocomplete = 'off';
+    apiKeyGroup.appendChild(apiKeyInput);
+
+    var apiKeyHint = document.createElement('div');
+    apiKeyHint.className = 'form-hint';
+    apiKeyHint.textContent = 'Leave blank to keep existing key. Key is stored in ~/.memesh/config.json (mode 600).';
+    apiKeyGroup.appendChild(apiKeyHint);
+    llmSection.appendChild(apiKeyGroup);
+
+    // Model input
+    var modelGroup = document.createElement('div');
+    modelGroup.className = 'form-group';
+    modelGroup.style.display = currentProvider ? 'block' : 'none';
+
+    var modelLabel = document.createElement('label');
+    modelLabel.className = 'form-label';
+    modelLabel.textContent = 'Model (optional)';
+    modelGroup.appendChild(modelLabel);
+
+    var modelInput = document.createElement('input');
+    modelInput.type = 'text';
+    modelInput.className = 'search-input';
+    modelInput.placeholder = 'e.g. claude-haiku-4-5, gpt-4o-mini, llama3.2';
+    modelInput.style.width = '100%';
+    if (currentConfig.llm && currentConfig.llm.model) modelInput.value = currentConfig.llm.model;
+    modelGroup.appendChild(modelInput);
+    llmSection.appendChild(modelGroup);
+
+    // Save button row
+    var saveRow = document.createElement('div');
+    saveRow.style.display = 'flex';
+    saveRow.style.gap = '10px';
+    saveRow.style.alignItems = 'center';
+    saveRow.style.marginTop = '4px';
+
+    var saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-primary btn-sm';
+    saveBtn.textContent = 'Save';
+
+    var saveMsg = document.createElement('span');
+    saveMsg.style.fontSize = '13px';
+    saveMsg.style.color = '#166534';
+
+    saveBtn.addEventListener('click', async function () {
+      var selectedProvider = document.querySelector('input[name=llm-provider]:checked');
+      if (!selectedProvider) { saveMsg.style.color = '#b91c1c'; saveMsg.textContent = 'Select a provider first.'; return; }
+      var prov = selectedProvider.value;
+      var llmUpdate = { provider: prov };
+      if (modelInput.value.trim()) llmUpdate.model = modelInput.value.trim();
+      if (apiKeyInput.value.trim()) llmUpdate.apiKey = apiKeyInput.value.trim();
+
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving\u2026';
+      try {
+        var res = await apiCall('POST', '/v1/config', { llm: llmUpdate });
+        if (!res.success) throw new Error(res.error || 'Save failed');
+        saveMsg.style.color = '#166534';
+        saveMsg.textContent = 'Saved! Restart the server to apply LLM changes.';
+        apiKeyInput.value = '';
+        settingsLoaded = false; // force re-render on next visit
+      } catch (err) {
+        saveMsg.style.color = '#b91c1c';
+        saveMsg.textContent = 'Error: ' + err.message;
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      }
+    });
+
+    saveRow.appendChild(saveBtn);
+    saveRow.appendChild(saveMsg);
+    llmSection.appendChild(saveRow);
+    body.appendChild(llmSection);
+
+    // --- General settings section ---
+    var genSection = document.createElement('div');
+    genSection.className = 'settings-section';
+    var genH3 = document.createElement('h3');
+    genH3.textContent = 'General';
+    genSection.appendChild(genH3);
+
+    // Auto-capture toggle
+    var autoGroup = document.createElement('div');
+    autoGroup.className = 'form-group';
+    autoGroup.style.display = 'flex';
+    autoGroup.style.alignItems = 'center';
+    autoGroup.style.gap = '10px';
+
+    var autoCheck = document.createElement('input');
+    autoCheck.type = 'checkbox';
+    autoCheck.id = 'auto-capture';
+    autoCheck.style.accentColor = '#4361ee';
+    autoCheck.checked = currentConfig.autoCapture !== false;
+
+    var autoLabel = document.createElement('label');
+    autoLabel.htmlFor = 'auto-capture';
+    autoLabel.style.fontSize = '13px';
+    autoLabel.style.fontWeight = '600';
+    autoLabel.style.cursor = 'pointer';
+    autoLabel.textContent = 'Auto-capture (session-start hook)';
+
+    autoGroup.appendChild(autoCheck);
+    autoGroup.appendChild(autoLabel);
+    genSection.appendChild(autoGroup);
+
+    var autoHint = document.createElement('div');
+    autoHint.className = 'form-hint';
+    autoHint.style.marginLeft = '28px';
+    autoHint.textContent = 'Automatically recall project memories at the start of each Claude Code session.';
+    genSection.appendChild(autoHint);
+
+    var genSaveRow = document.createElement('div');
+    genSaveRow.style.marginTop = '12px';
+
+    var genSaveBtn = document.createElement('button');
+    genSaveBtn.className = 'btn btn-primary btn-sm';
+    genSaveBtn.textContent = 'Save';
+
+    var genMsg = document.createElement('span');
+    genMsg.style.fontSize = '13px';
+    genMsg.style.marginLeft = '10px';
+    genMsg.style.color = '#166534';
+
+    genSaveBtn.addEventListener('click', async function () {
+      genSaveBtn.disabled = true;
+      genSaveBtn.textContent = 'Saving\u2026';
+      try {
+        var res = await apiCall('POST', '/v1/config', { autoCapture: autoCheck.checked });
+        if (!res.success) throw new Error(res.error || 'Save failed');
+        genMsg.style.color = '#166534';
+        genMsg.textContent = 'Saved!';
+        setTimeout(function () { genMsg.textContent = ''; }, 3000);
+      } catch (err) {
+        genMsg.style.color = '#b91c1c';
+        genMsg.textContent = 'Error: ' + err.message;
+      } finally {
+        genSaveBtn.disabled = false;
+        genSaveBtn.textContent = 'Save';
+      }
+    });
+
+    genSaveRow.appendChild(genSaveBtn);
+    genSaveRow.appendChild(genMsg);
+    genSection.appendChild(genSaveRow);
+    body.appendChild(genSection);
+  }
+
+  // ---- Welcome Wizard ----
+  var wizardStep = 0;
+  var wizardProvider = '';
+  var wizardApiKey = '';
+  var wizardModel = '';
+
+  function updateWizardStepDots(totalSteps) {
+    var dotsEl = document.getElementById('wizard-steps');
+    dotsEl.textContent = '';
+    for (var i = 0; i < totalSteps; i++) {
+      var dot = document.createElement('div');
+      dot.className = 'wizard-step-dot' + (i < wizardStep ? ' done' : (i === wizardStep ? ' active' : ''));
+      dotsEl.appendChild(dot);
+    }
+  }
+
+  function renderWizardStep() {
+    var content = document.getElementById('wizard-content');
+    var actions = document.getElementById('wizard-actions');
+    content.textContent = '';
+    actions.textContent = '';
+    updateWizardStepDots(3);
+
+    if (wizardStep === 0) {
+      var title = document.createElement('h2');
+      title.textContent = 'Welcome to MeMesh';
+      content.appendChild(title);
+
+      var sub = document.createElement('p');
+      sub.className = 'subtitle';
+      sub.textContent = 'MeMesh gives Claude a persistent knowledge graph. Set up an LLM provider to unlock Smart Mode \u2014 semantic search, conflict detection, and knowledge evolution.';
+      content.appendChild(sub);
+
+      var capList = document.createElement('ul');
+      capList.style.listStyle = 'none';
+      capList.style.marginBottom = '8px';
+      [
+        ['Core FTS5 search \u2014 always available', true],
+        ['Smart Mode (LLM) \u2014 requires API key', false],
+        ['Auto-capture on session start', true],
+      ].forEach(function (item) {
+        var li = document.createElement('li');
+        li.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0;font-size:14px;';
+        var dot = document.createElement('span');
+        dot.className = 'status-dot ' + (item[1] ? 'ok' : 'warn');
+        li.appendChild(dot);
+        li.appendChild(document.createTextNode(String(item[0])));
+        capList.appendChild(li);
+      });
+      content.appendChild(capList);
+
+      var skipBtn = document.createElement('button');
+      skipBtn.className = 'btn btn-secondary';
+      skipBtn.textContent = 'Skip for now';
+      skipBtn.addEventListener('click', closeWizard);
+
+      var nextBtn = document.createElement('button');
+      nextBtn.className = 'btn btn-primary';
+      nextBtn.textContent = 'Set up Smart Mode \u2192';
+      nextBtn.addEventListener('click', function () { wizardStep = 1; renderWizardStep(); });
+
+      actions.appendChild(skipBtn);
+      actions.appendChild(nextBtn);
+
+    } else if (wizardStep === 1) {
+      var title2 = document.createElement('h2');
+      title2.textContent = 'Choose a Provider';
+      content.appendChild(title2);
+
+      var sub2 = document.createElement('p');
+      sub2.className = 'subtitle';
+      sub2.textContent = 'Select your LLM provider and enter your API key. Keys are stored locally in ~/.memesh/config.json (mode 600).';
+      content.appendChild(sub2);
+
+      // Provider radios
+      var radioGroupW = document.createElement('div');
+      radioGroupW.className = 'provider-radio-group';
+      radioGroupW.style.marginBottom = '16px';
+
+      ['anthropic', 'openai', 'ollama'].forEach(function (p) {
+        var wrapper = document.createElement('label');
+        wrapper.className = 'provider-radio' + (wizardProvider === p ? ' selected' : '');
+
+        var radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'wizard-provider';
+        radio.value = p;
+        if (wizardProvider === p) radio.checked = true;
+
+        radio.addEventListener('change', function () {
+          document.querySelectorAll('.provider-radio').forEach(function (el) { el.classList.remove('selected'); });
+          wrapper.classList.add('selected');
+          wizardProvider = p;
+          keyInput.style.display = p === 'ollama' ? 'none' : 'block';
+          keyLabel.style.display = p === 'ollama' ? 'none' : 'block';
+        });
+
+        wrapper.appendChild(radio);
+        wrapper.appendChild(document.createTextNode(p.charAt(0).toUpperCase() + p.slice(1)));
+        radioGroupW.appendChild(wrapper);
+      });
+      content.appendChild(radioGroupW);
+
+      // API Key
+      var keyLabel = document.createElement('label');
+      keyLabel.className = 'form-label';
+      keyLabel.textContent = 'API Key';
+      keyLabel.style.display = wizardProvider && wizardProvider !== 'ollama' ? 'block' : 'none';
+      content.appendChild(keyLabel);
+
+      var keyInput = document.createElement('input');
+      keyInput.type = 'password';
+      keyInput.className = 'search-input';
+      keyInput.placeholder = 'Paste your API key\u2026';
+      keyInput.style.width = '100%';
+      keyInput.style.marginBottom = '12px';
+      keyInput.style.display = wizardProvider && wizardProvider !== 'ollama' ? 'block' : 'none';
+      keyInput.value = wizardApiKey;
+      keyInput.addEventListener('input', function () { wizardApiKey = keyInput.value; });
+      content.appendChild(keyInput);
+
+      // Error message
+      var errMsg = document.createElement('div');
+      errMsg.style.cssText = 'font-size:13px;color:#b91c1c;min-height:18px;margin-bottom:8px;';
+      content.appendChild(errMsg);
+
+      var backBtn = document.createElement('button');
+      backBtn.className = 'btn btn-secondary';
+      backBtn.textContent = '\u2190 Back';
+      backBtn.addEventListener('click', function () { wizardStep = 0; renderWizardStep(); });
+
+      var testBtn = document.createElement('button');
+      testBtn.className = 'btn btn-secondary';
+      testBtn.textContent = 'Test Connection';
+      testBtn.addEventListener('click', async function () {
+        if (!wizardProvider) { errMsg.textContent = 'Select a provider.'; return; }
+        if (wizardProvider !== 'ollama' && !wizardApiKey.trim()) { errMsg.textContent = 'Enter an API key.'; return; }
+        testBtn.disabled = true;
+        testBtn.textContent = 'Testing\u2026';
+        errMsg.textContent = '';
+        try {
+          // Save to config and check capabilities
+          var payload = { llm: { provider: wizardProvider } };
+          if (wizardApiKey.trim()) payload.llm.apiKey = wizardApiKey.trim();
+          var res = await apiCall('POST', '/v1/config', payload);
+          if (!res.success) throw new Error(res.error || 'Config save failed');
+          errMsg.style.color = '#166534';
+          errMsg.textContent = 'Connection config saved!';
+        } catch (err) {
+          errMsg.style.color = '#b91c1c';
+          errMsg.textContent = 'Error: ' + err.message;
+        } finally {
+          testBtn.disabled = false;
+          testBtn.textContent = 'Test Connection';
+        }
+      });
+
+      var nextBtn2 = document.createElement('button');
+      nextBtn2.className = 'btn btn-primary';
+      nextBtn2.textContent = 'Next \u2192';
+      nextBtn2.addEventListener('click', async function () {
+        if (!wizardProvider) { errMsg.textContent = 'Select a provider.'; return; }
+        nextBtn2.disabled = true;
+        nextBtn2.textContent = 'Saving\u2026';
+        try {
+          var payload2 = { llm: { provider: wizardProvider }, setupCompleted: true };
+          if (wizardApiKey.trim()) payload2.llm.apiKey = wizardApiKey.trim();
+          var res2 = await apiCall('POST', '/v1/config', payload2);
+          if (!res2.success) throw new Error(res2.error || 'Save failed');
+          wizardStep = 2;
+          renderWizardStep();
+        } catch (err) {
+          errMsg.style.color = '#b91c1c';
+          errMsg.textContent = 'Error: ' + err.message;
+          nextBtn2.disabled = false;
+          nextBtn2.textContent = 'Next \u2192';
+        }
+      });
+
+      actions.appendChild(backBtn);
+      actions.appendChild(testBtn);
+      actions.appendChild(nextBtn2);
+
+    } else if (wizardStep === 2) {
+      var title3 = document.createElement('h2');
+      title3.textContent = "You're all set!";
+      content.appendChild(title3);
+
+      var sub3 = document.createElement('p');
+      sub3.className = 'subtitle';
+      sub3.textContent = 'MeMesh Smart Mode is configured. Restart the server for LLM changes to take effect. Start using the Search and Browse tabs to explore your knowledge graph.';
+      content.appendChild(sub3);
+
+      var tipBox = document.createElement('div');
+      tipBox.style.cssText = 'background:#f0f3ff;border-radius:6px;padding:14px 16px;font-size:13px;line-height:1.6;';
+      var tipLines = [
+        '\u2022 Use the Search tab to find anything across all your memories.',
+        '\u2022 Browse tab shows all entities with filter controls.',
+        '\u2022 Settings tab lets you change your provider anytime.',
+      ];
+      tipLines.forEach(function (line) {
+        var p = document.createElement('p');
+        p.textContent = line;
+        tipBox.appendChild(p);
+      });
+      content.appendChild(tipBox);
+
+      var doneBtn = document.createElement('button');
+      doneBtn.className = 'btn btn-primary';
+      doneBtn.textContent = 'Go to Dashboard';
+      doneBtn.addEventListener('click', closeWizard);
+      actions.appendChild(doneBtn);
+    }
+  }
+
+  function showWelcomeWizard() {
+    wizardStep = 0;
+    document.getElementById('wizard-overlay').classList.remove('hidden');
+    renderWizardStep();
+  }
+
+  function closeWizard() {
+    document.getElementById('wizard-overlay').classList.add('hidden');
+    // Mark setup completed so wizard doesn't reappear
+    apiCall('POST', '/v1/config', { setupCompleted: true });
+  }
+
+  // Close wizard on overlay click outside modal
+  document.getElementById('wizard-overlay').addEventListener('click', function (e) {
+    if (e.target === this) closeWizard();
+  });
+
   // ---- Init ----
   checkHealth();
   loadBrowse();
+
+  // Check if first-run wizard should appear
+  (async function checkFirstRun() {
+    try {
+      var res = await apiCall('GET', '/v1/config');
+      if (res.success && res.data && res.data.config && !res.data.config.setupCompleted) {
+        showWelcomeWizard();
+      }
+    } catch (_err) {
+      // Silently ignore — wizard is optional
+    }
+  })();
 })();
   `.trim();
 
@@ -874,11 +1414,21 @@ export function generateLiveDashboardHtml(): string {
   </div>
 
   <div class="tab-content" id="tab-settings">
-    <div class="card">
-      <div class="placeholder"><div class="icon">&#128290;</div><p>Settings tab \u2014 coming in M4.2</p></div>
+    <div class="card" id="settings-card">
+      <h2>Settings</h2>
+      <div id="settings-body"></div>
     </div>
   </div>
 
+</div>
+
+<!-- Welcome Wizard Modal -->
+<div class="wizard-overlay hidden" id="wizard-overlay">
+  <div class="wizard-modal">
+    <div class="wizard-steps" id="wizard-steps"></div>
+    <div id="wizard-content"></div>
+    <div class="wizard-actions" id="wizard-actions"></div>
+  </div>
 </div>
 
 <script>${SCRIPT}<\/script>

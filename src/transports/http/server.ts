@@ -6,7 +6,7 @@ import { openDatabase, closeDatabase } from '../../db.js';
 import { remember, recallEnhanced, forget } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
-import { logCapabilities } from '../../core/config.js';
+import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
 import { generateLiveDashboardHtml } from '../../cli/view.js';
 
 // Zod schemas for HTTP input validation (same rules as MCP handlers)
@@ -106,6 +106,35 @@ app.post('/v1/forget', (req, res) => {
   try {
     const result = forget(parsed.data);
     res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// --- Config ---
+app.get('/v1/config', (_req, res) => {
+  try {
+    const config = readConfig();
+    const caps = detectCapabilities(config);
+    const safeConfig = { ...config };
+    if (safeConfig.llm?.apiKey) {
+      safeConfig.llm = { ...safeConfig.llm, apiKey: '***' };
+    }
+    res.json({ success: true, data: { config: safeConfig, capabilities: caps } });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/v1/config', (req, res) => {
+  try {
+    const updated = updateConfig(req.body);
+    // Mask API key before returning
+    const safeUpdated = { ...updated };
+    if (safeUpdated.llm?.apiKey) {
+      safeUpdated.llm = { ...safeUpdated.llm, apiKey: '***' };
+    }
+    res.json({ success: true, data: safeUpdated });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
   }
