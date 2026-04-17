@@ -12,9 +12,11 @@
   },
   "files": [
     "dist/",
+    "dashboard/dist/",
     ".mcp.json",
     "hooks/hooks.json",
     "scripts/hooks/",
+    "skills/",
     "plugin.json",
     "README.md",
     "LICENSE"

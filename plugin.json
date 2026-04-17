@@ -8,5 +8,6 @@
   "license": "MIT",
   "keywords": ["claude-code", "mcp", "knowledge-graph", "ai-memory"],
   "mcpServers": "./.mcp.json",
-  "hooks": "./hooks/hooks.json"
+  "hooks": "./hooks/hooks.json",
+  "skills": "./skills"
 }
