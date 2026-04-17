@@ -40,6 +40,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Build dashboard
+        run: cd dashboard && npm ci && npx vite build
+
       - name: Run tests
         run: npm test -- --run
 
@@ -64,6 +67,9 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Build dashboard
+        run: cd dashboard && npm ci && npx vite build
 
       - name: Verify packaged artifact
         run: npm run test:packaged
