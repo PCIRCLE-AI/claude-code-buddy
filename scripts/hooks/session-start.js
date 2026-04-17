@@ -87,16 +87,24 @@ process.stdin.on('end', () => {
         lines.push('MeMesh: No memories found yet. Use remember tool to store knowledge.');
       }
 
-      output(lines.join('\n'));
+      const memorySummary = lines.join('\n');
+      const hookOutput = {
+        suppressOutput: true,
+        hookSpecificOutput: {
+          hookEventName: 'SessionStart',
+          additionalContext: memorySummary,
+        },
+      };
+      console.log(JSON.stringify(hookOutput));
     } finally {
       db.close();
     }
   } catch (err) {
     // Hooks must never crash Claude Code — but report honestly
-    output(`MeMesh: Session start failed (${err?.message || 'unknown error'}). Memories not loaded.`);
+    console.log(JSON.stringify({ systemMessage: `MeMesh: Session start failed (${err?.message || 'unknown error'}). Memories not loaded.` }));
   }
 });
 
 function output(text) {
-  console.log(JSON.stringify({ result: text }));
+  console.log(JSON.stringify({ systemMessage: text }));
 }

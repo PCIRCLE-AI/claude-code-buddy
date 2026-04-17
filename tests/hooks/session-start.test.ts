@@ -20,7 +20,7 @@ describe('Feature: Session Start Hook', () => {
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 
-  function runHook(input: object): { result: string } {
+  function runHook(input: object): Record<string, unknown> {
     const hookPath = path.resolve('scripts/hooks/session-start.js');
     const jsonInput = JSON.stringify(input);
     const result = execFileSync('node', [hookPath], {
@@ -71,7 +71,7 @@ describe('Feature: Session Start Hook', () => {
 
   it('Scenario: No database exists -> welcome message', () => {
     const output = runHook({ cwd: '/tmp/myproject' });
-    expect(output.result).toContain('No database found');
+    expect(output.systemMessage as string).toContain('No database found');
   });
 
   it('Scenario: Empty database (no entities table) -> graceful message', () => {
@@ -82,7 +82,7 @@ describe('Feature: Session Start Hook', () => {
 
     const output = runHook({ cwd: '/tmp/myproject' });
     // Empty db hits the catch block or table check — either way, no crash
-    expect(output.result).toBeTruthy();
+    expect(output.systemMessage).toBeTruthy();
   });
 
   it('Scenario: Database with project memories -> recalls them with observations', () => {
@@ -94,10 +94,12 @@ describe('Feature: Session Start Hook', () => {
     db.close();
 
     const output = runHook({ cwd: '/tmp/myproject' });
-    expect(output.result).toContain('Project "myproject" memories');
-    expect(output.result).toContain('[component] auth-module');
-    expect(output.result).toContain('Uses bcrypt for password hashing');
-    expect(output.result).toContain('Handles JWT token validation');
+    const hookOutput = output as { suppressOutput: boolean; hookSpecificOutput: { hookEventName: string; additionalContext: string } };
+    expect(hookOutput.suppressOutput).toBe(true);
+    expect(hookOutput.hookSpecificOutput.additionalContext).toContain('Project "myproject" memories');
+    expect(hookOutput.hookSpecificOutput.additionalContext).toContain('[component] auth-module');
+    expect(hookOutput.hookSpecificOutput.additionalContext).toContain('Uses bcrypt for password hashing');
+    expect(hookOutput.hookSpecificOutput.additionalContext).toContain('Handles JWT token validation');
   });
 
   it('Scenario: Database with no matching project -> shows only recent memories', () => {
@@ -107,10 +109,11 @@ describe('Feature: Session Start Hook', () => {
     db.close();
 
     const output = runHook({ cwd: '/tmp/other-project' });
-    expect(output.result).not.toContain('Project "other-project" memories');
-    expect(output.result).toContain('Recent memories');
-    expect(output.result).toContain('[note] some-entity');
-    expect(output.result).toContain('A note about something');
+    const additionalContext = (output as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    expect(additionalContext).not.toContain('Project "other-project" memories');
+    expect(additionalContext).toContain('Recent memories');
+    expect(additionalContext).toContain('[note] some-entity');
+    expect(additionalContext).toContain('A note about something');
   });
 
   it('Scenario: Database with both project and global memories -> shows both', () => {
@@ -125,10 +128,11 @@ describe('Feature: Session Start Hook', () => {
     db.close();
 
     const output = runHook({ cwd: '/tmp/testproj' });
-    expect(output.result).toContain('Project "testproj" memories');
-    expect(output.result).toContain('[feature] project-item');
-    expect(output.result).toContain('Recent memories');
-    expect(output.result).toContain('[note] global-item');
+    const additionalContext = (output as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext;
+    expect(additionalContext).toContain('Project "testproj" memories');
+    expect(additionalContext).toContain('[feature] project-item');
+    expect(additionalContext).toContain('Recent memories');
+    expect(additionalContext).toContain('[note] global-item');
   });
 
   it('Scenario: Always exits with valid JSON output on invalid input', () => {
@@ -140,7 +144,7 @@ describe('Feature: Session Start Hook', () => {
       timeout: 15000,
     });
     const parsed = JSON.parse(result.trim());
-    expect(parsed).toHaveProperty('result');
-    expect(typeof parsed.result).toBe('string');
+    expect(parsed).toHaveProperty('systemMessage');
+    expect(typeof parsed.systemMessage).toBe('string');
   });
 });
