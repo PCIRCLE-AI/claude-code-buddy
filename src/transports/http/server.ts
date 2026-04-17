@@ -3,7 +3,7 @@
 import express from 'express';
 import { z } from 'zod';
 import { openDatabase, closeDatabase } from '../../db.js';
-import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories } from '../../core/operations.js';
+import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
@@ -65,6 +65,15 @@ const ImportBody = z.object({
   namespace: z.string().optional(),
   merge_strategy: z.enum(['skip', 'overwrite', 'append']),
 });
+
+const LearnBody = z.object({
+  error: z.string().min(1),
+  fix: z.string().min(1),
+  root_cause: z.string().optional(),
+  prevention: z.string().optional(),
+  severity: z.enum(['critical', 'major', 'minor']).optional(),
+});
+
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -224,6 +233,21 @@ app.post('/v1/import', (req, res) => {
   }
   try {
     const result = importMemories(parsed.data);
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// --- Learn ---
+app.post('/v1/learn', (req, res) => {
+  const parsed = LearnBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+    return;
+  }
+  try {
+    const result = learn(parsed.data);
     res.json({ success: true, data: result });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });

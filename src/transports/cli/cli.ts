@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
-import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories } from '../../core/operations.js';
+import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { readConfig, updateConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 
@@ -214,6 +214,36 @@ program
       if (result.errors.length > 0) {
         console.error(`Errors:\n  ${result.errors.join('\n  ')}`);
         process.exitCode = 1;
+      }
+    } finally {
+      closeDatabase();
+    }
+  });
+
+// --- learn ---
+program
+  .command('learn')
+  .description('Record a lesson from a mistake or discovery')
+  .requiredOption('--error <text>', 'What went wrong')
+  .requiredOption('--fix <text>', 'What fixed it')
+  .option('--root-cause <text>', 'Why it happened')
+  .option('--prevention <text>', 'How to prevent it next time')
+  .option('--severity <level>', 'Severity: critical|major|minor', 'minor')
+  .option('--json', 'Output as JSON')
+  .action((opts) => {
+    openDatabase();
+    try {
+      const result = learn({
+        error: opts.error,
+        fix: opts.fix,
+        root_cause: opts.rootCause,
+        prevention: opts.prevention,
+        severity: opts.severity as 'critical' | 'major' | 'minor' | undefined,
+      });
+      if (opts.json) {
+        console.log(JSON.stringify(result));
+      } else {
+        console.log(`Lesson recorded: ${result.name}`);
       }
     } finally {
       closeDatabase();

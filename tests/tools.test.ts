@@ -236,6 +236,54 @@ describe('forget', () => {
   });
 });
 
+// ── Learn ────────────────────────────────────────────────────────────────────
+
+describe('learn', () => {
+  it('creates a lesson_learned entity', async () => {
+    const result = await handleTool('learn', { error: 'Bug found', fix: 'Fixed it' });
+    expect(result.isError).toBeUndefined();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.learned).toBe(true);
+    expect(data.type).toBe('lesson_learned');
+  });
+
+  it('returns the lesson entity name containing "lesson-"', async () => {
+    const result = await handleTool('learn', { error: 'Import missing', fix: 'Added import' });
+    const data = JSON.parse(result.content[0].text);
+    expect(data.name).toContain('lesson-');
+  });
+
+  it('accepts optional root_cause, prevention, and severity', async () => {
+    const result = await handleTool('learn', {
+      error: 'DB timeout',
+      fix: 'Added connection pool',
+      root_cause: 'No pooling configured',
+      prevention: 'Always configure pool size',
+      severity: 'critical',
+    });
+    expect(result.isError).toBeUndefined();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.learned).toBe(true);
+  });
+
+  it('returns validation error when error field is missing', async () => {
+    const result = await handleTool('learn', { fix: 'Some fix' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('error');
+  });
+
+  it('returns validation error when fix field is missing', async () => {
+    const result = await handleTool('learn', { error: 'Some error' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('fix');
+  });
+
+  it('returns validation error for invalid severity', async () => {
+    const result = await handleTool('learn', { error: 'Oops', fix: 'Fixed', severity: 'extreme' });
+    expect(result.isError).toBe(true);
+  });
+});
+
 // ── Unknown tool ────────────────────────────────────────────────────────
 
 describe('unknown tool', () => {

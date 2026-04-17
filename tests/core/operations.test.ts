@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { openDatabase, closeDatabase } from '../../src/db.js';
-import { remember, recall, forget } from '../../src/core/operations.js';
+import { remember, recall, forget, learn } from '../../src/core/operations.js';
 
 let tmpDir: string;
 
@@ -201,6 +201,52 @@ describe('Core Operations: forget', () => {
     const result = forget({ name: 'ghost' });
     expect(result.archived).toBe(false);
     expect(result.message).toContain('not found');
+  });
+});
+
+// ── Learn ────────────────────────────────────────────────────────────────────
+
+describe('Core Operations: learn', () => {
+  it('creates a lesson_learned entity and returns learned=true', () => {
+    const result = learn({ error: 'TypeError: null', fix: 'Added null check' });
+    expect(result.learned).toBe(true);
+    expect(result.type).toBe('lesson_learned');
+  });
+
+  it('returns a name containing "lesson-"', () => {
+    const result = learn({ error: 'Import missing', fix: 'Added import' });
+    expect(result.name).toContain('lesson-');
+  });
+
+  it('stores the lesson so it is recallable', () => {
+    learn({ error: 'Build fails with tsc error', fix: 'Fixed tsconfig paths' });
+    const entities = recall({ query: 'tsc error' });
+    expect(entities.length).toBeGreaterThanOrEqual(1);
+    expect(entities[0].type).toBe('lesson_learned');
+  });
+
+  it('stores optional root_cause and prevention in observations', () => {
+    learn({
+      error: 'DB connection dropped',
+      fix: 'Added retry logic',
+      root_cause: 'No connection pooling',
+      prevention: 'Always use a connection pool',
+      severity: 'major',
+    });
+    const entities = recall({ query: 'connection pooling' });
+    expect(entities.length).toBeGreaterThanOrEqual(1);
+    const obs = entities[0].observations.join(' ');
+    expect(obs).toContain('No connection pooling');
+    expect(obs).toContain('Always use a connection pool');
+  });
+
+  it('upserts on same error pattern — does not create duplicates', () => {
+    learn({ error: 'TypeError: null', fix: 'First fix' });
+    learn({ error: 'TypeError: null', fix: 'Refined fix' });
+    const entities = recall({ query: 'null-reference' });
+    // Both calls should hit the same entity (upsert by name)
+    const lessonEntities = entities.filter(e => e.type === 'lesson_learned');
+    expect(lessonEntities.length).toBe(1);
   });
 });
 
