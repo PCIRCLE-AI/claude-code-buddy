@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createRequire } from 'module';
+import { execFileSync } from 'child_process';
 import { homedir } from 'os';
 import { join, basename } from 'path';
 import { existsSync, mkdirSync } from 'fs';
@@ -119,6 +120,25 @@ process.stdin.on('end', () => {
         // Add observations
         db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, commitMsg);
         db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, `Branch: ${branch}`);
+
+        // Add richer diff stats as an observation (backward compatible — failures are silently ignored)
+        try {
+          const stat = execFileSync('git', ['show', '--stat', '--format=', commitHash], {
+            cwd: data.cwd || process.cwd(),
+            encoding: 'utf8',
+            timeout: 5000,
+          }).trim();
+          if (stat) {
+            // Last non-empty line is the summary, e.g. "3 files changed, 45 insertions(+), 12 deletions(-)"
+            const statLines = stat.split('\n').filter(l => l.trim());
+            const summary = statLines[statLines.length - 1]?.trim() || '';
+            if (summary) {
+              db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, `Diff stats: ${summary}`);
+            }
+          }
+        } catch {
+          // git show failed — no diff stats recorded, existing behavior unchanged
+        }
 
         // Add project tag
         const projectTag = `project:${projectName}`;
