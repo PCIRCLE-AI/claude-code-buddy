@@ -6,9 +6,20 @@ import { BrowseTab } from './components/BrowseTab';
 import { AnalyticsTab } from './components/AnalyticsTab';
 import { SettingsTab } from './components/SettingsTab';
 import { api, type HealthData } from './lib/api';
+import { initLocale, t } from './lib/i18n';
 
-const TABS = ['Search', 'Browse', 'Analytics', 'Manage', 'Settings'] as const;
-type Tab = typeof TABS[number];
+initLocale();
+
+const TAB_KEYS = ['Search', 'Browse', 'Analytics', 'Manage', 'Settings'] as const;
+type Tab = typeof TAB_KEYS[number];
+
+const TAB_I18N_KEYS: Record<Tab, string> = {
+  Search: 'tab.search',
+  Browse: 'tab.browse',
+  Analytics: 'tab.analytics',
+  Manage: 'tab.manage',
+  Settings: 'tab.settings',
+};
 
 export function App() {
   const [tab, setTab] = useState<Tab>('Browse');
@@ -21,10 +32,13 @@ export function App() {
       .catch((e) => setError(e.message));
   }, []);
 
+  // Build translated tab labels paired with their keys for TabNav
+  const tabLabels = TAB_KEYS.map((key) => ({ key, label: t(TAB_I18N_KEYS[key]) }));
+
   return (
     <div class="shell">
       <Header health={health} error={error} />
-      <TabNav tabs={TABS as unknown as string[]} active={tab} onSelect={(t) => setTab(t as Tab)} />
+      <TabNav tabs={tabLabels} active={tab} onSelect={(k) => setTab(k as Tab)} />
       <div class="main">
         <div class={`panel ${tab === 'Search' ? 'active' : ''}`}><SearchTab /></div>
         <div class={`panel ${tab === 'Browse' ? 'active' : ''}`}><BrowseTab /></div>
@@ -36,7 +50,7 @@ export function App() {
         const url = 'https://github.com/PCIRCLE-AI/memesh-llm-memory/issues/new?title=' + encodeURIComponent('[Feedback] ') + '&labels=feedback,from-dashboard';
         window.open(url, '_blank');
       }}>
-        💬 Feedback
+        {t('feedback.button')}
       </button>
     </div>
   );

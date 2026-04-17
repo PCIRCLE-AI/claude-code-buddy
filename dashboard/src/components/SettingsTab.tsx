@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'preact/hooks';
 import { api, type ConfigData } from '../lib/api';
+import { t, getLocale, setLocale, getLocales } from '../lib/i18n';
 
 function capitalize(s: string): string {
   if (!s) return s;
@@ -33,10 +34,10 @@ export function SettingsTab() {
       if (model) llm.model = model;
       if (apiKey) llm.apiKey = apiKey;
       await api('POST', '/v1/config', { llm });
-      setMsg('Saved! Restart server for LLM changes to take effect.');
+      setMsg(t('settings.saved'));
       setApiKey('');
     } catch (e: any) {
-      setMsg('Error: ' + e.message);
+      setMsg(t('common.error') + ': ' + e.message);
     } finally {
       setSaving(false);
     }
@@ -50,26 +51,26 @@ export function SettingsTab() {
     <div>
       {/* Capabilities */}
       <div class="card">
-        <div class="card-title">Capabilities</div>
+        <div class="card-title">{t('settings.capabilities')}</div>
         <div class="stats-row" style={{ marginBottom: 0 }}>
           <div class="stat">
             <div class="stat-val" style={{ fontSize: 18 }}>Level {caps?.searchLevel || 0}</div>
-            <div class="stat-lbl">{caps?.searchLevel ? 'Smart Mode' : 'Core'}</div>
+            <div class="stat-lbl">{caps?.searchLevel ? t('settings.smartMode') : t('settings.core')}</div>
           </div>
           <div class="stat">
             <div class="stat-val" style={{ fontSize: 14 }}>{capitalize(caps?.embeddings || '—')}</div>
-            <div class="stat-lbl">Embeddings</div>
+            <div class="stat-lbl">{t('settings.embeddings')}</div>
           </div>
           <div class="stat">
             <div class="stat-val" style={{ fontSize: 14 }}>{capitalize(caps?.llm?.provider || 'None')}</div>
-            <div class="stat-lbl">LLM Provider</div>
+            <div class="stat-lbl">{t('settings.llmProvider')}</div>
           </div>
         </div>
       </div>
 
       {/* LLM Config */}
       <div class="card">
-        <div class="card-title">LLM Provider</div>
+        <div class="card-title">{t('settings.llmProvider')}</div>
         <div style={{ display: 'flex', gap: 16, marginBottom: 14 }}>
           {([['anthropic', 'Anthropic (Claude)'], ['openai', 'OpenAI'], ['ollama', 'Ollama (Local)']] as const).map(([val, label]) => (
             <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 13 }}>
@@ -87,7 +88,7 @@ export function SettingsTab() {
 
         {provider && provider !== 'ollama' && (
           <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>API Key</label>
+            <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>{t('settings.apiKey')}</label>
             <input
               type="password"
               placeholder={provider === 'anthropic' ? 'sk-ant-api03-…' : 'sk-…'}
@@ -98,7 +99,7 @@ export function SettingsTab() {
         )}
 
         <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>Model (optional)</label>
+          <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>{t('settings.model')}</label>
           <input
             type="text"
             placeholder={provider === 'anthropic' ? 'claude-haiku-4-5' : provider === 'openai' ? 'gpt-4o-mini' : 'llama3.2'}
@@ -109,10 +110,27 @@ export function SettingsTab() {
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <button class="btn btn-primary" onClick={save} disabled={!provider || saving}>
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? t('settings.saving') : t('settings.save')}
           </button>
-          {msg && <span style={{ fontSize: 12, color: msg.startsWith('Error') ? 'var(--danger)' : 'var(--success)' }}>{msg}</span>}
+          {msg && <span style={{ fontSize: 12, color: msg.startsWith(t('common.error')) ? 'var(--danger)' : 'var(--success)' }}>{msg}</span>}
         </div>
+      </div>
+
+      {/* Language */}
+      <div class="card">
+        <div class="card-title">{t('settings.language')}</div>
+        <select
+          value={getLocale()}
+          onChange={(e) => {
+            setLocale((e.target as HTMLSelectElement).value as any);
+            window.location.reload();
+          }}
+          style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-1)', cursor: 'pointer' }}
+        >
+          {getLocales().map((l) => (
+            <option key={l.code} value={l.code}>{l.name}</option>
+          ))}
+        </select>
       </div>
     </div>
   );

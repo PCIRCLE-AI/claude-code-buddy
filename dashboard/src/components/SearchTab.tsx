@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks';
 import { api, type Entity } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
+import { t } from '../lib/i18n';
 
 export function SearchTab() {
   const [query, setQuery] = useState('');
@@ -26,17 +27,17 @@ export function SearchTab() {
   return (
     <div>
       <div class="card">
-        <div class="card-title">Search Memories</div>
+        <div class="card-title">{t('search.title')}</div>
         <div class="search-bar">
           <input
             type="search"
-            placeholder='Search your memories… (e.g., "auth", "database", "bug fix")'
+            placeholder={t('search.placeholder')}
             value={query}
             onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
             onKeyDown={(e) => e.key === 'Enter' && search()}
           />
           <button class="btn btn-primary" onClick={search} disabled={loading}>
-            {loading ? 'Searching…' : 'Search'}
+            {loading ? t('search.searching') : t('search.button')}
           </button>
         </div>
 
@@ -47,14 +48,14 @@ export function SearchTab() {
         {!loading && results !== null && results.length === 0 && (
           <div class="empty">
             <span class="empty-icon">🔍</span>
-            No results for "{query}"
+            {t('search.noResults')} "{query}"
           </div>
         )}
 
         {!loading && results && results.length > 0 && (
           <div>
             <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>
-              {results.length} result{results.length !== 1 ? 's' : ''}
+              {results.length} {results.length !== 1 ? t('search.results') : t('search.result')}
             </div>
             {results.map((e) => (
               <div key={e.id} class="card" style={{ padding: 14 }}>

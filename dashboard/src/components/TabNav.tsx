@@ -1,9 +1,14 @@
-export function TabNav({ tabs, active, onSelect }: { tabs: string[]; active: string; onSelect: (t: string) => void }) {
+interface TabItem {
+  key: string;
+  label: string;
+}
+
+export function TabNav({ tabs, active, onSelect }: { tabs: TabItem[]; active: string; onSelect: (key: string) => void }) {
   return (
     <nav class="nav">
-      {tabs.map((t) => (
-        <button key={t} class={`nav-btn ${t === active ? 'active' : ''}`} onClick={() => onSelect(t)}>
-          {t}
+      {tabs.map(({ key, label }) => (
+        <button key={key} class={`nav-btn ${key === active ? 'active' : ''}`} onClick={() => onSelect(key)}>
+          {label}
         </button>
       ))}
     </nav>
