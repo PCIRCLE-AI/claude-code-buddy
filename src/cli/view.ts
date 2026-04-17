@@ -556,6 +556,336 @@ renderEntityTable('');
 </html>`;
 }
 
+// ---------------------------------------------------------------------------
+// Live dashboard — served by the HTTP server, fetches data from the API
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate a self-contained live HTML dashboard.
+ * Data is fetched in-browser from the HTTP API (/v1/*).
+ * All DOM manipulation uses textContent / createElement — no innerHTML with user data.
+ */
+export function generateLiveDashboardHtml(): string {
+  const CSS = `
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f8f9fa; color: #1a1a2e; }
+    .header { background: #1a1a2e; color: white; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; }
+    .header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+    .header .meta { opacity: 0.6; font-size: 13px; display: flex; gap: 16px; align-items: center; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; display: inline-block; margin-right: 6px; }
+    .dot.error { background: #f87171; }
+    .nav { display: flex; background: white; border-bottom: 1px solid #e0e0e0; padding: 0 16px; overflow-x: auto; }
+    .nav button { padding: 12px 16px; border: none; background: none; cursor: pointer; font-size: 14px; color: #666; border-bottom: 2px solid transparent; white-space: nowrap; }
+    .nav button.active { color: #1a1a2e; border-bottom-color: #4361ee; font-weight: 600; }
+    .nav button:hover:not(.active) { color: #1a1a2e; background: #f5f5f5; }
+    .content { max-width: 1200px; margin: 24px auto; padding: 0 24px; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .card h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #1a1a2e; }
+    input, button { font-family: inherit; font-size: 14px; }
+    .search-row { display: flex; gap: 8px; margin-bottom: 16px; }
+    .search-input { flex: 1; padding: 9px 14px; border: 1px solid #ddd; border-radius: 6px; outline: none; }
+    .search-input:focus { border-color: #4361ee; }
+    .btn { padding: 9px 18px; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; }
+    .btn-primary { background: #4361ee; color: white; }
+    .btn-primary:hover { background: #3651d4; }
+    .btn-secondary { background: #f0f0f0; color: #333; }
+    .btn-secondary:hover { background: #e0e0e0; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
+    th { font-weight: 600; color: #888; font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; background: #fafafa; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafbff; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
+    .badge-active { background: #dcfce7; color: #166534; }
+    .badge-archived { background: #fee2e2; color: #991b1b; }
+    .badge-type { background: #e0e7ff; color: #3730a3; }
+    .placeholder { text-align: center; padding: 60px 20px; color: #aaa; }
+    .placeholder .icon { font-size: 32px; margin-bottom: 8px; }
+    .result-box { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 14px; margin-top: 12px; font-size: 13px; font-family: ui-monospace, monospace; white-space: pre-wrap; max-height: 400px; overflow: auto; }
+    .result-box.error { background: #fff5f5; border-color: #fecaca; color: #b91c1c; }
+    .loading { display: inline-block; width: 16px; height: 16px; border: 2px solid #e0e0e0; border-top-color: #4361ee; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .entity-name { font-weight: 500; }
+    .entity-obs { color: #888; font-size: 12px; }
+  `.trim();
+
+  // The inline script uses only createElement / textContent for all user data.
+  // No dynamic HTML concatenation with unsanitised strings.
+  const SCRIPT = `
+(function () {
+  'use strict';
+
+  // ---- API ----
+  async function apiCall(method, path, body) {
+    var opts = { method: method, headers: { 'Content-Type': 'application/json' } };
+    if (body !== undefined) opts.body = JSON.stringify(body);
+    var res = await fetch(path, opts);
+    return res.json();
+  }
+
+  // ---- Tab switching ----
+  document.getElementById('nav').addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-tab]');
+    if (!btn) return;
+    var tab = btn.dataset.tab;
+    document.querySelectorAll('.nav button').forEach(function (b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    document.querySelectorAll('.tab-content').forEach(function (el) { el.classList.remove('active'); });
+    document.getElementById('tab-' + tab).classList.add('active');
+    if (tab === 'browse') loadBrowse();
+  });
+
+  // ---- Health check ----
+  async function checkHealth() {
+    var indicator = document.getElementById('health-indicator');
+    var versionLabel = document.getElementById('version-label');
+    try {
+      var data = await apiCall('GET', '/v1/health');
+      if (!data.success) throw new Error(data.error || 'API error');
+      var dot = document.createElement('span');
+      dot.className = 'dot';
+      indicator.textContent = '';
+      indicator.appendChild(dot);
+      indicator.appendChild(document.createTextNode('Connected'));
+      versionLabel.textContent = 'v' + data.data.version + '  \u00b7  ' + data.data.entity_count + ' entities';
+    } catch (_err) {
+      var dot2 = document.createElement('span');
+      dot2.className = 'dot error';
+      indicator.textContent = '';
+      indicator.appendChild(dot2);
+      indicator.appendChild(document.createTextNode('Disconnected'));
+    }
+  }
+
+  // ---- Shared: build entity table from array using only DOM APIs ----
+  function buildEntityTable(entities) {
+    var table = document.createElement('table');
+    var thead = document.createElement('thead');
+    var hrow = document.createElement('tr');
+    ['Name', 'Type', 'Status', 'Obs', 'Tags'].forEach(function (h) {
+      var th = document.createElement('th');
+      th.textContent = h;
+      hrow.appendChild(th);
+    });
+    thead.appendChild(hrow);
+    table.appendChild(thead);
+    var tbody = document.createElement('tbody');
+    entities.forEach(function (e) {
+      var status = e.archived ? 'archived' : (e.status || 'active');
+      var tr = document.createElement('tr');
+
+      var tdName = document.createElement('td');
+      tdName.className = 'entity-name';
+      tdName.textContent = e.name;
+      tr.appendChild(tdName);
+
+      var tdType = document.createElement('td');
+      var typeBadge = document.createElement('span');
+      typeBadge.className = 'badge badge-type';
+      typeBadge.textContent = e.type;
+      tdType.appendChild(typeBadge);
+      tr.appendChild(tdType);
+
+      var tdStatus = document.createElement('td');
+      var statusBadge = document.createElement('span');
+      statusBadge.className = 'badge badge-' + (status === 'archived' ? 'archived' : 'active');
+      statusBadge.textContent = status;
+      tdStatus.appendChild(statusBadge);
+      tr.appendChild(tdStatus);
+
+      var tdObs = document.createElement('td');
+      tdObs.className = 'entity-obs';
+      tdObs.textContent = String(e.observations ? e.observations.length : 0);
+      tr.appendChild(tdObs);
+
+      var tdTags = document.createElement('td');
+      tdTags.className = 'entity-obs';
+      tdTags.textContent = e.tags ? e.tags.join(', ') : '';
+      tr.appendChild(tdTags);
+
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    return table;
+  }
+
+  function showError(container, msg) {
+    container.textContent = '';
+    var box = document.createElement('div');
+    box.className = 'result-box error';
+    box.textContent = msg;
+    container.appendChild(box);
+  }
+
+  function showPlaceholder(container, text) {
+    container.textContent = '';
+    var ph = document.createElement('div');
+    ph.className = 'placeholder';
+    ph.textContent = text;
+    container.appendChild(ph);
+  }
+
+  function showSpinner(container) {
+    container.textContent = '';
+    var wrap = document.createElement('div');
+    wrap.className = 'placeholder';
+    var sp = document.createElement('div');
+    sp.className = 'loading';
+    wrap.appendChild(sp);
+    container.appendChild(wrap);
+  }
+
+  // ---- Search tab ----
+  var searchInput = document.getElementById('search-query');
+  var searchBtn = document.getElementById('search-btn');
+  var searchResults = document.getElementById('search-results');
+
+  async function doSearch() {
+    var q = searchInput.value.trim();
+    if (!q) return;
+    showSpinner(searchResults);
+    try {
+      var data = await apiCall('POST', '/v1/recall', { query: q, limit: 20 });
+      searchResults.textContent = '';
+      if (!data.success) { showError(searchResults, data.error || 'Unknown error'); return; }
+      var entities = Array.isArray(data.data) ? data.data : (data.data.entities || []);
+      if (entities.length === 0) { showPlaceholder(searchResults, 'No results for "' + q + '"'); return; }
+      searchResults.appendChild(buildEntityTable(entities));
+    } catch (err) {
+      showError(searchResults, err.message);
+    }
+  }
+
+  searchBtn.addEventListener('click', doSearch);
+  searchInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') doSearch(); });
+
+  // ---- Browse tab ----
+  var allEntities = [];
+  var browseFilter = document.getElementById('browse-filter');
+  var browseWrap = document.getElementById('browse-table-wrap');
+
+  async function loadBrowse() {
+    showSpinner(browseWrap);
+    try {
+      var data = await apiCall('GET', '/v1/entities?limit=200');
+      if (!data.success) throw new Error(data.error || 'Failed to load entities');
+      allEntities = data.data || [];
+      renderBrowseTable(browseFilter.value);
+    } catch (err) {
+      showError(browseWrap, err.message);
+    }
+  }
+
+  function renderBrowseTable(filter) {
+    var f = (filter || '').toLowerCase();
+    var rows = allEntities.filter(function (e) {
+      return !f || e.name.toLowerCase().includes(f) || e.type.toLowerCase().includes(f);
+    });
+    browseWrap.textContent = '';
+    if (rows.length === 0) { showPlaceholder(browseWrap, 'No entities found'); return; }
+    browseWrap.appendChild(buildEntityTable(rows));
+  }
+
+  browseFilter.addEventListener('input', function () { renderBrowseTable(this.value); });
+  document.getElementById('browse-refresh').addEventListener('click', loadBrowse);
+
+  // ---- Init ----
+  checkHealth();
+  loadBrowse();
+})();
+  `.trim();
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MeMesh Dashboard</title>
+  <style>${CSS}</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>MeMesh</h1>
+  <div class="meta">
+    <span id="health-indicator"><span class="dot"></span>Connecting\u2026</span>
+    <span id="version-label"></span>
+  </div>
+</div>
+
+<nav class="nav" id="nav">
+  <button class="active" data-tab="search">Search</button>
+  <button data-tab="browse">Browse</button>
+  <button data-tab="graph">Graph</button>
+  <button data-tab="analytics">Analytics</button>
+  <button data-tab="manage">Manage</button>
+  <button data-tab="timeline">Timeline</button>
+  <button data-tab="settings">Settings</button>
+</nav>
+
+<div class="content">
+
+  <div class="tab-content active" id="tab-search">
+    <div class="card">
+      <h2>Search Knowledge</h2>
+      <div class="search-row">
+        <input class="search-input" id="search-query" type="text" placeholder="Search entities, observations, tags\u2026" />
+        <button class="btn btn-primary" id="search-btn">Search</button>
+      </div>
+      <div id="search-results"></div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-browse">
+    <div class="card">
+      <h2>All Entities</h2>
+      <div class="search-row">
+        <input class="search-input" id="browse-filter" type="text" placeholder="Filter by name or type\u2026" />
+        <button class="btn btn-secondary" id="browse-refresh">Refresh</button>
+      </div>
+      <div id="browse-table-wrap"></div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-graph">
+    <div class="card">
+      <div class="placeholder"><div class="icon">&#9672;</div><p>Graph tab \u2014 coming in M4.4</p></div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-analytics">
+    <div class="card">
+      <div class="placeholder"><div class="icon">&#128202;</div><p>Analytics tab \u2014 coming in M4.4</p></div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-manage">
+    <div class="card">
+      <div class="placeholder"><div class="icon">&#9881;</div><p>Manage tab \u2014 coming in M4.5</p></div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-timeline">
+    <div class="card">
+      <div class="placeholder"><div class="icon">&#128337;</div><p>Timeline tab \u2014 coming in M4.4</p></div>
+    </div>
+  </div>
+
+  <div class="tab-content" id="tab-settings">
+    <div class="card">
+      <div class="placeholder"><div class="icon">&#128290;</div><p>Settings tab \u2014 coming in M4.2</p></div>
+    </div>
+  </div>
+
+</div>
+
+<script>${SCRIPT}<\/script>
+</body>
+</html>`;
+}
+
 // CLI entry point: detect direct execution via import.meta.url
 const isDirectRun =
   process.argv[1] &&

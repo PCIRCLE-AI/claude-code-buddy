@@ -7,6 +7,7 @@ import { remember, recallEnhanced, forget } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 import { logCapabilities } from '../../core/config.js';
+import { generateLiveDashboardHtml } from '../../cli/view.js';
 
 // Zod schemas for HTTP input validation (same rules as MCP handlers)
 const RememberBody = z.object({
@@ -41,6 +42,11 @@ const packageVersion =
 
 const app = express();
 app.use(express.json());
+
+// --- Dashboard ---
+app.get('/dashboard', (_req, res) => {
+  res.type('html').send(generateLiveDashboardHtml());
+});
 
 // --- Health ---
 app.get('/v1/health', (_req, res) => {

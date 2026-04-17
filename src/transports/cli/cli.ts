@@ -245,4 +245,42 @@ program
     }
   });
 
+// Default action: open the live dashboard when run with no subcommand
+program.action(async () => {
+  const { startServer } = await import('../http/server.js');
+  const server = startServer('127.0.0.1', 0); // 0 = random available port
+
+  // Wait for the server to be listening before reading the port
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', resolve);
+    server.once('error', reject);
+  });
+
+  const addr = server.address() as { address: string; port: number } | null;
+  if (!addr) {
+    console.error('Failed to start dashboard server');
+    process.exit(1);
+  }
+
+  const url = `http://127.0.0.1:${addr.port}/dashboard`;
+  console.log(`MeMesh dashboard: ${url}`);
+  console.log('Press Ctrl+C to stop.');
+
+  const { execFile } = await import('child_process');
+  if (process.platform === 'darwin') {
+    execFile('open', [url]);
+  } else if (process.platform === 'win32') {
+    execFile('cmd.exe', ['/c', 'start', '', url]);
+  } else {
+    execFile('xdg-open', [url]);
+  }
+
+  // closeDatabase was imported at the top of this file
+  process.on('SIGINT', () => {
+    server.close();
+    try { closeDatabase(); } catch { /* ignore if not open */ }
+    process.exit(0);
+  });
+});
+
 program.parse();
