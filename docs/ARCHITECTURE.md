@@ -1,6 +1,6 @@
 # MeMesh Plugin Architecture
 
-**Version**: 2.16.0
+**Version**: 3.0.0-beta.1
 
 ---
 
@@ -326,6 +326,28 @@ The automated test suite covers:
 Framework: vitest (forks pool mode to avoid SIGSEGV with native modules).
 
 For release safety, `npm run test:packaged` creates a real npm tarball, extracts it, and verifies the published artifact still contains the required runtime files, hook scripts, bundled D3 asset, and package exports.
+
+---
+
+## Memory Lifecycle (v3.0.0)
+
+### Auto-Decay
+- Runs on openDatabase() when last decay was 24h+ ago
+- Entities not accessed in 30+ days: confidence *= 0.9
+- Floor: confidence never below 0.01
+- Never deletes — only affects search ranking
+
+### Consolidation
+- `consolidate` tool compresses N observations → K dense observations via LLM
+- Requires Smart Mode (LLM provider configured)
+- Original observations are replaced by compressed versions
+- If LLM fails, entity is left unchanged
+
+### Smart Session-Start
+- Session-start hook loads top-N entities by weighted score
+- Score = confidence (40%) + frequency (30%) + recency (30%)
+- Default N=10, configurable via MEMESH_SESSION_LIMIT
+- Concise format: "• name (type): first observation"
 
 ---
 

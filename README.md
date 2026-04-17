@@ -104,6 +104,12 @@ memesh-view
 
 ![MeMesh Dashboard](docs/images/dashboard-screenshot.png)
 
+### Memory Lifecycle
+
+- **Auto-decay**: Stale memories (30+ days unused) gradually fade in ranking — never deleted
+- **LLM Compression**: `memesh consolidate` compresses verbose entities into dense summaries
+- **Smart Session-Start**: Loads top-N memories by relevance score (not all memories)
+
 ## How it works
 
 - **Storage**: SQLite database at `~/.memesh/knowledge-graph.db`

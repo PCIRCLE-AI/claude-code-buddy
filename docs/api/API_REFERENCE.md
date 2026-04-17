@@ -1,7 +1,7 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 2.16.0
+**Version**: 3.0.0-beta.1
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 ---
@@ -167,6 +167,22 @@ Archive an entity (soft-delete) or remove a specific observation.
 
 ---
 
+### consolidate
+
+Compress verbose entity observations using LLM. Requires Smart Mode.
+
+**Input Schema**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | No | Specific entity to consolidate |
+| `tag` | string | No | Consolidate all entities with this tag |
+| `min_observations` | number | No | Minimum observations to trigger (default: 5) |
+
+**Response**: `{ consolidated, entities_processed, observations_before, observations_after, error? }`
+
+---
+
 ## Data Model
 
 ### Entity
@@ -221,6 +237,7 @@ Start: `memesh serve` (default: `localhost:3737`)
 | POST | /v1/remember | Store knowledge |
 | POST | /v1/recall | Search knowledge |
 | POST | /v1/forget | Archive or remove observation |
+| POST | /v1/consolidate | Compress entity observations via LLM (Smart Mode required) |
 | GET | /v1/entities | List entities (pagination) |
 | GET | /v1/entities/:name | Get single entity |
 | GET | /v1/config | Get current config and detected capabilities |
