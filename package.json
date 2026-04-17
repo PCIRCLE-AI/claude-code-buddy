@@ -43,9 +43,9 @@
     "url": "git+https://github.com/PCIRCLE-AI/claude-code-buddy.git"
   },
   "dependencies": {
-    "better-sqlite3": "^12.6.2",
-    "@modelcontextprotocol/sdk": "^1.25.3",
-    "zod": "^4.3.5"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "better-sqlite3": "^12.9.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
