@@ -159,7 +159,12 @@ configCmd
   .action((key, value) => {
     const config = readConfig();
     if (key === 'llm.provider') {
-      config.llm = { ...config.llm, provider: value as any };
+      const validProviders = ['anthropic', 'openai', 'ollama'] as const;
+      if (!validProviders.includes(value as any)) {
+        console.error(`Invalid provider: ${value}. Must be one of: ${validProviders.join(', ')}`);
+        process.exit(1);
+      }
+      config.llm = { ...config.llm, provider: value as 'anthropic' | 'openai' | 'ollama' };
     } else if (key === 'llm.api-key') {
       config.llm = { ...config.llm, provider: config.llm?.provider || 'anthropic', apiKey: value };
     } else if (key === 'llm.model') {

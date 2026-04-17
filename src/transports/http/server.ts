@@ -126,9 +126,26 @@ app.get('/v1/config', (_req, res) => {
   }
 });
 
+const ConfigBody = z.object({
+  llm: z.object({
+    provider: z.enum(['anthropic', 'openai', 'ollama']),
+    model: z.string().optional(),
+    apiKey: z.string().optional(),
+  }).optional(),
+  autoCapture: z.boolean().optional(),
+  sessionLimit: z.number().int().min(1).max(100).optional(),
+  theme: z.enum(['light', 'dark']).optional(),
+  setupCompleted: z.boolean().optional(),
+}).passthrough();
+
 app.post('/v1/config', (req, res) => {
+  const parsed = ConfigBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+    return;
+  }
   try {
-    const updated = updateConfig(req.body);
+    const updated = updateConfig(parsed.data);
     // Mask API key before returning
     const safeUpdated = { ...updated };
     if (safeUpdated.llm?.apiKey) {
