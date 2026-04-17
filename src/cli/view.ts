@@ -1319,7 +1319,8 @@ export function generateLiveDashboardHtml(): string {
     // Build nodes and links
     var nodeMap = {};
     var nodes = graphEntities.map(function (e, i) {
-      var n = { id: e.name, type: e.type, status: e.status, obs: e.observations ? e.observations.length : 0, x: 0, y: 0, vx: 0, vy: 0, fx: null, fy: null };
+      var firstObs = (e.observations && e.observations.length > 0) ? e.observations[0] : null;
+      var n = { id: e.name, type: e.type, status: e.status, obs: e.observations ? e.observations.length : 0, firstObs: firstObs, x: 0, y: 0, vx: 0, vy: 0, fx: null, fy: null };
       nodeMap[e.name] = n;
       return n;
     });
@@ -1414,15 +1415,19 @@ export function generateLiveDashboardHtml(): string {
       .selectAll('text').data(nodes).join('text')
       .attr('font-size', 11).attr('fill', labelColor).attr('dy', 4)
       .attr('font-family', 'Inter, system-ui, sans-serif').attr('font-weight', '500')
-      .text(function (d) { return d.id.length > 30 ? d.id.slice(0, 30) + '\u2026' : d.id; });
+      .text(function (d) {
+        var label = d.firstObs ? d.firstObs : d.id;
+        return label.length > 25 ? label.slice(0, 25) + '\u2026' : label;
+      });
 
     // Tooltip
     var ttEl = document.getElementById('live-tooltip');
     nodeSel.on('mouseover', function (event, d) {
       ttEl.style.display = 'block';
-      ttEl.querySelector('.tt-name').textContent = d.id;
+      var obsPreview = d.firstObs ? (d.firstObs.length > 80 ? d.firstObs.slice(0, 80) + '\u2026' : d.firstObs) : '(no observations)';
+      ttEl.querySelector('.tt-name').textContent = obsPreview;
       ttEl.querySelector('.tt-type').textContent = d.type + (d.status === 'archived' ? ' \u2014 archived' : '');
-      ttEl.querySelector('.tt-obs').textContent = d.obs + ' observation' + (d.obs !== 1 ? 's' : '');
+      ttEl.querySelector('.tt-obs').textContent = d.id + ' \u00b7 ' + d.obs + ' observation' + (d.obs !== 1 ? 's' : '');
     }).on('mousemove', function (event) {
       ttEl.style.left = (event.pageX + 14) + 'px';
       ttEl.style.top = (event.pageY - 10) + 'px';
@@ -1471,26 +1476,29 @@ export function generateLiveDashboardHtml(): string {
     var container = document.getElementById('analytics-body');
     showSpinner(container);
     try {
-      var data = await apiCall('GET', '/v1/stats');
-      if (!data.success) throw new Error(data.error || 'Failed to load stats');
-      renderAnalytics(data.data, container);
+      var statsRes = await apiCall('GET', '/v1/stats');
+      if (!statsRes.success) throw new Error(statsRes.error || 'Failed to load stats');
+      // Also fetch entities for actionable insight calculations
+      var entitiesRes = await apiCall('GET', '/v1/entities?limit=500&status=all');
+      var allEntitiesForAnalytics = (entitiesRes.success && entitiesRes.data) ? entitiesRes.data : [];
+      renderAnalytics(statsRes.data, allEntitiesForAnalytics, container);
     } catch (err) {
       showError(container, err.message);
       analyticsLoaded = false;
     }
   }
 
-  function renderAnalytics(stats, container) {
+  function renderAnalytics(stats, entities, container) {
     container.textContent = '';
 
     // Stats grid
     var grid = document.createElement('div');
     grid.className = 'stats-grid';
     [
-      { label: 'Entities', value: stats.totalEntities },
-      { label: 'Observations', value: stats.totalObservations },
-      { label: 'Relations', value: stats.totalRelations },
-      { label: 'Unique Tags', value: stats.totalTags },
+      { label: 'Total Memories', value: stats.totalEntities },
+      { label: 'Knowledge Facts', value: stats.totalObservations },
+      { label: 'Connections', value: stats.totalRelations },
+      { label: 'Topics', value: stats.totalTags },
     ].forEach(function (c) {
       var card = document.createElement('div');
       card.className = 'stat-card';
@@ -1530,11 +1538,79 @@ export function generateLiveDashboardHtml(): string {
       container.appendChild(statusGrid);
     }
 
+    // Actionable insights section
+    if (entities && entities.length > 0) {
+      var insightsTitle = document.createElement('h3');
+      insightsTitle.style.cssText = 'font-size:11px;font-weight:600;margin:16px 0 10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;';
+      insightsTitle.textContent = 'Recent Activity';
+      container.appendChild(insightsTitle);
+
+      var now = Date.now();
+      var sevenDays = 7 * 24 * 60 * 60 * 1000;
+      var thirtyDays = 30 * 24 * 60 * 60 * 1000;
+
+      // Count this week
+      var thisWeek = entities.filter(function (e) {
+        try { return (now - new Date(e.created_at).getTime()) < sevenDays; } catch (_) { return false; }
+      }).length;
+
+      // Stale: not accessed in 30+ days (or never accessed)
+      var stale = entities.filter(function (e) {
+        if (!e.last_accessed_at) return true;
+        try { return (now - new Date(e.last_accessed_at).getTime()) > thirtyDays; } catch (_) { return true; }
+      }).length;
+
+      // Archived count
+      var archived = entities.filter(function (e) {
+        return e.status === 'archived' || e.archived === true;
+      }).length;
+
+      // Most recalled (top 1)
+      var topRecalled = entities
+        .filter(function (e) { return e.access_count && e.access_count > 0; })
+        .sort(function (a, b) { return (b.access_count || 0) - (a.access_count || 0); })
+        .slice(0, 1);
+
+      var insightCards = [
+        { icon: '\ud83d\udcdd', label: 'This Week', value: thisWeek + ' new memories' },
+        { icon: '\ud83d\udca4', label: 'Stale Memories', value: stale + ' not accessed in 30+ days' },
+        { icon: '\ud83d\udce6', label: 'Archived', value: archived + ' memories' },
+      ];
+      if (topRecalled.length > 0) {
+        var tr = topRecalled[0];
+        var trPreview = (tr.observations && tr.observations[0])
+          ? (tr.observations[0].length > 40 ? tr.observations[0].slice(0, 40) + '\u2026' : tr.observations[0])
+          : tr.name;
+        insightCards.unshift({ icon: '\ud83d\udd25', label: 'Most Recalled', value: '\u201c' + trPreview + '\u201d (' + tr.access_count + 'x)' });
+      }
+
+      var insightGrid = document.createElement('div');
+      insightGrid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:20px;';
+      insightCards.forEach(function (ic) {
+        var card = document.createElement('div');
+        card.style.cssText = 'background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;font-size:13px;';
+        var iconRow = document.createElement('div');
+        iconRow.style.cssText = 'font-size:18px;margin-bottom:6px;';
+        iconRow.textContent = ic.icon;
+        var labelEl = document.createElement('div');
+        labelEl.style.cssText = 'font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px;';
+        labelEl.textContent = ic.label;
+        var valueEl = document.createElement('div');
+        valueEl.style.cssText = 'color:var(--text-primary);font-weight:500;font-size:13px;';
+        valueEl.textContent = ic.value;
+        card.appendChild(iconRow);
+        card.appendChild(labelEl);
+        card.appendChild(valueEl);
+        insightGrid.appendChild(card);
+      });
+      container.appendChild(insightGrid);
+    }
+
     // Type distribution bar chart
     if (stats.typeDistribution && stats.typeDistribution.length > 0) {
       var typeTitle = document.createElement('h3');
       typeTitle.style.cssText = 'font-size:11px;font-weight:600;margin:16px 0 10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;';
-      typeTitle.textContent = 'Type Distribution';
+      typeTitle.textContent = 'Memory Types';
       container.appendChild(typeTitle);
 
       var maxCount = stats.typeDistribution[0].count || 1;
@@ -1568,7 +1644,7 @@ export function generateLiveDashboardHtml(): string {
     if (stats.tagDistribution && stats.tagDistribution.length > 0) {
       var tagTitle = document.createElement('h3');
       tagTitle.style.cssText = 'font-size:11px;font-weight:600;margin:16px 0 10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;';
-      tagTitle.textContent = 'Top Tags';
+      tagTitle.textContent = 'Topics';
       container.appendChild(tagTitle);
 
       var maxTagCount = stats.tagDistribution[0].count || 1;
@@ -1676,12 +1752,33 @@ export function generateLiveDashboardHtml(): string {
         node.className = 'chain-node' + (ent && ent.status === 'archived' ? ' archived' : '');
         var nameEl = document.createElement('div');
         nameEl.className = 'cn-name';
-        nameEl.textContent = name;
+        // Show first observation as primary content, fall back to entity name
+        var obsContent = (ent && ent.observations && ent.observations[0])
+          ? ent.observations[0]
+          : name;
+        nameEl.textContent = obsContent.length > 60 ? obsContent.slice(0, 60) + '\u2026' : obsContent;
+        nameEl.title = obsContent; // full text on hover
         var typeEl = document.createElement('div');
         typeEl.className = 'cn-type';
-        typeEl.textContent = ent ? ent.type : '';
+        typeEl.textContent = (ent ? ent.type : '') + (ent ? ' \u00b7 ' : '');
+        // Add timestamp
+        if (ent && ent.created_at) {
+          try {
+            var tDate = new Date(ent.created_at);
+            var timeSpan = document.createElement('span');
+            timeSpan.style.cssText = 'font-size:11px;color:var(--text-muted);font-family:var(--font-mono);';
+            timeSpan.textContent = tDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+            typeEl.textContent = (ent ? ent.type + ' \u00b7 ' : '');
+            typeEl.appendChild(timeSpan);
+          } catch (_) {}
+        }
+        // Add entity name as secondary metadata
+        var entityNameEl = document.createElement('div');
+        entityNameEl.style.cssText = 'font-size:10px;color:var(--text-muted);font-family:var(--font-mono);opacity:0.7;margin-top:2px;';
+        entityNameEl.textContent = name;
         node.appendChild(nameEl);
         node.appendChild(typeEl);
+        node.appendChild(entityNameEl);
         chainEl.appendChild(node);
       });
 
@@ -1730,9 +1827,10 @@ export function generateLiveDashboardHtml(): string {
     var table = document.createElement('table');
     var thead = document.createElement('thead');
     var hrow = document.createElement('tr');
-    ['Name', 'Type', 'Status', 'Obs', 'Tags', 'Actions'].forEach(function (h) {
+    [['Time', '140px'], ['Memory', '40%'], ['Type', ''], ['Status', ''], ['Tags', ''], ['Actions', '']].forEach(function (hDef) {
       var th = document.createElement('th');
-      th.textContent = h;
+      th.textContent = hDef[0];
+      if (hDef[1]) th.style.width = hDef[1];
       hrow.appendChild(th);
     });
     thead.appendChild(hrow);
@@ -1744,10 +1842,33 @@ export function generateLiveDashboardHtml(): string {
       var tr = document.createElement('tr');
       if (status === 'archived') tr.style.opacity = '0.6';
 
-      var tdName = document.createElement('td');
-      tdName.className = 'entity-name';
-      tdName.textContent = e.name;
-      tr.appendChild(tdName);
+      // Time column
+      var tdTime = document.createElement('td');
+      tdTime.style.cssText = 'font-family:var(--font-mono);font-size:11px;color:var(--text-muted);white-space:nowrap;';
+      try {
+        var d = new Date(e.created_at);
+        tdTime.textContent = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      } catch (_) {
+        tdTime.textContent = e.created_at || '\u2014';
+      }
+      tdTime.title = e.created_at || '';
+      tr.appendChild(tdTime);
+
+      // Memory column — first observation as primary, entity name as metadata
+      var tdMemory = document.createElement('td');
+      var memContent = document.createElement('div');
+      var preview = document.createElement('div');
+      preview.style.cssText = 'font-size:13px;line-height:1.5;margin-bottom:2px;';
+      var firstObs = (e.observations && e.observations.length > 0) ? e.observations[0] : '(no observations)';
+      preview.textContent = firstObs.length > 100 ? firstObs.slice(0, 100) + '\u2026' : firstObs;
+      memContent.appendChild(preview);
+      var meta = document.createElement('div');
+      meta.style.cssText = 'font-size:11px;color:var(--text-muted);font-family:var(--font-mono);';
+      var obsCount = e.observations ? e.observations.length : 0;
+      meta.textContent = e.name + (obsCount > 1 ? ' \u00b7 ' + obsCount + ' observations' : '');
+      memContent.appendChild(meta);
+      tdMemory.appendChild(memContent);
+      tr.appendChild(tdMemory);
 
       var tdType = document.createElement('td');
       var typeBadge = document.createElement('span');
@@ -1763,14 +1884,22 @@ export function generateLiveDashboardHtml(): string {
       tdStatus.appendChild(sb);
       tr.appendChild(tdStatus);
 
-      var tdObs = document.createElement('td');
-      tdObs.className = 'entity-obs';
-      tdObs.textContent = String(e.observations ? e.observations.length : 0);
-      tr.appendChild(tdObs);
-
       var tdTags = document.createElement('td');
-      tdTags.className = 'entity-obs';
-      tdTags.textContent = e.tags ? e.tags.join(', ') : '';
+      if (e.tags && e.tags.length > 0) {
+        e.tags.slice(0, 3).forEach(function (t) {
+          var pill = document.createElement('span');
+          pill.className = 'tag-pill';
+          pill.textContent = t;
+          tdTags.appendChild(pill);
+        });
+        if (e.tags.length > 3) {
+          var moreTag = document.createElement('span');
+          moreTag.className = 'tag-pill';
+          moreTag.style.opacity = '0.6';
+          moreTag.textContent = '+' + (e.tags.length - 3);
+          tdTags.appendChild(moreTag);
+        }
+      }
       tr.appendChild(tdTags);
 
       var tdActions = document.createElement('td');
@@ -2508,7 +2637,7 @@ ${bundledD3}
     <div class="card">
       <h2>Search Knowledge</h2>
       <div class="search-row">
-        <input class="search-input" id="search-query" type="text" placeholder="Search entities, observations, tags\u2026" />
+        <input class="search-input" id="search-query" type="text" placeholder="Search your memories\u2026 (e.g., \u201cauth\u201d, \u201cdatabase\u201d, \u201cbug fix\u201d)" />
         <button class="btn btn-primary" id="search-btn">Search</button>
       </div>
       <div id="search-results"></div>
@@ -2517,7 +2646,7 @@ ${bundledD3}
 
   <div class="tab-content" id="tab-browse">
     <div class="card">
-      <h2>All Entities</h2>
+      <h2>All Memories</h2>
       <div class="search-row">
         <input class="search-input" id="browse-filter" type="text" placeholder="Filter by name or type\u2026" />
         <button class="btn btn-secondary" id="browse-refresh">Refresh</button>
@@ -2553,7 +2682,7 @@ ${bundledD3}
 
   <div class="tab-content" id="tab-manage">
     <div class="card">
-      <h2>Manage Entities</h2>
+      <h2>Manage Memories</h2>
       <div class="search-row">
         <input class="search-input" id="manage-filter" type="text" placeholder="Filter by name or type\u2026" />
         <button class="btn btn-secondary" id="manage-refresh">Refresh</button>
