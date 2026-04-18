@@ -51,9 +51,15 @@ export interface StatsData {
   statusDistribution: { status: string; count: number }[];
 }
 
+export interface LlmConfig {
+  provider?: string;
+  model?: string;
+  apiKey?: string;
+}
+
 export interface ConfigData {
-  config: { llm?: { provider: string; model?: string; apiKey?: string }; setupCompleted?: boolean; theme?: string; autoCapture?: boolean };
-  capabilities: { searchLevel: number; llm: any; embeddings: string };
+  config: { llm?: LlmConfig; setupCompleted?: boolean; theme?: string; autoCapture?: boolean };
+  capabilities: { searchLevel: number; llm?: LlmConfig; embeddings: string };
 }
 
 export interface HealthFactor {
@@ -96,6 +102,6 @@ export async function fetchGraph(): Promise<GraphData> {
 
 export async function fetchLessons(): Promise<Entity[]> {
   const result = await api<Entity[] | { entities: Entity[] }>('POST', '/v1/recall', { limit: 100 });
-  const entities = Array.isArray(result) ? result : (result as any).entities || [];
+  const entities = Array.isArray(result) ? result : (result as { entities: Entity[] }).entities || [];
   return entities.filter((e: Entity) => e.type === 'lesson_learned');
 }

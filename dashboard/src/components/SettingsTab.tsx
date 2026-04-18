@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'preact/hooks';
 import { api, type ConfigData } from '../lib/api';
-import { t, getLocale, setLocale, getLocales } from '../lib/i18n';
+import { t, getLocale, setLocale, getLocales, type Locale } from '../lib/i18n';
 
 function capitalize(s: string): string {
   if (!s) return s;
@@ -30,7 +30,7 @@ export function SettingsTab() {
     setSaving(true);
     setMsg('');
     try {
-      const llm: any = { provider };
+      const llm: { provider: string; model?: string; apiKey?: string } = { provider };
       if (model) llm.model = model;
       if (apiKey) llm.apiKey = apiKey;
       await api('POST', '/v1/config', { llm });
@@ -122,7 +122,7 @@ export function SettingsTab() {
         <select
           value={getLocale()}
           onChange={(e) => {
-            setLocale((e.target as HTMLSelectElement).value as any);
+            setLocale((e.target as HTMLSelectElement).value as Locale);
             window.location.reload();
           }}
           style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-1)', cursor: 'pointer' }}
