@@ -56,6 +56,29 @@ export interface ConfigData {
   capabilities: { searchLevel: number; llm: any; embeddings: string };
 }
 
+export interface AnalyticsData {
+  healthScore: number;
+  healthFactors: {
+    activity: number;
+    quality: number;
+    freshness: number;
+    lessons: number;
+  };
+  timeline: Array<{ day: string; created: number; recalled: number }>;
+  valueMetrics: {
+    totalRecalls: number;
+    lessonsSaved: number;
+    lessonCount: number;
+    typeDistribution: Array<{ type: string; count: number }>;
+  };
+  cleanup: {
+    staleEntities: Array<{
+      id: number; name: string; type: string; confidence: number; days_unused: number;
+    }>;
+    duplicateCandidates: Array<{ name1: string; name2: string; type: string }>;
+  };
+}
+
 export interface GraphData {
   entities: Entity[];
   relations: Array<{ from: string; to: string; type: string }>;
