@@ -68,6 +68,10 @@ function formatAge(dateStr: string): string {
   return `${days}d ago`;
 }
 
+declare global {
+  interface Window { __graphReheat?: () => void; }
+}
+
 const CANVAS_HEIGHT = 500;
 const CLICK_THRESHOLD = 4; // px — drag vs click detection
 
@@ -210,7 +214,7 @@ export function GraphTab() {
 
     // Expose reheat function for drag/filter changes
     const reheat = () => { alpha = 0.3; };
-    (window as any).__graphReheat = reheat;
+    window.__graphReheat = reheat;
 
     const simulate = () => {
       const nodes = nodesRef.current;
@@ -468,7 +472,7 @@ export function GraphTab() {
     (e: MouseEvent) => {
       const pos = getCanvasPos(e);
       const node = findNodeAt(pos.x, pos.y);
-      if (node) (window as any).__graphReheat?.();
+      if (node) window.__graphReheat?.();
       dragRef.current = {
         node: node || null,
         offsetX: node ? pos.x - node.x : 0,

@@ -400,11 +400,12 @@ app.get('/v1/analytics', (_req, res) => {
 
     // --- Cleanup Suggestions ---
     const staleEntities = db.prepare(`
-      SELECT name, type, confidence, last_accessed_at
+      SELECT id, name, type, confidence,
+        CAST((julianday('now') - julianday(COALESCE(last_accessed_at, created_at))) AS INTEGER) as days_unused
       FROM entities
       WHERE status = 'active'
         AND confidence < 0.4
-        AND last_accessed_at < ?
+        AND (last_accessed_at IS NULL OR last_accessed_at < ?)
       ORDER BY confidence ASC
       LIMIT 10
     `).all(thirtyDaysAgo);
