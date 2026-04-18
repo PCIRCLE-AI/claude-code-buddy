@@ -210,3 +210,20 @@ describe('Integration: export → import round-trip', () => {
     expect(result[0].tags).toContain('new-tag');
   });
 });
+
+// ── export with namespace filter ──────────────────────────────────────────────
+
+describe('Integration: export namespace filtering', () => {
+  it('export with namespace filter returns correct entities within limit', () => {
+    for (let i = 0; i < 5; i++) {
+      remember({ name: `ns-personal-${i}`, type: 'test', observations: [`p${i}`], namespace: 'personal' });
+      remember({ name: `ns-team-${i}`, type: 'test', observations: [`t${i}`], namespace: 'team' });
+    }
+
+    const result = exportMemories({ namespace: 'team', limit: 3 });
+    expect(result.entity_count).toBe(3);
+    for (const e of result.entities) {
+      expect(e.namespace).toBe('team');
+    }
+  });
+});

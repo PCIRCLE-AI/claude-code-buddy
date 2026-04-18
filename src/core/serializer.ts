@@ -15,16 +15,12 @@ export function exportMemories(args: ExportInput): ExportResult {
   const db = getDatabase();
   const kg = new KnowledgeGraph(db);
 
-  let entities = kg.search(undefined, {
+  const entities = kg.search(undefined, {
     tag: args.tag,
     limit: args.limit || 1000,
     includeArchived: false,
+    namespace: args.namespace,
   });
-
-  // Filter by namespace if specified (search() doesn't filter by namespace)
-  if (args.namespace) {
-    entities = entities.filter((e) => (e.namespace ?? 'personal') === args.namespace);
-  }
 
   return {
     version: '3.0.0',
@@ -46,7 +42,7 @@ export function exportMemories(args: ExportInput): ExportResult {
  * merge_strategy controls how existing entities are handled:
  *   - 'skip': leave existing entities untouched, only create new ones
  *   - 'append': add observations to existing entities
- *   - 'overwrite': archive existing, then create fresh
+ *   - 'overwrite': clear existing data, then re-populate
  */
 export function importMemories(args: ImportInput): ImportResult {
   const db = getDatabase();
