@@ -447,12 +447,21 @@ export function GraphTab() {
     return () => cancelAnimationFrame(animRef.current);
   }, [data, loading]);
 
-  /* ---------- hit-test ---------- */
+  /* ---------- hit-test (only visible nodes) ---------- */
   const findNodeAt = useCallback((mx: number, my: number): GNode | null => {
-    // Reverse iterate so top-drawn nodes have priority
     const nodes = nodesRef.current;
+    const filters = typeFiltersRef.current;
+    const egoId = egoNodeIdRef.current;
     for (let i = nodes.length - 1; i >= 0; i--) {
       const n = nodes[i];
+      // Skip hidden nodes
+      if (filters[n.type] === false) continue;
+      if (egoId && n.id !== egoId) {
+        const isNeighbor = edgesRef.current.some(
+          (e) => (e.from === egoId && e.to === n.id) || (e.to === egoId && e.from === n.id),
+        );
+        if (!isNeighbor) continue;
+      }
       const dx = n.x - mx;
       const dy = n.y - my;
       if (dx * dx + dy * dy < 144) return n; // 12px hit area

@@ -302,9 +302,10 @@ app.get('/v1/stats', (_req, res) => {
 app.get('/v1/analytics', (_req, res) => {
   try {
     const db = getDatabase();
-    const now = new Date();
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Use SQLite datetime() for consistent comparison regardless of timestamp format
+    const thirtyDaysAgo = "datetime('now', '-30 days')";
+    const sevenDaysAgo = "datetime('now', '-7 days')";
 
     // --- Health Score ---
     const totalActive = (db.prepare(
@@ -313,8 +314,8 @@ app.get('/v1/analytics', (_req, res) => {
 
     // Activity: % of active entities accessed in last 30 days
     const recentlyAccessed = (db.prepare(
-      "SELECT COUNT(*) as c FROM entities WHERE status = 'active' AND last_accessed_at >= ?"
-    ).get(thirtyDaysAgo) as CountRow).c;
+      `SELECT COUNT(*) as c FROM entities WHERE status = 'active' AND last_accessed_at >= ${thirtyDaysAgo}`
+    ).get() as CountRow).c;
     const activityRatio = totalActive > 0 ? recentlyAccessed / totalActive : 0;
 
     // Quality: % of active entities with confidence > 0.7
@@ -325,8 +326,8 @@ app.get('/v1/analytics', (_req, res) => {
 
     // Freshness: new entities this week relative to total (capped at 1.0)
     const newThisWeek = (db.prepare(
-      "SELECT COUNT(*) as c FROM entities WHERE created_at >= ?"
-    ).get(sevenDaysAgo) as CountRow).c;
+      `SELECT COUNT(*) as c FROM entities WHERE created_at >= ${sevenDaysAgo}`
+    ).get() as CountRow).c;
     const freshnessRatio = totalActive > 0 ? Math.min(newThisWeek / totalActive, 1.0) : 0;
 
     // Lessons: lesson_learned entity count, 5+ = full score
@@ -350,18 +351,18 @@ app.get('/v1/analytics', (_req, res) => {
     const createdTimeline = db.prepare(`
       SELECT DATE(created_at) as day, COUNT(*) as created
       FROM entities
-      WHERE created_at >= ?
+      WHERE created_at >= ${thirtyDaysAgo}
       GROUP BY DATE(created_at)
       ORDER BY day
-    `).all(thirtyDaysAgo) as Array<{ day: string; created: number }>;
+    `).all() as Array<{ day: string; created: number }>;
 
     const recalledTimeline = db.prepare(`
       SELECT DATE(last_accessed_at) as day, COUNT(*) as recalled
       FROM entities
-      WHERE last_accessed_at >= ?
+      WHERE last_accessed_at >= ${thirtyDaysAgo}
       GROUP BY DATE(last_accessed_at)
       ORDER BY day
-    `).all(thirtyDaysAgo) as Array<{ day: string; recalled: number }>;
+    `).all() as Array<{ day: string; recalled: number }>;
 
     // Merge into daily buckets
     const timelineMap = new Map<string, { date: string; created: number; recalled: number }>();
@@ -405,10 +406,10 @@ app.get('/v1/analytics', (_req, res) => {
       FROM entities
       WHERE status = 'active'
         AND confidence < 0.4
-        AND (last_accessed_at IS NULL OR last_accessed_at < ?)
+        AND (last_accessed_at IS NULL OR last_accessed_at < ${thirtyDaysAgo})
       ORDER BY confidence ASC
       LIMIT 10
-    `).all(thirtyDaysAgo);
+    `).all();
 
     const duplicateCandidates = db.prepare(`
       SELECT e1.name as name1, e2.name as name2, e1.type

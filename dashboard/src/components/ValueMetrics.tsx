@@ -8,8 +8,8 @@ interface Props {
 }
 
 export function ValueMetrics({ totalRecalls, lessonsWithWarnings, lessonCount, typeDistribution }: Props) {
+  const total = typeDistribution.reduce((sum, d) => sum + d.count, 0);
   const top8 = typeDistribution.slice(0, 8);
-  const total = top8.reduce((sum, d) => sum + d.count, 0);
 
   return (
     <div>
