@@ -7,6 +7,7 @@ import { AnalyticsTab } from './components/AnalyticsTab';
 import { SettingsTab } from './components/SettingsTab';
 import { GraphTab } from './components/GraphTab';
 import { LessonsTab } from './components/LessonsTab';
+import { FeedbackWidget } from './components/FeedbackWidget';
 import { api, type HealthData } from './lib/api';
 import { initLocale, t } from './lib/i18n';
 
@@ -52,12 +53,7 @@ export function App() {
         <div class={`panel ${tab === 'Manage' ? 'active' : ''}`}>{tab === 'Manage' && <BrowseTab manage />}</div>
         <div class={`panel ${tab === 'Settings' ? 'active' : ''}`}>{tab === 'Settings' && <SettingsTab />}</div>
       </div>
-      <button class="fb-btn" onClick={() => {
-        const url = 'https://github.com/PCIRCLE-AI/memesh-llm-memory/issues/new?title=' + encodeURIComponent('[Feedback] ') + '&labels=feedback,from-dashboard';
-        window.open(url, '_blank');
-      }}>
-        {t('feedback.button')}
-      </button>
+      <FeedbackWidget health={health} />
     </div>
   );
 }
