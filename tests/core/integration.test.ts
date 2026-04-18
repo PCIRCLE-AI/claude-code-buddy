@@ -193,4 +193,37 @@ describe('Integration: export → import round-trip', () => {
     process.env.MEMESH_DB_PATH = path.join(tmpDir, 'test.db');
     openDatabase();
   });
+
+  it('overwrite import replaces observations completely', () => {
+    remember({ name: 'overwrite-test', type: 'test', observations: ['old-1', 'old-2', 'old-3'], tags: ['old-tag'] });
+
+    const exported = exportMemories({});
+    const entity = exported.entities.find(e => e.name === 'overwrite-test')!;
+    entity.observations = ['new-only'];
+    entity.tags = ['new-tag'];
+
+    importMemories({ data: exported, merge_strategy: 'overwrite' });
+
+    const result = recall({ query: 'overwrite-test', limit: 1 });
+    expect(result[0].observations).toEqual(['new-only']);
+    expect(result[0].observations).not.toContain('old-1');
+    expect(result[0].tags).toContain('new-tag');
+  });
+});
+
+// ── export with namespace filter ──────────────────────────────────────────────
+
+describe('Integration: export namespace filtering', () => {
+  it('export with namespace filter returns correct entities within limit', () => {
+    for (let i = 0; i < 5; i++) {
+      remember({ name: `ns-personal-${i}`, type: 'test', observations: [`p${i}`], namespace: 'personal' });
+      remember({ name: `ns-team-${i}`, type: 'test', observations: [`t${i}`], namespace: 'team' });
+    }
+
+    const result = exportMemories({ namespace: 'team', limit: 3 });
+    expect(result.entity_count).toBe(3);
+    for (const e of result.entities) {
+      expect(e.namespace).toBe('team');
+    }
+  });
 });

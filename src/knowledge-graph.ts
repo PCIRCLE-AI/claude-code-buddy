@@ -468,6 +468,30 @@ export class KnowledgeGraph {
     return results;
   }
 
+  /**
+   * Clear all observations and tags for an entity without deleting the entity row.
+   * Used by overwrite import to start fresh before re-adding data.
+   */
+  clearEntityData(name: string): void {
+    const row = this.db
+      .prepare('SELECT id FROM entities WHERE name = ?')
+      .get(name) as EntityRow | undefined;
+    if (!row) return;
+
+    // Capture current observations text for FTS delete before clearing
+    const prevObs = this.db
+      .prepare('SELECT content FROM observations WHERE entity_id = ?')
+      .all(row.id) as { content: string }[];
+    const prevObsText = prevObs.length > 0
+      ? prevObs.map((o) => o.content).join(' ')
+      : undefined;
+
+    this.db.prepare('DELETE FROM observations WHERE entity_id = ?').run(row.id);
+    this.db.prepare('DELETE FROM tags WHERE entity_id = ?').run(row.id);
+    // Rebuild FTS with empty content (removes old indexed text)
+    this.rebuildFts(row.id, name, prevObsText);
+  }
+
   archiveEntity(name: string): { archived: boolean; name?: string; previousStatus?: string } {
     const row = this.db
       .prepare('SELECT id, status FROM entities WHERE name = ?')

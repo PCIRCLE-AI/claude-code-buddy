@@ -1,6 +1,6 @@
 {
   "name": "@pcircle/memesh",
-  "version": "3.1.1",
+  "version": "3.2.0",
   "description": "MeMesh — The lightest universal AI memory layer. One SQLite file, any LLM, zero cloud.",
   "main": "dist/index.js",
   "type": "module",
@@ -48,6 +48,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@xenova/transformers": "^2.17.2",
     "better-sqlite3": "^12.9.0",
     "commander": "^14.0.3",
     "express": "^5.2.1",

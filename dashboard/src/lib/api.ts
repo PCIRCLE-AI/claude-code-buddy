@@ -55,3 +55,18 @@ export interface ConfigData {
   config: { llm?: { provider: string; model?: string; apiKey?: string }; setupCompleted?: boolean; theme?: string; autoCapture?: boolean };
   capabilities: { searchLevel: number; llm: any; embeddings: string };
 }
+
+export interface GraphData {
+  entities: Entity[];
+  relations: Array<{ from: string; to: string; type: string }>;
+}
+
+export async function fetchGraph(): Promise<GraphData> {
+  return api<GraphData>('GET', '/v1/graph');
+}
+
+export async function fetchLessons(): Promise<Entity[]> {
+  const result = await api<Entity[] | { entities: Entity[] }>('POST', '/v1/recall', { limit: 100 });
+  const entities = Array.isArray(result) ? result : (result as any).entities || [];
+  return entities.filter((e: Entity) => e.type === 'lesson_learned');
+}
