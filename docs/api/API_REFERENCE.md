@@ -395,6 +395,7 @@ Start: `memesh serve` (default: `localhost:3737`)
 | POST | /v1/config | Save config (partial update) |
 | GET | /v1/stats | Aggregate counts: entities, observations, relations, tags; type/tag/status distributions |
 | GET | /v1/graph | All entities + all relations (for graph visualization) |
+| GET | /v1/analytics | Health score, 30-day timeline, value metrics, cleanup suggestions |
 | GET | /dashboard | Interactive web dashboard (HTML) |
 
 All responses: `{ success: true, data: ... }` or `{ success: false, error: "..." }`
@@ -467,6 +468,53 @@ Returns all entities (including archived) and all relations, suitable for graph 
   }
 }
 ```
+
+### GET /v1/analytics
+
+Returns computed analytics insights for the memory database.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "healthScore": 72,
+    "healthFactors": {
+      "activity": 50,
+      "quality": 80,
+      "freshness": 60,
+      "lessons": 100
+    },
+    "timeline": [
+      { "day": "2026-04-01", "created": 5, "recalled": 12 }
+    ],
+    "valueMetrics": {
+      "totalRecalls": 500,
+      "lessonsSaved": 5,
+      "lessonCount": 8,
+      "typeDistribution": [
+        { "type": "concept", "count": 120 },
+        { "type": "decision", "count": 45 }
+      ]
+    },
+    "cleanup": {
+      "staleEntities": [
+        { "id": 42, "name": "old-auth", "type": "concept", "confidence": 0.2, "days_unused": 90 }
+      ],
+      "duplicateCandidates": [
+        { "name1": "auth-flow", "name2": "authentication-flow", "type": "concept" }
+      ]
+    }
+  }
+}
+```
+
+**Health Score Algorithm:**
+- Activity (30%): percentage of active entities accessed in last 30 days
+- Quality (30%): percentage of active entities with confidence > 0.7
+- Freshness (20%): new entities this week relative to 5% of total (capped at 100%)
+- Lessons (20%): lesson_learned entity count, 5+ gives full score
 
 ### GET /dashboard
 

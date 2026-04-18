@@ -153,7 +153,7 @@ Thin adapter: imports shared Zod schemas from `transports/schemas.ts`, validates
 
 ### transports/http/server.ts -- HTTP REST API Server
 
-Express server exposed via `memesh serve` (default port 3737). Delegates all operations to `core/operations`. See [HTTP REST API](#http-rest-api) in the API Reference.
+Express server exposed via `memesh serve` (default port 3737, 16 endpoints). Delegates all operations to `core/operations`. Includes `GET /v1/analytics` for computed health score, 30-day timeline, value metrics, and cleanup suggestions. See [HTTP REST API](#http-rest-api) in the API Reference.
 
 ### transports/cli/cli.ts -- CLI
 
@@ -179,7 +179,7 @@ Generates the interactive MeMesh Dashboard served by the HTTP server and the leg
 | Timeline | Knowledge evolution chain visualization |
 | Settings | LLM provider setup, API key management, theme toggle |
 
-The Settings tab communicates with `GET /v1/config` and `POST /v1/config`. The Manage tab uses `POST /v1/forget`. All data tabs fetch from `/v1/stats`, `/v1/graph`, `/v1/entities`, and `/v1/recall`.
+The Settings tab communicates with `GET /v1/config` and `POST /v1/config`. The Manage tab uses `POST /v1/forget`. The Analytics tab fetches from `GET /v1/analytics` for health score, timeline, value metrics, and cleanup suggestions. All data tabs fetch from `/v1/stats`, `/v1/graph`, `/v1/entities`, and `/v1/recall`.
 
 ---
 
