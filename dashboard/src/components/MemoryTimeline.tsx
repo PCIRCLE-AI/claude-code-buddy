@@ -2,7 +2,7 @@ import { useRef, useEffect } from 'preact/hooks';
 import { t } from '../lib/i18n';
 
 export interface TimelineEntry {
-  day: string;
+  date: string;
   created: number;
   recalled: number;
 }
@@ -93,8 +93,8 @@ function drawTimeline(
   for (let i = 0; i < barCount; i += 7) {
     const entry = data[i];
     // Format as MM-DD
-    const parts = entry.day.split('-');
-    const label = parts.length >= 3 ? `${parts[1]}-${parts[2]}` : entry.day;
+    const parts = entry.date.split('-');
+    const label = parts.length >= 3 ? `${parts[1]}-${parts[2]}` : entry.date;
     const x = PAD_LEFT + i * (barW + gap) + barW / 2;
     const y = PAD_TOP + chartH + 4;
     ctx.fillText(label, x, y);

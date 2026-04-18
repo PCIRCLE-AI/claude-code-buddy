@@ -2,12 +2,12 @@ import { t } from '../lib/i18n';
 
 interface Props {
   totalRecalls: number;
-  lessonsSaved: number;
+  lessonsWithWarnings: number;
   lessonCount: number;
   typeDistribution: Array<{ type: string; count: number }>;
 }
 
-export function ValueMetrics({ totalRecalls, lessonsSaved, lessonCount, typeDistribution }: Props) {
+export function ValueMetrics({ totalRecalls, lessonsWithWarnings, lessonCount, typeDistribution }: Props) {
   const top8 = typeDistribution.slice(0, 8);
   const total = top8.reduce((sum, d) => sum + d.count, 0);
 
@@ -23,8 +23,8 @@ export function ValueMetrics({ totalRecalls, lessonsSaved, lessonCount, typeDist
           <div class="stat-lbl">{t('value.lessonsLearned')}</div>
         </div>
         <div class="stat">
-          <div class="stat-val">{lessonsSaved}</div>
-          <div class="stat-lbl">{t('value.lessonsSaved')}</div>
+          <div class="stat-val">{lessonsWithWarnings}</div>
+          <div class="stat-lbl">{t('value.lessonsWithWarnings')}</div>
         </div>
       </div>
 

@@ -56,18 +56,24 @@ export interface ConfigData {
   capabilities: { searchLevel: number; llm: any; embeddings: string };
 }
 
+export interface HealthFactor {
+  score: number;
+  weight: number;
+  detail: string;
+}
+
 export interface AnalyticsData {
   healthScore: number;
   healthFactors: {
-    activity: number;
-    quality: number;
-    freshness: number;
-    lessons: number;
+    activity: HealthFactor;
+    quality: HealthFactor;
+    freshness: HealthFactor;
+    lessons: HealthFactor;
   };
-  timeline: Array<{ day: string; created: number; recalled: number }>;
+  timeline: Array<{ date: string; created: number; recalled: number }>;
   valueMetrics: {
     totalRecalls: number;
-    lessonsSaved: number;
+    lessonsWithWarnings: number;
     lessonCount: number;
     typeDistribution: Array<{ type: string; count: number }>;
   };

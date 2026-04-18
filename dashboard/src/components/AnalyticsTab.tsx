@@ -49,7 +49,7 @@ export function AnalyticsTab() {
       <div style={{ marginTop: 8 }}>
         <ValueMetrics
           totalRecalls={analytics.valueMetrics.totalRecalls}
-          lessonsSaved={analytics.valueMetrics.lessonsSaved}
+          lessonsWithWarnings={analytics.valueMetrics.lessonsWithWarnings}
           lessonCount={analytics.valueMetrics.lessonCount}
           typeDistribution={analytics.valueMetrics.typeDistribution}
         />

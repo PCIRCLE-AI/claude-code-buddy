@@ -1,8 +1,9 @@
 import { t } from '../lib/i18n';
+import type { HealthFactor } from '../lib/api';
 
 interface Props {
   score: number;  // 0-100
-  factors: { activity: number; quality: number; freshness: number; lessons: number }; // each 0-100
+  factors: { activity: HealthFactor; quality: HealthFactor; freshness: HealthFactor; lessons: HealthFactor };
 }
 
 function scoreColor(value: number): string {
@@ -71,8 +72,9 @@ export function HealthScore({ score, factors }: Props) {
         {/* Right: factor bars */}
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {factorKeys.map((key) => {
-            const value = factors[key];
-            const barColor = scoreColor(value);
+            const factor = factors[key];
+            const pct = Math.round((factor.score / factor.weight) * 100);
+            const barColor = scoreColor(pct);
             return (
               <div key={key}>
                 <div style={{
@@ -89,7 +91,7 @@ export function HealthScore({ score, factors }: Props) {
                     fontSize: '11px',
                     color: 'var(--text-3)',
                   }}>
-                    {value}%
+                    {pct}%
                   </span>
                 </div>
                 <div style={{
@@ -100,7 +102,7 @@ export function HealthScore({ score, factors }: Props) {
                 }}>
                   <div style={{
                     height: '100%',
-                    width: `${value}%`,
+                    width: `${pct}%`,
                     borderRadius: '2px',
                     background: barColor,
                     transition: 'width 600ms ease-out',
