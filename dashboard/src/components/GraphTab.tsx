@@ -130,7 +130,7 @@ export function GraphTab() {
 
   /* ----- build graph & start simulation ----- */
   useEffect(() => {
-    if (!data) return;
+    if (!data || loading) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -428,7 +428,7 @@ export function GraphTab() {
 
     animRef.current = requestAnimationFrame(simulate);
     return () => cancelAnimationFrame(animRef.current);
-  }, [data]);
+  }, [data, loading]);
 
   /* ---------- hit-test ---------- */
   const findNodeAt = useCallback((mx: number, my: number): GNode | null => {
