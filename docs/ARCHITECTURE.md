@@ -60,6 +60,7 @@ src/
 │   ├── lifecycle.ts       # Auto-decay + consolidation orchestration
 │   ├── failure-analyzer.ts # LLM-powered failure analysis → StructuredLesson
 │   ├── lesson-engine.ts   # Structured lesson creation, upsert, project query
+│   ├── embedder.ts        # Neural embeddings (Xenova/all-MiniLM-L6-v2, 384-dim)
 │   └── version-check.ts   # npm registry version check
 ├── db.ts                  # SQLite + FTS5 + sqlite-vec + migrations
 ├── knowledge-graph.ts     # Entity CRUD, relations, FTS5 search, findConflicts

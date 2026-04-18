@@ -71,6 +71,7 @@ const requiredFiles = [
   'dist/core/lesson-engine.js',
   'dist/core/consolidator.js',
   'dist/core/serializer.js',
+  'dist/core/embedder.js',
   // Dist — transports
   'dist/transports/schemas.js',
   'dist/mcp/server.js',
