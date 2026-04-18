@@ -10,7 +10,7 @@ import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 import {
   RememberSchema, RecallSchema, ForgetSchema, ConsolidateSchema,
-  ExportSchema, ExportResultSchema, ImportSchema, LearnSchema,
+  ExportSchema, ImportSchema, LearnSchema,
 } from '../schemas.js';
 
 // ---------------------------------------------------------------------------
