@@ -5,18 +5,22 @@ import { SearchTab } from './components/SearchTab';
 import { BrowseTab } from './components/BrowseTab';
 import { AnalyticsTab } from './components/AnalyticsTab';
 import { SettingsTab } from './components/SettingsTab';
+import { GraphTab } from './components/GraphTab';
+import { LessonsTab } from './components/LessonsTab';
 import { api, type HealthData } from './lib/api';
 import { initLocale, t } from './lib/i18n';
 
 initLocale();
 
-const TAB_KEYS = ['Search', 'Browse', 'Analytics', 'Manage', 'Settings'] as const;
+const TAB_KEYS = ['Search', 'Browse', 'Analytics', 'Graph', 'Lessons', 'Manage', 'Settings'] as const;
 type Tab = typeof TAB_KEYS[number];
 
 const TAB_I18N_KEYS: Record<Tab, string> = {
   Search: 'tab.search',
   Browse: 'tab.browse',
   Analytics: 'tab.analytics',
+  Graph: 'tab.graph',
+  Lessons: 'tab.lessons',
   Manage: 'tab.manage',
   Settings: 'tab.settings',
 };
@@ -43,6 +47,8 @@ export function App() {
         <div class={`panel ${tab === 'Search' ? 'active' : ''}`}><SearchTab /></div>
         <div class={`panel ${tab === 'Browse' ? 'active' : ''}`}><BrowseTab /></div>
         <div class={`panel ${tab === 'Analytics' ? 'active' : ''}`}><AnalyticsTab /></div>
+        <div class={`panel ${tab === 'Graph' ? 'active' : ''}`}>{tab === 'Graph' && <GraphTab />}</div>
+        <div class={`panel ${tab === 'Lessons' ? 'active' : ''}`}>{tab === 'Lessons' && <LessonsTab />}</div>
         <div class={`panel ${tab === 'Manage' ? 'active' : ''}`}>{tab === 'Manage' && <BrowseTab manage />}</div>
         <div class={`panel ${tab === 'Settings' ? 'active' : ''}`}>{tab === 'Settings' && <SettingsTab />}</div>
       </div>
