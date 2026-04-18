@@ -24,7 +24,7 @@ export function ValueMetrics({ totalRecalls, lessonsWithWarnings, lessonCount, t
         </div>
         <div class="stat">
           <div class="stat-val">{lessonsWithWarnings}</div>
-          <div class="stat-lbl">{t('value.lessonsWithWarnings')}</div>
+          <div class="stat-lbl">{t('value.lessonsSaved')}</div>
         </div>
       </div>
 
