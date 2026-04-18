@@ -19,13 +19,13 @@ interface Edge {
 }
 
 const TYPE_COLORS: Record<string, string> = {
-  decision: '#3b82f6',
-  pattern: '#22c55e',
-  lesson_learned: '#f97316',
-  commit: '#8b5cf6',
-  'session-insight': '#6b7280',
+  decision: '#00D6B4',
+  pattern: '#60A5FA',
+  lesson_learned: '#FFB84D',
+  commit: '#A78BFA',
+  'session-insight': '#7A828E',
 };
-const DEFAULT_COLOR = '#94a3b8';
+const DEFAULT_COLOR = '#B8BEC6';
 
 function getColor(type: string): string {
   return TYPE_COLORS[type] || DEFAULT_COLOR;
@@ -153,9 +153,9 @@ export function GraphTab() {
 
       // Draw edges
       ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgba(113, 113, 122, 0.3)';
-      ctx.font = '9px system-ui, sans-serif';
-      ctx.fillStyle = 'rgba(113, 113, 122, 0.5)';
+      ctx.strokeStyle = 'rgba(0, 214, 180, 0.15)';
+      ctx.font = '9px Satoshi, system-ui, sans-serif';
+      ctx.fillStyle = 'rgba(122, 130, 142, 0.5)';
       for (const edge of edges) {
         const a = nodeById.get(edge.from);
         const b = nodeById.get(edge.to);
@@ -184,8 +184,8 @@ export function GraphTab() {
           ctx.stroke();
         }
         // Node label
-        ctx.fillStyle = '#d4d4d8';
-        ctx.font = '10px system-ui, sans-serif';
+        ctx.fillStyle = '#B8BEC6';
+        ctx.font = '10px Satoshi, system-ui, sans-serif';
         const label = n.id.length > 20 ? n.id.slice(0, 18) + '...' : n.id;
         ctx.fillText(label, n.x + r + 4, n.y + 3);
       }
@@ -197,15 +197,15 @@ export function GraphTab() {
         const ty = tip.y - 10;
         const text = `${tip.node.id} (${tip.node.type})`;
         const textW = ctx.measureText(text).width;
-        ctx.fillStyle = 'rgba(15, 15, 18, 0.92)';
-        ctx.strokeStyle = 'rgba(59, 130, 246, 0.3)';
+        ctx.fillStyle = 'rgba(13, 16, 20, 0.92)';
+        ctx.strokeStyle = 'rgba(0, 214, 180, 0.3)';
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.roundRect(tx - 4, ty - 12, textW + 8, 18, 4);
         ctx.fill();
         ctx.stroke();
-        ctx.fillStyle = '#fafafa';
-        ctx.font = '11px system-ui, sans-serif';
+        ctx.fillStyle = '#F0F2F4';
+        ctx.font = '11px Satoshi, system-ui, sans-serif';
         ctx.fillText(text, tx, ty);
       }
 
