@@ -204,6 +204,14 @@ export function GraphTab() {
     };
 
     /* ---------- simulation loop ---------- */
+    let alpha = 1.0;           // cooling factor: 1.0 = hot, 0 = frozen
+    const alphaDecay = 0.005;  // how fast it cools per frame
+    const alphaMin = 0.001;    // stop physics below this
+
+    // Expose reheat function for drag/filter changes
+    const reheat = () => { alpha = 0.3; };
+    (window as any).__graphReheat = reheat;
+
     const simulate = () => {
       const nodes = nodesRef.current;
       const edges = edgesRef.current;
@@ -211,12 +219,15 @@ export function GraphTab() {
       if (!ctx) return;
       const curDpr = window.devicePixelRatio || 1;
 
-      // Physics constants
+      // Cool down
+      alpha = Math.max(alphaMin, alpha - alphaDecay);
+
+      // Physics constants (scaled by alpha)
       const damping = 0.85;
-      const repulsion = 2000;
+      const repulsion = 2000 * alpha;
       const springLen = 80;
-      const springK = 0.02;
-      const centerForce = 0.005;
+      const springK = 0.02 * alpha;
+      const centerForce = 0.005 * alpha;
       const largeN = nodes.length > 200;
 
       // Repulsion between ALL nodes (physics runs on full set for stability)
@@ -269,6 +280,8 @@ export function GraphTab() {
         if (dragRef.current.node === n) continue;
         n.vx *= damping;
         n.vy *= damping;
+        // Freeze when nearly stopped
+        if (Math.abs(n.vx) < 0.01 && Math.abs(n.vy) < 0.01) { n.vx = 0; n.vy = 0; }
         n.x += n.vx;
         n.y += n.vy;
         n.x = Math.max(20, Math.min(w - 20, n.x));
@@ -455,6 +468,7 @@ export function GraphTab() {
     (e: MouseEvent) => {
       const pos = getCanvasPos(e);
       const node = findNodeAt(pos.x, pos.y);
+      if (node) (window as any).__graphReheat?.();
       dragRef.current = {
         node: node || null,
         offsetX: node ? pos.x - node.x : 0,
