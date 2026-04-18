@@ -41,6 +41,14 @@ export function SearchTab() {
           </button>
         </div>
 
+        {!loading && results === null && !error && (
+          <div class="empty" style={{ padding: '32px 20px', color: 'var(--text-3)' }}>
+            <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+              {t('search.hint')}
+            </div>
+          </div>
+        )}
+
         {error && <div class="error-box">{error}</div>}
 
         {loading && <div class="empty"><div class="loading" /></div>}

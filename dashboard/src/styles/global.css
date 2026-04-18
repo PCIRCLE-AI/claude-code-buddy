@@ -135,16 +135,17 @@ body {
 }
 .nav::-webkit-scrollbar { display: none; }
 .nav-btn {
-  padding: 10px 16px;
+  padding: 14px 16px;
   border: none;
   background: none;
   cursor: pointer;
   font: 500 12px/1 var(--font);
   color: var(--text-3);
-  border-bottom: 1px solid transparent;
+  border-bottom: 2px solid transparent;
   transition: color 150ms, border-color 150ms;
   white-space: nowrap;
   letter-spacing: 0.01em;
+  min-height: 44px;
 }
 .nav-btn:hover { color: var(--text-2); }
 .nav-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
@@ -211,7 +212,7 @@ input::placeholder, textarea::placeholder { color: var(--text-3); }
 .btn-primary:hover { background: var(--accent-hover); }
 .btn-danger { color: var(--danger); border-color: rgba(255, 107, 107, 0.2); background: transparent; }
 .btn-danger:hover { background: var(--danger-soft); }
-.btn-sm { padding: 5px 10px; font-size: 11px; }
+.btn-sm { padding: 8px 14px; font-size: 11px; min-height: 36px; }
 
 /* Tables */
 .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
