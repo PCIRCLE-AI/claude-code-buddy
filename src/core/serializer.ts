@@ -76,8 +76,8 @@ export function importMemories(args: ImportInput): ImportResult {
           appended++;
           continue;
         }
-        // overwrite: archive existing, then create fresh below
-        kg.archiveEntity(entity.name);
+        // overwrite: clear existing data, then re-populate below
+        kg.clearEntityData(entity.name);
       }
 
       kg.createEntity(entity.name, entity.type, {
