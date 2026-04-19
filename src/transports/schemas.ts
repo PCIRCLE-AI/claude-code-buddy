@@ -70,3 +70,8 @@ export const LearnSchema = z.object({
   prevention: z.string().max(5000).optional(),
   severity: z.enum(['critical', 'major', 'minor']).optional(),
 });
+
+export const UserPatternsSchema = z.object({
+  categories: z.array(z.enum(['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
+    .describe('Specific categories to return. Omit for all.'),
+});

@@ -8,9 +8,10 @@ import { z } from 'zod';
 import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
+import { computePatterns } from '../../core/patterns.js';
 import {
   RememberSchema, RecallSchema, ForgetSchema, ConsolidateSchema,
-  ExportSchema, ImportSchema, LearnSchema,
+  ExportSchema, ImportSchema, LearnSchema, UserPatternsSchema,
 } from '../schemas.js';
 
 // ---------------------------------------------------------------------------
@@ -195,6 +196,25 @@ export const TOOL_DEFINITIONS = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'user_patterns',
+    description:
+      'Analyze user work patterns from existing memory. Returns: work schedule (peak hours/days), tool preferences, focus areas, workflow metrics (session duration, commits/session), knowledge strengths, and learning areas. Use at session start for context about the user.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        categories: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: ['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'],
+          },
+          description: 'Specific categories to return. Omit for all.',
+        },
+      },
+      additionalProperties: false,
+    },
+  },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -273,6 +293,87 @@ export async function handleTool(name: string, args: any): Promise<ToolResult> {
       const r = parseOrFail(LearnSchema, args);
       if (!r.ok) return r.result;
       return ok(learn(r.data));
+    }
+    if (name === 'user_patterns') {
+      const r = parseOrFail(UserPatternsSchema, args);
+      if (!r.ok) return r.result;
+
+      const db = getDatabase();
+      const cats = r.data.categories;
+      const allCategories = !cats || cats.length === 0;
+      const data = computePatterns(db, cats);
+      const lines: string[] = ['## User Patterns'];
+
+      // --- Work Schedule ---
+      if (allCategories || cats!.includes('workSchedule')) {
+        lines.push('', '### Work Schedule');
+        // Sort by count DESC for display (data is ordered by hour for consistency)
+        const peakHours = [...data.workSchedule.hourDistribution]
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 3)
+          .map(h => `${String(h.hour).padStart(2, '0')}:00 (${h.count})`)
+          .join(', ');
+        lines.push(`Peak hours: ${peakHours || 'No data'}`);
+        const busiestDays = [...data.workSchedule.dayDistribution]
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 3)
+          .map(d => `${d.day} (${d.count})`)
+          .join(', ');
+        lines.push(`Busiest days: ${busiestDays || 'No data'}`);
+      }
+
+      // --- Tool Preferences ---
+      if (allCategories || cats!.includes('toolPreferences')) {
+        lines.push('', '### Tool Preferences');
+        if (data.toolPreferences.length > 0) {
+          data.toolPreferences.forEach((tp, i) => {
+            lines.push(`${i + 1}. ${tp.tool} (${tp.sessions} sessions)`);
+          });
+        } else {
+          lines.push('No tool usage data yet.');
+        }
+      }
+
+      // --- Focus Areas ---
+      if (allCategories || cats!.includes('focusAreas')) {
+        lines.push('', '### Focus Areas');
+        if (data.focusAreas.length > 0) {
+          data.focusAreas.forEach(f => {
+            lines.push(`- ${f.type} (${f.count})`);
+          });
+        } else {
+          lines.push('No focus area data yet.');
+        }
+      }
+
+      // --- Workflow ---
+      if (allCategories || cats!.includes('workflow')) {
+        lines.push('', '### Workflow');
+        lines.push(`Avg session: ${data.workflow.avgSessionMinutes} min | Commits per session: ${data.workflow.commitsPerSession}`);
+        lines.push(`Total sessions: ${data.workflow.totalSessions} | Total commits: ${data.workflow.totalCommits}`);
+      }
+
+      // --- Strengths ---
+      if (allCategories || cats!.includes('strengths')) {
+        lines.push('', '### Strengths (high confidence areas)');
+        if (data.strengths.length > 0) {
+          lines.push('- ' + data.strengths.map(s => `${s.type} (${s.avgConfidence})`).join(', '));
+        } else {
+          lines.push('No strength data yet.');
+        }
+      }
+
+      // --- Learning Areas ---
+      if (allCategories || cats!.includes('learningAreas')) {
+        lines.push('', '### Learning Areas');
+        if (data.learningAreas.length > 0) {
+          lines.push('- ' + data.learningAreas.map(l => l.tag).join(', '));
+        } else {
+          lines.push('No learning area data yet.');
+        }
+      }
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
     }
     return fail(`Unknown tool: ${name}`);
   } catch (err: any) {

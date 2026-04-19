@@ -7,6 +7,7 @@ import { remember, recallEnhanced, forget, consolidate, exportMemories, importMe
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
+import { computePatterns } from '../../core/patterns.js';
 import type { CountRow } from '../../core/types.js';
 import {
   RememberSchema as RememberBody, RecallSchema as RecallBody,
@@ -28,6 +29,15 @@ const packageVersion =
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+
+// --- Security headers ---
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '0');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
 
 // --- Rate limiting (in-memory, no external deps) ---
 const rateLimitWindowMs = 60_000; // 1 minute
@@ -303,9 +313,7 @@ app.get('/v1/analytics', (_req, res) => {
   try {
     const db = getDatabase();
 
-    // Use SQLite datetime() for consistent comparison regardless of timestamp format
-    const thirtyDaysAgo = "datetime('now', '-30 days')";
-    const sevenDaysAgo = "datetime('now', '-7 days')";
+    // SQL datetime() literals are used inline in queries below — no JS interpolation needed
 
     // --- Health Score ---
     const totalActive = (db.prepare(
@@ -314,7 +322,7 @@ app.get('/v1/analytics', (_req, res) => {
 
     // Activity: % of active entities accessed in last 30 days
     const recentlyAccessed = (db.prepare(
-      `SELECT COUNT(*) as c FROM entities WHERE status = 'active' AND last_accessed_at >= ${thirtyDaysAgo}`
+      `SELECT COUNT(*) as c FROM entities WHERE status = 'active' AND last_accessed_at >= datetime('now', '-30 days')`
     ).get() as CountRow).c;
     const activityRatio = totalActive > 0 ? recentlyAccessed / totalActive : 0;
 
@@ -326,7 +334,7 @@ app.get('/v1/analytics', (_req, res) => {
 
     // Freshness: new entities this week relative to total (capped at 1.0)
     const newThisWeek = (db.prepare(
-      `SELECT COUNT(*) as c FROM entities WHERE created_at >= ${sevenDaysAgo}`
+      `SELECT COUNT(*) as c FROM entities WHERE created_at >= datetime('now', '-7 days')`
     ).get() as CountRow).c;
     const freshnessRatio = totalActive > 0 ? Math.min(newThisWeek / totalActive, 1.0) : 0;
 
@@ -351,7 +359,7 @@ app.get('/v1/analytics', (_req, res) => {
     const createdTimeline = db.prepare(`
       SELECT DATE(created_at) as day, COUNT(*) as created
       FROM entities
-      WHERE created_at >= ${thirtyDaysAgo}
+      WHERE created_at >= datetime('now', '-30 days')
       GROUP BY DATE(created_at)
       ORDER BY day
     `).all() as Array<{ day: string; created: number }>;
@@ -359,7 +367,7 @@ app.get('/v1/analytics', (_req, res) => {
     const recalledTimeline = db.prepare(`
       SELECT DATE(last_accessed_at) as day, COUNT(*) as recalled
       FROM entities
-      WHERE last_accessed_at >= ${thirtyDaysAgo}
+      WHERE last_accessed_at >= datetime('now', '-30 days')
       GROUP BY DATE(last_accessed_at)
       ORDER BY day
     `).all() as Array<{ day: string; recalled: number }>;
@@ -406,7 +414,7 @@ app.get('/v1/analytics', (_req, res) => {
       FROM entities
       WHERE status = 'active'
         AND confidence < 0.4
-        AND (last_accessed_at IS NULL OR last_accessed_at < ${thirtyDaysAgo})
+        AND (last_accessed_at IS NULL OR last_accessed_at < datetime('now', '-30 days'))
       ORDER BY confidence ASC
       LIMIT 10
     `).all();
@@ -435,6 +443,17 @@ app.get('/v1/analytics', (_req, res) => {
         cleanup,
       },
     });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// --- Patterns ---
+app.get('/v1/patterns', (_req, res) => {
+  try {
+    const db = getDatabase();
+    const data = computePatterns(db);
+    res.json({ success: true, data });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
