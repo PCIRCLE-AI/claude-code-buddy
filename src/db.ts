@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import { runAutoDecay } from './core/lifecycle.js';
+import { getEmbeddingDimension } from './core/embedder.js';
 import type { PragmaColumnRow } from './core/types.js';
 
 let db: Database.Database | null = null;
@@ -117,15 +118,59 @@ export function openDatabase(dbPath?: string): Database.Database {
   // Load sqlite-vec extension for vector similarity search
   sqliteVec.load(db);
 
-  // Create vector table for entity embeddings (if not exists)
-  // 384 dimensions = all-MiniLM-L6-v2 embedding size
+  // Create/migrate vector table for entity embeddings
+  // Dimension depends on embedding provider (384=ONNX, 1536=OpenAI, 768=Ollama)
+  const targetDim = getEmbeddingDimension();
+  ensureVecTable(db, targetDim);
+
+  return db;
+}
+
+/**
+ * Ensure entities_vec table exists with the correct dimension.
+ * If dimension changed (provider switch), drops and recreates the table.
+ * Old embeddings are lost — new ones regenerated as entities are accessed.
+ */
+function ensureVecTable(db: Database.Database, targetDim: number): void {
+  // Ensure metadata table exists
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memesh_metadata (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
+  const storedDim = db.prepare(
+    "SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'"
+  ).get() as { value: string } | undefined;
+
+  const currentDim = storedDim ? parseInt(storedDim.value, 10) : 0;
+
+  // Check if vec table exists
+  const vecExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='entities_vec'"
+  ).get();
+
+  if (vecExists && currentDim === targetDim) {
+    return; // table exists with correct dimension
+  }
+
+  // Drop old table if dimension changed
+  if (vecExists && currentDim !== targetDim) {
+    db.exec('DROP TABLE entities_vec');
+  }
+
+  // Create with target dimension
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS entities_vec USING vec0(
-      embedding float[384]
+      embedding float[${targetDim}]
     );
   `);
 
-  return db;
+  // Store current dimension
+  db.prepare(
+    "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('embedding_dimension', ?)"
+  ).run(String(targetDim));
 }
 
 export function closeDatabase(): void {

@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { createRequire } from 'module';
 
 // --- Config Types ---
 
@@ -101,10 +102,28 @@ export function detectCapabilities(config?: MeMeshConfig): Capabilities {
     vectorSearch: true,
     scoring: true,
     knowledgeEvolution: true,
-    embeddings: llm?.provider ?? 'tfidf',
+    embeddings: detectEmbeddingSource(llm),
     llm,
     searchLevel: llm ? 1 : 0,
   };
+}
+
+/**
+ * Determine the actual embedding source based on provider.
+ * Anthropic has no embedding API — falls back to ONNX or tfidf.
+ */
+function detectEmbeddingSource(llm: LLMConfig | null): Capabilities['embeddings'] {
+  if (!llm) return 'tfidf';
+  if (llm.provider === 'openai') return 'openai';
+  if (llm.provider === 'ollama') return 'ollama';
+  // Anthropic has no embedding API — check if ONNX is available
+  try {
+    const require = createRequire(import.meta.url);
+    require.resolve('@xenova/transformers');
+    return 'onnx';
+  } catch {
+    return 'tfidf';
+  }
 }
 
 // --- Startup Capability Logging ---
