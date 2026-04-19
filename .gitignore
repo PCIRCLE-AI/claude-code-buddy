@@ -92,3 +92,7 @@ docs/guides/
 
 # === AI tool caches ===
 .codex/
+.gstack/
+
+# === Local project docs (not shipped) ===
+PRE_RELEASE_CHECKLIST.md
