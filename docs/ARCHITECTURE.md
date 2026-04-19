@@ -265,16 +265,16 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 | Hook | Event | Purpose |
 |------|-------|---------|
-| session-start.js | SessionStart | Auto-recall project memories |
+| session-start.js | SessionStart | Auto-recall project memories + record injected entity IDs |
 | post-commit.js | PostToolUse (Bash) | Record git commits with diff stats |
-| session-summary.js | Stop | Auto-capture session knowledge |
+| session-summary.js | Stop | Auto-capture session knowledge + recall effectiveness tracking |
 | pre-compact.js | PreCompact | Save knowledge before compaction |
 
 ### Session Start (`scripts/hooks/session-start.js`)
 
 - **Trigger**: `SessionStart` event (every new Claude Code session)
 - **Matcher**: `*` (all sessions)
-- **Behavior**: Opens the database, queries recent entities tagged with the current project, outputs a summary for Claude to use as context. Also shows proactive warnings for known `lesson_learned` entities matching the current project
+- **Behavior**: Opens the database, queries recent entities tagged with the current project, outputs a summary for Claude to use as context. Also shows proactive warnings for known `lesson_learned` entities matching the current project. Records injected entity IDs to `~/.memesh/last-session-injected.json` for recall effectiveness tracking
 
 ### Post Commit (`scripts/hooks/post-commit.js`)
 
@@ -286,7 +286,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 - **Trigger**: `Stop` event (when Claude finishes responding)
 - **Matcher**: `*` (all sessions)
-- **Behavior**: Extracts session knowledge (files edited, errors fixed, decisions made) and stores it as entities in the knowledge graph. When LLM is configured (Level 1), additionally runs failure analysis to create structured `lesson_learned` entities from session errors. Opt-out via `MEMESH_AUTO_CAPTURE=false`
+- **Behavior**: Extracts session knowledge (files edited, errors fixed, decisions made) and stores it as entities in the knowledge graph. When LLM is configured (Level 1), additionally runs failure analysis to create structured `lesson_learned` entities from session errors. Also reads `~/.memesh/last-session-injected.json` to track recall effectiveness — updates `recall_hits` (entity name found in transcript) or `recall_misses` (not found). Opt-out via `MEMESH_AUTO_CAPTURE=false`
 
 ### Pre-Compact (`scripts/hooks/pre-compact.js`)
 

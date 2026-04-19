@@ -105,3 +105,60 @@ describe('/v1/analytics computation', () => {
     expect(types[1]).toEqual({ type: 'decision', count: 1 });
   });
 });
+
+// ── Recall Effectiveness ─────────────────────────────────────────────────
+
+describe('recall effectiveness tracking', () => {
+  it('recall_hits and recall_misses default to 0 for new entities', () => {
+    remember({ name: 'eff-test', type: 'decision', observations: ['test'] });
+    const row = db.prepare(
+      'SELECT recall_hits, recall_misses FROM entities WHERE name = ?'
+    ).get('eff-test') as { recall_hits: number; recall_misses: number };
+    expect(row.recall_hits).toBe(0);
+    expect(row.recall_misses).toBe(0);
+  });
+
+  it('recall_hits increments correctly', () => {
+    remember({ name: 'hit-entity', type: 'decision', observations: ['test'] });
+    db.prepare('UPDATE entities SET recall_hits = recall_hits + 1 WHERE name = ?').run('hit-entity');
+    db.prepare('UPDATE entities SET recall_hits = recall_hits + 1 WHERE name = ?').run('hit-entity');
+    const row = db.prepare(
+      'SELECT recall_hits FROM entities WHERE name = ?'
+    ).get('hit-entity') as { recall_hits: number };
+    expect(row.recall_hits).toBe(2);
+  });
+
+  it('recall_misses increments correctly', () => {
+    remember({ name: 'miss-entity', type: 'decision', observations: ['test'] });
+    db.prepare('UPDATE entities SET recall_misses = recall_misses + 1 WHERE name = ?').run('miss-entity');
+    const row = db.prepare(
+      'SELECT recall_misses FROM entities WHERE name = ?'
+    ).get('miss-entity') as { recall_misses: number };
+    expect(row.recall_misses).toBe(1);
+  });
+
+  it('hit rate calculation is correct', () => {
+    remember({ name: 'rate-entity', type: 'decision', observations: ['test'] });
+    db.prepare('UPDATE entities SET recall_hits = 7, recall_misses = 3 WHERE name = ?').run('rate-entity');
+    const row = db.prepare(
+      `SELECT CAST(recall_hits AS REAL) / (recall_hits + recall_misses) as hitRate
+       FROM entities WHERE name = ?`
+    ).get('rate-entity') as { hitRate: number };
+    expect(row.hitRate).toBeCloseTo(0.7, 2);
+  });
+
+  it('overall hit rate aggregation works across multiple entities', () => {
+    remember({ name: 'agg-1', type: 'concept', observations: ['a'] });
+    remember({ name: 'agg-2', type: 'concept', observations: ['b'] });
+    db.prepare('UPDATE entities SET recall_hits = 5, recall_misses = 5 WHERE name = ?').run('agg-1');
+    db.prepare('UPDATE entities SET recall_hits = 8, recall_misses = 2 WHERE name = ?').run('agg-2');
+    const totals = db.prepare(
+      `SELECT COALESCE(SUM(recall_hits), 0) as hits, COALESCE(SUM(recall_misses), 0) as misses
+       FROM entities WHERE (recall_hits > 0 OR recall_misses > 0)`
+    ).get() as { hits: number; misses: number };
+    expect(totals.hits).toBe(13);
+    expect(totals.misses).toBe(7);
+    const rate = totals.hits / (totals.hits + totals.misses);
+    expect(rate).toBeCloseTo(0.65, 2);
+  });
+});

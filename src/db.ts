@@ -104,6 +104,13 @@ export function openDatabase(dbPath?: string): Database.Database {
     db.exec("CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace)");
   }
 
+  // Migrate: add recall effectiveness columns if missing (v4.0.0)
+  const recallCols = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
+  if (!recallCols.some((c) => c.name === 'recall_hits')) {
+    db.exec("ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
+    db.exec("ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
+  }
+
   // Run auto-decay: reduce confidence for stale entities (throttled to once per 24h)
   runAutoDecay(db);
 

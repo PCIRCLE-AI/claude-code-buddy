@@ -3,7 +3,7 @@
 import { createRequire } from 'module';
 import { homedir } from 'os';
 import { join, basename } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, writeFileSync, mkdirSync } from 'fs';
 
 const require = createRequire(import.meta.url);
 
@@ -163,6 +163,27 @@ process.stdin.on('end', () => {
         }
       } catch {
         // Lesson query failed — don't break session start
+      }
+
+      // --- Record injected entity IDs for recall effectiveness tracking ---
+      try {
+        const allInjected = [...projectEntities, ...recentEntities];
+        if (allInjected.length > 0) {
+          const memeshDir = join(homedir(), '.memesh');
+          if (!existsSync(memeshDir)) mkdirSync(memeshDir, { recursive: true });
+          writeFileSync(
+            join(memeshDir, 'last-session-injected.json'),
+            JSON.stringify({
+              injectedAt: new Date().toISOString(),
+              project: projectName,
+              entityIds: allInjected.map(e => e.id),
+              entityNames: allInjected.map(e => e.name),
+            }),
+            'utf8'
+          );
+        }
+      } catch {
+        // Non-critical — don't break session start
       }
 
       const hookOutput = {

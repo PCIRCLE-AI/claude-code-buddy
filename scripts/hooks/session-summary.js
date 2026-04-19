@@ -7,7 +7,7 @@
 import { createRequire } from 'module';
 import { homedir } from 'os';
 import { join, basename, dirname } from 'path';
-import { existsSync, mkdirSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
@@ -237,6 +237,49 @@ process.stdin.on('end', async () => {
           ],
           [...baseTags, 'type:heavy-session']
         );
+      }
+
+      // ── Recall effectiveness tracking ────────────────────────────────
+      // Read which entities were injected at session start, check if
+      // their names appear in the transcript, update hits/misses.
+      try {
+        const injectedPath = join(homedir(), '.memesh', 'last-session-injected.json');
+        if (existsSync(injectedPath)) {
+          const injectedData = JSON.parse(readFileSync(injectedPath, 'utf8'));
+          const { entityIds, entityNames } = injectedData;
+
+          if (entityIds && entityIds.length > 0) {
+            // Check if recall_hits column exists (v4.0+ migration)
+            const colCheck = db.prepare("PRAGMA table_info(entities)").all();
+            if (colCheck.some(c => c.name === 'recall_hits')) {
+              // Build a lowercase transcript text for matching
+              const transcriptText = readFileSync(transcriptPath, 'utf8').toLowerCase();
+
+              const updateHit = db.prepare(
+                'UPDATE entities SET recall_hits = COALESCE(recall_hits, 0) + 1 WHERE id = ?'
+              );
+              const updateMiss = db.prepare(
+                'UPDATE entities SET recall_misses = COALESCE(recall_misses, 0) + 1 WHERE id = ?'
+              );
+
+              for (let i = 0; i < entityIds.length; i++) {
+                const name = (entityNames[i] || '').toLowerCase();
+                // Skip very short names to avoid false positives
+                if (name.length < 4) continue;
+                if (transcriptText.includes(name)) {
+                  updateHit.run(entityIds[i]);
+                } else {
+                  updateMiss.run(entityIds[i]);
+                }
+              }
+            }
+          }
+
+          // Clean up temp file
+          try { unlinkSync(injectedPath); } catch {}
+        }
+      } catch {
+        // Non-critical — don't break session summary
       }
     } finally {
       db.close();
