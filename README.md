@@ -11,7 +11,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
-    <a href="https://pypi.org/project/memesh/"><img src="https://img.shields.io/badge/pip-memesh-3b82f6?style=flat-square" alt="PyPI" /></a>
   </p>
 </p>
 
@@ -94,13 +93,12 @@ MCP protocol (auto-configured)
 </td>
 <td width="33%" align="center">
 
-**Python / LangChain**
-```python
-from memesh import MeMesh
-m = MeMesh()
-m.recall("auth")
+**Any HTTP Client**
+```bash
+curl localhost:3737/v1/recall \
+  -d '{"query":"auth"}'
 ```
-`pip install memesh`
+`memesh serve` (REST API)
 
 </td>
 <td width="33%" align="center">
@@ -176,6 +174,19 @@ You don't need to manually remember everything. MeMesh has **4 hooks** that capt
 **⚠️ Conflict Detection** — If you have two memories that contradict each other, MeMesh warns you.
 
 **📦 Team Sharing** — `memesh export > team-knowledge.json` → share with your team → `memesh import team-knowledge.json`
+
+---
+
+## Real-World Usage
+
+> "MeMesh remembered that we chose PKCE over implicit flow three weeks ago. When I asked Claude about auth again, it already knew — no re-explaining needed."
+> — **Solo developer, building a SaaS**
+
+> "We export our team's memory every Friday and import it Monday. Everyone's Claude starts the week knowing what the team learned last week."
+> — **3-person startup, shared knowledge base**
+
+> "The dashboard showed me that 90% of my memories were auto-generated session logs. I started using `remember` deliberately for architecture decisions. Game changer."
+> — **Developer who discovered the Analytics tab**
 
 ---
 

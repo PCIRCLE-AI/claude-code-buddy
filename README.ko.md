@@ -11,7 +11,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
-    <a href="https://pypi.org/project/memesh/"><img src="https://img.shields.io/badge/pip-memesh-3b82f6?style=flat-square" alt="PyPI" /></a>
   </p>
 </p>
 
@@ -60,6 +59,10 @@ memesh
 
 <p align="center">
   <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — AI의 지식을 한눈에 파악" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — 타입 필터와 에고 모드가 있는 인터랙티브 지식 그래프" width="100%" />
 </p>
 
 ---
@@ -122,7 +125,7 @@ memesh export-schema \
 | **설정 방법** | `npm i -g` — 완료 | Neo4j + VectorDB + API 키 | Neo4j + 설정 |
 | **저장소** | SQLite 파일 하나 | Neo4j + Qdrant | Neo4j |
 | **오프라인 사용** | 항상 가능 | 불가 | 불가 |
-| **대시보드** | 내장 (5개 탭) | 없음 | 없음 |
+| **대시보드** | 내장 (7개 탭 + 분석) | 없음 | 없음 |
 | **의존성** | 6개 | 20개 이상 | 10개 이상 |
 | **가격** | 영구 무료 | 무료 티어 / 유료 | 무료 티어 / 유료 |
 

@@ -11,7 +11,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
-    <a href="https://pypi.org/project/memesh/"><img src="https://img.shields.io/badge/pip-memesh-3b82f6?style=flat-square" alt="PyPI" /></a>
   </p>
 </p>
 
@@ -60,6 +59,10 @@ memesh
 
 <p align="center">
   <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — AI の知識を可視化" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — タイプフィルターとエゴモード付きインタラクティブ知識グラフ" width="100%" />
 </p>
 
 ---
@@ -122,7 +125,7 @@ memesh export-schema \
 | **設定方法** | `npm i-g` — 完了 | Neo4j + VectorDB + API キー | Neo4j + 設定 |
 | **ストレージ** | SQLite ファイル 1 つ | Neo4j + Qdrant | Neo4j |
 | **オフライン利用** | 常時対応 | 非対応 | 非対応 |
-| **ダッシュボード** | 組み込み（5 タブ） | なし | なし |
+| **ダッシュボード** | 組み込み（7 タブ + アナリティクス） | なし | なし |
 | **依存関係** | 6 | 20+ | 10+ |
 | **価格** | 永久無料 | 無料枠 / 有料 | 無料枠 / 有料 |
 

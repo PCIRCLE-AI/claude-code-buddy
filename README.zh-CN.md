@@ -11,7 +11,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
-    <a href="https://pypi.org/project/memesh/"><img src="https://img.shields.io/badge/pip-memesh-3b82f6?style=flat-square" alt="PyPI" /></a>
   </p>
 </p>
 
@@ -60,6 +59,10 @@ memesh
 
 <p align="center">
   <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — 深入了解 AI 的知识" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — 交互式知识图谱，支持类型筛选与自我模式" width="100%" />
 </p>
 
 ---
@@ -122,7 +125,7 @@ memesh export-schema \
 | **配置方式** | `npm i -g` — 完成 | Neo4j + VectorDB + API 密钥 | Neo4j + 配置 |
 | **存储方式** | 单一 SQLite 文件 | Neo4j + Qdrant | Neo4j |
 | **离线使用** | 支持，始终如此 | 不支持 | 不支持 |
-| **仪表板** | 内置（5 个标签页） | 无 | 无 |
+| **仪表板** | 内置（7 个标签页 + 分析） | 无 | 无 |
 | **依赖包** | 6 | 20+ | 10+ |
 | **价格** | 永久免费 | 免费方案／付费 | 免费方案／付费 |
 

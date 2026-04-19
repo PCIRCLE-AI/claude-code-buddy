@@ -11,7 +11,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
-    <a href="https://pypi.org/project/memesh/"><img src="https://img.shields.io/badge/pip-memesh-3b82f6?style=flat-square" alt="PyPI" /></a>
   </p>
 </p>
 
@@ -60,6 +59,10 @@ memesh
 
 <p align="center">
   <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — ทำความเข้าใจความรู้ของ AI คุณ" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — กราฟความรู้แบบโต้ตอบพร้อมฟิลเตอร์ประเภทและโหมด ego" width="100%" />
 </p>
 
 ---
@@ -122,7 +125,7 @@ memesh export-schema \
 | **การตั้งค่า** | `npm i -g` — เสร็จ | Neo4j + VectorDB + API key | Neo4j + config |
 | **การจัดเก็บ** | ไฟล์ SQLite เดียว | Neo4j + Qdrant | Neo4j |
 | **ใช้ออฟไลน์ได้** | ได้ เสมอ | ไม่ได้ | ไม่ได้ |
-| **Dashboard** | ในตัว (5 แท็บ) | ไม่มี | ไม่มี |
+| **Dashboard** | ในตัว (7 แท็บ + analytics) | ไม่มี | ไม่มี |
 | **Dependencies** | 6 | 20+ | 10+ |
 | **ราคา** | ฟรีตลอดชีพ | แผนฟรี / เสียเงิน | แผนฟรี / เสียเงิน |
 
