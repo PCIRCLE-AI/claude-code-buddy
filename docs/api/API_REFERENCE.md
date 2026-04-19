@@ -675,3 +675,10 @@ MeMesh runs as a stdio MCP server. Claude Code manages the connection automatica
   }
 }
 ```
+
+### GET /v1/patterns
+
+Returns user work patterns extracted from existing memory entities.
+
+**Response fields:** `workSchedule` (hour/day distribution), `toolPreferences`, `focusAreas`, `workflow` (avg session minutes, commits/session), `strengths` (high-confidence types), `learningAreas` (tags from lessons/mistakes).
+

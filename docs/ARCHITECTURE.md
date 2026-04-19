@@ -153,7 +153,7 @@ Thin adapter: imports shared Zod schemas from `transports/schemas.ts`, validates
 
 ### transports/http/server.ts -- HTTP REST API Server
 
-Express server exposed via `memesh serve` (default port 3737, 16 endpoints). Delegates all operations to `core/operations`. Includes `GET /v1/analytics` for computed health score, 30-day timeline, value metrics, and cleanup suggestions. See [HTTP REST API](#http-rest-api) in the API Reference.
+Express server exposed via `memesh serve` (default port 3737, 17 endpoints). Delegates all operations to `core/operations`. Includes `GET /v1/analytics` for computed health score, 30-day timeline, value metrics, and cleanup suggestions. See [HTTP REST API](#http-rest-api) in the API Reference.
 
 ### transports/cli/cli.ts -- CLI
 
