@@ -4,13 +4,15 @@ import { createRequire } from 'module';
 import { homedir } from 'os';
 import { join, basename } from 'path';
 import { existsSync, writeFileSync, mkdirSync } from 'fs';
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
 
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { input += chunk; });
-process.stdin.on('end', () => {
+process.stdin.on('end', async () => {
   try {
     const data = JSON.parse(input);
     const projectName = basename(data.cwd || process.cwd());
@@ -196,6 +198,23 @@ process.stdin.on('end', () => {
       console.log(JSON.stringify(hookOutput));
     } finally {
       db.close();
+    }
+    // ── Noise compression (after readonly DB is closed) ──────────────
+    // Opens a separate read-write connection via the core module.
+    // Throttled to once per 24h inside compressWeeklyNoise().
+    try {
+      const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT
+        || dirname(dirname(fileURLToPath(import.meta.url)));
+      const dbMod = await import(join(pluginRoot, 'dist/db.js'));
+      const lifecycleMod = await import(join(pluginRoot, 'dist/core/lifecycle.js'));
+      dbMod.openDatabase();
+      try {
+        lifecycleMod.compressWeeklyNoise(dbMod.getDatabase());
+      } finally {
+        dbMod.closeDatabase();
+      }
+    } catch {
+      // Non-critical — noise compression failed, will retry next session
     }
   } catch (err) {
     // Hooks must never crash Claude Code — but report honestly

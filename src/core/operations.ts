@@ -243,6 +243,9 @@ export { consolidate } from './consolidator.js';
 // --- Serialization (extracted to serializer.ts) ---
 export { exportMemories, importMemories } from './serializer.js';
 
+// --- Noise compression (extracted to lifecycle.ts) ---
+export { compressWeeklyNoise } from './lifecycle.js';
+
 /**
  * Create a structured lesson_learned entity from explicit user input.
  * Does not require an LLM — the user provides the structured fields directly.

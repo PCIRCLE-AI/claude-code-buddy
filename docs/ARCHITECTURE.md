@@ -265,7 +265,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 | Hook | Event | Purpose |
 |------|-------|---------|
-| session-start.js | SessionStart | Auto-recall project memories + record injected entity IDs |
+| session-start.js | SessionStart | Auto-recall + record injected IDs + noise compression |
 | post-commit.js | PostToolUse (Bash) | Record git commits with diff stats |
 | session-summary.js | Stop | Auto-capture session knowledge + recall effectiveness tracking |
 | pre-compact.js | PreCompact | Save knowledge before compaction |
@@ -274,7 +274,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 - **Trigger**: `SessionStart` event (every new Claude Code session)
 - **Matcher**: `*` (all sessions)
-- **Behavior**: Opens the database, queries recent entities tagged with the current project, outputs a summary for Claude to use as context. Also shows proactive warnings for known `lesson_learned` entities matching the current project. Records injected entity IDs to `~/.memesh/last-session-injected.json` for recall effectiveness tracking
+- **Behavior**: Opens the database, queries recent entities tagged with the current project, outputs a summary for Claude to use as context. Also shows proactive warnings for known `lesson_learned` entities matching the current project. Records injected entity IDs to `~/.memesh/last-session-injected.json` for recall effectiveness tracking. After output, runs `compressWeeklyNoise()` (throttled to once per 24h) to archive old auto-tracked noise into weekly summaries
 
 ### Post Commit (`scripts/hooks/post-commit.js`)
 
