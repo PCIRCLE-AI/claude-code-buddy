@@ -3,7 +3,7 @@
 import { createRequire } from 'module';
 import { homedir } from 'os';
 import { join, basename } from 'path';
-import { existsSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -16,6 +16,16 @@ process.stdin.on('end', async () => {
   try {
     const data = JSON.parse(input);
     const projectName = basename(data.cwd || process.cwd());
+
+    // Clear pre-edit recall throttle from previous session
+    try {
+      const throttlePath = join(homedir(), '.memesh', 'session-recalled-files.json');
+      if (existsSync(throttlePath)) {
+        unlinkSync(throttlePath);
+      }
+    } catch {
+      // Non-critical
+    }
 
     // Find database
     const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');

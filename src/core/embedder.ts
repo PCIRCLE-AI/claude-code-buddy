@@ -171,18 +171,24 @@ async function getOnnxPipeline(): Promise<any> {
   if (onnxPipelineLoading) return onnxPipelineLoading;
 
   onnxPipelineLoading = (async () => {
-    const mod: any = await import('@xenova/transformers');
-    const createPipeline = mod.pipeline;
-    const env = mod.env;
-    if (env) {
-      env.cacheDir = join(homedir(), '.memesh', 'models');
-      env.allowLocalModels = true;
+    try {
+      const mod: any = await import('@xenova/transformers');
+      const createPipeline = mod.pipeline;
+      const env = mod.env;
+      if (env) {
+        env.cacheDir = join(homedir(), '.memesh', 'models');
+        env.allowLocalModels = true;
+      }
+      onnxPipelineInstance = await createPipeline(
+        'feature-extraction',
+        'Xenova/all-MiniLM-L6-v2'
+      );
+      return onnxPipelineInstance;
+    } catch (err) {
+      // Reset so next call retries instead of returning cached rejected promise
+      onnxPipelineLoading = null;
+      throw err;
     }
-    onnxPipelineInstance = await createPipeline(
-      'feature-extraction',
-      'Xenova/all-MiniLM-L6-v2'
-    );
-    return onnxPipelineInstance;
   })();
 
   return onnxPipelineLoading;

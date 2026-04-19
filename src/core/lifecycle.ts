@@ -128,7 +128,7 @@ export function compressWeeklyNoise(db: Database.Database): { compressed: number
     return { compressed: 0, weeksProcessed: 0 };
   }
 
-  // Find old noise entities grouped by ISO week
+  // Find old noise entities grouped by calendar week
   const cutoff = new Date(Date.now() - NOISE_AGE_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const noiseTypePlaceholders = Array.from(NOISE_TYPES).map(() => '?').join(',');
   const noiseTypeValues = Array.from(NOISE_TYPES);
@@ -148,14 +148,17 @@ export function compressWeeklyNoise(db: Database.Database): { compressed: number
   let totalCompressed = 0;
 
   for (const { week, count } of weekGroups) {
-    // Get entities for this week
+    // Get entities for this week — include cutoff filter to avoid archiving recent entities
     const entities = db.prepare(`
       SELECT e.id, e.name, e.type
       FROM entities e
       WHERE e.type IN (${noiseTypePlaceholders})
         AND e.status = 'active'
         AND strftime('%Y-W%W', e.created_at) = ?
-    `).all(...noiseTypeValues, week) as Array<{ id: number; name: string; type: string }>;
+        AND e.created_at < ?
+    `).all(...noiseTypeValues, week, cutoff) as Array<{ id: number; name: string; type: string }>;
+
+    if (entities.length === 0) continue;
 
     // Count by type
     const typeCounts = new Map<string, number>();
@@ -167,15 +170,26 @@ export function compressWeeklyNoise(db: Database.Database): { compressed: number
       .map(([t, c]) => `${c} ${t}`)
       .join(', ');
 
-    // Create weekly summary entity
+    // Create or update weekly summary entity
     const summaryName = `weekly-summary-${week}`;
-    const existing = db.prepare('SELECT id FROM entities WHERE name = ?').get(summaryName);
-    if (!existing) {
+    const existing = db.prepare('SELECT id FROM entities WHERE name = ?').get(summaryName) as { id: number } | undefined;
+
+    if (existing) {
+      // Append observation to existing summary
+      db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(
+        existing.id,
+        `+${entities.length} entities archived (${typeBreakdown})`
+      );
+    } else {
       db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run(summaryName, 'weekly-summary');
       const summaryRow = db.prepare('SELECT id FROM entities WHERE name = ?').get(summaryName) as { id: number };
+      const obsText = `${week}: ${count} auto-tracked entities compressed (${typeBreakdown})`;
       db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(
-        summaryRow.id,
-        `${week}: ${count} auto-tracked entities compressed (${typeBreakdown})`
+        summaryRow.id, obsText
+      );
+      // Index in FTS5 so summary is searchable
+      db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(
+        summaryRow.id, summaryName, obsText
       );
       // Copy project tags from originals
       const entityIdPlaceholders = entities.map(() => '?').join(',');

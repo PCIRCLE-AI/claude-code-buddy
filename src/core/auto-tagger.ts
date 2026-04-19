@@ -74,7 +74,12 @@ export function parseTags(text: string): string[] {
 }
 
 async function callLLM(prompt: string, config: LLMConfig): Promise<string> {
-  const apiKey = config.apiKey || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY;
+  // Use provider-specific env var to avoid sending wrong key to wrong provider
+  let apiKey = config.apiKey;
+  if (!apiKey) {
+    if (config.provider === 'anthropic') apiKey = process.env.ANTHROPIC_API_KEY;
+    else if (config.provider === 'openai') apiKey = process.env.OPENAI_API_KEY;
+  }
 
   if (config.provider === 'anthropic') {
     if (!apiKey) throw new Error('No API key');

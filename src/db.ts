@@ -155,8 +155,9 @@ function ensureVecTable(db: Database.Database, targetDim: number): void {
     return; // table exists with correct dimension
   }
 
-  // Drop old table if dimension changed
+  // Drop old table if dimension changed — embeddings will be regenerated
   if (vecExists && currentDim !== targetDim) {
+    process.stderr.write(`MeMesh: Embedding dimension changed (${currentDim} → ${targetDim}). Rebuilding vector index — old embeddings will be regenerated as entities are accessed.\n`);
     db.exec('DROP TABLE entities_vec');
   }
 

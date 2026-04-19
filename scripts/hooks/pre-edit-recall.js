@@ -51,7 +51,6 @@ process.stdin.on('end', () => {
     const Database = require('better-sqlite3');
     const db = new Database(dbPath, { readonly: true });
     try {
-      db.pragma('journal_mode = WAL');
 
       // Check if entities table exists
       const tableCheck = db.prepare(
@@ -94,7 +93,7 @@ process.stdin.on('end', () => {
             WHERE entities_fts MATCH ?
             ${statusFilter}
             LIMIT ?
-          `).all(fileNameNoExt, MAX_RESULTS - results.length);
+          `).all('"' + fileNameNoExt.replace(/"/g, '""') + '"', MAX_RESULTS - results.length);
           // Deduplicate
           for (const r of ftsResults) {
             if (!results.some(existing => existing.id === r.id)) {

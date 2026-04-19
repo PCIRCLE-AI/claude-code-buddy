@@ -236,7 +236,7 @@ const ConfigBody = z.object({
   sessionLimit: z.number().int().min(1).max(100).optional(),
   theme: z.enum(['light', 'dark']).optional(),
   setupCompleted: z.boolean().optional(),
-}).passthrough();
+}).strip();
 
 app.post('/v1/config', (req, res) => {
   const parsed = ConfigBody.safeParse(req.body);
@@ -455,17 +455,17 @@ app.get('/v1/analytics', (_req, res) => {
         const overallHitRate = total > 0 ? totals.hits / total : 0;
 
         const topEffective = db.prepare(
-          `SELECT name, type, recall_hits as hits, recall_misses as misses,
-           CAST(recall_hits AS REAL) / (recall_hits + recall_misses) as hitRate
-           FROM entities WHERE (recall_hits + recall_misses) > 0
-           ORDER BY hitRate DESC, recall_hits DESC LIMIT 5`
+          `SELECT name, type, COALESCE(recall_hits, 0) as hits, COALESCE(recall_misses, 0) as misses,
+           CAST(COALESCE(recall_hits, 0) AS REAL) / (COALESCE(recall_hits, 0) + COALESCE(recall_misses, 0)) as hitRate
+           FROM entities WHERE (COALESCE(recall_hits, 0) + COALESCE(recall_misses, 0)) > 0
+           ORDER BY hitRate DESC, hits DESC LIMIT 5`
         ).all() as Array<{ name: string; type: string; hits: number; misses: number; hitRate: number }>;
 
         const mostIgnored = db.prepare(
-          `SELECT name, type, recall_hits as hits, recall_misses as misses,
-           CAST(recall_hits AS REAL) / (recall_hits + recall_misses) as hitRate
-           FROM entities WHERE (recall_hits + recall_misses) > 0
-           ORDER BY hitRate ASC, recall_misses DESC LIMIT 5`
+          `SELECT name, type, COALESCE(recall_hits, 0) as hits, COALESCE(recall_misses, 0) as misses,
+           CAST(COALESCE(recall_hits, 0) AS REAL) / (COALESCE(recall_hits, 0) + COALESCE(recall_misses, 0)) as hitRate
+           FROM entities WHERE (COALESCE(recall_hits, 0) + COALESCE(recall_misses, 0)) > 0
+           ORDER BY hitRate ASC, misses DESC LIMIT 5`
         ).all() as Array<{ name: string; type: string; hits: number; misses: number; hitRate: number }>;
 
         recallEffectiveness = {
