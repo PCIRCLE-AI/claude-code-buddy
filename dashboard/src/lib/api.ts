@@ -51,9 +51,44 @@ export interface StatsData {
   statusDistribution: { status: string; count: number }[];
 }
 
+export interface LlmConfig {
+  provider?: string;
+  model?: string;
+  apiKey?: string;
+}
+
 export interface ConfigData {
-  config: { llm?: { provider: string; model?: string; apiKey?: string }; setupCompleted?: boolean; theme?: string; autoCapture?: boolean };
-  capabilities: { searchLevel: number; llm: any; embeddings: string };
+  config: { llm?: LlmConfig; setupCompleted?: boolean; theme?: string; autoCapture?: boolean };
+  capabilities: { searchLevel: number; llm?: LlmConfig; embeddings: string };
+}
+
+export interface HealthFactor {
+  score: number;
+  weight: number;
+  detail: string;
+}
+
+export interface AnalyticsData {
+  healthScore: number;
+  healthFactors: {
+    activity: HealthFactor;
+    quality: HealthFactor;
+    freshness: HealthFactor;
+    lessons: HealthFactor;
+  };
+  timeline: Array<{ date: string; created: number; recalled: number }>;
+  valueMetrics: {
+    totalRecalls: number;
+    lessonsWithWarnings: number;
+    lessonCount: number;
+    typeDistribution: Array<{ type: string; count: number }>;
+  };
+  cleanup: {
+    staleEntities: Array<{
+      id: number; name: string; type: string; confidence: number; days_unused: number;
+    }>;
+    duplicateCandidates: Array<{ name1: string; name2: string; type: string }>;
+  };
 }
 
 export interface GraphData {
@@ -67,6 +102,6 @@ export async function fetchGraph(): Promise<GraphData> {
 
 export async function fetchLessons(): Promise<Entity[]> {
   const result = await api<Entity[] | { entities: Entity[] }>('POST', '/v1/recall', { limit: 100 });
-  const entities = Array.isArray(result) ? result : (result as any).entities || [];
+  const entities = Array.isArray(result) ? result : (result as { entities: Entity[] }).entities || [];
   return entities.filter((e: Entity) => e.type === 'lesson_learned');
 }

@@ -42,9 +42,9 @@ function parseLesson(entity: Entity): ParsedLesson {
 }
 
 const SEVERITY_COLORS: Record<string, string> = {
-  critical: '#ef4444',
-  major: '#f97316',
-  minor: '#3b82f6',
+  critical: '#FF6B6B',
+  major: '#FFB84D',
+  minor: '#60A5FA',
 };
 
 export function LessonsTab() {
@@ -116,25 +116,25 @@ export function LessonsTab() {
             </div>
             {lesson.error && (
               <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#ef4444', marginBottom: 2 }}>{t('lessons.error')}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--danger)', marginBottom: 2 }}>{t('lessons.error')}</div>
                 <div style={{ fontSize: 13, color: 'var(--text-1)', lineHeight: 1.5 }}>{lesson.error}</div>
               </div>
             )}
             {lesson.rootCause && (
               <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#f59e0b', marginBottom: 2 }}>{t('lessons.rootCause')}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--warning)', marginBottom: 2 }}>{t('lessons.rootCause')}</div>
                 <div style={{ fontSize: 13, color: 'var(--text-1)', lineHeight: 1.5 }}>{lesson.rootCause}</div>
               </div>
             )}
             {lesson.fix && (
               <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#22c55e', marginBottom: 2 }}>{t('lessons.fix')}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--success)', marginBottom: 2 }}>{t('lessons.fix')}</div>
                 <div style={{ fontSize: 13, color: 'var(--text-1)', lineHeight: 1.5 }}>{lesson.fix}</div>
               </div>
             )}
             {lesson.prevention && (
               <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#3b82f6', marginBottom: 2 }}>{t('lessons.prevention')}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--info)', marginBottom: 2 }}>{t('lessons.prevention')}</div>
                 <div style={{ fontSize: 13, color: 'var(--text-1)', lineHeight: 1.5 }}>{lesson.prevention}</div>
               </div>
             )}
