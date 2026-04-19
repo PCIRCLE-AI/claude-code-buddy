@@ -262,14 +262,21 @@ Foreign key cascades: deleting an entity automatically deletes its observations,
 
 Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific lifecycle events.
 
-### Hook Scripts (4 hooks)
+### Hook Scripts (5 hooks)
 
 | Hook | Event | Purpose |
 |------|-------|---------|
+| pre-edit-recall.js | PreToolUse (Edit/Write) | Continuous recall: inject relevant memories when editing files |
 | session-start.js | SessionStart | Auto-recall + record injected IDs + noise compression |
 | post-commit.js | PostToolUse (Bash) | Record git commits with diff stats |
 | session-summary.js | Stop | Auto-capture session knowledge + recall effectiveness tracking |
 | pre-compact.js | PreCompact | Save knowledge before compaction |
+
+### Pre-Edit Recall (`scripts/hooks/pre-edit-recall.js`)
+
+- **Trigger**: `PreToolUse` event on `Edit` and `Write` tools
+- **Matcher**: `Edit|Write`
+- **Behavior**: Reads the file path from tool input, queries MeMesh for entities tagged with the file name or matching via FTS5 search. Returns relevant memories as additional context. Throttled to max 1 recall per file per session via temp file (`~/.memesh/session-recalled-files.json`). Timeout: 5 seconds.
 
 ### Session Start (`scripts/hooks/session-start.js`)
 

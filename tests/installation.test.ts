@@ -27,10 +27,11 @@ describe('Installation Verification', () => {
       expect(fs.existsSync('.mcp.json')).toBe(true);
     });
 
-    it('should have hooks.json with 4 hooks', () => {
+    it('should have hooks.json with 5 hook types', () => {
       const hooks = JSON.parse(fs.readFileSync('hooks/hooks.json', 'utf8'));
       const hookTypes = Object.keys(hooks.hooks);
-      expect(hookTypes).toHaveLength(4);
+      expect(hookTypes).toHaveLength(5);
+      expect(hookTypes).toContain('PreToolUse');
       expect(hookTypes).toContain('SessionStart');
       expect(hookTypes).toContain('PostToolUse');
       expect(hookTypes).toContain('Stop');
