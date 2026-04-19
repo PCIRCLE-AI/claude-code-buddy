@@ -139,12 +139,28 @@ No necesitas recordar todo manualmente. MeMesh tiene **4 hooks** que capturan co
 
 | Cuándo | Qué hace MeMesh |
 |------|------------------|
-| **Al inicio de cada sesión** | Carga tus recuerdos más relevantes (clasificados por algoritmo de puntuación) |
+| **Al inicio de cada sesión** | Carga tus recuerdos más relevantes + advertencias proactivas de lecciones pasadas |
 | **Tras cada `git commit`** | Registra lo que cambiaste, con estadísticas del diff |
-| **Cuando Claude se detiene** | Captura archivos editados, errores corregidos y decisiones tomadas |
+| **Cuando Claude se detiene** | Captura archivos editados, errores corregidos y genera automáticamente lecciones estructuradas a partir de fallos |
 | **Antes de la compactación de contexto** | Guarda el conocimiento antes de que se pierda por los límites del contexto |
 
 > **Desactívalo cuando quieras:** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## Panel de Control
+
+7 pestañas, 11 idiomas, cero dependencias externas. Accede en `http://localhost:3737/dashboard` cuando el servidor esté activo.
+
+| Pestaña | Qué ves |
+|---------|---------|
+| **Search** | Búsqueda de texto completo + similitud vectorial en todas las memorias |
+| **Browse** | Lista paginada de todas las entidades con archivado/restauración |
+| **Analytics** | Puntuación de Salud de Memoria (0-100), timeline de 30 días, métricas de valor, cobertura de conocimiento, sugerencias de limpieza, tus patrones de trabajo |
+| **Graph** | Grafo de conocimiento interactivo dirigido por fuerzas con filtros de tipo, búsqueda, modo ego, mapa de calor de recencia |
+| **Lessons** | Lecciones estructuradas de fallos pasados (error, causa raíz, corrección, prevención) |
+| **Manage** | Archivar y restaurar entidades |
+| **Settings** | Configuración del proveedor LLM, selector de idioma |
 
 ---
 
@@ -186,7 +202,7 @@ memesh  # abre el panel → pestaña Configuración
 
 ---
 
-## Las 6 Herramientas de Memoria
+## Las 8 Herramientas de Memoria
 
 | Herramienta | Qué hace |
 |------|-------------|
@@ -196,6 +212,8 @@ memesh  # abre el panel → pestaña Configuración
 | `consolidate` | Compresión de memorias extensas asistida por LLM |
 | `export` | Comparte memorias como JSON entre proyectos o miembros del equipo |
 | `import` | Importa memorias con estrategias de fusión (omitir / sobrescribir / añadir) |
+| `learn` | Registra lecciones estructuradas a partir de errores (error, causa raíz, corrección, prevención) |
+| `user_patterns` | Analiza tus patrones de trabajo — horario, herramientas, fortalezas, áreas de aprendizaje |
 
 ---
 
@@ -204,7 +222,7 @@ memesh  # abre el panel → pestaña Configuración
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (6 operations) │
+                    │  (8 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │
@@ -225,7 +243,7 @@ El núcleo es independiente del framework. La misma lógica se ejecuta desde el 
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test -- --run    # 289 tests
+npm test -- --run    # 413 tests
 ```
 
 Panel: `cd dashboard && npm install && npm run dev`
