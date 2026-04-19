@@ -1,3 +1,5 @@
+import { t } from '../lib/i18n';
+
 interface EffectivenessEntry {
   name: string;
   type: string;
@@ -24,25 +26,25 @@ export function RecallEffectiveness({ overallHitRate, totalHits, totalMisses, tr
       <div class="stats-row" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         <div class="stat">
           <div class="stat-val" style={{ color: pct >= 50 ? 'var(--accent)' : 'var(--warning, #f59e0b)' }}>{pct}%</div>
-          <div class="stat-lbl">Effectiveness</div>
+          <div class="stat-lbl">{t('recall.effectiveness')}</div>
         </div>
         <div class="stat">
           <div class="stat-val">{totalHits}</div>
-          <div class="stat-lbl">Hits</div>
+          <div class="stat-lbl">{t('recall.hits')}</div>
         </div>
         <div class="stat">
           <div class="stat-val">{totalMisses}</div>
-          <div class="stat-lbl">Misses</div>
+          <div class="stat-lbl">{t('recall.misses')}</div>
         </div>
         <div class="stat">
           <div class="stat-val">{trackedEntities}</div>
-          <div class="stat-lbl">Tracked</div>
+          <div class="stat-lbl">{t('recall.tracked')}</div>
         </div>
       </div>
 
       {total > 0 && (
         <div class="card">
-          <div class="card-title">Recall Hit Rate</div>
+          <div class="card-title">{t('recall.hitRate')}</div>
 
           {/* Overall bar */}
           <div style={{ marginBottom: 16 }}>
@@ -58,14 +60,14 @@ export function RecallEffectiveness({ overallHitRate, totalHits, totalMisses, tr
               />
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
-              {totalHits} used / {total} injected
+              {totalHits} {t('recall.used')} / {total} {t('recall.injected')}
             </div>
           </div>
 
           {/* Top effective */}
           {topEffective.length > 0 && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 6, fontWeight: 500 }}>Most Effective</div>
+              <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 6, fontWeight: 500 }}>{t('recall.mostEffective')}</div>
               {topEffective.slice(0, 3).map((e) => (
                 <EntityBar key={e.name} entry={e} color="rgba(0, 214, 180, 0.6)" />
               ))}
@@ -75,7 +77,7 @@ export function RecallEffectiveness({ overallHitRate, totalHits, totalMisses, tr
           {/* Most ignored */}
           {mostIgnored.length > 0 && mostIgnored[0].hitRate < 0.5 && (
             <div>
-              <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 6, fontWeight: 500 }}>Least Effective</div>
+              <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 6, fontWeight: 500 }}>{t('recall.leastEffective')}</div>
               {mostIgnored.slice(0, 3).map((e) => (
                 <EntityBar key={e.name} entry={e} color="rgba(245, 158, 11, 0.5)" />
               ))}
@@ -87,7 +89,7 @@ export function RecallEffectiveness({ overallHitRate, totalHits, totalMisses, tr
       {total === 0 && (
         <div class="card" style={{ textAlign: 'center', padding: '20px 16px' }}>
           <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
-            No recall data yet. Effectiveness tracking starts after your next session.
+            {t('recall.noData')}
           </div>
         </div>
       )}
