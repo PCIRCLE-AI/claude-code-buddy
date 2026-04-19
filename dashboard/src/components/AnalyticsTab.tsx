@@ -16,8 +16,8 @@ export function AnalyticsTab() {
   const loadData = useCallback(() => {
     setLoading(true);
     Promise.all([
-      api<StatsData>('GET', '/v1/stats'),
-      api<AnalyticsData>('GET', '/v1/analytics'),
+      api<StatsData>('GET', '/v1/stats').catch(() => null),
+      api<AnalyticsData>('GET', '/v1/analytics').catch(() => null),
       api<PatternsData>('GET', '/v1/patterns').catch(() => null),
     ]).then(([s, a, p]) => {
       setStats(s);
@@ -29,44 +29,52 @@ export function AnalyticsTab() {
   useEffect(() => { loadData(); }, [loadData]);
 
   if (loading) return <div class="empty"><div class="loading" /></div>;
-  if (!stats || !analytics) return <div class="error-box">{t('common.error')}: Failed to load analytics</div>;
+  if (!stats && !analytics) return <div class="error-box">{t('common.error')}: Failed to load analytics</div>;
 
   return (
     <div>
       {/* Row 1: Stats overview */}
-      <div class="stats-row">
-        <div class="stat"><div class="stat-val">{stats.totalEntities.toLocaleString()}</div><div class="stat-lbl">{t('analytics.totalMemories')}</div></div>
-        <div class="stat"><div class="stat-val">{stats.totalObservations.toLocaleString()}</div><div class="stat-lbl">{t('analytics.knowledgeFacts')}</div></div>
-        <div class="stat"><div class="stat-val">{stats.totalRelations.toLocaleString()}</div><div class="stat-lbl">{t('analytics.connections')}</div></div>
-        <div class="stat"><div class="stat-val">{stats.totalTags.toLocaleString()}</div><div class="stat-lbl">{t('analytics.topics')}</div></div>
-      </div>
+      {stats && (
+        <div class="stats-row">
+          <div class="stat"><div class="stat-val">{stats.totalEntities.toLocaleString()}</div><div class="stat-lbl">{t('analytics.totalMemories')}</div></div>
+          <div class="stat"><div class="stat-val">{stats.totalObservations.toLocaleString()}</div><div class="stat-lbl">{t('analytics.knowledgeFacts')}</div></div>
+          <div class="stat"><div class="stat-val">{stats.totalRelations.toLocaleString()}</div><div class="stat-lbl">{t('analytics.connections')}</div></div>
+          <div class="stat"><div class="stat-val">{stats.totalTags.toLocaleString()}</div><div class="stat-lbl">{t('analytics.topics')}</div></div>
+        </div>
+      )}
 
       {/* Row 2: Health Score */}
-      <HealthScore score={analytics.healthScore} factors={analytics.healthFactors} />
+      {analytics && <HealthScore score={analytics.healthScore} factors={analytics.healthFactors} />}
 
       {/* Row 3: Memory Timeline */}
-      <div style={{ marginTop: 8 }}>
-        <MemoryTimeline data={analytics.timeline} />
-      </div>
+      {analytics && (
+        <div style={{ marginTop: 8 }}>
+          <MemoryTimeline data={analytics.timeline} />
+        </div>
+      )}
 
       {/* Row 4: Value Metrics */}
-      <div style={{ marginTop: 8 }}>
-        <ValueMetrics
-          totalRecalls={analytics.valueMetrics.totalRecalls}
-          lessonsWithWarnings={analytics.valueMetrics.lessonsWithWarnings}
-          lessonCount={analytics.valueMetrics.lessonCount}
-          typeDistribution={analytics.valueMetrics.typeDistribution}
-        />
-      </div>
+      {analytics && (
+        <div style={{ marginTop: 8 }}>
+          <ValueMetrics
+            totalRecalls={analytics.valueMetrics.totalRecalls}
+            lessonsWithWarnings={analytics.valueMetrics.lessonsWithWarnings}
+            lessonCount={analytics.valueMetrics.lessonCount}
+            typeDistribution={analytics.valueMetrics.typeDistribution}
+          />
+        </div>
+      )}
 
       {/* Row 5: Cleanup Suggestions */}
-      <div style={{ marginTop: 8 }}>
-        <CleanupSuggestions
-          staleEntities={analytics.cleanup.staleEntities}
-          duplicateCandidates={analytics.cleanup.duplicateCandidates}
-          onRefresh={loadData}
-        />
-      </div>
+      {analytics && (
+        <div style={{ marginTop: 8 }}>
+          <CleanupSuggestions
+            staleEntities={analytics.cleanup.staleEntities}
+            duplicateCandidates={analytics.cleanup.duplicateCandidates}
+            onRefresh={loadData}
+          />
+        </div>
+      )}
 
       {/* Row 6: User Patterns */}
       {patterns && (
@@ -76,7 +84,7 @@ export function AnalyticsTab() {
       )}
 
       {/* Row 7: Topics cloud (kept from original) */}
-      {(() => {
+      {stats && (() => {
         const internalPrefixes = ['auto_saved', 'auto-tracked', 'session_end', 'session:', 'source:', 'scope:', 'date:', 'urgency:'];
         const userTags = stats.tagDistribution.filter(tg =>
           !internalPrefixes.some(p => tg.tag.startsWith(p)) &&

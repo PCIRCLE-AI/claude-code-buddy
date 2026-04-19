@@ -6,7 +6,7 @@
 
 ## Overview
 
-MeMesh is a universal AI memory layer. It provides 7 operations (`remember`, `recall`, `forget`, `consolidate`, `export`, `import`, `learn`) accessible via three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings. Entities can be scoped to namespaces (`personal`, `team`, `global`) and shared across projects via JSON export/import. MeMesh includes self-improving memory: LLM-powered failure analysis automatically creates structured lessons from session errors, with proactive warnings at session start.
+MeMesh is a universal AI memory layer. It provides 8 operations (`remember`, `recall`, `forget`, `consolidate`, `export`, `import`, `learn`, `user_patterns`) accessible via three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings. Entities can be scoped to namespaces (`personal`, `team`, `global`) and shared across projects via JSON export/import. MeMesh includes self-improving memory: LLM-powered failure analysis automatically creates structured lessons from session errors, with proactive warnings at session start.
 
 ```
                      ┌─────────────┐
@@ -61,6 +61,7 @@ src/
 │   ├── failure-analyzer.ts # LLM-powered failure analysis → StructuredLesson
 │   ├── lesson-engine.ts   # Structured lesson creation, upsert, project query
 │   ├── embedder.ts        # Neural embeddings (Xenova/all-MiniLM-L6-v2, 384-dim)
+│   ├── patterns.ts        # User work patterns computation (shared by MCP + HTTP)
 │   └── version-check.ts   # npm registry version check
 ├── db.ts                  # SQLite + FTS5 + sqlite-vec + migrations
 ├── knowledge-graph.ts     # Entity CRUD, relations, FTS5 search, findConflicts
@@ -97,6 +98,8 @@ src/
 **failure-analyzer.ts** — LLM-powered failure analysis (Level 1). `analyzeFailure()` takes session errors and files edited, sends them to the configured LLM, and returns a `StructuredLesson` with error, root cause, fix, prevention, error/fix patterns, and severity. Used by the Stop hook to automatically create lessons from session failures.
 
 **lesson-engine.ts** — Structured lesson management. `createLesson()` stores a `StructuredLesson` as a `lesson_learned` entity with upsert-safe naming (`lesson-{project}-{errorPattern}`). Same error pattern in different sessions updates the existing lesson. `createExplicitLesson()` supports the `learn` MCP tool. `findProjectLessons()` queries lessons for proactive warnings.
+
+**patterns.ts** — User work patterns computation (shared by MCP `user_patterns` tool and HTTP `GET /v1/patterns`). `computePatterns()` queries the database for work schedule (hour/day distribution), tool preferences, focus areas, workflow metrics, strengths, and learning areas. Accepts optional `categories` filter array.
 
 **version-check.ts** — Queries the npm registry for the latest `@pcircle/memesh` version and emits an update notification if the installed version is behind.
 
@@ -150,6 +153,7 @@ Thin adapter: imports shared Zod schemas from `transports/schemas.ts`, validates
 | `export` | ExportSchema | Delegates to `operations.exportMemories()` |
 | `import` | ImportSchema | Delegates to `operations.importMemories()` |
 | `learn` | LearnSchema | Delegates to `operations.learn()` |
+| `user_patterns` | UserPatternsSchema | Delegates to `core/patterns.computePatterns()` |
 
 ### transports/http/server.ts -- HTTP REST API Server
 
@@ -426,7 +430,7 @@ Session with errors
 | Lesson Engine | `src/core/lesson-engine.ts` | Structured lesson CRUD + upsert dedup |
 | Stop Hook Integration | `scripts/hooks/session-summary.js` | Auto-triggers analysis after sessions |
 | Proactive Warnings | `scripts/hooks/session-start.js` | Shows known lessons at session start |
-| Learn Tool | All transports | Explicit lesson creation (7th MCP tool) |
+| Learn Tool | All transports | Explicit lesson creation (MCP tool) |
 
 ### Lesson Entity Structure
 

@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
+import { computePatterns } from '../../core/patterns.js';
 import {
   RememberSchema, RecallSchema, ForgetSchema, ConsolidateSchema,
   ExportSchema, ImportSchema, LearnSchema, UserPatternsSchema,
@@ -300,58 +301,33 @@ export async function handleTool(name: string, args: any): Promise<ToolResult> {
       const db = getDatabase();
       const cats = r.data.categories;
       const allCategories = !cats || cats.length === 0;
+      const data = computePatterns(db, cats);
       const lines: string[] = ['## User Patterns'];
 
       // --- Work Schedule ---
       if (allCategories || cats!.includes('workSchedule')) {
-        const hourDist = db.prepare(`
-          SELECT CAST(strftime('%H', created_at) AS INTEGER) as hour, COUNT(*) as count
-          FROM entities GROUP BY hour ORDER BY count DESC
-        `).all() as Array<{ hour: number; count: number }>;
-
-        const dayDist = db.prepare(`
-          SELECT CASE CAST(strftime('%w', created_at) AS INTEGER)
-            WHEN 0 THEN 'Sunday' WHEN 1 THEN 'Monday' WHEN 2 THEN 'Tuesday'
-            WHEN 3 THEN 'Wednesday' WHEN 4 THEN 'Thursday' WHEN 5 THEN 'Friday'
-            WHEN 6 THEN 'Saturday' END as day,
-            COUNT(*) as count
-          FROM entities GROUP BY day ORDER BY count DESC
-        `).all() as Array<{ day: string; count: number }>;
-
         lines.push('', '### Work Schedule');
-        const peakHours = hourDist.slice(0, 3).map(h => `${String(h.hour).padStart(2, '0')}:00 (${h.count})`).join(', ');
+        // Sort by count DESC for display (data is ordered by hour for consistency)
+        const peakHours = [...data.workSchedule.hourDistribution]
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 3)
+          .map(h => `${String(h.hour).padStart(2, '0')}:00 (${h.count})`)
+          .join(', ');
         lines.push(`Peak hours: ${peakHours || 'No data'}`);
-        const busiestDays = dayDist.slice(0, 3).map(d => `${d.day} (${d.count})`).join(', ');
+        const busiestDays = [...data.workSchedule.dayDistribution]
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 3)
+          .map(d => `${d.day} (${d.count})`)
+          .join(', ');
         lines.push(`Busiest days: ${busiestDays || 'No data'}`);
       }
 
       // --- Tool Preferences ---
       if (allCategories || cats!.includes('toolPreferences')) {
-        const sessionObs = db.prepare(`
-          SELECT o.content FROM observations o
-          JOIN entities e ON o.entity_id = e.id
-          WHERE e.type = 'session_keypoint' AND o.content LIKE '[FOCUS]%'
-          LIMIT 500
-        `).all() as Array<{ content: string }>;
-
-        const toolCounts: Record<string, number> = {};
-        for (const row of sessionObs) {
-          const match = row.content.match(/Top tools: (.+)/);
-          if (match) {
-            for (const part of match[1].split(', ')) {
-              const toolName = part.split('(')[0].trim();
-              if (toolName) toolCounts[toolName] = (toolCounts[toolName] || 0) + 1;
-            }
-          }
-        }
-        const toolPrefs = Object.entries(toolCounts)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 10);
-
         lines.push('', '### Tool Preferences');
-        if (toolPrefs.length > 0) {
-          toolPrefs.forEach(([tool, sessions], i) => {
-            lines.push(`${i + 1}. ${tool} (${sessions} sessions)`);
+        if (data.toolPreferences.length > 0) {
+          data.toolPreferences.forEach((tp, i) => {
+            lines.push(`${i + 1}. ${tp.tool} (${tp.sessions} sessions)`);
           });
         } else {
           lines.push('No tool usage data yet.');
@@ -360,16 +336,9 @@ export async function handleTool(name: string, args: any): Promise<ToolResult> {
 
       // --- Focus Areas ---
       if (allCategories || cats!.includes('focusAreas')) {
-        const autoTypes = ['session_keypoint', 'commit', 'session_identity', 'workflow_checkpoint'];
-        const focusAreas = db.prepare(`
-          SELECT type, COUNT(*) as count FROM entities
-          WHERE status = 'active' AND type NOT IN (${autoTypes.map(() => '?').join(',')})
-          GROUP BY type ORDER BY count DESC LIMIT 10
-        `).all(...autoTypes) as Array<{ type: string; count: number }>;
-
         lines.push('', '### Focus Areas');
-        if (focusAreas.length > 0) {
-          focusAreas.forEach(f => {
+        if (data.focusAreas.length > 0) {
+          data.focusAreas.forEach(f => {
             lines.push(`- ${f.type} (${f.count})`);
           });
         } else {
@@ -379,50 +348,16 @@ export async function handleTool(name: string, args: any): Promise<ToolResult> {
 
       // --- Workflow ---
       if (allCategories || cats!.includes('workflow')) {
-        const sessionDurations = db.prepare(`
-          SELECT o.content FROM observations o
-          JOIN entities e ON o.entity_id = e.id
-          WHERE e.type = 'session_keypoint' AND o.content LIKE '[SESSION]%'
-          LIMIT 200
-        `).all() as Array<{ content: string }>;
-
-        let totalMinutes = 0;
-        let sessionCount = 0;
-        for (const row of sessionDurations) {
-          const match = row.content.match(/Duration: (\d+)m/);
-          if (match) {
-            totalMinutes += parseInt(match[1]);
-            sessionCount++;
-          }
-        }
-        const avgSessionMinutes = sessionCount > 0 ? Math.round(totalMinutes / sessionCount) : 0;
-
-        const commitCount = (db.prepare(
-          "SELECT COUNT(*) as c FROM entities WHERE type = 'commit'"
-        ).get() as { c: number }).c;
-        const totalSessions = (db.prepare(
-          "SELECT COUNT(*) as c FROM entities WHERE type = 'session_keypoint'"
-        ).get() as { c: number }).c;
-        const commitsPerSession = totalSessions > 0 ? Math.round((commitCount / totalSessions) * 10) / 10 : 0;
-
         lines.push('', '### Workflow');
-        lines.push(`Avg session: ${avgSessionMinutes} min | Commits per session: ${commitsPerSession}`);
-        lines.push(`Total sessions: ${totalSessions} | Total commits: ${commitCount}`);
+        lines.push(`Avg session: ${data.workflow.avgSessionMinutes} min | Commits per session: ${data.workflow.commitsPerSession}`);
+        lines.push(`Total sessions: ${data.workflow.totalSessions} | Total commits: ${data.workflow.totalCommits}`);
       }
 
       // --- Strengths ---
       if (allCategories || cats!.includes('strengths')) {
-        const autoTypes = ['session_keypoint', 'commit', 'session_identity', 'workflow_checkpoint'];
-        const strengths = db.prepare(`
-          SELECT type, ROUND(AVG(confidence), 2) as avgConfidence, COUNT(*) as count
-          FROM entities WHERE status = 'active' AND type NOT IN (${autoTypes.map(() => '?').join(',')})
-          GROUP BY type HAVING count >= 2
-          ORDER BY avgConfidence DESC LIMIT 5
-        `).all(...autoTypes) as Array<{ type: string; avgConfidence: number; count: number }>;
-
         lines.push('', '### Strengths (high confidence areas)');
-        if (strengths.length > 0) {
-          lines.push('- ' + strengths.map(s => `${s.type} (${s.avgConfidence})`).join(', '));
+        if (data.strengths.length > 0) {
+          lines.push('- ' + data.strengths.map(s => `${s.type} (${s.avgConfidence})`).join(', '));
         } else {
           lines.push('No strength data yet.');
         }
@@ -430,19 +365,9 @@ export async function handleTool(name: string, args: any): Promise<ToolResult> {
 
       // --- Learning Areas ---
       if (allCategories || cats!.includes('learningAreas')) {
-        const learningTypes = ['lesson_learned', 'mistake', 'bug_fix', 'lesson'];
-        const learningAreas = db.prepare(`
-          SELECT t.tag, COUNT(*) as count FROM tags t
-          JOIN entities e ON t.entity_id = e.id
-          WHERE e.type IN (${learningTypes.map(() => '?').join(',')})
-            AND t.tag NOT LIKE 'date:%' AND t.tag NOT LIKE 'auto%' AND t.tag NOT LIKE 'session%'
-            AND t.tag != 'scope:project'
-          GROUP BY t.tag ORDER BY count DESC LIMIT 10
-        `).all(...learningTypes) as Array<{ tag: string; count: number }>;
-
         lines.push('', '### Learning Areas');
-        if (learningAreas.length > 0) {
-          lines.push('- ' + learningAreas.map(l => l.tag).join(', '));
+        if (data.learningAreas.length > 0) {
+          lines.push('- ' + data.learningAreas.map(l => l.tag).join(', '));
         } else {
           lines.push('No learning area data yet.');
         }

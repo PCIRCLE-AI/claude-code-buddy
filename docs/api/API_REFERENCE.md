@@ -8,7 +8,7 @@
 
 ## Tools
 
-MeMesh exposes 7 tools via MCP.
+MeMesh exposes 8 tools via MCP.
 
 ---
 
@@ -330,6 +330,49 @@ Record a structured lesson from a mistake or discovery. Creates a `lesson_learne
 
 ---
 
+### user_patterns
+
+Analyze user work patterns from existing memory. Returns work schedule (peak hours/days), tool preferences, focus areas, workflow metrics (session duration, commits/session), knowledge strengths, and learning areas. Use at session start for context about the user.
+
+**Input Schema**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `categories` | string[] | No | Specific categories to return: `"workSchedule"`, `"toolPreferences"`, `"focusAreas"`, `"workflow"`, `"strengths"`, `"learningAreas"`. Omit for all. |
+
+**Response** (MCP returns markdown text; HTTP returns JSON):
+
+```json
+{
+  "workSchedule": {
+    "hourDistribution": [{"hour": 9, "count": 42}, {"hour": 14, "count": 38}],
+    "dayDistribution": [{"day": "Monday", "dayNum": 1, "count": 50}]
+  },
+  "toolPreferences": [{"tool": "Read", "sessions": 15}],
+  "focusAreas": [{"type": "decision", "count": 12}],
+  "workflow": {
+    "avgSessionMinutes": 45,
+    "commitsPerSession": 2.3,
+    "totalSessions": 20,
+    "totalCommits": 46
+  },
+  "strengths": [{"type": "pattern", "avgConfidence": 0.95, "count": 8}],
+  "learningAreas": [{"tag": "async", "count": 3}]
+}
+```
+
+**Examples**:
+
+```json
+// Get all patterns
+{}
+
+// Get only workflow and schedule
+{"categories": ["workflow", "workSchedule"]}
+```
+
+---
+
 ## Data Model
 
 ### Entity
@@ -396,6 +439,7 @@ Start: `memesh serve` (default: `localhost:3737`)
 | GET | /v1/stats | Aggregate counts: entities, observations, relations, tags; type/tag/status distributions |
 | GET | /v1/graph | All entities + all relations (for graph visualization) |
 | GET | /v1/analytics | Health score, 30-day timeline, value metrics, cleanup suggestions |
+| GET | /v1/patterns | User work patterns: schedule, tools, focus areas, workflow, strengths, learning |
 | GET | /dashboard | Interactive web dashboard (HTML) |
 
 All responses: `{ success: true, data: ... }` or `{ success: false, error: "..." }`

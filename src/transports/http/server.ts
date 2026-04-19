@@ -7,6 +7,7 @@ import { remember, recallEnhanced, forget, consolidate, exportMemories, importMe
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
+import { computePatterns } from '../../core/patterns.js';
 import type { CountRow } from '../../core/types.js';
 import {
   RememberSchema as RememberBody, RecallSchema as RecallBody,
@@ -444,113 +445,8 @@ app.get('/v1/analytics', (_req, res) => {
 app.get('/v1/patterns', (_req, res) => {
   try {
     const db = getDatabase();
-
-    // 1. Work Schedule — hour distribution
-    const hourDistribution = db.prepare(`
-      SELECT CAST(strftime('%H', created_at) AS INTEGER) as hour, COUNT(*) as count
-      FROM entities
-      GROUP BY hour ORDER BY hour
-    `).all() as Array<{ hour: number; count: number }>;
-
-    // 2. Day distribution
-    const dayDistribution = db.prepare(`
-      SELECT CASE CAST(strftime('%w', created_at) AS INTEGER)
-        WHEN 0 THEN 'Sunday' WHEN 1 THEN 'Monday' WHEN 2 THEN 'Tuesday'
-        WHEN 3 THEN 'Wednesday' WHEN 4 THEN 'Thursday' WHEN 5 THEN 'Friday'
-        WHEN 6 THEN 'Saturday' END as day,
-        CAST(strftime('%w', created_at) AS INTEGER) as dayNum,
-        COUNT(*) as count
-      FROM entities GROUP BY dayNum ORDER BY dayNum
-    `).all() as Array<{ day: string; dayNum: number; count: number }>;
-
-    // 3. Tool preferences — parse from session_keypoint observations
-    const sessionObs = db.prepare(`
-      SELECT o.content FROM observations o
-      JOIN entities e ON o.entity_id = e.id
-      WHERE e.type = 'session_keypoint' AND o.content LIKE '[FOCUS]%'
-      LIMIT 500
-    `).all() as Array<{ content: string }>;
-
-    const toolCounts: Record<string, number> = {};
-    for (const row of sessionObs) {
-      const match = row.content.match(/Top tools: (.+)/);
-      if (match) {
-        for (const part of match[1].split(', ')) {
-          const name = part.split('(')[0].trim();
-          if (name) toolCounts[name] = (toolCounts[name] || 0) + 1;
-        }
-      }
-    }
-    const toolPreferences = Object.entries(toolCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-      .map(([tool, sessions]) => ({ tool, sessions }));
-
-    // 4. Focus areas — entity types that represent intentional knowledge (not auto-tracked)
-    const autoTypes = ['session_keypoint', 'commit', 'session_identity', 'workflow_checkpoint'];
-    const focusAreas = db.prepare(`
-      SELECT type, COUNT(*) as count FROM entities
-      WHERE status = 'active' AND type NOT IN (${autoTypes.map(() => '?').join(',')})
-      GROUP BY type ORDER BY count DESC LIMIT 10
-    `).all(...autoTypes) as Array<{ type: string; count: number }>;
-
-    // 5. Workflow style — avg commits per session, avg session duration
-    const sessionDurations = db.prepare(`
-      SELECT o.content FROM observations o
-      JOIN entities e ON o.entity_id = e.id
-      WHERE e.type = 'session_keypoint' AND o.content LIKE '[SESSION]%'
-      LIMIT 200
-    `).all() as Array<{ content: string }>;
-
-    let totalMinutes = 0;
-    let sessionCount = 0;
-    for (const row of sessionDurations) {
-      const match = row.content.match(/Duration: (\d+)m/);
-      if (match) {
-        totalMinutes += parseInt(match[1]);
-        sessionCount++;
-      }
-    }
-    const avgSessionMinutes = sessionCount > 0 ? Math.round(totalMinutes / sessionCount) : 0;
-
-    const commitCount = (db.prepare(
-      "SELECT COUNT(*) as c FROM entities WHERE type = 'commit'"
-    ).get() as { c: number }).c;
-    const totalSessions = (db.prepare(
-      "SELECT COUNT(*) as c FROM entities WHERE type = 'session_keypoint'"
-    ).get() as { c: number }).c;
-    const commitsPerSession = totalSessions > 0 ? Math.round((commitCount / totalSessions) * 10) / 10 : 0;
-
-    // 6. Strengths — types with high avg confidence
-    const strengths = db.prepare(`
-      SELECT type, ROUND(AVG(confidence), 2) as avgConfidence, COUNT(*) as count
-      FROM entities WHERE status = 'active' AND type NOT IN (${autoTypes.map(() => '?').join(',')})
-      GROUP BY type HAVING count >= 2
-      ORDER BY avgConfidence DESC LIMIT 5
-    `).all(...autoTypes) as Array<{ type: string; avgConfidence: number; count: number }>;
-
-    // 7. Learning areas — types with most mistake/bug_fix/lesson entities
-    const learningTypes = ['lesson_learned', 'mistake', 'bug_fix', 'lesson'];
-    const learningAreas = db.prepare(`
-      SELECT t.tag, COUNT(*) as count FROM tags t
-      JOIN entities e ON t.entity_id = e.id
-      WHERE e.type IN (${learningTypes.map(() => '?').join(',')})
-        AND t.tag NOT LIKE 'date:%' AND t.tag NOT LIKE 'auto%' AND t.tag NOT LIKE 'session%'
-        AND t.tag != 'scope:project'
-      GROUP BY t.tag ORDER BY count DESC LIMIT 10
-    `).all(...learningTypes) as Array<{ tag: string; count: number }>;
-
-    res.json({
-      success: true,
-      data: {
-        workSchedule: { hourDistribution, dayDistribution },
-        toolPreferences,
-        focusAreas,
-        workflow: { avgSessionMinutes, commitsPerSession, totalSessions, totalCommits: commitCount },
-        strengths,
-        learningAreas,
-      },
-    });
+    const data = computePatterns(db);
+    res.json({ success: true, data });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
