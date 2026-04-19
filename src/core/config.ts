@@ -126,6 +126,25 @@ function detectEmbeddingSource(llm: LLMConfig | null): Capabilities['embeddings'
   }
 }
 
+// --- Embedding Dimensions ---
+
+const EMBEDDING_DIMENSIONS: Record<string, number> = {
+  openai: 1536,    // text-embedding-3-small
+  ollama: 768,     // nomic-embed-text (default)
+  onnx: 384,       // all-MiniLM-L6-v2
+};
+
+/**
+ * Get the current embedding vector dimension based on configured provider.
+ * Used by db.ts to create/migrate the entities_vec table.
+ */
+export function getEmbeddingDimension(config?: MeMeshConfig): number {
+  const cfg = config ?? readConfig();
+  const llm = cfg.llm ?? detectFromEnv() ?? detectOllama() ?? null;
+  const source = detectEmbeddingSource(llm);
+  return EMBEDDING_DIMENSIONS[source] ?? 384;
+}
+
 // --- Startup Capability Logging ---
 
 /**

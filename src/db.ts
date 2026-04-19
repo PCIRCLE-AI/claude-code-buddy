@@ -4,7 +4,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import { runAutoDecay } from './core/lifecycle.js';
-import { getEmbeddingDimension } from './core/embedder.js';
+import { getEmbeddingDimension } from './core/config.js';
 import type { PragmaColumnRow } from './core/types.js';
 
 let db: Database.Database | null = null;

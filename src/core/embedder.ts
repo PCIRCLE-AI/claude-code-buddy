@@ -11,15 +11,6 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { detectCapabilities, type LLMConfig } from './config.js';
 
-// --- Provider dimensions ---
-const PROVIDER_DIMENSIONS: Record<string, number> = {
-  openai: 1536,    // text-embedding-3-small
-  ollama: 768,     // nomic-embed-text (default, varies by model)
-  onnx: 384,       // all-MiniLM-L6-v2
-};
-
-const DEFAULT_DIMENSION = 384;
-
 let onnxPipelineInstance: any = null;
 let onnxPipelineLoading: Promise<any> | null = null;
 let onnxAvailableChecked = false;
@@ -38,16 +29,8 @@ export function isEmbeddingAvailable(): boolean {
   return isOnnxAvailable();
 }
 
-/**
- * Get the current embedding dimension based on configured provider.
- */
-export function getEmbeddingDimension(): number {
-  const caps = detectCapabilities();
-  if (caps.llm?.provider === 'openai') return PROVIDER_DIMENSIONS.openai;
-  if (caps.llm?.provider === 'ollama') return PROVIDER_DIMENSIONS.ollama;
-  if (isOnnxAvailable()) return PROVIDER_DIMENSIONS.onnx;
-  return DEFAULT_DIMENSION;
-}
+// getEmbeddingDimension() is in config.ts to avoid circular dependency with db.ts
+export { getEmbeddingDimension } from './config.js';
 
 /**
  * Reset cached state (for testing).
