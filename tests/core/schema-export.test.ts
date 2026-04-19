@@ -4,9 +4,9 @@ import { exportOpenAITools } from '../../src/core/schema-export.js';
 describe('exportOpenAITools', () => {
   const tools = exportOpenAITools();
 
-  it('returns an array of 5 tools', () => {
+  it('returns an array of 6 tools', () => {
     expect(Array.isArray(tools)).toBe(true);
-    expect(tools).toHaveLength(5);
+    expect(tools).toHaveLength(6);
   });
 
   it('each tool has type "function" and a function object with name, description, parameters', () => {
@@ -30,6 +30,7 @@ describe('exportOpenAITools', () => {
       'memesh_forget',
       'memesh_consolidate',
       'memesh_learn',
+      'memesh_user_patterns',
     ]);
   });
 

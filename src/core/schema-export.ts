@@ -84,5 +84,22 @@ export function exportOpenAITools(): object[] {
         },
       },
     },
+    {
+      type: 'function',
+      function: {
+        name: 'memesh_user_patterns',
+        description: 'Analyze user work patterns from existing memory. Returns work schedule, tool preferences, focus areas, workflow metrics, strengths, and learning areas.',
+        parameters: {
+          type: 'object',
+          properties: {
+            categories: {
+              type: 'array',
+              items: { type: 'string', enum: ['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'] },
+              description: 'Specific categories to return. Omit for all.',
+            },
+          },
+        },
+      },
+    },
   ];
 }
