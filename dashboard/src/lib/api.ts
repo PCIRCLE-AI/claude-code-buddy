@@ -91,6 +91,18 @@ export interface AnalyticsData {
   };
 }
 
+export interface PatternsData {
+  workSchedule: {
+    hourDistribution: Array<{ hour: number; count: number }>;
+    dayDistribution: Array<{ day: string; dayNum: number; count: number }>;
+  };
+  toolPreferences: Array<{ tool: string; sessions: number }>;
+  focusAreas: Array<{ type: string; count: number }>;
+  workflow: { avgSessionMinutes: number; commitsPerSession: number; totalSessions: number; totalCommits: number };
+  strengths: Array<{ type: string; avgConfidence: number; count: number }>;
+  learningAreas: Array<{ tag: string; count: number }>;
+}
+
 export interface GraphData {
   entities: Entity[];
   relations: Array<{ from: string; to: string; type: string }>;

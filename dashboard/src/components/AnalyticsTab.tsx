@@ -1,14 +1,16 @@
 import { useState, useEffect, useCallback } from 'preact/hooks';
-import { api, type StatsData, type AnalyticsData } from '../lib/api';
+import { api, type StatsData, type AnalyticsData, type PatternsData } from '../lib/api';
 import { HealthScore } from './HealthScore';
 import { MemoryTimeline } from './MemoryTimeline';
 import { ValueMetrics } from './ValueMetrics';
 import { CleanupSuggestions } from './CleanupSuggestions';
+import { UserPatterns } from './UserPatterns';
 import { t } from '../lib/i18n';
 
 export function AnalyticsTab() {
   const [stats, setStats] = useState<StatsData | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
+  const [patterns, setPatterns] = useState<PatternsData | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(() => {
@@ -16,9 +18,11 @@ export function AnalyticsTab() {
     Promise.all([
       api<StatsData>('GET', '/v1/stats'),
       api<AnalyticsData>('GET', '/v1/analytics'),
-    ]).then(([s, a]) => {
+      api<PatternsData>('GET', '/v1/patterns').catch(() => null),
+    ]).then(([s, a, p]) => {
       setStats(s);
       setAnalytics(a);
+      setPatterns(p);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -64,7 +68,14 @@ export function AnalyticsTab() {
         />
       </div>
 
-      {/* Row 6: Topics cloud (kept from original) */}
+      {/* Row 6: User Patterns */}
+      {patterns && (
+        <div style={{ marginTop: 8 }}>
+          <UserPatterns data={patterns} />
+        </div>
+      )}
+
+      {/* Row 7: Topics cloud (kept from original) */}
       {(() => {
         const internalPrefixes = ['auto_saved', 'auto-tracked', 'session_end', 'session:', 'source:', 'scope:', 'date:', 'urgency:'];
         const userTags = stats.tagDistribution.filter(tg =>
