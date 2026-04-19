@@ -72,7 +72,8 @@ describe('Config: detectCapabilities', () => {
     });
     expect(caps.searchLevel).toBe(1);
     expect(caps.llm?.provider).toBe('anthropic');
-    expect(caps.embeddings).toBe('anthropic');
+    // Anthropic has no embedding API — falls back to ONNX if available, otherwise tfidf
+    expect(['onnx', 'tfidf']).toContain(caps.embeddings);
   });
 
   it('returns Level 1 with openai LLM config', () => {

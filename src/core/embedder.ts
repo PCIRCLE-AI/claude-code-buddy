@@ -1,97 +1,69 @@
 // =============================================================================
-// Embedder — local neural embedding generation via ONNX
-// Uses @xenova/transformers (Xenova/all-MiniLM-L6-v2, 384 dimensions)
-// Gracefully no-ops if package is not installed or model unavailable
+// Embedder — multi-provider embedding generation
+// Supports: OpenAI API, Ollama, ONNX (@xenova/transformers), none
+// Provider selection: config.llm.provider → API embeddings if available,
+// ONNX fallback, graceful no-op if nothing available
 // =============================================================================
 
 import { createRequire } from 'node:module';
 import { getDatabase } from '../db.js';
 import { homedir } from 'os';
 import { join } from 'path';
+import { detectCapabilities, type LLMConfig } from './config.js';
 
-let pipelineInstance: any = null;
-let pipelineLoading: Promise<any> | null = null;
-let availableChecked = false;
-let availableResult = false;
+let onnxPipelineInstance: any = null;
+let onnxPipelineLoading: Promise<any> | null = null;
+let onnxAvailableChecked = false;
+let onnxAvailableResult = false;
+
+// --- Public API ---
 
 /**
- * Check if @xenova/transformers can be imported.
- * Cached after first check.
+ * Check if any embedding method is available.
+ * Returns true if ONNX or a provider API is configured.
  */
 export function isEmbeddingAvailable(): boolean {
-  if (availableChecked) return availableResult;
-  availableChecked = true;
-  try {
-    // ESM project — use createRequire for synchronous resolution check
-    const require = createRequire(import.meta.url);
-    require.resolve('@xenova/transformers');
-    availableResult = true;
-  } catch {
-    availableResult = false;
-  }
-  return availableResult;
+  const caps = detectCapabilities();
+  if (caps.llm?.provider === 'openai') return true;
+  if (caps.llm?.provider === 'ollama') return true;
+  return isOnnxAvailable();
 }
 
+// getEmbeddingDimension() is in config.ts to avoid circular dependency with db.ts
+export { getEmbeddingDimension } from './config.js';
+
 /**
- * Reset the cached availability check (for testing).
+ * Reset cached state (for testing).
  */
 export function resetEmbeddingState(): void {
-  availableChecked = false;
-  availableResult = false;
-  pipelineInstance = null;
-  pipelineLoading = null;
+  onnxAvailableChecked = false;
+  onnxAvailableResult = false;
+  onnxPipelineInstance = null;
+  onnxPipelineLoading = null;
 }
 
 /**
- * Get or create the embedding pipeline (singleton).
- * First call downloads the model (~30MB) to ~/.memesh/models/.
- */
-async function getPipeline(): Promise<any> {
-  if (pipelineInstance) return pipelineInstance;
-  if (pipelineLoading) return pipelineLoading;
-
-  pipelineLoading = (async () => {
-    // Dynamic import — type as any to avoid TS errors with optional dependency
-    const mod: any = await import('@xenova/transformers');
-    const createPipeline = mod.pipeline;
-    const env = mod.env;
-    if (env) {
-      env.cacheDir = join(homedir(), '.memesh', 'models');
-      env.allowLocalModels = true;
-    }
-    pipelineInstance = await createPipeline(
-      'feature-extraction',
-      'Xenova/all-MiniLM-L6-v2'
-    );
-    return pipelineInstance;
-  })();
-
-  return pipelineLoading;
-}
-
-/**
- * Generate a 384-dim embedding for the given text.
- * Returns null if embedding is unavailable or fails.
+ * Generate an embedding for the given text.
+ * Tries providers in order: OpenAI API → Ollama → ONNX → null.
  */
 export async function embedText(text: string): Promise<Float32Array | null> {
-  if (!isEmbeddingAvailable()) return null;
-  try {
-    const pipe = await getPipeline();
-    const output = await pipe(text, { pooling: 'mean', normalize: true });
-    return new Float32Array(output.data);
-  } catch {
-    return null;
+  const caps = detectCapabilities();
+
+  // Try provider API first
+  if (caps.llm) {
+    const result = await embedWithProvider(text, caps.llm);
+    if (result) return result;
   }
+
+  // Fallback to ONNX
+  return embedWithOnnx(text);
 }
 
 /**
- * Generate embedding for entity text and store in entities_vec.
+ * Generate embedding and store in entities_vec.
  * Silently skips if embedding generation fails.
  */
-export async function embedAndStore(
-  entityId: number,
-  text: string
-): Promise<void> {
+export async function embedAndStore(entityId: number, text: string): Promise<void> {
   const embedding = await embedText(text);
   if (!embedding) return;
 
@@ -107,7 +79,6 @@ export async function embedAndStore(
 
 /**
  * Search entities_vec for similar embeddings by cosine distance.
- * Returns entity IDs sorted by distance (lower = more similar).
  */
 export function vectorSearch(
   queryEmbedding: Float32Array,
@@ -125,5 +96,111 @@ export function vectorSearch(
       ) as Array<{ id: number; distance: number }>;
   } catch {
     return [];
+  }
+}
+
+// --- Provider Implementations ---
+
+async function embedWithProvider(text: string, config: LLMConfig): Promise<Float32Array | null> {
+  try {
+    if (config.provider === 'openai') return await embedWithOpenAI(text, config);
+    if (config.provider === 'ollama') return await embedWithOllama(text, config);
+    // Anthropic has no embedding API — fall through to ONNX
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function embedWithOpenAI(text: string, config: LLMConfig): Promise<Float32Array | null> {
+  const apiKey = config.apiKey || process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+
+  const res = await fetch('https://api.openai.com/v1/embeddings', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'text-embedding-3-small',
+      input: text.slice(0, 8000), // API input limit
+    }),
+  });
+  if (!res.ok) return null;
+
+  const data = await res.json() as { data?: Array<{ embedding?: number[] }> };
+  const embedding = data.data?.[0]?.embedding;
+  if (!embedding || !Array.isArray(embedding)) return null;
+
+  return new Float32Array(embedding);
+}
+
+async function embedWithOllama(text: string, config: LLMConfig): Promise<Float32Array | null> {
+  const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
+  const model = config.model || 'nomic-embed-text';
+
+  const res = await fetch(`${host}/api/embed`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, input: text.slice(0, 8000) }),
+  });
+  if (!res.ok) return null;
+
+  const data = await res.json() as { embeddings?: number[][] };
+  const embedding = data.embeddings?.[0];
+  if (!embedding || !Array.isArray(embedding)) return null;
+
+  return new Float32Array(embedding);
+}
+
+// --- ONNX (local, @xenova/transformers) ---
+
+function isOnnxAvailable(): boolean {
+  if (onnxAvailableChecked) return onnxAvailableResult;
+  onnxAvailableChecked = true;
+  try {
+    const require = createRequire(import.meta.url);
+    require.resolve('@xenova/transformers');
+    onnxAvailableResult = true;
+  } catch {
+    onnxAvailableResult = false;
+  }
+  return onnxAvailableResult;
+}
+
+async function getOnnxPipeline(): Promise<any> {
+  if (onnxPipelineInstance) return onnxPipelineInstance;
+  if (onnxPipelineLoading) return onnxPipelineLoading;
+
+  onnxPipelineLoading = (async () => {
+    try {
+      const mod: any = await import('@xenova/transformers');
+      const createPipeline = mod.pipeline;
+      const env = mod.env;
+      if (env) {
+        env.cacheDir = join(homedir(), '.memesh', 'models');
+        env.allowLocalModels = true;
+      }
+      onnxPipelineInstance = await createPipeline(
+        'feature-extraction',
+        'Xenova/all-MiniLM-L6-v2'
+      );
+      return onnxPipelineInstance;
+    } catch (err) {
+      // Reset so next call retries instead of returning cached rejected promise
+      onnxPipelineLoading = null;
+      throw err;
+    }
+  })();
+
+  return onnxPipelineLoading;
+}
+
+async function embedWithOnnx(text: string): Promise<Float32Array | null> {
+  if (!isOnnxAvailable()) return null;
+  try {
+    const pipe = await getOnnxPipeline();
+    const output = await pipe(text, { pooling: 'mean', normalize: true });
+    return new Float32Array(output.data);
+  } catch {
+    return null;
   }
 }

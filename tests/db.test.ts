@@ -181,4 +181,22 @@ describe('Feature: Database Management', () => {
       expect(idx).toBeDefined();
     });
   });
+
+  describe('Scenario: Recall effectiveness columns migration (v4.0.0)', () => {
+    it('should have recall_hits column with default 0', () => {
+      const db = openDatabase(testDbPath);
+      const info = db.prepare("PRAGMA table_info(entities)").all() as any[];
+      const col = info.find((c: any) => c.name === 'recall_hits');
+      expect(col).toBeDefined();
+      expect(col.dflt_value).toBe('0');
+    });
+
+    it('should have recall_misses column with default 0', () => {
+      const db = openDatabase(testDbPath);
+      const info = db.prepare("PRAGMA table_info(entities)").all() as any[];
+      const col = info.find((c: any) => c.name === 'recall_misses');
+      expect(col).toBeDefined();
+      expect(col.dflt_value).toBe('0');
+    });
+  });
 });

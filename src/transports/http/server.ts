@@ -8,7 +8,7 @@ import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
 import { computePatterns } from '../../core/patterns.js';
-import type { CountRow } from '../../core/types.js';
+import type { CountRow, PragmaColumnRow } from '../../core/types.js';
 import {
   RememberSchema as RememberBody, RecallSchema as RecallBody,
   ForgetSchema as ForgetBody, ConsolidateSchema as ConsolidateBody,
@@ -236,7 +236,7 @@ const ConfigBody = z.object({
   sessionLimit: z.number().int().min(1).max(100).optional(),
   theme: z.enum(['light', 'dark']).optional(),
   setupCompleted: z.boolean().optional(),
-}).passthrough();
+}).strip();
 
 app.post('/v1/config', (req, res) => {
   const parsed = ConfigBody.safeParse(req.body);
@@ -433,6 +433,54 @@ app.get('/v1/analytics', (_req, res) => {
       duplicateCandidates,
     };
 
+    // --- Recall Effectiveness ---
+    let recallEffectiveness: {
+      overallHitRate: number;
+      totalHits: number;
+      totalMisses: number;
+      trackedEntities: number;
+      topEffective: Array<{ name: string; type: string; hits: number; misses: number; hitRate: number }>;
+      mostIgnored: Array<{ name: string; type: string; hits: number; misses: number; hitRate: number }>;
+    } | null = null;
+
+    try {
+      const recallColCheck = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
+      if (recallColCheck.some((c: PragmaColumnRow) => c.name === 'recall_hits')) {
+        const totals = db.prepare(
+          `SELECT COALESCE(SUM(recall_hits), 0) as hits, COALESCE(SUM(recall_misses), 0) as misses,
+           COUNT(*) as tracked FROM entities WHERE (recall_hits > 0 OR recall_misses > 0)`
+        ).get() as { hits: number; misses: number; tracked: number };
+
+        const total = totals.hits + totals.misses;
+        const overallHitRate = total > 0 ? totals.hits / total : 0;
+
+        const topEffective = db.prepare(
+          `SELECT name, type, COALESCE(recall_hits, 0) as hits, COALESCE(recall_misses, 0) as misses,
+           CAST(COALESCE(recall_hits, 0) AS REAL) / (COALESCE(recall_hits, 0) + COALESCE(recall_misses, 0)) as hitRate
+           FROM entities WHERE (COALESCE(recall_hits, 0) + COALESCE(recall_misses, 0)) > 0
+           ORDER BY hitRate DESC, hits DESC LIMIT 5`
+        ).all() as Array<{ name: string; type: string; hits: number; misses: number; hitRate: number }>;
+
+        const mostIgnored = db.prepare(
+          `SELECT name, type, COALESCE(recall_hits, 0) as hits, COALESCE(recall_misses, 0) as misses,
+           CAST(COALESCE(recall_hits, 0) AS REAL) / (COALESCE(recall_hits, 0) + COALESCE(recall_misses, 0)) as hitRate
+           FROM entities WHERE (COALESCE(recall_hits, 0) + COALESCE(recall_misses, 0)) > 0
+           ORDER BY hitRate ASC, misses DESC LIMIT 5`
+        ).all() as Array<{ name: string; type: string; hits: number; misses: number; hitRate: number }>;
+
+        recallEffectiveness = {
+          overallHitRate,
+          totalHits: totals.hits,
+          totalMisses: totals.misses,
+          trackedEntities: totals.tracked,
+          topEffective,
+          mostIgnored,
+        };
+      }
+    } catch {
+      // recall_hits column may not exist yet — skip gracefully
+    }
+
     res.json({
       success: true,
       data: {
@@ -440,6 +488,7 @@ app.get('/v1/analytics', (_req, res) => {
         healthFactors,
         timeline,
         valueMetrics,
+        recallEffectiveness,
         cleanup,
       },
     });

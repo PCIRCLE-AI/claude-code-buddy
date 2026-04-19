@@ -11,7 +11,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
-    <a href="https://pypi.org/project/memesh/"><img src="https://img.shields.io/badge/pip-memesh-3b82f6?style=flat-square" alt="PyPI" /></a>
   </p>
 </p>
 
@@ -60,6 +59,10 @@ memesh
 
 <p align="center">
   <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — hiểu rõ tri thức của AI bạn" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — đồ thị tri thức tương tác với bộ lọc loại và chế độ ego" width="100%" />
 </p>
 
 ---
@@ -122,7 +125,7 @@ Dán tools vào bất kỳ API call nào
 | **Cấu hình** | `npm i -g` — xong | Neo4j + VectorDB + API key | Neo4j + config |
 | **Lưu trữ** | Một file SQLite | Neo4j + Qdrant | Neo4j |
 | **Hoạt động offline** | Có, luôn luôn | Không | Không |
-| **Dashboard** | Tích hợp sẵn (5 tab) | Không có | Không có |
+| **Dashboard** | Tích hợp sẵn (7 tab + phân tích) | Không có | Không có |
 | **Phụ thuộc** | 6 | 20+ | 10+ |
 | **Giá** | Miễn phí mãi mãi | Gói miễn phí / Trả phí | Gói miễn phí / Trả phí |
 
@@ -136,12 +139,28 @@ Bạn không cần phải tự ghi nhớ mọi thứ. MeMesh có **4 hook** tự
 
 | Khi nào | MeMesh làm gì |
 |------|------------------|
-| **Mỗi khi bắt đầu phiên** | Tải các ký ức liên quan nhất (xếp hạng theo thuật toán scoring) |
+| **Mỗi khi bắt đầu phiên** | Tải các ký ức liên quan nhất + cảnh báo chủ động từ bài học trước đó |
 | **Sau mỗi `git commit`** | Ghi lại những gì bạn thay đổi, kèm thống kê diff |
-| **Khi Claude kết thúc** | Thu thập file đã sửa, lỗi đã fix và quyết định đã đưa ra |
+| **Khi Claude kết thúc** | Thu thập file đã sửa, lỗi đã fix và tự động tạo bài học có cấu trúc từ các lỗi |
 | **Trước khi nén context** | Lưu kiến thức trước khi mất do giới hạn context |
 
 > **Tắt bất cứ lúc nào:** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## Dashboard
+
+7 tab, 11 ngôn ngữ, không phụ thuộc bên ngoài. Truy cập tại `http://localhost:3737/dashboard` khi server đang chạy.
+
+| Tab | Nội dung |
+|-----|----------|
+| **Search** | Tìm kiếm toàn văn + tương tự vector trên tất cả ký ức |
+| **Browse** | Danh sách phân trang của tất cả thực thể với lưu trữ/khôi phục |
+| **Analytics** | Điểm Sức khỏe Bộ nhớ (0-100), timeline 30 ngày, chỉ số giá trị, phạm vi kiến thức, đề xuất dọn dẹp, pattern làm việc |
+| **Graph** | Đồ thị tri thức tương tác dạng lực với bộ lọc loại, tìm kiếm, chế độ ego, heatmap mức độ mới |
+| **Lessons** | Bài học có cấu trúc từ các lỗi trước đó (lỗi, nguyên nhân gốc, cách sửa, phòng ngừa) |
+| **Manage** | Lưu trữ và khôi phục thực thể |
+| **Settings** | Cấu hình nhà cung cấp LLM, chọn ngôn ngữ |
 
 ---
 
@@ -183,7 +202,7 @@ memesh  # mở dashboard → tab Cài đặt
 
 ---
 
-## Tất Cả 6 Công Cụ Bộ Nhớ
+## Tất Cả 8 Công Cụ Bộ Nhớ
 
 | Công cụ | Chức năng |
 |------|-------------|
@@ -193,6 +212,8 @@ memesh  # mở dashboard → tab Cài đặt
 | `consolidate` | Nén ký ức dài dòng bằng LLM |
 | `export` | Chia sẻ ký ức dạng JSON giữa dự án hoặc thành viên nhóm |
 | `import` | Nhập ký ức với chiến lược gộp (bỏ qua / ghi đè / nối thêm) |
+| `learn` | Ghi lại bài học có cấu trúc từ sai lầm (lỗi, nguyên nhân gốc, cách sửa, phòng ngừa) |
+| `user_patterns` | Phân tích pattern làm việc — lịch trình, công cụ, điểm mạnh, lĩnh vực cần học |
 
 ---
 
@@ -201,7 +222,7 @@ memesh  # mở dashboard → tab Cài đặt
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (6 operations) │
+                    │  (8 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │
@@ -222,7 +243,7 @@ Core độc lập với framework. Logic giống nhau chạy từ terminal, HTTP
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test -- --run    # 289 tests
+npm test -- --run    # 413 tests
 ```
 
 Dashboard: `cd dashboard && npm install && npm run dev`

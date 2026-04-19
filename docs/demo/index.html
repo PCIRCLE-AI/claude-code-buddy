@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MeMesh Dashboard Demo</title>
+<meta name="description" content="Interactive demo of the MeMesh LLM Memory dashboard. See how AI memory management works before installing.">
+<link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,600,700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-0:#080A0C; --bg-1:#0D1014; --bg-2:#14181D;
+  --bg-card:rgba(20,24,29,0.9); --bg-hover:#1A1F26;
+  --border:rgba(0,214,180,0.08); --border-subtle:rgba(0,214,180,0.04);
+  --text-0:#F0F2F4; --text-1:#B8BEC6; --text-2:#7A828E; --text-3:#4A5260;
+  --accent:#00D6B4; --accent-soft:rgba(0,214,180,0.08);
+  --success:#00D6B4; --warning:#FFB84D;
+  --font:'Satoshi',-apple-system,system-ui,sans-serif;
+  --mono:'Geist Mono','JetBrains Mono',ui-monospace,monospace;
+  --radius:8px; --radius-sm:6px; --radius-xs:4px;
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html{font-size:14px}
+body{font-family:var(--font);background:var(--bg-0);color:var(--text-1);line-height:1.55;-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+
+/* Banner */
+.banner{background:var(--accent-soft);border-bottom:1px solid var(--border);padding:10px 24px;text-align:center;font-size:12px;color:var(--text-1)}
+.banner code{font-family:var(--mono);background:var(--bg-2);padding:2px 8px;border-radius:var(--radius-xs);color:var(--accent);font-size:11px}
+.banner a{color:var(--accent);text-decoration:none}
+.banner a:hover{text-decoration:underline}
+
+/* Header */
+.header{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:var(--bg-1);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100;backdrop-filter:blur(16px) saturate(180%)}
+.header h1{font-size:15px;font-weight:700;color:var(--text-0);letter-spacing:-0.03em;line-height:1.2}
+.header small{font-size:10px;color:var(--text-3);letter-spacing:0.05em;text-transform:uppercase}
+.header-meta{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-2)}
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:4px;background:var(--success);box-shadow:0 0 6px rgba(0,214,180,0.4)}
+.badge-version{font-family:var(--mono);font-size:10px;color:var(--text-3);background:var(--bg-2);padding:2px 8px;border-radius:var(--radius-xs)}
+
+/* Nav */
+.nav{display:flex;background:var(--bg-0);border-bottom:1px solid var(--border);padding:0 24px;overflow-x:auto;scrollbar-width:none}
+.nav::-webkit-scrollbar{display:none}
+.nav button{padding:14px 16px;border:none;background:none;cursor:pointer;font:500 12px/1 var(--font);color:var(--text-3);border-bottom:2px solid transparent;transition:color 150ms,border-color 150ms;white-space:nowrap;letter-spacing:0.01em;min-height:44px}
+.nav button:hover{color:var(--text-2)}
+.nav button.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* Main */
+.main{max-width:1100px;width:100%;margin:0 auto;padding:20px 24px}
+
+/* Stats */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:20px}
+.stats-3{grid-template-columns:repeat(3,1fr);margin-bottom:8px}
+.stat{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:16px;transition:border-color 150ms}
+.stat:hover{border-color:rgba(0,214,180,0.2);box-shadow:0 2px 12px rgba(0,214,180,0.04)}
+.stat-val{font:700 24px/1.1 var(--mono);color:var(--accent);letter-spacing:-0.02em}
+.stat-sm .stat-val{font-size:18px}
+.stat-lbl{font:500 10px/1 var(--font);color:var(--text-3);text-transform:uppercase;letter-spacing:.08em;margin-top:4px}
+
+/* Cards */
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;margin-bottom:8px;backdrop-filter:blur(8px);transition:border-color 200ms,box-shadow 200ms}
+.card:hover{border-color:rgba(0,214,180,0.2);box-shadow:0 4px 20px rgba(0,214,180,0.04)}
+.card-title{font-size:13px;font-weight:600;color:var(--text-0);margin-bottom:14px;letter-spacing:-0.01em}
+.section-label{font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+
+/* Tags */
+.tag{display:inline-block;padding:2px 8px;margin:1px 2px;border-radius:var(--radius-xs);font:400 11px var(--mono);background:var(--bg-2);color:var(--text-2);border:1px solid var(--border)}
+
+/* Health */
+.health-layout{display:flex;gap:24px;align-items:center}
+.health-circle{width:80px;height:80px;border-radius:50%;border:3px solid var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.health-val{font-family:var(--mono);font-size:24px;font-weight:700;color:var(--accent);letter-spacing:-0.02em}
+.health-factors{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
+.factor-row{display:flex;justify-content:space-between;margin-bottom:4px}
+.factor-name{font-size:12px;color:var(--text-2)}
+.factor-pct{font-family:var(--mono);font-size:11px;color:var(--text-3)}
+
+/* Bar */
+.bar-track{height:4px;border-radius:2px;background:var(--bg-0);overflow:hidden}
+.bar-fill{height:100%;border-radius:2px;background:rgba(0,214,180,0.6);transition:width 800ms ease-out}
+
+/* Coverage row */
+.cov-row{margin-bottom:10px}
+.cov-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.cov-type{font-size:13px;color:var(--text-1)}
+.cov-count{font-family:var(--mono);font-size:12px;color:var(--text-3)}
+
+/* Clean */
+.clean-msg{text-align:center;padding:24px 12px;color:var(--text-3);font-size:13px}
+.clean-icon{font-size:28px;margin-bottom:8px;display:block;color:var(--accent)}
+
+/* Heatmap cell */
+.hm-cell{width:18px;height:18px;border-radius:var(--radius-xs);font-family:var(--mono);font-size:8px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border-subtle)}
+
+/* Workflow grid */
+.wf-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+/* Footer */
+.footer{text-align:center;padding:28px 24px;border-top:1px solid var(--border);margin-top:24px}
+.footer code{color:var(--accent);font-family:var(--mono);background:var(--bg-2);padding:2px 8px;border-radius:var(--radius-xs);font-size:13px}
+.footer a{color:var(--accent);text-decoration:none;font-size:12px}
+.footer a:hover{text-decoration:underline}
+.footer p{color:var(--text-2);margin-bottom:8px}
+
+/* Responsive */
+@media(max-width:768px){
+  .main{padding:14px}
+  .nav button{padding:10px 11px;font-size:11px}
+  .header h1{font-size:14px}
+  .stats-row{grid-template-columns:1fr 1fr}
+  .stats-3{grid-template-columns:1fr 1fr 1fr}
+  .health-layout{flex-direction:column;gap:16px}
+}
+@media(max-width:480px){
+  .nav button{flex:1;font-size:11px;padding:9px 5px;text-align:center}
+  .stats-row,.stats-3{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- Banner -->
+<div class="banner">
+  This is a demo with sample data. Install MeMesh: <code>npm install -g @pcircle/memesh</code>
+  &mdash; <a href="https://github.com/PCIRCLE-AI/memesh-llm-memory" target="_blank">View on GitHub</a>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <div>
+    <h1>MeMesh LLM Memory</h1>
+    <small>Universal AI Memory Layer</small>
+  </div>
+  <div class="header-meta">
+    <span><span class="dot"></span>Connected</span>
+    <span class="badge-version">v3.2.1 &middot; 1,247 memories</span>
+  </div>
+</div>
+
+<!-- Nav -->
+<nav class="nav" id="nav">
+  <button data-tab="search">Search</button>
+  <button data-tab="browse">Browse</button>
+  <button data-tab="analytics" class="active">Analytics</button>
+  <button data-tab="graph">Graph</button>
+  <button data-tab="lessons">Lessons</button>
+  <button data-tab="manage">Manage</button>
+  <button data-tab="settings">Settings</button>
+</nav>
+
+<!-- Main Content -->
+<div class="main">
+
+  <!-- Row 1: Stats Overview -->
+  <div class="stats-row">
+    <div class="stat"><div class="stat-val">1,247</div><div class="stat-lbl">Total Memories</div></div>
+    <div class="stat"><div class="stat-val">5,891</div><div class="stat-lbl">Knowledge Facts</div></div>
+    <div class="stat"><div class="stat-val">842</div><div class="stat-lbl">Connections</div></div>
+    <div class="stat"><div class="stat-val">146</div><div class="stat-lbl">Topics</div></div>
+  </div>
+
+  <!-- Row 2: Health Score -->
+  <div class="card">
+    <div class="card-title">Memory Health</div>
+    <div class="health-layout">
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <div class="health-circle"><span class="health-val">78</span></div>
+        <span style="margin-top:6px;font-size:11px;font-weight:500;color:var(--text-2)">Good</span>
+      </div>
+      <div class="health-factors">
+        <div>
+          <div class="factor-row"><span class="factor-name">Activity</span><span class="factor-pct">65%</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:65%;background:var(--accent)"></div></div>
+        </div>
+        <div>
+          <div class="factor-row"><span class="factor-name">Quality</span><span class="factor-pct">85%</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:85%;background:var(--success)"></div></div>
+        </div>
+        <div>
+          <div class="factor-row"><span class="factor-name">Freshness</span><span class="factor-pct">70%</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:70%;background:var(--accent)"></div></div>
+        </div>
+        <div>
+          <div class="factor-row"><span class="factor-name">Self-Improvement</span><span class="factor-pct">100%</span></div>
+          <div class="bar-track"><div class="bar-fill" style="width:100%;background:var(--success)"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 3: Value Metrics -->
+  <div class="stats-row stats-3">
+    <div class="stat"><div class="stat-val">12,450</div><div class="stat-lbl">Total Recalls</div></div>
+    <div class="stat"><div class="stat-val">23</div><div class="stat-lbl">Lessons Learned</div></div>
+    <div class="stat"><div class="stat-val">8</div><div class="stat-lbl">Lessons Applied</div></div>
+  </div>
+
+  <!-- Row 4: Knowledge Coverage -->
+  <div class="card">
+    <div class="card-title">Knowledge Coverage</div>
+    <div class="cov-row"><div class="cov-header"><span class="cov-type">decision</span><span class="cov-count">120 (35%)</span></div><div class="bar-track"><div class="bar-fill" style="width:35%"></div></div></div>
+    <div class="cov-row"><div class="cov-header"><span class="cov-type">pattern</span><span class="cov-count">85 (25%)</span></div><div class="bar-track"><div class="bar-fill" style="width:25%"></div></div></div>
+    <div class="cov-row"><div class="cov-header"><span class="cov-type">lesson_learned</span><span class="cov-count">45 (13%)</span></div><div class="bar-track"><div class="bar-fill" style="width:13%"></div></div></div>
+    <div class="cov-row"><div class="cov-header"><span class="cov-type">concept</span><span class="cov-count">35 (10%)</span></div><div class="bar-track"><div class="bar-fill" style="width:10%"></div></div></div>
+    <div class="cov-row"><div class="cov-header"><span class="cov-type">feature</span><span class="cov-count">30 (9%)</span></div><div class="bar-track"><div class="bar-fill" style="width:9%"></div></div></div>
+    <div class="cov-row"><div class="cov-header"><span class="cov-type">bug_fix</span><span class="cov-count">28 (8%)</span></div><div class="bar-track"><div class="bar-fill" style="width:8%"></div></div></div>
+  </div>
+
+  <!-- Row 5: Cleanup -->
+  <div class="card">
+    <div class="clean-msg">
+      <span class="clean-icon">&#10003;</span>
+      Your memory is clean. No stale or duplicate entries found.
+    </div>
+  </div>
+
+  <!-- Row 6: Your Patterns -->
+  <div class="card">
+    <div class="card-title">Your Patterns</div>
+
+    <!-- Work Schedule Heatmap -->
+    <div style="margin-bottom:16px">
+      <div class="section-label">Work Schedule</div>
+      <div id="heatmap" style="display:flex;gap:2px;flex-wrap:wrap"></div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:6px;font-family:var(--mono)">
+        Peak hours: 10:00, 14:00, 16:00 &middot; Busiest days: Tue, Thu
+      </div>
+    </div>
+
+    <!-- Top Tools -->
+    <div style="margin-bottom:16px">
+      <div class="section-label">Top Tools</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <span class="tag">Bash <span style="opacity:0.5">(342)</span></span>
+        <span class="tag">Read <span style="opacity:0.5">(289)</span></span>
+        <span class="tag">Edit <span style="opacity:0.5">(215)</span></span>
+        <span class="tag">Grep <span style="opacity:0.5">(178)</span></span>
+        <span class="tag">Write <span style="opacity:0.5">(134)</span></span>
+      </div>
+    </div>
+
+    <!-- Workflow -->
+    <div style="margin-bottom:16px">
+      <div class="section-label">Workflow</div>
+      <div class="wf-grid">
+        <div class="stat stat-sm" style="padding:12px"><div class="stat-val">22m</div><div class="stat-lbl">Avg Session</div></div>
+        <div class="stat stat-sm" style="padding:12px"><div class="stat-val">1.2</div><div class="stat-lbl">Commits / Session</div></div>
+      </div>
+    </div>
+
+    <!-- Focus Areas -->
+    <div>
+      <div class="section-label">Focus Areas</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <span class="tag">typescript <span style="opacity:0.5">(45)</span></span>
+        <span class="tag">api-design <span style="opacity:0.5">(38)</span></span>
+        <span class="tag">testing <span style="opacity:0.5">(32)</span></span>
+        <span class="tag">refactoring <span style="opacity:0.5">(28)</span></span>
+        <span class="tag">security <span style="opacity:0.5">(21)</span></span>
+        <span class="tag">performance <span style="opacity:0.5">(18)</span></span>
+        <span class="tag">ci-cd <span style="opacity:0.5">(15)</span></span>
+        <span class="tag">documentation <span style="opacity:0.5">(12)</span></span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Footer -->
+<div class="footer">
+  <p>Try it yourself &mdash; <code>npm install -g @pcircle/memesh</code></p>
+  <a href="https://github.com/PCIRCLE-AI/memesh-llm-memory" target="_blank">github.com/PCIRCLE-AI/memesh-llm-memory</a>
+</div>
+
+<script>
+// Work Schedule Heatmap — all data is hardcoded demo data, no user input
+(function(){
+  var counts=[2,0,0,0,0,0,1,4,12,28,35,22,8,18,32,20,30,14,6,3,5,8,4,1];
+  var max=Math.max.apply(null,counts);
+  var container=document.getElementById('heatmap');
+  for(var h=0;h<24;h++){
+    var intensity=counts[h]/max;
+    var cell=document.createElement('div');
+    cell.className='hm-cell';
+    cell.title=('0'+h).slice(-2)+':00 \u2014 '+counts[h];
+    cell.textContent=h;
+    if(intensity>0){
+      cell.style.background='rgba(0,214,180,'+(0.1+intensity*0.7)+')';
+      cell.style.color=intensity>0.5?'var(--bg-0)':'var(--text-3)';
+    }else{
+      cell.style.background='var(--bg-0)';
+      cell.style.color='var(--text-3)';
+    }
+    container.appendChild(cell);
+  }
+})();
+
+// Tab switching (visual highlight only — demo shows Analytics tab content)
+document.getElementById('nav').addEventListener('click',function(e){
+  if(e.target.tagName!=='BUTTON')return;
+  var btns=this.querySelectorAll('button');
+  for(var i=0;i<btns.length;i++)btns[i].classList.remove('active');
+  e.target.classList.add('active');
+});
+</script>
+</body>
+</html>

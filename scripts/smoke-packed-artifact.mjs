@@ -82,11 +82,12 @@ const requiredFiles = [
   // Dist — dashboard assets
   'dist/cli/view.js',
   'dist/cli/assets/d3.v7.min.js',
-  // Hooks (4)
+  // Hooks (5)
   'scripts/hooks/session-start.js',
   'scripts/hooks/post-commit.js',
   'scripts/hooks/session-summary.js',
   'scripts/hooks/pre-compact.js',
+  'scripts/hooks/pre-edit-recall.js',
   // Skills (2)
   'skills/memesh/SKILL.md',
   'skills/memesh-review/SKILL.md',

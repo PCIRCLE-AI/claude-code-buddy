@@ -1,17 +1,19 @@
 export interface ScoringWeights {
-  searchRelevance: number;   // default 0.35
+  searchRelevance: number;   // default 0.30
   recency: number;           // default 0.25
-  frequency: number;         // default 0.20
+  frequency: number;         // default 0.15
   confidence: number;        // default 0.15
   temporalValidity: number;  // default 0.05
+  impact: number;            // default 0.10
 }
 
 export const DEFAULT_WEIGHTS: ScoringWeights = {
-  searchRelevance: 0.35,
+  searchRelevance: 0.30,
   recency: 0.25,
-  frequency: 0.20,
+  frequency: 0.15,
   confidence: 0.15,
   temporalValidity: 0.05,
+  impact: 0.10,
 };
 
 /**
@@ -45,11 +47,21 @@ export function temporalValidityScore(validUntil: string | null | undefined): nu
 }
 
 /**
+ * Calculate impact score using Laplace-smoothed recall effectiveness.
+ * Score = (recall_hits + 1) / (recall_hits + recall_misses + 2)
+ * Laplace smoothing gives new entities (0 hits, 0 misses) a neutral 0.5.
+ * Entities with high hit rate rise; ignored entities fade.
+ */
+export function impactScore(recallHits: number, recallMisses: number): number {
+  return (recallHits + 1) / (recallHits + recallMisses + 2);
+}
+
+/**
  * Score a single entity.
  * searchRelevanceValue is provided by the search engine (FTS5 rank or vector distance).
  */
 export function scoreEntity(
-  entity: { access_count?: number; last_accessed_at?: string; confidence?: number; valid_until?: string },
+  entity: { access_count?: number; last_accessed_at?: string; confidence?: number; valid_until?: string; recall_hits?: number; recall_misses?: number },
   searchRelevanceValue: number,
   maxAccessCount: number,
   weights: ScoringWeights = DEFAULT_WEIGHTS
@@ -59,14 +71,15 @@ export function scoreEntity(
   const fq = frequencyScore(entity.access_count ?? 0, maxAccessCount) * weights.frequency;
   const cf = (entity.confidence ?? 1.0) * weights.confidence;
   const tv = temporalValidityScore(entity.valid_until) * weights.temporalValidity;
-  return sr + rc + fq + cf + tv;
+  const im = impactScore(entity.recall_hits ?? 0, entity.recall_misses ?? 0) * weights.impact;
+  return sr + rc + fq + cf + tv + im;
 }
 
 /**
  * Sort entities by score descending.
  * searchRelevanceValues maps entity name → search relevance (0-1).
  */
-export function rankEntities<T extends { name: string; access_count?: number; last_accessed_at?: string; confidence?: number; valid_until?: string }>(
+export function rankEntities<T extends { name: string; access_count?: number; last_accessed_at?: string; confidence?: number; valid_until?: string; recall_hits?: number; recall_misses?: number }>(
   entities: T[],
   searchRelevanceValues: Map<string, number>,
   weights?: ScoringWeights

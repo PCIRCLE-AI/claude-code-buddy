@@ -15,6 +15,8 @@ import { expandQuery, isExpansionAvailable } from './query-expander.js';
 import { rankEntities } from './scoring.js';
 import { createExplicitLesson } from './lesson-engine.js';
 import { embedAndStore, isEmbeddingAvailable, embedText, vectorSearch } from './embedder.js';
+import { autoTagAndApply } from './auto-tagger.js';
+import { detectCapabilities } from './config.js';
 import path from 'path';
 import type {
   RememberInput,
@@ -74,6 +76,14 @@ export function remember(args: RememberInput): RememberResult {
   if (isEmbeddingAvailable() && args.observations?.length) {
     const text = `${args.name} ${args.observations.join(' ')}`;
     embedAndStore(entityId, text).catch(() => {});
+  }
+
+  // Fire-and-forget: auto-generate tags if none provided and LLM is configured
+  if ((!args.tags || args.tags.length === 0) && args.observations?.length) {
+    const caps = detectCapabilities();
+    if (caps.llm) {
+      autoTagAndApply(entityId, args.name, args.type, args.observations, caps.llm).catch(() => {});
+    }
   }
 
   return {
@@ -242,6 +252,9 @@ export { consolidate } from './consolidator.js';
 
 // --- Serialization (extracted to serializer.ts) ---
 export { exportMemories, importMemories } from './serializer.js';
+
+// --- Noise compression (extracted to lifecycle.ts) ---
+export { compressWeeklyNoise } from './lifecycle.js';
 
 /**
  * Create a structured lesson_learned entity from explicit user input.

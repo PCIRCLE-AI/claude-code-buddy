@@ -11,7 +11,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
-    <a href="https://pypi.org/project/memesh/"><img src="https://img.shields.io/badge/pip-memesh-3b82f6?style=flat-square" alt="PyPI" /></a>
   </p>
 </p>
 
@@ -60,6 +59,10 @@ memesh
 
 <p align="center">
   <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — AI의 지식을 한눈에 파악" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — 타입 필터와 에고 모드가 있는 인터랙티브 지식 그래프" width="100%" />
 </p>
 
 ---
@@ -122,7 +125,7 @@ memesh export-schema \
 | **설정 방법** | `npm i -g` — 완료 | Neo4j + VectorDB + API 키 | Neo4j + 설정 |
 | **저장소** | SQLite 파일 하나 | Neo4j + Qdrant | Neo4j |
 | **오프라인 사용** | 항상 가능 | 불가 | 불가 |
-| **대시보드** | 내장 (5개 탭) | 없음 | 없음 |
+| **대시보드** | 내장 (7개 탭 + 분석) | 없음 | 없음 |
 | **의존성** | 6개 | 20개 이상 | 10개 이상 |
 | **가격** | 영구 무료 | 무료 티어 / 유료 | 무료 티어 / 유료 |
 
@@ -136,12 +139,28 @@ memesh export-schema \
 
 | 언제 | MeMesh가 하는 일 |
 |------|------------------|
-| **모든 세션 시작 시** | 스코어링 알고리즘으로 가장 관련성 높은 메모리를 로드 |
+| **모든 세션 시작 시** | 가장 관련성 높은 메모리를 로드 + 과거 교훈으로부터의 사전 경고 |
 | **모든 `git commit` 후** | 변경 내용과 diff 통계를 기록 |
-| **Claude 종료 시** | 편집한 파일, 수정한 오류, 내린 결정을 포착 |
+| **Claude 종료 시** | 편집한 파일, 수정한 오류를 포착하고 실패로부터 구조화된 교훈을 자동 생성 |
 | **컨텍스트 압축 전** | 컨텍스트 한계로 사라지기 전에 지식을 저장 |
 
 > **언제든 비활성화:** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## 대시보드
+
+7개 탭, 11개 언어, 외부 의존성 제로. 서버 실행 중 `http://localhost:3737/dashboard`에서 접근.
+
+| 탭 | 내용 |
+|----|------|
+| **Search** | 모든 메모리에 대한 전문 검색 + 벡터 유사도 검색 |
+| **Browse** | 모든 엔티티의 페이지네이션 목록 (아카이브/복원 지원) |
+| **Analytics** | 메모리 건강 점수 (0-100), 30일 타임라인, 가치 지표, 지식 커버리지, 정리 제안, 작업 패턴 |
+| **Graph** | 타입 필터, 검색, 에고 모드, 최신성 히트맵이 있는 인터랙티브 포스 그래프 |
+| **Lessons** | 과거 실패로부터 생성된 구조화된 교훈 (오류, 근본 원인, 수정, 예방) |
+| **Manage** | 엔티티 아카이브 및 복원 |
+| **Settings** | LLM 제공자 설정, 언어 선택 |
 
 ---
 
@@ -183,7 +202,7 @@ memesh  # 대시보드 열기 → 설정 탭
 
 ---
 
-## 전체 6가지 메모리 도구
+## 전체 8가지 메모리 도구
 
 | 도구 | 기능 |
 |------|-------------|
@@ -193,6 +212,8 @@ memesh  # 대시보드 열기 → 설정 탭
 | `consolidate` | LLM 기반 장황한 메모리 압축 |
 | `export` | 메모리를 JSON으로 프로젝트 또는 팀원과 공유 |
 | `import` | 병합 전략(건너뛰기 / 덮어쓰기 / 추가)을 선택해 메모리 가져오기 |
+| `learn` | 실수로부터 구조화된 교훈 기록 (오류, 근본 원인, 수정, 예방) |
+| `user_patterns` | 작업 패턴 분석 — 일정, 도구, 강점, 학습 영역 |
 
 ---
 
@@ -201,7 +222,7 @@ memesh  # 대시보드 열기 → 설정 탭
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (6 operations) │
+                    │  (8 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │
@@ -222,7 +243,7 @@ memesh  # 대시보드 열기 → 설정 탭
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test -- --run    # 289 tests
+npm test -- --run    # 413 tests
 ```
 
 대시보드: `cd dashboard && npm install && npm run dev`

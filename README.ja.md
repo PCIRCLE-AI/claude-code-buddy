@@ -11,7 +11,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
-    <a href="https://pypi.org/project/memesh/"><img src="https://img.shields.io/badge/pip-memesh-3b82f6?style=flat-square" alt="PyPI" /></a>
   </p>
 </p>
 
@@ -60,6 +59,10 @@ memesh
 
 <p align="center">
   <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — AI の知識を可視化" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — タイプフィルターとエゴモード付きインタラクティブ知識グラフ" width="100%" />
 </p>
 
 ---
@@ -122,7 +125,7 @@ memesh export-schema \
 | **設定方法** | `npm i-g` — 完了 | Neo4j + VectorDB + API キー | Neo4j + 設定 |
 | **ストレージ** | SQLite ファイル 1 つ | Neo4j + Qdrant | Neo4j |
 | **オフライン利用** | 常時対応 | 非対応 | 非対応 |
-| **ダッシュボード** | 組み込み（5 タブ） | なし | なし |
+| **ダッシュボード** | 組み込み（7 タブ + アナリティクス） | なし | なし |
 | **依存関係** | 6 | 20+ | 10+ |
 | **価格** | 永久無料 | 無料枠 / 有料 | 無料枠 / 有料 |
 
@@ -136,12 +139,28 @@ memesh export-schema \
 
 | タイミング | MeMesh が行うこと |
 |------|------------------|
-| **セッション開始時** | スコアリングアルゴリズムで最も関連性の高いメモリを読み込む |
+| **セッション開始時** | 最も関連性の高いメモリを読み込み + 過去の教訓からのプロアクティブな警告 |
 | **`git commit` 後** | 変更内容と差分統計を記録する |
-| **Claude 終了時** | 編集したファイル・修正したエラー・下した決断をキャプチャする |
+| **Claude 終了時** | 編集したファイル・修正したエラーをキャプチャし、失敗から構造化された教訓を自動生成 |
 | **コンテキスト圧縮前** | コンテキスト上限で失われる前に知識を保存する |
 
 > **いつでも無効化：** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## ダッシュボード
+
+7 タブ、11 言語、外部依存ゼロ。サーバー起動中は `http://localhost:3737/dashboard` でアクセス。
+
+| タブ | 内容 |
+|------|------|
+| **Search** | すべてのメモリに対する全文検索 + ベクトル類似度検索 |
+| **Browse** | すべてのエンティティのページネーション一覧（アーカイブ/復元対応） |
+| **Analytics** | メモリヘルススコア（0-100）、30日タイムライン、価値指標、知識カバレッジ、クリーンアップ提案、作業パターン |
+| **Graph** | タイプフィルター、検索、エゴモード、最新性ヒートマップ付きインタラクティブ力学グラフ |
+| **Lessons** | 過去の失敗から生成された構造化レッスン（エラー、根本原因、修正方法、予防策） |
+| **Manage** | エンティティのアーカイブと復元 |
+| **Settings** | LLM プロバイダー設定、言語セレクター |
 
 ---
 
@@ -183,7 +202,7 @@ memesh  # ダッシュボードを開く → 設定タブ
 
 ---
 
-## 全 6 つのメモリツール
+## 全 8 つのメモリツール
 
 | ツール | 機能 |
 |------|-------------|
@@ -193,6 +212,8 @@ memesh  # ダッシュボードを開く → 設定タブ
 | `consolidate` | LLM を使って冗長なメモリを圧縮 |
 | `export` | メモリを JSON でプロジェクトやチームメンバーと共有 |
 | `import` | マージ戦略（スキップ / 上書き / 追加）を選んでメモリをインポート |
+| `learn` | ミスから構造化されたレッスンを記録（エラー、根本原因、修正方法、予防策） |
+| `user_patterns` | 作業パターンを分析 — スケジュール、ツール、強み、学習分野 |
 
 ---
 
@@ -201,7 +222,7 @@ memesh  # ダッシュボードを開く → 設定タブ
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (6 operations) │
+                    │  (8 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │
@@ -222,7 +243,7 @@ memesh  # ダッシュボードを開く → 設定タブ
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test -- --run    # 289 tests
+npm test -- --run    # 413 tests
 ```
 
 ダッシュボード：`cd dashboard && npm install && npm run dev`

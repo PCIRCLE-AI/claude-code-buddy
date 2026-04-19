@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { createRequire } from 'module';
 
 // --- Config Types ---
 
@@ -101,10 +102,47 @@ export function detectCapabilities(config?: MeMeshConfig): Capabilities {
     vectorSearch: true,
     scoring: true,
     knowledgeEvolution: true,
-    embeddings: llm?.provider ?? 'tfidf',
+    embeddings: detectEmbeddingSource(llm),
     llm,
     searchLevel: llm ? 1 : 0,
   };
+}
+
+/**
+ * Determine the actual embedding source based on provider.
+ * Anthropic has no embedding API — falls back to ONNX or tfidf.
+ */
+function detectEmbeddingSource(llm: LLMConfig | null): Capabilities['embeddings'] {
+  if (!llm) return 'tfidf';
+  if (llm.provider === 'openai') return 'openai';
+  if (llm.provider === 'ollama') return 'ollama';
+  // Anthropic has no embedding API — check if ONNX is available
+  try {
+    const require = createRequire(import.meta.url);
+    require.resolve('@xenova/transformers');
+    return 'onnx';
+  } catch {
+    return 'tfidf';
+  }
+}
+
+// --- Embedding Dimensions ---
+
+const EMBEDDING_DIMENSIONS: Record<string, number> = {
+  openai: 1536,    // text-embedding-3-small
+  ollama: 768,     // nomic-embed-text (default)
+  onnx: 384,       // all-MiniLM-L6-v2
+};
+
+/**
+ * Get the current embedding vector dimension based on configured provider.
+ * Used by db.ts to create/migrate the entities_vec table.
+ */
+export function getEmbeddingDimension(config?: MeMeshConfig): number {
+  const cfg = config ?? readConfig();
+  const llm = cfg.llm ?? detectFromEnv() ?? detectOllama() ?? null;
+  const source = detectEmbeddingSource(llm);
+  return EMBEDDING_DIMENSIONS[source] ?? 384;
 }
 
 // --- Startup Capability Logging ---

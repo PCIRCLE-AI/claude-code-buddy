@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import { runAutoDecay } from './core/lifecycle.js';
+import { getEmbeddingDimension } from './core/config.js';
 import type { PragmaColumnRow } from './core/types.js';
 
 let db: Database.Database | null = null;
@@ -104,21 +105,73 @@ export function openDatabase(dbPath?: string): Database.Database {
     db.exec("CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace)");
   }
 
+  // Migrate: add recall effectiveness columns if missing (v4.0.0)
+  const recallCols = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
+  if (!recallCols.some((c) => c.name === 'recall_hits')) {
+    db.exec("ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
+    db.exec("ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
+  }
+
   // Run auto-decay: reduce confidence for stale entities (throttled to once per 24h)
   runAutoDecay(db);
 
   // Load sqlite-vec extension for vector similarity search
   sqliteVec.load(db);
 
-  // Create vector table for entity embeddings (if not exists)
-  // 384 dimensions = all-MiniLM-L6-v2 embedding size
+  // Create/migrate vector table for entity embeddings
+  // Dimension depends on embedding provider (384=ONNX, 1536=OpenAI, 768=Ollama)
+  const targetDim = getEmbeddingDimension();
+  ensureVecTable(db, targetDim);
+
+  return db;
+}
+
+/**
+ * Ensure entities_vec table exists with the correct dimension.
+ * If dimension changed (provider switch), drops and recreates the table.
+ * Old embeddings are lost — new ones regenerated as entities are accessed.
+ */
+function ensureVecTable(db: Database.Database, targetDim: number): void {
+  // Ensure metadata table exists
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memesh_metadata (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
+  const storedDim = db.prepare(
+    "SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'"
+  ).get() as { value: string } | undefined;
+
+  const currentDim = storedDim ? parseInt(storedDim.value, 10) : 0;
+
+  // Check if vec table exists
+  const vecExists = db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='entities_vec'"
+  ).get();
+
+  if (vecExists && currentDim === targetDim) {
+    return; // table exists with correct dimension
+  }
+
+  // Drop old table if dimension changed — embeddings will be regenerated
+  if (vecExists && currentDim !== targetDim) {
+    process.stderr.write(`MeMesh: Embedding dimension changed (${currentDim} → ${targetDim}). Rebuilding vector index — old embeddings will be regenerated as entities are accessed.\n`);
+    db.exec('DROP TABLE entities_vec');
+  }
+
+  // Create with target dimension
   db.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS entities_vec USING vec0(
-      embedding float[384]
+      embedding float[${targetDim}]
     );
   `);
 
-  return db;
+  // Store current dimension
+  db.prepare(
+    "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('embedding_dimension', ?)"
+  ).run(String(targetDim));
 }
 
 export function closeDatabase(): void {

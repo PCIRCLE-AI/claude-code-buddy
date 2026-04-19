@@ -11,7 +11,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
-    <a href="https://pypi.org/project/memesh/"><img src="https://img.shields.io/badge/pip-memesh-3b82f6?style=flat-square" alt="PyPI" /></a>
   </p>
 </p>
 
@@ -60,6 +59,10 @@ memesh
 
 <p align="center">
   <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — entenda o conhecimento do seu AI" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — grafo de conhecimento interativo com filtros de tipo e modo ego" width="100%" />
 </p>
 
 ---
@@ -122,7 +125,7 @@ Cole as ferramentas em qualquer chamada de API
 | **Configuração** | `npm i -g` — pronto | Neo4j + VectorDB + chaves de API | Neo4j + config |
 | **Armazenamento** | Arquivo SQLite único | Neo4j + Qdrant | Neo4j |
 | **Funciona offline** | Sim, sempre | Não | Não |
-| **Painel** | Integrado (5 abas) | Nenhum | Nenhum |
+| **Painel** | Integrado (7 abas + analytics) | Nenhum | Nenhum |
 | **Dependências** | 6 | 20+ | 10+ |
 | **Preço** | Grátis para sempre | Plano gratuito / Pago | Plano gratuito / Pago |
 
@@ -136,12 +139,28 @@ Você não precisa lembrar de tudo manualmente. O MeMesh possui **4 hooks** que 
 
 | Quando | O que o MeMesh faz |
 |------|------------------|
-| **Início de cada sessão** | Carrega suas memórias mais relevantes (classificadas por algoritmo de pontuação) |
+| **Início de cada sessão** | Carrega suas memórias mais relevantes + avisos proativos de lições passadas |
 | **Após cada `git commit`** | Registra o que você alterou, com estatísticas do diff |
-| **Quando o Claude para** | Captura arquivos editados, erros corrigidos e decisões tomadas |
+| **Quando o Claude para** | Captura arquivos editados, erros corrigidos e gera automaticamente lições estruturadas a partir de falhas |
 | **Antes da compactação de contexto** | Salva o conhecimento antes que se perca por limite de contexto |
 
 > **Desative quando quiser:** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## Painel
+
+7 abas, 11 idiomas, zero dependências externas. Acesse em `http://localhost:3737/dashboard` quando o servidor estiver rodando.
+
+| Aba | O que você vê |
+|-----|---------------|
+| **Search** | Busca full-text + similaridade vetorial em todas as memórias |
+| **Browse** | Lista paginada de todas as entidades com arquivamento/restauração |
+| **Analytics** | Pontuação de Saúde da Memória (0-100), timeline de 30 dias, métricas de valor, cobertura de conhecimento, sugestões de limpeza, seus padrões de trabalho |
+| **Graph** | Grafo de conhecimento interativo dirigido por força com filtros de tipo, busca, modo ego, heatmap de recência |
+| **Lessons** | Lições estruturadas de falhas passadas (erro, causa raiz, correção, prevenção) |
+| **Manage** | Arquivar e restaurar entidades |
+| **Settings** | Configuração do provedor LLM, seletor de idioma |
 
 ---
 
@@ -183,7 +202,7 @@ memesh  # abre o painel → aba Configurações
 
 ---
 
-## Todas as 6 Ferramentas de Memória
+## Todas as 8 Ferramentas de Memória
 
 | Ferramenta | O que faz |
 |------|-------------|
@@ -193,6 +212,8 @@ memesh  # abre o painel → aba Configurações
 | `consolidate` | Compressão de memórias longas com auxílio de LLM |
 | `export` | Compartilha memórias como JSON entre projetos ou membros da equipe |
 | `import` | Importa memórias com estratégias de mesclagem (pular / sobrescrever / anexar) |
+| `learn` | Registra lições estruturadas a partir de erros (erro, causa raiz, correção, prevenção) |
+| `user_patterns` | Analisa seus padrões de trabalho — agenda, ferramentas, pontos fortes, áreas de aprendizado |
 
 ---
 
@@ -201,7 +222,7 @@ memesh  # abre o painel → aba Configurações
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (6 operations) │
+                    │  (8 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │
@@ -222,7 +243,7 @@ O núcleo é independente de framework. A mesma lógica é executada a partir do
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test -- --run    # 289 tests
+npm test -- --run    # 413 tests
 ```
 
 Painel: `cd dashboard && npm install && npm run dev`

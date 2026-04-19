@@ -61,6 +61,7 @@ src/
 │   ├── failure-analyzer.ts # LLM-powered failure analysis → StructuredLesson
 │   ├── lesson-engine.ts   # Structured lesson creation, upsert, project query
 │   ├── embedder.ts        # Neural embeddings (Xenova/all-MiniLM-L6-v2, 384-dim)
+│   ├── auto-tagger.ts     # LLM-powered auto-tag generation (fire-and-forget)
 │   ├── patterns.ts        # User work patterns computation (shared by MCP + HTTP)
 │   └── version-check.ts   # npm registry version check
 ├── db.ts                  # SQLite + FTS5 + sqlite-vec + migrations
@@ -261,20 +262,27 @@ Foreign key cascades: deleting an entity automatically deletes its observations,
 
 Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific lifecycle events.
 
-### Hook Scripts (4 hooks)
+### Hook Scripts (5 hooks)
 
 | Hook | Event | Purpose |
 |------|-------|---------|
-| session-start.js | SessionStart | Auto-recall project memories |
+| pre-edit-recall.js | PreToolUse (Edit/Write) | Continuous recall: inject relevant memories when editing files |
+| session-start.js | SessionStart | Auto-recall + record injected IDs + noise compression |
 | post-commit.js | PostToolUse (Bash) | Record git commits with diff stats |
-| session-summary.js | Stop | Auto-capture session knowledge |
+| session-summary.js | Stop | Auto-capture session knowledge + recall effectiveness tracking |
 | pre-compact.js | PreCompact | Save knowledge before compaction |
+
+### Pre-Edit Recall (`scripts/hooks/pre-edit-recall.js`)
+
+- **Trigger**: `PreToolUse` event on `Edit` and `Write` tools
+- **Matcher**: `Edit|Write`
+- **Behavior**: Reads the file path from tool input, queries MeMesh for entities tagged with the file name or matching via FTS5 search. Returns relevant memories as additional context. Throttled to max 1 recall per file per session via temp file (`~/.memesh/session-recalled-files.json`). Timeout: 5 seconds.
 
 ### Session Start (`scripts/hooks/session-start.js`)
 
 - **Trigger**: `SessionStart` event (every new Claude Code session)
 - **Matcher**: `*` (all sessions)
-- **Behavior**: Opens the database, queries recent entities tagged with the current project, outputs a summary for Claude to use as context. Also shows proactive warnings for known `lesson_learned` entities matching the current project
+- **Behavior**: Opens the database, queries recent entities tagged with the current project, outputs a summary for Claude to use as context. Also shows proactive warnings for known `lesson_learned` entities matching the current project. Records injected entity IDs to `~/.memesh/last-session-injected.json` for recall effectiveness tracking. After output, runs `compressWeeklyNoise()` (throttled to once per 24h) to archive old auto-tracked noise into weekly summaries
 
 ### Post Commit (`scripts/hooks/post-commit.js`)
 
@@ -286,7 +294,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 - **Trigger**: `Stop` event (when Claude finishes responding)
 - **Matcher**: `*` (all sessions)
-- **Behavior**: Extracts session knowledge (files edited, errors fixed, decisions made) and stores it as entities in the knowledge graph. When LLM is configured (Level 1), additionally runs failure analysis to create structured `lesson_learned` entities from session errors. Opt-out via `MEMESH_AUTO_CAPTURE=false`
+- **Behavior**: Extracts session knowledge (files edited, errors fixed, decisions made) and stores it as entities in the knowledge graph. When LLM is configured (Level 1), additionally runs failure analysis to create structured `lesson_learned` entities from session errors. Also reads `~/.memesh/last-session-injected.json` to track recall effectiveness — updates `recall_hits` (entity name found in transcript) or `recall_misses` (not found). Opt-out via `MEMESH_AUTO_CAPTURE=false`
 
 ### Pre-Compact (`scripts/hooks/pre-compact.js`)
 

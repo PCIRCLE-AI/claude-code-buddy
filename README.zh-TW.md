@@ -11,7 +11,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
-    <a href="https://pypi.org/project/memesh/"><img src="https://img.shields.io/badge/pip-memesh-3b82f6?style=flat-square" alt="PyPI" /></a>
   </p>
 </p>
 
@@ -60,6 +59,10 @@ memesh
 
 <p align="center">
   <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — 深入了解 AI 的知識" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — 互動式知識圖譜，支援類型篩選與自我模式" width="100%" />
 </p>
 
 ---
@@ -122,7 +125,7 @@ memesh export-schema \
 | **設定方式** | `npm i -g` — 完成 | Neo4j + VectorDB + API 金鑰 | Neo4j + 設定 |
 | **儲存方式** | 單一 SQLite 檔案 | Neo4j + Qdrant | Neo4j |
 | **離線使用** | 支援，始終如此 | 不支援 | 不支援 |
-| **儀表板** | 內建（5 個頁籤） | 無 | 無 |
+| **儀表板** | 內建（7 個頁籤 + 分析） | 無 | 無 |
 | **依賴套件** | 6 | 20+ | 10+ |
 | **價格** | 永久免費 | 免費方案／付費 | 免費方案／付費 |
 
@@ -136,12 +139,28 @@ memesh export-schema \
 
 | 時機 | MeMesh 做了什麼 |
 |------|------------------|
-| **每次工作階段開始** | 依評分演算法載入最相關的記憶 |
+| **每次工作階段開始** | 載入最相關的記憶 + 來自過去教訓的主動警告 |
 | **每次 `git commit` 後** | 記錄你的變更內容與差異統計 |
-| **Claude 結束時** | 擷取已編輯的檔案、已修復的錯誤及做出的決策 |
+| **Claude 結束時** | 擷取已編輯的檔案、已修復的錯誤，並自動從失敗中產生結構化教訓 |
 | **上下文壓縮前** | 在知識因上下文限制消失前儲存起來 |
 
 > **隨時退出：** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## 儀表板
+
+7 個頁籤、11 種語言、零外部依賴。伺服器啟動後在 `http://localhost:3737/dashboard` 存取。
+
+| 頁籤 | 內容 |
+|------|------|
+| **Search** | 跨所有記憶的全文搜尋 + 向量相似度搜尋 |
+| **Browse** | 所有實體的分頁列表，支援封存/還原 |
+| **Analytics** | 記憶健康分數（0-100）、30 天時間軸、價值指標、知識覆蓋率、清理建議、你的工作模式 |
+| **Graph** | 互動式力導向知識圖譜，支援類型篩選、搜尋、自我模式、時間熱力圖 |
+| **Lessons** | 從過去失敗中產生的結構化教訓（錯誤、根因、修復方法、預防措施） |
+| **Manage** | 封存與還原實體 |
+| **Settings** | LLM 提供者設定、語言選擇 |
 
 ---
 
@@ -183,7 +202,7 @@ memesh  # 開啟儀表板 → 設定頁籤
 
 ---
 
-## 全部 6 個記憶工具
+## 全部 8 個記憶工具
 
 | 工具 | 功能說明 |
 |------|-------------|
@@ -193,6 +212,8 @@ memesh  # 開啟儀表板 → 設定頁籤
 | `consolidate` | LLM 驅動的冗長記憶壓縮 |
 | `export` | 將記憶以 JSON 格式分享給其他專案或團隊成員 |
 | `import` | 匯入記憶，支援合併策略（跳過 / 覆寫 / 附加） |
+| `learn` | 記錄來自錯誤的結構化教訓（錯誤、根因、修復方法、預防措施） |
+| `user_patterns` | 分析你的工作模式 — 時程、工具、強項、學習方向 |
 
 ---
 
@@ -201,7 +222,7 @@ memesh  # 開啟儀表板 → 設定頁籤
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (6 operations) │
+                    │  (8 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │
@@ -222,7 +243,7 @@ memesh  # 開啟儀表板 → 設定頁籤
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test -- --run    # 289 tests
+npm test -- --run    # 413 tests
 ```
 
 儀表板：`cd dashboard && npm install && npm run dev`

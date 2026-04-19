@@ -11,7 +11,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
-    <a href="https://pypi.org/project/memesh/"><img src="https://img.shields.io/badge/pip-memesh-3b82f6?style=flat-square" alt="PyPI" /></a>
   </p>
 </p>
 
@@ -60,6 +59,10 @@ memesh
 
 <p align="center">
   <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — verstehe das Wissen deiner KI" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — interaktiver Wissensgraph mit Typfiltern und Ego-Modus" width="100%" />
 </p>
 
 ---
@@ -122,7 +125,7 @@ Tools in jeden API-Aufruf einfügen
 | **Einrichtung** | `npm i -g` — fertig | Neo4j + VectorDB + API-Schlüssel | Neo4j + Konfiguration |
 | **Speicherung** | Einzelne SQLite-Datei | Neo4j + Qdrant | Neo4j |
 | **Offline nutzbar** | Ja, immer | Nein | Nein |
-| **Dashboard** | Integriert (5 Tabs) | Keins | Keins |
+| **Dashboard** | Integriert (7 Tabs + Analytik) | Keins | Keins |
 | **Abhängigkeiten** | 6 | 20+ | 10+ |
 | **Preis** | Dauerhaft kostenlos | Kostenlose Stufe / Kostenpflichtig | Kostenlose Stufe / Kostenpflichtig |
 
@@ -136,12 +139,28 @@ Du musst nicht alles manuell merken. MeMesh hat **4 Hooks**, die Wissen erfassen
 
 | Wann | Was MeMesh tut |
 |------|------------------|
-| **Zu Beginn jeder Session** | Lädt deine relevantesten Erinnerungen (nach Scoring-Algorithmus gerankt) |
+| **Zu Beginn jeder Session** | Lädt deine relevantesten Erinnerungen + proaktive Warnungen aus früheren Lektionen |
 | **Nach jedem `git commit`** | Erfasst was du geändert hast, mit Diff-Statistiken |
-| **Wenn Claude beendet** | Erfasst bearbeitete Dateien, behobene Fehler und getroffene Entscheidungen |
+| **Wenn Claude beendet** | Erfasst bearbeitete Dateien, behobene Fehler und generiert automatisch strukturierte Lektionen aus Fehlern |
 | **Vor der Kontextkomprimierung** | Sichert Wissen, bevor es durch Kontextgrenzen verloren geht |
 
 > **Jederzeit deaktivierbar:** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## Dashboard
+
+7 Tabs, 11 Sprachen, null externe Abhängigkeiten. Zugriff über `http://localhost:3737/dashboard` wenn der Server läuft.
+
+| Tab | Was du siehst |
+|-----|---------------|
+| **Search** | Volltextsuche + Vektor-Ähnlichkeitssuche über alle Erinnerungen |
+| **Browse** | Paginierte Liste aller Entitäten mit Archivierung/Wiederherstellung |
+| **Analytics** | Memory Health Score (0-100), 30-Tage-Timeline, Wert-Metriken, Wissensabdeckung, Aufräum-Vorschläge, deine Arbeitsmuster |
+| **Graph** | Interaktiver kräftebasierter Wissensgraph mit Typfiltern, Suche, Ego-Modus, Aktualitäts-Heatmap |
+| **Lessons** | Strukturierte Lektionen aus vergangenen Fehlern (Fehler, Ursache, Fix, Prävention) |
+| **Manage** | Entitäten archivieren und wiederherstellen |
+| **Settings** | LLM-Anbieter-Konfiguration, Sprachauswahl |
 
 ---
 
@@ -183,7 +202,7 @@ memesh  # öffnet Dashboard → Einstellungs-Tab
 
 ---
 
-## Alle 6 Gedächtnis-Tools
+## Alle 8 Gedächtnis-Tools
 
 | Tool | Funktion |
 |------|-------------|
@@ -193,6 +212,8 @@ memesh  # öffnet Dashboard → Einstellungs-Tab
 | `consolidate` | LLM-gestützte Komprimierung ausführlicher Erinnerungen |
 | `export` | Teilt Erinnerungen als JSON zwischen Projekten oder Teammitgliedern |
 | `import` | Importiert Erinnerungen mit Zusammenführungsstrategien (überspringen / überschreiben / anhängen) |
+| `learn` | Strukturierte Lektionen aus Fehlern aufzeichnen (Fehler, Ursache, Fix, Prävention) |
+| `user_patterns` | Analysiere deine Arbeitsmuster — Zeitplan, Tools, Stärken, Lernbereiche |
 
 ---
 
@@ -201,7 +222,7 @@ memesh  # öffnet Dashboard → Einstellungs-Tab
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (6 operations) │
+                    │  (8 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │
@@ -222,7 +243,7 @@ Der Kern ist framework-unabhängig. Dieselbe Logik läuft vom Terminal, HTTP ode
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test -- --run    # 289 tests
+npm test -- --run    # 413 tests
 ```
 
 Dashboard: `cd dashboard && npm install && npm run dev`

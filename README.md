@@ -11,7 +11,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
-    <a href="https://pypi.org/project/memesh/"><img src="https://img.shields.io/badge/pip-memesh-3b82f6?style=flat-square" alt="PyPI" /></a>
   </p>
 </p>
 
@@ -59,7 +58,11 @@ memesh
 </p>
 
 <p align="center">
-  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — understand your AI's knowledge" width="100%" />
+  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — health score, timeline, patterns, knowledge coverage" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — interactive knowledge graph with type filters and ego mode" width="100%" />
 </p>
 
 ---
@@ -90,13 +93,12 @@ MCP protocol (auto-configured)
 </td>
 <td width="33%" align="center">
 
-**Python / LangChain**
-```python
-from memesh import MeMesh
-m = MeMesh()
-m.recall("auth")
+**Any HTTP Client**
+```bash
+curl localhost:3737/v1/recall \
+  -d '{"query":"auth"}'
 ```
-`pip install memesh`
+`memesh serve` (REST API)
 
 </td>
 <td width="33%" align="center">
@@ -122,7 +124,7 @@ Paste tools into any API call
 | **Setup** | `npm i -g` — done | Neo4j + VectorDB + API keys | Neo4j + config |
 | **Storage** | Single SQLite file | Neo4j + Qdrant | Neo4j |
 | **Works offline** | Yes, always | No | No |
-| **Dashboard** | Built-in (5 tabs) | None | None |
+| **Dashboard** | Built-in (7 tabs + analytics) | None | None |
 | **Dependencies** | 6 | 20+ | 10+ |
 | **Price** | Free forever | Free tier / Paid | Free tier / Paid |
 
@@ -136,12 +138,28 @@ You don't need to manually remember everything. MeMesh has **4 hooks** that capt
 
 | When | What MeMesh does |
 |------|------------------|
-| **Every session start** | Loads your most relevant memories (ranked by scoring algorithm) |
+| **Every session start** | Loads your most relevant memories + proactive warnings from past lessons |
 | **After every `git commit`** | Records what you changed, with diff stats |
-| **When Claude stops** | Captures files edited, errors fixed, and decisions made |
+| **When Claude stops** | Captures files edited, errors fixed, and auto-generates structured lessons from failures |
 | **Before context compaction** | Saves knowledge before it's lost to context limits |
 
 > **Opt out anytime:** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## Dashboard
+
+7 tabs, 11 languages, zero external dependencies. Access at `http://localhost:3737/dashboard` when the server is running.
+
+| Tab | What you see |
+|-----|-------------|
+| **Search** | Full-text + vector similarity search across all memories |
+| **Browse** | Paginated list of all entities with archive/restore |
+| **Analytics** | Memory Health Score (0-100), 30-day timeline, value metrics, knowledge coverage, cleanup suggestions, your work patterns |
+| **Graph** | Interactive force-directed knowledge graph with type filters, search, ego mode, recency heatmap |
+| **Lessons** | Structured lessons from past failures (error, root cause, fix, prevention) |
+| **Manage** | Archive and restore entities |
+| **Settings** | LLM provider config, language selector |
 
 ---
 
@@ -156,6 +174,19 @@ You don't need to manually remember everything. MeMesh has **4 hooks** that capt
 **⚠️ Conflict Detection** — If you have two memories that contradict each other, MeMesh warns you.
 
 **📦 Team Sharing** — `memesh export > team-knowledge.json` → share with your team → `memesh import team-knowledge.json`
+
+---
+
+## Real-World Usage
+
+> "MeMesh remembered that we chose PKCE over implicit flow three weeks ago. When I asked Claude about auth again, it already knew — no re-explaining needed."
+> — **Solo developer, building a SaaS**
+
+> "We export our team's memory every Friday and import it Monday. Everyone's Claude starts the week knowing what the team learned last week."
+> — **3-person startup, shared knowledge base**
+
+> "The dashboard showed me that 90% of my memories were auto-generated session logs. I started using `remember` deliberately for architecture decisions. Game changer."
+> — **Developer who discovered the Analytics tab**
 
 ---
 
@@ -183,7 +214,7 @@ memesh  # opens dashboard → Settings tab
 
 ---
 
-## All 6 Memory Tools
+## All 8 Memory Tools
 
 | Tool | What it does |
 |------|-------------|
@@ -193,6 +224,8 @@ memesh  # opens dashboard → Settings tab
 | `consolidate` | LLM-powered compression of verbose memories |
 | `export` | Share memories as JSON between projects or team members |
 | `import` | Import memories with merge strategies (skip / overwrite / append) |
+| `learn` | Record structured lessons from mistakes (error, root cause, fix, prevention) |
+| `user_patterns` | Analyze your work patterns — schedule, tools, strengths, learning areas |
 
 ---
 
@@ -201,7 +234,7 @@ memesh  # opens dashboard → Settings tab
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (6 operations) │
+                    │  (8 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │
@@ -222,7 +255,7 @@ Core is framework-agnostic. Same logic runs from terminal, HTTP, or MCP.
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test -- --run    # 289 tests
+npm test -- --run    # 413 tests
 ```
 
 Dashboard: `cd dashboard && npm install && npm run dev`

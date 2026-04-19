@@ -3,17 +3,29 @@
 import { createRequire } from 'module';
 import { homedir } from 'os';
 import { join, basename } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
+import { dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
 
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { input += chunk; });
-process.stdin.on('end', () => {
+process.stdin.on('end', async () => {
   try {
     const data = JSON.parse(input);
     const projectName = basename(data.cwd || process.cwd());
+
+    // Clear pre-edit recall throttle from previous session
+    try {
+      const throttlePath = join(homedir(), '.memesh', 'session-recalled-files.json');
+      if (existsSync(throttlePath)) {
+        unlinkSync(throttlePath);
+      }
+    } catch {
+      // Non-critical
+    }
 
     // Find database
     const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
@@ -165,6 +177,27 @@ process.stdin.on('end', () => {
         // Lesson query failed — don't break session start
       }
 
+      // --- Record injected entity IDs for recall effectiveness tracking ---
+      try {
+        const allInjected = [...projectEntities, ...recentEntities];
+        if (allInjected.length > 0) {
+          const memeshDir = join(homedir(), '.memesh');
+          if (!existsSync(memeshDir)) mkdirSync(memeshDir, { recursive: true });
+          writeFileSync(
+            join(memeshDir, 'last-session-injected.json'),
+            JSON.stringify({
+              injectedAt: new Date().toISOString(),
+              project: projectName,
+              entityIds: allInjected.map(e => e.id),
+              entityNames: allInjected.map(e => e.name),
+            }),
+            'utf8'
+          );
+        }
+      } catch {
+        // Non-critical — don't break session start
+      }
+
       const hookOutput = {
         suppressOutput: true,
         hookSpecificOutput: {
@@ -175,6 +208,23 @@ process.stdin.on('end', () => {
       console.log(JSON.stringify(hookOutput));
     } finally {
       db.close();
+    }
+    // ── Noise compression (after readonly DB is closed) ──────────────
+    // Opens a separate read-write connection via the core module.
+    // Throttled to once per 24h inside compressWeeklyNoise().
+    try {
+      const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT
+        || dirname(dirname(fileURLToPath(import.meta.url)));
+      const dbMod = await import(join(pluginRoot, 'dist/db.js'));
+      const lifecycleMod = await import(join(pluginRoot, 'dist/core/lifecycle.js'));
+      dbMod.openDatabase();
+      try {
+        lifecycleMod.compressWeeklyNoise(dbMod.getDatabase());
+      } finally {
+        dbMod.closeDatabase();
+      }
+    } catch {
+      // Non-critical — noise compression failed, will retry next session
     }
   } catch (err) {
     // Hooks must never crash Claude Code — but report honestly

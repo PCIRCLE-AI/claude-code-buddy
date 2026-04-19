@@ -83,6 +83,14 @@ export interface AnalyticsData {
     lessonCount: number;
     typeDistribution: Array<{ type: string; count: number }>;
   };
+  recallEffectiveness: {
+    overallHitRate: number;
+    totalHits: number;
+    totalMisses: number;
+    trackedEntities: number;
+    topEffective: Array<{ name: string; type: string; hits: number; misses: number; hitRate: number }>;
+    mostIgnored: Array<{ name: string; type: string; hits: number; misses: number; hitRate: number }>;
+  } | null;
   cleanup: {
     staleEntities: Array<{
       id: number; name: string; type: string; confidence: number; days_unused: number;

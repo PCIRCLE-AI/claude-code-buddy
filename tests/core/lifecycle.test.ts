@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { openDatabase, closeDatabase, getDatabase } from '../../src/db.js';
-import { runAutoDecay, getDecayStatus } from '../../src/core/lifecycle.js';
+import { runAutoDecay, getDecayStatus, compressWeeklyNoise, PRESERVED_TYPES, NOISE_TYPES } from '../../src/core/lifecycle.js';
 
 let tmpDir: string;
 
@@ -157,5 +157,89 @@ describe('Decay Status', () => {
 
     const status = getDecayStatus(db);
     expect(status.entitiesBelowThreshold).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('Noise Filter (compressWeeklyNoise)', () => {
+  function insertOldNoiseEntities(db: ReturnType<typeof getDatabase>, count: number, type: string, weeksAgo: number) {
+    const date = new Date(Date.now() - weeksAgo * 7 * 24 * 60 * 60 * 1000);
+    for (let i = 0; i < count; i++) {
+      db.prepare('INSERT INTO entities (name, type, created_at) VALUES (?, ?, ?)').run(
+        `${type}-${weeksAgo}w-${i}`, type, date.toISOString()
+      );
+      const row = db.prepare('SELECT id FROM entities WHERE name = ?').get(`${type}-${weeksAgo}w-${i}`) as any;
+      db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(row.id, 'project:test');
+    }
+  }
+
+  it('should compress noise entities older than 7 days when count exceeds threshold', () => {
+    const db = getDatabase();
+    db.exec("DELETE FROM memesh_metadata WHERE key = 'last_noise_compress_at'");
+    insertOldNoiseEntities(db, 25, 'session_keypoint', 2);
+
+    const result = compressWeeklyNoise(db);
+    expect(result.compressed).toBe(25);
+    expect(result.weeksProcessed).toBe(1);
+
+    // Originals should be archived
+    const active = (db.prepare(
+      "SELECT COUNT(*) as c FROM entities WHERE type = 'session_keypoint' AND status = 'active'"
+    ).get() as any).c;
+    expect(active).toBe(0);
+
+    // Summary entity should exist
+    const summaries = db.prepare("SELECT name FROM entities WHERE type = 'weekly-summary'").all() as any[];
+    expect(summaries.length).toBe(1);
+  });
+
+  it('should NOT compress noise entities below threshold', () => {
+    const db = getDatabase();
+    db.exec("DELETE FROM memesh_metadata WHERE key = 'last_noise_compress_at'");
+    insertOldNoiseEntities(db, 10, 'commit', 2); // below threshold of 20
+
+    const result = compressWeeklyNoise(db);
+    expect(result.compressed).toBe(0);
+    expect(result.weeksProcessed).toBe(0);
+  });
+
+  it('should NEVER compress preserved types (decisions, lessons, etc.)', () => {
+    const db = getDatabase();
+    db.exec("DELETE FROM memesh_metadata WHERE key = 'last_noise_compress_at'");
+    // Create old decision entities
+    const date = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    for (let i = 0; i < 25; i++) {
+      db.prepare('INSERT INTO entities (name, type, created_at) VALUES (?, ?, ?)').run(
+        `decision-old-${i}`, 'decision', date
+      );
+    }
+
+    const result = compressWeeklyNoise(db);
+    expect(result.compressed).toBe(0);
+
+    // All decisions should remain active
+    const active = (db.prepare(
+      "SELECT COUNT(*) as c FROM entities WHERE type = 'decision' AND status = 'active'"
+    ).get() as any).c;
+    expect(active).toBe(25);
+  });
+
+  it('should be throttled to once per 24 hours', () => {
+    const db = getDatabase();
+    db.exec("DELETE FROM memesh_metadata WHERE key = 'last_noise_compress_at'");
+    insertOldNoiseEntities(db, 25, 'session_keypoint', 2);
+
+    const result1 = compressWeeklyNoise(db);
+    expect(result1.compressed).toBe(25);
+
+    // Second call should be throttled
+    insertOldNoiseEntities(db, 25, 'commit', 3);
+    const result2 = compressWeeklyNoise(db);
+    expect(result2.compressed).toBe(0); // throttled
+  });
+
+  it('should ensure PRESERVED_TYPES and NOISE_TYPES do not overlap', () => {
+    for (const noiseType of NOISE_TYPES) {
+      expect(PRESERVED_TYPES.has(noiseType)).toBe(false);
+    }
   });
 });

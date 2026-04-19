@@ -3,6 +3,7 @@ import { api, type StatsData, type AnalyticsData, type PatternsData } from '../l
 import { HealthScore } from './HealthScore';
 import { MemoryTimeline } from './MemoryTimeline';
 import { ValueMetrics } from './ValueMetrics';
+import { RecallEffectiveness } from './RecallEffectiveness';
 import { CleanupSuggestions } from './CleanupSuggestions';
 import { UserPatterns } from './UserPatterns';
 import { t } from '../lib/i18n';
@@ -65,7 +66,14 @@ export function AnalyticsTab() {
         </div>
       )}
 
-      {/* Row 5: Cleanup Suggestions */}
+      {/* Row 5: Recall Effectiveness */}
+      {analytics?.recallEffectiveness && (
+        <div style={{ marginTop: 8 }}>
+          <RecallEffectiveness {...analytics.recallEffectiveness} />
+        </div>
+      )}
+
+      {/* Row 6: Cleanup Suggestions */}
       {analytics && (
         <div style={{ marginTop: 8 }}>
           <CleanupSuggestions

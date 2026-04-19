@@ -11,7 +11,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
-    <a href="https://pypi.org/project/memesh/"><img src="https://img.shields.io/badge/pip-memesh-3b82f6?style=flat-square" alt="PyPI" /></a>
   </p>
 </p>
 
@@ -60,6 +59,10 @@ memesh
 
 <p align="center">
   <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — 深入了解 AI 的知识" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — 交互式知识图谱，支持类型筛选与自我模式" width="100%" />
 </p>
 
 ---
@@ -122,7 +125,7 @@ memesh export-schema \
 | **配置方式** | `npm i -g` — 完成 | Neo4j + VectorDB + API 密钥 | Neo4j + 配置 |
 | **存储方式** | 单一 SQLite 文件 | Neo4j + Qdrant | Neo4j |
 | **离线使用** | 支持，始终如此 | 不支持 | 不支持 |
-| **仪表板** | 内置（5 个标签页） | 无 | 无 |
+| **仪表板** | 内置（7 个标签页 + 分析） | 无 | 无 |
 | **依赖包** | 6 | 20+ | 10+ |
 | **价格** | 永久免费 | 免费方案／付费 | 免费方案／付费 |
 
@@ -136,12 +139,28 @@ memesh export-schema \
 
 | 时机 | MeMesh 做了什么 |
 |------|------------------|
-| **每次会话开始** | 依评分算法加载最相关的记忆 |
+| **每次会话开始** | 加载最相关的记忆 + 来自过去教训的主动警告 |
 | **每次 `git commit` 后** | 记录你的变更内容与差异统计 |
-| **Claude 结束时** | 捕获已编辑的文件、已修复的错误及做出的决策 |
+| **Claude 结束时** | 捕获已编辑的文件、已修复的错误，并自动从失败中生成结构化教训 |
 | **上下文压缩前** | 在知识因上下文限制消失前保存起来 |
 
 > **随时退出：** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## 仪表板
+
+7 个标签页、11 种语言、零外部依赖。服务器运行后在 `http://localhost:3737/dashboard` 访问。
+
+| 标签页 | 内容 |
+|--------|------|
+| **Search** | 跨所有记忆的全文搜索 + 向量相似度搜索 |
+| **Browse** | 所有实体的分页列表，支持归档/恢复 |
+| **Analytics** | 记忆健康分数（0-100）、30 天时间轴、价值指标、知识覆盖率、清理建议、你的工作模式 |
+| **Graph** | 交互式力导向知识图谱，支持类型筛选、搜索、自我模式、时间热力图 |
+| **Lessons** | 从过去失败中生成的结构化教训（错误、根因、修复方法、预防措施） |
+| **Manage** | 归档与恢复实体 |
+| **Settings** | LLM 提供者配置、语言选择 |
 
 ---
 
@@ -183,7 +202,7 @@ memesh  # 打开仪表板 → 设置标签页
 
 ---
 
-## 全部 6 个记忆工具
+## 全部 8 个记忆工具
 
 | 工具 | 功能说明 |
 |------|-------------|
@@ -193,6 +212,8 @@ memesh  # 打开仪表板 → 设置标签页
 | `consolidate` | LLM 驱动的冗长记忆压缩 |
 | `export` | 将记忆以 JSON 格式分享给其他项目或团队成员 |
 | `import` | 导入记忆，支持合并策略（跳过 / 覆盖 / 追加） |
+| `learn` | 记录来自错误的结构化教训（错误、根因、修复方法、预防措施） |
+| `user_patterns` | 分析你的工作模式 — 时间安排、工具、优势、学习方向 |
 
 ---
 
@@ -201,7 +222,7 @@ memesh  # 打开仪表板 → 设置标签页
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (6 operations) │
+                    │  (8 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │
@@ -222,7 +243,7 @@ memesh  # 打开仪表板 → 设置标签页
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test -- --run    # 289 tests
+npm test -- --run    # 413 tests
 ```
 
 仪表板：`cd dashboard && npm install && npm run dev`

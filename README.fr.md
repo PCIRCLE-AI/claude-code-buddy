@@ -11,7 +11,6 @@
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
     <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-22c55e?style=flat-square" alt="Node" /></a>
     <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
-    <a href="https://pypi.org/project/memesh/"><img src="https://img.shields.io/badge/pip-memesh-3b82f6?style=flat-square" alt="PyPI" /></a>
   </p>
 </p>
 
@@ -60,6 +59,10 @@ memesh
 
 <p align="center">
   <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — visualisez les connaissances de votre IA" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — graphe de connaissances interactif avec filtres de type et mode ego" width="100%" />
 </p>
 
 ---
@@ -122,7 +125,7 @@ Collez les outils dans n'importe quel appel API
 | **Configuration** | `npm i -g` — terminé | Neo4j + VectorDB + clés API | Neo4j + config |
 | **Stockage** | Fichier SQLite unique | Neo4j + Qdrant | Neo4j |
 | **Fonctionne hors ligne** | Oui, toujours | Non | Non |
-| **Tableau de bord** | Intégré (5 onglets) | Aucun | Aucun |
+| **Tableau de bord** | Intégré (7 onglets + analytiques) | Aucun | Aucun |
 | **Dépendances** | 6 | 20+ | 10+ |
 | **Prix** | Gratuit à vie | Offre gratuite / Payant | Offre gratuite / Payant |
 
@@ -136,12 +139,28 @@ Inutile de tout mémoriser manuellement. MeMesh dispose de **4 hooks** qui captu
 
 | Quand | Ce que fait MeMesh |
 |------|------------------|
-| **Au démarrage de chaque session** | Charge vos souvenirs les plus pertinents (classés par algorithme de scoring) |
+| **Au démarrage de chaque session** | Charge vos souvenirs les plus pertinents + avertissements proactifs des leçons passées |
 | **Après chaque `git commit`** | Enregistre ce que vous avez modifié, avec les statistiques de diff |
-| **Quand Claude s'arrête** | Capture les fichiers édités, les erreurs corrigées et les décisions prises |
+| **Quand Claude s'arrête** | Capture les fichiers édités, les erreurs corrigées et génère automatiquement des leçons structurées à partir des échecs |
 | **Avant la compaction du contexte** | Sauvegarde les connaissances avant qu'elles se perdent dans les limites du contexte |
 
 > **Désactivez à tout moment :** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## Tableau de Bord
+
+7 onglets, 11 langues, zéro dépendance externe. Accessible à `http://localhost:3737/dashboard` lorsque le serveur tourne.
+
+| Onglet | Ce que vous voyez |
+|--------|-------------------|
+| **Search** | Recherche plein texte + similarité vectorielle sur tous les souvenirs |
+| **Browse** | Liste paginée de toutes les entités avec archivage/restauration |
+| **Analytics** | Score de Santé Mémoire (0-100), timeline 30 jours, métriques de valeur, couverture des connaissances, suggestions de nettoyage, vos habitudes de travail |
+| **Graph** | Graphe de connaissances interactif dirigé par forces avec filtres de type, recherche, mode ego, carte thermique de récence |
+| **Lessons** | Leçons structurées tirées des échecs passés (erreur, cause racine, correction, prévention) |
+| **Manage** | Archiver et restaurer des entités |
+| **Settings** | Configuration du fournisseur LLM, sélecteur de langue |
 
 ---
 
@@ -183,7 +202,7 @@ memesh  # ouvre le tableau de bord → onglet Paramètres
 
 ---
 
-## Les 6 Outils Mémoire
+## Les 8 Outils Mémoire
 
 | Outil | Ce qu'il fait |
 |------|-------------|
@@ -193,6 +212,8 @@ memesh  # ouvre le tableau de bord → onglet Paramètres
 | `consolidate` | Compression de souvenirs verbeux assistée par LLM |
 | `export` | Partage les souvenirs en JSON entre projets ou membres d'équipe |
 | `import` | Importe des souvenirs avec des stratégies de fusion (ignorer / écraser / ajouter) |
+| `learn` | Enregistre des leçons structurées à partir des erreurs (erreur, cause racine, correction, prévention) |
+| `user_patterns` | Analyse vos habitudes de travail — planning, outils, points forts, axes d'apprentissage |
 
 ---
 
@@ -201,7 +222,7 @@ memesh  # ouvre le tableau de bord → onglet Paramètres
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (6 operations) │
+                    │  (8 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │
@@ -222,7 +243,7 @@ Le cœur est indépendant du framework. La même logique s'exécute depuis le te
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test -- --run    # 289 tests
+npm test -- --run    # 413 tests
 ```
 
 Tableau de bord : `cd dashboard && npm install && npm run dev`

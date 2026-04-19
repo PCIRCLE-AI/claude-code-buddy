@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { recencyScore, frequencyScore, temporalValidityScore, rankEntities } from '../../src/core/scoring.js';
+import { recencyScore, frequencyScore, temporalValidityScore, impactScore, rankEntities } from '../../src/core/scoring.js';
 
 describe('Scoring Engine', () => {
   describe('recencyScore', () => {
@@ -48,6 +48,24 @@ describe('Scoring Engine', () => {
     });
   });
 
+  describe('impactScore', () => {
+    it('returns 0.5 for new entity (0 hits, 0 misses) — Laplace smoothing', () => {
+      expect(impactScore(0, 0)).toBeCloseTo(0.5, 2);
+    });
+
+    it('returns high score for entity with many hits', () => {
+      expect(impactScore(10, 0)).toBeCloseTo(11 / 12, 2); // ~0.917
+    });
+
+    it('returns low score for entity with many misses', () => {
+      expect(impactScore(0, 10)).toBeCloseTo(1 / 12, 2); // ~0.083
+    });
+
+    it('returns ~0.5 for balanced hits and misses', () => {
+      expect(impactScore(5, 5)).toBeCloseTo(0.5, 2);
+    });
+  });
+
   describe('rankEntities', () => {
     it('ranks frequently accessed higher', () => {
       const entities = [
@@ -57,6 +75,16 @@ describe('Scoring Engine', () => {
       const relevance = new Map([['rare', 0.5], ['popular', 0.5]]);
       const ranked = rankEntities(entities, relevance);
       expect(ranked[0].name).toBe('popular');
+    });
+
+    it('ranks high-impact entities higher when other factors are equal', () => {
+      const entities = [
+        { name: 'ignored', access_count: 5, confidence: 1.0, recall_hits: 0, recall_misses: 10 },
+        { name: 'effective', access_count: 5, confidence: 1.0, recall_hits: 10, recall_misses: 0 },
+      ];
+      const relevance = new Map([['ignored', 0.5], ['effective', 0.5]]);
+      const ranked = rankEntities(entities, relevance);
+      expect(ranked[0].name).toBe('effective');
     });
 
     it('ranks recent higher when access is equal', () => {
