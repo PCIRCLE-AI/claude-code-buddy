@@ -6,78 +6,92 @@ user-invocable: true
 
 # MeMesh Memory Review
 
-Review the memory database with data-driven insights and actionable cleanup recommendations.
+Review the memory database and provide actionable cleanup recommendations.
+
+## How to Access
+
+Use CLI (works everywhere) or MCP tools (if available). See the `memesh` skill for auto-detect instructions.
 
 ## Process
 
-### Step 1: Get the big picture
+### Step 1: Gather data
 
-Use `user_patterns` to understand the memory database at a high level:
+```bash
+# Get system health
+memesh status
+
+# Get all recent memories (structured output for analysis)
+memesh recall --limit 50 --json
+
+# Get memories by type for quality analysis
+memesh recall --tag "type:decision" --json
+memesh recall --tag "type:lesson_learned" --json
+memesh recall --tag "type:session_keypoint" --json
+```
+
+If MCP `user_patterns` tool is available, also run it for work pattern analysis:
 ```json
 user_patterns: {}
 ```
 
-This returns: health score, work schedule, tool preferences, focus areas, strengths, and learning areas.
+### Step 2: Analyze and report
 
-### Step 2: Recall recent memories for detail
-
-```json
-recall: {"limit": 50}
-```
-
-### Step 3: Analyze and report
-
-Present findings in this format:
+From the recalled data, compute and present:
 
 ```markdown
 ## Memory Health Report
 
+### Overview
+- Total entities: N
+- Last 30 days active: N (N%)
+- Knowledge types: N decisions, N patterns, N lessons, N auto-tracked
+
 ### Health Score: N/100
-- Activity: N% (memories accessed in last 30 days)
-- Quality: N% (memories with high confidence)
-- Freshness: N% (new memories this week)
-- Self-Improvement: N% (lessons learned)
+- Activity: N% (accessed in last 30 days)
+- Quality: N% (high confidence, well-tagged)
+- Freshness: N% (new this week)
+- Self-Improvement: N% (lessons learned ratio)
 
-### Your Work Patterns
-- Peak hours: HH:MM, HH:MM
-- Top tools: Tool1, Tool2, Tool3
-- Focus areas: type1, type2
-- Strengths: area1 (N%), area2 (N%)
-- Learning areas: topic1, topic2
+### Quality Issues Found
 
-### Memory Quality Issues
-
-**Stale (not accessed in 30+ days, low confidence)**
+**Stale (not accessed 30+ days, low confidence)**
 - "entity-name" — confidence: N% — Suggest: archive?
 
-**Could be consolidated (5+ observations)**
-- "entity-name" (N observations) — Suggest: run consolidate
+**Verbose (5+ observations, needs consolidation)**
+- "entity-name" (N observations) — Suggest: `memesh consolidate --name "entity-name"`
 
 **Potential conflicts**
 - "entity-A" vs "entity-B" — contradicting decisions
 
-**Auto-generated noise**
-- N% of memories are auto-tracked (session_keypoint, commit)
-- N memories are intentional knowledge (decisions, patterns, lessons)
-- Recommendation: use `remember` more for architecture decisions
+**Noise ratio**
+- N% auto-tracked (session_keypoint, commit) vs N% intentional knowledge
+- If noise > 80%: recommend more deliberate `memesh remember` usage
 
 ### Recommended Actions
-1. Archive "old-design" (superseded by "new-design")
-2. Consolidate "auth-history" (12 observations → ~3)
-3. Review conflict between "X" and "Y"
-4. Consider recording more [type] memories (knowledge gap)
-
-### Dashboard
-View your full analytics at: http://localhost:3737/dashboard → Analytics tab
+1. `memesh forget --name "old-design"` (superseded)
+2. `memesh consolidate --name "auth-history"` (12 obs → ~3)
+3. `memesh remember ...` (knowledge gap in [area])
 ```
 
-### Step 4: Execute approved actions
+### Step 3: Execute approved actions
 
-After presenting the report, ask the user which actions to execute. Then use `forget`, `consolidate`, `remember`, or `learn` accordingly.
+Present the report first. Ask which actions to execute. Then run the commands:
+
+```bash
+memesh forget --name "outdated-entity"
+memesh consolidate --name "verbose-entity"
+memesh remember --name "missing-knowledge" --type decision --obs "..."
+```
+
+### Step 4: Verify
+
+```bash
+memesh recall --limit 5 --json    # confirm changes took effect
+```
 
 ## Tips
 
-- Run this review every 1-2 weeks to keep the memory database healthy
-- A health score below 50 means too many stale or low-quality memories
-- If 90%+ of memories are auto-generated, encourage the user to `remember` decisions deliberately
-- Use `learn` to convert ad-hoc bug fixes into structured lessons
+- Run every 1-2 weeks to keep memory healthy
+- Health score < 50 → too many stale or low-quality memories
+- Noise > 80% → encourage deliberate `memesh remember` for decisions
+- Dashboard available at: http://localhost:3737/dashboard (run `memesh serve` first)
