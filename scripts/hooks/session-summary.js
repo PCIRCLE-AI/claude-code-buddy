@@ -243,9 +243,41 @@ process.stdin.on('end', async () => {
       // Read which entities were injected at session start, check if
       // their names appear in the transcript, update hits/misses.
       try {
-        const injectedPath = join(homedir(), '.memesh', 'last-session-injected.json');
-        if (existsSync(injectedPath)) {
-          const injectedData = JSON.parse(readFileSync(injectedPath, 'utf8'));
+        // FIX: Find the most recent session file for this project (within last hour)
+        const sessionsDir = join(homedir(), '.memesh', 'sessions');
+        let injectedData = null;
+
+        if (existsSync(sessionsDir)) {
+          const files = require('fs').readdirSync(sessionsDir);
+          const recentFiles = files
+            .filter(f => f.endsWith('.json'))
+            .map(f => {
+              const path = join(sessionsDir, f);
+              try {
+                const stats = require('fs').statSync(path);
+                return { path, mtime: stats.mtimeMs };
+              } catch {
+                return null;
+              }
+            })
+            .filter(f => f && Date.now() - f.mtime < 60 * 60 * 1000) // within 1 hour
+            .sort((a, b) => b.mtime - a.mtime); // newest first
+
+          // Try to find matching project, otherwise use most recent
+          for (const { path } of recentFiles) {
+            try {
+              const data = JSON.parse(readFileSync(path, 'utf8'));
+              if (data.project === projectName || recentFiles.length === 1) {
+                injectedData = data;
+                // Delete after reading to prevent reuse
+                require('fs').unlinkSync(path);
+                break;
+              }
+            } catch {}
+          }
+        }
+
+        if (injectedData) {
           const { entityIds, entityNames } = injectedData;
 
           if (entityIds && entityIds.length > 0) {
@@ -253,7 +285,14 @@ process.stdin.on('end', async () => {
             const colCheck = db.prepare("PRAGMA table_info(entities)").all();
             if (colCheck.some(c => c.name === 'recall_hits')) {
               // Build a lowercase transcript text for matching
-              const transcriptText = readFileSync(transcriptPath, 'utf8').toLowerCase();
+              let transcriptText = readFileSync(transcriptPath, 'utf8').toLowerCase();
+
+              // FIX: Exclude injected context from hit detection to avoid pollution
+              // Remove the memorySummary that was injected at session start
+              const injectedContext = (injectedData.injectedContext || '').toLowerCase();
+              if (injectedContext) {
+                transcriptText = transcriptText.replace(injectedContext, '');
+              }
 
               const updateHit = db.prepare(
                 'UPDATE entities SET recall_hits = COALESCE(recall_hits, 0) + 1 WHERE id = ?'
@@ -274,9 +313,6 @@ process.stdin.on('end', async () => {
               }
             }
           }
-
-          // Clean up temp file
-          try { unlinkSync(injectedPath); } catch {}
         }
       } catch {
         // Non-critical — don't break session summary
