@@ -1,6 +1,6 @@
 {
   "name": "@pcircle/memesh",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "description": "MeMesh — The lightest universal AI memory layer. One SQLite file, any LLM, zero cloud.",
   "main": "dist/index.js",
   "type": "module",

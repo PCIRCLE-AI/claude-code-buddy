@@ -75,7 +75,8 @@ app.get('/dashboard', (_req, res) => {
   // Serve Preact SPA build (preferred)
   const dashboardPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../dashboard/dist/index.html');
   if (fs.existsSync(dashboardPath)) {
-    res.type('html').sendFile(dashboardPath);
+    // CRITICAL: dotfiles: 'allow' is required for paths containing hidden directories like .nvm
+    res.type('html').sendFile(dashboardPath, { dotfiles: 'allow' });
   } else {
     // Fallback to legacy template
     import('../../cli/view.js')
