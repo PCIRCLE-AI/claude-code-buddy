@@ -116,6 +116,14 @@ memesh status                               # version, search level, embeddings
 memesh config list                          # current configuration
 ```
 
+### Regenerate embeddings after provider change
+```bash
+memesh reindex                              # rebuild all embeddings
+memesh reindex --namespace personal         # reindex only one namespace
+memesh reindex --json                       # structured progress output
+```
+Use this when you change embedding provider (e.g., Ollama → OpenAI) or dimension. The database auto-drops old embeddings on provider change, but you need to run `reindex` to regenerate them for existing memories.
+
 ## MCP-Only Features
 
 These require MCP tools or the HTTP API (`memesh serve` + REST calls):
