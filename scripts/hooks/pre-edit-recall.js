@@ -6,7 +6,7 @@
 
 import { createRequire } from 'module';
 import { homedir } from 'os';
-import { join, basename, dirname } from 'path';
+import { join, basename } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 
 const require = createRequire(import.meta.url);
