@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import Database from 'better-sqlite3';
-import { openDatabase, closeDatabase, getDatabase } from '../../src/db.js';
+import { openDatabase, closeDatabase } from '../../src/db.js';
 import { remember } from '../../src/core/operations.js';
 
 let tmpDir: string;
