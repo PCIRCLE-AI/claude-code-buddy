@@ -179,7 +179,14 @@ process.stdin.on('end', async () => {
 
       // --- Record injected entity IDs for recall effectiveness tracking ---
       try {
-        const allInjected = [...projectEntities, ...recentEntities];
+        // CRITICAL: Deduplicate by entity ID (entity may appear in both project and recent lists)
+        const seenIds = new Set();
+        const allInjected = [...projectEntities, ...recentEntities].filter(e => {
+          if (seenIds.has(e.id)) return false;
+          seenIds.add(e.id);
+          return true;
+        });
+
         if (allInjected.length > 0) {
           const memeshDir = join(homedir(), '.memesh');
           const sessionsDir = join(memeshDir, 'sessions');
