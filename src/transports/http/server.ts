@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import express from 'express';
+import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { openDatabase, closeDatabase } from '../../db.js';
 import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
@@ -29,6 +30,19 @@ const packageVersion =
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+
+// --- Rate limiting (CodeQL security requirement) ---
+// Protects against DoS attacks and API abuse
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
+  legacyHeaders: false, // Disable `X-RateLimit-*` headers
+  message: 'Too many requests from this IP, please try again later.',
+});
+
+// Apply rate limiting to all API routes
+app.use('/api/', apiLimiter);
 
 // --- Security headers ---
 app.use((_req, res, next) => {

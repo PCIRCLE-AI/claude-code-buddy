@@ -52,6 +52,7 @@
     "better-sqlite3": "^12.9.0",
     "commander": "^14.0.3",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.3.2",
     "sqlite-vec": "^0.1.9",
     "zod": "^4.3.6"
   },

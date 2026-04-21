@@ -71,7 +71,6 @@ process.stdin.on('end', () => {
       // 3. FTS5 search on the basename (without extension)
       const fileName = basename(filePath);
       const fileNameNoExt = fileName.replace(/\.[^.]+$/, '');
-      const dirName = basename(dirname(filePath));
 
       const results = [];
 
