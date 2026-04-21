@@ -177,7 +177,10 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
             if (vectorHits.length > 0) {
               const kg2 = new KnowledgeGraph(db);
               const hitIds = vectorHits.map(h => h.id);
-              const hitEntities = kg2.getEntitiesByIds(hitIds);
+              const hitEntities = kg2.getEntitiesByIds(hitIds, {
+                includeArchived: args.include_archived,
+                namespace: args.namespace,
+              });
               for (let i = 0; i < hitEntities.length; i++) {
                 const entity = hitEntities[i];
                 if (!allResults.has(entity.name)) {
@@ -226,7 +229,10 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
         if (vectorHits.length > 0) {
           const kg2 = new KnowledgeGraph(db);
           const hitIds = vectorHits.map(h => h.id);
-          const hitEntities = kg2.getEntitiesByIds(hitIds);
+          const hitEntities = kg2.getEntitiesByIds(hitIds, {
+            includeArchived: args.include_archived,
+            namespace: args.namespace,
+          });
           for (let i = 0; i < hitEntities.length; i++) {
             const entity = hitEntities[i];
             if (!relevanceMap.has(entity.name)) {
