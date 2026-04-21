@@ -53,37 +53,6 @@ app.use((_req, res, next) => {
   next();
 });
 
-// --- Rate limiting (in-memory, no external deps) ---
-const rateLimitWindowMs = 60_000; // 1 minute
-const rateLimitMax = 120; // max requests per window per IP
-const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
-
-app.use((req, res, next) => {
-  const ip = req.ip || 'unknown';
-  const now = Date.now();
-  let entry = rateLimitStore.get(ip);
-  if (!entry || now > entry.resetAt) {
-    entry = { count: 0, resetAt: now + rateLimitWindowMs };
-    rateLimitStore.set(ip, entry);
-  }
-  entry.count++;
-  res.setHeader('X-RateLimit-Limit', String(rateLimitMax));
-  res.setHeader('X-RateLimit-Remaining', String(Math.max(0, rateLimitMax - entry.count)));
-  if (entry.count > rateLimitMax) {
-    res.status(429).json({ success: false, error: 'Too many requests. Try again in 1 minute.' });
-    return;
-  }
-  next();
-});
-
-// Clean up stale rate limit entries every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of rateLimitStore) {
-    if (now > entry.resetAt) rateLimitStore.delete(ip);
-  }
-}, 300_000).unref();
-
 // --- Dashboard ---
 app.get('/dashboard', (_req, res) => {
   // Serve Preact SPA build (preferred)
