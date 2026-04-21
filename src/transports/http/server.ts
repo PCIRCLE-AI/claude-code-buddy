@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import express from 'express';
+import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { openDatabase, closeDatabase } from '../../db.js';
 import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
@@ -30,6 +31,19 @@ const packageVersion =
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
+// --- Rate limiting (CodeQL security requirement) ---
+// Protects against DoS attacks and API abuse
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
+  legacyHeaders: false, // Disable `X-RateLimit-*` headers
+  message: 'Too many requests from this IP, please try again later.',
+});
+
+// Apply rate limiting to all API routes
+app.use('/api/', apiLimiter);
+
 // --- Security headers ---
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -39,43 +53,13 @@ app.use((_req, res, next) => {
   next();
 });
 
-// --- Rate limiting (in-memory, no external deps) ---
-const rateLimitWindowMs = 60_000; // 1 minute
-const rateLimitMax = 120; // max requests per window per IP
-const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
-
-app.use((req, res, next) => {
-  const ip = req.ip || 'unknown';
-  const now = Date.now();
-  let entry = rateLimitStore.get(ip);
-  if (!entry || now > entry.resetAt) {
-    entry = { count: 0, resetAt: now + rateLimitWindowMs };
-    rateLimitStore.set(ip, entry);
-  }
-  entry.count++;
-  res.setHeader('X-RateLimit-Limit', String(rateLimitMax));
-  res.setHeader('X-RateLimit-Remaining', String(Math.max(0, rateLimitMax - entry.count)));
-  if (entry.count > rateLimitMax) {
-    res.status(429).json({ success: false, error: 'Too many requests. Try again in 1 minute.' });
-    return;
-  }
-  next();
-});
-
-// Clean up stale rate limit entries every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of rateLimitStore) {
-    if (now > entry.resetAt) rateLimitStore.delete(ip);
-  }
-}, 300_000).unref();
-
 // --- Dashboard ---
 app.get('/dashboard', (_req, res) => {
   // Serve Preact SPA build (preferred)
   const dashboardPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../dashboard/dist/index.html');
   if (fs.existsSync(dashboardPath)) {
-    res.type('html').sendFile(dashboardPath);
+    // CRITICAL: dotfiles: 'allow' is required for paths containing hidden directories like .nvm
+    res.type('html').sendFile(dashboardPath, { dotfiles: 'allow' });
   } else {
     // Fallback to legacy template
     import('../../cli/view.js')

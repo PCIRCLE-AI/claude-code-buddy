@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
-import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
+import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn, reindex } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { readConfig, updateConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 
@@ -365,6 +365,37 @@ program
     } catch {
       console.error('❌ Update failed. Try manually: npm install -g @pcircle/memesh@latest');
       process.exit(1);
+    }
+  });
+
+// --- status ---
+// --- reindex ---
+program
+  .command('reindex')
+  .description('Regenerate vector embeddings for all entities')
+  .option('--namespace <namespace>', 'Reindex only entities in this namespace')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    openDatabase();
+    try {
+      const result = await reindex({ namespace: opts.namespace });
+
+      if (opts.json) {
+        console.log(JSON.stringify(result));
+      } else {
+        console.log(`✅ Reindex complete:`);
+        console.log(`   Processed: ${result.processed}`);
+        console.log(`   Embedded:  ${result.embedded}`);
+        console.log(`   Skipped:   ${result.skipped}`);
+      }
+    } catch (err) {
+      if (err instanceof Error) {
+        console.error(`❌ Reindex failed: ${err.message}`);
+        process.exit(1);
+      }
+      throw err;
+    } finally {
+      closeDatabase();
     }
   });
 

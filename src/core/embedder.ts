@@ -62,6 +62,7 @@ export async function embedText(text: string): Promise<Float32Array | null> {
 /**
  * Generate embedding and store in entities_vec.
  * Silently skips if embedding generation fails.
+ * Validates dimension matches before writing to prevent silent failures.
  */
 export async function embedAndStore(entityId: number, text: string): Promise<void> {
   const embedding = await embedText(text);
@@ -69,11 +70,35 @@ export async function embedAndStore(entityId: number, text: string): Promise<voi
 
   try {
     const db = getDatabase();
+
+    // CRITICAL: Validate embedding dimension matches DB schema
+    // Prevents silent write failures when provider fallback changes dimension
+    // (e.g., Ollama 768-dim → ONNX 384-dim fallback)
+    const storedDim = db.prepare(
+      "SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'"
+    ).get() as { value: string } | undefined;
+
+    const expectedDim = storedDim ? parseInt(storedDim.value, 10) : 0;
+    const actualDim = embedding.length;
+
+    if (expectedDim > 0 && actualDim !== expectedDim) {
+      process.stderr.write(
+        `MeMesh: Embedding dimension mismatch (got ${actualDim}, expected ${expectedDim}). ` +
+        `This usually means the configured provider failed and fallback was used. ` +
+        `Skipping vector write for entity ${entityId}. ` +
+        `Run 'memesh reindex' after fixing provider configuration.\n`
+      );
+      return;
+    }
+
     db.prepare(
       'INSERT OR REPLACE INTO entities_vec (rowid, embedding) VALUES (?, ?)'
     ).run(entityId, Buffer.from(embedding.buffer));
-  } catch {
-    // DB write failed — skip silently
+  } catch (err) {
+    // DB write failed — log and skip
+    if (err && typeof err === 'object' && 'message' in err) {
+      process.stderr.write(`MeMesh: Vector write failed for entity ${entityId}: ${err.message}\n`);
+    }
   }
 }
 

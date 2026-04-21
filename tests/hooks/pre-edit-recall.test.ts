@@ -88,6 +88,9 @@ describe('Feature: Pre-Edit Recall Hook', () => {
     const row = db.prepare('SELECT id FROM entities WHERE name = ?').get('auth-decision') as any;
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(row.id, 'Use OAuth 2.0');
     db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(row.id, 'file:auth');
+    // Add project tag (hook derives from cwd basename)
+    const projectName = path.basename(process.cwd());
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(row.id, `project:${projectName}`);
     db.close();
 
     const result = runHook({ tool_input: { file_path: '/src/auth.ts' } });
@@ -101,6 +104,9 @@ describe('Feature: Pre-Edit Recall Hook', () => {
     const row = db.prepare('SELECT id FROM entities WHERE name = ?').get('auth-decision') as any;
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(row.id, 'Use OAuth 2.0');
     db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(row.id, 'file:auth');
+    // Add project tag (hook derives from cwd basename)
+    const projectName = path.basename(process.cwd());
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(row.id, `project:${projectName}`);
     db.close();
 
     const result1 = runHook({ tool_input: { file_path: '/src/auth.ts' } });

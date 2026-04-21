@@ -156,18 +156,28 @@ export class KnowledgeGraph {
     };
   }
 
-  getEntitiesByIds(ids: number[]): Entity[] {
+  getEntitiesByIds(
+    ids: number[],
+    opts?: { includeArchived?: boolean; namespace?: string }
+  ): Entity[] {
     if (ids.length === 0) return [];
 
     const placeholders = ids.map(() => '?').join(',');
+    const params: any[] = [...ids];
+
+    // Build dynamic filters
+    // Default behavior: include all (archived + active) unless explicitly excluded
+    const statusFilter = opts?.includeArchived === false ? "AND status != 'archived'" : '';
+    const namespaceFilter = opts?.namespace ? 'AND namespace = ?' : '';
+    if (opts?.namespace) params.push(opts.namespace);
 
     // Batch query 1: entities
     const entityRows = this.db
       .prepare(
         `SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, valid_from, valid_until, namespace
-         FROM entities WHERE id IN (${placeholders})`
+         FROM entities WHERE id IN (${placeholders}) ${statusFilter} ${namespaceFilter}`
       )
-      .all(...ids) as EntityRow[];
+      .all(...params) as EntityRow[];
 
     // Index entity rows by id for fast lookup
     const entityMap = new Map<number, EntityRow>();
@@ -338,7 +348,10 @@ export class KnowledgeGraph {
 
     // Fetch full entities from FTS results (batch hydration)
     const ftsIds = ftsRows.map(r => r.id);
-    const results = this.getEntitiesByIds(ftsIds);
+    const results = this.getEntitiesByIds(ftsIds, {
+      includeArchived: opts?.includeArchived,
+      namespace: opts?.namespace,
+    });
     const seenIds = new Set(ftsIds);
 
     // When includeArchived is true, archived entities are not in FTS5 (removed by archiveEntity).
@@ -367,7 +380,10 @@ export class KnowledgeGraph {
         .all(...archivedParams, limit) as Array<{ id: number; name: string }>;
 
       const archivedIds = archivedRows.map(r => r.id).filter(id => !seenIds.has(id));
-      const archivedEntities = this.getEntitiesByIds(archivedIds);
+      const archivedEntities = this.getEntitiesByIds(archivedIds, {
+        includeArchived: true,
+        namespace: opts?.namespace,
+      });
       results.push(...archivedEntities);
     }
 
@@ -513,6 +529,15 @@ export class KnowledgeGraph {
         .run(row.id, name, obsText);
     } catch {
       // FTS entry may not exist if already archived — ignore
+    }
+
+    // CRITICAL: Remove from vector index (archived entities should not be retrievable via vector search)
+    try {
+      this.db
+        .prepare('DELETE FROM entities_vec WHERE rowid = ?')
+        .run(row.id);
+    } catch {
+      // Vector entry may not exist if embeddings not enabled — ignore
     }
 
     // Set status to archived

@@ -28,6 +28,9 @@ process.stdin.on('end', () => {
       return pass();
     }
 
+    // Get project name from cwd for project-scoped filtering
+    const projectName = basename(data.cwd || process.cwd());
+
     // Throttle: skip if we already recalled for this file
     const fileKey = filePath.toLowerCase();
     let seenFiles = [];
@@ -68,32 +71,38 @@ process.stdin.on('end', () => {
       // 3. FTS5 search on the basename (without extension)
       const fileName = basename(filePath);
       const fileNameNoExt = fileName.replace(/\.[^.]+$/, '');
-      const dirName = basename(dirname(filePath));
 
       const results = [];
 
       // Strategy 1: Tag-based search (file:name or mentions of the file)
+      // CRITICAL: Filter by project to prevent cross-project memory injection
+      const projectTag = `project:${projectName}`;
       const tagResults = db.prepare(`
         SELECT DISTINCT e.id, e.name, e.type
         FROM entities e
-        JOIN tags t ON t.entity_id = e.id
-        WHERE (t.tag = ? OR t.tag = ?)
+        JOIN tags t1 ON t1.entity_id = e.id
+        JOIN tags t2 ON t2.entity_id = e.id
+        WHERE (t1.tag = ? OR t1.tag = ?)
+          AND t2.tag = ?
         ${statusFilter}
         LIMIT ?
-      `).all(`file:${fileName}`, `file:${fileNameNoExt}`, MAX_RESULTS);
+      `).all(`file:${fileName}`, `file:${fileNameNoExt}`, projectTag, MAX_RESULTS);
       results.push(...tagResults);
 
       // Strategy 2: FTS5 search on file name (if not enough results)
+      // CRITICAL: Filter by project to prevent cross-project memory injection
       if (results.length < MAX_RESULTS && fileNameNoExt.length >= 4) {
         try {
           const ftsResults = db.prepare(`
             SELECT DISTINCT e.id, e.name, e.type
             FROM entities e
             JOIN entities_fts fts ON fts.rowid = e.id
+            JOIN tags t ON t.entity_id = e.id
             WHERE entities_fts MATCH ?
+              AND t.tag = ?
             ${statusFilter}
             LIMIT ?
-          `).all('"' + fileNameNoExt.replace(/"/g, '""') + '"', MAX_RESULTS - results.length);
+          `).all('"' + fileNameNoExt.replace(/"/g, '""') + '"', projectTag, MAX_RESULTS - results.length);
           // Deduplicate
           for (const r of ftsResults) {
             if (!results.some(existing => existing.id === r.id)) {

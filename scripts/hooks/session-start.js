@@ -179,20 +179,47 @@ process.stdin.on('end', async () => {
 
       // --- Record injected entity IDs for recall effectiveness tracking ---
       try {
-        const allInjected = [...projectEntities, ...recentEntities];
+        // CRITICAL: Deduplicate by entity ID (entity may appear in both project and recent lists)
+        const seenIds = new Set();
+        const allInjected = [...projectEntities, ...recentEntities].filter(e => {
+          if (seenIds.has(e.id)) return false;
+          seenIds.add(e.id);
+          return true;
+        });
+
         if (allInjected.length > 0) {
           const memeshDir = join(homedir(), '.memesh');
-          if (!existsSync(memeshDir)) mkdirSync(memeshDir, { recursive: true });
+          const sessionsDir = join(memeshDir, 'sessions');
+          if (!existsSync(sessionsDir)) mkdirSync(sessionsDir, { recursive: true });
+
+          // FIX: Use session-scoped file with unique ID (pid + timestamp)
+          const sessionId = `${process.pid}-${Date.now()}`;
           writeFileSync(
-            join(memeshDir, 'last-session-injected.json'),
+            join(sessionsDir, `${sessionId}.json`),
             JSON.stringify({
               injectedAt: new Date().toISOString(),
               project: projectName,
               entityIds: allInjected.map(e => e.id),
               entityNames: allInjected.map(e => e.name),
+              // FIX: Save injected context text to exclude from hit detection
+              injectedContext: memorySummary,
             }),
             'utf8'
           );
+
+          // Clean up old session files (>24h)
+          try {
+            const files = require('fs').readdirSync(sessionsDir);
+            const now = Date.now();
+            for (const file of files) {
+              if (!file.endsWith('.json')) continue;
+              const filePath = join(sessionsDir, file);
+              const stats = require('fs').statSync(filePath);
+              if (now - stats.mtimeMs > 24 * 60 * 60 * 1000) {
+                require('fs').unlinkSync(filePath);
+              }
+            }
+          } catch {}
         }
       } catch {
         // Non-critical — don't break session start

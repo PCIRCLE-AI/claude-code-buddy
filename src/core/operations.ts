@@ -177,7 +177,10 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
             if (vectorHits.length > 0) {
               const kg2 = new KnowledgeGraph(db);
               const hitIds = vectorHits.map(h => h.id);
-              const hitEntities = kg2.getEntitiesByIds(hitIds);
+              const hitEntities = kg2.getEntitiesByIds(hitIds, {
+                includeArchived: args.include_archived,
+                namespace: args.namespace,
+              });
               for (let i = 0; i < hitEntities.length; i++) {
                 const entity = hitEntities[i];
                 if (!allResults.has(entity.name)) {
@@ -226,7 +229,10 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
         if (vectorHits.length > 0) {
           const kg2 = new KnowledgeGraph(db);
           const hitIds = vectorHits.map(h => h.id);
-          const hitEntities = kg2.getEntitiesByIds(hitIds);
+          const hitEntities = kg2.getEntitiesByIds(hitIds, {
+            includeArchived: args.include_archived,
+            namespace: args.namespace,
+          });
           for (let i = 0; i < hitEntities.length; i++) {
             const entity = hitEntities[i];
             if (!relevanceMap.has(entity.name)) {
@@ -309,4 +315,67 @@ export function forget(args: ForgetInput): ForgetResult {
   }
 
   return { archived: true, name: args.name };
+}
+
+/**
+ * Regenerate embeddings for all active entities.
+ * Use after changing embedding provider or when vectors were lost during dimension migration.
+ * Progress is logged to stderr.
+ */
+export async function reindex(opts?: { namespace?: string }): Promise<{
+  processed: number;
+  embedded: number;
+  skipped: number;
+}> {
+  if (!isEmbeddingAvailable()) {
+    throw new Error('No embedding provider available. Configure OpenAI API key, Ollama, or install @xenova/transformers.');
+  }
+
+  const db = getDatabase();
+  const kg = new KnowledgeGraph(db);
+
+  // Get all active entities (optionally filtered by namespace)
+  const namespaceFilter = opts?.namespace ? 'AND namespace = ?' : '';
+  const params = opts?.namespace ? [opts.namespace] : [];
+
+  const entities = db.prepare(
+    `SELECT id, name FROM entities WHERE status = 'active' ${namespaceFilter} ORDER BY id`
+  ).all(...params) as Array<{ id: number; name: string }>;
+
+  let processed = 0;
+  let embedded = 0;
+  let skipped = 0;
+
+  process.stderr.write(`MeMesh: Reindexing ${entities.length} entities...\n`);
+
+  for (const entity of entities) {
+    processed++;
+
+    // Get full entity with observations
+    const fullEntity = kg.getEntity(entity.name);
+    if (!fullEntity) {
+      skipped++;
+      continue;
+    }
+
+    // Concatenate all observations as embedding text
+    const text = fullEntity.observations.join(' ');
+
+    try {
+      await embedAndStore(entity.id, text);
+      embedded++;
+
+      // Progress logging every 10 entities
+      if (processed % 10 === 0) {
+        process.stderr.write(`MeMesh: Processed ${processed}/${entities.length} (${embedded} embedded, ${skipped} skipped)\n`);
+      }
+    } catch (err) {
+      skipped++;
+      process.stderr.write(`MeMesh: Failed to embed entity ${entity.name}: ${err}\n`);
+    }
+  }
+
+  process.stderr.write(`MeMesh: Reindex complete. ${embedded}/${processed} entities embedded.\n`);
+
+  return { processed, embedded, skipped };
 }
