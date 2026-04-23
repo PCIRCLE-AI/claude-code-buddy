@@ -158,7 +158,7 @@ export class KnowledgeGraph {
 
   getEntitiesByIds(
     ids: number[],
-    opts?: { includeArchived?: boolean; namespace?: string }
+    opts?: { includeArchived?: boolean; namespace?: string; tag?: string }
   ): Entity[] {
     if (ids.length === 0) return [];
 
@@ -243,6 +243,7 @@ export class KnowledgeGraph {
       const observations = obsMap.get(id) ?? [];
       const tags = tagMap.get(id) ?? [];
       const relations = relMap.get(id) ?? [];
+      if (opts?.tag && !tags.includes(opts.tag)) continue;
 
       results.push({
         id: row.id,
@@ -535,7 +536,7 @@ export class KnowledgeGraph {
     try {
       this.db
         .prepare('DELETE FROM entities_vec WHERE rowid = ?')
-        .run(row.id);
+        .run(BigInt(row.id));
     } catch {
       // Vector entry may not exist if embeddings not enabled — ignore
     }

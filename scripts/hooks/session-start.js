@@ -2,12 +2,15 @@
 
 import { createRequire } from 'module';
 import { homedir } from 'os';
-import { join, basename } from 'path';
+import { dirname, join, basename } from 'path';
 import { existsSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
-import { dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
+
+const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
+const memeshDir = process.env.MEMESH_DB_PATH ? dirname(process.env.MEMESH_DB_PATH) : join(homedir(), '.memesh');
+const throttlePath = join(memeshDir, 'session-recalled-files.json');
 
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -19,7 +22,6 @@ process.stdin.on('end', async () => {
 
     // Clear pre-edit recall throttle from previous session
     try {
-      const throttlePath = join(homedir(), '.memesh', 'session-recalled-files.json');
       if (existsSync(throttlePath)) {
         unlinkSync(throttlePath);
       }
@@ -27,8 +29,6 @@ process.stdin.on('end', async () => {
       // Non-critical
     }
 
-    // Find database
-    const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
     if (!existsSync(dbPath)) {
       output('MeMesh: No database found. Memories will be created as you work.');
       return;
@@ -188,7 +188,6 @@ process.stdin.on('end', async () => {
         });
 
         if (allInjected.length > 0) {
-          const memeshDir = join(homedir(), '.memesh');
           const sessionsDir = join(memeshDir, 'sessions');
           if (!existsSync(sessionsDir)) mkdirSync(sessionsDir, { recursive: true });
 

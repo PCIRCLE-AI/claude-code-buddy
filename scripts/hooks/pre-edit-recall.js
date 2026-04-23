@@ -6,12 +6,14 @@
 
 import { createRequire } from 'module';
 import { homedir } from 'os';
-import { join, basename } from 'path';
+import { dirname, join, basename } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 
 const require = createRequire(import.meta.url);
 
-const THROTTLE_FILE = join(homedir(), '.memesh', 'session-recalled-files.json');
+const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
+const memeshDir = process.env.MEMESH_DB_PATH ? dirname(process.env.MEMESH_DB_PATH) : join(homedir(), '.memesh');
+const THROTTLE_FILE = join(memeshDir, 'session-recalled-files.json');
 const MAX_RESULTS = 3;
 
 let input = '';
@@ -47,8 +49,6 @@ process.stdin.on('end', () => {
       return pass();
     }
 
-    // Find database
-    const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
     if (!existsSync(dbPath)) return pass();
 
     const Database = require('better-sqlite3');
@@ -163,7 +163,6 @@ function recordSeen(seenFiles, fileKey) {
     seenFiles.push(fileKey);
     // Cap at 100 to prevent unbounded growth
     if (seenFiles.length > 100) seenFiles = seenFiles.slice(-50);
-    const memeshDir = join(homedir(), '.memesh');
     if (!existsSync(memeshDir)) mkdirSync(memeshDir, { recursive: true });
     writeFileSync(THROTTLE_FILE, JSON.stringify(seenFiles), 'utf8');
   } catch {

@@ -14,7 +14,7 @@ import { KnowledgeGraph } from '../knowledge-graph.js';
 import { expandQuery, isExpansionAvailable } from './query-expander.js';
 import { rankEntities } from './scoring.js';
 import { createExplicitLesson } from './lesson-engine.js';
-import { embedAndStore, isEmbeddingAvailable, embedText, vectorSearch } from './embedder.js';
+import { embedAndStore, isEmbeddingAvailable, embedText, scheduleEmbedAndStore, vectorSearch } from './embedder.js';
 import { autoTagAndApply } from './auto-tagger.js';
 import { detectCapabilities } from './config.js';
 import path from 'path';
@@ -28,6 +28,10 @@ import type {
   LearnResult,
   Entity,
 } from './types.js';
+
+function recallTagFilter(args: RecallInput): string | undefined {
+  return args.cross_project ? undefined : args.tag;
+}
 
 /**
  * Store knowledge as an entity with observations, tags, and relations.
@@ -75,7 +79,7 @@ export function remember(args: RememberInput): RememberResult {
   // Fire-and-forget: generate embedding asynchronously (don't block sync remember)
   if (isEmbeddingAvailable() && args.observations?.length) {
     const text = `${args.name} ${args.observations.join(' ')}`;
-    embedAndStore(entityId, text).catch(() => {});
+    scheduleEmbedAndStore(entityId, text);
   }
 
   // Fire-and-forget: auto-generate tags if none provided and LLM is configured
@@ -111,7 +115,7 @@ export function recall(args: RecallInput): Entity[] {
 
   // cross_project=true means don't filter by project tag — pass no tag to search all projects
   const entities = kg.search(args.query, {
-    tag: args.cross_project ? undefined : args.tag,
+    tag: recallTagFilter(args),
     limit: args.limit,
     includeArchived: args.include_archived,
     namespace: args.namespace,
@@ -149,7 +153,7 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
         const termRelevance = i === 0 ? 1.0 : 0.7;
         // cross_project=true means don't filter by project tag
         const results = kg.search(expandedTerms[i], {
-          tag: args.cross_project ? undefined : args.tag,
+          tag: recallTagFilter(args),
           limit: args.limit,
           includeArchived: args.include_archived,
           namespace: args.namespace,
@@ -178,8 +182,9 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
               const kg2 = new KnowledgeGraph(db);
               const hitIds = vectorHits.map(h => h.id);
               const hitEntities = kg2.getEntitiesByIds(hitIds, {
-                includeArchived: args.include_archived,
+                includeArchived: args.include_archived === true,
                 namespace: args.namespace,
+                tag: recallTagFilter(args),
               });
               for (let i = 0; i < hitEntities.length; i++) {
                 const entity = hitEntities[i];
@@ -207,7 +212,7 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
   // Level 0: regular FTS5 search (no LLM expansion)
   // cross_project=true means don't filter by project tag
   const entities = kg.search(args.query, {
-    tag: args.cross_project ? undefined : args.tag,
+    tag: recallTagFilter(args),
     limit: args.limit,
     includeArchived: args.include_archived,
     namespace: args.namespace,
@@ -230,8 +235,9 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
           const kg2 = new KnowledgeGraph(db);
           const hitIds = vectorHits.map(h => h.id);
           const hitEntities = kg2.getEntitiesByIds(hitIds, {
-            includeArchived: args.include_archived,
+            includeArchived: args.include_archived === true,
             namespace: args.namespace,
+            tag: recallTagFilter(args),
           });
           for (let i = 0; i < hitEntities.length; i++) {
             const entity = hitEntities[i];

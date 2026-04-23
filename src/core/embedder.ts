@@ -15,6 +15,8 @@ let onnxPipelineInstance: any = null;
 let onnxPipelineLoading: Promise<any> | null = null;
 let onnxAvailableChecked = false;
 let onnxAvailableResult = false;
+const MAX_VECTOR_DISTANCE = 1;
+const pendingEmbeddingWrites = new Set<Promise<void>>();
 
 // --- Public API ---
 
@@ -42,6 +44,37 @@ export function resetEmbeddingState(): void {
   onnxPipelineLoading = null;
 }
 
+export function scheduleEmbedAndStore(entityId: number, text: string): void {
+  const pending = embedAndStore(entityId, text);
+  const tracked = pending.finally(() => {
+    pendingEmbeddingWrites.delete(tracked);
+  });
+  pendingEmbeddingWrites.add(tracked);
+}
+
+export async function flushPendingEmbeddings(): Promise<void> {
+  while (pendingEmbeddingWrites.size > 0) {
+    await Promise.allSettled([...pendingEmbeddingWrites]);
+  }
+}
+
+function toVectorRowId(entityId: number): bigint {
+  if (!Number.isSafeInteger(entityId) || entityId <= 0) {
+    throw new Error(`Invalid entity id for vector storage: ${entityId}`);
+  }
+  return BigInt(entityId);
+}
+
+function toVectorBlob(embedding: Float32Array): Buffer {
+  return Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+}
+
+function isDatabaseLifecycleError(err: unknown): boolean {
+  if (!err || typeof err !== 'object' || !('message' in err)) return false;
+  const message = String(err.message);
+  return message === 'Database not opened' || message.includes('database connection is not open');
+}
+
 /**
  * Generate an embedding for the given text.
  * Tries providers in order: OpenAI API → Ollama → ONNX → null.
@@ -65,10 +98,10 @@ export async function embedText(text: string): Promise<Float32Array | null> {
  * Validates dimension matches before writing to prevent silent failures.
  */
 export async function embedAndStore(entityId: number, text: string): Promise<void> {
-  const embedding = await embedText(text);
-  if (!embedding) return;
-
   try {
+    const embedding = await embedText(text);
+    if (!embedding) return;
+
     const db = getDatabase();
 
     // CRITICAL: Validate embedding dimension matches DB schema
@@ -91,10 +124,28 @@ export async function embedAndStore(entityId: number, text: string): Promise<voi
       return;
     }
 
-    db.prepare(
-      'INSERT OR REPLACE INTO entities_vec (rowid, embedding) VALUES (?, ?)'
-    ).run(entityId, Buffer.from(embedding.buffer));
+    const rowId = toVectorRowId(entityId);
+    const entity = db.prepare(
+      'SELECT status FROM entities WHERE id = ?'
+    ).get(entityId) as { status: string } | undefined;
+
+    if (!entity || entity.status === 'archived') {
+      db.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(rowId);
+      return;
+    }
+
+    const writeVector = db.transaction(() => {
+      // sqlite-vec does not reliably honor INSERT OR REPLACE for vec0 primary keys.
+      db.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(rowId);
+      db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)').run(
+        rowId,
+        toVectorBlob(embedding)
+      );
+    });
+    writeVector();
   } catch (err) {
+    if (isDatabaseLifecycleError(err)) return;
+
     // DB write failed — log and skip
     if (err && typeof err === 'object' && 'message' in err) {
       process.stderr.write(`MeMesh: Vector write failed for entity ${entityId}: ${err.message}\n`);
@@ -111,14 +162,15 @@ export function vectorSearch(
 ): Array<{ id: number; distance: number }> {
   try {
     const db = getDatabase();
-    return db
+    const rows = db
       .prepare(
         'SELECT rowid AS id, distance FROM entities_vec WHERE embedding MATCH ? ORDER BY distance LIMIT ?'
       )
       .all(
-        Buffer.from(queryEmbedding.buffer),
+        toVectorBlob(queryEmbedding),
         limit
       ) as Array<{ id: number; distance: number }>;
+    return rows.filter((hit) => hit.distance < MAX_VECTOR_DISTANCE);
   } catch {
     return [];
   }

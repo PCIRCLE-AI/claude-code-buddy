@@ -3,8 +3,8 @@
 <p align="center">
   <h1 align="center">MeMesh LLM Memory</h1>
   <p align="center">
-    <strong>The lightest universal AI memory layer.</strong><br />
-    One SQLite file. Any LLM. Zero cloud.
+    <strong>Local memory for Claude Code and MCP coding agents.</strong><br />
+    One SQLite file. No Docker. No cloud required.
   </p>
   <p align="center">
     <a href="https://www.npmjs.com/package/@pcircle/memesh"><img src="https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=3b82f6&label=npm" alt="npm" /></a>
@@ -18,9 +18,11 @@
 
 ## The Problem
 
-Your AI forgets everything between sessions. Every decision, every bug fix, every lesson learned — gone. You re-explain the same context, Claude re-discovers the same patterns, and your team's AI knowledge resets to zero.
+Your coding agent forgets what happened between sessions. Every architecture decision, bug fix, failed test, and hard-won lesson has to be re-explained. Claude Code starts fresh, re-discovers old constraints, and burns context on things it should already know.
 
-**MeMesh gives every AI persistent, searchable, evolving memory.**
+**MeMesh gives coding agents persistent, searchable, evolving local memory.**
+
+This package is the local memory layer of the MeMesh product family. It is intentionally small and open-source: install it with npm, keep your memory in `~/.memesh/knowledge-graph.db`, and connect it to Claude Code or any MCP-compatible client. Hosted workspace and enterprise operating-system products should stay separate from this package's README and roadmap.
 
 ---
 
@@ -32,13 +34,13 @@ Your AI forgets everything between sessions. Every decision, every bug fix, ever
 npm install -g @pcircle/memesh
 ```
 
-### Step 2: Your AI remembers
+### Step 2: Store a decision
 
 ```bash
 memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
 ```
 
-### Step 3: Your AI recalls
+### Step 3: Recall it later
 
 ```bash
 memesh recall "login security"
@@ -71,14 +73,14 @@ memesh
 
 | If you are... | MeMesh helps you... |
 |---------------|---------------------|
-| **A developer using Claude Code** | Remember decisions, patterns, and lessons across sessions automatically |
-| **A team building with LLMs** | Share team knowledge via export/import, keep everyone's AI context aligned |
-| **An AI agent developer** | Give your agents persistent memory via MCP, HTTP API, or Python SDK |
-| **A power user with multiple AI tools** | One memory layer that works with Claude, GPT, LLaMA, Ollama, or any MCP client |
+| **A developer using Claude Code** | Auto-recall project decisions, file-specific lessons, and past failures as you work |
+| **A coding-agent power user** | Share one local memory layer across MCP-compatible tools |
+| **A team experimenting with AI coding workflows** | Export/import project knowledge without introducing hosted infrastructure |
+| **An agent developer** | Add local memory through MCP, HTTP, CLI, or the Python SDK |
 
 ---
 
-## Works With Everything
+## Designed For Coding Agents First
 
 <table>
 <tr>
@@ -88,7 +90,7 @@ memesh
 ```bash
 memesh-mcp
 ```
-MCP protocol (auto-configured)
+MCP tools + Claude Code hooks
 
 </td>
 <td width="33%" align="center">
@@ -96,6 +98,7 @@ MCP protocol (auto-configured)
 **Any HTTP Client**
 ```bash
 curl localhost:3737/v1/recall \
+  -H "Content-Type: application/json" \
   -d '{"query":"auth"}'
 ```
 `memesh serve` (REST API)
@@ -116,29 +119,30 @@ Paste tools into any API call
 
 ---
 
-## Why Not Just Use Mem0 / Zep?
+## Why Not OpenMemory, Cursor Memories, Mem0, Or Zep?
 
-| | **MeMesh** | Mem0 | Zep |
-|---|---|---|---|
-| **Install time** | 5 seconds | 30-60 minutes | 30+ minutes |
-| **Setup** | `npm i -g` — done | Neo4j + VectorDB + API keys | Neo4j + config |
-| **Storage** | Single SQLite file | Neo4j + Qdrant | Neo4j |
-| **Works offline** | Yes, always | No | No |
-| **Dashboard** | Built-in (7 tabs + analytics) | None | None |
-| **Dependencies** | 6 | 20+ | 10+ |
-| **Price** | Free forever | Free tier / Paid | Free tier / Paid |
+| | **MeMesh** | OpenMemory | Cursor Memories | Mem0 | Zep / Graphiti |
+|---|---|---|---|---|---|
+| **Best fit** | Local memory for coding agents | Local/cross-client MCP memory | Cursor-native project memory | Managed app/agent memory | Temporal knowledge graphs |
+| **Install shape** | `npm install -g @pcircle/memesh` | Local app/server flow | Built into Cursor | Cloud API / SDK / MCP | Service/framework setup |
+| **Storage** | One local SQLite file | Local memory stack | Cursor-managed rules/memories | Hosted or self-hosted stack | Graph database |
+| **Cloud required** | No | No for local mode | Depends on Cursor account/settings | Yes for platform | Usually yes/self-hosted |
+| **Claude Code hooks** | First-class | MCP tools | No | MCP tools | Not Claude Code-specific |
+| **Dashboard** | Built in | Built in | Cursor settings | Platform dashboard | Platform/graph tooling |
+| **Tradeoff** | Simple local wedge, not enterprise scale | Broader local app footprint | Locked to Cursor | Strong managed platform, less local-first | Strong graph model, heavier setup |
 
-**MeMesh trades:** enterprise-scale multi-tenant features for **instant setup, zero infrastructure, and 100% privacy**.
+**MeMesh trades enterprise-scale managed infrastructure for instant local setup, inspectable storage, and coding-agent workflow hooks.**
 
 ---
 
-## What Happens Automatically
+## What Happens Automatically In Claude Code
 
-You don't need to manually remember everything. MeMesh has **4 hooks** that capture knowledge without you doing anything:
+You don't need to manually remember everything. MeMesh has **5 hooks** that capture and inject knowledge while you work:
 
 | When | What MeMesh does |
 |------|------------------|
 | **Every session start** | Loads your most relevant memories + proactive warnings from past lessons |
+| **Before editing files** | Recalls memories tied to the file or project before Claude writes code |
 | **After every `git commit`** | Records what you changed, with diff stats |
 | **When Claude stops** | Captures files edited, errors fixed, and auto-generates structured lessons from failures |
 | **Before context compaction** | Saves knowledge before it's lost to context limits |
@@ -167,7 +171,7 @@ You don't need to manually remember everything. MeMesh has **4 hooks** that capt
 
 **🧠 Smart Search** — Search "login security" and find memories about "OAuth PKCE". MeMesh expands queries with related terms using your configured LLM.
 
-**📊 Scored Ranking** — Results ranked by relevance (35%) + how recently you used it (25%) + how often (20%) + confidence (15%) + whether the info is still current (5%).
+**📊 Scored Ranking** — Results ranked by relevance (30%) + recency (25%) + frequency (15%) + confidence (15%) + recall impact (10%) + temporal validity (5%).
 
 **🔄 Knowledge Evolution** — Decisions change. `forget` archives old memories (never deletes). `supersedes` relations link old → new. Your AI always sees the latest version.
 
@@ -177,7 +181,7 @@ You don't need to manually remember everything. MeMesh has **4 hooks** that capt
 
 ---
 
-## Real-World Usage
+## Example Usage
 
 > "MeMesh remembered that we chose PKCE over implicit flow three weeks ago. When I asked Claude about auth again, it already knew — no re-explaining needed."
 > — **Solo developer, building a SaaS**
@@ -192,7 +196,7 @@ You don't need to manually remember everything. MeMesh has **4 hooks** that capt
 
 ## Unlock Smart Mode (Optional)
 
-MeMesh works fully offline out of the box. Add an LLM API key to unlock smarter search:
+MeMesh works offline by default. Add an LLM API key only if you want query expansion, smarter extraction, and compression:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -255,7 +259,7 @@ Core is framework-agnostic. Same logic runs from terminal, HTTP, or MCP.
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test -- --run    # 413 tests
+npm test             # 445 tests
 ```
 
 Dashboard: `cd dashboard && npm install && npm run dev`

@@ -8,6 +8,7 @@ import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
 import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn, reindex } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { readConfig, updateConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
+import { flushPendingEmbeddings } from '../../core/embedder.js';
 
 const packageJsonPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -31,7 +32,7 @@ program
   .option('--tags <tags...>', 'Tags (space-separated)')
   .option('--namespace <namespace>', 'Namespace: personal, team, or global (default: personal)')
   .option('--json', 'Output as JSON')
-  .action((opts) => {
+  .action(async (opts) => {
     openDatabase();
     try {
       const result = remember({
@@ -46,6 +47,7 @@ program
       } else {
         console.log(`✅ Stored "${result.name}" (${result.observations} observations, ${result.tags} tags)`);
       }
+      await flushPendingEmbeddings();
     } finally {
       closeDatabase();
     }

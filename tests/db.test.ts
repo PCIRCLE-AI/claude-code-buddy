@@ -3,6 +3,7 @@ import { openDatabase, closeDatabase, getDatabase } from '../src/db.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { getEmbeddingDimension } from '../src/core/config.js';
 
 describe('Feature: Database Management', () => {
   let testDir: string;
@@ -136,6 +137,45 @@ describe('Feature: Database Management', () => {
         "SELECT name FROM sqlite_master WHERE type='table' AND name='entities_vec'"
       ).all();
       expect(tables).toHaveLength(1);
+    });
+
+    it('should accept explicit entity rowids for sqlite-vec storage', () => {
+      const db = openDatabase(testDbPath);
+      const embedding = new Float32Array(getEmbeddingDimension());
+      embedding.fill(0.01);
+      embedding[0] = 1;
+
+      expect(() => {
+        db.prepare(
+          'INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)'
+        ).run(1n, Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength));
+      }).not.toThrow();
+    });
+
+    it('should support replacing an entity vector via delete then insert', () => {
+      const db = openDatabase(testDbPath);
+      const first = new Float32Array(getEmbeddingDimension());
+      first.fill(0.01);
+      first[0] = 1;
+      const second = new Float32Array(getEmbeddingDimension());
+      second.fill(0.02);
+      second[1] = 1;
+
+      const writeVector = (embedding: Float32Array) => {
+        db.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(1n);
+        db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)').run(
+          1n,
+          Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength)
+        );
+      };
+
+      expect(() => {
+        writeVector(first);
+        writeVector(second);
+      }).not.toThrow();
+
+      const count = db.prepare('SELECT count(*) AS count FROM entities_vec').get() as { count: number };
+      expect(count.count).toBe(1);
     });
   });
 

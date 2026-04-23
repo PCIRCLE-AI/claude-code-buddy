@@ -28,7 +28,7 @@ describe('Feature: Pre-Edit Recall Hook', () => {
     try {
       return execFileSync('node', [hookPath], {
         input: jsonInput,
-        env: { ...process.env, MEMESH_DB_PATH: dbPath, HOME: testDir },
+        env: { ...process.env, MEMESH_DB_PATH: dbPath },
         encoding: 'utf8',
         timeout: 10000,
       }).trim();
@@ -114,6 +114,21 @@ describe('Feature: Pre-Edit Recall Hook', () => {
 
     const result2 = runHook({ tool_input: { file_path: '/src/auth.ts' } });
     expect(result2).toBe('');
+  });
+
+  it('should scope throttle state to MEMESH_DB_PATH directory', () => {
+    const db = createTestDb();
+    db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('auth-decision', 'decision');
+    const row = db.prepare('SELECT id FROM entities WHERE name = ?').get('auth-decision') as any;
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(row.id, 'Use OAuth 2.0');
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(row.id, 'file:auth');
+    const projectName = path.basename(process.cwd());
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(row.id, `project:${projectName}`);
+    db.close();
+
+    runHook({ tool_input: { file_path: '/src/auth.ts' } });
+
+    expect(fs.existsSync(path.join(testDir, 'session-recalled-files.json'))).toBe(true);
   });
 
   it('should return empty when no file_path in tool_input', () => {

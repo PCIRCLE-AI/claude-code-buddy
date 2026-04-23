@@ -202,6 +202,21 @@ describe('Feature: Session Start Hook', () => {
     expect(typeof parsed.systemMessage).toBe('string');
   });
 
+  it('Scenario: Clears pre-edit throttle state beside MEMESH_DB_PATH', () => {
+    const db = createTestDb();
+    db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('auth-decision', 'decision');
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Use OAuth 2.0');
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(1, 'project:anyproject');
+    db.close();
+
+    const throttlePath = path.join(testDir, 'session-recalled-files.json');
+    fs.writeFileSync(throttlePath, JSON.stringify(['/src/auth.ts']), 'utf8');
+
+    runHook({ cwd: '/tmp/anyproject' });
+
+    expect(fs.existsSync(throttlePath)).toBe(false);
+  });
+
   it('Scenario: Scoring — top entities by score are listed first', () => {
     const db = createScoringDb();
     // Low-score entity (never accessed, low confidence)
