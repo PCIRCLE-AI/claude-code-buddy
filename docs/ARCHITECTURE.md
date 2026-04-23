@@ -1,12 +1,20 @@
 # MeMesh Plugin Architecture
 
-**Version**: 3.1.0
+**Version**: 4.0.2
 
 ---
 
 ## Overview
 
-MeMesh is a universal AI memory layer. It provides 8 operations (`remember`, `recall`, `forget`, `consolidate`, `export`, `import`, `learn`, `user_patterns`) accessible via three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings. Entities can be scoped to namespaces (`personal`, `team`, `global`) and shared across projects via JSON export/import. MeMesh includes self-improving memory: LLM-powered failure analysis automatically creates structured lessons from session errors, with proactive warnings at session start.
+MeMesh Plugin is the local memory layer for Claude Code and other MCP-compatible coding agents. It provides 8 operations (`remember`, `recall`, `forget`, `consolidate`, `export`, `import`, `learn`, `user_patterns`) through three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
+
+The package is intentionally local-first and inspectable:
+- one SQLite database under the user's control
+- no cloud service required
+- Claude Code hook integration for session-start, pre-edit recall, post-commit capture, session-summary learning, and pre-compact save
+- optional smarter retrieval and extraction when an LLM is configured
+
+This repository is the plugin/package wedge of the broader MeMesh effort. Hosted workspace and enterprise operating-system products are intentionally out of scope for this package architecture.
 
 ```
                      ┌─────────────┐
@@ -164,27 +172,27 @@ Express server exposed via `memesh serve` (default port 3737, 17 endpoints). Del
 
 Commander-based CLI exposed via the `memesh` binary. Supports `remember`, `recall`, `forget`, `serve`, and `update` subcommands.
 
-### cli/view.ts -- Dashboard Generator
+### dashboard/ -- Packaged Dashboard SPA
 
-Generates the interactive MeMesh Dashboard served by the HTTP server and the legacy `memesh-view` CLI command.
+The primary dashboard is now the packaged Preact single-page app served by `GET /dashboard` from `dashboard/dist/index.html`.
 
-- `memesh-view` CLI command (registered in `package.json` bin): generates a static file and opens it in the default browser
-- `generateLiveDashboardHtml()`: exported function consumed by `GET /dashboard` in the HTTP server — returns the full HTML string for live serving
-- The dashboard is a single self-contained HTML page with bundled local D3.js, styled with Tailwind CDN
+- packaged with the npm artifact under `dashboard/dist/`
+- preferred over the legacy HTML generator path
+- used for live local inspection and settings/config flows
 
-**Dashboard tabs (v2.16.0)**:
+**Dashboard tabs (v4.0.2)**:
 
 | Tab | Feature |
 |-----|---------|
-| Search | Real-time search with keyword highlighting |
-| Browse | Paginated entity list with type/status filters |
-| Graph | D3.js force-directed knowledge graph |
-| Analytics | Stats cards, type distribution chart, tag cloud |
-| Manage | Archive/restore entities, remove individual observations |
-| Timeline | Knowledge evolution chain visualization |
-| Settings | LLM provider setup, API key management, theme toggle |
+| Search | Full-text + vector-assisted recall UI |
+| Browse | Paginated entity list |
+| Analytics | Health score, timeline, value metrics, cleanup suggestions, work patterns |
+| Graph | Interactive knowledge graph |
+| Lessons | Structured lessons learned from failures |
+| Manage | Archive / restore and memory management via browse flow |
+| Settings | LLM provider setup, capabilities, and language selection |
 
-The Settings tab communicates with `GET /v1/config` and `POST /v1/config`. The Manage tab uses `POST /v1/forget`. The Analytics tab fetches from `GET /v1/analytics` for health score, timeline, value metrics, and cleanup suggestions. All data tabs fetch from `/v1/stats`, `/v1/graph`, `/v1/entities`, and `/v1/recall`.
+The dashboard talks to `/v1/health`, `/v1/config`, `/v1/analytics`, `/v1/graph`, `/v1/entities`, and `/v1/recall`. When the packaged build is unavailable, the HTTP server falls back to the legacy `cli/view.ts` HTML generator for compatibility.
 
 ---
 

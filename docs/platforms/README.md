@@ -1,6 +1,6 @@
 # MeMesh Integration Guide
 
-MeMesh is designed for local coding-agent memory first, with portable integration through MCP, HTTP, and CLI modes. Choose the mode that matches your client.
+MeMesh is designed for local coding-agent memory first. The preferred path is MCP for Claude Code and other MCP-compatible coding agents, with HTTP and CLI available for local tools, scripts, and bridge-based experiments.
 
 ---
 
@@ -18,17 +18,17 @@ MeMesh is designed for local coding-agent memory first, with portable integratio
 
 ## 📊 Integration Modes Comparison
 
-### 🟢 HTTP API Mode (Universal)
-**Best for**: custom apps, scripts, local tools, and AI clients that can make HTTP requests to localhost
+### 🟢 HTTP API Mode
+**Best for**: custom local apps, scripts, dashboards, and bridge-based experiments that can call `localhost`
 
 **Pros**:
-- Works with ALL AI platforms
-- No special client support needed
+- Works with local apps and custom bridges
+- No MCP support required
 - Easy to test manually with curl
 
 **Cons**:
 - Requires server to be running
-- Need to paste system prompt into AI settings
+- Browser-only AI products still need a connector, action, proxy, or local bridge to reach `localhost`
 
 **Setup**:
 ```bash
@@ -40,7 +40,7 @@ curl http://localhost:3737/v1/health
 ---
 
 ### 🟡 MCP Server Mode (Native)
-**Best for**: Claude Code, Cursor (if MCP-enabled)
+**Best for**: Claude Code and MCP-compatible coding agents
 
 **Pros**:
 - Native tool integration (cleanest UX)
@@ -81,7 +81,7 @@ memesh recall "test"
 
 ---
 
-## 🚀 Quick Start (Any Platform)
+## 🚀 Quick Start (Local Workflow)
 
 ### 1. Install MeMesh
 ```bash
@@ -112,7 +112,7 @@ Use MCP mode when the client supports MCP. Use HTTP mode when you control a loca
 
 - **[ChatGPT / Custom GPTs](./chatgpt.md)** - HTTP API with custom instructions
 - **[Google Gemini](./gemini.md)** - HTTP API with system instructions
-- **[Universal Guide](./universal.md)** - For any other AI platform
+- **[Universal Guide](./universal.md)** - For local tools or bridge-based integrations
 
 ---
 
@@ -121,12 +121,12 @@ Use MCP mode when the client supports MCP. Use HTTP mode when you control a loca
 **Use MCP Mode if**:
 - Your platform explicitly supports MCP (Model Context Protocol)
 - You want the cleanest, most native experience
-- You're using Claude Code or Cursor
+- You're using Claude Code or another MCP-compatible coding agent
 
 **Use HTTP API Mode if**:
-- Your platform is ChatGPT, Gemini, Ollama, or any web-based AI
-- You want maximum compatibility
-- You're okay with copy-pasting system instructions
+- You control a local app, script, or connector that can call `localhost`
+- You want to integrate MeMesh into a custom workflow outside native MCP
+- You're using ChatGPT or Gemini through a local bridge rather than the hosted web UI alone
 
 **Use CLI Mode if**:
 - You're building scripts or automation
