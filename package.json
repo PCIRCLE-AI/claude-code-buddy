@@ -24,6 +24,7 @@
   "scripts": {
     "build": "tsc && node scripts/copy-cli-assets.mjs && node scripts/set-executable-bits.mjs",
     "test": "vitest",
+    "test:e2e-dashboard": "node scripts/dashboard-e2e-smoke.mjs",
     "test:packaged": "node scripts/smoke-packed-artifact.mjs",
     "typecheck": "tsc --noEmit",
     "start": "node dist/mcp/server.js"
@@ -60,6 +61,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.6",
     "@types/node": "^25.0.9",
+    "playwright": "^1.59.1",
     "typescript": "^5.9.3",
     "vitest": "^4.0.17"
   },

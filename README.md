@@ -261,6 +261,7 @@ Core is framework-agnostic. Same logic runs from terminal, HTTP, or MCP.
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
 npm test             # 463 tests
+npm run test:e2e-dashboard
 ```
 
 Dashboard: `cd dashboard && npm install && npm run dev`

@@ -18,6 +18,7 @@ v4.0.1 is already published on npm, so the follow-up reliability, install, and b
 - **Clean consumer install audit:** replaced stale `@xenova/transformers` with maintained `@huggingface/transformers`, removing the vulnerable `onnxruntime-web -> onnx-proto -> protobufjs@6` chain from clean installs.
 - **Capability reporting:** Level 0/no-LLM mode reports `onnx` when the local Transformers.js provider is available.
 - **Dashboard browser smoke:** `/favicon.ico` returns 204 so packaged dashboard browser smoke is console-clean.
+- **Packaged dashboard e2e smoke:** added `npm run test:e2e-dashboard`, which packs the tarball, serves the packaged dashboard, verifies Browse/Search/Settings, confirms locale switches in-place, and fails on page/console errors.
 - **Dashboard i18n UX:** all 11 locales have translation key parity, and language changes apply immediately without a full-page reload.
 - **Imported memory trust boundary:** imported entities are now marked `trust: untrusted` with import provenance, so shared bundles remain searchable but are excluded from automatic Claude hook injection until reviewed.
 - **Hook prompt-injection hardening:** session-start and pre-edit hooks wrap recalled memories as reference data and skip untrusted/imported entities during automatic injection.
@@ -41,4 +42,5 @@ v4.0.1 is already published on npm, so the follow-up reliability, install, and b
 - `npm run test:packaged` — passed.
 - Clean-machine packed install smoke — fresh temp app install, CLI `remember`, CLI `recall`, and clean consumer `npm audit --omit=dev` passed.
 - Packaged dashboard browser smoke — `/dashboard` rendered from the packed install with 0 Playwright console warnings/errors; English -> Traditional Chinese -> English language switching updated in-place.
+- Packaged dashboard e2e smoke — passed via `npm run test:e2e-dashboard`.
 - npm registry verification — npm latest is still v4.0.1 at published gitHead `c936c2548ff886b884c4ba40c83a080b467b4e17`; v4.0.2 is not published yet.
