@@ -37,6 +37,12 @@ jobs:
       - name: Smoke test packaged artifact
         run: npm run test:packaged
 
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Smoke test packaged dashboard
+        run: npm run test:e2e-dashboard
+
       - name: Verify package contents
         run: npm pack --dry-run
 

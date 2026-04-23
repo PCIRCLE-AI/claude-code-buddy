@@ -73,3 +73,34 @@ jobs:
 
       - name: Verify packaged artifact
         run: npm run test:packaged
+
+  dashboard-e2e-smoke:
+    name: Packaged Dashboard E2E Smoke
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build
+        run: npm run build
+
+      - name: Build dashboard
+        run: cd dashboard && npm ci && npx vite build
+
+      - name: Run packaged dashboard e2e smoke
+        run: npm run test:e2e-dashboard

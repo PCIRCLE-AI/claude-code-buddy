@@ -39,6 +39,25 @@ function getChromeExecutablePath() {
   return candidates.find((candidate) => fs.existsSync(candidate));
 }
 
+async function launchBrowser() {
+  const chromeExecutable = getChromeExecutablePath();
+  if (chromeExecutable) {
+    return chromium.launch({
+      executablePath: chromeExecutable,
+      headless: true,
+    });
+  }
+
+  try {
+    return await chromium.launch({ headless: true });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `No browser available for dashboard e2e smoke. Install Playwright Chromium (for CI: "npx playwright install --with-deps chromium") or set CHROME_PATH. Original error: ${reason}`
+    );
+  }
+}
+
 async function getAvailablePort() {
   return await new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -148,14 +167,7 @@ async function main() {
 
   try {
     await waitForServer(healthUrl, server);
-
-    const chromeExecutable = getChromeExecutablePath();
-    assert.ok(chromeExecutable, 'Google Chrome executable not found. Set CHROME_PATH to run dashboard e2e smoke.');
-
-    const browser = await chromium.launch({
-      executablePath: chromeExecutable,
-      headless: true,
-    });
+    const browser = await launchBrowser();
 
     try {
       const context = await browser.newContext();
