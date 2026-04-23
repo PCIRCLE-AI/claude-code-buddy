@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import fs from 'fs';
 import {
   maskApiKey,
   detectCapabilities,
@@ -9,6 +8,7 @@ import {
   writeConfig,
   updateConfig,
 } from '../../src/core/config.js';
+import { expectPrivateDir, expectPrivateFile } from '../helpers/permissions.js';
 
 // ── maskApiKey ───────────────────────────────────────────────────────────────
 
@@ -164,8 +164,8 @@ describe('Config: read/write/update (isolated temp dir)', () => {
 
     try {
       writeConfig({ sessionLimit: 7 });
-      expect(fs.statSync(getConfigDir()).mode & 0o777).toBe(0o700);
-      expect(fs.statSync(getConfigPath()).mode & 0o777).toBe(0o600);
+      expectPrivateDir(getConfigDir());
+      expectPrivateFile(getConfigPath());
     } finally {
       writeConfig(originalConfig);
     }

@@ -4,6 +4,7 @@ import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { expectPrivateDir, expectPrivateFile } from '../helpers/permissions.js';
 
 const require = createRequire(import.meta.url);
 
@@ -250,8 +251,8 @@ describe('Feature: Session Start Hook', () => {
     const sessionsDir = path.join(testDir, 'sessions');
     const [sessionFile] = fs.readdirSync(sessionsDir).filter((file) => file.endsWith('.json'));
     expect(sessionFile).toBeTruthy();
-    expect(fs.statSync(sessionsDir).mode & 0o777).toBe(0o700);
-    expect(fs.statSync(path.join(sessionsDir, sessionFile)).mode & 0o777).toBe(0o600);
+    expectPrivateDir(sessionsDir);
+    expectPrivateFile(path.join(sessionsDir, sessionFile));
   });
 
   it('Scenario: Scoring — top entities by score are listed first', () => {

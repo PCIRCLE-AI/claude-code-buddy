@@ -4,6 +4,7 @@ import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { expectPrivateFile } from '../helpers/permissions.js';
 
 const require = createRequire(import.meta.url);
 
@@ -174,8 +175,7 @@ describe('Feature: Pre-Edit Recall Hook', () => {
     runHook({ tool_input: { file_path: '/src/auth.ts' } });
 
     const throttlePath = path.join(testDir, 'session-recalled-files.json');
-    const mode = fs.statSync(throttlePath).mode & 0o777;
-    expect(mode).toBe(0o600);
+    expectPrivateFile(throttlePath);
   });
 
   it('should return empty when no file_path in tool_input', () => {
