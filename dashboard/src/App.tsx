@@ -9,9 +9,7 @@ import { GraphTab } from './components/GraphTab';
 import { LessonsTab } from './components/LessonsTab';
 import { FeedbackWidget } from './components/FeedbackWidget';
 import { api, type HealthData } from './lib/api';
-import { initLocale, t } from './lib/i18n';
-
-initLocale();
+import { initLocale, t, type Locale } from './lib/i18n';
 
 const TAB_KEYS = ['Search', 'Browse', 'Analytics', 'Graph', 'Lessons', 'Manage', 'Settings'] as const;
 type Tab = typeof TAB_KEYS[number];
@@ -27,6 +25,7 @@ const TAB_I18N_KEYS: Record<Tab, string> = {
 };
 
 export function App() {
+  const [locale, setLocale] = useState<Locale>(() => initLocale());
   const [tab, setTab] = useState<Tab>('Browse');
   const [health, setHealth] = useState<HealthData | null>(null);
   const [error, setError] = useState('');
@@ -51,7 +50,9 @@ export function App() {
         <div class={`panel ${tab === 'Graph' ? 'active' : ''}`}>{tab === 'Graph' && <GraphTab />}</div>
         <div class={`panel ${tab === 'Lessons' ? 'active' : ''}`}>{tab === 'Lessons' && <LessonsTab />}</div>
         <div class={`panel ${tab === 'Manage' ? 'active' : ''}`}>{tab === 'Manage' && <BrowseTab manage />}</div>
-        <div class={`panel ${tab === 'Settings' ? 'active' : ''}`}>{tab === 'Settings' && <SettingsTab />}</div>
+        <div class={`panel ${tab === 'Settings' ? 'active' : ''}`}>
+          {tab === 'Settings' && <SettingsTab locale={locale} onLocaleChange={setLocale} />}
+        </div>
       </div>
       <FeedbackWidget health={health} />
     </div>

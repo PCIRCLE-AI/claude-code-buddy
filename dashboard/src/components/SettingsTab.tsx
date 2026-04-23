@@ -1,13 +1,18 @@
 import { useState, useEffect } from 'preact/hooks';
 import { api, type ConfigData } from '../lib/api';
-import { t, getLocale, setLocale, getLocales, type Locale } from '../lib/i18n';
+import { t, setLocale, getLocales, type Locale } from '../lib/i18n';
+
+interface SettingsTabProps {
+  locale: Locale;
+  onLocaleChange: (locale: Locale) => void;
+}
 
 function capitalize(s: string): string {
   if (!s) return s;
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-export function SettingsTab() {
+export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   const [config, setConfig] = useState<ConfigData | null>(null);
   const [provider, setProvider] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -71,59 +76,68 @@ export function SettingsTab() {
       {/* LLM Config */}
       <div class="card">
         <div class="card-title">{t('settings.llmProvider')}</div>
-        <div style={{ display: 'flex', gap: 16, marginBottom: 14 }}>
-          {([['anthropic', 'Anthropic (Claude)'], ['openai', 'OpenAI'], ['ollama', 'Ollama (Local)']] as const).map(([val, label]) => (
-            <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 13 }}>
-              <input
-                type="radio"
-                name="provider"
-                value={val}
-                checked={provider === val}
-                onChange={() => setProvider(val)}
-              />
-              {label}
-            </label>
-          ))}
-        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save();
+          }}
+        >
+          <div style={{ display: 'flex', gap: 16, marginBottom: 14 }}>
+            {([['anthropic', 'Anthropic (Claude)'], ['openai', 'OpenAI'], ['ollama', 'Ollama (Local)']] as const).map(([val, label]) => (
+              <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 13 }}>
+                <input
+                  type="radio"
+                  name="provider"
+                  value={val}
+                  checked={provider === val}
+                  onChange={() => setProvider(val)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
 
-        {provider && provider !== 'ollama' && (
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>{t('settings.apiKey')}</label>
+          {provider && provider !== 'ollama' && (
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>{t('settings.apiKey')}</label>
+              <input
+                type="password"
+                autoComplete="off"
+                placeholder={provider === 'anthropic' ? 'sk-ant-api03-…' : 'sk-…'}
+                value={apiKey}
+                onInput={(e) => setApiKey((e.target as HTMLInputElement).value)}
+              />
+            </div>
+          )}
+
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>{t('settings.model')}</label>
             <input
-              type="password"
-              placeholder={provider === 'anthropic' ? 'sk-ant-api03-…' : 'sk-…'}
-              value={apiKey}
-              onInput={(e) => setApiKey((e.target as HTMLInputElement).value)}
+              type="text"
+              placeholder={provider === 'anthropic' ? 'claude-haiku-4-5' : provider === 'openai' ? 'gpt-4o-mini' : 'llama3.2'}
+              value={model}
+              onInput={(e) => setModel((e.target as HTMLInputElement).value)}
             />
           </div>
-        )}
 
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>{t('settings.model')}</label>
-          <input
-            type="text"
-            placeholder={provider === 'anthropic' ? 'claude-haiku-4-5' : provider === 'openai' ? 'gpt-4o-mini' : 'llama3.2'}
-            value={model}
-            onInput={(e) => setModel((e.target as HTMLInputElement).value)}
-          />
-        </div>
-
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <button class="btn btn-primary" onClick={save} disabled={!provider || saving}>
-            {saving ? t('settings.saving') : t('settings.save')}
-          </button>
-          {msg && <span style={{ fontSize: 12, color: msg.startsWith(t('common.error')) ? 'var(--danger)' : 'var(--success)' }}>{msg}</span>}
-        </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button class="btn btn-primary" type="submit" disabled={!provider || saving}>
+              {saving ? t('settings.saving') : t('settings.save')}
+            </button>
+            {msg && <span style={{ fontSize: 12, color: msg.startsWith(t('common.error')) ? 'var(--danger)' : 'var(--success)' }}>{msg}</span>}
+          </div>
+        </form>
       </div>
 
       {/* Language */}
       <div class="card">
         <div class="card-title">{t('settings.language')}</div>
         <select
-          value={getLocale()}
+          value={locale}
           onChange={(e) => {
-            setLocale((e.target as HTMLSelectElement).value as Locale);
-            window.location.reload();
+            const nextLocale = (e.target as HTMLSelectElement).value as Locale;
+            setLocale(nextLocale);
+            onLocaleChange(nextLocale);
           }}
           style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-1)', cursor: 'pointer' }}
         >
