@@ -163,7 +163,7 @@ You don't need to manually remember everything. MeMesh has **5 hooks** that capt
 | **Graph** | Interactive force-directed knowledge graph with type filters, search, ego mode, recency heatmap |
 | **Lessons** | Structured lessons from past failures (error, root cause, fix, prevention) |
 | **Manage** | Archive and restore entities |
-| **Settings** | LLM provider config, language selector |
+| **Settings** | LLM provider config, instant language selector |
 
 ---
 
@@ -178,6 +178,7 @@ You don't need to manually remember everything. MeMesh has **5 hooks** that capt
 **⚠️ Conflict Detection** — If you have two memories that contradict each other, MeMesh warns you.
 
 **📦 Team Sharing** — `memesh export > team-knowledge.json` → share with your team → `memesh import team-knowledge.json`
+Imported bundles stay searchable, but MeMesh does not auto-inject imported memories into Claude hooks until you review or re-store them locally.
 
 ---
 
@@ -259,7 +260,7 @@ Core is framework-agnostic. Same logic runs from terminal, HTTP, or MCP.
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test             # 452 tests
+npm test             # 463 tests
 ```
 
 Dashboard: `cd dashboard && npm install && npm run dev`

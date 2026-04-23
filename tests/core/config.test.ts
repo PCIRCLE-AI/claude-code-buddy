@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import fs from 'fs';
 import {
   maskApiKey,
   detectCapabilities,
+  getConfigDir,
+  getConfigPath,
   readConfig,
   writeConfig,
   updateConfig,
@@ -152,6 +155,18 @@ describe('Config: read/write/update (isolated temp dir)', () => {
       expect(read.sessionLimit).toBe(42);
     } finally {
       // Restore original config
+      writeConfig(originalConfig);
+    }
+  });
+
+  it('writeConfig hardens config file and directory permissions', () => {
+    const originalConfig = readConfig();
+
+    try {
+      writeConfig({ sessionLimit: 7 });
+      expect(fs.statSync(getConfigDir()).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(getConfigPath()).mode & 0o777).toBe(0o600);
+    } finally {
       writeConfig(originalConfig);
     }
   });

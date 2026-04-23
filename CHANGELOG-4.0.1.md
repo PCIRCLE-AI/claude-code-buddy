@@ -14,7 +14,7 @@ This release addresses dashboard access, security, data integrity, release-readi
 - Vector persistence, vector isolation, hook state isolation, and session tracking are corrected
 - Clean npm consumer installs no longer inherit the stale Xenova ONNX dependency chain
 
-Published v4.0.1 had 445 tests. The current v4.0.2 release candidate has 452 tests. No breaking changes.
+Published v4.0.1 had 445 tests. The current v4.0.2 release candidate has 463 tests plus post-publication security hardening around import trust, hook injection boundaries, remote HTTP bind safety, and local file permissions. No breaking changes.
 
 ---
 

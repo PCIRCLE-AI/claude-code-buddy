@@ -6,7 +6,7 @@ import { openDatabase, closeDatabase } from '../../src/db.js';
 
 // Import the Express app (not startServer, which opens its own DB and binds a port).
 // We open our own isolated DB and start the app on a random port.
-import { app } from '../../src/transports/http/server.js';
+import { app, startServer } from '../../src/transports/http/server.js';
 
 let tmpDir: string;
 let server: ReturnType<typeof app.listen>;
@@ -269,6 +269,35 @@ describe('HTTP Transport: POST /v1/learn', () => {
     const res = await req('POST', '/v1/learn', { error: 'Some error' });
     expect(res.status).toBe(400);
     expect(res.body.success).toBe(false);
+  });
+});
+
+describe('HTTP Transport: startServer host guard', () => {
+  it('rejects non-loopback binds without explicit opt-in', () => {
+    expect(() => startServer('0.0.0.0', 0)).toThrow(/Refusing to bind MeMesh HTTP server/);
+  });
+
+  it('allows non-loopback binds when explicit opt-in is provided', async () => {
+    const remoteTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-http-remote-'));
+    const previousDbPath = process.env.MEMESH_DB_PATH;
+    process.env.MEMESH_DB_PATH = path.join(remoteTmpDir, 'test.db');
+
+    let remoteServer: ReturnType<typeof app.listen> | undefined;
+    try {
+      remoteServer = startServer('0.0.0.0', 0, { allowRemote: true });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(remoteServer.listening).toBe(true);
+    } finally {
+      if (remoteServer) {
+        await new Promise<void>((resolve, reject) => {
+          remoteServer!.close((err) => (err ? reject(err) : resolve()));
+        });
+      }
+      closeDatabase();
+      if (previousDbPath === undefined) delete process.env.MEMESH_DB_PATH;
+      else process.env.MEMESH_DB_PATH = previousDbPath;
+      fs.rmSync(remoteTmpDir, { recursive: true, force: true });
+    }
   });
 });
 

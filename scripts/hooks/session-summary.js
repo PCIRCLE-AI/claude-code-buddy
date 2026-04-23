@@ -9,6 +9,7 @@ import { homedir } from 'os';
 import { join, basename, dirname } from 'path';
 import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
+import { getMemeshDir } from './_shared.js';
 
 const require = createRequire(import.meta.url);
 
@@ -152,9 +153,7 @@ process.stdin.on('end', async () => {
 
     // Open DB
     const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
-    const dbDir = process.env.MEMESH_DB_PATH
-      ? join(process.env.MEMESH_DB_PATH, '..')
-      : join(homedir(), '.memesh');
+    const dbDir = getMemeshDir(process.env);
     if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
 
     const Database = require('better-sqlite3');
@@ -244,7 +243,7 @@ process.stdin.on('end', async () => {
       // their names appear in the transcript, update hits/misses.
       try {
         // FIX: Find the most recent session file for this project (within last hour)
-        const sessionsDir = join(homedir(), '.memesh', 'sessions');
+        const sessionsDir = join(getMemeshDir(process.env), 'sessions');
         let injectedData = null;
 
         if (existsSync(sessionsDir)) {

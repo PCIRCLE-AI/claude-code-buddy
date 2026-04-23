@@ -5,6 +5,23 @@ import type { Entity, Relation, CreateEntityInput, SearchOptions, EntityRow } fr
 export class KnowledgeGraph {
   constructor(private db: Database.Database) {}
 
+  updateEntityMetadata(
+    name: string,
+    updater: (currentMetadata: Record<string, unknown>) => Record<string, unknown> | null | undefined
+  ): void {
+    const row = this.db
+      .prepare('SELECT metadata FROM entities WHERE name = ?')
+      .get(name) as { metadata: string | null } | undefined;
+
+    if (!row) return;
+
+    const currentMetadata = this.parseMetadata(row.metadata);
+    const nextMetadata = updater(currentMetadata);
+    this.db
+      .prepare('UPDATE entities SET metadata = ? WHERE name = ?')
+      .run(nextMetadata ? JSON.stringify(nextMetadata) : null, name);
+  }
+
   createEntity(
     name: string,
     type: string,
@@ -142,7 +159,7 @@ export class KnowledgeGraph {
       name: row.name,
       type: row.type,
       created_at: row.created_at,
-      metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+      metadata: row.metadata ? this.parseMetadata(row.metadata) : undefined,
       observations,
       tags,
       relations: relations.length > 0 ? relations : undefined,
@@ -250,7 +267,7 @@ export class KnowledgeGraph {
         name: row.name,
         type: row.type,
         created_at: row.created_at,
-        metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
+        metadata: row.metadata ? this.parseMetadata(row.metadata) : undefined,
         observations,
         tags,
         relations: relations.length > 0 ? relations : undefined,
@@ -605,6 +622,16 @@ export class KnowledgeGraph {
     this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);
 
     return { deleted: true };
+  }
+
+  private parseMetadata(rawMetadata: string | null): Record<string, unknown> {
+    if (!rawMetadata) return {};
+    try {
+      const parsed = JSON.parse(rawMetadata);
+      return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {};
+    } catch {
+      return {};
+    }
   }
 
   private rebuildFts(

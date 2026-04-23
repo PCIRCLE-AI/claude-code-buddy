@@ -1,7 +1,7 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 4.0.1
+**Version**: 4.0.2
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 ---
@@ -196,8 +196,7 @@ Export memories to a portable JSON bundle. Use for backup, sharing with teammate
 |-----------|------|----------|-------------|
 | `namespace` | string | No | Export only entities from this namespace (`"personal"`, `"team"`, `"global"`). Omit to export all namespaces. |
 | `tag` | string | No | Export only entities matching this tag (e.g., `"project:myapp"`) |
-| `names` | string[] | No | Export a specific set of entity names |
-| `include_archived` | boolean | No | Include archived entities in the export (default: false) |
+| `limit` | number | No | Maximum number of active entities to export (default: 1000) |
 
 **Response**:
 
@@ -213,9 +212,7 @@ Export memories to a portable JSON bundle. Use for backup, sharing with teammate
       "namespace": "team",
       "observations": ["Use OAuth 2.0"],
       "tags": ["project:myapp", "topic:auth"],
-      "relations": [],
-      "metadata": {},
-      "confidence": 1.0
+      "relations": []
     }
   ]
 }
@@ -239,14 +236,15 @@ Export memories to a portable JSON bundle. Use for backup, sharing with teammate
 ### import
 
 Import memories from a JSON bundle produced by `export`. Three merge strategies control how conflicts with existing entities are resolved.
+Imported entities are marked with import provenance and treated as untrusted for automatic Claude hook injection until they are reviewed or re-stored locally.
 
 **Input Schema**:
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `bundle` | object | Yes | The JSON bundle produced by `export` |
-| `merge` | string | No | Merge strategy for conflicts: `"skip"` (default), `"overwrite"`, or `"append"` |
-| `namespace_override` | string | No | Force all imported entities into this namespace, ignoring namespace stored in the bundle |
+| `data` | object | Yes | The JSON bundle produced by `export` |
+| `merge_strategy` | string | Yes | Merge strategy for conflicts: `"skip"`, `"overwrite"`, or `"append"` |
+| `namespace` | string | No | Force all imported entities into this namespace, ignoring namespace stored in the bundle |
 
 **Merge Strategies**:
 
@@ -262,7 +260,6 @@ Import memories from a JSON bundle produced by `export`. Three merge strategies 
 {
   "imported": 10,
   "skipped": 2,
-  "overwritten": 0,
   "appended": 0,
   "errors": []
 }
@@ -272,13 +269,13 @@ Import memories from a JSON bundle produced by `export`. Three merge strategies 
 
 ```json
 // Import with default (skip duplicates)
-{"bundle": {...}}
+{"data": {...}, "merge_strategy": "skip"}
 
 // Import and overwrite conflicts
-{"bundle": {...}, "merge": "overwrite"}
+{"data": {...}, "merge_strategy": "overwrite"}
 
 // Import into team namespace
-{"bundle": {...}, "namespace_override": "team"}
+{"data": {...}, "merge_strategy": "skip", "namespace": "team"}
 ```
 
 ---
@@ -421,6 +418,8 @@ Common errors:
 ## HTTP REST API
 
 Start: `memesh serve` (default: `localhost:3737`)
+
+Safety note: non-loopback binds are blocked by default. To expose the HTTP server beyond the local machine, you must pass `memesh serve --host 0.0.0.0 --allow-remote` or set `MEMESH_HTTP_ALLOW_REMOTE=true`. MeMesh does not add an auth layer for you.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -725,4 +724,3 @@ MeMesh runs as a stdio MCP server. Claude Code manages the connection automatica
 Returns user work patterns extracted from existing memory entities.
 
 **Response fields:** `workSchedule` (hour/day distribution), `toolPreferences`, `focusAreas`, `workflow` (avg session minutes, commits/session), `strengths` (high-confidence types), `learningAreas` (tags from lessons/mistakes).
-

@@ -7,6 +7,30 @@ import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import type { ExportInput, ExportResult, ImportInput, ImportResult } from './types.js';
 
+type EntityMetadata = {
+  trust?: 'trusted' | 'untrusted';
+  provenance?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+function buildImportedMetadata(
+  existingMetadata: EntityMetadata | undefined,
+  args: { exportedAt: string; importVersion: string; mergeStrategy: ImportInput['merge_strategy'] }
+): EntityMetadata {
+  return {
+    ...(existingMetadata ?? {}),
+    trust: 'untrusted',
+    provenance: {
+      ...(existingMetadata?.provenance ?? {}),
+      source: 'import',
+      imported_at: new Date().toISOString(),
+      exported_at: args.exportedAt,
+      export_version: args.importVersion,
+      merge_strategy: args.mergeStrategy,
+    },
+  };
+}
+
 /**
  * Export entities as a portable JSON snapshot for sharing or backup.
  * Optional tag and namespace filters narrow the export set.
@@ -57,6 +81,11 @@ export function importMemories(args: ImportInput): ImportResult {
     try {
       const existing = kg.getEntity(entity.name);
       const namespace = args.namespace || entity.namespace || 'personal';
+      const importedMetadata = buildImportedMetadata(existing?.metadata as EntityMetadata | undefined, {
+        exportedAt: args.data.exported_at,
+        importVersion: args.data.version,
+        mergeStrategy: args.merge_strategy,
+      });
 
       if (existing) {
         if (args.merge_strategy === 'skip') {
@@ -69,6 +98,7 @@ export function importMemories(args: ImportInput): ImportResult {
             tags: entity.tags,
             namespace,
           });
+          kg.updateEntityMetadata(entity.name, () => importedMetadata);
           appended++;
           continue;
         }
@@ -79,8 +109,12 @@ export function importMemories(args: ImportInput): ImportResult {
       kg.createEntity(entity.name, entity.type, {
         observations: entity.observations,
         tags: entity.tags,
+        metadata: importedMetadata,
         namespace,
       });
+      if (existing) {
+        kg.updateEntityMetadata(entity.name, () => importedMetadata);
+      }
 
       // Create relations — target entity must exist; silently skip if not
       for (const rel of entity.relations || []) {

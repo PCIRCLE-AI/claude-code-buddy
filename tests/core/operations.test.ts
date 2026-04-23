@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { openDatabase, closeDatabase } from '../../src/db.js';
-import { remember, recall, forget, learn } from '../../src/core/operations.js';
+import { remember, recall, forget, learn, importMemories } from '../../src/core/operations.js';
 
 let tmpDir: string;
 
@@ -105,6 +105,38 @@ describe('Core Operations: remember', () => {
     const found = all.find(e => e.name === 'v1');
     expect(found).toBeDefined();
     expect(found?.archived).toBe(true);
+  });
+
+  it('promotes imported memories back to trusted after local remember', () => {
+    importMemories({
+      merge_strategy: 'skip',
+      data: {
+        version: '3.0.0',
+        exported_at: new Date().toISOString(),
+        entity_count: 1,
+        entities: [{
+          name: 'shared-auth-decision',
+          type: 'decision',
+          namespace: 'team',
+          observations: ['Imported bundle entry'],
+          tags: ['project:test'],
+          relations: [],
+        }],
+      },
+    });
+
+    remember({
+      name: 'shared-auth-decision',
+      type: 'decision',
+      observations: ['Locally confirmed and updated'],
+    });
+
+    const entity = recall({ query: 'shared-auth-decision', include_archived: true })
+      .find((result) => result.name === 'shared-auth-decision');
+    expect(entity?.metadata).toMatchObject({
+      trust: 'trusted',
+      provenance: expect.objectContaining({ source: 'local' }),
+    });
   });
 });
 

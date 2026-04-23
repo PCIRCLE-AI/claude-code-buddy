@@ -34,6 +34,8 @@ export interface Capabilities {
 
 const CONFIG_DIR = path.join(os.homedir(), '.memesh');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
+const PRIVATE_DIR_MODE = 0o700;
+const PRIVATE_FILE_MODE = 0o600;
 
 // --- Read/Write ---
 
@@ -47,8 +49,18 @@ export function readConfig(): MeMeshConfig {
 }
 
 export function writeConfig(config: MeMeshConfig): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), { mode: 0o600 });
+  fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: PRIVATE_DIR_MODE });
+  try {
+    fs.chmodSync(CONFIG_DIR, PRIVATE_DIR_MODE);
+  } catch {
+    // Best-effort hardening only.
+  }
+  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), { mode: PRIVATE_FILE_MODE });
+  try {
+    fs.chmodSync(CONFIG_PATH, PRIVATE_FILE_MODE);
+  } catch {
+    // Best-effort hardening only.
+  }
 }
 
 export function updateConfig(partial: Partial<MeMeshConfig>): MeMeshConfig {

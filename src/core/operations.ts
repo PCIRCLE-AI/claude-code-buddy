@@ -29,6 +29,24 @@ import type {
   Entity,
 } from './types.js';
 
+type EntityMetadata = {
+  trust?: 'trusted' | 'untrusted';
+  provenance?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+function buildLocalMetadata(existingMetadata: EntityMetadata | undefined): EntityMetadata {
+  return {
+    ...(existingMetadata ?? {}),
+    trust: 'trusted',
+    provenance: {
+      ...(existingMetadata?.provenance ?? {}),
+      source: 'local',
+      reviewed_at: new Date().toISOString(),
+    },
+  };
+}
+
 function recallTagFilter(args: RecallInput): string | undefined {
   return args.cross_project ? undefined : args.tag;
 }
@@ -41,12 +59,14 @@ function recallTagFilter(args: RecallInput): string | undefined {
 export function remember(args: RememberInput): RememberResult {
   const db = getDatabase();
   const kg = new KnowledgeGraph(db);
+  const existing = kg.getEntity(args.name);
 
   const entityId = kg.createEntity(args.name, args.type, {
     observations: args.observations,
     tags: args.tags,
     namespace: args.namespace,
   });
+  kg.updateEntityMetadata(args.name, () => buildLocalMetadata(existing?.metadata as EntityMetadata | undefined));
 
   // Create relations (target entities must already exist)
   const relationsCreated: Array<{ to: string; type: string }> = [];

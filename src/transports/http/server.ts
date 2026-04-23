@@ -529,8 +529,32 @@ app.get('/v1/entities/:name', (req, res) => {
 // --- Start server ---
 const HOST = process.env.MEMESH_HTTP_HOST || '127.0.0.1';
 const PORT = parseInt(process.env.MEMESH_HTTP_PORT || '3737');
+const ALLOW_REMOTE_BY_ENV = /^(1|true|yes)$/i.test(process.env.MEMESH_HTTP_ALLOW_REMOTE || '');
 
-export function startServer(host = HOST, port = PORT): ReturnType<typeof app.listen> {
+function normalizeHost(host: string): string {
+  return host.trim().toLowerCase().replace(/^\[(.*)\]$/, '$1');
+}
+
+function isLoopbackHost(host: string): boolean {
+  const normalized = normalizeHost(host);
+  return normalized === 'localhost'
+    || normalized === '::1'
+    || normalized === '127.0.0.1'
+    || normalized.startsWith('127.')
+    || normalized.startsWith('::ffff:127.');
+}
+
+export function startServer(
+  host = HOST,
+  port = PORT,
+  opts?: { allowRemote?: boolean }
+): ReturnType<typeof app.listen> {
+  const allowRemote = opts?.allowRemote ?? ALLOW_REMOTE_BY_ENV;
+  if (!allowRemote && !isLoopbackHost(host)) {
+    throw new Error(
+      `Refusing to bind MeMesh HTTP server to non-loopback host "${host}" without explicit remote access opt-in. Use --allow-remote or MEMESH_HTTP_ALLOW_REMOTE=true.`
+    );
+  }
   openDatabase();
   logCapabilities();
   const server = app.listen(port, host, () => {

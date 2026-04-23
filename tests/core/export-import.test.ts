@@ -122,6 +122,12 @@ describe('importMemories', () => {
     expect(result.skipped).toBe(0);
     expect(result.appended).toBe(0);
     expect(result.errors).toHaveLength(0);
+
+    const importedEntity = recall({ query: 'new-a' }).find((entity) => entity.name === 'new-a');
+    expect(importedEntity?.metadata).toMatchObject({
+      trust: 'untrusted',
+      provenance: expect.objectContaining({ source: 'import', merge_strategy: 'skip' }),
+    });
   });
 
   it('skips existing entities with skip strategy', () => {
@@ -152,6 +158,12 @@ describe('importMemories', () => {
     const result = importMemories({ data, merge_strategy: 'append' });
     expect(result.appended).toBe(1);
     expect(result.imported).toBe(0);
+
+    const existing = recall({ query: 'existing' }).find((entity) => entity.name === 'existing');
+    expect(existing?.metadata).toMatchObject({
+      trust: 'untrusted',
+      provenance: expect.objectContaining({ source: 'import', merge_strategy: 'append' }),
+    });
   });
 
   it('overwrites existing entity with overwrite strategy', () => {
@@ -161,6 +173,12 @@ describe('importMemories', () => {
     expect(result.imported).toBe(1);
     expect(result.skipped).toBe(0);
     expect(result.appended).toBe(0);
+
+    const existing = recall({ query: 'existing' }).find((entity) => entity.name === 'existing');
+    expect(existing?.metadata).toMatchObject({
+      trust: 'untrusted',
+      provenance: expect.objectContaining({ source: 'import', merge_strategy: 'overwrite' }),
+    });
   });
 
   it('overrides namespace on import', () => {

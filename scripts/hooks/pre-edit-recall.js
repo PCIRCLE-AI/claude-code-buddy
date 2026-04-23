@@ -6,13 +6,20 @@
 
 import { createRequire } from 'module';
 import { homedir } from 'os';
-import { dirname, join, basename } from 'path';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join, basename } from 'path';
+import { existsSync, readFileSync } from 'fs';
+import {
+  buildReferenceContext,
+  ensurePrivateDir,
+  getMemeshDir,
+  isTrustedForAutoContext,
+  writePrivateJson,
+} from './_shared.js';
 
 const require = createRequire(import.meta.url);
 
 const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
-const memeshDir = process.env.MEMESH_DB_PATH ? dirname(process.env.MEMESH_DB_PATH) : join(homedir(), '.memesh');
+const memeshDir = getMemeshDir(process.env);
 const THROTTLE_FILE = join(memeshDir, 'session-recalled-files.json');
 const MAX_RESULTS = 3;
 
@@ -78,7 +85,7 @@ process.stdin.on('end', () => {
       // CRITICAL: Filter by project to prevent cross-project memory injection
       const projectTag = `project:${projectName}`;
       const tagResults = db.prepare(`
-        SELECT DISTINCT e.id, e.name, e.type
+        SELECT DISTINCT e.id, e.name, e.type, e.metadata
         FROM entities e
         JOIN tags t1 ON t1.entity_id = e.id
         JOIN tags t2 ON t2.entity_id = e.id
@@ -86,15 +93,15 @@ process.stdin.on('end', () => {
           AND t2.tag = ?
         ${statusFilter}
         LIMIT ?
-      `).all(`file:${fileName}`, `file:${fileNameNoExt}`, projectTag, MAX_RESULTS);
-      results.push(...tagResults);
+      `).all(`file:${fileName}`, `file:${fileNameNoExt}`, projectTag, MAX_RESULTS * 3);
+      results.push(...tagResults.filter((row) => isTrustedForAutoContext(row.metadata)));
 
       // Strategy 2: FTS5 search on file name (if not enough results)
       // CRITICAL: Filter by project to prevent cross-project memory injection
       if (results.length < MAX_RESULTS && fileNameNoExt.length >= 4) {
         try {
           const ftsResults = db.prepare(`
-            SELECT DISTINCT e.id, e.name, e.type
+            SELECT DISTINCT e.id, e.name, e.type, e.metadata
             FROM entities e
             JOIN entities_fts fts ON fts.rowid = e.id
             JOIN tags t ON t.entity_id = e.id
@@ -102,9 +109,10 @@ process.stdin.on('end', () => {
               AND t.tag = ?
             ${statusFilter}
             LIMIT ?
-          `).all('"' + fileNameNoExt.replace(/"/g, '""') + '"', projectTag, MAX_RESULTS - results.length);
+          `).all('"' + fileNameNoExt.replace(/"/g, '""') + '"', projectTag, (MAX_RESULTS - results.length) * 3);
           // Deduplicate
           for (const r of ftsResults) {
+            if (!isTrustedForAutoContext(r.metadata)) continue;
             if (!results.some(existing => existing.id === r.id)) {
               results.push(r);
             }
@@ -126,7 +134,7 @@ process.stdin.on('end', () => {
       );
 
       const lines = [`Relevant memories for ${fileName}:`];
-      for (const r of results) {
+      for (const r of results.slice(0, MAX_RESULTS)) {
         const obs = getObs.get(r.id);
         const snippet = obs ? obs.content.slice(0, 120) : '';
         lines.push(snippet
@@ -141,7 +149,7 @@ process.stdin.on('end', () => {
       console.log(JSON.stringify({
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
-          additionalContext: lines.join('\n'),
+          additionalContext: buildReferenceContext(lines),
         },
       }));
     } finally {
@@ -163,8 +171,8 @@ function recordSeen(seenFiles, fileKey) {
     seenFiles.push(fileKey);
     // Cap at 100 to prevent unbounded growth
     if (seenFiles.length > 100) seenFiles = seenFiles.slice(-50);
-    if (!existsSync(memeshDir)) mkdirSync(memeshDir, { recursive: true });
-    writeFileSync(THROTTLE_FILE, JSON.stringify(seenFiles), 'utf8');
+    ensurePrivateDir(memeshDir);
+    writePrivateJson(THROTTLE_FILE, seenFiles);
   } catch {
     // Non-critical
   }

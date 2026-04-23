@@ -3,13 +3,20 @@
 import { createRequire } from 'module';
 import { homedir } from 'os';
 import { dirname, join, basename } from 'path';
-import { existsSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
+import { existsSync, unlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
+import {
+  buildReferenceContext,
+  ensurePrivateDir,
+  getMemeshDir,
+  isTrustedForAutoContext,
+  writePrivateJson,
+} from './_shared.js';
 
 const require = createRequire(import.meta.url);
 
 const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
-const memeshDir = process.env.MEMESH_DB_PATH ? dirname(process.env.MEMESH_DB_PATH) : join(homedir(), '.memesh');
+const memeshDir = getMemeshDir(process.env);
 const throttlePath = join(memeshDir, 'session-recalled-files.json');
 
 let input = '';
@@ -85,14 +92,16 @@ process.stdin.on('end', async () => {
       // Query project-specific top-N entities by relevance score
       const projectTag = `project:${projectName}`;
       const projectEntities = db.prepare(`
-        SELECT DISTINCT e.id, e.name, e.type, e.created_at
+        SELECT DISTINCT e.id, e.name, e.type, e.created_at, e.metadata
         FROM entities e
         JOIN tags t ON t.entity_id = e.id
         WHERE t.tag = ?
         ${statusFilter}
         ${scoringOrderBy}
         LIMIT ?
-      `).all(projectTag, sessionLimit);
+      `).all(projectTag, sessionLimit * 3)
+        .filter(entity => isTrustedForAutoContext(entity.metadata))
+        .slice(0, sessionLimit);
 
       // Fetch the first observation for each entity (for concise summary)
       const getFirstObservation = db.prepare(
@@ -101,12 +110,14 @@ process.stdin.on('end', async () => {
 
       // Query global recent/top entities (exclude project-tagged ones for this project)
       const recentEntities = db.prepare(`
-        SELECT id, name, type, created_at
+        SELECT id, name, type, created_at, metadata
         FROM entities
         ${recentStatusFilter}
         ${recentScoringOrderBy}
-        LIMIT 5
-      `).all();
+        LIMIT 15
+      `).all()
+        .filter(entity => isTrustedForAutoContext(entity.metadata))
+        .slice(0, 5);
 
       // Format entity as concise bullet: "• name (type): first observation (truncated)"
       function formatEntity(entity) {
@@ -144,7 +155,7 @@ process.stdin.on('end', async () => {
       // --- Proactive lesson warnings ---
       try {
         const lessonEntities = db.prepare(`
-          SELECT DISTINCT e.id, e.name, e.confidence
+          SELECT DISTINCT e.id, e.name, e.confidence, e.metadata
           FROM entities e
           JOIN tags t ON t.entity_id = e.id
           WHERE e.type = 'lesson_learned'
@@ -152,8 +163,8 @@ process.stdin.on('end', async () => {
             AND t.tag = ?
           ORDER BY CASE WHEN e.confidence IS NULL THEN 0.5 ELSE e.confidence END DESC,
                    CASE WHEN e.access_count IS NULL THEN 0 ELSE e.access_count END DESC
-          LIMIT 5
-        `).all(projectTag);
+          LIMIT 15
+        `).all(projectTag).filter(entity => isTrustedForAutoContext(entity.metadata));
 
         if (lessonEntities.length > 0) {
           memorySummary += '\n\n⚠️ Known lessons for this project:\n';
@@ -189,21 +200,20 @@ process.stdin.on('end', async () => {
 
         if (allInjected.length > 0) {
           const sessionsDir = join(memeshDir, 'sessions');
-          if (!existsSync(sessionsDir)) mkdirSync(sessionsDir, { recursive: true });
+          ensurePrivateDir(sessionsDir);
 
           // FIX: Use session-scoped file with unique ID (pid + timestamp)
           const sessionId = `${process.pid}-${Date.now()}`;
-          writeFileSync(
+          writePrivateJson(
             join(sessionsDir, `${sessionId}.json`),
-            JSON.stringify({
+            {
               injectedAt: new Date().toISOString(),
               project: projectName,
               entityIds: allInjected.map(e => e.id),
               entityNames: allInjected.map(e => e.name),
               // FIX: Save injected context text to exclude from hit detection
               injectedContext: memorySummary,
-            }),
-            'utf8'
+            }
           );
 
           // Clean up old session files (>24h)
@@ -228,7 +238,7 @@ process.stdin.on('end', async () => {
         suppressOutput: true,
         hookSpecificOutput: {
           hookEventName: 'SessionStart',
-          additionalContext: memorySummary,
+          additionalContext: buildReferenceContext(memorySummary.split('\n')),
         },
       };
       console.log(JSON.stringify(hookOutput));

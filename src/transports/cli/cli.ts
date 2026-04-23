@@ -340,9 +340,10 @@ program
   .description('Start HTTP API server')
   .option('--port <port>', 'Port number', '3737')
   .option('--host <host>', 'Host to bind', '127.0.0.1')
+  .option('--allow-remote', 'Allow binding to non-loopback hosts (no auth layer is added)')
   .action(async (opts) => {
     const { startServer } = await import('../http/server.js');
-    startServer(opts.host, parseInt(opts.port));
+    startServer(opts.host, parseInt(opts.port, 10), { allowRemote: opts.allowRemote });
   });
 
 // --- update ---
