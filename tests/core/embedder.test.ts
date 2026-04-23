@@ -46,8 +46,8 @@ describe('Embedder', () => {
     expect(first).toBe(second);
   });
 
-  it('isEmbeddingAvailable returns true when @xenova/transformers is installed', () => {
-    // In this test environment, @xenova/transformers IS installed as a dependency
+  it('isEmbeddingAvailable returns true when @huggingface/transformers is installed', () => {
+    // In this test environment, @huggingface/transformers IS installed as a dependency
     const result = isEmbeddingAvailable();
     expect(result).toBe(true);
   });

@@ -282,4 +282,9 @@ describe('HTTP Transport: GET /dashboard', () => {
     const html = await res.text();
     expect(html).toContain('MeMesh');
   });
+
+  it('returns no content for browser favicon probes', async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/favicon.ico`);
+    expect(res.status).toBe(204);
+  });
 });

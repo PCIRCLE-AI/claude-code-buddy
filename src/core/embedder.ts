@@ -1,6 +1,6 @@
 // =============================================================================
 // Embedder — multi-provider embedding generation
-// Supports: OpenAI API, Ollama, ONNX (@xenova/transformers), none
+// Supports: OpenAI API, Ollama, ONNX (@huggingface/transformers), none
 // Provider selection: config.llm.provider → API embeddings if available,
 // ONNX fallback, graceful no-op if nothing available
 // =============================================================================
@@ -16,6 +16,7 @@ let onnxPipelineLoading: Promise<any> | null = null;
 let onnxAvailableChecked = false;
 let onnxAvailableResult = false;
 const MAX_VECTOR_DISTANCE = 1;
+const ONNX_TRANSFORMERS_PACKAGE = '@huggingface/transformers';
 const pendingEmbeddingWrites = new Set<Promise<void>>();
 
 // --- Public API ---
@@ -228,14 +229,14 @@ async function embedWithOllama(text: string, config: LLMConfig): Promise<Float32
   return new Float32Array(embedding);
 }
 
-// --- ONNX (local, @xenova/transformers) ---
+// --- ONNX (local, @huggingface/transformers) ---
 
 function isOnnxAvailable(): boolean {
   if (onnxAvailableChecked) return onnxAvailableResult;
   onnxAvailableChecked = true;
   try {
     const require = createRequire(import.meta.url);
-    require.resolve('@xenova/transformers');
+    require.resolve(ONNX_TRANSFORMERS_PACKAGE);
     onnxAvailableResult = true;
   } catch {
     onnxAvailableResult = false;
@@ -249,7 +250,7 @@ async function getOnnxPipeline(): Promise<any> {
 
   onnxPipelineLoading = (async () => {
     try {
-      const mod: any = await import('@xenova/transformers');
+      const mod: any = await import(ONNX_TRANSFORMERS_PACKAGE);
       const createPipeline = mod.pipeline;
       const env = mod.env;
       if (env) {

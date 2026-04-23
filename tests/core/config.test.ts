@@ -61,9 +61,9 @@ describe('Config: detectCapabilities', () => {
     expect(caps.llm).toBeNull();
   });
 
-  it('uses tfidf embeddings when no LLM', () => {
+  it('reports local ONNX embeddings when no LLM is configured', () => {
     const caps = detectCapabilities({});
-    expect(caps.embeddings).toBe('tfidf');
+    expect(caps.embeddings).toBe('onnx');
   });
 
   it('returns Level 1 with LLM config provided directly', () => {

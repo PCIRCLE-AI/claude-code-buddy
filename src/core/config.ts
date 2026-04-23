@@ -113,13 +113,12 @@ export function detectCapabilities(config?: MeMeshConfig): Capabilities {
  * Anthropic has no embedding API — falls back to ONNX or tfidf.
  */
 function detectEmbeddingSource(llm: LLMConfig | null): Capabilities['embeddings'] {
-  if (!llm) return 'tfidf';
-  if (llm.provider === 'openai') return 'openai';
-  if (llm.provider === 'ollama') return 'ollama';
-  // Anthropic has no embedding API — check if ONNX is available
+  if (llm?.provider === 'openai') return 'openai';
+  if (llm?.provider === 'ollama') return 'ollama';
+  // No LLM and Anthropic both use local ONNX when available.
   try {
     const require = createRequire(import.meta.url);
-    require.resolve('@xenova/transformers');
+    require.resolve('@huggingface/transformers');
     return 'onnx';
   } catch {
     return 'tfidf';

@@ -75,7 +75,9 @@ Dockerfile.test
 
 # === Internal docs (not for public repo) ===
 docs/archive/
-docs/plans/
+docs/plans/*
+!docs/plans/
+!docs/plans/README.md
 docs/internal/
 docs/guides/
 

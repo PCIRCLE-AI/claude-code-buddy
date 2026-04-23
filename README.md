@@ -259,7 +259,7 @@ Core is framework-agnostic. Same logic runs from terminal, HTTP, or MCP.
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test             # 445 tests
+npm test             # 452 tests
 ```
 
 Dashboard: `cd dashboard && npm install && npm run dev`

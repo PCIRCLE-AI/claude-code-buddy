@@ -44,6 +44,10 @@ const apiLimiter = rateLimit({
 // Apply rate limiting to all API routes
 app.use('/v1/', apiLimiter);
 
+app.get('/favicon.ico', (_req, res) => {
+  res.status(204).end();
+});
+
 // --- Security headers ---
 app.use((_req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');

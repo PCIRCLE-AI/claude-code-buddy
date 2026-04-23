@@ -60,7 +60,7 @@ src/
 │   ├── lifecycle.ts       # Auto-decay + consolidation orchestration
 │   ├── failure-analyzer.ts # LLM-powered failure analysis → StructuredLesson
 │   ├── lesson-engine.ts   # Structured lesson creation, upsert, project query
-│   ├── embedder.ts        # Neural embeddings (Xenova/all-MiniLM-L6-v2, 384-dim)
+│   ├── embedder.ts        # Neural embeddings (@huggingface/transformers + all-MiniLM-L6-v2, 384-dim)
 │   ├── auto-tagger.ts     # LLM-powered auto-tag generation (fire-and-forget)
 │   ├── patterns.ts        # User work patterns computation (shared by MCP + HTTP)
 │   └── version-check.ts   # npm registry version check

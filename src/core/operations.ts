@@ -334,7 +334,7 @@ export async function reindex(opts?: { namespace?: string }): Promise<{
   skipped: number;
 }> {
   if (!isEmbeddingAvailable()) {
-    throw new Error('No embedding provider available. Configure OpenAI API key, Ollama, or install @xenova/transformers.');
+    throw new Error('No embedding provider available. Configure OpenAI API key, Ollama, or install @huggingface/transformers.');
   }
 
   const db = getDatabase();

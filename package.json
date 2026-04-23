@@ -1,6 +1,6 @@
 {
   "name": "@pcircle/memesh",
-  "version": "4.0.1",
+  "version": "4.0.2",
   "description": "MeMesh — The lightest universal AI memory layer. One SQLite file, any LLM, zero cloud.",
   "main": "dist/index.js",
   "type": "module",
@@ -47,8 +47,8 @@
     "url": "git+https://github.com/PCIRCLE-AI/memesh-llm-memory.git"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@xenova/transformers": "^2.17.2",
     "better-sqlite3": "^12.9.0",
     "commander": "^14.0.3",
     "express": "^5.2.1",
@@ -62,9 +62,6 @@
     "@types/node": "^25.0.9",
     "typescript": "^5.9.3",
     "vitest": "^4.0.17"
-  },
-  "overrides": {
-    "protobufjs": "^7.5.5"
   },
   "engines": {
     "node": ">=20.0.0"

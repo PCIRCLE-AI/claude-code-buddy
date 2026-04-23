@@ -2,6 +2,21 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.0.2] — 2026-04-23
+
+### Fixed
+- **sqlite-vec Vector Persistence** — Fixed vector writes by binding vec0 row IDs as `BigInt`, replacing vectors via delete+insert, and using byte-offset-safe embedding blobs. CLI `remember` now flushes queued embeddings before closing the database.
+- **Vector Recall Overmatching** — Vector recall hydration now applies archive, namespace, and tag filters, and ignores non-positive similarity hits so no-match queries do not return arbitrary nearest neighbors.
+- **Hook State Directory Isolation** — Pre-edit recall throttle state now lives beside `MEMESH_DB_PATH` when a custom DB path is configured, and session-start clears the same file. This fixes Windows home-directory drift in hooks and tests.
+- **Clean Consumer Install Audit** — Replaced stale `@xenova/transformers` with maintained `@huggingface/transformers`, removing the vulnerable `onnxruntime-web -> onnx-proto -> protobufjs@6` dependency chain for clean npm consumers.
+- **Embedding Capability Reporting** — Level 0/no-LLM mode now reports `onnx` when the local Transformers.js provider is available, matching the actual runtime embedding fallback.
+- **Dashboard Browser Smoke** — Added a no-content favicon response so packaged dashboard browser smoke tests stay console-clean.
+
+### Changed
+- Added `docs/plans/README.md` to mark historical plans as archived context, not active backlog.
+- 452 tests passing across 29 test files.
+- Verified clean-machine packed install, clean consumer audit, packaged CLI smoke, packaged dashboard browser smoke, and npm registry publication status.
+
 ## [4.0.1] — 2026-04-21
 
 ### Fixed
