@@ -11,9 +11,12 @@ import { app, startServer } from '../../src/transports/http/server.js';
 let tmpDir: string;
 let server: ReturnType<typeof app.listen>;
 let port: number;
+let updateCheckPath: string;
 
 beforeAll(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-http-'));
+  updateCheckPath = path.join(tmpDir, 'update-check.json');
+  process.env.MEMESH_UPDATE_CHECK_PATH = updateCheckPath;
   openDatabase(path.join(tmpDir, 'test.db'));
 
   // Bind on port 0 → OS assigns a free port
@@ -28,6 +31,7 @@ afterAll(async () => {
     server.close((err) => (err ? reject(err) : resolve()));
   });
   closeDatabase();
+  delete process.env.MEMESH_UPDATE_CHECK_PATH;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -196,6 +200,28 @@ describe('HTTP Transport: GET /v1/config', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.capabilities).toBeDefined();
     expect(res.body.data.capabilities.fts5).toBe(true);
+  });
+});
+
+describe('HTTP Transport: GET /v1/update-status', () => {
+  it('returns cached update metadata when requested', async () => {
+    fs.writeFileSync(updateCheckPath, JSON.stringify({
+      currentVersion: '4.0.1',
+      latestVersion: '4.0.3',
+      checkedAt: '2026-04-24T10:00:00.000Z',
+      updateAvailable: true,
+      checkSucceeded: true,
+    }));
+
+    const res = await req('GET', '/v1/update-status?cached=1');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.currentVersion).toBeDefined();
+    expect(res.body.data.latestVersion).toBe('4.0.3');
+    expect(res.body.data.updateAvailable).toBe(true);
+    expect(res.body.data.checkSucceeded).toBe(true);
+    expect(res.body.data.source).toBe('cache');
+    expect(res.body.data.recommendedCommand).toBe('memesh update');
   });
 });
 

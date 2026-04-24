@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
-import { api, type ConfigData } from '../lib/api';
+import { api, type ConfigData, type UpdateStatusData } from '../lib/api';
 import { t, setLocale, getLocales, type Locale } from '../lib/i18n';
 
 interface SettingsTabProps {
@@ -12,14 +12,24 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+function formatTimestamp(locale: Locale, value: string | null): string {
+  if (!value) return '—';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(locale);
+}
+
 export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   const [config, setConfig] = useState<ConfigData | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatusData | null>(null);
   const [provider, setProvider] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [loading, setLoading] = useState(true);
+  const [updateLoading, setUpdateLoading] = useState(true);
 
   useEffect(() => {
     api<ConfigData>('GET', '/v1/config')
@@ -29,6 +39,11 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         setModel(data.config.llm?.model || '');
       })
       .finally(() => setLoading(false));
+
+    api<UpdateStatusData>('GET', '/v1/update-status')
+      .then((data) => setUpdateStatus(data))
+      .catch(() => setUpdateStatus(null))
+      .finally(() => setUpdateLoading(false));
   }, []);
 
   async function save() {
@@ -52,6 +67,21 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
 
   const caps = config?.capabilities;
   const searchModeLabel = caps?.searchLevel ? t('settings.smartMode') : t('settings.core');
+  const updateSummary = updateLoading
+    ? t('settings.updateChecking')
+    : !updateStatus?.checkSucceeded
+      ? t('settings.updateUnavailable')
+      : updateStatus.updateAvailable
+        ? t('settings.updateAvailable')
+        : t('settings.upToDate');
+  const updateSummaryColor = !updateStatus?.checkSucceeded
+    ? 'var(--warning)'
+    : updateStatus.updateAvailable
+      ? 'var(--info)'
+      : 'var(--success)';
+  const updateSourceLabel = updateStatus?.source === 'cache'
+    ? t('settings.updateSourceCached')
+    : t('settings.updateSourceFresh');
 
   return (
     <div>
@@ -128,6 +158,38 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             {msg && <span style={{ fontSize: 12, color: msg.startsWith(t('common.error')) ? 'var(--danger)' : 'var(--success)' }}>{msg}</span>}
           </div>
         </form>
+      </div>
+
+      {/* Updates */}
+      <div class="card">
+        <div class="card-title">{t('settings.updates')}</div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'baseline', marginBottom: 12, flexWrap: 'wrap' }}>
+          <div style={{ color: updateSummaryColor, fontSize: 13, fontWeight: 600 }}>{updateSummary}</div>
+          {!updateLoading && updateStatus?.checkSucceeded && (
+            <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{updateSourceLabel}</div>
+          )}
+        </div>
+
+        <div style={{ display: 'grid', gap: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12 }}>
+            <span style={{ color: 'var(--text-2)' }}>{t('settings.currentVersion')}</span>
+            <span style={{ color: 'var(--text-0)', fontFamily: 'var(--mono)' }}>{updateStatus?.currentVersion || '—'}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12 }}>
+            <span style={{ color: 'var(--text-2)' }}>{t('settings.latestVersion')}</span>
+            <span style={{ color: 'var(--text-0)', fontFamily: 'var(--mono)' }}>{updateStatus?.latestVersion || '—'}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12 }}>
+            <span style={{ color: 'var(--text-2)' }}>{t('settings.lastChecked')}</span>
+            <span style={{ color: 'var(--text-0)' }}>{updateLoading ? t('common.loading') : formatTimestamp(locale, updateStatus?.checkedAt || null)}</span>
+          </div>
+          <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>
+            <span style={{ color: 'var(--text-2)', fontSize: 12 }}>{t('settings.updateCommand')}</span>
+            <code style={{ color: 'var(--text-0)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', fontSize: 12, fontFamily: 'var(--mono)' }}>
+              {updateStatus?.recommendedCommand || 'memesh update'}
+            </code>
+          </div>
+        </div>
       </div>
 
       {/* Language */}

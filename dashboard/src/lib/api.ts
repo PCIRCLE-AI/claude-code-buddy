@@ -43,6 +43,16 @@ export interface HealthData {
   entity_count: number;
 }
 
+export interface UpdateStatusData {
+  currentVersion: string;
+  latestVersion: string | null;
+  checkedAt: string | null;
+  updateAvailable: boolean;
+  checkSucceeded: boolean;
+  source: 'fresh' | 'cache' | null;
+  recommendedCommand: string;
+}
+
 export interface StatsData {
   totalEntities: number;
   totalObservations: number;

@@ -349,10 +349,16 @@ program
 // --- update ---
 program
   .command('update')
-  .description('Update MeMesh to latest version')
+  .description('Update MeMesh to latest version (npm global installs)')
   .action(async () => {
     const { checkForUpdate } = await import('../../core/version-check.js');
     const check = await checkForUpdate(pkg.version);
+
+    if (!check.checkSucceeded || !check.latestVersion) {
+      console.error('❌ Unable to check npm for the latest MeMesh version right now.');
+      console.error('   Try again later, or update manually: npm install -g @pcircle/memesh@latest');
+      process.exit(1);
+    }
 
     if (!check.updateAvailable) {
       console.log(`✅ Already on latest version (${pkg.version})`);
@@ -361,12 +367,15 @@ program
 
     console.log(`🔄 Updating ${pkg.version} → ${check.latestVersion}...`);
 
-    const { execFileSync } = await import('child_process');
     try {
-      execFileSync('npm', ['install', '-g', `@pcircle/memesh@${check.latestVersion}`], { stdio: 'inherit' });
-      console.log(`✅ Updated to ${check.latestVersion}`);
-    } catch {
-      console.error('❌ Update failed. Try manually: npm install -g @pcircle/memesh@latest');
+      const { runGlobalUpdate } = await import('../../core/updater.js');
+      const result = runGlobalUpdate(check.latestVersion);
+      console.log(`✅ Updated to ${result.installedVersion}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'unknown error';
+      console.error(`❌ Update failed: ${message}`);
+      console.error('   This command supports npm global installs.');
+      console.error('   Try manually: npm install -g @pcircle/memesh@latest');
       process.exit(1);
     }
   });
@@ -406,18 +415,19 @@ program
 program
   .command('status')
   .description('Show MeMesh status and capabilities')
-  .action(async () => {
+  .option('--cached', 'Use cached update info only (skip fresh npm lookup)')
+  .action(async (opts) => {
     const caps = detectCapabilities();
-    const { getLastUpdateCheck } = await import('../../core/version-check.js');
-    const update = getLastUpdateCheck();
+    const { getUpdateCheck, formatUpdateCheckStatus } = await import('../../core/version-check.js');
+    const update = await getUpdateCheck(pkg.version, { preferFresh: !opts.cached });
 
     console.log(`MeMesh v${pkg.version}`);
     console.log(`Search level: ${caps.searchLevel} (${caps.searchLevel === 1 ? 'Smart Mode' : 'Core'})`);
     console.log(`Embeddings: ${caps.embeddings}`);
     console.log(`LLM: ${caps.llm ? `${caps.llm.provider} (${caps.llm.model})` : 'not configured'}`);
 
-    if (update?.updateAvailable) {
-      console.log(`\n🔄 Update available: ${update.latestVersion} (run: memesh update)`);
+    for (const line of formatUpdateCheckStatus(update)) {
+      console.log(`\n${line}`);
     }
   });
 

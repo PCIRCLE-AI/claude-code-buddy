@@ -16,6 +16,7 @@ import {
   ExportSchema as ExportBody, ImportSchema as ImportBody,
   LearnSchema as LearnBody,
 } from '../schemas.js';
+import { getUpdateCheck } from '../../core/version-check.js';
 
 import fs from 'fs';
 import path from 'path';
@@ -242,6 +243,29 @@ app.post('/v1/config', (req, res) => {
     res.json({ success: true, data: safeUpdated });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// --- Update status ---
+app.get('/v1/update-status', async (req, res) => {
+  try {
+    const cached = req.query.cached === '1' || req.query.cached === 'true';
+    const update = await getUpdateCheck(packageVersion, { preferFresh: !cached });
+
+    res.json({
+      success: true,
+      data: {
+        currentVersion: packageVersion,
+        latestVersion: update?.latestVersion ?? null,
+        checkedAt: update?.checkedAt ?? null,
+        updateAvailable: update?.updateAvailable ?? false,
+        checkSucceeded: update?.checkSucceeded ?? false,
+        source: update?.source ?? null,
+        recommendedCommand: 'memesh update',
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
