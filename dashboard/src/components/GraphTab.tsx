@@ -62,10 +62,10 @@ function computeRecency(dateStr: string | undefined): number {
 function formatAge(dateStr: string): string {
   const ageMs = Date.now() - new Date(dateStr).getTime();
   const days = Math.floor(ageMs / 86400000);
-  if (days < 1) return 'today';
-  if (days < 7) return `${days}d ago`;
-  if (days < 30) return `${Math.floor(days / 7)}w ago`;
-  return `${days}d ago`;
+  if (days < 1) return t('graph.ageToday');
+  if (days < 7) return t('graph.ageDaysAgo', { count: days });
+  if (days < 30) return t('graph.ageWeeksAgo', { count: Math.floor(days / 7) });
+  return t('graph.ageDaysAgo', { count: days });
 }
 
 declare global {
@@ -568,7 +568,7 @@ export function GraphTab() {
   /* ---------- derived data for render ---------- */
   if (loading) return <div class="empty"><div class="loading" /></div>;
   if (error) return <div class="error-box">{t('common.error')}: {error}</div>;
-  if (!data) return <div class="error-box">{t('common.error')}: No data</div>;
+  if (!data) return <div class="error-box">{t('common.error')}: {t('common.noData')}</div>;
 
   // Type counts
   const typeGroups = new Map<string, number>();

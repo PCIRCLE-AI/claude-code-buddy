@@ -55,7 +55,7 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
       await api('POST', '/v1/forget', { name });
       load();
     } catch (e: any) {
-      setError('Failed to archive: ' + e.message);
+      setError(t('browse.archiveFailed', { message: e.message }));
     }
   }
 
@@ -64,7 +64,7 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
       await api('POST', '/v1/remember', { name, type: 'restored' });
       load();
     } catch (e: any) {
-      setError('Failed to restore: ' + e.message);
+      setError(t('browse.restoreFailed', { message: e.message }));
     }
   }
 

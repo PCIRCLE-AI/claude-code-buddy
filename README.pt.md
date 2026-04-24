@@ -3,253 +3,108 @@
 <p align="center">
   <h1 align="center">MeMesh LLM Memory</h1>
   <p align="center">
-    <strong>A camada de memória de IA universal mais leve.</strong><br />
-    Um único arquivo SQLite. Qualquer LLM. Zero nuvem.
-  </p>
-  <p align="center">
-    <a href="https://www.npmjs.com/package/@pcircle/memesh"><img src="https://img.shields.io/npm/v/@pcircle/memesh?style=flat-square&color=3b82f6&label=npm" alt="npm" /></a>
-    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" alt="MIT" /></a>
-    <a href="https://nodejs.org"><img src="https://img.shields.io/badge/node-%3E%3D20-22c55e?style=flat-square" alt="Node" /></a>
-    <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-a855f7?style=flat-square" alt="MCP" /></a>
+    <strong>Camada de memória local para Claude Code e agentes de código compatíveis com MCP.</strong><br />
+    Um arquivo SQLite. Sem Docker. Sem depender de nuvem.
   </p>
 </p>
 
----
+> Este README em português é uma versão resumida. Para a documentação mais completa e atualizada, use o [English README](README.md).
 
-## O Problema
+## Qual problema ele resolve?
 
-Seu AI esquece tudo entre sessões. Cada decisão, cada correção de bug, cada lição aprendida — tudo some. Você explica o mesmo contexto de novo e de novo, o Claude redescobre os mesmos padrões, e o conhecimento de IA da sua equipe volta ao zero toda vez.
+Agentes de código costumam perder o contexto entre sessões. Decisões de arquitetura, correções importantes, erros já resolvidos e restrições do projeto acabam sendo explicados de novo e de novo.
 
-**O MeMesh dá a cada AI uma memória persistente, pesquisável e em constante evolução.**
+**O MeMesh mantém esse conhecimento no seu ambiente local, com busca, inspeção e reaproveitamento ao longo do trabalho.**
 
----
+Este pacote npm é a versão local do plugin / package do MeMesh. Ele não é o produto de workspace em nuvem nem uma plataforma enterprise completa.
 
-## Comece em 60 Segundos
+## Comece em 60 segundos
 
-### Passo 1: Instale
+### 1. Instale
 
 ```bash
 npm install -g @pcircle/memesh
 ```
 
-### Passo 2: Seu AI lembra
+### 2. Salve uma decisão
 
 ```bash
 memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
 ```
 
-### Passo 3: Seu AI recupera
+### 3. Recupere depois
 
 ```bash
 memesh recall "login security"
-# → Encontra "OAuth 2.0 with PKCE" mesmo com palavras diferentes
+# → encontra "OAuth 2.0 with PKCE" mesmo com palavras diferentes
 ```
 
-**Pronto.** O MeMesh já está lembrando e recuperando memórias entre sessões.
-
-Abra o painel para explorar sua memória:
+Abra o dashboard:
 
 ```bash
 memesh
 ```
 
-<p align="center">
-  <img src="docs/images/dashboard-search.png" alt="MeMesh Search — encontre qualquer memória instantaneamente" width="100%" />
-</p>
+## Para quem ele foi feito?
 
-<p align="center">
-  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — entenda o conhecimento do seu AI" width="100%" />
-</p>
+- Desenvolvedores que usam Claude Code e querem manter contexto entre sessões
+- Usuários avançados que querem compartilhar a mesma memória local entre agentes MCP
+- Pequenas equipes AI-native que querem trocar conhecimento via export / import
+- Desenvolvedores de agents que querem integrar memória local via CLI, HTTP ou MCP
 
-<p align="center">
-  <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — grafo de conhecimento interativo com filtros de tipo e modo ego" width="100%" />
-</p>
+## Por que usar o MeMesh?
 
----
+- Local-first: os dados ficam no seu próprio arquivo SQLite
+- Instalação leve: `npm install -g` e pronto
+- Integração direta: suporta CLI, HTTP e MCP
+- Bom encaixe com Claude Code: hooks ajudam a trazer contexto no fluxo de trabalho
+- Transparência: o dashboard permite ver e organizar a memória
+- Limite de confiança mais seguro: memórias importadas continuam pesquisáveis, mas não entram automaticamente nos hooks do Claude sem revisão ou novo salvamento local
 
-## Para Quem É Isso?
+## O que ele faz automaticamente no Claude Code?
 
-| Se você é... | O MeMesh ajuda você a... |
-|---------------|---------------------|
-| **Desenvolvedor usando Claude Code** | Lembrar decisões, padrões e lições entre sessões automaticamente |
-| **Equipe construindo com LLMs** | Compartilhar conhecimento da equipe via exportação/importação, mantendo o contexto de todos alinhado |
-| **Desenvolvedor de agentes de IA** | Dar aos seus agentes memória persistente via MCP, HTTP API ou Python SDK |
-| **Usuário avançado com múltiplas ferramentas de IA** | Uma camada de memória que funciona com Claude, GPT, LLaMA, Ollama ou qualquer cliente MCP |
+Hoje o MeMesh ajuda em 5 momentos:
 
----
+- no início da sessão, carrega memórias relevantes e lições já conhecidas
+- antes de editar arquivos, busca memórias relacionadas ao arquivo ou ao projeto
+- depois de `git commit`, registra o que foi alterado
+- no fim da sessão, organiza correções, erros e lessons learned
+- antes do compact de contexto, salva o que não deveria se perder
 
-## Funciona com Tudo
+## O que existe no dashboard?
 
-<table>
-<tr>
-<td width="33%" align="center">
+O dashboard tem 7 abas e suporte a 11 idiomas:
 
-**Claude Code / Desktop**
-```bash
-memesh-mcp
-```
-Protocolo MCP (configurado automaticamente)
+- Search: buscar memórias
+- Browse: listar memórias
+- Analytics: acompanhar saúde e tendências
+- Graph: ver relações de conhecimento
+- Lessons: revisar lições aprendidas
+- Manage: arquivar e restaurar memórias
+- Settings: configurar provedor de LLM e idioma
 
-</td>
-<td width="33%" align="center">
+## O que é o Smart Mode?
 
-**Python / LangChain**
-```python
-from memesh import MeMesh
-m = MeMesh()
-m.recall("auth")
-```
-`pip install memesh`
+O MeMesh funciona offline por padrão. Se você configurar uma API key de LLM, pode habilitar recursos extras, como:
 
-</td>
-<td width="33%" align="center">
+- query expansion
+- extração automática mais útil
+- organização e compressão mais inteligentes
 
-**Qualquer LLM (formato OpenAI)**
-```bash
-memesh export-schema \
-  --format openai
-```
-Cole as ferramentas em qualquer chamada de API
+Sem API key, o núcleo do produto continua funcionando normalmente.
 
-</td>
-</tr>
-</table>
+## Leia mais
 
----
+- Funcionalidades completas, comparações, API e release notes: [English README](README.md)
+- Guia de integrações: [docs/platforms/README.md](docs/platforms/README.md)
+- Referência de API: [docs/api/API_REFERENCE.md](docs/api/API_REFERENCE.md)
 
-## Por que Não Usar Mem0 / Zep?
-
-| | **MeMesh** | Mem0 | Zep |
-|---|---|---|---|
-| **Tempo de instalação** | 5 segundos | 30–60 minutos | 30+ minutos |
-| **Configuração** | `npm i -g` — pronto | Neo4j + VectorDB + chaves de API | Neo4j + config |
-| **Armazenamento** | Arquivo SQLite único | Neo4j + Qdrant | Neo4j |
-| **Funciona offline** | Sim, sempre | Não | Não |
-| **Painel** | Integrado (7 abas + analytics) | Nenhum | Nenhum |
-| **Dependências** | 6 | 20+ | 10+ |
-| **Preço** | Grátis para sempre | Plano gratuito / Pago | Plano gratuito / Pago |
-
-**O MeMesh abre mão de:** recursos empresariais multi-inquilino em troca de **configuração instantânea, zero infraestrutura e 100% de privacidade**.
-
----
-
-## O que Acontece Automaticamente
-
-Você não precisa lembrar de tudo manualmente. O MeMesh possui **4 hooks** que capturam conhecimento sem que você precise fazer nada:
-
-| Quando | O que o MeMesh faz |
-|------|------------------|
-| **Início de cada sessão** | Carrega suas memórias mais relevantes + avisos proativos de lições passadas |
-| **Após cada `git commit`** | Registra o que você alterou, com estatísticas do diff |
-| **Quando o Claude para** | Captura arquivos editados, erros corrigidos e gera automaticamente lições estruturadas a partir de falhas |
-| **Antes da compactação de contexto** | Salva o conhecimento antes que se perca por limite de contexto |
-
-> **Desative quando quiser:** `export MEMESH_AUTO_CAPTURE=false`
-
----
-
-## Painel
-
-7 abas, 11 idiomas, zero dependências externas. Acesse em `http://localhost:3737/dashboard` quando o servidor estiver rodando.
-
-| Aba | O que você vê |
-|-----|---------------|
-| **Search** | Busca full-text + similaridade vetorial em todas as memórias |
-| **Browse** | Lista paginada de todas as entidades com arquivamento/restauração |
-| **Analytics** | Pontuação de Saúde da Memória (0-100), timeline de 30 dias, métricas de valor, cobertura de conhecimento, sugestões de limpeza, seus padrões de trabalho |
-| **Graph** | Grafo de conhecimento interativo dirigido por força com filtros de tipo, busca, modo ego, heatmap de recência |
-| **Lessons** | Lições estruturadas de falhas passadas (erro, causa raiz, correção, prevenção) |
-| **Manage** | Arquivar e restaurar entidades |
-| **Settings** | Configuração do provedor LLM, seletor de idioma |
-
----
-
-## Funcionalidades Inteligentes
-
-**🧠 Busca Inteligente** — Pesquise "login security" e encontre memórias sobre "OAuth PKCE". O MeMesh expande consultas com termos relacionados usando o LLM configurado.
-
-**📊 Classificação por Pontuação** — Resultados classificados por relevância (35%) + recência de uso (25%) + frequência (20%) + confiança (15%) + se a informação ainda é atual (5%).
-
-**🔄 Evolução do Conhecimento** — As decisões mudam. `forget` arquiva memórias antigas (nunca deleta). Relações `supersedes` conectam o antigo ao novo. Seu AI sempre vê a versão mais recente.
-
-**⚠️ Detecção de Conflitos** — Se você tiver duas memórias que se contradizem, o MeMesh avisa.
-
-**📦 Compartilhamento em Equipe** — `memesh export > team-knowledge.json` → compartilhe com sua equipe → `memesh import team-knowledge.json`
-
----
-
-## Ative o Modo Inteligente (Opcional)
-
-O MeMesh funciona completamente offline por padrão. Adicione uma chave de API de LLM para desbloquear buscas mais inteligentes:
-
-```bash
-memesh config set llm.provider anthropic
-memesh config set llm.api-key sk-ant-...
-```
-
-Ou use a aba Configurações do painel (configuração visual):
-
-```bash
-memesh  # abre o painel → aba Configurações
-```
-
-| | Nível 0 (padrão) | Nível 1 (Modo Inteligente) |
-|---|---|---|
-| **Busca** | Correspondência de palavras-chave FTS5 | + Expansão de consulta por LLM (~97% de recall) |
-| **Captura automática** | Padrões baseados em regras | + LLM extrai decisões e lições |
-| **Compressão** | Não disponível | `consolidate` comprime memórias longas |
-| **Custo** | Grátis, sem chave de API | ~$0,0001 por busca (Haiku) |
-
----
-
-## Todas as 8 Ferramentas de Memória
-
-| Ferramenta | O que faz |
-|------|-------------|
-| `remember` | Armazena conhecimento com observações, relações e tags |
-| `recall` | Busca inteligente com pontuação multifatorial e expansão de consulta por LLM |
-| `forget` | Arquivamento suave (nunca deleta) ou remoção de observações específicas |
-| `consolidate` | Compressão de memórias longas com auxílio de LLM |
-| `export` | Compartilha memórias como JSON entre projetos ou membros da equipe |
-| `import` | Importa memórias com estratégias de mesclagem (pular / sobrescrever / anexar) |
-| `learn` | Registra lições estruturadas a partir de erros (erro, causa raiz, correção, prevenção) |
-| `user_patterns` | Analisa seus padrões de trabalho — agenda, ferramentas, pontos fortes, áreas de aprendizado |
-
----
-
-## Arquitetura
-
-```
-                    ┌─────────────────┐
-                    │   Core Engine   │
-                    │  (8 operations) │
-                    └────────┬────────┘
-           ┌─────────────────┼─────────────────┐
-           │                 │                 │
-     CLI (memesh)    HTTP API (serve)    MCP (memesh-mcp)
-           │                 │                 │
-           └─────────────────┼─────────────────┘
-                             │
-                    SQLite + FTS5 + sqlite-vec
-                    (~/.memesh/knowledge-graph.db)
-```
-
-O núcleo é independente de framework. A mesma lógica é executada a partir do terminal, HTTP ou MCP.
-
----
-
-## Contribuindo
+## Desenvolvimento e verificação
 
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory && npm install && npm run build
-npm test -- --run    # 413 tests
+cd memesh-llm-memory
+npm install
+npm run build
+npm test
 ```
-
-Painel: `cd dashboard && npm install && npm run dev`
-
----
-
-<p align="center">
-  <strong>MIT</strong> — Feito por <a href="https://pcircle.ai">PCIRCLE AI</a>
-</p>

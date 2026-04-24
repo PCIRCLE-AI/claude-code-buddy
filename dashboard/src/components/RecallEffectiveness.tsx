@@ -60,7 +60,7 @@ export function RecallEffectiveness({ overallHitRate, totalHits, totalMisses, tr
               />
             </div>
             <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
-              {totalHits} {t('recall.used')} / {total} {t('recall.injected')}
+              {t('recall.summary', { used: totalHits, total })}
             </div>
           </div>
 

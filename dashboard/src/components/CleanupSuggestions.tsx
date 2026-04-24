@@ -78,7 +78,11 @@ export function CleanupSuggestions({ staleEntities, duplicateCandidates, onRefre
                   color: 'var(--text-3)',
                   marginTop: 2,
                 }}>
-                  {entity.type} · confidence {Math.round(entity.confidence * 100)}% · {entity.days_unused}d unused
+                  {t('cleanup.entityMeta', {
+                    type: entity.type,
+                    confidence: Math.round(entity.confidence * 100),
+                    days: entity.days_unused,
+                  })}
                 </div>
               </div>
               <button

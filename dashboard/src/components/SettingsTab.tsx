@@ -51,6 +51,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   if (loading) return <div class="empty"><div class="loading" /></div>;
 
   const caps = config?.capabilities;
+  const searchModeLabel = caps?.searchLevel ? t('settings.smartMode') : t('settings.core');
 
   return (
     <div>
@@ -59,15 +60,15 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         <div class="card-title">{t('settings.capabilities')}</div>
         <div class="stats-row" style={{ marginBottom: 0 }}>
           <div class="stat">
-            <div class="stat-val" style={{ fontSize: 18 }}>Level {caps?.searchLevel || 0}</div>
-            <div class="stat-lbl">{caps?.searchLevel ? t('settings.smartMode') : t('settings.core')}</div>
+            <div class="stat-val" style={{ fontSize: 18 }}>{searchModeLabel}</div>
+            <div class="stat-lbl">{t('settings.searchMode')}</div>
           </div>
           <div class="stat">
             <div class="stat-val" style={{ fontSize: 14 }}>{capitalize(caps?.embeddings || '—')}</div>
             <div class="stat-lbl">{t('settings.embeddings')}</div>
           </div>
           <div class="stat">
-            <div class="stat-val" style={{ fontSize: 14 }}>{capitalize(caps?.llm?.provider || 'None')}</div>
+            <div class="stat-val" style={{ fontSize: 14 }}>{capitalize(caps?.llm?.provider || t('settings.none'))}</div>
             <div class="stat-lbl">{t('settings.llmProvider')}</div>
           </div>
         </div>

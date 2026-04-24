@@ -1,3 +1,4 @@
+import { t as translate } from '../lib/i18n';
 import type { Entity } from '../lib/api';
 
 function formatTime(iso: string): { date: string; time: string } {
@@ -24,7 +25,7 @@ interface Props {
 
 export function MemoryRow({ entity: e, actions, highlight }: Props) {
   const t = formatTime(e.created_at);
-  const preview = e.observations?.[0] || '(no content)';
+  const preview = e.observations?.[0] || translate('memory.noContent');
   const obsCount = e.observations?.length || 0;
   const isArchived = e.archived || e.status === 'archived';
 
@@ -40,9 +41,9 @@ export function MemoryRow({ entity: e, actions, highlight }: Props) {
         </div>
         <div class="mem-meta">
           <span class="badge badge-type">{e.type}</span>
-          {isArchived && <span class="badge badge-archived">archived</span>}
+          {isArchived && <span class="badge badge-archived">{translate('memory.archivedBadge')}</span>}
           <span>{e.name}</span>
-          {obsCount > 1 && <span>· {obsCount} facts</span>}
+          {obsCount > 1 && <span>· {translate('memory.factsCount', { count: obsCount })}</span>}
           {e.tags?.slice(0, 3).map((tag) => <span class="tag" key={tag}>{tag}</span>)}
           {(e.tags?.length || 0) > 3 && <span class="tag" style={{ opacity: 0.5 }}>+{e.tags!.length - 3}</span>}
         </div>

@@ -30,7 +30,7 @@ export function AnalyticsTab() {
   useEffect(() => { loadData(); }, [loadData]);
 
   if (loading) return <div class="empty"><div class="loading" /></div>;
-  if (!stats && !analytics) return <div class="error-box">{t('common.error')}: Failed to load analytics</div>;
+  if (!stats && !analytics) return <div class="error-box">{t('common.error')}: {t('analytics.loadFailed')}</div>;
 
   return (
     <div>

@@ -1,3 +1,5 @@
+import { t } from './i18n';
+
 const TIMEOUT = 10000;
 
 export async function api<T = any>(method: string, path: string, body?: any): Promise<T> {
@@ -9,10 +11,10 @@ export async function api<T = any>(method: string, path: string, body?: any): Pr
     const res = await fetch(path, opts);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
-    if (!json.success) throw new Error(json.error || 'Unknown error');
+    if (!json.success) throw new Error(json.error || t('errors.unknown'));
     return json.data as T;
   } catch (err: any) {
-    if (err.name === 'AbortError') throw new Error('Request timed out');
+    if (err.name === 'AbortError') throw new Error(t('errors.timeout'));
     throw err;
   } finally {
     clearTimeout(timer);
