@@ -14,6 +14,7 @@ const packageJsonPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../package.json'
 );
+const packageRoot = path.dirname(packageJsonPath);
 const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 
 const program = new Command();
@@ -351,6 +352,16 @@ program
   .command('update')
   .description('Update MeMesh to latest version (npm global installs)')
   .action(async () => {
+    const { getCurrentInstallChannel, getInstallChannelSupport } = await import('../../core/install-channel.js');
+    const install = getCurrentInstallChannel({ packageRoot });
+    const installSupport = getInstallChannelSupport(install);
+
+    if (!installSupport.canSelfUpdate) {
+      console.error(`❌ memesh update does not support this install method (${installSupport.label}).`);
+      console.error(`   ${installSupport.guidance}`);
+      process.exit(1);
+    }
+
     const { checkForUpdate } = await import('../../core/version-check.js');
     const check = await checkForUpdate(pkg.version);
 
@@ -418,6 +429,9 @@ program
   .option('--cached', 'Use cached update info only (skip fresh npm lookup)')
   .action(async (opts) => {
     const caps = detectCapabilities();
+    const { getCurrentInstallChannel, getInstallChannelSupport } = await import('../../core/install-channel.js');
+    const install = getCurrentInstallChannel({ packageRoot });
+    const installSupport = getInstallChannelSupport(install);
     const { getUpdateCheck, formatUpdateCheckStatus } = await import('../../core/version-check.js');
     const update = await getUpdateCheck(pkg.version, { preferFresh: !opts.cached });
 
@@ -425,9 +439,16 @@ program
     console.log(`Search level: ${caps.searchLevel} (${caps.searchLevel === 1 ? 'Smart Mode' : 'Core'})`);
     console.log(`Embeddings: ${caps.embeddings}`);
     console.log(`LLM: ${caps.llm ? `${caps.llm.provider} (${caps.llm.model})` : 'not configured'}`);
+    console.log(`Install method: ${installSupport.label}`);
 
     for (const line of formatUpdateCheckStatus(update)) {
       console.log(`\n${line}`);
+    }
+
+    if (installSupport.recommendedCommand) {
+      console.log(`Update path: ${installSupport.recommendedCommand}`);
+    } else {
+      console.log(`Update path: ${installSupport.guidance}`);
     }
   });
 

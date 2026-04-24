@@ -50,7 +50,9 @@ export interface UpdateStatusData {
   updateAvailable: boolean;
   checkSucceeded: boolean;
   source: 'fresh' | 'cache' | null;
-  recommendedCommand: string;
+  installChannel: 'npm-global' | 'npm-local' | 'source-checkout' | 'unknown';
+  canSelfUpdate: boolean;
+  recommendedCommand: string | null;
 }
 
 export interface StatsData {

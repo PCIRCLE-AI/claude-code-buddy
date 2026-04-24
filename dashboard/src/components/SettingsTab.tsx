@@ -20,6 +20,32 @@ function formatTimestamp(locale: Locale, value: string | null): string {
   return date.toLocaleString(locale);
 }
 
+function getInstallChannelLabel(channel: UpdateStatusData['installChannel'] | undefined): string {
+  switch (channel) {
+    case 'npm-global':
+      return t('settings.installNpmGlobal');
+    case 'npm-local':
+      return t('settings.installNpmLocal');
+    case 'source-checkout':
+      return t('settings.installSourceCheckout');
+    default:
+      return t('settings.installUnknown');
+  }
+}
+
+function getInstallChannelGuidance(channel: UpdateStatusData['installChannel'] | undefined): string {
+  switch (channel) {
+    case 'npm-global':
+      return t('settings.updateGuidanceNpmGlobal');
+    case 'npm-local':
+      return t('settings.updateGuidanceNpmLocal');
+    case 'source-checkout':
+      return t('settings.updateGuidanceSourceCheckout');
+    default:
+      return t('settings.updateGuidanceUnknown');
+  }
+}
+
 export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   const [config, setConfig] = useState<ConfigData | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusData | null>(null);
@@ -82,6 +108,8 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   const updateSourceLabel = updateStatus?.source === 'cache'
     ? t('settings.updateSourceCached')
     : t('settings.updateSourceFresh');
+  const installMethodLabel = getInstallChannelLabel(updateStatus?.installChannel);
+  const installGuidance = getInstallChannelGuidance(updateStatus?.installChannel);
 
   return (
     <div>
@@ -172,6 +200,10 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
 
         <div style={{ display: 'grid', gap: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12 }}>
+            <span style={{ color: 'var(--text-2)' }}>{t('settings.installMethod')}</span>
+            <span style={{ color: 'var(--text-0)' }}>{updateLoading ? t('common.loading') : installMethodLabel}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12 }}>
             <span style={{ color: 'var(--text-2)' }}>{t('settings.currentVersion')}</span>
             <span style={{ color: 'var(--text-0)', fontFamily: 'var(--mono)' }}>{updateStatus?.currentVersion || '—'}</span>
           </div>
@@ -183,12 +215,17 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             <span style={{ color: 'var(--text-2)' }}>{t('settings.lastChecked')}</span>
             <span style={{ color: 'var(--text-0)' }}>{updateLoading ? t('common.loading') : formatTimestamp(locale, updateStatus?.checkedAt || null)}</span>
           </div>
-          <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>
-            <span style={{ color: 'var(--text-2)', fontSize: 12 }}>{t('settings.updateCommand')}</span>
-            <code style={{ color: 'var(--text-0)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', fontSize: 12, fontFamily: 'var(--mono)' }}>
-              {updateStatus?.recommendedCommand || 'memesh update'}
-            </code>
-          </div>
+          {!updateLoading && (
+            <div style={{ color: 'var(--text-2)', fontSize: 12, lineHeight: 1.5, marginTop: 2 }}>{installGuidance}</div>
+          )}
+          {updateStatus?.recommendedCommand && (
+            <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>
+              <span style={{ color: 'var(--text-2)', fontSize: 12 }}>{t('settings.updateCommand')}</span>
+              <code style={{ color: 'var(--text-0)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', fontSize: 12, fontFamily: 'var(--mono)' }}>
+                {updateStatus.recommendedCommand}
+              </code>
+            </div>
+          )}
         </div>
       </div>
 

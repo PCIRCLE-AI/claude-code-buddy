@@ -221,7 +221,9 @@ describe('HTTP Transport: GET /v1/update-status', () => {
     expect(res.body.data.updateAvailable).toBe(true);
     expect(res.body.data.checkSucceeded).toBe(true);
     expect(res.body.data.source).toBe('cache');
-    expect(res.body.data.recommendedCommand).toBe('memesh update');
+    expect(res.body.data.installChannel).toBe('source-checkout');
+    expect(res.body.data.canSelfUpdate).toBe(false);
+    expect(res.body.data.recommendedCommand).toBeNull();
   });
 });
 

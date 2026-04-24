@@ -17,6 +17,7 @@ import {
   LearnSchema as LearnBody,
 } from '../schemas.js';
 import { getUpdateCheck } from '../../core/version-check.js';
+import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
 
 import fs from 'fs';
 import path from 'path';
@@ -26,6 +27,7 @@ const packageJsonPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../package.json'
 );
+const packageRoot = path.dirname(packageJsonPath);
 const packageVersion =
   JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')).version ?? '0.0.0';
 
@@ -250,6 +252,8 @@ app.post('/v1/config', (req, res) => {
 app.get('/v1/update-status', async (req, res) => {
   try {
     const cached = req.query.cached === '1' || req.query.cached === 'true';
+    const install = getCurrentInstallChannel({ packageRoot });
+    const installSupport = getInstallChannelSupport(install);
     const update = await getUpdateCheck(packageVersion, { preferFresh: !cached });
 
     res.json({
@@ -261,7 +265,9 @@ app.get('/v1/update-status', async (req, res) => {
         updateAvailable: update?.updateAvailable ?? false,
         checkSucceeded: update?.checkSucceeded ?? false,
         source: update?.source ?? null,
-        recommendedCommand: 'memesh update',
+        installChannel: installSupport.channel,
+        canSelfUpdate: installSupport.canSelfUpdate,
+        recommendedCommand: installSupport.recommendedCommand,
       },
     });
   } catch (err: any) {
