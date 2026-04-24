@@ -1,13 +1,13 @@
 # MeMesh v4.0.2 — Release-Readiness Fixes
 
 **Release Date:** 2026-04-24  
-**Type:** Patch release candidate after npm v4.0.1 publication
+**Type:** Published patch release after npm v4.0.1
 
 ---
 
 ## Summary
 
-v4.0.1 is already published on npm, so the follow-up reliability, install, and browser-smoke fixes are prepared as v4.0.2.
+v4.0.2 shipped the follow-up reliability, install, security, and browser-smoke fixes that landed after npm v4.0.1.
 
 ## Fixed
 
@@ -28,9 +28,9 @@ v4.0.1 is already published on npm, so the follow-up reliability, install, and b
 ## Documentation
 
 - README test count updated to 463 tests.
-- `CHANGELOG.md` now distinguishes published v4.0.1 from v4.0.2 follow-up fixes.
+- `CHANGELOG.md` now distinguishes published v4.0.1 from the shipped v4.0.2 follow-up fixes.
 - `docs/plans/README.md` marks historical plans as archived context, not active backlog.
-- Obsidian project notes were updated outside the repo to mark stale package facts as historical and note that v4.0.2 follow-up fixes are not published until a new npm release is cut.
+- Obsidian project notes were updated outside the repo to mark stale package facts as historical and note that v4.0.2 has been published.
 - API reference now documents imported-memory auto-context behavior and remote HTTP bind opt-in.
 
 ## Verification
@@ -43,4 +43,4 @@ v4.0.1 is already published on npm, so the follow-up reliability, install, and b
 - Clean-machine packed install smoke — fresh temp app install, CLI `remember`, CLI `recall`, and clean consumer `npm audit --omit=dev` passed.
 - Packaged dashboard browser smoke — `/dashboard` rendered from the packed install with 0 Playwright console warnings/errors; English -> Traditional Chinese -> English language switching updated in-place.
 - Packaged dashboard e2e smoke — passed via `npm run test:e2e-dashboard`.
-- npm registry verification — npm latest is still v4.0.1 at published gitHead `c936c2548ff886b884c4ba40c83a080b467b4e17`; v4.0.2 is not published yet.
+- npm registry verification — npm latest is now v4.0.2.

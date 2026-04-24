@@ -3,7 +3,7 @@
 **Release Date:** 2026-04-21
 **Type:** Bug Fix Release (Dashboard hotfix + Codex adversarial review findings)
 
-> **Release note:** npm v4.0.1 was already published before the 2026-04-23 release-readiness follow-up. Post-publication fixes such as sqlite-vec vector persistence, hook state directory isolation, clean consumer install audit, and dashboard browser-smoke cleanup are prepared for v4.0.2 in `CHANGELOG-4.0.2.md`.
+> **Release note:** npm v4.0.1 was already published before the 2026-04-23 release-readiness follow-up. Those post-publication fixes later shipped in v4.0.2 and are captured in `CHANGELOG-4.0.2.md`.
 
 ---
 
@@ -14,7 +14,7 @@ This release addresses dashboard access, security, data integrity, release-readi
 - Vector persistence, vector isolation, hook state isolation, and session tracking are corrected
 - Clean npm consumer installs no longer inherit the stale Xenova ONNX dependency chain
 
-Published v4.0.1 had 445 tests. The current v4.0.2 release candidate has 463 tests plus post-publication security hardening around import trust, hook injection boundaries, remote HTTP bind safety, and local file permissions. No breaking changes.
+Published v4.0.1 had 445 tests. The later v4.0.2 release shipped with 463 tests plus post-publication security hardening around import trust, hook injection boundaries, remote HTTP bind safety, and local file permissions. No breaking changes.
 
 ---
 
