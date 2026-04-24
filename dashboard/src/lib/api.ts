@@ -47,9 +47,13 @@ export interface UpdateStatusData {
   currentVersion: string;
   latestVersion: string | null;
   checkedAt: string | null;
+  lastAttemptAt: string | null;
+  lastSuccessfulCheckAt: string | null;
+  lastError: string | null;
   updateAvailable: boolean;
   checkSucceeded: boolean;
   source: 'fresh' | 'cache' | null;
+  freshness: 'fresh' | 'cached' | 'stale' | 'unavailable';
   installChannel: 'npm-global' | 'npm-local' | 'source-checkout' | 'unknown';
   canSelfUpdate: boolean;
   recommendedCommand: string | null;

@@ -208,9 +208,10 @@ describe('HTTP Transport: GET /v1/update-status', () => {
     fs.writeFileSync(updateCheckPath, JSON.stringify({
       currentVersion: '4.0.1',
       latestVersion: '4.0.3',
-      checkedAt: '2026-04-24T10:00:00.000Z',
-      updateAvailable: true,
-      checkSucceeded: true,
+      lastAttemptAt: '2026-04-24T10:15:00.000Z',
+      lastSuccessfulCheckAt: '2026-04-24T10:00:00.000Z',
+      lastError: 'npm unavailable',
+      checkSucceeded: false,
     }));
 
     const res = await req('GET', '/v1/update-status?cached=1');
@@ -219,8 +220,41 @@ describe('HTTP Transport: GET /v1/update-status', () => {
     expect(res.body.data.currentVersion).toBeDefined();
     expect(res.body.data.latestVersion).toBe('4.0.3');
     expect(res.body.data.updateAvailable).toBe(true);
-    expect(res.body.data.checkSucceeded).toBe(true);
+    expect(res.body.data.checkSucceeded).toBe(false);
     expect(res.body.data.source).toBe('cache');
+    expect(res.body.data.checkedAt).toBe('2026-04-24T10:15:00.000Z');
+    expect(res.body.data.lastAttemptAt).toBe('2026-04-24T10:15:00.000Z');
+    expect(res.body.data.lastSuccessfulCheckAt).toBe('2026-04-24T10:00:00.000Z');
+    expect(res.body.data.lastError).toBe('npm unavailable');
+    expect(res.body.data.freshness).toBe('cached');
+    expect(res.body.data.installChannel).toBe('source-checkout');
+    expect(res.body.data.canSelfUpdate).toBe(false);
+    expect(res.body.data.recommendedCommand).toBeNull();
+  });
+
+  it('returns an unavailable state when no successful check has been recorded', async () => {
+    fs.writeFileSync(updateCheckPath, JSON.stringify({
+      currentVersion: '4.0.2',
+      latestVersion: null,
+      lastAttemptAt: '2026-04-24T11:00:00.000Z',
+      lastSuccessfulCheckAt: null,
+      lastError: 'registry offline',
+      checkSucceeded: false,
+    }));
+
+    const res = await req('GET', '/v1/update-status?cached=1');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.currentVersion).toBeDefined();
+    expect(res.body.data.latestVersion).toBeNull();
+    expect(res.body.data.updateAvailable).toBe(false);
+    expect(res.body.data.checkSucceeded).toBe(false);
+    expect(res.body.data.source).toBe('cache');
+    expect(res.body.data.checkedAt).toBe('2026-04-24T11:00:00.000Z');
+    expect(res.body.data.lastAttemptAt).toBe('2026-04-24T11:00:00.000Z');
+    expect(res.body.data.lastSuccessfulCheckAt).toBeNull();
+    expect(res.body.data.lastError).toBe('registry offline');
+    expect(res.body.data.freshness).toBe('unavailable');
     expect(res.body.data.installChannel).toBe('source-checkout');
     expect(res.body.data.canSelfUpdate).toBe(false);
     expect(res.body.data.recommendedCommand).toBeNull();

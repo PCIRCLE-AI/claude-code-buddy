@@ -434,6 +434,7 @@ Safety note: non-loopback binds are blocked by default. To expose the HTTP serve
 | GET | /v1/entities | List entities (pagination) |
 | GET | /v1/entities/:name | Get single entity |
 | GET | /v1/config | Get current config and detected capabilities |
+| GET | /v1/update-status | Current/latest package version, freshness state, and update guidance |
 | POST | /v1/config | Save config (partial update) |
 | GET | /v1/stats | Aggregate counts: entities, observations, relations, tags; type/tag/status distributions |
 | GET | /v1/graph | All entities + all relations (for graph visualization) |
@@ -466,6 +467,41 @@ Returns the current configuration and detected capabilities. API keys are masked
   }
 }
 ```
+
+### GET /v1/update-status
+
+Returns the current package version, the latest npm version MeMesh knows about, freshness metadata for the last update check, and install-channel-aware update guidance.
+
+Use `?cached=1` to read the cached state only. Without it, MeMesh prefers a fresh npm lookup and falls back to the cached state when npm is unavailable.
+
+**Response**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "currentVersion": "4.0.2",
+    "latestVersion": "4.0.3",
+    "checkedAt": "2026-04-24T10:15:00.000Z",
+    "lastAttemptAt": "2026-04-24T10:15:00.000Z",
+    "lastSuccessfulCheckAt": "2026-04-24T10:00:00.000Z",
+    "lastError": "npm unavailable",
+    "updateAvailable": true,
+    "checkSucceeded": false,
+    "source": "cache",
+    "freshness": "cached",
+    "installChannel": "source-checkout",
+    "canSelfUpdate": false,
+    "recommendedCommand": null
+  }
+}
+```
+
+**Freshness values**:
+- `fresh`: latest version came from a successful live npm lookup
+- `cached`: using the last successful cached result
+- `stale`: using a cached result whose last success is older than the freshness threshold
+- `unavailable`: no successful update check has been recorded yet
 
 ### POST /v1/config
 

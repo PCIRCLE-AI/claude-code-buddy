@@ -56,8 +56,35 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   const [msg, setMsg] = useState('');
   const [loading, setLoading] = useState(true);
   const [updateLoading, setUpdateLoading] = useState(true);
+  const [updateRefreshing, setUpdateRefreshing] = useState(false);
+
+  async function loadUpdateStatus(forceFresh = true, keepCurrentState = false) {
+    if (keepCurrentState) {
+      setUpdateRefreshing(true);
+    } else {
+      setUpdateLoading(true);
+    }
+
+    try {
+      const path = forceFresh ? '/v1/update-status' : '/v1/update-status?cached=1';
+      const data = await api<UpdateStatusData>('GET', path);
+      setUpdateStatus(data);
+    } catch {
+      if (!keepCurrentState) {
+        setUpdateStatus(null);
+      }
+    } finally {
+      if (keepCurrentState) {
+        setUpdateRefreshing(false);
+      } else {
+        setUpdateLoading(false);
+      }
+    }
+  }
 
   useEffect(() => {
+    let cancelled = false;
+
     api<ConfigData>('GET', '/v1/config')
       .then((data) => {
         setConfig(data);
@@ -66,10 +93,16 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       })
       .finally(() => setLoading(false));
 
-    api<UpdateStatusData>('GET', '/v1/update-status')
-      .then((data) => setUpdateStatus(data))
-      .catch(() => setUpdateStatus(null))
-      .finally(() => setUpdateLoading(false));
+    void (async () => {
+      await loadUpdateStatus(false);
+      if (!cancelled) {
+        void loadUpdateStatus(true, true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function save() {
@@ -93,23 +126,45 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
 
   const caps = config?.capabilities;
   const searchModeLabel = caps?.searchLevel ? t('settings.smartMode') : t('settings.core');
-  const updateSummary = updateLoading
+  const isCheckingUpdates = updateLoading || (updateRefreshing && !updateStatus);
+  const updateActionInProgress = updateLoading || updateRefreshing;
+  const updateSummary = isCheckingUpdates
     ? t('settings.updateChecking')
-    : !updateStatus?.checkSucceeded
+    : !updateStatus
       ? t('settings.updateUnavailable')
-      : updateStatus.updateAvailable
-        ? t('settings.updateAvailable')
-        : t('settings.upToDate');
-  const updateSummaryColor = !updateStatus?.checkSucceeded
+      : updateStatus.freshness === 'unavailable'
+        ? t('settings.updateNoSuccessfulChecks')
+        : !updateStatus.checkSucceeded && updateStatus.freshness === 'stale'
+          ? t('settings.updateStale')
+          : !updateStatus.checkSucceeded && updateStatus.freshness === 'cached'
+            ? t('settings.updateCachedFallback')
+            : updateStatus.updateAvailable
+              ? t('settings.updateAvailable')
+              : t('settings.upToDate');
+  const updateSummaryColor = !updateStatus
     ? 'var(--warning)'
-    : updateStatus.updateAvailable
-      ? 'var(--info)'
-      : 'var(--success)';
-  const updateSourceLabel = updateStatus?.source === 'cache'
-    ? t('settings.updateSourceCached')
-    : t('settings.updateSourceFresh');
+    : updateStatus.freshness === 'unavailable'
+      ? 'var(--warning)'
+      : !updateStatus.checkSucceeded && updateStatus.freshness === 'stale'
+        ? 'var(--warning)'
+        : !updateStatus.checkSucceeded && updateStatus.freshness === 'cached'
+          ? 'var(--info)'
+          : updateStatus.updateAvailable
+            ? 'var(--info)'
+            : 'var(--success)';
+  const updateSourceLabel = updateStatus?.freshness === 'stale'
+    ? t('settings.updateSourceStale')
+    : updateStatus?.source === 'cache'
+      ? t('settings.updateSourceCached')
+      : updateStatus?.source === 'fresh'
+        ? t('settings.updateSourceFresh')
+        : t('settings.updateSourceUnavailable');
   const installMethodLabel = getInstallChannelLabel(updateStatus?.installChannel);
   const installGuidance = getInstallChannelGuidance(updateStatus?.installChannel);
+  const lastAttemptLabel = isCheckingUpdates ? t('common.loading') : formatTimestamp(locale, updateStatus?.lastAttemptAt || null);
+  const lastSuccessfulLabel = isCheckingUpdates ? t('common.loading') : formatTimestamp(locale, updateStatus?.lastSuccessfulCheckAt || null);
+  const showLastSuccessful = Boolean(updateStatus?.lastSuccessfulCheckAt);
+  const showLastError = Boolean(updateStatus?.lastError) && !isCheckingUpdates;
 
   return (
     <div>
@@ -193,15 +248,25 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         <div class="card-title">{t('settings.updates')}</div>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'baseline', marginBottom: 12, flexWrap: 'wrap' }}>
           <div style={{ color: updateSummaryColor, fontSize: 13, fontWeight: 600 }}>{updateSummary}</div>
-          {!updateLoading && updateStatus?.checkSucceeded && (
-            <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{updateSourceLabel}</div>
-          )}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            {!isCheckingUpdates && updateStatus && (
+              <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{updateSourceLabel}</div>
+            )}
+            <button
+              class="btn btn-sm"
+              type="button"
+              onClick={() => { void loadUpdateStatus(true, Boolean(updateStatus)); }}
+              disabled={updateActionInProgress}
+            >
+              {updateActionInProgress ? t('settings.updateChecking') : t('settings.checkNow')}
+            </button>
+          </div>
         </div>
 
         <div style={{ display: 'grid', gap: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12 }}>
             <span style={{ color: 'var(--text-2)' }}>{t('settings.installMethod')}</span>
-            <span style={{ color: 'var(--text-0)' }}>{updateLoading ? t('common.loading') : installMethodLabel}</span>
+            <span style={{ color: 'var(--text-0)' }}>{isCheckingUpdates ? t('common.loading') : installMethodLabel}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12 }}>
             <span style={{ color: 'var(--text-2)' }}>{t('settings.currentVersion')}</span>
@@ -212,11 +277,22 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             <span style={{ color: 'var(--text-0)', fontFamily: 'var(--mono)' }}>{updateStatus?.latestVersion || '—'}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12 }}>
-            <span style={{ color: 'var(--text-2)' }}>{t('settings.lastChecked')}</span>
-            <span style={{ color: 'var(--text-0)' }}>{updateLoading ? t('common.loading') : formatTimestamp(locale, updateStatus?.checkedAt || null)}</span>
+            <span style={{ color: 'var(--text-2)' }}>{t('settings.lastAttempted')}</span>
+            <span style={{ color: 'var(--text-0)' }}>{lastAttemptLabel}</span>
           </div>
+          {showLastSuccessful && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12 }}>
+              <span style={{ color: 'var(--text-2)' }}>{t('settings.lastSuccessful')}</span>
+              <span style={{ color: 'var(--text-0)' }}>{lastSuccessfulLabel}</span>
+            </div>
+          )}
           {!updateLoading && (
             <div style={{ color: 'var(--text-2)', fontSize: 12, lineHeight: 1.5, marginTop: 2 }}>{installGuidance}</div>
+          )}
+          {showLastError && (
+            <div style={{ color: 'var(--warning)', fontSize: 12, lineHeight: 1.5 }}>
+              {t('settings.updateLastError', { message: updateStatus?.lastError || '' })}
+            </div>
           )}
           {updateStatus?.recommendedCommand && (
             <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>
