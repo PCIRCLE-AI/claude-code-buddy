@@ -207,7 +207,7 @@ describe('HTTP Transport: GET /v1/update-status', () => {
   it('returns cached update metadata when requested', async () => {
     fs.writeFileSync(updateCheckPath, JSON.stringify({
       currentVersion: '4.0.1',
-      latestVersion: '4.0.3',
+      latestVersion: '4.0.4',
       lastAttemptAt: '2026-04-24T10:15:00.000Z',
       lastSuccessfulCheckAt: '2026-04-24T10:00:00.000Z',
       lastError: 'npm unavailable',
@@ -218,7 +218,7 @@ describe('HTTP Transport: GET /v1/update-status', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data.currentVersion).toBeDefined();
-    expect(res.body.data.latestVersion).toBe('4.0.3');
+    expect(res.body.data.latestVersion).toBe('4.0.4');
     expect(res.body.data.updateAvailable).toBe(true);
     expect(res.body.data.checkSucceeded).toBe(false);
     expect(res.body.data.source).toBe('cache');
