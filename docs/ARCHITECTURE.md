@@ -1,6 +1,6 @@
 # MeMesh Plugin Architecture
 
-**Version**: 4.0.3
+**Version**: 4.0.4
 
 ---
 
@@ -180,7 +180,7 @@ The primary dashboard is now the packaged Preact single-page app served by `GET 
 - preferred over the legacy HTML generator path
 - used for live local inspection and settings/config flows
 
-**Dashboard tabs (v4.0.3)**:
+**Dashboard tabs (v4.0.4)**:
 
 | Tab | Feature |
 |-----|---------|
