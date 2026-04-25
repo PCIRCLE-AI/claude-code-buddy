@@ -148,7 +148,8 @@ Use MCP mode when the client supports MCP. Use HTTP mode when you control a loca
 
 **MCP client not seeing tools**:
 - Verify the client is configured to run `memesh-mcp`
-- Run `memesh status` to confirm local database and capabilities
+- Run `memesh doctor` to verify `.mcp.json`, hooks, dashboard assets, local database, and install method
+- Run `memesh status` to confirm capabilities and update state
 - Check the client logs for MCP server startup errors
 
 ---

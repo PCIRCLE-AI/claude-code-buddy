@@ -50,6 +50,7 @@ describe('Installation Verification', () => {
       'scripts/hooks/post-commit.js',
       'scripts/hooks/session-summary.js',
       'scripts/hooks/pre-compact.js',
+      'scripts/hooks/pre-edit-recall.js',
     ];
 
     it.each(hookFiles)('%s should exist and be executable', (hookPath) => {

@@ -6,6 +6,9 @@ const targets = [
   'dist/cli/view.js',
   'scripts/hooks/session-start.js',
   'scripts/hooks/post-commit.js',
+  'scripts/hooks/pre-compact.js',
+  'scripts/hooks/pre-edit-recall.js',
+  'scripts/hooks/session-summary.js',
 ];
 
 for (const relativePath of targets) {

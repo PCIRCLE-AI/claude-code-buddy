@@ -20,7 +20,7 @@ const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 const program = new Command();
 program
   .name('memesh')
-  .description('MeMesh — The lightest universal AI memory layer')
+  .description('MeMesh — Local memory for Claude Code and MCP coding agents')
   .version(pkg.version);
 
 // --- remember ---
@@ -391,7 +391,35 @@ program
     }
   });
 
-// --- status ---
+// --- doctor ---
+program
+  .command('doctor')
+  .description('Verify local install health and show actionable fixes')
+  .option('--json', 'Output machine-readable diagnostics as JSON')
+  .option('--probe-http', 'Also probe the local HTTP server health endpoint')
+  .option('--url <url>', 'Base URL for --probe-http', 'http://127.0.0.1:3737')
+  .action(async (opts) => {
+    const { formatDoctorReport, runDoctor } = await import('../../core/doctor.js');
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: pkg.version,
+      probeHttp: opts.probeHttp,
+      httpBaseUrl: opts.url,
+    });
+
+    if (opts.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      for (const line of formatDoctorReport(result, pkg.version)) {
+        console.log(line);
+      }
+    }
+
+    if (result.status === 'FAIL') {
+      process.exitCode = 1;
+    }
+  });
+
 // --- reindex ---
 program
   .command('reindex')
