@@ -10,7 +10,7 @@
 // session-start.js clears this file at the start of each session.
 
 import { join } from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, openSync, writeFileSync, closeSync, renameSync, unlinkSync } from 'fs';
 import { ensurePrivateDir, getMemeshDir, writePrivateJson } from './_shared.js';
 
 const memeshDir = getMemeshDir(process.env);
@@ -94,13 +94,36 @@ process.stdin.on('end', () => {
 
     if (shownCategories[match.category]) return pass();
 
-    // Record that we nudged this category so we don't repeat it
-    shownCategories[match.category] = true;
+    // Record that we nudged this category so we don't repeat it.
+    // Use O_EXCL on a per-category lockfile to win the race when two parallel
+    // PreToolUse hooks fire in the same millisecond — only one process gets
+    // to create the lockfile, the loser silently skips writing the throttle
+    // and exits as if already-throttled.
+    const lockPath = `${THROTTLE_FILE}.${match.category}.lock`;
+    let weOwnTheLock = false;
     try {
       ensurePrivateDir(memeshDir);
-      writePrivateJson(THROTTLE_FILE, shownCategories);
-    } catch {
-      // Non-critical — nudge will still be shown this time
+      const fd = openSync(lockPath, 'wx', 0o600);
+      closeSync(fd);
+      weOwnTheLock = true;
+    } catch (err) {
+      if (err && err.code === 'EEXIST') {
+        // Another process already claimed this category in this same instant —
+        // treat as already-nudged and pass through without emitting.
+        return pass();
+      }
+      // Other errors (permission, FS full): degrade gracefully — emit nudge,
+      // skip persistence. User sees one nudge, still useful.
+    }
+    if (weOwnTheLock) {
+      shownCategories[match.category] = true;
+      try {
+        writePrivateJson(THROTTLE_FILE, shownCategories);
+      } catch {
+        // Non-critical — nudge still emits
+      } finally {
+        try { unlinkSync(lockPath); } catch { /* best-effort cleanup */ }
+      }
     }
 
     // Emit the advisory nudge

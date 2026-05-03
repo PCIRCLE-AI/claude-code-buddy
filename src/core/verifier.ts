@@ -18,6 +18,7 @@
 //   - Tag pass/fail so future agents can recall via FTS
 
 import { execFileSync } from 'child_process';
+import { randomBytes } from 'crypto';
 import { remember } from './operations.js';
 
 export interface ExternalCheck {
@@ -165,7 +166,11 @@ export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkRes
   const pass = rc.pass && reportPass;
   const timestamp = new Date().toISOString();
   const safeAgentId = input.agent_id.replace(/[^a-zA-Z0-9_-]/g, '-');
-  const entityName = `verification:${safeAgentId}:${timestamp.replace(/[:.]/g, '-')}`;
+  // 6-char random suffix prevents same-millisecond collisions (two parallel
+  // agents calling at 12:00:00.123 would otherwise merge into one entity
+  // because remember() appends observations on duplicate-name).
+  const suffix = randomBytes(3).toString('hex');
+  const entityName = `verification:${safeAgentId}:${timestamp.replace(/[:.]/g, '-')}:${suffix}`;
 
   const tags = [
     'verification',
