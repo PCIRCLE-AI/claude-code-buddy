@@ -18,6 +18,7 @@ const require = createRequire(import.meta.url);
 const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
 const memeshDir = getMemeshDir(process.env);
 const throttlePath = join(memeshDir, 'session-recalled-files.json');
+const nudgeThrottlePath = join(memeshDir, 'agent-nudge-shown.json');
 
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -27,10 +28,17 @@ process.stdin.on('end', async () => {
     const data = JSON.parse(input);
     const projectName = basename(data.cwd || process.cwd());
 
-    // Clear pre-edit recall throttle from previous session
+    // Clear per-session throttle files from previous session
     try {
       if (existsSync(throttlePath)) {
         unlinkSync(throttlePath);
+      }
+    } catch {
+      // Non-critical
+    }
+    try {
+      if (existsSync(nudgeThrottlePath)) {
+        unlinkSync(nudgeThrottlePath);
       }
     } catch {
       // Non-critical
