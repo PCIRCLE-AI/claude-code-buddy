@@ -132,12 +132,21 @@ describe('verifyAgentWork — external report integration', () => {
 });
 
 describe('verifyAgentWork — persistence', () => {
-  it('produces distinct entity names for two consecutive calls', async () => {
+  it('produces distinct entity names for two consecutive calls (no sleep needed)', () => {
     commitFiles(tmpRepo, { 'a.txt': 'A\n' }, 'add a');
     const r1 = verifyAgentWork({ agent_id: 'twice', workdir: tmpRepo, base: 'main' });
-    await new Promise((resolve) => setTimeout(resolve, 5));
     const r2 = verifyAgentWork({ agent_id: 'twice', workdir: tmpRepo, base: 'main' });
     expect(r1.entity_name).not.toBe(r2.entity_name);
+  });
+
+  it('produces distinct entity names even when called in tight burst (no race)', () => {
+    commitFiles(tmpRepo, { 'a.txt': 'A\n' }, 'add a');
+    const names = new Set<string>();
+    for (let i = 0; i < 20; i++) {
+      const r = verifyAgentWork({ agent_id: 'burst', workdir: tmpRepo, base: 'main' });
+      names.add(r.entity_name);
+    }
+    expect(names.size).toBe(20);
   });
 
   it('stores the report as a verification_record entity tagged pass/fail', () => {
