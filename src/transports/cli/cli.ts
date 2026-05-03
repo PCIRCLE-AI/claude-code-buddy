@@ -6,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
 import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn, reindex } from '../../core/operations.js';
+import { verifyAgentWork } from '../../core/verifier.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { readConfig, updateConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { flushPendingEmbeddings } from '../../core/embedder.js';
@@ -248,6 +249,43 @@ program
       } else {
         console.log(`Lesson recorded: ${result.name}`);
       }
+    } finally {
+      closeDatabase();
+    }
+  });
+
+// --- verify ---
+program
+  .command('verify <workdir>')
+  .description('Record a verification report for agent work in <workdir>')
+  .requiredOption('--agent-id <id>', 'Identifier for the agent being verified')
+  .option('--base <ref>', 'Git ref to diff against (default: merge-base with origin/main)')
+  .option('--expected-files <n>', 'Number of files the agent claimed to change', (v) => parseInt(v, 10))
+  .option('--report <path>', 'Path to a JSON file with pre-computed report (typecheck/tests/lint/build)')
+  .option('--json', 'Output as JSON')
+  .action((workdir, opts) => {
+    openDatabase();
+    try {
+      let externalReport;
+      if (opts.report) {
+        const raw = fs.readFileSync(opts.report, 'utf8');
+        externalReport = JSON.parse(raw);
+      }
+      const result = verifyAgentWork({
+        agent_id: opts.agentId,
+        workdir: path.resolve(workdir),
+        base: opts.base,
+        claim: opts.expectedFiles != null ? { expected_files: opts.expectedFiles } : undefined,
+        report: externalReport,
+      });
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        const status = result.pass ? 'PASS' : 'FAIL';
+        console.log(`${status}  agent=${opts.agentId}  entity=${result.entity_name}`);
+        console.log(`  reality: ${result.reality_check.summary}`);
+      }
+      process.exit(result.pass ? 0 : 1);
     } finally {
       closeDatabase();
     }

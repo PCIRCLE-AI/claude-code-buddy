@@ -237,6 +237,7 @@ memesh  # opens dashboard → Settings tab
 | `import` | Import memories with merge strategies (skip / overwrite / append) |
 | `learn` | Record structured lessons from mistakes (error, root cause, fix, prevention) |
 | `user_patterns` | Analyze your work patterns — schedule, tools, strengths, learning areas |
+| `verify_agent_work` | Persist a verification report for background-agent work; reality-checks claimed file changes against `git diff` |
 
 ---
 
