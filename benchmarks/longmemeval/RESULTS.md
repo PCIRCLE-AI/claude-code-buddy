@@ -3,7 +3,7 @@
 **Version:** MeMesh v4.0.4
 **Date:** 2026-05-03
 **Branch:** bench/longmemeval-public-r1
-**Status:** DRAFT — Modes B and C in progress. Mode A confirmed. Full results pending.
+**Status:** PUBLIC — All three modes complete and independently verified (recomputed from raw per-question JSON, dataset SHA256 cross-checked).
 
 > See METHODOLOGY.md for technical details. See REPRODUCE.md to run this yourself.
 
@@ -66,15 +66,18 @@ See [REPRODUCE.md](REPRODUCE.md) for the full step-by-step walkthrough.
 
 ## Results — Per-Mode Metrics
 
-| Mode | Description | R@5 | R@10 | MRR | Elapsed |
-|------|-------------|-----|------|-----|---------|
-| A | FTS5 only | **95.40%** | 97.60% | 0.8899 | 10.0s |
-| B | FTS5+ONNX (max fusion) | 95.40%* | 97.60%* | 0.8904* | ~1300s |
-| C | FTS5+ONNX (weighted 60/40) | 82.40%* | 96.40%* | 0.3123* | ~770s |
+| Mode | Description | R@5 | R@10 | MRR | Elapsed | Result file SHA256[:16] |
+|------|-------------|-----|------|-----|---------|-------------------------|
+| A | FTS5 only | **95.40%** | 97.60% | 0.8899 | 10s | `61e89a9fd91cfb49` |
+| B | FTS5+ONNX (max fusion) | **95.40%** | 97.60% | 0.8904 | ~25min | `1b0e2fb85c1a2bf6` |
+| C | FTS5+ONNX (weighted 60/40) | 82.40% | 96.40% | 0.3123 | ~13min | `c875798ee6534f8a` |
 
-*Modes B and C: in-progress numbers from prior run (bench/longmemeval-r5, commit 6cc7ec14). Final numbers will be updated when current runs complete. Prior run and current run use identical adapter code. Dataset SHA256 confirmed identical.
+All three modes recomputed independently from raw per-question JSON; stored `overall_metrics` matches recomputation exactly. Dataset SHA256 `08d8dad4...` verified against on-disk file and against `run_info.dataset_sha256` in all three result JSONs.
 
-**Key finding:** Mode A (FTS5-only) and Mode B (FTS5+ONNX max) are identical in R@5. Mode C (weighted fusion) regresses significantly due to distractor contamination. See METHODOLOGY.md for root cause.
+**Key findings:**
+1. **Mode A and Mode B tie at R@5 = 95.40%.** Adding 384-dim ONNX vector search via max-fusion contributes zero additional top-5 hits over FTS5 alone — vector retrieval found sessions that FTS5 didn't, but they ranked outside the top 5. **Recommended production configuration: Mode A.**
+2. **Mode C regresses 13pp.** Weighted fusion (60% FTS5 + 40% vector) is hurt by `ultrachat_*`/`sharegpt_*` distractor sessions that have high cosine similarity to query text but aren't personal memory. Vector signal as a tie-breaker (max) is safe; vector signal as a weight is unsafe with this haystack composition. See METHODOLOGY.md §6.
+3. **FTS5 carries the load.** `BM25(question_keywords)` over per-question isolated SQLite databases hits 95.40% R@5 in 10 seconds for 500 questions on a 2023 laptop. Within 1.2pp of vendor-reported MemPalace (96.6%, vector + reranker stack).
 
 ---
 
@@ -151,9 +154,9 @@ We use `longmemeval_s`, the original public dataset (ICLR 2025 paper). A `longme
 ## Raw Data
 
 All per-question results are in `results/`:
-- `results/mode-A-2026-05-03T12-31-26.json` — Mode A confirmed (500 questions)
-- `results/mode-B-*.json` — Mode B (in progress)
-- `results/mode-C-*.json` — Mode C (in progress)
+- `results/mode-A-2026-05-03T12-31-26.json` — Mode A (500 questions, sha256[:16] `61e89a9fd91cfb49`)
+- `results/mode-B-2026-05-03T12-55-57.json` — Mode B (500 questions, sha256[:16] `1b0e2fb85c1a2bf6`)
+- `results/mode-C-2026-05-03T12-56-25.json` — Mode C (500 questions, sha256[:16] `c875798ee6534f8a`)
 
 Each JSON includes `run_info` (versions, SHA256, timestamp), `overall_metrics`, `metrics_by_type`, and `results` (per-question: question_id, question, ranked_session_ids, answer_session_ids, hit_at, r_at_5, r_at_10, reciprocal_rank).
 
