@@ -188,6 +188,22 @@ process.stdin.on('end', async () => {
         // Lesson query failed — don't break session start
       }
 
+      // --- Agentic-orchestration mode banner ---
+      // memesh ships an operating model, not just a memory layer. This banner
+      // reminds Claude at session start that the default for verifiable work
+      // (build/test/lint/migrate/refactor/benchmark) is to dispatch a
+      // background agent rather than block the conversation. Strategic work
+      // (positioning, scope, naming, first-time public-facing changes) stays
+      // foreground because the user's understanding is the verification.
+      try {
+        memorySummary +=
+          '\n\n[Working model] User=CTO · Claude=Orchestrator · Agents=Engineering team\n' +
+          'Verifiable work (build/test/lint/refactor/benchmark) → dispatch as background agent (Task with run_in_background:true).\n' +
+          'Strategic work → stay foreground. Skill: agentic-orchestration.';
+      } catch {
+        // Banner failed — non-critical, continue
+      }
+
       // --- Record injected entity IDs for recall effectiveness tracking ---
       try {
         // CRITICAL: Deduplicate by entity ID (entity may appear in both project and recent lists)
