@@ -9,12 +9,13 @@ import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
 import { computePatterns } from '../../core/patterns.js';
+import { verifyAgentWork } from '../../core/verifier.js';
 import type { CountRow, PragmaColumnRow } from '../../core/types.js';
 import {
   RememberSchema as RememberBody, RecallSchema as RecallBody,
   ForgetSchema as ForgetBody, ConsolidateSchema as ConsolidateBody,
   ExportSchema as ExportBody, ImportSchema as ImportBody,
-  LearnSchema as LearnBody,
+  LearnSchema as LearnBody, VerifyAgentWorkSchema as VerifyBody,
 } from '../schemas.js';
 import { getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
@@ -192,6 +193,21 @@ app.post('/v1/learn', (req, res) => {
   }
   try {
     const result = learn(parsed.data);
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// --- Verify ---
+app.post('/v1/verify', (req, res) => {
+  const parsed = VerifyBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+    return;
+  }
+  try {
+    const result = verifyAgentWork(parsed.data);
     res.json({ success: true, data: result });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
