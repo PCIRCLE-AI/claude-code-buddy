@@ -69,6 +69,16 @@ digraph router {
 }
 ```
 
+### Three Tiers — be explicit about which one applies
+
+| Tier | What it is | Verification cost | Dispatch verdict |
+|---|---|---|---|
+| **Tier 1 — Machine-verifiable** | tsc, vitest, lint, build, migrate, benchmark, gh run watch | seconds, deterministic | **Background, parallel OK** |
+| **Tier 2 — Review-verifiable** | API shape, schema, public types, generated docs, code review against checklist | minutes, semi-automated | **Background OK + auto-trigger code-review after** |
+| **Tier 3 — Judgment-required** | UX, naming, architecture, strategy, public-facing copy | hours, human only | **Foreground only — do not dispatch** |
+
+Karpathy's thesis translated: **anything Tier 1 or Tier 2 should be agentic; verifying it is the bottleneck, not doing it.** If verification of an agent's claim takes longer than the work itself, the dispatch is a net negative — design verification first, then dispatch.
+
 ### High verifiability (→ background agent)
 
 The agent can self-verify because the goal is mechanically checkable.
@@ -150,6 +160,72 @@ Most real work is mixed. Run them in the right shape:
 - Foreground: "what is the goal, what is in scope, what does success look like"
 - Branch off: dispatch background agents for each verifiable subgoal
 - Foreground: review their outputs, decide what to keep, iterate
+
+---
+
+## The Verification Gate (mandatory post-agent procedure)
+
+**An agent's summary is not evidence. The diff is. Tests passing locally are.**
+
+Before reporting any agent's work as "done" — to the user, to memory, in a commit message, anywhere — the orchestrator MUST run the verification gate. No exceptions for "this agent is reliable" or "I read the prompt carefully." The discipline is mechanical because human trust scales worse than agents do.
+
+### Gate sequence (run in order, stop on first failure)
+
+```
+1. Reality check — did the claimed changes actually happen?
+   git -C <agent_workdir> diff --stat <base>..HEAD
+   → compare against agent's claim of "files changed"
+   → if mismatch: agent fabricated. Discard, do not commit.
+
+2. Hard verification — do the deterministic checks pass?
+   npm run typecheck          # tsc --noEmit
+   npm test -- --run          # full suite, not "the new tests"
+   npm run lint  (if exists)
+   npm run build (if changes touch build output)
+   → if any fail: agent's work is incomplete. Fix-then-dispatch
+     a follow-up, or take over foreground. Do NOT commit broken state.
+
+3. Cross-check — do the numbers in the agent's summary match reality?
+   "added 5 tests"            → grep -c "^\s*it\(" <new test files>
+   "77/77 pass"               → re-run test count, verify
+   "R@5 = 95.40%"             → spot-check one or two of the result rows
+   → numbers that match by accident are still verified;
+     numbers that the agent calculated must be re-derived independently.
+
+4. Independent review (Tier 2 only) — does an outside reviewer see issues?
+   Spawn a fresh-context code-review subagent with no memory of the
+   original work. Have it review only the diff against the project's
+   standards. Surface any non-overlapping findings.
+```
+
+### What the gate is NOT
+
+- Not a replacement for tests written by the agent — it CHECKS that they pass
+- Not "vibes-based" review — every step is a command with deterministic output
+- Not skippable when "I'm in a hurry" — speed comes from parallel dispatch, not from skipping verification
+
+### Recursive trust problem (do not fall in)
+
+The verification gate's steps must be **deterministic commands**, not LLM judgment. An "LLM that verifies an LLM" is the same risk class as no verification — both can fabricate. The only safe verifiers are:
+
+- Compilers and linters
+- Test runners with assertions
+- Diff tools and `git status`
+- File existence + content hash checks
+- HTTP probes that assert response codes/shapes
+- Schema validators (Zod, JSON Schema, Prisma)
+
+LLM-as-reviewer is useful for **opinion** ("does this look idiomatic?"), useless for **fact** ("did the test actually run?"). Use it as Tier 2 augmentation, never as Tier 1 substitute.
+
+### When verification reveals the agent fabricated
+
+Treat as a debugging signal, not a personal failure. Record it:
+1. Stash the agent's diff (don't lose it, in case there is salvage)
+2. Note what it claimed vs what the gate found
+3. Save to memesh as a `lesson_learned`: "When dispatching <pattern>, verification at step <N> caught <fabrication-type>"
+4. Decide: re-dispatch with sharper prompt, or take over foreground
+
+This is how the orchestrator learns which dispatch shapes are reliable for the user's stack.
 
 ---
 
@@ -249,22 +325,38 @@ the user's time.
 
 ## Checklist Before Starting Any Multi-Step Task
 
-- [ ] Have I classified each subtask as high or low verifiability?
-- [ ] For the high-verifiability subtasks, have I dispatched them as
-      background agents (parallel where independent)?
+- [ ] Have I classified each subtask as Tier 1 / 2 / 3?
+- [ ] For Tier 1 / 2 subtasks, have I dispatched them as background
+      agents (parallel where independent)?
 - [ ] Did I include `mode: "acceptEdits"` so the agent can act without
       permission prompts?
-- [ ] For the low-verifiability subtasks, am I keeping the user in the
-      loop with short, focused exchanges?
+- [ ] For Tier 3 subtasks, am I keeping the user in the loop with
+      short, focused exchanges?
 - [ ] Am I writing self-contained prompts that the agent can act on
       without further clarification?
+- [ ] Do my prompts include the agent's **own self-verification step**
+      ("after writing the code, run `npm test -- --run` and report the
+      result")?
 - [ ] Do my prompts include explicit "do NOT" boundaries (no push to
       remote, no production-touching changes, no public-surface edits
       without approval)?
-- [ ] Will I review the *diff* of each agent's work, not just its
-      summary?
 - [ ] Have I told the user, in one sentence, what is running in the
       background and what is foreground?
+
+## Checklist Before Reporting Any Agent's Work As "Done"
+
+- [ ] Did I run the **Verification Gate** (the four steps above), not
+      just read the agent's summary?
+- [ ] Does `git diff --stat` actually show the changes the agent
+      claimed?
+- [ ] Did `npm run typecheck && npm test -- --run` pass on my machine,
+      not just inside the agent's worktree?
+- [ ] If the agent reported numbers (test count, benchmark score),
+      did I re-derive at least one of them independently?
+- [ ] For Tier 2 work, did I run a fresh-context code-review pass
+      against the diff?
+- [ ] If the gate failed: did I record the failure mode to memesh as
+      a lesson_learned so the next dispatch is sharper?
 
 ---
 
