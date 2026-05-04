@@ -34,13 +34,20 @@ We do not yet have field data either way.
 memesh is a local memory layer **and** a working-model activator. Three
 parts compose:
 
-1. **This skill** — the protocol. Loaded automatically when memesh is
-   installed; picked up by Claude Code's skill system.
-2. **The SessionStart `agent-mode-banner` hook** — injects the working
-   model into Claude's context at session start so it sticks.
-3. **The PreToolUse `pre-bash-orchestration-nudge` hook** — advisory
-   reminder when Claude is about to run a high-verifiability bash
-   command synchronously, suggesting `run_in_background: true` instead.
+1. **This skill** — the protocol document. Loaded by Claude Code's skill
+   system when memesh is installed. Discoverable on its own.
+2. **The SessionStart banner hook** — injects the working model into
+   Claude's context at session start so it sticks. **Opt-in: set
+   `MEMESH_ENABLE_AGENTIC_ORCHESTRATION=1`.**
+3. **The PreToolUse Bash nudge hook** — advisory reminder when Claude is
+   about to run a high-verifiability bash command synchronously,
+   suggesting `run_in_background: true` instead. **Opt-in: same flag.**
+
+Default is OFF for parts 2 and 3 — the core memory features (parts that
+are not "the protocol") work without setting any flag. Opt in to the
+flag if you want to participate in the experiment; doing so also enables
+local-only telemetry (`memesh patterns`) so the protocol's effectiveness
+can later be validated with real usage data.
 
 Plus: memesh's self-improving lessons + the `agent_pattern` entity type
 (record what dispatch patterns worked) close the loop — the longer you

@@ -26,6 +26,22 @@ This package is the local memory layer of the MeMesh product family. It is inten
 
 ---
 
+## Proof — 95.40% R@5 on LongMemEval-S
+
+MeMesh's retrieval engine is **FTS5 alone** (no LLM, no embeddings on the hot path), measured against the public [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) benchmark (500 questions, MIT-licensed):
+
+| System | R@5 | Source |
+|---|---|---|
+| **MeMesh (Mode A, FTS5)** | **95.40%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| MemPalace | 96.6% | Vendor self-report |
+| Supermemory | ~82% | Vendor estimate |
+| Zep | 63.8% | LongMemEval paper |
+| Mem0 | 49.0% | LongMemEval paper |
+
+Reproduction commands, dataset SHA256, raw per-question results, and known-failure analysis are all in [`benchmarks/longmemeval/`](benchmarks/longmemeval/). Re-runnable in ~10 seconds.
+
+---
+
 ## Get Started in 60 Seconds
 
 ### Step 1: Install
@@ -34,10 +50,20 @@ This package is the local memory layer of the MeMesh product family. It is inten
 npm install -g @pcircle/memesh
 ```
 
+> **First-install notes (one-time):**
+> - **Native modules** — `better-sqlite3` and `sqlite-vec` install via prebuilt binaries on macOS (arm64/x64), Linux (x64/arm64), and Windows x64. On uncommon platforms or when prebuilds fail, you'll need a working C/C++ toolchain.
+> - **Embedding model** — the first call that triggers a local embedding (e.g. `recall` with semantic mode) downloads `Xenova/all-MiniLM-L6-v2` (~80 MB) into `~/.memesh/models/`. Subsequent calls are instant. The default retrieval path (FTS5) does not require this download.
+
 ### Step 2: Store a decision
 
 ```bash
 memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
+```
+
+Or quick-capture in one line:
+
+```bash
+memesh remember "Use OAuth 2.0 with PKCE for the new auth"
 ```
 
 ### Step 3: Recall it later
@@ -147,14 +173,31 @@ You don't need to manually remember everything. MeMesh has **6 hooks** that capt
 
 | When | What MeMesh does |
 |------|------------------|
-| **Every session start** | Loads your most relevant memories + proactive warnings from past lessons + agentic-orchestration banner |
+| **Every session start** | Loads your most relevant memories + proactive warnings from past lessons |
 | **Before editing files** | Recalls memories tied to the file or project before Claude writes code |
-| **Before bash commands** | Nudges Claude to dispatch high-verifiability commands (test, build, lint, migrate, deploy, benchmark) as background agents |
+| **Before bash commands** | (Opt-in) Nudges Claude to dispatch high-verifiability commands (test, build, lint, migrate, deploy, benchmark) as background agents |
 | **After every `git commit`** | Records what you changed, with diff stats |
 | **When Claude stops** | Captures files edited, errors fixed, and auto-generates structured lessons from failures |
 | **Before context compaction** | Saves knowledge before it's lost to context limits |
 
 > **Opt out anytime:** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## Configuration
+
+All configuration is via environment variables. Defaults are local-only and zero-network — you don't need to set anything to get a working system.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | Override the SQLite database location. |
+| `MEMESH_AUTO_CAPTURE` | `true` | Disable the auto-capture hooks (`Stop`, `PreCompact`) entirely. |
+| `MEMESH_AUTO_DETECT_LLM` | unset | Set to `1` to let memesh auto-detect a provider from your shell env (`OPENAI_API_KEY` etc.) and switch to BYOK embeddings. **Default fresh-install is local ONNX (384-dim) only** — opt in if you want cloud embeddings. Without this flag set, an `OPENAI_API_KEY` lying around in your shell is ignored. |
+| `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | unset | Set to `1` to enable an experimental working-model protocol (CTO / Orchestrator / Agents framing). Adds a session-start banner, a Bash command nudge, and `verify_agent_work` telemetry. The protocol's effectiveness is being instrumented, not yet proven — opt in if you want to participate. **Default is OFF**: the core memory features work without this flag. |
+| `OPENAI_API_KEY` | unset | Your OpenAI key. Only used when `MEMESH_AUTO_DETECT_LLM=1` or you explicitly configure the provider. |
+| `OLLAMA_HOST` | `http://localhost:11434` | Override the Ollama endpoint when using a local Ollama provider. |
+
+`memesh doctor` prints the resolved configuration so you can see what's active.
 
 ---
 

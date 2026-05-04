@@ -1,7 +1,7 @@
 # MeMesh LongMemEval Benchmark Results
 
-**Version:** MeMesh v4.0.4
-**Date:** 2026-05-03
+**Version measured:** MeMesh v4.0.4 (2026-05-03)
+**Applies to:** v4.0.4 and later — v4.1.0 is unchanged on the retrieval path (same FTS5 query, same scoring). v4.1.0 adds the `agentic-orchestration` opt-in skill, telemetry plumbing, BYOK fixes, and i18n READMEs — none of those touch retrieval. R@5 = 95.40% holds for v4.1.0.
 **Branch:** bench/longmemeval-public-r1
 **Status:** PUBLIC — All three modes complete and independently verified (recomputed from raw per-question JSON, dataset SHA256 cross-checked).
 
