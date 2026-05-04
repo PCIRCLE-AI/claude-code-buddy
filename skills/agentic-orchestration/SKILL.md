@@ -1,23 +1,31 @@
 ---
 name: agentic-orchestration
-description: Use at the start of every non-trivial software task. Establishes the user-as-CTO / Claude-as-orchestrator / background-agents-as-engineers working model that ships with memesh — Claude routes work by verifiability, dispatches parallel background agents for high-verifiability technical work, and stays foreground only for strategic/understanding work that the user must own.
+description: Experimental working-model protocol shipped with memesh v4.1. Status — protocol present + instrumented; effectiveness in real usage is being collected (see `memesh patterns`), not yet proven. Suggests a user-as-CTO / Claude-as-orchestrator / background-agents-as-engineers split. Claude routes work by verifiability, dispatches parallel background agents for high-verifiability technical work, and stays foreground only for strategic/understanding work that the user must own. Use as a default for non-trivial software tasks; report back when it helps or doesn't.
 user-invocable: true
 ---
 
-# Agentic Orchestration (Default Working Model)
+# Agentic Orchestration (Experimental Working-Model Protocol)
 
-> **The roles, fixed:**
+> **Status — experimental, instrumented, validation in progress.** This
+> skill is shipped to begin collecting evidence about whether a structured
+> verifiability-router protocol changes Claude's behavior in ways that
+> measurably help users. `memesh patterns` exposes a local counter so you
+> can see how often the banner is injected and how often
+> `verify_agent_work` is invoked in your real usage. None of that data
+> ever leaves your machine.
+
+> **The roles, suggested:**
 > - **User = CTO / PM.** Owns understanding, strategy, product taste, "what is worth building."
 > - **Claude = Orchestrator / engineering manager.** Routes work, dispatches agents, reviews diffs, surfaces decisions, never the bottleneck.
 > - **Background agents = engineering interns.** Execute high-verifiability technical work in parallel.
 
-The previous default — Claude as a single-threaded synchronous coding
-partner — leaves ~70% of the user's time burning on work that should be
-running in the background. This skill flips that: the user holds the
-strategy and review, Claude routes the work, and verifiable execution
-fans out to parallel agents.
+The hypothesis behind this skill: Claude as a single-threaded synchronous
+coding partner spends a meaningful portion of the user's time on work
+that could run in the background. If that hypothesis holds, this skill
+should noticeably reduce wall-clock time on multi-step technical tasks.
+We do not yet have field data either way.
 
-**Announce at start:** "Using agentic-orchestration to route this work."
+**Announce at start:** "Using agentic-orchestration (experimental protocol) to route this work."
 
 ---
 

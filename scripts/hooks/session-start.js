@@ -3,7 +3,7 @@
 import { createRequire } from 'module';
 import { homedir } from 'os';
 import { dirname, join, basename } from 'path';
-import { existsSync, unlinkSync } from 'fs';
+import { existsSync, unlinkSync, appendFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import {
   buildReferenceContext,
@@ -196,18 +196,34 @@ process.stdin.on('end', async () => {
         // Lesson query failed — don't break session start
       }
 
-      // --- Agentic-orchestration mode banner ---
-      // memesh ships an operating model, not just a memory layer. This banner
-      // reminds Claude at session start that the default for verifiable work
-      // (build/test/lint/migrate/refactor/benchmark) is to dispatch a
-      // background agent rather than block the conversation. Strategic work
-      // (positioning, scope, naming, first-time public-facing changes) stays
-      // foreground because the user's understanding is the verification.
+      // --- Agentic-orchestration mode banner (experimental protocol) ---
+      // memesh ships an experimental working-model protocol alongside its
+      // memory layer. This banner reminds Claude at session start that the
+      // suggested default for verifiable work (build/test/lint/migrate/
+      // refactor/benchmark) is to dispatch a background agent rather than
+      // block the conversation; strategic work stays foreground. The
+      // protocol is experimental — its effectiveness is being instrumented
+      // (see ~/.memesh/skill-usage.jsonl), not yet proven with usage data.
       try {
         memorySummary +=
-          '\n\n[Working model] User=CTO · Claude=Orchestrator · Agents=Engineering team\n' +
+          '\n\n[Experimental working model — protocol; effectiveness still being validated] ' +
+          'User=CTO · Claude=Orchestrator · Agents=Engineering team\n' +
           'Verifiable work (build/test/lint/refactor/benchmark) → dispatch as background agent (Task with run_in_background:true).\n' +
           'Strategic work → stay foreground. Skill: agentic-orchestration.';
+
+        // Local-only telemetry — counts banner injections so we can later
+        // validate this protocol with evidence. Never networked. Hook
+        // writes the JSONL line directly to keep itself self-contained
+        // (no dynamic import of compiled TS).
+        try {
+          const usagePath = join(memeshDir, 'skill-usage.jsonl');
+          const line = JSON.stringify({
+            ts: new Date().toISOString(),
+            event: 'agentic_orchestration_banner_injected',
+            payload: { cwd_hashed: String(cwd).slice(0, 16) },
+          }) + '\n';
+          appendFileSync(usagePath, line);
+        } catch { /* swallow — telemetry must not break session-start */ }
       } catch {
         // Banner failed — non-critical, continue
       }

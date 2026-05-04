@@ -488,6 +488,33 @@ program
     }
   });
 
+// --- patterns (skill-usage view) ---
+program
+  .command('patterns')
+  .description('Show local skill-usage telemetry (agentic-orchestration banner injections, verify_agent_work invocations). Local-only — never uploaded.')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    const { summariseSkillUsage } = await import('../../core/skill-usage-log.js');
+    const summary = summariseSkillUsage();
+    if (opts.json) {
+      console.log(JSON.stringify(summary, null, 2));
+      return;
+    }
+    console.log(`Skill usage log: ${summary.log_path}`);
+    console.log(`  total events: ${summary.total_events}`);
+    console.log(`  log size:     ${summary.log_bytes} bytes`);
+    if (summary.first_event) console.log(`  first event:  ${summary.first_event}`);
+    if (summary.last_event) console.log(`  last event:   ${summary.last_event}`);
+    if (summary.total_events === 0) {
+      console.log('  (no events recorded yet — open a Claude Code session with memesh installed, or run a verification, to start collecting)');
+      return;
+    }
+    console.log('  events by name:');
+    for (const [name, count] of Object.entries(summary.events_by_name).sort((a, b) => b[1] - a[1])) {
+      console.log(`    ${count.toString().padStart(6)}  ${name}`);
+    }
+  });
+
 // --- status ---
 program
   .command('status')
