@@ -168,7 +168,10 @@ const EMBEDDING_DIMENSIONS: Record<string, number> = {
  */
 export function getEmbeddingDimension(config?: MeMeshConfig): number {
   const cfg = config ?? readConfig();
-  const llm = cfg.llm ?? detectFromEnv() ?? detectOllama() ?? null;
+  // Same opt-in semantics as detectCapabilities — env-var auto-detection
+  // only fires when MEMESH_AUTO_DETECT_LLM=1. Otherwise fresh installs
+  // resolve to onnx (384-dim), keeping entities_vec consistent.
+  const llm = cfg.llm ?? detectFromEnv() ?? null;
   const source = detectEmbeddingSource(llm);
   return EMBEDDING_DIMENSIONS[source] ?? 384;
 }

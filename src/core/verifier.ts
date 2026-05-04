@@ -20,6 +20,7 @@
 import { execFileSync } from 'child_process';
 import { randomBytes } from 'crypto';
 import { remember } from './operations.js';
+import { logSkillEvent } from './skill-usage-log.js';
 
 export interface ExternalCheck {
   pass: boolean;
@@ -183,6 +184,17 @@ export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkRes
     type: 'verification_record',
     observations: buildObservations(input, rc, pass),
     tags,
+  });
+
+  // Local-only telemetry — counts how often the verification gate fires in
+  // real usage so we can later validate the agentic-orchestration skill's
+  // effectiveness with evidence rather than design claims. Never networked.
+  // Payload is metadata only (no agent text or workdir contents).
+  logSkillEvent('verify_agent_work_invoked', {
+    agent_id_hashed: safeAgentId.slice(0, 8),
+    pass,
+    files_changed: rc.files_changed,
+    has_external_report: Boolean(input.report),
   });
 
   return {
