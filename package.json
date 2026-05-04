@@ -28,7 +28,8 @@
     "test:e2e-dashboard": "node scripts/dashboard-e2e-smoke.mjs",
     "test:packaged": "node scripts/smoke-packed-artifact.mjs",
     "typecheck": "tsc --noEmit",
-    "start": "node dist/mcp/server.js"
+    "start": "node dist/mcp/server.js",
+    "bench:longmemeval": "node benchmarks/longmemeval/run.mjs --mode A --dataset /tmp/longmemeval_s.json"
   },
   "author": "PCIRCLE-AI",
   "license": "MIT",
