@@ -5,16 +5,18 @@
 // deploys, etc.), injects a one-time-per-category advisory hint to consider
 // dispatching it as a background agent instead of blocking the conversation.
 //
-// Throttle: one nudge per category per session. State lives in
-// ~/.memesh/agent-nudge-shown.json (or beside MEMESH_DB_PATH).
-// session-start.js clears this file at the start of each session.
+// Throttle: one nudge per category per session. State is one marker file per
+// category in ${memeshDir}/agent-nudge-flags/${category}.flag. The flag IS
+// the lock — created with O_EXCL so concurrent hooks racing on the same
+// category resolve atomically (winner emits the nudge, loser silently passes).
+// session-start.js clears the directory at the start of each session.
 
 import { join } from 'path';
-import { existsSync, readFileSync, openSync, closeSync, unlinkSync } from 'fs';
-import { ensurePrivateDir, getMemeshDir, writePrivateJson } from './_shared.js';
+import { openSync, closeSync } from 'fs';
+import { ensurePrivateDir, getMemeshDir } from './_shared.js';
 
 const memeshDir = getMemeshDir(process.env);
-const THROTTLE_FILE = join(memeshDir, 'agent-nudge-shown.json');
+const FLAGS_DIR = join(memeshDir, 'agent-nudge-flags');
 
 // ---------------------------------------------------------------------------
 // Pattern definitions
@@ -57,7 +59,13 @@ const PATTERNS = [
 // Commands that are definitely NOT long-running, even if they somehow matched
 // a pattern above. Short-circuit exclusions — if the command matches any of
 // these, skip the nudge.
-const NOISE_EXCLUSIONS = /--version\b|-v\b|--help\b|-h\b|\bls\b|\bcat\b|\becho\b|\bpwd\b|\bwhich\b|\bwhere\b/i;
+//
+// Note: short-form `-v` was intentionally removed. In test runners (pytest,
+// go test, cargo test, bun test) `-v` is the *verbose* flag, and those
+// invocations are genuinely long-running. `node -v` / `npm -v` style
+// version checks don't reach this exclusion list anyway because they
+// never match any PATTERN entry above.
+const NOISE_EXCLUSIONS = /--version\b|--help\b|\b-h\b|\bls\b|\bcat\b|\becho\b|\bpwd\b|\bwhich\b|\bwhere\b/i;
 
 // ---------------------------------------------------------------------------
 // Main
@@ -67,6 +75,13 @@ process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { input += chunk; });
 process.stdin.on('end', () => {
   try {
+    // Opt-in gate: the agentic-orchestration protocol is a separable
+    // experiment from memesh's core memory features. Enable with
+    // MEMESH_ENABLE_AGENTIC_ORCHESTRATION=1. The default is OFF so users
+    // who installed memesh purely for memory don't see protocol nudges
+    // they never asked for.
+    if (process.env.MEMESH_ENABLE_AGENTIC_ORCHESTRATION !== '1') return pass();
+
     const data = JSON.parse(input);
     const command = (data.tool_input?.command ?? '').trim();
 
@@ -79,51 +94,35 @@ process.stdin.on('end', () => {
     const match = PATTERNS.find((p) => p.test.test(command));
     if (!match) return pass();
 
-    // Throttle: only nudge once per category per session
-    let shownCategories = {};
-    try {
-      if (existsSync(THROTTLE_FILE)) {
-        const raw = JSON.parse(readFileSync(THROTTLE_FILE, 'utf8'));
-        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-          shownCategories = raw;
-        }
-      }
-    } catch {
-      shownCategories = {};
-    }
+    // Throttle: only nudge once per category per session.
+    //
+    // Per-category marker file with O_EXCL atomic create. The flag IS the
+    // lock — there is no shared state to read-modify-write, so concurrent
+    // hooks for *different* categories cannot clobber each other's marker
+    // (the previous shared-JSON design lost one of two parallel writes).
+    // session-start.js wipes ${FLAGS_DIR} at the top of each new session.
+    //
+    // No pre-check (existsSync) before the open — that would be a TOCTOU
+    // window. The openSync('wx') is itself the atomic check-and-create:
+    // EEXIST means already-throttled, success means we won the race.
+    const flagPath = join(FLAGS_DIR, `${match.category}.flag`);
 
-    if (shownCategories[match.category]) return pass();
-
-    // Record that we nudged this category so we don't repeat it.
-    // Use O_EXCL on a per-category lockfile to win the race when two parallel
-    // PreToolUse hooks fire in the same millisecond — only one process gets
-    // to create the lockfile, the loser silently skips writing the throttle
-    // and exits as if already-throttled.
-    const lockPath = `${THROTTLE_FILE}.${match.category}.lock`;
-    let weOwnTheLock = false;
     try {
-      ensurePrivateDir(memeshDir);
-      const fd = openSync(lockPath, 'wx', 0o600);
+      ensurePrivateDir(FLAGS_DIR);
+      const fd = openSync(flagPath, 'wx', 0o600);
       closeSync(fd);
-      weOwnTheLock = true;
     } catch (err) {
       if (err && err.code === 'EEXIST') {
-        // Another process already claimed this category in this same instant —
-        // treat as already-nudged and pass through without emitting.
+        // Marker already exists — this category was already nudged in this
+        // session (either by an earlier hook invocation or a parallel one).
         return pass();
       }
-      // Other errors (permission, FS full): degrade gracefully — emit nudge,
-      // skip persistence. User sees one nudge, still useful.
-    }
-    if (weOwnTheLock) {
-      shownCategories[match.category] = true;
-      try {
-        writePrivateJson(THROTTLE_FILE, shownCategories);
-      } catch {
-        // Non-critical — nudge still emits
-      } finally {
-        try { unlinkSync(lockPath); } catch { /* best-effort cleanup */ }
-      }
+      // Other errors (permission, FS full, EROFS): silent degrade — without
+      // a marker we cannot honor the once-per-session contract, so emitting
+      // the nudge would spam every matching command. Better to skip the
+      // nudge entirely and let the user notice the FS issue via
+      // `memesh doctor` if they care.
+      return pass();
     }
 
     // Emit the advisory nudge

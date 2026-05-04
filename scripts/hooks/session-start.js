@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 import { createRequire } from 'module';
+import { createHash } from 'crypto';
 import { homedir } from 'os';
 import { dirname, join, basename } from 'path';
-import { existsSync, unlinkSync, appendFileSync } from 'fs';
+import { existsSync, unlinkSync, rmSync, appendFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import {
   buildReferenceContext,
@@ -18,7 +19,7 @@ const require = createRequire(import.meta.url);
 const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
 const memeshDir = getMemeshDir(process.env);
 const throttlePath = join(memeshDir, 'session-recalled-files.json');
-const nudgeThrottlePath = join(memeshDir, 'agent-nudge-shown.json');
+const nudgeFlagsDir = join(memeshDir, 'agent-nudge-flags');
 
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -37,8 +38,8 @@ process.stdin.on('end', async () => {
       // Non-critical
     }
     try {
-      if (existsSync(nudgeThrottlePath)) {
-        unlinkSync(nudgeThrottlePath);
+      if (existsSync(nudgeFlagsDir)) {
+        rmSync(nudgeFlagsDir, { recursive: true, force: true });
       }
     } catch {
       // Non-critical
@@ -196,42 +197,48 @@ process.stdin.on('end', async () => {
         // Lesson query failed — don't break session start
       }
 
-      // --- Agentic-orchestration mode banner (experimental protocol) ---
+      // --- Agentic-orchestration mode banner (experimental protocol, opt-in) ---
       // memesh ships an experimental working-model protocol alongside its
-      // memory layer. This banner reminds Claude at session start that the
+      // memory layer. The banner reminds Claude at session start that the
       // suggested default for verifiable work (build/test/lint/migrate/
       // refactor/benchmark) is to dispatch a background agent rather than
-      // block the conversation; strategic work stays foreground. The
-      // protocol is experimental — its effectiveness is being instrumented
-      // (see ~/.memesh/skill-usage.jsonl), not yet proven with usage data.
-      try {
-        memorySummary +=
-          '\n\n[Experimental working model — protocol; effectiveness still being validated] ' +
-          'User=CTO · Claude=Orchestrator · Agents=Engineering team\n' +
-          'Verifiable work (build/test/lint/refactor/benchmark) → dispatch as background agent (Task with run_in_background:true).\n' +
-          'Strategic work → stay foreground. Skill: agentic-orchestration.';
-
-        // Local-only telemetry — counts banner injections so we can later
-        // validate this protocol with evidence. Never networked. Hook
-        // writes the JSONL line directly to keep itself self-contained
-        // (no dynamic import of compiled TS).
+      // block the conversation; strategic work stays foreground.
+      //
+      // OPT-IN ONLY: enabled via MEMESH_ENABLE_AGENTIC_ORCHESTRATION=1.
+      // The default is OFF — main wedge of memesh is local memory; the
+      // working-model protocol is a separable experiment, and its banner
+      // would otherwise dominate every session for users who never asked
+      // for it. Setting the flag also enables local skill-usage telemetry
+      // (~/.memesh/skill-usage.jsonl) so the protocol can later be
+      // validated with real usage data.
+      if (process.env.MEMESH_ENABLE_AGENTIC_ORCHESTRATION === '1') {
         try {
-          const usagePath = join(memeshDir, 'skill-usage.jsonl');
-          // The hook only has `data.cwd` (from stdin payload) or process.cwd()
-          // — there is no top-level `cwd` constant. Earlier draft of this
-          // telemetry referenced an undefined `cwd` and silently no-op'd
-          // because the inner catch swallows. Use the same resolution used
-          // for projectName at the top of the hook.
-          const cwdHashed = String(data?.cwd || process.cwd()).slice(0, 16);
-          const line = JSON.stringify({
-            ts: new Date().toISOString(),
-            event: 'agentic_orchestration_banner_injected',
-            payload: { cwd_hashed: cwdHashed },
-          }) + '\n';
-          appendFileSync(usagePath, line);
-        } catch { /* swallow — telemetry must not break session-start */ }
-      } catch {
-        // Banner failed — non-critical, continue
+          memorySummary +=
+            '\n\n[Experimental working model — protocol; effectiveness still being validated] ' +
+            'User=CTO · Claude=Orchestrator · Agents=Engineering team\n' +
+            'Verifiable work (build/test/lint/refactor/benchmark) → dispatch as background agent (Task with run_in_background:true).\n' +
+            'Strategic work → stay foreground. Skill: agentic-orchestration.';
+
+          // Local-only telemetry — never networked. Hook writes the JSONL
+          // line directly to keep itself self-contained (no dynamic import
+          // of compiled TS). Only fires when the user has opted in above.
+          try {
+            const usagePath = join(homedir(), '.memesh', 'skill-usage.jsonl');
+            // Hash the cwd so distinct-project counting still works without
+            // persisting any path fragment. SHA-256 → first 16 hex chars =
+            // 64 bits, plenty to distinguish projects on one machine.
+            const cwd = String(data?.cwd || process.cwd());
+            const cwdHashed = createHash('sha256').update(cwd).digest('hex').slice(0, 16);
+            const line = JSON.stringify({
+              ts: new Date().toISOString(),
+              event: 'agentic_orchestration_banner_injected',
+              payload: { cwd_hashed: cwdHashed },
+            }) + '\n';
+            appendFileSync(usagePath, line);
+          } catch { /* swallow — telemetry must not break session-start */ }
+        } catch {
+          // Banner failed — non-critical, continue
+        }
       }
 
       // --- Record injected entity IDs for recall effectiveness tracking ---

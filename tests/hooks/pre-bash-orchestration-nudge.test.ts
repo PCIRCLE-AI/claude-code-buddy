@@ -8,37 +8,68 @@ import { expectPrivateFile } from '../helpers/permissions.js';
 describe('Feature: Pre-Bash Orchestration Nudge Hook', () => {
   let testDir: string;
   let memeshDir: string;
-  let throttleFile: string;
+  let flagsDir: string;
 
   beforeEach(() => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-nudge-test-'));
     // We set MEMESH_DB_PATH to a file inside testDir; the hook derives memeshDir
     // from dirname(MEMESH_DB_PATH), matching getMemeshDir() in _shared.js
     memeshDir = testDir;
-    throttleFile = path.join(memeshDir, 'agent-nudge-shown.json');
+    flagsDir = path.join(memeshDir, 'agent-nudge-flags');
   });
 
   afterEach(() => {
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 
-  function runHook(command: string): string {
+  /**
+   * Run the hook with the agentic-orchestration opt-in flag set. v4.1.0
+   * gates the entire hook behind MEMESH_ENABLE_AGENTIC_ORCHESTRATION=1
+   * (default off so users who installed memesh purely for memory don't see
+   * protocol nudges they never asked for).
+   *
+   * Throws on non-zero exit so negative-path tests cannot silently pass
+   * when the hook crashes — `expect(result).toBe('')` would otherwise
+   * accept both "exited cleanly with no output" and "crashed".
+   */
+  function runHook(command: string, extraEnv: Record<string, string> = {}): string {
     const hookPath = path.resolve('scripts/hooks/pre-bash-orchestration-nudge.js');
     const dbPath = path.join(testDir, 'knowledge-graph.db'); // file doesn't need to exist
     const jsonInput = JSON.stringify({ tool_input: { command } });
-    try {
-      return execFileSync('node', [hookPath], {
-        input: jsonInput,
-        env: { ...process.env, MEMESH_DB_PATH: dbPath },
-        encoding: 'utf8',
-        timeout: 10000,
-      }).trim();
-    } catch {
-      return '';
-    }
+    return execFileSync('node', [hookPath], {
+      input: jsonInput,
+      env: {
+        ...process.env,
+        MEMESH_DB_PATH: dbPath,
+        MEMESH_ENABLE_AGENTIC_ORCHESTRATION: '1',
+        ...extraEnv,
+      },
+      encoding: 'utf8',
+      timeout: 10000,
+    }).trim();
   }
 
-  // --- Matching cases: should emit a nudge ---
+  // --- Opt-in gate: default off ---
+
+  it('emits nothing when MEMESH_ENABLE_AGENTIC_ORCHESTRATION is unset (default)', () => {
+    const hookPath = path.resolve('scripts/hooks/pre-bash-orchestration-nudge.js');
+    const dbPath = path.join(testDir, 'knowledge-graph.db');
+    const jsonInput = JSON.stringify({ tool_input: { command: 'npm test' } });
+    // Build a clean env that explicitly does NOT carry the opt-in flag.
+    const cleanEnv: Record<string, string> = { ...process.env, MEMESH_DB_PATH: dbPath };
+    delete cleanEnv.MEMESH_ENABLE_AGENTIC_ORCHESTRATION;
+    let out = '';
+    try {
+      out = execFileSync('node', [hookPath], { input: jsonInput, env: cleanEnv, encoding: 'utf8', timeout: 10000 }).trim();
+    } catch {
+      out = '';
+    }
+    expect(out).toBe('');
+    // No marker dir should be created either — the hook bailed out before any FS work.
+    expect(fs.existsSync(flagsDir)).toBe(false);
+  });
+
+  // --- Matching cases: should emit a nudge (opt-in on) ---
 
   it('nudges on npm test', () => {
     const result = runHook('npm test');
@@ -97,6 +128,18 @@ describe('Feature: Pre-Bash Orchestration Nudge Hook', () => {
     expect(result).toContain('Orchestration hint');
   });
 
+  // --- Verbose-flag regression: -v as test verbose, not as version ---
+
+  it('still nudges on `pytest -v` (verbose), not treated as version flag', () => {
+    const result = runHook('pytest -v tests/');
+    expect(result).toContain('Orchestration hint');
+  });
+
+  it('still nudges on `go test -v ./...` (verbose), not treated as version flag', () => {
+    const result = runHook('go test -v ./...');
+    expect(result).toContain('Orchestration hint');
+  });
+
   // --- Non-matching cases: should be silent ---
 
   it('does not nudge on ls', () => {
@@ -149,26 +192,26 @@ describe('Feature: Pre-Bash Orchestration Nudge Hook', () => {
     expect(result2).toContain('Orchestration hint');
   });
 
-  it('writes throttle state file with private permissions', () => {
+  it('writes a per-category marker flag with private permissions', () => {
     runHook('npm test');
-    expect(fs.existsSync(throttleFile)).toBe(true);
-    expectPrivateFile(throttleFile);
+    const flag = path.join(flagsDir, 'test.flag');
+    expect(fs.existsSync(flag)).toBe(true);
+    expectPrivateFile(flag);
   });
 
-  it('throttle state file records correct category', () => {
+  it('marker files are independent per category (no shared state to clobber)', () => {
     runHook('npm test');
-    const state = JSON.parse(fs.readFileSync(throttleFile, 'utf8'));
-    expect(state['test']).toBe(true);
-    expect(state['build']).toBeUndefined();
+    runHook('npm run build');
+    expect(fs.existsSync(path.join(flagsDir, 'test.flag'))).toBe(true);
+    expect(fs.existsSync(path.join(flagsDir, 'build.flag'))).toBe(true);
+    expect(fs.existsSync(path.join(flagsDir, 'lint.flag'))).toBe(false);
   });
 
-  it('survives corrupt throttle file without crashing', () => {
-    // Write garbage into the throttle file
-    fs.mkdirSync(memeshDir, { recursive: true });
-    fs.writeFileSync(throttleFile, '{ not valid json !!!', 'utf8');
-
-    // Hook should not throw and should still emit a nudge
+  it('nudge is suppressed when the marker for that category already exists', () => {
+    fs.mkdirSync(flagsDir, { recursive: true });
+    // Pre-create the marker; the hook should treat the category as already throttled.
+    fs.closeSync(fs.openSync(path.join(flagsDir, 'test.flag'), 'w', 0o600));
     const result = runHook('npm test');
-    expect(result).toContain('Orchestration hint');
+    expect(result).toBe('');
   });
 });

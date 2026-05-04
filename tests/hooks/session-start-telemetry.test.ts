@@ -12,7 +12,7 @@ function runHook(input: object, env: Record<string, string>): { stdout: string; 
     const stdout = execFileSync('node', [HOOK_PATH], {
       input: JSON.stringify(input),
       encoding: 'utf8',
-      env: { ...process.env, ...env },
+      env: { ...process.env, ...env, USERPROFILE: env.HOME ?? process.env.USERPROFILE ?? '' },
     });
     return { stdout, stderr: '', exitCode: 0 };
   } catch (err: any) {
@@ -32,7 +32,7 @@ describe('session-start hook: agentic-orchestration telemetry', () => {
     // Seed a DB with one entity so the banner branch fires (the hook
     // short-circuits to systemMessage when no DB exists).
     execFileSync('node', [CLI_PATH, 'remember', '--name=seed', '--type=test', '--obs=seed'], {
-      env: { ...process.env, HOME: tmpHome },
+      env: { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome },
       stdio: ['ignore', 'ignore', 'pipe'],
     });
   }, 60_000);
@@ -41,10 +41,10 @@ describe('session-start hook: agentic-orchestration telemetry', () => {
     if (fs.existsSync(tmpHome)) fs.rmSync(tmpHome, { recursive: true, force: true });
   });
 
-  it('writes agentic_orchestration_banner_injected event when banner is injected', () => {
+  it('writes agentic_orchestration_banner_injected event when opted in', () => {
     const { stdout, exitCode } = runHook(
       { cwd: '/some/project/path', session_id: 'test-session' },
-      { HOME: tmpHome },
+      { HOME: tmpHome, MEMESH_ENABLE_AGENTIC_ORCHESTRATION: '1' },
     );
 
     expect(exitCode).toBe(0);
@@ -70,6 +70,13 @@ describe('session-start hook: agentic-orchestration telemetry', () => {
     // try, and the empty catch swallowed it, leaving the file empty.
     expect(event.payload.cwd_hashed).not.toBe('undefined');
     expect(event.payload.cwd_hashed.length).toBeGreaterThan(0);
+    // PRIVACY GUARD: cwd_hashed must be a real hex hash, not a raw path
+    // slice. A pre-release form took String(cwd).slice(0, 16) — the field
+    // name promises hashing, and this assertion makes that promise
+    // enforceable so a future regression cannot silently revert it.
+    expect(event.payload.cwd_hashed).toMatch(/^[a-f0-9]{16}$/);
+    expect(event.payload.cwd_hashed).not.toContain('/');
+    expect(event.payload.cwd_hashed).not.toContain('some');
   });
 
   it('does not write a banner-injection event when the hook short-circuits on missing DB', () => {
@@ -84,9 +91,25 @@ describe('session-start hook: agentic-orchestration telemetry', () => {
 
     const { exitCode } = runHook(
       { cwd: '/x', session_id: 'no-db' },
-      { HOME: tmpHome },
+      { HOME: tmpHome, MEMESH_ENABLE_AGENTIC_ORCHESTRATION: '1' },
     );
     expect(exitCode).toBe(0);
+
+    const logPath = path.join(tmpHome, '.memesh', 'skill-usage.jsonl');
+    expect(fs.existsSync(logPath)).toBe(false);
+  });
+
+  it('does NOT inject banner or write telemetry when opt-in flag is absent (default)', () => {
+    // The whole point of the v4.1 opt-in gate: a fresh user who never sets
+    // MEMESH_ENABLE_AGENTIC_ORCHESTRATION must not see the experimental
+    // banner or have any telemetry written. This is the privacy/UX promise.
+    const { stdout, exitCode } = runHook(
+      { cwd: '/some/project/path', session_id: 'no-optin' },
+      { HOME: tmpHome }, // intentionally omitted — default off
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stdout).not.toContain('Experimental working model');
 
     const logPath = path.join(tmpHome, '.memesh', 'skill-usage.jsonl');
     expect(fs.existsSync(logPath)).toBe(false);

@@ -1,6 +1,6 @@
 # MeMesh Plugin Architecture
 
-**Version**: 4.0.4
+**Version**: 4.1.0
 
 ---
 
@@ -182,7 +182,7 @@ The primary dashboard is now the packaged Preact single-page app served by `GET 
 - preferred over the legacy HTML generator path
 - used for live local inspection and settings/config flows
 
-**Dashboard tabs (v4.0.4)**:
+**Dashboard tabs (v4.1.0)**:
 
 | Tab | Feature |
 |-----|---------|
@@ -272,12 +272,13 @@ Foreign key cascades: deleting an entity automatically deletes its observations,
 
 Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific lifecycle events.
 
-### Hook Scripts (5 hooks)
+### Hook Scripts (6 hooks)
 
 | Hook | Event | Purpose |
 |------|-------|---------|
 | pre-edit-recall.js | PreToolUse (Edit/Write) | Continuous recall: inject relevant memories when editing files |
-| session-start.js | SessionStart | Auto-recall + record injected IDs + noise compression |
+| pre-bash-orchestration-nudge.js | PreToolUse (Bash) | (Opt-in) Nudge to dispatch high-verifiability commands as background agents |
+| session-start.js | SessionStart | Auto-recall + record injected IDs + noise compression + (opt-in) agentic-orchestration banner |
 | post-commit.js | PostToolUse (Bash) | Record git commits with diff stats |
 | session-summary.js | Stop | Auto-capture session knowledge + recall effectiveness tracking |
 | pre-compact.js | PreCompact | Save knowledge before compaction |
