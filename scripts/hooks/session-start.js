@@ -217,10 +217,16 @@ process.stdin.on('end', async () => {
         // (no dynamic import of compiled TS).
         try {
           const usagePath = join(memeshDir, 'skill-usage.jsonl');
+          // The hook only has `data.cwd` (from stdin payload) or process.cwd()
+          // — there is no top-level `cwd` constant. Earlier draft of this
+          // telemetry referenced an undefined `cwd` and silently no-op'd
+          // because the inner catch swallows. Use the same resolution used
+          // for projectName at the top of the hook.
+          const cwdHashed = String(data?.cwd || process.cwd()).slice(0, 16);
           const line = JSON.stringify({
             ts: new Date().toISOString(),
             event: 'agentic_orchestration_banner_injected',
-            payload: { cwd_hashed: String(cwd).slice(0, 16) },
+            payload: { cwd_hashed: cwdHashed },
           }) + '\n';
           appendFileSync(usagePath, line);
         } catch { /* swallow — telemetry must not break session-start */ }
