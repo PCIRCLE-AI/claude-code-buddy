@@ -69,7 +69,10 @@ describe('version check', () => {
       freshness: 'fresh',
     });
 
-    const cached = getLastUpdateCheck('4.0.2', { updateCheckPath });
+    const cached = getLastUpdateCheck('4.0.2', {
+      updateCheckPath,
+      now: new Date('2026-04-24T10:30:00.000Z'),
+    });
     expect(cached).toEqual({
       currentVersion: '4.0.2',
       latestVersion: '4.0.3',
@@ -110,7 +113,10 @@ describe('version check', () => {
       freshness: 'cached',
     });
 
-    const cached = getLastUpdateCheck('4.0.2', { updateCheckPath });
+    const cached = getLastUpdateCheck('4.0.2', {
+      updateCheckPath,
+      now: new Date('2026-04-24T11:30:00.000Z'),
+    });
     expect(cached).toEqual({
       currentVersion: '4.0.2',
       latestVersion: '4.0.3',
@@ -161,7 +167,10 @@ describe('version check', () => {
       checkSucceeded: true,
     }));
 
-    const cached = getLastUpdateCheck('4.0.2', { updateCheckPath });
+    const cached = getLastUpdateCheck('4.0.2', {
+      updateCheckPath,
+      now: new Date('2026-04-24T10:30:00.000Z'),
+    });
     expect(cached).toEqual({
       currentVersion: '4.0.2',
       latestVersion: '4.0.2',

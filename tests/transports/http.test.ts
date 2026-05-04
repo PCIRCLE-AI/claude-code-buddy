@@ -205,11 +205,15 @@ describe('HTTP Transport: GET /v1/config', () => {
 
 describe('HTTP Transport: GET /v1/update-status', () => {
   it('returns cached update metadata when requested', async () => {
+    const now = Date.now();
+    const lastSuccessfulCheckAt = new Date(now - 60 * 60 * 1000).toISOString();
+    const lastAttemptAt = new Date(now - 45 * 60 * 1000).toISOString();
+
     fs.writeFileSync(updateCheckPath, JSON.stringify({
       currentVersion: '4.0.1',
-      latestVersion: '4.0.4',
-      lastAttemptAt: '2026-04-24T10:15:00.000Z',
-      lastSuccessfulCheckAt: '2026-04-24T10:00:00.000Z',
+      latestVersion: '9.9.9',
+      lastAttemptAt,
+      lastSuccessfulCheckAt,
       lastError: 'npm unavailable',
       checkSucceeded: false,
     }));
@@ -218,13 +222,13 @@ describe('HTTP Transport: GET /v1/update-status', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(res.body.data.currentVersion).toBeDefined();
-    expect(res.body.data.latestVersion).toBe('4.0.4');
+    expect(res.body.data.latestVersion).toBe('9.9.9');
     expect(res.body.data.updateAvailable).toBe(true);
     expect(res.body.data.checkSucceeded).toBe(false);
     expect(res.body.data.source).toBe('cache');
-    expect(res.body.data.checkedAt).toBe('2026-04-24T10:15:00.000Z');
-    expect(res.body.data.lastAttemptAt).toBe('2026-04-24T10:15:00.000Z');
-    expect(res.body.data.lastSuccessfulCheckAt).toBe('2026-04-24T10:00:00.000Z');
+    expect(res.body.data.checkedAt).toBe(lastAttemptAt);
+    expect(res.body.data.lastAttemptAt).toBe(lastAttemptAt);
+    expect(res.body.data.lastSuccessfulCheckAt).toBe(lastSuccessfulCheckAt);
     expect(res.body.data.lastError).toBe('npm unavailable');
     expect(res.body.data.freshness).toBe('cached');
     expect(res.body.data.installChannel).toBe('source-checkout');
