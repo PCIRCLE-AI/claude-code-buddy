@@ -16,7 +16,8 @@ function runCli(args: string[], env: Record<string, string>): { stdout: string; 
   try {
     const stdout = execFileSync('node', [CLI_PATH, ...args], {
       encoding: 'utf8',
-      env: { ...process.env, ...env },
+      // Mirror HOME → USERPROFILE so Windows os.homedir() resolves to the test tmpdir
+      env: { ...process.env, ...env, USERPROFILE: env.HOME ?? process.env.USERPROFILE ?? '' },
     });
     return { stdout, stderr: '', exitCode: 0 };
   } catch (err: any) {

@@ -12,7 +12,7 @@ function runHook(input: object, env: Record<string, string>): { stdout: string; 
     const stdout = execFileSync('node', [HOOK_PATH], {
       input: JSON.stringify(input),
       encoding: 'utf8',
-      env: { ...process.env, ...env },
+      env: { ...process.env, ...env, USERPROFILE: env.HOME ?? process.env.USERPROFILE ?? '' },
     });
     return { stdout, stderr: '', exitCode: 0 };
   } catch (err: any) {
@@ -32,7 +32,7 @@ describe('session-start hook: agentic-orchestration telemetry', () => {
     // Seed a DB with one entity so the banner branch fires (the hook
     // short-circuits to systemMessage when no DB exists).
     execFileSync('node', [CLI_PATH, 'remember', '--name=seed', '--type=test', '--obs=seed'], {
-      env: { ...process.env, HOME: tmpHome },
+      env: { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome },
       stdio: ['ignore', 'ignore', 'pipe'],
     });
   }, 60_000);

@@ -12,7 +12,7 @@
 // session-start.js clears the directory at the start of each session.
 
 import { join } from 'path';
-import { openSync, closeSync, existsSync } from 'fs';
+import { openSync, closeSync } from 'fs';
 import { ensurePrivateDir, getMemeshDir } from './_shared.js';
 
 const memeshDir = getMemeshDir(process.env);
@@ -101,8 +101,11 @@ process.stdin.on('end', () => {
     // hooks for *different* categories cannot clobber each other's marker
     // (the previous shared-JSON design lost one of two parallel writes).
     // session-start.js wipes ${FLAGS_DIR} at the top of each new session.
+    //
+    // No pre-check (existsSync) before the open — that would be a TOCTOU
+    // window. The openSync('wx') is itself the atomic check-and-create:
+    // EEXIST means already-throttled, success means we won the race.
     const flagPath = join(FLAGS_DIR, `${match.category}.flag`);
-    if (existsSync(flagPath)) return pass();
 
     try {
       ensurePrivateDir(FLAGS_DIR);
@@ -110,8 +113,8 @@ process.stdin.on('end', () => {
       closeSync(fd);
     } catch (err) {
       if (err && err.code === 'EEXIST') {
-        // Another hook process won the race for this category — treat as
-        // already-nudged and pass through without emitting.
+        // Marker already exists — this category was already nudged in this
+        // session (either by an earlier hook invocation or a parallel one).
         return pass();
       }
       // Other errors (permission, FS full, EROFS): silent degrade — without

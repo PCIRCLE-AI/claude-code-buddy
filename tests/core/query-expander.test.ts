@@ -13,6 +13,7 @@ describe('isExpansionAvailable', () => {
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,
       OLLAMA_HOST: process.env.OLLAMA_HOST,
+      MEMESH_AUTO_DETECT_LLM: process.env.MEMESH_AUTO_DETECT_LLM,
     };
   });
 
@@ -28,6 +29,7 @@ describe('isExpansionAvailable', () => {
   });
 
   it('returns false when no API keys or Ollama host are set', () => {
+    delete process.env.MEMESH_AUTO_DETECT_LLM;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.OPENAI_API_KEY;
     delete process.env.OLLAMA_HOST;
@@ -37,26 +39,30 @@ describe('isExpansionAvailable', () => {
     expect(typeof isExpansionAvailable()).toBe('boolean');
   });
 
-  it('returns true when ANTHROPIC_API_KEY is set', () => {
+  it('returns true when ANTHROPIC_API_KEY is set (with MEMESH_AUTO_DETECT_LLM=1)', () => {
+    process.env.MEMESH_AUTO_DETECT_LLM = '1';
     process.env.ANTHROPIC_API_KEY = 'test-key-anthropic';
     delete process.env.OPENAI_API_KEY;
     delete process.env.OLLAMA_HOST;
     expect(isExpansionAvailable()).toBe(true);
   });
 
-  it('returns true when OPENAI_API_KEY is set', () => {
+  it('returns true when OPENAI_API_KEY is set (with MEMESH_AUTO_DETECT_LLM=1)', () => {
+    process.env.MEMESH_AUTO_DETECT_LLM = '1';
     delete process.env.ANTHROPIC_API_KEY;
     process.env.OPENAI_API_KEY = 'test-key-openai';
     delete process.env.OLLAMA_HOST;
     expect(isExpansionAvailable()).toBe(true);
   });
 
-  it('returns true when OLLAMA_HOST is set', () => {
+  it('returns true when OLLAMA_HOST is set (with MEMESH_AUTO_DETECT_LLM=1)', () => {
+    process.env.MEMESH_AUTO_DETECT_LLM = '1';
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.OPENAI_API_KEY;
     process.env.OLLAMA_HOST = 'http://localhost:11434';
     expect(isExpansionAvailable()).toBe(true);
   });
+
 });
 
 // ---------------------------------------------------------------------------
