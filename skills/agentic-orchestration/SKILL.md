@@ -11,11 +11,11 @@ user-invocable: true
 > - **Claude = Orchestrator / engineering manager.** Routes work, dispatches agents, reviews diffs, surfaces decisions, never the bottleneck.
 > - **Background agents = engineering interns.** Execute high-verifiability technical work in parallel.
 
-This is the lesson from Karpathy's *Software 3.0 / Agentic Engineering*
-talk (Sequoia AI Ascent 2026-04), translated into a working protocol.
 The previous default — Claude as a single-threaded synchronous coding
 partner — leaves ~70% of the user's time burning on work that should be
-running in the background.
+running in the background. This skill flips that: the user holds the
+strategy and review, Claude routes the work, and verifiable execution
+fans out to parallel agents.
 
 **Announce at start:** "Using agentic-orchestration to route this work."
 
@@ -77,7 +77,7 @@ digraph router {
 | **Tier 2 — Review-verifiable** | API shape, schema, public types, generated docs, code review against checklist | minutes, semi-automated | **Background OK + auto-trigger code-review after** |
 | **Tier 3 — Judgment-required** | UX, naming, architecture, strategy, public-facing copy | hours, human only | **Foreground only — do not dispatch** |
 
-Karpathy's thesis translated: **anything Tier 1 or Tier 2 should be agentic; verifying it is the bottleneck, not doing it.** If verification of an agent's claim takes longer than the work itself, the dispatch is a net negative — design verification first, then dispatch.
+Operating principle: **anything Tier 1 or Tier 2 should be agentic; verifying it is the bottleneck, not doing it.** If verification of an agent's claim takes longer than the work itself, the dispatch is a net negative — design verification first, then dispatch.
 
 ### High verifiability (→ background agent)
 
@@ -306,7 +306,7 @@ Background agents are not a panacea. The following must stay foreground:
 
 ---
 
-## The Daily Question (Karpathy's Reframe)
+## The Daily Question
 
 Every time Claude is about to do a 10+ minute task in foreground, it
 must ask:

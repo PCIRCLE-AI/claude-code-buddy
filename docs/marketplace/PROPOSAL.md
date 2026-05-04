@@ -56,7 +56,7 @@ The `agentic-orchestration` skill defines the working model that memesh activate
 > **Claude = Orchestrator / engineering manager** — routes work, dispatches agents, reviews diffs, surfaces decisions, never the bottleneck.
 > **Background agents = engineering interns** — execute high-verifiability technical work in parallel.
 
-The skill includes a **three-tier verifiability classifier** (Tier 1 machine / Tier 2 review / Tier 3 judgment), a **verifiability router** that decides foreground vs background dispatch, and a mandatory **post-agent verification gate** that runs deterministic git reality-check + typecheck + tests + cross-check before any agent's claim of "done" is accepted. The protocol is translated from Karpathy's *Software 3.0 / Agentic Engineering* talk (Sequoia AI Ascent 2026-04).
+The skill includes a **three-tier verifiability classifier** (Tier 1 machine / Tier 2 review / Tier 3 judgment), a **verifiability router** that decides foreground vs background dispatch, and a mandatory **post-agent verification gate** that runs deterministic git reality-check + typecheck + tests + cross-check before any agent's claim of "done" is accepted.
 
 Six hooks keep the protocol active across sessions:
 
@@ -85,7 +85,7 @@ Six hooks keep the protocol active across sessions:
 | 8 | `user_patterns` | Analyse work schedule, tool preferences, focus areas, strengths |
 | 9 | `verify_agent_work` | Persist verification reports as `verification_record` entities |
 
-The 9th tool is the verification ledger Karpathy describes — it records which dispatch shapes were reliable for the user's stack, so future agents are warned about known failure modes via the `lesson_learned` feedback loop.
+The 9th tool is a verification ledger — it records which dispatch shapes were reliable for the user's stack, so future agents are warned about known failure modes via the `lesson_learned` feedback loop.
 
 ---
 
@@ -127,6 +127,6 @@ The benchmark is a **conservative lower bound** on memesh's production retrieval
 
 ---
 
-## Why now
+## Why this matters
 
-Karpathy's Sequoia talk crystallised the gap that memesh fills: the bottleneck in agentic engineering isn't model capability, it's **verification throughput**. memesh ships both the memory substrate (a verified high-recall local store) and the protocol (`agentic-orchestration` skill + verification gate) that turns that substrate into an operating model for parallel agent work. Other plugins ship one or the other. memesh ships both, and both are measured.
+The bottleneck in agentic engineering isn't model capability — it's **verification throughput**. Dispatching agents in parallel is cheap; deciding whether their work is correct is expensive. memesh ships both the memory substrate (a verified high-recall local store) and the protocol (`agentic-orchestration` skill + verification gate) that turns that substrate into an operating model for parallel agent work. Other plugins ship one or the other. memesh ships both, and both are measured.
