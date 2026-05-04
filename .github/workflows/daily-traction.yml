@@ -1,0 +1,67 @@
+# Daily traction snapshot — sends an email with public-API metrics.
+#
+# Security note: this workflow only consumes (a) repo secrets and
+# (b) GitHub server-controlled fields (github.run_id). It does NOT
+# interpolate any user-controlled event fields (issue titles, PR
+# bodies, commit messages, head_ref, etc.) into shell commands.
+# The script run in `bash scripts/check-traction.sh` only reads from
+# environment variables and well-formed external API responses.
+
+name: Daily traction report
+
+on:
+  schedule:
+    # 09:00 UTC = 17:00 Taipei (UTC+8). End-of-US-day summary.
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  metadata: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate traction report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/traction
+          bash scripts/check-traction.sh > /tmp/traction/report.md
+          # Don't echo content into public Actions log — only line / byte count.
+          line_count=$(wc -l < /tmp/traction/report.md | tr -d ' ')
+          byte_count=$(wc -c < /tmp/traction/report.md | tr -d ' ')
+          echo "Report generated: ${line_count} lines, ${byte_count} bytes"
+
+      - name: Send email if mail credentials are configured
+        if: ${{ secrets.MAIL_USERNAME != '' && secrets.MAIL_PASSWORD != '' }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          from: memesh traction <${{ secrets.MAIL_USERNAME }}>
+          to: ${{ secrets.MAIL_TO || secrets.MAIL_USERNAME }}
+          subject: "memesh traction snapshot"
+          # Short inline body, real data is the attachment, so download
+          # counts never appear in the public Actions log.
+          body: |
+            Daily traction snapshot attached.
+
+            Honest, internal sense-making only. No company-logo claims,
+            no fabricated attribution. Public-API signals only.
+
+            Source: scripts/check-traction.sh in PCIRCLE-AI/memesh-llm-memory.
+          attachments: /tmp/traction/report.md
+
+      - name: Upload as artifact (retain 30 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: traction-${{ github.run_id }}
+          path: /tmp/traction/report.md
+          retention-days: 30
