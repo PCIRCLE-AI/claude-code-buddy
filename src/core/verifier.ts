@@ -190,12 +190,19 @@ export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkRes
   // real usage so we can later validate the agentic-orchestration skill's
   // effectiveness with evidence rather than design claims. Never networked.
   // Payload is metadata only (no agent text or workdir contents).
-  logSkillEvent('verify_agent_work_invoked', {
-    agent_id_hashed: safeAgentId.slice(0, 8),
-    pass,
-    files_changed: rc.files_changed,
-    has_external_report: Boolean(input.report),
-  });
+  //
+  // Opt-in only: the tool itself remains callable (it's a useful primitive),
+  // but telemetry is gated by the same MEMESH_ENABLE_AGENTIC_ORCHESTRATION
+  // flag that gates the banner and Bash nudge — opt-in to the experiment is
+  // the user's consent to local usage logging.
+  if (process.env.MEMESH_ENABLE_AGENTIC_ORCHESTRATION === '1') {
+    logSkillEvent('verify_agent_work_invoked', {
+      agent_id_hashed: safeAgentId.slice(0, 8),
+      pass,
+      files_changed: rc.files_changed,
+      has_external_report: Boolean(input.report),
+    });
+  }
 
   return {
     entity_name: entityName,

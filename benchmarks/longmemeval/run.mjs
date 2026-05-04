@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// LongMemEval Benchmark Runner -- MeMesh v4.0.4 -- PUBLIC EVIDENCE PACKAGE
+// LongMemEval Benchmark Runner -- PUBLIC EVIDENCE PACKAGE
 // bench/longmemeval-public-r1 -- Dataset SHA256: 08d8dad4be43ee2049a22ff5674eb86725d0ce5ff434cde2627e5e8e7e117894
+// Original publish: v4.0.4. Reads memesh_version from package.json so future
+// re-runs record the version actually under test.
 // Usage: node benchmarks/longmemeval/run.mjs --mode A|B|C --dataset /tmp/longmemeval_s.json
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
@@ -14,7 +16,8 @@ import { spawnSync } from "child_process";
 const __dirname=path.dirname(fileURLToPath(import.meta.url));
 
 async function sha256File(fp){return new Promise((res,rej)=>{const h=createHash("sha256");const s=createReadStream(fp);s.on("data",c=>h.update(c));s.on("end",()=>res(h.digest("hex")));s.on("error",rej);});}
-function getEnvInfo(){const cpus=os.cpus();let gitSha="unknown";try{const r=spawnSync("git",["rev-parse","HEAD"],{cwd:path.join(__dirname,"../.."),encoding:"utf8"});gitSha=(r.stdout||"").trim()||"unknown";}catch{}return{node_version:process.version,platform:os.platform(),os_version:os.release(),arch:os.arch(),cpu_model:cpus[0]?.model||"unknown",cpu_cores:cpus.length,memesh_version:"4.0.4",git_sha:gitSha};}
+function readMemeshVersion(){try{const pkg=JSON.parse(readFileSync(path.join(__dirname,"../../package.json"),"utf8"));return pkg.version||"unknown";}catch{return"unknown";}}
+function getEnvInfo(){const cpus=os.cpus();let gitSha="unknown";try{const r=spawnSync("git",["rev-parse","HEAD"],{cwd:path.join(__dirname,"../.."),encoding:"utf8"});gitSha=(r.stdout||"").trim()||"unknown";}catch{}return{node_version:process.version,platform:os.platform(),os_version:os.release(),arch:os.arch(),cpu_model:cpus[0]?.model||"unknown",cpu_cores:cpus.length,memesh_version:readMemeshVersion(),git_sha:gitSha};}
 
 function parseArgs(a){const r={};for(let i=2;i<a.length;i++){if(a[i].startsWith("--")){const k=a[i].slice(2);r[k]=a[i+1]||true;i++;}}return r;}
 const args=parseArgs(process.argv);

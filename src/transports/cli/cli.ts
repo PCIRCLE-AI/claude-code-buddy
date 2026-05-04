@@ -25,16 +25,45 @@ program
   .version(pkg.version);
 
 // --- remember ---
+// Two forms:
+//   1. Explicit:  memesh remember --name "auth-decision" --type "decision" --obs "OAuth 2.0"
+//   2. Quick:     memesh remember "OAuth 2.0 with PKCE"
+// Quick form auto-generates name (date + slug) and defaults type to "note".
+// The explicit form is the canonical contract; the quick form exists to
+// reduce first-use friction since fresh users naturally try the one-arg
+// shape before reading the README.
 program
   .command('remember')
-  .description('Store knowledge as an entity')
-  .requiredOption('--name <name>', 'Entity name')
-  .requiredOption('--type <type>', 'Entity type')
+  .argument('[text]', 'Quick-capture text — auto-generates name and uses type=note')
+  .description('Store knowledge as an entity (use flags for explicit form, or positional text for quick capture)')
+  .option('--name <name>', 'Entity name')
+  .option('--type <type>', 'Entity type')
   .option('--obs <observations...>', 'Observations (space-separated)')
   .option('--tags <tags...>', 'Tags (space-separated)')
   .option('--namespace <namespace>', 'Namespace: personal, team, or global (default: personal)')
   .option('--json', 'Output as JSON')
-  .action(async (opts) => {
+  .action(async (text, opts) => {
+    // Resolve quick-capture form into name/type/obs.
+    if (text && !opts.name && !opts.type) {
+      const slug = String(text)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40);
+      const date = new Date().toISOString().slice(0, 10);
+      opts.name = `quick-${date}-${slug || 'note'}`;
+      opts.type = 'note';
+      if (!opts.obs || opts.obs.length === 0) opts.obs = [String(text)];
+    }
+    if (!opts.name || !opts.type) {
+      console.error(
+        'Error: provide --name and --type, OR pass quick-capture text as a positional arg.\n' +
+        '  memesh remember --name "auth" --type "decision" --obs "Use OAuth 2.0"\n' +
+        '  memesh remember "Use OAuth 2.0 with PKCE"'
+      );
+      process.exit(1);
+    }
+
     openDatabase();
     try {
       const result = remember({
