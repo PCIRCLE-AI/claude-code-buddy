@@ -10,6 +10,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-bash-orchestration-nudge.js",
+            "timeout": 3
+          }
+        ]
       }
     ],
     "SessionStart": [

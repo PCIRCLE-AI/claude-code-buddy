@@ -9,9 +9,11 @@ import { remember, recallEnhanced, forget, consolidate, exportMemories, importMe
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { getDatabase } from '../../db.js';
 import { computePatterns } from '../../core/patterns.js';
+import { verifyAgentWork } from '../../core/verifier.js';
 import {
   RememberSchema, RecallSchema, ForgetSchema, ConsolidateSchema,
   ExportSchema, ImportSchema, LearnSchema, UserPatternsSchema,
+  VerifyAgentWorkSchema,
 } from '../schemas.js';
 
 // ---------------------------------------------------------------------------
@@ -215,6 +217,50 @@ export const TOOL_DEFINITIONS = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'verify_agent_work',
+    description:
+      'Record a verification report for work done by a background agent. Runs a deterministic git reality-check on the workdir (files changed vs claim) and persists the report as a verification_record entity tagged pass/fail. Heavier checks (typecheck/tests/lint) are expected to be pre-computed by a local hook and passed in via report.*.pass — this tool focuses on persistence + cross-checking, not running test suites.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        agent_id: {
+          type: 'string',
+          description: 'Identifier for the agent whose work is being verified.',
+        },
+        workdir: {
+          type: 'string',
+          description: 'Absolute path to the git working tree the agent edited.',
+        },
+        base: {
+          type: 'string',
+          description: 'Git ref/sha to diff against. Defaults to merge-base with origin/main.',
+        },
+        claim: {
+          type: 'object',
+          properties: {
+            expected_files: { type: 'number', description: 'Files the agent claimed to change.' },
+          },
+          additionalProperties: false,
+        },
+        report: {
+          type: 'object',
+          description: 'Pre-computed external verification report (typecheck/tests/lint/build).',
+          properties: {
+            pass: { type: 'boolean' },
+            typecheck: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } }, required: ['pass'] },
+            tests: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } }, required: ['pass'] },
+            lint: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } }, required: ['pass'] },
+            build: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } }, required: ['pass'] },
+            summary: { type: 'string' },
+          },
+          required: ['pass'],
+        },
+      },
+      required: ['agent_id', 'workdir'],
+      additionalProperties: false,
+    },
+  },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -374,6 +420,11 @@ export async function handleTool(name: string, args: any): Promise<ToolResult> {
       }
 
       return { content: [{ type: 'text', text: lines.join('\n') }] };
+    }
+    if (name === 'verify_agent_work') {
+      const r = parseOrFail(VerifyAgentWorkSchema, args);
+      if (!r.ok) return r.result;
+      return ok(verifyAgentWork(r.data));
     }
     return fail(`Unknown tool: ${name}`);
   } catch (err: any) {

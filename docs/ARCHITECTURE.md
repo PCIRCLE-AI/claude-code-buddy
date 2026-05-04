@@ -6,7 +6,7 @@
 
 ## Overview
 
-MeMesh Plugin is the local memory layer for Claude Code and other MCP-compatible coding agents. It provides 8 operations (`remember`, `recall`, `forget`, `consolidate`, `export`, `import`, `learn`, `user_patterns`) through three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
+MeMesh Plugin is the local memory layer for Claude Code and other MCP-compatible coding agents. It provides 9 operations (`remember`, `recall`, `forget`, `consolidate`, `export`, `import`, `learn`, `user_patterns`, `verify_agent_work`) through three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
 
 The package is intentionally local-first and inspectable:
 - one SQLite database under the user's control
@@ -41,6 +41,7 @@ MeMesh separates concerns into two layers:
 - `config.ts` — config management + capability detection (sqlite-vec availability); exports `logCapabilities()` for startup logging
 - `scoring.ts` — multi-factor scoring engine: weights search relevance, recency, frequency, confidence, temporal validity; exports `rankEntities()` used by all recall paths
 - `query-expander.ts` — LLM-powered query expansion (Level 1): expands a user query into related terms using a configured LLM (Anthropic/OpenAI/Ollama)
+- `verifier.ts` — `verify_agent_work` core: git reality-check + persistence of verification reports as `verification_record` entities
 - `version-check.ts` — npm registry version check for update notifications
 
 **Transports** (`src/transports/`) — thin adapters that expose core operations:
@@ -163,6 +164,7 @@ Thin adapter: imports shared Zod schemas from `transports/schemas.ts`, validates
 | `import` | ImportSchema | Delegates to `operations.importMemories()` |
 | `learn` | LearnSchema | Delegates to `operations.learn()` |
 | `user_patterns` | UserPatternsSchema | Delegates to `core/patterns.computePatterns()` |
+| `verify_agent_work` | VerifyAgentWorkSchema | Delegates to `core/verifier.verifyAgentWork()` |
 
 ### transports/http/server.ts -- HTTP REST API Server
 

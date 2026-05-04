@@ -8,7 +8,7 @@
 
 ## Tools
 
-MeMesh exposes 8 tools via MCP.
+MeMesh exposes 9 tools via MCP.
 
 ---
 
@@ -366,6 +366,61 @@ Analyze user work patterns from existing memory. Returns work schedule (peak hou
 
 // Get only workflow and schedule
 {"categories": ["workflow", "workSchedule"]}
+```
+
+### verify_agent_work
+
+Persist a verification report for work done by a background agent. Runs a deterministic git reality-check (diff `<base>..HEAD`, count files changed, optionally cross-check against a claimed file count) and stores the report as a `verification_record` entity tagged `verification` + `verification:pass|fail`. Heavier checks (typecheck/tests/lint/build) are expected to be pre-computed by an upstream hook and passed in via `report.*.pass` — this tool focuses on persistence + cross-checking, not running test suites.
+
+**Parameters:**
+- `agent_id` (string, required) — Identifier for the agent whose work is being verified.
+- `workdir` (string, required) — Absolute path to the git working tree the agent edited.
+- `base` (string, optional) — Git ref/sha to diff against. Defaults to merge-base with origin/main.
+- `claim` (object, optional) — Numbers the agent claimed in its summary, used for cross-checking.
+  - `expected_files` (number) — Files the agent claimed to change.
+- `report` (object, optional) — Pre-computed external report.
+  - `pass` (boolean, required) — Overall pass/fail of the external report.
+  - `typecheck`, `tests`, `lint`, `build` (objects) — each `{ pass: boolean, summary?: string }`.
+  - `summary` (string, optional) — Free-form summary line.
+
+**Returns:**
+```json
+{
+  "entity_name": "verification:agent-1:2026-05-03T22-00-00-000Z",
+  "pass": true,
+  "reality_check": {
+    "files_changed": 5,
+    "expected_files": 5,
+    "match": true,
+    "base": "97cc25e9...",
+    "pass": true,
+    "summary": "reality OK: 5/5 files"
+  },
+  "external_report": { "...": "echo of input report or null" },
+  "timestamp": "2026-05-03T22:00:00.000Z"
+}
+```
+
+**Examples:**
+```js
+// Reality-check only (no external report)
+{
+  "agent_id": "wire-mcp-tool",
+  "workdir": "/tmp/mm-vgate",
+  "claim": { "expected_files": 5 }
+}
+
+// With pre-computed external report from local hook
+{
+  "agent_id": "wire-mcp-tool",
+  "workdir": "/tmp/mm-vgate",
+  "claim": { "expected_files": 5 },
+  "report": {
+    "pass": true,
+    "typecheck": { "pass": true },
+    "tests": { "pass": true, "summary": "519/520 passed" }
+  }
+}
 ```
 
 ---

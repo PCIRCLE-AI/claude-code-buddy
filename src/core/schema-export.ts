@@ -101,5 +101,39 @@ export function exportOpenAITools(): object[] {
         },
       },
     },
+    {
+      type: 'function',
+      function: {
+        name: 'memesh_verify_agent_work',
+        description: 'Record a verification report for work done by a background agent. Runs git reality-check (files changed vs claim) and persists report as a verification_record entity.',
+        parameters: {
+          type: 'object',
+          properties: {
+            agent_id: { type: 'string', description: 'Identifier for the agent whose work is being verified' },
+            workdir: { type: 'string', description: 'Absolute path to the git working tree' },
+            base: { type: 'string', description: 'Git ref/sha to diff against (default: merge-base with origin/main)' },
+            claim: {
+              type: 'object',
+              properties: {
+                expected_files: { type: 'number', description: 'Files the agent claimed to change' },
+              },
+            },
+            report: {
+              type: 'object',
+              description: 'Pre-computed external report (typecheck/tests/lint/build)',
+              properties: {
+                pass: { type: 'boolean' },
+                typecheck: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } } },
+                tests: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } } },
+                lint: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } } },
+                build: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } } },
+                summary: { type: 'string' },
+              },
+            },
+          },
+          required: ['agent_id', 'workdir'],
+        },
+      },
+    },
   ];
 }
