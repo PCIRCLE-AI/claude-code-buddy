@@ -8,6 +8,7 @@ const targets = [
   'scripts/hooks/post-commit.js',
   'scripts/hooks/pre-compact.js',
   'scripts/hooks/pre-edit-recall.js',
+  'scripts/hooks/pre-bash-orchestration-nudge.js',
   'scripts/hooks/session-summary.js',
 ];
 

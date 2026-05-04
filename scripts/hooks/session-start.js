@@ -18,6 +18,7 @@ const require = createRequire(import.meta.url);
 const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
 const memeshDir = getMemeshDir(process.env);
 const throttlePath = join(memeshDir, 'session-recalled-files.json');
+const nudgeThrottlePath = join(memeshDir, 'agent-nudge-shown.json');
 
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -27,10 +28,17 @@ process.stdin.on('end', async () => {
     const data = JSON.parse(input);
     const projectName = basename(data.cwd || process.cwd());
 
-    // Clear pre-edit recall throttle from previous session
+    // Clear per-session throttle files from previous session
     try {
       if (existsSync(throttlePath)) {
         unlinkSync(throttlePath);
+      }
+    } catch {
+      // Non-critical
+    }
+    try {
+      if (existsSync(nudgeThrottlePath)) {
+        unlinkSync(nudgeThrottlePath);
       }
     } catch {
       // Non-critical
@@ -186,6 +194,22 @@ process.stdin.on('end', async () => {
         }
       } catch {
         // Lesson query failed — don't break session start
+      }
+
+      // --- Agentic-orchestration mode banner ---
+      // memesh ships an operating model, not just a memory layer. This banner
+      // reminds Claude at session start that the default for verifiable work
+      // (build/test/lint/migrate/refactor/benchmark) is to dispatch a
+      // background agent rather than block the conversation. Strategic work
+      // (positioning, scope, naming, first-time public-facing changes) stays
+      // foreground because the user's understanding is the verification.
+      try {
+        memorySummary +=
+          '\n\n[Working model] User=CTO · Claude=Orchestrator · Agents=Engineering team\n' +
+          'Verifiable work (build/test/lint/refactor/benchmark) → dispatch as background agent (Task with run_in_background:true).\n' +
+          'Strategic work → stay foreground. Skill: agentic-orchestration.';
+      } catch {
+        // Banner failed — non-critical, continue
       }
 
       // --- Record injected entity IDs for recall effectiveness tracking ---
