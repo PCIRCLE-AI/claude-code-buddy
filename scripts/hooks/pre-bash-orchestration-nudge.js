@@ -10,7 +10,7 @@
 // session-start.js clears this file at the start of each session.
 
 import { join } from 'path';
-import { existsSync, readFileSync, openSync, writeFileSync, closeSync, renameSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, openSync, closeSync, unlinkSync } from 'fs';
 import { ensurePrivateDir, getMemeshDir, writePrivateJson } from './_shared.js';
 
 const memeshDir = getMemeshDir(process.env);
