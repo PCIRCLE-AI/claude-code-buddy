@@ -35,14 +35,20 @@ describe('Config: detectCapabilities', () => {
   let savedAnthropicKey: string | undefined;
   let savedOpenaiKey: string | undefined;
   let savedOllamaHost: string | undefined;
+  let savedAutoDetect: string | undefined;
 
   beforeEach(() => {
     savedAnthropicKey = process.env.ANTHROPIC_API_KEY;
     savedOpenaiKey = process.env.OPENAI_API_KEY;
     savedOllamaHost = process.env.OLLAMA_HOST;
+    savedAutoDetect = process.env.MEMESH_AUTO_DETECT_LLM;
     delete process.env.ANTHROPIC_API_KEY;
     delete process.env.OPENAI_API_KEY;
     delete process.env.OLLAMA_HOST;
+    // Env-var auto-detection is opt-in by default to keep fresh installs
+    // local-only. Tests that exercise the env-detection path set this flag
+    // explicitly; other tests get the default (local-only) behavior.
+    delete process.env.MEMESH_AUTO_DETECT_LLM;
   });
 
   afterEach(() => {
@@ -52,6 +58,8 @@ describe('Config: detectCapabilities', () => {
     else delete process.env.OPENAI_API_KEY;
     if (savedOllamaHost !== undefined) process.env.OLLAMA_HOST = savedOllamaHost;
     else delete process.env.OLLAMA_HOST;
+    if (savedAutoDetect !== undefined) process.env.MEMESH_AUTO_DETECT_LLM = savedAutoDetect;
+    else delete process.env.MEMESH_AUTO_DETECT_LLM;
   });
 
   it('returns Level 0 with always-true flags when no LLM config', () => {
@@ -95,7 +103,15 @@ describe('Config: detectCapabilities', () => {
     expect(caps.llm?.provider).toBe('ollama');
   });
 
-  it('detects ANTHROPIC_API_KEY from environment when config has no llm', () => {
+  it('does NOT auto-detect ANTHROPIC_API_KEY without explicit MEMESH_AUTO_DETECT_LLM=1', () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-env-key';
+    const caps = detectCapabilities({});
+    expect(caps.searchLevel).toBe(0);
+    expect(caps.llm).toBeNull();
+  });
+
+  it('detects ANTHROPIC_API_KEY from environment when MEMESH_AUTO_DETECT_LLM=1', () => {
+    process.env.MEMESH_AUTO_DETECT_LLM = '1';
     process.env.ANTHROPIC_API_KEY = 'sk-ant-env-key';
     const caps = detectCapabilities({});
     expect(caps.searchLevel).toBe(1);
@@ -103,14 +119,16 @@ describe('Config: detectCapabilities', () => {
     expect(caps.llm?.apiKey).toBe('sk-ant-env-key');
   });
 
-  it('detects OPENAI_API_KEY from environment when no anthropic key', () => {
+  it('detects OPENAI_API_KEY from environment when MEMESH_AUTO_DETECT_LLM=1 and no anthropic key', () => {
+    process.env.MEMESH_AUTO_DETECT_LLM = '1';
     process.env.OPENAI_API_KEY = 'sk-openai-env-key';
     const caps = detectCapabilities({});
     expect(caps.searchLevel).toBe(1);
     expect(caps.llm?.provider).toBe('openai');
   });
 
-  it('detects OLLAMA_HOST from environment as fallback', () => {
+  it('detects OLLAMA_HOST from environment when MEMESH_AUTO_DETECT_LLM=1', () => {
+    process.env.MEMESH_AUTO_DETECT_LLM = '1';
     process.env.OLLAMA_HOST = 'http://localhost:11434';
     const caps = detectCapabilities({});
     expect(caps.searchLevel).toBe(1);

@@ -143,12 +143,13 @@ Paste tools into any API call
 
 ## What Happens Automatically In Claude Code
 
-You don't need to manually remember everything. MeMesh has **5 hooks** that capture and inject knowledge while you work:
+You don't need to manually remember everything. MeMesh has **6 hooks** that capture and inject knowledge while you work:
 
 | When | What MeMesh does |
 |------|------------------|
-| **Every session start** | Loads your most relevant memories + proactive warnings from past lessons |
+| **Every session start** | Loads your most relevant memories + proactive warnings from past lessons + agentic-orchestration banner |
 | **Before editing files** | Recalls memories tied to the file or project before Claude writes code |
+| **Before bash commands** | Nudges Claude to dispatch high-verifiability commands (test, build, lint, migrate, deploy, benchmark) as background agents |
 | **After every `git commit`** | Records what you changed, with diff stats |
 | **When Claude stops** | Captures files edited, errors fixed, and auto-generates structured lessons from failures |
 | **Before context compaction** | Saves knowledge before it's lost to context limits |

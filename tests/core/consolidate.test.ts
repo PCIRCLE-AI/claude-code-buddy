@@ -14,15 +14,20 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-consolidate-'));
   openDatabase(path.join(tmpDir, 'test.db'));
 
-  // Snapshot and clear all LLM-related env vars so tests are hermetic
+  // Snapshot and clear all LLM-related env vars so tests are hermetic.
+  // Includes MEMESH_AUTO_DETECT_LLM (the opt-in flag for env-var auto-
+  // detection); individual `describe` blocks that need env-detection
+  // re-enable it explicitly.
   savedEnv = {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     OLLAMA_HOST: process.env.OLLAMA_HOST,
+    MEMESH_AUTO_DETECT_LLM: process.env.MEMESH_AUTO_DETECT_LLM,
   };
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.OPENAI_API_KEY;
   delete process.env.OLLAMA_HOST;
+  delete process.env.MEMESH_AUTO_DETECT_LLM;
 
   // Also clear config.json LLM settings for hermetic tests
   savedConfig = readConfig();
@@ -81,6 +86,7 @@ describe('consolidate — min_observations threshold', () => {
   beforeEach(() => {
     // Provide a fake LLM key so detectCapabilities sees an LLM
     process.env.ANTHROPIC_API_KEY = 'test-key-fake';
+    process.env.MEMESH_AUTO_DETECT_LLM = '1';
   });
 
   it('skips entities with fewer observations than default threshold (5)', async () => {
@@ -142,6 +148,7 @@ describe('consolidate — min_observations threshold', () => {
 describe('consolidate — successful LLM compression', () => {
   beforeEach(() => {
     process.env.ANTHROPIC_API_KEY = 'test-key-fake';
+    process.env.MEMESH_AUTO_DETECT_LLM = '1';
   });
 
   it('replaces observations with compressed result', async () => {
@@ -257,6 +264,7 @@ describe('consolidate — successful LLM compression', () => {
 describe('consolidate — tag filtering', () => {
   beforeEach(() => {
     process.env.ANTHROPIC_API_KEY = 'test-key-fake';
+    process.env.MEMESH_AUTO_DETECT_LLM = '1';
   });
 
   it('consolidates multiple entities sharing a tag', async () => {
@@ -307,6 +315,7 @@ describe('consolidate — tag filtering', () => {
 describe('consolidate — totals', () => {
   beforeEach(() => {
     process.env.ANTHROPIC_API_KEY = 'test-key-fake';
+    process.env.MEMESH_AUTO_DETECT_LLM = '1';
   });
 
   it('sums observations_before and observations_after correctly across multiple entities', async () => {
