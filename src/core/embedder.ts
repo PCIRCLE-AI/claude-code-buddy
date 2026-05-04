@@ -191,6 +191,14 @@ async function embedWithProvider(text: string, config: LLMConfig): Promise<Float
 }
 
 async function embedWithOpenAI(text: string, config: LLMConfig): Promise<Float32Array | null> {
+  // SECURITY (CodeQL js/file-access-to-http): this function intentionally
+  // sends entity text content to the OpenAI embeddings API. That data flow
+  // is a designed BYOK behaviour, not an information leak: it only fires
+  // when the user has explicitly configured `llm.provider = 'openai'` in
+  // ~/.memesh/config.json (or set MEMESH_AUTO_DETECT_LLM=1 + OPENAI_API_KEY).
+  // Default fresh-install behaviour is local ONNX embeddings; cloud
+  // providers are opt-in. The text body is bounded at 8000 chars by the
+  // API contract and JSON-encoded with no shell/eval interpolation.
   const apiKey = config.apiKey || process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 

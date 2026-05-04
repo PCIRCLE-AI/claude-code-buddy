@@ -52,18 +52,20 @@ describe('skill-usage-log: logSkillEvent', () => {
 
   it('truncates the head of the log when it grows past the cap', () => {
     // Pre-seed a 12 MB file with one-line records so rotation kicks in.
+    // Single read after rotation captures both the new size and the new
+    // content from one snapshot — avoids the file-system-race CodeQL
+    // pattern (statSync + readFileSync between writes is a TOCTOU
+    // window even in single-process tests).
     const oneLine = JSON.stringify({ ts: 'old', event: 'old_event' }) + '\n';
     const buf = Buffer.alloc(12 * 1024 * 1024, oneLine);
     fs.writeFileSync(logPath, buf);
-    expect(fs.statSync(logPath).size).toBeGreaterThan(10 * 1024 * 1024);
+    expect(buf.length).toBeGreaterThan(10 * 1024 * 1024);
 
     logSkillEvent('new_event_after_truncate', { keep: true }, logPath);
 
-    const after = fs.statSync(logPath).size;
-    expect(after).toBeLessThan(8 * 1024 * 1024);
-
-    const raw = fs.readFileSync(logPath, 'utf8');
-    expect(raw).toContain('new_event_after_truncate');
+    const after = fs.readFileSync(logPath);
+    expect(after.length).toBeLessThan(8 * 1024 * 1024);
+    expect(after.toString('utf8')).toContain('new_event_after_truncate');
   });
 });
 

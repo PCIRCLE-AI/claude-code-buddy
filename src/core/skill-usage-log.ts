@@ -36,7 +36,19 @@
 // Anything else can be added later without breaking older readers — the
 // schema is open-ended on `event` + `payload`.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs';
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'fs';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 
@@ -57,23 +69,62 @@ function ensureParent(path: string): void {
 }
 
 function rotateIfNeeded(path: string): void {
+  // Single-syscall stat-via-open: the previous version did
+  // existsSync → statSync → readFileSync → writeFileSync, which is a
+  // four-step TOCTOU window — between any two steps another process
+  // could write to the same path. CodeQL flagged this as
+  // js/file-system-race. The fix replaces it with:
+  //   1. open the file once for read; if it doesn't exist we abort early
+  //   2. fstat that fd to get the size on the SAME inode we'll read from
+  //   3. read the trailing TRUNCATE_KEEP bytes from that fd
+  //   4. write the aligned tail to a sibling temp file
+  //   5. atomically rename(temp → path)
+  // After step 5, any concurrent appender that opened `path` after the
+  // rename simply writes to the new (tail-only) inode. Lines that were
+  // appended between steps 2 and 5 land in the OLD inode and are lost,
+  // which is the only acceptable race window for a best-effort
+  // telemetry log. Critically, the appender NEVER sees a half-truncated
+  // file, which the previous read-truncate-write sequence could expose.
+  let fd: number | null = null;
+  let tmpPath: string | null = null;
   try {
-    if (!existsSync(path)) return;
-    const stat = statSync(path);
-    // Rotate when the log reaches 1.2x the cap. Strict-less-than guards
-    // against the edge case where the file is exactly at the threshold —
-    // that should still trigger rotation.
-    if (stat.size < MAX_BYTES * 1.2) return;
-    // Read the tail (TRUNCATE_KEEP bytes) and rewrite the file with just
-    // that tail, on a line boundary so we don't slice a JSON record.
-    const buf = readFileSync(path);
-    const sliceFrom = Math.max(0, buf.length - TRUNCATE_KEEP);
-    const tail = buf.subarray(sliceFrom);
+    try {
+      fd = openSync(path, 'r');
+    } catch {
+      return; // file gone or unreadable — nothing to rotate
+    }
+    const { size } = fstatSync(fd);
+    if (size < MAX_BYTES * 1.2) return;
+
+    const readLen = Math.min(TRUNCATE_KEEP, size);
+    const offset = size - readLen;
+    const buf = Buffer.alloc(readLen);
+    let totalRead = 0;
+    while (totalRead < readLen) {
+      const n = readSync(fd, buf, totalRead, readLen - totalRead, offset + totalRead);
+      if (n === 0) break;
+      totalRead += n;
+    }
+    closeSync(fd);
+    fd = null;
+
+    const tail = buf.subarray(0, totalRead);
     const firstNl = tail.indexOf(0x0a); // '\n'
     const aligned = firstNl >= 0 ? tail.subarray(firstNl + 1) : tail;
-    writeFileSync(path, aligned);
+
+    tmpPath = `${path}.rot.${process.pid}.${Date.now()}`;
+    writeFileSync(tmpPath, aligned, { mode: 0o600 });
+    renameSync(tmpPath, path);
+    tmpPath = null;
   } catch {
-    /* swallow */
+    /* swallow — telemetry rotation is best-effort */
+  } finally {
+    if (fd !== null) {
+      try { closeSync(fd); } catch { /* ignore */ }
+    }
+    if (tmpPath !== null) {
+      try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
   }
 }
 
