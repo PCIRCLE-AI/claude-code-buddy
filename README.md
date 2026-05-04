@@ -225,7 +225,7 @@ memesh  # opens dashboard → Settings tab
 
 ---
 
-## All 8 Memory Tools
+## All 9 Memory Tools
 
 | Tool | What it does |
 |------|-------------|

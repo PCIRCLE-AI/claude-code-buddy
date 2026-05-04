@@ -8,7 +8,7 @@
 
 ## Tools
 
-MeMesh exposes 8 tools via MCP.
+MeMesh exposes 9 tools via MCP.
 
 ---
 
