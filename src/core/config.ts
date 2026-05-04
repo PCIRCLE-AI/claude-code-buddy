@@ -83,31 +83,48 @@ export function maskApiKey(key: string): string {
 
 // --- Capability Detection ---
 
+/**
+ * Detect a candidate LLM config from environment variables.
+ *
+ * IMPORTANT: this is now an opt-in helper. It is only consulted when the user
+ * has explicitly enabled it via `MEMESH_AUTO_DETECT_LLM=1`. Without that
+ * opt-in, the mere presence of `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY`,
+ * `OLLAMA_HOST`) in the user's shell does NOT cause memesh to commit to that
+ * provider. Many users have those env vars set for other tools but want
+ * memesh to default to its local-first behavior.
+ *
+ * This was a real ship-blocker: pre-4.1.0, having `OPENAI_API_KEY` in env on
+ * a fresh install caused `detectCapabilities` to return `embeddings: 'openai'`
+ * (1536-dim), which locked the entities_vec table to 1536, then on the first
+ * `remember` call the embed-with-provider step would fail (invalid/expired
+ * key, network, etc.), fall back to ONNX (384-dim), and emit a confusing
+ * "dimension mismatch (got 384, expected 1536)" warning while silently
+ * skipping the vector write. Fresh installs should "just work" with local
+ * embeddings; cloud providers must be an explicit opt-in via
+ * `memesh config set llm.provider <openai|anthropic|ollama>`.
+ */
 function detectFromEnv(): LLMConfig | null {
+  if (process.env.MEMESH_AUTO_DETECT_LLM !== '1') return null;
   if (process.env.ANTHROPIC_API_KEY) {
     return { provider: 'anthropic', model: 'claude-haiku-4-5', apiKey: process.env.ANTHROPIC_API_KEY };
   }
   if (process.env.OPENAI_API_KEY) {
     return { provider: 'openai', model: 'gpt-4o-mini', apiKey: process.env.OPENAI_API_KEY };
   }
-  return null;
-}
-
-function detectOllama(): LLMConfig | null {
-  try {
-    // Quick sync check — just see if the env var is set
-    // Actual connectivity check would be async
-    if (process.env.OLLAMA_HOST) {
-      return { provider: 'ollama', model: 'llama3.2' };
-    }
-  } catch {}
+  if (process.env.OLLAMA_HOST) {
+    return { provider: 'ollama', model: 'llama3.2' };
+  }
   return null;
 }
 
 export function detectCapabilities(config?: MeMeshConfig): Capabilities {
   const cfg = config ?? readConfig();
 
-  const llm = cfg.llm ?? detectFromEnv() ?? detectOllama() ?? null;
+  // Only treat an LLM provider as configured when the user has put it in the
+  // config file explicitly (or opted into env-based auto-detection). This
+  // keeps fresh installs deterministic: local FTS5 + onnx, no surprise
+  // 1536-dim provider lock-in on the entities_vec schema.
+  const llm = cfg.llm ?? detectFromEnv() ?? null;
 
   return {
     fts5: true,
