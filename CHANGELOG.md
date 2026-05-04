@@ -2,6 +2,33 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.1.0] — 2026-05-04
+
+### Added
+- **9th MCP tool — `verify_agent_work`** — Persist agent verification reports as `verification_record` entities. Runs a deterministic git reality-check (diff `<base>..HEAD`, count files changed, optionally cross-check against a claimed file count) and stores the report tagged `verification:pass|fail`. Heavier checks (typecheck/tests/lint/build) are expected to be pre-computed externally and passed in via `report.*.pass`. New core module `src/core/verifier.ts`; HTTP endpoint `POST /v1/verify`; CLI `memesh verify <workdir>`.
+- **`agentic-orchestration` skill** — Ships at `skills/agentic-orchestration/SKILL.md`. Defines the User=CTO / Claude=Orchestrator / Background-agents=Engineering team protocol, three-tier verifiability classifier, dispatch patterns (single bg, parallel bg, foreground, hybrid), and a mandatory post-agent verification gate.
+- **6th hook — `pre-bash-orchestration-nudge.js`** — PreToolUse hook on Bash that injects a one-line advisory hint when Claude is about to run a high-verifiability command (test, build, lint, migrate, deploy, benchmark, npm-run-check). Throttled per category per session via O_EXCL lockfile.
+- **SessionStart agentic-orchestration banner** — `session-start.js` now appends a working-model banner after memory recall + lesson injection, so the protocol is in context every session.
+- **Multi-model PR review GitHub Actions workflow** — `.github/workflows/multi-model-review.yml` runs Claude + Codex independent code reviews on every PR diff and posts both as comments. Surfaces non-overlapping findings. Both reviewers no-op cleanly if their secret is unset.
+- **LongMemEval-S benchmark — public methodology + verifiable evidence** — Three-mode benchmark runner at `benchmarks/longmemeval/run.mjs`, full per-question results in `benchmarks/longmemeval/results/`, methodology in `METHODOLOGY.md`, 8-step reproduction in `REPRODUCE.md`, manual verification log in `MANUAL-VERIFICATION.md`. Mode A = R@5 95.40%, Mode B = R@5 95.40%, Mode C = R@5 82.40%. Dataset SHA256 verified against Hugging Face `xiaowu0162/longmemeval` (longmemeval_s variant).
+
+### Improved
+- **Root build chain produces a complete artifact** — `npm run build` now also builds the dashboard sub-package via `scripts/build-dashboard.mjs`, which lazy-installs dashboard deps if missing and then runs vite build. Closes the gap where `dashboard/dist/index.html` (declared in `files`) was only produced in CI publish workflow but never by local `npm run build`. Eliminates the previous "pre-existing dashboard test failure" on feature branches by making the build chain end-to-end.
+- **Three-tier verifiability classifier in agentic-orchestration skill** — Tier 1 (machine-verifiable: tsc, vitest, lint, build, migrate, benchmark) → background, parallel OK; Tier 2 (review-verifiable: API shape, schema, types, code review against checklist) → background OK + auto-trigger code-review; Tier 3 (judgment-required: UX, naming, architecture, strategy, public-facing copy) → foreground only.
+- **Verification gate procedure** — Mandatory post-agent four-step gate documented in skill: reality check (git diff vs claim), hard verification (typecheck/test/lint/build), cross-check (numbers match), independent review (Tier 2). Each step is deterministic command output, not LLM judgment.
+- **CODE_OF_CONDUCT.md** — Adopted Contributor Covenant v2.1.
+
+### Fixed
+- **Same-millisecond entity-name collision in `verify_agent_work`** — Two parallel agents calling at the exact same ms previously collided on `verification:<agent>:<iso-ts>` and silently merged into one entity (since `remember()` appends observations on duplicate-name). Now appends a 6-char hex random suffix (`crypto.randomBytes`); collision probability ~16M⁻¹.
+- **TOCTOU race in `pre-bash-orchestration-nudge` throttle write** — `existsSync→read→write` was non-atomic; two parallel hooks could both nudge. Now uses `openSync(..., 'wx')` per-category lockfile so only one process wins; the loser passes through silently.
+- **Multi-model review CI prompt-injection mitigation** — PR diff content (author-controlled) is now wrapped in a `BEGIN_DIFF`/`END_DIFF` fence with explicit instruction to the reviewer model to ignore in-diff instructions.
+- **Multi-model review CI codex shell-precedence bug** — `codex review ... || echo "..." > file` parsed as `(codex) || (echo > file)`, leaving `/tmp/codex-review.md` unwritten on success. Now uses an explicit `set +e; ...; codex_exit=$?; set -e` block.
+- **Doc-sync 8→9 MCP tools** — README and `docs/api/API_REFERENCE.md` headers updated; section bodies were already correct.
+
+### Changed
+- Package, plugin, and dashboard metadata now target **4.1.0**.
+- **521 tests passing across 36 test files** (was 489 / 34).
+
 ## [4.0.4] — 2026-04-25
 
 ### Added
