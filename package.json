@@ -22,7 +22,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && node scripts/copy-cli-assets.mjs && node scripts/set-executable-bits.mjs",
+    "build": "tsc && node scripts/copy-cli-assets.mjs && node scripts/set-executable-bits.mjs && npm run build:dashboard",
+    "build:dashboard": "node scripts/build-dashboard.mjs",
     "test": "vitest",
     "test:e2e-dashboard": "node scripts/dashboard-e2e-smoke.mjs",
     "test:packaged": "node scripts/smoke-packed-artifact.mjs",
