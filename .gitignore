@@ -68,6 +68,8 @@ media/
 examples/
 landing-page/
 benchmarks/
+!benchmarks/longmemeval/
+!benchmarks/longmemeval/**
 experiments/
 .archive/
 MIGRATION.md
