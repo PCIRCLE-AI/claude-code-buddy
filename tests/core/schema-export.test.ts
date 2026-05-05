@@ -4,9 +4,9 @@ import { exportOpenAITools } from '../../src/core/schema-export.js';
 describe('exportOpenAITools', () => {
   const tools = exportOpenAITools();
 
-  it('returns an array of 7 tools', () => {
+  it('returns an array of 9 tools (matches MCP registry)', () => {
     expect(Array.isArray(tools)).toBe(true);
-    expect(tools).toHaveLength(7);
+    expect(tools).toHaveLength(9);
   });
 
   it('each tool has type "function" and a function object with name, description, parameters', () => {
@@ -22,7 +22,7 @@ describe('exportOpenAITools', () => {
     }
   });
 
-  it('contains the correct tool names', () => {
+  it('contains the correct tool names (matches MCP registry)', () => {
     const names = tools.map((t: any) => t.function.name);
     expect(names).toEqual([
       'memesh_remember',
@@ -30,9 +30,21 @@ describe('exportOpenAITools', () => {
       'memesh_forget',
       'memesh_consolidate',
       'memesh_learn',
+      'memesh_export',
+      'memesh_import',
       'memesh_user_patterns',
       'memesh_verify_agent_work',
     ]);
+  });
+
+  it('memesh_import requires data and merge_strategy', () => {
+    const tool = tools.find((t: any) => t.function.name === 'memesh_import') as any;
+    expect(tool.function.parameters.required).toEqual(['data', 'merge_strategy']);
+  });
+
+  it('memesh_export has no required fields (all optional filters)', () => {
+    const tool = tools.find((t: any) => t.function.name === 'memesh_export') as any;
+    expect(tool.function.parameters.required).toBeUndefined();
   });
 
   it('memesh_remember requires name and type', () => {
