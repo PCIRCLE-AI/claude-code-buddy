@@ -177,7 +177,16 @@ function writeStoredUpdateCheck(stored: StoredUpdateCheck, updateCheckPath?: str
   try {
     const targetPath = getUpdateCheckPath(updateCheckPath);
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-    fs.writeFileSync(targetPath, JSON.stringify(stored, null, 2));
+    // Atomic write: write to a per-process temp file, then rename
+    // into place. A direct fs.writeFileSync(targetPath, ...) would
+    // truncate then write, leaving a window where a concurrent
+    // reader (or a second writer started by a parallel session-
+    // start) sees an empty / torn file. With temp+rename the
+    // visible state is always "old contents" or "new contents",
+    // never partial.
+    const tempPath = `${targetPath}.${process.pid}.${Math.random().toString(36).slice(2, 10)}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(stored, null, 2));
+    fs.renameSync(tempPath, targetPath);
   } catch {
     // Cache writes are best effort only.
   }

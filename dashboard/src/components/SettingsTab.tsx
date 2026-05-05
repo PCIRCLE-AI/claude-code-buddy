@@ -128,30 +128,39 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   const searchModeLabel = caps?.searchLevel ? t('settings.smartMode') : t('settings.core');
   const isCheckingUpdates = updateLoading || (updateRefreshing && !updateStatus);
   const updateActionInProgress = updateLoading || updateRefreshing;
+  const isDeprecated = Boolean(updateStatus?.currentVersionDeprecated);
+  // A maintainer-deprecated install is never "up to date" — even
+  // when no newer version has been published yet. The primary
+  // summary line and color must reflect that so the green "all
+  // clear" state can't contradict the deprecation card above.
   const updateSummary = isCheckingUpdates
     ? t('settings.updateChecking')
     : !updateStatus
       ? t('settings.updateUnavailable')
-      : updateStatus.freshness === 'unavailable'
-        ? t('settings.updateNoSuccessfulChecks')
-        : !updateStatus.checkSucceeded && updateStatus.freshness === 'stale'
-          ? t('settings.updateStale')
-          : !updateStatus.checkSucceeded && updateStatus.freshness === 'cached'
-            ? t('settings.updateCachedFallback')
-            : updateStatus.updateAvailable
-              ? t('settings.updateAvailable')
-              : t('settings.upToDate');
+      : isDeprecated
+        ? t('settings.updateAvailable')  // banner card carries the full message
+        : updateStatus.freshness === 'unavailable'
+          ? t('settings.updateNoSuccessfulChecks')
+          : !updateStatus.checkSucceeded && updateStatus.freshness === 'stale'
+            ? t('settings.updateStale')
+            : !updateStatus.checkSucceeded && updateStatus.freshness === 'cached'
+              ? t('settings.updateCachedFallback')
+              : updateStatus.updateAvailable
+                ? t('settings.updateAvailable')
+                : t('settings.upToDate');
   const updateSummaryColor = !updateStatus
     ? 'var(--warning)'
-    : updateStatus.freshness === 'unavailable'
-      ? 'var(--warning)'
-      : !updateStatus.checkSucceeded && updateStatus.freshness === 'stale'
+    : isDeprecated
+      ? 'var(--danger)'
+      : updateStatus.freshness === 'unavailable'
         ? 'var(--warning)'
-        : !updateStatus.checkSucceeded && updateStatus.freshness === 'cached'
-          ? 'var(--info)'
-          : updateStatus.updateAvailable
+        : !updateStatus.checkSucceeded && updateStatus.freshness === 'stale'
+          ? 'var(--warning)'
+          : !updateStatus.checkSucceeded && updateStatus.freshness === 'cached'
             ? 'var(--info)'
-            : 'var(--success)';
+            : updateStatus.updateAvailable
+              ? 'var(--info)'
+              : 'var(--success)';
   const updateSourceLabel = updateStatus?.freshness === 'stale'
     ? t('settings.updateSourceStale')
     : updateStatus?.source === 'cache'
