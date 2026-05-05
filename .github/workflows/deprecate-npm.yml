@@ -53,14 +53,24 @@ jobs:
       - name: Verify deprecation message recorded on registry
         run: |
           set -e
+          # Compare against the requested message exactly, not just
+          # "anything non-empty". Re-deprecating a version that was
+          # previously deprecated leaves the OLD text in the registry
+          # response until propagation completes — accepting any
+          # non-empty value can falsely succeed before the new
+          # advisory ever surfaces.
           for i in 1 2 3 4 5 6; do
             recorded=$(npm view "@pcircle/memesh@${TARGET_VERSION}" deprecated || true)
-            if [ -n "$recorded" ]; then
-              echo "Deprecation message on npm:"
+            if [ "$recorded" = "${DEPRECATE_MESSAGE}" ]; then
+              echo "Deprecation message on npm matches:"
               echo "$recorded"
               exit 0
             fi
+            if [ -n "$recorded" ]; then
+              echo "Saw older/different deprecation text — still propagating: $recorded" >&2
+            fi
             sleep 5
           done
-          echo "Deprecation did not surface on npm within 30s — investigate." >&2
+          echo "Requested deprecation message did not surface on npm within 30s — investigate." >&2
+          echo "Last seen: $recorded" >&2
           exit 1

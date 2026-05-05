@@ -347,7 +347,9 @@ function spawnAutoUpdate(version, deprecationOverride) {
     const child = spawn(
       'npm',
       ['install', '-g', `@pcircle/memesh@${version}`],
-      { detached: true, stdio, env: process.env },
+      // windowsHide avoids a flashing console window every time the
+      // hook spawns the upgrade on Windows; harmless on POSIX.
+      { detached: true, stdio, env: process.env, windowsHide: true },
     );
     child.unref();
     if (fd >= 0) {
@@ -430,7 +432,14 @@ function spawnFreshUpdateCheck() {
     const child = spawn(
       process.execPath,
       [cliPath, 'status'],
-      { detached: true, stdio: 'ignore', env: { ...process.env, MEMESH_UPDATE_REFRESH: '1' } },
+      // windowsHide prevents a console-window flash on every session
+      // start on Windows; harmless on POSIX.
+      {
+        detached: true,
+        stdio: 'ignore',
+        env: { ...process.env, MEMESH_UPDATE_REFRESH: '1' },
+        windowsHide: true,
+      },
     );
     child.unref();
     return true;
