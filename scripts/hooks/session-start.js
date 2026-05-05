@@ -123,30 +123,37 @@ function logAutoUpdate(line) {
 }
 
 /**
- * Detect the install channel of the running memesh binary. Mirrors
- * `src/core/install-channel.ts` heuristics so the hook can decide
- * without paying the dist-import cost (the answer is one heuristic
- * call; not worth threading dist for it).
+ * Detect the install channel of the running memesh binary. Cross-
+ * platform: matches both POSIX (`<prefix>/lib/node_modules/...`) and
+ * Windows (`%AppData%\npm\node_modules\...`) global install paths.
  *
- * Returns the same string set as the typed core helper:
+ * Returns the same string set as src/core/install-channel.ts:
  *   'npm-global' | 'npm-local' | 'source-checkout' | 'unknown'
+ *
+ * The hook can't import the typed core helper without paying the
+ * dist boundary cost on every session start, so the heuristic is
+ * inlined. Two truths to keep in sync with that core helper:
+ *   1. .git at the package root  → source-checkout
+ *   2. path ends in `<sep>node_modules<sep>@pcircle<sep>memesh`,
+ *      and a sibling-of-node_modules `lib` (POSIX) OR `npm` (Windows
+ *      global) → npm-global
+ *   3. otherwise inside any node_modules tree → npm-local
  */
 function detectInstallChannelHook(pluginRoot) {
   try {
-    // Source checkout: a .git directory at the package root means
-    // the user is running from a clone, not an installed binary.
     if (existsSync(join(pluginRoot, '.git'))) return 'source-checkout';
-    // Heuristic for npm-global: `<prefix>/lib/node_modules/@pcircle/memesh`.
-    // We can't reliably probe `npm prefix -g` from inside the hook
-    // without spawning npm, so we do a path-shape check.
-    if (/[\\/]node_modules[\\/]@pcircle[\\/]memesh$/.test(pluginRoot)
-        && /[\\/]lib[\\/]node_modules[\\/]@pcircle[\\/]memesh$/.test(pluginRoot)) {
-      return 'npm-global';
-    }
-    if (/[\\/]node_modules[\\/]@pcircle[\\/]memesh$/.test(pluginRoot)) {
-      return 'npm-local';
-    }
-    return 'unknown';
+    // POSIX npm-global: <prefix>/lib/node_modules/@pcircle/memesh
+    // Windows npm-global: <AppData>/npm/node_modules/@pcircle/memesh
+    //   (npm 7+ may also produce <prefix>/node_modules/@pcircle/memesh
+    //    when --global without a wrapper-bin convention; treat as global
+    //    when one of the global-shape parents — `lib` or `npm` — sits
+    //    immediately above `node_modules`.)
+    const inNodeModules = /[\\/]node_modules[\\/]@pcircle[\\/]memesh$/.test(pluginRoot);
+    if (!inNodeModules) return 'unknown';
+    const isPosixGlobal = /[\\/]lib[\\/]node_modules[\\/]@pcircle[\\/]memesh$/.test(pluginRoot);
+    const isWindowsGlobal = /[\\/]npm[\\/]node_modules[\\/]@pcircle[\\/]memesh$/.test(pluginRoot);
+    if (isPosixGlobal || isWindowsGlobal) return 'npm-global';
+    return 'npm-local';
   } catch {
     return 'unknown';
   }
@@ -230,12 +237,20 @@ function spawnFreshUpdateCheck() {
 /**
  * Run the post-banner update tasks: spawn auto-update if policy + cache
  * permit, and always refresh the cache for the next session. This MUST
- * run on every session-start path — including the no-DB short-circuit
- * — so a fresh install of a flagged version still kicks off the
- * security-override patch upgrade and the next run starts with a fresh
- * cache. Best-effort; never throws.
+ * run on every session-start exit path so a fresh install of a flagged
+ * version still kicks off the security-override patch upgrade and the
+ * next run starts with a fresh cache. Best-effort; never throws.
+ *
+ * Idempotent guard: callers should not invoke twice for the same
+ * session — duplicated `npm install -g` spawns would race. We use a
+ * one-shot flag rather than a no-op-on-second-call lock so a coding
+ * mistake produces visible breakage during testing instead of silent
+ * over-spawning.
  */
+let __postBannerRan = false;
 function runPostBannerUpdateTasks() {
+  if (__postBannerRan) return;
+  __postBannerRan = true;
   try {
     let installedVersion = null;
     try {
@@ -256,11 +271,33 @@ function runPostBannerUpdateTasks() {
   }
 }
 
+/**
+ * Build a "base message + optional deprecation banner" combined
+ * single-line systemMessage payload. Keeps stdout a single JSON
+ * object on every empty/no-DB exit path so Claude Code's hook
+ * contract holds.
+ */
+function combineWithBanner(baseMessage) {
+  let lines = [];
+  try {
+    const pluginRoot = resolvePluginRoot(import.meta.url);
+    const pkg = JSON.parse(readFileSync(join(pluginRoot, 'package.json'), 'utf8'));
+    const installedVersion = typeof pkg.version === 'string' ? pkg.version : null;
+    const cache = readUpdateCheckCache();
+    lines = installedVersion ? buildDeprecationBanner(installedVersion, cache) : [];
+  } catch {
+    // Best-effort — fall through to base message only.
+  }
+  if (lines.length === 0) return baseMessage;
+  return [...lines.filter((l) => l.length > 0), '', baseMessage].join('\n');
+}
+
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { input += chunk; });
 process.stdin.on('end', async () => {
   try {
+    try {
     const data = JSON.parse(input);
     const projectName = basename(data.cwd || process.cwd());
 
@@ -281,28 +318,10 @@ process.stdin.on('end', async () => {
     }
 
     if (!existsSync(dbPath)) {
-      // Even with no recall summary to emit, a deprecation flag on the
-      // installed version is more important than the regular "no
-      // database found" notice — surface it so a fresh install of a
-      // flagged version sees the warning before doing anything else.
-      try {
-        const pluginRoot = resolvePluginRoot(import.meta.url);
-        const pkg = JSON.parse(readFileSync(join(pluginRoot, 'package.json'), 'utf8'));
-        const installedVersion = typeof pkg.version === 'string' ? pkg.version : null;
-        const cache = readUpdateCheckCache();
-        const lines = installedVersion ? buildDeprecationBanner(installedVersion, cache) : [];
-        if (lines.length > 0) {
-          output(lines.filter((l) => l.length > 0).join('\n'));
-        }
-      } catch {
-        // Best-effort — never block the no-DB path.
-      }
-      output('MeMesh: No database found. Memories will be created as you work.');
-      // Auto-update + cache-refresh must still run on the no-DB path
-      // (fresh install of a flagged version is exactly when the
-      // security override matters most, and the next session needs a
-      // populated cache regardless of recall state).
-      runPostBannerUpdateTasks();
+      // Combine deprecation banner (if any) into the same
+      // systemMessage so stdout stays a single JSON document. Outer
+      // finally runs runPostBannerUpdateTasks().
+      output(combineWithBanner('MeMesh: No database found. Memories will be created as you work.'));
       return;
     }
 
@@ -316,7 +335,7 @@ process.stdin.on('end', async () => {
         "SELECT name FROM sqlite_master WHERE type='table' AND name='entities'"
       ).get();
       if (!tableCheck) {
-        output('MeMesh: Database exists but no memories stored yet.');
+        output(combineWithBanner('MeMesh: Database exists but no memories stored yet.'));
         return;
       }
 
@@ -411,8 +430,15 @@ process.stdin.on('end', async () => {
         }
       }
 
-      // No memories at all — output nothing (don't clutter session)
+      // No memories at all — surface only the deprecation banner if
+      // active (so a flagged install still warns the user) and skip
+      // the rest of the recall-summary work. The outer finally still
+      // runs runPostBannerUpdateTasks().
       if (lines.length === 0) {
+        const bannerOnly = combineWithBanner('');
+        if (bannerOnly && bannerOnly.trim().length > 0) {
+          output(bannerOnly.trim());
+        }
         return;
       }
 
@@ -599,17 +625,20 @@ process.stdin.on('end', async () => {
       // Non-critical — noise compression failed, will retry next session
     }
 
-    // ── Auto-update + cache refresh (after main hook output) ────────
-    // Same logic that runs on the no-DB short-circuit; centralised in
-    // runPostBannerUpdateTasks() so both code paths can't drift out
-    // of sync. Default policy is 'off' so a fresh install never
-    // silently upgrades — only an opt-in MEMESH_AUTO_UPDATE env or
-    // `autoUpdate` config triggers, with a deprecation security
-    // override for flagged versions.
+    } catch (err) {
+      // Hooks must never crash Claude Code — but report honestly.
+      // Inner catch so the outer finally can still run the post-
+      // banner update tasks even when the recall flow blew up.
+      console.log(JSON.stringify({ systemMessage: `MeMesh: Session start failed (${err?.message || 'unknown error'}). Memories not loaded.` }));
+    }
+  } finally {
+    // ── Auto-update + cache refresh ──────────────────────────────
+    // Outer finally guarantees this runs on every exit path — no-DB
+    // short-circuit, empty-DB return, no-memories return, recall
+    // happy path, or even a thrown error caught above. The
+    // function is single-shot per process so the duplicated
+    // late-path call from older versions is now idempotent.
     runPostBannerUpdateTasks();
-  } catch (err) {
-    // Hooks must never crash Claude Code — but report honestly
-    console.log(JSON.stringify({ systemMessage: `MeMesh: Session start failed (${err?.message || 'unknown error'}). Memories not loaded.` }));
   }
 });
 
