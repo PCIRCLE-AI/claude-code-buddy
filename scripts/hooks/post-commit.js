@@ -1,67 +1,8 @@
 #!/usr/bin/env node
 
-import { createRequire } from 'module';
 import { execFileSync } from 'child_process';
-import { homedir } from 'os';
-import { join, basename } from 'path';
-import { existsSync, mkdirSync } from 'fs';
-
-const require = createRequire(import.meta.url);
-
-const SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS entities (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL UNIQUE,
-  type TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  metadata JSON
-);
-
-CREATE TABLE IF NOT EXISTS observations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  entity_id INTEGER NOT NULL,
-  content TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS relations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  from_entity_id INTEGER NOT NULL,
-  to_entity_id INTEGER NOT NULL,
-  relation_type TEXT NOT NULL,
-  metadata JSON,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (from_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
-  FOREIGN KEY (to_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
-  UNIQUE(from_entity_id, to_entity_id, relation_type)
-);
-
-CREATE TABLE IF NOT EXISTS tags (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  entity_id INTEGER NOT NULL,
-  tag TEXT NOT NULL,
-  FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_tags_entity ON tags(entity_id);
-CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
-DELETE FROM tags
-WHERE id NOT IN (
-  SELECT MIN(id)
-  FROM tags
-  GROUP BY entity_id, tag
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag);
-CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
-CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
-CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);
-
-CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
-  name, observations, content='',
-  tokenize='unicode61 remove_diacritics 1'
-);
-`;
+import { basename } from 'path';
+import { openHookDb } from './_shared.js';
 
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -88,22 +29,10 @@ process.stdin.on('end', () => {
     const commitMsg = commitMatch[2];
     const projectName = basename(data.cwd || process.cwd());
 
-    // Open database (create dir if needed)
-    const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
-    const dbDir = process.env.MEMESH_DB_PATH
-      ? join(process.env.MEMESH_DB_PATH, '..')
-      : join(homedir(), '.memesh');
-    if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
-
-    const Database = require('better-sqlite3');
-    const db = new Database(dbPath);
+    // Open DB via shared helper — applies SCHEMA_SQL + status migration.
+    // Pass fts:true so the FTS5 entity-search index is also available.
+    const { db } = openHookDb(process.env, { fts: true });
     try {
-      db.pragma('journal_mode = WAL');
-      db.pragma('foreign_keys = ON');
-
-      // Ensure schema exists
-      db.exec(SCHEMA_SQL);
-
       const entityName = `commit-${commitHash}`;
 
       // Check if this is a new or existing entity

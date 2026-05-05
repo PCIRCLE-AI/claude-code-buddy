@@ -5,63 +5,12 @@
 // and stores as session-insight entities in MeMesh.
 
 import { createRequire } from 'module';
-import { homedir } from 'os';
 import { join, basename, dirname } from 'path';
-import { existsSync, mkdirSync, readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { getMemeshDir } from './_shared.js';
+import { getMemeshDir, openHookDb } from './_shared.js';
 
 const require = createRequire(import.meta.url);
-
-const SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS entities (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL UNIQUE,
-  type TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  metadata JSON
-);
-
-CREATE TABLE IF NOT EXISTS observations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  entity_id INTEGER NOT NULL,
-  content TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS relations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  from_entity_id INTEGER NOT NULL,
-  to_entity_id INTEGER NOT NULL,
-  relation_type TEXT NOT NULL,
-  metadata JSON,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (from_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
-  FOREIGN KEY (to_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
-  UNIQUE(from_entity_id, to_entity_id, relation_type)
-);
-
-CREATE TABLE IF NOT EXISTS tags (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  entity_id INTEGER NOT NULL,
-  tag TEXT NOT NULL,
-  FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_tags_entity ON tags(entity_id);
-CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
-DELETE FROM tags
-WHERE id NOT IN (
-  SELECT MIN(id)
-  FROM tags
-  GROUP BY entity_id, tag
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag);
-CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
-CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
-CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);
-`;
 
 // Parse a JSONL transcript file.
 // Mirrors logic in src/core/extractor.ts parseTranscript().
@@ -151,30 +100,12 @@ process.stdin.on('end', async () => {
     // Skip sessions with too little activity
     if (toolCallCount < 3) return exit0();
 
-    // Open DB
-    const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
-    const dbDir = getMemeshDir(process.env);
-    if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
-
-    const Database = require('better-sqlite3');
+    // Open DB via shared helper — applies SCHEMA_SQL + status migration.
+    // sqlite-vec is loaded separately because only this hook needs it
+    // (for embedding-aware recall-effectiveness tracking).
     const sqliteVec = require('sqlite-vec');
-
-    const db = new Database(dbPath);
+    const { db } = openHookDb(process.env);
     try {
-      db.pragma('journal_mode = WAL');
-      db.pragma('foreign_keys = ON');
-
-      // Ensure schema exists (tables may already exist from MeMesh server)
-      db.exec(SCHEMA_SQL);
-
-      // Migrate: add status column if missing (v2.11 -> v2.12)
-      const cols = db.prepare("PRAGMA table_info(entities)").all();
-      if (!cols.some(c => c.name === 'status')) {
-        db.exec("ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
-        db.exec("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)");
-      }
-
-      // Load sqlite-vec extension
       sqliteVec.load(db);
 
       // Duplicate detection: if we already captured this session, bail
