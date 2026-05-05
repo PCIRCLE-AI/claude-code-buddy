@@ -261,10 +261,13 @@ export async function checkForUpdate(
 
     // When the deprecation lookup failed AND we have no prior flag
     // to inherit, the deprecation status is genuinely UNKNOWN — not
-    // "healthy". Persist that as a partial-failure cache state by
-    // surfacing the lookup failure through `lastError`. UpdateCheck
-    // consumers (status / doctor / session-start) can then warn the
-    // operator instead of treating the install as confirmed-safe.
+    // "healthy". We surface that through `lastError` so the status
+    // and doctor surfaces can warn the operator. We do NOT demote
+    // `checkSucceeded` to false here: the version lookup succeeded,
+    // and `memesh update` legitimately depends on `checkSucceeded`
+    // to know which version to install. A transient deprecation-
+    // lookup failure must not block the updater when we already
+    // have a target version.
     const partialDeprecationFailure =
       deprecationOutcome.outcome === 'failed' && !hasInheritablePrior;
 
@@ -276,7 +279,10 @@ export async function checkForUpdate(
       lastError: partialDeprecationFailure
         ? 'deprecation lookup failed (status unknown)'
         : null,
-      checkSucceeded: !partialDeprecationFailure,
+      // Version lookup succeeded → checkSucceeded stays true, even
+      // if the deprecation sub-call failed. lastError surfaces the
+      // partial-failure detail to operators.
+      checkSucceeded: true,
       currentVersionDeprecation: resolvedDeprecation,
     };
 

@@ -209,6 +209,7 @@ function tryAcquireAutoUpdateLock(version) {
     const lockPath = join(dir, 'auto-update.lock');
     const fs = require('fs');
     const payload = `${process.pid}\n${Date.now()}\n${version}\n`;
+    // Fast path: O_EXCL atomic create. If we win, we own the lock.
     try {
       const fd = fs.openSync(lockPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
       try { fs.writeFileSync(fd, payload); } finally { fs.closeSync(fd); }
@@ -216,18 +217,29 @@ function tryAcquireAutoUpdateLock(version) {
     } catch (err) {
       if (err?.code !== 'EEXIST') throw err;
     }
-    // Lock exists — check staleness. If older than TTL, reclaim.
+    // Lock exists. Check staleness, but don't TOCTOU-race two
+    // reclaimers: stat → unlink → O_EXCL create. If two processes
+    // both pass the staleness check, only one will win the unlink
+    // (a no-op for the loser) AND only one will win the EXCL
+    // create. Whoever loses returns acquired=false.
     let stat;
     try { stat = fs.statSync(lockPath); } catch { return { acquired: false, lockPath }; }
-    if (Date.now() - stat.mtimeMs > AUTO_UPDATE_LOCK_TTL_MS) {
-      try {
-        fs.writeFileSync(lockPath, payload, { mode: 0o600 });
-        return { acquired: true, lockPath };
-      } catch {
-        return { acquired: false, lockPath };
-      }
+    if (Date.now() - stat.mtimeMs <= AUTO_UPDATE_LOCK_TTL_MS) {
+      return { acquired: false, lockPath };
     }
-    return { acquired: false, lockPath };
+    try { fs.unlinkSync(lockPath); } catch (err) {
+      // ENOENT = another reclaimer beat us to the unlink. Fall
+      // through to the O_EXCL attempt; one of us will fail at
+      // create and return acquired=false.
+      if (err?.code !== 'ENOENT') return { acquired: false, lockPath };
+    }
+    try {
+      const fd = fs.openSync(lockPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+      try { fs.writeFileSync(fd, payload); } finally { fs.closeSync(fd); }
+      return { acquired: true, lockPath };
+    } catch {
+      return { acquired: false, lockPath };
+    }
   } catch {
     return { acquired: false, lockPath: null };
   }
