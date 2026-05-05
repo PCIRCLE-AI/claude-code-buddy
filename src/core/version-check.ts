@@ -275,11 +275,22 @@ export async function checkForUpdate(
     const partialDeprecationFailure =
       deprecationOutcome.outcome === 'failed' && !hasInheritablePrior;
 
+    // Freshness rule: only advance lastSuccessfulCheckAt when BOTH
+    // the version lookup AND the deprecation lookup answered. A
+    // partial-failure where the deprecation status is unknown must
+    // not mark the cache as fresh — otherwise the next session
+    // treats it as up-to-date for 24h, and a deprecation that
+    // arose during the network gap goes undetected. We still
+    // advance lastAttemptAt and the latestVersion so `memesh
+    // update` can act, but freshness gating keeps the deprecation
+    // banner honest.
     const stored: StoredUpdateCheck = {
       currentVersion,
       latestVersion: latest,
       lastAttemptAt: attemptedAt,
-      lastSuccessfulCheckAt: attemptedAt,
+      lastSuccessfulCheckAt: partialDeprecationFailure
+        ? previous?.lastSuccessfulCheckAt ?? null
+        : attemptedAt,
       lastError: partialDeprecationFailure
         ? 'deprecation lookup failed (status unknown)'
         : null,
