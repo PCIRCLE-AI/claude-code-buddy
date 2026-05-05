@@ -454,6 +454,15 @@ export function formatUpdateCheckStatus(update: UpdateCheck | null): string[] {
     // (Common when maintainers deprecate the latest release
     // before publishing the next one.)
     lines.push(`Update check: deprecated, no upgrade target yet (${formatFreshness(update)})`);
+  } else if (update.checkSucceeded && update.lastError) {
+    // Partial-failure case (codex round 28): the version lookup
+    // answered but the deprecation sub-call did not. We don't know
+    // whether the installed version is flagged for security
+    // disclosure. Refuse to print "up to date" here — that's a
+    // false-green that hides a security-relevant unknown. The
+    // detail line below ("Last update check partial: ...")
+    // explains the partial failure.
+    lines.push(`Update check: partial — deprecation status unknown (${formatFreshness(update)})`);
   } else if (update.latestVersion) {
     lines.push(`Update check: up to date (${formatFreshness(update)}; latest ${update.latestVersion})`);
   } else {

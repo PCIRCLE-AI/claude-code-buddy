@@ -423,6 +423,34 @@ describe('version check', () => {
     expect(lines.some((l) => l.includes('Update available: 4.1.2'))).toBe(true);
   });
 
+  it('does not call a partial-deprecation-failure install "up to date" (codex round 28)', () => {
+    // The version lookup succeeded (`checkSucceeded: true`) but the
+    // deprecation sub-call timed out (`lastError` populated). We
+    // genuinely don't know whether this version was flagged for
+    // security disclosure. Showing "Update check: up to date" right
+    // before "Last update check partial: ..." is a false-green that
+    // hides a security-relevant unknown. The new branch outputs an
+    // explicit "partial — deprecation status unknown" line.
+    const lines = formatUpdateCheckStatus({
+      currentVersion: '4.1.2',
+      latestVersion: '4.1.2',
+      checkedAt: '2026-05-06T00:00:00.000Z',
+      lastAttemptAt: '2026-05-06T00:00:00.000Z',
+      lastSuccessfulCheckAt: '2026-05-06T00:00:00.000Z',
+      lastError: 'deprecation lookup failed (status unknown)',
+      updateAvailable: false,
+      checkSucceeded: true,
+      source: 'fresh',
+      freshness: 'fresh',
+      currentVersionDeprecated: false,
+      deprecationMessage: null,
+    });
+    expect(lines.some((l) => l.includes('up to date'))).toBe(false);
+    expect(
+      lines.some((l) => l.includes('partial — deprecation status unknown'))
+    ).toBe(true);
+  });
+
   it('does not call a deprecated install "up to date" when no upgrade target exists yet', () => {
     // Codex round 26 caught this: if the installed version is
     // flagged deprecated but `latestVersion` equals the installed
