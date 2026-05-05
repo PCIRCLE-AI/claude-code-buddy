@@ -438,7 +438,10 @@ describe('version check', () => {
       updateCheckPath,
       now: new Date('2026-05-06T10:00:00.000Z'),
     });
-    expect(result.checkSucceeded).toBe(false);
+    // checkSucceeded stays true so `memesh update` can still act on
+    // the latest version — but lastError is populated so the
+    // operator sees that the deprecation lookup didn't answer.
+    expect(result.checkSucceeded).toBe(true);
     expect(result.lastError).toMatch(/deprecation lookup failed/i);
     expect(result.latestVersion).toBe('4.1.2');
     // We still have no deprecation flag (because the lookup failed
