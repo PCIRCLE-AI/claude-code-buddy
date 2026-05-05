@@ -446,6 +446,14 @@ export function formatUpdateCheckStatus(update: UpdateCheck | null): string[] {
     lines.push('Update check: unavailable');
   } else if (update.updateAvailable && update.latestVersion) {
     lines.push(`🔄 Update available: ${update.latestVersion} (${formatFreshness(update)}; run: memesh update)`);
+  } else if (update.currentVersionDeprecated) {
+    // Deprecated install with no replacement yet — the warning
+    // line above already explains the situation. Don't say
+    // "up to date" here; that contradicts the deprecation
+    // warning when latestVersion equals currentVersion or is null.
+    // (Common when maintainers deprecate the latest release
+    // before publishing the next one.)
+    lines.push(`Update check: deprecated, no upgrade target yet (${formatFreshness(update)})`);
   } else if (update.latestVersion) {
     lines.push(`Update check: up to date (${formatFreshness(update)}; latest ${update.latestVersion})`);
   } else {

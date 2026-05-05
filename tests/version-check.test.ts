@@ -423,6 +423,36 @@ describe('version check', () => {
     expect(lines.some((l) => l.includes('Update available: 4.1.2'))).toBe(true);
   });
 
+  it('does not call a deprecated install "up to date" when no upgrade target exists yet', () => {
+    // Codex round 26 caught this: if the installed version is
+    // flagged deprecated but `latestVersion` equals the installed
+    // version (e.g. registry hasn't shipped the replacement yet, or
+    // we just published the deprecate flag for the very latest), the
+    // CLI used to print "Update check: up to date" right after the
+    // DEPRECATED warning — directly contradicting itself. The new
+    // branch reports "deprecated, no upgrade target yet" so the two
+    // lines stay consistent.
+    const lines = formatUpdateCheckStatus({
+      currentVersion: '4.1.2',
+      latestVersion: '4.1.2',
+      checkedAt: '2026-05-06T00:00:00.000Z',
+      lastAttemptAt: '2026-05-06T00:00:00.000Z',
+      lastSuccessfulCheckAt: '2026-05-06T00:00:00.000Z',
+      lastError: null,
+      updateAvailable: false,
+      checkSucceeded: true,
+      source: 'fresh',
+      freshness: 'fresh',
+      currentVersionDeprecated: true,
+      deprecationMessage: 'Security: please upgrade as soon as a fix ships.',
+    });
+    expect(lines[0]).toContain('DEPRECATED');
+    expect(lines.some((l) => l.includes('up to date'))).toBe(false);
+    expect(
+      lines.some((l) => l.includes('deprecated, no upgrade target yet'))
+    ).toBe(true);
+  });
+
   it('marks the cache as partial-failure when deprecation lookup fails on first run (no prior to inherit)', async () => {
     // Codex review caught this: when the main `npm show` lookup
     // succeeded but the deprecation `npm view` lookup failed AND no
