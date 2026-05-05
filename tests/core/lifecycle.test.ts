@@ -1,21 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import { openDatabase, closeDatabase, getDatabase } from '../../src/db.js';
+import { describe, it, expect } from 'vitest';
+import { getDatabase } from '../../src/db.js';
 import { runAutoDecay, getDecayStatus, compressWeeklyNoise, PRESERVED_TYPES, NOISE_TYPES } from '../../src/core/lifecycle.js';
+import { useTestDatabase } from '../helpers/db-fixture.js';
 
-let tmpDir: string;
-
-beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-lifecycle-'));
-  openDatabase(path.join(tmpDir, 'test.db'));
-});
-
-afterEach(() => {
-  closeDatabase();
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-});
+useTestDatabase('memesh-lifecycle-');
 
 describe('Auto-Decay', () => {
   it('should decay stale entities after 30 days', () => {

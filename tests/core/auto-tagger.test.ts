@@ -1,22 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import { openDatabase, closeDatabase } from '../../src/db.js';
+import { describe, it, expect } from 'vitest';
 import { parseTags } from '../../src/core/auto-tagger.js';
 import { remember } from '../../src/core/operations.js';
+import { useTestDatabase } from '../helpers/db-fixture.js';
 
-let tmpDir: string;
-
-beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-autotag-'));
-  openDatabase(path.join(tmpDir, 'test.db'));
-});
-
-afterEach(() => {
-  closeDatabase();
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-});
+useTestDatabase('memesh-autotag-');
 
 describe('Auto-Tagger parseTags', () => {
   it('should parse valid JSON array of tags', () => {

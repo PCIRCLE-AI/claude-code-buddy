@@ -1,23 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import { openDatabase, closeDatabase } from '../../src/db.js';
+import { describe, it, expect } from 'vitest';
 import { createLesson, createExplicitLesson, findProjectLessons, inferErrorPattern } from '../../src/core/lesson-engine.js';
 import { recall } from '../../src/core/operations.js';
 import type { StructuredLesson } from '../../src/core/failure-analyzer.js';
+import { useTestDatabase } from '../helpers/db-fixture.js';
 
-let tmpDir: string;
-
-beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-lesson-'));
-  openDatabase(path.join(tmpDir, 'test.db'));
-});
-
-afterEach(() => {
-  closeDatabase();
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-});
+useTestDatabase('memesh-lesson-');
 
 describe('createLesson', () => {
   const mockLesson: StructuredLesson = {
