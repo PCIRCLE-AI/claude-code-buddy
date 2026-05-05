@@ -67,4 +67,28 @@ describe('memesh remember CLI: quick-capture form', () => {
     expect(stderr).toContain('--name');
     expect(stderr).toContain('quick-capture');
   }, 60_000);
+
+  // Codex challenge regression (2026-05-05): the previous quick-capture
+  // name `quick-<date>-<slug>` was deterministic by day + first 40
+  // chars of text. Two `memesh remember "fixed bug"` calls on the same
+  // day collapsed into one entity (remember() appends observations on
+  // duplicate-name) — silent data loss for journal-style usage. Names
+  // now carry a 6-hex-char random suffix so each call is a new entity.
+  it('produces a unique entity per call for identical quick-capture text (no silent merge)', () => {
+    const r1 = runCli(['remember', 'fixed bug'], { HOME: tmpHome });
+    const r2 = runCli(['remember', 'fixed bug'], { HOME: tmpHome });
+
+    expect(r1.exitCode, `r1 stderr: ${r1.stderr}`).toBe(0);
+    expect(r2.exitCode, `r2 stderr: ${r2.stderr}`).toBe(0);
+
+    const m1 = r1.stdout.match(/Stored "(quick-[\w-]+)"/);
+    const m2 = r2.stdout.match(/Stored "(quick-[\w-]+)"/);
+    expect(m1, `r1 stdout: ${r1.stdout}`).not.toBeNull();
+    expect(m2, `r2 stdout: ${r2.stdout}`).not.toBeNull();
+    expect(m1![1]).not.toBe(m2![1]);
+
+    // And the trailing random suffix shape is exactly 6 lowercase hex.
+    expect(m1![1]).toMatch(/-[0-9a-f]{6}$/);
+    expect(m2![1]).toMatch(/-[0-9a-f]{6}$/);
+  }, 60_000);
 });

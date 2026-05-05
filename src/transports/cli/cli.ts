@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
+import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -64,6 +65,14 @@ program
   .option('--json', 'Output as JSON')
   .action(async (text, opts) => {
     // Resolve quick-capture form into name/type/obs.
+    //
+    // Each invocation produces a UNIQUE name. The earlier scheme used
+    // `quick-<date>-<slug>` which is deterministic by day + first 40
+    // chars of text — two calls of `memesh remember "fixed bug"` on
+    // the same day would collide and `remember()` would silently merge
+    // them into one entity (it appends observations on duplicate
+    // name). For a journal/quick-capture flow, that's data loss.
+    // Append a short random suffix so each call is a new entity.
     if (text && !opts.name && !opts.type) {
       const slug = String(text)
         .toLowerCase()
@@ -71,7 +80,8 @@ program
         .replace(/^-+|-+$/g, '')
         .slice(0, 40);
       const date = new Date().toISOString().slice(0, 10);
-      opts.name = `quick-${date}-${slug || 'note'}`;
+      const suffix = randomBytes(3).toString('hex'); // 6 hex chars = 16M outcomes
+      opts.name = `quick-${date}-${slug || 'note'}-${suffix}`;
       opts.type = 'note';
       if (!opts.obs || opts.obs.length === 0) opts.obs = [String(text)];
     }
