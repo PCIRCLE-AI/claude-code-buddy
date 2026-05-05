@@ -209,8 +209,14 @@ describe('HTTP Transport: GET /v1/update-status', () => {
     const lastSuccessfulCheckAt = new Date(now - 60 * 60 * 1000).toISOString();
     const lastAttemptAt = new Date(now - 45 * 60 * 1000).toISOString();
 
+    // Use the running package's installed version so version-scoped
+    // fields (lastError, deprecation) are returned unchanged. With a
+    // mismatched currentVersion in the cache, the round-10 fix
+    // correctly clears those fields as belonging to a prior install.
+    const installedVersion = require(path.resolve('package.json')).version;
+
     fs.writeFileSync(updateCheckPath, JSON.stringify({
-      currentVersion: '4.0.1',
+      currentVersion: installedVersion,
       latestVersion: '9.9.9',
       lastAttemptAt,
       lastSuccessfulCheckAt,
@@ -237,8 +243,9 @@ describe('HTTP Transport: GET /v1/update-status', () => {
   });
 
   it('returns an unavailable state when no successful check has been recorded', async () => {
+    const installedVersion = require(path.resolve('package.json')).version;
     fs.writeFileSync(updateCheckPath, JSON.stringify({
-      currentVersion: '4.0.2',
+      currentVersion: installedVersion,
       latestVersion: null,
       lastAttemptAt: '2026-04-24T11:00:00.000Z',
       lastSuccessfulCheckAt: null,

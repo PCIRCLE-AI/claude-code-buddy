@@ -91,21 +91,25 @@ function buildResult(
   source: UpdateCheckSource,
   now: Date,
 ): UpdateCheck {
-  // The deprecation flag is only meaningful for the version we
-  // recorded it against. If the cache entry is from an older install
-  // (e.g. user upgraded outside `memesh update`), the recorded
-  // deprecation belongs to a different version — treat as unknown
-  // rather than misattribute it to the new install.
-  const deprecationMessage = stored.currentVersion === currentVersion
-    ? stored.currentVersionDeprecation
-    : null;
+  // Both the deprecation flag AND the lastError field are
+  // version-scoped: they describe the cached `stored.currentVersion`,
+  // not necessarily the version currently installed. If the user
+  // upgraded outside `memesh update` (e.g. ran `npm install -g`
+  // manually) the cache lags by one version. Carrying the prior
+  // version's lastError forward would surface a stale "deprecation
+  // status unknown" warning on a freshly-upgraded install that
+  // hasn't even tried a lookup yet. Drop both on mismatch and let
+  // the next online check repopulate cleanly.
+  const versionMatches = stored.currentVersion === currentVersion;
+  const deprecationMessage = versionMatches ? stored.currentVersionDeprecation : null;
+  const lastError = versionMatches ? stored.lastError : null;
   return {
     currentVersion,
     latestVersion: stored.latestVersion,
     checkedAt: stored.lastAttemptAt,
     lastAttemptAt: stored.lastAttemptAt,
     lastSuccessfulCheckAt: stored.lastSuccessfulCheckAt,
-    lastError: stored.lastError,
+    lastError,
     updateAvailable: stored.latestVersion !== null && stored.latestVersion !== currentVersion,
     checkSucceeded: stored.checkSucceeded,
     source,

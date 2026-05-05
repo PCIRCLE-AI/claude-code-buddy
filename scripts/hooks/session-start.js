@@ -253,6 +253,18 @@ function tryAcquireAutoUpdateLock(version) {
  *      Claude sessions starting at the same minute would each fire
  *      `npm install -g` concurrently.
  */
+/**
+ * Return shape:
+ *   { state: 'spawned' }       — we own the lock and spawned npm
+ *   { state: 'in-progress' }   — another session owns the lock; an
+ *                                auto-update is racing somewhere
+ *   { state: 'channel' }       — install channel doesn't support
+ *                                self-update; safe to refresh
+ *   { state: 'failed' }        — error before/during spawn
+ * Callers use 'in-progress' the same way they use 'spawned': skip
+ * the cache refresh, since dist/* is being rewritten by some
+ * process. Only 'channel' / no-decision is a clean idle state.
+ */
 function spawnAutoUpdate(version, deprecationOverride) {
   let lock = null;
   try {
@@ -262,14 +274,14 @@ function spawnAutoUpdate(version, deprecationOverride) {
       logAutoUpdate(
         `auto-update SKIPPED: install channel '${channel}' does not support self-update via npm install -g`
       );
-      return false;
+      return { state: 'channel' };
     }
     lock = tryAcquireAutoUpdateLock(version);
     if (!lock.acquired) {
       logAutoUpdate(
         `auto-update SKIPPED: another session-start already holds ${lock.lockPath ?? 'auto-update.lock'} for this upgrade`
       );
-      return false;
+      return { state: 'in-progress' };
     }
     const dir = getMemeshDir(process.env);
     ensurePrivateDir(dir);
@@ -289,7 +301,7 @@ function spawnAutoUpdate(version, deprecationOverride) {
     logAutoUpdate(
       `auto-update spawn: target=${version}${deprecationOverride ? ' (deprecation-override)' : ''} pid=${child.pid ?? 'unknown'} lock=${lock.lockPath}`
     );
-    return true;
+    return { state: 'spawned' };
   } catch (err) {
     logAutoUpdate(`auto-update spawn FAILED: ${err?.message ?? err}`);
     // Release the lock so the next session can retry. Without this,
@@ -299,7 +311,7 @@ function spawnAutoUpdate(version, deprecationOverride) {
     if (lock?.acquired && lock.lockPath) {
       try { require('fs').unlinkSync(lock.lockPath); } catch { /* best-effort */ }
     }
-    return false;
+    return { state: 'failed' };
   }
 }
 
@@ -364,23 +376,24 @@ function runPostBannerUpdateTasks() {
     const cache = readUpdateCheckCache();
     const policy = resolveAutoUpdatePolicy(process.env);
     const decision = decideAutoUpdateHook(installedVersion, cache, policy);
-    let updateSpawned = false;
+    let updateOutcome = { state: 'idle' };
     if (decision.run) {
-      updateSpawned = spawnAutoUpdate(decision.latest, decision.deprecationOverride);
+      updateOutcome = spawnAutoUpdate(decision.latest, decision.deprecationOverride);
     }
-    // Don't refresh the cache while a self-update is running. The
-    // status child reads `dist/transports/cli/cli.js` and friends
-    // from the SAME tree npm is about to replace. On Windows /
-    // strict-locking filesystems the status process can hold
-    // dist/* open and the npm install fails with EBUSY/EPERM. Race
-    // window is bounded by the npm install duration; the next
-    // session repopulates the cache cleanly.
-    if (!updateSpawned) {
-      spawnFreshUpdateCheck();
-    } else {
+    // Don't refresh the cache while a self-update is running, in
+    // EITHER process. spawnFreshUpdateCheck reopens dist/* via a
+    // detached `memesh status` child; on Windows / strict-locking
+    // filesystems that conflicts with the npm install replacing the
+    // same tree (EBUSY/EPERM). 'in-progress' = another session
+    // already owns the lock, so the same race applies.
+    const updateInFlight =
+      updateOutcome.state === 'spawned' || updateOutcome.state === 'in-progress';
+    if (updateInFlight) {
       logAutoUpdate(
-        `cache-refresh SKIPPED: auto-update is running; next session will repopulate the cache`
+        `cache-refresh SKIPPED: auto-update ${updateOutcome.state}; next session will repopulate the cache`
       );
+    } else {
+      spawnFreshUpdateCheck();
     }
   } catch {
     // Best-effort — never crash the hook on a network or fs hiccup.
