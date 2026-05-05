@@ -1,7 +1,7 @@
 import { detectCapabilities } from './config.js';
 import type { LLMConfig } from './config.js';
+import { callLLM } from './llm-client.js';
 import { sanitizeForPrompt } from './prompt-safety.js';
-import type { AnthropicResponse, OpenAIResponse, OllamaResponse } from './types.js';
 
 /**
  * Expand a search query into related keywords using an LLM.
@@ -39,79 +39,8 @@ async function callLLMForExpansion(query: string, config: LLMConfig): Promise<st
     `array of strings, no explanation. Example: ["keyword1", "keyword2"].\n\n` +
     `<user_query>\n${safeQuery}\n</user_query>`;
 
-  if (config.provider === 'anthropic') {
-    return await callAnthropic(prompt, config);
-  } else if (config.provider === 'openai') {
-    return await callOpenAI(prompt, config);
-  } else if (config.provider === 'ollama') {
-    return await callOllama(prompt, config);
-  }
-  return [query];
-}
-
-async function callAnthropic(prompt: string, config: LLMConfig): Promise<string[]> {
-  const apiKey = config.apiKey || process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return [];
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: config.model || 'claude-haiku-4-5',
-      max_tokens: 200,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
-
-  if (!response.ok) throw new Error(`Anthropic API error: ${response.status}`);
-  const data = await response.json() as AnthropicResponse;
-  const text = data.content?.[0]?.text || '[]';
-  return parseKeywords(text);
-}
-
-async function callOpenAI(prompt: string, config: LLMConfig): Promise<string[]> {
-  const apiKey = config.apiKey || process.env.OPENAI_API_KEY;
-  if (!apiKey) return [];
-
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: config.model || 'gpt-4o-mini',
-      max_tokens: 200,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
-
-  if (!response.ok) throw new Error(`OpenAI API error: ${response.status}`);
-  const data = await response.json() as OpenAIResponse;
-  const text = data.choices?.[0]?.message?.content || '[]';
-  return parseKeywords(text);
-}
-
-async function callOllama(prompt: string, config: LLMConfig): Promise<string[]> {
-  const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
-
-  const response = await fetch(`${host}/api/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: config.model || 'llama3.2',
-      prompt,
-      stream: false,
-    }),
-  });
-
-  if (!response.ok) throw new Error(`Ollama error: ${response.status}`);
-  const data = await response.json() as OllamaResponse;
-  return parseKeywords(data.response || '[]');
+  const text = await callLLM(prompt, config, { maxTokens: 200 });
+  return parseKeywords(text || '[]');
 }
 
 /**
