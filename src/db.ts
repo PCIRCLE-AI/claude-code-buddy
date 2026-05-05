@@ -84,9 +84,19 @@ export function openDatabase(dbPath?: string): Database.Database {
   db.exec(FTS_SQL);
 
   // Tighten file mode on the DB and its WAL/SHM sidecars so other local
-  // users on a shared system cannot read memory contents. better-sqlite3
-  // creates these files with default umask (typically 644). The DB
+  // users on a shared system cannot read memory contents. The DB
   // contains all observations and possibly secrets pasted into Claude.
+  //
+  // Two-layer defence:
+  //   1. Tighten the process umask BEFORE writing any sidecar so that
+  //      any SQLite-created -wal/-shm files (including ones recreated
+  //      after a checkpoint(TRUNCATE) or fresh shm-mapping) are born
+  //      with 0600. The earlier one-shot chmod missed sidecars that
+  //      SQLite created later during normal operation.
+  //   2. Belt-and-suspenders: explicitly chmod the existing files now,
+  //      in case the umask was looser when this process started and
+  //      better-sqlite3 already created them.
+  try { process.umask(0o077); } catch { /* non-POSIX */ }
   for (const suffix of ['', '-wal', '-shm']) {
     try { fs.chmodSync(`${resolvedPath}${suffix}`, 0o600); }
     catch { /* sidecar may not exist yet, or non-POSIX */ }
