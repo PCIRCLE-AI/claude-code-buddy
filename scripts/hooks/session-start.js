@@ -104,9 +104,16 @@ function buildDeprecationBanner(currentVersion, cache) {
     } else if (channel === 'source-checkout') {
       lines.push(`    Source checkout: pull and rebuild (\`git pull && npm install && npm run build\`).`);
     } else if (channel === 'npm-local') {
-      lines.push(`    Project-local install: run \`npm install @pcircle/memesh@${cache.latestVersion}\` in this project.`);
+      // Codex round 30: the cached `latestVersion` may itself be
+      // stale (cache TTL is 24h and we're already showing a stale
+      // banner). Pinning a specific version risks installing an
+      // already-superseded build that's part of the same security
+      // advisory. `@latest` always resolves to the registry's
+      // current dist-tag at install time, which is the right
+      // remediation for a deprecation/security-advisory banner.
+      lines.push(`    Project-local install: run \`npm install @pcircle/memesh@latest\` in this project (cached upgrade target was ${cache.latestVersion}).`);
     } else {
-      lines.push(`    Upgrade to ${cache.latestVersion} via the install path you used.`);
+      lines.push(`    Upgrade via the install path you used: fetch the latest @pcircle/memesh from npm (cached upgrade target was ${cache.latestVersion}).`);
     }
   }
   return lines;
