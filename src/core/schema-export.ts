@@ -87,6 +87,44 @@ export function exportOpenAITools(): object[] {
     {
       type: 'function',
       function: {
+        name: 'memesh_export',
+        description: 'Export memories as a portable JSON snapshot for sharing or backup. Returns a structured object with entity data.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tag: { type: 'string', description: 'Filter by tag (optional)' },
+            namespace: { type: 'string', description: 'Filter by namespace: personal, team, or global (optional)' },
+            limit: { type: 'number', description: 'Max entities to export (default: 1000, max: 10000)' },
+          },
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'memesh_import',
+        description: 'Import memories from a JSON export snapshot. Imported entities are tagged trust=untrusted until reviewed.',
+        parameters: {
+          type: 'object',
+          properties: {
+            data: {
+              type: 'object',
+              description: 'JSON object produced by memesh_export (must include version, exported_at, entities[]).',
+            },
+            namespace: { type: 'string', description: 'Override namespace for all imported entities (optional)' },
+            merge_strategy: {
+              type: 'string',
+              enum: ['skip', 'overwrite', 'append'],
+              description: 'How to handle existing entities: skip (default), overwrite (replace), or append (merge observations).',
+            },
+          },
+          required: ['data', 'merge_strategy'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'memesh_user_patterns',
         description: 'Analyze user work patterns from existing memory. Returns work schedule, tool preferences, focus areas, workflow metrics, strengths, and learning areas.',
         parameters: {
