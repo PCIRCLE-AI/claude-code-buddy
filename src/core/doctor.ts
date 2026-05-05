@@ -335,6 +335,20 @@ async function inspectUpdateStatus(
     );
   }
 
+  // Partial-failure surfaces with checkSucceeded=true + lastError
+  // populated (deprecation sub-call timed out / blocked, version
+  // lookup answered). Doctor must NOT report a clean pass in that
+  // case — the security signal is genuinely unknown.
+  if (update.checkSucceeded && update.lastError) {
+    return createCheck(
+      'update-status',
+      'Update status',
+      'warn',
+      `Deprecation status unknown for ${packageVersion}: ${update.lastError}.`,
+      'Run `memesh status` while online to retry the deprecation lookup.',
+    );
+  }
+
   if (update.updateAvailable && update.latestVersion) {
     return createCheck(
       'update-status',
