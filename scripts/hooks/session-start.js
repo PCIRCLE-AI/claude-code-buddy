@@ -413,25 +413,24 @@ function runPostBannerUpdateTasks() {
     const cache = readUpdateCheckCache();
     const policy = resolveAutoUpdatePolicy(process.env);
     const decision = decideAutoUpdateHook(installedVersion, cache, policy);
-    let updateOutcome = { state: 'idle' };
     if (decision.run) {
-      updateOutcome = spawnAutoUpdate(decision.latest, decision.deprecationOverride);
-    }
-    // Don't refresh the cache while a self-update is running, in
-    // EITHER process. spawnFreshUpdateCheck reopens dist/* via a
-    // detached `memesh status` child; on Windows / strict-locking
-    // filesystems that conflicts with the npm install replacing the
-    // same tree (EBUSY/EPERM). 'in-progress' = another session
-    // already owns the lock, so the same race applies.
-    const updateInFlight =
-      updateOutcome.state === 'spawned' || updateOutcome.state === 'in-progress';
-    if (updateInFlight) {
+      // v4.1.3: do NOT spawn `npm install -g` from session-start.
+      // Other hooks in the same Claude session (pre-edit,
+      // post-commit, session-summary, etc.) read from the same
+      // dist/ tree and would race a mid-install file replacement
+      // (ENOENT, mixed-version load) on POSIX, and EBUSY on
+      // Windows. Instead, log that an auto-update is *pending* so
+      // the user sees the intent in ~/.memesh/auto-update.log and
+      // can run `memesh update` manually at a safe moment. v4.1.4
+      // will move the actual spawn to the Stop hook (session-end),
+      // where no peer hooks will fire from the same tree.
       logAutoUpdate(
-        `cache-refresh SKIPPED: auto-update ${updateOutcome.state}; next session will repopulate the cache`
+        `auto-update PENDING: policy='${policy}' bump='${decision.bump}' target=${decision.latest}` +
+        (decision.deprecationOverride ? ' (deprecation-override)' : '') +
+        ' — will run from Stop hook in v4.1.4. For now run `memesh update` manually.'
       );
-    } else {
-      spawnFreshUpdateCheck();
     }
+    spawnFreshUpdateCheck();
   } catch {
     // Best-effort — never crash the hook on a network or fs hiccup.
   }
