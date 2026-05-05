@@ -240,27 +240,32 @@ export async function checkForUpdate(
   const previous = readStoredUpdateCheck(updateCheckPath);
   const attemptedAt = now.toISOString();
 
-  try {
-    // Latest version (canonical) and current version's deprecation
-    // status are independent registry queries. Fetch both in parallel.
-    // The deprecation lookup is allowed to fail independently — we
-    // tag the outcome ('ok' vs 'failed') rather than collapsing both
-    // into null, so the success-branch below can preserve a
-    // previously-cached deprecation flag instead of silently wiping
-    // it on a transient deprecation-only network hiccup.
-    type DeprecationOutcome =
-      | { outcome: 'ok'; message: string | null }
-      | { outcome: 'failed' };
+  // Latest version (canonical) and current version's deprecation
+  // status are independent registry queries. Both Promises always
+  // RESOLVE to a tagged outcome (ok / failed) — never reject — so a
+  // failure on one branch can't short-circuit the other and discard
+  // an already-resolved good result. Codex round 31 caught the prior
+  // `Promise.all` flow: when `npm show ... version` rejected, the
+  // catch path ran without seeing the deprecation Promise's
+  // already-successful result, dropping a real maintainer
+  // deprecation/security signal.
+  type LatestOutcome =
+    | { outcome: 'ok'; latest: string }
+    | { outcome: 'failed'; error: unknown };
+  type DeprecationOutcome =
+    | { outcome: 'ok'; message: string | null }
+    | { outcome: 'failed' };
 
-    const [latest, deprecationOutcome] = await Promise.all([
-      new Promise<string>((resolve, reject) => {
+  try {
+    const [latestOutcome, deprecationOutcome] = await Promise.all([
+      new Promise<LatestOutcome>((resolve) => {
         execFileImpl(
           'npm',
           ['show', '@pcircle/memesh', 'version'],
           { timeout: timeoutMs },
           (err, stdout) => {
-            if (err) reject(err);
-            else resolve(stdout.trim());
+            if (err) resolve({ outcome: 'failed', error: err });
+            else resolve({ outcome: 'ok', latest: stdout.trim() });
           },
         );
       }),
@@ -300,18 +305,16 @@ export async function checkForUpdate(
       }),
     ]);
 
-    // If the deprecation lookup failed but the version lookup
-    // succeeded, hold on to the previously-known deprecation flag.
-    // We re-read the cache here (not just the `previous` snapshot
-    // taken at function entry) because a concurrent refresh in
-    // another process may have written a successful deprecation
-    // after we took our snapshot. Without the re-read, our
-    // partial-failure write would overwrite the peer's deprecation
-    // with null, losing the security flag. Only preserve when the
-    // recorded version still matches the installed one.
-    const refreshed = deprecationOutcome.outcome === 'failed'
-      ? readStoredUpdateCheck(updateCheckPath)
-      : null;
+    // Re-read the cache only if at least one branch needs to inherit
+    // a prior value. We re-read here (not just the `previous`
+    // snapshot taken at function entry) because a concurrent refresh
+    // in another process may have written a successful deprecation
+    // between our entry snapshot and now — without the re-read, a
+    // partial-failure write here would overwrite the peer's good
+    // result with null.
+    const needsInherited =
+      deprecationOutcome.outcome === 'failed' || latestOutcome.outcome === 'failed';
+    const refreshed = needsInherited ? readStoredUpdateCheck(updateCheckPath) : null;
     const inheritedDeprecation = refreshed?.currentVersion === currentVersion
       ? refreshed?.currentVersionDeprecation ?? null
       : previous?.currentVersion === currentVersion
@@ -323,43 +326,59 @@ export async function checkForUpdate(
         ? deprecationOutcome.message
         : inheritedDeprecation;
 
-    // When the deprecation lookup failed AND we have no prior flag
-    // to inherit, the deprecation status is genuinely UNKNOWN — not
-    // "healthy". We surface that through `lastError` so the status
-    // and doctor surfaces can warn the operator. We do NOT demote
-    // `checkSucceeded` to false here: the version lookup succeeded,
-    // and `memesh update` legitimately depends on `checkSucceeded`
-    // to know which version to install. A transient deprecation-
-    // lookup failure must not block the updater when we already
-    // have a target version.
-    const partialDeprecationFailure =
-      deprecationOutcome.outcome === 'failed' && !hasInheritablePrior;
+    if (latestOutcome.outcome === 'ok') {
+      // Version lookup succeeded. The deprecation sub-call's outcome
+      // is surfaced via lastError (and via the version-aware
+      // staleness gate in decideAutoUpdateHook), so partial failure
+      // doesn't have to suppress the version-fresh signal. Hiding
+      // latestVersion just because deprecation timed out would tell
+      // the user "update unavailable" while in fact `memesh update`
+      // could still apply the upgrade.
+      //
+      // When the deprecation lookup failed AND we have no prior flag
+      // to inherit, the deprecation status is genuinely UNKNOWN — we
+      // surface that through `lastError`. We do NOT demote
+      // `checkSucceeded` to false here: the version lookup succeeded
+      // and `memesh update` legitimately depends on `checkSucceeded`
+      // to know which version to install.
+      const partialDeprecationFailure =
+        deprecationOutcome.outcome === 'failed' && !hasInheritablePrior;
+      const stored: StoredUpdateCheck = {
+        currentVersion,
+        latestVersion: latestOutcome.latest,
+        lastAttemptAt: attemptedAt,
+        lastSuccessfulCheckAt: attemptedAt,
+        lastError: partialDeprecationFailure
+          ? 'deprecation lookup failed (status unknown)'
+          : null,
+        checkSucceeded: true,
+        currentVersionDeprecation: resolvedDeprecation,
+      };
+      writeStoredUpdateCheck(stored, updateCheckPath);
+      return buildResult(currentVersion, stored, 'fresh', now);
+    }
 
-    // Freshness tracks the version lookup. The deprecation
-    // sub-call's outcome is surfaced via lastError (and via the
-    // version-aware staleness gate in decideAutoUpdateHook), so
-    // partial failure doesn't have to suppress the version-fresh
-    // signal. Hiding latestVersion just because deprecation timed
-    // out would tell the user "update unavailable" while in fact
-    // memesh update could still apply the upgrade.
+    // Version lookup failed but the deprecation sub-call may still
+    // have answered. Use the fresh deprecation result if we got one
+    // — that's the codex round 31 fix: never throw away a real
+    // maintainer-deprecation/security signal because the version
+    // sub-call timed out.
     const stored: StoredUpdateCheck = {
       currentVersion,
-      latestVersion: latest,
+      latestVersion: previous?.latestVersion ?? null,
       lastAttemptAt: attemptedAt,
-      lastSuccessfulCheckAt: attemptedAt,
-      lastError: partialDeprecationFailure
-        ? 'deprecation lookup failed (status unknown)'
-        : null,
-      // Version lookup succeeded → checkSucceeded stays true, even
-      // if the deprecation sub-call failed. lastError surfaces the
-      // partial-failure detail to operators.
-      checkSucceeded: true,
+      lastSuccessfulCheckAt: previous?.lastSuccessfulCheckAt ?? null,
+      lastError: summarizeError(latestOutcome.error),
+      checkSucceeded: false,
       currentVersionDeprecation: resolvedDeprecation,
     };
-
     writeStoredUpdateCheck(stored, updateCheckPath);
-    return buildResult(currentVersion, stored, 'fresh', now);
+    const source: UpdateCheckSource = stored.lastSuccessfulCheckAt ? 'cache' : 'fresh';
+    return buildResult(currentVersion, stored, source, now);
   } catch (err) {
+    // Genuinely-unexpected error (filesystem, JSON, etc.). The two
+    // npm sub-calls never reject under normal conditions — if we get
+    // here, both are dead and we should preserve prior cache.
     const stored: StoredUpdateCheck = {
       currentVersion,
       latestVersion: previous?.latestVersion ?? null,
@@ -367,15 +386,11 @@ export async function checkForUpdate(
       lastSuccessfulCheckAt: previous?.lastSuccessfulCheckAt ?? null,
       lastError: summarizeError(err),
       checkSucceeded: false,
-      // Preserve the prior deprecation flag if it was for *this* same
-      // installed version — losing a known-deprecated flag on a
-      // transient network failure would silently dim the warning.
       currentVersionDeprecation:
         previous?.currentVersion === currentVersion
           ? previous?.currentVersionDeprecation ?? null
           : null,
     };
-
     writeStoredUpdateCheck(stored, updateCheckPath);
     const source: UpdateCheckSource = stored.lastSuccessfulCheckAt ? 'cache' : 'fresh';
     return buildResult(currentVersion, stored, source, now);

@@ -76,6 +76,33 @@ function partialFailDeprecationOnly(version: string) {
   }) as typeof import('child_process').execFile;
 }
 
+/**
+ * Mock where the main `npm show version` call FAILS but the
+ * secondary `npm view <v> deprecated` call SUCCEEDS with a flag.
+ * Codex round 31 caught that the previous Promise.all flow would
+ * reject the moment the version sub-call failed and discard the
+ * deprecation result on the floor — losing a real maintainer
+ * security advisory just because the latest-version lookup timed
+ * out.
+ */
+function partialFailLatestOnly(deprecationMessage: string) {
+  return ((file: string, args: readonly string[] | undefined | null, optionsOrCallback: unknown, callbackMaybe?: unknown) => {
+    expect(file).toBe('npm');
+    const callback = typeof optionsOrCallback === 'function'
+      ? optionsOrCallback
+      : callbackMaybe;
+    const cmd = args as readonly string[];
+    if (cmd[0] === 'show') {
+      (callback as (err: Error) => void)(new Error('version lookup timed out'));
+    } else if (cmd[0] === 'view' && cmd[2] === 'deprecated') {
+      (callback as (err: Error | null, stdout: string) => void)(null, `${deprecationMessage}\n`);
+    } else {
+      throw new Error(`Unexpected npm command: ${cmd.join(' ')}`);
+    }
+    return {} as never;
+  }) as typeof import('child_process').execFile;
+}
+
 describe('version check', () => {
   let testDir: string;
   let updateCheckPath: string;
@@ -479,6 +506,33 @@ describe('version check', () => {
     expect(
       lines.some((l) => l.includes('deprecated, no upgrade target yet'))
     ).toBe(true);
+  });
+
+  it('preserves a fresh deprecation flag when only the latest-version lookup fails (codex round 31)', async () => {
+    // Codex round 31: when `npm show ... version` failed but
+    // `npm view ... deprecated` succeeded with a real maintainer
+    // flag, the prior Promise.all flow rejected immediately and the
+    // catch path wrote currentVersionDeprecation: null, throwing the
+    // security advisory on the floor. The fix lets each Promise
+    // resolve independently so a fresh deprecation result survives
+    // a version-only network failure.
+    const result = await checkForUpdate('4.1.1', {
+      execFileImpl: partialFailLatestOnly(
+        'Security: HIGH polynomial-redos in bearer-auth header parser. Upgrade to 4.1.2+.',
+      ),
+      updateCheckPath,
+      now: new Date('2026-05-06T00:00:00.000Z'),
+    });
+    expect(result.checkSucceeded).toBe(false);
+    expect(result.lastError).toMatch(/version lookup timed out/i);
+    expect(result.currentVersionDeprecated).toBe(true);
+    expect(result.deprecationMessage).toContain('polynomial-redos');
+
+    // Round-trip: the cache must persist the deprecation flag so
+    // the next session-start banner / doctor / dashboard see it.
+    const reread = getLastUpdateCheck('4.1.1', { updateCheckPath });
+    expect(reread?.currentVersionDeprecated).toBe(true);
+    expect(reread?.deprecationMessage).toContain('polynomial-redos');
   });
 
   it('marks the cache as partial-failure when deprecation lookup fails on first run (no prior to inherit)', async () => {
