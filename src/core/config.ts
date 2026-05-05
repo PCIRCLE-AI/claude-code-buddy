@@ -21,6 +21,17 @@ export interface MeMeshConfig {
    * telemetry). Default: false. Env override: MEMESH_ENABLE_AGENTIC_ORCHESTRATION=1.
    */
   enableAgenticOrchestration?: boolean;
+  /**
+   * Auto-update policy applied by the session-start hook.
+   *   'off' (default) — never auto-update; manual `memesh update` only.
+   *      A deprecation override may still trigger a single patch upgrade
+   *      when the installed version has been flagged by maintainers.
+   *   'patch' — auto-apply X.Y.Z -> X.Y.Z+N
+   *   'minor' — auto-apply patch + X.Y.Z -> X.Y+1.0
+   *   'major' — auto-apply any bump
+   * Env override: MEMESH_AUTO_UPDATE.
+   */
+  autoUpdate?: 'off' | 'patch' | 'minor' | 'major';
   theme?: 'light' | 'dark';
   tips?: { smartModeHint?: 'shown' };
   setupCompleted?: boolean;
