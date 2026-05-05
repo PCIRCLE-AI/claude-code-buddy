@@ -75,12 +75,22 @@ export function openDatabase(dbPath?: string): Database.Database {
 
   const dir = path.dirname(resolvedPath);
   fs.mkdirSync(dir, { recursive: true });
+  try { fs.chmodSync(dir, 0o700); } catch { /* non-POSIX */ }
 
   db = new Database(resolvedPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
   db.exec(FTS_SQL);
+
+  // Tighten file mode on the DB and its WAL/SHM sidecars so other local
+  // users on a shared system cannot read memory contents. better-sqlite3
+  // creates these files with default umask (typically 644). The DB
+  // contains all observations and possibly secrets pasted into Claude.
+  for (const suffix of ['', '-wal', '-shm']) {
+    try { fs.chmodSync(`${resolvedPath}${suffix}`, 0o600); }
+    catch { /* sidecar may not exist yet, or non-POSIX */ }
+  }
 
   // Migrate: add status column if missing (v2.11 -> v2.12)
   const columns = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];

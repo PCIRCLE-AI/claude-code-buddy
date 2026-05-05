@@ -4,7 +4,7 @@ import { createRequire } from 'module';
 import { createHash } from 'crypto';
 import { homedir } from 'os';
 import { dirname, join, basename } from 'path';
-import { existsSync, unlinkSync, rmSync, appendFileSync } from 'fs';
+import { existsSync, unlinkSync, rmSync, appendFileSync, chmodSync } from 'fs';
 import { fileURLToPath } from 'url';
 import {
   buildReferenceContext,
@@ -235,6 +235,10 @@ process.stdin.on('end', async () => {
               payload: { cwd_hashed: cwdHashed },
             }) + '\n';
             appendFileSync(usagePath, line);
+            // Tighten mode — telemetry includes timestamps + per-project
+            // hashed cwd which can profile user activity. Other local
+            // users on a shared system should not be able to read it.
+            try { chmodSync(usagePath, 0o600); } catch { /* non-POSIX */ }
           } catch { /* swallow — telemetry must not break session-start */ }
         } catch {
           // Banner failed — non-critical, continue

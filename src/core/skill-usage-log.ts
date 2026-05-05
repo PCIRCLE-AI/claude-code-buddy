@@ -38,6 +38,7 @@
 
 import {
   appendFileSync,
+  chmodSync,
   closeSync,
   existsSync,
   fstatSync,
@@ -135,6 +136,11 @@ export function logSkillEvent(event: string, payload?: Record<string, unknown>, 
     rotateIfNeeded(target);
     const line = JSON.stringify({ ts: new Date().toISOString(), event, payload }) + '\n';
     appendFileSync(target, line);
+    // Tighten mode after every append. appendFileSync's `mode` option only
+    // applies on creation, but on shared systems we cannot rely on the file
+    // being created via this path (the hook also writes it directly). chmod
+    // is idempotent and cheap.
+    try { chmodSync(target, 0o600); } catch { /* non-POSIX */ }
   } catch {
     /* never throw from telemetry */
   }

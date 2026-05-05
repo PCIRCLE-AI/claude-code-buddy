@@ -35,14 +35,18 @@ type EntityMetadata = {
   [key: string]: unknown;
 };
 
-function buildLocalMetadata(existingMetadata: EntityMetadata | undefined): EntityMetadata {
+function buildLocalMetadata(
+  existingMetadata: EntityMetadata | undefined,
+  overrides?: { trust?: 'trusted' | 'untrusted'; provenance?: Record<string, unknown> }
+): EntityMetadata {
   return {
     ...(existingMetadata ?? {}),
-    trust: 'trusted',
+    trust: overrides?.trust ?? 'trusted',
     provenance: {
       ...(existingMetadata?.provenance ?? {}),
       source: 'local',
       reviewed_at: new Date().toISOString(),
+      ...(overrides?.provenance ?? {}),
     },
   };
 }
@@ -66,7 +70,13 @@ export function remember(args: RememberInput): RememberResult {
     tags: args.tags,
     namespace: args.namespace,
   });
-  kg.updateEntityMetadata(args.name, () => buildLocalMetadata(existing?.metadata as EntityMetadata | undefined));
+  kg.updateEntityMetadata(args.name, () => buildLocalMetadata(
+    existing?.metadata as EntityMetadata | undefined,
+    {
+      trust: args.trustOverride,
+      provenance: args.provenanceOverride,
+    }
+  ));
 
   // Create relations (target entities must already exist)
   const relationsCreated: Array<{ to: string; type: string }> = [];
