@@ -60,7 +60,18 @@ function buildDeprecationBanner(currentVersion, cache) {
     `    ${msg}`,
   ];
   if (cache.latestVersion && cache.latestVersion !== currentVersion) {
-    lines.push(`    Run: memesh update   (or set autoUpdate: 'patch' in ~/.memesh/config.json)`);
+    // Recommend the auto-update policy that actually covers the bump
+    // kind required to leave the deprecated version. A 'patch' policy
+    // only permits patch bumps, so for a deprecation that can only be
+    // resolved by a minor (4.1.x → 4.2.0) or major (4.x → 5.0) jump,
+    // suggesting 'patch' would silently leave the user on the
+    // deprecated version. We recommend the smallest policy that fits
+    // the actual bump.
+    const bump = classifyBumpHook(currentVersion, cache.latestVersion);
+    const policySuggestion = bump === 'major' ? 'major'
+      : bump === 'minor' ? 'minor'
+      : 'patch';
+    lines.push(`    Run: memesh update   (or set autoUpdate: '${policySuggestion}' in ~/.memesh/config.json)`);
   }
   return lines;
 }
@@ -84,12 +95,28 @@ function classifyBumpHook(from, to) {
 const POLICY_RANK = { off: 0, patch: 1, minor: 2, major: 3 };
 const BUMP_RANK = { patch: 1, minor: 2, major: 3 };
 
+// Cache must be no older than 24 hours for auto-update to act on
+// it. A stale cache could point at a target that is already
+// superseded on npm — installing it would leave the user one step
+// behind. When the cache is too old we skip the install and let the
+// background refresh fetch fresh data for the next session.
+const AUTO_UPDATE_CACHE_FRESHNESS_MS = 24 * 60 * 60 * 1000;
+
 function decideAutoUpdateHook(currentVersion, cache, policy) {
   if (!cache || cache.currentVersion !== currentVersion) return { run: false };
   const latest = cache.latestVersion;
   if (typeof latest !== 'string' || !latest) return { run: false };
   const bump = classifyBumpHook(currentVersion, latest);
   if (!bump) return { run: false };
+
+  // Stale-cache guard: refuse to auto-install a target that may
+  // have been superseded on npm since the last successful check.
+  const lastSuccessAt = cache.lastSuccessfulCheckAt;
+  const lastSuccessMs = typeof lastSuccessAt === 'string' ? Date.parse(lastSuccessAt) : NaN;
+  const cacheAgeMs = Number.isFinite(lastSuccessMs) ? Date.now() - lastSuccessMs : Infinity;
+  if (cacheAgeMs > AUTO_UPDATE_CACHE_FRESHNESS_MS) {
+    return { run: false, reason: 'stale-cache' };
+  }
 
   const policyAllows = (POLICY_RANK[policy] ?? 0) >= BUMP_RANK[bump];
   if (policyAllows) return { run: true, latest, bump, deprecationOverride: false };
