@@ -361,4 +361,46 @@ describe('doctor', () => {
     // Overall doctor status must reflect the escalation.
     expect(result.status).not.toBe('PASS');
   });
+
+  it('does not recommend `memesh update` when deprecated version has no upgrade target (codex round 32)', async () => {
+    // Codex round 32: when the maintainer deprecates the latest
+    // release before publishing the replacement (security advisory
+    // disclosed before the fix is on npm), `memesh update` would
+    // no-op. The doctor used to emit "This installation can be
+    // updated directly from MeMesh" — pointing the user at a dead
+    // end in exactly the security-advisory scenario this branch
+    // exists to handle. The fix should explicitly tell the user
+    // there's no upgrade target yet rather than reuse the generic
+    // self-update guidance.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.2',
+      openDatabaseImpl: () => makeDatabase() as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck({
+        currentVersion: '4.1.2',
+        latestVersion: '4.1.2', // no replacement on npm yet
+        updateAvailable: false,
+        currentVersionDeprecated: true,
+        deprecationMessage: 'Security: please upgrade as soon as a fix ships.',
+      }),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update',
+        guidance: 'This installation can be updated directly from MeMesh.',
+      }),
+    });
+
+    const updateCheck = result.checks.find((c) => c.id === 'update-status');
+    expect(updateCheck?.status).toBe('fail');
+    expect(updateCheck?.fix ?? '').not.toMatch(/`memesh update`/);
+    expect(updateCheck?.fix ?? '').not.toContain('updated directly from MeMesh');
+    expect(updateCheck?.fix ?? '').toMatch(/no upgrade target/i);
+  });
 });

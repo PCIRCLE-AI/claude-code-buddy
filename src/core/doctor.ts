@@ -336,10 +336,19 @@ async function inspectUpdateStatus(
     const hasUpgradeTarget = update.latestVersion
       && update.latestVersion !== packageVersion;
     let fix: string;
-    if (installSupport?.canSelfUpdate && hasUpgradeTarget) {
+    if (!hasUpgradeTarget) {
+      // Codex round 32: maintainer deprecated this version (often a
+      // security advisory) but no replacement is on npm yet. Both
+      // `memesh update` and an explicit-version install would no-op.
+      // Pointing the user at either is a dead-end remediation for
+      // the very advisory this branch is trying to surface — the
+      // honest answer is "no upgrade target available; watch the
+      // release feed."
+      fix = 'No upgrade target on npm yet — watch the project release feed for a replacement and re-run `memesh doctor` once it lands. If the advisory is severe, consider removing the install until then.';
+    } else if (installSupport?.canSelfUpdate) {
       fix = `Run \`memesh update\`${target}.`;
     } else if (installSupport?.guidance) {
-      fix = installSupport.guidance + (hasUpgradeTarget ? ` Upgrade target: ${update.latestVersion}.` : '');
+      fix = installSupport.guidance + ` Upgrade target: ${update.latestVersion}.`;
     } else {
       fix = `Upgrade via your install method (see \`memesh status\`).`;
     }

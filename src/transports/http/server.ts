@@ -386,7 +386,17 @@ app.get('/v1/update-status', async (req, res) => {
         freshness: update?.freshness ?? 'unavailable',
         installChannel: installSupport.channel,
         canSelfUpdate: installSupport.canSelfUpdate,
-        recommendedCommand: installSupport.recommendedCommand,
+        // Codex round 32: suppress the recommended command when the
+        // installed version is deprecated AND there is no upgrade
+        // target on npm yet (the maintainer deprecated the latest
+        // release before publishing a replacement). `memesh update`
+        // would no-op in that case, so the dashboard would render
+        // a remediation that contradicts the new
+        // "Deprecated — no upgrade target yet" summary right above.
+        recommendedCommand: (
+          update?.currentVersionDeprecated
+          && (!update.latestVersion || update.latestVersion === update.currentVersion)
+        ) ? null : installSupport.recommendedCommand,
         // Surface deprecation state so the dashboard can render the
         // security warning. Without these the SettingsTab only shows
         // generic update-available text and a deprecated install
