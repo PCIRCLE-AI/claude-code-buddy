@@ -335,6 +335,11 @@ const ConfigBody = z.object({
   // Mirrors MEMESH_ENABLE_AGENTIC_ORCHESTRATION env var. Env wins
   // when both are set so existing env-var users are not surprised.
   enableAgenticOrchestration: z.boolean().optional(),
+  // Auto-update policy for the session-start hook. Mirrors
+  // MEMESH_AUTO_UPDATE env var with env > config precedence.
+  // Without this on the write surface, the only way to opt into
+  // the new policy was hand-editing ~/.memesh/config.json.
+  autoUpdate: z.enum(['off', 'patch', 'minor', 'major']).optional(),
   theme: z.enum(['light', 'dark']).optional(),
   setupCompleted: z.boolean().optional(),
 }).strip();

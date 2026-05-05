@@ -246,6 +246,26 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       {/* Updates */}
       <div class="card">
         <div class="card-title">{t('settings.updates')}</div>
+        {updateStatus?.currentVersionDeprecated && updateStatus.deprecationMessage && (
+          <div
+            style={{
+              background: 'rgba(255, 107, 107, 0.08)',
+              border: '1px solid rgba(255, 107, 107, 0.4)',
+              borderRadius: 4,
+              padding: '10px 12px',
+              marginBottom: 12,
+              fontSize: 12,
+              color: 'var(--text-0)',
+              lineHeight: 1.55,
+            }}
+            data-testid="settings-deprecation-warning"
+          >
+            <strong style={{ color: '#ff6b6b' }}>
+              ⚠️ MeMesh {updateStatus.currentVersion} is DEPRECATED by maintainers.
+            </strong>
+            <div style={{ marginTop: 4, opacity: 0.9 }}>{updateStatus.deprecationMessage}</div>
+          </div>
+        )}
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'baseline', marginBottom: 12, flexWrap: 'wrap' }}>
           <div style={{ color: updateSummaryColor, fontSize: 13, fontWeight: 600 }}>{updateSummary}</div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>

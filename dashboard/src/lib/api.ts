@@ -106,6 +106,10 @@ export interface UpdateStatusData {
   installChannel: 'npm-global' | 'npm-local' | 'source-checkout' | 'unknown';
   canSelfUpdate: boolean;
   recommendedCommand: string | null;
+  /** True when npm has flagged the installed version as deprecated. */
+  currentVersionDeprecated: boolean;
+  /** Maintainer-supplied deprecation message, or null when not deprecated. */
+  deprecationMessage: string | null;
 }
 
 export interface StatsData {
