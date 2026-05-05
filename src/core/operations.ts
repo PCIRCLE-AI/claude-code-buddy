@@ -161,6 +161,50 @@ export function recall(args: RecallInput): Entity[] {
 }
 
 /**
+ * Supplement an existing result set with vector-search hits.
+ *
+ * Shared by both recall paths (LLM-expanded and FTS5-only). Mutates
+ * `merged` and `relevanceMap` in place. Skips entities already present
+ * by name. Silently no-ops if embeddings are unavailable or the query
+ * cannot be embedded — FTS5 results stay valid.
+ *
+ * Returns nothing; caller continues with the mutated arrays.
+ */
+async function supplementWithVectors(
+  query: string,
+  args: RecallInput,
+  kg: KnowledgeGraph,
+  merged: Entity[],
+  relevanceMap: Map<string, number>,
+): Promise<void> {
+  if (!isEmbeddingAvailable()) return;
+  try {
+    const queryEmb = await embedText(query);
+    if (!queryEmb) return;
+    const vectorHits = vectorSearch(queryEmb, args.limit ?? 20);
+    if (vectorHits.length === 0) return;
+
+    const hitIds = vectorHits.map(h => h.id);
+    const hitEntities = kg.getEntitiesByIds(hitIds, {
+      includeArchived: args.include_archived === true,
+      namespace: args.namespace,
+      tag: recallTagFilter(args),
+    });
+
+    const existingNames = new Set(merged.map(e => e.name));
+    for (const entity of hitEntities) {
+      if (existingNames.has(entity.name)) continue;
+      merged.push(entity);
+      // Convert cosine distance to similarity (0=identical, 2=opposite).
+      const dist = vectorHits.find(h => h.id === entity.id)?.distance ?? 1;
+      relevanceMap.set(entity.name, Math.max(0, 1 - dist));
+    }
+  } catch {
+    // Vector search failed — FTS5 + expanded results still valid.
+  }
+}
+
+/**
  * Enhanced recall with optional LLM query expansion (async, Level 1).
  * When an LLM is configured, expands the query into related terms before searching.
  * Merges results from all expanded terms, de-duped by entity name.
@@ -200,39 +244,8 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
         }
       }
 
-      let merged = [...allResults.values()];
-
-      // Supplement with vector search results if embeddings available
-      if (isEmbeddingAvailable()) {
-        try {
-          const queryEmb = await embedText(args.query);
-          if (queryEmb) {
-            const vectorHits = vectorSearch(queryEmb, args.limit ?? 20);
-            if (vectorHits.length > 0) {
-              const kg2 = new KnowledgeGraph(db);
-              const hitIds = vectorHits.map(h => h.id);
-              const hitEntities = kg2.getEntitiesByIds(hitIds, {
-                includeArchived: args.include_archived === true,
-                namespace: args.namespace,
-                tag: recallTagFilter(args),
-              });
-              for (let i = 0; i < hitEntities.length; i++) {
-                const entity = hitEntities[i];
-                if (!allResults.has(entity.name)) {
-                  merged.push(entity);
-                  // Convert distance to similarity (cosine distance: 0=identical, 2=opposite)
-                  const dist = vectorHits.find(h => h.id === entity.id)?.distance ?? 1;
-                  const similarity = Math.max(0, 1 - dist);
-                  relevanceMap.set(entity.name, similarity);
-                }
-              }
-            }
-          }
-        } catch {
-          // Vector search failed — FTS5 + expanded results still valid
-        }
-      }
-
+      const merged = [...allResults.values()];
+      await supplementWithVectors(args.query, args, kg, merged, relevanceMap);
       return rankEntities(merged, relevanceMap).slice(0, args.limit ?? 20);
     } catch {
       // Fallback to regular search on any expansion error
@@ -254,38 +267,10 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
     relevanceMap.set(e.name, args.query ? 1.0 : 0.5);
   }
 
-  // Supplement with vector search results if embeddings available
-  let mergedEntities = [...entities];
-  if (args.query && isEmbeddingAvailable()) {
-    try {
-      const queryEmb = await embedText(args.query);
-      if (queryEmb) {
-        const vectorHits = vectorSearch(queryEmb, args.limit ?? 20);
-        if (vectorHits.length > 0) {
-          const kg2 = new KnowledgeGraph(db);
-          const hitIds = vectorHits.map(h => h.id);
-          const hitEntities = kg2.getEntitiesByIds(hitIds, {
-            includeArchived: args.include_archived === true,
-            namespace: args.namespace,
-            tag: recallTagFilter(args),
-          });
-          for (let i = 0; i < hitEntities.length; i++) {
-            const entity = hitEntities[i];
-            if (!relevanceMap.has(entity.name)) {
-              mergedEntities.push(entity);
-              // Convert distance to similarity (cosine distance: 0=identical, 2=opposite)
-              const dist = vectorHits.find(h => h.id === entity.id)?.distance ?? 1;
-              const similarity = Math.max(0, 1 - dist);
-              relevanceMap.set(entity.name, similarity);
-            }
-          }
-        }
-      }
-    } catch {
-      // Vector search failed — FTS5 results still valid
-    }
+  const mergedEntities = [...entities];
+  if (args.query) {
+    await supplementWithVectors(args.query, args, kg, mergedEntities, relevanceMap);
   }
-
   return rankEntities(mergedEntities, relevanceMap).slice(0, args.limit ?? 20);
 }
 
