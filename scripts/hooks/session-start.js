@@ -150,44 +150,35 @@ function logAutoUpdate(line) {
 }
 
 /**
- * Detect the install channel of the running memesh binary. Cross-
- * platform: matches both POSIX (`<prefix>/lib/node_modules/...`) and
- * Windows (`%AppData%\npm\node_modules\...`) global install paths.
+ * Detect the install channel of the running memesh binary by
+ * delegating to src/core/install-channel.ts via the dist build. The
+ * core helper resolves `npm root -g` so it correctly classifies:
+ *   - POSIX globals at the default prefix (`/usr/local/lib/...`)
+ *   - Windows globals (`%AppData%\npm\...`)
+ *   - Globals at custom prefixes set via `npm config set prefix`
+ *   - Project-local deps under any directory name (no false-positive
+ *     'npm-global' from a path that merely contains `lib`)
  *
- * Returns the same string set as src/core/install-channel.ts:
- *   'npm-global' | 'npm-local' | 'source-checkout' | 'unknown'
+ * Earlier hook-side regex heuristics agreed with the core logic on
+ * the common cases but disagreed on custom prefixes (false negative
+ * → auto-update silently broken) and on project-local deps living
+ * under `lib/node_modules/...` (false positive → spawning a global
+ * `npm install -g` while the active copy is the local one). Using
+ * the dist module here keeps the hook in lockstep with whatever
+ * `memesh status` says, paying the one-time `npm root -g` cost
+ * (~50-200ms) only on auto-update decision.
  *
- * Known limitation: globals at custom prefixes (e.g.
- * `/opt/tools/node_modules/@pcircle/memesh` from `npm config set
- * prefix /opt/tools`) fall through to 'unknown' here, even though
- * `memesh status` correctly classifies them via `npm root -g`. As a
- * result the auto-update spawn skips for that subset of valid
- * global installs. Tracked for v4.1.4 — the proper fix is to share
- * the dist install-channel detection (which already runs `npm root
- * -g`) but that incurs a noticeable cost on every session-start.
- *
- * Two truths to keep in sync with the core helper:
- *   1. .git at the package root  → source-checkout
- *   2. path ends in `<sep>node_modules<sep>@pcircle<sep>memesh`,
- *      and a sibling-of-node_modules `lib` (POSIX) OR `npm` (Windows
- *      global) → npm-global
- *   3. otherwise inside any node_modules tree → npm-local
+ * Returns 'npm-global' | 'npm-local' | 'source-checkout' | 'unknown'.
+ * Synchronous + best-effort: any failure in the dist import or the
+ * underlying `npm root -g` call returns 'unknown', and the auto-
+ * update spawn refuses to fire on 'unknown' so we never run
+ * `npm install -g` when we can't confirm it would land where the
+ * user expects.
  */
 function detectInstallChannelHook(pluginRoot) {
   try {
-    if (existsSync(join(pluginRoot, '.git'))) return 'source-checkout';
-    // POSIX npm-global: <prefix>/lib/node_modules/@pcircle/memesh
-    // Windows npm-global: <AppData>/npm/node_modules/@pcircle/memesh
-    //   (npm 7+ may also produce <prefix>/node_modules/@pcircle/memesh
-    //    when --global without a wrapper-bin convention; treat as global
-    //    when one of the global-shape parents — `lib` or `npm` — sits
-    //    immediately above `node_modules`.)
-    const inNodeModules = /[\\/]node_modules[\\/]@pcircle[\\/]memesh$/.test(pluginRoot);
-    if (!inNodeModules) return 'unknown';
-    const isPosixGlobal = /[\\/]lib[\\/]node_modules[\\/]@pcircle[\\/]memesh$/.test(pluginRoot);
-    const isWindowsGlobal = /[\\/]npm[\\/]node_modules[\\/]@pcircle[\\/]memesh$/.test(pluginRoot);
-    if (isPosixGlobal || isWindowsGlobal) return 'npm-global';
-    return 'npm-local';
+    const installChannelMod = require(join(pluginRoot, 'dist/core/install-channel.js'));
+    return installChannelMod.getCurrentInstallChannel({ packageRoot: pluginRoot });
   } catch {
     return 'unknown';
   }
