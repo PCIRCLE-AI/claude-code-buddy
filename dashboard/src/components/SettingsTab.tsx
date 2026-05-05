@@ -150,7 +150,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       : isDeprecated
         ? hasUpdateTarget
           ? t('settings.updateAvailable')
-          : 'Deprecated — no upgrade target yet'
+          : t('settings.updateDeprecatedNoTarget')
         : updateStatus.freshness === 'unavailable'
           ? t('settings.updateNoSuccessfulChecks')
           : !updateStatus.checkSucceeded && updateStatus.freshness === 'stale'
@@ -282,7 +282,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             data-testid="settings-deprecation-warning"
           >
             <strong style={{ color: '#ff6b6b' }}>
-              ⚠️ MeMesh {updateStatus.currentVersion} is DEPRECATED by maintainers.
+              {t('settings.updateDeprecatedTitle', { version: updateStatus.currentVersion })}
             </strong>
             <div style={{ marginTop: 4, opacity: 0.9 }}>{updateStatus.deprecationMessage}</div>
           </div>
@@ -301,9 +301,9 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             }}
             data-testid="settings-update-partial-warning"
           >
-            <strong style={{ color: 'var(--warning)' }}>⚠️ Update check partial</strong>
+            <strong style={{ color: 'var(--warning)' }}>{t('settings.updatePartialTitle')}</strong>
             <div style={{ marginTop: 4, opacity: 0.9 }}>
-              {updateStatus.lastError}. Deprecation status is unknown for this session — re-run the check while online.
+              {t('settings.updatePartialDescription', { message: updateStatus.lastError ?? '' })}
             </div>
           </div>
         )}
