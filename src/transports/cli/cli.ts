@@ -22,7 +22,13 @@ const program = new Command();
 program
   .name('memesh')
   .description('MeMesh — Local memory for Claude Code and MCP coding agents')
-  .version(pkg.version);
+  .version(pkg.version)
+  // DX: silence Commander's default "too many arguments. Expected 0..."
+  // error so the root action below can inspect program.args and emit a
+  // clear "unknown command 'foo'" message instead. allowExcessArguments
+  // is the documented Commander 12+ escape hatch for this case.
+  .allowExcessArguments(true)
+  .showSuggestionAfterError(true);
 
 // --- remember ---
 // Two forms:
@@ -192,7 +198,18 @@ program
         console.error(`Error: ${result.error}`);
         process.exitCode = 1;
       } else if (result.consolidated === 0) {
-        console.log('No entities consolidated (none met the minimum observations threshold).');
+        // DX: distinguish "name not found" from "exists but under
+        // threshold" so users know which knob to turn (typo vs --min-obs).
+        if (opts.name) {
+          console.log(`No entity named "${opts.name}" found, or it has fewer than ${opts.minObs} observations (the consolidation threshold).`);
+          console.log(`Try: memesh recall "${opts.name}" to confirm it exists, or memesh consolidate --name "${opts.name}" --min-obs 1`);
+        } else if (opts.tag) {
+          console.log(`No entities tagged "${opts.tag}" met the minimum observation threshold (${opts.minObs}).`);
+          console.log(`Try: memesh recall --tag "${opts.tag}" to see candidates, or lower --min-obs.`);
+        } else {
+          console.log(`No entities met the minimum observation threshold (${opts.minObs}).`);
+          console.log(`Try: memesh consolidate --min-obs 1 to consolidate everything.`);
+        }
       } else {
         console.log(`Consolidated ${result.consolidated} entity/entities.`);
         console.log(`Observations: ${result.observations_before} -> ${result.observations_after}`);
@@ -236,10 +253,42 @@ program
   .action((file, opts) => {
     openDatabase();
     try {
-      const raw = fs.readFileSync(file, 'utf8');
-      const data = JSON.parse(raw);
+      // DX: catch the failures new users hit first (missing file,
+      // malformed JSON) and produce problem+cause+fix output instead
+      // of a raw stack trace. The previous behaviour leaked
+      // `<anonymous_script>:1` and `at JSON.parse (<anonymous>)`.
+      let raw: string;
+      try {
+        raw = fs.readFileSync(file, 'utf8');
+      } catch (err: any) {
+        if (err?.code === 'ENOENT') {
+          console.error(`Error: file not found: ${file}`);
+          console.error(`       memesh import expects a file produced by 'memesh export'.`);
+          console.error(`       Try: memesh export > my-export.json && memesh import my-export.json`);
+          process.exit(1);
+        }
+        if (err?.code === 'EACCES') {
+          console.error(`Error: cannot read ${file} (permission denied).`);
+          console.error(`       Check file permissions: ls -la ${file}`);
+          process.exit(1);
+        }
+        throw err;
+      }
+
+      let data: unknown;
+      try {
+        data = JSON.parse(raw);
+      } catch (err: any) {
+        const lineMatch = /position (\d+)/.exec(err?.message ?? '');
+        const where = lineMatch ? ` near position ${lineMatch[1]}` : '';
+        console.error(`Error: ${file} is not valid JSON${where}.`);
+        console.error(`       memesh import expects a file produced by 'memesh export'.`);
+        console.error(`       Try: memesh export > my-export.json && memesh import my-export.json`);
+        process.exit(1);
+      }
+
       const result = importMemories({
-        data,
+        data: data as any,
         namespace: opts.namespace,
         merge_strategy: opts.merge as 'skip' | 'overwrite' | 'append',
       });
@@ -574,8 +623,20 @@ program
     }
   });
 
-// Default action: open the live dashboard when run with no subcommand
+// Default action: open the live dashboard when run with no subcommand.
+// DX: detect the unknown-subcommand case (`memesh nonexistent-cmd`) by
+// inspecting program.args inside the root action and producing a clear
+// error. We can't use Commander's `.argument()` here without leaking
+// a confusing internal arg into `--help`, and `.command('*')` is
+// deprecated in Commander 12+. Reading program.args is the documented
+// escape hatch when no subcommand matched.
 program.action(async () => {
+  const stray = program.args.filter((a) => !a.startsWith('-'));
+  if (stray.length > 0) {
+    console.error(`Error: unknown command '${stray[0]}'.`);
+    console.error(`       Run 'memesh --help' to see available commands.`);
+    process.exit(1);
+  }
   const { startServer } = await import('../http/server.js');
   const server = startServer('127.0.0.1', 0); // 0 = random available port
 

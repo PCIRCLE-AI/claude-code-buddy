@@ -57,13 +57,13 @@ npm install -g @pcircle/memesh
 ### Step 2: Store a decision
 
 ```bash
-memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
+memesh remember "Use OAuth 2.0 with PKCE for the new auth"
 ```
 
-Or quick-capture in one line:
+Or use the explicit form when you want a stable name and type for later filtering:
 
 ```bash
-memesh remember "Use OAuth 2.0 with PKCE for the new auth"
+memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
 ```
 
 ### Step 3: Recall it later
