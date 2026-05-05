@@ -133,6 +133,15 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
     updateStatus?.latestVersion
     && updateStatus.latestVersion !== updateStatus.currentVersion,
   );
+  // Codex round 28: partial-failure state is `checkSucceeded === true`
+  // (the version lookup answered) AND `lastError` populated (the
+  // deprecation sub-call did not). In that case we don't actually
+  // know whether the installed version is flagged for security
+  // disclosure. Refuse to show "Up to date" + green here — that's
+  // a false-green that hides a security-relevant unknown.
+  const isPartialDeprecationFailure = Boolean(
+    updateStatus?.checkSucceeded && updateStatus?.lastError,
+  );
   // A maintainer-deprecated install is never "up to date" — even
   // when no newer version has been published yet. The primary
   // summary line and color must reflect that so the green "all
@@ -159,7 +168,9 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
               ? t('settings.updateCachedFallback')
               : updateStatus.updateAvailable
                 ? t('settings.updateAvailable')
-                : t('settings.upToDate');
+                : isPartialDeprecationFailure
+                  ? t('settings.updatePartialSummary')
+                  : t('settings.upToDate');
   const updateSummaryColor = !updateStatus
     ? 'var(--warning)'
     : isDeprecated
@@ -172,7 +183,9 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             ? 'var(--info)'
             : updateStatus.updateAvailable
               ? 'var(--info)'
-              : 'var(--success)';
+              : isPartialDeprecationFailure
+                ? 'var(--warning)'
+                : 'var(--success)';
   const updateSourceLabel = updateStatus?.freshness === 'stale'
     ? t('settings.updateSourceStale')
     : updateStatus?.source === 'cache'
