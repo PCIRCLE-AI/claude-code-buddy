@@ -1,6 +1,7 @@
 import type { LLMConfig } from './config.js';
+import { callLLM } from './llm-client.js';
 import { sanitizeForPrompt, sanitizeListForPrompt } from './prompt-safety.js';
-import type { AnthropicResponse, LessonSeverity, OpenAIResponse, OllamaResponse } from './types.js';
+import type { LessonSeverity } from './types.js';
 
 export interface StructuredLesson {
   error: string;
@@ -61,53 +62,11 @@ Analyze the root cause and return a JSON object (ONLY the JSON, no explanation):
 }`;
 
   try {
-    const text = await callLLM(prompt, llmConfig);
+    const text = await callLLM(prompt, llmConfig, { maxTokens: 300 });
     return parseLesson(text);
   } catch {
     return null;
   }
-}
-
-async function callLLM(prompt: string, config: LLMConfig): Promise<string> {
-  const apiKey = config.apiKey || process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY;
-
-  if (config.provider === 'anthropic') {
-    if (!apiKey) throw new Error('No API key');
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: config.model || 'claude-haiku-4-5', max_tokens: 300, messages: [{ role: 'user', content: prompt }] }),
-    });
-    if (!res.ok) throw new Error(`API ${res.status}`);
-    const data = await res.json() as AnthropicResponse;
-    return data.content?.[0]?.text || '';
-  }
-
-  if (config.provider === 'openai') {
-    if (!apiKey) throw new Error('No API key');
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: config.model || 'gpt-4o-mini', max_tokens: 300, messages: [{ role: 'user', content: prompt }] }),
-    });
-    if (!res.ok) throw new Error(`API ${res.status}`);
-    const data = await res.json() as OpenAIResponse;
-    return data.choices?.[0]?.message?.content || '';
-  }
-
-  if (config.provider === 'ollama') {
-    const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
-    const res = await fetch(`${host}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: config.model || 'llama3.2', prompt, stream: false }),
-    });
-    if (!res.ok) throw new Error(`Ollama ${res.status}`);
-    const data = await res.json() as OllamaResponse;
-    return data.response || '';
-  }
-
-  return '';
 }
 
 export function parseLesson(text: string): StructuredLesson | null {

@@ -7,8 +7,9 @@ import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { detectCapabilities } from './config.js';
 import type { LLMConfig } from './config.js';
+import { callLLM } from './llm-client.js';
 import { sanitizeListForPrompt } from './prompt-safety.js';
-import type { AnthropicResponse, ConsolidateInput, ConsolidateResult, Entity, OllamaResponse, OpenAIResponse } from './types.js';
+import type { ConsolidateInput, ConsolidateResult, Entity } from './types.js';
 
 /**
  * Compress verbose entity observations using an LLM (Level 1 / Smart Mode only).
@@ -110,63 +111,14 @@ async function compressObservations(observations: string[], llmConfig: LLMConfig
     `<observations>\n${safeObservations}\n</observations>`;
 
   let text: string;
-
-  if (llmConfig.provider === 'anthropic') {
-    const apiKey = llmConfig.apiKey || process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return observations;
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: llmConfig.model || 'claude-haiku-4-5',
-        max_tokens: 500,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    if (!response.ok) throw new Error(`Anthropic API error: ${response.status}`);
-    const data = await response.json() as AnthropicResponse;
-    text = data.content?.[0]?.text || '[]';
-  } else if (llmConfig.provider === 'openai') {
-    const apiKey = llmConfig.apiKey || process.env.OPENAI_API_KEY;
-    if (!apiKey) return observations;
-
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: llmConfig.model || 'gpt-4o-mini',
-        max_tokens: 500,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    if (!response.ok) throw new Error(`OpenAI API error: ${response.status}`);
-    const data = await response.json() as OpenAIResponse;
-    text = data.choices?.[0]?.message?.content || '[]';
-  } else if (llmConfig.provider === 'ollama') {
-    const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
-    const response = await fetch(`${host}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: llmConfig.model || 'llama3.2',
-        prompt,
-        stream: false,
-      }),
-    });
-    if (!response.ok) throw new Error(`Ollama error: ${response.status}`);
-    const data = await response.json() as OllamaResponse;
-    text = data.response || '[]';
-  } else {
+  try {
+    text = await callLLM(prompt, llmConfig, { maxTokens: 500 });
+  } catch {
+    // No API key, network error, or unsupported provider — preserve
+    // prior behavior: silently fall back to original observations.
     return observations;
   }
+  if (!text) return observations;
 
   // Parse JSON array from LLM response
   try {
