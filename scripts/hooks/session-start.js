@@ -389,42 +389,44 @@ function spawnFreshUpdateCheck() {
     const dir = join(homedir(), '.memesh');
     try { ensurePrivateDir(dir); } catch { /* best-effort */ }
     const markerPath = join(dir, 'last-fresh-refresh.lock');
-    // Throttle staleness check — only the entry gate; the real
-    // serialisation is the post-write token verification below.
-    try {
-      const stat = fs.statSync(markerPath);
+    // Single-owner claim: O_EXCL atomic create. Codex round 27
+    // caught that the previous temp+rename+readback pattern was
+    // racy — both peers' renames are destructive, so each could
+    // read its own token back and both would spawn a refresh.
+    // O_EXCL is the standard POSIX/libuv primitive that lets at
+    // most one process succeed. Same pattern as
+    // tryAcquireAutoUpdateLock above.
+    const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const claim = () => {
+      try {
+        const fd = fs.openSync(
+          markerPath,
+          fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL,
+          0o600,
+        );
+        try { fs.writeFileSync(fd, token); } finally { fs.closeSync(fd); }
+        return 'won';
+      } catch (err) {
+        if (err?.code === 'EEXIST') return 'exists';
+        return 'error';
+      }
+    };
+    let result = claim();
+    if (result === 'exists') {
+      // Marker already there. Honor the throttle window: if it's
+      // fresh, a peer owns this slot. If it's stale, take it over
+      // by removing the marker and retrying ONCE — best-effort,
+      // multiple processes may race the unlink but only one can
+      // win the subsequent O_EXCL.
+      let stat;
+      try { stat = fs.statSync(markerPath); } catch { return false; }
       if (Date.now() - stat.mtimeMs < FRESH_CHECK_THROTTLE_MS) {
         return false;
       }
-    } catch { /* missing marker → fall through */ }
-    // Atomic claim via token: write a unique token to the marker,
-    // then read it back. If we read our own token, we won the race
-    // against any concurrent reclaimer; if we read someone else's,
-    // they're spawning the refresh and we skip. Avoids the TOCTOU
-    // window where two processes both pass the staleness check.
-    const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    try {
-      const tempPath = `${markerPath}.${process.pid}.${Math.random().toString(36).slice(2, 10)}.tmp`;
-      fs.writeFileSync(tempPath, token);
-      // Windows-safe replace: unlink first if it exists (ENOENT
-      // is fine — nobody to remove). On POSIX the unlink is
-      // redundant but cheap.
-      try { fs.unlinkSync(markerPath); } catch (err) {
-        if (err?.code !== 'ENOENT') {
-          try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
-          return false;
-        }
-      }
-      fs.renameSync(tempPath, markerPath);
-    } catch {
-      return false;
+      try { fs.unlinkSync(markerPath); } catch { /* peer already removed */ }
+      result = claim();
     }
-    let recordedToken;
-    try { recordedToken = fs.readFileSync(markerPath, 'utf8'); } catch { return false; }
-    if (recordedToken !== token) {
-      // A peer's rename came after ours — they own the spawn slot.
-      return false;
-    }
+    if (result !== 'won') return false;
     const child = spawn(
       process.execPath,
       [cliPath, 'status'],
