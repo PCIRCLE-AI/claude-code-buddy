@@ -254,6 +254,7 @@ function tryAcquireAutoUpdateLock(version) {
  *      `npm install -g` concurrently.
  */
 function spawnAutoUpdate(version, deprecationOverride) {
+  let lock = null;
   try {
     const pluginRoot = resolvePluginRoot(import.meta.url);
     const channel = detectInstallChannelHook(pluginRoot);
@@ -263,7 +264,7 @@ function spawnAutoUpdate(version, deprecationOverride) {
       );
       return false;
     }
-    const lock = tryAcquireAutoUpdateLock(version);
+    lock = tryAcquireAutoUpdateLock(version);
     if (!lock.acquired) {
       logAutoUpdate(
         `auto-update SKIPPED: another session-start already holds ${lock.lockPath ?? 'auto-update.lock'} for this upgrade`
@@ -291,6 +292,13 @@ function spawnAutoUpdate(version, deprecationOverride) {
     return true;
   } catch (err) {
     logAutoUpdate(`auto-update spawn FAILED: ${err?.message ?? err}`);
+    // Release the lock so the next session can retry. Without this,
+    // a transient PATH/permission failure would freeze auto-update
+    // for the full 10-minute TTL even after the user fixes the
+    // root cause.
+    if (lock?.acquired && lock.lockPath) {
+      try { require('fs').unlinkSync(lock.lockPath); } catch { /* best-effort */ }
+    }
     return false;
   }
 }
@@ -356,12 +364,24 @@ function runPostBannerUpdateTasks() {
     const cache = readUpdateCheckCache();
     const policy = resolveAutoUpdatePolicy(process.env);
     const decision = decideAutoUpdateHook(installedVersion, cache, policy);
+    let updateSpawned = false;
     if (decision.run) {
-      spawnAutoUpdate(decision.latest, decision.deprecationOverride);
+      updateSpawned = spawnAutoUpdate(decision.latest, decision.deprecationOverride);
     }
-    // Schedule a detached refresh to keep the cache fresh for the
-    // next session.
-    spawnFreshUpdateCheck();
+    // Don't refresh the cache while a self-update is running. The
+    // status child reads `dist/transports/cli/cli.js` and friends
+    // from the SAME tree npm is about to replace. On Windows /
+    // strict-locking filesystems the status process can hold
+    // dist/* open and the npm install fails with EBUSY/EPERM. Race
+    // window is bounded by the npm install duration; the next
+    // session repopulates the cache cleanly.
+    if (!updateSpawned) {
+      spawnFreshUpdateCheck();
+    } else {
+      logAutoUpdate(
+        `cache-refresh SKIPPED: auto-update is running; next session will repopulate the cache`
+      );
+    }
   } catch {
     // Best-effort — never crash the hook on a network or fs hiccup.
   }
