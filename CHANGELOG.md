@@ -36,7 +36,7 @@ All notable changes to MeMesh are documented here.
 ### Changed
 - Package, plugin, and dashboard metadata now target **4.1.0**.
 - **agentic-orchestration is now opt-in.** Earlier prep snapshots had these surfaces enabled by default; v4.1.0 ships them as opt-in via `MEMESH_ENABLE_AGENTIC_ORCHESTRATION=1` so the experimental working-model protocol applies only when explicitly requested. Setting the flag also serves as consent for local-only telemetry collection (`memesh patterns`). The skill itself remains discoverable; only its proactive surfaces are gated.
-- **539 tests passing across 39 test files** (was 489 / 34).
+- **563 tests passing across 40 test files** (was 489 / 34).
 
 ## [4.0.4] — 2026-04-25
 

@@ -23,11 +23,22 @@
 // for everything else.
 
 /**
- * Escape characters that would let an attacker close our delimiter and
- * inject new instructions. Currently we wrap user input in
- * `<user_input>...</user_input>` style tags, so we strip "<" / ">"
- * substrings that look like closing tags and clamp control characters
- * (newlines are allowed — they're often meaningful in observations).
+ * Escape sequences that would let an attacker close our delimiter and
+ * inject new instructions, regardless of which tag name we wrap with.
+ *
+ * The four call sites use different tag names:
+ *   - query-expander    → `<user_query>`
+ *   - failure-analyzer  → `<session_errors>` / `<files_edited>`
+ *   - auto-tagger       → `<entity_name>` / `<entity_type>` / `<entity_facts>`
+ *   - consolidator      → `<observations>`
+ *
+ * The first version of this sanitiser only stripped `</user_*>` closing
+ * tags, which left 3 of 4 prompts exposed to closing-tag injection.
+ * This version strips ANY tag-shaped substring `<...>` whose name is a
+ * lowercase identifier, plus the conventional `<system>` / `<assistant>`
+ * roles that some providers interpret specially. Newlines and tabs are
+ * preserved (they carry meaning in observations); other ASCII control
+ * bytes are dropped.
  *
  * After this pass, the text is safe to interpolate inside any
  * tag-delimited prompt section. The function is idempotent and
@@ -36,12 +47,17 @@
 export function sanitizeForPrompt(value: string): string {
   if (typeof value !== 'string') return '';
   return value
-    // Replace any "</...>" that could close our wrapping tag.
-    .replace(/<\s*\/\s*user_[a-z_]+\s*>/gi, '[CLOSING-TAG-STRIPPED]')
-    // Strip stray angle brackets so the model can't re-interpret them
-    // as a fresh tag block. We keep the *content* but remove the framing.
-    .replace(/<\s*\/?\s*system\s*>/gi, '[SYSTEM-TAG-STRIPPED]')
-    .replace(/<\s*\/?\s*assistant\s*>/gi, '[ASSISTANT-TAG-STRIPPED]')
+    // Strip ANY closing tag whose name is a lowercase identifier.
+    // Catches </user_query>, </session_errors>, </observations>, etc.
+    .replace(/<\s*\/\s*[a-z][a-z0-9_]*\s*>/gi, '[CLOSING-TAG-STRIPPED]')
+    // Strip role-shaped tags (<system>/<assistant>/<user>) regardless of
+    // open/close direction — some providers treat these specially even
+    // mid-prompt.
+    .replace(/<\s*\/?\s*(system|assistant|user)\s*>/gi, '[ROLE-TAG-STRIPPED]')
+    // Strip any opening tag whose name looks like one of our wrappers,
+    // so a user can't inject `<observations>` inside the body and have
+    // the model think the data block restarted with attacker content.
+    .replace(/<\s*[a-z][a-z0-9_]*\s*>/gi, '[OPEN-TAG-STRIPPED]')
     // Clamp ASCII control chars except \n / \t — they have no useful
     // meaning in user content and just open obscure parser surface.
     // eslint-disable-next-line no-control-regex
@@ -50,9 +66,9 @@ export function sanitizeForPrompt(value: string): string {
 
 /**
  * Sanitise an array of user-controlled strings and join them under a
- * shared <user_input> wrapper. Used by failure-analyzer (errors[] +
- * filesEdited[]) and consolidator (observations[]) where the LLM is
- * meant to read each line as a fact, not a directive.
+ * shared wrapper. Used by failure-analyzer (errors[] + filesEdited[])
+ * and consolidator (observations[]) where the LLM is meant to read
+ * each line as a fact, not a directive.
  */
 export function sanitizeListForPrompt(items: readonly string[]): string {
   return items.map(sanitizeForPrompt).join('\n');

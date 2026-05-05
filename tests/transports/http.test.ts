@@ -376,6 +376,16 @@ describe('HTTP Transport: startServer host guard', () => {
         headers: { Authorization: 'Bearer wrong-token' },
       });
       expect(wrongAuth.status).toBe(401);
+
+      // F3 ordering regression: auth must run BEFORE the rate limiter.
+      // If a 401 also returned RateLimit-* headers, the limiter is
+      // counting unauthed traffic against legitimate clients sharing
+      // an IP — a trivial DoS. After the fix the 401 response must
+      // NOT include RateLimit-Limit / RateLimit-Remaining headers
+      // (rate limiter never ran).
+      expect(wrongAuth.headers.get('ratelimit-limit')).toBeNull();
+      expect(wrongAuth.headers.get('ratelimit-remaining')).toBeNull();
+      expect(wrongAuth.headers.get('x-ratelimit-limit')).toBeNull();
     } finally {
       if (remoteServer) {
         await new Promise<void>((resolve, reject) => {
