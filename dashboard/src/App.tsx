@@ -8,7 +8,8 @@ import { SettingsTab } from './components/SettingsTab';
 import { GraphTab } from './components/GraphTab';
 import { LessonsTab } from './components/LessonsTab';
 import { FeedbackWidget } from './components/FeedbackWidget';
-import { api, type HealthData } from './lib/api';
+import { AuthPrompt } from './components/AuthPrompt';
+import { api, AuthRequiredError, getApiToken, setApiToken, type HealthData } from './lib/api';
 import { initLocale, t, type Locale } from './lib/i18n';
 
 const TAB_KEYS = ['Search', 'Browse', 'Analytics', 'Graph', 'Lessons', 'Manage', 'Settings'] as const;
@@ -29,14 +30,28 @@ export function App() {
   const [tab, setTab] = useState<Tab>('Browse');
   const [health, setHealth] = useState<HealthData | null>(null);
   const [error, setError] = useState('');
+  // Codex fix (2026-05-05): the server protects /v1/* with a bearer
+  // token whenever it is bound non-loopback. The dashboard SPA stores
+  // the token in localStorage and attaches it via api.ts. If the call
+  // returns 401 (no token, wrong token, or rotated token), surface a
+  // modal so the user can paste theirs without leaving the page.
+  const [needsAuth, setNeedsAuth] = useState(false);
 
   const refetchHealth = useCallback(() => {
     api<HealthData>('GET', '/v1/health')
       .then((data) => {
         setHealth(data);
         setError('');
+        setNeedsAuth(false);
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => {
+        if (e instanceof AuthRequiredError) {
+          setNeedsAuth(true);
+          setError('');
+          return;
+        }
+        setError(e.message);
+      });
   }, []);
 
   // Initial fetch + subscribe to data-changed events. ISSUE-001 fix:
@@ -54,6 +69,19 @@ export function App() {
 
   // Build translated tab labels paired with their keys for TabNav
   const tabLabels = TAB_KEYS.map((key) => ({ key, label: t(TAB_I18N_KEYS[key]) }));
+
+  if (needsAuth) {
+    return (
+      <AuthPrompt
+        currentToken={getApiToken()}
+        onSubmit={(token) => {
+          setApiToken(token);
+          setNeedsAuth(false);
+          refetchHealth();
+        }}
+      />
+    );
+  }
 
   return (
     <div class="shell">

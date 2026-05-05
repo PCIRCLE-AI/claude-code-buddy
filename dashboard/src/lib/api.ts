@@ -1,14 +1,63 @@
 import { t } from './i18n';
 
 const TIMEOUT = 10000;
+const TOKEN_STORAGE_KEY = 'memesh_token';
+
+/**
+ * Auth-token plumbing for the dashboard SPA.
+ *
+ * The HTTP server protects `/v1/*` with bearer auth whenever a remote
+ * bind is in play. Browsers cannot attach an Authorization header on a
+ * top-level navigation to /dashboard, so the dashboard HTML is served
+ * unauthenticated and the SPA injects the token on every API call from
+ * `localStorage`. The user supplies the token once via the
+ * `setApiToken` helper (called from the auth-prompt UI when a 401
+ * surfaces); it then persists across reloads on the same origin.
+ *
+ * On a loopback-only deployment (the default), the server requires no
+ * token at all, so `getApiToken()` returns null, no header is sent,
+ * and the existing zero-config local UX is preserved.
+ */
+export function getApiToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setApiToken(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    else localStorage.removeItem(TOKEN_STORAGE_KEY);
+  } catch {
+    /* private mode / disabled storage — fall through */
+  }
+}
+
+export class AuthRequiredError extends Error {
+  constructor() {
+    super('auth_required');
+    this.name = 'AuthRequiredError';
+  }
+}
 
 export async function api<T = any>(method: string, path: string, body?: any): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT);
   try {
-    const opts: RequestInit = { method, headers: { 'Content-Type': 'application/json' }, signal: controller.signal };
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const token = getApiToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const opts: RequestInit = { method, headers, signal: controller.signal };
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(path, opts);
+    if (res.status === 401) {
+      // Distinct error type so the UI can switch into the
+      // enter-your-token flow rather than treating this as a generic
+      // failure.
+      throw new AuthRequiredError();
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const json = await res.json();
     if (!json.success) throw new Error(json.error || t('errors.unknown'));
