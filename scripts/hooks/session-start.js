@@ -195,11 +195,16 @@ const AUTO_UPDATE_LOCK_TTL_MS = 10 * 60 * 1000;
 
 function tryAcquireAutoUpdateLock(version) {
   try {
-    const dir = getMemeshDir(process.env);
+    // Lock is MACHINE-GLOBAL because the npm install -g target is
+    // machine-global. Always use ~/.memesh/auto-update.lock,
+    // independent of MEMESH_DB_PATH — two sessions with different
+    // DB paths still serialize against the same global install.
+    const dir = join(homedir(), '.memesh');
     ensurePrivateDir(dir);
     const lockPath = join(dir, 'auto-update.lock');
     const fs = require('fs');
-    const payload = `${process.pid}\n${Date.now()}\n${version}\n`;
+    const myToken = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const payload = `${myToken}\n${process.pid}\n${Date.now()}\n${version}\n`;
     // Fast path: O_EXCL atomic create. If we win, we own the lock.
     try {
       const fd = fs.openSync(lockPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
@@ -208,29 +213,32 @@ function tryAcquireAutoUpdateLock(version) {
     } catch (err) {
       if (err?.code !== 'EEXIST') throw err;
     }
-    // Lock exists. Check staleness, but don't TOCTOU-race two
-    // reclaimers: stat → unlink → O_EXCL create. If two processes
-    // both pass the staleness check, only one will win the unlink
-    // (a no-op for the loser) AND only one will win the EXCL
-    // create. Whoever loses returns acquired=false.
+    // Lock exists — check staleness.
     let stat;
     try { stat = fs.statSync(lockPath); } catch { return { acquired: false, lockPath }; }
     if (Date.now() - stat.mtimeMs <= AUTO_UPDATE_LOCK_TTL_MS) {
       return { acquired: false, lockPath };
     }
-    try { fs.unlinkSync(lockPath); } catch (err) {
-      // ENOENT = another reclaimer beat us to the unlink. Fall
-      // through to the O_EXCL attempt; one of us will fail at
-      // create and return acquired=false.
-      if (err?.code !== 'ENOENT') return { acquired: false, lockPath };
-    }
+    // Stale-recovery: write our payload to a temp file then rename
+    // it over the lock. rename is atomic on POSIX, so the kernel
+    // serialises concurrent reclaimers. After the rename, read the
+    // lock back: if it carries OUR token, we won; if a peer's
+    // rename came after ours, we lost cleanly. No double-spawn.
+    const tempPath = `${lockPath}.${process.pid}.${Math.random().toString(36).slice(2, 10)}.tmp`;
     try {
-      const fd = fs.openSync(lockPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
-      try { fs.writeFileSync(fd, payload); } finally { fs.closeSync(fd); }
-      return { acquired: true, lockPath };
+      fs.writeFileSync(tempPath, payload, { mode: 0o600 });
+      fs.renameSync(tempPath, lockPath);
     } catch {
+      try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
       return { acquired: false, lockPath };
     }
+    let recorded;
+    try { recorded = fs.readFileSync(lockPath, 'utf8'); } catch { return { acquired: false, lockPath }; }
+    const recordedToken = recorded.split('\n')[0];
+    if (recordedToken === myToken) {
+      return { acquired: true, lockPath };
+    }
+    return { acquired: false, lockPath };
   } catch {
     return { acquired: false, lockPath: null };
   }
