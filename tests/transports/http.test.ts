@@ -386,6 +386,30 @@ describe('HTTP Transport: startServer host guard', () => {
       expect(wrongAuth.headers.get('ratelimit-limit')).toBeNull();
       expect(wrongAuth.headers.get('ratelimit-remaining')).toBeNull();
       expect(wrongAuth.headers.get('x-ratelimit-limit')).toBeNull();
+
+      // Codex challenge regression: auth must also run BEFORE the JSON
+      // body parser. If express.json() runs first, an unauthenticated
+      // attacker can force up to 1 MB of JSON parsing per request before
+      // getting a 401 — pre-auth CPU/memory DoS primitive. Proof:
+      // sending a malformed JSON body without auth must return 401
+      // (auth rejection), not 400 (body parse error). If the parser
+      // ran first it would emit a 400 "invalid JSON" before auth ever
+      // saw the request.
+      const malformedNoAuth = await fetch(`http://127.0.0.1:${remotePort}/v1/remember`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{this is not valid json',
+      });
+      expect(malformedNoAuth.status).toBe(401);
+
+      // And a valid (but unauthorized) JSON body still gets 401 —
+      // proving the JSON parser is gated, not just the schema validator.
+      const validJsonNoAuth = await fetch(`http://127.0.0.1:${remotePort}/v1/remember`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'unauthed', type: 'note' }),
+      });
+      expect(validJsonNoAuth.status).toBe(401);
     } finally {
       if (remoteServer) {
         await new Promise<void>((resolve, reject) => {
@@ -395,6 +419,62 @@ describe('HTTP Transport: startServer host guard', () => {
       closeDatabase();
       // Reset module-level remoteToken so subsequent loopback-only
       // tests in the same suite are not auth-gated.
+      __setRemoteTokenForTest(null);
+      if (previousDbPath === undefined) delete process.env.MEMESH_DB_PATH;
+      else process.env.MEMESH_DB_PATH = previousDbPath;
+      if (previousToken === undefined) delete process.env.MEMESH_REMOTE_TOKEN;
+      else process.env.MEMESH_REMOTE_TOKEN = previousToken;
+      fs.rmSync(remoteTmpDir, { recursive: true, force: true });
+    }
+  });
+
+  // Codex challenge regression: previously a second startServer() call
+  // bound to loopback would clobber the module-global `remoteToken` to
+  // null, silently de-authenticating any already-running remote
+  // listener attached to the same app. Auth is now gated per-request
+  // by the connection's local address, so a loopback listener cannot
+  // break a peer remote listener.
+  it('dual-listener safety: loopback start does not de-auth a running remote listener', async () => {
+    const remoteTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-http-dual-'));
+    const previousDbPath = process.env.MEMESH_DB_PATH;
+    const previousToken = process.env.MEMESH_REMOTE_TOKEN;
+    process.env.MEMESH_DB_PATH = path.join(remoteTmpDir, 'test.db');
+    process.env.MEMESH_REMOTE_TOKEN = 'test-token-dual-0123456789abcdef';
+
+    let remoteServer: ReturnType<typeof app.listen> | undefined;
+    let loopbackServer: ReturnType<typeof app.listen> | undefined;
+    try {
+      remoteServer = startServer('0.0.0.0', 0, { allowRemote: true });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const remotePort = (remoteServer.address() as any).port;
+
+      // Now start a loopback listener on the SAME app — pre-fix this
+      // would set remoteToken = null and break the remote listener.
+      loopbackServer = startServer('127.0.0.1', 0);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const loopbackPort = (loopbackServer.address() as any).port;
+
+      // Remote still requires the token (loopback start did not break it).
+      const remoteNoAuth = await fetch(`http://127.0.0.1:${remotePort}/v1/health`);
+      // 127.0.0.1 connecting to a 0.0.0.0-bound socket has the local
+      // address of the bound socket; per-request loopback detection
+      // sees this as remote-bound and demands auth.
+      expect(remoteNoAuth.status).toBe(401);
+
+      const remoteWithAuth = await fetch(`http://127.0.0.1:${remotePort}/v1/health`, {
+        headers: { Authorization: 'Bearer test-token-dual-0123456789abcdef' },
+      });
+      expect(remoteWithAuth.status).toBe(200);
+
+      // And the loopback listener is still no-auth (process-owner trust).
+      const loopback = await fetch(`http://127.0.0.1:${loopbackPort}/v1/health`);
+      expect(loopback.status).toBe(200);
+    } finally {
+      const closes: Promise<void>[] = [];
+      if (remoteServer) closes.push(new Promise<void>((res, rej) => remoteServer!.close((err) => err ? rej(err) : res())));
+      if (loopbackServer) closes.push(new Promise<void>((res, rej) => loopbackServer!.close((err) => err ? rej(err) : res())));
+      await Promise.all(closes);
+      closeDatabase();
       __setRemoteTokenForTest(null);
       if (previousDbPath === undefined) delete process.env.MEMESH_DB_PATH;
       else process.env.MEMESH_DB_PATH = previousDbPath;

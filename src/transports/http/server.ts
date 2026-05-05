@@ -38,7 +38,11 @@ const packageVersion =
   JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')).version ?? '0.0.0';
 
 const app = express();
-app.use(express.json({ limit: '1mb' }));
+
+// JSON body parsing is registered LATER, scoped to /v1/* and gated
+// behind bearerAuth + apiLimiter. The earlier global registration was
+// a pre-auth DoS primitive: an unauthenticated attacker could force up
+// to 1 MB of JSON parsing per request before getting a 401.
 
 // --- Rate limiting (CodeQL security requirement) ---
 // Protects against DoS attacks and API abuse.
@@ -57,7 +61,16 @@ const apiLimiter = rateLimit({
 // F3: when --allow-remote is set, the API was previously exposing the
 // entire memory store with zero auth. Loopback default keeps zero-auth
 // because process-owner UNIX semantics are the trust boundary there.
+//
+// `remoteToken` holds the canonical token loaded by the most recent
+// remote-binding `startServer()` call. Zero-token (loopback-only)
+// processes leave it null. The auth requirement per listener is
+// tracked in `serverAuthRequired` keyed on the http.Server instance,
+// so a process that holds BOTH a remote and a loopback listener on
+// the same Express app does not cross-authenticate (the loopback
+// listener stays zero-auth even after a remote one set the token).
 let remoteToken: Buffer | null = null;
+const serverAuthRequired = new WeakMap<import('http').Server, boolean>();
 
 function memeshDir(): string {
   return process.env.MEMESH_DB_PATH
@@ -120,8 +133,30 @@ function constantTimeEquals(a: Buffer, b: Buffer): boolean {
 }
 
 function bearerAuth(req: Request, res: Response, next: NextFunction): void {
-  if (!remoteToken) {
+  // Per-listener auth gating. The previous design used a single
+  // module-global `remoteToken` and decided on auth by whether it was
+  // null — a second loopback `startServer()` could clobber it back to
+  // null and silently de-authenticate the existing remote listener.
+  // Now: each `startServer()` records its requirement in
+  // `serverAuthRequired` keyed on the http.Server instance that
+  // accepted the connection (`req.socket.server`). A loopback listener
+  // is tagged false; a remote listener is tagged true. The two
+  // listeners therefore don't cross-contaminate.
+  // `net.Socket.server` is set by http internals on accepted sockets;
+  // it's not in the public Socket type, hence the cast.
+  const ownerServer = (req.socket as unknown as { server?: import('http').Server }).server;
+  const requiresAuth = ownerServer ? (serverAuthRequired.get(ownerServer) ?? false) : false;
+  if (!requiresAuth) {
     next();
+    return;
+  }
+  if (!remoteToken) {
+    // Misconfiguration: a remote listener is up but no token was
+    // provisioned. Fail closed.
+    res.status(503).json({
+      success: false,
+      error: 'remote bearer auth not configured on this server',
+    });
     return;
   }
   const header = req.header('authorization') || req.header('Authorization') || '';
@@ -138,13 +173,26 @@ function bearerAuth(req: Request, res: Response, next: NextFunction): void {
   next();
 }
 
-// Auth applies to all /v1/* and /dashboard. /favicon.ico is unauthed
-// (browsers fetch it before any header is set).
-// Order matters: bearerAuth FIRST, then apiLimiter — otherwise an unauth
-// attacker can burn legitimate clients' rate-limit budget.
+// Auth applies to /v1/* only. The dashboard HTML is intentionally
+// unauthenticated: browsers cannot attach an Authorization header on a
+// top-level navigation, so an authed /dashboard would 401 on every
+// remote-bind deployment. Instead the SPA reads the token from
+// localStorage and attaches it to all /v1/* fetches; an empty/wrong
+// token still produces a 401 that the SPA can route into a token-prompt
+// modal. /favicon.ico is unauthed (browsers fetch it before any header
+// is set).
+//
+// Order on /v1/* is intentional:
+//   1. bearerAuth   — reject unauthenticated requests with no body parse
+//   2. apiLimiter   — rate-limit only authenticated traffic (so unauth
+//                     attacker cannot drain the per-IP budget shared
+//                     with legitimate clients)
+//   3. express.json — body parse only after auth + rate-limit, so
+//                     unauthenticated requests cannot force pre-auth
+//                     CPU/memory work on a 1 MB JSON parse
 app.use('/v1/', bearerAuth);
-app.use('/dashboard', bearerAuth);
 app.use('/v1/', apiLimiter);
+app.use('/v1/', express.json({ limit: '1mb' }));
 
 app.get('/favicon.ico', (_req, res) => {
   res.status(204).end();
@@ -439,14 +487,23 @@ export function startServer(
         `Token loaded from ${process.env.MEMESH_REMOTE_TOKEN ? 'MEMESH_REMOTE_TOKEN' : path.join(memeshDir(), 'remote-token')}.\n`
       );
     }
-  } else {
-    remoteToken = null;
   }
+  // NB: previously this `else` branch unconditionally set `remoteToken
+  // = null`, which would silently de-authenticate any *already-running*
+  // remote listener attached to the same Express app. Auth is now
+  // gated per-request via `isLoopbackHost(req.socket.localAddress)` in
+  // `bearerAuth`, so the token only matters for connections that
+  // arrived on a remote-bound socket. Leaving the token in place is
+  // safe: loopback requests skip the check before it's read.
   openDatabase();
   logCapabilities();
   const server = app.listen(port, host, () => {
     console.log(`MeMesh HTTP server running at http://${host}:${port}`);
   });
+  // Tag this listener as auth-required-or-not. bearerAuth reads this
+  // back via `req.socket.server` so the requirement is per-listener,
+  // not process-global.
+  serverAuthRequired.set(server, isRemote);
   return server;
 }
 
