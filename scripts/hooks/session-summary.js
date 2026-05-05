@@ -5,10 +5,9 @@
 // and stores as session-insight entities in MeMesh.
 
 import { createRequire } from 'module';
-import { join, basename, dirname } from 'path';
+import { join, basename } from 'path';
 import { existsSync, readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { getMemeshDir, isAutoCaptureEnabled, openHookDb } from './_shared.js';
+import { getMemeshDir, isAutoCaptureEnabled, openHookDb, resolvePluginRoot } from './_shared.js';
 
 const require = createRequire(import.meta.url);
 
@@ -258,10 +257,8 @@ process.stdin.on('end', async () => {
     if (errorsEncountered.length > 0 && filesEdited.length > 0) {
       try {
         // F5: derive pluginRoot strictly from this file's location.
-        // CLAUDE_PLUGIN_ROOT env-var fallback removed because a malicious
-        // project's .envrc could redirect dynamic imports to attacker
-        // code that gets executed inside the user's Claude Code process.
-        const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+        // See `resolvePluginRoot` for the full reasoning.
+        const pluginRoot = resolvePluginRoot(import.meta.url);
         const configMod = await import(join(pluginRoot, 'dist/core/config.js'));
         const config = configMod.readConfig();
 
