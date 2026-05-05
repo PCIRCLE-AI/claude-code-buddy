@@ -53,7 +53,21 @@ function readUpdateCheckCache() {
 function buildDeprecationBanner(currentVersion, cache) {
   if (!cache || cache.currentVersion !== currentVersion) return [];
   const msg = cache.currentVersionDeprecation;
-  if (typeof msg !== 'string' || msg.length === 0) return [];
+  if (typeof msg !== 'string' || msg.length === 0) {
+    // Partial-failure state: version lookup answered but the
+    // deprecation sub-call did not. doctor / status / dashboard
+    // already warn on this; SessionStart used to stay silent and
+    // present a false all-clear. Surface a soft warning instead so
+    // the user knows the security signal isn't current.
+    if (typeof cache.lastError === 'string' && cache.lastError.length > 0) {
+      return [
+        '',
+        `ℹ️  MeMesh deprecation status unknown for ${currentVersion}: ${cache.lastError}`,
+        `    Run: memesh status   (retry the lookup once back online)`,
+      ];
+    }
+    return [];
+  }
   const lines = [
     '',
     `⚠️  MeMesh ${currentVersion} is DEPRECATED by maintainers.`,
@@ -350,19 +364,43 @@ function spawnAutoUpdate(version, deprecationOverride) {
   }
 }
 
-/**
- * Spawn a fresh `memesh status` lookup detached so the cache is
- * refreshed for the next session without blocking this one. The
- * `status` subcommand calls getUpdateCheck under the hood, which is
- * the same code path the deprecation banner reads from on the next
- * session start. The CLI command IS `status` — `update-status` does
- * not exist — so we shell to `status` and discard its output.
- */
+// Don't fire a fresh-check more often than this. Two parallel
+// session-starts both spawning `memesh status` could otherwise race
+// the cache: a later writer that hits a deprecation-only timeout
+// would overwrite an earlier writer's successful deprecation flag,
+// because each child reads `previous` from the cache *before* its
+// own npm call. The TTL bounds concurrency to one refresh per
+// window per machine, which is enough for the staleness window
+// (24h) to stay accurate.
+const FRESH_CHECK_THROTTLE_MS = 5 * 60 * 1000;
+
 function spawnFreshUpdateCheck() {
   try {
     const pluginRoot = resolvePluginRoot(import.meta.url);
     const cliPath = join(pluginRoot, 'dist/transports/cli/cli.js');
     if (!existsSync(cliPath)) return false;
+    // Throttle marker — machine-global because the cache is. Use
+    // mtime as the timestamp (no JSON parse needed).
+    const fs = require('fs');
+    const dir = join(homedir(), '.memesh');
+    try { ensurePrivateDir(dir); } catch { /* best-effort */ }
+    const markerPath = join(dir, 'last-fresh-refresh.lock');
+    try {
+      const stat = fs.statSync(markerPath);
+      if (Date.now() - stat.mtimeMs < FRESH_CHECK_THROTTLE_MS) {
+        return false;
+      }
+    } catch { /* missing marker → fall through */ }
+    // Update the marker via temp+rename so concurrent throttle
+    // checks see a consistent value (atomic on POSIX, atomic-
+    // replace on Windows).
+    try {
+      const tempPath = `${markerPath}.${process.pid}.${Math.random().toString(36).slice(2, 10)}.tmp`;
+      fs.writeFileSync(tempPath, String(Date.now()));
+      fs.renameSync(tempPath, markerPath);
+    } catch {
+      return false;
+    }
     const child = spawn(
       process.execPath,
       [cliPath, 'status'],
