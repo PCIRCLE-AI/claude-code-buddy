@@ -87,6 +87,45 @@ describe('Feature: Session Start Hook', () => {
     expect(output.systemMessage as string).toContain('No database found');
   });
 
+  it('Scenario: No database + flagged installed version -> deprecation banner emits before welcome', () => {
+    // Codex review (2026-05-06) live-test caught this: the no-DB
+    // short-circuit returned BEFORE the deprecation banner logic, so
+    // a fresh install of a deprecated version saw the welcome line
+    // but never the security warning. The banner must fire on the
+    // no-DB path too.
+    const cachePath = path.join(testDir, 'update-check.json');
+    const repoPkg = require(path.resolve('package.json'));
+    fs.writeFileSync(cachePath, JSON.stringify({
+      currentVersion: repoPkg.version,
+      latestVersion: repoPkg.version,
+      lastAttemptAt: '2026-05-06T00:00:00.000Z',
+      lastSuccessfulCheckAt: '2026-05-06T00:00:00.000Z',
+      lastError: null,
+      checkSucceeded: true,
+      currentVersionDeprecation: 'TEST: live-test deprecation banner verification',
+    }));
+
+    // Run hook capturing the full multi-line output. The no-DB path
+    // now emits a banner systemMessage AND the welcome systemMessage,
+    // so we can't use the helper's single-JSON.parse path.
+    const hookPath = path.resolve('scripts/hooks/session-start.js');
+    const raw = execFileSync('node', [hookPath], {
+      input: JSON.stringify({ cwd: '/tmp/fresh-install', session_id: 'no-db-deprecated' }),
+      env: {
+        ...process.env,
+        MEMESH_DB_PATH: dbPath,  // points at a non-existent file — same as no-DB scenario
+        MEMESH_UPDATE_CHECK_PATH: cachePath,
+      },
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    const lines = raw.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const messages = lines.map((l) => (l as { systemMessage?: string }).systemMessage ?? '');
+    expect(messages.some((m) => m.includes('DEPRECATED'))).toBe(true);
+    expect(messages.some((m) => m.includes('TEST: live-test deprecation banner verification'))).toBe(true);
+    expect(messages.some((m) => m.includes('No database found'))).toBe(true);
+  });
+
   it('Scenario: Empty database (no entities table) -> graceful message', () => {
     // Create an empty db file with no tables
     const Database = require('better-sqlite3');

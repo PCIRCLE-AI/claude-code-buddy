@@ -18,6 +18,8 @@ function makeUpdateCheck(overrides: Partial<UpdateCheck> = {}): UpdateCheck {
     checkSucceeded: true,
     source: 'cache',
     freshness: 'cached',
+    currentVersionDeprecated: false,
+    deprecationMessage: null,
     ...overrides,
   };
 }
@@ -318,5 +320,45 @@ describe('doctor', () => {
     expect(result.checks.find((c) => c.id === 'skills-manifest')).toMatchObject({
       status: 'warn',
     });
+  });
+
+  it('escalates the update-status check to FAIL when the installed version is deprecated', async () => {
+    // Doctor is the place a user runs when they suspect something
+    // wrong. A maintainer-flagged installed version (typically a
+    // security advisory) should land here as a hard failure with the
+    // exact deprecation message — not get downgraded to the regular
+    // "update available" warning that an unsuspecting user might
+    // dismiss.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.1',
+      openDatabaseImpl: () => makeDatabase() as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck({
+        currentVersion: '4.1.1',
+        latestVersion: '4.1.2',
+        updateAvailable: true,
+        currentVersionDeprecated: true,
+        deprecationMessage: 'Security: HIGH polynomial-redos. Upgrade to 4.1.2+.',
+      }),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+    });
+
+    const updateCheck = result.checks.find((c) => c.id === 'update-status');
+    expect(updateCheck?.status).toBe('fail');
+    expect(updateCheck?.summary).toContain('DEPRECATED');
+    expect(updateCheck?.summary).toContain('4.1.1');
+    expect(updateCheck?.summary).toContain('polynomial-redos');
+    // Overall doctor status must reflect the escalation.
+    expect(result.status).not.toBe('PASS');
   });
 });

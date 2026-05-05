@@ -205,6 +205,22 @@ process.stdin.on('end', async () => {
     }
 
     if (!existsSync(dbPath)) {
+      // Even with no recall summary to emit, a deprecation flag on the
+      // installed version is more important than the regular "no
+      // database found" notice — surface it so a fresh install of a
+      // flagged version sees the warning before doing anything else.
+      try {
+        const pluginRoot = resolvePluginRoot(import.meta.url);
+        const pkg = JSON.parse(readFileSync(join(pluginRoot, 'package.json'), 'utf8'));
+        const installedVersion = typeof pkg.version === 'string' ? pkg.version : null;
+        const cache = readUpdateCheckCache();
+        const lines = installedVersion ? buildDeprecationBanner(installedVersion, cache) : [];
+        if (lines.length > 0) {
+          output(lines.filter((l) => l.length > 0).join('\n'));
+        }
+      } catch {
+        // Best-effort — never block the no-DB path.
+      }
       output('MeMesh: No database found. Memories will be created as you work.');
       return;
     }

@@ -316,6 +316,25 @@ async function inspectUpdateStatus(
     );
   }
 
+  // Deprecation outranks ordinary update-available — a maintainer-
+  // flagged version is the only doctor finding that should escalate
+  // to `fail` here, because it carries security implications. We
+  // route the deprecation message through the same advisory line the
+  // session-start banner uses, so the user sees the same string in
+  // both surfaces.
+  if (update.currentVersionDeprecated && update.deprecationMessage) {
+    const target = update.latestVersion && update.latestVersion !== packageVersion
+      ? ` -> ${update.latestVersion}`
+      : '';
+    return createCheck(
+      'update-status',
+      'Update status',
+      'fail',
+      `Installed version ${packageVersion} is DEPRECATED by maintainers: ${update.deprecationMessage}`,
+      `Run \`memesh update\`${target} or upgrade via your install method (see \`memesh status\`).`,
+    );
+  }
+
   if (update.updateAvailable && update.latestVersion) {
     return createCheck(
       'update-status',
