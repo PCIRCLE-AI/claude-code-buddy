@@ -10,6 +10,7 @@ import { verifyAgentWork } from '../../core/verifier.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { readConfig, updateConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { flushPendingEmbeddings } from '../../core/embedder.js';
+import type { LessonSeverity, MergeStrategy } from '../../core/types.js';
 
 const packageJsonPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -290,7 +291,7 @@ program
       const result = importMemories({
         data: data as any,
         namespace: opts.namespace,
-        merge_strategy: opts.merge as 'skip' | 'overwrite' | 'append',
+        merge_strategy: opts.merge as MergeStrategy,
       });
       console.log(`Imported: ${result.imported}, Skipped: ${result.skipped}, Appended: ${result.appended}`);
       if (result.errors.length > 0) {
@@ -320,7 +321,7 @@ program
         fix: opts.fix,
         root_cause: opts.rootCause,
         prevention: opts.prevention,
-        severity: opts.severity as 'critical' | 'major' | 'minor' | undefined,
+        severity: opts.severity as LessonSeverity | undefined,
       });
       if (opts.json) {
         console.log(JSON.stringify(result));
