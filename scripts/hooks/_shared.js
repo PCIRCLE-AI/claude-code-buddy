@@ -2,23 +2,52 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'f
 import { createRequire } from 'module';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
+
+/**
+ * Resolve the package root from a hook file's `import.meta.url`.
+ *
+ * Hooks live at `<pkgRoot>/scripts/hooks/<file>.js`, so the path needs
+ * three `dirname()` hops to reach `<pkgRoot>`. Centralising this here
+ * prevents the off-by-one regression that silently disabled noise
+ * compression and LLM failure analysis between 4.0.4–4.1.0 (the inline
+ * `dirname(dirname(...))` only reached `<pkgRoot>/scripts`, and the
+ * surrounding `catch` swallowed the resulting ENOENT).
+ *
+ * The path is derived strictly from the caller's URL — there is no env
+ * override — so a malicious project's `.envrc` cannot redirect dynamic
+ * imports to attacker-controlled code (the F5 boundary).
+ *
+ * @param {string} metaUrl - typically `import.meta.url` of the caller
+ * @returns {string} absolute path to the package root
+ */
+export function resolvePluginRoot(metaUrl) {
+  return dirname(dirname(dirname(fileURLToPath(metaUrl))));
+}
 
 /**
  * Read ~/.memesh/config.json directly. Hooks must not depend on dist/
  * (F5 boundary), so this reads the JSON as a plain file rather than
  * importing readConfig from src/core/config.ts.
  *
+ * Always reads `~/.memesh/config.json` to stay consistent with
+ * `src/core/config.ts`, which is the single writer. Earlier versions
+ * read `dirname(MEMESH_DB_PATH)/config.json`, which silently diverged
+ * from the CLI-managed config any time a custom DB path was set: hooks
+ * would ignore `memesh config set autoCapture …` and friends. Fixed
+ * by treating the homedir path as the canonical source.
+ *
  * Returns an empty object on missing/unreadable/malformed file —
  * callers must always be defensive about which fields are set.
  *
- * @param {NodeJS.ProcessEnv} [env=process.env]
+ * @param {NodeJS.ProcessEnv} [_env=process.env] - kept for signature
+ *   compatibility (env was the prior MEMESH_DB_PATH source); ignored.
  * @returns {Record<string, any>}
  */
-export function readHookConfig(env = process.env) {
-  const dir = env.MEMESH_DB_PATH ? dirname(env.MEMESH_DB_PATH) : join(homedir(), '.memesh');
-  const path = join(dir, 'config.json');
+export function readHookConfig(_env = process.env) {
+  const path = join(homedir(), '.memesh', 'config.json');
   if (!existsSync(path)) return {};
   try {
     const raw = readFileSync(path, 'utf8');

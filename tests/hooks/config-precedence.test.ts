@@ -11,9 +11,14 @@ import {
 
 // Item #11 regression: env-only feature flags now have config-file
 // fallbacks. Pin the precedence rules: env > config > default.
+//
+// Drift-fix follow-up: `readHookConfig` now always reads
+// `<homedir>/.memesh/config.json` to match `src/core/config.ts`. Tests
+// override HOME (and USERPROFILE on Windows) to redirect homedir().
 
 let tmpDir: string;
-let savedDbPath: string | undefined;
+let savedHome: string | undefined;
+let savedUserProfile: string | undefined;
 
 function writeConfig(obj: Record<string, unknown>) {
   const dir = path.join(tmpDir, '.memesh');
@@ -22,6 +27,10 @@ function writeConfig(obj: Record<string, unknown>) {
 }
 
 function envFor(extra: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
+  // env arg is now ignored by readHookConfig (homedir is canonical),
+  // but other helpers in _shared.js still consult env for env-vs-config
+  // precedence. Keep MEMESH_DB_PATH for any helper that legitimately
+  // uses it, plus pass through any test-supplied extras.
   return {
     MEMESH_DB_PATH: path.join(tmpDir, '.memesh', 'kg.db'),
     ...extra,
@@ -30,12 +39,18 @@ function envFor(extra: Record<string, string | undefined> = {}): NodeJS.ProcessE
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cfg-prec-'));
-  savedDbPath = process.env.MEMESH_DB_PATH;
+  savedHome = process.env.HOME;
+  savedUserProfile = process.env.USERPROFILE;
+  // Redirect homedir() so writeConfig() lands where readHookConfig() looks.
+  process.env.HOME = tmpDir;
+  process.env.USERPROFILE = tmpDir;
 });
 
 afterEach(() => {
-  if (savedDbPath === undefined) delete process.env.MEMESH_DB_PATH;
-  else process.env.MEMESH_DB_PATH = savedDbPath;
+  if (savedHome === undefined) delete process.env.HOME;
+  else process.env.HOME = savedHome;
+  if (savedUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = savedUserProfile;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
