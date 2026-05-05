@@ -360,13 +360,25 @@ async function inspectUpdateStatus(
   // info if there's a newer version, instead of suppressing
   // the user's clearest path forward.
   if (update.checkSucceeded && update.lastError) {
-    const hasUpdate = update.updateAvailable && update.latestVersion;
+    const hasUpdate = Boolean(update.updateAvailable && update.latestVersion);
     const summary = hasUpdate
       ? `Deprecation status unknown for ${packageVersion}: ${update.lastError}. Update ${update.latestVersion} is available.`
       : `Deprecation status unknown for ${packageVersion}: ${update.lastError}.`;
-    const fix = hasUpdate
-      ? `Run \`memesh status\` while online to retry the deprecation lookup, or \`memesh update\` to apply ${update.latestVersion}.`
-      : 'Run `memesh status` while online to retry the deprecation lookup.';
+    // Tailor the upgrade hint to the install channel — `memesh
+    // update` only works for npm-global self-updatable installs.
+    let upgradeHint: string;
+    if (hasUpdate) {
+      if (installSupport?.canSelfUpdate) {
+        upgradeHint = `, or \`memesh update\` to apply ${update.latestVersion}`;
+      } else if (installSupport?.guidance) {
+        upgradeHint = `. Upgrade target ${update.latestVersion} via your install method: ${installSupport.guidance}`;
+      } else {
+        upgradeHint = `. Upgrade target: ${update.latestVersion}.`;
+      }
+    } else {
+      upgradeHint = '';
+    }
+    const fix = `Run \`memesh status\` while online to retry the deprecation lookup${upgradeHint}.`;
     return createCheck('update-status', 'Update status', 'warn', summary, fix);
   }
 
