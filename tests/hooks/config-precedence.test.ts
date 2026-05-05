@@ -5,6 +5,7 @@ import path from 'path';
 import {
   isAgenticOrchestrationEnabled,
   isAutoCaptureEnabled,
+  resolveAutoUpdatePolicy,
   resolveSessionLimit,
   // @ts-ignore — _shared.js is JS, not TS
 } from '../../scripts/hooks/_shared.js';
@@ -124,5 +125,38 @@ describe('resolveSessionLimit — env > config > default(10)', () => {
   it('zero or negative env values fall back', () => {
     expect(resolveSessionLimit(envFor({ MEMESH_SESSION_LIMIT: '0' }))).toBe(10);
     expect(resolveSessionLimit(envFor({ MEMESH_SESSION_LIMIT: '-5' }))).toBe(10);
+  });
+});
+
+describe('resolveAutoUpdatePolicy — env > config > default(off)', () => {
+  it('default off when neither env nor config sets it', () => {
+    expect(resolveAutoUpdatePolicy(envFor())).toBe('off');
+  });
+
+  it("config { autoUpdate: 'patch' } takes effect", () => {
+    writeConfig({ autoUpdate: 'patch' });
+    expect(resolveAutoUpdatePolicy(envFor())).toBe('patch');
+  });
+
+  it('env wins over config', () => {
+    writeConfig({ autoUpdate: 'patch' });
+    expect(resolveAutoUpdatePolicy(envFor({ MEMESH_AUTO_UPDATE: 'minor' }))).toBe('minor');
+    expect(resolveAutoUpdatePolicy(envFor({ MEMESH_AUTO_UPDATE: 'off' }))).toBe('off');
+  });
+
+  it('case-insensitive', () => {
+    writeConfig({ autoUpdate: 'MAJOR' });
+    expect(resolveAutoUpdatePolicy(envFor())).toBe('major');
+    expect(resolveAutoUpdatePolicy(envFor({ MEMESH_AUTO_UPDATE: 'Patch' }))).toBe('patch');
+  });
+
+  it('invalid env value falls through to config', () => {
+    writeConfig({ autoUpdate: 'minor' });
+    expect(resolveAutoUpdatePolicy(envFor({ MEMESH_AUTO_UPDATE: 'yolo' }))).toBe('minor');
+  });
+
+  it('invalid config value falls through to default', () => {
+    writeConfig({ autoUpdate: 'auto' });
+    expect(resolveAutoUpdatePolicy(envFor())).toBe('off');
   });
 });

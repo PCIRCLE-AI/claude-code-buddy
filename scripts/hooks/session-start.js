@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 
 import { createRequire } from 'module';
+import { spawn } from 'child_process';
 import { createHash } from 'crypto';
 import { homedir } from 'os';
 import { join, basename } from 'path';
-import { existsSync, unlinkSync, rmSync, appendFileSync, chmodSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync, rmSync, appendFileSync, chmodSync, openSync, closeSync } from 'fs';
 import {
   buildReferenceContext,
   ensurePrivateDir,
   getMemeshDir,
   isAgenticOrchestrationEnabled,
   isTrustedForAutoContext,
+  resolveAutoUpdatePolicy,
   resolvePluginRoot,
   resolveSessionLimit,
   writePrivateJson,
@@ -22,6 +24,161 @@ const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowled
 const memeshDir = getMemeshDir(process.env);
 const throttlePath = join(memeshDir, 'session-recalled-files.json');
 const nudgeFlagsDir = join(memeshDir, 'agent-nudge-flags');
+
+/**
+ * Read the cached npm update check produced by core/version-check.ts.
+ * Hooks must not depend on dist/, so this duplicates the path constant
+ * (mirrored in src/core/version-check.ts:6) and parses defensively.
+ * Returns null on missing/corrupt cache rather than throwing — the
+ * deprecation warning is best-effort.
+ */
+function readUpdateCheckCache() {
+  const path = process.env.MEMESH_UPDATE_CHECK_PATH || join(homedir(), '.memesh', 'update-check.json');
+  try {
+    if (!existsSync(path)) return null;
+    const parsed = JSON.parse(readFileSync(path, 'utf8'));
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the strong deprecation warning lines to prepend to the
+ * session-start banner when the installed version has been flagged
+ * by maintainers (typically a security advisory). Returns an empty
+ * array when the cache says nothing to warn about.
+ */
+function buildDeprecationBanner(currentVersion, cache) {
+  if (!cache || cache.currentVersion !== currentVersion) return [];
+  const msg = cache.currentVersionDeprecation;
+  if (typeof msg !== 'string' || msg.length === 0) return [];
+  const lines = [
+    '',
+    `⚠️  MeMesh ${currentVersion} is DEPRECATED by maintainers.`,
+    `    ${msg}`,
+  ];
+  if (cache.latestVersion && cache.latestVersion !== currentVersion) {
+    lines.push(`    Run: memesh update   (or set autoUpdate: 'patch' in ~/.memesh/config.json)`);
+  }
+  return lines;
+}
+
+const SEMVER_RE = /^(\d+)\.(\d+)\.(\d+)(?:[-+].+)?$/;
+
+function classifyBumpHook(from, to) {
+  const a = SEMVER_RE.exec((from || '').trim());
+  const b = SEMVER_RE.exec((to || '').trim());
+  if (!a || !b) return null;
+  const ai = a.slice(1, 4).map(Number);
+  const bi = b.slice(1, 4).map(Number);
+  if (bi[0] > ai[0]) return 'major';
+  if (bi[0] < ai[0]) return null;
+  if (bi[1] > ai[1]) return 'minor';
+  if (bi[1] < ai[1]) return null;
+  if (bi[2] > ai[2]) return 'patch';
+  return null;
+}
+
+const POLICY_RANK = { off: 0, patch: 1, minor: 2, major: 3 };
+const BUMP_RANK = { patch: 1, minor: 2, major: 3 };
+
+function decideAutoUpdateHook(currentVersion, cache, policy) {
+  if (!cache || cache.currentVersion !== currentVersion) return { run: false };
+  const latest = cache.latestVersion;
+  if (typeof latest !== 'string' || !latest) return { run: false };
+  const bump = classifyBumpHook(currentVersion, latest);
+  if (!bump) return { run: false };
+
+  const policyAllows = (POLICY_RANK[policy] ?? 0) >= BUMP_RANK[bump];
+  if (policyAllows) return { run: true, latest, bump, deprecationOverride: false };
+
+  // Deprecation security override: even with policy 'off', force a
+  // patch upgrade out of a deprecated version. Don't override beyond
+  // patch — minor / major can carry behaviour changes the user didn't
+  // agree to.
+  const deprecated = typeof cache.currentVersionDeprecation === 'string'
+    && cache.currentVersionDeprecation.length > 0;
+  if (deprecated && bump === 'patch') {
+    return { run: true, latest, bump, deprecationOverride: true };
+  }
+
+  return { run: false };
+}
+
+/**
+ * Append a one-line outcome to the auto-update audit log. Best-effort.
+ */
+function logAutoUpdate(line) {
+  try {
+    const dir = getMemeshDir(process.env);
+    ensurePrivateDir(dir);
+    const path = join(dir, 'auto-update.log');
+    appendFileSync(path, `[${new Date().toISOString()}] ${line}\n`);
+    try { chmodSync(path, 0o600); } catch { /* non-POSIX */ }
+  } catch {
+    // Logging is best-effort.
+  }
+}
+
+/**
+ * Spawn `npm install -g @pcircle/memesh@<version>` detached so the
+ * upgrade can finish after this hook returns. We never block the
+ * session on the install — the running process keeps its current
+ * binary; the next session picks up the new one. Argv is an array
+ * (no shell interpolation), so the version string can never escape
+ * into a shell command.
+ */
+function spawnAutoUpdate(version, deprecationOverride) {
+  try {
+    const dir = getMemeshDir(process.env);
+    ensurePrivateDir(dir);
+    const logPath = join(dir, 'auto-update.log');
+    let fd = -1;
+    try { fd = openSync(logPath, 'a', 0o600); } catch { fd = -1; }
+    const stdio = fd >= 0 ? ['ignore', fd, fd] : 'ignore';
+    const child = spawn(
+      'npm',
+      ['install', '-g', `@pcircle/memesh@${version}`],
+      { detached: true, stdio, env: process.env },
+    );
+    child.unref();
+    if (fd >= 0) {
+      try { closeSync(fd); } catch { /* ignore */ }
+    }
+    logAutoUpdate(
+      `auto-update spawn: target=${version}${deprecationOverride ? ' (deprecation-override)' : ''} pid=${child.pid ?? 'unknown'}`
+    );
+    return true;
+  } catch (err) {
+    logAutoUpdate(`auto-update spawn FAILED: ${err?.message ?? err}`);
+    return false;
+  }
+}
+
+/**
+ * Spawn a fresh `memesh update-status` lookup detached so the cache
+ * is refreshed for the next session without blocking this one. The
+ * core CLI runs the same code path; this is the background warm-up
+ * that keeps the session-start cache in sync with the registry.
+ */
+function spawnFreshUpdateCheck() {
+  try {
+    const pluginRoot = resolvePluginRoot(import.meta.url);
+    const cliPath = join(pluginRoot, 'dist/transports/cli/cli.js');
+    if (!existsSync(cliPath)) return false;
+    const child = spawn(
+      process.execPath,
+      [cliPath, 'update-status', '--json'],
+      { detached: true, stdio: 'ignore', env: { ...process.env, MEMESH_UPDATE_REFRESH: '1' } },
+    );
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -294,11 +451,32 @@ process.stdin.on('end', async () => {
         // Non-critical — don't break session start
       }
 
+      // Deprecation-aware banner. Reads the cache produced by the
+      // last `getUpdateCheck` (CLI or background refresh). When the
+      // installed version was flagged by maintainers (typically a
+      // security advisory), prepend a strong warning so the user sees
+      // it on every session start until they upgrade.
+      let installedVersion = null;
+      try {
+        const pluginRoot = resolvePluginRoot(import.meta.url);
+        const pkg = JSON.parse(readFileSync(join(pluginRoot, 'package.json'), 'utf8'));
+        installedVersion = typeof pkg.version === 'string' ? pkg.version : null;
+      } catch {
+        // Best-effort — without the version we can't compare to cache.
+      }
+      const updateCache = readUpdateCheckCache();
+      const deprecationLines = installedVersion
+        ? buildDeprecationBanner(installedVersion, updateCache)
+        : [];
+      const memorySummaryWithBanner = deprecationLines.length > 0
+        ? [...deprecationLines, '', ...memorySummary.split('\n')].join('\n')
+        : memorySummary;
+
       const hookOutput = {
         suppressOutput: true,
         hookSpecificOutput: {
           hookEventName: 'SessionStart',
-          additionalContext: buildReferenceContext(memorySummary.split('\n')),
+          additionalContext: buildReferenceContext(memorySummaryWithBanner.split('\n')),
         },
       };
       console.log(JSON.stringify(hookOutput));
@@ -322,6 +500,40 @@ process.stdin.on('end', async () => {
       }
     } catch {
       // Non-critical — noise compression failed, will retry next session
+    }
+
+    // ── Auto-update + cache refresh (after main hook output) ────────
+    // Two independent best-effort spawns:
+    //   1. If policy + cache say we should upgrade, fire `npm install
+    //      -g` detached. Result lands in ~/.memesh/auto-update.log so
+    //      the user can audit. Default policy is 'off' so a fresh
+    //      install never silently upgrades — only an opt-in
+    //      `MEMESH_AUTO_UPDATE` env or `autoUpdate` config triggers.
+    //   2. Refresh the update-check cache in the background so the
+    //      next session has fresh data, regardless of whether (1)
+    //      ran. Bounded by the 5s timeout inside getUpdateCheck.
+    try {
+      let installedVersionForUpdate = null;
+      try {
+        const pluginRoot = resolvePluginRoot(import.meta.url);
+        const pkg = JSON.parse(readFileSync(join(pluginRoot, 'package.json'), 'utf8'));
+        installedVersionForUpdate = typeof pkg.version === 'string' ? pkg.version : null;
+      } catch { /* best-effort */ }
+      if (installedVersionForUpdate) {
+        const cache = readUpdateCheckCache();
+        const policy = resolveAutoUpdatePolicy(process.env);
+        const decision = decideAutoUpdateHook(installedVersionForUpdate, cache, policy);
+        if (decision.run) {
+          spawnAutoUpdate(decision.latest, decision.deprecationOverride);
+        }
+        // Always refresh the cache for next session, even if no auto-
+        // update was triggered. This is the warm-up that keeps the
+        // session-start banner truthful.
+        spawnFreshUpdateCheck();
+      }
+    } catch {
+      // Auto-update / cache refresh are best-effort — never crash the
+      // session-start hook on a network or filesystem hiccup.
     }
   } catch (err) {
     // Hooks must never crash Claude Code — but report honestly

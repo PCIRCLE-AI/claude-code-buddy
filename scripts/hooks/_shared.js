@@ -112,6 +112,35 @@ export function resolveSessionLimit(env = process.env) {
   return 10;
 }
 
+const VALID_AUTO_UPDATE_POLICIES = new Set(['off', 'patch', 'minor', 'major']);
+
+/**
+ * Resolve the auto-update policy.
+ * Precedence: env > config > default('off').
+ *
+ * The session-start hook uses this to decide whether to kick off a
+ * background `npm install -g @pcircle/memesh@<latest>` when an update
+ * is available. Default is 'off' so a fresh install never silently
+ * upgrades the user's global binary; opting in is a deliberate
+ * config write or env export.
+ *
+ * @param {NodeJS.ProcessEnv} [env=process.env]
+ * @returns {'off' | 'patch' | 'minor' | 'major'}
+ */
+export function resolveAutoUpdatePolicy(env = process.env) {
+  const envVal = env.MEMESH_AUTO_UPDATE;
+  if (typeof envVal === 'string') {
+    const lowered = envVal.toLowerCase();
+    if (VALID_AUTO_UPDATE_POLICIES.has(lowered)) return lowered;
+  }
+  const cfg = readHookConfig(env);
+  if (typeof cfg.autoUpdate === 'string') {
+    const lowered = cfg.autoUpdate.toLowerCase();
+    if (VALID_AUTO_UPDATE_POLICIES.has(lowered)) return lowered;
+  }
+  return 'off';
+}
+
 // Canonical SQLite schema for hook-written entities. Mirrors src/db.ts.
 // Hooks must NOT depend on dist/ (F5 security boundary), so this is a
 // duplicate string by necessity. When src/db.ts changes, this must
