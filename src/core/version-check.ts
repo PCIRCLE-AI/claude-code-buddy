@@ -219,8 +219,22 @@ export async function checkForUpdate(
           'npm',
           ['view', `@pcircle/memesh@${currentVersion}`, 'deprecated'],
           { timeout: timeoutMs },
-          (err, stdout) => {
+          (err, stdout, stderr) => {
             if (err) {
+              // npm responded "404 Not Found" / "E404" when the
+              // installed version is not published on the registry
+              // (source checkouts, pre-publish builds). That's a
+              // *successful* answer of "this version doesn't exist
+              // on npm, so it can't be deprecated" — distinct from a
+              // real network/registry failure where the deprecation
+              // status is unknown. Pattern-match the stderr to keep
+              // source-checkout developers from getting noisy
+              // partial-failure errors in `memesh status`.
+              const errText = String(stderr ?? (err as { stderr?: string }).stderr ?? '');
+              if (/E404|404 Not Found/i.test(errText)) {
+                resolve({ outcome: 'ok', message: null });
+                return;
+              }
               resolve({ outcome: 'failed' });
               return;
             }
