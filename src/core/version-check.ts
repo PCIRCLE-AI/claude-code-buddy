@@ -185,20 +185,37 @@ function writeStoredUpdateCheck(stored: StoredUpdateCheck, updateCheckPath?: str
     // visible state is always "old contents" or "new contents",
     // never partial.
     //
-    // Windows rename(temp, existing) can fail when another process
-    // briefly holds the destination open (read-share is OK but
-    // some FS layers / virus scanners exclusive-lock during
-    // open). Unlink first so the rename target doesn't exist,
-    // then rename. ENOENT (no prior file) is fine.
+    // Two-step replace: try renameSync first (POSIX always
+    // succeeds, Windows usually does). If it fails (Windows AV/FS
+    // exclusive-lock on the destination), fall back to unlink-
+    // then-rename. The previous version unlinked unconditionally,
+    // which left the user with NO cache if the rename then failed
+    // — losing every prior update / deprecation signal until the
+    // next online refresh. Now we only unlink when rename
+    // demonstrably can't replace, and we restore the temp file's
+    // intended target by retrying the rename. If both attempts
+    // fail, clean up the temp file and bail (caller's catch
+    // swallows since cache writes are best-effort).
     const tempPath = `${targetPath}.${process.pid}.${Math.random().toString(36).slice(2, 10)}.tmp`;
     fs.writeFileSync(tempPath, JSON.stringify(stored, null, 2));
-    try { fs.unlinkSync(targetPath); } catch (err: any) {
-      if (err?.code !== 'ENOENT') {
+    try {
+      fs.renameSync(tempPath, targetPath);
+    } catch (renameErr: any) {
+      // Windows-specific fallback: rename can refuse to replace an
+      // open destination. unlink-then-rename gets us out of that.
+      try { fs.unlinkSync(targetPath); } catch (err: any) {
+        if (err?.code !== 'ENOENT') {
+          try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
+          throw renameErr;
+        }
+      }
+      try {
+        fs.renameSync(tempPath, targetPath);
+      } catch (secondErr) {
         try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
-        throw err;
+        throw secondErr;
       }
     }
-    fs.renameSync(tempPath, targetPath);
   } catch {
     // Cache writes are best effort only.
   }
