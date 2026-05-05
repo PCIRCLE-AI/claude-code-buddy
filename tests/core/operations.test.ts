@@ -1,21 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import { openDatabase, closeDatabase } from '../../src/db.js';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { remember, recall, forget, learn, importMemories } from '../../src/core/operations.js';
+import { useTestDatabase } from '../helpers/db-fixture.js';
 
-let tmpDir: string;
-
-beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-ops-'));
-  openDatabase(path.join(tmpDir, 'test.db'));
-});
-
-afterEach(() => {
-  closeDatabase();
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-});
+useTestDatabase('memesh-ops-');
 
 // ── Remember ────────────────────────────────────────────────────────────────
 

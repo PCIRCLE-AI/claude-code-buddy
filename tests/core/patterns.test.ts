@@ -1,22 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import { openDatabase, closeDatabase, getDatabase } from '../../src/db.js';
+import { describe, it, expect } from 'vitest';
+import { getDatabase } from '../../src/db.js';
 import { remember } from '../../src/core/operations.js';
 import { computePatterns } from '../../src/core/patterns.js';
+import { useTestDatabase } from '../helpers/db-fixture.js';
 
-let tmpDir: string;
-
-beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-patterns-'));
-  openDatabase(path.join(tmpDir, 'test.db'));
-});
-
-afterEach(() => {
-  closeDatabase();
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-});
+useTestDatabase('memesh-patterns-');
 
 describe('computePatterns', () => {
   it('returns all pattern categories for empty database', () => {
