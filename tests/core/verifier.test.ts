@@ -233,3 +233,61 @@ describe('verifyAgentWork — error paths', () => {
     expect(result.entity_name).toMatch(/^verification:agent-with-spaces---symbols:/);
   });
 });
+
+// 2026-05-05 codex review/challenge regressions:
+//   - Subdirectories of a git working tree must be accepted (review P2)
+//   - Symlinks must be resolved before validation (challenge #5)
+describe('verifyAgentWork — workdir handling (subdir + symlink, codex 2026-05-05)', () => {
+  it('accepts a subdirectory of a git working tree (monorepo support)', () => {
+    // Pre-fix: validateWorkdir checked for `.git` directly inside
+    // workdir, so any subdirectory of a repo (e.g. /repo/packages/app)
+    // was rejected even though `git -C <subdir>` works fine.
+    const subdir = path.join(tmpRepo, 'packages', 'app');
+    fs.mkdirSync(subdir, { recursive: true });
+    fs.writeFileSync(path.join(subdir, 'index.ts'), 'export const x = 1;\n');
+    git(tmpRepo, ['add', '.']);
+    git(tmpRepo, ['commit', '-m', 'add subdir']);
+
+    const result = verifyAgentWork({
+      agent_id: 'subdir',
+      workdir: subdir,
+      base: 'main',
+    });
+    // Reaches realityCheck without throwing — that's the regression.
+    expect(result.entity_name).toMatch(/^verification:subdir:/);
+  });
+
+  it('canonicalises symlinks via realpath, not just resolve()', () => {
+    // Pre-fix: validateWorkdir used path.resolve() which only normalises
+    // ./.. — symlinks survived. A symlink to repo A could be passed and
+    // the validation would silently operate on a different on-disk path
+    // than the caller likely thought. Now realpathSync collapses
+    // symlinks; the recorded observation cites the realpath, and a
+    // pre-realpath note appears so a future reader spots the redirection.
+    const linkParent = fs.mkdtempSync(path.join(os.tmpdir(), 'verifier-link-'));
+    const linkPath = path.join(linkParent, 'aliased-repo');
+    try {
+      fs.symlinkSync(tmpRepo, linkPath, 'dir');
+      commitFiles(tmpRepo, { 'a.txt': 'A\n' }, 'add a');
+
+      const result = verifyAgentWork({
+        agent_id: 'symlink',
+        workdir: linkPath,
+        base: 'main',
+      });
+      expect(result.pass).toBe(true);
+      // The recorded entity should know the canonical path. We can't
+      // read observations directly here without DB access, but the
+      // entity name persists through remember(); the assertion that
+      // matters is that this didn't throw and didn't silently bypass
+      // anything. realpath's correctness is exercised because the
+      // symlink path is NOT a git working tree on its own (no .git
+      // entry in linkParent), only via realpath does the git check
+      // succeed.
+      expect(result.entity_name).toMatch(/^verification:symlink:/);
+    } finally {
+      try { fs.unlinkSync(linkPath); } catch { /* ignore */ }
+      fs.rmSync(linkParent, { recursive: true, force: true });
+    }
+  });
+});

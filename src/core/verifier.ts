@@ -19,8 +19,8 @@
 
 import { execFileSync } from 'child_process';
 import { randomBytes } from 'crypto';
-import { existsSync, statSync } from 'fs';
-import { isAbsolute, join, resolve } from 'path';
+import { realpathSync, statSync } from 'fs';
+import { isAbsolute } from 'path';
 import { readConfig } from './config.js';
 import { remember } from './operations.js';
 import { logSkillEvent } from './skill-usage-log.js';
@@ -80,37 +80,66 @@ export interface VerifyAgentWorkResult {
   timestamp: string;
 }
 
-function validateWorkdir(workdir: string): void {
+/**
+ * Validate `workdir` and return its fully canonical path.
+ *
+ * Two regressions caught by 2026-05-05 codex review/challenge are
+ * closed here:
+ *
+ *   1. Subdirectory rejection. The previous version checked for a
+ *      `.git` entry directly inside `workdir`, which rejected valid
+ *      monorepo paths like `/repo/packages/app`. We now ask git itself
+ *      via `rev-parse --is-inside-work-tree`, which correctly accepts
+ *      any path inside a working tree (handles `.git` directories,
+ *      `.git` files for worktrees/submodules, and any nested
+ *      subdirectory).
+ *
+ *   2. Symlink bypass. `path.resolve()` only normalises `.`/`..` —
+ *      it does NOT follow symlinks. A symlink pointing at a different
+ *      git repo would pass the old check pointing at one path while
+ *      git operations actually ran against another. `realpathSync`
+ *      collapses symlinks, so the path we validate is the path git
+ *      will operate on.
+ */
+function validateWorkdir(workdir: string): string {
   if (!isAbsolute(workdir)) {
     throw new Error(`workdir must be an absolute path, got "${workdir}"`);
   }
-  // Resolve symlinks/`.`/`..` so the value we later pass to git -C is
-  // canonical and the caller cannot smuggle path-traversal segments
-  // past the .git existence check.
-  const resolved = resolve(workdir);
-  if (resolved !== workdir) {
+
+  let canonical: string;
+  try {
+    canonical = realpathSync(workdir);
+  } catch (err: any) {
     throw new Error(
-      `workdir must be a canonical path; got "${workdir}", expected "${resolved}"`
+      `workdir does not exist or is not accessible: "${workdir}" (${err?.message ?? err})`
     );
   }
-  if (!existsSync(resolved)) {
-    throw new Error(`workdir does not exist: "${resolved}"`);
-  }
+
   let stat;
-  try { stat = statSync(resolved); }
+  try { stat = statSync(canonical); }
   catch (err: any) { throw new Error(`workdir not stat-able: ${err?.message ?? err}`); }
   if (!stat.isDirectory()) {
-    throw new Error(`workdir is not a directory: "${resolved}"`);
+    throw new Error(`workdir is not a directory: "${canonical}"`);
   }
-  // Must be a git working tree. Accept either a `.git` directory
-  // (regular repo) or a `.git` file (git worktrees / submodules point
-  // at the gitdir via a one-line file).
-  const gitMarker = join(resolved, '.git');
-  if (!existsSync(gitMarker)) {
+
+  // Ask git itself whether this path is inside a working tree. This
+  // correctly accepts subdirectories of a repo (the previous `.git`
+  // existence check rejected them) and naturally handles `.git` files
+  // for worktrees/submodules.
+  try {
+    const inside = execFileSync('git', ['-C', canonical, 'rev-parse', '--is-inside-work-tree'], {
+      encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (inside !== 'true') {
+      throw new Error('not inside work tree');
+    }
+  } catch {
     throw new Error(
-      `workdir is not a git working tree (missing .git): "${resolved}"`
+      `workdir is not a git working tree: "${canonical}"`
     );
   }
+
+  return canonical;
 }
 
 function resolveBase(workdir: string, explicit?: string): string | null {
@@ -190,10 +219,20 @@ function realityCheck(workdir: string, base: string | null, expectedFiles?: numb
   };
 }
 
-function buildObservations(input: VerifyAgentWorkInput, rc: RealityCheckResult, pass: boolean): string[] {
+function buildObservations(
+  input: VerifyAgentWorkInput,
+  rc: RealityCheckResult,
+  pass: boolean,
+  canonicalWorkdir: string,
+): string[] {
   const obs: string[] = [];
   obs.push(`Agent ${input.agent_id} verification: ${pass ? 'PASS' : 'FAIL'}`);
-  obs.push(`Workdir: ${input.workdir}`);
+  // Record both the input path AND the canonical (realpath'd) path so
+  // a future reader can spot symlink-induced surprises.
+  obs.push(`Workdir: ${canonicalWorkdir}`);
+  if (canonicalWorkdir !== input.workdir) {
+    obs.push(`Workdir input (pre-realpath): ${input.workdir}`);
+  }
   if (rc.base) obs.push(`Base: ${rc.base}`);
   obs.push(`Reality check: ${rc.summary}`);
 
@@ -217,10 +256,13 @@ export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkRes
   // git working trees. Without this, a caller (especially a
   // prompt-injected LLM) could trigger git operations against arbitrary
   // filesystem locations and observe the diff-stat output.
-  validateWorkdir(input.workdir);
+  // Returns the realpath-canonicalised path so all subsequent git
+  // operations and the recorded report agree on the exact directory
+  // git ran against (closes a symlink-confusion class).
+  const canonicalWorkdir = validateWorkdir(input.workdir);
 
-  const base = resolveBase(input.workdir, input.base);
-  const rc = realityCheck(input.workdir, base, input.claim?.expected_files);
+  const base = resolveBase(canonicalWorkdir, input.base);
+  const rc = realityCheck(canonicalWorkdir, base, input.claim?.expected_files);
 
   const reportPass = input.report?.pass ?? true;
   const pass = rc.pass && reportPass;
@@ -241,7 +283,7 @@ export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkRes
   remember({
     name: entityName,
     type: 'verification_record',
-    observations: buildObservations(input, rc, pass),
+    observations: buildObservations(input, rc, pass, canonicalWorkdir),
     tags,
   });
 
