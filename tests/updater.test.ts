@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { getInstalledGlobalVersion, runGlobalUpdate } from '../src/core/updater.js';
+import {
+  classifyBump,
+  decideAutoUpdate,
+  getInstalledGlobalVersion,
+  parseAutoUpdatePolicy,
+  runGlobalUpdate,
+} from '../src/core/updater.js';
 
 function makeExecFileSyncMock(handlers: {
   install?: (args: string[]) => void;
@@ -86,5 +92,124 @@ describe('updater', () => {
         ls: () => JSON.stringify({ dependencies: {} }),
       }),
     })).toThrow('npm did not report a global @pcircle/memesh installation after update');
+  });
+});
+
+describe('parseAutoUpdatePolicy', () => {
+  it('accepts the four canonical policy values', () => {
+    expect(parseAutoUpdatePolicy('off')).toBe('off');
+    expect(parseAutoUpdatePolicy('patch')).toBe('patch');
+    expect(parseAutoUpdatePolicy('minor')).toBe('minor');
+    expect(parseAutoUpdatePolicy('major')).toBe('major');
+  });
+  it('case-insensitive', () => {
+    expect(parseAutoUpdatePolicy('PATCH')).toBe('patch');
+    expect(parseAutoUpdatePolicy('Minor')).toBe('minor');
+  });
+  it('rejects garbage', () => {
+    expect(parseAutoUpdatePolicy('yes')).toBeNull();
+    expect(parseAutoUpdatePolicy('1')).toBeNull();
+    expect(parseAutoUpdatePolicy('')).toBeNull();
+    expect(parseAutoUpdatePolicy(undefined)).toBeNull();
+    expect(parseAutoUpdatePolicy(42)).toBeNull();
+  });
+});
+
+describe('classifyBump', () => {
+  it('returns the largest bump kind', () => {
+    expect(classifyBump('1.0.0', '1.0.1')).toBe('patch');
+    expect(classifyBump('1.0.0', '1.1.0')).toBe('minor');
+    expect(classifyBump('1.0.0', '2.0.0')).toBe('major');
+    expect(classifyBump('1.0.0', '1.1.5')).toBe('minor');
+    expect(classifyBump('1.0.0', '2.5.7')).toBe('major');
+  });
+  it('returns null for same-or-older targets (never auto-downgrade)', () => {
+    expect(classifyBump('1.0.0', '1.0.0')).toBeNull();
+    expect(classifyBump('1.0.1', '1.0.0')).toBeNull();
+    expect(classifyBump('2.0.0', '1.9.9')).toBeNull();
+  });
+  it('returns null for unparseable input', () => {
+    expect(classifyBump('not-a-version', '1.0.0')).toBeNull();
+    expect(classifyBump('1.0.0', '')).toBeNull();
+  });
+  it('strips prerelease and build tags', () => {
+    expect(classifyBump('1.0.0', '1.0.1-rc.1')).toBe('patch');
+    expect(classifyBump('1.0.0-beta', '1.0.0')).toBeNull(); // same numeric triple
+  });
+});
+
+describe('decideAutoUpdate', () => {
+  const base = {
+    currentVersion: '4.1.1',
+    latestVersion: '4.1.2',
+    currentVersionDeprecated: false,
+  };
+
+  it('does not run when there is no latest version available', () => {
+    const d = decideAutoUpdate({ ...base, latestVersion: null, policy: 'major' });
+    expect(d.shouldUpdate).toBe(false);
+    expect(d.bump).toBeNull();
+  });
+
+  it('does not run when current is already at latest', () => {
+    const d = decideAutoUpdate({ ...base, latestVersion: '4.1.1', policy: 'major' });
+    expect(d.shouldUpdate).toBe(false);
+  });
+
+  it("policy 'off' blocks all bumps when not deprecated", () => {
+    expect(decideAutoUpdate({ ...base, policy: 'off' }).shouldUpdate).toBe(false);
+    expect(decideAutoUpdate({ ...base, latestVersion: '4.2.0', policy: 'off' }).shouldUpdate).toBe(false);
+    expect(decideAutoUpdate({ ...base, latestVersion: '5.0.0', policy: 'off' }).shouldUpdate).toBe(false);
+  });
+
+  it("policy 'patch' permits patch only", () => {
+    expect(decideAutoUpdate({ ...base, latestVersion: '4.1.2', policy: 'patch' }).shouldUpdate).toBe(true);
+    expect(decideAutoUpdate({ ...base, latestVersion: '4.2.0', policy: 'patch' }).shouldUpdate).toBe(false);
+    expect(decideAutoUpdate({ ...base, latestVersion: '5.0.0', policy: 'patch' }).shouldUpdate).toBe(false);
+  });
+
+  it("policy 'minor' permits patch + minor", () => {
+    expect(decideAutoUpdate({ ...base, latestVersion: '4.1.2', policy: 'minor' }).shouldUpdate).toBe(true);
+    expect(decideAutoUpdate({ ...base, latestVersion: '4.2.0', policy: 'minor' }).shouldUpdate).toBe(true);
+    expect(decideAutoUpdate({ ...base, latestVersion: '5.0.0', policy: 'minor' }).shouldUpdate).toBe(false);
+  });
+
+  it("policy 'major' permits everything", () => {
+    expect(decideAutoUpdate({ ...base, latestVersion: '5.0.0', policy: 'major' }).shouldUpdate).toBe(true);
+  });
+
+  it("deprecation override forces patch bump even on policy 'off'", () => {
+    const d = decideAutoUpdate({ ...base, currentVersionDeprecated: true, policy: 'off' });
+    expect(d.shouldUpdate).toBe(true);
+    expect(d.bump).toBe('patch');
+    expect(d.deprecationOverride).toBe(true);
+  });
+
+  it('deprecation override does NOT auto-bump minor or major (could change behaviour)', () => {
+    const minor = decideAutoUpdate({
+      ...base,
+      latestVersion: '4.2.0',
+      currentVersionDeprecated: true,
+      policy: 'off',
+    });
+    expect(minor.shouldUpdate).toBe(false);
+
+    const major = decideAutoUpdate({
+      ...base,
+      latestVersion: '5.0.0',
+      currentVersionDeprecated: true,
+      policy: 'off',
+    });
+    expect(major.shouldUpdate).toBe(false);
+  });
+
+  it("deprecation override flag is false when policy already permits the bump", () => {
+    const d = decideAutoUpdate({
+      ...base,
+      currentVersionDeprecated: true,
+      policy: 'patch',
+    });
+    expect(d.shouldUpdate).toBe(true);
+    expect(d.deprecationOverride).toBe(false);
   });
 });
