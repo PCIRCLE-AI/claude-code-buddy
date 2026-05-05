@@ -383,6 +383,12 @@ export function formatUpdateCheckStatus(update: UpdateCheck | null): string[] {
 
   if (!update.checkSucceeded && update.lastError) {
     lines.push(`Last update check failed: ${update.lastError}`);
+  } else if (update.checkSucceeded && update.lastError) {
+    // Partial-failure case: the version lookup answered but the
+    // deprecation sub-call did not. Surface the partial failure so
+    // operators see the unknown-deprecation signal rather than an
+    // unconditional "all clear" line.
+    lines.push(`⚠️  Update check partial: ${update.lastError}`);
   }
 
   return lines;
