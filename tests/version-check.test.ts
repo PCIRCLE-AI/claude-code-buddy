@@ -423,6 +423,31 @@ describe('version check', () => {
     expect(lines.some((l) => l.includes('Update available: 4.1.2'))).toBe(true);
   });
 
+  it('marks the cache as partial-failure when deprecation lookup fails on first run (no prior to inherit)', async () => {
+    // Codex review caught this: when the main `npm show` lookup
+    // succeeded but the deprecation `npm view` lookup failed AND no
+    // prior cache existed for this version, the previous logic
+    // wrote `currentVersionDeprecation: null` plus `checkSucceeded:
+    // true` — turning a network-blocked deprecation lookup into a
+    // confirmed-healthy report. status / doctor / session-start all
+    // showed green even though npm never answered the deprecation
+    // query. Now `checkSucceeded` is false and `lastError` carries
+    // the partial-failure reason so downstream surfaces can warn.
+    const result = await checkForUpdate('4.1.1', {
+      execFileImpl: partialFailDeprecationOnly('4.1.2'),
+      updateCheckPath,
+      now: new Date('2026-05-06T10:00:00.000Z'),
+    });
+    expect(result.checkSucceeded).toBe(false);
+    expect(result.lastError).toMatch(/deprecation lookup failed/i);
+    expect(result.latestVersion).toBe('4.1.2');
+    // We still have no deprecation flag (because the lookup failed
+    // and there's nothing to inherit), but the ambient lastError
+    // signals to the operator that the status is unknown.
+    expect(result.currentVersionDeprecated).toBe(false);
+    expect(result.deprecationMessage).toBeNull();
+  });
+
   it('preserves a cached deprecation flag when only the deprecation lookup fails (P1.2)', async () => {
     // Codex review (2026-05-06) caught this: the deprecation Promise
     // used to resolve to null on failure, and the success branch wrote

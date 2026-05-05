@@ -159,6 +159,46 @@ function detectInstallChannelHook(pluginRoot) {
   }
 }
 
+// Cross-process lock window. Two parallel Claude sessions starting
+// in the same minute would otherwise both decide to auto-update from
+// the same cache and each fire `npm install -g` — wasted work at
+// best, install corruption at worst on slow networks. The lock
+// holds for the upper-bound of an `npm install -g` (most finish in
+// under 60s; we allow 10 min as a safety floor) and is reclaimed
+// when stale.
+const AUTO_UPDATE_LOCK_TTL_MS = 10 * 60 * 1000;
+
+function tryAcquireAutoUpdateLock(version) {
+  try {
+    const dir = getMemeshDir(process.env);
+    ensurePrivateDir(dir);
+    const lockPath = join(dir, 'auto-update.lock');
+    const fs = require('fs');
+    const payload = `${process.pid}\n${Date.now()}\n${version}\n`;
+    try {
+      const fd = fs.openSync(lockPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+      try { fs.writeFileSync(fd, payload); } finally { fs.closeSync(fd); }
+      return { acquired: true, lockPath };
+    } catch (err) {
+      if (err?.code !== 'EEXIST') throw err;
+    }
+    // Lock exists — check staleness. If older than TTL, reclaim.
+    let stat;
+    try { stat = fs.statSync(lockPath); } catch { return { acquired: false, lockPath }; }
+    if (Date.now() - stat.mtimeMs > AUTO_UPDATE_LOCK_TTL_MS) {
+      try {
+        fs.writeFileSync(lockPath, payload, { mode: 0o600 });
+        return { acquired: true, lockPath };
+      } catch {
+        return { acquired: false, lockPath };
+      }
+    }
+    return { acquired: false, lockPath };
+  } catch {
+    return { acquired: false, lockPath: null };
+  }
+}
+
 /**
  * Spawn `npm install -g @pcircle/memesh@<version>` detached so the
  * upgrade can finish after this hook returns. We never block the
@@ -167,12 +207,14 @@ function detectInstallChannelHook(pluginRoot) {
  * (no shell interpolation), so the version string can never escape
  * into a shell command.
  *
- * The auto-update path only fires when the active install is
- * `npm-global`. Source checkouts and project-local installs would
- * silently create a *new* global install while the active copy
- * stayed unchanged, which is both surprising and ineffective —
- * those install shapes update via their own mechanism (git pull +
- * rebuild, project npm install).
+ * Two safety gates:
+ *   1. Install channel must be `npm-global`. Source checkouts and
+ *      project-local installs would silently create a separate
+ *      global install while the active copy stayed unchanged.
+ *   2. A filesystem lock at <memeshDir>/auto-update.lock serialises
+ *      across parallel session-start processes. Without this, two
+ *      Claude sessions starting at the same minute would each fire
+ *      `npm install -g` concurrently.
  */
 function spawnAutoUpdate(version, deprecationOverride) {
   try {
@@ -181,6 +223,13 @@ function spawnAutoUpdate(version, deprecationOverride) {
     if (channel !== 'npm-global') {
       logAutoUpdate(
         `auto-update SKIPPED: install channel '${channel}' does not support self-update via npm install -g`
+      );
+      return false;
+    }
+    const lock = tryAcquireAutoUpdateLock(version);
+    if (!lock.acquired) {
+      logAutoUpdate(
+        `auto-update SKIPPED: another session-start already holds ${lock.lockPath ?? 'auto-update.lock'} for this upgrade`
       );
       return false;
     }
@@ -200,7 +249,7 @@ function spawnAutoUpdate(version, deprecationOverride) {
       try { closeSync(fd); } catch { /* ignore */ }
     }
     logAutoUpdate(
-      `auto-update spawn: target=${version}${deprecationOverride ? ' (deprecation-override)' : ''} pid=${child.pid ?? 'unknown'}`
+      `auto-update spawn: target=${version}${deprecationOverride ? ' (deprecation-override)' : ''} pid=${child.pid ?? 'unknown'} lock=${lock.lockPath}`
     );
     return true;
   } catch (err) {
@@ -239,7 +288,16 @@ function spawnFreshUpdateCheck() {
  * permit, and always refresh the cache for the next session. This MUST
  * run on every session-start exit path so a fresh install of a flagged
  * version still kicks off the security-override patch upgrade and the
- * next run starts with a fresh cache. Best-effort; never throws.
+ * next run starts with a fresh cache.
+ *
+ * On cache miss (very first session, or cache was deleted) we attempt
+ * a SYNCHRONOUS short-deadline npm fetch via the dist module so the
+ * security-override decision can fire on the *current* session. Without
+ * this the first run on a freshly-installed deprecated version would
+ * silently skip the override — protecting the user only on session 2.
+ * The deadline is tight (3s wall-clock budget passed to the dist
+ * helper's execFile timeout) so cold-cache session-starts pay at most
+ * a one-time bounded cost.
  *
  * Idempotent guard: callers should not invoke twice for the same
  * session — duplicated `npm install -g` spawns would race. We use a
@@ -248,23 +306,45 @@ function spawnFreshUpdateCheck() {
  * over-spawning.
  */
 let __postBannerRan = false;
-function runPostBannerUpdateTasks() {
+async function runPostBannerUpdateTasks() {
   if (__postBannerRan) return;
   __postBannerRan = true;
   try {
     let installedVersion = null;
+    let pluginRoot = null;
     try {
-      const pluginRoot = resolvePluginRoot(import.meta.url);
+      pluginRoot = resolvePluginRoot(import.meta.url);
       const pkg = JSON.parse(readFileSync(join(pluginRoot, 'package.json'), 'utf8'));
       installedVersion = typeof pkg.version === 'string' ? pkg.version : null;
     } catch { /* best-effort */ }
     if (!installedVersion) return;
-    const cache = readUpdateCheckCache();
+
+    let cache = readUpdateCheckCache();
+
+    // First-run protection: when the cache is empty (or belongs to a
+    // different installed version), do a tight-budget inline fetch so
+    // the deprecation override can fire on this session instead of
+    // waiting for session 2. The dist module is already on disk via
+    // the noise-compression path, so the import cost is minimal.
+    if (!cache || cache.currentVersion !== installedVersion) {
+      try {
+        if (!pluginRoot) pluginRoot = resolvePluginRoot(import.meta.url);
+        const versionCheckMod = await import(join(pluginRoot, 'dist/core/version-check.js'));
+        await versionCheckMod.checkForUpdate(installedVersion, { timeoutMs: 3000 });
+        cache = readUpdateCheckCache();
+      } catch {
+        // Network/dist hiccup — accept one-session delay.
+      }
+    }
+
     const policy = resolveAutoUpdatePolicy(process.env);
     const decision = decideAutoUpdateHook(installedVersion, cache, policy);
     if (decision.run) {
       spawnAutoUpdate(decision.latest, decision.deprecationOverride);
     }
+    // Always also schedule a detached refresh — the inline fetch
+    // above used a 3s budget; a longer-running refresh in the
+    // background guarantees fresh data for the next session.
     spawnFreshUpdateCheck();
   } catch {
     // Best-effort — never crash the hook on a network or fs hiccup.
@@ -638,7 +718,7 @@ process.stdin.on('end', async () => {
     // happy path, or even a thrown error caught above. The
     // function is single-shot per process so the duplicated
     // late-path call from older versions is now idempotent.
-    runPostBannerUpdateTasks();
+    await runPostBannerUpdateTasks();
   }
 });
 
