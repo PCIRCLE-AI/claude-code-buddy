@@ -160,12 +160,26 @@ function bearerAuth(req: Request, res: Response, next: NextFunction): void {
     return;
   }
   const header = req.header('authorization') || req.header('Authorization') || '';
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-  if (!match) {
+  // Parse "Bearer <token>" without a quantified-overlap regex.
+  // Earlier `/^Bearer\s+(.+)$/i.exec(...)` was flagged by CodeQL
+  // (js/polynomial-redos): `\s+` and `.+` both match whitespace, so on
+  // header values that are all whitespace the engine has to enumerate
+  // every split between the two quantifiers — quadratic in the input
+  // length. We substitute a single linear scan for the first
+  // whitespace, verify the prefix is the literal "Bearer" token, then
+  // take the suffix.
+  const trimmed = header.trim();
+  const wsIndex = trimmed.search(/\s/);
+  if (wsIndex < 0 || trimmed.slice(0, wsIndex).toLowerCase() !== 'bearer') {
     res.status(401).json({ success: false, error: 'Missing Authorization: Bearer <token>' });
     return;
   }
-  const presented = Buffer.from(match[1].trim(), 'utf8');
+  const tokenPart = trimmed.slice(wsIndex + 1).trim();
+  if (!tokenPart) {
+    res.status(401).json({ success: false, error: 'Missing Authorization: Bearer <token>' });
+    return;
+  }
+  const presented = Buffer.from(tokenPart, 'utf8');
   if (!constantTimeEquals(presented, remoteToken)) {
     res.status(401).json({ success: false, error: 'Invalid bearer token' });
     return;

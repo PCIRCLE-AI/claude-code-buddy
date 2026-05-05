@@ -410,6 +410,26 @@ describe('HTTP Transport: startServer host guard', () => {
         body: JSON.stringify({ name: 'unauthed', type: 'note' }),
       });
       expect(validJsonNoAuth.status).toBe(401);
+
+      // CodeQL js/polynomial-redos regression: the previous header
+      // parser used a regex where both quantifiers could match
+      // whitespace, so an attacker-controlled header that is all
+      // whitespace forced the regex engine to enumerate every split
+      // between the two quantifiers (quadratic in input length). The
+      // replacement single-pass parser must answer in bounded time
+      // even for a 10k-char whitespace header. We measure the latency
+      // for that pathological case and assert it returns 401 quickly
+      // — no exponential hang.
+      const pathological = 'Bearer ' + ' '.repeat(10_000);
+      const t0 = Date.now();
+      const redosProbe = await fetch(`http://127.0.0.1:${remotePort}/v1/health`, {
+        headers: { Authorization: pathological },
+      });
+      const elapsed = Date.now() - t0;
+      expect(redosProbe.status).toBe(401);
+      // Generous bound — actual cost is microseconds; anything over
+      // 500ms would indicate the old quadratic pattern is back.
+      expect(elapsed).toBeLessThan(500);
     } finally {
       if (remoteServer) {
         await new Promise<void>((resolve, reject) => {
