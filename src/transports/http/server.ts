@@ -382,6 +382,12 @@ app.get('/v1/update-status', async (req, res) => {
         installChannel: installSupport.channel,
         canSelfUpdate: installSupport.canSelfUpdate,
         recommendedCommand: installSupport.recommendedCommand,
+        // Surface deprecation state so the dashboard can render the
+        // security warning. Without these the SettingsTab only shows
+        // generic update-available text and a deprecated install
+        // appears healthy in the UI.
+        currentVersionDeprecated: update?.currentVersionDeprecated ?? false,
+        deprecationMessage: update?.deprecationMessage ?? null,
       },
     });
   } catch (err: any) {
