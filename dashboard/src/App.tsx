@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useCallback } from 'preact/hooks';
 import { Header } from './components/Header';
 import { TabNav } from './components/TabNav';
 import { SearchTab } from './components/SearchTab';
@@ -30,11 +30,27 @@ export function App() {
   const [health, setHealth] = useState<HealthData | null>(null);
   const [error, setError] = useState('');
 
-  useEffect(() => {
+  const refetchHealth = useCallback(() => {
     api<HealthData>('GET', '/v1/health')
-      .then(setHealth)
+      .then((data) => {
+        setHealth(data);
+        setError('');
+      })
       .catch((e) => setError(e.message));
   }, []);
+
+  // Initial fetch + subscribe to data-changed events. ISSUE-001 fix:
+  // BrowseTab's ↻ refresh (and archive/restore) refetches body data via
+  // its own state, but the header lives here in App and used to fetch
+  // /v1/health only once on mount. The header therefore stayed stuck
+  // at the page-load count. Dispatching `memesh:data-changed` from any
+  // mutation site keeps the header in sync without coupling components.
+  useEffect(() => {
+    refetchHealth();
+    const handler = () => refetchHealth();
+    window.addEventListener('memesh:data-changed', handler);
+    return () => window.removeEventListener('memesh:data-changed', handler);
+  }, [refetchHealth]);
 
   // Build translated tab labels paired with their keys for TabNav
   const tabLabels = TAB_KEYS.map((key) => ({ key, label: t(TAB_I18N_KEYS[key]) }));

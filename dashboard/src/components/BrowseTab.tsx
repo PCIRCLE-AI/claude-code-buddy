@@ -19,6 +19,11 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
       const data = await api<Entity[]>('GET', '/v1/entities?limit=500&status=all');
       setEntities(data || []);
       setPage(0);
+      // ISSUE-001 fix: notify the App-level header (which owns /v1/health)
+      // that entity counts may have changed. Without this, the header
+      // badge stays stuck at the page-load count even after manual ↻
+      // refresh / archive / restore.
+      window.dispatchEvent(new Event('memesh:data-changed'));
     } catch (e: any) {
       setError(e.message);
     } finally {
