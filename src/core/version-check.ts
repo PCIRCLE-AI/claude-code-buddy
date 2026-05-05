@@ -184,8 +184,20 @@ function writeStoredUpdateCheck(stored: StoredUpdateCheck, updateCheckPath?: str
     // start) sees an empty / torn file. With temp+rename the
     // visible state is always "old contents" or "new contents",
     // never partial.
+    //
+    // Windows rename(temp, existing) can fail when another process
+    // briefly holds the destination open (read-share is OK but
+    // some FS layers / virus scanners exclusive-lock during
+    // open). Unlink first so the rename target doesn't exist,
+    // then rename. ENOENT (no prior file) is fine.
     const tempPath = `${targetPath}.${process.pid}.${Math.random().toString(36).slice(2, 10)}.tmp`;
     fs.writeFileSync(tempPath, JSON.stringify(stored, null, 2));
+    try { fs.unlinkSync(targetPath); } catch (err: any) {
+      if (err?.code !== 'ENOENT') {
+        try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
+        throw err;
+      }
+    }
     fs.renameSync(tempPath, targetPath);
   } catch {
     // Cache writes are best effort only.
