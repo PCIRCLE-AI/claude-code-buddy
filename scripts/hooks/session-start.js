@@ -54,12 +54,18 @@ function buildDeprecationBanner(currentVersion, cache) {
   if (!cache || cache.currentVersion !== currentVersion) return [];
   const msg = cache.currentVersionDeprecation;
   if (typeof msg !== 'string' || msg.length === 0) {
-    // Partial-failure state: version lookup answered but the
-    // deprecation sub-call did not. doctor / status / dashboard
-    // already warn on this; SessionStart used to stay silent and
-    // present a false all-clear. Surface a soft warning instead so
-    // the user knows the security signal isn't current.
-    if (typeof cache.lastError === 'string' && cache.lastError.length > 0) {
+    // Partial-failure state ONLY: the version lookup answered but
+    // the deprecation sub-call did not. checkSucceeded stays true
+    // exactly in that case. A full registry failure (offline,
+    // blocked) leaves checkSucceeded=false with a generic lastError,
+    // and we must not surface that as a security-style warning —
+    // it's just regular "couldn't reach npm". Gate the banner
+    // strictly on checkSucceeded=true + lastError populated.
+    if (
+      cache.checkSucceeded === true
+      && typeof cache.lastError === 'string'
+      && cache.lastError.length > 0
+    ) {
       return [
         '',
         `ℹ️  MeMesh deprecation status unknown for ${currentVersion}: ${cache.lastError}`,
