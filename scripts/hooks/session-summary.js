@@ -8,7 +8,7 @@ import { createRequire } from 'module';
 import { join, basename, dirname } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { getMemeshDir, openHookDb } from './_shared.js';
+import { getMemeshDir, isAutoCaptureEnabled, openHookDb } from './_shared.js';
 
 const require = createRequire(import.meta.url);
 
@@ -73,8 +73,8 @@ process.stdin.on('end', async () => {
   try {
     if (!input.trim()) return exit0();
 
-    // Opt-out check
-    if (process.env.MEMESH_AUTO_CAPTURE === 'false') return exit0();
+    // Opt-out check (env > config > default-on)
+    if (!isAutoCaptureEnabled(process.env)) return exit0();
 
     let inputData;
     try {

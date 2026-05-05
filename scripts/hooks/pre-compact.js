@@ -2,7 +2,7 @@
 
 import { basename } from 'path';
 import { existsSync, readFileSync } from 'fs';
-import { openHookDb } from './_shared.js';
+import { isAutoCaptureEnabled, openHookDb } from './_shared.js';
 
 // Timeout guard: always exit within 10 seconds
 const TIMEOUT_MS = 10000;
@@ -17,8 +17,8 @@ process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { input += chunk; });
 process.stdin.on('end', () => {
   try {
-    // Opt-out check
-    if (process.env.MEMESH_AUTO_CAPTURE === 'false') {
+    // Opt-out check (env > config > default-on)
+    if (!isAutoCaptureEnabled(process.env)) {
       return exit0();
     }
 

@@ -13,7 +13,7 @@
 
 import { join } from 'path';
 import { openSync, closeSync } from 'fs';
-import { ensurePrivateDir, getMemeshDir } from './_shared.js';
+import { ensurePrivateDir, getMemeshDir, isAgenticOrchestrationEnabled } from './_shared.js';
 
 const memeshDir = getMemeshDir(process.env);
 const FLAGS_DIR = join(memeshDir, 'agent-nudge-flags');
@@ -80,7 +80,7 @@ process.stdin.on('end', () => {
     // MEMESH_ENABLE_AGENTIC_ORCHESTRATION=1. The default is OFF so users
     // who installed memesh purely for memory don't see protocol nudges
     // they never asked for.
-    if (process.env.MEMESH_ENABLE_AGENTIC_ORCHESTRATION !== '1') return pass();
+    if (!isAgenticOrchestrationEnabled(process.env)) return pass();
 
     const data = JSON.parse(input);
     const command = (data.tool_input?.command ?? '').trim();

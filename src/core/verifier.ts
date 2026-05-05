@@ -21,8 +21,25 @@ import { execFileSync } from 'child_process';
 import { randomBytes } from 'crypto';
 import { existsSync, statSync } from 'fs';
 import { isAbsolute, join, resolve } from 'path';
+import { readConfig } from './config.js';
 import { remember } from './operations.js';
 import { logSkillEvent } from './skill-usage-log.js';
+
+/**
+ * Resolve the agentic-orchestration opt-in flag.
+ * Precedence: env > config > default(false). Mirrors the helper in
+ * scripts/hooks/_shared.js so core and hooks treat this flag identically.
+ */
+function isAgenticOrchestrationEnabled(): boolean {
+  const envVal = process.env.MEMESH_ENABLE_AGENTIC_ORCHESTRATION;
+  if (envVal !== undefined) return envVal === '1';
+  try {
+    const cfg = readConfig();
+    return cfg.enableAgenticOrchestration === true;
+  } catch {
+    return false;
+  }
+}
 
 export interface ExternalCheck {
   pass: boolean;
@@ -237,7 +254,7 @@ export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkRes
   // but telemetry is gated by the same MEMESH_ENABLE_AGENTIC_ORCHESTRATION
   // flag that gates the banner and Bash nudge — opt-in to the experiment is
   // the user's consent to local usage logging.
-  if (process.env.MEMESH_ENABLE_AGENTIC_ORCHESTRATION === '1') {
+  if (isAgenticOrchestrationEnabled()) {
     logSkillEvent('verify_agent_work_invoked', {
       agent_id_hashed: safeAgentId.slice(0, 8),
       pass,
