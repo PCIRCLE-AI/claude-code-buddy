@@ -18,6 +18,13 @@ interface StoredUpdateCheck {
   lastSuccessfulCheckAt: string | null;
   lastError: string | null;
   checkSucceeded: boolean;
+  // The deprecation message npm has on the *current* installed version,
+  // or null if it isn't deprecated. Captured so the session-start
+  // banner can surface a "your version is deprecated, upgrade now"
+  // warning (a stronger nudge than the regular "update available" hint
+  // — used when the maintainers actively flagged a published version,
+  // typically for a security advisory).
+  currentVersionDeprecation: string | null;
 }
 
 export interface UpdateCheck {
@@ -31,6 +38,10 @@ export interface UpdateCheck {
   checkSucceeded: boolean;
   source: UpdateCheckSource;
   freshness: UpdateCheckFreshness;
+  /** True when npm has the current installed version flagged as deprecated. */
+  currentVersionDeprecated: boolean;
+  /** Maintainer-supplied deprecation message, or null when not deprecated. */
+  deprecationMessage: string | null;
 }
 
 interface CheckForUpdateOptions {
@@ -80,6 +91,14 @@ function buildResult(
   source: UpdateCheckSource,
   now: Date,
 ): UpdateCheck {
+  // The deprecation flag is only meaningful for the version we
+  // recorded it against. If the cache entry is from an older install
+  // (e.g. user upgraded outside `memesh update`), the recorded
+  // deprecation belongs to a different version — treat as unknown
+  // rather than misattribute it to the new install.
+  const deprecationMessage = stored.currentVersion === currentVersion
+    ? stored.currentVersionDeprecation
+    : null;
   return {
     currentVersion,
     latestVersion: stored.latestVersion,
@@ -91,6 +110,8 @@ function buildResult(
     checkSucceeded: stored.checkSucceeded,
     source,
     freshness: determineFreshness(source, stored.checkSucceeded, stored.lastSuccessfulCheckAt, now),
+    currentVersionDeprecated: deprecationMessage !== null,
+    deprecationMessage,
   };
 }
 
@@ -108,6 +129,7 @@ function parseStoredUpdateCheck(raw: unknown): StoredUpdateCheck | null {
   if ('lastError' in candidate && candidate.lastError !== null && typeof candidate.lastError !== 'string') return null;
   if ('checkSucceeded' in candidate && typeof candidate.checkSucceeded !== 'boolean') return null;
   if ('currentVersion' in candidate && candidate.currentVersion !== null && typeof candidate.currentVersion !== 'string') return null;
+  if ('currentVersionDeprecation' in candidate && candidate.currentVersionDeprecation !== null && typeof candidate.currentVersionDeprecation !== 'string') return null;
 
   const normalizedLatestVersion = latestVersion ?? null;
   const normalizedLastAttemptAt = lastAttemptAt ?? null;
@@ -123,6 +145,9 @@ function parseStoredUpdateCheck(raw: unknown): StoredUpdateCheck | null {
     lastSuccessfulCheckAt: normalizedLastSuccessfulCheckAt,
     lastError: typeof candidate.lastError === 'string' ? candidate.lastError : null,
     checkSucceeded,
+    currentVersionDeprecation: typeof candidate.currentVersionDeprecation === 'string'
+      ? candidate.currentVersionDeprecation
+      : null,
   };
 }
 
@@ -166,17 +191,40 @@ export async function checkForUpdate(
   const attemptedAt = now.toISOString();
 
   try {
-    const latest = await new Promise<string>((resolve, reject) => {
-      execFileImpl(
-        'npm',
-        ['show', '@pcircle/memesh', 'version'],
-        { timeout: timeoutMs },
-        (err, stdout) => {
-          if (err) reject(err);
-          else resolve(stdout.trim());
-        },
-      );
-    });
+    // Latest version (canonical) and current version's deprecation
+    // status are independent registry queries. Fetch both in parallel
+    // — the deprecation lookup is allowed to fail (we treat the
+    // failure as "not deprecated, but we don't know for sure" rather
+    // than blocking the whole check). One missing call is better than
+    // serialising two npm invocations on every session start.
+    const [latest, deprecationMessage] = await Promise.all([
+      new Promise<string>((resolve, reject) => {
+        execFileImpl(
+          'npm',
+          ['show', '@pcircle/memesh', 'version'],
+          { timeout: timeoutMs },
+          (err, stdout) => {
+            if (err) reject(err);
+            else resolve(stdout.trim());
+          },
+        );
+      }),
+      new Promise<string | null>((resolve) => {
+        execFileImpl(
+          'npm',
+          ['view', `@pcircle/memesh@${currentVersion}`, 'deprecated'],
+          { timeout: timeoutMs },
+          (err, stdout) => {
+            if (err) {
+              resolve(null);
+              return;
+            }
+            const trimmed = (stdout || '').trim();
+            resolve(trimmed.length > 0 ? trimmed : null);
+          },
+        );
+      }),
+    ]);
 
     const stored: StoredUpdateCheck = {
       currentVersion,
@@ -185,6 +233,7 @@ export async function checkForUpdate(
       lastSuccessfulCheckAt: attemptedAt,
       lastError: null,
       checkSucceeded: true,
+      currentVersionDeprecation: deprecationMessage,
     };
 
     writeStoredUpdateCheck(stored, updateCheckPath);
@@ -197,6 +246,13 @@ export async function checkForUpdate(
       lastSuccessfulCheckAt: previous?.lastSuccessfulCheckAt ?? null,
       lastError: summarizeError(err),
       checkSucceeded: false,
+      // Preserve the prior deprecation flag if it was for *this* same
+      // installed version — losing a known-deprecated flag on a
+      // transient network failure would silently dim the warning.
+      currentVersionDeprecation:
+        previous?.currentVersion === currentVersion
+          ? previous?.currentVersionDeprecation ?? null
+          : null,
     };
 
     writeStoredUpdateCheck(stored, updateCheckPath);
@@ -256,6 +312,15 @@ export function formatUpdateCheckStatus(update: UpdateCheck | null): string[] {
   }
 
   const lines: string[] = [];
+
+  // Deprecation warning leads — it's the highest-severity signal
+  // (maintainer flagged the installed version, often for a security
+  // advisory) and shouldn't be lost below an "up to date" / "update
+  // available" line that comes from the same data.
+  if (update.currentVersionDeprecated && update.deprecationMessage) {
+    lines.push(`⚠️  Installed version ${update.currentVersion} is DEPRECATED by maintainers: ${update.deprecationMessage}`);
+  }
+
   if (update.freshness === 'unavailable') {
     lines.push('Update check: unavailable');
   } else if (update.updateAvailable && update.latestVersion) {

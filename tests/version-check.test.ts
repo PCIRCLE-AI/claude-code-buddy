@@ -9,17 +9,33 @@ import {
   getUpdateCheck,
 } from '../src/core/version-check.js';
 
-function succeedWith(version: string) {
+/**
+ * Build a mock execFile that handles BOTH parallel calls in
+ * `checkForUpdate`:
+ *   1. `npm show @pcircle/memesh version`     → returns latest version
+ *   2. `npm view @pcircle/memesh@<v> deprecated` → returns the deprecation message
+ *
+ * Pass `deprecated: '...'` to simulate the maintainer-flagged case;
+ * default empty string means the version is healthy.
+ */
+function succeedWith(version: string, opts: { deprecated?: string } = {}) {
   return ((file: string, args: readonly string[] | undefined | null, optionsOrCallback: unknown, callbackMaybe?: unknown) => {
     expect(file).toBe('npm');
-    expect(args).toEqual(['show', '@pcircle/memesh', 'version']);
-
     const callback = typeof optionsOrCallback === 'function'
       ? optionsOrCallback
       : callbackMaybe;
-
     expect(typeof callback).toBe('function');
-    (callback as (err: Error | null, stdout: string) => void)(null, `${version}\n`);
+    const cb = callback as (err: Error | null, stdout: string) => void;
+
+    const cmd = args as readonly string[];
+    if (cmd[0] === 'show') {
+      expect(cmd).toEqual(['show', '@pcircle/memesh', 'version']);
+      cb(null, `${version}\n`);
+    } else if (cmd[0] === 'view' && cmd[2] === 'deprecated') {
+      cb(null, `${opts.deprecated ?? ''}\n`);
+    } else {
+      throw new Error(`Unexpected npm command: ${cmd.join(' ')}`);
+    }
     return {} as never;
   }) as typeof import('child_process').execFile;
 }
@@ -67,6 +83,8 @@ describe('version check', () => {
       checkSucceeded: true,
       source: 'fresh',
       freshness: 'fresh',
+      currentVersionDeprecated: false,
+      deprecationMessage: null,
     });
 
     const cached = getLastUpdateCheck('4.0.2', {
@@ -84,6 +102,8 @@ describe('version check', () => {
       checkSucceeded: true,
       source: 'cache',
       freshness: 'cached',
+      currentVersionDeprecated: false,
+      deprecationMessage: null,
     });
   });
 
@@ -111,6 +131,8 @@ describe('version check', () => {
       checkSucceeded: false,
       source: 'cache',
       freshness: 'cached',
+      currentVersionDeprecated: false,
+      deprecationMessage: null,
     });
 
     const cached = getLastUpdateCheck('4.0.2', {
@@ -128,6 +150,8 @@ describe('version check', () => {
       checkSucceeded: false,
       source: 'cache',
       freshness: 'cached',
+      currentVersionDeprecated: false,
+      deprecationMessage: null,
     });
   });
 
@@ -155,6 +179,8 @@ describe('version check', () => {
       checkSucceeded: false,
       source: 'cache',
       freshness: 'cached',
+      currentVersionDeprecated: false,
+      deprecationMessage: null,
     });
   });
 
@@ -182,6 +208,8 @@ describe('version check', () => {
       checkSucceeded: true,
       source: 'cache',
       freshness: 'cached',
+      currentVersionDeprecated: false,
+      deprecationMessage: null,
     });
   });
 
@@ -203,6 +231,8 @@ describe('version check', () => {
       checkSucceeded: false,
       source: 'fresh',
       freshness: 'unavailable',
+      currentVersionDeprecated: false,
+      deprecationMessage: null,
     });
 
     const cached = getLastUpdateCheck('4.0.2', {
@@ -220,6 +250,8 @@ describe('version check', () => {
       checkSucceeded: false,
       source: 'cache',
       freshness: 'unavailable',
+      currentVersionDeprecated: false,
+      deprecationMessage: null,
     });
   });
 
@@ -260,6 +292,8 @@ describe('version check', () => {
       checkSucceeded: true,
       source: 'fresh',
       freshness: 'fresh',
+      currentVersionDeprecated: false,
+      deprecationMessage: null,
     })).toEqual([
       '🔄 Update available: 4.0.3 (fresh; run: memesh update)',
     ]);
@@ -275,6 +309,8 @@ describe('version check', () => {
       checkSucceeded: false,
       source: 'cache',
       freshness: 'cached',
+      currentVersionDeprecated: false,
+      deprecationMessage: null,
     })).toEqual([
       'Update check: up to date (cached from 2026-04-24T10:00:00.000Z; latest 4.0.2)',
       'Last update check failed: timeout',
@@ -291,6 +327,8 @@ describe('version check', () => {
       checkSucceeded: false,
       source: 'fresh',
       freshness: 'unavailable',
+      currentVersionDeprecated: false,
+      deprecationMessage: null,
     })).toEqual([
       'Update check: unavailable',
       'Last update check failed: npm lookup failed',
@@ -307,9 +345,78 @@ describe('version check', () => {
       checkSucceeded: false,
       source: 'cache',
       freshness: 'stale',
+      currentVersionDeprecated: false,
+      deprecationMessage: null,
     })).toEqual([
       '🔄 Update available: 4.0.3 (stale cache from 2026-04-24T10:00:00.000Z; run: memesh update)',
       'Last update check failed: network blocked',
     ]);
+  });
+
+  it('captures the deprecation message when npm flags the installed version', async () => {
+    const result = await checkForUpdate('4.1.1', {
+      execFileImpl: succeedWith('4.1.2', {
+        deprecated: 'Security: HIGH polynomial-redos in bearer-auth header parser. Upgrade to 4.1.2+.',
+      }),
+      updateCheckPath,
+      now: new Date('2026-05-06T00:00:00.000Z'),
+    });
+    expect(result.currentVersionDeprecated).toBe(true);
+    expect(result.deprecationMessage).toBe(
+      'Security: HIGH polynomial-redos in bearer-auth header parser. Upgrade to 4.1.2+.'
+    );
+    expect(result.latestVersion).toBe('4.1.2');
+
+    // The cache must round-trip the deprecation message so a future
+    // session reads it without another network call.
+    const reread = getLastUpdateCheck('4.1.1', { updateCheckPath });
+    expect(reread?.currentVersionDeprecated).toBe(true);
+    expect(reread?.deprecationMessage).toContain('polynomial-redos');
+  });
+
+  it('formats a leading deprecation warning when the installed version is flagged', () => {
+    const lines = formatUpdateCheckStatus({
+      currentVersion: '4.1.1',
+      latestVersion: '4.1.2',
+      checkedAt: '2026-05-06T00:00:00.000Z',
+      lastAttemptAt: '2026-05-06T00:00:00.000Z',
+      lastSuccessfulCheckAt: '2026-05-06T00:00:00.000Z',
+      lastError: null,
+      updateAvailable: true,
+      checkSucceeded: true,
+      source: 'fresh',
+      freshness: 'fresh',
+      currentVersionDeprecated: true,
+      deprecationMessage: 'Security: HIGH polynomial-redos. Upgrade to 4.1.2+.',
+    });
+    // Deprecation warning must be the FIRST line so it isn't visually
+    // dominated by the regular "update available" banner.
+    expect(lines[0]).toContain('DEPRECATED');
+    expect(lines[0]).toContain('4.1.1');
+    expect(lines[0]).toContain('polynomial-redos');
+    // The "update available" line still appears after, so the user
+    // sees the upgrade target alongside the warning.
+    expect(lines.some((l) => l.includes('Update available: 4.1.2'))).toBe(true);
+  });
+
+  it('drops a stale deprecation flag when the installed version no longer matches', () => {
+    fs.writeFileSync(updateCheckPath, JSON.stringify({
+      currentVersion: '4.1.1',
+      latestVersion: '4.1.2',
+      lastAttemptAt: '2026-05-06T00:00:00.000Z',
+      lastSuccessfulCheckAt: '2026-05-06T00:00:00.000Z',
+      lastError: null,
+      checkSucceeded: true,
+      currentVersionDeprecation: 'Security: HIGH polynomial-redos. Upgrade to 4.1.2+.',
+    }));
+
+    // User upgraded out-of-band to 4.1.2; the cache still has the
+    // 4.1.1 deprecation message but we must NOT misattribute it.
+    const upgraded = getLastUpdateCheck('4.1.2', {
+      updateCheckPath,
+      now: new Date('2026-05-06T01:00:00.000Z'),
+    });
+    expect(upgraded?.currentVersionDeprecated).toBe(false);
+    expect(upgraded?.deprecationMessage).toBeNull();
   });
 });
