@@ -5,6 +5,16 @@ import { remember, recall } from './operations.js';
  * Create or update a structured lesson entity.
  * Uses lesson-{project}-{errorPattern} naming for upsert dedup.
  * Same error pattern = same entity = observations appended (not duplicated).
+ *
+ * SECURITY: this path runs from session-summary.js → analyzeFailure (LLM
+ * paraphrasing of error text from a session transcript). The transcript
+ * may contain attacker-controlled content (e.g. a malicious dependency
+ * printing prompt-injection text in its error output). The resulting
+ * lesson is therefore marked `trust: 'untrusted'` so
+ * `isTrustedForAutoContext()` filters it out of session-start auto-context
+ * injection. The lesson still lives in the DB and is searchable via
+ * explicit `recall`, but it does NOT get surfaced as proactive guidance
+ * unless a maintainer reviews it.
  */
 export function createLesson(
   lesson: StructuredLesson,
@@ -33,6 +43,8 @@ export function createLesson(
       `severity:${lesson.severity}`,
       'source:auto-learned',
     ],
+    trustOverride: 'untrusted',
+    provenanceOverride: { source: 'auto-learned' },
   });
 
   return { name, isNew };

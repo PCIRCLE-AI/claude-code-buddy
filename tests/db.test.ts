@@ -51,6 +51,33 @@ describe('Feature: Database Management', () => {
       const fk = db.prepare('PRAGMA foreign_keys').get() as any;
       expect(fk.foreign_keys).toBe(1);
     });
+
+    it('Given no database exists, When I open, Then file mode is 0o600 (POSIX)', () => {
+      // F1: SQLite DB contains all memory content. better-sqlite3's
+      // default mode is 644 (other local users can read). openDatabase
+      // must tighten to 600. Skip on Windows where chmod semantics differ.
+      if (process.platform === 'win32') return;
+      openDatabase(testDbPath);
+      // Force a write so the WAL sidecar exists too.
+      getDatabase().prepare("INSERT INTO entities (name, type) VALUES (?, ?)")
+        .run('chmod-probe', 'test');
+      const dbMode = fs.statSync(testDbPath).mode & 0o777;
+      expect(dbMode).toBe(0o600);
+      const walPath = `${testDbPath}-wal`;
+      if (fs.existsSync(walPath)) {
+        const walMode = fs.statSync(walPath).mode & 0o777;
+        expect(walMode).toBe(0o600);
+      }
+    });
+
+    it('Given a parent directory is created, Then it has mode 0o700 (POSIX)', () => {
+      if (process.platform === 'win32') return;
+      const nestedDir = path.join(testDir, 'fresh-memesh-dir');
+      const nestedDb = path.join(nestedDir, 'kg.db');
+      openDatabase(nestedDb);
+      const dirMode = fs.statSync(nestedDir).mode & 0o777;
+      expect(dirMode).toBe(0o700);
+    });
   });
 
   describe('Scenario: Open existing database', () => {

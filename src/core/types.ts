@@ -57,6 +57,13 @@ export interface RememberInput {
   tags?: string[];
   relations?: Array<{ to: string; type: string }>;
   namespace?: string;  // 'personal' | 'team' | 'global' (default: 'personal')
+  // Internal-only metadata override. Used by auto-learned lessons (LLM
+  // paraphrasing of session errors) to mark themselves `untrusted` so
+  // `isTrustedForAutoContext()` excludes them from session-start
+  // injection. Not exposed in the transport schemas — only callers
+  // inside core can set this.
+  trustOverride?: 'trusted' | 'untrusted';
+  provenanceOverride?: Record<string, unknown>;
 }
 
 export interface RecallInput {

@@ -45,6 +45,27 @@ describe('createLesson', () => {
     expect(entities[0].tags).toContain('severity:major');
   });
 
+  it('marks auto-learned lessons as untrusted (anti trust-laundering)', () => {
+    // F2 fix: lessons paraphrased by an LLM from session-transcript errors
+    // must not be `trusted`, otherwise a malicious dependency printing
+    // prompt-injection error text gets surfaced as authoritative guidance.
+    createLesson(mockLesson, 'myapp');
+    const entities = recall({ tag: 'error-pattern:null-reference' });
+    const meta = entities[0].metadata as { trust?: string; provenance?: { source?: string } } | undefined;
+    expect(meta?.trust).toBe('untrusted');
+    expect(meta?.provenance?.source).toBe('auto-learned');
+  });
+
+  it('marks explicit lessons (user-typed) as trusted', () => {
+    // The `learn` MCP tool / createExplicitLesson path is user-supplied
+    // text, so it remains `trusted` and IS surfaced at session-start.
+    createExplicitLesson('manual error', 'manual fix', 'myapp', { severity: 'major' });
+    const entities = recall({ tag: 'source:explicit' });
+    expect(entities.length).toBeGreaterThanOrEqual(1);
+    const meta = entities[0].metadata as { trust?: string } | undefined;
+    expect(meta?.trust).toBe('trusted');
+  });
+
   it('appends observations on duplicate error pattern (upsert)', () => {
     createLesson(mockLesson, 'myapp');
     const result2 = createLesson({ ...mockLesson, fix: 'Better fix applied' }, 'myapp');

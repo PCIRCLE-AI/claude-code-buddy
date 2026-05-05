@@ -50,6 +50,17 @@ describe('skill-usage-log: logSkillEvent', () => {
     expect(() => logSkillEvent('wont_write', {}, tmpDir)).not.toThrow();
   });
 
+  it('writes the log file with mode 0o600 (POSIX)', () => {
+    // F6 fix: telemetry contains timestamps + per-project hashed cwd
+    // and can profile user activity. On shared systems other local
+    // users must not be able to read it. Skip on Windows where chmod
+    // semantics differ.
+    if (process.platform === 'win32') return;
+    logSkillEvent('mode_check', {}, logPath);
+    const mode = fs.statSync(logPath).mode & 0o777;
+    expect(mode).toBe(0o600);
+  });
+
   it('truncates the head of the log when it grows past the cap', () => {
     // Pre-seed a 12 MB file with one-line records so rotation kicks in.
     // Single read after rotation captures both the new size and the new
