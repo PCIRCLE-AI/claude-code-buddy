@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { insertFtsRow } from '../storage/fts-index.js';
 
 const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const STALE_THRESHOLD_DAYS = 30;
@@ -187,10 +188,8 @@ export function compressWeeklyNoise(db: Database.Database): { compressed: number
       db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(
         summaryRow.id, obsText
       );
-      // Index in FTS5 so summary is searchable
-      db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(
-        summaryRow.id, summaryName, obsText
-      );
+      // Index in FTS5 so summary is searchable.
+      insertFtsRow(db, summaryRow.id, summaryName, obsText);
       // Copy project tags from originals
       const entityIdPlaceholders = entities.map(() => '?').join(',');
       const projectTags = db.prepare(`
