@@ -130,9 +130,16 @@ function logAutoUpdate(line) {
  * Returns the same string set as src/core/install-channel.ts:
  *   'npm-global' | 'npm-local' | 'source-checkout' | 'unknown'
  *
- * The hook can't import the typed core helper without paying the
- * dist boundary cost on every session start, so the heuristic is
- * inlined. Two truths to keep in sync with that core helper:
+ * Known limitation: globals at custom prefixes (e.g.
+ * `/opt/tools/node_modules/@pcircle/memesh` from `npm config set
+ * prefix /opt/tools`) fall through to 'unknown' here, even though
+ * `memesh status` correctly classifies them via `npm root -g`. As a
+ * result the auto-update spawn skips for that subset of valid
+ * global installs. Tracked for v4.1.4 — the proper fix is to share
+ * the dist install-channel detection (which already runs `npm root
+ * -g`) but that incurs a noticeable cost on every session-start.
+ *
+ * Two truths to keep in sync with the core helper:
  *   1. .git at the package root  → source-checkout
  *   2. path ends in `<sep>node_modules<sep>@pcircle<sep>memesh`,
  *      and a sibling-of-node_modules `lib` (POSIX) OR `npm` (Windows
@@ -285,19 +292,18 @@ function spawnFreshUpdateCheck() {
 
 /**
  * Run the post-banner update tasks: spawn auto-update if policy + cache
- * permit, and always refresh the cache for the next session. This MUST
- * run on every session-start exit path so a fresh install of a flagged
- * version still kicks off the security-override patch upgrade and the
- * next run starts with a fresh cache.
+ * permit, and always refresh the cache for the next session.
  *
- * On cache miss (very first session, or cache was deleted) we attempt
- * a SYNCHRONOUS short-deadline npm fetch via the dist module so the
- * security-override decision can fire on the *current* session. Without
- * this the first run on a freshly-installed deprecated version would
- * silently skip the override — protecting the user only on session 2.
- * The deadline is tight (3s wall-clock budget passed to the dist
- * helper's execFile timeout) so cold-cache session-starts pay at most
- * a one-time bounded cost.
+ * Known one-session delay (documented):
+ *   The very first session after install (or after the cache file is
+ *   deleted) emits the recall summary BEFORE this finally clause
+ *   runs, so a freshly-installed deprecated version sees no
+ *   deprecation banner on session 1. The detached refresh below
+ *   populates the cache for session 2, where the banner and the
+ *   security override fire normally. We deliberately don't do an
+ *   inline synchronous npm fetch here because that would block every
+ *   cold-cache session-start by ~3s for users whose installed version
+ *   is healthy — a worse trade for the common case.
  *
  * Idempotent guard: callers should not invoke twice for the same
  * session — duplicated `npm install -g` spawns would race. We use a
@@ -306,45 +312,25 @@ function spawnFreshUpdateCheck() {
  * over-spawning.
  */
 let __postBannerRan = false;
-async function runPostBannerUpdateTasks() {
+function runPostBannerUpdateTasks() {
   if (__postBannerRan) return;
   __postBannerRan = true;
   try {
     let installedVersion = null;
-    let pluginRoot = null;
     try {
-      pluginRoot = resolvePluginRoot(import.meta.url);
+      const pluginRoot = resolvePluginRoot(import.meta.url);
       const pkg = JSON.parse(readFileSync(join(pluginRoot, 'package.json'), 'utf8'));
       installedVersion = typeof pkg.version === 'string' ? pkg.version : null;
     } catch { /* best-effort */ }
     if (!installedVersion) return;
-
-    let cache = readUpdateCheckCache();
-
-    // First-run protection: when the cache is empty (or belongs to a
-    // different installed version), do a tight-budget inline fetch so
-    // the deprecation override can fire on this session instead of
-    // waiting for session 2. The dist module is already on disk via
-    // the noise-compression path, so the import cost is minimal.
-    if (!cache || cache.currentVersion !== installedVersion) {
-      try {
-        if (!pluginRoot) pluginRoot = resolvePluginRoot(import.meta.url);
-        const versionCheckMod = await import(join(pluginRoot, 'dist/core/version-check.js'));
-        await versionCheckMod.checkForUpdate(installedVersion, { timeoutMs: 3000 });
-        cache = readUpdateCheckCache();
-      } catch {
-        // Network/dist hiccup — accept one-session delay.
-      }
-    }
-
+    const cache = readUpdateCheckCache();
     const policy = resolveAutoUpdatePolicy(process.env);
     const decision = decideAutoUpdateHook(installedVersion, cache, policy);
     if (decision.run) {
       spawnAutoUpdate(decision.latest, decision.deprecationOverride);
     }
-    // Always also schedule a detached refresh — the inline fetch
-    // above used a 3s budget; a longer-running refresh in the
-    // background guarantees fresh data for the next session.
+    // Schedule a detached refresh to keep the cache fresh for the
+    // next session.
     spawnFreshUpdateCheck();
   } catch {
     // Best-effort — never crash the hook on a network or fs hiccup.
@@ -718,7 +704,7 @@ process.stdin.on('end', async () => {
     // happy path, or even a thrown error caught above. The
     // function is single-shot per process so the duplicated
     // late-path call from older versions is now idempotent.
-    await runPostBannerUpdateTasks();
+    runPostBannerUpdateTasks();
   }
 });
 
