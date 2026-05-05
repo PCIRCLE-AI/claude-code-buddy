@@ -266,6 +266,26 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             <div style={{ marginTop: 4, opacity: 0.9 }}>{updateStatus.deprecationMessage}</div>
           </div>
         )}
+        {updateStatus && updateStatus.checkSucceeded && updateStatus.lastError && (
+          <div
+            style={{
+              background: 'rgba(255, 200, 87, 0.08)',
+              border: '1px solid rgba(255, 200, 87, 0.4)',
+              borderRadius: 4,
+              padding: '10px 12px',
+              marginBottom: 12,
+              fontSize: 12,
+              color: 'var(--text-0)',
+              lineHeight: 1.55,
+            }}
+            data-testid="settings-update-partial-warning"
+          >
+            <strong style={{ color: 'var(--warning)' }}>⚠️ Update check partial</strong>
+            <div style={{ marginTop: 4, opacity: 0.9 }}>
+              {updateStatus.lastError}. Deprecation status is unknown for this session — re-run the check while online.
+            </div>
+          </div>
+        )}
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'baseline', marginBottom: 12, flexWrap: 'wrap' }}>
           <div style={{ color: updateSummaryColor, fontSize: 13, fontWeight: 600 }}>{updateSummary}</div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
