@@ -355,15 +355,19 @@ async function inspectUpdateStatus(
   // Partial-failure surfaces with checkSucceeded=true + lastError
   // populated (deprecation sub-call timed out / blocked, version
   // lookup answered). Doctor must NOT report a clean pass in that
-  // case — the security signal is genuinely unknown.
+  // case — the security signal is genuinely unknown. But the
+  // version lookup DID answer, so include the actionable update
+  // info if there's a newer version, instead of suppressing
+  // the user's clearest path forward.
   if (update.checkSucceeded && update.lastError) {
-    return createCheck(
-      'update-status',
-      'Update status',
-      'warn',
-      `Deprecation status unknown for ${packageVersion}: ${update.lastError}.`,
-      'Run `memesh status` while online to retry the deprecation lookup.',
-    );
+    const hasUpdate = update.updateAvailable && update.latestVersion;
+    const summary = hasUpdate
+      ? `Deprecation status unknown for ${packageVersion}: ${update.lastError}. Update ${update.latestVersion} is available.`
+      : `Deprecation status unknown for ${packageVersion}: ${update.lastError}.`;
+    const fix = hasUpdate
+      ? `Run \`memesh status\` while online to retry the deprecation lookup, or \`memesh update\` to apply ${update.latestVersion}.`
+      : 'Run `memesh status` while online to retry the deprecation lookup.';
+    return createCheck('update-status', 'Update status', 'warn', summary, fix);
   }
 
   if (update.updateAvailable && update.latestVersion) {

@@ -284,18 +284,27 @@ export async function checkForUpdate(
     ]);
 
     // If the deprecation lookup failed but the version lookup
-    // succeeded, hold on to the previous deprecation flag *only when
-    // it was for the same installed version*. Otherwise we'd persist
-    // a flag belonging to an older install.
-    const hasInheritablePrior =
-      previous?.currentVersion === currentVersion
-      && (previous?.currentVersionDeprecation ?? null) !== null;
+    // succeeded, hold on to the previously-known deprecation flag.
+    // We re-read the cache here (not just the `previous` snapshot
+    // taken at function entry) because a concurrent refresh in
+    // another process may have written a successful deprecation
+    // after we took our snapshot. Without the re-read, our
+    // partial-failure write would overwrite the peer's deprecation
+    // with null, losing the security flag. Only preserve when the
+    // recorded version still matches the installed one.
+    const refreshed = deprecationOutcome.outcome === 'failed'
+      ? readStoredUpdateCheck(updateCheckPath)
+      : null;
+    const inheritedDeprecation = refreshed?.currentVersion === currentVersion
+      ? refreshed?.currentVersionDeprecation ?? null
+      : previous?.currentVersion === currentVersion
+        ? previous?.currentVersionDeprecation ?? null
+        : null;
+    const hasInheritablePrior = inheritedDeprecation !== null;
     const resolvedDeprecation: string | null =
       deprecationOutcome.outcome === 'ok'
         ? deprecationOutcome.message
-        : hasInheritablePrior
-          ? previous!.currentVersionDeprecation ?? null
-          : null;
+        : inheritedDeprecation;
 
     // When the deprecation lookup failed AND we have no prior flag
     // to inherit, the deprecation status is genuinely UNKNOWN — not

@@ -129,16 +129,28 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   const isCheckingUpdates = updateLoading || (updateRefreshing && !updateStatus);
   const updateActionInProgress = updateLoading || updateRefreshing;
   const isDeprecated = Boolean(updateStatus?.currentVersionDeprecated);
+  const hasUpdateTarget = Boolean(
+    updateStatus?.latestVersion
+    && updateStatus.latestVersion !== updateStatus.currentVersion,
+  );
   // A maintainer-deprecated install is never "up to date" — even
   // when no newer version has been published yet. The primary
   // summary line and color must reflect that so the green "all
-  // clear" state can't contradict the deprecation card above.
+  // clear" state can't contradict the deprecation card above. But
+  // we also can't claim "Update available" when there's no actual
+  // newer version published; in that rare case (deprecation lands
+  // before the replacement does), keep the deprecation banner card
+  // doing the talking and label the summary "Deprecated — no
+  // upgrade target yet" so the user understands `memesh update`
+  // would no-op.
   const updateSummary = isCheckingUpdates
     ? t('settings.updateChecking')
     : !updateStatus
       ? t('settings.updateUnavailable')
       : isDeprecated
-        ? t('settings.updateAvailable')  // banner card carries the full message
+        ? hasUpdateTarget
+          ? t('settings.updateAvailable')
+          : 'Deprecated — no upgrade target yet'
         : updateStatus.freshness === 'unavailable'
           ? t('settings.updateNoSuccessfulChecks')
           : !updateStatus.checkSucceeded && updateStatus.freshness === 'stale'
