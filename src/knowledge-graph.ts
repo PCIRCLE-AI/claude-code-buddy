@@ -1,6 +1,8 @@
 import Database from 'better-sqlite3';
 export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
 import type { Entity, Relation, CreateEntityInput, SearchOptions, EntityRow } from './core/types.js';
+import { findConflicts, trackAccess } from './storage/conflicts.js';
+import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
 
 export class KnowledgeGraph {
   constructor(private db: Database.Database) {}
@@ -413,46 +415,18 @@ export class KnowledgeGraph {
   /**
    * Increment access_count and update last_accessed_at for entities.
    * Called after search/recall returns results.
+   * Delegates to storage/conflicts.ts::trackAccess for shared use.
    */
   trackAccess(entityIds: number[]): void {
-    if (entityIds.length === 0) return;
-    const now = new Date().toISOString();
-    const stmt = this.db.prepare(
-      'UPDATE entities SET access_count = access_count + 1, last_accessed_at = ? WHERE id = ?'
-    );
-    const txn = this.db.transaction(() => {
-      for (const id of entityIds) {
-        stmt.run(now, id);
-      }
-    });
-    txn();
+    trackAccess(this.db, entityIds);
   }
 
   /**
    * Find contradicting entity pairs in a set of results.
-   * Returns array of conflict descriptions.
+   * Delegates to storage/conflicts.ts::findConflicts.
    */
   findConflicts(entityNames: string[]): string[] {
-    if (entityNames.length < 2) return [];
-
-    const conflicts: string[] = [];
-    const placeholders = entityNames.map(() => '?').join(',');
-
-    const rows = this.db.prepare(`
-      SELECT e_from.name AS from_name, e_to.name AS to_name
-      FROM relations r
-      JOIN entities e_from ON r.from_entity_id = e_from.id
-      JOIN entities e_to ON r.to_entity_id = e_to.id
-      WHERE r.relation_type = 'contradicts'
-        AND e_from.name IN (${placeholders})
-        AND e_to.name IN (${placeholders})
-    `).all(...entityNames, ...entityNames) as Array<{ from_name: string; to_name: string }>;
-
-    for (const row of rows) {
-      conflicts.push(`"${row.from_name}" contradicts "${row.to_name}"`);
-    }
-
-    return conflicts;
+    return findConflicts(this.db, entityNames);
   }
 
   listRecent(limit?: number, includeArchived?: boolean, namespace?: string): Entity[] {
@@ -539,15 +513,7 @@ export class KnowledgeGraph {
       .all(row.id) as { content: string }[];
     const obsText = allObs.map((o) => o.content).join(' ');
 
-    try {
-      this.db
-        .prepare(
-          "INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)"
-        )
-        .run(row.id, name, obsText);
-    } catch {
-      // FTS entry may not exist if already archived — ignore
-    }
+    removeFromFts(this.db, row.id, name, obsText);
 
     // CRITICAL: Remove from vector index (archived entities should not be retrievable via vector search)
     try {
@@ -606,17 +572,13 @@ export class KnowledgeGraph {
 
     if (!row) return { deleted: false };
 
-    // Delete FTS entry first (contentless FTS5 requires special delete syntax)
-    // Need to supply the original indexed values for the delete to work
+    // Delete FTS entry first (contentless FTS5 requires the original
+    // indexed values to find the row — see storage/fts-index.ts).
     const allObs = this.db
       .prepare('SELECT content FROM observations WHERE entity_id = ?')
       .all(row.id) as { content: string }[];
     const obsText = allObs.map((o) => o.content).join(' ');
-    this.db
-      .prepare(
-        "INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)"
-      )
-      .run(row.id, name, obsText);
+    removeFromFts(this.db, row.id, name, obsText);
 
     // Delete entity (CASCADE handles observations, relations, tags)
     this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);
@@ -639,21 +601,13 @@ export class KnowledgeGraph {
     entityName: string,
     previousObsText?: string
   ): void {
-    // Contentless FTS5 requires supplying original values for delete.
-    // If there was a previous entry, delete it first.
     if (previousObsText !== undefined) {
-      this.db
-        .prepare(
-          "INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)"
-        )
-        .run(entityId, entityName, previousObsText);
+      removeFromFts(this.db, entityId, entityName, previousObsText);
     }
     const allObs = this.db
       .prepare('SELECT content FROM observations WHERE entity_id = ?')
       .all(entityId) as { content: string }[];
     const obsText = allObs.map((o) => o.content).join(' ');
-    this.db
-      .prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)')
-      .run(entityId, entityName, obsText);
+    insertFtsRow(this.db, entityId, entityName, obsText);
   }
 }
