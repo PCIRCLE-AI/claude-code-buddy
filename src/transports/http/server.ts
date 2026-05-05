@@ -39,7 +39,10 @@ const app = express();
 app.use(express.json({ limit: '1mb' }));
 
 // --- Rate limiting (CodeQL security requirement) ---
-// Protects against DoS attacks and API abuse
+// Protects against DoS attacks and API abuse.
+// IMPORTANT: registered AFTER bearerAuth below so that an unauthenticated
+// attacker cannot drain the rate-limit budget for legitimate clients
+// sharing an IP. Express runs middleware in registration order.
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Limit each IP to 100 requests per windowMs
@@ -47,9 +50,6 @@ const apiLimiter = rateLimit({
   legacyHeaders: false, // Disable `X-RateLimit-*` headers
   message: 'Too many requests from this IP, please try again later.',
 });
-
-// Apply rate limiting to all API routes
-app.use('/v1/', apiLimiter);
 
 // --- Bearer-token auth (only enforced when bound to non-loopback) ---
 // F3: when --allow-remote is set, the API was previously exposing the
@@ -72,17 +72,37 @@ function loadOrCreateRemoteToken(): { token: Buffer; freshlyCreated: boolean } {
   const tokenPath = path.join(dir, 'remote-token');
   fs.mkdirSync(dir, { recursive: true });
   try { fs.chmodSync(dir, 0o700); } catch { /* non-POSIX */ }
-  if (fs.existsSync(tokenPath)) {
-    const value = fs.readFileSync(tokenPath, 'utf8').trim();
-    if (value.length >= 16) {
-      try { fs.chmodSync(tokenPath, 0o600); } catch { /* non-POSIX */ }
-      return { token: Buffer.from(value, 'utf8'), freshlyCreated: false };
-    }
-  }
+
+  // Race-free create: try O_EXCL first. If two memesh-http instances
+  // launch simultaneously, exactly one wins the create; the loser falls
+  // through to the read branch and uses the winner's token. Without
+  // this, both could randomBytes()+writeFileSync() and the in-memory
+  // token of one server would not match what's on disk for the other.
   const generated = randomBytes(32).toString('hex');
-  fs.writeFileSync(tokenPath, generated + '\n', { mode: 0o600 });
+  try {
+    const fd = fs.openSync(tokenPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+    try {
+      fs.writeFileSync(fd, generated + '\n');
+    } finally {
+      fs.closeSync(fd);
+    }
+    try { fs.chmodSync(tokenPath, 0o600); } catch { /* non-POSIX */ }
+    return { token: Buffer.from(generated, 'utf8'), freshlyCreated: true };
+  } catch (err: any) {
+    if (err?.code !== 'EEXIST') throw err;
+    // File already exists — fall through to read it.
+  }
+
+  const value = fs.readFileSync(tokenPath, 'utf8').trim();
+  if (value.length < 16) {
+    // Existing file is too short / corrupted. Don't silently overwrite —
+    // tell the operator so they can decide whether to delete and restart.
+    throw new Error(
+      `Existing ${tokenPath} is too short (<16 chars). Delete it and restart memesh-http to regenerate.`
+    );
+  }
   try { fs.chmodSync(tokenPath, 0o600); } catch { /* non-POSIX */ }
-  return { token: Buffer.from(generated, 'utf8'), freshlyCreated: true };
+  return { token: Buffer.from(value, 'utf8'), freshlyCreated: false };
 }
 
 function constantTimeEquals(a: Buffer, b: Buffer): boolean {
@@ -118,8 +138,11 @@ function bearerAuth(req: Request, res: Response, next: NextFunction): void {
 
 // Auth applies to all /v1/* and /dashboard. /favicon.ico is unauthed
 // (browsers fetch it before any header is set).
+// Order matters: bearerAuth FIRST, then apiLimiter — otherwise an unauth
+// attacker can burn legitimate clients' rate-limit budget.
 app.use('/v1/', bearerAuth);
 app.use('/dashboard', bearerAuth);
+app.use('/v1/', apiLimiter);
 
 app.get('/favicon.ico', (_req, res) => {
   res.status(204).end();
