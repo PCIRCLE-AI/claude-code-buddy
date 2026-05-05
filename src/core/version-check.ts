@@ -75,13 +75,17 @@ function determineFreshness(
   checkSucceeded: boolean,
   lastSuccessfulCheckAt: string | null,
   now: Date,
-  lastError: string | null,
 ): UpdateCheckFreshness {
+  // "lastSuccessfulCheckAt" tracks the last time the version lookup
+  // answered (which is what every consumer needs to render
+  // "Update available" / "up to date" lines). Partial deprecation
+  // failures are surfaced separately through `lastError`; they
+  // don't suppress freshness, since callers who key off
+  // freshness === 'unavailable' would otherwise hide an actionable
+  // latestVersion just because npm couldn't answer the deprecation
+  // sub-call.
   if (!lastSuccessfulCheckAt) return 'unavailable';
-  // A partial-failure (version known, deprecation unknown) leaves
-  // lastError set even though checkSucceeded stays true. Don't
-  // label it 'fresh' — the security signal didn't refresh.
-  if (source === 'fresh' && checkSucceeded && !lastError) return 'fresh';
+  if (source === 'fresh' && checkSucceeded) return 'fresh';
 
   const successfulAt = parseIsoDate(lastSuccessfulCheckAt);
   if (successfulAt === null) return 'unavailable';
@@ -117,7 +121,7 @@ function buildResult(
     updateAvailable: stored.latestVersion !== null && stored.latestVersion !== currentVersion,
     checkSucceeded: stored.checkSucceeded,
     source,
-    freshness: determineFreshness(source, stored.checkSucceeded, stored.lastSuccessfulCheckAt, now, lastError),
+    freshness: determineFreshness(source, stored.checkSucceeded, stored.lastSuccessfulCheckAt, now),
     currentVersionDeprecated: deprecationMessage !== null,
     deprecationMessage,
   };
@@ -279,22 +283,18 @@ export async function checkForUpdate(
     const partialDeprecationFailure =
       deprecationOutcome.outcome === 'failed' && !hasInheritablePrior;
 
-    // Freshness rule: only advance lastSuccessfulCheckAt when BOTH
-    // the version lookup AND the deprecation lookup answered. A
-    // partial-failure where the deprecation status is unknown must
-    // not mark the cache as fresh — otherwise the next session
-    // treats it as up-to-date for 24h, and a deprecation that
-    // arose during the network gap goes undetected. We still
-    // advance lastAttemptAt and the latestVersion so `memesh
-    // update` can act, but freshness gating keeps the deprecation
-    // banner honest.
+    // Freshness tracks the version lookup. The deprecation
+    // sub-call's outcome is surfaced via lastError (and via the
+    // version-aware staleness gate in decideAutoUpdateHook), so
+    // partial failure doesn't have to suppress the version-fresh
+    // signal. Hiding latestVersion just because deprecation timed
+    // out would tell the user "update unavailable" while in fact
+    // memesh update could still apply the upgrade.
     const stored: StoredUpdateCheck = {
       currentVersion,
       latestVersion: latest,
       lastAttemptAt: attemptedAt,
-      lastSuccessfulCheckAt: partialDeprecationFailure
-        ? previous?.lastSuccessfulCheckAt ?? null
-        : attemptedAt,
+      lastSuccessfulCheckAt: attemptedAt,
       lastError: partialDeprecationFailure
         ? 'deprecation lookup failed (status unknown)'
         : null,
