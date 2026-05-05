@@ -1,0 +1,66 @@
+name: Deprecate npm version
+
+# Manually-triggered helper. Lets a maintainer mark a published
+# version as deprecated (for security advisories or stale releases)
+# without needing local 2FA / OTP — auth flows through the existing
+# NPM_TOKEN secret that the publish workflow already uses. The token
+# must be a Granular Access Token with publish/deprecate scope, or a
+# legacy Automation token (skips 2FA prompts).
+#
+# All workflow_dispatch inputs flow through env vars rather than being
+# interpolated directly into run: blocks. This keeps the workflow safe
+# even though only authenticated maintainers can trigger it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deprecate (e.g. 4.1.1)'
+        required: true
+        type: string
+      message:
+        description: 'Deprecation message shown by `npm install`'
+        required: true
+        type: string
+
+jobs:
+  deprecate:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    env:
+      TARGET_VERSION: ${{ inputs.version }}
+      DEPRECATE_MESSAGE: ${{ inputs.message }}
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Confirm target version exists on npm
+        run: npm view "@pcircle/memesh@${TARGET_VERSION}" version
+
+      - name: Run npm deprecate
+        run: |
+          npm deprecate "@pcircle/memesh@${TARGET_VERSION}" "${DEPRECATE_MESSAGE}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Verify deprecation message recorded on registry
+        run: |
+          set -e
+          for i in 1 2 3 4 5 6; do
+            recorded=$(npm view "@pcircle/memesh@${TARGET_VERSION}" deprecated || true)
+            if [ -n "$recorded" ]; then
+              echo "Deprecation message on npm:"
+              echo "$recorded"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Deprecation did not surface on npm within 30s — investigate." >&2
+          exit 1
