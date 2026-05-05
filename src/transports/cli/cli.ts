@@ -12,6 +12,19 @@ import { readConfig, updateConfig, maskApiKey, detectCapabilities } from '../../
 import { flushPendingEmbeddings } from '../../core/embedder.js';
 import type { LessonSeverity, MergeStrategy } from '../../core/types.js';
 
+// DX: every CLI command that touches the DB used to repeat
+//   openDatabase(); try { ...body... } finally { closeDatabase(); }
+// withDatabase factors that into one place so future commands cannot
+// forget the close. Async-friendly via Promise return type.
+async function withDatabase<T>(fn: () => T | Promise<T>): Promise<T> {
+  openDatabase();
+  try {
+    return await fn();
+  } finally {
+    closeDatabase();
+  }
+}
+
 const packageJsonPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../package.json'
@@ -71,8 +84,7 @@ program
       process.exit(1);
     }
 
-    openDatabase();
-    try {
+    await withDatabase(async () => {
       const result = remember({
         name: opts.name,
         type: opts.type,
@@ -86,9 +98,7 @@ program
         console.log(`✅ Stored "${result.name}" (${result.observations} observations, ${result.tags} tags)`);
       }
       await flushPendingEmbeddings();
-    } finally {
-      closeDatabase();
-    }
+    });
   });
 
 // --- recall ---
@@ -103,8 +113,7 @@ program
   .option('--cross-project', 'Search across all project tags (ignores --tag filter)')
   .option('--json', 'Output as JSON')
   .action(async (query, opts) => {
-    openDatabase();
-    try {
+    await withDatabase(async () => {
       // recallEnhanced: uses LLM query expansion when configured, falls back otherwise
       const entities = await recallEnhanced({
         query: query || undefined,
@@ -144,9 +153,7 @@ program
           }
         }
       }
-    } finally {
-      closeDatabase();
-    }
+    });
   });
 
 // --- forget ---
@@ -156,9 +163,8 @@ program
   .requiredOption('--name <name>', 'Entity name')
   .option('--observation <text>', 'Remove specific observation only')
   .option('--json', 'Output as JSON')
-  .action((opts) => {
-    openDatabase();
-    try {
+  .action(async (opts) => {
+    await withDatabase(() => {
       const result = forget({
         name: opts.name,
         observation: opts.observation,
@@ -172,9 +178,7 @@ program
       } else {
         console.log(`Entity "${opts.name}" not found`);
       }
-    } finally {
-      closeDatabase();
-    }
+    });
   });
 
 // --- consolidate ---
@@ -186,8 +190,7 @@ program
   .option('--min-obs <n>', 'Minimum observations to trigger (default: 5)', '5')
   .option('--json', 'Output as JSON')
   .action(async (opts) => {
-    openDatabase();
-    try {
+    await withDatabase(async () => {
       const result = await consolidate({
         name: opts.name,
         tag: opts.tag,
@@ -218,9 +221,7 @@ program
           console.log(`Processed: ${result.entities_processed.join(', ')}`);
         }
       }
-    } finally {
-      closeDatabase();
-    }
+    });
   });
 
 // --- export ---
@@ -230,18 +231,15 @@ program
   .option('--tag <tag>', 'Export only entities with this tag')
   .option('--namespace <ns>', 'Export only from this namespace (personal, team, global)')
   .option('--limit <n>', 'Max entities to export', '1000')
-  .action((opts) => {
-    openDatabase();
-    try {
+  .action(async (opts) => {
+    await withDatabase(() => {
       const result = exportMemories({
         tag: opts.tag,
         namespace: opts.namespace,
         limit: parseInt(opts.limit),
       });
       console.log(JSON.stringify(result, null, 2));
-    } finally {
-      closeDatabase();
-    }
+    });
   });
 
 // --- import ---
@@ -251,9 +249,8 @@ program
   .argument('<file>', 'Path to JSON export file')
   .option('--namespace <ns>', 'Override namespace for all imported entities')
   .option('--merge <strategy>', 'Merge strategy: skip | overwrite | append', 'skip')
-  .action((file, opts) => {
-    openDatabase();
-    try {
+  .action(async (file, opts) => {
+    await withDatabase(() => {
       // DX: catch the failures new users hit first (missing file,
       // malformed JSON) and produce problem+cause+fix output instead
       // of a raw stack trace. The previous behaviour leaked
@@ -298,9 +295,7 @@ program
         console.error(`Errors:\n  ${result.errors.join('\n  ')}`);
         process.exitCode = 1;
       }
-    } finally {
-      closeDatabase();
-    }
+    });
   });
 
 // --- learn ---
@@ -313,9 +308,8 @@ program
   .option('--prevention <text>', 'How to prevent it next time')
   .option('--severity <level>', 'Severity: critical|major|minor', 'minor')
   .option('--json', 'Output as JSON')
-  .action((opts) => {
-    openDatabase();
-    try {
+  .action(async (opts) => {
+    await withDatabase(() => {
       const result = learn({
         error: opts.error,
         fix: opts.fix,
@@ -328,9 +322,7 @@ program
       } else {
         console.log(`Lesson recorded: ${result.name}`);
       }
-    } finally {
-      closeDatabase();
-    }
+    });
   });
 
 // --- verify ---
@@ -342,9 +334,8 @@ program
   .option('--expected-files <n>', 'Number of files the agent claimed to change', (v) => parseInt(v, 10))
   .option('--report <path>', 'Path to a JSON file with pre-computed report (typecheck/tests/lint/build)')
   .option('--json', 'Output as JSON')
-  .action((workdir, opts) => {
-    openDatabase();
-    try {
+  .action(async (workdir, opts) => {
+    await withDatabase(() => {
       let externalReport;
       if (opts.report) {
         const raw = fs.readFileSync(opts.report, 'utf8');
@@ -365,9 +356,7 @@ program
         console.log(`  reality: ${result.reality_check.summary}`);
       }
       process.exit(result.pass ? 0 : 1);
-    } finally {
-      closeDatabase();
-    }
+    });
   });
 
 // --- config ---
@@ -544,26 +533,25 @@ program
   .option('--namespace <namespace>', 'Reindex only entities in this namespace')
   .option('--json', 'Output as JSON')
   .action(async (opts) => {
-    openDatabase();
     try {
-      const result = await reindex({ namespace: opts.namespace });
+      await withDatabase(async () => {
+        const result = await reindex({ namespace: opts.namespace });
 
-      if (opts.json) {
-        console.log(JSON.stringify(result));
-      } else {
-        console.log(`✅ Reindex complete:`);
-        console.log(`   Processed: ${result.processed}`);
-        console.log(`   Embedded:  ${result.embedded}`);
-        console.log(`   Skipped:   ${result.skipped}`);
-      }
+        if (opts.json) {
+          console.log(JSON.stringify(result));
+        } else {
+          console.log(`✅ Reindex complete:`);
+          console.log(`   Processed: ${result.processed}`);
+          console.log(`   Embedded:  ${result.embedded}`);
+          console.log(`   Skipped:   ${result.skipped}`);
+        }
+      });
     } catch (err) {
       if (err instanceof Error) {
         console.error(`❌ Reindex failed: ${err.message}`);
         process.exit(1);
       }
       throw err;
-    } finally {
-      closeDatabase();
     }
   });
 
