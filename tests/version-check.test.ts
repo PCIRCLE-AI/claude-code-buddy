@@ -52,6 +52,30 @@ function failLookup(message = 'npm unavailable') {
   }) as typeof import('child_process').execFile;
 }
 
+/**
+ * Mock where the main `npm show version` call succeeds but the
+ * secondary `npm view <v> deprecated` call fails. Used to verify
+ * that a transient deprecation-only network failure does NOT clear
+ * a previously-cached deprecation flag.
+ */
+function partialFailDeprecationOnly(version: string) {
+  return ((file: string, args: readonly string[] | undefined | null, optionsOrCallback: unknown, callbackMaybe?: unknown) => {
+    expect(file).toBe('npm');
+    const callback = typeof optionsOrCallback === 'function'
+      ? optionsOrCallback
+      : callbackMaybe;
+    const cmd = args as readonly string[];
+    if (cmd[0] === 'show') {
+      (callback as (err: Error | null, stdout: string) => void)(null, `${version}\n`);
+    } else if (cmd[0] === 'view' && cmd[2] === 'deprecated') {
+      (callback as (err: Error) => void)(new Error('deprecation lookup timed out'));
+    } else {
+      throw new Error(`Unexpected npm command: ${cmd.join(' ')}`);
+    }
+    return {} as never;
+  }) as typeof import('child_process').execFile;
+}
+
 describe('version check', () => {
   let testDir: string;
   let updateCheckPath: string;
@@ -397,6 +421,40 @@ describe('version check', () => {
     // The "update available" line still appears after, so the user
     // sees the upgrade target alongside the warning.
     expect(lines.some((l) => l.includes('Update available: 4.1.2'))).toBe(true);
+  });
+
+  it('preserves a cached deprecation flag when only the deprecation lookup fails (P1.2)', async () => {
+    // Codex review (2026-05-06) caught this: the deprecation Promise
+    // used to resolve to null on failure, and the success branch wrote
+    // that null back to the cache. A transient deprecation-only
+    // network hiccup silently cleared the security warning. Now
+    // the success branch preserves the previously-cached deprecation
+    // when it was for the same installed version.
+    //
+    // Step 1: seed the cache with a known deprecation for 4.1.1.
+    await checkForUpdate('4.1.1', {
+      execFileImpl: succeedWith('4.1.2', {
+        deprecated: 'Security: HIGH polynomial-redos. Upgrade to 4.1.2+.',
+      }),
+      updateCheckPath,
+      now: new Date('2026-05-06T00:00:00.000Z'),
+    });
+
+    // Step 2: re-check, but the deprecation lookup fails (timeout/
+    // network hiccup) while the version lookup succeeds.
+    const followup = await checkForUpdate('4.1.1', {
+      execFileImpl: partialFailDeprecationOnly('4.1.2'),
+      updateCheckPath,
+      now: new Date('2026-05-06T01:00:00.000Z'),
+    });
+    expect(followup.checkSucceeded).toBe(true);
+    expect(followup.currentVersionDeprecated).toBe(true);
+    expect(followup.deprecationMessage).toContain('polynomial-redos');
+
+    // And the cache must persist the flag for the *next* session.
+    const cached = getLastUpdateCheck('4.1.1', { updateCheckPath });
+    expect(cached?.currentVersionDeprecated).toBe(true);
+    expect(cached?.deprecationMessage).toContain('polynomial-redos');
   });
 
   it('drops a stale deprecation flag when the installed version no longer matches', () => {

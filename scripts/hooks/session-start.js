@@ -123,15 +123,60 @@ function logAutoUpdate(line) {
 }
 
 /**
+ * Detect the install channel of the running memesh binary. Mirrors
+ * `src/core/install-channel.ts` heuristics so the hook can decide
+ * without paying the dist-import cost (the answer is one heuristic
+ * call; not worth threading dist for it).
+ *
+ * Returns the same string set as the typed core helper:
+ *   'npm-global' | 'npm-local' | 'source-checkout' | 'unknown'
+ */
+function detectInstallChannelHook(pluginRoot) {
+  try {
+    // Source checkout: a .git directory at the package root means
+    // the user is running from a clone, not an installed binary.
+    if (existsSync(join(pluginRoot, '.git'))) return 'source-checkout';
+    // Heuristic for npm-global: `<prefix>/lib/node_modules/@pcircle/memesh`.
+    // We can't reliably probe `npm prefix -g` from inside the hook
+    // without spawning npm, so we do a path-shape check.
+    if (/[\\/]node_modules[\\/]@pcircle[\\/]memesh$/.test(pluginRoot)
+        && /[\\/]lib[\\/]node_modules[\\/]@pcircle[\\/]memesh$/.test(pluginRoot)) {
+      return 'npm-global';
+    }
+    if (/[\\/]node_modules[\\/]@pcircle[\\/]memesh$/.test(pluginRoot)) {
+      return 'npm-local';
+    }
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
  * Spawn `npm install -g @pcircle/memesh@<version>` detached so the
  * upgrade can finish after this hook returns. We never block the
  * session on the install — the running process keeps its current
  * binary; the next session picks up the new one. Argv is an array
  * (no shell interpolation), so the version string can never escape
  * into a shell command.
+ *
+ * The auto-update path only fires when the active install is
+ * `npm-global`. Source checkouts and project-local installs would
+ * silently create a *new* global install while the active copy
+ * stayed unchanged, which is both surprising and ineffective —
+ * those install shapes update via their own mechanism (git pull +
+ * rebuild, project npm install).
  */
 function spawnAutoUpdate(version, deprecationOverride) {
   try {
+    const pluginRoot = resolvePluginRoot(import.meta.url);
+    const channel = detectInstallChannelHook(pluginRoot);
+    if (channel !== 'npm-global') {
+      logAutoUpdate(
+        `auto-update SKIPPED: install channel '${channel}' does not support self-update via npm install -g`
+      );
+      return false;
+    }
     const dir = getMemeshDir(process.env);
     ensurePrivateDir(dir);
     const logPath = join(dir, 'auto-update.log');
@@ -158,10 +203,12 @@ function spawnAutoUpdate(version, deprecationOverride) {
 }
 
 /**
- * Spawn a fresh `memesh update-status` lookup detached so the cache
- * is refreshed for the next session without blocking this one. The
- * core CLI runs the same code path; this is the background warm-up
- * that keeps the session-start cache in sync with the registry.
+ * Spawn a fresh `memesh status` lookup detached so the cache is
+ * refreshed for the next session without blocking this one. The
+ * `status` subcommand calls getUpdateCheck under the hood, which is
+ * the same code path the deprecation banner reads from on the next
+ * session start. The CLI command IS `status` — `update-status` does
+ * not exist — so we shell to `status` and discard its output.
  */
 function spawnFreshUpdateCheck() {
   try {
@@ -170,13 +217,42 @@ function spawnFreshUpdateCheck() {
     if (!existsSync(cliPath)) return false;
     const child = spawn(
       process.execPath,
-      [cliPath, 'update-status', '--json'],
+      [cliPath, 'status'],
       { detached: true, stdio: 'ignore', env: { ...process.env, MEMESH_UPDATE_REFRESH: '1' } },
     );
     child.unref();
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Run the post-banner update tasks: spawn auto-update if policy + cache
+ * permit, and always refresh the cache for the next session. This MUST
+ * run on every session-start path — including the no-DB short-circuit
+ * — so a fresh install of a flagged version still kicks off the
+ * security-override patch upgrade and the next run starts with a fresh
+ * cache. Best-effort; never throws.
+ */
+function runPostBannerUpdateTasks() {
+  try {
+    let installedVersion = null;
+    try {
+      const pluginRoot = resolvePluginRoot(import.meta.url);
+      const pkg = JSON.parse(readFileSync(join(pluginRoot, 'package.json'), 'utf8'));
+      installedVersion = typeof pkg.version === 'string' ? pkg.version : null;
+    } catch { /* best-effort */ }
+    if (!installedVersion) return;
+    const cache = readUpdateCheckCache();
+    const policy = resolveAutoUpdatePolicy(process.env);
+    const decision = decideAutoUpdateHook(installedVersion, cache, policy);
+    if (decision.run) {
+      spawnAutoUpdate(decision.latest, decision.deprecationOverride);
+    }
+    spawnFreshUpdateCheck();
+  } catch {
+    // Best-effort — never crash the hook on a network or fs hiccup.
   }
 }
 
@@ -222,6 +298,11 @@ process.stdin.on('end', async () => {
         // Best-effort — never block the no-DB path.
       }
       output('MeMesh: No database found. Memories will be created as you work.');
+      // Auto-update + cache-refresh must still run on the no-DB path
+      // (fresh install of a flagged version is exactly when the
+      // security override matters most, and the next session needs a
+      // populated cache regardless of recall state).
+      runPostBannerUpdateTasks();
       return;
     }
 
@@ -519,38 +600,13 @@ process.stdin.on('end', async () => {
     }
 
     // ── Auto-update + cache refresh (after main hook output) ────────
-    // Two independent best-effort spawns:
-    //   1. If policy + cache say we should upgrade, fire `npm install
-    //      -g` detached. Result lands in ~/.memesh/auto-update.log so
-    //      the user can audit. Default policy is 'off' so a fresh
-    //      install never silently upgrades — only an opt-in
-    //      `MEMESH_AUTO_UPDATE` env or `autoUpdate` config triggers.
-    //   2. Refresh the update-check cache in the background so the
-    //      next session has fresh data, regardless of whether (1)
-    //      ran. Bounded by the 5s timeout inside getUpdateCheck.
-    try {
-      let installedVersionForUpdate = null;
-      try {
-        const pluginRoot = resolvePluginRoot(import.meta.url);
-        const pkg = JSON.parse(readFileSync(join(pluginRoot, 'package.json'), 'utf8'));
-        installedVersionForUpdate = typeof pkg.version === 'string' ? pkg.version : null;
-      } catch { /* best-effort */ }
-      if (installedVersionForUpdate) {
-        const cache = readUpdateCheckCache();
-        const policy = resolveAutoUpdatePolicy(process.env);
-        const decision = decideAutoUpdateHook(installedVersionForUpdate, cache, policy);
-        if (decision.run) {
-          spawnAutoUpdate(decision.latest, decision.deprecationOverride);
-        }
-        // Always refresh the cache for next session, even if no auto-
-        // update was triggered. This is the warm-up that keeps the
-        // session-start banner truthful.
-        spawnFreshUpdateCheck();
-      }
-    } catch {
-      // Auto-update / cache refresh are best-effort — never crash the
-      // session-start hook on a network or filesystem hiccup.
-    }
+    // Same logic that runs on the no-DB short-circuit; centralised in
+    // runPostBannerUpdateTasks() so both code paths can't drift out
+    // of sync. Default policy is 'off' so a fresh install never
+    // silently upgrades — only an opt-in MEMESH_AUTO_UPDATE env or
+    // `autoUpdate` config triggers, with a deprecation security
+    // override for flagged versions.
+    runPostBannerUpdateTasks();
   } catch (err) {
     // Hooks must never crash Claude Code — but report honestly
     console.log(JSON.stringify({ systemMessage: `MeMesh: Session start failed (${err?.message || 'unknown error'}). Memories not loaded.` }));

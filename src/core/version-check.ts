@@ -192,12 +192,17 @@ export async function checkForUpdate(
 
   try {
     // Latest version (canonical) and current version's deprecation
-    // status are independent registry queries. Fetch both in parallel
-    // — the deprecation lookup is allowed to fail (we treat the
-    // failure as "not deprecated, but we don't know for sure" rather
-    // than blocking the whole check). One missing call is better than
-    // serialising two npm invocations on every session start.
-    const [latest, deprecationMessage] = await Promise.all([
+    // status are independent registry queries. Fetch both in parallel.
+    // The deprecation lookup is allowed to fail independently — we
+    // tag the outcome ('ok' vs 'failed') rather than collapsing both
+    // into null, so the success-branch below can preserve a
+    // previously-cached deprecation flag instead of silently wiping
+    // it on a transient deprecation-only network hiccup.
+    type DeprecationOutcome =
+      | { outcome: 'ok'; message: string | null }
+      | { outcome: 'failed' };
+
+    const [latest, deprecationOutcome] = await Promise.all([
       new Promise<string>((resolve, reject) => {
         execFileImpl(
           'npm',
@@ -209,22 +214,33 @@ export async function checkForUpdate(
           },
         );
       }),
-      new Promise<string | null>((resolve) => {
+      new Promise<DeprecationOutcome>((resolve) => {
         execFileImpl(
           'npm',
           ['view', `@pcircle/memesh@${currentVersion}`, 'deprecated'],
           { timeout: timeoutMs },
           (err, stdout) => {
             if (err) {
-              resolve(null);
+              resolve({ outcome: 'failed' });
               return;
             }
             const trimmed = (stdout || '').trim();
-            resolve(trimmed.length > 0 ? trimmed : null);
+            resolve({ outcome: 'ok', message: trimmed.length > 0 ? trimmed : null });
           },
         );
       }),
     ]);
+
+    // If the deprecation lookup failed but the version lookup
+    // succeeded, hold on to the previous deprecation flag *only when
+    // it was for the same installed version*. Otherwise we'd persist
+    // a flag belonging to an older install.
+    const resolvedDeprecation: string | null =
+      deprecationOutcome.outcome === 'ok'
+        ? deprecationOutcome.message
+        : previous?.currentVersion === currentVersion
+          ? previous?.currentVersionDeprecation ?? null
+          : null;
 
     const stored: StoredUpdateCheck = {
       currentVersion,
@@ -233,7 +249,7 @@ export async function checkForUpdate(
       lastSuccessfulCheckAt: attemptedAt,
       lastError: null,
       checkSucceeded: true,
-      currentVersionDeprecation: deprecationMessage,
+      currentVersionDeprecation: resolvedDeprecation,
     };
 
     writeStoredUpdateCheck(stored, updateCheckPath);
