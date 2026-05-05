@@ -10,7 +10,9 @@ import {
   buildReferenceContext,
   ensurePrivateDir,
   getMemeshDir,
+  isAgenticOrchestrationEnabled,
   isTrustedForAutoContext,
+  resolveSessionLimit,
   writePrivateJson,
 } from './_shared.js';
 
@@ -74,8 +76,9 @@ process.stdin.on('end', async () => {
       const statusFilter = hasStatus ? "AND e.status = 'active'" : '';
       const recentStatusFilter = hasStatus ? "WHERE status = 'active'" : '';
 
-      // Configurable limit: how many top-N entities to load per section
-      const sessionLimit = parseInt(process.env.MEMESH_SESSION_LIMIT || '10', 10);
+      // Configurable limit: how many top-N entities to load per section.
+      // Env > config.sessionLimit > default 10.
+      const sessionLimit = resolveSessionLimit(process.env);
 
       // Build scoring ORDER BY clause (or fallback to insertion order)
       const scoringOrderBy = hasScoringCols
@@ -211,7 +214,7 @@ process.stdin.on('end', async () => {
       // for it. Setting the flag also enables local skill-usage telemetry
       // (~/.memesh/skill-usage.jsonl) so the protocol can later be
       // validated with real usage data.
-      if (process.env.MEMESH_ENABLE_AGENTIC_ORCHESTRATION === '1') {
+      if (isAgenticOrchestrationEnabled(process.env)) {
         try {
           memorySummary +=
             '\n\n[Experimental working model — protocol; effectiveness still being validated] ' +

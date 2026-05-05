@@ -13,8 +13,14 @@ export interface LLMConfig {
 
 export interface MeMeshConfig {
   llm?: LLMConfig;
-  autoCapture?: boolean;     // default: true
-  sessionLimit?: number;     // default: 10
+  autoCapture?: boolean;     // default: true. Env override: MEMESH_AUTO_CAPTURE=false disables.
+  sessionLimit?: number;     // default: 10. Env override: MEMESH_SESSION_LIMIT.
+  /**
+   * Opt-in switch for the experimental agentic-orchestration protocol's
+   * active surfaces (session-start banner, Bash nudge, verify_agent_work
+   * telemetry). Default: false. Env override: MEMESH_ENABLE_AGENTIC_ORCHESTRATION=1.
+   */
+  enableAgenticOrchestration?: boolean;
   theme?: 'light' | 'dark';
   tips?: { smartModeHint?: 'shown' };
   setupCompleted?: boolean;

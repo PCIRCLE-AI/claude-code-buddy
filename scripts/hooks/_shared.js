@@ -1,9 +1,87 @@
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
 
 const require = createRequire(import.meta.url);
+
+/**
+ * Read ~/.memesh/config.json directly. Hooks must not depend on dist/
+ * (F5 boundary), so this reads the JSON as a plain file rather than
+ * importing readConfig from src/core/config.ts.
+ *
+ * Returns an empty object on missing/unreadable/malformed file —
+ * callers must always be defensive about which fields are set.
+ *
+ * @param {NodeJS.ProcessEnv} [env=process.env]
+ * @returns {Record<string, any>}
+ */
+export function readHookConfig(env = process.env) {
+  const dir = env.MEMESH_DB_PATH ? dirname(env.MEMESH_DB_PATH) : join(homedir(), '.memesh');
+  const path = join(dir, 'config.json');
+  if (!existsSync(path)) return {};
+  try {
+    const raw = readFileSync(path, 'utf8');
+    const parsed = JSON.parse(raw);
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Resolve the agentic-orchestration opt-in flag.
+ * Precedence: env > config > default(false).
+ * Env semantics preserved: only `=== '1'` enables (avoids accidental
+ * truthy unlock from a stray env value).
+ *
+ * @param {NodeJS.ProcessEnv} [env=process.env]
+ * @returns {boolean}
+ */
+export function isAgenticOrchestrationEnabled(env = process.env) {
+  const envVal = env.MEMESH_ENABLE_AGENTIC_ORCHESTRATION;
+  if (envVal !== undefined) return envVal === '1';
+  const cfg = readHookConfig(env);
+  return cfg.enableAgenticOrchestration === true;
+}
+
+/**
+ * Resolve the auto-capture flag.
+ * Precedence: env > config > default(true).
+ * Env semantics preserved: explicit `=== 'false'` disables; any other
+ * value (including undefined) leaves it on or defers to config.
+ *
+ * @param {NodeJS.ProcessEnv} [env=process.env]
+ * @returns {boolean}
+ */
+export function isAutoCaptureEnabled(env = process.env) {
+  const envVal = env.MEMESH_AUTO_CAPTURE;
+  if (envVal === 'false') return false;
+  if (envVal === 'true') return true;
+  // env unset or other value — fall through to config
+  const cfg = readHookConfig(env);
+  if (cfg.autoCapture === false) return false;
+  return true; // default
+}
+
+/**
+ * Resolve the session-start memory-injection top-N limit.
+ * Precedence: env > config > default(10).
+ * @param {NodeJS.ProcessEnv} [env=process.env]
+ * @returns {number}
+ */
+export function resolveSessionLimit(env = process.env) {
+  const envVal = env.MEMESH_SESSION_LIMIT;
+  if (envVal !== undefined) {
+    const n = parseInt(envVal, 10);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  const cfg = readHookConfig(env);
+  if (typeof cfg.sessionLimit === 'number' && cfg.sessionLimit > 0) {
+    return cfg.sessionLimit;
+  }
+  return 10;
+}
 
 // Canonical SQLite schema for hook-written entities. Mirrors src/db.ts.
 // Hooks must NOT depend on dist/ (F5 security boundary), so this is a

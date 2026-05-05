@@ -269,6 +269,10 @@ const ConfigBody = z.object({
   }).optional(),
   autoCapture: z.boolean().optional(),
   sessionLimit: z.number().int().min(1).max(100).optional(),
+  // Opt-in for the experimental agentic-orchestration protocol.
+  // Mirrors MEMESH_ENABLE_AGENTIC_ORCHESTRATION env var. Env wins
+  // when both are set so existing env-var users are not surprised.
+  enableAgenticOrchestration: z.boolean().optional(),
   theme: z.enum(['light', 'dark']).optional(),
   setupCompleted: z.boolean().optional(),
 }).strip();
