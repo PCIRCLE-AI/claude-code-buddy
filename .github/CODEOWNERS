@@ -1,0 +1,36 @@
+# memesh-llm-memory CODEOWNERS
+#
+# F4 (skill supply chain): skill files ship via npm and are loaded as
+# Claude Code system prompts. Any change must go through a maintainer
+# review — these are the most security-sensitive surface in the repo.
+#
+# Hooks ship to the user's Claude Code session and run with the user's
+# Node.js process privileges. Same review bar.
+#
+# Publish workflow controls what reaches npm. Do not let it be modified
+# without explicit maintainer review.
+#
+# All other code paths follow the default review policy.
+
+# Default owner for everything
+*                          @PCIRCLE-AI/maintainers
+
+# Skill files — load directly as Claude system prompt
+/skills/                   @PCIRCLE-AI/maintainers
+/skills/**                 @PCIRCLE-AI/maintainers
+
+# Hooks — execute in user's Claude Code session
+/scripts/hooks/            @PCIRCLE-AI/maintainers
+/hooks/                    @PCIRCLE-AI/maintainers
+
+# Publish + CI workflows
+/.github/workflows/        @PCIRCLE-AI/maintainers
+/.github/CODEOWNERS        @PCIRCLE-AI/maintainers
+
+# Plugin manifest — wired up by Claude Code on install
+/plugin.json               @PCIRCLE-AI/maintainers
+/.mcp.json                 @PCIRCLE-AI/maintainers
+
+# Manifest of shipped artefacts (skills, hooks) — generated at build
+# time, but if a PR touches it manually that's a tampering signal.
+/dist/skills-manifest.json @PCIRCLE-AI/maintainers

@@ -23,19 +23,22 @@ jobs:
         language: ['javascript-typescript']
 
     steps:
+      # F9: pin first-party GitHub actions to commit SHA so a tag-rewrite
+      # or maintainer push to v4 cannot silently inject behaviour. SHAs
+      # resolved 2026-05-04 from refs/tags/v4. Bump together when upgrading.
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@ed410739ba306e4ebe5e123421a6bd694e494a2b # v4
         with:
           languages: ${{ matrix.language }}
           queries: security-and-quality
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v4
+        uses: github/codeql-action/autobuild@ed410739ba306e4ebe5e123421a6bd694e494a2b # v4
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@ed410739ba306e4ebe5e123421a6bd694e494a2b # v4
         with:
           category: "/language:${{ matrix.language }}"

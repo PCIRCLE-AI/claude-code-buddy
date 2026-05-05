@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 
 import express from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
+import { randomBytes, timingSafeEqual } from 'crypto';
+import { homedir } from 'os';
 import { openDatabase, closeDatabase } from '../../db.js';
 import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
@@ -47,6 +50,76 @@ const apiLimiter = rateLimit({
 
 // Apply rate limiting to all API routes
 app.use('/v1/', apiLimiter);
+
+// --- Bearer-token auth (only enforced when bound to non-loopback) ---
+// F3: when --allow-remote is set, the API was previously exposing the
+// entire memory store with zero auth. Loopback default keeps zero-auth
+// because process-owner UNIX semantics are the trust boundary there.
+let remoteToken: Buffer | null = null;
+
+function memeshDir(): string {
+  return process.env.MEMESH_DB_PATH
+    ? path.dirname(process.env.MEMESH_DB_PATH)
+    : path.join(homedir(), '.memesh');
+}
+
+function loadOrCreateRemoteToken(): { token: Buffer; freshlyCreated: boolean } {
+  const fromEnv = process.env.MEMESH_REMOTE_TOKEN;
+  if (fromEnv && fromEnv.length >= 16) {
+    return { token: Buffer.from(fromEnv, 'utf8'), freshlyCreated: false };
+  }
+  const dir = memeshDir();
+  const tokenPath = path.join(dir, 'remote-token');
+  fs.mkdirSync(dir, { recursive: true });
+  try { fs.chmodSync(dir, 0o700); } catch { /* non-POSIX */ }
+  if (fs.existsSync(tokenPath)) {
+    const value = fs.readFileSync(tokenPath, 'utf8').trim();
+    if (value.length >= 16) {
+      try { fs.chmodSync(tokenPath, 0o600); } catch { /* non-POSIX */ }
+      return { token: Buffer.from(value, 'utf8'), freshlyCreated: false };
+    }
+  }
+  const generated = randomBytes(32).toString('hex');
+  fs.writeFileSync(tokenPath, generated + '\n', { mode: 0o600 });
+  try { fs.chmodSync(tokenPath, 0o600); } catch { /* non-POSIX */ }
+  return { token: Buffer.from(generated, 'utf8'), freshlyCreated: true };
+}
+
+function constantTimeEquals(a: Buffer, b: Buffer): boolean {
+  // timingSafeEqual requires equal length; pad to max so we don't leak
+  // the operand-length difference via early-exit.
+  const max = Math.max(a.length, b.length);
+  const aPad = Buffer.alloc(max);
+  const bPad = Buffer.alloc(max);
+  a.copy(aPad);
+  b.copy(bPad);
+  const eq = timingSafeEqual(aPad, bPad);
+  return eq && a.length === b.length;
+}
+
+function bearerAuth(req: Request, res: Response, next: NextFunction): void {
+  if (!remoteToken) {
+    next();
+    return;
+  }
+  const header = req.header('authorization') || req.header('Authorization') || '';
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  if (!match) {
+    res.status(401).json({ success: false, error: 'Missing Authorization: Bearer <token>' });
+    return;
+  }
+  const presented = Buffer.from(match[1].trim(), 'utf8');
+  if (!constantTimeEquals(presented, remoteToken)) {
+    res.status(401).json({ success: false, error: 'Invalid bearer token' });
+    return;
+  }
+  next();
+}
+
+// Auth applies to all /v1/* and /dashboard. /favicon.ico is unauthed
+// (browsers fetch it before any header is set).
+app.use('/v1/', bearerAuth);
+app.use('/dashboard', bearerAuth);
 
 app.get('/favicon.ico', (_req, res) => {
   res.status(204).end();
@@ -600,10 +673,37 @@ export function startServer(
   opts?: { allowRemote?: boolean }
 ): ReturnType<typeof app.listen> {
   const allowRemote = opts?.allowRemote ?? ALLOW_REMOTE_BY_ENV;
-  if (!allowRemote && !isLoopbackHost(host)) {
+  const isRemote = !isLoopbackHost(host);
+  if (!allowRemote && isRemote) {
     throw new Error(
       `Refusing to bind MeMesh HTTP server to non-loopback host "${host}" without explicit remote access opt-in. Use --allow-remote or MEMESH_HTTP_ALLOW_REMOTE=true.`
     );
+  }
+  if (isRemote) {
+    // F3: non-loopback bind requires bearer-token auth on every request.
+    // We load (or generate-and-persist) the token before app.listen so a
+    // freshly-installed user is not silently exposed during the moment
+    // between listen() resolving and the first 401-emitting request.
+    const { token, freshlyCreated } = loadOrCreateRemoteToken();
+    remoteToken = token;
+    if (freshlyCreated) {
+      const dir = memeshDir();
+      const tokenPath = path.join(dir, 'remote-token');
+      process.stderr.write(
+        `\nMeMesh HTTP: bearer token generated for remote access.\n` +
+        `  Token file: ${tokenPath} (mode 600)\n` +
+        `  Use header: Authorization: Bearer <token>\n` +
+        `  Rotate by deleting ${tokenPath} and restarting.\n` +
+        `  Override: set MEMESH_REMOTE_TOKEN.\n\n`
+      );
+    } else {
+      process.stderr.write(
+        `MeMesh HTTP: remote bind requires Authorization: Bearer <token>. ` +
+        `Token loaded from ${process.env.MEMESH_REMOTE_TOKEN ? 'MEMESH_REMOTE_TOKEN' : path.join(memeshDir(), 'remote-token')}.\n`
+      );
+    }
+  } else {
+    remoteToken = null;
   }
   openDatabase();
   logCapabilities();
@@ -611,6 +711,12 @@ export function startServer(
     console.log(`MeMesh HTTP server running at http://${host}:${port}`);
   });
   return server;
+}
+
+// Exported for tests only. Lets a test fixture inject a known token
+// without going through the file-system persistence path.
+export function __setRemoteTokenForTest(value: Buffer | null): void {
+  remoteToken = value;
 }
 
 // If run directly (not imported)

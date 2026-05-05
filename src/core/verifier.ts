@@ -19,6 +19,8 @@
 
 import { execFileSync } from 'child_process';
 import { randomBytes } from 'crypto';
+import { existsSync, statSync } from 'fs';
+import { isAbsolute, join, resolve } from 'path';
 import { remember } from './operations.js';
 import { logSkillEvent } from './skill-usage-log.js';
 
@@ -59,6 +61,39 @@ export interface VerifyAgentWorkResult {
   reality_check: RealityCheckResult;
   external_report: VerifyAgentWorkInput['report'] | null;
   timestamp: string;
+}
+
+function validateWorkdir(workdir: string): void {
+  if (!isAbsolute(workdir)) {
+    throw new Error(`workdir must be an absolute path, got "${workdir}"`);
+  }
+  // Resolve symlinks/`.`/`..` so the value we later pass to git -C is
+  // canonical and the caller cannot smuggle path-traversal segments
+  // past the .git existence check.
+  const resolved = resolve(workdir);
+  if (resolved !== workdir) {
+    throw new Error(
+      `workdir must be a canonical path; got "${workdir}", expected "${resolved}"`
+    );
+  }
+  if (!existsSync(resolved)) {
+    throw new Error(`workdir does not exist: "${resolved}"`);
+  }
+  let stat;
+  try { stat = statSync(resolved); }
+  catch (err: any) { throw new Error(`workdir not stat-able: ${err?.message ?? err}`); }
+  if (!stat.isDirectory()) {
+    throw new Error(`workdir is not a directory: "${resolved}"`);
+  }
+  // Must be a git working tree. Accept either a `.git` directory
+  // (regular repo) or a `.git` file (git worktrees / submodules point
+  // at the gitdir via a one-line file).
+  const gitMarker = join(resolved, '.git');
+  if (!existsSync(gitMarker)) {
+    throw new Error(
+      `workdir is not a git working tree (missing .git): "${resolved}"`
+    );
+  }
 }
 
 function resolveBase(workdir: string, explicit?: string): string | null {
@@ -160,6 +195,13 @@ function buildObservations(input: VerifyAgentWorkInput, rc: RealityCheckResult, 
 }
 
 export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkResult {
+  // F8: validate workdir before shelling out to git. Reject non-existent
+  // paths, non-directories, non-absolute paths, and paths that are not
+  // git working trees. Without this, a caller (especially a
+  // prompt-injected LLM) could trigger git operations against arbitrary
+  // filesystem locations and observe the diff-stat output.
+  validateWorkdir(input.workdir);
+
   const base = resolveBase(input.workdir, input.base);
   const rc = realityCheck(input.workdir, base, input.claim?.expected_files);
 

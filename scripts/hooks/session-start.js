@@ -306,8 +306,13 @@ process.stdin.on('end', async () => {
     // Opens a separate read-write connection via the core module.
     // Throttled to once per 24h inside compressWeeklyNoise().
     try {
-      const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT
-        || dirname(dirname(fileURLToPath(import.meta.url)));
+      // F5: derive pluginRoot strictly from this file's location. The
+      // previous CLAUDE_PLUGIN_ROOT env-var fallback let a malicious
+      // project's .envrc redirect dynamic imports to attacker-controlled
+      // code (Claude Code session would import /tmp/evil/dist/db.js).
+      // No env override exists for this path — the only correct value
+      // is the package's own install directory.
+      const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
       const dbMod = await import(join(pluginRoot, 'dist/db.js'));
       const lifecycleMod = await import(join(pluginRoot, 'dist/core/lifecycle.js'));
       dbMod.openDatabase();
