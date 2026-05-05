@@ -27,9 +27,15 @@ import {
 
 describe('resolvePluginRoot — three dirname hops to package root', () => {
   it('resolves <root>/scripts/hooks/X.js to <root>', () => {
-    const fakeFile = '/abs/path/to/pkg/scripts/hooks/session-start.js';
+    // Build the synthetic input from a real OS-shaped absolute path so
+    // the test works on POSIX and Windows alike. On Windows
+    // pathToFileURL normalises drive letters and back-slashes, then
+    // fileURLToPath round-trips back to the OS form (D:\abs\path...);
+    // a hard-coded '/abs/path/to/pkg' would fail there.
+    const fakeFile = path.join(path.parse(process.cwd()).root, 'abs', 'path', 'to', 'pkg', 'scripts', 'hooks', 'session-start.js');
+    const expectedRoot = path.join(path.parse(process.cwd()).root, 'abs', 'path', 'to', 'pkg');
     const url = pathToFileURL(fakeFile).toString();
-    expect(resolvePluginRoot(url)).toBe('/abs/path/to/pkg');
+    expect(resolvePluginRoot(url)).toBe(expectedRoot);
   });
 
   it('resolves the real session-start.js to a directory containing package.json', () => {
