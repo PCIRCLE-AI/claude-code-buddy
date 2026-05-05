@@ -235,20 +235,34 @@ export async function checkForUpdate(
     // succeeded, hold on to the previous deprecation flag *only when
     // it was for the same installed version*. Otherwise we'd persist
     // a flag belonging to an older install.
+    const hasInheritablePrior =
+      previous?.currentVersion === currentVersion
+      && (previous?.currentVersionDeprecation ?? null) !== null;
     const resolvedDeprecation: string | null =
       deprecationOutcome.outcome === 'ok'
         ? deprecationOutcome.message
-        : previous?.currentVersion === currentVersion
-          ? previous?.currentVersionDeprecation ?? null
+        : hasInheritablePrior
+          ? previous!.currentVersionDeprecation ?? null
           : null;
+
+    // When the deprecation lookup failed AND we have no prior flag
+    // to inherit, the deprecation status is genuinely UNKNOWN — not
+    // "healthy". Persist that as a partial-failure cache state by
+    // surfacing the lookup failure through `lastError`. UpdateCheck
+    // consumers (status / doctor / session-start) can then warn the
+    // operator instead of treating the install as confirmed-safe.
+    const partialDeprecationFailure =
+      deprecationOutcome.outcome === 'failed' && !hasInheritablePrior;
 
     const stored: StoredUpdateCheck = {
       currentVersion,
       latestVersion: latest,
       lastAttemptAt: attemptedAt,
       lastSuccessfulCheckAt: attemptedAt,
-      lastError: null,
-      checkSucceeded: true,
+      lastError: partialDeprecationFailure
+        ? 'deprecation lookup failed (status unknown)'
+        : null,
+      checkSucceeded: !partialDeprecationFailure,
       currentVersionDeprecation: resolvedDeprecation,
     };
 
