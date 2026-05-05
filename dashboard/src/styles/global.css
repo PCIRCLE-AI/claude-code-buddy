@@ -401,3 +401,49 @@ mark { background: rgba(0, 214, 180, 0.15); color: inherit; padding: 1px 2px; bo
   .mem-row { flex-direction: column; gap: 4px; }
   .mem-time { width: auto; }
 }
+
+/* Auth prompt — shown when /v1/* returns 401 (token missing/wrong/rotated) */
+.auth-prompt-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg-0);
+}
+.auth-prompt-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 28px 32px;
+  max-width: 440px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.auth-prompt-card h1 { font-size: 16px; margin: 0; }
+.auth-prompt-card p { font-size: 13px; line-height: 1.55; opacity: 0.85; margin: 0; }
+.auth-prompt-card label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.auth-prompt-card input {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  color: inherit;
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+}
+.auth-prompt-card input:focus { outline: none; border-color: var(--border-focus); }
+.auth-prompt-error { color: #ff6b6b; font-size: 12px; margin: 0; }
+.auth-prompt-submit {
+  background: var(--border-focus);
+  color: var(--bg-0);
+  border: none;
+  border-radius: 4px;
+  padding: 10px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  font-weight: 500;
+}
+.auth-prompt-submit:hover { filter: brightness(1.1); }
