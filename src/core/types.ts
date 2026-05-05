@@ -5,6 +5,18 @@
 
 // --- Entity Model ---
 
+// --- Centralized union types ---
+// Promoted from inline string-literal unions to named exports so all
+// call sites share one source of truth. Schemas in src/transports/
+// continue to declare their own `z.enum([...])` runtime validators —
+// these TS-only types do not affect Zod validation.
+
+export type Namespace = 'personal' | 'team' | 'global';
+export type MergeStrategy = 'skip' | 'overwrite' | 'append';
+export type LessonSeverity = 'critical' | 'major' | 'minor';
+export type EntityStatus = 'active' | 'archived';
+export type LLMProvider = 'anthropic' | 'openai' | 'ollama';
+
 export interface Entity {
   id: number;
   name: string;
@@ -142,7 +154,7 @@ export interface ExportResult {
 export interface ImportInput {
   data: ExportResult;
   namespace?: string;       // override namespace for all imported entities
-  merge_strategy: 'skip' | 'overwrite' | 'append';
+  merge_strategy: MergeStrategy;
 }
 
 export interface ImportResult {
@@ -157,7 +169,7 @@ export interface LearnInput {
   fix: string;
   root_cause?: string;
   prevention?: string;
-  severity?: 'critical' | 'major' | 'minor';
+  severity?: LessonSeverity;
 }
 
 export interface LearnResult {

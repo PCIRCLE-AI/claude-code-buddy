@@ -295,8 +295,10 @@ export { consolidate } from './consolidator.js';
 // --- Serialization (extracted to serializer.ts) ---
 export { exportMemories, importMemories } from './serializer.js';
 
-// --- Noise compression (extracted to lifecycle.ts) ---
-export { compressWeeklyNoise } from './lifecycle.js';
+// Noise compression (compressWeeklyNoise) is consumed only by
+// session-start.js via dynamic import from dist/core/lifecycle.js, and
+// by tests/core/lifecycle.test.ts which imports from lifecycle.js
+// directly. No transport calls it. Re-exporting here was dead weight.
 
 /**
  * Create a structured lesson_learned entity from explicit user input.

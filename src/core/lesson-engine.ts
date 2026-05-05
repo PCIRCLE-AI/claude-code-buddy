@@ -1,5 +1,6 @@
 import type { StructuredLesson } from './failure-analyzer.js';
 import { remember, recall } from './operations.js';
+import type { LessonSeverity } from './types.js';
 
 /**
  * Create or update a structured lesson entity.
@@ -61,7 +62,7 @@ export function createExplicitLesson(
   opts?: {
     rootCause?: string;
     prevention?: string;
-    severity?: 'critical' | 'major' | 'minor';
+    severity?: LessonSeverity;
     errorPattern?: string;
   }
 ): { name: string } {

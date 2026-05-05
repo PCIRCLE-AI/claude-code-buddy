@@ -1,6 +1,6 @@
 import type { LLMConfig } from './config.js';
 import { sanitizeForPrompt, sanitizeListForPrompt } from './prompt-safety.js';
-import type { AnthropicResponse, OpenAIResponse, OllamaResponse } from './types.js';
+import type { AnthropicResponse, LessonSeverity, OpenAIResponse, OllamaResponse } from './types.js';
 
 export interface StructuredLesson {
   error: string;
@@ -9,7 +9,7 @@ export interface StructuredLesson {
   prevention: string;
   errorPattern: string;
   fixPattern: string;
-  severity: 'critical' | 'major' | 'minor';
+  severity: LessonSeverity;
 }
 
 /**
@@ -121,7 +121,7 @@ export function parseLesson(text: string): StructuredLesson | null {
 
     const validErrorPatterns = ['null-reference', 'type-error', 'import-missing', 'config-error', 'test-failure', 'build-error', 'runtime-error', 'logic-error', 'other'];
     const validFixPatterns = ['defensive-coding', 'type-guard', 'validation', 'config-fix', 'dependency-update', 'refactor', 'test-fix', 'other'];
-    const validSeverities = ['critical', 'major', 'minor'];
+    const validSeverities: LessonSeverity[] = ['critical', 'major', 'minor'];
 
     return {
       error: String(obj.error).slice(0, 200),
