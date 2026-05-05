@@ -6,7 +6,7 @@ import { openDatabase, closeDatabase } from '../../src/db.js';
 
 // Import the Express app (not startServer, which opens its own DB and binds a port).
 // We open our own isolated DB and start the app on a random port.
-import { app, startServer } from '../../src/transports/http/server.js';
+import { app, startServer, __setRemoteTokenForTest } from '../../src/transports/http/server.js';
 
 let tmpDir: string;
 let server: ReturnType<typeof app.listen>;
@@ -343,16 +343,39 @@ describe('HTTP Transport: startServer host guard', () => {
     expect(() => startServer('0.0.0.0', 0)).toThrow(/Refusing to bind MeMesh HTTP server/);
   });
 
-  it('allows non-loopback binds when explicit opt-in is provided', async () => {
+  it('allows non-loopback binds when explicit opt-in is provided, and demands a bearer token (F3)', async () => {
     const remoteTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-http-remote-'));
     const previousDbPath = process.env.MEMESH_DB_PATH;
+    const previousToken = process.env.MEMESH_REMOTE_TOKEN;
     process.env.MEMESH_DB_PATH = path.join(remoteTmpDir, 'test.db');
+    // Inject a known token so the test doesn't need to read the
+    // generated file under the temp dir.
+    process.env.MEMESH_REMOTE_TOKEN = 'test-token-deadbeefcafef00d';
 
     let remoteServer: ReturnType<typeof app.listen> | undefined;
     try {
       remoteServer = startServer('0.0.0.0', 0, { allowRemote: true });
       await new Promise((resolve) => setTimeout(resolve, 25));
       expect(remoteServer.listening).toBe(true);
+
+      const remotePort = (remoteServer.address() as any).port;
+
+      // F3: without bearer token → 401 even on /v1/health.
+      const noAuth = await fetch(`http://127.0.0.1:${remotePort}/v1/health`);
+      expect(noAuth.status).toBe(401);
+
+      // F3: with the right bearer token → 200.
+      const withAuth = await fetch(`http://127.0.0.1:${remotePort}/v1/health`, {
+        headers: { Authorization: 'Bearer test-token-deadbeefcafef00d' },
+      });
+      expect(withAuth.status).toBe(200);
+
+      // F3: with a wrong token → 401, and timing-safe compare doesn't
+      // leak length (we don't assert timing here, just that it rejects).
+      const wrongAuth = await fetch(`http://127.0.0.1:${remotePort}/v1/health`, {
+        headers: { Authorization: 'Bearer wrong-token' },
+      });
+      expect(wrongAuth.status).toBe(401);
     } finally {
       if (remoteServer) {
         await new Promise<void>((resolve, reject) => {
@@ -360,8 +383,13 @@ describe('HTTP Transport: startServer host guard', () => {
         });
       }
       closeDatabase();
+      // Reset module-level remoteToken so subsequent loopback-only
+      // tests in the same suite are not auth-gated.
+      __setRemoteTokenForTest(null);
       if (previousDbPath === undefined) delete process.env.MEMESH_DB_PATH;
       else process.env.MEMESH_DB_PATH = previousDbPath;
+      if (previousToken === undefined) delete process.env.MEMESH_REMOTE_TOKEN;
+      else process.env.MEMESH_REMOTE_TOKEN = previousToken;
       fs.rmSync(remoteTmpDir, { recursive: true, force: true });
     }
   });

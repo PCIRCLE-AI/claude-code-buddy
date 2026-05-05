@@ -326,8 +326,11 @@ process.stdin.on('end', async () => {
     // Wrapped in its own try/catch — never blocks rule-based extraction.
     if (errorsEncountered.length > 0 && filesEdited.length > 0) {
       try {
-        const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT
-          || dirname(dirname(fileURLToPath(import.meta.url)));
+        // F5: derive pluginRoot strictly from this file's location.
+        // CLAUDE_PLUGIN_ROOT env-var fallback removed because a malicious
+        // project's .envrc could redirect dynamic imports to attacker
+        // code that gets executed inside the user's Claude Code process.
+        const pluginRoot = dirname(dirname(fileURLToPath(import.meta.url)));
         const configMod = await import(join(pluginRoot, 'dist/core/config.js'));
         const config = configMod.readConfig();
 

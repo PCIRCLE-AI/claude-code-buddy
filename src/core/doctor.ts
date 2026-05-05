@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { createHash } from 'crypto';
 import { detectCapabilities, getConfigPath } from './config.js';
 import { openDatabase, closeDatabase } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
@@ -369,6 +370,91 @@ async function inspectHttpProbe(
   }
 }
 
+/**
+ * F4: verify the on-disk skill files + hooks match the SHA-256 manifest
+ * generated at publish time. This catches tampering between npm publish
+ * and the user's machine — e.g. a malicious overlay copied into
+ * node_modules after install — which `npm --provenance` alone cannot
+ * detect (provenance attests the tarball, not the unpacked files).
+ *
+ * Manifest is at dist/skills-manifest.json. If it's missing, we treat
+ * that as a `warn` (developer install from source) rather than `fail`,
+ * since source checkouts run `npm run build` on demand. A packaged
+ * install from npm will always have it.
+ */
+function verifySkillsManifest(
+  packageRoot: string,
+  existsSyncImpl: typeof fs.existsSync,
+  readFileSyncImpl: typeof fs.readFileSync,
+): DoctorCheck {
+  const manifestPath = path.join(packageRoot, 'dist', 'skills-manifest.json');
+  if (!existsSyncImpl(manifestPath)) {
+    return createCheck(
+      'skills-manifest',
+      'Skills + hooks integrity',
+      'warn',
+      'No skills-manifest.json found. This is normal for source checkouts — packaged installs ship the manifest.',
+      'Run `npm run build` to regenerate, or reinstall via `npm install -g @pcircle/memesh`.',
+    );
+  }
+  let manifest: { entries?: Array<{ path: string; sha256: string }> };
+  try {
+    manifest = JSON.parse(readFileSyncImpl(manifestPath, 'utf8'));
+  } catch (err) {
+    return createCheck(
+      'skills-manifest',
+      'Skills + hooks integrity',
+      'fail',
+      `skills-manifest.json is unreadable (${err instanceof Error ? err.message : 'parse error'}).`,
+      'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem persists open an issue.',
+    );
+  }
+  const entries = manifest.entries ?? [];
+  if (entries.length === 0) {
+    return createCheck(
+      'skills-manifest',
+      'Skills + hooks integrity',
+      'fail',
+      'skills-manifest.json contains zero entries.',
+      'Reinstall the package: `npm install -g @pcircle/memesh`.',
+    );
+  }
+  const mismatches: string[] = [];
+  const missing: string[] = [];
+  for (const entry of entries) {
+    const full = path.join(packageRoot, entry.path);
+    if (!existsSyncImpl(full)) { missing.push(entry.path); continue; }
+    let actualHash: string;
+    try {
+      const buf = readFileSyncImpl(full);
+      actualHash = createHash('sha256').update(buf).digest('hex');
+    } catch (err) {
+      mismatches.push(`${entry.path} (read error: ${err instanceof Error ? err.message : 'unknown'})`);
+      continue;
+    }
+    if (actualHash !== entry.sha256) mismatches.push(entry.path);
+  }
+  if (missing.length === 0 && mismatches.length === 0) {
+    return createCheck(
+      'skills-manifest',
+      'Skills + hooks integrity',
+      'pass',
+      `${entries.length} skill / hook files match the published manifest (SHA-256 verified).`,
+    );
+  }
+  const detail = [
+    missing.length > 0 ? `${missing.length} missing: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? ` (+${missing.length - 3} more)` : ''}` : null,
+    mismatches.length > 0 ? `${mismatches.length} tampered: ${mismatches.slice(0, 3).join(', ')}${mismatches.length > 3 ? ` (+${mismatches.length - 3} more)` : ''}` : null,
+  ].filter(Boolean).join('; ');
+  return createCheck(
+    'skills-manifest',
+    'Skills + hooks integrity',
+    'fail',
+    `Manifest verification failed: ${detail}.`,
+    'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem reproduces on a fresh install, open a security issue at https://github.com/PCIRCLE-AI/memesh-llm-memory/security.',
+  );
+}
+
 function summarizeOverallStatus(checks: DoctorCheck[]): DoctorOverallStatus {
   if (checks.some((check) => check.status === 'fail')) return 'FAIL';
   if (checks.some((check) => check.status === 'warn')) return 'PASS_WITH_CONCERNS';
@@ -446,6 +532,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
   checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
   checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
+  checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));
 
   const capabilities = detectCapabilitiesImpl();
   checks.push(

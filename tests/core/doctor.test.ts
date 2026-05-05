@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { createHash } from 'crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { formatDoctorReport, runDoctor } from '../../src/core/doctor.js';
 import type { UpdateCheck } from '../../src/core/version-check.js';
@@ -62,6 +63,36 @@ function createPackageRoot(): string {
 
   fs.mkdirSync(path.join(root, 'dashboard', 'dist'), { recursive: true });
   fs.writeFileSync(path.join(root, 'dashboard', 'dist', 'index.html'), '<html></html>');
+
+  // F4: doctor verifies dist/skills-manifest.json. The fixture must
+  // include one matching the on-disk hook stubs, otherwise the new
+  // skills-manifest check fires and the overall status downgrades.
+  const tracked = [
+    'scripts/hooks/pre-edit-recall.js',
+    'scripts/hooks/session-start.js',
+    'scripts/hooks/post-commit.js',
+    'scripts/hooks/session-summary.js',
+    'scripts/hooks/pre-compact.js',
+    'hooks/hooks.json',
+    '.mcp.json',
+  ];
+  const entries = tracked.map(rel => {
+    const buf = fs.readFileSync(path.join(root, rel));
+    return {
+      path: rel,
+      sha256: createHash('sha256').update(buf).digest('hex'),
+      bytes: buf.length,
+    };
+  });
+  fs.mkdirSync(path.join(root, 'dist'), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, 'dist', 'skills-manifest.json'),
+    JSON.stringify({
+      schema: 'memesh.skills-manifest/v1',
+      generated_at: '2026-05-04T00:00:00.000Z',
+      entries,
+    }, null, 2) + '\n',
+  );
 
   return root;
 }
@@ -230,6 +261,62 @@ describe('doctor', () => {
     expect(result.checks.find((check) => check.id === 'hook-scripts')).toMatchObject({
       status: 'fail',
       summary: expect.stringContaining('pre-edit-recall.js'),
+    });
+  });
+
+  it('detects skills-manifest tampering (F4)', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    // Tamper with one of the tracked files. Manifest still references
+    // the original SHA, so doctor must flag the mismatch.
+    fs.writeFileSync(
+      path.join(packageRoot, 'scripts/hooks/pre-edit-recall.js'),
+      '#!/usr/bin/env node\n// EVIL OVERLAY\n',
+    );
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.0.3',
+      openDatabaseImpl: () => makeDatabase() as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+    });
+
+    expect(result.checks.find((c) => c.id === 'skills-manifest')).toMatchObject({
+      status: 'fail',
+      summary: expect.stringContaining('tampered'),
+    });
+  });
+
+  it('warns (not fails) when manifest is missing — source-checkout case (F4)', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    fs.rmSync(path.join(packageRoot, 'dist', 'skills-manifest.json'));
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.0.3',
+      openDatabaseImpl: () => makeDatabase() as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+    });
+
+    expect(result.checks.find((c) => c.id === 'skills-manifest')).toMatchObject({
+      status: 'warn',
     });
   });
 });

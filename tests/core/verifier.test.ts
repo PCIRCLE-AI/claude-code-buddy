@@ -176,17 +176,50 @@ describe('verifyAgentWork — persistence', () => {
 });
 
 describe('verifyAgentWork — error paths', () => {
-  it('handles a non-git directory gracefully', () => {
+  it('rejects a non-git directory loudly (F8: workdir validation)', () => {
+    // F8 fix: previously a non-git workdir silently produced
+    // pass=false with base=null. That was indistinguishable from a
+    // genuine "no merge base found" run, which made it possible for a
+    // caller (or prompt-injected LLM) to pass arbitrary filesystem
+    // paths and observe git behaviour. Now we throw before shelling
+    // out to git so the caller sees a clear validation error.
     const nonGit = fs.mkdtempSync(path.join(os.tmpdir(), 'not-a-repo-'));
     try {
-      const result = verifyAgentWork({
+      expect(() => verifyAgentWork({
         agent_id: 'no-git',
         workdir: nonGit,
-      });
-      expect(result.pass).toBe(false);
-      expect(result.reality_check.base).toBeNull();
+      })).toThrow(/not a git working tree/);
     } finally {
       fs.rmSync(nonGit, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a non-existent workdir (F8)', () => {
+    const ghost = path.join(os.tmpdir(), `definitely-not-here-${Date.now()}-${process.pid}`);
+    expect(() => verifyAgentWork({
+      agent_id: 'ghost',
+      workdir: ghost,
+    })).toThrow(/does not exist/);
+  });
+
+  it('rejects a relative workdir (F8)', () => {
+    expect(() => verifyAgentWork({
+      agent_id: 'rel',
+      workdir: 'relative/path',
+    })).toThrow(/absolute path/);
+  });
+
+  it('rejects a workdir that is a file, not a directory (F8)', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'file-not-dir-'));
+    const filePath = path.join(tmp, 'plain-file');
+    fs.writeFileSync(filePath, 'hi');
+    try {
+      expect(() => verifyAgentWork({
+        agent_id: 'file',
+        workdir: filePath,
+      })).toThrow(/not a directory/);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
     }
   });
 
