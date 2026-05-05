@@ -60,18 +60,36 @@ function buildDeprecationBanner(currentVersion, cache) {
     `    ${msg}`,
   ];
   if (cache.latestVersion && cache.latestVersion !== currentVersion) {
-    // Recommend the auto-update policy that actually covers the bump
-    // kind required to leave the deprecated version. A 'patch' policy
-    // only permits patch bumps, so for a deprecation that can only be
-    // resolved by a minor (4.1.x → 4.2.0) or major (4.x → 5.0) jump,
-    // suggesting 'patch' would silently leave the user on the
-    // deprecated version. We recommend the smallest policy that fits
-    // the actual bump.
-    const bump = classifyBumpHook(currentVersion, cache.latestVersion);
-    const policySuggestion = bump === 'major' ? 'major'
-      : bump === 'minor' ? 'minor'
-      : 'patch';
-    lines.push(`    Run: memesh update   (or set autoUpdate: '${policySuggestion}' in ~/.memesh/config.json)`);
+    // Tailor the remediation hint to the install channel. `memesh
+    // update` and `autoUpdate` only work for npm-global installs;
+    // pointing source-checkout / project-local users at those
+    // commands is misleading (especially when the deprecation is a
+    // security advisory). Detect the channel and suggest the
+    // remediation that actually applies.
+    let channel = 'unknown';
+    try {
+      const pluginRoot = resolvePluginRoot(import.meta.url);
+      channel = detectInstallChannelHook(pluginRoot);
+    } catch { /* best-effort — fall through to generic guidance */ }
+
+    if (channel === 'npm-global') {
+      // Recommend the auto-update policy that actually covers the
+      // bump kind. A 'patch' policy only permits patch bumps; for a
+      // minor (4.1.x → 4.2.0) or major (4.x → 5.0) bump we'd
+      // silently leave the user on the deprecated version. Suggest
+      // the smallest policy that fits.
+      const bump = classifyBumpHook(currentVersion, cache.latestVersion);
+      const policySuggestion = bump === 'major' ? 'major'
+        : bump === 'minor' ? 'minor'
+        : 'patch';
+      lines.push(`    Run: memesh update   (or set autoUpdate: '${policySuggestion}' in ~/.memesh/config.json)`);
+    } else if (channel === 'source-checkout') {
+      lines.push(`    Source checkout: pull and rebuild (\`git pull && npm install && npm run build\`).`);
+    } else if (channel === 'npm-local') {
+      lines.push(`    Project-local install: run \`npm install @pcircle/memesh@${cache.latestVersion}\` in this project.`);
+    } else {
+      lines.push(`    Upgrade to ${cache.latestVersion} via the install path you used.`);
+    }
   }
   return lines;
 }
@@ -219,14 +237,25 @@ function tryAcquireAutoUpdateLock(version) {
     if (Date.now() - stat.mtimeMs <= AUTO_UPDATE_LOCK_TTL_MS) {
       return { acquired: false, lockPath };
     }
-    // Stale-recovery: write our payload to a temp file then rename
-    // it over the lock. rename is atomic on POSIX, so the kernel
-    // serialises concurrent reclaimers. After the rename, read the
-    // lock back: if it carries OUR token, we won; if a peer's
-    // rename came after ours, we lost cleanly. No double-spawn.
+    // Stale-recovery: write our payload to a temp file, unlink the
+    // existing stale lock, then rename. unlink-before-rename keeps
+    // this Windows-safe (Windows fs.rename can fail when the
+    // destination exists, especially if another process briefly
+    // holds it open). On POSIX the unlink+rename pair is no slower
+    // than rename-replace. After the rename, read the lock back: if
+    // it carries OUR token, we won; if a peer's rename came after
+    // ours, we lost cleanly. No double-spawn on either platform.
     const tempPath = `${lockPath}.${process.pid}.${Math.random().toString(36).slice(2, 10)}.tmp`;
     try {
       fs.writeFileSync(tempPath, payload, { mode: 0o600 });
+      try { fs.unlinkSync(lockPath); } catch (err) {
+        // ENOENT (a peer already reclaimed) is fine; anything else
+        // means we can't replace the lock cleanly.
+        if (err?.code !== 'ENOENT') {
+          try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
+          return { acquired: false, lockPath };
+        }
+      }
       fs.renameSync(tempPath, lockPath);
     } catch {
       try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
