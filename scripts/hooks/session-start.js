@@ -73,16 +73,14 @@ function buildDeprecationBanner(currentVersion, cache) {
     } catch { /* best-effort — fall through to generic guidance */ }
 
     if (channel === 'npm-global') {
-      // Recommend the auto-update policy that actually covers the
-      // bump kind. A 'patch' policy only permits patch bumps; for a
-      // minor (4.1.x → 4.2.0) or major (4.x → 5.0) bump we'd
-      // silently leave the user on the deprecated version. Suggest
-      // the smallest policy that fits.
-      const bump = classifyBumpHook(currentVersion, cache.latestVersion);
-      const policySuggestion = bump === 'major' ? 'major'
-        : bump === 'minor' ? 'minor'
-        : 'patch';
-      lines.push(`    Run: memesh update   (or set autoUpdate: '${policySuggestion}' in ~/.memesh/config.json)`);
+      // v4.1.3: only `memesh update` actually applies the upgrade.
+      // The autoUpdate config field is recognised (and the policy
+      // resolution + decision matrix run) but the actual spawn is
+      // deferred to the v4.1.4 Stop hook, so suggesting users set
+      // autoUpdate would point them at a remediation that doesn't
+      // yet act. Restore the autoUpdate suggestion in v4.1.4 once
+      // the spawn lands.
+      lines.push(`    Run: memesh update`);
     } else if (channel === 'source-checkout') {
       lines.push(`    Source checkout: pull and rebuild (\`git pull && npm install && npm run build\`).`);
     } else if (channel === 'npm-local') {
