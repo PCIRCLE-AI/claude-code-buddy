@@ -2,6 +2,20 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.1.3] — 2026-05-06
+
+Update-mechanism UX completion. Two features that were noted as gaps in the v4.1.x update story land here.
+
+### Added
+- **Deprecation-aware session-start banner.** The npm registry check now reads the deprecation flag for the *currently installed* version, not just the latest available one. When maintainers flag a version (typically for a security advisory), the next session-start prepends a strong `⚠️ MeMesh <ver> is DEPRECATED by maintainers — <message>` banner above the recall summary, until the user upgrades. The flag round-trips through `~/.memesh/update-check.json` so a transient network failure can't dim the warning. `memesh update-status` and `memesh doctor` surface the same line.
+- **Opt-in auto-update policy.** New `autoUpdate` config field (`'off' | 'patch' | 'minor' | 'major'`, default `'off'`) and matching `MEMESH_AUTO_UPDATE` env var with env > config > default precedence. When the policy permits the bump kind between current and latest, the session-start hook spawns a detached `npm install -g @pcircle/memesh@<latest>`, logs the outcome to `~/.memesh/auto-update.log`, and returns immediately — the running process keeps its on-disk binary; the *next* session picks up the new one. A deprecated installed version gets a one-step *patch* security override even on policy `'off'` (minor / major bumps remain manual to protect users from behaviour-change drift they didn't agree to).
+- **Background update-cache refresh.** Every session-start fires a detached `memesh update-status --json` to keep the registry cache fresh for the next run, regardless of whether auto-update was triggered. The session itself reads only the cache, so a slow npm registry never blocks startup.
+- **`.github/workflows/deprecate-npm.yml`** — manually-triggered maintainer helper that runs `npm deprecate` against any published version using the existing `NPM_TOKEN` secret. Closes the gap that surfaced when v4.1.1 needed an immediate deprecation but the maintainer's local npm session required 2FA.
+
+### Notes
+- 618 unit/integration tests pass (25 new regression tests, covering: `parseAutoUpdatePolicy` + `classifyBump` + `decideAutoUpdate` policy & deprecation-override matrix; `resolveAutoUpdatePolicy` env > config > default precedence; deprecation round-trip through the cache; format-output with leading deprecation warning; stale-version-mismatch invalidation).
+- No public API breaks. Default behaviour is unchanged for users who don't set `autoUpdate` / `MEMESH_AUTO_UPDATE`. The deprecation banner appears only when npm has actually flagged the installed version — every release prior to v4.1.1 stays silent.
+
 ## [4.1.2] — 2026-05-06
 
 Patch release for findings raised by GitHub code-scanning (CodeQL) and the Windows CI lane on the v4.1.1 cut.
