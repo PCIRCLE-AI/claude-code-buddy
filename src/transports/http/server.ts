@@ -182,20 +182,31 @@ app.get('/v1/health', (_req, res) => {
   }
 });
 
-// --- Remember ---
-app.post('/v1/remember', (req, res) => {
-  const parsed = RememberBody.safeParse(req.body);
+// DX: every POST endpoint used to repeat a 10-line safeParse + 400
+// error mapping + try/catch + 200/400 block. handlePost factors that
+// into one place. Async handlers are fine — Promise.resolve unifies
+// sync (remember/forget) and async (consolidate) code paths.
+function handlePost<T>(
+  schema: z.ZodType<T>,
+  req: Request,
+  res: Response,
+  handler: (data: T) => unknown | Promise<unknown>,
+): void {
+  const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+    res.status(400).json({
+      success: false,
+      error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
+    });
     return;
   }
-  try {
-    const result = remember(parsed.data);
-    res.json({ success: true, data: result });
-  } catch (err: any) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-});
+  Promise.resolve(handler(parsed.data))
+    .then((data) => res.json({ success: true, data }))
+    .catch((err: any) => res.status(400).json({ success: false, error: err?.message ?? String(err) }));
+}
+
+// --- Remember ---
+app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, remember));
 
 // --- Recall ---
 app.post('/v1/recall', async (req, res) => {
@@ -219,95 +230,14 @@ app.post('/v1/recall', async (req, res) => {
   }
 });
 
-// --- Forget ---
-app.post('/v1/forget', (req, res) => {
-  const parsed = ForgetBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
-    return;
-  }
-  try {
-    const result = forget(parsed.data);
-    res.json({ success: true, data: result });
-  } catch (err: any) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-});
-
-// --- Consolidate ---
-app.post('/v1/consolidate', async (req, res) => {
-  const parsed = ConsolidateBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
-    return;
-  }
-  try {
-    const result = await consolidate(parsed.data);
-    res.json({ success: true, data: result });
-  } catch (err: any) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-});
-
-// --- Export ---
-app.post('/v1/export', (req, res) => {
-  const parsed = ExportBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
-    return;
-  }
-  try {
-    const result = exportMemories(parsed.data);
-    res.json({ success: true, data: result });
-  } catch (err: any) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-});
-
-// --- Import ---
-app.post('/v1/import', (req, res) => {
-  const parsed = ImportBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
-    return;
-  }
-  try {
-    const result = importMemories(parsed.data);
-    res.json({ success: true, data: result });
-  } catch (err: any) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-});
-
-// --- Learn ---
-app.post('/v1/learn', (req, res) => {
-  const parsed = LearnBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
-    return;
-  }
-  try {
-    const result = learn(parsed.data);
-    res.json({ success: true, data: result });
-  } catch (err: any) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-});
-
-// --- Verify ---
-app.post('/v1/verify', (req, res) => {
-  const parsed = VerifyBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
-    return;
-  }
-  try {
-    const result = verifyAgentWork(parsed.data);
-    res.json({ success: true, data: result });
-  } catch (err: any) {
-    res.status(400).json({ success: false, error: err.message });
-  }
-});
+// --- Forget / Consolidate / Export / Import / Learn / Verify ---
+// All 6 follow the same shape; handlePost above does the heavy lifting.
+app.post('/v1/forget',      (req, res) => handlePost(ForgetBody, req, res, forget));
+app.post('/v1/consolidate', (req, res) => handlePost(ConsolidateBody, req, res, consolidate));
+app.post('/v1/export',      (req, res) => handlePost(ExportBody, req, res, exportMemories));
+app.post('/v1/import',      (req, res) => handlePost(ImportBody, req, res, importMemories));
+app.post('/v1/learn',       (req, res) => handlePost(LearnBody, req, res, learn));
+app.post('/v1/verify',      (req, res) => handlePost(VerifyBody, req, res, verifyAgentWork));
 
 // --- Config ---
 app.get('/v1/config', (_req, res) => {
