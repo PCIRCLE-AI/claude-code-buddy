@@ -75,9 +75,13 @@ function determineFreshness(
   checkSucceeded: boolean,
   lastSuccessfulCheckAt: string | null,
   now: Date,
+  lastError: string | null,
 ): UpdateCheckFreshness {
   if (!lastSuccessfulCheckAt) return 'unavailable';
-  if (source === 'fresh' && checkSucceeded) return 'fresh';
+  // A partial-failure (version known, deprecation unknown) leaves
+  // lastError set even though checkSucceeded stays true. Don't
+  // label it 'fresh' — the security signal didn't refresh.
+  if (source === 'fresh' && checkSucceeded && !lastError) return 'fresh';
 
   const successfulAt = parseIsoDate(lastSuccessfulCheckAt);
   if (successfulAt === null) return 'unavailable';
@@ -113,7 +117,7 @@ function buildResult(
     updateAvailable: stored.latestVersion !== null && stored.latestVersion !== currentVersion,
     checkSucceeded: stored.checkSucceeded,
     source,
-    freshness: determineFreshness(source, stored.checkSucceeded, stored.lastSuccessfulCheckAt, now),
+    freshness: determineFreshness(source, stored.checkSucceeded, stored.lastSuccessfulCheckAt, now, lastError),
     currentVersionDeprecated: deprecationMessage !== null,
     deprecationMessage,
   };
