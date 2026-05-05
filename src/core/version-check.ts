@@ -239,10 +239,15 @@ export async function checkForUpdate(
               // *successful* answer of "this version doesn't exist
               // on npm, so it can't be deprecated" — distinct from a
               // real network/registry failure where the deprecation
-              // status is unknown. Pattern-match the stderr to keep
-              // source-checkout developers from getting noisy
-              // partial-failure errors in `memesh status`.
-              const errText = String(stderr ?? (err as { stderr?: string }).stderr ?? '');
+              // status is unknown. We pattern-match across stderr,
+              // err.stderr (some Node versions duplicate it onto
+              // err), AND err.message (npm versions that swallow
+              // stderr leave the 404 only on the message).
+              const errText = [
+                stderr,
+                (err as { stderr?: string }).stderr,
+                (err as { message?: string }).message,
+              ].filter((v): v is string => typeof v === 'string').join(' ');
               if (/E404|404 Not Found/i.test(errText)) {
                 resolve({ outcome: 'ok', message: null });
                 return;

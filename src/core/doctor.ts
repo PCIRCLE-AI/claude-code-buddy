@@ -304,6 +304,7 @@ function inspectDashboardArtifact(
 async function inspectUpdateStatus(
   packageVersion: string,
   getUpdateCheckImpl: typeof getUpdateCheck,
+  installSupport?: import('./install-channel.js').InstallChannelSupport,
 ): Promise<DoctorCheck> {
   const update = await getUpdateCheckImpl(packageVersion, { preferFresh: false });
   if (!update || update.freshness === 'unavailable') {
@@ -326,12 +327,28 @@ async function inspectUpdateStatus(
     const target = update.latestVersion && update.latestVersion !== packageVersion
       ? ` -> ${update.latestVersion}`
       : '';
+    // Tailor the fix message to the install channel. `memesh
+    // update` only works for npm-global self-updatable installs
+    // when there's a newer version published; pointing source-
+    // checkout / npm-local users at it (or pointing anyone at it
+    // when latestVersion is missing or unchanged) sends them at
+    // a remediation that won't help.
+    const hasUpgradeTarget = update.latestVersion
+      && update.latestVersion !== packageVersion;
+    let fix: string;
+    if (installSupport?.canSelfUpdate && hasUpgradeTarget) {
+      fix = `Run \`memesh update\`${target}.`;
+    } else if (installSupport?.guidance) {
+      fix = installSupport.guidance + (hasUpgradeTarget ? ` Upgrade target: ${update.latestVersion}.` : '');
+    } else {
+      fix = `Upgrade via your install method (see \`memesh status\`).`;
+    }
     return createCheck(
       'update-status',
       'Update status',
       'fail',
       `Installed version ${packageVersion} is DEPRECATED by maintainers: ${update.deprecationMessage}`,
-      `Run \`memesh update\`${target} or upgrade via your install method (see \`memesh status\`).`,
+      fix,
     );
   }
 
@@ -577,7 +594,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     ),
   );
 
-  checks.push(await inspectUpdateStatus(packageVersion, getUpdateCheckImpl));
+  checks.push(await inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSupport));
 
   if (probeHttp) {
     checks.push(await inspectHttpProbe(httpBaseUrl, fetchImpl));
