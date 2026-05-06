@@ -457,18 +457,32 @@ export function formatUpdateCheckStatus(update: UpdateCheck | null): string[] {
     lines.push(`⚠️  Installed version ${update.currentVersion} is DEPRECATED by maintainers: ${update.deprecationMessage}`);
   }
 
-  if (update.freshness === 'unavailable') {
+  // Codex rounds 33/34: when round 31 preserves a deprecation flag
+  // even though the version lookup failed, freshness can be
+  // 'unavailable'. Routing through the unavailable branch first
+  // would suppress the security-relevant status line. Deprecated
+  // installs deserve a status line that reflects the cache, not a
+  // generic "unavailable" — the leading DEPRECATED warning is
+  // already on `lines[0]`.
+  if (update.currentVersionDeprecated) {
+    if (update.updateAvailable && update.latestVersion) {
+      lines.push(`🔄 Update available: ${update.latestVersion} (${formatFreshness(update)}; run: memesh update)`);
+    } else if (update.latestVersion && update.latestVersion === update.currentVersion) {
+      // CONFIRMED no upgrade target — registry advertises this same
+      // version as latest. Common when maintainers deprecate the
+      // current release before publishing the next one.
+      lines.push(`Update check: deprecated, no upgrade target yet (${formatFreshness(update)})`);
+    } else {
+      // UNKNOWN target — latestVersion is null because the version
+      // lookup failed in this session. A fix may already be on npm;
+      // direct the user at `memesh update`, which resolves @latest
+      // at install time and will succeed if a replacement exists.
+      lines.push(`Update check: deprecated, upgrade target unknown — try \`memesh update\` (${formatFreshness(update)})`);
+    }
+  } else if (update.freshness === 'unavailable') {
     lines.push('Update check: unavailable');
   } else if (update.updateAvailable && update.latestVersion) {
     lines.push(`🔄 Update available: ${update.latestVersion} (${formatFreshness(update)}; run: memesh update)`);
-  } else if (update.currentVersionDeprecated) {
-    // Deprecated install with no replacement yet — the warning
-    // line above already explains the situation. Don't say
-    // "up to date" here; that contradicts the deprecation
-    // warning when latestVersion equals currentVersion or is null.
-    // (Common when maintainers deprecate the latest release
-    // before publishing the next one.)
-    lines.push(`Update check: deprecated, no upgrade target yet (${formatFreshness(update)})`);
   } else if (update.checkSucceeded && update.lastError) {
     // Partial-failure case (codex round 28): the version lookup
     // answered but the deprecation sub-call did not. We don't know

@@ -386,16 +386,21 @@ app.get('/v1/update-status', async (req, res) => {
         freshness: update?.freshness ?? 'unavailable',
         installChannel: installSupport.channel,
         canSelfUpdate: installSupport.canSelfUpdate,
-        // Codex round 32: suppress the recommended command when the
-        // installed version is deprecated AND there is no upgrade
-        // target on npm yet (the maintainer deprecated the latest
-        // release before publishing a replacement). `memesh update`
-        // would no-op in that case, so the dashboard would render
-        // a remediation that contradicts the new
-        // "Deprecated — no upgrade target yet" summary right above.
+        // Codex round 32 + 34: suppress the recommended command ONLY
+        // when we're sure the maintainer-deprecated install has no
+        // upgrade target on npm yet — i.e. the registry-side
+        // latestVersion is the SAME as the installed version. When
+        // latestVersion is null we don't actually know (the version
+        // lookup failed in this session); in that degraded-network
+        // case the dashboard should keep the command so the user
+        // still has an actionable path — `memesh update` resolves
+        // @latest at install time and will succeed if a replacement
+        // does exist. Suppressing the command in the unknown case
+        // would silently downgrade the security-advisory path.
         recommendedCommand: (
           update?.currentVersionDeprecated
-          && (!update.latestVersion || update.latestVersion === update.currentVersion)
+          && update.latestVersion
+          && update.latestVersion === update.currentVersion
         ) ? null : installSupport.recommendedCommand,
         // Surface deprecation state so the dashboard can render the
         // security warning. Without these the SettingsTab only shows
