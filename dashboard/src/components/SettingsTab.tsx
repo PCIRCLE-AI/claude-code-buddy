@@ -133,16 +133,18 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
     updateStatus?.latestVersion
     && updateStatus.latestVersion !== updateStatus.currentVersion,
   );
-  // Codex round 34: distinguish "confirmed no target" (registry says
-  // installed is the latest) from "target unknown" (latestVersion is
-  // null because the version lookup failed in this session). Round 31
-  // started persisting the deprecation flag even when the version
-  // lookup failed, so latestVersion=null no longer means "no
-  // replacement exists" — it means we don't know yet.
+  // Codex rounds 34/35: "confirmed no upgrade target" is only safe
+  // to claim when the registry-side equality came from a FRESH
+  // lookup. Round 34 distinguished null (unknown) from === current.
+  // Round 35 noted that === current from cached/stale data still
+  // can't be trusted — npm could have published a replacement
+  // since the last successful check. Treat cache/stale/null all as
+  // "target unknown" and route the user at `memesh update`.
   const noUpgradeTargetConfirmed = Boolean(
     isDeprecated
     && updateStatus?.latestVersion
-    && updateStatus.latestVersion === updateStatus.currentVersion,
+    && updateStatus.latestVersion === updateStatus.currentVersion
+    && updateStatus?.freshness === 'fresh',
   );
   // Codex round 28: partial-failure state is `checkSucceeded === true`
   // (the version lookup answered) AND `lastError` populated (the

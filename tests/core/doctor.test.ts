@@ -434,6 +434,12 @@ describe('doctor', () => {
         updateAvailable: false,
         currentVersionDeprecated: true,
         deprecationMessage: 'Security: please upgrade as soon as a fix ships.',
+        // Codex round 35 requires "fresh" data before treating
+        // latest === current as a confirmed no-target state.
+        // Cached/stale equality could be wrong if a replacement
+        // shipped since the last successful check.
+        source: 'fresh',
+        freshness: 'fresh',
       }),
       getCurrentInstallChannelImpl: () => 'npm-global',
       getInstallChannelSupportImpl: () => ({
@@ -448,5 +454,46 @@ describe('doctor', () => {
     expect(updateCheck?.fix ?? '').not.toMatch(/`memesh update`/);
     expect(updateCheck?.fix ?? '').not.toContain('updated directly from MeMesh');
     expect(updateCheck?.fix ?? '').toMatch(/no upgrade target/i);
+  });
+
+  it('keeps `memesh update` available when latest=current came from cached data (codex round 35)', async () => {
+    // Round 35: only a FRESH registry lookup can confirm "no
+    // upgrade target". When `latestVersion === packageVersion` came
+    // from a cached or stale check, the registry could have
+    // published a replacement since — telling the user to wait
+    // would withhold the actionable command for a security advisory
+    // that may already have a fix. Doctor should keep
+    // `memesh update` in the fix message in this uncertain state.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.2',
+      openDatabaseImpl: () => makeDatabase() as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck({
+        currentVersion: '4.1.2',
+        latestVersion: '4.1.2',
+        updateAvailable: false,
+        currentVersionDeprecated: true,
+        deprecationMessage: 'Security: please upgrade as soon as a fix ships.',
+        source: 'cache',
+        freshness: 'cached', // ← key difference from round 32 test
+      }),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update',
+        guidance: 'This installation can be updated directly from MeMesh.',
+      }),
+    });
+
+    const updateCheck = result.checks.find((c) => c.id === 'update-status');
+    expect(updateCheck?.status).toBe('fail');
+    expect(updateCheck?.fix ?? '').toMatch(/`memesh update`/);
+    expect(updateCheck?.fix ?? '').not.toMatch(/no upgrade target/i);
   });
 });

@@ -450,6 +450,35 @@ describe('version check', () => {
     expect(lines.some((l) => l.includes('Update available: 4.1.2'))).toBe(true);
   });
 
+  it('requires a FRESH lookup before declaring no upgrade target (codex round 35)', () => {
+    // Codex round 35 caught that `latestVersion === currentVersion`
+    // is only a confirmed "no target yet" state if the equality
+    // came from a fresh registry lookup. Cached/stale data could be
+    // wrong — npm may have published a replacement since the last
+    // successful check. When the data isn't fresh, even matching
+    // versions should fall through to the "target unknown — try
+    // memesh update" branch so the security-advisory remediation
+    // stays actionable.
+    const cachedLines = formatUpdateCheckStatus({
+      currentVersion: '4.1.2',
+      latestVersion: '4.1.2',
+      checkedAt: '2026-05-06T00:00:00.000Z',
+      lastAttemptAt: '2026-05-06T00:00:00.000Z',
+      lastSuccessfulCheckAt: '2026-05-05T00:00:00.000Z',
+      lastError: null,
+      updateAvailable: false,
+      checkSucceeded: true,
+      source: 'cache',
+      freshness: 'cached',
+      currentVersionDeprecated: true,
+      deprecationMessage: 'Security: please upgrade as soon as a fix ships.',
+    });
+    expect(cachedLines.some((l) => l.includes('no upgrade target yet'))).toBe(false);
+    expect(
+      cachedLines.some((l) => /upgrade target unknown.*memesh update/i.test(l))
+    ).toBe(true);
+  });
+
   it('does not claim "no upgrade target" when target is merely unknown (codex round 34)', () => {
     // Round 31 started preserving the deprecation flag even when the
     // version lookup failed — so `latestVersion: null` no longer
