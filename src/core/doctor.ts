@@ -307,7 +307,7 @@ async function inspectUpdateStatus(
   installSupport?: import('./install-channel.js').InstallChannelSupport,
 ): Promise<DoctorCheck> {
   const update = await getUpdateCheckImpl(packageVersion, { preferFresh: false });
-  if (!update || update.freshness === 'unavailable') {
+  if (!update) {
     return createCheck(
       'update-status',
       'Update status',
@@ -323,6 +323,13 @@ async function inspectUpdateStatus(
   // route the deprecation message through the same advisory line the
   // session-start banner uses, so the user sees the same string in
   // both surfaces.
+  //
+  // Codex round 33: this check runs BEFORE the freshness=='unavailable'
+  // guard. Round 31's fix made checkForUpdate persist a successful
+  // deprecation result even when the latest-version lookup failed —
+  // but in that scenario `lastSuccessfulCheckAt` stays null and
+  // freshness comes back as 'unavailable'. Bailing on freshness first
+  // would suppress the security signal exactly when it just arrived.
   if (update.currentVersionDeprecated && update.deprecationMessage) {
     const target = update.latestVersion && update.latestVersion !== packageVersion
       ? ` -> ${update.latestVersion}`
@@ -358,6 +365,19 @@ async function inspectUpdateStatus(
       'fail',
       `Installed version ${packageVersion} is DEPRECATED by maintainers: ${update.deprecationMessage}`,
       fix,
+    );
+  }
+
+  // Now that deprecation has been surfaced, the no-fresh-data path
+  // is the right answer for users who haven't completed a successful
+  // check yet (and have no security advisory waiting).
+  if (update.freshness === 'unavailable') {
+    return createCheck(
+      'update-status',
+      'Update status',
+      'warn',
+      'No successful cached npm update check is available yet.',
+      'Run `memesh status` once while online to populate update status.',
     );
   }
 
