@@ -615,10 +615,25 @@ program
       console.log(`\n${line}`);
     }
 
-    if (installSupport.recommendedCommand) {
-      console.log(`Update path: ${installSupport.recommendedCommand}`);
-    } else {
-      console.log(`Update path: ${installSupport.guidance}`);
+    // Codex round 39: when a fresh lookup confirms `latestVersion ===
+    // currentVersion` on a deprecated install, the status line above
+    // already says "deprecated, no upgrade target yet". Appending
+    // "Update path: memesh update" would contradict it — the command
+    // is a no-op against the same already-installed version. Suppress
+    // the trailer ONLY in that exact (fresh + confirmed-no-target)
+    // case; everywhere else, keep the actionable hint.
+    const confirmedNoUpgradeTarget = Boolean(
+      update?.currentVersionDeprecated
+      && update.latestVersion
+      && update.latestVersion === update.currentVersion
+      && update.freshness === 'fresh',
+    );
+    if (!confirmedNoUpgradeTarget) {
+      if (installSupport.recommendedCommand) {
+        console.log(`Update path: ${installSupport.recommendedCommand}`);
+      } else {
+        console.log(`Update path: ${installSupport.guidance}`);
+      }
     }
   });
 

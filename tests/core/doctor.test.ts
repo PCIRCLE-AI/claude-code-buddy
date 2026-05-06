@@ -408,16 +408,19 @@ describe('doctor', () => {
     expect(result.status).not.toBe('PASS');
   });
 
-  it('does not recommend `memesh update` when deprecated version has no upgrade target (codex round 32)', async () => {
-    // Codex round 32: when the maintainer deprecates the latest
-    // release before publishing the replacement (security advisory
-    // disclosed before the fix is on npm), `memesh update` would
-    // no-op. The doctor used to emit "This installation can be
-    // updated directly from MeMesh" — pointing the user at a dead
-    // end in exactly the security-advisory scenario this branch
-    // exists to handle. The fix should explicitly tell the user
-    // there's no upgrade target yet rather than reuse the generic
-    // self-update guidance.
+  it('always recommends `memesh update` for npm-global, even when deprecated has no upgrade target (codex rounds 32/35/39)', async () => {
+    // Round 32 originally added a "no upgrade target yet" message
+    // for the case where `latestVersion === currentVersion` came
+    // from a fresh lookup. Round 35 tightened it to require
+    // freshness === 'fresh'. Round 39 then noted that doctor calls
+    // getUpdateCheck with `preferFresh: false`, so the fresh-only
+    // gate made the branch dead code in production. Resolution:
+    // doctor always recommends `memesh update` for self-updatable
+    // channels — `npm install -g @latest` is harmless when there
+    // truly is no target, and immediately applies a freshly-
+    // published fix when one ships. The "no upgrade target yet"
+    // wording lives only in `memesh status` (which CAN do a fresh
+    // lookup) and in the dashboard (after a Check now click).
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 
@@ -434,10 +437,6 @@ describe('doctor', () => {
         updateAvailable: false,
         currentVersionDeprecated: true,
         deprecationMessage: 'Security: please upgrade as soon as a fix ships.',
-        // Codex round 35 requires "fresh" data before treating
-        // latest === current as a confirmed no-target state.
-        // Cached/stale equality could be wrong if a replacement
-        // shipped since the last successful check.
         source: 'fresh',
         freshness: 'fresh',
       }),
@@ -451,9 +450,8 @@ describe('doctor', () => {
 
     const updateCheck = result.checks.find((c) => c.id === 'update-status');
     expect(updateCheck?.status).toBe('fail');
-    expect(updateCheck?.fix ?? '').not.toMatch(/`memesh update`/);
-    expect(updateCheck?.fix ?? '').not.toContain('updated directly from MeMesh');
-    expect(updateCheck?.fix ?? '').toMatch(/no upgrade target/i);
+    expect(updateCheck?.fix ?? '').toMatch(/`memesh update`/);
+    expect(updateCheck?.fix ?? '').not.toMatch(/no upgrade target/i);
   });
 
   it('keeps `memesh update` available when latest=current came from cached data (codex round 35)', async () => {
@@ -464,6 +462,9 @@ describe('doctor', () => {
     // would withhold the actionable command for a security advisory
     // that may already have a fix. Doctor should keep
     // `memesh update` in the fix message in this uncertain state.
+    // Round 39 generalized this to ALL freshness states for
+    // doctor, since the cache-only read path means freshness can
+    // never be 'fresh' there anyway.
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 

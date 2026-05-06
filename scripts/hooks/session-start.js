@@ -130,22 +130,20 @@ function buildDeprecationBanner(currentVersion, cache) {
   const knownUpgradeTarget = Boolean(
     cache.latestVersion && cache.latestVersion !== currentVersion,
   );
-  // Codex round 38: when the deprecation lookup confirmed `latestVersion
-  // === currentVersion` in a RECENT successful check, npm-global users
-  // pointed at `memesh update` would hit a no-op (npm resolves @latest
-  // to the same already-installed version). Mirror the doctor/dashboard
-  // behavior here — replace the action line with "watch for a fix" in
-  // the confirmed-no-target case. We use the same 24h freshness window
-  // the auto-update path uses (see AUTO_UPDATE_CACHE_FRESHNESS_MS).
-  const SUCCESS_FRESHNESS_MS = 24 * 60 * 60 * 1000;
-  const lastSuccessTs = typeof cache.lastSuccessfulCheckAt === 'string'
-    ? Date.parse(cache.lastSuccessfulCheckAt)
-    : NaN;
-  const lastSuccessFresh = Number.isFinite(lastSuccessTs)
-    && (Date.now() - lastSuccessTs) < SUCCESS_FRESHNESS_MS;
-  const confirmedNoUpgradeTarget = Boolean(
-    cache.latestVersion === currentVersion && lastSuccessFresh,
-  );
+  // Codex round 39: the SessionStart hook reads ONLY cached cache
+  // data — there's no fresh lookup happening on this code path.
+  // That means `freshness === 'fresh'` (the strict rule the
+  // dashboard / `memesh status` use to authoritatively say
+  // "no upgrade target yet") can never apply here. Round 38 used a
+  // 24h-window heuristic to fire the no-target message anyway, but
+  // codex correctly flagged that as suppressing the upgrade hint
+  // exactly when a security-advisory fix could ship within the
+  // window. Conservative remediation: always recommend
+  // `memesh update` (which is a harmless no-op when there's truly
+  // no target, and immediately applies a freshly-published fix
+  // when there is one). The "no target yet" message remains
+  // available in `memesh status` (fresh lookup) and the dashboard
+  // (after a Check now click).
   // Tailor the remediation hint to the install channel. `memesh
   // update` and `autoUpdate` only work for npm-global installs;
   // pointing source-checkout / project-local users at those
@@ -166,15 +164,11 @@ function buildDeprecationBanner(currentVersion, cache) {
     // autoUpdate would point them at a remediation that doesn't
     // yet act. Restore the autoUpdate suggestion in v4.1.4 once
     // the spawn lands.
-    if (confirmedNoUpgradeTarget) {
-      lines.push(`    No upgrade target on npm yet — watch the project release feed and re-run \`memesh status\` once a fix ships.`);
-    } else {
-      lines.push(
-        knownUpgradeTarget
-          ? `    Run: memesh update`
-          : `    Run: memesh update   (resolves @latest — works even if no upgrade target is cached yet)`,
-      );
-    }
+    lines.push(
+      knownUpgradeTarget
+        ? `    Run: memesh update`
+        : `    Run: memesh update   (resolves @latest — works even if no upgrade target is cached yet)`,
+    );
   } else if (channel === 'source-checkout') {
     lines.push(`    Source checkout: pull and rebuild (\`git pull && npm install && npm run build\`).`);
   } else if (channel === 'npm-local') {
