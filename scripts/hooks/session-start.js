@@ -5,6 +5,7 @@ import { spawn } from 'child_process';
 import { createHash } from 'crypto';
 import { homedir } from 'os';
 import { join, basename } from 'path';
+import { pathToFileURL } from 'url';
 import { existsSync, readFileSync, unlinkSync, rmSync, appendFileSync, chmodSync, openSync, closeSync } from 'fs';
 import {
   buildReferenceContext,
@@ -19,6 +20,23 @@ import {
 } from './_shared.js';
 
 const require = createRequire(import.meta.url);
+
+// Codex round 37: dist/core/install-channel.js is emitted as ESM
+// (the project's tsconfig produces NodeNext modules). On Node 20.x
+// `require()` against an ESM file throws ERR_REQUIRE_ESM, which
+// silently downgraded all install-channel detection to 'unknown' on
+// the supported floor. Pre-load the module via dynamic `import()`
+// at hook startup using a top-level await — once at process init,
+// not on every call. Falls back to null if the dist file is
+// missing (source checkout pre-build) or fails to load.
+let _installChannelMod = null;
+try {
+  const _pluginRootForInit = resolvePluginRoot(import.meta.url);
+  const _modPath = join(_pluginRootForInit, 'dist/core/install-channel.js');
+  if (existsSync(_modPath)) {
+    _installChannelMod = await import(pathToFileURL(_modPath).href);
+  }
+} catch { /* best-effort — fall through to 'unknown' channel */ }
 
 const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
 const memeshDir = getMemeshDir(process.env);
@@ -242,9 +260,9 @@ function logAutoUpdate(line) {
  * user expects.
  */
 function detectInstallChannelHook(pluginRoot) {
+  if (!_installChannelMod) return 'unknown';
   try {
-    const installChannelMod = require(join(pluginRoot, 'dist/core/install-channel.js'));
-    return installChannelMod.getCurrentInstallChannel({ packageRoot: pluginRoot });
+    return _installChannelMod.getCurrentInstallChannel({ packageRoot: pluginRoot });
   } catch {
     return 'unknown';
   }
@@ -412,7 +430,7 @@ function spawnAutoUpdate(version, deprecationOverride) {
 // (24h) to stay accurate.
 const FRESH_CHECK_THROTTLE_MS = 5 * 60 * 1000;
 
-function spawnFreshUpdateCheck() {
+function spawnFreshUpdateCheck(installedVersion) {
   try {
     const pluginRoot = resolvePluginRoot(import.meta.url);
     const cliPath = join(pluginRoot, 'dist/transports/cli/cli.js');
@@ -420,7 +438,21 @@ function spawnFreshUpdateCheck() {
     const fs = require('fs');
     const dir = join(homedir(), '.memesh');
     try { ensurePrivateDir(dir); } catch { /* best-effort */ }
-    const markerPath = join(dir, 'last-fresh-refresh.lock');
+    // Codex round 37: scope the throttle marker to the installed
+    // version. The marker was machine-global, so a refresh started
+    // by a global 4.1.3 install would suppress refreshes for a
+    // sibling project-local 4.1.1 for the next 5 minutes — and the
+    // shared cache it wrote would carry version 4.1.3, so the
+    // 4.1.1 session would skip its banner because
+    // `cache.currentVersion !== currentVersion`. Per-version
+    // markers ensure each install gets its own refresh window.
+    // Sanitize version for filesystem (semver chars only, no path
+    // separators); fall back to 'unknown' if missing.
+    const versionTag = typeof installedVersion === 'string'
+      && /^[0-9A-Za-z.+-]+$/.test(installedVersion)
+      ? installedVersion
+      : 'unknown';
+    const markerPath = join(dir, `last-fresh-refresh.${versionTag}.lock`);
     // Single-owner claim: O_EXCL atomic create. Codex round 27
     // caught that the previous temp+rename+readback pattern was
     // racy — both peers' renames are destructive, so each could
@@ -537,7 +569,7 @@ function runPostBannerUpdateTasks() {
         // Best-effort: if channel detection fails, skip the log.
       }
     }
-    spawnFreshUpdateCheck();
+    spawnFreshUpdateCheck(installedVersion);
   } catch {
     // Best-effort — never crash the hook on a network or fs hiccup.
   }
