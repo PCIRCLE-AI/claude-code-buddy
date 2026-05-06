@@ -50,11 +50,31 @@ const nudgeFlagsDir = join(memeshDir, 'agent-nudge-flags');
  * Returns null on missing/corrupt cache rather than throwing — the
  * deprecation warning is best-effort.
  */
-function readUpdateCheckCache() {
-  const path = process.env.MEMESH_UPDATE_CHECK_PATH || join(homedir(), '.memesh', 'update-check.json');
+function readUpdateCheckCache(installedVersion) {
+  // Codex round 38: scope cache reads by installed version so a
+  // multi-install setup (global 4.1.3 + project-local 4.1.1)
+  // doesn't fight over a single cache slot. Each install reads
+  // its own per-version file. Test/integration envs can still
+  // pin a specific path via MEMESH_UPDATE_CHECK_PATH.
+  if (process.env.MEMESH_UPDATE_CHECK_PATH) {
+    try {
+      const overridePath = process.env.MEMESH_UPDATE_CHECK_PATH;
+      if (!existsSync(overridePath)) return null;
+      const parsed = JSON.parse(readFileSync(overridePath, 'utf8'));
+      if (!parsed || typeof parsed !== 'object') return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+  const versionTag = typeof installedVersion === 'string'
+    && /^[0-9A-Za-z.+-]+$/.test(installedVersion)
+    ? installedVersion
+    : 'unknown';
+  const cachePath = join(homedir(), '.memesh', `update-check.${versionTag}.json`);
   try {
-    if (!existsSync(path)) return null;
-    const parsed = JSON.parse(readFileSync(path, 'utf8'));
+    if (!existsSync(cachePath)) return null;
+    const parsed = JSON.parse(readFileSync(cachePath, 'utf8'));
     if (!parsed || typeof parsed !== 'object') return null;
     return parsed;
   } catch {
@@ -110,6 +130,22 @@ function buildDeprecationBanner(currentVersion, cache) {
   const knownUpgradeTarget = Boolean(
     cache.latestVersion && cache.latestVersion !== currentVersion,
   );
+  // Codex round 38: when the deprecation lookup confirmed `latestVersion
+  // === currentVersion` in a RECENT successful check, npm-global users
+  // pointed at `memesh update` would hit a no-op (npm resolves @latest
+  // to the same already-installed version). Mirror the doctor/dashboard
+  // behavior here — replace the action line with "watch for a fix" in
+  // the confirmed-no-target case. We use the same 24h freshness window
+  // the auto-update path uses (see AUTO_UPDATE_CACHE_FRESHNESS_MS).
+  const SUCCESS_FRESHNESS_MS = 24 * 60 * 60 * 1000;
+  const lastSuccessTs = typeof cache.lastSuccessfulCheckAt === 'string'
+    ? Date.parse(cache.lastSuccessfulCheckAt)
+    : NaN;
+  const lastSuccessFresh = Number.isFinite(lastSuccessTs)
+    && (Date.now() - lastSuccessTs) < SUCCESS_FRESHNESS_MS;
+  const confirmedNoUpgradeTarget = Boolean(
+    cache.latestVersion === currentVersion && lastSuccessFresh,
+  );
   // Tailor the remediation hint to the install channel. `memesh
   // update` and `autoUpdate` only work for npm-global installs;
   // pointing source-checkout / project-local users at those
@@ -130,11 +166,15 @@ function buildDeprecationBanner(currentVersion, cache) {
     // autoUpdate would point them at a remediation that doesn't
     // yet act. Restore the autoUpdate suggestion in v4.1.4 once
     // the spawn lands.
-    lines.push(
-      knownUpgradeTarget
-        ? `    Run: memesh update`
-        : `    Run: memesh update   (resolves @latest — works even if no upgrade target is cached yet)`,
-    );
+    if (confirmedNoUpgradeTarget) {
+      lines.push(`    No upgrade target on npm yet — watch the project release feed and re-run \`memesh status\` once a fix ships.`);
+    } else {
+      lines.push(
+        knownUpgradeTarget
+          ? `    Run: memesh update`
+          : `    Run: memesh update   (resolves @latest — works even if no upgrade target is cached yet)`,
+      );
+    }
   } else if (channel === 'source-checkout') {
     lines.push(`    Source checkout: pull and rebuild (\`git pull && npm install && npm run build\`).`);
   } else if (channel === 'npm-local') {
@@ -543,7 +583,7 @@ function runPostBannerUpdateTasks() {
       installedVersion = typeof pkg.version === 'string' ? pkg.version : null;
     } catch { /* best-effort */ }
     if (!installedVersion) return;
-    const cache = readUpdateCheckCache();
+    const cache = readUpdateCheckCache(installedVersion);
     const policy = resolveAutoUpdatePolicy(process.env);
     const decision = decideAutoUpdateHook(installedVersion, cache, policy);
     if (decision.run) {
@@ -587,7 +627,7 @@ function combineWithBanner(baseMessage) {
     const pluginRoot = resolvePluginRoot(import.meta.url);
     const pkg = JSON.parse(readFileSync(join(pluginRoot, 'package.json'), 'utf8'));
     const installedVersion = typeof pkg.version === 'string' ? pkg.version : null;
-    const cache = readUpdateCheckCache();
+    const cache = readUpdateCheckCache(installedVersion);
     lines = installedVersion ? buildDeprecationBanner(installedVersion, cache) : [];
   } catch {
     // Best-effort — fall through to base message only.
@@ -891,7 +931,7 @@ process.stdin.on('end', async () => {
       } catch {
         // Best-effort — without the version we can't compare to cache.
       }
-      const updateCache = readUpdateCheckCache();
+      const updateCache = readUpdateCheckCache(installedVersion);
       const deprecationLines = installedVersion
         ? buildDeprecationBanner(installedVersion, updateCache)
         : [];
