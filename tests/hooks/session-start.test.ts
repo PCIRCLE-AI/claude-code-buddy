@@ -124,6 +124,15 @@ describe('Feature: Session Start Hook', () => {
     expect(messages.some((m) => m.includes('DEPRECATED'))).toBe(true);
     expect(messages.some((m) => m.includes('TEST: live-test deprecation banner verification'))).toBe(true);
     expect(messages.some((m) => m.includes('No database found'))).toBe(true);
+    // Codex round 36: even when latestVersion === currentVersion in
+    // the cache (no upgrade target apparent), the banner must
+    // include a remediation line. Previously the gate was
+    // `latestVersion !== currentVersion`, which left the security
+    // warning without an action — users had to know to run a
+    // command. Channel-specific text varies (memesh update / npm
+    // install / git pull...), but every channel must produce at
+    // least one indented hint line.
+    expect(messages.some((m) => /\n\s{4}(Run|Source checkout|Project-local install|Upgrade)/.test(m))).toBe(true);
   });
 
   it('Scenario: Empty database (no entities table) -> graceful message', () => {

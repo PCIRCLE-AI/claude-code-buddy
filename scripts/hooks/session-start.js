@@ -79,42 +79,65 @@ function buildDeprecationBanner(currentVersion, cache) {
     `⚠️  MeMesh ${currentVersion} is DEPRECATED by maintainers.`,
     `    ${msg}`,
   ];
-  if (cache.latestVersion && cache.latestVersion !== currentVersion) {
-    // Tailor the remediation hint to the install channel. `memesh
-    // update` and `autoUpdate` only work for npm-global installs;
-    // pointing source-checkout / project-local users at those
-    // commands is misleading (especially when the deprecation is a
-    // security advisory). Detect the channel and suggest the
-    // remediation that actually applies.
-    let channel = 'unknown';
-    try {
-      const pluginRoot = resolvePluginRoot(import.meta.url);
-      channel = detectInstallChannelHook(pluginRoot);
-    } catch { /* best-effort — fall through to generic guidance */ }
+  // Codex round 36: emit a remediation line for EVERY deprecation
+  // banner — including the cases where the cached `latestVersion`
+  // is null, equal to current, or stale. The previous gate omitted
+  // the action line whenever the cache didn't yet show a strictly-
+  // newer version, leaving users with a security warning and no
+  // follow-up step. doctor / CLI status / dashboard already point
+  // at `memesh update` (or channel equivalents) in those uncertain
+  // cases, and the session-start banner should match — `npm`
+  // resolves @latest at install time, so the command works even
+  // when our local cache is uncertain.
+  const knownUpgradeTarget = Boolean(
+    cache.latestVersion && cache.latestVersion !== currentVersion,
+  );
+  // Tailor the remediation hint to the install channel. `memesh
+  // update` and `autoUpdate` only work for npm-global installs;
+  // pointing source-checkout / project-local users at those
+  // commands is misleading (especially when the deprecation is a
+  // security advisory). Detect the channel and suggest the
+  // remediation that actually applies.
+  let channel = 'unknown';
+  try {
+    const pluginRoot = resolvePluginRoot(import.meta.url);
+    channel = detectInstallChannelHook(pluginRoot);
+  } catch { /* best-effort — fall through to generic guidance */ }
 
-    if (channel === 'npm-global') {
-      // v4.1.3: only `memesh update` actually applies the upgrade.
-      // The autoUpdate config field is recognised (and the policy
-      // resolution + decision matrix run) but the actual spawn is
-      // deferred to the v4.1.4 Stop hook, so suggesting users set
-      // autoUpdate would point them at a remediation that doesn't
-      // yet act. Restore the autoUpdate suggestion in v4.1.4 once
-      // the spawn lands.
-      lines.push(`    Run: memesh update`);
-    } else if (channel === 'source-checkout') {
-      lines.push(`    Source checkout: pull and rebuild (\`git pull && npm install && npm run build\`).`);
-    } else if (channel === 'npm-local') {
-      // Codex round 30: the cached `latestVersion` may itself be
-      // stale (cache TTL is 24h and we're already showing a stale
-      // banner). Pinning a specific version risks installing an
-      // already-superseded build that's part of the same security
-      // advisory. `@latest` always resolves to the registry's
-      // current dist-tag at install time, which is the right
-      // remediation for a deprecation/security-advisory banner.
-      lines.push(`    Project-local install: run \`npm install @pcircle/memesh@latest\` in this project (cached upgrade target was ${cache.latestVersion}).`);
-    } else {
-      lines.push(`    Upgrade via the install path you used: fetch the latest @pcircle/memesh from npm (cached upgrade target was ${cache.latestVersion}).`);
-    }
+  if (channel === 'npm-global') {
+    // v4.1.3: only `memesh update` actually applies the upgrade.
+    // The autoUpdate config field is recognised (and the policy
+    // resolution + decision matrix run) but the actual spawn is
+    // deferred to the v4.1.4 Stop hook, so suggesting users set
+    // autoUpdate would point them at a remediation that doesn't
+    // yet act. Restore the autoUpdate suggestion in v4.1.4 once
+    // the spawn lands.
+    lines.push(
+      knownUpgradeTarget
+        ? `    Run: memesh update`
+        : `    Run: memesh update   (resolves @latest — works even if no upgrade target is cached yet)`,
+    );
+  } else if (channel === 'source-checkout') {
+    lines.push(`    Source checkout: pull and rebuild (\`git pull && npm install && npm run build\`).`);
+  } else if (channel === 'npm-local') {
+    // Codex round 30: the cached `latestVersion` may itself be
+    // stale (cache TTL is 24h and we're already showing a stale
+    // banner). Pinning a specific version risks installing an
+    // already-superseded build that's part of the same security
+    // advisory. `@latest` always resolves to the registry's
+    // current dist-tag at install time, which is the right
+    // remediation for a deprecation/security-advisory banner.
+    lines.push(
+      knownUpgradeTarget
+        ? `    Project-local install: run \`npm install @pcircle/memesh@latest\` in this project (cached upgrade target was ${cache.latestVersion}).`
+        : `    Project-local install: run \`npm install @pcircle/memesh@latest\` in this project.`,
+    );
+  } else {
+    lines.push(
+      knownUpgradeTarget
+        ? `    Upgrade via the install path you used: fetch the latest @pcircle/memesh from npm (cached upgrade target was ${cache.latestVersion}).`
+        : `    Upgrade via the install path you used: fetch the latest @pcircle/memesh from npm.`,
+    );
   }
   return lines;
 }

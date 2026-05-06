@@ -201,8 +201,21 @@ function writeStoredUpdateCheck(stored: StoredUpdateCheck, updateCheckPath?: str
     try {
       fs.renameSync(tempPath, targetPath);
     } catch (renameErr: any) {
-      // Windows-specific fallback: rename can refuse to replace an
-      // open destination. unlink-then-rename gets us out of that.
+      // Codex round 36: only fall through to the destructive
+      // unlink-then-rename path on error codes that actually mean
+      // "destination cannot be replaced" (Windows AV / antivirus
+      // briefly holds the file open, or another process owns the
+      // handle). For unrelated rename failures (disk full,
+      // permission errors on the temp file, EROFS), DON'T touch
+      // the existing cache — losing every prior update /
+      // deprecation signal because of a transient disk-full event
+      // would silently demote the security path. Bail and let the
+      // caller's catch swallow.
+      const REPLACEABLE_ERRS = new Set(['EEXIST', 'EACCES', 'EPERM', 'EBUSY', 'ENOTEMPTY']);
+      if (!REPLACEABLE_ERRS.has(renameErr?.code)) {
+        try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
+        throw renameErr;
+      }
       try { fs.unlinkSync(targetPath); } catch (err: any) {
         if (err?.code !== 'ENOENT') {
           try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
