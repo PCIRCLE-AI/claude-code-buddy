@@ -55,8 +55,25 @@ interface GetUpdateCheckOptions extends CheckForUpdateOptions {
   preferFresh?: boolean;
 }
 
-function getUpdateCheckPath(updateCheckPath?: string): string {
-  return updateCheckPath ?? process.env.MEMESH_UPDATE_CHECK_PATH ?? UPDATE_CHECK_PATH;
+function getUpdateCheckPath(
+  updateCheckPath?: string,
+  currentVersion?: string,
+): string {
+  // Test/integration overrides win — both unblock specific path
+  // injection without changing the per-version semantics below.
+  if (updateCheckPath) return updateCheckPath;
+  if (process.env.MEMESH_UPDATE_CHECK_PATH) return process.env.MEMESH_UPDATE_CHECK_PATH;
+  // Codex round 38: scope cache by installed version so multi-install
+  // setups (e.g. global 4.1.3 + project-local 4.1.1) don't fight
+  // over a single cache slot. Without this, install A's refresh
+  // overwrites install B's deprecation flag and B's session sees no
+  // banner. Per-version files give each install its own slot.
+  // Filename is sanitized: only semver-safe chars + version length
+  // bound. Falls back to 'unknown' if version is missing/malformed.
+  const versionTag = currentVersion && /^[0-9A-Za-z.+-]+$/.test(currentVersion)
+    ? currentVersion
+    : 'unknown';
+  return path.join(os.homedir(), '.memesh', `update-check.${versionTag}.json`);
 }
 
 function parseIsoDate(value: string | null): number | null {
@@ -163,9 +180,12 @@ function parseStoredUpdateCheck(raw: unknown): StoredUpdateCheck | null {
   };
 }
 
-function readStoredUpdateCheck(updateCheckPath?: string): StoredUpdateCheck | null {
+function readStoredUpdateCheck(
+  updateCheckPath?: string,
+  currentVersion?: string,
+): StoredUpdateCheck | null {
   try {
-    const targetPath = getUpdateCheckPath(updateCheckPath);
+    const targetPath = getUpdateCheckPath(updateCheckPath, currentVersion);
     if (!fs.existsSync(targetPath)) return null;
     return parseStoredUpdateCheck(JSON.parse(fs.readFileSync(targetPath, 'utf8')));
   } catch {
@@ -173,9 +193,13 @@ function readStoredUpdateCheck(updateCheckPath?: string): StoredUpdateCheck | nu
   }
 }
 
-function writeStoredUpdateCheck(stored: StoredUpdateCheck, updateCheckPath?: string): void {
+function writeStoredUpdateCheck(
+  stored: StoredUpdateCheck,
+  updateCheckPath?: string,
+  currentVersion?: string,
+): void {
   try {
-    const targetPath = getUpdateCheckPath(updateCheckPath);
+    const targetPath = getUpdateCheckPath(updateCheckPath, currentVersion);
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
     // Atomic write: write to a per-process temp file, then rename
     // into place. A direct fs.writeFileSync(targetPath, ...) would
@@ -250,7 +274,7 @@ export async function checkForUpdate(
     updateCheckPath,
   } = options;
 
-  const previous = readStoredUpdateCheck(updateCheckPath);
+  const previous = readStoredUpdateCheck(updateCheckPath, currentVersion);
   const attemptedAt = now.toISOString();
 
   // Latest version (canonical) and current version's deprecation
@@ -327,7 +351,7 @@ export async function checkForUpdate(
     // result with null.
     const needsInherited =
       deprecationOutcome.outcome === 'failed' || latestOutcome.outcome === 'failed';
-    const refreshed = needsInherited ? readStoredUpdateCheck(updateCheckPath) : null;
+    const refreshed = needsInherited ? readStoredUpdateCheck(updateCheckPath, currentVersion) : null;
     const inheritedDeprecation = refreshed?.currentVersion === currentVersion
       ? refreshed?.currentVersionDeprecation ?? null
       : previous?.currentVersion === currentVersion
@@ -367,7 +391,7 @@ export async function checkForUpdate(
         checkSucceeded: true,
         currentVersionDeprecation: resolvedDeprecation,
       };
-      writeStoredUpdateCheck(stored, updateCheckPath);
+      writeStoredUpdateCheck(stored, updateCheckPath, currentVersion);
       return buildResult(currentVersion, stored, 'fresh', now);
     }
 
@@ -385,7 +409,7 @@ export async function checkForUpdate(
       checkSucceeded: false,
       currentVersionDeprecation: resolvedDeprecation,
     };
-    writeStoredUpdateCheck(stored, updateCheckPath);
+    writeStoredUpdateCheck(stored, updateCheckPath, currentVersion);
     const source: UpdateCheckSource = stored.lastSuccessfulCheckAt ? 'cache' : 'fresh';
     return buildResult(currentVersion, stored, source, now);
   } catch (err) {
@@ -404,7 +428,7 @@ export async function checkForUpdate(
           ? previous?.currentVersionDeprecation ?? null
           : null,
     };
-    writeStoredUpdateCheck(stored, updateCheckPath);
+    writeStoredUpdateCheck(stored, updateCheckPath, currentVersion);
     const source: UpdateCheckSource = stored.lastSuccessfulCheckAt ? 'cache' : 'fresh';
     return buildResult(currentVersion, stored, source, now);
   }
@@ -419,7 +443,7 @@ export function getLastUpdateCheck(
   currentVersion: string,
   options: { updateCheckPath?: string; now?: Date } = {},
 ): UpdateCheck | null {
-  const stored = readStoredUpdateCheck(options.updateCheckPath);
+  const stored = readStoredUpdateCheck(options.updateCheckPath, currentVersion);
   if (!stored) return null;
   return buildResult(currentVersion, stored, 'cache', options.now ?? new Date());
 }
