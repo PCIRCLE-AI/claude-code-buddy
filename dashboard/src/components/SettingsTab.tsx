@@ -133,6 +133,17 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
     updateStatus?.latestVersion
     && updateStatus.latestVersion !== updateStatus.currentVersion,
   );
+  // Codex round 34: distinguish "confirmed no target" (registry says
+  // installed is the latest) from "target unknown" (latestVersion is
+  // null because the version lookup failed in this session). Round 31
+  // started persisting the deprecation flag even when the version
+  // lookup failed, so latestVersion=null no longer means "no
+  // replacement exists" — it means we don't know yet.
+  const noUpgradeTargetConfirmed = Boolean(
+    isDeprecated
+    && updateStatus?.latestVersion
+    && updateStatus.latestVersion === updateStatus.currentVersion,
+  );
   // Codex round 28: partial-failure state is `checkSucceeded === true`
   // (the version lookup answered) AND `lastError` populated (the
   // deprecation sub-call did not). In that case we don't actually
@@ -159,7 +170,9 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       : isDeprecated
         ? hasUpdateTarget
           ? t('settings.updateAvailable')
-          : t('settings.updateDeprecatedNoTarget')
+          : noUpgradeTargetConfirmed
+            ? t('settings.updateDeprecatedNoTarget')
+            : t('settings.updateDeprecatedTargetUnknown')
         : updateStatus.freshness === 'unavailable'
           ? t('settings.updateNoSuccessfulChecks')
           : !updateStatus.checkSucceeded && updateStatus.freshness === 'stale'

@@ -450,6 +450,37 @@ describe('version check', () => {
     expect(lines.some((l) => l.includes('Update available: 4.1.2'))).toBe(true);
   });
 
+  it('does not claim "no upgrade target" when target is merely unknown (codex round 34)', () => {
+    // Round 31 started preserving the deprecation flag even when the
+    // version lookup failed — so `latestVersion: null` no longer
+    // means "no replacement on npm". It means we don't know yet.
+    // Round 34 caught that the CLI was still printing
+    // "Update check: deprecated, no upgrade target yet" in this
+    // case, telling the user there's nothing to install when in fact
+    // a fix may already be on the registry. The CLI must distinguish
+    // CONFIRMED no-target (latestVersion === currentVersion) from
+    // UNKNOWN (latestVersion === null) and direct the unknown case
+    // at `memesh update`, which resolves @latest at install time.
+    const lines = formatUpdateCheckStatus({
+      currentVersion: '4.1.1',
+      latestVersion: null,
+      checkedAt: '2026-05-06T00:00:00.000Z',
+      lastAttemptAt: '2026-05-06T00:00:00.000Z',
+      lastSuccessfulCheckAt: null,
+      lastError: 'version lookup timed out',
+      updateAvailable: false,
+      checkSucceeded: false,
+      source: 'fresh',
+      freshness: 'unavailable',
+      currentVersionDeprecated: true,
+      deprecationMessage: 'Security: HIGH polynomial-redos. Upgrade to 4.1.2+.',
+    });
+    expect(lines.some((l) => l.includes('no upgrade target yet'))).toBe(false);
+    expect(
+      lines.some((l) => /upgrade target unknown.*memesh update/i.test(l))
+    ).toBe(true);
+  });
+
   it('does not call a partial-deprecation-failure install "up to date" (codex round 28)', () => {
     // The version lookup succeeded (`checkSucceeded: true`) but the
     // deprecation sub-call timed out (`lastError` populated). We
