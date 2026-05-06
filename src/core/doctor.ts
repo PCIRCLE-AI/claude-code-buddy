@@ -342,32 +342,19 @@ async function inspectUpdateStatus(
     // a remediation that won't help.
     const hasUpgradeTarget = update.latestVersion
       && update.latestVersion !== packageVersion;
-    // Codex round 35: only treat "latest === current" as the
-    // "no upgrade target yet" state when the data is FRESH —
-    // cached/stale equality could be wrong if a replacement was
-    // published after the last successful check. When uncertain,
-    // direct the user at `memesh update` (resolves @latest at
-    // install time) rather than at a wait-for-future-release dead
-    // end.
-    const confirmedNoUpgradeTarget = Boolean(
-      update.latestVersion
-      && update.latestVersion === packageVersion
-      && update.freshness === 'fresh',
-    );
+    // Codex round 39: the previous "confirmedNoUpgradeTarget" branch
+    // required `update.freshness === 'fresh'`, but doctor calls
+    // `getUpdateCheck(..., { preferFresh: false })`, so the cached
+    // data path here can never be 'fresh'. The branch was dead code.
+    // Resolution: always recommend `memesh update` (or channel
+    // equivalent). When there's truly no upgrade target,
+    // `npm install -g @latest` is a harmless no-op; when one ships,
+    // the command applies it immediately. The "no upgrade target"
+    // message lives only in `memesh status` (which CAN do a fresh
+    // lookup) and the dashboard (after a Check now click) — both
+    // surfaces where freshness === 'fresh' is reachable.
     let fix: string;
-    if (confirmedNoUpgradeTarget) {
-      // Codex round 32: maintainer deprecated this version (often a
-      // security advisory) but no replacement is on npm yet. Both
-      // `memesh update` and an explicit-version install would no-op.
-      // Pointing the user at either is a dead-end remediation for
-      // the very advisory this branch is trying to surface — the
-      // honest answer is "no upgrade target available; watch the
-      // release feed."
-      fix = 'No upgrade target on npm yet — watch the project release feed for a replacement and re-run `memesh doctor` once it lands. If the advisory is severe, consider removing the install until then.';
-    } else if (installSupport?.canSelfUpdate) {
-      // Has confirmed target OR target is unknown (cache/stale/null).
-      // In the unknown case `memesh update` is still the right
-      // answer because npm resolves @latest at install time.
+    if (installSupport?.canSelfUpdate) {
       fix = hasUpgradeTarget
         ? `Run \`memesh update\`${target}.`
         : 'Run `memesh update` to refresh the registry lookup and apply any newly-published fix.';
