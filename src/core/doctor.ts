@@ -342,8 +342,20 @@ async function inspectUpdateStatus(
     // a remediation that won't help.
     const hasUpgradeTarget = update.latestVersion
       && update.latestVersion !== packageVersion;
+    // Codex round 35: only treat "latest === current" as the
+    // "no upgrade target yet" state when the data is FRESH —
+    // cached/stale equality could be wrong if a replacement was
+    // published after the last successful check. When uncertain,
+    // direct the user at `memesh update` (resolves @latest at
+    // install time) rather than at a wait-for-future-release dead
+    // end.
+    const confirmedNoUpgradeTarget = Boolean(
+      update.latestVersion
+      && update.latestVersion === packageVersion
+      && update.freshness === 'fresh',
+    );
     let fix: string;
-    if (!hasUpgradeTarget) {
+    if (confirmedNoUpgradeTarget) {
       // Codex round 32: maintainer deprecated this version (often a
       // security advisory) but no replacement is on npm yet. Both
       // `memesh update` and an explicit-version install would no-op.
@@ -353,9 +365,16 @@ async function inspectUpdateStatus(
       // release feed."
       fix = 'No upgrade target on npm yet — watch the project release feed for a replacement and re-run `memesh doctor` once it lands. If the advisory is severe, consider removing the install until then.';
     } else if (installSupport?.canSelfUpdate) {
-      fix = `Run \`memesh update\`${target}.`;
+      // Has confirmed target OR target is unknown (cache/stale/null).
+      // In the unknown case `memesh update` is still the right
+      // answer because npm resolves @latest at install time.
+      fix = hasUpgradeTarget
+        ? `Run \`memesh update\`${target}.`
+        : 'Run `memesh update` to refresh the registry lookup and apply any newly-published fix.';
     } else if (installSupport?.guidance) {
-      fix = installSupport.guidance + ` Upgrade target: ${update.latestVersion}.`;
+      fix = installSupport.guidance + (hasUpgradeTarget
+        ? ` Upgrade target: ${update.latestVersion}.`
+        : ' Upgrade target uncertain — re-check `memesh status` while online.');
     } else {
       fix = `Upgrade via your install method (see \`memesh status\`).`;
     }

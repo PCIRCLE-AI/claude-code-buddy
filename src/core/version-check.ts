@@ -467,16 +467,24 @@ export function formatUpdateCheckStatus(update: UpdateCheck | null): string[] {
   if (update.currentVersionDeprecated) {
     if (update.updateAvailable && update.latestVersion) {
       lines.push(`🔄 Update available: ${update.latestVersion} (${formatFreshness(update)}; run: memesh update)`);
-    } else if (update.latestVersion && update.latestVersion === update.currentVersion) {
-      // CONFIRMED no upgrade target — registry advertises this same
-      // version as latest. Common when maintainers deprecate the
-      // current release before publishing the next one.
+    } else if (
+      update.latestVersion
+      && update.latestVersion === update.currentVersion
+      && update.freshness === 'fresh'
+    ) {
+      // CONFIRMED no upgrade target — registry advertised this same
+      // version as latest in THIS run's successful lookup. Common
+      // when maintainers deprecate the current release before
+      // publishing the next one. Codex round 35: cached/stale data
+      // doesn't qualify here — the registry could have published a
+      // replacement since the last successful check.
       lines.push(`Update check: deprecated, no upgrade target yet (${formatFreshness(update)})`);
     } else {
-      // UNKNOWN target — latestVersion is null because the version
-      // lookup failed in this session. A fix may already be on npm;
-      // direct the user at `memesh update`, which resolves @latest
-      // at install time and will succeed if a replacement exists.
+      // UNKNOWN target — either latestVersion is null (round 31's
+      // version-fail/deprecation-success path), or the equality
+      // came from cache/stale data we can't fully trust. Direct the
+      // user at `memesh update`, which resolves @latest at install
+      // time and will succeed if a replacement exists.
       lines.push(`Update check: deprecated, upgrade target unknown — try \`memesh update\` (${formatFreshness(update)})`);
     }
   } else if (update.freshness === 'unavailable') {

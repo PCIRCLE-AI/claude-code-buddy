@@ -386,21 +386,22 @@ app.get('/v1/update-status', async (req, res) => {
         freshness: update?.freshness ?? 'unavailable',
         installChannel: installSupport.channel,
         canSelfUpdate: installSupport.canSelfUpdate,
-        // Codex round 32 + 34: suppress the recommended command ONLY
-        // when we're sure the maintainer-deprecated install has no
-        // upgrade target on npm yet — i.e. the registry-side
-        // latestVersion is the SAME as the installed version. When
-        // latestVersion is null we don't actually know (the version
-        // lookup failed in this session); in that degraded-network
-        // case the dashboard should keep the command so the user
-        // still has an actionable path — `memesh update` resolves
-        // @latest at install time and will succeed if a replacement
-        // does exist. Suppressing the command in the unknown case
-        // would silently downgrade the security-advisory path.
+        // Codex rounds 32 / 34 / 35: suppress the recommended command
+        // ONLY when we're certain the maintainer-deprecated install
+        // has no upgrade target on npm yet. "Certain" means:
+        //   1. latestVersion is the SAME as the installed version, AND
+        //   2. that equality came from a FRESH lookup (round 35).
+        // Cached/stale equality could be wrong if a replacement was
+        // published since the last successful check. Null-latest
+        // (round 34, version-lookup failed) is also unknown. In
+        // every uncertain case we keep the command so the dashboard
+        // has an actionable path — `memesh update` resolves @latest
+        // at install time and will succeed if a replacement exists.
         recommendedCommand: (
           update?.currentVersionDeprecated
           && update.latestVersion
           && update.latestVersion === update.currentVersion
+          && update.freshness === 'fresh'
         ) ? null : installSupport.recommendedCommand,
         // Surface deprecation state so the dashboard can render the
         // security warning. Without these the SettingsTab only shows
