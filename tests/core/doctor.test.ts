@@ -362,6 +362,52 @@ describe('doctor', () => {
     expect(result.status).not.toBe('PASS');
   });
 
+  it('surfaces deprecation even when freshness is unavailable (codex round 33)', async () => {
+    // Codex round 31's fix made `checkForUpdate` persist a real
+    // deprecation flag even when the latest-version lookup itself
+    // failed. In that scenario the cache has
+    // `currentVersionDeprecated: true` but
+    // `lastSuccessfulCheckAt: null`, so freshness comes back as
+    // 'unavailable'. Round 33 caught that doctor's old early-return
+    // for unavailable freshness ran BEFORE the deprecation branch,
+    // suppressing the security signal exactly when it just
+    // arrived. Doctor must escalate to fail with the deprecation
+    // warning even when freshness is 'unavailable'.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.1',
+      openDatabaseImpl: () => makeDatabase() as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck({
+        currentVersion: '4.1.1',
+        latestVersion: null,
+        lastSuccessfulCheckAt: null,
+        lastError: 'version lookup timed out',
+        checkSucceeded: false,
+        source: 'fresh',
+        freshness: 'unavailable',
+        currentVersionDeprecated: true,
+        deprecationMessage: 'Security: HIGH polynomial-redos. Upgrade to 4.1.2+.',
+      }),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+    });
+
+    const updateCheck = result.checks.find((c) => c.id === 'update-status');
+    expect(updateCheck?.status).toBe('fail');
+    expect(updateCheck?.summary).toContain('DEPRECATED');
+    expect(updateCheck?.summary).not.toContain('No successful cached');
+    expect(result.status).not.toBe('PASS');
+  });
+
   it('does not recommend `memesh update` when deprecated version has no upgrade target (codex round 32)', async () => {
     // Codex round 32: when the maintainer deprecates the latest
     // release before publishing the replacement (security advisory
