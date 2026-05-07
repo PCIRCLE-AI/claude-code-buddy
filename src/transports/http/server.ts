@@ -344,14 +344,27 @@ const ConfigBody = z.object({
   setupCompleted: z.boolean().optional(),
 }).strip();
 
-app.post('/v1/config', (req, res) => {
+app.post('/v1/config', async (req, res) => {
   const parsed = ConfigBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
     return;
   }
   try {
+    const before = readConfig();
     const updated = updateConfig(parsed.data);
+    // If the LLM provider/apiKey changed, the embedder may have cached an
+    // ONNX pipeline (or be about to use the now-stale apiKey path). Reset
+    // so the next embed call picks up the new config — eliminates the
+    // "restart server to apply" footgun.
+    const llmChanged =
+      parsed.data.llm &&
+      (before.llm?.provider !== updated.llm?.provider ||
+        before.llm?.apiKey !== updated.llm?.apiKey);
+    if (llmChanged) {
+      const { resetEmbeddingState } = await import('../../core/embedder.js');
+      resetEmbeddingState();
+    }
     // Mask API key before returning
     const safeUpdated = { ...updated };
     if (safeUpdated.llm?.apiKey) {
@@ -360,6 +373,37 @@ app.post('/v1/config', (req, res) => {
     res.json({ success: true, data: safeUpdated });
   } catch (err: any) {
     res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+// --- Test LLM credentials + fetch live model list ---
+//
+// Probe the provider's models endpoint with the supplied apiKey before the
+// user commits to writing it to disk. Returns a fresh model catalog so the
+// dashboard can populate a dropdown with real choices instead of stale
+// hardcoded names. Rate-limited at /v1/* shared limiter.
+const ConfigTestBody = z.object({
+  provider: z.enum(['anthropic', 'openai', 'ollama']),
+  apiKey: z.string().max(500).optional(),
+  host: z.string().max(500).optional(),
+});
+
+app.post('/v1/config/test', async (req, res) => {
+  const parsed = ConfigTestBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({
+      success: false,
+      error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
+    });
+    return;
+  }
+  try {
+    const { probeProvider } = await import('../../core/llm-validator.js');
+    const { provider, apiKey, host } = parsed.data;
+    const result = await probeProvider(provider, apiKey, host);
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

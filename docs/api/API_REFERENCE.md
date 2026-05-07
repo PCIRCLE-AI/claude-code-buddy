@@ -490,7 +490,8 @@ Safety note: non-loopback binds are blocked by default. To expose the HTTP serve
 | GET | /v1/entities/:name | Get single entity |
 | GET | /v1/config | Get current config and detected capabilities |
 | GET | /v1/update-status | Current/latest package version, freshness state, and update guidance |
-| POST | /v1/config | Save config (partial update) |
+| POST | /v1/config | Save config (partial update); resets embedding state if LLM changed |
+| POST | /v1/config/test | Validate provider+apiKey against the live `/v1/models` endpoint and return the available model list |
 | GET | /v1/stats | Aggregate counts: entities, observations, relations, tags; type/tag/status distributions |
 | GET | /v1/graph | Signal entities (all non-noise types) + up to 200 recent noise entities + all relations |
 | GET | /v1/analytics | Health score, 30-day timeline, value metrics, ageMatrix, knowledgeRadar, cleanup suggestions |
@@ -657,6 +658,40 @@ Returns computed analytics insights for the memory database.
 - Quality (30%): percentage of active entities with confidence > 0.7
 - Freshness (20%): new entities this week relative to 5% of total (capped at 100%)
 - Lessons (20%): lesson_learned entity count, 5+ gives full score
+
+### POST /v1/config/test
+
+Probes the provider's `/v1/models` endpoint with the supplied `apiKey` (or local `host` for Ollama) and returns whether the credential authenticates plus the live model catalog. Used by the dashboard Settings tab to validate before persisting and to populate a model dropdown with real choices instead of stale hardcoded names. **Does not write to disk.**
+
+**Request body:**
+
+```json
+{
+  "provider": "anthropic" | "openai" | "ollama",
+  "apiKey": "<optional, required for anthropic/openai>",
+  "host": "<optional, Ollama base URL, defaults to http://localhost:11434>"
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "valid": true,
+    "models": [
+      { "id": "claude-haiku-4-5", "created": "2026-04-01T00:00:00Z" },
+      { "id": "claude-opus-4", "created": "2026-01-15T00:00:00Z" }
+    ],
+    "suggested": "claude-haiku-4-5"
+  }
+}
+```
+
+On failure: `{ valid: false, error: "<provider message>" }`. The endpoint always returns HTTP 200 with `success:true` even when `valid:false` — the boolean is the contract, not the HTTP status.
+
+The `suggested` model picks the first entry whose id contains a small-tier hint (`mini`, `nano`, `haiku`, `flash`, `lite`, `small`, `8b`, `7b`, `3b`), preferring the most recently `created`. Falls back to the first entry when no hint matches.
 
 ### GET /dashboard
 

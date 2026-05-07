@@ -133,6 +133,13 @@ export interface ConfigData {
   capabilities: { searchLevel: number; llm?: LlmConfig; embeddings: string };
 }
 
+export interface ConfigTestResult {
+  valid: boolean;
+  error?: string;
+  models?: Array<{ id: string; created?: string }>;
+  suggested?: string;
+}
+
 export interface HealthFactor {
   score: number;
   weight: number;
