@@ -124,6 +124,22 @@ export function findProjectLessons(
  * Infer error pattern from error description text.
  * Simple heuristic — used when user doesn't specify pattern.
  */
+/**
+ * The fixed set of error patterns `inferErrorPattern` can return.
+ * Exported so other modules (notably `projects.ts`) can anchor on the
+ * same set instead of duplicating the strings — preventing silent
+ * drift if a new pattern is added here.
+ */
+export const KNOWN_ERROR_PATTERNS = [
+  'null-reference',
+  'type-error',
+  'import-missing',
+  'config-error',
+  'test-failure',
+  'build-error',
+  'other',
+] as const;
+
 function inferErrorPattern(error: string): string {
   const lower = error.toLowerCase();
   if (lower.includes('null') || lower.includes('undefined') || lower.includes('cannot read prop')) return 'null-reference';

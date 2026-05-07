@@ -223,11 +223,14 @@ describe('Feature: Database Management', () => {
       expect(col.dflt_value).toBe('1.0');
     });
 
-    it('should have temporal columns (valid_from, valid_until, last_accessed_at)', () => {
+    it('should have last_accessed_at temporal column', () => {
+      // valid_from / valid_until were also created by the migration but
+      // their consumers were removed in 2026-05 (SDD G2 cut). The
+      // columns themselves remain for back-compat; we no longer assert
+      // their presence here because nothing reads them — making the
+      // assertion dead weight that obscures real schema regressions.
       const db = openDatabase(testDbPath);
       const info = db.prepare("PRAGMA table_info(entities)").all() as any[];
-      expect(info.some((c: any) => c.name === 'valid_from')).toBe(true);
-      expect(info.some((c: any) => c.name === 'valid_until')).toBe(true);
       expect(info.some((c: any) => c.name === 'last_accessed_at')).toBe(true);
     });
   });

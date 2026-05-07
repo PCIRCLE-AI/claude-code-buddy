@@ -51,17 +51,17 @@ export class KnowledgeGraph {
         .run(name);
     }
 
-    // Re-asserting an existing active entity is a vote of confidence —
-    // counter the auto-decay in lifecycle.ts so the Quality KPI doesn't
-    // monotonically slide. Cap at 1.0; small per-call bump because users
-    // may re-call remember() for unrelated reasons (auto-tagging hooks,
-    // batch imports). Strong "this is true" signals (consolidate, explicit
-    // learn) bump harder via dedicated paths.
-    if (!isNewEntity && !wasArchived) {
-      this.db
-        .prepare('UPDATE entities SET confidence = MIN(confidence + 0.05, 1.0) WHERE id = ?')
-        .run(entityId);
-    }
+    // NOTE: createEntity() does NOT bump confidence on re-assert. We
+    // tried that initially and review caught it as a pump-attack:
+    // every caller that re-creates the same name (auto-tagger,
+    // verifier, importer batch, MCP/HTTP/CLI loops) would inflate
+    // confidence regardless of whether new truth was added. Confidence
+    // is now lifted ONLY by content-validating signals — successful
+    // LLM consolidation and explicit user `learn` calls. Auto-decay
+    // (lifecycle.ts) still runs in the opposite direction. If a third
+    // bump path is needed in the future, gate it on an explicit
+    // assertion (e.g. RememberInput.userAsserted=true), not on the
+    // call site of remember().
 
     // For existing entities, capture current obs text to delete old FTS entry before rebuild.
     // For new entities, no prior FTS entry exists — pass undefined to skip delete.

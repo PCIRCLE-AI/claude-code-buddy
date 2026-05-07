@@ -44,35 +44,35 @@ describe('G1 — confidence bump paths', () => {
     return (db.prepare('SELECT confidence FROM entities WHERE name = ?').get(name) as { confidence: number }).confidence;
   }
 
-  it('re-asserting an existing entity bumps confidence by +0.05', () => {
+  it('re-asserting an existing entity does NOT bump confidence (pump-attack guard)', () => {
+    // Earlier versions bumped +0.05 here, but that path was driven by every
+    // caller of remember() — auto-tagger, verifier, importer — letting a
+    // tight loop inflate confidence to 1.0 without adding any real truth.
+    // The bump now requires a content-validating signal (consolidate or
+    // explicit learn), not just a re-call of createEntity.
     expect(getConfidence('decayed')).toBeCloseTo(0.4, 5);
     kg.createEntity('decayed', 'lesson_learned', { observations: ['additional obs'] });
-    expect(getConfidence('decayed')).toBeCloseTo(0.45, 5);
+    expect(getConfidence('decayed')).toBeCloseTo(0.4, 5);
   });
 
-  it('the +0.05 bump caps at 1.0 (does not overshoot)', () => {
-    db.prepare('UPDATE entities SET confidence = 0.97 WHERE name = ?').run('decayed');
-    kg.createEntity('decayed', 'lesson_learned', { observations: ['x'] });
-    // 0.97 + 0.05 = 1.02 → clamped to 1.0
-    expect(getConfidence('decayed')).toBeCloseTo(1.0, 5);
-  });
-
-  it('first-creation does not double-bump confidence', () => {
-    // A truly new entity inserts at default 1.0 and should NOT receive the
-    // +0.05 bump (we only counter decay on RE-ASSERTING)
+  it('first-creation leaves confidence at the schema default (1.0)', () => {
     kg.createEntity('fresh', 'decision');
     expect(getConfidence('fresh')).toBeCloseTo(1.0, 5);
   });
 
-  it('reactivating an archived entity does not bump (separate path)', async () => {
-    // Archive it
+  it('reactivating an archived entity does not change confidence', async () => {
     db.prepare("UPDATE entities SET status = 'archived' WHERE name = ?").run('decayed');
     db.prepare('UPDATE entities SET confidence = 0.3 WHERE name = ?').run('decayed');
 
-    // Re-create reactivates and sets status='active'; the early `wasArchived`
-    // branch in createEntity intentionally skips the confidence bump so a
-    // reactivation alone is not treated as a re-assert.
     kg.createEntity('decayed', 'lesson_learned', { observations: ['reactivated'] });
+    expect(getConfidence('decayed')).toBeCloseTo(0.3, 5);
+  });
+
+  it('a tight remember-loop cannot pump confidence (regression guard)', () => {
+    db.prepare('UPDATE entities SET confidence = 0.3 WHERE name = ?').run('decayed');
+    for (let i = 0; i < 50; i++) {
+      kg.createEntity('decayed', 'lesson_learned', { observations: [`obs-${i}`] });
+    }
     expect(getConfidence('decayed')).toBeCloseTo(0.3, 5);
   });
 

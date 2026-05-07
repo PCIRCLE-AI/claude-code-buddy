@@ -331,18 +331,23 @@ export function computeAnalytics(db: Database.Database): AnalyticsResult {
     ORDER BY day
   `).all(...KNOWLEDGE_TYPE_LIST) as Array<{ day: string; count: number }>;
 
-  // Detect whether full instrumentation is already producing data — if
-  // any knowledge entity has recall_hits > 0, we can claim accuracy.
-  // Otherwise we're still in the approximation regime.
+  // Detect whether instrumentation is producing data that overlaps the
+  // 30-day window we're displaying. If recall_hits has only stale data
+  // outside the window, the badge would lie — say "precise mode" while
+  // the rendered numbers (reusedThisWeek + trend) still come from the
+  // last_accessed_at approximation. Gate the mode flip on a hit whose
+  // entity was last accessed within the same 30-day window we render.
   let loopComputedFrom: LoopMetric['computedFrom'] = 'last_accessed_at_approximation';
   try {
     const recallColCheck = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
     if (recallColCheck.some((c) => c.name === 'recall_hits')) {
-      const hasHits = (db.prepare(
+      const hitsInWindow = (db.prepare(
         `SELECT COUNT(*) as c FROM entities
-         WHERE type IN (${knowledgeTypePlaceholders}) AND recall_hits > 0`,
+         WHERE type IN (${knowledgeTypePlaceholders})
+           AND recall_hits > 0
+           AND last_accessed_at >= datetime('now', '-30 days')`,
       ).get(...KNOWLEDGE_TYPE_LIST) as CountRow).c;
-      if (hasHits > 0) loopComputedFrom = 'recall_hits';
+      if (hitsInWindow > 0) loopComputedFrom = 'recall_hits';
     }
   } catch { /* recall_hits column missing — stay in approximation mode */ }
 
