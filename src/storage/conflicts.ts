@@ -47,20 +47,41 @@ export function findConflicts(db: Database.Database, entityNames: string[]): str
   return conflicts;
 }
 
+export interface TrackAccessOptions {
+  /**
+   * Whether to also increment `recall_hits`. Set true for *intentional*
+   * retrieval (filtered query, tag lookup) and false for browse-style
+   * listings (e.g. `listRecent`) where the user did not explicitly ask
+   * for these entities. The signal that powers recall-effectiveness
+   * analytics depends on this distinction — without it every browse
+   * page-load would inflate the hit count.
+   */
+  incrementHits?: boolean;
+}
+
 /**
  * Increment access_count and refresh last_accessed_at for the given
- * entity ids. Called by every search/recall path so scoring can
- * factor recency + frequency.
+ * entity ids. Optionally also increments `recall_hits` (see
+ * `TrackAccessOptions.incrementHits`).
+ *
+ * Called by every search/recall path so scoring can factor recency +
+ * frequency, and analytics can report which entities the user actually
+ * pulled into work.
  *
  * No-op for empty input. Wraps all updates in a single transaction so
  * partial failures roll back cleanly.
  */
-export function trackAccess(db: Database.Database, entityIds: number[]): void {
+export function trackAccess(
+  db: Database.Database,
+  entityIds: number[],
+  opts: TrackAccessOptions = {},
+): void {
   if (entityIds.length === 0) return;
   const now = new Date().toISOString();
-  const stmt = db.prepare(
-    'UPDATE entities SET access_count = access_count + 1, last_accessed_at = ? WHERE id = ?',
-  );
+  const sql = opts.incrementHits
+    ? 'UPDATE entities SET access_count = access_count + 1, recall_hits = recall_hits + 1, last_accessed_at = ? WHERE id = ?'
+    : 'UPDATE entities SET access_count = access_count + 1, last_accessed_at = ? WHERE id = ?';
+  const stmt = db.prepare(sql);
   const txn = db.transaction(() => {
     for (const id of entityIds) {
       stmt.run(now, id);

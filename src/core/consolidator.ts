@@ -72,6 +72,11 @@ export async function consolidate(args: ConsolidateInput): Promise<ConsolidateRe
         kg.createEntity(entity.name, entity.type, {
           observations: compressed,
         });
+        // Successful consolidation = the LLM produced a coherent summary
+        // covering ≥5 prior observations. Reset confidence to 1.0; the
+        // entity has been freshly synthesised and is now the canonical
+        // representation, not a stale aggregation.
+        db.prepare('UPDATE entities SET confidence = 1.0 WHERE name = ?').run(entity.name);
         totalAfter += compressed.length;
         processed.push(entity.name);
       } else {
