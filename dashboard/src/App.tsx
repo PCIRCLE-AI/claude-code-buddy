@@ -12,22 +12,59 @@ import { AuthPrompt } from './components/AuthPrompt';
 import { api, AuthRequiredError, getApiToken, setApiToken, type HealthData } from './lib/api';
 import { initLocale, t, type Locale } from './lib/i18n';
 
-const TAB_KEYS = ['Search', 'Browse', 'Analytics', 'Graph', 'Lessons', 'Manage', 'Settings'] as const;
+// Tab order — Lessons leads because the differentiated value of MeMesh
+// (failure → structured lesson loop) belongs front and centre. Search is
+// demoted past Browse and Analytics because the discovery flow (browse +
+// roadmap) is more meaningful for a returning user than another keyword
+// box. Order is the source of truth for the nav bar AND the panel-render
+// block — keep them in sync.
+const TAB_KEYS = ['Lessons', 'Browse', 'Analytics', 'Search', 'Graph', 'Manage', 'Settings'] as const;
 type Tab = typeof TAB_KEYS[number];
 
 const TAB_I18N_KEYS: Record<Tab, string> = {
-  Search: 'tab.search',
+  Lessons: 'tab.lessons',
   Browse: 'tab.browse',
   Analytics: 'tab.analytics',
+  Search: 'tab.search',
   Graph: 'tab.graph',
-  Lessons: 'tab.lessons',
   Manage: 'tab.manage',
   Settings: 'tab.settings',
 };
 
+const TAB_STORAGE_KEY = 'memesh.tab';
+
+/**
+ * Resolve the initial tab from (in order): URL ?tab=, localStorage,
+ * default to Lessons. Deep-link wins so users can bookmark a specific
+ * view; otherwise the last-used tab persists across reloads.
+ */
+function initialTab(): Tab {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get('tab');
+    if (fromUrl && (TAB_KEYS as readonly string[]).includes(fromUrl)) {
+      return fromUrl as Tab;
+    }
+    const fromStorage = localStorage.getItem(TAB_STORAGE_KEY);
+    if (fromStorage && (TAB_KEYS as readonly string[]).includes(fromStorage)) {
+      return fromStorage as Tab;
+    }
+  } catch {
+    // SSR / private mode / no window — fall through to default
+  }
+  return 'Lessons';
+}
+
 export function App() {
   const [locale, setLocale] = useState<Locale>(() => initLocale());
-  const [tab, setTab] = useState<Tab>('Browse');
+  const [tab, setTab] = useState<Tab>(initialTab);
+
+  // Persist tab choice on every change so a returning user lands where
+  // they left off. localStorage failures (private mode, disabled
+  // storage) are silent — the default kicks in next session.
+  useEffect(() => {
+    try { localStorage.setItem(TAB_STORAGE_KEY, tab); } catch { /* no-op */ }
+  }, [tab]);
   const [health, setHealth] = useState<HealthData | null>(null);
   const [error, setError] = useState('');
   // Codex fix (2026-05-05): the server protects /v1/* with a bearer
