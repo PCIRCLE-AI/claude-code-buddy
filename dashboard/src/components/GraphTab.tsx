@@ -29,6 +29,12 @@ interface GEdge {
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
+// Noise types hidden by default — high volume, low diagnostic value
+const NOISE_TYPES = new Set([
+  'session_keypoint', 'commit', 'weekly-summary', 'session-insight',
+  'session-summary', 'session_identity', 'session-identity',
+]);
+
 const TYPE_COLORS: Record<string, string> = {
   decision: '#00D6B4',
   pattern: '#60A5FA',
@@ -49,6 +55,22 @@ const DEFAULT_COLOR = '#B8BEC6';
 
 function getColor(type: string): string {
   return TYPE_COLORS[type] || DEFAULT_COLOR;
+}
+
+/** Drift Mode: interpolate stale (#F87171) → fresh (#00D6B4) by recency 0.15–1.0. */
+function getDriftColor(recency: number): string {
+  const t = Math.max(0, Math.min(1, (recency - 0.15) / 0.85));
+  const r = Math.round(248 + (0 - 248) * t);
+  const g = Math.round(113 + (214 - 113) * t);
+  const b = Math.round(113 + (180 - 113) * t);
+  return `rgb(${r},${g},${b})`;
+}
+
+/** Scale radius by access_count using log2 so high-traffic nodes stand out. */
+function computeRadius(accessCount: number | undefined): number {
+  const n = accessCount ?? 0;
+  if (n === 0) return 5;
+  return Math.min(14, 5 + Math.log2(n + 1) * 2);
 }
 
 /** Compute recency (0.15–1.0) from a date string. */
@@ -88,6 +110,7 @@ export function GraphTab() {
   const [typeFilters, setTypeFilters] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [egoNodeId, setEgoNodeId] = useState<string | null>(null);
+  const [driftMode, setDriftMode] = useState(false);
 
   // Refs for canvas animation loop
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -114,18 +137,20 @@ export function GraphTab() {
   const typeFiltersRef = useRef(typeFilters);
   const searchQueryRef = useRef(searchQuery);
   const egoNodeIdRef = useRef(egoNodeId);
+  const driftModeRef = useRef(driftMode);
   useEffect(() => { typeFiltersRef.current = typeFilters; }, [typeFilters]);
   useEffect(() => { searchQueryRef.current = searchQuery; }, [searchQuery]);
   useEffect(() => { egoNodeIdRef.current = egoNodeId; }, [egoNodeId]);
+  useEffect(() => { driftModeRef.current = driftMode; }, [driftMode]);
 
   /* ----- data fetch ----- */
   useEffect(() => {
     fetchGraph()
       .then((d) => {
         setData(d);
-        // Init type filters: all checked
+        // Init type filters: noise types unchecked by default
         const types: Record<string, boolean> = {};
-        d.entities.forEach((e) => { types[e.type] = true; });
+        d.entities.forEach((e) => { types[e.type] = types[e.type] ?? !NOISE_TYPES.has(e.type); });
         setTypeFilters(types);
       })
       .catch((e) => setError(e.message))
@@ -164,7 +189,7 @@ export function GraphTab() {
         y: Math.random() * h * 0.8 + h * 0.1,
         vx: 0,
         vy: 0,
-        radius: 6,
+        radius: computeRadius(e.access_count),
         recency: computeRecency(lastDate),
         isOrphan: !connectedNodes.has(e.name),
         lastDate,
@@ -361,7 +386,7 @@ export function GraphTab() {
         // Node fill
         ctx.beginPath();
         ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = getColor(n.type);
+        ctx.fillStyle = driftModeRef.current ? getDriftColor(n.recency) : getColor(n.type);
         ctx.fill();
 
         // Orphan dashed border
@@ -677,13 +702,14 @@ export function GraphTab() {
           })}
         </div>
 
-        {/* Row 2: Search input + match count */}
+        {/* Row 2: Search input + match count + Drift Mode toggle */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: 8,
             marginBottom: 8,
+            flexWrap: 'wrap',
           }}
         >
           <input
@@ -714,6 +740,32 @@ export function GraphTab() {
               {matchCount} {t('graph.matches')}
             </span>
           )}
+          <button
+            onClick={() => setDriftMode((v) => !v)}
+            style={{
+              marginLeft: 'auto',
+              padding: '3px 10px',
+              background: driftMode ? 'rgba(0,214,180,0.15)' : 'rgba(255,255,255,0.04)',
+              border: `1px solid ${driftMode ? 'rgba(0,214,180,0.4)' : 'rgba(255,255,255,0.08)'}`,
+              borderRadius: 4,
+              color: driftMode ? '#00D6B4' : '#7A828E',
+              fontSize: 11,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            {/* Drift legend: stale → fresh ramp */}
+            <span style={{
+              display: 'inline-block',
+              width: 32,
+              height: 6,
+              borderRadius: 3,
+              background: 'linear-gradient(to right, #F87171, #00D6B4)',
+            }} />
+            Drift
+          </button>
         </div>
 
         {/* Row 3: Ego mode banner (only when active) */}
