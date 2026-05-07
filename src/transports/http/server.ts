@@ -229,8 +229,8 @@ app.get('/dashboard', (_req, res) => {
     // CRITICAL: dotfiles: 'allow' is required for paths containing hidden directories like .nvm
     res.type('html').sendFile(dashboardPath, { dotfiles: 'allow' });
   } else {
-    // Fallback to legacy template
-    import('../../cli/view.js')
+    // Fallback to legacy template (only reached in source checkouts pre-build)
+    import('../../cli/view-live.js')
       .then(m => res.type('html').send(m.generateLiveDashboardHtml()))
       .catch(() => res.status(500).send('Dashboard unavailable'));
   }

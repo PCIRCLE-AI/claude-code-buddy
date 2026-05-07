@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { createHash } from 'crypto';
 import { detectCapabilities, getConfigPath } from './config.js';
-import { openDatabase, closeDatabase } from '../db.js';
+import { openDatabase, closeDatabase, getPendingReindexInfo } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
 
@@ -610,6 +610,19 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
         `Database opened successfully at ${databasePath} (${count} entities).`,
       ),
     );
+
+    const pendingReindex = getPendingReindexInfo();
+    if (pendingReindex) {
+      checks.push(
+        createCheck(
+          'vector_index',
+          'Vector Index',
+          'warn',
+          `Embedding dimension changed from ${pendingReindex.from} to ${pendingReindex.to} on ${pendingReindex.droppedAt}. All vector embeddings were cleared.`,
+          `Run 'memesh reindex' to regenerate embeddings for all entities. Until then, semantic search only covers newly-accessed entities.`,
+        ),
+      );
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown database error';
     checks.push(
