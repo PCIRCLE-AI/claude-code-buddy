@@ -2,6 +2,24 @@
 
 All notable changes to MeMesh are documented here.
 
+## [Unreleased]
+
+Dashboard v2: shift Analytics and Graph from "how much data exists" toward "is my memory system working?"
+
+### Added
+- **Analytics tab**: `MemoryAgeMatrix` heat-map (type × age bucket — week / month / quarter / older) and `KnowledgeRadar` (six-axis SVG: lessons, decisions, patterns, bugs, processes, architecture). Both read from existing `/v1/analytics` payload (now augmented with `ageMatrix` and `knowledgeRadar` fields).
+- **Graph tab**: signal-first entity loading (all non-noise types always present + up to 200 recent noise entities), node radius scaled by `access_count` via log2, and a Drift Mode toggle that re-colors nodes by `last_accessed_at` recency.
+- **`/v1/entities`**: `?type=<type>` query parameter, validated by Zod (max 100 chars; `?limit` capped at 500).
+
+### Changed
+- **`/v1/graph` response**: now includes a `noiseTypes: string[]` field so the dashboard's default-hide list stays in sync with the server. Single source of truth lives in `src/core/analytics.ts NOISE_TYPES`.
+- **`/v1/analytics` response**: `ageMatrix` and `knowledgeRadar` fields added. Existing fields unchanged.
+
+### Fixed (pre-release; Dashboard v2 has not shipped to npm)
+- **30-day timeline chart rendering on tab switch.** `MemoryTimeline` writes to `canvas.style.width` for HiDPI rendering, and the inline value persisted across `display: none → block` transitions, leaving a 0px canvas. Switched to a `ResizeObserver` and clear inline width before measuring.
+- **Lessons tab data source.** `fetchLessons()` was calling `POST /v1/recall` (recency-ranked, dominated by session noise) and now uses `GET /v1/entities?type=lesson_learned`.
+- **Stop / PreCompact transcript parsers updated for the current agent transcript schema.** Earlier parsers expected a flat top-level `{type:'tool_use'}` shape; the current schema nests blocks under `{type:'assistant', message:{content:[...]}}`. Result: `toolCallCount` reported 0 and the LLM failure-analysis path was a no-op. `scripts/hooks/session-summary.js`, `scripts/hooks/pre-compact.js`, and `src/core/extractor.ts` now read both shapes.
+
 ## [4.1.4] — 2026-05-07
 
 Auto-update loop completion, persistent reindex tracking, and codebase debt reduction.
