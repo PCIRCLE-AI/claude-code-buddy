@@ -13,6 +13,7 @@ import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '.
 import { computePatterns } from '../../core/patterns.js';
 import { computeAnalytics } from '../../core/analytics.js';
 import { computeStats } from '../../core/stats.js';
+import { computeProjects } from '../../core/projects.js';
 import { computeGraph } from '../../core/graph.js';
 import { verifyAgentWork } from '../../core/verifier.js';
 import type { CountRow } from '../../core/types.js';
@@ -493,6 +494,16 @@ app.get('/v1/analytics', (_req, res) => {
   try { res.json({ success: true, data: computeAnalytics(getDatabase()) }); }
   catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
 });
+// --- Projects ---
+//
+// Lists distinct projects extracted from entity tags (`project:*`) and entity
+// name prefixes. Used by the dashboard Browse / Lessons tabs to populate
+// per-project filter chips so users can scope memory exploration to one
+// codebase at a time.
+app.get('/v1/projects', (_req, res) => {
+  try { res.json({ success: true, data: computeProjects(getDatabase()) }); }
+  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+});
 
 // --- Patterns ---
 app.get('/v1/patterns', (_req, res) => {
@@ -507,7 +518,9 @@ app.get('/v1/patterns', (_req, res) => {
 
 const EntitiesQuerySchema = z.object({
   type: z.string().min(1).max(100).optional(),
-  limit: z.coerce.number().int().min(1).max(500).default(20),
+  // Cap at 5000 — Browse legitimately fetches the full set for client-side
+  // filter / sort / search across the whole DB.
+  limit: z.coerce.number().int().min(1).max(5000).default(20),
   status: z.enum(['all', 'active']).optional(),
 });
 

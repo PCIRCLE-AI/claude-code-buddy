@@ -1,45 +1,74 @@
-import { useState, useEffect } from 'preact/hooks';
-import { fetchLessons, type Entity } from '../lib/api';
+import { useState, useEffect, useMemo } from 'preact/hooks';
+import { fetchLessons, fetchProjects, type Entity, type ProjectInfo } from '../lib/api';
 import { t } from '../lib/i18n';
+import {
+  classifyLesson,
+  extractProject,
+  relativeDate,
+  accessSignal,
+  type LessonKind,
+} from '../lib/entity-display';
 
-interface ParsedLesson {
-  entity: Entity;
+/* ---------- structured-failure parser (Type A) ---------- */
+
+interface StructuredBlock {
   error: string;
   rootCause: string;
   fix: string;
   prevention: string;
-  severity: 'critical' | 'major' | 'minor' | null;
-  project: string;
-  confidence: number;
 }
 
-function parseLesson(entity: Entity): ParsedLesson {
-  const obs = entity.observations || [];
-  const find = (prefix: string) => {
-    const match = obs.find((o) => o.startsWith(prefix));
-    return match ? match.slice(prefix.length).trim() : '';
-  };
+/** Parse a failure-driven lesson into 1+ structured blocks. Each block has
+ *  Error / Root cause / Fix / Prevention. Larger lessons (the "other" bucket
+ *  in the database) often contain multiple blocks back-to-back; we split on
+ *  the next "Error:" boundary. */
+function parseStructuredBlocks(observations: string[]): StructuredBlock[] {
+  const blocks: StructuredBlock[] = [];
+  let current: StructuredBlock | null = null;
 
-  const tags = entity.tags || [];
-  let severity: ParsedLesson['severity'] = null;
-  if (tags.includes('severity:critical')) severity = 'critical';
-  else if (tags.includes('severity:major')) severity = 'major';
-  else if (tags.includes('severity:minor')) severity = 'minor';
+  for (const raw of observations) {
+    const obs = raw.trim();
+    if (obs.startsWith('Error:')) {
+      if (current) blocks.push(current);
+      current = { error: obs.slice('Error:'.length).trim(), rootCause: '', fix: '', prevention: '' };
+    } else if (obs.startsWith('Root cause:')) {
+      if (!current) current = { error: '', rootCause: '', fix: '', prevention: '' };
+      current.rootCause = obs.slice('Root cause:'.length).trim();
+    } else if (obs.startsWith('Fix:') || obs.startsWith('Solution')) {
+      if (!current) current = { error: '', rootCause: '', fix: '', prevention: '' };
+      current.fix = obs.replace(/^(Fix|Solution\s*\d*):/i, '').trim();
+    } else if (obs.startsWith('Prevention:')) {
+      if (!current) current = { error: '', rootCause: '', fix: '', prevention: '' };
+      current.prevention = obs.slice('Prevention:'.length).trim();
+    }
+  }
+  if (current) blocks.push(current);
+  return blocks;
+}
 
-  const projectTag = tags.find((tg) => tg.startsWith('project:'));
-  const project = projectTag ? projectTag.slice('project:'.length) : '';
+/* ---------- plan-completion parser (Type B) ---------- */
 
+interface PlanRecord {
+  planName: string;
+  stepCount: number;
+  steps: string;
+  commits: string[];
+}
+
+function parsePlan(entity: Entity): PlanRecord {
+  const obs = entity.observations ?? [];
+  const planMatch = obs[0]?.match(/^Plan "(.+?)" completed \((\d+) steps?\)/);
+  const stepsLine = obs.find((o) => o.startsWith('Steps:'))?.slice('Steps:'.length).trim() ?? '';
+  const commitsLine = obs.find((o) => o.startsWith('Commits:'))?.slice('Commits:'.length).trim() ?? '';
   return {
-    entity,
-    error: find('Error:'),
-    rootCause: find('Root cause:'),
-    fix: find('Fix:'),
-    prevention: find('Prevention:'),
-    severity,
-    project,
-    confidence: entity.confidence ?? 1,
+    planName: planMatch?.[1] ?? entity.name,
+    stepCount: planMatch ? parseInt(planMatch[2], 10) : 0,
+    steps: stepsLine,
+    commits: commitsLine ? commitsLine.split(',').map((c) => c.trim()).filter(Boolean) : [],
   };
 }
+
+/* ---------- severity helpers ---------- */
 
 const SEVERITY_COLORS: Record<string, string> = {
   critical: '#FF6B6B',
@@ -47,100 +76,316 @@ const SEVERITY_COLORS: Record<string, string> = {
   minor: '#60A5FA',
 };
 
+function severityOf(entity: Entity): 'critical' | 'major' | 'minor' | null {
+  const tags = entity.tags ?? [];
+  if (tags.includes('severity:critical')) return 'critical';
+  if (tags.includes('severity:major')) return 'major';
+  if (tags.includes('severity:minor')) return 'minor';
+  return null;
+}
+
+/* ---------- card renderers ---------- */
+
+function FailureCard({ entity }: { entity: Entity }) {
+  const blocks = parseStructuredBlocks(entity.observations ?? []);
+  const severity = severityOf(entity);
+  const project = extractProject(entity);
+  const access = accessSignal(entity.access_count);
+  const borderColor = severity ? SEVERITY_COLORS[severity] : 'var(--border)';
+
+  return (
+    <div class="card" style={{ borderLeft: `3px solid ${borderColor}`, marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
+        <div class="card-title" style={{ margin: 0, flex: 1, minWidth: 0 }}>
+          🎯 {entity.name}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
+          {project && <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)' }}>📂 {project}</span>}
+          {severity && (
+            <span class="badge" style={{ background: `${SEVERITY_COLORS[severity]}18`, color: SEVERITY_COLORS[severity] }}>
+              {severity}
+            </span>
+          )}
+          {access.tone !== 'none' && (
+            <span class="tag" style={{
+              background: access.tone === 'high' ? 'rgba(0, 214, 180, 0.18)' : 'rgba(0, 214, 180, 0.10)',
+              color: 'var(--accent)',
+              fontWeight: access.tone === 'high' ? 600 : 400,
+            }}>
+              ✓ {access.label}
+            </span>
+          )}
+          <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{relativeDate(entity.last_accessed_at || entity.created_at)}</span>
+        </div>
+      </div>
+
+      {blocks.length === 0 && (
+        <div style={{ fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic' }}>
+          (此教訓沒有結構化欄位，請查看原始記憶)
+        </div>
+      )}
+
+      {blocks.map((b, i) => (
+        <div key={i} style={{ marginTop: i > 0 ? 14 : 0, paddingTop: i > 0 ? 14 : 0, borderTop: i > 0 ? '1px dashed var(--border-subtle)' : 'none' }}>
+          {b.error && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--danger)', marginBottom: 2 }}>{t('lessons.error')}</div>
+              <div style={{ fontSize: 13, lineHeight: 1.5 }}>{b.error}</div>
+            </div>
+          )}
+          {b.rootCause && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--warning)', marginBottom: 2 }}>{t('lessons.rootCause')}</div>
+              <div style={{ fontSize: 13, lineHeight: 1.5 }}>{b.rootCause}</div>
+            </div>
+          )}
+          {b.fix && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--success)', marginBottom: 2 }}>{t('lessons.fix')}</div>
+              <div style={{ fontSize: 13, lineHeight: 1.5 }}>{b.fix}</div>
+            </div>
+          )}
+          {b.prevention && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--info)', marginBottom: 2 }}>{t('lessons.prevention')}</div>
+              <div style={{ fontSize: 13, lineHeight: 1.5 }}>{b.prevention}</div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PlanCard({ entity }: { entity: Entity }) {
+  const plan = parsePlan(entity);
+  const project = extractProject(entity);
+  const access = accessSignal(entity.access_count);
+
+  return (
+    <div class="card" style={{ marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div class="card-title" style={{ margin: 0 }}>📋 {plan.planName}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+            {plan.stepCount} 步驟 · {plan.commits.length} 個 commit
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+          {project && <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)' }}>📂 {project}</span>}
+          {access.tone !== 'none' && (
+            <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.10)', color: 'var(--accent)' }}>
+              ✓ {access.label}
+            </span>
+          )}
+          <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{relativeDate(entity.created_at)}</span>
+        </div>
+      </div>
+      {plan.steps && (
+        <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5, marginTop: 4 }}>
+          {plan.steps.length > 220 ? plan.steps.slice(0, 220) + '…' : plan.steps}
+        </div>
+      )}
+      {plan.commits.length > 0 && (
+        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>
+          {plan.commits.slice(0, 4).join(' · ')}
+          {plan.commits.length > 4 && <span> · +{plan.commits.length - 4}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FreeformCard({ entity }: { entity: Entity }) {
+  const obs = entity.observations ?? [];
+  const project = extractProject(entity);
+  const access = accessSignal(entity.access_count);
+
+  return (
+    <div class="card" style={{ marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
+        <div class="card-title" style={{ margin: 0, flex: 1, minWidth: 0 }}>
+          📝 {entity.name}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+          {project && <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)' }}>📂 {project}</span>}
+          {access.tone !== 'none' && (
+            <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.10)', color: 'var(--accent)' }}>
+              ✓ {access.label}
+            </span>
+          )}
+          <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{relativeDate(entity.created_at)}</span>
+        </div>
+      </div>
+      {obs.length > 0 && (
+        <ul style={{ fontSize: 13, lineHeight: 1.6, margin: 0, paddingLeft: 18, color: 'var(--text-1)' }}>
+          {obs.slice(0, 6).map((o, i) => (
+            <li key={i} style={{ marginBottom: 3 }}>{o.length > 200 ? o.slice(0, 200) + '…' : o}</li>
+          ))}
+          {obs.length > 6 && (
+            <li style={{ color: 'var(--text-3)', listStyle: 'none' }}>+{obs.length - 6} 條</li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/* ---------- main component ---------- */
+
 export function LessonsTab() {
-  const [lessons, setLessons] = useState<ParsedLesson[]>([]);
+  const [entities, setEntities] = useState<Entity[]>([]);
+  const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [tab, setTab] = useState<LessonKind>('failure');
+  const [search, setSearch] = useState('');
+  const [project, setProject] = useState<string | 'all'>('all');
 
   useEffect(() => {
-    fetchLessons()
-      .then((entities) => setLessons(entities.map(parseLesson)))
+    Promise.all([fetchLessons(), fetchProjects().catch(() => [])])
+      .then(([es, ps]) => { setEntities(es); setProjects(ps); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
+  // Categorize once
+  const categorized = useMemo(() => {
+    const buckets: Record<LessonKind, Entity[]> = { failure: [], 'plan-completion': [], freeform: [] };
+    for (const e of entities) {
+      buckets[classifyLesson(e)].push(e);
+    }
+    // Sort by access_count desc, then created date
+    for (const k of Object.keys(buckets) as LessonKind[]) {
+      buckets[k].sort((a, b) =>
+        (b.access_count ?? 0) - (a.access_count ?? 0)
+        || b.created_at.localeCompare(a.created_at));
+    }
+    return buckets;
+  }, [entities]);
+
+  // Apply search + project filter to active tab
+  const visible = useMemo(() => {
+    const list = categorized[tab];
+    const s = search.toLowerCase();
+    return list.filter((e) => {
+      if (project !== 'all' && extractProject(e) !== project) return false;
+      if (!s) return true;
+      const hay = [e.name, ...(e.observations ?? []), ...(e.tags ?? [])].join(' ').toLowerCase();
+      return hay.includes(s);
+    });
+  }, [categorized, tab, search, project]);
+
   if (loading) return <div class="empty"><div class="loading" /></div>;
   if (error) return <div class="error-box">{t('common.error')}: {error}</div>;
-  if (lessons.length === 0) {
-    return (
-      <div class="empty">
-        <span class="empty-icon">{"📝"}</span>
-        {t('lessons.empty')}
-      </div>
-    );
-  }
+
+  const totalAccess = entities.reduce((sum, e) => sum + (e.access_count ?? 0), 0);
+  const criticalCount = categorized.failure.filter((e) => severityOf(e) === 'critical').length;
 
   return (
     <div>
+      {/* Stats */}
       <div class="stats-row">
         <div class="stat">
-          <div class="stat-val">{lessons.length}</div>
-          <div class="stat-lbl">{t('lessons.total')}</div>
+          <div class="stat-val">{categorized.failure.length}</div>
+          <div class="stat-lbl">失敗教訓</div>
         </div>
         <div class="stat">
-          <div class="stat-val">{lessons.filter((l) => l.severity === 'critical').length}</div>
-          <div class="stat-lbl">{t('lessons.critical')}</div>
+          <div class="stat-val" style={{ color: criticalCount > 0 ? '#FF6B6B' : undefined }}>
+            {criticalCount}
+          </div>
+          <div class="stat-lbl">Critical</div>
+        </div>
+        <div class="stat">
+          <div class="stat-val">{categorized['plan-completion'].length}</div>
+          <div class="stat-lbl">計畫紀錄</div>
+        </div>
+        <div class="stat">
+          <div class="stat-val">{totalAccess}</div>
+          <div class="stat-lbl">總回憶次數</div>
         </div>
       </div>
-      {lessons.map((lesson) => {
-        const borderColor = lesson.severity ? SEVERITY_COLORS[lesson.severity] : 'var(--border)';
-        return (
-          <div
-            key={lesson.entity.id}
-            class="card"
-            style={{ borderLeft: `3px solid ${borderColor}` }}
+
+      {/* Sub-category tabs */}
+      <div class="card" style={{ padding: '12px 14px' }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+          <button
+            class="btn btn-sm"
+            style={{
+              background: tab === 'failure' ? 'rgba(0, 214, 180, 0.18)' : 'transparent',
+              borderColor: tab === 'failure' ? 'rgba(0, 214, 180, 0.5)' : 'rgba(255,255,255,0.08)',
+              color: tab === 'failure' ? 'var(--accent)' : 'var(--text-2)',
+            }}
+            onClick={() => setTab('failure')}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-              <div class="card-title" style={{ margin: 0, flex: 1, minWidth: 0 }}>
-                {lesson.entity.name}
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                {lesson.project && (
-                  <span class="tag">{lesson.project}</span>
-                )}
-                {lesson.severity && (
-                  <span class="badge" style={{
-                    background: `${SEVERITY_COLORS[lesson.severity]}18`,
-                    color: SEVERITY_COLORS[lesson.severity],
-                  }}>
-                    {lesson.severity}
-                  </span>
-                )}
-                <span class="badge" style={{
-                  background: 'var(--accent-soft)',
-                  color: 'var(--accent-hover)',
-                }}>
-                  {Math.round(lesson.confidence * 100)}%
-                </span>
-              </div>
-            </div>
-            {lesson.error && (
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--danger)', marginBottom: 2 }}>{t('lessons.error')}</div>
-                <div style={{ fontSize: 13, color: 'var(--text-1)', lineHeight: 1.5 }}>{lesson.error}</div>
-              </div>
-            )}
-            {lesson.rootCause && (
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--warning)', marginBottom: 2 }}>{t('lessons.rootCause')}</div>
-                <div style={{ fontSize: 13, color: 'var(--text-1)', lineHeight: 1.5 }}>{lesson.rootCause}</div>
-              </div>
-            )}
-            {lesson.fix && (
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--success)', marginBottom: 2 }}>{t('lessons.fix')}</div>
-                <div style={{ fontSize: 13, color: 'var(--text-1)', lineHeight: 1.5 }}>{lesson.fix}</div>
-              </div>
-            )}
-            {lesson.prevention && (
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--info)', marginBottom: 2 }}>{t('lessons.prevention')}</div>
-                <div style={{ fontSize: 13, color: 'var(--text-1)', lineHeight: 1.5 }}>{lesson.prevention}</div>
-              </div>
-            )}
+            🎯 失敗教訓 <span style={{ opacity: 0.6, fontFamily: 'var(--mono)', marginLeft: 6 }}>{categorized.failure.length}</span>
+          </button>
+          <button
+            class="btn btn-sm"
+            style={{
+              background: tab === 'plan-completion' ? 'rgba(0, 214, 180, 0.18)' : 'transparent',
+              borderColor: tab === 'plan-completion' ? 'rgba(0, 214, 180, 0.5)' : 'rgba(255,255,255,0.08)',
+              color: tab === 'plan-completion' ? 'var(--accent)' : 'var(--text-2)',
+            }}
+            onClick={() => setTab('plan-completion')}
+          >
+            📋 計畫紀錄 <span style={{ opacity: 0.6, fontFamily: 'var(--mono)', marginLeft: 6 }}>{categorized['plan-completion'].length}</span>
+          </button>
+          <button
+            class="btn btn-sm"
+            style={{
+              background: tab === 'freeform' ? 'rgba(0, 214, 180, 0.18)' : 'transparent',
+              borderColor: tab === 'freeform' ? 'rgba(0, 214, 180, 0.5)' : 'rgba(255,255,255,0.08)',
+              color: tab === 'freeform' ? 'var(--accent)' : 'var(--text-2)',
+            }}
+            onClick={() => setTab('freeform')}
+          >
+            📝 筆記 <span style={{ opacity: 0.6, fontFamily: 'var(--mono)', marginLeft: 6 }}>{categorized.freeform.length}</span>
+          </button>
+        </div>
+
+        {/* Search + project filter */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type="search"
+            placeholder="搜尋 error / root cause / fix / 名稱…"
+            value={search}
+            onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
+            style={{ flex: 1, minWidth: 240, padding: '4px 8px', fontSize: 12 }}
+          />
+          {projects.length > 0 && (
+            <select
+              value={project}
+              onChange={(e) => setProject((e.target as HTMLSelectElement).value)}
+              style={{ padding: '3px 8px', fontSize: 12 }}
+            >
+              <option value="all">全部專案</option>
+              {projects.map((p) => (
+                <option key={p.name} value={p.name}>{p.name} ({p.count})</option>
+              ))}
+            </select>
+          )}
+        </div>
+        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-3)' }}>
+          顯示 {visible.length} / {categorized[tab].length} 筆
+        </div>
+      </div>
+
+      {/* Card list */}
+      <div style={{ marginTop: 14 }}>
+        {visible.length === 0 ? (
+          <div class="empty">
+            <span class="empty-icon">{tab === 'failure' ? '🎯' : tab === 'plan-completion' ? '📋' : '📝'}</span>
+            {search ? `無符合「${search}」的記憶` : '此類別沒有記憶'}
           </div>
-        );
-      })}
+        ) : (
+          visible.map((e) => {
+            if (tab === 'failure') return <FailureCard key={e.id} entity={e} />;
+            if (tab === 'plan-completion') return <PlanCard key={e.id} entity={e} />;
+            return <FreeformCard key={e.id} entity={e} />;
+          })
+        )}
+      </div>
     </div>
   );
 }
