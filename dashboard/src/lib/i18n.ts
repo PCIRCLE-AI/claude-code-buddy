@@ -238,6 +238,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'loop.subtitleNone': 'No knowledge memories reused this week — try recalling a lesson',
     'loop.approxNote': 'Approximation — full tracking starts after upgrade.',
     'loop.sparkLabel': 'Last 30 days',
+    'roadmap.milestones': 'Milestones',
+    'roadmap.keyLessons': 'Key lessons',
     'errors.timeout': 'Request timed out',
   },
   'zh-TW': {
@@ -477,6 +479,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'loop.subtitleNone': '本週尚無知識被回憶 — 試試喚起一則教訓',
     'loop.approxNote': '近似值 — 完整追蹤從升級後開始累積',
     'loop.sparkLabel': '最近 30 天',
+    'roadmap.milestones': '里程碑',
+    'roadmap.keyLessons': '重要教訓',
     'errors.timeout': '請求逾時',
   },
   'zh-CN': {
@@ -716,6 +720,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'loop.subtitleNone': '本周尚无知识被回忆 — 试试唤起一则教训',
     'loop.approxNote': '近似值 — 完整追踪从升级后开始累积',
     'loop.sparkLabel': '最近 30 天',
+    'roadmap.milestones': '里程碑',
+    'roadmap.keyLessons': '重要教训',
     'errors.timeout': '请求超时',
   },
   ja: {
@@ -955,6 +961,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'loop.subtitleNone': '今週はまだ呼び出された知識がありません — 教訓を呼び出してみてください',
     'loop.approxNote': '近似値 — 完全な追跡はアップグレード後に開始',
     'loop.sparkLabel': '過去 30 日',
+    'roadmap.milestones': 'マイルストーン',
+    'roadmap.keyLessons': '重要な教訓',
     'errors.timeout': 'リクエストがタイムアウトしました',
   },
   ko: {
@@ -1194,6 +1202,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'loop.subtitleNone': '이번 주 회상된 지식이 없습니다 — 교훈을 떠올려 보세요',
     'loop.approxNote': '근사치 — 완전한 추적은 업그레이드 후 시작됩니다',
     'loop.sparkLabel': '지난 30일',
+    'roadmap.milestones': '마일스톤',
+    'roadmap.keyLessons': '주요 교훈',
     'errors.timeout': '요청 시간이 초과되었습니다',
   },
   pt: {
@@ -1433,6 +1443,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'loop.subtitleNone': 'Nenhuma memória de conhecimento reutilizada esta semana',
     'loop.approxNote': 'Aproximação — rastreamento completo começa após atualização.',
     'loop.sparkLabel': 'Últimos 30 dias',
+    'roadmap.milestones': 'Marcos',
+    'roadmap.keyLessons': 'Lições principais',
     'errors.timeout': 'A solicitação expirou',
   },
   fr: {
@@ -1672,6 +1684,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'loop.subtitleNone': 'Aucune mémoire rappelée cette semaine',
     'loop.approxNote': 'Approximation — suivi complet à partir de la mise à jour.',
     'loop.sparkLabel': '30 derniers jours',
+    'roadmap.milestones': 'Jalons',
+    'roadmap.keyLessons': 'Leçons clés',
     'errors.timeout': 'La requête a expiré',
   },
   de: {
@@ -1911,6 +1925,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'loop.subtitleNone': 'Diese Woche keine Wissens-Erinnerungen abgerufen',
     'loop.approxNote': 'Annäherung — vollständige Verfolgung beginnt nach Upgrade.',
     'loop.sparkLabel': 'Letzte 30 Tage',
+    'roadmap.milestones': 'Meilensteine',
+    'roadmap.keyLessons': 'Wichtige Lektionen',
     'errors.timeout': 'Zeitüberschreitung der Anfrage',
   },
   vi: {
@@ -2150,6 +2166,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'loop.subtitleNone': 'Tuần này chưa có ký ức nào được nhớ lại',
     'loop.approxNote': 'Xấp xỉ — theo dõi đầy đủ bắt đầu sau khi nâng cấp.',
     'loop.sparkLabel': '30 ngày qua',
+    'roadmap.milestones': 'Cột mốc',
+    'roadmap.keyLessons': 'Bài học chính',
     'errors.timeout': 'Yêu cầu đã hết thời gian chờ',
   },
   es: {
@@ -2389,6 +2407,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'loop.subtitleNone': 'Ninguna memoria reutilizada esta semana',
     'loop.approxNote': 'Aproximación — seguimiento completo comienza después de la actualización.',
     'loop.sparkLabel': 'Últimos 30 días',
+    'roadmap.milestones': 'Hitos',
+    'roadmap.keyLessons': 'Lecciones clave',
     'errors.timeout': 'La solicitud agotó el tiempo de espera',
   },
   th: {
@@ -2628,6 +2648,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'loop.subtitleNone': 'สัปดาห์นี้ยังไม่มีความทรงจำที่ถูกเรียก',
     'loop.approxNote': 'ค่าประมาณ — การติดตามเต็มรูปแบบเริ่มหลังการอัพเกรด',
     'loop.sparkLabel': '30 วันล่าสุด',
+    'roadmap.milestones': 'เหตุการณ์สำคัญ',
+    'roadmap.keyLessons': 'บทเรียนสำคัญ',
     'errors.timeout': 'คำขอหมดเวลา',
   },
 };

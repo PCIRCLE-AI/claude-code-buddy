@@ -1,8 +1,18 @@
-import { useMemo } from 'preact/hooks';
+import { useMemo, useRef } from 'preact/hooks';
 import type { Entity } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
 import { t } from '../lib/i18n';
-import { relativeDate, timeBucket } from '../lib/entity-display';
+import { relativeDate, timeBucket, accessSignal, iconFor } from '../lib/entity-display';
+
+/** Type set that qualifies as a milestone for the rail. Releases are the
+ *  primary signal; workflow_checkpoint and weekly-summary are optional
+ *  secondary signals only when explicitly tagged. */
+const MILESTONE_TYPES = new Set(['release', 'feature']);
+
+/** Type set that qualifies as a "key lesson" — drives the right rail. */
+const LESSON_TYPES = new Set([
+  'lesson_learned', 'lesson', 'mistake', 'bug_fix',
+]);
 
 interface Props {
   projectName: string;
@@ -142,6 +152,39 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
 
   const groups = useMemo(() => groupByDate(entities), [entities]);
 
+  // Milestones: release/feature entities, newest first, capped at 6
+  const milestones = useMemo(
+    () => entities
+      .filter((e) => MILESTONE_TYPES.has(e.type))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, 6),
+    [entities],
+  );
+
+  // Key lessons: top 5 lesson types by access_count desc
+  const keyLessons = useMemo(
+    () => entities
+      .filter((e) => LESSON_TYPES.has(e.type))
+      .sort((a, b) => (b.access_count ?? 0) - (a.access_count ?? 0))
+      .slice(0, 5),
+    [entities],
+  );
+
+  // Refs for scroll-to-milestone targeting
+  const entryRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const setEntryRef = (id: number) => (el: HTMLDivElement | null) => {
+    if (el) entryRefs.current.set(id, el);
+    else entryRefs.current.delete(id);
+  };
+  const focusEntry = (id: number) => {
+    const el = entryRefs.current.get(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.style.transition = 'background 0.2s';
+    el.style.background = 'rgba(0, 214, 180, 0.08)';
+    window.setTimeout(() => { el.style.background = ''; }, 1400);
+  };
+
   if (entities.length === 0) {
     return (
       <div class="empty">
@@ -207,49 +250,135 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
         )}
       </div>
 
-      {/* Timeline */}
-      <div style={{ position: 'relative' }}>
-        {groups.map((group) => (
-          <div key={group.key} style={{ marginBottom: 18 }}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                marginBottom: 8,
-                paddingBottom: 6,
-                borderBottom: '1px solid var(--border-subtle)',
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 11,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.08em',
-                  fontWeight: 600,
-                  color: 'var(--accent)',
-                  fontFamily: 'var(--mono)',
-                }}
-              >
-                {group.label}
-              </span>
-              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                {group.entries.length}
-              </span>
-            </div>
-            {group.entries.map((e) => (
+      {/* Two-column layout on wide screens: timeline + rails sidebar */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 16, alignItems: 'start' }}>
+        {/* Timeline */}
+        <div style={{ position: 'relative', minWidth: 0 }}>
+          {groups.map((group) => (
+            <div key={group.key} style={{ marginBottom: 18 }}>
               <div
-                key={e.id}
                 style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  marginBottom: 8,
+                  paddingBottom: 6,
                   borderBottom: '1px solid var(--border-subtle)',
-                  padding: '12px 0',
                 }}
               >
-                <MemoryRow entity={e} />
+                <span
+                  style={{
+                    fontSize: 11,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.08em',
+                    fontWeight: 600,
+                    color: 'var(--accent)',
+                    fontFamily: 'var(--mono)',
+                  }}
+                >
+                  {group.label}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                  {group.entries.length}
+                </span>
               </div>
-            ))}
-          </div>
-        ))}
+              {group.entries.map((e) => (
+                <div
+                  key={e.id}
+                  ref={setEntryRef(e.id)}
+                  style={{
+                    borderBottom: '1px solid var(--border-subtle)',
+                    padding: '12px 0',
+                  }}
+                >
+                  <MemoryRow entity={e} />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+
+        {/* Sidebar: Milestones + Key Lessons rails */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, position: 'sticky', top: 16 }}>
+          {milestones.length > 0 && (
+            <div class="card" style={{ padding: 14 }}>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--text-2)', marginBottom: 10 }}>
+                {t('roadmap.milestones')}
+              </div>
+              {milestones.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => focusEntry(m.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 8,
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '6px 0',
+                    background: 'transparent',
+                    border: 'none',
+                    borderTop: '1px solid var(--border-subtle)',
+                    color: 'inherit',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  <span style={{ fontSize: 14, lineHeight: '18px', flexShrink: 0 }}>{iconFor(m.type)}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-1)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {m.name}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>
+                      {relativeDate(m.created_at)}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {keyLessons.length > 0 && (
+            <div class="card" style={{ padding: 14 }}>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--text-2)', marginBottom: 10 }}>
+                {t('roadmap.keyLessons')}
+              </div>
+              {keyLessons.map((l) => {
+                const sig = accessSignal(l.access_count);
+                return (
+                  <button
+                    key={l.id}
+                    onClick={() => focusEntry(l.id)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 8,
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '6px 0',
+                      background: 'transparent',
+                      border: 'none',
+                      borderTop: '1px solid var(--border-subtle)',
+                      color: 'inherit',
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    <span style={{ fontSize: 14, lineHeight: '18px', flexShrink: 0 }}>{iconFor(l.type)}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-1)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {l.name}
+                      </div>
+                      <div style={{ fontSize: 10, color: sig.tone === 'high' ? 'var(--accent)' : 'var(--text-3)', marginTop: 2, fontFamily: 'var(--mono)' }}>
+                        {sig.tone !== 'none' ? sig.label : t('memory.access.never')}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
