@@ -187,6 +187,8 @@ export interface PatternsData {
 export interface GraphData {
   entities: Entity[];
   relations: Array<{ from: string; to: string; type: string }>;
+  /** Noise type names the server marks as low-priority. Clients default-hide these. */
+  noiseTypes: string[];
 }
 
 export async function fetchGraph(): Promise<GraphData> {

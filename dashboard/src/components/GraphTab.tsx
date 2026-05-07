@@ -29,12 +29,6 @@ interface GEdge {
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-// Noise types hidden by default — high volume, low diagnostic value
-const NOISE_TYPES = new Set([
-  'session_keypoint', 'commit', 'weekly-summary', 'session-insight',
-  'session-summary', 'session_identity', 'session-identity',
-]);
-
 const TYPE_COLORS: Record<string, string> = {
   decision: '#00D6B4',
   pattern: '#60A5FA',
@@ -148,9 +142,10 @@ export function GraphTab() {
     fetchGraph()
       .then((d) => {
         setData(d);
-        // Init type filters: noise types unchecked by default
+        // Init type filters: server-supplied noise types unchecked by default
+        const noise = new Set(d.noiseTypes ?? []);
         const types: Record<string, boolean> = {};
-        d.entities.forEach((e) => { types[e.type] = types[e.type] ?? !NOISE_TYPES.has(e.type); });
+        d.entities.forEach((e) => { types[e.type] = types[e.type] ?? !noise.has(e.type); });
         setTypeFilters(types);
       })
       .catch((e) => setError(e.message))

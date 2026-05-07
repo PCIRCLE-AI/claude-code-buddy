@@ -16,23 +16,23 @@ export interface GraphRelation {
 export interface GraphResult {
   entities: Entity[];
   relations: GraphRelation[];
+  /** Noise type names the server filtered low-priority — clients should default-hide these. */
+  noiseTypes: string[];
 }
-
-// Noise type SQL placeholder list for IN clause
-const NOISE_PLACEHOLDERS = Array.from(NOISE_TYPES).map(() => '?').join(',');
 
 export function computeGraph(db: Database.Database): GraphResult {
   const kg = new KnowledgeGraph(db);
   const noiseList = Array.from(NOISE_TYPES);
+  const placeholders = noiseList.map(() => '?').join(',');
 
   // All signal entities (non-noise) — typically <500, always include all
   const signalRows = db.prepare(
-    `SELECT name FROM entities WHERE type NOT IN (${NOISE_PLACEHOLDERS}) ORDER BY COALESCE(last_accessed_at, created_at) DESC`,
+    `SELECT name FROM entities WHERE type NOT IN (${placeholders}) ORDER BY COALESCE(last_accessed_at, created_at) DESC`,
   ).all(...noiseList) as { name: string }[];
 
   // Recent noise entities — fill up to cap of 200 for those who want to see them
   const noiseRows = db.prepare(
-    `SELECT name FROM entities WHERE type IN (${NOISE_PLACEHOLDERS}) ORDER BY created_at DESC LIMIT 200`,
+    `SELECT name FROM entities WHERE type IN (${placeholders}) ORDER BY created_at DESC LIMIT 200`,
   ).all(...noiseList) as { name: string }[];
 
   const allNames = [...signalRows, ...noiseRows].map((r) => r.name);
@@ -45,5 +45,5 @@ export function computeGraph(db: Database.Database): GraphResult {
     JOIN entities e_to ON r.to_entity_id = e_to.id
   `).all() as GraphRelation[];
 
-  return { entities, relations };
+  return { entities, relations, noiseTypes: noiseList };
 }

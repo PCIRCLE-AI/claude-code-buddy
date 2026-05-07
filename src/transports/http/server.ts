@@ -445,14 +445,25 @@ app.get('/v1/patterns', (_req, res) => {
   }
 });
 
+const EntitiesQuerySchema = z.object({
+  type: z.string().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(20),
+  status: z.enum(['all', 'active']).optional(),
+});
+
 // --- List entities ---
 app.get('/v1/entities', (req, res) => {
   try {
+    const parsed = EntitiesQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ success: false, error: `Invalid query: ${parsed.error.message}` });
+      return;
+    }
+    const { type: typeFilter, limit, status } = parsed.data;
+    const includeArchived = status === 'all';
+
     const db = getDatabase();
     const kg = new KnowledgeGraph(db);
-    const limit = parseInt(req.query.limit as string) || 20;
-    const includeArchived = req.query.status === 'all';
-    const typeFilter = req.query.type as string | undefined;
 
     let entities;
     if (typeFilter) {
