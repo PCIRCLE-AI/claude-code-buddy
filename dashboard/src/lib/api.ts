@@ -192,7 +192,6 @@ export async function fetchGraph(): Promise<GraphData> {
 }
 
 export async function fetchLessons(): Promise<Entity[]> {
-  const result = await api<Entity[] | { entities: Entity[] }>('POST', '/v1/recall', { limit: 100 });
-  const entities = Array.isArray(result) ? result : (result as { entities: Entity[] }).entities || [];
-  return entities.filter((e: Entity) => e.type === 'lesson_learned');
+  const result = await api<Entity[]>('GET', '/v1/entities?type=lesson_learned&limit=100');
+  return Array.isArray(result) ? result : [];
 }
