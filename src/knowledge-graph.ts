@@ -51,18 +51,6 @@ export class KnowledgeGraph {
         .run(name);
     }
 
-    // NOTE: createEntity() does NOT bump confidence on re-assert. We
-    // tried that initially and review caught it as a pump-attack:
-    // every caller that re-creates the same name (auto-tagger,
-    // verifier, importer batch, MCP/HTTP/CLI loops) would inflate
-    // confidence regardless of whether new truth was added. Confidence
-    // is now lifted ONLY by content-validating signals — successful
-    // LLM consolidation and explicit user `learn` calls. Auto-decay
-    // (lifecycle.ts) still runs in the opposite direction. If a third
-    // bump path is needed in the future, gate it on an explicit
-    // assertion (e.g. RememberInput.userAsserted=true), not on the
-    // call site of remember().
-
     // For existing entities, capture current obs text to delete old FTS entry before rebuild.
     // For new entities, no prior FTS entry exists — pass undefined to skip delete.
     // For previously archived entities, the FTS entry was already removed by archiveEntity — also pass undefined.
@@ -71,6 +59,38 @@ export class KnowledgeGraph {
       : (this.db
           .prepare('SELECT content FROM observations WHERE entity_id = ?')
           .all(entityId) as { content: string }[]);
+
+    // Confidence policy on re-assertion:
+    //
+    // First take: bump on every re-call. Codex review caught that as a
+    // pump-attack — auto-tagger, verifier, importer, and any tight
+    // loop that re-calls remember() would inflate confidence with no
+    // truth value added.
+    //
+    // Second take: never bump from createEntity, only from explicit
+    // `learn` and successful consolidate. Codex review caught THAT as
+    // a one-way decay regression — installs without an LLM and users
+    // who never call `learn` have no recovery path, so any
+    // re-asserted decision / pattern / note ratchets monotonically
+    // toward zero.
+    //
+    // Resolved: bump only when the call introduces a new observation
+    // string the entity does not already have. Auto-tagger writes
+    // tags, not observations, so it does not trigger. A tight loop
+    // re-asserting the same observation set hits the prevSet membership
+    // check and is a no-op. Real user re-assertion with new content
+    // (the case Codex's regression note covers) does bump.
+    if (!isNewEntity && !wasArchived) {
+      const prevSet = new Set(prevObs.map((o) => o.content));
+      const introducesNewObservation = (opts?.observations ?? []).some(
+        (o) => !prevSet.has(o),
+      );
+      if (introducesNewObservation) {
+        this.db
+          .prepare('UPDATE entities SET confidence = MIN(confidence + 0.05, 1.0) WHERE id = ?')
+          .run(entityId);
+      }
+    }
     const prevObsText = isNewEntity || wasArchived
       ? undefined
       : prevObs.map((o) => o.content).join(' ');
