@@ -60,32 +60,39 @@ export class KnowledgeGraph {
           .prepare('SELECT content FROM observations WHERE entity_id = ?')
           .all(entityId) as { content: string }[]);
 
-    // Confidence policy on re-assertion:
+    // Confidence policy on re-assertion. Three takes, each driven by
+    // review feedback:
     //
-    // First take: bump on every re-call. Codex review caught that as a
-    // pump-attack — auto-tagger, verifier, importer, and any tight
-    // loop that re-calls remember() would inflate confidence with no
-    // truth value added.
+    //   1. First take: bump on every re-call. Codex caught it as a
+    //      pump-attack — every internal caller (auto-tagger, verifier,
+    //      importer, tight loop) would inflate confidence with no
+    //      truth value added.
+    //   2. Second take: never bump from createEntity, only from
+    //      explicit `learn` and successful consolidate. Codex caught
+    //      THAT as a one-way decay regression for LLM-free installs.
+    //   3. Third take: bump on new observations only. Codex caught
+    //      THAT as still permitting untrusted sources (importer,
+    //      auto-learned lessons) to lift confidence.
     //
-    // Second take: never bump from createEntity, only from explicit
-    // `learn` and successful consolidate. Codex review caught THAT as
-    // a one-way decay regression — installs without an LLM and users
-    // who never call `learn` have no recovery path, so any
-    // re-asserted decision / pattern / note ratchets monotonically
-    // toward zero.
-    //
-    // Resolved: bump only when the call introduces a new observation
-    // string the entity does not already have. Auto-tagger writes
-    // tags, not observations, so it does not trigger. A tight loop
-    // re-asserting the same observation set hits the prevSet membership
-    // check and is a no-op. Real user re-assertion with new content
-    // (the case Codex's regression note covers) does bump.
+    // Resolved: bump only when (a) the entity already exists and is
+    // not being reactivated from archive, (b) the call introduces a
+    // brand-new observation string, AND (c) the metadata trust signal
+    // is 'trusted' (the default for explicit MCP/HTTP/CLI remember
+    // calls). Untrusted sources — `importMemories(append/overwrite)`,
+    // `createLesson` (failure-analyzer auto-learned), and any future
+    // caller that sets `trustOverride: 'untrusted'` — explicitly
+    // opt out of confidence lift.
     if (!isNewEntity && !wasArchived) {
       const prevSet = new Set(prevObs.map((o) => o.content));
       const introducesNewObservation = (opts?.observations ?? []).some(
         (o) => !prevSet.has(o),
       );
-      if (introducesNewObservation) {
+      const incomingTrust =
+        opts?.metadata && typeof opts.metadata === 'object'
+          ? (opts.metadata as { trust?: unknown }).trust
+          : undefined;
+      const isTrusted = incomingTrust === undefined || incomingTrust === 'trusted';
+      if (introducesNewObservation && isTrusted) {
         this.db
           .prepare('UPDATE entities SET confidence = MIN(confidence + 0.05, 1.0) WHERE id = ?')
           .run(entityId);
