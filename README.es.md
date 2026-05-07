@@ -271,7 +271,7 @@ El core es agnóstico de framework. La misma lógica se ejecuta desde terminal, 
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test             # 489 tests
+npm test             # 630 tests
 npm run test:e2e-dashboard
 ```
 

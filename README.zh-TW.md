@@ -271,7 +271,7 @@ memesh  # 開啟儀表板 → 設定標籤
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test             # 489 項測試
+npm test             # 630 項測試
 npm run test:e2e-dashboard
 ```
 

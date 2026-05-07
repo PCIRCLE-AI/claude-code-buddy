@@ -2,6 +2,19 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.1.4] — 2026-05-07
+
+Auto-update loop completion: the Stop hook now triggers `npm install -g` when policy and cache permit.
+
+### Changed
+- **Auto-update spawn moved from SessionStart to Stop hook.** The `autoUpdate` policy field introduced in v4.1.3 now acts: when policy permits the detected bump and the update cache is fresh (< 24h), the Stop hook spawns a detached `npm install -g @pcircle/memesh@<latest>` after the session ends. Moving the spawn to Stop avoids a TOCTOU race where the install could overwrite `dist/` while peer hooks (pre-edit-recall, pre-bash-nudge) were still reading it mid-session. The shared lock and install-channel guards carry over: only `npm-global` installs self-update, and only one concurrent session wins the lock.
+- **Deprecation banner updated.** The `npm-global` remediation line now suggests `memesh config set autoUpdate patch` alongside `memesh update`, so users know the auto-update feature is active.
+- **Shared auto-update helpers extracted to `_shared.js`.** `readUpdateCheckCache`, `classifyBumpHook`, `decideAutoUpdateHook`, `logAutoUpdate`, `tryAcquireAutoUpdateLock`, `spawnAutoUpdate`, and `AUTO_UPDATE_LOCK_TTL_MS` moved from `session-start.js` to `_shared.js` so both hooks share a single implementation.
+
+### Notes
+- Recall output is now visible: `suppressOutput: true` removed from SessionStart hook. Memory injections appear as `systemMessage` context so users can see MeMesh working.
+- No public API changes. Behaviour is unchanged for users with `autoUpdate: 'off'` (the default).
+
 ## [4.1.3] — 2026-05-06
 
 Update-mechanism UX completion: deprecation-aware session banners and an opt-in auto-update policy.
