@@ -146,6 +146,12 @@ export interface HealthFactor {
   detail: string;
 }
 
+export interface LoopMetric {
+  reusedThisWeek: number;
+  trend: Array<{ date: string; count: number }>;
+  computedFrom: 'recall_hits' | 'last_accessed_at_approximation';
+}
+
 export interface AnalyticsData {
   healthScore: number;
   healthFactors: {
@@ -154,6 +160,7 @@ export interface AnalyticsData {
     freshness: HealthFactor;
     lessons: HealthFactor;
   };
+  loopMetric: LoopMetric;
   timeline: Array<{ date: string; created: number; recalled: number }>;
   valueMetrics: {
     totalRecalls: number;
