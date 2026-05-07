@@ -6,6 +6,7 @@
 // so that a single Entity renders consistently regardless of where it shows up.
 
 import type { Entity } from './api';
+import { t } from './i18n';
 
 /* ---------- type clustering ---------- */
 
@@ -58,8 +59,8 @@ export function iconFor(type: string): string {
 
 /* ---------- relative time ---------- */
 
-/** Human-friendly relative date. Returns "今天" / "昨天" / "3 天前" / "上週"
- *  / "Mar 5" depending on age. Locale-aware for fallback dates. */
+/** Human-friendly relative date, localised via i18n. Falls back to a locale
+ *  date for entries older than a year. */
 export function relativeDate(iso: string | null | undefined, now: Date = new Date()): string {
   if (!iso) return '—';
   const then = new Date(iso);
@@ -69,16 +70,16 @@ export function relativeDate(iso: string | null | undefined, now: Date = new Dat
   if (days < 0) return then.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   if (days === 0) {
     const hours = Math.floor(ms / 3600000);
-    if (hours < 1) return '剛剛';
-    if (hours < 24) return `${hours} 小時前`;
-    return '今天';
+    if (hours < 1) return t('time.justNow');
+    if (hours < 24) return t('time.hoursAgo', { count: hours });
+    return t('time.today');
   }
-  if (days === 1) return '昨天';
-  if (days < 7) return `${days} 天前`;
-  if (days < 14) return '上週';
-  if (days < 30) return `${Math.floor(days / 7)} 週前`;
-  if (days < 60) return '上個月';
-  if (days < 365) return `${Math.floor(days / 30)} 個月前`;
+  if (days === 1) return t('time.yesterday');
+  if (days < 7) return t('time.daysAgo', { count: days });
+  if (days < 14) return t('time.lastWeek');
+  if (days < 30) return t('time.weeksAgo', { count: Math.floor(days / 7) });
+  if (days < 60) return t('time.lastMonth');
+  if (days < 365) return t('time.monthsAgo', { count: Math.floor(days / 30) });
   return then.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
@@ -134,10 +135,10 @@ export interface AccessSignal {
 /** Categorise access_count into a signal the UI can colour-code. */
 export function accessSignal(count: number | undefined): AccessSignal {
   const n = count ?? 0;
-  if (n === 0) return { count: n, label: '從未回憶', tone: 'none' };
-  if (n >= 20) return { count: n, label: `常用 · ${n} 次`, tone: 'high' };
-  if (n >= 5) return { count: n, label: `${n} 次回憶`, tone: 'medium' };
-  return { count: n, label: `${n} 次回憶`, tone: 'low' };
+  if (n === 0) return { count: n, label: t('memory.access.never'), tone: 'none' };
+  if (n >= 20) return { count: n, label: t('memory.access.frequent', { count: n }), tone: 'high' };
+  if (n >= 5) return { count: n, label: t('memory.access.recalls', { count: n }), tone: 'medium' };
+  return { count: n, label: t('memory.access.recalls', { count: n }), tone: 'low' };
 }
 
 /* ---------- lesson categorisation ---------- */

@@ -179,33 +179,33 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
 
         {/* Cluster chips — primary filter */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-          <span style={{ fontSize: 11, color: 'var(--text-3)', alignSelf: 'center', marginRight: 4 }}>類別</span>
-          <Chip label="知識" active={cluster === 'knowledge'} onClick={() => setCluster('knowledge')} count={clusterCounts.knowledge} />
-          <Chip label="活動" active={cluster === 'activity'} onClick={() => setCluster('activity')} count={clusterCounts.activity} />
-          <Chip label="工作記錄" active={cluster === 'session'} onClick={() => setCluster('session')} count={clusterCounts.session} />
-          <Chip label="參考" active={cluster === 'reference'} onClick={() => setCluster('reference')} count={clusterCounts.reference} />
-          <Chip label="全部" active={cluster === 'all'} onClick={() => setCluster('all')} count={clusterCounts.all} />
+          <span style={{ fontSize: 11, color: 'var(--text-3)', alignSelf: 'center', marginRight: 4 }}>{t('browse.filterCategory')}</span>
+          <Chip label={t('cluster.knowledge')} active={cluster === 'knowledge'} onClick={() => setCluster('knowledge')} count={clusterCounts.knowledge} />
+          <Chip label={t('cluster.activity')} active={cluster === 'activity'} onClick={() => setCluster('activity')} count={clusterCounts.activity} />
+          <Chip label={t('cluster.session')} active={cluster === 'session'} onClick={() => setCluster('session')} count={clusterCounts.session} />
+          <Chip label={t('cluster.reference')} active={cluster === 'reference'} onClick={() => setCluster('reference')} count={clusterCounts.reference} />
+          <Chip label={t('cluster.all')} active={cluster === 'all'} onClick={() => setCluster('all')} count={clusterCounts.all} />
         </div>
 
         {/* Time + value + project chips — secondary */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-          <span style={{ fontSize: 11, color: 'var(--text-3)', alignSelf: 'center', marginRight: 4 }}>時間</span>
-          <Chip label="今天" active={time === 'today'} onClick={() => setTime(time === 'today' ? 'all' : 'today')} />
-          <Chip label="本週" active={time === 'week'} onClick={() => setTime(time === 'week' ? 'all' : 'week')} />
-          <Chip label="本月" active={time === 'month'} onClick={() => setTime(time === 'month' ? 'all' : 'month')} />
-          <Chip label="更早" active={time === 'older'} onClick={() => setTime(time === 'older' ? 'all' : 'older')} />
+          <span style={{ fontSize: 11, color: 'var(--text-3)', alignSelf: 'center', marginRight: 4 }}>{t('browse.filterTime')}</span>
+          <Chip label={t('browse.timeToday')} active={time === 'today'} onClick={() => setTime(time === 'today' ? 'all' : 'today')} />
+          <Chip label={t('browse.timeWeek')} active={time === 'week'} onClick={() => setTime(time === 'week' ? 'all' : 'week')} />
+          <Chip label={t('browse.timeMonth')} active={time === 'month'} onClick={() => setTime(time === 'month' ? 'all' : 'month')} />
+          <Chip label={t('browse.timeOlder')} active={time === 'older'} onClick={() => setTime(time === 'older' ? 'all' : 'older')} />
 
           <span style={{ width: 1, background: 'var(--border-subtle)', margin: '0 6px' }} />
 
-          <span style={{ fontSize: 11, color: 'var(--text-3)', alignSelf: 'center', marginRight: 4 }}>價值</span>
-          <Chip label="✓ 用過" active={value === 'recalled'} onClick={() => setValue(value === 'recalled' ? 'all' : 'recalled')} />
-          <Chip label="從未回憶" active={value === 'never'} onClick={() => setValue(value === 'never' ? 'all' : 'never')} />
+          <span style={{ fontSize: 11, color: 'var(--text-3)', alignSelf: 'center', marginRight: 4 }}>{t('browse.filterValue')}</span>
+          <Chip label={t('browse.valueRecalled')} active={value === 'recalled'} onClick={() => setValue(value === 'recalled' ? 'all' : 'recalled')} />
+          <Chip label={t('browse.valueNever')} active={value === 'never'} onClick={() => setValue(value === 'never' ? 'all' : 'never')} />
         </div>
 
         {projects.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-            <span style={{ fontSize: 11, color: 'var(--text-3)', alignSelf: 'center', marginRight: 4 }}>專案</span>
-            <Chip label="全部" active={project === 'all'} onClick={() => setProject('all')} />
+            <span style={{ fontSize: 11, color: 'var(--text-3)', alignSelf: 'center', marginRight: 4 }}>{t('browse.filterProject')}</span>
+            <Chip label={t('cluster.all')} active={project === 'all'} onClick={() => setProject('all')} />
             {projects.map((p) => (
               <Chip
                 key={p.name}
@@ -220,15 +220,15 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
 
         {/* Sort dropdown */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--border-subtle)' }}>
-          <span style={{ fontSize: 11, color: 'var(--text-3)' }}>排序</span>
+          <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('browse.filterSort')}</span>
           <select
             value={sort}
             onChange={(e) => setSort((e.target as HTMLSelectElement).value as SortKey)}
             style={{ padding: '3px 8px', fontSize: 12 }}
           >
-            <option value="most-recalled">最常回憶</option>
-            <option value="recent">最近使用</option>
-            <option value="created">建立時間</option>
+            <option value="most-recalled">{t('browse.sortMostRecalled')}</option>
+            <option value="recent">{t('browse.sortRecent')}</option>
+            <option value="created">{t('browse.sortCreated')}</option>
           </select>
         </div>
 
@@ -238,7 +238,7 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
         {!loading && active.length === 0 && (
           <div class="empty">
             <span class="empty-icon">📭</span>
-            {filter ? `${t('browse.noMatch')} "${filter}"` : '此分類沒有記憶 — 試試切換類別或時間'}
+            {filter ? `${t('browse.noMatch')} "${filter}"` : t('browse.emptyFilter')}
           </div>
         )}
 
