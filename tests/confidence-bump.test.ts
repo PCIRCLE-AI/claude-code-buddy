@@ -116,6 +116,34 @@ describe('G1 — confidence bump paths', () => {
     expect(getConfidence('decayed')).toBeCloseTo(0.45, 5);
   });
 
+  it('remember(trustOverride: "untrusted") plumbs through to createEntity gate (Codex P1 regression)', async () => {
+    // The trust signal must arrive AT createEntity time — earlier
+    // versions had remember() set trust via updateEntityMetadata
+    // AFTER createEntity returned, so the gate read undefined and
+    // defaulted to trusted, letting auto-learned lessons and
+    // append-imports inflate confidence on unverified content.
+    const { remember } = await import('../src/core/operations.js');
+    expect(getConfidence('decayed')).toBeCloseTo(0.4, 5);
+    remember({
+      name: 'decayed',
+      type: 'lesson_learned',
+      observations: ['snapshot from external dump'],
+      trustOverride: 'untrusted',
+    });
+    expect(getConfidence('decayed')).toBeCloseTo(0.4, 5);
+  });
+
+  it('remember() with default trust (trusted) bumps when adding new observation', async () => {
+    const { remember } = await import('../src/core/operations.js');
+    expect(getConfidence('decayed')).toBeCloseTo(0.4, 5);
+    remember({
+      name: 'decayed',
+      type: 'lesson_learned',
+      observations: ['user re-asserted via MCP'],
+    });
+    expect(getConfidence('decayed')).toBeCloseTo(0.45, 5);
+  });
+
   it('createExplicitLesson resets confidence to 1.0 — highest-trust signal', async () => {
     // First: simulate a prior decayed lesson_learned for this project.
     kg.createEntity('lesson-test-project-network-error', 'lesson_learned', {

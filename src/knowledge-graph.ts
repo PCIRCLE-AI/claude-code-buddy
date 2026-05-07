@@ -27,7 +27,22 @@ export class KnowledgeGraph {
   createEntity(
     name: string,
     type: string,
-    opts?: { observations?: string[]; tags?: string[]; metadata?: any; namespace?: string }
+    opts?: {
+      observations?: string[];
+      tags?: string[];
+      metadata?: any;
+      namespace?: string;
+      /**
+       * Trust signal for the confidence-bump gate. Must arrive at
+       * `createEntity()` time rather than via a later
+       * `updateEntityMetadata()` call, because the bump decision
+       * happens inside this function. The default ('trusted') matches
+       * what `buildLocalMetadata()` writes for explicit user
+       * remembers; importer / failure-analyzer paths pass
+       * `'untrusted'` to opt out of the bump.
+       */
+      trustOverride?: 'trusted' | 'untrusted';
+    }
   ): number {
     // INSERT OR IGNORE — if entity already exists, get its id
     // namespace is set on creation only; existing entities keep their original namespace
@@ -87,10 +102,18 @@ export class KnowledgeGraph {
       const introducesNewObservation = (opts?.observations ?? []).some(
         (o) => !prevSet.has(o),
       );
-      const incomingTrust =
+      // Trust signal lookup. Direct callers may set
+      // `opts.trustOverride` (the canonical channel — used by
+      // `operations.remember()` after Codex flagged the original
+      // metadata-only path). Some callers still pass the trust value
+      // inside `opts.metadata.trust`; honor that as a fallback so
+      // `kg.createEntity({ metadata: { trust: 'untrusted' } })` still
+      // works for direct test fixtures.
+      const trustFromMetadata =
         opts?.metadata && typeof opts.metadata === 'object'
           ? (opts.metadata as { trust?: unknown }).trust
           : undefined;
+      const incomingTrust = opts?.trustOverride ?? trustFromMetadata;
       const isTrusted = incomingTrust === undefined || incomingTrust === 'trusted';
       if (introducesNewObservation && isTrusted) {
         this.db
