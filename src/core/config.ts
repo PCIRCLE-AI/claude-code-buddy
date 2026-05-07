@@ -33,7 +33,6 @@ export interface MeMeshConfig {
    */
   autoUpdate?: 'off' | 'patch' | 'minor' | 'major';
   theme?: 'light' | 'dark';
-  tips?: { smartModeHint?: 'shown' };
   setupCompleted?: boolean;
 }
 

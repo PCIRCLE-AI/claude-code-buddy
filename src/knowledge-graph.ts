@@ -119,7 +119,6 @@ export class KnowledgeGraph {
     fromName: string,
     toName: string,
     relationType: string,
-    metadata?: any
   ): void {
     const fromRow = this.db
       .prepare('SELECT id FROM entities WHERE name = ?')
@@ -135,22 +134,21 @@ export class KnowledgeGraph {
       throw new Error(`Entity not found: ${toName}`);
     }
 
+    // The relations.metadata column was never written by any caller and
+    // has been retired (SDD G3). The column itself stays in the SQLite
+    // schema for compatibility with older databases; we just stop binding
+    // anything to it.
     this.db
       .prepare(
-        'INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type, metadata) VALUES (?, ?, ?, ?)'
+        'INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?)'
       )
-      .run(
-        fromRow.id,
-        toRow.id,
-        relationType,
-        metadata ? JSON.stringify(metadata) : null
-      );
+      .run(fromRow.id, toRow.id, relationType);
   }
 
   getEntity(name: string): Entity | null {
     const row = this.db
       .prepare(
-        'SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, valid_from, valid_until, namespace FROM entities WHERE name = ?'
+        'SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace FROM entities WHERE name = ?'
       )
       .get(name) as EntityRow | undefined;
 
@@ -181,8 +179,6 @@ export class KnowledgeGraph {
       access_count: row.access_count ?? 0,
       last_accessed_at: row.last_accessed_at ?? undefined,
       confidence: row.confidence ?? 1.0,
-      valid_from: row.valid_from ?? undefined,
-      valid_until: row.valid_until ?? undefined,
       namespace: row.namespace ?? 'personal',
     };
   }
@@ -205,7 +201,7 @@ export class KnowledgeGraph {
     // Batch query 1: entities
     const entityRows = this.db
       .prepare(
-        `SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, valid_from, valid_until, namespace
+        `SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace
          FROM entities WHERE id IN (${placeholders}) ${statusFilter} ${namespaceFilter}`
       )
       .all(...params) as EntityRow[];
@@ -246,13 +242,13 @@ export class KnowledgeGraph {
     const relRows = this.db
       .prepare(
         `SELECT r.from_entity_id, e_from.name AS "from", e_to.name AS "to",
-                r.relation_type AS type, r.metadata
+                r.relation_type AS type
          FROM relations r
          JOIN entities e_from ON r.from_entity_id = e_from.id
          JOIN entities e_to ON r.to_entity_id = e_to.id
          WHERE r.from_entity_id IN (${placeholders})`
       )
-      .all(...ids) as Array<{ from_entity_id: number; from: string; to: string; type: string; metadata: string | null }>;
+      .all(...ids) as Array<{ from_entity_id: number; from: string; to: string; type: string }>;
 
     const relMap = new Map<number, Relation[]>();
     for (const row of relRows) {
@@ -261,7 +257,6 @@ export class KnowledgeGraph {
         from: row.from,
         to: row.to,
         type: row.type,
-        metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
       });
     }
 
@@ -289,8 +284,6 @@ export class KnowledgeGraph {
         access_count: row.access_count ?? 0,
         last_accessed_at: row.last_accessed_at ?? undefined,
         confidence: row.confidence ?? 1.0,
-        valid_from: row.valid_from ?? undefined,
-        valid_until: row.valid_until ?? undefined,
         namespace: row.namespace ?? 'personal',
       });
     }
@@ -301,19 +294,18 @@ export class KnowledgeGraph {
   getRelations(entityName: string): Relation[] {
     const rows = this.db
       .prepare(
-        `SELECT e_from.name AS "from", e_to.name AS "to", r.relation_type AS type, r.metadata
+        `SELECT e_from.name AS "from", e_to.name AS "to", r.relation_type AS type
          FROM relations r
          JOIN entities e_from ON r.from_entity_id = e_from.id
          JOIN entities e_to ON r.to_entity_id = e_to.id
          WHERE e_from.name = ?`
       )
-      .all(entityName) as Array<{ from: string; to: string; type: string; metadata: string | null }>;
+      .all(entityName) as Array<{ from: string; to: string; type: string }>;
 
     return rows.map((r) => ({
       from: r.from,
       to: r.to,
       type: r.type,
-      metadata: r.metadata ? JSON.parse(r.metadata) : undefined,
     }));
   }
 

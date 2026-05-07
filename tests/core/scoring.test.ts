@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { recencyScore, frequencyScore, temporalValidityScore, impactScore, rankEntities } from '../../src/core/scoring.js';
+import { recencyScore, frequencyScore, impactScore, rankEntities } from '../../src/core/scoring.js';
 
 describe('Scoring Engine', () => {
   describe('recencyScore', () => {
@@ -29,22 +29,6 @@ describe('Scoring Engine', () => {
     it('returns ~0.5 for sqrt(max) access', () => {
       expect(frequencyScore(10, 100)).toBeGreaterThan(0.3);
       expect(frequencyScore(10, 100)).toBeLessThan(0.7);
-    });
-  });
-
-  describe('temporalValidityScore', () => {
-    it('returns 1.0 for no expiry', () => {
-      expect(temporalValidityScore(null)).toBe(1.0);
-    });
-
-    it('returns 1.0 for future expiry', () => {
-      const future = new Date(Date.now() + 86400000).toISOString();
-      expect(temporalValidityScore(future)).toBe(1.0);
-    });
-
-    it('returns 0.5 for past expiry', () => {
-      const past = new Date(Date.now() - 86400000).toISOString();
-      expect(temporalValidityScore(past)).toBe(0.5);
     });
   });
 

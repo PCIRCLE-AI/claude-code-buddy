@@ -1,18 +1,21 @@
 export interface ScoringWeights {
   searchRelevance: number;   // default 0.30
   recency: number;           // default 0.25
-  frequency: number;         // default 0.15
-  confidence: number;        // default 0.15
-  temporalValidity: number;  // default 0.05
+  frequency: number;         // default 0.18
+  confidence: number;        // default 0.17
   impact: number;            // default 0.10
 }
 
+// Removed temporalValidity (5 %) in 2026-05: the underlying valid_from /
+// valid_until columns were never written by any code path, so the score
+// it produced was a constant 1.0 for every entity — a no-op factor. The
+// 5 % is reabsorbed by frequency (+0.03) and confidence (+0.02) which
+// are the non-decay quality signals.
 export const DEFAULT_WEIGHTS: ScoringWeights = {
   searchRelevance: 0.30,
   recency: 0.25,
-  frequency: 0.15,
-  confidence: 0.15,
-  temporalValidity: 0.05,
+  frequency: 0.18,
+  confidence: 0.17,
   impact: 0.10,
 };
 
@@ -37,16 +40,6 @@ export function frequencyScore(accessCount: number, maxAccessCount: number): num
 }
 
 /**
- * Calculate temporal validity score.
- * 1.0 if currently valid (no valid_until or valid_until > now)
- * 0.5 if expired (valid_until < now)
- */
-export function temporalValidityScore(validUntil: string | null | undefined): number {
-  if (!validUntil) return 1.0; // no expiry = always valid
-  return new Date(validUntil).getTime() > Date.now() ? 1.0 : 0.5;
-}
-
-/**
  * Calculate impact score using Laplace-smoothed recall effectiveness.
  * Score = (recall_hits + 1) / (recall_hits + recall_misses + 2)
  * Laplace smoothing gives new entities (0 hits, 0 misses) a neutral 0.5.
@@ -61,7 +54,7 @@ export function impactScore(recallHits: number, recallMisses: number): number {
  * searchRelevanceValue is provided by the search engine (FTS5 rank or vector distance).
  */
 export function scoreEntity(
-  entity: { access_count?: number; last_accessed_at?: string; confidence?: number; valid_until?: string; recall_hits?: number; recall_misses?: number },
+  entity: { access_count?: number; last_accessed_at?: string; confidence?: number; recall_hits?: number; recall_misses?: number },
   searchRelevanceValue: number,
   maxAccessCount: number,
   weights: ScoringWeights = DEFAULT_WEIGHTS
@@ -70,16 +63,15 @@ export function scoreEntity(
   const rc = recencyScore(entity.last_accessed_at) * weights.recency;
   const fq = frequencyScore(entity.access_count ?? 0, maxAccessCount) * weights.frequency;
   const cf = (entity.confidence ?? 1.0) * weights.confidence;
-  const tv = temporalValidityScore(entity.valid_until) * weights.temporalValidity;
   const im = impactScore(entity.recall_hits ?? 0, entity.recall_misses ?? 0) * weights.impact;
-  return sr + rc + fq + cf + tv + im;
+  return sr + rc + fq + cf + im;
 }
 
 /**
  * Sort entities by score descending.
  * searchRelevanceValues maps entity name → search relevance (0-1).
  */
-export function rankEntities<T extends { name: string; access_count?: number; last_accessed_at?: string; confidence?: number; valid_until?: string; recall_hits?: number; recall_misses?: number }>(
+export function rankEntities<T extends { name: string; access_count?: number; last_accessed_at?: string; confidence?: number; recall_hits?: number; recall_misses?: number }>(
   entities: T[],
   searchRelevanceValues: Map<string, number>,
   weights?: ScoringWeights
