@@ -29,8 +29,19 @@ export interface Extractor {
 // =============================================================================
 
 interface TranscriptEntry {
-  role?: string;
+  // Current format: assistant/user wrapper entries
   type?: string;
+  message?: {
+    role?: string;
+    content?: Array<{
+      type: string;
+      name?: string;
+      input?: Record<string, unknown>;
+      content?: unknown;
+    }>;
+  };
+  // Legacy format: flat top-level tool entries
+  role?: string;
   tool_name?: string;
   tool_input?: Record<string, unknown>;
   content?: unknown;
@@ -60,39 +71,52 @@ export function parseTranscript(transcriptPath: string): {
       try {
         const entry = JSON.parse(line) as TranscriptEntry;
 
-        // Count tool calls
+        // Current format: assistant entries wrap tool_use blocks in message.content
+        if (entry.type === 'assistant' && Array.isArray(entry.message?.content)) {
+          for (const block of entry.message.content) {
+            if (block.type !== 'tool_use') continue;
+            toolCallCount++;
+            if (block.name === 'Write' || block.name === 'Edit') {
+              const fp = (block.input?.['file_path'] ?? block.input?.['path']) as string | undefined;
+              if (fp && typeof fp === 'string') filesEdited.add(path.basename(fp));
+            }
+            if (block.name === 'Bash') {
+              const cmd = (block.input?.['command'] as string | undefined) ?? '';
+              if (typeof cmd === 'string' && cmd.length > 10 && !cmd.startsWith('ls') && !cmd.startsWith('cd')) {
+                bashCommands.push(cmd.slice(0, 100));
+              }
+            }
+          }
+        }
+
+        // Current format: user entries wrap tool_result blocks in message.content
+        if (entry.type === 'user' && Array.isArray(entry.message?.content)) {
+          for (const block of entry.message.content) {
+            if (block.type !== 'tool_result') continue;
+            const text = typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
+            if (text.includes('Error') || text.includes('FAIL') || text.includes('error:')) {
+              errorsEncountered.push(text.slice(0, 200));
+            }
+          }
+        }
+
+        // Legacy format: flat top-level tool_use / tool_result entries
         if (entry.type === 'tool_use' || entry.tool_name) {
           toolCallCount++;
-        }
-
-        // Track file edits (Write, Edit tools)
-        if (entry.tool_name === 'Write' || entry.tool_name === 'Edit') {
-          const input = entry.tool_input ?? {};
-          const filePath = (input['file_path'] ?? input['path']) as string | undefined;
-          if (filePath && typeof filePath === 'string') {
-            filesEdited.add(path.basename(filePath));
+          if (entry.tool_name === 'Write' || entry.tool_name === 'Edit') {
+            const input = entry.tool_input ?? {};
+            const filePath = (input['file_path'] ?? input['path']) as string | undefined;
+            if (filePath && typeof filePath === 'string') filesEdited.add(path.basename(filePath));
+          }
+          if (entry.tool_name === 'Bash') {
+            const cmd = (entry.tool_input?.['command'] as string | undefined) ?? '';
+            if (typeof cmd === 'string' && cmd.length > 10 && !cmd.startsWith('ls') && !cmd.startsWith('cd')) {
+              bashCommands.push(cmd.slice(0, 100));
+            }
           }
         }
-
-        // Track bash commands — only meaningful ones
-        if (entry.tool_name === 'Bash') {
-          const cmd = (entry.tool_input?.['command'] as string | undefined) ?? '';
-          if (
-            typeof cmd === 'string' &&
-            cmd.length > 10 &&
-            !cmd.startsWith('ls') &&
-            !cmd.startsWith('cd')
-          ) {
-            bashCommands.push(cmd.slice(0, 100));
-          }
-        }
-
-        // Track errors from tool results
         if (entry.type === 'tool_result' && entry.content != null) {
-          const text =
-            typeof entry.content === 'string'
-              ? entry.content
-              : JSON.stringify(entry.content);
+          const text = typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content);
           if (text.includes('Error') || text.includes('FAIL') || text.includes('error:')) {
             errorsEncountered.push(text.slice(0, 200));
           }

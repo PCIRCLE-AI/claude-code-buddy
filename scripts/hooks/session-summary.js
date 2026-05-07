@@ -57,7 +57,8 @@ async function runAutoUpdateAtStop() {
 }
 
 // Parse a JSONL transcript file.
-// Mirrors logic in src/core/extractor.ts parseTranscript().
+// Handles the current Claude Code transcript format where tool_use/tool_result
+// are nested inside assistant/user message entries, not top-level entries.
 // Defensive: never throws — malformed lines are silently skipped.
 function parseTranscript(transcriptPath) {
   const filesEdited = new Set();
@@ -71,29 +72,54 @@ function parseTranscript(transcriptPath) {
       try {
         const entry = JSON.parse(line);
 
-        // Count tool calls
-        if (entry.type === 'tool_use' || entry.tool_name) toolCallCount++;
+        // Current format: assistant entries contain tool_use blocks in message.content
+        if (entry.type === 'assistant' && Array.isArray(entry.message?.content)) {
+          for (const block of entry.message.content) {
+            if (block.type !== 'tool_use') continue;
+            toolCallCount++;
 
-        // Track file edits (Write, Edit tools)
-        if (entry.tool_name === 'Write' || entry.tool_name === 'Edit') {
-          const inp = entry.tool_input ?? {};
-          const fp = (inp.file_path ?? inp.path);
-          if (fp && typeof fp === 'string') filesEdited.add(basename(fp));
-        }
-
-        // Track meaningful bash commands
-        if (entry.tool_name === 'Bash') {
-          const cmd = (entry.tool_input?.command) ?? '';
-          if (typeof cmd === 'string' && cmd.length > 10 && !cmd.startsWith('ls') && !cmd.startsWith('cd')) {
-            bashCommands.push(cmd.slice(0, 100));
+            if (block.name === 'Write' || block.name === 'Edit') {
+              const fp = block.input?.file_path ?? block.input?.path;
+              if (fp && typeof fp === 'string') filesEdited.add(basename(fp));
+            }
+            if (block.name === 'Bash') {
+              const cmd = block.input?.command ?? '';
+              if (typeof cmd === 'string' && cmd.length > 10 && !cmd.startsWith('ls') && !cmd.startsWith('cd')) {
+                bashCommands.push(cmd.slice(0, 100));
+              }
+            }
           }
         }
 
-        // Track errors from tool results
+        // Current format: user entries contain tool_result blocks in message.content
+        if (entry.type === 'user' && Array.isArray(entry.message?.content)) {
+          for (const block of entry.message.content) {
+            if (block.type !== 'tool_result') continue;
+            const text = typeof block.content === 'string'
+              ? block.content
+              : JSON.stringify(block.content);
+            if (text.includes('Error') || text.includes('FAIL') || text.includes('error:')) {
+              errorsEncountered.push(text.slice(0, 200));
+            }
+          }
+        }
+
+        // Legacy format (older Claude Code versions): top-level tool_use/tool_result
+        if (entry.type === 'tool_use' || entry.tool_name) {
+          toolCallCount++;
+          if (entry.tool_name === 'Write' || entry.tool_name === 'Edit') {
+            const fp = (entry.tool_input?.file_path ?? entry.tool_input?.path);
+            if (fp && typeof fp === 'string') filesEdited.add(basename(fp));
+          }
+          if (entry.tool_name === 'Bash') {
+            const cmd = entry.tool_input?.command ?? '';
+            if (typeof cmd === 'string' && cmd.length > 10 && !cmd.startsWith('ls') && !cmd.startsWith('cd')) {
+              bashCommands.push(cmd.slice(0, 100));
+            }
+          }
+        }
         if (entry.type === 'tool_result' && entry.content != null) {
-          const text = typeof entry.content === 'string'
-            ? entry.content
-            : JSON.stringify(entry.content);
+          const text = typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content);
           if (text.includes('Error') || text.includes('FAIL') || text.includes('error:')) {
             errorsEncountered.push(text.slice(0, 200));
           }
@@ -322,8 +348,10 @@ process.stdin.on('end', async () => {
             closeDatabase();
           }
         }
-      } catch {
-        // LLM analysis failed — rule-based extraction already captured the session
+      } catch (llmErr) {
+        // LLM analysis failed — rule-based extraction already captured the session.
+        // Log to stderr so config issues (e.g. invalid API key) are visible.
+        try { process.stderr.write(`[memesh] LLM failure analysis skipped: ${llmErr?.message || llmErr}\n`); } catch {}
       }
     }
   } catch (err) {
