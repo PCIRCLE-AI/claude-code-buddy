@@ -1,9 +1,7 @@
 {
   "mcpServers": {
     "memesh": {
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js"],
-      "env": { "NODE_ENV": "production" }
+      "command": "memesh-mcp"
     }
   }
 }

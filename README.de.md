@@ -271,7 +271,7 @@ Der Kern ist Framework-agnostisch. Dieselbe Logik läuft vom Terminal, HTTP oder
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test             # 489 tests
+npm test             # 630 tests
 npm run test:e2e-dashboard
 ```
 

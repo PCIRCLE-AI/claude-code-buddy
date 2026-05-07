@@ -13,7 +13,7 @@ import {
   getMemeshDir,
   isAgenticOrchestrationEnabled,
   isTrustedForAutoContext,
-  resolveAutoUpdatePolicy,
+  readUpdateCheckCache,
   resolvePluginRoot,
   resolveSessionLimit,
   writePrivateJson,
@@ -42,45 +42,6 @@ const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowled
 const memeshDir = getMemeshDir(process.env);
 const throttlePath = join(memeshDir, 'session-recalled-files.json');
 const nudgeFlagsDir = join(memeshDir, 'agent-nudge-flags');
-
-/**
- * Read the cached npm update check produced by core/version-check.ts.
- * Hooks must not depend on dist/, so this duplicates the path constant
- * (mirrored in src/core/version-check.ts:6) and parses defensively.
- * Returns null on missing/corrupt cache rather than throwing — the
- * deprecation warning is best-effort.
- */
-function readUpdateCheckCache(installedVersion) {
-  // Codex round 38: scope cache reads by installed version so a
-  // multi-install setup (global 4.1.3 + project-local 4.1.1)
-  // doesn't fight over a single cache slot. Each install reads
-  // its own per-version file. Test/integration envs can still
-  // pin a specific path via MEMESH_UPDATE_CHECK_PATH.
-  if (process.env.MEMESH_UPDATE_CHECK_PATH) {
-    try {
-      const overridePath = process.env.MEMESH_UPDATE_CHECK_PATH;
-      if (!existsSync(overridePath)) return null;
-      const parsed = JSON.parse(readFileSync(overridePath, 'utf8'));
-      if (!parsed || typeof parsed !== 'object') return null;
-      return parsed;
-    } catch {
-      return null;
-    }
-  }
-  const versionTag = typeof installedVersion === 'string'
-    && /^[0-9A-Za-z.+-]+$/.test(installedVersion)
-    ? installedVersion
-    : 'unknown';
-  const cachePath = join(homedir(), '.memesh', `update-check.${versionTag}.json`);
-  try {
-    if (!existsSync(cachePath)) return null;
-    const parsed = JSON.parse(readFileSync(cachePath, 'utf8'));
-    if (!parsed || typeof parsed !== 'object') return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Build the strong deprecation warning lines to prepend to the
@@ -157,17 +118,10 @@ function buildDeprecationBanner(currentVersion, cache) {
   } catch { /* best-effort — fall through to generic guidance */ }
 
   if (channel === 'npm-global') {
-    // v4.1.3: only `memesh update` actually applies the upgrade.
-    // The autoUpdate config field is recognised (and the policy
-    // resolution + decision matrix run) but the actual spawn is
-    // deferred to the v4.1.4 Stop hook, so suggesting users set
-    // autoUpdate would point them at a remediation that doesn't
-    // yet act. Restore the autoUpdate suggestion in v4.1.4 once
-    // the spawn lands.
     lines.push(
       knownUpgradeTarget
-        ? `    Run: memesh update`
-        : `    Run: memesh update   (resolves @latest — works even if no upgrade target is cached yet)`,
+        ? `    Run: memesh update   (or set autoUpdate: memesh config set autoUpdate patch)`
+        : `    Run: memesh update   (resolves @latest — or set: memesh config set autoUpdate patch)`,
     );
   } else if (channel === 'source-checkout') {
     lines.push(`    Source checkout: pull and rebuild (\`git pull && npm install && npm run build\`).`);
@@ -192,79 +146,6 @@ function buildDeprecationBanner(currentVersion, cache) {
     );
   }
   return lines;
-}
-
-const SEMVER_RE = /^(\d+)\.(\d+)\.(\d+)(?:[-+].+)?$/;
-
-function classifyBumpHook(from, to) {
-  const a = SEMVER_RE.exec((from || '').trim());
-  const b = SEMVER_RE.exec((to || '').trim());
-  if (!a || !b) return null;
-  const ai = a.slice(1, 4).map(Number);
-  const bi = b.slice(1, 4).map(Number);
-  if (bi[0] > ai[0]) return 'major';
-  if (bi[0] < ai[0]) return null;
-  if (bi[1] > ai[1]) return 'minor';
-  if (bi[1] < ai[1]) return null;
-  if (bi[2] > ai[2]) return 'patch';
-  return null;
-}
-
-const POLICY_RANK = { off: 0, patch: 1, minor: 2, major: 3 };
-const BUMP_RANK = { patch: 1, minor: 2, major: 3 };
-
-// Cache must be no older than 24 hours for auto-update to act on
-// it. A stale cache could point at a target that is already
-// superseded on npm — installing it would leave the user one step
-// behind. When the cache is too old we skip the install and let the
-// background refresh fetch fresh data for the next session.
-const AUTO_UPDATE_CACHE_FRESHNESS_MS = 24 * 60 * 60 * 1000;
-
-function decideAutoUpdateHook(currentVersion, cache, policy) {
-  if (!cache || cache.currentVersion !== currentVersion) return { run: false };
-  const latest = cache.latestVersion;
-  if (typeof latest !== 'string' || !latest) return { run: false };
-  const bump = classifyBumpHook(currentVersion, latest);
-  if (!bump) return { run: false };
-
-  // Stale-cache guard: refuse to auto-install a target that may
-  // have been superseded on npm since the last successful check.
-  const lastSuccessAt = cache.lastSuccessfulCheckAt;
-  const lastSuccessMs = typeof lastSuccessAt === 'string' ? Date.parse(lastSuccessAt) : NaN;
-  const cacheAgeMs = Number.isFinite(lastSuccessMs) ? Date.now() - lastSuccessMs : Infinity;
-  if (cacheAgeMs > AUTO_UPDATE_CACHE_FRESHNESS_MS) {
-    return { run: false, reason: 'stale-cache' };
-  }
-
-  const policyAllows = (POLICY_RANK[policy] ?? 0) >= BUMP_RANK[bump];
-  if (policyAllows) return { run: true, latest, bump, deprecationOverride: false };
-
-  // Deprecation security override: even with policy 'off', force a
-  // patch upgrade out of a deprecated version. Don't override beyond
-  // patch — minor / major can carry behaviour changes the user didn't
-  // agree to.
-  const deprecated = typeof cache.currentVersionDeprecation === 'string'
-    && cache.currentVersionDeprecation.length > 0;
-  if (deprecated && bump === 'patch') {
-    return { run: true, latest, bump, deprecationOverride: true };
-  }
-
-  return { run: false };
-}
-
-/**
- * Append a one-line outcome to the auto-update audit log. Best-effort.
- */
-function logAutoUpdate(line) {
-  try {
-    const dir = getMemeshDir(process.env);
-    ensurePrivateDir(dir);
-    const path = join(dir, 'auto-update.log');
-    appendFileSync(path, `[${new Date().toISOString()}] ${line}\n`);
-    try { chmodSync(path, 0o600); } catch { /* non-POSIX */ }
-  } catch {
-    // Logging is best-effort.
-  }
 }
 
 /**
@@ -299,158 +180,6 @@ function detectInstallChannelHook(pluginRoot) {
     return _installChannelMod.getCurrentInstallChannel({ packageRoot: pluginRoot });
   } catch {
     return 'unknown';
-  }
-}
-
-// Cross-process lock window. Two parallel Claude sessions starting
-// in the same minute would otherwise both decide to auto-update from
-// the same cache and each fire `npm install -g` — wasted work at
-// best, install corruption at worst on slow networks. The lock
-// holds for the upper-bound of an `npm install -g` (most finish in
-// under 60s; we allow 10 min as a safety floor) and is reclaimed
-// when stale.
-const AUTO_UPDATE_LOCK_TTL_MS = 10 * 60 * 1000;
-
-function tryAcquireAutoUpdateLock(version) {
-  try {
-    // Lock is MACHINE-GLOBAL because the npm install -g target is
-    // machine-global. Always use ~/.memesh/auto-update.lock,
-    // independent of MEMESH_DB_PATH — two sessions with different
-    // DB paths still serialize against the same global install.
-    const dir = join(homedir(), '.memesh');
-    ensurePrivateDir(dir);
-    const lockPath = join(dir, 'auto-update.lock');
-    const fs = require('fs');
-    const myToken = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    const payload = `${myToken}\n${process.pid}\n${Date.now()}\n${version}\n`;
-    // Fast path: O_EXCL atomic create. If we win, we own the lock.
-    try {
-      const fd = fs.openSync(lockPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
-      try { fs.writeFileSync(fd, payload); } finally { fs.closeSync(fd); }
-      return { acquired: true, lockPath };
-    } catch (err) {
-      if (err?.code !== 'EEXIST') throw err;
-    }
-    // Lock exists — check staleness.
-    let stat;
-    try { stat = fs.statSync(lockPath); } catch { return { acquired: false, lockPath }; }
-    if (Date.now() - stat.mtimeMs <= AUTO_UPDATE_LOCK_TTL_MS) {
-      return { acquired: false, lockPath };
-    }
-    // Stale-recovery: write our payload to a temp file, unlink the
-    // existing stale lock, then rename. unlink-before-rename keeps
-    // this Windows-safe (Windows fs.rename can fail when the
-    // destination exists, especially if another process briefly
-    // holds it open). On POSIX the unlink+rename pair is no slower
-    // than rename-replace. After the rename, read the lock back: if
-    // it carries OUR token, we won; if a peer's rename came after
-    // ours, we lost cleanly. No double-spawn on either platform.
-    const tempPath = `${lockPath}.${process.pid}.${Math.random().toString(36).slice(2, 10)}.tmp`;
-    try {
-      fs.writeFileSync(tempPath, payload, { mode: 0o600 });
-      try { fs.unlinkSync(lockPath); } catch (err) {
-        // ENOENT (a peer already reclaimed) is fine; anything else
-        // means we can't replace the lock cleanly.
-        if (err?.code !== 'ENOENT') {
-          try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
-          return { acquired: false, lockPath };
-        }
-      }
-      fs.renameSync(tempPath, lockPath);
-    } catch {
-      try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
-      return { acquired: false, lockPath };
-    }
-    let recorded;
-    try { recorded = fs.readFileSync(lockPath, 'utf8'); } catch { return { acquired: false, lockPath }; }
-    const recordedToken = recorded.split('\n')[0];
-    if (recordedToken === myToken) {
-      return { acquired: true, lockPath };
-    }
-    return { acquired: false, lockPath };
-  } catch {
-    return { acquired: false, lockPath: null };
-  }
-}
-
-/**
- * Spawn `npm install -g @pcircle/memesh@<version>` detached so the
- * upgrade can finish after this hook returns. We never block the
- * session on the install — the running process keeps its current
- * binary; the next session picks up the new one. Argv is an array
- * (no shell interpolation), so the version string can never escape
- * into a shell command.
- *
- * Two safety gates:
- *   1. Install channel must be `npm-global`. Source checkouts and
- *      project-local installs would silently create a separate
- *      global install while the active copy stayed unchanged.
- *   2. A filesystem lock at <memeshDir>/auto-update.lock serialises
- *      across parallel session-start processes. Without this, two
- *      Claude sessions starting at the same minute would each fire
- *      `npm install -g` concurrently.
- */
-/**
- * Return shape:
- *   { state: 'spawned' }       — we own the lock and spawned npm
- *   { state: 'in-progress' }   — another session owns the lock; an
- *                                auto-update is racing somewhere
- *   { state: 'channel' }       — install channel doesn't support
- *                                self-update; safe to refresh
- *   { state: 'failed' }        — error before/during spawn
- * Callers use 'in-progress' the same way they use 'spawned': skip
- * the cache refresh, since dist/* is being rewritten by some
- * process. Only 'channel' / no-decision is a clean idle state.
- */
-function spawnAutoUpdate(version, deprecationOverride) {
-  let lock = null;
-  try {
-    const pluginRoot = resolvePluginRoot(import.meta.url);
-    const channel = detectInstallChannelHook(pluginRoot);
-    if (channel !== 'npm-global') {
-      logAutoUpdate(
-        `auto-update SKIPPED: install channel '${channel}' does not support self-update via npm install -g`
-      );
-      return { state: 'channel' };
-    }
-    lock = tryAcquireAutoUpdateLock(version);
-    if (!lock.acquired) {
-      logAutoUpdate(
-        `auto-update SKIPPED: another session-start already holds ${lock.lockPath ?? 'auto-update.lock'} for this upgrade`
-      );
-      return { state: 'in-progress' };
-    }
-    const dir = getMemeshDir(process.env);
-    ensurePrivateDir(dir);
-    const logPath = join(dir, 'auto-update.log');
-    let fd = -1;
-    try { fd = openSync(logPath, 'a', 0o600); } catch { fd = -1; }
-    const stdio = fd >= 0 ? ['ignore', fd, fd] : 'ignore';
-    const child = spawn(
-      'npm',
-      ['install', '-g', `@pcircle/memesh@${version}`],
-      // windowsHide avoids a flashing console window every time the
-      // hook spawns the upgrade on Windows; harmless on POSIX.
-      { detached: true, stdio, env: process.env, windowsHide: true },
-    );
-    child.unref();
-    if (fd >= 0) {
-      try { closeSync(fd); } catch { /* ignore */ }
-    }
-    logAutoUpdate(
-      `auto-update spawn: target=${version}${deprecationOverride ? ' (deprecation-override)' : ''} pid=${child.pid ?? 'unknown'} lock=${lock.lockPath}`
-    );
-    return { state: 'spawned' };
-  } catch (err) {
-    logAutoUpdate(`auto-update spawn FAILED: ${err?.message ?? err}`);
-    // Release the lock so the next session can retry. Without this,
-    // a transient PATH/permission failure would freeze auto-update
-    // for the full 10-minute TTL even after the user fixes the
-    // root cause.
-    if (lock?.acquired && lock.lockPath) {
-      try { require('fs').unlinkSync(lock.lockPath); } catch { /* best-effort */ }
-    }
-    return { state: 'failed' };
   }
 }
 
@@ -577,32 +306,8 @@ function runPostBannerUpdateTasks() {
       installedVersion = typeof pkg.version === 'string' ? pkg.version : null;
     } catch { /* best-effort */ }
     if (!installedVersion) return;
-    const cache = readUpdateCheckCache(installedVersion);
-    const policy = resolveAutoUpdatePolicy(process.env);
-    const decision = decideAutoUpdateHook(installedVersion, cache, policy);
-    if (decision.run) {
-      // v4.1.3: log a PENDING entry instead of spawning npm install
-      // -g, but only when the install channel actually supports
-      // self-update. For source-checkout / npm-local installs the
-      // PENDING line would point at remediation that will never
-      // apply (`memesh update` refuses those channels). Skip
-      // silently for those — the deprecation banner already gives
-      // them the channel-appropriate hint (git pull, project
-      // npm install).
-      try {
-        const pluginRoot = resolvePluginRoot(import.meta.url);
-        const channel = detectInstallChannelHook(pluginRoot);
-        if (channel === 'npm-global') {
-          logAutoUpdate(
-            `auto-update PENDING: policy='${policy}' bump='${decision.bump}' target=${decision.latest}` +
-            (decision.deprecationOverride ? ' (deprecation-override)' : '') +
-            ' — will run from Stop hook in v4.1.4. For now run `memesh update` manually.'
-          );
-        }
-      } catch {
-        // Best-effort: if channel detection fails, skip the log.
-      }
-    }
+    // Auto-update spawn moved to Stop hook (v4.1.4) to avoid TOCTOU race
+    // where npm install -g overwrites dist/ while peer hooks are still reading it.
     spawnFreshUpdateCheck(installedVersion);
   } catch {
     // Best-effort — never crash the hook on a network or fs hiccup.
@@ -933,14 +638,7 @@ process.stdin.on('end', async () => {
         ? [...deprecationLines, '', ...memorySummary.split('\n')].join('\n')
         : memorySummary;
 
-      const hookOutput = {
-        suppressOutput: true,
-        hookSpecificOutput: {
-          hookEventName: 'SessionStart',
-          additionalContext: buildReferenceContext(memorySummaryWithBanner.split('\n')),
-        },
-      };
-      console.log(JSON.stringify(hookOutput));
+      output(buildReferenceContext(memorySummaryWithBanner.split('\n')));
     } finally {
       db.close();
     }

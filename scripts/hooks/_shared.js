@@ -1,4 +1,5 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'fs';
+import { spawn } from 'child_process';
 import { createRequire } from 'module';
 import { homedir } from 'os';
 import { dirname, join } from 'path';
@@ -294,4 +295,201 @@ export function buildReferenceContext(memoryLines) {
     ...memoryLines,
     '```',
   ].join('\n');
+}
+
+// ─── Auto-update shared helpers ─────────────────────────────────────────────
+// Shared between SessionStart and Stop hooks for auto-update coordination.
+
+export function readUpdateCheckCache(installedVersion) {
+  if (process.env.MEMESH_UPDATE_CHECK_PATH) {
+    try {
+      const overridePath = process.env.MEMESH_UPDATE_CHECK_PATH;
+      if (!existsSync(overridePath)) return null;
+      const parsed = JSON.parse(readFileSync(overridePath, 'utf8'));
+      if (!parsed || typeof parsed !== 'object') return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  }
+  const versionTag = typeof installedVersion === 'string'
+    && /^[0-9A-Za-z.+-]+$/.test(installedVersion)
+    ? installedVersion
+    : 'unknown';
+  const cachePath = join(homedir(), '.memesh', `update-check.${versionTag}.json`);
+  try {
+    if (!existsSync(cachePath)) return null;
+    const parsed = JSON.parse(readFileSync(cachePath, 'utf8'));
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+const SEMVER_RE = /^(\d+)\.(\d+)\.(\d+)(?:[-+].+)?$/;
+
+export function classifyBumpHook(from, to) {
+  const a = SEMVER_RE.exec((from || '').trim());
+  const b = SEMVER_RE.exec((to || '').trim());
+  if (!a || !b) return null;
+  const ai = a.slice(1, 4).map(Number);
+  const bi = b.slice(1, 4).map(Number);
+  if (bi[0] > ai[0]) return 'major';
+  if (bi[0] < ai[0]) return null;
+  if (bi[1] > ai[1]) return 'minor';
+  if (bi[1] < ai[1]) return null;
+  if (bi[2] > ai[2]) return 'patch';
+  return null;
+}
+
+const POLICY_RANK = { off: 0, patch: 1, minor: 2, major: 3 };
+const BUMP_RANK = { patch: 1, minor: 2, major: 3 };
+const AUTO_UPDATE_CACHE_FRESHNESS_MS = 24 * 60 * 60 * 1000;
+
+export function decideAutoUpdateHook(currentVersion, cache, policy) {
+  if (!cache || cache.currentVersion !== currentVersion) return { run: false };
+  const latest = cache.latestVersion;
+  if (typeof latest !== 'string' || !latest) return { run: false };
+  const bump = classifyBumpHook(currentVersion, latest);
+  if (!bump) return { run: false };
+
+  const lastSuccessAt = cache.lastSuccessfulCheckAt;
+  const lastSuccessMs = typeof lastSuccessAt === 'string' ? Date.parse(lastSuccessAt) : NaN;
+  const cacheAgeMs = Number.isFinite(lastSuccessMs) ? Date.now() - lastSuccessMs : Infinity;
+  if (cacheAgeMs > AUTO_UPDATE_CACHE_FRESHNESS_MS) {
+    return { run: false, reason: 'stale-cache' };
+  }
+
+  const policyAllows = (POLICY_RANK[policy] ?? 0) >= BUMP_RANK[bump];
+  if (policyAllows) return { run: true, latest, bump, deprecationOverride: false };
+
+  const deprecated = typeof cache.currentVersionDeprecation === 'string'
+    && cache.currentVersionDeprecation.length > 0;
+  if (deprecated && bump === 'patch') {
+    return { run: true, latest, bump, deprecationOverride: true };
+  }
+
+  return { run: false };
+}
+
+export function logAutoUpdate(line) {
+  try {
+    const dir = getMemeshDir(process.env);
+    ensurePrivateDir(dir);
+    const path = join(dir, 'auto-update.log');
+    appendFileSync(path, `[${new Date().toISOString()}] ${line}\n`);
+    try { chmodSync(path, 0o600); } catch { /* non-POSIX */ }
+  } catch {
+    // Logging is best-effort.
+  }
+}
+
+export const AUTO_UPDATE_LOCK_TTL_MS = 10 * 60 * 1000;
+
+export function tryAcquireAutoUpdateLock(version) {
+  try {
+    const dir = join(homedir(), '.memesh');
+    ensurePrivateDir(dir);
+    const lockPath = join(dir, 'auto-update.lock');
+    const fs = require('fs');
+    const myToken = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const payload = `${myToken}\n${process.pid}\n${Date.now()}\n${version}\n`;
+    try {
+      // O_CREAT|O_EXCL is the POSIX atomic create primitive — only one process wins.
+      const O_FLAGS = fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL;
+      const fd = fs.openSync(lockPath, O_FLAGS, 0o600);
+      try { fs.writeFileSync(fd, payload); } finally { fs.closeSync(fd); }
+      return { acquired: true, lockPath };
+    } catch (err) {
+      if (err?.code !== 'EEXIST') throw err;
+    }
+    let stat;
+    try { stat = fs.statSync(lockPath); } catch { return { acquired: false, lockPath }; }
+    if (Date.now() - stat.mtimeMs <= AUTO_UPDATE_LOCK_TTL_MS) {
+      return { acquired: false, lockPath };
+    }
+    const tempPath = `${lockPath}.${process.pid}.${Math.random().toString(36).slice(2, 10)}.tmp`;
+    try {
+      fs.writeFileSync(tempPath, payload, { mode: 0o600 });
+      try { fs.unlinkSync(lockPath); } catch (e2) {
+        if (e2?.code !== 'ENOENT') {
+          try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
+          return { acquired: false, lockPath };
+        }
+      }
+      fs.renameSync(tempPath, lockPath);
+    } catch {
+      try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
+      return { acquired: false, lockPath };
+    }
+    let recorded;
+    try { recorded = fs.readFileSync(lockPath, 'utf8'); } catch { return { acquired: false, lockPath }; }
+    return recorded.split('\n')[0] === myToken
+      ? { acquired: true, lockPath }
+      : { acquired: false, lockPath };
+  } catch {
+    return { acquired: false, lockPath: null };
+  }
+}
+
+/**
+ * Spawn `npm install -g @pcircle/memesh@<version>` detached so the upgrade
+ * can finish after this hook returns. Never blocks the session.
+ *
+ * @param {string} version - Target version to install
+ * @param {boolean} deprecationOverride - Whether this is a security-override install
+ * @param {object|null} installChannelMod - Preloaded dist/core/install-channel.js module
+ * @returns {{ state: 'spawned'|'in-progress'|'channel'|'failed' }}
+ */
+export function spawnAutoUpdate(version, deprecationOverride, installChannelMod) {
+  let lock = null;
+  try {
+    const pluginRoot = resolvePluginRoot(import.meta.url);
+    let channel = 'unknown';
+    if (installChannelMod) {
+      try {
+        channel = installChannelMod.getCurrentInstallChannel({ packageRoot: pluginRoot });
+      } catch { /* best-effort */ }
+    }
+    if (channel !== 'npm-global') {
+      logAutoUpdate(
+        `auto-update SKIPPED: install channel '${channel}' does not support self-update via npm install -g`
+      );
+      return { state: 'channel' };
+    }
+    lock = tryAcquireAutoUpdateLock(version);
+    if (!lock.acquired) {
+      logAutoUpdate(
+        `auto-update SKIPPED: another session already holds ${lock.lockPath ?? 'auto-update.lock'} for this upgrade`
+      );
+      return { state: 'in-progress' };
+    }
+    const dir = getMemeshDir(process.env);
+    ensurePrivateDir(dir);
+    const logPath = join(dir, 'auto-update.log');
+    let fd = -1;
+    try { fd = openSync(logPath, 'a', 0o600); } catch { fd = -1; }
+    const stdio = fd >= 0 ? ['ignore', fd, fd] : 'ignore';
+    const child = spawn(
+      'npm',
+      ['install', '-g', `@pcircle/memesh@${version}`],
+      // windowsHide avoids a flashing console window on Windows; harmless on POSIX.
+      { detached: true, stdio, env: process.env, windowsHide: true },
+    );
+    child.unref();
+    if (fd >= 0) {
+      try { closeSync(fd); } catch { /* ignore */ }
+    }
+    logAutoUpdate(
+      `auto-update spawn: target=${version}${deprecationOverride ? ' (deprecation-override)' : ''} pid=${child.pid ?? 'unknown'} lock=${lock.lockPath}`
+    );
+    return { state: 'spawned' };
+  } catch (err) {
+    logAutoUpdate(`auto-update spawn FAILED: ${err?.message ?? err}`);
+    if (lock?.acquired && lock.lockPath) {
+      try { require('fs').unlinkSync(lock.lockPath); } catch { /* best-effort */ }
+    }
+    return { state: 'failed' };
+  }
 }

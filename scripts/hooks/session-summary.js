@@ -7,9 +7,54 @@
 import { createRequire } from 'module';
 import { join, basename } from 'path';
 import { existsSync, readFileSync } from 'fs';
-import { getMemeshDir, isAutoCaptureEnabled, openHookDb, resolvePluginRoot } from './_shared.js';
+import { pathToFileURL } from 'url';
+import {
+  decideAutoUpdateHook,
+  getMemeshDir,
+  isAutoCaptureEnabled,
+  openHookDb,
+  readUpdateCheckCache,
+  resolveAutoUpdatePolicy,
+  resolvePluginRoot,
+  spawnAutoUpdate,
+} from './_shared.js';
 
 const require = createRequire(import.meta.url);
+
+// Pre-load dist/core/install-channel.js for auto-update channel detection.
+// Same pattern as session-start.js: async ESM import at process init,
+// falls back to null if dist is missing (source checkout pre-build).
+let _installChannelMod = null;
+try {
+  const _pluginRootForInit = resolvePluginRoot(import.meta.url);
+  const _modPath = join(_pluginRootForInit, 'dist/core/install-channel.js');
+  if (existsSync(_modPath)) {
+    _installChannelMod = await import(pathToFileURL(_modPath).href);
+  }
+} catch { /* best-effort */ }
+
+/**
+ * Run auto-update at Stop hook: reads cache, evaluates policy, and spawns
+ * npm install -g if warranted. Runs after all session work completes,
+ * avoiding the TOCTOU race where install would overwrite dist/ mid-session.
+ */
+async function runAutoUpdateAtStop() {
+  try {
+    const pluginRoot = resolvePluginRoot(import.meta.url);
+    const pkg = JSON.parse(readFileSync(join(pluginRoot, 'package.json'), 'utf8'));
+    const installedVersion = typeof pkg.version === 'string' ? pkg.version : null;
+    if (!installedVersion) return;
+
+    const cache = readUpdateCheckCache(installedVersion);
+    const policy = resolveAutoUpdatePolicy(process.env);
+    const decision = decideAutoUpdateHook(installedVersion, cache, policy);
+    if (decision.run) {
+      spawnAutoUpdate(decision.latest, decision.deprecationOverride, _installChannelMod);
+    }
+  } catch {
+    // Best-effort — never crash the hook.
+  }
+}
 
 // Parse a JSONL transcript file.
 // Mirrors logic in src/core/extractor.ts parseTranscript().
@@ -285,6 +330,10 @@ process.stdin.on('end', async () => {
     // Never crash Claude Code — leave a trace for debugging
     try { process.stderr.write(`[memesh session-summary] ${err?.message || err}\n`); } catch {}
   }
+
+  // Spawn auto-update if policy + cache permit. Runs after all session work
+  // so npm install -g doesn't overwrite dist/ while peer hooks are reading it.
+  await runAutoUpdateAtStop();
 
   // Silent output — don't clutter Claude's response
   console.log(JSON.stringify({ suppressOutput: true }));

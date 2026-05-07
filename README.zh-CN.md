@@ -271,7 +271,7 @@ memesh  # 打开仪表板 → 设置标签页
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test             # 489 个测试
+npm test             # 630 个测试
 npm run test:e2e-dashboard
 ```
 

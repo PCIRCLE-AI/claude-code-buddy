@@ -194,13 +194,13 @@ All configuration is via environment variables. Defaults are local-only and zero
 | `MEMESH_AUTO_CAPTURE` | `true` | Disable the auto-capture hooks (`Stop`, `PreCompact`) entirely. |
 | `MEMESH_AUTO_DETECT_LLM` | unset | Set to `1` to let memesh auto-detect a provider from your shell env (`OPENAI_API_KEY` etc.) and switch to BYOK embeddings. **Default fresh-install is local ONNX (384-dim) only** — opt in if you want cloud embeddings. Without this flag set, an `OPENAI_API_KEY` lying around in your shell is ignored. |
 | `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | unset | Set to `1` to enable an experimental working-model protocol (CTO / Orchestrator / Agents framing). Adds a session-start banner, a Bash command nudge, and `verify_agent_work` telemetry. The protocol's effectiveness is being instrumented, not yet proven — opt in if you want to participate. **Default is OFF**: the core memory features work without this flag. |
-| `MEMESH_AUTO_UPDATE` | `off` | Auto-update policy applied at session-start. `off` (default) never auto-updates; `patch` allows `X.Y.Z → X.Y.Z+N`; `minor` adds `X.Y.Z → X.Y+1.0`; `major` allows any bump. The actual `npm install -g` runs detached so it never blocks the session — outcomes land in `~/.memesh/auto-update.log`. Also settable as `autoUpdate` in `~/.memesh/config.json` (env wins). When the installed version is deprecated by maintainers (security advisory), `patch` is force-allowed even on `off` — minor / major bumps still stay manual to avoid silent behaviour drift. |
+| `MEMESH_AUTO_UPDATE` | `off` | Auto-update policy. `off` (default) never auto-updates; `patch` allows `X.Y.Z → X.Y.Z+N`; `minor` adds `X.Y.Z → X.Y+1.0`; `major` allows any bump. When permitted, a detached `npm install -g` fires at session end (Stop hook) so it never blocks your work — outcomes land in `~/.memesh/auto-update.log`. Also settable as `autoUpdate` in `~/.memesh/config.json` (env wins). When the installed version is deprecated by maintainers (security advisory), `patch` is force-allowed even on `off` — minor / major bumps still stay manual to avoid silent behaviour drift. |
 | `OPENAI_API_KEY` | unset | Your OpenAI key. Only used when `MEMESH_AUTO_DETECT_LLM=1` or you explicitly configure the provider. |
 | `OLLAMA_HOST` | `http://localhost:11434` | Override the Ollama endpoint when using a local Ollama provider. |
 
 `memesh doctor` prints the resolved configuration so you can see what's active.
 
-When npm flags an installed version as deprecated (typically a security advisory), the next session-start prepends a strong `⚠️ MeMesh <ver> is DEPRECATED` banner and `memesh update-status` surfaces the same line until you upgrade. The check is cached at `~/.memesh/update-check.json` so a transient network failure can't dim the warning.
+When npm flags an installed version as deprecated (typically a security advisory), the next session-start prepends a strong `⚠️ MeMesh <ver> is DEPRECATED` banner and `memesh update-status` surfaces the same line until you upgrade. The check is cached at `~/.memesh/update-check.<version>.json` so a transient network failure can't dim the warning.
 
 ---
 
@@ -314,7 +314,7 @@ Core is framework-agnostic. Same logic runs from terminal, HTTP, or MCP.
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test             # 489 tests
+npm test             # 630 tests
 npm run test:e2e-dashboard
 ```
 
