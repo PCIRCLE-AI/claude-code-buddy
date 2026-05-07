@@ -44,14 +44,30 @@ describe('G1 — confidence bump paths', () => {
     return (db.prepare('SELECT confidence FROM entities WHERE name = ?').get(name) as { confidence: number }).confidence;
   }
 
-  it('re-asserting an existing entity does NOT bump confidence (pump-attack guard)', () => {
-    // Earlier versions bumped +0.05 here, but that path was driven by every
-    // caller of remember() — auto-tagger, verifier, importer — letting a
-    // tight loop inflate confidence to 1.0 without adding any real truth.
-    // The bump now requires a content-validating signal (consolidate or
-    // explicit learn), not just a re-call of createEntity.
+  it('re-asserting with a brand-new observation bumps confidence by +0.05 (LLM-free recovery path)', () => {
     expect(getConfidence('decayed')).toBeCloseTo(0.4, 5);
     kg.createEntity('decayed', 'lesson_learned', { observations: ['additional obs'] });
+    expect(getConfidence('decayed')).toBeCloseTo(0.45, 5);
+  });
+
+  it('the +0.05 bump caps at 1.0', () => {
+    db.prepare('UPDATE entities SET confidence = 0.97 WHERE name = ?').run('decayed');
+    kg.createEntity('decayed', 'lesson_learned', { observations: ['x'] });
+    expect(getConfidence('decayed')).toBeCloseTo(1.0, 5);
+  });
+
+  it('re-asserting with NO new observations does NOT bump (auto-tagger / verifier guard)', () => {
+    // The auto-tagger calls remember(name, type, { tags: [...] }) with no
+    // observations. A tight loop re-asserting an existing entity with no
+    // new content must not pump confidence.
+    kg.createEntity('decayed', 'lesson_learned', { tags: ['new-tag'] });
+    expect(getConfidence('decayed')).toBeCloseTo(0.4, 5);
+  });
+
+  it('re-asserting with only OBSERVATIONS THAT ALREADY EXIST does NOT bump (importer guard)', () => {
+    // Importer 'append' merge re-feeds the existing observation set. The
+    // bump must trigger only when the observation set actually grows.
+    kg.createEntity('decayed', 'lesson_learned', { observations: ['original obs'] });
     expect(getConfidence('decayed')).toBeCloseTo(0.4, 5);
   });
 
@@ -60,18 +76,20 @@ describe('G1 — confidence bump paths', () => {
     expect(getConfidence('fresh')).toBeCloseTo(1.0, 5);
   });
 
-  it('reactivating an archived entity does not change confidence', async () => {
+  it('reactivating an archived entity does not bump (separate path)', async () => {
     db.prepare("UPDATE entities SET status = 'archived' WHERE name = ?").run('decayed');
     db.prepare('UPDATE entities SET confidence = 0.3 WHERE name = ?').run('decayed');
 
     kg.createEntity('decayed', 'lesson_learned', { observations: ['reactivated'] });
+    // Reactivation flag is set BEFORE confidence logic checks
+    // !wasArchived, so this stays put.
     expect(getConfidence('decayed')).toBeCloseTo(0.3, 5);
   });
 
-  it('a tight remember-loop cannot pump confidence (regression guard)', () => {
+  it('a tight loop with the SAME observation does not pump confidence (pump-attack guard)', () => {
     db.prepare('UPDATE entities SET confidence = 0.3 WHERE name = ?').run('decayed');
     for (let i = 0; i < 50; i++) {
-      kg.createEntity('decayed', 'lesson_learned', { observations: [`obs-${i}`] });
+      kg.createEntity('decayed', 'lesson_learned', { observations: ['original obs'] });
     }
     expect(getConfidence('decayed')).toBeCloseTo(0.3, 5);
   });
