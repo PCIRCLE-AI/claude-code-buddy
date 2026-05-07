@@ -128,8 +128,19 @@ export interface LlmConfig {
   apiKey?: string;
 }
 
+export type AutoUpdatePolicy = 'off' | 'patch' | 'minor' | 'major';
+
 export interface ConfigData {
-  config: { llm?: LlmConfig; setupCompleted?: boolean; theme?: string; autoCapture?: boolean };
+  config: {
+    llm?: LlmConfig;
+    setupCompleted?: boolean;
+    theme?: string;
+    autoCapture?: boolean;
+    /** Auto-update policy. Mirrors MEMESH_AUTO_UPDATE env var with env > config precedence. */
+    autoUpdate?: AutoUpdatePolicy;
+    /** Opt-in for the experimental agentic-orchestration protocol. */
+    enableAgenticOrchestration?: boolean;
+  };
   capabilities: { searchLevel: number; llm?: LlmConfig; embeddings: string };
 }
 
