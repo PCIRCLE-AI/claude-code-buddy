@@ -25,6 +25,20 @@ export interface ValidationResult {
 }
 
 const FETCH_TIMEOUT_MS = 8000;
+/** Cap upstream-body bytes we'll buffer + parse. Provider error bodies are tiny;
+ *  this guards against a hostile/buggy upstream returning multi-MB responses. */
+const MAX_BODY_BYTES = 8192;
+/** Cap the error string we surface to the dashboard. */
+const MAX_ERROR_CHARS = 300;
+
+/** Sanitize a string before surfacing it in our own API: cap length, strip
+ *  control chars (DEL + C0 except whitespace) so that a malformed/hostile
+ *  upstream can't smuggle escape sequences into client logs or copy-paste. */
+function safeErrorString(s: string): string {
+  return s
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .slice(0, MAX_ERROR_CHARS);
+}
 
 /** Try to extract a human-readable message from an Anthropic/OpenAI error body. */
 function extractProviderError(status: number, body: string): string {
@@ -34,7 +48,7 @@ function extractProviderError(status: number, body: string): string {
     // OpenAI: { error: { message, type, code } }
     const msg = j?.error?.message;
     const type = j?.error?.type;
-    if (msg) return type ? `${msg} (${type})` : msg;
+    if (msg) return safeErrorString(type ? `${msg} (${type})` : msg);
   } catch {
     // not JSON — fall through to generic
   }
@@ -45,13 +59,44 @@ function extractProviderError(status: number, body: string): string {
   return `HTTP ${status}`;
 }
 
+/** Read response body with a hard byte cap so a hostile/buggy upstream can't
+ *  force us to buffer a multi-MB response. Returns the (possibly truncated)
+ *  body as a UTF-8 string. */
+async function readBodyCapped(res: Response): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) return await res.text().catch(() => '');
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < MAX_BODY_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      total += value.byteLength;
+    }
+    // If we hit the cap, abort the rest of the stream.
+    if (total >= MAX_BODY_BYTES) await reader.cancel().catch(() => {});
+  } catch {
+    // Network drop mid-read — return what we have.
+  }
+  const merged = new Uint8Array(Math.min(total, MAX_BODY_BYTES));
+  let off = 0;
+  for (const c of chunks) {
+    const room = merged.byteLength - off;
+    if (room <= 0) break;
+    merged.set(c.subarray(0, Math.min(c.byteLength, room)), off);
+    off += Math.min(c.byteLength, room);
+  }
+  return new TextDecoder().decode(merged);
+}
+
 async function fetchJson<T>(url: string, init: RequestInit): Promise<T> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {
     const res = await fetch(url, { ...init, signal: ctrl.signal });
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
+      const body = await readBodyCapped(res).catch(() => '');
       throw new Error(extractProviderError(res.status, body));
     }
     return (await res.json()) as T;
@@ -130,8 +175,37 @@ export async function probeOpenAI(apiKey: string): Promise<ValidationResult> {
   }
 }
 
+/**
+ * Allowed Ollama hostnames. Caller-supplied `host` is restricted to these to
+ * prevent the server from being used as an SSRF probe against arbitrary
+ * internal addresses. Operators who genuinely run Ollama on a non-loopback
+ * host should set the `OLLAMA_HOST` environment variable on the server side
+ * — that path is privileged (operator-controlled), not user-supplied.
+ */
+const OLLAMA_LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]']);
+
+function isSafeOllamaHost(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    return OLLAMA_LOOPBACK_HOSTS.has(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export async function probeOllama(host?: string): Promise<ValidationResult> {
-  const base = host || process.env.OLLAMA_HOST || 'http://localhost:11434';
+  // Operator-set env wins; otherwise fall back to caller-supplied host (vetted)
+  // or the default loopback URL. Caller-supplied non-loopback URLs are rejected.
+  const envBase = process.env.OLLAMA_HOST;
+  const requestedBase = host || envBase || 'http://localhost:11434';
+  if (!envBase && host && !isSafeOllamaHost(host)) {
+    return {
+      valid: false,
+      error: `Ollama host must be loopback (localhost / 127.0.0.1). For non-local Ollama, set the OLLAMA_HOST environment variable on the server.`,
+    };
+  }
+  const base = requestedBase;
   try {
     const data = await fetchJson<{ models: Array<{ name: string; modified_at?: string }> }>(
       `${base.replace(/\/$/, '')}/api/tags`,

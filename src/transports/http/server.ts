@@ -351,6 +351,11 @@ app.post('/v1/config', async (req, res) => {
     return;
   }
   try {
+    // NOTE: read-modify-write across `before`/`updateConfig` is non-atomic.
+    // Concurrent POSTs could interleave such that the embedder cache fails
+    // to reset. This is acceptable for the MeMesh dashboard (single user,
+    // single tab in practice); revisit if the HTTP API ever serves
+    // multi-tenant config writes.
     const before = readConfig();
     const updated = updateConfig(parsed.data);
     // If the LLM provider/apiKey changed, the embedder may have cached an
@@ -399,7 +404,18 @@ app.post('/v1/config/test', async (req, res) => {
   }
   try {
     const { probeProvider } = await import('../../core/llm-validator.js');
-    const { provider, apiKey, host } = parsed.data;
+    const { provider, host } = parsed.data;
+    let { apiKey } = parsed.data;
+    // If the caller omits apiKey, fall back to the one already saved for this
+    // provider — lets the dashboard offer "Test with current settings" without
+    // forcing the user to re-enter a key they previously saved. Without this,
+    // re-testing after a fresh page load would require digging up the key.
+    if (!apiKey && (provider === 'anthropic' || provider === 'openai')) {
+      const existing = readConfig();
+      if (existing.llm?.provider === provider && existing.llm.apiKey) {
+        apiKey = existing.llm.apiKey;
+      }
+    }
     const result = await probeProvider(provider, apiKey, host);
     res.json({ success: true, data: result });
   } catch (err: any) {
