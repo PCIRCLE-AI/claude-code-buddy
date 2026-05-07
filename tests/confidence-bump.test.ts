@@ -94,6 +94,28 @@ describe('G1 — confidence bump paths', () => {
     expect(getConfidence('decayed')).toBeCloseTo(0.3, 5);
   });
 
+  it('untrusted-source re-assertion does NOT bump even with new observations', () => {
+    // Importers and auto-learned lessons mark metadata.trust = 'untrusted'.
+    // They could otherwise hit the new-observation bump path with content
+    // they paraphrased or imported from outside, silently lifting the
+    // recall-ranking confidence of unverified material.
+    expect(getConfidence('decayed')).toBeCloseTo(0.4, 5);
+    kg.createEntity('decayed', 'lesson_learned', {
+      observations: ['imported from external snapshot'],
+      metadata: { trust: 'untrusted' },
+    });
+    expect(getConfidence('decayed')).toBeCloseTo(0.4, 5);
+  });
+
+  it('explicit metadata.trust = "trusted" still bumps (default semantics preserved)', () => {
+    expect(getConfidence('decayed')).toBeCloseTo(0.4, 5);
+    kg.createEntity('decayed', 'lesson_learned', {
+      observations: ['user re-asserted this'],
+      metadata: { trust: 'trusted' },
+    });
+    expect(getConfidence('decayed')).toBeCloseTo(0.45, 5);
+  });
+
   it('createExplicitLesson resets confidence to 1.0 — highest-trust signal', async () => {
     // First: simulate a prior decayed lesson_learned for this project.
     kg.createEntity('lesson-test-project-network-error', 'lesson_learned', {
