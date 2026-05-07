@@ -45,6 +45,18 @@ export interface KnowledgeRadarEntry {
   types: string[];
 }
 
+export interface LoopMetric {
+  /** Number of knowledge entities (lesson / decision / pattern / bug_fix /
+   *  architecture / etc.) accessed within the last 7 days. */
+  reusedThisWeek: number;
+  /** Per-day counts for the last 30 days (sparkline source). */
+  trend: Array<{ date: string; count: number }>;
+  /** Where the count comes from. `recall_hits` once instrumentation is
+   *  populated; `last_accessed_at_approximation` for older data and
+   *  installs that pre-date recall instrumentation. */
+  computedFrom: 'recall_hits' | 'last_accessed_at_approximation';
+}
+
 export interface AnalyticsResult {
   healthScore: number;
   healthFactors: {
@@ -53,6 +65,7 @@ export interface AnalyticsResult {
     freshness: HealthFactor;
     lessons: HealthFactor;
   };
+  loopMetric: LoopMetric;
   timeline: Array<{ date: string; created: number; recalled: number }>;
   valueMetrics: {
     totalRecalls: number;
@@ -280,9 +293,69 @@ export function computeAnalytics(db: Database.Database): AnalyticsResult {
     count: types.reduce((sum, t) => sum + (typeCounts[t] ?? 0), 0),
   }));
 
+  // --- Loop Metric (memory loop: how much is the system actually being used?) ---
+  //
+  // Counts knowledge-class entities (lessons, decisions, patterns,
+  // bug_fixes, architecture, etc. — anything whose recall would prevent
+  // re-doing past work) that have a `last_accessed_at` falling inside
+  // the last 7 days. This is an APPROXIMATION because last_accessed_at
+  // tracks the most-recent access, not every access. Once recall_hits
+  // instrumentation matures (post-2026-05-07 G16 fix), the metric can
+  // shift to a true per-day series; for now the approximation is
+  // accurate enough to power the hero card and is honest about its
+  // source via `computedFrom`.
+  const KNOWLEDGE_TYPE_LIST = [
+    'lesson_learned', 'lesson', 'mistake',
+    'decision', 'architecture_decision', 'design_decision',
+    'pattern', 'technical_pattern', 'best_practice',
+    'bug_fix', 'verification_result', 'test_result',
+    'process', 'architecture', 'infrastructure',
+    'feature', 'release', 'refactoring',
+  ];
+  const knowledgeTypePlaceholders = KNOWLEDGE_TYPE_LIST.map(() => '?').join(',');
+
+  const reusedThisWeek = (db.prepare(
+    `SELECT COUNT(*) as c FROM entities
+     WHERE type IN (${knowledgeTypePlaceholders})
+       AND status = 'active'
+       AND last_accessed_at >= datetime('now', '-7 days')`,
+  ).get(...KNOWLEDGE_TYPE_LIST) as CountRow).c;
+
+  const loopTrendRows = db.prepare(`
+    SELECT DATE(last_accessed_at) as day, COUNT(*) as count
+    FROM entities
+    WHERE type IN (${knowledgeTypePlaceholders})
+      AND status = 'active'
+      AND last_accessed_at >= datetime('now', '-30 days')
+    GROUP BY DATE(last_accessed_at)
+    ORDER BY day
+  `).all(...KNOWLEDGE_TYPE_LIST) as Array<{ day: string; count: number }>;
+
+  // Detect whether full instrumentation is already producing data — if
+  // any knowledge entity has recall_hits > 0, we can claim accuracy.
+  // Otherwise we're still in the approximation regime.
+  let loopComputedFrom: LoopMetric['computedFrom'] = 'last_accessed_at_approximation';
+  try {
+    const recallColCheck = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
+    if (recallColCheck.some((c) => c.name === 'recall_hits')) {
+      const hasHits = (db.prepare(
+        `SELECT COUNT(*) as c FROM entities
+         WHERE type IN (${knowledgeTypePlaceholders}) AND recall_hits > 0`,
+      ).get(...KNOWLEDGE_TYPE_LIST) as CountRow).c;
+      if (hasHits > 0) loopComputedFrom = 'recall_hits';
+    }
+  } catch { /* recall_hits column missing — stay in approximation mode */ }
+
+  const loopMetric: LoopMetric = {
+    reusedThisWeek,
+    trend: loopTrendRows.map((r) => ({ date: r.day, count: r.count })),
+    computedFrom: loopComputedFrom,
+  };
+
   return {
     healthScore,
     healthFactors,
+    loopMetric,
     timeline,
     valueMetrics,
     recallEffectiveness,

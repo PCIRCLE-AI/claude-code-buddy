@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { api, type StatsData, type AnalyticsData, type PatternsData } from '../lib/api';
 import { HealthScore } from './HealthScore';
+import { MemoryLoopCard } from './MemoryLoopCard';
 import { MemoryTimeline } from './MemoryTimeline';
 import { MemoryAgeMatrix } from './MemoryAgeMatrix';
 import { KnowledgeRadar } from './KnowledgeRadar';
@@ -43,8 +44,21 @@ export function AnalyticsTab() {
         </div>
       )}
 
-      {/* Row 2: Health Score */}
-      {analytics && <HealthScore score={analytics.healthScore} factors={analytics.healthFactors} />}
+      {/* Row 2: Memory Loop hero — the value-proof KPI replacing the Health
+          Score gauge as the dominant element on this tab. Health Score is
+          retained below as a secondary card. */}
+      {analytics && (
+        <div style={{ marginTop: 8 }}>
+          <MemoryLoopCard metric={analytics.loopMetric} />
+        </div>
+      )}
+
+      {/* Row 2b (demoted): Health Score */}
+      {analytics && (
+        <div style={{ marginTop: 8 }}>
+          <HealthScore score={analytics.healthScore} factors={analytics.healthFactors} />
+        </div>
+      )}
 
       {/* Row 3: Memory Timeline */}
       {analytics && (
