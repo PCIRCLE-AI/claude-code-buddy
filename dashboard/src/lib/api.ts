@@ -198,6 +198,18 @@ export interface GraphData {
   noiseTypes: string[];
 }
 
+export interface ProjectInfo {
+  name: string;
+  count: number;
+  types: string[];
+  source: 'tag' | 'heuristic' | 'mixed';
+}
+
+export async function fetchProjects(): Promise<ProjectInfo[]> {
+  const data = await api<ProjectInfo[]>('GET', '/v1/projects');
+  return Array.isArray(data) ? data : [];
+}
+
 export async function fetchGraph(): Promise<GraphData> {
   return api<GraphData>('GET', '/v1/graph');
 }

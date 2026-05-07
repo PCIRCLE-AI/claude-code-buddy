@@ -1,28 +1,76 @@
-import { useState, useEffect } from 'preact/hooks';
-import { api, type Entity } from '../lib/api';
+import { useState, useEffect, useMemo } from 'preact/hooks';
+import { api, fetchProjects, type Entity, type ProjectInfo } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
 import { t } from '../lib/i18n';
+import { clusterOf, timeBucket, extractProject, type TypeCluster, type TimeBucket } from '../lib/entity-display';
 
 const PAGE_SIZE = 30;
 
+type ClusterKey = TypeCluster | 'all';
+type TimeKey = TimeBucket | 'all';
+type ValueKey = 'all' | 'recalled' | 'never';
+type SortKey = 'recent' | 'most-recalled' | 'created';
+
+interface ChipProps {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  count?: number;
+}
+
+function Chip({ label, active, onClick, count }: ChipProps) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: '4px 10px',
+        borderRadius: 14,
+        border: '1px solid',
+        borderColor: active ? 'rgba(0, 214, 180, 0.5)' : 'rgba(255,255,255,0.08)',
+        background: active ? 'rgba(0, 214, 180, 0.15)' : 'transparent',
+        color: active ? 'var(--accent)' : 'var(--text-2)',
+        fontSize: 11,
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+        fontFamily: 'inherit',
+      }}
+    >
+      {label}
+      {count !== undefined && (
+        <span style={{ marginLeft: 6, opacity: 0.6, fontFamily: 'var(--mono)', fontSize: 10 }}>
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
 export function BrowseTab({ manage }: { manage?: boolean }) {
   const [entities, setEntities] = useState<Entity[]>([]);
+  const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [page, setPage] = useState(0);
 
+  // Filter state — defaults tuned for "show me useful things"
+  const [cluster, setCluster] = useState<ClusterKey>('knowledge');
+  const [time, setTime] = useState<TimeKey>('all');
+  const [value, setValue] = useState<ValueKey>('all');
+  const [project, setProject] = useState<string | 'all'>('all');
+  const [sort, setSort] = useState<SortKey>('most-recalled');
+
   async function load() {
     setLoading(true);
     setError('');
     try {
-      const data = await api<Entity[]>('GET', '/v1/entities?limit=500&status=all');
+      const [data, projs] = await Promise.all([
+        api<Entity[]>('GET', '/v1/entities?limit=2000&status=all'),
+        fetchProjects().catch(() => []),
+      ]);
       setEntities(data || []);
+      setProjects(projs);
       setPage(0);
-      // ISSUE-001 fix: notify the App-level header (which owns /v1/health)
-      // that entity counts may have changed. Without this, the header
-      // badge stays stuck at the page-load count even after manual ↻
-      // refresh / archive / restore.
       window.dispatchEvent(new Event('memesh:data-changed'));
     } catch (e: any) {
       setError(e.message);
@@ -32,25 +80,54 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
   }
 
   useEffect(() => { load(); }, []);
+  useEffect(() => { setPage(0); }, [filter, cluster, time, value, project, sort]);
 
-  // Reset page when filter changes
-  useEffect(() => { setPage(0); }, [filter]);
+  // Cluster counts (over the unfiltered set so chip counts don't move with selection)
+  const clusterCounts = useMemo(() => {
+    const c: Record<ClusterKey, number> = { all: 0, knowledge: 0, activity: 0, reference: 0, session: 0 };
+    for (const e of entities) {
+      if (e.archived || e.status === 'archived') continue;
+      c.all++;
+      c[clusterOf(e.type)]++;
+    }
+    return c;
+  }, [entities]);
 
-  const f = filter.toLowerCase();
-  const filtered = entities.filter((e) => {
-    if (!f) return true;
-    return (
-      e.name.toLowerCase().includes(f) ||
-      e.type.toLowerCase().includes(f) ||
-      e.observations?.some((o) => o.toLowerCase().includes(f)) ||
-      e.tags?.some((tg) => tg.toLowerCase().includes(f))
-    );
-  });
+  // Apply all filters
+  const filtered = useMemo(() => {
+    const f = filter.toLowerCase();
+    return entities.filter((e) => {
+      if (cluster !== 'all' && clusterOf(e.type) !== cluster) return false;
+      if (time !== 'all' && timeBucket(e.last_accessed_at || e.created_at) !== time) return false;
+      if (value === 'recalled' && (e.access_count ?? 0) === 0) return false;
+      if (value === 'never' && (e.access_count ?? 0) > 0) return false;
+      if (project !== 'all' && extractProject(e) !== project) return false;
+      if (f) {
+        const hay = [e.name, e.type, ...(e.observations ?? []), ...(e.tags ?? [])].join(' ').toLowerCase();
+        if (!hay.includes(f)) return false;
+      }
+      return true;
+    });
+  }, [entities, cluster, time, value, project, filter]);
 
-  const active = filtered.filter((e) => !e.archived && e.status !== 'archived');
-  const archived = filtered.filter((e) => e.archived || e.status === 'archived');
+  // Sort
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    if (sort === 'most-recalled') {
+      arr.sort((a, b) => (b.access_count ?? 0) - (a.access_count ?? 0)
+        || (b.last_accessed_at ?? b.created_at).localeCompare(a.last_accessed_at ?? a.created_at));
+    } else if (sort === 'created') {
+      arr.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    } else { // recent (last accessed)
+      arr.sort((a, b) =>
+        (b.last_accessed_at ?? b.created_at).localeCompare(a.last_accessed_at ?? a.created_at));
+    }
+    return arr;
+  }, [filtered, sort]);
 
-  // Paginate active items
+  const active = sorted.filter((e) => !e.archived && e.status !== 'archived');
+  const archived = sorted.filter((e) => e.archived || e.status === 'archived');
+
   const totalPages = Math.ceil(active.length / PAGE_SIZE);
   const pageItems = active.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
@@ -76,14 +153,15 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
   return (
     <div>
       <div class="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div>
             <div class="card-title" style={{ margin: 0 }}>
               {manage ? t('browse.manage') : t('browse.title')}
             </div>
             {!loading && (
               <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
-                {active.length.toLocaleString()} {t('browse.active')}{archived.length > 0 ? ` · ${archived.length} ${t('browse.archived')}` : ''}
+                {active.length.toLocaleString()} {t('browse.active')}
+                {archived.length > 0 ? ` · ${archived.length} ${t('browse.archived')}` : ''}
               </div>
             )}
           </div>
@@ -93,19 +171,74 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
               placeholder={t('browse.filter')}
               value={filter}
               onInput={(e) => setFilter((e.target as HTMLInputElement).value)}
-              style={{ width: 260 }}
+              style={{ width: 240 }}
             />
             <button class="btn btn-sm" onClick={load} title={t('browse.refresh')}>↻</button>
           </div>
         </div>
 
+        {/* Cluster chips — primary filter */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+          <span style={{ fontSize: 11, color: 'var(--text-3)', alignSelf: 'center', marginRight: 4 }}>類別</span>
+          <Chip label="知識" active={cluster === 'knowledge'} onClick={() => setCluster('knowledge')} count={clusterCounts.knowledge} />
+          <Chip label="活動" active={cluster === 'activity'} onClick={() => setCluster('activity')} count={clusterCounts.activity} />
+          <Chip label="工作記錄" active={cluster === 'session'} onClick={() => setCluster('session')} count={clusterCounts.session} />
+          <Chip label="參考" active={cluster === 'reference'} onClick={() => setCluster('reference')} count={clusterCounts.reference} />
+          <Chip label="全部" active={cluster === 'all'} onClick={() => setCluster('all')} count={clusterCounts.all} />
+        </div>
+
+        {/* Time + value + project chips — secondary */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+          <span style={{ fontSize: 11, color: 'var(--text-3)', alignSelf: 'center', marginRight: 4 }}>時間</span>
+          <Chip label="今天" active={time === 'today'} onClick={() => setTime(time === 'today' ? 'all' : 'today')} />
+          <Chip label="本週" active={time === 'week'} onClick={() => setTime(time === 'week' ? 'all' : 'week')} />
+          <Chip label="本月" active={time === 'month'} onClick={() => setTime(time === 'month' ? 'all' : 'month')} />
+          <Chip label="更早" active={time === 'older'} onClick={() => setTime(time === 'older' ? 'all' : 'older')} />
+
+          <span style={{ width: 1, background: 'var(--border-subtle)', margin: '0 6px' }} />
+
+          <span style={{ fontSize: 11, color: 'var(--text-3)', alignSelf: 'center', marginRight: 4 }}>價值</span>
+          <Chip label="✓ 用過" active={value === 'recalled'} onClick={() => setValue(value === 'recalled' ? 'all' : 'recalled')} />
+          <Chip label="從未回憶" active={value === 'never'} onClick={() => setValue(value === 'never' ? 'all' : 'never')} />
+        </div>
+
+        {projects.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+            <span style={{ fontSize: 11, color: 'var(--text-3)', alignSelf: 'center', marginRight: 4 }}>專案</span>
+            <Chip label="全部" active={project === 'all'} onClick={() => setProject('all')} />
+            {projects.map((p) => (
+              <Chip
+                key={p.name}
+                label={p.name}
+                count={p.count}
+                active={project === p.name}
+                onClick={() => setProject(p.name)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Sort dropdown */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--border-subtle)' }}>
+          <span style={{ fontSize: 11, color: 'var(--text-3)' }}>排序</span>
+          <select
+            value={sort}
+            onChange={(e) => setSort((e.target as HTMLSelectElement).value as SortKey)}
+            style={{ padding: '3px 8px', fontSize: 12 }}
+          >
+            <option value="most-recalled">最常回憶</option>
+            <option value="recent">最近使用</option>
+            <option value="created">建立時間</option>
+          </select>
+        </div>
+
         {error && <div class="error-box" style={{ marginBottom: 12 }}>{error}</div>}
         {loading && <div class="empty"><div class="loading" /></div>}
 
-        {!loading && filtered.length === 0 && (
+        {!loading && active.length === 0 && (
           <div class="empty">
             <span class="empty-icon">📭</span>
-            {filter ? `${t('browse.noMatch')} "${filter}"` : t('browse.noMemories')}
+            {filter ? `${t('browse.noMatch')} "${filter}"` : '此分類沒有記憶 — 試試切換類別或時間'}
           </div>
         )}
 
@@ -123,7 +256,6 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
               </div>
             ))}
 
-            {/* Pagination */}
             {totalPages > 1 && (
               <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, padding: '16px 0', fontSize: 13 }}>
                 <button class="btn btn-sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>{t('browse.prev')}</button>
@@ -136,7 +268,7 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
           </div>
         )}
 
-        {!loading && archived.length > 0 && (
+        {!loading && archived.length > 0 && manage && (
           <div style={{ marginTop: 20 }}>
             <div style={{ fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
               {t('browse.archived')} ({archived.length})
@@ -146,9 +278,7 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
                 <MemoryRow
                   entity={e}
                   highlight={filter}
-                  actions={manage ? (
-                    <button class="btn btn-sm" onClick={() => handleRestore(e.name)}>{t('browse.restore')}</button>
-                  ) : undefined}
+                  actions={<button class="btn btn-sm" onClick={() => handleRestore(e.name)}>{t('browse.restore')}</button>}
                 />
               </div>
             ))}
