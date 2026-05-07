@@ -195,8 +195,10 @@ export interface EntityRow {
   access_count: number;
   last_accessed_at: string | null;
   confidence: number;
-  valid_from: string | null;
-  valid_until: string | null;
+  // valid_from / valid_until columns retained in SQLite schema for
+  // back-compat with older databases but are no longer read or written
+  // (SDD G2 cut, 2026-05). Do not add them back here without also
+  // restoring the SELECT clauses in knowledge-graph.ts.
   namespace: string;
 }
 

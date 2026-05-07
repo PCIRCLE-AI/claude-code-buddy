@@ -14,6 +14,7 @@
 // effects, no caching.
 
 import type Database from 'better-sqlite3';
+import { KNOWN_ERROR_PATTERNS } from './lesson-engine.js';
 
 export interface ProjectInfo {
   /** Canonical project key, suitable for matching against tag values. */
@@ -33,23 +34,30 @@ const PROJECT_TAG_PREFIX = 'project:';
  * "lesson-claude-code-buddy-config-error" → "claude-code-buddy".
  * Returns null when the name has no recognisable prefix.
  *
- * Strategy: name patterns from the failure-analyzer + lesson-engine generate
- * `lesson-{project}-{errorPattern}` and `{type}-{project}-...`. We strip a
- * known type prefix, then take everything except the trailing slug.
+ * The lesson naming convention emitted by `lesson-engine.ts createLesson` is
+ * `lesson-{project}-{errorPattern}` where `errorPattern` is itself one of a
+ * fixed set produced by `inferErrorPattern()`. Several of those patterns
+ * contain a dash (`config-error`, `import-missing`, `null-reference`,
+ * `test-failure`, `build-error`), so the previous "split on the last dash"
+ * approach was wrong — for `lesson-claude-code-buddy-config-error` it
+ * yielded `claude-code-buddy-config` instead of `claude-code-buddy`.
+ *
+ * Fix: anchor on the fixed pattern set. Match the trailing slug against
+ * `KNOWN_ERROR_PATTERNS` and treat everything before it as the project. We
+ * intentionally restrict the heuristic to `lesson-` only — other prefixes
+ * (`plan-`, `decision-`, etc.) have no fixed naming convention and the old
+ * heuristic produced more wrong answers than right ones.
  */
-const NAME_PREFIX_TYPES = ['lesson', 'plan', 'decision', 'pattern', 'feature', 'bug', 'note'];
-
 export function extractProjectFromName(name: string): string | null {
-  for (const prefix of NAME_PREFIX_TYPES) {
-    if (!name.startsWith(`${prefix}-`)) continue;
-    const rest = name.slice(prefix.length + 1);
-    // Drop the trailing slug (last segment after the last dash).
-    const lastDash = rest.lastIndexOf('-');
-    if (lastDash <= 0) return null;
-    const candidate = rest.slice(0, lastDash);
-    // Reject single-segment candidates (probably not a project name)
-    if (!candidate.includes('-') || candidate.length < 4) return null;
-    return candidate;
+  if (!name.startsWith('lesson-')) return null;
+  const rest = name.slice('lesson-'.length);
+  // Try each known pattern as the trailing slug.
+  for (const pattern of KNOWN_ERROR_PATTERNS) {
+    const suffix = `-${pattern}`;
+    if (rest.endsWith(suffix)) {
+      const project = rest.slice(0, rest.length - suffix.length);
+      if (project.length >= 2) return project;
+    }
   }
   return null;
 }
@@ -78,9 +86,13 @@ interface RawEntity {
 export function computeProjects(db: Database.Database): ProjectInfo[] {
   // Single pass: pull every active entity + its tags. We can't aggregate in
   // SQL because the project lookup walks both tags and the name heuristic.
+  // json_group_array (rather than GROUP_CONCAT with a delimiter) keeps the
+  // representation safe even if a tag value contains the delimiter char —
+  // tags are user-supplied and the schema does not currently filter
+  // newlines or commas.
   const rows = db.prepare(`
     SELECT e.id, e.name, e.type,
-      (SELECT GROUP_CONCAT(t.tag, '\n') FROM tags t WHERE t.entity_id = e.id) AS tags
+      (SELECT json_group_array(t.tag) FROM tags t WHERE t.entity_id = e.id) AS tags
     FROM entities e
     WHERE e.status = 'active'
   `).all() as RawEntity[];
@@ -88,7 +100,15 @@ export function computeProjects(db: Database.Database): ProjectInfo[] {
   const acc = new Map<string, { count: number; types: Map<string, number>; sources: Set<'tag' | 'heuristic'> }>();
 
   for (const row of rows) {
-    const tagList = row.tags ? row.tags.split('\n') : [];
+    let tagList: string[] = [];
+    if (row.tags) {
+      try {
+        const parsed = JSON.parse(row.tags);
+        if (Array.isArray(parsed)) tagList = parsed.filter((t): t is string => typeof t === 'string');
+      } catch {
+        /* unexpected non-JSON payload; treat as empty */
+      }
+    }
     const { project, source } = extractProjectFromEntity(tagList, row.name);
     if (!project || !source) continue;
     let bucket = acc.get(project);

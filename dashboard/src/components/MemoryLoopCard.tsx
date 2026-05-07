@@ -26,8 +26,22 @@ function Sparkline({ trend }: { trend: LoopMetric['trend'] }) {
       </svg>
     );
   }
+  // Single-point case: a one-day-old install has trend.length === 1, which
+  // would degenerate into a zero-width path under the regular branch. Plot
+  // the single point centred so it reads as "data exists, just not enough
+  // for a curve yet" rather than an empty box.
+  if (trend.length === 1) {
+    const x = SPARK_W / 2;
+    const y = SPARK_H / 2;
+    return (
+      <svg width={SPARK_W} height={SPARK_H} style={{ display: 'block' }}>
+        <line x1={SPARK_PAD} y1={SPARK_H - SPARK_PAD} x2={SPARK_W - SPARK_PAD} y2={SPARK_H - SPARK_PAD} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+        <circle cx={x} cy={y} r={3} fill="#00D6B4" />
+      </svg>
+    );
+  }
   const maxCount = Math.max(1, ...trend.map((p) => p.count));
-  const xStep = (SPARK_W - SPARK_PAD * 2) / Math.max(1, trend.length - 1);
+  const xStep = (SPARK_W - SPARK_PAD * 2) / (trend.length - 1);
 
   const points = trend.map((p, i) => {
     const x = SPARK_PAD + i * xStep;

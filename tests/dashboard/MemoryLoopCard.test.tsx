@@ -59,4 +59,21 @@ describe('MemoryLoopCard — SPEC-2 acceptance criteria', () => {
     );
     expect(container.querySelector('svg')).not.toBeNull();
   });
+
+  it('renders a centred dot for a single-point trend (degenerate case)', () => {
+    // A one-day-old install has trend.length === 1; the regular path
+    // would draw a zero-width polygon and look broken. The single-point
+    // branch should plot one dot at SPARK_W/2.
+    const { container } = render(
+      <MemoryLoopCard
+        metric={{ reusedThisWeek: 4, trend: [{ date: '2026-05-08', count: 4 }], computedFrom: 'recall_hits' }}
+      />
+    );
+    const circles = container.querySelectorAll('circle');
+    expect(circles.length).toBe(1);
+    // Centre of SPARK_W = 220 → cx ≈ 110
+    const cx = Number(circles[0].getAttribute('cx'));
+    expect(cx).toBeGreaterThan(80);
+    expect(cx).toBeLessThan(140);
+  });
 });
