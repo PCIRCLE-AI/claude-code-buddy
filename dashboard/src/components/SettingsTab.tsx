@@ -510,6 +510,64 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         </div>
       </div>
 
+      {/* Behaviour — surfaces autoUpdate + enableAgenticOrchestration so
+          users can configure them from the dashboard instead of editing
+          ~/.memesh/config.json by hand. Both fields were already accepted
+          by POST /v1/config; this is the missing UI side. */}
+      <div class="card">
+        <div class="card-title">{t('settings.behaviourTitle')}</div>
+
+        <div style={{ marginTop: 8 }}>
+          <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>
+            {t('settings.autoUpdateLabel')}
+          </label>
+          <select
+            value={config?.config.autoUpdate ?? 'off'}
+            onChange={async (e) => {
+              const next = (e.target as HTMLSelectElement).value as 'off' | 'patch' | 'minor' | 'major';
+              try {
+                await api('POST', '/v1/config', { autoUpdate: next });
+                setConfig((cur) => cur ? { ...cur, config: { ...cur.config, autoUpdate: next } } : cur);
+              } catch { /* surfaced via msg banner if present */ }
+            }}
+            style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-1)', cursor: 'pointer' }}
+          >
+            <option value="off">{t('settings.autoUpdateOff')}</option>
+            <option value="patch">{t('settings.autoUpdatePatch')}</option>
+            <option value="minor">{t('settings.autoUpdateMinor')}</option>
+            <option value="major">{t('settings.autoUpdateMajor')}</option>
+          </select>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+            {t('settings.autoUpdateHint')}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border-subtle)' }}>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={Boolean(config?.config.enableAgenticOrchestration)}
+              onChange={async (e) => {
+                const next = (e.target as HTMLInputElement).checked;
+                try {
+                  await api('POST', '/v1/config', { enableAgenticOrchestration: next });
+                  setConfig((cur) => cur ? { ...cur, config: { ...cur.config, enableAgenticOrchestration: next } } : cur);
+                } catch { /* swallow — read-back will refresh on next load */ }
+              }}
+              style={{ marginTop: 2 }}
+            />
+            <span>
+              <span style={{ fontSize: 13, color: 'var(--text-1)' }}>
+                {t('settings.agenticLabel')}
+              </span>
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                {t('settings.agenticHint')}
+              </div>
+            </span>
+          </label>
+        </div>
+      </div>
+
       {/* Language */}
       <div class="card">
         <div class="card-title">{t('settings.language')}</div>
