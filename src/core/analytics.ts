@@ -25,6 +25,26 @@ export interface RecallEffectiveness {
   mostIgnored: Array<{ name: string; type: string; hits: number; misses: number; hitRate: number }>;
 }
 
+// Knowledge types shown in the age matrix and radar (excludes high-noise session dumps)
+export const NOISE_TYPES = new Set([
+  'session_keypoint', 'commit', 'weekly-summary', 'session-insight',
+  'session-summary', 'session_identity', 'session-identity',
+]);
+
+export type AgeBucket = 'week' | 'month' | 'quarter' | 'older';
+
+export interface AgeMatrixEntry {
+  type: string;
+  bucket: AgeBucket;
+  count: number;
+}
+
+export interface KnowledgeRadarEntry {
+  axis: string;
+  count: number;
+  types: string[];
+}
+
 export interface AnalyticsResult {
   healthScore: number;
   healthFactors: {
@@ -45,6 +65,8 @@ export interface AnalyticsResult {
     staleEntities: unknown[];
     duplicateCandidates: unknown[];
   };
+  ageMatrix: AgeMatrixEntry[];
+  knowledgeRadar: KnowledgeRadarEntry[];
 }
 
 /**
@@ -219,6 +241,45 @@ export function computeAnalytics(db: Database.Database): AnalyticsResult {
     // recall_hits column may not exist yet — skip gracefully
   }
 
+  // --- Age Matrix (knowledge types × time buckets, noise types excluded) ---
+  const ageMatrixRaw = db.prepare(`
+    SELECT type,
+      CASE
+        WHEN created_at > datetime('now', '-7 days')  THEN 'week'
+        WHEN created_at > datetime('now', '-30 days') THEN 'month'
+        WHEN created_at > datetime('now', '-90 days') THEN 'quarter'
+        ELSE 'older'
+      END as bucket,
+      COUNT(*) as count
+    FROM entities
+    WHERE status = 'active'
+    GROUP BY type, bucket
+    ORDER BY type, bucket
+  `).all() as Array<{ type: string; bucket: AgeBucket; count: number }>;
+
+  const ageMatrix = ageMatrixRaw.filter(r => !NOISE_TYPES.has(r.type));
+
+  // --- Knowledge Radar (6 semantic axes) ---
+  const RADAR_AXES: Array<{ axis: string; types: string[] }> = [
+    { axis: 'lessons',      types: ['lesson_learned', 'lesson', 'mistake'] },
+    { axis: 'decisions',    types: ['decision', 'architecture_decision', 'design_decision'] },
+    { axis: 'patterns',     types: ['pattern', 'technical_pattern', 'best_practice'] },
+    { axis: 'bugs',         types: ['bug_fix', 'verification_result', 'test_result'] },
+    { axis: 'processes',    types: ['process', 'workflow_checkpoint', 'refactoring', 'maintenance'] },
+    { axis: 'architecture', types: ['architecture', 'infrastructure', 'feature', 'release'] },
+  ];
+
+  const typeCounts: Record<string, number> = {};
+  for (const row of ageMatrixRaw) {
+    typeCounts[row.type] = (typeCounts[row.type] ?? 0) + (row.count as number);
+  }
+
+  const knowledgeRadar: KnowledgeRadarEntry[] = RADAR_AXES.map(({ axis, types }) => ({
+    axis,
+    types,
+    count: types.reduce((sum, t) => sum + (typeCounts[t] ?? 0), 0),
+  }));
+
   return {
     healthScore,
     healthFactors,
@@ -226,5 +287,7 @@ export function computeAnalytics(db: Database.Database): AnalyticsResult {
     valueMetrics,
     recallEffectiveness,
     cleanup,
+    ageMatrix,
+    knowledgeRadar,
   };
 }
