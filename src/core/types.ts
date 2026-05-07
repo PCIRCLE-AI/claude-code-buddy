@@ -30,8 +30,10 @@ export interface Entity {
   access_count?: number;
   last_accessed_at?: string;
   confidence?: number;
-  valid_from?: string;
-  valid_until?: string;
+  // Temporal validity (`valid_from` / `valid_until`) was removed in
+  // 2026-05; the columns remain in the SQLite schema but no code path
+  // reads or writes them. See Dashboard-v3 SDD plan G2 for the cut
+  // rationale.
   namespace?: string;  // 'personal' | 'team' | 'global'
 }
 
@@ -39,7 +41,8 @@ export interface Relation {
   from: string;
   to: string;
   type: string;
-  metadata?: any;
+  // Relation-level `metadata` was removed in 2026-05; the column
+  // remains in SQLite but no code path uses it. See SDD plan G3.
 }
 
 // --- Input Types ---

@@ -586,13 +586,20 @@ describe('Feature: Knowledge Graph', () => {
       expect(entity!.metadata).toEqual({ version: '1.0', priority: 'high' });
     });
 
-    it('should handle relation with metadata', () => {
+    it('should round-trip a relation between two entities', () => {
+      // Relation `metadata` was retired in 2026-05 (SDD G3) — the column
+      // remains in the SQLite schema but no code path reads/writes it.
+      // We still test the basic create/read flow to guard against
+      // regressions in relation persistence.
       kg.createEntity('A', 'test');
       kg.createEntity('B', 'test');
-      kg.createRelation('A', 'B', 'depends-on', { weight: 0.8 });
+      kg.createRelation('A', 'B', 'depends-on');
 
       const relations = kg.getRelations('A');
-      expect(relations[0].metadata).toEqual({ weight: 0.8 });
+      expect(relations).toHaveLength(1);
+      expect(relations[0].from).toBe('A');
+      expect(relations[0].to).toBe('B');
+      expect(relations[0].type).toBe('depends-on');
     });
 
     it('should search by entity name via FTS', () => {
