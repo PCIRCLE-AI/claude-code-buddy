@@ -168,6 +168,8 @@ export interface AnalyticsData {
     }>;
     duplicateCandidates: Array<{ name1: string; name2: string; type: string }>;
   };
+  ageMatrix: Array<{ type: string; bucket: 'week' | 'month' | 'quarter' | 'older'; count: number }>;
+  knowledgeRadar: Array<{ axis: string; count: number; types: string[] }>;
 }
 
 export interface PatternsData {

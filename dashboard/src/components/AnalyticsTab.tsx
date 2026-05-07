@@ -2,9 +2,8 @@ import { useState, useEffect, useCallback } from 'preact/hooks';
 import { api, type StatsData, type AnalyticsData, type PatternsData } from '../lib/api';
 import { HealthScore } from './HealthScore';
 import { MemoryTimeline } from './MemoryTimeline';
-import { ValueMetrics } from './ValueMetrics';
-import { RecallEffectiveness } from './RecallEffectiveness';
-import { CleanupSuggestions } from './CleanupSuggestions';
+import { MemoryAgeMatrix } from './MemoryAgeMatrix';
+import { KnowledgeRadar } from './KnowledgeRadar';
 import { UserPatterns } from './UserPatterns';
 import { t } from '../lib/i18n';
 
@@ -54,44 +53,27 @@ export function AnalyticsTab() {
         </div>
       )}
 
-      {/* Row 4: Value Metrics */}
+      {/* Row 4: Age Matrix + Knowledge Radar (side by side on wide screens) */}
       {analytics && (
-        <div style={{ marginTop: 8 }}>
-          <ValueMetrics
-            totalRecalls={analytics.valueMetrics.totalRecalls}
-            lessonsWithWarnings={analytics.valueMetrics.lessonsWithWarnings}
-            lessonCount={analytics.valueMetrics.lessonCount}
-            typeDistribution={analytics.valueMetrics.typeDistribution}
-          />
+        <div style={{
+          marginTop: 8,
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)',
+          gap: 8,
+        }}>
+          <MemoryAgeMatrix data={analytics.ageMatrix ?? []} />
+          <KnowledgeRadar data={analytics.knowledgeRadar ?? []} />
         </div>
       )}
 
-      {/* Row 5: Recall Effectiveness */}
-      {analytics?.recallEffectiveness && (
-        <div style={{ marginTop: 8 }}>
-          <RecallEffectiveness {...analytics.recallEffectiveness} />
-        </div>
-      )}
-
-      {/* Row 6: Cleanup Suggestions */}
-      {analytics && (
-        <div style={{ marginTop: 8 }}>
-          <CleanupSuggestions
-            staleEntities={analytics.cleanup.staleEntities}
-            duplicateCandidates={analytics.cleanup.duplicateCandidates}
-            onRefresh={loadData}
-          />
-        </div>
-      )}
-
-      {/* Row 6: User Patterns */}
+      {/* Row 5: User Patterns */}
       {patterns && (
         <div style={{ marginTop: 8 }}>
           <UserPatterns data={patterns} />
         </div>
       )}
 
-      {/* Row 7: Topics cloud (kept from original) */}
+      {/* Row 6: Topics cloud */}
       {stats && (() => {
         const internalPrefixes = ['auto_saved', 'auto-tracked', 'session_end', 'session:', 'source:', 'scope:', 'date:', 'urgency:'];
         const userTags = stats.tagDistribution.filter(tg =>
