@@ -486,14 +486,14 @@ Safety note: non-loopback binds are blocked by default. To expose the HTTP serve
 | POST | /v1/export | Export memories as JSON bundle |
 | POST | /v1/import | Import memories from JSON bundle with merge strategy |
 | POST | /v1/learn | Record structured lesson from mistake or discovery |
-| GET | /v1/entities | List entities (pagination) |
+| GET | /v1/entities | List entities (pagination); supports `?type=<type>` and `?limit=<n>` |
 | GET | /v1/entities/:name | Get single entity |
 | GET | /v1/config | Get current config and detected capabilities |
 | GET | /v1/update-status | Current/latest package version, freshness state, and update guidance |
 | POST | /v1/config | Save config (partial update) |
 | GET | /v1/stats | Aggregate counts: entities, observations, relations, tags; type/tag/status distributions |
-| GET | /v1/graph | All entities + all relations (for graph visualization) |
-| GET | /v1/analytics | Health score, 30-day timeline, value metrics, cleanup suggestions |
+| GET | /v1/graph | Signal entities (all non-noise types) + up to 200 recent noise entities + all relations |
+| GET | /v1/analytics | Health score, 30-day timeline, value metrics, ageMatrix, knowledgeRadar, cleanup suggestions |
 | GET | /v1/patterns | User work patterns: schedule, tools, focus areas, workflow, strengths, learning |
 | GET | /dashboard | Interactive web dashboard (HTML) |
 
@@ -589,7 +589,7 @@ Returns aggregate counts and distributions for the knowledge graph.
 
 ### GET /v1/graph
 
-Returns all entities (including archived) and all relations, suitable for graph visualization.
+Returns entities prioritized for graph visualization: all non-noise entities (decision, lesson_learned, pattern, bug_fix, etc.) plus up to 200 recent noise entities (commit, session_keypoint, weekly-summary), and all relations.
 
 **Response**:
 
@@ -632,6 +632,14 @@ Returns computed analytics insights for the memory database.
         { "type": "decision", "count": 45 }
       ]
     },
+    "ageMatrix": [
+      { "type": "lesson_learned", "bucket": "week", "count": 3 },
+      { "type": "decision", "bucket": "month", "count": 8 }
+    ],
+    "knowledgeRadar": [
+      { "axis": "lessons", "count": 57, "types": ["lesson_learned", "lesson", "mistake"] },
+      { "axis": "decisions", "count": 28, "types": ["decision", "architecture_decision", "design_decision"] }
+    ],
     "cleanup": {
       "staleEntities": [
         { "id": 42, "name": "old-auth", "type": "concept", "confidence": 0.2, "days_unused": 90 }
