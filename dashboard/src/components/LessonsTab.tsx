@@ -121,7 +121,7 @@ function FailureCard({ entity }: { entity: Entity }) {
 
       {blocks.length === 0 && (
         <div style={{ fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic' }}>
-          (此教訓沒有結構化欄位，請查看原始記憶)
+          {t('lessons.unstructured')}
         </div>
       )}
 
@@ -168,7 +168,7 @@ function PlanCard({ entity }: { entity: Entity }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div class="card-title" style={{ margin: 0 }}>📋 {plan.planName}</div>
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
-            {plan.stepCount} 步驟 · {plan.commits.length} 個 commit
+            {plan.stepCount} {t('lessons.stepsLabel')} · {t('lessons.commitsCount', { count: plan.commits.length })}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
@@ -223,7 +223,7 @@ function FreeformCard({ entity }: { entity: Entity }) {
             <li key={i} style={{ marginBottom: 3 }}>{o.length > 200 ? o.slice(0, 200) + '…' : o}</li>
           ))}
           {obs.length > 6 && (
-            <li style={{ color: 'var(--text-3)', listStyle: 'none' }}>+{obs.length - 6} 條</li>
+            <li style={{ color: 'var(--text-3)', listStyle: 'none' }}>{t('lessons.moreItems', { count: obs.length - 6 })}</li>
           )}
         </ul>
       )}
@@ -288,7 +288,7 @@ export function LessonsTab() {
       <div class="stats-row">
         <div class="stat">
           <div class="stat-val">{categorized.failure.length}</div>
-          <div class="stat-lbl">失敗教訓</div>
+          <div class="stat-lbl">{t('lessons.tabFailure')}</div>
         </div>
         <div class="stat">
           <div class="stat-val" style={{ color: criticalCount > 0 ? '#FF6B6B' : undefined }}>
@@ -298,11 +298,11 @@ export function LessonsTab() {
         </div>
         <div class="stat">
           <div class="stat-val">{categorized['plan-completion'].length}</div>
-          <div class="stat-lbl">計畫紀錄</div>
+          <div class="stat-lbl">{t('lessons.tabPlan')}</div>
         </div>
         <div class="stat">
           <div class="stat-val">{totalAccess}</div>
-          <div class="stat-lbl">總回憶次數</div>
+          <div class="stat-lbl">{t('lessons.totalRecalls')}</div>
         </div>
       </div>
 
@@ -318,7 +318,7 @@ export function LessonsTab() {
             }}
             onClick={() => setTab('failure')}
           >
-            🎯 失敗教訓 <span style={{ opacity: 0.6, fontFamily: 'var(--mono)', marginLeft: 6 }}>{categorized.failure.length}</span>
+            🎯 {t('lessons.tabFailure')} <span style={{ opacity: 0.6, fontFamily: 'var(--mono)', marginLeft: 6 }}>{categorized.failure.length}</span>
           </button>
           <button
             class="btn btn-sm"
@@ -329,7 +329,7 @@ export function LessonsTab() {
             }}
             onClick={() => setTab('plan-completion')}
           >
-            📋 計畫紀錄 <span style={{ opacity: 0.6, fontFamily: 'var(--mono)', marginLeft: 6 }}>{categorized['plan-completion'].length}</span>
+            📋 {t('lessons.tabPlan')} <span style={{ opacity: 0.6, fontFamily: 'var(--mono)', marginLeft: 6 }}>{categorized['plan-completion'].length}</span>
           </button>
           <button
             class="btn btn-sm"
@@ -340,7 +340,7 @@ export function LessonsTab() {
             }}
             onClick={() => setTab('freeform')}
           >
-            📝 筆記 <span style={{ opacity: 0.6, fontFamily: 'var(--mono)', marginLeft: 6 }}>{categorized.freeform.length}</span>
+            📝 {t('lessons.tabFreeform')} <span style={{ opacity: 0.6, fontFamily: 'var(--mono)', marginLeft: 6 }}>{categorized.freeform.length}</span>
           </button>
         </div>
 
@@ -348,7 +348,7 @@ export function LessonsTab() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <input
             type="search"
-            placeholder="搜尋 error / root cause / fix / 名稱…"
+            placeholder={t('lessons.searchPlaceholder')}
             value={search}
             onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
             style={{ flex: 1, minWidth: 240, padding: '4px 8px', fontSize: 12 }}
@@ -359,7 +359,7 @@ export function LessonsTab() {
               onChange={(e) => setProject((e.target as HTMLSelectElement).value)}
               style={{ padding: '3px 8px', fontSize: 12 }}
             >
-              <option value="all">全部專案</option>
+              <option value="all">{t('lessons.allProjects')}</option>
               {projects.map((p) => (
                 <option key={p.name} value={p.name}>{p.name} ({p.count})</option>
               ))}
@@ -367,7 +367,7 @@ export function LessonsTab() {
           )}
         </div>
         <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-3)' }}>
-          顯示 {visible.length} / {categorized[tab].length} 筆
+          {t('lessons.showing', { visible: visible.length, total: categorized[tab].length })}
         </div>
       </div>
 
@@ -376,7 +376,7 @@ export function LessonsTab() {
         {visible.length === 0 ? (
           <div class="empty">
             <span class="empty-icon">{tab === 'failure' ? '🎯' : tab === 'plan-completion' ? '📋' : '📝'}</span>
-            {search ? `無符合「${search}」的記憶` : '此類別沒有記憶'}
+            {search ? t('lessons.noMatch', { query: search }) : t('lessons.emptyCategory')}
           </div>
         ) : (
           visible.map((e) => {
