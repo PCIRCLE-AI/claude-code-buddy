@@ -40,17 +40,27 @@ process.stdin.on('end', () => {
           if (!line.trim()) continue;
           try {
             const entry = JSON.parse(line);
-            // Count tool uses from assistant message content blocks
+            // Current format: {type:'assistant', message:{content:[{type:'tool_use',...}]}}
+            if (entry.type === 'assistant' && Array.isArray(entry.message?.content)) {
+              for (const block of entry.message.content) {
+                if (block.type !== 'tool_use') continue;
+                toolCallCount++;
+                const name = block.name || '';
+                if (name === 'Edit' || name === 'Write' || name === 'MultiEdit') {
+                  const filePath = block.input?.file_path || block.input?.path || '';
+                  if (filePath) editedFiles.add(basename(filePath));
+                }
+              }
+            }
+            // Legacy format: {role:'assistant', content:[{type:'tool_use',...}]}
             if (entry.role === 'assistant' && Array.isArray(entry.content)) {
               for (const block of entry.content) {
-                if (block.type === 'tool_use') {
-                  toolCallCount++;
-                  // Track file edits
-                  const name = block.name || '';
-                  if (name === 'Edit' || name === 'Write' || name === 'MultiEdit') {
-                    const filePath = block.input?.file_path || block.input?.path || '';
-                    if (filePath) editedFiles.add(basename(filePath));
-                  }
+                if (block.type !== 'tool_use') continue;
+                toolCallCount++;
+                const name = block.name || '';
+                if (name === 'Edit' || name === 'Write' || name === 'MultiEdit') {
+                  const filePath = block.input?.file_path || block.input?.path || '';
+                  if (filePath) editedFiles.add(basename(filePath));
                 }
               }
             }
