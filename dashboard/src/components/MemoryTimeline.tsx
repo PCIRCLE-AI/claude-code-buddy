@@ -27,10 +27,20 @@ function drawTimeline(
   canvas: HTMLCanvasElement,
   data: TimelineEntry[],
 ): void {
+  // Clear inline width so CSS 'width:100%' can resolve correctly for measurement.
+  // Without this, a previous 0px write (from when the panel was display:none) would
+  // permanently suppress the layout width even after the tab becomes visible.
+  canvas.style.width = '';
+
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
   const cssW = rect.width;
   const cssH = CANVAS_HEIGHT;
+
+  const chartW = cssW - PAD_LEFT - PAD_RIGHT;
+  const chartH = cssH - PAD_TOP - PAD_BOTTOM;
+
+  if (data.length === 0 || chartW <= 0 || chartH <= 0) return;
 
   canvas.width = cssW * dpr;
   canvas.height = cssH * dpr;
@@ -41,11 +51,6 @@ function drawTimeline(
   if (!ctx) return;
 
   ctx.scale(dpr, dpr);
-
-  const chartW = cssW - PAD_LEFT - PAD_RIGHT;
-  const chartH = cssH - PAD_TOP - PAD_BOTTOM;
-
-  if (data.length === 0 || chartW <= 0 || chartH <= 0) return;
 
   const maxCreated = Math.max(1, ...data.map((d) => d.created));
   const maxRecalled = Math.max(1, ...data.map((d) => d.recalled));
@@ -110,10 +115,11 @@ export function MemoryTimeline({ data }: MemoryTimelineProps) {
 
     drawTimeline(canvas, data);
 
-    // Redraw on resize to keep canvas crisp
-    const onResize = () => drawTimeline(canvas, data);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    // ResizeObserver fires on window resize AND on display:none→block (tab switch),
+    // unlike window.resize which misses the tab reveal case.
+    const observer = new ResizeObserver(() => drawTimeline(canvas, data));
+    observer.observe(canvas);
+    return () => observer.disconnect();
   }, [data]);
 
   const totalCreated = data.reduce((sum, d) => sum + d.created, 0);
