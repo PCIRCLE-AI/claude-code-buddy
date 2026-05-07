@@ -65,10 +65,16 @@ export function remember(args: RememberInput): RememberResult {
   const kg = new KnowledgeGraph(db);
   const existing = kg.getEntity(args.name);
 
+  // Trust signal MUST arrive at createEntity time so the confidence-
+  // bump gate (knowledge-graph.ts) can deny it for untrusted callers.
+  // Codex review caught a P1 where the trust was being written via
+  // updateEntityMetadata AFTER createEntity returned, leaving the gate
+  // looking at undefined and defaulting to trusted.
   const entityId = kg.createEntity(args.name, args.type, {
     observations: args.observations,
     tags: args.tags,
     namespace: args.namespace,
+    trustOverride: args.trustOverride,
   });
   kg.updateEntityMetadata(args.name, () => buildLocalMetadata(
     existing?.metadata as EntityMetadata | undefined,
