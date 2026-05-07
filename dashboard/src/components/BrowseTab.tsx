@@ -1,8 +1,11 @@
 import { useState, useEffect, useMemo } from 'preact/hooks';
 import { api, fetchProjects, type Entity, type ProjectInfo } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
+import { ProjectRoadmap } from './ProjectRoadmap';
 import { t } from '../lib/i18n';
 import { clusterOf, timeBucket, extractProject, type TypeCluster, type TimeBucket } from '../lib/entity-display';
+
+const ROADMAP_PREF_KEY = 'memesh.browse.viewMode';
 
 const PAGE_SIZE = 30;
 
@@ -59,6 +62,18 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
   const [value, setValue] = useState<ValueKey>('all');
   const [project, setProject] = useState<string | 'all'>('all');
   const [sort, setSort] = useState<SortKey>('most-recalled');
+  // Roadmap view mode — opt-out per project. When a project chip is
+  // active and this is true (default), render the ProjectRoadmap instead
+  // of the flat list. localStorage persists the per-session override so
+  // a user who explicitly switched to list view stays there.
+  const [viewMode, setViewMode] = useState<'roadmap' | 'list'>(() => {
+    try {
+      const saved = localStorage.getItem(ROADMAP_PREF_KEY);
+      return saved === 'list' ? 'list' : 'roadmap';
+    } catch {
+      return 'roadmap';
+    }
+  });
 
   async function load() {
     setLoading(true);
@@ -235,15 +250,44 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
         {error && <div class="error-box" style={{ marginBottom: 12 }}>{error}</div>}
         {loading && <div class="empty"><div class="loading" /></div>}
 
-        {!loading && active.length === 0 && (
+        {/* Roadmap view: triggered when a project chip is selected and the
+            user hasn't opted into list view. Bypasses pagination because
+            the roadmap is intended as a single scrollable narrative. */}
+        {!loading && project !== 'all' && viewMode === 'roadmap' && !manage && (
+          <ProjectRoadmap
+            projectName={project}
+            entities={active}
+            onSwitchToList={() => {
+              setViewMode('list');
+              try { localStorage.setItem(ROADMAP_PREF_KEY, 'list'); } catch { /* private mode */ }
+            }}
+          />
+        )}
+
+        {/* List view: shown when no project filter, or when user opted out
+            of roadmap, or in manage mode. */}
+        {!loading && (project === 'all' || viewMode === 'list' || manage) && active.length === 0 && (
           <div class="empty">
             <span class="empty-icon">📭</span>
             {filter ? `${t('browse.noMatch')} "${filter}"` : t('browse.emptyFilter')}
           </div>
         )}
 
-        {!loading && pageItems.length > 0 && (
+        {!loading && (project === 'all' || viewMode === 'list' || manage) && pageItems.length > 0 && (
           <div>
+            {project !== 'all' && viewMode === 'list' && !manage && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                <button
+                  class="btn btn-sm"
+                  onClick={() => {
+                    setViewMode('roadmap');
+                    try { localStorage.setItem(ROADMAP_PREF_KEY, 'roadmap'); } catch { /* private mode */ }
+                  }}
+                >
+                  {t('roadmap.switchToRoadmap')}
+                </button>
+              </div>
+            )}
             {pageItems.map((e) => (
               <div key={e.id} style={{ borderBottom: '1px solid var(--border-subtle)', padding: '14px 0' }}>
                 <MemoryRow
