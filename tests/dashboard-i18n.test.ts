@@ -70,4 +70,71 @@ describe('dashboard i18n', () => {
     expect(apiSource).not.toContain('Unknown error');
     expect(apiSource).not.toContain('Request timed out');
   });
+
+  // SDD plan SPEC-7: i18n CI gate.
+  //
+  // The earlier "known English strings" test only catches a handful of
+  // specific phrases that historically leaked. It cannot catch the
+  // failure mode v3 actually hit: brand-new components that hardcode
+  // zh-TW or other CJK text directly into JSX, breaking the 11-locale
+  // contract for users who switch language.
+  //
+  // This stricter check scans every dashboard component / lib file
+  // (excluding i18n.ts itself, where translations legitimately live)
+  // for CJK code-points appearing outside of comments. Any hit is a
+  // regression — every user-facing string must go through `t()`.
+  it('contains no hardcoded CJK strings in dashboard components', () => {
+    const { readdirSync } = require('node:fs');
+    const { join } = require('node:path');
+
+    // CJK Unified Ideographs + Hiragana + Katakana + Hangul Syllables +
+    // Thai. Covers the eleven locales we ship (en/zh-TW/zh-CN/ja/ko/pt/
+    // fr/de/vi/es/th); only the ones that use non-Latin scripts trigger
+    // here, and Latin-script locales never accidentally hit this gate.
+    const cjkPattern = /[一-鿿぀-ゟ゠-ヿ가-힯฀-๿]/;
+
+    function* walk(dir: string): Generator<string> {
+      for (const ent of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, ent.name);
+        if (ent.isDirectory()) yield* walk(path);
+        else if (ent.isFile() && (ent.name.endsWith('.ts') || ent.name.endsWith('.tsx'))) yield path;
+      }
+    }
+
+    /** Strip /* ... *\/ block comments and // line comments before
+     *  scanning. Without this the comment stating "本週" would be
+     *  flagged just like a hardcoded JSX string. */
+    function stripComments(src: string): string {
+      return src
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/(^|\n)[ \t]*\/\/[^\n]*/g, '$1');
+    }
+
+    const violations: Array<{ file: string; line: number; snippet: string }> = [];
+    const exclude = new Set([
+      // i18n.ts is the catalogue; translations live there by design.
+      'dashboard/src/lib/i18n.ts',
+    ]);
+
+    for (const path of walk('dashboard/src')) {
+      const rel = path.replace(/^.+memesh-llm-memory\//, '');
+      if (exclude.has(rel)) continue;
+
+      const src = readFileSync(path, 'utf8');
+      const stripped = stripComments(src);
+      if (!cjkPattern.test(stripped)) continue;
+
+      // Report each offending line so the failure message points
+      // straight at the regression instead of just "this file has CJK".
+      const originalLines = src.split('\n');
+      const strippedLines = stripped.split('\n');
+      strippedLines.forEach((line, i) => {
+        if (cjkPattern.test(line)) {
+          violations.push({ file: rel, line: i + 1, snippet: originalLines[i].trim().slice(0, 120) });
+        }
+      });
+    }
+
+    expect(violations).toEqual([]);
+  });
 });

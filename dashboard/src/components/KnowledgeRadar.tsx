@@ -1,17 +1,17 @@
+import { t } from '../lib/i18n';
+
 interface RadarEntry { axis: string; count: number; types: string[] }
 
 interface KnowledgeRadarProps {
   data: RadarEntry[];
 }
 
-const AXIS_LABELS: Record<string, string> = {
-  lessons: '教訓',
-  decisions: '決策',
-  patterns: '模式',
-  bugs: '問題修復',
-  processes: '流程',
-  architecture: '架構',
-};
+/** Look up a localised label for a radar axis. Falls back to the raw
+ *  `axis` value (e.g. "patterns") if the i18n key is missing — the
+ *  i18n.ts catalogue defines a key per known axis. */
+function axisLabel(axis: string): string {
+  return t(`radar.axis.${axis}`) || axis;
+}
 
 const SIZE = 220;
 const CX = SIZE / 2;
@@ -45,7 +45,7 @@ export function KnowledgeRadar({ data }: KnowledgeRadarProps) {
 
   return (
     <div class="card">
-      <div class="card-title" style={{ marginBottom: 8 }}>知識覆蓋雷達</div>
+      <div class="card-title" style={{ marginBottom: 8 }}>{t('radar.title')}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
         <svg
           width={SIZE}
@@ -105,7 +105,7 @@ export function KnowledgeRadar({ data }: KnowledgeRadarProps) {
           {data.map((d, i) => {
             const angle = angles[i];
             const [x, y] = polarToXY(angle, R + 18);
-            const label = AXIS_LABELS[d.axis] || d.axis;
+            const label = axisLabel(d.axis);
             return (
               <text
                 key={i}
@@ -135,7 +135,7 @@ export function KnowledgeRadar({ data }: KnowledgeRadarProps) {
                   fontSize: 11,
                   marginBottom: 3,
                 }}>
-                  <span style={{ color: 'var(--text-1)' }}>{AXIS_LABELS[d.axis] || d.axis}</span>
+                  <span style={{ color: 'var(--text-1)' }}>{axisLabel(d.axis)}</span>
                   <span style={{ color: 'var(--accent)', fontFamily: 'var(--mono)', fontSize: 10 }}>
                     {d.count}
                   </span>
@@ -158,7 +158,7 @@ export function KnowledgeRadar({ data }: KnowledgeRadarProps) {
             );
           })}
           <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 6 }}>
-            顯示有效知識記憶<br/>（排除 session 和 commit）
+            {t('radar.caption')}
           </div>
         </div>
       </div>

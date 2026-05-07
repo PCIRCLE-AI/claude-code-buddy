@@ -8,12 +8,12 @@ interface MemoryAgeMatrixProps {
 }
 
 const BUCKETS: AgeBucket[] = ['week', 'month', 'quarter', 'older'];
-const BUCKET_LABELS: Record<AgeBucket, string> = {
-  week: '本週',
-  month: '本月',
-  quarter: '本季',
-  older: '更早',
-};
+
+/** Look up a localised header for an age bucket. Falls back to the
+ *  raw bucket key if the i18n catalogue is missing the entry. */
+function bucketLabel(bucket: AgeBucket): string {
+  return t(`ageMatrix.bucket.${bucket}`) || bucket;
+}
 
 // Types displayed in order (most diagnostic ones first)
 const TYPE_ORDER = [
@@ -25,14 +25,10 @@ const TYPE_ORDER = [
   'architecture', 'feature',
 ];
 
-const TYPE_LABEL: Record<string, string> = {
-  lesson_learned: '教訓', lesson: '教訓', mistake: '錯誤',
-  decision: '決策', architecture_decision: '架構決策',
-  pattern: '模式', technical_pattern: '技術模式', best_practice: '最佳實踐',
-  bug_fix: '問題修復',
-  workflow_checkpoint: '流程里程碑', process: '流程',
-  architecture: '架構', feature: '功能',
-};
+/** Look up a localised label for an entity type column. */
+function typeLabel(type: string): string {
+  return t(`ageMatrix.type.${type}`) || type;
+}
 
 // Intensity color: 0 = no data, higher = more vivid cyan
 function cellStyle(count: number, max: number): string {
@@ -58,7 +54,7 @@ export function MemoryAgeMatrix({ data }: MemoryAgeMatrixProps) {
 
   return (
     <div class="card">
-      <div class="card-title" style={{ marginBottom: 16 }}>記憶年齡分佈</div>
+      <div class="card-title" style={{ marginBottom: 16 }}>{t('ageMatrix.title')}</div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{
           width: '100%',
@@ -73,7 +69,7 @@ export function MemoryAgeMatrix({ data }: MemoryAgeMatrixProps) {
           <thead>
             <tr>
               <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-2)', fontWeight: 400 }}>
-                類型
+                {t('ageMatrix.typeColumn')}
               </th>
               {BUCKETS.map(b => (
                 <th key={b} style={{
@@ -82,7 +78,7 @@ export function MemoryAgeMatrix({ data }: MemoryAgeMatrixProps) {
                   color: 'var(--text-2)',
                   fontWeight: 400,
                 }}>
-                  {BUCKET_LABELS[b]}
+                  {bucketLabel(b)}
                 </th>
               ))}
             </tr>
@@ -101,7 +97,7 @@ export function MemoryAgeMatrix({ data }: MemoryAgeMatrixProps) {
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                   }}>
-                    {TYPE_LABEL[type] || type}
+                    {typeLabel(type)}
                     <span style={{ color: 'var(--text-3)', marginLeft: 4 }}>({total})</span>
                   </td>
                   {BUCKETS.map(b => {
@@ -136,7 +132,7 @@ export function MemoryAgeMatrix({ data }: MemoryAgeMatrixProps) {
         alignItems: 'center',
         gap: 6,
       }}>
-        <span>低</span>
+        <span>{t('ageMatrix.low')}</span>
         {[0.15, 0.35, 0.55, 0.7].map(a => (
           <span key={a} style={{
             display: 'inline-block',
@@ -146,8 +142,8 @@ export function MemoryAgeMatrix({ data }: MemoryAgeMatrixProps) {
             background: `rgba(0,214,180,${a})`,
           }} />
         ))}
-        <span>高</span>
-        <span style={{ marginLeft: 8 }}>— 顏色深度 = 記憶密度</span>
+        <span>{t('ageMatrix.high')}</span>
+        <span style={{ marginLeft: 8 }}>— {t('ageMatrix.legend')}</span>
       </div>
     </div>
   );
