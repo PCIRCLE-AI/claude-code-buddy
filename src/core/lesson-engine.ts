@@ -1,6 +1,7 @@
 import type { StructuredLesson } from './failure-analyzer.js';
 import { remember, recall } from './operations.js';
 import type { LessonSeverity } from './types.js';
+import { getDatabase } from '../db.js';
 
 /**
  * Create or update a structured lesson entity.
@@ -85,6 +86,14 @@ export function createExplicitLesson(
       'source:explicit',
     ],
   });
+
+  // Explicit user `learn` = highest-trust signal: user asserted "this
+  // happened, here's the fix." Reset confidence to 1.0 so a freshly
+  // re-confirmed lesson is not held back by the lifecycle decay applied
+  // before the re-confirmation.
+  getDatabase()
+    .prepare('UPDATE entities SET confidence = 1.0 WHERE name = ?')
+    .run(name);
 
   return { name };
 }

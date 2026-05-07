@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
 import type { Entity, Relation, CreateEntityInput, SearchOptions, EntityRow } from './core/types.js';
-import { findConflicts, trackAccess } from './storage/conflicts.js';
+import { findConflicts, trackAccess, type TrackAccessOptions } from './storage/conflicts.js';
 import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
 
 export class KnowledgeGraph {
@@ -49,6 +49,18 @@ export class KnowledgeGraph {
       this.db
         .prepare("UPDATE entities SET status = 'active' WHERE name = ?")
         .run(name);
+    }
+
+    // Re-asserting an existing active entity is a vote of confidence —
+    // counter the auto-decay in lifecycle.ts so the Quality KPI doesn't
+    // monotonically slide. Cap at 1.0; small per-call bump because users
+    // may re-call remember() for unrelated reasons (auto-tagging hooks,
+    // batch imports). Strong "this is true" signals (consolidate, explicit
+    // learn) bump harder via dedicated paths.
+    if (!isNewEntity && !wasArchived) {
+      this.db
+        .prepare('UPDATE entities SET confidence = MIN(confidence + 0.05, 1.0) WHERE id = ?')
+        .run(entityId);
     }
 
     // For existing entities, capture current obs text to delete old FTS entry before rebuild.
@@ -408,7 +420,9 @@ export class KnowledgeGraph {
     }
 
     const entityIds = results.map((e) => e.id);
-    this.trackAccess(entityIds);
+    // search() is an intentional retrieval — bump recall_hits so
+    // analytics can show which memories the user actually pulled.
+    this.trackAccess(entityIds, { incrementHits: true });
     return results;
   }
 
@@ -417,8 +431,8 @@ export class KnowledgeGraph {
    * Called after search/recall returns results.
    * Delegates to storage/conflicts.ts::trackAccess for shared use.
    */
-  trackAccess(entityIds: number[]): void {
-    trackAccess(this.db, entityIds);
+  trackAccess(entityIds: number[], opts: TrackAccessOptions = {}): void {
+    trackAccess(this.db, entityIds, opts);
   }
 
   /**
@@ -472,7 +486,8 @@ export class KnowledgeGraph {
       .filter((e): e is Entity => e !== null);
 
     const entityIds = results.map((e) => e.id);
-    this.trackAccess(entityIds);
+    // listRecentByTag() is an intentional tag-filtered query — count it.
+    this.trackAccess(entityIds, { incrementHits: true });
     return results;
   }
 
