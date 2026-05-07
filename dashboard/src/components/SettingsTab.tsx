@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
-import { api, type ConfigData, type UpdateStatusData } from '../lib/api';
+import { api, type ConfigData, type ConfigTestResult, type UpdateStatusData } from '../lib/api';
 import { t, setLocale, getLocales, type Locale } from '../lib/i18n';
 
 interface SettingsTabProps {
@@ -54,6 +54,8 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   const [model, setModel] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  const [testResult, setTestResult] = useState<ConfigTestResult | null>(null);
+  const [testing, setTesting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [updateLoading, setUpdateLoading] = useState(true);
   const [updateRefreshing, setUpdateRefreshing] = useState(false);
@@ -105,6 +107,38 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
     };
   }, []);
 
+  async function testConnection() {
+    setTesting(true);
+    setMsg('');
+    setTestResult(null);
+    try {
+      const result = await api<ConfigTestResult>('POST', '/v1/config/test', {
+        provider,
+        ...(apiKey ? { apiKey } : {}),
+      });
+      setTestResult(result);
+      if (result.valid && !model && result.suggested) {
+        setModel(result.suggested);
+      }
+    } catch (e: any) {
+      setTestResult({ valid: false, error: e.message });
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  // Reset test status whenever the user edits provider or apiKey, since
+  // a previously-passing test no longer reflects the current credentials.
+  function onProviderChange(v: string) {
+    setProvider(v);
+    setTestResult(null);
+    setModel('');
+  }
+  function onApiKeyChange(v: string) {
+    setApiKey(v);
+    setTestResult(null);
+  }
+
   async function save() {
     setSaving(true);
     setMsg('');
@@ -115,6 +149,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       await api('POST', '/v1/config', { llm });
       setMsg(t('settings.saved'));
       setApiKey('');
+      setTestResult(null);
     } catch (e: any) {
       setMsg(t('common.error') + ': ' + e.message);
     } finally {
@@ -253,7 +288,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
                   name="provider"
                   value={val}
                   checked={provider === val}
-                  onChange={() => setProvider(val)}
+                  onChange={() => onProviderChange(val)}
                 />
                 {label}
               </label>
@@ -263,30 +298,91 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
           {provider && provider !== 'ollama' && (
             <div style={{ marginBottom: 12 }}>
               <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>{t('settings.apiKey')}</label>
-              <input
-                type="password"
-                autoComplete="off"
-                placeholder={provider === 'anthropic' ? 'sk-ant-api03-…' : 'sk-…'}
-                value={apiKey}
-                onInput={(e) => setApiKey((e.target as HTMLInputElement).value)}
-              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  placeholder={provider === 'anthropic' ? 'sk-ant-api03-…' : 'sk-…'}
+                  value={apiKey}
+                  onInput={(e) => onApiKeyChange((e.target as HTMLInputElement).value)}
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  class="btn"
+                  onClick={() => void testConnection()}
+                  disabled={!provider || testing || (provider !== 'ollama' && !apiKey)}
+                  style={{ flexShrink: 0 }}
+                >
+                  {testing ? t('settings.testing') : t('settings.test')}
+                </button>
+              </div>
             </div>
           )}
 
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>{t('settings.model')}</label>
-            <input
-              type="text"
-              placeholder={provider === 'anthropic' ? 'claude-haiku-4-5' : provider === 'openai' ? 'gpt-4o-mini' : 'llama3.2'}
-              value={model}
-              onInput={(e) => setModel((e.target as HTMLInputElement).value)}
-            />
-          </div>
+          {provider === 'ollama' && (
+            <div style={{ marginBottom: 12 }}>
+              <button
+                type="button"
+                class="btn"
+                onClick={() => void testConnection()}
+                disabled={testing}
+              >
+                {testing ? t('settings.testing') : t('settings.test')}
+              </button>
+            </div>
+          )}
+
+          {testResult && (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: '8px 10px',
+                borderRadius: 4,
+                fontSize: 12,
+                background: testResult.valid ? 'rgba(0, 214, 180, 0.08)' : 'rgba(255, 107, 107, 0.08)',
+                border: `1px solid ${testResult.valid ? 'rgba(0, 214, 180, 0.4)' : 'rgba(255, 107, 107, 0.4)'}`,
+                color: testResult.valid ? '#00D6B4' : '#ff6b6b',
+              }}
+            >
+              {testResult.valid
+                ? t('settings.testPassed', { count: testResult.models?.length ?? 0 })
+                : `✗ ${testResult.error || t('settings.testFailed')}`}
+            </div>
+          )}
+
+          {testResult?.valid && testResult.models && testResult.models.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>
+                {t('settings.model')}
+                {testResult.suggested && (
+                  <span style={{ marginLeft: 6, color: 'var(--text-3)', fontWeight: 400 }}>
+                    ({t('settings.suggested')}: <span style={{ color: 'var(--accent)' }}>{testResult.suggested}</span>)
+                  </span>
+                )}
+              </label>
+              <select
+                value={model}
+                onChange={(e) => setModel((e.target as HTMLSelectElement).value)}
+                style={{ width: '100%' }}
+              >
+                {testResult.models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.id}
+                    {m.created ? ` — ${m.created.slice(0, 10)}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <button class="btn btn-primary" type="submit" disabled={!provider || saving}>
+            <button class="btn btn-primary" type="submit" disabled={!provider || saving || !testResult?.valid}>
               {saving ? t('settings.saving') : t('settings.save')}
             </button>
+            {!testResult?.valid && provider && (
+              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('settings.testRequired')}</span>
+            )}
             {msg && <span style={{ fontSize: 12, color: msg.startsWith(t('common.error')) ? 'var(--danger)' : 'var(--success)' }}>{msg}</span>}
           </div>
         </form>
