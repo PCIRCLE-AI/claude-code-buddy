@@ -9,7 +9,7 @@
 //   - Returns typed results directly
 // =============================================================================
 
-import { getDatabase } from '../db.js';
+import { getDatabase, clearPendingReindexFlag } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { expandQuery, isExpansionAvailable } from './query-expander.js';
 import { rankEntities } from './scoring.js';
@@ -399,6 +399,9 @@ export async function reindex(opts?: { namespace?: string }): Promise<{
   }
 
   process.stderr.write(`MeMesh: Reindex complete. ${embedded}/${processed} entities embedded.\n`);
+
+  // Clear the dimension-change flag now that vectors are regenerated.
+  clearPendingReindexFlag();
 
   return { processed, embedded, skipped };
 }

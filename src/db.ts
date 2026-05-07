@@ -183,6 +183,11 @@ function ensureVecTable(db: Database.Database, targetDim: number): void {
       `MeMesh: Without reindex, only newly accessed entities will be embedded.\n`
     );
     db.exec('DROP TABLE entities_vec');
+    // Persist the reindex-needed state so `memesh doctor` can surface it
+    // even after the process that dropped the table has exited.
+    db.prepare(
+      "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)"
+    ).run(JSON.stringify({ from: currentDim, to: targetDim, droppedAt: new Date().toISOString() }));
   }
 
   // Create with target dimension
@@ -196,6 +201,23 @@ function ensureVecTable(db: Database.Database, targetDim: number): void {
   db.prepare(
     "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('embedding_dimension', ?)"
   ).run(String(targetDim));
+}
+
+export function getPendingReindexInfo(): { from: number; to: number; droppedAt: string } | null {
+  if (!db) return null;
+  try {
+    const row = db.prepare(
+      "SELECT value FROM memesh_metadata WHERE key = 'pending_reindex'"
+    ).get() as { value: string } | undefined;
+    return row ? JSON.parse(row.value) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingReindexFlag(): void {
+  if (!db) return;
+  db.prepare("DELETE FROM memesh_metadata WHERE key = 'pending_reindex'").run();
 }
 
 export function closeDatabase(): void {

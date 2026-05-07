@@ -3,7 +3,6 @@ import path from 'path';
 import os from 'os';
 import { execFile } from 'child_process';
 
-const UPDATE_CHECK_PATH = path.join(os.homedir(), '.memesh', 'update-check.json');
 const DEFAULT_TIMEOUT_MS = 5000;
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
 const MAX_ERROR_LENGTH = 160;
@@ -556,6 +555,3 @@ export function formatUpdateCheckStatus(update: UpdateCheck | null): string[] {
   return lines;
 }
 
-export function getUpdateCheckPathForTests(): string {
-  return UPDATE_CHECK_PATH;
-}

@@ -4,16 +4,22 @@ All notable changes to MeMesh are documented here.
 
 ## [4.1.4] — 2026-05-07
 
-Auto-update loop completion: the Stop hook now triggers `npm install -g` when policy and cache permit.
+Auto-update loop completion, persistent reindex tracking, and codebase debt reduction.
 
 ### Changed
 - **Auto-update spawn moved from SessionStart to Stop hook.** The `autoUpdate` policy field introduced in v4.1.3 now acts: when policy permits the detected bump and the update cache is fresh (< 24h), the Stop hook spawns a detached `npm install -g @pcircle/memesh@<latest>` after the session ends. Moving the spawn to Stop avoids a TOCTOU race where the install could overwrite `dist/` while peer hooks (pre-edit-recall, pre-bash-nudge) were still reading it mid-session. The shared lock and install-channel guards carry over: only `npm-global` installs self-update, and only one concurrent session wins the lock.
 - **Deprecation banner updated.** The `npm-global` remediation line now suggests `memesh config set autoUpdate patch` alongside `memesh update`, so users know the auto-update feature is active.
 - **Shared auto-update helpers extracted to `_shared.js`.** `readUpdateCheckCache`, `classifyBumpHook`, `decideAutoUpdateHook`, `logAutoUpdate`, `tryAcquireAutoUpdateLock`, `spawnAutoUpdate`, and `AUTO_UPDATE_LOCK_TTL_MS` moved from `session-start.js` to `_shared.js` so both hooks share a single implementation.
+- **Embedding dimension change now persists a reindex-needed flag.** When the vector table is rebuilt due to a provider switch (e.g. ONNX 384-dim → OpenAI 1536-dim), `db.ts` writes a `pending_reindex` record to `memesh_metadata` with the old/new dimensions and a timestamp. `memesh doctor` surfaces a `WARN` check as long as the flag is present; `memesh reindex` clears it on completion. Previously, the only signal was a transient stderr message that users might miss.
+- **`src/cli/view.ts` split into `view.ts` + `view-live.ts`.** The 2773-line file is now two focused modules: `view.ts` (the static dashboard for the `memesh-view` binary, ~590 lines) and `view-live.ts` (the live dashboard fallback served by the HTTP server when the Preact build is absent, ~2195 lines). The HTTP server import updated accordingly.
+- **Dead code removed from `version-check.ts`.** The stale `UPDATE_CHECK_PATH` constant (pointing to the pre-v4.1.3 shared cache path) and the unused `getUpdateCheckPathForTests()` export have been removed. Tests already use `MEMESH_UPDATE_CHECK_PATH` env-var injection for isolation.
+
+### Fixed
+- **Session-start hook output contract updated in tests.** The `suppressOutput + hookSpecificOutput.additionalContext` assertion shape was replaced with `systemMessage` to match the v4.1.4 output format. All 630 tests now pass cleanly.
 
 ### Notes
-- Recall output is now visible: `suppressOutput: true` removed from SessionStart hook. Memory injections appear as `systemMessage` context so users can see MeMesh working.
-- No public API changes. Behaviour is unchanged for users with `autoUpdate: 'off'` (the default).
+- No public API changes. Behaviour is unchanged for users not switching embedding providers.
+- The `pending_reindex` flag is cleared automatically when `memesh reindex` completes — no manual cleanup needed.
 
 ## [4.1.3] — 2026-05-06
 
