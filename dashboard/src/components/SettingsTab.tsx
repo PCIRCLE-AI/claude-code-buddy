@@ -52,6 +52,8 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   const [provider, setProvider] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
+  const [initialProvider, setInitialProvider] = useState('');
+  const [initialModel, setInitialModel] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [testResult, setTestResult] = useState<ConfigTestResult | null>(null);
@@ -90,8 +92,12 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
     api<ConfigData>('GET', '/v1/config')
       .then((data) => {
         setConfig(data);
-        setProvider(data.config.llm?.provider || '');
-        setModel(data.config.llm?.model || '');
+        const p = data.config.llm?.provider || '';
+        const m = data.config.llm?.model || '';
+        setProvider(p);
+        setModel(m);
+        setInitialProvider(p);
+        setInitialModel(m);
       })
       .finally(() => setLoading(false));
 
@@ -376,15 +382,29 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <button class="btn btn-primary" type="submit" disabled={!provider || saving || !testResult?.valid}>
-              {saving ? t('settings.saving') : t('settings.save')}
-            </button>
-            {!testResult?.valid && provider && (
-              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('settings.testRequired')}</span>
-            )}
-            {msg && <span style={{ fontSize: 12, color: msg.startsWith(t('common.error')) ? 'var(--danger)' : 'var(--success)' }}>{msg}</span>}
-          </div>
+          {/* LLM section is "dirty" only when the user actually changed
+              provider, entered a new apiKey, or picked a different model.
+              Untouched form (e.g. user opened Settings just to glance) does
+              not require a fresh Test before Save. */}
+          {(() => {
+            const dirty =
+              provider !== initialProvider ||
+              !!apiKey ||
+              model !== initialModel;
+            const needsTest = dirty && !testResult?.valid;
+            const saveDisabled = !provider || saving || needsTest;
+            return (
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <button class="btn btn-primary" type="submit" disabled={saveDisabled}>
+                  {saving ? t('settings.saving') : t('settings.save')}
+                </button>
+                {needsTest && (
+                  <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('settings.testRequired')}</span>
+                )}
+                {msg && <span style={{ fontSize: 12, color: msg.startsWith(t('common.error')) ? 'var(--danger)' : 'var(--success)' }}>{msg}</span>}
+              </div>
+            );
+          })()}
         </form>
       </div>
 

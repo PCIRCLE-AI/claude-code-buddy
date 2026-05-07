@@ -149,6 +149,73 @@ describe('provider probes (mocked fetch)', () => {
     expect(r.error).toContain('no models installed');
   });
 
+  it('probeOllama rejects non-loopback host (SSRF guard)', async () => {
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as any;
+
+    const r = await probeOllama('http://10.0.0.5:11434');
+    expect(r.valid).toBe(false);
+    expect(r.error).toContain('loopback');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('probeOllama rejects file:// and other non-http schemes', async () => {
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as any;
+
+    const r = await probeOllama('file:///etc/passwd');
+    expect(r.valid).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('probeOllama allows OLLAMA_HOST env var to override loopback restriction', async () => {
+    const original = process.env.OLLAMA_HOST;
+    process.env.OLLAMA_HOST = 'http://internal-ollama.example:11434';
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ models: [{ name: 'llama3' }] }),
+    })) as any;
+    try {
+      // Pass no host arg — env var path is privileged (operator-controlled)
+      const r = await probeOllama();
+      expect(r.valid).toBe(true);
+    } finally {
+      if (original === undefined) delete process.env.OLLAMA_HOST;
+      else process.env.OLLAMA_HOST = original;
+    }
+  });
+
+  it('error messages from upstream are stripped of control characters', async () => {
+    global.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      body: {
+        getReader: () => {
+          let done = false;
+          return {
+            read: async () => {
+              if (done) return { done: true, value: undefined };
+              done = true;
+              const json = JSON.stringify({
+                error: { type: 'auth', message: 'bad\x00key\x07with\x1Bcontrol' },
+              });
+              return { done: false, value: new TextEncoder().encode(json) };
+            },
+            cancel: async () => {},
+          };
+        },
+      },
+      text: async () => '',
+    })) as any;
+
+    const r = await probeAnthropic('sk-ant-bad');
+    expect(r.valid).toBe(false);
+    expect(r.error).not.toMatch(/[\x00-\x08\x0B-\x1F]/);
+    expect(r.error).toContain('bad');
+    expect(r.error).toContain('key');
+  });
+
   it('probeProvider routes to the right probe function', async () => {
     global.fetch = vi.fn(async () => ({
       ok: true,
