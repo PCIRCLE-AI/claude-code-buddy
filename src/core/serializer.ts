@@ -93,10 +93,16 @@ export function importMemories(args: ImportInput): ImportResult {
           continue;
         }
         if (args.merge_strategy === 'append') {
+          // Pass trustOverride directly so the createEntity confidence-
+          // bump gate denies the lift on untrusted imports. Codex
+          // caught a P1 where the trust value was being set via
+          // updateEntityMetadata AFTER createEntity returned, so the
+          // gate read undefined → defaulted to trusted → bumped.
           kg.createEntity(entity.name, entity.type, {
             observations: entity.observations,
             tags: entity.tags,
             namespace,
+            trustOverride: 'untrusted',
           });
           kg.updateEntityMetadata(entity.name, () => importedMetadata);
           appended++;
@@ -111,6 +117,7 @@ export function importMemories(args: ImportInput): ImportResult {
         tags: entity.tags,
         metadata: importedMetadata,
         namespace,
+        trustOverride: 'untrusted',
       });
       if (existing) {
         kg.updateEntityMetadata(entity.name, () => importedMetadata);

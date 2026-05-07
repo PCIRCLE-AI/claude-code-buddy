@@ -144,6 +144,29 @@ describe('G1 — confidence bump paths', () => {
     expect(getConfidence('decayed')).toBeCloseTo(0.45, 5);
   });
 
+  it('importMemories(append) does NOT bump confidence on existing entities (Codex P1 round 4)', async () => {
+    const { importMemories } = await import('../src/core/serializer.js');
+    expect(getConfidence('decayed')).toBeCloseTo(0.4, 5);
+    importMemories({
+      data: {
+        version: '1.0',
+        exported_at: new Date().toISOString(),
+        entities: [
+          {
+            id: 0,
+            name: 'decayed',
+            type: 'lesson_learned',
+            created_at: new Date().toISOString(),
+            observations: ['imported observation that did not exist before'],
+            tags: [],
+          } as any,
+        ],
+      },
+      merge_strategy: 'append',
+    });
+    expect(getConfidence('decayed')).toBeCloseTo(0.4, 5);
+  });
+
   it('createExplicitLesson resets confidence to 1.0 — highest-trust signal', async () => {
     // First: simulate a prior decayed lesson_learned for this project.
     kg.createEntity('lesson-test-project-network-error', 'lesson_learned', {
