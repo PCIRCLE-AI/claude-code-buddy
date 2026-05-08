@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import type { HealthData } from '../lib/api';
+import { api, type HealthData } from '../lib/api';
 import { t } from '../lib/i18n';
 
 const DISMISS_KEY = 'memesh.onboardingDismissed';
@@ -8,21 +8,35 @@ interface Props {
   health: HealthData | null;
 }
 
+interface SeedResult {
+  inserted: number;
+  removed: number;
+}
+
 /**
  * SDD plan SPEC-4: a fresh install with 0 memories renders empty
  * charts in every tab — first-impression confusion. This banner
  * surfaces above the tab nav whenever `entity_count === 0` AND the
  * user has not previously dismissed it.
  *
+ * One-click affordance: a user staring at empty charts should not
+ * have to open a terminal to bootstrap. The "Try the demo" button
+ * POSTs `/v1/demo/seed` and dispatches `memesh:data-changed` so the
+ * dashboard refetches `/v1/health`; the banner then auto-retires
+ * once entity_count climbs above zero. CLI users still have
+ * `memesh demo` for headless / CI flows; the on-screen code chips
+ * are kept as power-user reference, not the primary path.
+ *
  * Dismissal is local-only (`localStorage.memesh.onboardingDismissed`).
- * Once the user runs `memesh demo` or stores a real memory the
- * entity count climbs above zero and the banner stops rendering by
- * itself — no need to also clear the flag.
+ * Once the user runs the demo or stores a real memory the entity
+ * count climbs above zero and the banner stops rendering by itself.
  */
 export function OnboardingBanner({ health }: Props) {
   const [dismissed, setDismissed] = useState<boolean>(() => {
     try { return localStorage.getItem(DISMISS_KEY) === 'true'; } catch { return false; }
   });
+  const [pending, setPending] = useState<'seed' | 'reset' | null>(null);
+  const [error, setError] = useState<string>('');
 
   // If the dataset transitions from empty to non-empty, hide the
   // banner immediately — even before the user dismisses — so the
@@ -38,6 +52,34 @@ export function OnboardingBanner({ health }: Props) {
   function dismiss() {
     setDismissed(true);
     try { localStorage.setItem(DISMISS_KEY, 'true'); } catch { /* private mode */ }
+  }
+
+  async function runSeed() {
+    setError('');
+    setPending('seed');
+    try {
+      await api<SeedResult>('POST', '/v1/demo/seed');
+      // Tell App + every other tab to refetch — `/v1/health`
+      // entity_count will now be 30 and the banner auto-retires.
+      window.dispatchEvent(new Event('memesh:data-changed'));
+    } catch (e: any) {
+      setError(e?.message ?? String(e));
+      setPending(null);
+    }
+  }
+
+  async function runReset() {
+    if (!confirm(t('onboarding.resetConfirm'))) return;
+    setError('');
+    setPending('reset');
+    try {
+      await api<SeedResult>('POST', '/v1/demo/reset');
+      window.dispatchEvent(new Event('memesh:data-changed'));
+    } catch (e: any) {
+      setError(e?.message ?? String(e));
+    } finally {
+      setPending(null);
+    }
   }
 
   return (
@@ -80,42 +122,78 @@ export function OnboardingBanner({ health }: Props) {
       <div style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--text-1)' }}>
         {t('onboarding.body')}
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 10 }}>
-        <code
-          style={{
-            padding: '6px 10px',
-            background: 'rgba(0, 0, 0, 0.3)',
-            border: '1px solid rgba(0, 214, 180, 0.20)',
-            borderRadius: 4,
-            color: 'var(--accent)',
-            fontFamily: 'var(--mono)',
-            fontSize: 12,
-          }}
+
+      {/* Primary one-click affordance — no terminal required. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12, alignItems: 'center' }}>
+        <button
+          type="button"
+          class="btn btn-primary"
+          onClick={runSeed}
+          disabled={pending !== null}
+          style={{ minWidth: 160 }}
         >
-          memesh demo
-        </code>
-        <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
-          {t('onboarding.hintDemo')}
-        </span>
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 6 }}>
-        <code
-          style={{
-            padding: '6px 10px',
-            background: 'rgba(0, 0, 0, 0.3)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: 4,
-            color: 'var(--text-2)',
-            fontFamily: 'var(--mono)',
-            fontSize: 12,
-          }}
-        >
-          memesh demo --reset --yes
-        </code>
+          {pending === 'seed' ? t('onboarding.seedingButton') : t('onboarding.seedButton')}
+        </button>
         <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
-          {t('onboarding.hintReset')}
+          {t('onboarding.seedHint')}
         </span>
       </div>
+
+      {/* Power-user CLI reference — kept for headless / CI flows. */}
+      <details style={{ marginTop: 10, fontSize: 12, color: 'var(--text-3)' }}>
+        <summary style={{ cursor: 'pointer' }}>{t('onboarding.cliReference')}</summary>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8 }}>
+          <code
+            style={{
+              padding: '6px 10px',
+              background: 'rgba(0, 0, 0, 0.3)',
+              border: '1px solid rgba(0, 214, 180, 0.20)',
+              borderRadius: 4,
+              color: 'var(--accent)',
+              fontFamily: 'var(--mono)',
+              fontSize: 12,
+            }}
+          >
+            memesh demo
+          </code>
+          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+            {t('onboarding.hintDemo')}
+          </span>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, alignItems: 'center' }}>
+          <code
+            style={{
+              padding: '6px 10px',
+              background: 'rgba(0, 0, 0, 0.3)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 4,
+              color: 'var(--text-2)',
+              fontFamily: 'var(--mono)',
+              fontSize: 12,
+            }}
+          >
+            memesh demo --reset --yes
+          </code>
+          <button
+            type="button"
+            class="btn"
+            onClick={runReset}
+            disabled={pending !== null}
+            style={{ fontSize: 11, padding: '4px 10px' }}
+          >
+            {pending === 'reset' ? t('onboarding.resettingButton') : t('onboarding.resetButton')}
+          </button>
+          <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+            {t('onboarding.hintReset')}
+          </span>
+        </div>
+      </details>
+
+      {error && (
+        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--danger)' }}>
+          {error}
+        </div>
+      )}
     </div>
   );
 }

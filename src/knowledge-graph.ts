@@ -621,8 +621,18 @@ export class KnowledgeGraph {
     return { removed: true, remainingObservations: remaining.c };
   }
 
-  /** @deprecated Use archiveEntity() instead. Retained for admin/testing only. */
-  private deleteEntity(name: string): { deleted: boolean } {
+  /**
+   * Hard-delete an entity by name. Removes the FTS entry first (the
+   * contentless virtual table needs the original observations to
+   * locate its row), then DELETE FROM entities — the foreign-key
+   * cascade handles observations, tags, and relations.
+   *
+   * Prefer `archiveEntity()` for user-facing forget flows: archiving
+   * preserves the row for restore + analytics. This hard delete is
+   * the right tool only when the entity should not exist at all
+   * (e.g. demo cleanup after `memesh demo --reset`).
+   */
+  deleteEntity(name: string): { deleted: boolean } {
     const row = this.db
       .prepare('SELECT id FROM entities WHERE name = ?')
       .get(name) as { id: number } | undefined;

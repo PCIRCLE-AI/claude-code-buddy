@@ -106,18 +106,23 @@ export function seedDemo(
   opts: { reset?: boolean } = {},
 ): SeedResult {
   if (opts.reset) {
-    // Remove every entity carrying metadata.demo = true. The cascading
-    // foreign keys on observations/tags/relations clean up the rest.
+    // Remove every entity carrying metadata.demo = true. We route the
+    // delete through KnowledgeGraph.deleteEntity rather than a raw
+    // DELETE because the contentless FTS5 virtual table and the
+    // sqlite-vec table both keep their own row pointers — a bare
+    // DELETE FROM entities leaves orphaned index rows that surface
+    // later as phantom search hits. (Codex review caught this on the
+    // first pass.)
+    const kgInner = new KnowledgeGraph(db);
     const rows = db.prepare(
-      "SELECT id FROM entities WHERE metadata IS NOT NULL AND json_extract(metadata, '$.demo') = 1",
-    ).all() as Array<{ id: number }>;
+      "SELECT name FROM entities WHERE metadata IS NOT NULL AND json_extract(metadata, '$.demo') = 1",
+    ).all() as Array<{ name: string }>;
     if (rows.length === 0) return { inserted: 0, removed: 0 };
-    const stmt = db.prepare('DELETE FROM entities WHERE id = ?');
-    const txn = db.transaction(() => {
-      for (const r of rows) stmt.run(r.id);
-    });
-    txn();
-    return { inserted: 0, removed: rows.length };
+    let removed = 0;
+    for (const r of rows) {
+      if (kgInner.deleteEntity(r.name).deleted) removed++;
+    }
+    return { inserted: 0, removed };
   }
 
   const kg = new KnowledgeGraph(db);

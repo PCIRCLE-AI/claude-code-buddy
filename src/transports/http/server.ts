@@ -494,6 +494,31 @@ app.get('/v1/analytics', (_req, res) => {
   try { res.json({ success: true, data: computeAnalytics(getDatabase()) }); }
   catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
 });
+// --- Demo seeder ---
+//
+// SDD plan SPEC-4: a fresh install renders empty charts. The dashboard
+// onboarding banner POSTs to these endpoints so the user gets a
+// one-click tour without leaving the GUI to run `memesh demo` from a
+// terminal. The CLI command remains for headless / CI flows.
+app.post('/v1/demo/seed', async (_req, res) => {
+  try {
+    const { seedDemo } = await import('../../core/demo.js');
+    const data = seedDemo(getDatabase());
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+app.post('/v1/demo/reset', async (_req, res) => {
+  try {
+    const { seedDemo } = await import('../../core/demo.js');
+    const data = seedDemo(getDatabase(), { reset: true });
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // --- Projects ---
 //
 // Lists distinct projects extracted from entity tags (`project:*`) and entity
