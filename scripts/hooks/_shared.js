@@ -444,10 +444,10 @@ export function tryAcquireAutoUpdateLock(version) {
     // our token won. If a concurrent caller's rename landed in the
     // window between our rename and our read, their token is now there
     // and we correctly conclude we did NOT acquire the lock. That race
-    // outcome IS the contract — CodeQL flags it as TOCTOU but it is the
-    // standard last-writer-wins lock-file pattern.
-    // codeql[js/file-system-race]: justified — the read is the lock
-    // verification step, not a post-check before mutation.
+    // outcome IS the contract — last-writer-wins lock-file pattern, not
+    // a TOCTOU defect. (CodeQL js/file-system-race #82 is dismissed on
+    // the security dashboard with this rationale; CodeQL does not honor
+    // inline suppression comments, so dismissal is the correct route.)
     let recorded;
     try { recorded = fs.readFileSync(lockPath, 'utf8'); } catch { return { acquired: false, lockPath }; }
     return recorded.split('\n')[0] === myToken
