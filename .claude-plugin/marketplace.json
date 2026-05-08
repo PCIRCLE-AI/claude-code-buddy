@@ -1,0 +1,25 @@
+{
+  "name": "pcircle-ai",
+  "owner": {
+    "name": "PCIRCLE AI"
+  },
+  "plugins": [
+    {
+      "name": "memesh",
+      "source": "./",
+      "description": "MeMesh — Local memory for Claude Code and MCP coding agents. One SQLite file, zero cloud required.",
+      "version": "4.1.6",
+      "author": {
+        "name": "PCIRCLE AI"
+      },
+      "homepage": "https://pcircle.ai/memesh-llm-memory",
+      "license": "MIT",
+      "keywords": [
+        "claude-code",
+        "mcp",
+        "knowledge-graph",
+        "ai-memory"
+      ]
+    }
+  ]
+}
