@@ -163,6 +163,30 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
     }
   }
 
+  // F17: Remove the configured LLM provider entirely (drops apiKey + model).
+  // After this, memesh falls back to env-var auto-detect (anthropic > openai
+  // > ollama). If no env credential is present either, memesh runs in Core
+  // Mode (FTS5 + ONNX embeddings, no LLM-backed features).
+  async function removeProvider() {
+    if (!confirm(t('settings.removeProviderConfirm'))) return;
+    setSaving(true);
+    setMsg('');
+    try {
+      await api('POST', '/v1/config', { llm: null });
+      setProvider('');
+      setModel('');
+      setApiKey('');
+      setInitialProvider('');
+      setInitialModel('');
+      setTestResult(null);
+      setMsg(t('settings.providerRemoved'));
+    } catch (e: any) {
+      setMsg(t('common.error') + ': ' + e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   if (loading) return <div class="empty"><div class="loading" /></div>;
 
   const caps = config?.capabilities;
@@ -421,10 +445,30 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             const needsTest = dirty && !testResult?.valid;
             const saveDisabled = !provider || saving || needsTest;
             return (
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button class="btn btn-primary" type="submit" disabled={saveDisabled}>
                   {saving ? t('settings.saving') : t('settings.save')}
                 </button>
+                {/* F17: Show Remove button only when a provider is currently
+                    saved. Hides on fresh installs where there's nothing to
+                    remove, and matches the destructive-action UX pattern of
+                    only showing it for resources that actually exist. */}
+                {initialProvider && (
+                  <button
+                    type="button"
+                    class="btn"
+                    onClick={removeProvider}
+                    disabled={saving}
+                    style={{
+                      borderColor: 'var(--danger)',
+                      color: 'var(--danger)',
+                      background: 'transparent',
+                    }}
+                    title={t('settings.removeProviderHint')}
+                  >
+                    {t('settings.removeProvider')}
+                  </button>
+                )}
                 {needsTest && (
                   <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('settings.testRequired')}</span>
                 )}

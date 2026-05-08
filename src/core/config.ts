@@ -106,12 +106,24 @@ export function writeConfig(config: MeMeshConfig): void {
   }
 }
 
-export function updateConfig(partial: Partial<MeMeshConfig>): MeMeshConfig {
+export function updateConfig(
+  partial: Omit<Partial<MeMeshConfig>, 'llm'> & { llm?: LLMConfig | null },
+): MeMeshConfig {
   const existing = readConfig();
-  // Deep-merge llm object to preserve apiKey when only provider/model change
-  const config = { ...existing, ...partial };
-  if (partial.llm && existing.llm) {
-    config.llm = { ...existing.llm, ...partial.llm };
+  // F17: explicit null on `llm` removes the provider entirely (Core Mode).
+  // Used by the dashboard "Remove provider" action to drop apiKey + provider
+  // + model so memesh falls back to either env-var auto-detect or no LLM.
+  // Build the new config explicitly so the Partial<...> & null union doesn't
+  // leak into the MeMeshConfig output type.
+  const { llm: partialLlm, ...partialRest } = partial;
+  const config: MeMeshConfig = { ...existing, ...partialRest };
+  if (partialLlm === null) {
+    delete config.llm;
+  } else if (partialLlm && existing.llm) {
+    // Deep-merge llm object to preserve apiKey when only provider/model change
+    config.llm = { ...existing.llm, ...partialLlm };
+  } else if (partialLlm) {
+    config.llm = partialLlm;
   }
   writeConfig(config);
   return config;
@@ -129,25 +141,23 @@ export function maskApiKey(key: string): string {
 /**
  * Detect a candidate LLM config from environment variables.
  *
- * IMPORTANT: this is now an opt-in helper. It is only consulted when the user
- * has explicitly enabled it via `MEMESH_AUTO_DETECT_LLM=1`. Without that
- * opt-in, the mere presence of `OPENAI_API_KEY` (or `ANTHROPIC_API_KEY`,
- * `OLLAMA_HOST`) in the user's shell does NOT cause memesh to commit to that
- * provider. Many users have those env vars set for other tools but want
- * memesh to default to its local-first behavior.
+ * Priority: remote (anthropic > openai) > local (ollama). Rationale: when a
+ * user has supplied a remote API key, they have implicitly opted in to a
+ * higher-quality, lower-latency LLM. Local ollama is the fallback for the
+ * "fully offline" install, used only when no remote credential is present.
  *
- * This was a real ship-blocker: pre-4.1.0, having `OPENAI_API_KEY` in env on
- * a fresh install caused `detectCapabilities` to return `embeddings: 'openai'`
- * (1536-dim), which locked the entities_vec table to 1536, then on the first
- * `remember` call the embed-with-provider step would fail (invalid/expired
- * key, network, etc.), fall back to ONNX (384-dim), and emit a confusing
- * "dimension mismatch (got 384, expected 1536)" warning while silently
- * skipping the vector write. Fresh installs should "just work" with local
- * embeddings; cloud providers must be an explicit opt-in via
- * `memesh config set llm.provider <openai|anthropic|ollama>`.
+ * Auto-detection is now safe by default (no opt-in env var required). The
+ * pre-4.1.0 ship-blocker — fresh-install OPENAI_API_KEY in env locking the
+ * entities_vec table to 1536-dim and silently corrupting vector writes — was
+ * fixed in #36, which decoupled embedder from LLM provider. The embedder now
+ * defaults to ONNX (384-dim, local) regardless of what LLM is detected, so
+ * detecting a remote LLM no longer cascades into a dimension lock.
+ *
+ * Explicit `cfg.llm` in config.json still takes precedence (see
+ * `detectCapabilities`) — env auto-detect only fires when the user has not
+ * set a provider in their config.
  */
 function detectFromEnv(): LLMConfig | null {
-  if (process.env.MEMESH_AUTO_DETECT_LLM !== '1') return null;
   if (process.env.ANTHROPIC_API_KEY) {
     return { provider: 'anthropic', model: 'claude-haiku-4-5', apiKey: process.env.ANTHROPIC_API_KEY };
   }

@@ -103,15 +103,11 @@ describe('Config: detectCapabilities', () => {
     expect(caps.llm?.provider).toBe('ollama');
   });
 
-  it('does NOT auto-detect ANTHROPIC_API_KEY without explicit MEMESH_AUTO_DETECT_LLM=1', () => {
-    process.env.ANTHROPIC_API_KEY = 'sk-ant-env-key';
-    const caps = detectCapabilities({});
-    expect(caps.searchLevel).toBe(0);
-    expect(caps.llm).toBeNull();
-  });
-
-  it('detects ANTHROPIC_API_KEY from environment when MEMESH_AUTO_DETECT_LLM=1', () => {
-    process.env.MEMESH_AUTO_DETECT_LLM = '1';
+  // F17: Auto-detect from env is no longer gated behind MEMESH_AUTO_DETECT_LLM=1.
+  // The original ship-blocker (1536-dim embedding lock from auto-detected
+  // OPENAI_API_KEY) was fixed in #36 by decoupling embedder from LLM provider.
+  // Now the detection follows priority: anthropic > openai > ollama.
+  it('auto-detects ANTHROPIC_API_KEY from environment (no opt-in required)', () => {
     process.env.ANTHROPIC_API_KEY = 'sk-ant-env-key';
     const caps = detectCapabilities({});
     expect(caps.searchLevel).toBe(1);
@@ -119,20 +115,26 @@ describe('Config: detectCapabilities', () => {
     expect(caps.llm?.apiKey).toBe('sk-ant-env-key');
   });
 
-  it('detects OPENAI_API_KEY from environment when MEMESH_AUTO_DETECT_LLM=1 and no anthropic key', () => {
-    process.env.MEMESH_AUTO_DETECT_LLM = '1';
+  it('detects OPENAI_API_KEY from environment when no anthropic key', () => {
     process.env.OPENAI_API_KEY = 'sk-openai-env-key';
     const caps = detectCapabilities({});
     expect(caps.searchLevel).toBe(1);
     expect(caps.llm?.provider).toBe('openai');
   });
 
-  it('detects OLLAMA_HOST from environment when MEMESH_AUTO_DETECT_LLM=1', () => {
-    process.env.MEMESH_AUTO_DETECT_LLM = '1';
+  it('detects OLLAMA_HOST from environment when no remote keys', () => {
     process.env.OLLAMA_HOST = 'http://localhost:11434';
     const caps = detectCapabilities({});
     expect(caps.searchLevel).toBe(1);
     expect(caps.llm?.provider).toBe('ollama');
+  });
+
+  it('priority order: anthropic > openai > ollama when multiple env vars set', () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-env-key';
+    process.env.OPENAI_API_KEY = 'sk-openai-env-key';
+    process.env.OLLAMA_HOST = 'http://localhost:11434';
+    const caps = detectCapabilities({});
+    expect(caps.llm?.provider).toBe('anthropic');
   });
 
   it('explicit config.llm takes precedence over env vars', () => {
@@ -206,6 +208,28 @@ describe('Config: read/write/update (isolated temp dir)', () => {
 // ── #36: embedder/llm decoupling ──────────────────────────────────────────────
 
 describe('Config: embedder.provider decoupled from llm.provider (#36)', () => {
+  // F17: env auto-detect is no longer gated, so these tests must clear env
+  // vars to isolate from the host's ANTHROPIC_API_KEY etc. Otherwise the
+  // "no llm" cases get an auto-detected provider and searchLevel=1 instead
+  // of the expected Core-mode 0.
+  let savedEnv: Record<string, string | undefined>;
+  beforeEach(() => {
+    savedEnv = {
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+      OLLAMA_HOST: process.env.OLLAMA_HOST,
+    };
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OLLAMA_HOST;
+  });
+  afterEach(() => {
+    for (const [k, v] of Object.entries(savedEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
   it('explicit embedder.provider=onnx wins even when llm.provider=ollama', () => {
     // Pre-#36 this combination would have routed embeddings to
     // ollama (768-dim), invalidating any 384-dim ONNX vectors.

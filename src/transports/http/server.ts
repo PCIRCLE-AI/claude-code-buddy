@@ -373,11 +373,17 @@ app.get('/v1/config', (_req, res) => {
 });
 
 const ConfigBody = z.object({
-  llm: z.object({
-    provider: z.enum(['anthropic', 'openai', 'ollama']),
-    model: z.string().optional(),
-    apiKey: z.string().optional(),
-  }).optional(),
+  // F17: `llm: null` removes the provider entirely (Core Mode). Used by
+  // the dashboard "Remove provider" action so the user can opt out of
+  // LLM-backed features without hand-editing config.json.
+  llm: z.union([
+    z.object({
+      provider: z.enum(['anthropic', 'openai', 'ollama']),
+      model: z.string().optional(),
+      apiKey: z.string().optional(),
+    }),
+    z.null(),
+  ]).optional(),
   autoCapture: z.boolean().optional(),
   sessionLimit: z.number().int().min(1).max(100).optional(),
   // Opt-in for the experimental agentic-orchestration protocol.
@@ -411,8 +417,11 @@ app.post('/v1/config', async (req, res) => {
     // ONNX pipeline (or be about to use the now-stale apiKey path). Reset
     // so the next embed call picks up the new config — eliminates the
     // "restart server to apply" footgun.
+    // F17: `llm: null` removes the provider, which also counts as a change.
+    // `parsed.data.llm !== undefined` covers both set-to-something and
+    // set-to-null; `=== undefined` would be "user did not touch llm".
     const llmChanged =
-      parsed.data.llm &&
+      parsed.data.llm !== undefined &&
       (before.llm?.provider !== updated.llm?.provider ||
         before.llm?.apiKey !== updated.llm?.apiKey);
     if (llmChanged) {
