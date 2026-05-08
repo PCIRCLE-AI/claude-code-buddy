@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "memesh",
-      "source": ".",
+      "source": "./",
       "description": "MeMesh — Local memory for Claude Code and MCP coding agents. One SQLite file, zero cloud required.",
       "version": "4.1.6",
       "author": {

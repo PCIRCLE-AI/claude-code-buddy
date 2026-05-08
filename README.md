@@ -53,11 +53,11 @@ If you use Claude Code, install MeMesh as a plugin from inside the CLI:
 /plugin install memesh@pcircle-ai
 ```
 
-That's it. Hooks, MCP server, skills, and the dashboard ship together. No separate `install-hooks` step needed — Claude Code wires the plugin's hooks automatically.
+Claude Code wires the plugin's hooks and skills automatically — no `install-hooks` step needed. You get in-session auto-capture, proactive recall, and the `/memesh` skill (remember / recall / learn / forget) right in the Claude Code conversation. **For the standalone toolkit — `memesh` CLI on your shell, the dashboard, `memesh doctor`, or the `memesh-mcp` stdio server for non-Claude-Code agents — also install Option B below. The two paths are complementary.**
 
 ### Option B — npm global (works anywhere Node runs)
 
-If you want the CLI on your PATH outside Claude Code (Cursor, scripts, terminal-only flows), or you want fine-grained control over the install:
+For the full standalone toolkit (`memesh` CLI, dashboard launcher at `localhost:3737`, `memesh doctor`, `memesh-mcp` for Cursor / other MCP clients / terminal-only flows):
 
 ```bash
 npm install -g @pcircle/memesh
@@ -81,6 +81,8 @@ memesh doctor                # verifies "Hooks wired into Claude Code" passes
 The hooks coexist with any custom hooks you already have under `~/.claude/hooks/` — `install-hooks` writes additive entries and never overwrites yours. To remove later: `memesh uninstall-hooks`.
 
 ### Step 2: Store a decision
+
+> The bash examples in Step 2 / Step 3 use the `memesh` CLI from **Option B**. Option A (plugin-only) users do the same through Claude Code conversation — the `/memesh` skill and the plugin's hooks cover identical flows; remember / recall / learn / forget all work inside the Claude Code session without leaving it.
 
 ```bash
 memesh remember "Use OAuth 2.0 with PKCE for the new auth"

@@ -4,16 +4,23 @@ All notable changes to MeMesh are documented here.
 
 ## [4.1.6] — 2026-05-09
 
-Marketplace manifest — memesh is now installable as a Claude Code plugin in one step.
+Marketplace manifest — memesh is installable as a Claude Code plugin in one step. Two install routes (plugin and npm) are now positioned as complementary, not exclusive.
 
 ### Added
-- **`.claude-plugin/marketplace.json`** companion to the plugin manifest. With this file, the repo doubles as its own one-plugin marketplace. Users can now install with:
+- **`.claude-plugin/marketplace.json`** companion to the plugin manifest. With this file, the repo doubles as its own one-plugin marketplace. Users can install with:
   ```
   /plugin marketplace add PCIRCLE-AI/memesh-llm-memory
   /plugin install memesh@pcircle-ai
   ```
-  vs. the previous flow of `npm install -g @pcircle/memesh && memesh install-hooks`. The npm path still works and is preserved verbatim — this is an additional install route, not a replacement.
+  alongside the existing `npm install -g @pcircle/memesh && memesh install-hooks` flow. The npm path is preserved verbatim — this is an additional install route, not a replacement.
 - **`.gitignore`** further narrowed: previously `.claude-plugin/marketplace.json` was ignored alongside `.claude-plugin/plugin.json`. Now only `.claude-plugin/<other-plugin>/` subdirectories are ignored (where local-dev plugin installs land).
+
+### Documentation
+- **README Get Started** rewritten to describe the two install routes as **complementary**, not exclusive. The plugin (Option A) gives in-session auto-capture, recall, and the `/memesh` skill. The npm install (Option B) gives the standalone toolkit: `memesh` CLI, dashboard launcher, `memesh doctor`, and the `memesh-mcp` stdio server for non-Claude-Code agents. The previous "ships together" wording overstated what a plugin-only install provides.
+- **Step 2 / Step 3** examples are clarified as Option B CLI flows, with a one-line note that Option A users do the same operations through the Claude Code conversation.
+
+### Fixed
+- **`marketplace.json` `source` field** changed from `"."` to `"./"` to match the [Claude Code marketplace spec](https://code.claude.com/docs/en/plugin-marketplaces#relative-paths) ("Must start with `./`"). Behaviour is unchanged in practice — both forms resolve to the marketplace root — but only `"./"` is spec-compliant.
 
 ### Backward compatibility
 - Same as v4.1.5: `npm install -g` users + `memesh install-hooks` users see no behaviour change.
