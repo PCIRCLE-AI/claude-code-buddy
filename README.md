@@ -50,7 +50,7 @@ If you use Claude Code, install MeMesh as a plugin from inside the CLI:
 
 ```
 /plugin marketplace add PCIRCLE-AI/memesh-llm-memory
-/plugin install memesh@pcircle-ai
+/plugin install memesh@pcircle-memesh
 ```
 
 Claude Code wires hooks, skills, and the MCP server automatically. You get in-session auto-capture, proactive recall, the `/memesh` skill (remember / recall / learn / forget) inside the Claude Code conversation, and `remember` / `recall` / `forget` / `learn` available as MCP tools to the agent. The CLI and the local dashboard are also fully accessible without any extra global install — `npx @pcircle/memesh <command>` runs every CLI command, and `npx @pcircle/memesh` launches the dashboard at `localhost:3737`. The MCP server uses the same `npx`-based launch pattern as Anthropic's official plugins (e.g. `context7`), so no `npm install -g` is needed for any feature.
@@ -69,7 +69,7 @@ npm install -g @pcircle/memesh
 
 ### Step 1.5: Wire MeMesh into Claude Code (npm path only)
 
-If you installed via **Option A** (`/plugin install memesh@pcircle-ai`), skip this step — Claude Code wires plugin hooks automatically.
+If you installed via **Option A** (`/plugin install memesh@pcircle-memesh`), skip this step — Claude Code wires plugin hooks automatically.
 
 If you installed via **Option B** (`npm install -g`), the CLI is on your PATH and the MCP server is registered, but the Claude Code session hooks are not auto-wired. Without them you can still use `memesh remember` / `recall` manually, but the **auto-capture loop** (sessions → lessons → recall on next session) is silent.
 
