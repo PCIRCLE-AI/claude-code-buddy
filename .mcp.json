@@ -1,7 +1,8 @@
 {
   "mcpServers": {
     "memesh": {
-      "command": "memesh-mcp"
+      "command": "npx",
+      "args": ["-y", "-p", "@pcircle/memesh", "memesh-mcp"]
     }
   }
 }

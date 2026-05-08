@@ -53,11 +53,11 @@ If you use Claude Code, install MeMesh as a plugin from inside the CLI:
 /plugin install memesh@pcircle-ai
 ```
 
-Claude Code wires the plugin's hooks and skills automatically — no `install-hooks` step needed. You get in-session auto-capture, proactive recall, and the `/memesh` skill (remember / recall / learn / forget) right in the Claude Code conversation. **For the standalone toolkit — `memesh` CLI on your shell, the dashboard, `memesh doctor`, or the `memesh-mcp` stdio server for non-Claude-Code agents — also install Option B below. The two paths are complementary.**
+Claude Code wires hooks, skills, and the MCP server automatically. You get in-session auto-capture, proactive recall, the `/memesh` skill (remember / recall / learn / forget) inside the Claude Code conversation, and `remember` / `recall` / `forget` / `learn` available as MCP tools to the agent. The CLI and the local dashboard are also fully accessible without any extra global install — `npx @pcircle/memesh <command>` runs every CLI command, and `npx @pcircle/memesh` launches the dashboard at `localhost:3737`. The MCP server uses the same `npx`-based launch pattern as Anthropic's official plugins (e.g. `context7`), so no `npm install -g` is needed for any feature.
 
-### Option B — npm global (works anywhere Node runs)
+### Option B — npm global (optional optimisation)
 
-For the full standalone toolkit (`memesh` CLI, dashboard launcher at `localhost:3737`, `memesh doctor`, `memesh-mcp` for Cursor / other MCP clients / terminal-only flows):
+If you want the binary directly on your shell `PATH` (so plain `memesh`, `memesh-mcp`, etc. work in any terminal without the per-call `npx` lookup), or you want to expose `memesh-mcp` as a fixed-path stdio command to **non-Claude-Code MCP clients** (Cursor, Cline, terminal-only flows):
 
 ```bash
 npm install -g @pcircle/memesh
@@ -82,7 +82,7 @@ The hooks coexist with any custom hooks you already have under `~/.claude/hooks/
 
 ### Step 2: Store a decision
 
-> The bash examples in Step 2 / Step 3 use the `memesh` CLI from **Option B**. Option A (plugin-only) users do the same through Claude Code conversation — the `/memesh` skill and the plugin's hooks cover identical flows; remember / recall / learn / forget all work inside the Claude Code session without leaving it.
+> The bash examples below assume `memesh` is on your `PATH` (Option B). Option A (plugin-only) users have two equivalent paths: ask in the Claude Code conversation (the `/memesh` skill + MCP tools cover the same flows), or replace `memesh` with `npx @pcircle/memesh` in any shell — same flags, no global install needed.
 
 ```bash
 memesh remember "Use OAuth 2.0 with PKCE for the new auth"
