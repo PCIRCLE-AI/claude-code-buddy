@@ -806,13 +806,63 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown database error';
+
+    // F15: Provide actionable diagnosis for common database failures
+    let diagnosis = '';
+    let fix = '';
+
+    // Check if database file exists but can't be opened
+    if (existsSyncImpl(databasePath)) {
+      try {
+        const stat = statSyncImpl(databasePath);
+        const canRead = !!(stat.mode & 0o400);
+        const canWrite = !!(stat.mode & 0o200);
+
+        if (!canRead || !canWrite) {
+          diagnosis = `Database file exists but has insufficient permissions (${(stat.mode & 0o777).toString(8)})`;
+          fix = `Fix permissions: chmod 600 "${databasePath}"`;
+        } else if (stat.size === 0) {
+          diagnosis = 'Database file is empty (0 bytes) — likely corrupted';
+          fix = `Delete and recreate: rm "${databasePath}" && memesh recall (will create fresh DB)`;
+        } else {
+          diagnosis = `Database file exists (${stat.size} bytes) but cannot be opened: ${message}`;
+          fix = `Backup and reset: mv "${databasePath}" "${databasePath}.backup" && memesh recall`;
+        }
+      } catch {
+        diagnosis = `Database file exists at ${databasePath} but stat() failed: ${message}`;
+        fix = `Check file system integrity and permissions`;
+      }
+    } else {
+      // Database file doesn't exist — check parent directory
+      const dir = path.dirname(databasePath);
+      if (!existsSyncImpl(dir)) {
+        diagnosis = `Database directory does not exist: ${dir}`;
+        fix = `Create directory: mkdir -p "${dir}" && memesh recall (will create fresh DB)`;
+      } else {
+        try {
+          const dirStat = statSyncImpl(dir);
+          const canWrite = !!(dirStat.mode & 0o200);
+          if (!canWrite) {
+            diagnosis = `Cannot create database — directory is not writable: ${dir}`;
+            fix = `Fix directory permissions: chmod 700 "${dir}"`;
+          } else {
+            diagnosis = `Database file missing at ${databasePath}, but directory exists and is writable`;
+            fix = `Run any memesh command (e.g., memesh recall) to create a fresh database`;
+          }
+        } catch {
+          diagnosis = `Database directory exists but cannot be accessed: ${dir}`;
+          fix = `Check directory permissions and ownership`;
+        }
+      }
+    }
+
     checks.push(
       createCheck(
         'database',
         'Database',
         'fail',
-        `Database could not be opened at ${databasePath} (${message}).`,
-        `Check MEMESH_DB_PATH permissions and path validity. Under a normal install, MeMesh uses ${databasePath} by default.`,
+        diagnosis,
+        fix,
       ),
     );
   } finally {

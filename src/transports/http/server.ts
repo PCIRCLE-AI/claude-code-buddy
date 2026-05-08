@@ -244,7 +244,16 @@ app.get('/v1/health', (_req, res) => {
     const count = db.prepare('SELECT COUNT(*) as c FROM entities').get() as CountRow;
     res.json({ success: true, data: { status: 'ok', version: packageVersion, entity_count: count.c } });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    // F15: Provide actionable error message for database initialization failures
+    if (err.message === 'Database not opened') {
+      res.status(503).json({
+        success: false,
+        error: 'Database not initialized',
+        details: 'MeMesh database failed to open at startup. Check server logs for details, or run "memesh doctor" to diagnose.',
+      });
+    } else {
+      res.status(500).json({ success: false, error: err.message });
+    }
   }
 });
 
@@ -695,10 +704,44 @@ export function startServer(
   // `bearerAuth`, so the token only matters for connections that
   // arrived on a remote-bound socket. Leaving the token in place is
   // safe: loopback requests skip the check before it's read.
-  openDatabase();
+
+  // F15: Startup health check — fail fast with actionable error if DB
+  // cannot be opened. Previously, openDatabase() failure was an uncaught
+  // promise rejection in CLI async action, leaving the server running
+  // but returning 500 on every request with cryptic "Database not opened"
+  // message. Now we validate and provide clear remediation steps.
+  try {
+    openDatabase();
+    // Verify DB is actually usable (schema exists, can query)
+    const db = getDatabase();
+    db.prepare('SELECT COUNT(*) FROM entities').get();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const dbPath = process.env.MEMESH_DB_PATH || path.join(homedir(), '.memesh', 'knowledge-graph.db');
+    console.error('\n❌ MeMesh startup failed: database cannot be opened\n');
+    console.error(`   Database path: ${dbPath}`);
+    console.error(`   Error: ${message}\n`);
+    console.error('Possible causes:');
+    console.error('  • Database file is corrupted (run: memesh doctor)');
+    console.error('  • Insufficient permissions (check file ownership)');
+    console.error('  • Another process has locked the database');
+    console.error('  • Disk is full or read-only\n');
+    console.error('Quick fix: Backup and reset the database:');
+    console.error(`  mv "${dbPath}" "${dbPath}.backup"`);
+    console.error('  memesh (will create a fresh database)\n');
+    throw new Error(`Database initialization failed: ${message}`);
+  }
+
   logCapabilities();
   const server = app.listen(port, host, () => {
-    console.log(`MeMesh HTTP server running at http://${host}:${port}`);
+    // F15: Show actual bound address, not the input parameter. When port=0
+    // (random port), the input shows "http://127.0.0.1:0" which is confusing.
+    const addr = server.address();
+    if (addr && typeof addr === 'object') {
+      console.log(`MeMesh HTTP server running at http://${addr.address}:${addr.port}`);
+    } else {
+      console.log(`MeMesh HTTP server running at http://${host}:${port}`);
+    }
   });
   // Tag this listener as auth-required-or-not. bearerAuth reads this
   // back via `req.socket.server` so the requirement is per-listener,
