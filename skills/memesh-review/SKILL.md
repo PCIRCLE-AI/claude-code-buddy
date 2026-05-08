@@ -121,12 +121,28 @@ memesh recall --limit 5 --json    # confirm changes took effect
 
 ### How to Execute
 
+**Automated script** (recommended):
 ```bash
-# Quick verification script
-grep -h "Version:" docs/ARCHITECTURE.md docs/api/API_REFERENCE.md package.json
-ls -1 scripts/hooks/*.js | wc -l  # should match docs count
-grep "dual" docs/ skills/ README.md  # should find none (or only valid uses)
+./scripts/verify-docs-sync.sh
+# Exit code 0 = all checks pass
 ```
+
+**Manual checks**:
+```bash
+# Version consistency
+grep -h "Version:" docs/ARCHITECTURE.md docs/api/API_REFERENCE.md package.json
+
+# Hook count
+ls -1 scripts/hooks/*.js | wc -l  # should match docs count
+
+# Deprecated terms
+grep "dual" docs/ skills/ README.md  # should find none (or only valid uses)
+
+# Lint (if configured)
+npm run lint  # 0 errors expected, warnings are technical debt
+```
+
+**Note on lint**: v4.1.14+ has ESLint configured. Current status: 0 errors, ~83 warnings (technical debt). Errors are blocked, warnings allowed for gradual cleanup. See `eslint.config.js` for details.
 
 ---
 

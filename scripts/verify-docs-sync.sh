@@ -99,6 +99,21 @@ else
 fi
 echo ""
 
+# 6. Lint check (if available)
+echo "📌 Checking lint status..."
+if npm run lint > /dev/null 2>&1; then
+  echo -e "  ${GREEN}✓ PASS${NC}: Lint passed (or within warning threshold)"
+else
+  LINT_EXIT=$?
+  if [ $LINT_EXIT -eq 127 ]; then
+    echo -e "  ${YELLOW}⚠ SKIP${NC}: No lint script configured"
+  else
+    echo -e "  ${YELLOW}⚠ WARN${NC}: Lint has issues (exit code: $LINT_EXIT)"
+    echo "  Run 'npm run lint' to see details"
+  fi
+fi
+echo ""
+
 # Summary
 echo "=========================================="
 if [ $ERRORS -eq 0 ]; then
