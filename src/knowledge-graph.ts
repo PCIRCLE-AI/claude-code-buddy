@@ -622,15 +622,20 @@ export class KnowledgeGraph {
   }
 
   /**
-   * Hard-delete an entity by name. Removes the FTS entry first (the
-   * contentless virtual table needs the original observations to
-   * locate its row), then DELETE FROM entities — the foreign-key
-   * cascade handles observations, tags, and relations.
+   * Hard-delete an entity by name. Cleans the FTS5 entry, the
+   * sqlite-vec embedding row, then DELETE FROM entities — the
+   * foreign-key cascade handles observations, tags, and relations.
    *
    * Prefer `archiveEntity()` for user-facing forget flows: archiving
    * preserves the row for restore + analytics. This hard delete is
    * the right tool only when the entity should not exist at all
    * (e.g. demo cleanup after `memesh demo --reset`).
+   *
+   * Both index sides matter: FTS5 is contentless and needs the
+   * original observations to locate its row, and `entities_vec` is
+   * a separate virtual table whose rows are not cascaded by the
+   * `entities` FK — leaving them behind shows up as orphan
+   * embeddings on later vector searches.
    */
   deleteEntity(name: string): { deleted: boolean } {
     const row = this.db
@@ -646,6 +651,16 @@ export class KnowledgeGraph {
       .all(row.id) as { content: string }[];
     const obsText = allObs.map((o) => o.content).join(' ');
     removeFromFts(this.db, row.id, name, obsText);
+
+    // Delete vec entry — mirror archiveEntity's cleanup so hard
+    // delete doesn't leak orphan embeddings.
+    try {
+      this.db
+        .prepare('DELETE FROM entities_vec WHERE rowid = ?')
+        .run(BigInt(row.id));
+    } catch {
+      // Vector entry may not exist if embeddings not enabled — ignore.
+    }
 
     // Delete entity (CASCADE handles observations, relations, tags)
     this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);

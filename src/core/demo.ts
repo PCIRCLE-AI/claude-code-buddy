@@ -111,18 +111,25 @@ export function seedDemo(
     // DELETE because the contentless FTS5 virtual table and the
     // sqlite-vec table both keep their own row pointers — a bare
     // DELETE FROM entities leaves orphaned index rows that surface
-    // later as phantom search hits. (Codex review caught this on the
-    // first pass.)
+    // later as phantom search hits.
+    //
+    // Wrap the per-entity deletes in a single transaction so a
+    // mid-loop failure rolls back to a clean pre-reset state instead
+    // of leaving the user with half a tour deleted (the destructive
+    // endpoint should be all-or-nothing).
     const kgInner = new KnowledgeGraph(db);
     const rows = db.prepare(
       "SELECT name FROM entities WHERE metadata IS NOT NULL AND json_extract(metadata, '$.demo') = 1",
     ).all() as Array<{ name: string }>;
     if (rows.length === 0) return { inserted: 0, removed: 0 };
-    let removed = 0;
-    for (const r of rows) {
-      if (kgInner.deleteEntity(r.name).deleted) removed++;
-    }
-    return { inserted: 0, removed };
+    const removeAll = db.transaction((names: string[]) => {
+      let n = 0;
+      for (const name of names) {
+        if (kgInner.deleteEntity(name).deleted) n++;
+      }
+      return n;
+    });
+    return { inserted: 0, removed: removeAll(rows.map((r) => r.name)) };
   }
 
   const kg = new KnowledgeGraph(db);

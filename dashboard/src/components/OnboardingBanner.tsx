@@ -64,6 +64,11 @@ export function OnboardingBanner({ health }: Props) {
       window.dispatchEvent(new Event('memesh:data-changed'));
     } catch (e: any) {
       setError(e?.message ?? String(e));
+    } finally {
+      // Clear regardless of outcome. On success the banner unmounts
+      // a moment later when health refetch lands; if that refetch
+      // fails or is slow, we still want the buttons re-enabled so
+      // the user can retry instead of being stuck in "Seeding…".
       setPending(null);
     }
   }
@@ -190,7 +195,11 @@ export function OnboardingBanner({ health }: Props) {
       </details>
 
       {error && (
-        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--danger)' }}>
+        <div
+          role="alert"
+          aria-live="polite"
+          style={{ marginTop: 10, fontSize: 12, color: 'var(--danger)' }}
+        >
           {error}
         </div>
       )}
