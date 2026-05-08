@@ -27,15 +27,18 @@ describe('Installation Verification', () => {
       expect(fs.existsSync('.mcp.json')).toBe(true);
     });
 
-    it('should have hooks.json with 5 hook types', () => {
+    it('should have hooks.json with 6 hook types', () => {
       const hooks = JSON.parse(fs.readFileSync('hooks/hooks.json', 'utf8'));
       const hookTypes = Object.keys(hooks.hooks);
-      expect(hookTypes).toHaveLength(5);
+      expect(hookTypes).toHaveLength(6);
       expect(hookTypes).toContain('PreToolUse');
       expect(hookTypes).toContain('SessionStart');
       expect(hookTypes).toContain('PostToolUse');
       expect(hookTypes).toContain('Stop');
       expect(hookTypes).toContain('PreCompact');
+      // UserPromptSubmit added in v4.1.4 for the user-prompt-intent hook
+      // (7th hook script: detects "remember this" intent in user prompts).
+      expect(hookTypes).toContain('UserPromptSubmit');
     });
 
     it('should have plugin.json with skills reference', () => {
