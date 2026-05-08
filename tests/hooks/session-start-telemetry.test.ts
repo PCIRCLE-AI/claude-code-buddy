@@ -39,18 +39,21 @@ describe('session-start hook: agentic-orchestration telemetry', () => {
 
   afterEach(() => {
     // Best-effort tmp cleanup. On Windows GitHub runners, sqlite WAL/SHM
-    // file handles can linger past subprocess exit longer than any
-    // reasonable retry budget. The OS will reap the temp dir on its
-    // own; we don't need to fail the test on cleanup hygiene.
+    // file handles can linger past subprocess exit. We try briefly, then
+    // bail — the OS reaps the tmp dir later. Crucially, we keep the retry
+    // budget tight (3 × 50ms ≈ 150ms) so afterEach itself never trips
+    // vitest's default 10s hookTimeout when the handle takes longer to
+    // release than expected. Without the cap, large maxRetries values
+    // could exceed hookTimeout and turn cleanup-race into test-fail.
     if (!fs.existsSync(tmpHome)) return;
     try {
-      fs.rmSync(tmpHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+      fs.rmSync(tmpHome, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     } catch {
       // Cleanup is non-load-bearing — the test's assertions already
-      // passed. Letting an ENOTEMPTY here fail the test would conflate
-      // "the code under test misbehaved" with "Windows file-lock race".
+      // passed. Letting a Windows handle race fail the test here would
+      // conflate "the code under test misbehaved" with infrastructure.
     }
-  });
+  }, 5_000);
 
   it('writes agentic_orchestration_banner_injected event when opted in', () => {
     const { stdout, exitCode } = runHook(
