@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createLesson, createExplicitLesson, findProjectLessons, inferErrorPattern } from '../../src/core/lesson-engine.js';
+import { createLesson, createExplicitLesson, inferErrorPattern } from '../../src/core/lesson-engine.js';
 import { recall } from '../../src/core/operations.js';
 import type { StructuredLesson } from '../../src/core/failure-analyzer.js';
 import { useTestDatabase } from '../helpers/db-fixture.js';
@@ -76,18 +76,6 @@ describe('createExplicitLesson', () => {
     createExplicitLesson('TypeError: null is not an object', 'Added null check', 'myapp');
     const entities = recall({ tag: 'error-pattern:null-reference' });
     expect(entities.length).toBe(1);
-  });
-});
-
-describe('findProjectLessons', () => {
-  it('returns lessons for a project', () => {
-    createExplicitLesson('Error 1', 'Fix 1', 'myapp');
-    createExplicitLesson('Error 2', 'Fix 2', 'myapp');
-    createExplicitLesson('Error 3', 'Fix 3', 'other-project');
-
-    const lessons = findProjectLessons('myapp');
-    // May find 2 lessons for myapp (depends on recall search behavior)
-    expect(lessons.every(l => l.observations.length > 0)).toBe(true);
   });
 });
 

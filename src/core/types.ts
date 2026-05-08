@@ -34,7 +34,12 @@ export interface Entity {
   // 2026-05; the columns remain in the SQLite schema but no code path
   // reads or writes them. See Dashboard-v3 SDD plan G2 for the cut
   // rationale.
-  namespace?: string;  // 'personal' | 'team' | 'global'
+  // `namespace` is non-optional on the read side: the DB column has
+  // `DEFAULT 'personal'` and getEntity / search always coerce missing
+  // values to 'personal', so callers should not need a `?? 'personal'`
+  // dance. Producers that want to opt out of namespacing on write use
+  // the optional field on RememberInput instead.
+  namespace: 'personal' | 'team' | 'global' | string;
 }
 
 export interface Relation {
@@ -191,7 +196,11 @@ export interface EntityRow {
   type: string;
   created_at: string;
   metadata: string | null;
-  status: string;
+  // Schema column is `TEXT NOT NULL DEFAULT 'active'`. Tightened to the
+  // EntityStatus union so a future query that selects this column gets
+  // a compile-time error if it tries to write or compare an
+  // unrecognised value (e.g. typoed 'archive' instead of 'archived').
+  status: EntityStatus;
   access_count: number;
   last_accessed_at: string | null;
   confidence: number;
@@ -202,35 +211,13 @@ export interface EntityRow {
   namespace: string;
 }
 
-export interface ObservationRow {
-  id: number;
-  entity_id: number;
-  content: string;
-  created_at: string;
-}
-
-export interface TagRow {
-  id: number;
-  entity_id: number;
-  tag: string;
-}
-
-export interface RelationRow {
-  id: number;
-  from_entity_id: number;
-  to_entity_id: number;
-  relation_type: string;
-  metadata: string | null;
-  created_at: string;
-}
+// ObservationRow / TagRow / RelationRow / FtsRow types lived here
+// historically as aspirational shapes for SELECT-result casts but were
+// never actually imported. Removed in 2026-05 (SDD G13 cleanup) so the
+// canonical SQL row types stay close to the queries that produce them.
 
 export interface CountRow {
   c: number;
-}
-
-export interface FtsRow {
-  id: number;
-  name: string;
 }
 
 export interface PragmaColumnRow {
