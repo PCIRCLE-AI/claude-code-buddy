@@ -204,12 +204,17 @@ async function main() {
       await expectVisible(page, 'dashboard-e2e-memory');
 
       await page.getByRole('navigation').getByRole('button', { name: 'Settings' }).click();
-      await page.waitForSelector('select');
+      // Target the language <select> specifically — Settings has multiple
+      // <select> elements (model picker, auto-update policy, locale), so
+      // a bare `select` selector is ambiguous. Find the one that contains
+      // the zh-TW option, which only the language select does.
+      const languageSelect = page.locator('select:has(option[value="zh-TW"])');
+      await languageSelect.waitFor({ state: 'visible', timeout: 10000 });
 
       await page.evaluate(() => {
         window.__memeshSmokeMarker = 'persist';
       });
-      await page.selectOption('select', 'zh-TW');
+      await languageSelect.selectOption('zh-TW');
       await expectVisible(page, '語言');
       assert.equal(
         await page.evaluate(() => window.__memeshSmokeMarker),
@@ -217,7 +222,7 @@ async function main() {
         'Locale switch triggered a full reload'
       );
 
-      await page.selectOption('select', 'en');
+      await languageSelect.selectOption('en');
       await expectVisible(page, 'Language');
       assert.equal(
         await page.evaluate(() => window.__memeshSmokeMarker),
