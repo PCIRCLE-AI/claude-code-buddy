@@ -78,38 +78,48 @@ test('Core modules load', () => {
 // Test 4: Database operations work
 test('Database operations', () => {
   const testDbPath = join(projectRoot, '.smoke-test.db');
+  const scriptPath = join(projectRoot, '.smoke-test-script.mjs');
+
   try {
     // Clean up any existing test DB
     if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
 
-    const script = `
-      const { openDatabase, closeDatabase, getDatabase } = require('./dist/db.js');
-      const { remember, recall, forget } = require('./dist/core/operations.js');
+    // Write test script to temporary file
+    const scriptContent = `
+import { openDatabase, closeDatabase, getDatabase } from './dist/db.js';
+import { remember, recall, forget } from './dist/core/operations.js';
 
-      process.env.MEMESH_DB_PATH = '${testDbPath.replace(/\\/g, '\\\\')}';
+process.env.MEMESH_DB_PATH = '${testDbPath.replace(/\\/g, '\\\\')}';
 
-      openDatabase();
-      const db = getDatabase();
+try {
+  openDatabase();
+  const db = getDatabase();
 
-      // Test: can query empty database
-      const count = db.prepare('SELECT COUNT(*) as c FROM entities').get();
-      if (typeof count.c !== 'number') throw new Error('Query failed');
+  // Test: can query empty database
+  const count = db.prepare('SELECT COUNT(*) as c FROM entities').get();
+  if (typeof count.c !== 'number') throw new Error('Query failed');
 
-      // Test: can remember
-      remember({ name: 'test', type: 'note', observations: ['test observation'] });
+  // Test: can remember
+  const rememberResult = remember({ name: 'test', type: 'note', observations: ['test observation'] });
+  if (!rememberResult || !rememberResult.stored) throw new Error('Remember failed');
 
-      // Test: can recall
-      const results = recall({ query: 'test' });
-      if (results.length === 0) throw new Error('Recall failed');
+  // Test: can recall
+  const results = recall({ query: 'test' });
+  if (!results || results.length === 0) throw new Error('Recall failed');
 
-      // Test: can forget
-      forget({ name: 'test' });
+  // Test: can forget
+  forget({ name: 'test' });
 
-      closeDatabase();
-      console.log('OK');
-    `.replace(/\n/g, ' ');
+  closeDatabase();
+  console.log('OK');
+} catch (err) {
+  console.error('ERROR:', err.message);
+  process.exit(1);
+}
+`;
+    fs.writeFileSync(scriptPath, scriptContent);
 
-    const output = execFileSync('node', ['-e', script], {
+    const output = execFileSync('node', [scriptPath], {
       cwd: projectRoot,
       encoding: 'utf-8',
       stdio: 'pipe',
@@ -117,10 +127,11 @@ test('Database operations', () => {
 
     if (!output.includes('OK')) throw new Error('Database operations did not complete');
   } finally {
-    // Clean up test DB
+    // Clean up test DB and script
     if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
     if (fs.existsSync(`${testDbPath}-wal`)) fs.unlinkSync(`${testDbPath}-wal`);
     if (fs.existsSync(`${testDbPath}-shm`)) fs.unlinkSync(`${testDbPath}-shm`);
+    if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
   }
 });
 

@@ -716,3 +716,156 @@ describe('doctor', () => {
 // inside the marker object literal at construction time, so this is just
 // a dummy stand-in we overwrite immediately after.
 function env_settingsPathPlaceholder(): string { return ''; }
+
+describe('database failure diagnostics (F15)', () => {
+  it('diagnoses insufficient permissions', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const dbPath = path.join(packageRoot, 'test.db');
+    const dbDir = path.dirname(dbPath);
+
+    const previousEnv = process.env.MEMESH_DB_PATH;
+    process.env.MEMESH_DB_PATH = dbPath;
+
+    try {
+      const result = await runDoctor({
+        packageRoot,
+        packageVersion: '4.1.14',
+        openDatabaseImpl: () => { throw new Error('SQLITE_CANTOPEN'); },
+        closeDatabaseImpl: () => undefined,
+        detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+        getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+        getUpdateCheckImpl: async () => makeUpdateCheck(),
+        getCurrentInstallChannelImpl: () => 'npm-global',
+        getInstallChannelSupportImpl: () => ({
+          channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+          recommendedCommand: 'memesh update', guidance: '',
+        }),
+        existsSyncImpl: (p: string) => p === dbPath || p === dbDir,
+        statSyncImpl: (p: string) => {
+          if (p === dbPath) return { mode: 0o000, size: 1024 } as fs.Stats; // No permissions
+          if (p === dbDir) return { mode: 0o700, size: 4096 } as fs.Stats;
+          throw new Error('ENOENT');
+        },
+      });
+
+      const dbCheck = result.checks.find(c => c.id === 'database');
+      expect(dbCheck!.status).toBe('fail');
+      expect(dbCheck!.summary).toMatch(/insufficient permissions/i);
+      expect(dbCheck!.fix).toMatch(/chmod 600/);
+    } finally {
+      if (previousEnv === undefined) delete process.env.MEMESH_DB_PATH;
+      else process.env.MEMESH_DB_PATH = previousEnv;
+    }
+  });
+
+  it('diagnoses empty database file', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const dbPath = path.join(packageRoot, 'test.db');
+    const dbDir = path.dirname(dbPath);
+
+    const previousEnv = process.env.MEMESH_DB_PATH;
+    process.env.MEMESH_DB_PATH = dbPath;
+
+    try {
+      const result = await runDoctor({
+        packageRoot,
+        packageVersion: '4.1.14',
+        openDatabaseImpl: () => { throw new Error('SQLITE_NOTADB'); },
+        closeDatabaseImpl: () => undefined,
+        detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+        getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+        getUpdateCheckImpl: async () => makeUpdateCheck(),
+        getCurrentInstallChannelImpl: () => 'npm-global',
+        getInstallChannelSupportImpl: () => ({
+          channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+          recommendedCommand: 'memesh update', guidance: '',
+        }),
+        existsSyncImpl: (p: string) => p === dbPath || p === dbDir,
+        statSyncImpl: (p: string) => {
+          if (p === dbPath) return { mode: 0o600, size: 0 } as fs.Stats; // Empty file
+          if (p === dbDir) return { mode: 0o700, size: 4096 } as fs.Stats;
+          throw new Error('ENOENT');
+        },
+      });
+
+      const dbCheck = result.checks.find(c => c.id === 'database');
+      expect(dbCheck!.status).toBe('fail');
+      expect(dbCheck!.summary).toMatch(/empty.*0 bytes.*corrupted/i);
+      expect(dbCheck!.fix).toMatch(/rm.*memesh recall/);
+    } finally {
+      if (previousEnv === undefined) delete process.env.MEMESH_DB_PATH;
+      else process.env.MEMESH_DB_PATH = previousEnv;
+    }
+  });
+
+  it('diagnoses missing database directory', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const dbPath = path.join(packageRoot, 'nonexistent', 'test.db');
+
+    const previousEnv = process.env.MEMESH_DB_PATH;
+    process.env.MEMESH_DB_PATH = dbPath;
+
+    try {
+      const result = await runDoctor({
+        packageRoot,
+        packageVersion: '4.1.14',
+        openDatabaseImpl: () => { throw new Error('SQLITE_CANTOPEN'); },
+        closeDatabaseImpl: () => undefined,
+        detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+        getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+        getUpdateCheckImpl: async () => makeUpdateCheck(),
+        getCurrentInstallChannelImpl: () => 'npm-global',
+        getInstallChannelSupportImpl: () => ({
+          channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+          recommendedCommand: 'memesh update', guidance: '',
+        }),
+        existsSyncImpl: () => false, // DB and directory don't exist
+        statSyncImpl: () => { throw new Error('ENOENT'); },
+      });
+
+      const dbCheck = result.checks.find(c => c.id === 'database');
+      expect(dbCheck!.status).toBe('fail');
+      expect(dbCheck!.summary).toMatch(/directory does not exist/i);
+      expect(dbCheck!.fix).toMatch(/mkdir -p/);
+    } finally {
+      if (previousEnv === undefined) delete process.env.MEMESH_DB_PATH;
+      else process.env.MEMESH_DB_PATH = previousEnv;
+    }
+  });
+
+  it('provides actionable fix commands for all failure modes', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const dbPath = path.join(packageRoot, 'test.db');
+
+    // Create a DB file that can't be opened
+    fs.writeFileSync(dbPath, 'corrupted');
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.14',
+      openDatabaseImpl: () => { throw new Error('SQLITE_CORRUPT'); },
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+      existsSyncImpl: fs.existsSync,
+      statSyncImpl: fs.statSync,
+      getDatabasePathImpl: () => dbPath,
+    });
+
+    const dbCheck = result.checks.find(c => c.id === 'database');
+    expect(dbCheck!.status).toBe('fail');
+    expect(dbCheck!.fix).toBeTruthy();
+    // Fix should contain either a backup command or recovery command
+    expect(dbCheck!.fix).toMatch(/mv.*backup|rm.*recall|chmod/);
+  });
+});

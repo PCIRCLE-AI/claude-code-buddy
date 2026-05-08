@@ -528,3 +528,49 @@ describe('HTTP Transport: GET /dashboard', () => {
     expect(res.status).toBe(204);
   });
 });
+
+// ── Startup Validation (F15) ──────────────────────────────────────────────────
+
+describe('HTTP Transport: Startup validation', () => {
+  it('throws with actionable error if database cannot be opened', () => {
+    const badTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-http-bad-'));
+    const badDbPath = path.join(badTmpDir, 'nonexistent', 'test.db');
+    const previousDbPath = process.env.MEMESH_DB_PATH;
+    process.env.MEMESH_DB_PATH = badDbPath;
+
+    try {
+      expect(() => startServer('127.0.0.1', 0)).toThrow(/Database initialization failed/);
+    } finally {
+      if (previousDbPath === undefined) delete process.env.MEMESH_DB_PATH;
+      else process.env.MEMESH_DB_PATH = previousDbPath;
+      fs.rmSync(badTmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('shows actual bound port instead of input port (F15 port display fix)', async () => {
+    const portTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-http-port-'));
+    const previousDbPath = process.env.MEMESH_DB_PATH;
+    process.env.MEMESH_DB_PATH = path.join(portTmpDir, 'test.db');
+
+    let testServer: ReturnType<typeof app.listen> | undefined;
+    try {
+      // Start with port=0 (random port)
+      testServer = startServer('127.0.0.1', 0);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      const actualPort = (testServer.address() as any).port;
+      expect(actualPort).toBeGreaterThan(0);
+      expect(actualPort).not.toBe(0); // Should not show ":0" in logs
+
+      // Verify server is actually listening on the reported port
+      const res = await fetch(`http://127.0.0.1:${actualPort}/v1/health`);
+      expect(res.status).toBe(200);
+    } finally {
+      if (testServer) await new Promise<void>((res, rej) => testServer!.close((err) => err ? rej(err) : res()));
+      closeDatabase();
+      if (previousDbPath === undefined) delete process.env.MEMESH_DB_PATH;
+      else process.env.MEMESH_DB_PATH = previousDbPath;
+      fs.rmSync(portTmpDir, { recursive: true, force: true });
+    }
+  });
+});
