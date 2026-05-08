@@ -244,6 +244,54 @@ app.get('/v1/health', (_req, res) => {
     const count = db.prepare('SELECT COUNT(*) as c FROM entities').get() as CountRow;
     res.json({ success: true, data: { status: 'ok', version: packageVersion, entity_count: count.c } });
   } catch (err: any) {
+    // F15: Provide actionable error message for database initialization failures
+    if (err.message === 'Database not opened') {
+      res.status(503).json({
+        success: false,
+        error: 'Database not initialized',
+        details: 'MeMesh database failed to open at startup. Check server logs for details, or run "memesh doctor" to diagnose.',
+      });
+    } else {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+});
+
+// --- Doctor (structured diagnostics for the FeedbackWidget) ---
+//
+// The dashboard FeedbackWidget calls this when a user opts to
+// "include system info" in a feedback issue. Returning the same
+// `DoctorResult` shape the CLI emits with `--json` lets us evolve
+// the diagnostic surface in one place without divergence.
+//
+// SecretSafe defence (gstack pattern, gstack-brain-sync's stdin
+// regex scan): doctor itself never reads secret-bearing fields, but
+// a regex sweep belt-and-suspenders any future check that
+// accidentally includes one. Matches on Anthropic / OpenAI / GitHub
+// / AWS-style key prefixes plus generic `sk-` / Bearer tokens.
+function redactSecrets(input: string): string {
+  return input
+    .replace(/sk-ant-[A-Za-z0-9_-]{20,}/g, 'sk-ant-***REDACTED***')
+    .replace(/sk-proj-[A-Za-z0-9_-]{20,}/g, 'sk-proj-***REDACTED***')
+    .replace(/sk-[A-Za-z0-9]{32,}/g, 'sk-***REDACTED***')
+    .replace(/ghp_[A-Za-z0-9]{30,}/g, 'ghp_***REDACTED***')
+    .replace(/gho_[A-Za-z0-9]{30,}/g, 'gho_***REDACTED***')
+    .replace(/AKIA[A-Z0-9]{16}/g, 'AKIA***REDACTED***')
+    .replace(/Bearer\s+[A-Za-z0-9._-]{20,}/gi, 'Bearer ***REDACTED***');
+}
+
+app.get('/v1/doctor', async (_req, res) => {
+  try {
+    const { runDoctor } = await import('../../core/doctor.js');
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion,
+    });
+    // Walk the result and redact any secret-shaped substring before
+    // it leaves the server — defense in depth, not a primary defence.
+    const safe = JSON.parse(redactSecrets(JSON.stringify(result)));
+    res.json({ success: true, data: safe });
+  } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -325,11 +373,17 @@ app.get('/v1/config', (_req, res) => {
 });
 
 const ConfigBody = z.object({
-  llm: z.object({
-    provider: z.enum(['anthropic', 'openai', 'ollama']),
-    model: z.string().optional(),
-    apiKey: z.string().optional(),
-  }).optional(),
+  // F17: `llm: null` removes the provider entirely (Core Mode). Used by
+  // the dashboard "Remove provider" action so the user can opt out of
+  // LLM-backed features without hand-editing config.json.
+  llm: z.union([
+    z.object({
+      provider: z.enum(['anthropic', 'openai', 'ollama']),
+      model: z.string().optional(),
+      apiKey: z.string().optional(),
+    }),
+    z.null(),
+  ]).optional(),
   autoCapture: z.boolean().optional(),
   sessionLimit: z.number().int().min(1).max(100).optional(),
   // Opt-in for the experimental agentic-orchestration protocol.
@@ -363,8 +417,11 @@ app.post('/v1/config', async (req, res) => {
     // ONNX pipeline (or be about to use the now-stale apiKey path). Reset
     // so the next embed call picks up the new config — eliminates the
     // "restart server to apply" footgun.
+    // F17: `llm: null` removes the provider, which also counts as a change.
+    // `parsed.data.llm !== undefined` covers both set-to-something and
+    // set-to-null; `=== undefined` would be "user did not touch llm".
     const llmChanged =
-      parsed.data.llm &&
+      parsed.data.llm !== undefined &&
       (before.llm?.provider !== updated.llm?.provider ||
         before.llm?.apiKey !== updated.llm?.apiKey);
     if (llmChanged) {
@@ -494,6 +551,31 @@ app.get('/v1/analytics', (_req, res) => {
   try { res.json({ success: true, data: computeAnalytics(getDatabase()) }); }
   catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
 });
+// --- Demo seeder ---
+//
+// SDD plan SPEC-4: a fresh install renders empty charts. The dashboard
+// onboarding banner POSTs to these endpoints so the user gets a
+// one-click tour without leaving the GUI to run `memesh demo` from a
+// terminal. The CLI command remains for headless / CI flows.
+app.post('/v1/demo/seed', async (_req, res) => {
+  try {
+    const { seedDemo } = await import('../../core/demo.js');
+    const data = seedDemo(getDatabase());
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+app.post('/v1/demo/reset', async (_req, res) => {
+  try {
+    const { seedDemo } = await import('../../core/demo.js');
+    const data = seedDemo(getDatabase(), { reset: true });
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // --- Projects ---
 //
 // Lists distinct projects extracted from entity tags (`project:*`) and entity
@@ -631,10 +713,44 @@ export function startServer(
   // `bearerAuth`, so the token only matters for connections that
   // arrived on a remote-bound socket. Leaving the token in place is
   // safe: loopback requests skip the check before it's read.
-  openDatabase();
+
+  // F15: Startup health check — fail fast with actionable error if DB
+  // cannot be opened. Previously, openDatabase() failure was an uncaught
+  // promise rejection in CLI async action, leaving the server running
+  // but returning 500 on every request with cryptic "Database not opened"
+  // message. Now we validate and provide clear remediation steps.
+  try {
+    openDatabase();
+    // Verify DB is actually usable (schema exists, can query)
+    const db = getDatabase();
+    db.prepare('SELECT COUNT(*) FROM entities').get();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const dbPath = process.env.MEMESH_DB_PATH || path.join(homedir(), '.memesh', 'knowledge-graph.db');
+    console.error('\n❌ MeMesh startup failed: database cannot be opened\n');
+    console.error(`   Database path: ${dbPath}`);
+    console.error(`   Error: ${message}\n`);
+    console.error('Possible causes:');
+    console.error('  • Database file is corrupted (run: memesh doctor)');
+    console.error('  • Insufficient permissions (check file ownership)');
+    console.error('  • Another process has locked the database');
+    console.error('  • Disk is full or read-only\n');
+    console.error('Quick fix: Backup and reset the database:');
+    console.error(`  mv "${dbPath}" "${dbPath}.backup"`);
+    console.error('  memesh (will create a fresh database)\n');
+    throw new Error(`Database initialization failed: ${message}`);
+  }
+
   logCapabilities();
   const server = app.listen(port, host, () => {
-    console.log(`MeMesh HTTP server running at http://${host}:${port}`);
+    // F15: Show actual bound address, not the input parameter. When port=0
+    // (random port), the input shows "http://127.0.0.1:0" which is confusing.
+    const addr = server.address();
+    if (addr && typeof addr === 'object') {
+      console.log(`MeMesh HTTP server running at http://${addr.address}:${addr.port}`);
+    } else {
+      console.log(`MeMesh HTTP server running at http://${host}:${port}`);
+    }
   });
   // Tag this listener as auth-required-or-not. bearerAuth reads this
   // back via `req.socket.server` so the requirement is per-listener,

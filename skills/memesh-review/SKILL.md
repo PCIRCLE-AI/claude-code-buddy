@@ -89,9 +89,33 @@ memesh remember --name "missing-knowledge" --type decision --obs "..."
 memesh recall --limit 5 --json    # confirm changes took effect
 ```
 
+## Documentation & Code Quality Checks
+
+**For comprehensive documentation synchronization and lint checks**, use:
+```bash
+@sa:comprehensive-code-review
+```
+
+This skill includes:
+- **Dim 17: Documentation Synchronization** — version consistency, API docs, architecture docs, feature docs, deprecated terms, breaking changes
+- **Dim 18: Code Style & Lint** — lint errors/warnings, security rules, disabled rules, style consistency
+
+**MeMesh-specific automation**:
+```bash
+# Quick verification (memesh-specific checks)
+./scripts/verify-docs-sync.sh
+# Exit code 0 = all checks pass
+
+# Lint check
+npm run lint  # 0 errors expected, ~83 warnings (technical debt)
+```
+
+---
+
 ## Tips
 
 - Run every 1-2 weeks to keep memory healthy
 - Health score < 50 → too many stale or low-quality memories
 - Noise > 80% → encourage deliberate `memesh remember` for decisions
 - Dashboard available at: http://localhost:3737/dashboard (run `memesh serve` first)
+- **Before merge**: Run documentation sync checklist above to prevent drift

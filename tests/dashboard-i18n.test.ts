@@ -117,7 +117,9 @@ describe('dashboard i18n', () => {
     ]);
 
     for (const path of walk('dashboard/src')) {
-      const rel = path.replace(/^.+memesh-llm-memory\//, '');
+      // Normalize to POSIX separators so the exclude check works on
+      // Windows (where `path` uses `\`) without forking the test.
+      const rel = path.replace(/\\/g, '/').replace(/^.+memesh-llm-memory\//, '');
       if (exclude.has(rel)) continue;
 
       const src = readFileSync(path, 'utf8');

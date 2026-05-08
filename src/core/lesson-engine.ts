@@ -98,27 +98,13 @@ export function createExplicitLesson(
   return { name };
 }
 
-/**
- * Find existing lessons for a project.
- * Used by session-start for proactive warnings.
- */
-export function findProjectLessons(
-  projectName: string,
-  limit: number = 5
-): Array<{ name: string; observations: string[]; confidence?: number }> {
-  const results = recall({
-    tag: `project:${projectName}`,
-    limit,
-  });
-
-  return results
-    .filter(e => e.type === 'lesson_learned')
-    .map(e => ({
-      name: e.name,
-      observations: e.observations,
-      confidence: e.confidence,
-    }));
-}
+// `findProjectLessons` was removed in 2026-05 (SDD G8 cleanup). The
+// session-start hook (scripts/hooks/session-start.js) does not use it
+// — that path executes its own raw SQL with a trust filter
+// (`isTrustedForAutoContext`) the helper did not enforce. Keeping the
+// helper around as "documentation that this query exists" only invited
+// future drift between two separate lookup paths. Use the hook's
+// query directly if a similar lookup is needed elsewhere.
 
 /**
  * Infer error pattern from error description text.

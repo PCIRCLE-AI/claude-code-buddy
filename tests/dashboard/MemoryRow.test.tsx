@@ -25,7 +25,12 @@ describe('MemoryRow', () => {
 
   it('shows the project chip when a project: tag is present', () => {
     const { container } = render(<MemoryRow entity={makeEntity()} />);
-    expect(container.textContent).toMatch(/📂\s*memesh/);
+    // Post-SPEC-5 the folder glyph is an SVG, not an emoji. Locate the
+    // chip by its tag class plus the project name text.
+    const chips = Array.from(container.querySelectorAll('.tag'));
+    const projectChip = chips.find((c) => (c.textContent ?? '').includes('memesh'));
+    expect(projectChip).toBeDefined();
+    expect(projectChip!.querySelector('svg')).not.toBeNull();
   });
 
   it('omits the recall badge when access_count is 0', () => {
@@ -51,14 +56,28 @@ describe('MemoryRow', () => {
     expect(tagChips.some((t) => /^2026-04-15$/.test(t.trim()))).toBe(false);
   });
 
-  it('uses the dedicated icon for known types', () => {
+  it('uses the dedicated SVG icon (not emoji) for known types', () => {
+    // After SPEC-5 the icon column renders an SVG with an aria-label
+    // matching its glyph cluster — Lesson / Bug fix / Feature etc.
     const lesson = render(<MemoryRow entity={makeEntity({ type: 'lesson_learned' })} />);
-    expect(lesson.container.textContent).toContain('💡');
+    const lessonSvg = lesson.container.querySelector('svg[aria-label="Lesson"]');
+    expect(lessonSvg).not.toBeNull();
 
     const bug = render(<MemoryRow entity={makeEntity({ type: 'bug_fix' })} />);
-    expect(bug.container.textContent).toContain('🐛');
+    expect(bug.container.querySelector('svg[aria-label="Bug fix"]')).not.toBeNull();
 
     const release = render(<MemoryRow entity={makeEntity({ type: 'release' })} />);
-    expect(release.container.textContent).toContain('🚀');
+    expect(release.container.querySelector('svg[aria-label="Feature"]')).not.toBeNull();
+  });
+
+  it('does not render any emoji as a UI affordance (DESIGN.md mandate)', () => {
+    const { container } = render(<MemoryRow entity={makeEntity({ type: 'lesson_learned' })} />);
+    // Match the historical type-glyph emoji as alternation, not as a
+    // character class. Several glyphs (♻️, 🗺️, ⏱️, 🏗️, ⚙️) carry the
+    // U+FE0F variation selector, which would appear repeated inside a
+    // single [...] class — flagged by `js/regex/duplicate-in-character-class`.
+    // SDD plan SPEC-5 AC1: no emoji in component-rendered DOM.
+    const TYPE_GLYPHS = /💡|🎯|🐛|🧩|✨|♻️|📝|📋|🗺️|📓|🚀|⏱️|📅|🔖|🏗️|⚙️|📚/;
+    expect(container.textContent ?? '').not.toMatch(TYPE_GLYPHS);
   });
 });

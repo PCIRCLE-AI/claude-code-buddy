@@ -2,7 +2,8 @@ import { useMemo, useRef } from 'preact/hooks';
 import type { Entity } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
 import { t } from '../lib/i18n';
-import { relativeDate, timeBucket, accessSignal, iconFor } from '../lib/entity-display';
+import { relativeDate, timeBucket, accessSignal } from '../lib/entity-display';
+import { EntityIcon } from './icons/EntityIcon';
 
 /** Type set that qualifies as a milestone for the rail. Releases are the
  *  primary signal; workflow_checkpoint and weekly-summary are optional
@@ -13,6 +14,83 @@ const MILESTONE_TYPES = new Set(['release', 'feature']);
 const LESSON_TYPES = new Set([
   'lesson_learned', 'lesson', 'mistake', 'bug_fix',
 ]);
+
+/* ---------- v2: auto-phase derivation ---------- */
+
+/** Type ranking for choosing a phase's representative anchor entity.
+ *  Lower number = higher priority. Releases are the strongest signal
+ *  ("what we shipped"); plans / architecture decisions describe the
+ *  shape of the period; everything else falls back to the first
+ *  entity. */
+const PHASE_ANCHOR_PRIORITY: Record<string, number> = {
+  release: 0,
+  architecture: 1,
+  architecture_decision: 1,
+  plan: 2,
+  feature: 3,
+  decision: 4,
+  design_decision: 4,
+};
+
+interface Phase {
+  startIso: string;
+  endIso: string;
+  entityCount: number;
+  /** Localised-or-derived label for the phase strip header. */
+  label: string;
+  /** The entity used to derive the label, when one exists. Lets the
+   *  UI scroll-to that entity on click. */
+  anchorId?: number;
+}
+
+/**
+ * Heuristic phase derivation. Cluster entities into runs where every
+ * consecutive pair lands within `MAX_GAP_DAYS` of each other. A run
+ * with at least `MIN_PHASE_ENTITIES` becomes a phase; smaller runs are
+ * dropped (they look noisy on a strip with two big phases beside
+ * them). Each phase's label comes from the highest-priority entity in
+ * the run, falling back to a date-range string when nothing matches.
+ */
+function derivePhases(entities: Entity[]): Phase[] {
+  const MAX_GAP_DAYS = 7;
+  const MIN_PHASE_ENTITIES = 3;
+
+  if (entities.length < MIN_PHASE_ENTITIES) return [];
+  const sorted = [...entities].sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+  const runs: Entity[][] = [];
+  let current: Entity[] = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1].created_at;
+    const cur = sorted[i].created_at;
+    const gapDays = (new Date(cur).getTime() - new Date(prev).getTime()) / 86400000;
+    if (gapDays <= MAX_GAP_DAYS) {
+      current.push(sorted[i]);
+    } else {
+      runs.push(current);
+      current = [sorted[i]];
+    }
+  }
+  runs.push(current);
+
+  return runs
+    .filter((run) => run.length >= MIN_PHASE_ENTITIES)
+    .map<Phase>((run) => {
+      const anchor = run
+        .map((e) => ({ e, p: PHASE_ANCHOR_PRIORITY[e.type] ?? 99 }))
+        .sort((a, b) => a.p - b.p)[0];
+      const label = anchor.p < 99
+        ? anchor.e.name
+        : `${run[0].created_at.slice(0, 10)} – ${run[run.length - 1].created_at.slice(0, 10)}`;
+      return {
+        startIso: run[0].created_at,
+        endIso: run[run.length - 1].created_at,
+        entityCount: run.length,
+        label,
+        anchorId: anchor.p < 99 ? anchor.e.id : undefined,
+      };
+    });
+}
 
 interface Props {
   projectName: string;
@@ -170,6 +248,10 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
     [entities],
   );
 
+  // v2 auto-phases. Empty array for projects below the density threshold;
+  // the strip renders a small placeholder note in that case.
+  const phases = useMemo(() => derivePhases(entities), [entities]);
+
   // Refs for scroll-to-milestone targeting
   const entryRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const setEntryRef = (id: number) => (el: HTMLDivElement | null) => {
@@ -188,7 +270,13 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
   if (entities.length === 0) {
     return (
       <div class="empty">
-        <span class="empty-icon">🗺️</span>
+        <span class="empty-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)' }}>
+          {/* Map outline — empty roadmap fallback */}
+          <svg width="32" height="32" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2 4 L6 2 L10 4 L14 2 V12 L10 14 L6 12 L2 14 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+            <path d="M6 2 V12 M10 4 V14" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+        </span>
         {t('roadmap.emptyProject')}
       </div>
     );
@@ -208,9 +296,12 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-0)' }}>
-              📂 {projectName}
-              <span style={{ color: 'var(--text-3)', fontWeight: 400, fontSize: 13, marginLeft: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-0)', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true" style={{ color: 'var(--accent)' }}>
+                <path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+              </svg>
+              <span>{projectName}</span>
+              <span style={{ color: 'var(--text-3)', fontWeight: 400, fontSize: 13 }}>
                 · {t('roadmap.title')}
               </span>
             </div>
@@ -249,6 +340,71 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
           </div>
         )}
       </div>
+
+      {/* v2: Auto-phase strip. Renders only when the project has enough
+          density (≥3 entities within ≤7-day windows) to make phases
+          meaningful. Click a phase chip to scroll the corresponding
+          anchor entity into view. */}
+      {phases.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: 14,
+            padding: '12px 14px',
+            border: '1px solid rgba(255, 255, 255, 0.04)',
+            borderRadius: 6,
+            background: 'rgba(255, 255, 255, 0.02)',
+            overflowX: 'auto',
+          }}
+        >
+          <span
+            style={{
+              fontSize: 10,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              color: 'var(--text-3)',
+              fontWeight: 600,
+              flexShrink: 0,
+            }}
+          >
+            {t('roadmap.phases')}
+          </span>
+          {phases.map((phase, i) => (
+            <button
+              key={`${phase.startIso}-${phase.label}`}
+              onClick={() => phase.anchorId !== undefined && focusEntry(phase.anchorId)}
+              disabled={phase.anchorId === undefined}
+              style={{
+                flexShrink: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-start',
+                gap: 2,
+                padding: '6px 10px',
+                background: i === phases.length - 1 ? 'rgba(0, 214, 180, 0.08)' : 'transparent',
+                border: '1px solid',
+                borderColor: i === phases.length - 1 ? 'rgba(0, 214, 180, 0.3)' : 'var(--border-subtle)',
+                borderRadius: 4,
+                color: 'var(--text-1)',
+                cursor: phase.anchorId !== undefined ? 'pointer' : 'default',
+                fontFamily: 'inherit',
+                textAlign: 'left',
+                minWidth: 100,
+              }}
+              title={`${phase.startIso.slice(0, 10)} → ${phase.endIso.slice(0, 10)}`}
+            >
+              <span style={{ fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 240 }}>
+                {phase.label}
+              </span>
+              <span style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--mono)' }}>
+                {phase.entityCount} · {relativeDate(phase.startIso)}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Two-column layout on wide screens: timeline + rails sidebar */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 16, alignItems: 'start' }}>
@@ -324,7 +480,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                     fontFamily: 'inherit',
                   }}
                 >
-                  <span style={{ fontSize: 14, lineHeight: '18px', flexShrink: 0 }}>{iconFor(m.type)}</span>
+                  <span style={{ flexShrink: 0, color: 'var(--accent)' }}><EntityIcon type={m.type} size={14} /></span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, color: 'var(--text-1)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {m.name}
@@ -364,7 +520,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                       fontFamily: 'inherit',
                     }}
                   >
-                    <span style={{ fontSize: 14, lineHeight: '18px', flexShrink: 0 }}>{iconFor(l.type)}</span>
+                    <span style={{ flexShrink: 0, color: 'var(--text-2)' }}><EntityIcon type={l.type} size={14} /></span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, color: 'var(--text-1)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {l.name}

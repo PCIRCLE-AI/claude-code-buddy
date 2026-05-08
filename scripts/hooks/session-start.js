@@ -6,7 +6,7 @@ import { createHash } from 'crypto';
 import { homedir } from 'os';
 import { join, basename } from 'path';
 import { pathToFileURL } from 'url';
-import { existsSync, readFileSync, unlinkSync, rmSync, appendFileSync, chmodSync, openSync, closeSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync, rmSync, appendFileSync, chmodSync } from 'fs';
 import {
   buildReferenceContext,
   ensurePrivateDir,

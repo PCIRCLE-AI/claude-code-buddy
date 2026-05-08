@@ -29,15 +29,19 @@ If MeMesh is installed as a Claude Code plugin, these happen **without any actio
 
 | Hook | When | What it does |
 |------|------|-------------|
-| **SessionStart** | Every session begins | Auto-recalls top memories for current project + surfaces lesson warnings |
-| **PostToolUse** | After `git commit` | Auto-tracks commit with diff stats as a memory entity |
+| **SessionStart** | Every session begins | Auto-recalls top memories for current project + surfaces lesson warnings + (opt-in) agentic-orchestration banner |
+| **PreToolUse (Edit)** | Before editing files | Injects memories related to the file or project |
+| **PreToolUse (Bash)** | Before bash commands | (Opt-in) Nudges Claude to dispatch high-verifiability commands as background agents |
+| **UserPromptSubmit** | When you submit a prompt | Detects "remember this" intent (5 languages: en, es, fr, pt, zh-TW) and reminds Claude to use memesh |
+| **PostToolUse (Commit)** | After `git commit` | Auto-tracks commit with diff stats as a memory entity |
 | **Stop** | Session ends | Auto-captures session knowledge + runs LLM failure analysis → lessons |
 | **PreCompact** | Before context compaction | Saves important knowledge before conversation history is compressed |
 
 **You do NOT need to manually:**
-- Recall at session start (hook does it)
-- Remember commits (hook does it)
-- Summarize sessions (hook does it)
+- Recall at session start (SessionStart hook does it)
+- Remember commits (PostToolUse hook does it)
+- Summarize sessions (Stop hook does it)
+- Remember when you say "記下來" / "remember this" (UserPromptSubmit hook reminds Claude)
 
 **You DO need to manually** use the commands below for intentional knowledge management.
 

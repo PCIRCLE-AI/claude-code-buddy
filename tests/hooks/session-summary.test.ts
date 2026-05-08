@@ -78,7 +78,11 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     writeTranscript([
       { type: 'tool_use', tool_name: 'Edit', tool_input: { file_path: '/tmp/proj/src/auth.ts' } },
       { type: 'tool_use', tool_name: 'Bash', tool_input: { command: 'npm test -- --run' } },
-      { type: 'tool_result', content: 'Error: Cannot find module ./config' },
+      // Real Claude Code marks failed tool calls with `is_error: true`.
+      // The parser now trusts this flag instead of substring-matching
+      // the result text (which produced 315 false errors against ~28
+      // real ones on a 47MB production transcript).
+      { type: 'tool_result', is_error: true, content: 'Error: Cannot find module ./config' },
       { type: 'tool_use', tool_name: 'Edit', tool_input: { file_path: '/tmp/proj/src/config.ts' } },
     ]);
 

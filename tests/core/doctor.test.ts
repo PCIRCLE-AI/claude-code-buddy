@@ -128,6 +128,29 @@ describe('doctor', () => {
       llm: { provider: 'anthropic', model: 'claude-3-5-haiku-latest' },
     });
 
+    // The new hook-wiring check (added for #25) needs a marker
+    // file at MEMESH_DIR/install-hooks.json AND a memesh-attributed
+    // entity in the past 24h. Set up both via env override + the
+    // existing makeDatabase factory (count=7 → activity check
+    // returns PASS).
+    const memeshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-mdir-'));
+    tempRoots.push(memeshDir);
+    const settingsPath = path.join(memeshDir, 'fake-settings.json');
+    writeJson(settingsPath, {
+      hooks: {
+        SessionStart: [{ matcher: '*', hooks: [{ type: 'command', command: 'fake', _memesh: true }] }],
+      },
+    });
+    writeJson(path.join(memeshDir, 'install-hooks.json'), {
+      installed_at: '2026-05-08T00:00:00.000Z',
+      version: '4.1.4',
+      plugin_root: packageRoot,
+      scope: 'user',
+      settings_path: settingsPath,
+    });
+    const originalMemeshDir = process.env.MEMESH_DIR;
+    process.env.MEMESH_DIR = memeshDir;
+
     const result = await runDoctor({
       packageRoot,
       packageVersion: '4.0.3',
@@ -159,6 +182,10 @@ describe('doctor', () => {
     const lines = formatDoctorReport(result, '4.0.3');
     expect(lines).toContain('Overall: PASS');
     expect(lines.some((line) => line.includes('HTTP server is reachable'))).toBe(true);
+
+    // Cleanup — restore MEMESH_DIR for downstream tests
+    if (originalMemeshDir === undefined) delete process.env.MEMESH_DIR;
+    else process.env.MEMESH_DIR = originalMemeshDir;
   });
 
   it('reports PASS_WITH_CONCERNS when no config or cached update metadata exists yet', async () => {
@@ -496,5 +523,411 @@ describe('doctor', () => {
     expect(updateCheck?.status).toBe('fail');
     expect(updateCheck?.fix ?? '').toMatch(/`memesh update`/);
     expect(updateCheck?.fix ?? '').not.toMatch(/no upgrade target/i);
+  });
+
+  // ===========================================================================
+  // #25 — runtime hook wiring + activity checks
+  // ===========================================================================
+
+  function setupMemeshDir(opts: {
+    marker?: object | string | false;
+    settingsContent?: object | string | false;
+  } = {}): { memeshDir: string; settingsPath: string; restoreEnv: () => void } {
+    const memeshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-mdir-'));
+    tempRoots.push(memeshDir);
+    const settingsPath = path.join(memeshDir, 'fake-settings.json');
+    if (opts.settingsContent !== false && opts.settingsContent !== undefined) {
+      if (typeof opts.settingsContent === 'string') {
+        fs.writeFileSync(settingsPath, opts.settingsContent);
+      } else {
+        writeJson(settingsPath, opts.settingsContent);
+      }
+    }
+    if (opts.marker !== false && opts.marker !== undefined) {
+      const markerPath = path.join(memeshDir, 'install-hooks.json');
+      if (typeof opts.marker === 'string') {
+        fs.writeFileSync(markerPath, opts.marker);
+      } else {
+        writeJson(markerPath, opts.marker);
+      }
+    }
+    const original = process.env.MEMESH_DIR;
+    process.env.MEMESH_DIR = memeshDir;
+    return {
+      memeshDir,
+      settingsPath,
+      restoreEnv: () => {
+        if (original === undefined) delete process.env.MEMESH_DIR;
+        else process.env.MEMESH_DIR = original;
+      },
+    };
+  }
+
+  it('hook-wiring: WARN when no install-hooks marker exists (fresh install)', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const env = setupMemeshDir({}); // no marker, no settings
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.4',
+      openDatabaseImpl: () => makeDatabase(0) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update',
+        guidance: 'This installation can be updated directly from MeMesh.',
+      }),
+    });
+    env.restoreEnv();
+
+    const wiring = result.checks.find(c => c.id === 'hook-wiring');
+    expect(wiring).toBeDefined();
+    expect(wiring!.status).toBe('warn');
+    expect(wiring!.summary).toMatch(/install-hooks marker/i);
+    expect(wiring!.fix).toMatch(/memesh install-hooks/);
+  });
+
+  it('hook-wiring: PASS when marker + settings + memesh hook entry all present', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const env = setupMemeshDir({
+      settingsContent: {
+        hooks: {
+          SessionStart: [{ matcher: '*', hooks: [{ type: 'command', command: 'fake', _memesh: true }] }],
+        },
+      },
+      marker: {
+        installed_at: '2026-05-08T00:00:00.000Z',
+        version: '4.1.4',
+        plugin_root: packageRoot,
+        scope: 'user',
+        settings_path: path.join(env_settingsPathPlaceholder()), // see below
+      },
+    });
+    // Re-write the marker now that we know the settings path
+    writeJson(path.join(env.memeshDir, 'install-hooks.json'), {
+      installed_at: '2026-05-08T00:00:00.000Z',
+      version: '4.1.4',
+      plugin_root: packageRoot,
+      scope: 'user',
+      settings_path: env.settingsPath,
+    });
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.4',
+      openDatabaseImpl: () => makeDatabase(5) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update',
+        guidance: 'This installation can be updated directly from MeMesh.',
+      }),
+    });
+    env.restoreEnv();
+
+    const wiring = result.checks.find(c => c.id === 'hook-wiring');
+    expect(wiring!.status).toBe('pass');
+    expect(wiring!.summary).toMatch(/Wired in/);
+    expect(wiring!.summary).toContain(env.settingsPath);
+  });
+
+  it('hook-wiring: FAIL when marker references settings that drifted (no _memesh entries)', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const env = setupMemeshDir({
+      // Settings exists but has only NON-memesh hooks (user manually
+      // removed memesh entries via direct edit, leaving the marker
+      // dangling — exact case the FAIL surfaces).
+      settingsContent: {
+        hooks: {
+          Stop: [{ matcher: '*', hooks: [{ type: 'command', command: '~/.claude/hooks/stop.js' }] }],
+        },
+      },
+    });
+    writeJson(path.join(env.memeshDir, 'install-hooks.json'), {
+      installed_at: '2026-05-08T00:00:00.000Z',
+      version: '4.1.4',
+      plugin_root: packageRoot,
+      scope: 'user',
+      settings_path: env.settingsPath,
+    });
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.4',
+      openDatabaseImpl: () => makeDatabase(0) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update',
+        guidance: 'This installation can be updated directly from MeMesh.',
+      }),
+    });
+    env.restoreEnv();
+
+    const wiring = result.checks.find(c => c.id === 'hook-wiring');
+    expect(wiring!.status).toBe('fail');
+    expect(wiring!.summary).toMatch(/Settings drifted|no _memesh:true/i);
+    expect(result.status).toBe('FAIL');
+  });
+
+  it('hook-activity: WARN when no memesh-attributed entities in past 24h', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.4',
+      openDatabaseImpl: () => makeDatabase(0) as never, // ← key: 0 entities
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update',
+        guidance: 'This installation can be updated directly from MeMesh.',
+      }),
+    });
+
+    const activity = result.checks.find(c => c.id === 'hook-activity');
+    expect(activity!.status).toBe('warn');
+    expect(activity!.summary).toMatch(/No memesh-attributed entities/i);
+    expect(activity!.fix).toMatch(/Claude Code session/);
+  });
+});
+
+// Helper used by the wiring tests above. Cannot reference env.settingsPath
+// inside the marker object literal at construction time, so this is just
+// a dummy stand-in we overwrite immediately after.
+function env_settingsPathPlaceholder(): string { return ''; }
+
+describe('database failure diagnostics (F15)', () => {
+  it('diagnoses insufficient permissions', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const dbPath = path.join(packageRoot, 'test.db');
+    const dbDir = path.dirname(dbPath);
+
+    const previousEnv = process.env.MEMESH_DB_PATH;
+    process.env.MEMESH_DB_PATH = dbPath;
+
+    try {
+      const result = await runDoctor({
+        packageRoot,
+        packageVersion: '4.1.4',
+        openDatabaseImpl: () => { throw new Error('SQLITE_CANTOPEN'); },
+        closeDatabaseImpl: () => undefined,
+        detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+        getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+        getUpdateCheckImpl: async () => makeUpdateCheck(),
+        getCurrentInstallChannelImpl: () => 'npm-global',
+        getInstallChannelSupportImpl: () => ({
+          channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+          recommendedCommand: 'memesh update', guidance: '',
+        }),
+        existsSyncImpl: (p: string) => p === dbPath || p === dbDir,
+        statSyncImpl: (p: string) => {
+          if (p === dbPath) return { mode: 0o000, size: 1024 } as fs.Stats; // No permissions
+          if (p === dbDir) return { mode: 0o700, size: 4096 } as fs.Stats;
+          throw new Error('ENOENT');
+        },
+      });
+
+      const dbCheck = result.checks.find(c => c.id === 'database');
+      expect(dbCheck!.status).toBe('fail');
+      expect(dbCheck!.summary).toMatch(/insufficient permissions/i);
+      expect(dbCheck!.fix).toMatch(/chmod 600/);
+    } finally {
+      if (previousEnv === undefined) delete process.env.MEMESH_DB_PATH;
+      else process.env.MEMESH_DB_PATH = previousEnv;
+    }
+  });
+
+  it('diagnoses empty database file', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const dbPath = path.join(packageRoot, 'test.db');
+    const dbDir = path.dirname(dbPath);
+
+    const previousEnv = process.env.MEMESH_DB_PATH;
+    process.env.MEMESH_DB_PATH = dbPath;
+
+    try {
+      const result = await runDoctor({
+        packageRoot,
+        packageVersion: '4.1.4',
+        openDatabaseImpl: () => { throw new Error('SQLITE_NOTADB'); },
+        closeDatabaseImpl: () => undefined,
+        detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+        getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+        getUpdateCheckImpl: async () => makeUpdateCheck(),
+        getCurrentInstallChannelImpl: () => 'npm-global',
+        getInstallChannelSupportImpl: () => ({
+          channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+          recommendedCommand: 'memesh update', guidance: '',
+        }),
+        existsSyncImpl: (p: string) => p === dbPath || p === dbDir,
+        statSyncImpl: (p: string) => {
+          if (p === dbPath) return { mode: 0o600, size: 0 } as fs.Stats; // Empty file
+          if (p === dbDir) return { mode: 0o700, size: 4096 } as fs.Stats;
+          throw new Error('ENOENT');
+        },
+      });
+
+      const dbCheck = result.checks.find(c => c.id === 'database');
+      expect(dbCheck!.status).toBe('fail');
+      expect(dbCheck!.summary).toMatch(/empty.*0 bytes.*corrupted/i);
+      expect(dbCheck!.fix).toMatch(/rm.*memesh recall/);
+    } finally {
+      if (previousEnv === undefined) delete process.env.MEMESH_DB_PATH;
+      else process.env.MEMESH_DB_PATH = previousEnv;
+    }
+  });
+
+  it('diagnoses missing database directory', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const dbPath = path.join(packageRoot, 'nonexistent', 'test.db');
+
+    const previousEnv = process.env.MEMESH_DB_PATH;
+    process.env.MEMESH_DB_PATH = dbPath;
+
+    try {
+      const result = await runDoctor({
+        packageRoot,
+        packageVersion: '4.1.4',
+        openDatabaseImpl: () => { throw new Error('SQLITE_CANTOPEN'); },
+        closeDatabaseImpl: () => undefined,
+        detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+        getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+        getUpdateCheckImpl: async () => makeUpdateCheck(),
+        getCurrentInstallChannelImpl: () => 'npm-global',
+        getInstallChannelSupportImpl: () => ({
+          channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+          recommendedCommand: 'memesh update', guidance: '',
+        }),
+        existsSyncImpl: () => false, // DB and directory don't exist
+        statSyncImpl: () => { throw new Error('ENOENT'); },
+      });
+
+      const dbCheck = result.checks.find(c => c.id === 'database');
+      expect(dbCheck!.status).toBe('fail');
+      expect(dbCheck!.summary).toMatch(/directory does not exist/i);
+      expect(dbCheck!.fix).toMatch(/mkdir -p/);
+    } finally {
+      if (previousEnv === undefined) delete process.env.MEMESH_DB_PATH;
+      else process.env.MEMESH_DB_PATH = previousEnv;
+    }
+  });
+
+  it('provides actionable fix commands for all failure modes', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const dbPath = path.join(packageRoot, 'test.db');
+
+    // Create a DB file that can't be opened
+    fs.writeFileSync(dbPath, 'corrupted');
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.4',
+      openDatabaseImpl: () => { throw new Error('SQLITE_CORRUPT'); },
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+      existsSyncImpl: fs.existsSync,
+      statSyncImpl: fs.statSync,
+      getDatabasePathImpl: () => dbPath,
+    });
+
+    const dbCheck = result.checks.find(c => c.id === 'database');
+    expect(dbCheck!.status).toBe('fail');
+    expect(dbCheck!.fix).toBeTruthy();
+    // Fix should contain either a backup command or recovery command
+    expect(dbCheck!.fix).toMatch(/mv.*backup|rm.*recall|chmod/);
+  });
+});
+
+describe('database lifecycle preservation (F16 — regression)', () => {
+  // Regression: in v4.1.4 release testing, calling /v1/doctor in the
+  // running HTTP server caused doctor to close the global database
+  // connection mid-flight. Subsequent /v1/* requests then returned 500
+  // "Database not opened" until the server was restarted. Doctor must
+  // detect that someone else owns the db lifecycle and refuse to close.
+  it('does NOT close the database when it was already open before doctor ran', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    let closeCallCount = 0;
+
+    await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.4',
+      openDatabaseImpl: () => makeDatabase() as never,
+      closeDatabaseImpl: () => { closeCallCount++; },
+      isDatabaseOpenImpl: () => true, // ← simulates server-mode: db already open
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+    });
+
+    // The real closeDatabaseImpl must NEVER be called when db was already
+    // open. If it gets called, doctor would set the global db = null
+    // and break every subsequent request handler in the HTTP server.
+    expect(closeCallCount).toBe(0);
+  });
+
+  it('DOES close the database when doctor opened it (CLI mode)', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    let closeCallCount = 0;
+
+    await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.4',
+      openDatabaseImpl: () => makeDatabase() as never,
+      closeDatabaseImpl: () => { closeCallCount++; },
+      isDatabaseOpenImpl: () => false, // ← simulates CLI mode: doctor opens db itself
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+    });
+
+    // CLI mode: doctor opened the db itself, so it must close it to avoid
+    // leaking the connection to subsequent CLI commands or test runs.
+    expect(closeCallCount).toBeGreaterThan(0);
   });
 });

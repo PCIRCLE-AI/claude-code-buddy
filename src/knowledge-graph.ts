@@ -3,6 +3,7 @@ export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/
 import type { Entity, Relation, CreateEntityInput, SearchOptions, EntityRow } from './core/types.js';
 import { findConflicts, trackAccess, type TrackAccessOptions } from './storage/conflicts.js';
 import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
+import { computeSignalScore } from './core/signal-scorer.js';
 
 export class KnowledgeGraph {
   constructor(private db: Database.Database) {}
@@ -44,13 +45,29 @@ export class KnowledgeGraph {
       trustOverride?: 'trusted' | 'untrusted';
     }
   ): number {
+    // Phase-1 of #39 (signal scorer): every entity gets a rule-based
+    // signal_score at creation time so the dashboard can default-hide
+    // empty session_keypoints, mechanical commits, and other captured
+    // noise without depending on an LLM round-trip. Stamping in
+    // metadata at write-time is cheaper than computing on every
+    // dashboard read.
+    const incomingMetadata = (opts?.metadata && typeof opts.metadata === 'object') ? { ...opts.metadata } : {};
+    if (incomingMetadata.signal_score === undefined) {
+      incomingMetadata.signal_score = computeSignalScore({
+        type,
+        name,
+        observations: opts?.observations ?? [],
+        tags: opts?.tags ?? [],
+      });
+    }
+
     // INSERT OR IGNORE — if entity already exists, get its id
     // namespace is set on creation only; existing entities keep their original namespace
     const insertResult = this.db
       .prepare(
         'INSERT OR IGNORE INTO entities (name, type, metadata, namespace) VALUES (?, ?, ?, ?)'
       )
-      .run(name, type, opts?.metadata ? JSON.stringify(opts.metadata) : null, opts?.namespace ?? 'personal');
+      .run(name, type, JSON.stringify(incomingMetadata), opts?.namespace ?? 'personal');
     const isNewEntity = insertResult.changes > 0;
 
     const row = this.db
@@ -621,8 +638,23 @@ export class KnowledgeGraph {
     return { removed: true, remainingObservations: remaining.c };
   }
 
-  /** @deprecated Use archiveEntity() instead. Retained for admin/testing only. */
-  private deleteEntity(name: string): { deleted: boolean } {
+  /**
+   * Hard-delete an entity by name. Cleans the FTS5 entry, the
+   * sqlite-vec embedding row, then DELETE FROM entities — the
+   * foreign-key cascade handles observations, tags, and relations.
+   *
+   * Prefer `archiveEntity()` for user-facing forget flows: archiving
+   * preserves the row for restore + analytics. This hard delete is
+   * the right tool only when the entity should not exist at all
+   * (e.g. demo cleanup after `memesh demo --reset`).
+   *
+   * Both index sides matter: FTS5 is contentless and needs the
+   * original observations to locate its row, and `entities_vec` is
+   * a separate virtual table whose rows are not cascaded by the
+   * `entities` FK — leaving them behind shows up as orphan
+   * embeddings on later vector searches.
+   */
+  deleteEntity(name: string): { deleted: boolean } {
     const row = this.db
       .prepare('SELECT id FROM entities WHERE name = ?')
       .get(name) as { id: number } | undefined;
@@ -636,6 +668,16 @@ export class KnowledgeGraph {
       .all(row.id) as { content: string }[];
     const obsText = allObs.map((o) => o.content).join(' ');
     removeFromFts(this.db, row.id, name, obsText);
+
+    // Delete vec entry — mirror archiveEntity's cleanup so hard
+    // delete doesn't leak orphan embeddings.
+    try {
+      this.db
+        .prepare('DELETE FROM entities_vec WHERE rowid = ?')
+        .run(BigInt(row.id));
+    } catch {
+      // Vector entry may not exist if embeddings not enabled — ignore.
+    }
 
     // Delete entity (CASCADE handles observations, relations, tags)
     this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);

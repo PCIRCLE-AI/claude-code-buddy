@@ -143,10 +143,15 @@ async function main() {
     MEMESH_DB_PATH: dbPath,
   };
 
+  // Use a knowledge-cluster type (lesson_learned) instead of 'note'.
+  // Browse tab defaults to Signal Mode = ON, which sets the cluster
+  // filter to 'knowledge'. 'note' is in the 'reference' cluster and
+  // gets hidden under that default. lesson_learned is in 'knowledge'
+  // and is visible without the user toggling Signal Mode off.
   runNode(cliEntry, [
     'remember',
     '--name', 'dashboard-e2e-memory',
-    '--type', 'note',
+    '--type', 'lesson_learned',
     '--obs', 'Dashboard smoke test memory',
     '--tags', 'project:dashboard-e2e',
   ], commonEnv);
@@ -185,7 +190,11 @@ async function main() {
         }
       });
 
-      await page.goto(dashboardUrl, { waitUntil: 'networkidle' });
+      // Open the dashboard with ?tab=Browse to land on the "All Memories"
+      // view directly. Default tab is "Lessons" (a recent UX change), and
+      // a `note`-type entity wouldn't appear there. Browse renders all
+      // active entities, which is what this smoke test wants to verify.
+      await page.goto(`${dashboardUrl}?tab=Browse`, { waitUntil: 'networkidle' });
       await expectVisible(page, 'All Memories');
       await expectVisible(page, 'dashboard-e2e-memory');
 
@@ -195,12 +204,17 @@ async function main() {
       await expectVisible(page, 'dashboard-e2e-memory');
 
       await page.getByRole('navigation').getByRole('button', { name: 'Settings' }).click();
-      await page.waitForSelector('select');
+      // Target the language <select> specifically — Settings has multiple
+      // <select> elements (model picker, auto-update policy, locale), so
+      // a bare `select` selector is ambiguous. Find the one that contains
+      // the zh-TW option, which only the language select does.
+      const languageSelect = page.locator('select:has(option[value="zh-TW"])');
+      await languageSelect.waitFor({ state: 'visible', timeout: 10000 });
 
       await page.evaluate(() => {
         window.__memeshSmokeMarker = 'persist';
       });
-      await page.selectOption('select', 'zh-TW');
+      await languageSelect.selectOption('zh-TW');
       await expectVisible(page, '語言');
       assert.equal(
         await page.evaluate(() => window.__memeshSmokeMarker),
@@ -208,7 +222,7 @@ async function main() {
         'Locale switch triggered a full reload'
       );
 
-      await page.selectOption('select', 'en');
+      await languageSelect.selectOption('en');
       await expectVisible(page, 'Language');
       assert.equal(
         await page.evaluate(() => window.__memeshSmokeMarker),

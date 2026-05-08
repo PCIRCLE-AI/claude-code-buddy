@@ -1,12 +1,12 @@
 import { t as translate } from '../lib/i18n';
 import type { Entity } from '../lib/api';
 import {
-  iconFor,
   relativeDate,
   pickBestObservation,
   accessSignal,
   extractProject,
 } from '../lib/entity-display';
+import { EntityIcon } from './icons/EntityIcon';
 
 function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + '…' : s;
@@ -39,7 +39,9 @@ export function MemoryRow({ entity: e, actions, highlight }: Props) {
     <div class="mem-row" style={isArchived ? { opacity: 0.45 } : undefined}>
       {/* Icon column — compact, type signal */}
       <div class="mem-time" style={{ textAlign: 'center' }}>
-        <div style={{ fontSize: 18, lineHeight: '20px' }}>{iconFor(e.type)}</div>
+        <div style={{ height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-2)' }}>
+          <EntityIcon type={e.type} size={18} />
+        </div>
         <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>{relTime}</div>
       </div>
       <div class="mem-body">
@@ -52,10 +54,13 @@ export function MemoryRow({ entity: e, actions, highlight }: Props) {
           {project && (
             <span
               class="tag"
-              style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)' }}
+              style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
               title="project"
             >
-              📂 {project}
+              <svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style={{ flexShrink: 0 }}>
+                <path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+              </svg>
+              {project}
             </span>
           )}
           {access.tone !== 'none' && (

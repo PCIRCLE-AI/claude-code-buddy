@@ -37,6 +37,17 @@ Este paquete es la capa de memoria local de la familia de productos MeMesh. Es i
 npm install -g @pcircle/memesh
 ```
 
+### Paso 1.5: Conecta MeMesh a Claude Code (recomendado, una sola vez)
+
+`npm install -g` pone la CLI en el PATH y registra el servidor MCP, pero **no** conecta automáticamente los hooks de sesión de MeMesh a Claude Code. Sin estos hooks, puedes usar `memesh remember` / `recall` manualmente, pero el **bucle de captura automática** (sesión → lecciones → recall proactivo en la siguiente sesión) queda en silencio.
+
+```bash
+memesh install-hooks         # añade los hooks de memesh a ~/.claude/settings.json
+memesh doctor                # confirma que "Hooks wired into Claude Code" pasa
+```
+
+Estos hooks coexisten con tus hooks personalizados en `~/.claude/hooks/` — `install-hooks` escribe de forma aditiva y nunca sobrescribe los tuyos. Para eliminarlos: `memesh uninstall-hooks`.
+
 ### Paso 2: Guarda una decisión
 
 ```bash
@@ -146,13 +157,14 @@ Pega las herramientas en cualquier llamada API
 
 ## Qué Sucede Automáticamente en Claude Code
 
-No necesitas recordar todo manualmente. MeMesh tiene **6 hooks** que capturan e inyectan conocimiento mientras trabajas:
+No necesitas recordar todo manualmente. MeMesh tiene **7 hooks** que capturan e inyectan conocimiento mientras trabajas:
 
 | Cuándo | Qué hace MeMesh |
 |---|---|
 | **Al inicio de cada sesión** | Carga tus memorias más relevantes + advertencias proactivas de lecciones pasadas + banner de orquestación agentica |
 | **Antes de editar archivos** | Recupera memorias vinculadas al archivo o proyecto antes de que Claude escriba código |
 | **Antes de comandos bash** | Nudge a Claude para que envíe comandos de alta verificabilidad (test, build, lint, migrate, deploy, benchmark) como agentes de fondo |
+| **Cuando pides recordar** | Detecta intención de "remember this" / "記下來" y recuerda a Claude que escriba dual (memesh + MEMORY.md) |
 | **Después de cada `git commit`** | Registra qué cambiaste, con estadísticas de diff |
 | **Cuando Claude se detiene** | Captura archivos editados, errores corregidos y genera automáticamente lecciones estructuradas a partir de fallos |
 | **Antes de compresión de contexto** | Guarda conocimiento antes de que se pierda en límites de contexto |

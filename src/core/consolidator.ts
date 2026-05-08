@@ -135,7 +135,7 @@ async function compressObservations(observations: string[], llmConfig: LLMConfig
         if (filtered.length > 0) return filtered;
       }
     }
-  } catch {}
+  } catch { /* JSON parse failed - keep originals */ }
 
   return observations; // fallback: keep originals unchanged
 }

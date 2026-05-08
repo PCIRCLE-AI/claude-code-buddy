@@ -583,7 +583,12 @@ describe('Feature: Knowledge Graph', () => {
       });
 
       const entity = kg.getEntity('WithMeta');
-      expect(entity!.metadata).toEqual({ version: '1.0', priority: 'high' });
+      // Phase 1 of #39 added an automatic `signal_score` field to
+      // every entity's metadata at creation time. User-supplied
+      // fields are preserved verbatim; toMatchObject lets us assert
+      // those without listing every auto-added field.
+      expect(entity!.metadata).toMatchObject({ version: '1.0', priority: 'high' });
+      expect(typeof (entity!.metadata as { signal_score?: number }).signal_score).toBe('number');
     });
 
     it('should round-trip a relation between two entities', () => {

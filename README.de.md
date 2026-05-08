@@ -37,6 +37,17 @@ Dieses Paket ist die lokale Speicherschicht der MeMesh-Produktfamilie. Es ist be
 npm install -g @pcircle/memesh
 ```
 
+### Schritt 1.5: MeMesh in Claude Code einbinden (empfohlen, einmalig)
+
+`npm install -g` legt die CLI in den PATH und registriert den MCP-Server, aber MeMeshs Claude-Code-Session-Hooks werden **nicht** automatisch verdrahtet. Ohne diese Hooks können Sie `memesh remember` / `recall` manuell verwenden, aber die **Auto-Capture-Schleife** (Session → Lektionen → proaktive Erinnerung in der nächsten Session) bleibt stumm.
+
+```bash
+memesh install-hooks         # fügt memesh-Hooks zu ~/.claude/settings.json hinzu
+memesh doctor                # bestätigt, dass „Hooks wired into Claude Code" PASST
+```
+
+Die Hooks existieren neben Ihren bestehenden Custom-Hooks unter `~/.claude/hooks/` — `install-hooks` schreibt additiv und überschreibt nie Ihre Einträge. Zum Entfernen: `memesh uninstall-hooks`.
+
 ### Schritt 2: Entscheidung speichern
 
 ```bash

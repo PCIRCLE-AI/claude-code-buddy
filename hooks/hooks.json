@@ -67,6 +67,18 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/user-prompt-intent.js",
+            "timeout": 3
+          }
+        ]
+      }
     ]
   }
 }

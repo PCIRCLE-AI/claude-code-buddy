@@ -122,7 +122,10 @@ export function remember(args: RememberInput): RememberResult {
   if ((!args.tags || args.tags.length === 0) && args.observations?.length) {
     const caps = detectCapabilities();
     if (caps.llm) {
-      autoTagAndApply(entityId, args.name, args.type, args.observations, caps.llm).catch(() => {});
+      autoTagAndApply(entityId, args.name, args.type, args.observations, caps.llm).catch((err) => {
+        // Log but don't fail the main operation - auto-tagging is optional
+        console.warn('[memesh] Auto-tagging failed (non-critical):', err?.message ?? String(err));
+      });
     }
   }
 

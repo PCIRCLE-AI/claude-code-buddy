@@ -54,6 +54,11 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   const [model, setModel] = useState('');
   const [initialProvider, setInitialProvider] = useState('');
   const [initialModel, setInitialModel] = useState('');
+  // F17: track whether the saved config has an apiKey (server returns
+  // '***' as a mask if one is stored, undefined otherwise). Used to gate
+  // the "Remove provider" button so it only shows when there's actually
+  // a credential to remove (not for ollama which is keyless).
+  const [initialHasApiKey, setInitialHasApiKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [testResult, setTestResult] = useState<ConfigTestResult | null>(null);
@@ -98,6 +103,9 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         setModel(m);
         setInitialProvider(p);
         setInitialModel(m);
+        // Server masks the key as '***' when one is stored. Empty/undefined
+        // means no key on disk (e.g. ollama or fresh install).
+        setInitialHasApiKey(!!data.config.llm?.apiKey);
       })
       .finally(() => setLoading(false));
 
@@ -154,8 +162,39 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       if (apiKey) llm.apiKey = apiKey;
       await api('POST', '/v1/config', { llm });
       setMsg(t('settings.saved'));
+      // If the user just submitted a new apiKey for this provider, the
+      // server now has it on disk — reflect that in the gate state so
+      // the Remove button appears immediately without a page reload.
+      if (apiKey) setInitialHasApiKey(true);
       setApiKey('');
       setTestResult(null);
+      setInitialProvider(provider);
+      setInitialModel(model);
+    } catch (e: any) {
+      setMsg(t('common.error') + ': ' + e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // F17: Remove the configured LLM provider entirely (drops apiKey + model).
+  // After this, memesh falls back to env-var auto-detect (anthropic > openai
+  // > ollama). If no env credential is present either, memesh runs in Core
+  // Mode (FTS5 + ONNX embeddings, no LLM-backed features).
+  async function removeProvider() {
+    if (!confirm(t('settings.removeProviderConfirm'))) return;
+    setSaving(true);
+    setMsg('');
+    try {
+      await api('POST', '/v1/config', { llm: null });
+      setProvider('');
+      setModel('');
+      setApiKey('');
+      setInitialProvider('');
+      setInitialModel('');
+      setInitialHasApiKey(false);
+      setTestResult(null);
+      setMsg(t('settings.providerRemoved'));
     } catch (e: any) {
       setMsg(t('common.error') + ': ' + e.message);
     } finally {
@@ -280,6 +319,33 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       {/* LLM Config */}
       <div class="card">
         <div class="card-title">{t('settings.llmProvider')}</div>
+        {/*
+          #31 — explain LLM is OPTIONAL up-front. memesh's wedge is
+          "95.40% R@5 with FTS5 alone, no LLM required". README already
+          says this; the Settings UI shouldn't make users feel they
+          "must" pick a provider just because it's the most prominent
+          card on this tab. Spell out exactly what stays available
+          without an LLM, and what an LLM unlocks.
+        */}
+        <div
+          style={{
+            padding: '10px 12px',
+            marginBottom: 14,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 6,
+            fontSize: 12,
+            lineHeight: 1.55,
+            color: 'var(--text-2)',
+          }}
+        >
+          <div style={{ fontWeight: 600, color: 'var(--text-1)', marginBottom: 4 }}>
+            {t('settings.llmOptional.title')}
+          </div>
+          <div style={{ marginBottom: 6 }}>{t('settings.llmOptional.body')}</div>
+          <div><strong>{t('settings.llmOptional.coreLabel')}</strong> — {t('settings.llmOptional.coreFeatures')}</div>
+          <div><strong>{t('settings.llmOptional.smartLabel')}</strong> — {t('settings.llmOptional.smartFeatures')}</div>
+        </div>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -317,7 +383,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
                   type="button"
                   class="btn"
                   onClick={() => void testConnection()}
-                  disabled={!provider || testing || (provider !== 'ollama' && !apiKey)}
+                  disabled={provider === '' || testing || (provider !== 'ollama' && apiKey === '')}
                   style={{ flexShrink: 0 }}
                 >
                   {testing ? t('settings.testing') : t('settings.test')}
@@ -394,10 +460,31 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             const needsTest = dirty && !testResult?.valid;
             const saveDisabled = !provider || saving || needsTest;
             return (
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                 <button class="btn btn-primary" type="submit" disabled={saveDisabled}>
                   {saving ? t('settings.saving') : t('settings.save')}
                 </button>
+                {/* F17: Show Remove button only when a credential exists
+                    on disk. Per the destructive-action UX pattern, hide it
+                    when there's nothing concrete to remove. Ollama is keyless
+                    so it doesn't show this button — users switch ollama by
+                    picking a different provider radio, not by "removing". */}
+                {initialHasApiKey && (
+                  <button
+                    type="button"
+                    class="btn"
+                    onClick={removeProvider}
+                    disabled={saving}
+                    style={{
+                      borderColor: 'var(--danger)',
+                      color: 'var(--danger)',
+                      background: 'transparent',
+                    }}
+                    title={t('settings.removeProviderHint')}
+                  >
+                    {t('settings.removeProvider')}
+                  </button>
+                )}
                 {needsTest && (
                   <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('settings.testRequired')}</span>
                 )}

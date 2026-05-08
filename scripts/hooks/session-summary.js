@@ -91,16 +91,25 @@ function parseTranscript(transcriptPath) {
           }
         }
 
-        // Current format: user entries contain tool_result blocks in message.content
+        // Current format: user entries contain tool_result blocks in message.content.
+        //
+        // Use the explicit `is_error` flag the transcript records on each
+        // tool_result instead of substring-matching the result text. The
+        // earlier substring approach treated any Read/Bash output that
+        // happened to contain the word "Error" (READMEs documenting errors,
+        // CHANGELOG entries, source files mentioning "Error", grep over docs)
+        // as a real error, drowning analyzeFailure() in noise — a 47MB
+        // transcript reported 315 "errors" against ~28 real ones. The flag
+        // is the canonical signal Claude Code itself uses to mark a tool as
+        // having failed.
         if (entry.type === 'user' && Array.isArray(entry.message?.content)) {
           for (const block of entry.message.content) {
             if (block.type !== 'tool_result') continue;
+            if (block.is_error !== true) continue;
             const text = typeof block.content === 'string'
               ? block.content
               : JSON.stringify(block.content);
-            if (text.includes('Error') || text.includes('FAIL') || text.includes('error:')) {
-              errorsEncountered.push(text.slice(0, 200));
-            }
+            errorsEncountered.push(text.slice(0, 200));
           }
         }
 
@@ -119,8 +128,11 @@ function parseTranscript(transcriptPath) {
           }
         }
         if (entry.type === 'tool_result' && entry.content != null) {
-          const text = typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content);
-          if (text.includes('Error') || text.includes('FAIL') || text.includes('error:')) {
+          // Same fix as the current-format branch: trust the flag, not text.
+          if (entry.is_error !== true) {
+            // empty
+          } else {
+            const text = typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content);
             errorsEncountered.push(text.slice(0, 200));
           }
         }
@@ -170,6 +182,14 @@ process.stdin.on('end', async () => {
     // Skip sessions with too little activity
     if (toolCallCount < 3) return exit0();
 
+    // Hoisted to outer-try scope so the LLM failure-analysis block
+    // below (which runs AFTER db.close()) can reference it. Earlier
+    // version defined projectName inside the inner try-finally and the
+    // LLM path threw `projectName is not defined` silently — caught by
+    // the LLM try/catch but logged to stderr. Result: lesson_learned
+    // creation never actually happened in production.
+    const projectName = basename(cwd);
+
     // Open DB via shared helper — applies SCHEMA_SQL + status migration.
     // sqlite-vec is loaded separately because only this hook needs it
     // (for embedding-aware recall-effectiveness tracking).
@@ -178,14 +198,19 @@ process.stdin.on('end', async () => {
     try {
       sqliteVec.load(db);
 
-      // Duplicate detection: if we already captured this session, bail
-      const shortId = sessionId.slice(0, 8);
-      const alreadyCaptured = db.prepare("SELECT id FROM entities WHERE name = ?").get(`session-${shortId}-files`);
+      // Duplicate detection: if we already captured this session, bail.
+      //
+      // Use the FULL session_id rather than the first 8 chars: real
+      // Claude Code UUIDs collide on 8 chars only with cosmically small
+      // probability, but artificial test IDs (verify-fix-001 vs -002)
+      // share the prefix and silently skipped the second session
+      // entirely. The contract is one stored capture per distinct
+      // session_id, so the dedup key has to be the full id.
+      const alreadyCaptured = db.prepare("SELECT id FROM entities WHERE name = ?").get(`session-${sessionId}-files`);
       if (alreadyCaptured) return exit0();
 
       // Build and store session memories
-      const projectName = basename(cwd);
-      const baseTags = ['source:auto-capture', `session:${shortId}`, `project:${projectName}`];
+      const baseTags = ['source:auto-capture', `session:${sessionId}`, `project:${projectName}`];
 
       const insertEntity = db.prepare('INSERT OR IGNORE INTO entities (name, type) VALUES (?, ?)');
       const selectEntity = db.prepare('SELECT id FROM entities WHERE name = ?');
@@ -203,7 +228,7 @@ process.stdin.on('end', async () => {
       // Rule 1: File editing session summary
       if (filesEdited.length > 0) {
         storeMemory(
-          `session-${shortId}-files`,
+          `session-${sessionId}-files`,
           'session-insight',
           [
             `Session edited ${filesEdited.length} file(s): ${filesEdited.join(', ')}`,
@@ -216,7 +241,7 @@ process.stdin.on('end', async () => {
       // Rule 2: Error -> Fix pattern detection
       if (errorsEncountered.length > 0 && filesEdited.length > 0) {
         storeMemory(
-          `session-${shortId}-fixes`,
+          `session-${sessionId}-fixes`,
           'session-insight',
           [
             `Fixed ${errorsEncountered.length} error(s) by editing ${filesEdited.join(', ')}`,
@@ -229,7 +254,7 @@ process.stdin.on('end', async () => {
       // Rule 3: Heavy session summary (20+ tool calls = significant work)
       if (toolCallCount >= 20) {
         storeMemory(
-          `session-${shortId}-summary`,
+          `session-${sessionId}-summary`,
           'session-insight',
           [
             `Significant session: ${toolCallCount} tool calls, ${filesEdited.length} files edited`,
