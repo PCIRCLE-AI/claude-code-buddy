@@ -89,60 +89,26 @@ memesh remember --name "missing-knowledge" --type decision --obs "..."
 memesh recall --limit 5 --json    # confirm changes took effect
 ```
 
-## Documentation Synchronization Check (PR/Merge Time)
+## Documentation & Code Quality Checks
 
-**When**: Before ANY PR merge or major feature commit  
-**Why**: Prevent documentation drift (code changes without doc updates)
-
-### Mandatory Checklist
-
+**For comprehensive documentation synchronization and lint checks**, use:
 ```bash
-# 1. Version consistency
-□ docs/ARCHITECTURE.md version matches package.json?
-□ docs/api/API_REFERENCE.md version matches package.json?
-
-# 2. Feature descriptions
-□ skills/*.md describe current functionality?
-□ README.md mentions new features/changes?
-□ README.*.md (i18n variants) synchronized?
-
-# 3. Deprecated terms cleanup
-□ grep -r "old-term" docs/ skills/ README*.md
-  (check for removed features, renamed concepts)
-
-# 4. Structural consistency
-□ Hook count matches? (scripts/hooks/*.js vs docs/ARCHITECTURE.md table)
-□ MCP tool count matches? (src/transports/mcp/handlers.ts TOOL_DEFINITIONS vs API_REFERENCE.md)
-
-# 5. Breaking changes
-□ CHANGELOG.md updated for breaking changes?
-□ Migration guide provided if needed?
+@sa:comprehensive-code-review
 ```
 
-### How to Execute
+This skill includes:
+- **Dim 17: Documentation Synchronization** — version consistency, API docs, architecture docs, feature docs, deprecated terms, breaking changes
+- **Dim 18: Code Style & Lint** — lint errors/warnings, security rules, disabled rules, style consistency
 
-**Automated script** (recommended):
+**MeMesh-specific automation**:
 ```bash
+# Quick verification (memesh-specific checks)
 ./scripts/verify-docs-sync.sh
 # Exit code 0 = all checks pass
+
+# Lint check
+npm run lint  # 0 errors expected, ~83 warnings (technical debt)
 ```
-
-**Manual checks**:
-```bash
-# Version consistency
-grep -h "Version:" docs/ARCHITECTURE.md docs/api/API_REFERENCE.md package.json
-
-# Hook count
-ls -1 scripts/hooks/*.js | wc -l  # should match docs count
-
-# Deprecated terms
-grep "dual" docs/ skills/ README.md  # should find none (or only valid uses)
-
-# Lint (if configured)
-npm run lint  # 0 errors expected, warnings are technical debt
-```
-
-**Note on lint**: v4.1.14+ has ESLint configured. Current status: 0 errors, ~83 warnings (technical debt). Errors are blocked, warnings allowed for gradual cleanup. See `eslint.config.js` for details.
 
 ---
 

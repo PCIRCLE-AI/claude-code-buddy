@@ -58,9 +58,9 @@
     "better-sqlite3": "^12.9.0",
     "commander": "^14.0.3",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.3.2",
+    "express-rate-limit": "8.5.1",
     "sqlite-vec": "^0.1.9",
-    "zod": "^4.3.6"
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -69,13 +69,13 @@
     "@testing-library/preact": "^3.2.4",
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.6",
-    "@types/node": "^25.0.9",
+    "@types/node": "25.6.2",
     "eslint": "^10.3.0",
     "happy-dom": "^20.9.0",
     "playwright": "^1.59.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.2",
-    "vitest": "^4.0.17"
+    "vitest": "4.1.5"
   },
   "engines": {
     "node": ">=20.0.0"
