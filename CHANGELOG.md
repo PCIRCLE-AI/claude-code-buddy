@@ -44,6 +44,14 @@ Major release consolidating dashboard v2 + v3, the auto-update loop, the new `in
 - **`OnboardingBanner` runSeed clears `pending` in a finally block.** Previously the success path relied on the banner unmounting via `entity_count > 0`; if the follow-up health refetch was slow or failed, both buttons stayed disabled with no recovery path.
 - **`OnboardingBanner` error toast adds `role="alert"` + `aria-live="polite"`** so screen-reader users hear seed/reset failures.
 - **`failure-analyzer` LLM-failure path now logs to stderr** when the LLM call throws (401, network, rate-limit), so config issues are visible instead of producing no lesson without explanation.
+- **F16: Doctor no longer closes a database it didn't open.** Calling `/v1/doctor` from the dashboard would close the running HTTP server's shared SQLite connection in a `finally` block, leaving every subsequent `/v1/*` request returning HTTP 500 "Database not opened" until restart. `runDoctor()` now detects whether someone else owns the lifecycle (via new `isDatabaseOpen()` guard) and skips the close in that case. CLI mode is unaffected — when doctor opens the db itself, it still cleans up.
+- **F17: env-detected LLM no longer locks the embedder dimension.** Removed the `MEMESH_AUTO_DETECT_LLM=1` opt-in gate so users with `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` in their shell get the higher-quality remote LLM by default (priority: anthropic > openai > ollama). Crucially, embedder back-compat now consults *only* `cfg.llm` (explicit config), never env-detected LLM — so a stray `OPENAI_API_KEY` in the shell no longer cascades into a 1536-dim entities_vec lock that silently dropped vector writes (the original pre-4.1.0 ship-blocker). Independent regression tests assert the separation.
+
+### Added (late additions to v4.1.4)
+- **Settings dashboard "Remove provider" button** — drops the saved apiKey + model so the user can opt out of LLM-backed features without hand-editing `~/.memesh/config.json`. Falls back to env-var auto-detect or Core Mode (FTS5 + ONNX, no LLM features) if no credential is found. Only shown when an apiKey exists on disk; ollama (keyless) users switch via the radio buttons.
+- **Build-time smoke test** (`scripts/smoke-test.mjs`) — runs after `npm run build` and verifies dist/ modules load, database CRUD ops work, HTTP server starts, and dashboard artifact is present. Catches build-time regressions before they reach users.
+- **`isDatabaseOpen()` export** in `src/db.ts` for callers (currently doctor) that need to detect whether the global database is already open before they touch its lifecycle.
+- **Doctor warnings i18n coverage** — translated 15 doctor check IDs across all 11 dashboard locales (EN + zh-TW translated, others fallback to English).
 
 ### Removed
 - **Three internal surfaces (G2/G3/G4)** — entity types and a dashboard widget that were not wired to user-visible features.

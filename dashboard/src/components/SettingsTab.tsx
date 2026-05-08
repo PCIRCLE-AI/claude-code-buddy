@@ -54,6 +54,11 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   const [model, setModel] = useState('');
   const [initialProvider, setInitialProvider] = useState('');
   const [initialModel, setInitialModel] = useState('');
+  // F17: track whether the saved config has an apiKey (server returns
+  // '***' as a mask if one is stored, undefined otherwise). Used to gate
+  // the "Remove provider" button so it only shows when there's actually
+  // a credential to remove (not for ollama which is keyless).
+  const [initialHasApiKey, setInitialHasApiKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
   const [testResult, setTestResult] = useState<ConfigTestResult | null>(null);
@@ -98,6 +103,9 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         setModel(m);
         setInitialProvider(p);
         setInitialModel(m);
+        // Server masks the key as '***' when one is stored. Empty/undefined
+        // means no key on disk (e.g. ollama or fresh install).
+        setInitialHasApiKey(!!data.config.llm?.apiKey);
       })
       .finally(() => setLoading(false));
 
@@ -154,8 +162,14 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       if (apiKey) llm.apiKey = apiKey;
       await api('POST', '/v1/config', { llm });
       setMsg(t('settings.saved'));
+      // If the user just submitted a new apiKey for this provider, the
+      // server now has it on disk — reflect that in the gate state so
+      // the Remove button appears immediately without a page reload.
+      if (apiKey) setInitialHasApiKey(true);
       setApiKey('');
       setTestResult(null);
+      setInitialProvider(provider);
+      setInitialModel(model);
     } catch (e: any) {
       setMsg(t('common.error') + ': ' + e.message);
     } finally {
@@ -178,6 +192,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       setApiKey('');
       setInitialProvider('');
       setInitialModel('');
+      setInitialHasApiKey(false);
       setTestResult(null);
       setMsg(t('settings.providerRemoved'));
     } catch (e: any) {
@@ -449,11 +464,12 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
                 <button class="btn btn-primary" type="submit" disabled={saveDisabled}>
                   {saving ? t('settings.saving') : t('settings.save')}
                 </button>
-                {/* F17: Show Remove button only when a provider is currently
-                    saved. Hides on fresh installs where there's nothing to
-                    remove, and matches the destructive-action UX pattern of
-                    only showing it for resources that actually exist. */}
-                {initialProvider && (
+                {/* F17: Show Remove button only when a credential exists
+                    on disk. Per the destructive-action UX pattern, hide it
+                    when there's nothing concrete to remove. Ollama is keyless
+                    so it doesn't show this button — users switch ollama by
+                    picking a different provider radio, not by "removing". */}
+                {initialHasApiKey && (
                   <button
                     type="button"
                     class="btn"
