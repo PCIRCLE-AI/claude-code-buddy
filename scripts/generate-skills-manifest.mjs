@@ -17,7 +17,7 @@
 //   - skills/**/SKILL.md           (loaded as Claude system prompt)
 //   - scripts/hooks/*.js           (run in user's Claude Code process)
 //   - hooks/hooks.json             (declares which hooks are active)
-//   - .mcp.json, plugin.json       (Claude Code wiring)
+//   - .mcp.json, .claude-plugin/plugin.json  (Claude Code wiring)
 //
 // What's NOT covered (out of scope for this manifest):
 //   - dist/**/*.js — Node code path. Tampering there is detected by
