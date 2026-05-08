@@ -173,18 +173,24 @@ function detectFromEnv(): LLMConfig | null {
 export function detectCapabilities(config?: MeMeshConfig): Capabilities {
   const cfg = config ?? readConfig();
 
-  // Only treat an LLM provider as configured when the user has put it in the
-  // config file explicitly (or opted into env-based auto-detection). This
-  // keeps fresh installs deterministic: local FTS5 + onnx, no surprise
-  // 1536-dim provider lock-in on the entities_vec schema.
+  // F17: LLM and embedder are detected independently to prevent the
+  // pre-4.1.0 ship-blocker where env-detected OPENAI_API_KEY locked
+  // entities_vec to 1536-dim and broke vector writes on fresh installs.
+  //   - LLM: cfg.llm > env auto-detect (anthropic > openai > ollama)
+  //   - Embedder: cfg.embedder > legacy back-compat from cfg.llm > onnx
+  // Critically, embedder back-compat ONLY consults cfg.llm (explicit user
+  // choice), never env-detected LLM. So a user who has OPENAI_API_KEY in
+  // their shell gets openai LLM features but keeps onnx embeddings unless
+  // they explicitly write embedder.provider=openai to their config.
   const llm = cfg.llm ?? detectFromEnv() ?? null;
+  const embeddings = detectEmbeddingSource(cfg.llm ?? null, cfg.embedder);
 
   return {
     fts5: true,
     vectorSearch: true,
     scoring: true,
     knowledgeEvolution: true,
-    embeddings: detectEmbeddingSource(llm, cfg.embedder),
+    embeddings,
     llm,
     searchLevel: llm ? 1 : 0,
   };
@@ -237,11 +243,10 @@ const EMBEDDING_DIMENSIONS: Record<string, number> = {
  */
 export function getEmbeddingDimension(config?: MeMeshConfig): number {
   const cfg = config ?? readConfig();
-  // Same opt-in semantics as detectCapabilities — env-var auto-detection
-  // only fires when MEMESH_AUTO_DETECT_LLM=1. Otherwise fresh installs
-  // resolve to onnx (384-dim), keeping entities_vec consistent.
-  const llm = cfg.llm ?? detectFromEnv() ?? null;
-  const source = detectEmbeddingSource(llm, cfg.embedder);
+  // F17: only consult cfg.llm (explicit) for embedder back-compat — never
+  // env-detected LLM. This keeps entities_vec dimension stable across
+  // shell envs that have OPENAI_API_KEY set for unrelated tools.
+  const source = detectEmbeddingSource(cfg.llm ?? null, cfg.embedder);
   return EMBEDDING_DIMENSIONS[source] ?? 384;
 }
 

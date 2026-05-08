@@ -137,6 +137,25 @@ describe('Config: detectCapabilities', () => {
     expect(caps.llm?.provider).toBe('anthropic');
   });
 
+  // F17 ship-blocker regression: pre-4.1.0, env-detected OPENAI_API_KEY
+  // locked entities_vec table to 1536-dim, then the first remember()
+  // fell back to ONNX (384-dim) and silently dropped the vector write.
+  // Now LLM and embedder are detected independently — env-detect only
+  // affects LLM, not embedder.
+  it('env-detected OPENAI_API_KEY does NOT lock embedder to 1536-dim', () => {
+    process.env.OPENAI_API_KEY = 'sk-openai-env-key';
+    const caps = detectCapabilities({});
+    expect(caps.llm?.provider).toBe('openai');
+    expect(caps.embeddings).toBe('onnx'); // ← critical: NOT 'openai'
+  });
+
+  it('env-detected ANTHROPIC_API_KEY uses anthropic LLM but onnx embeddings', () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-env-key';
+    const caps = detectCapabilities({});
+    expect(caps.llm?.provider).toBe('anthropic');
+    expect(caps.embeddings).toBe('onnx');
+  });
+
   it('explicit config.llm takes precedence over env vars', () => {
     process.env.ANTHROPIC_API_KEY = 'sk-env-key';
     const caps = detectCapabilities({
