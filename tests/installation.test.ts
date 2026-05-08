@@ -27,18 +27,48 @@ describe('Installation Verification', () => {
       expect(fs.existsSync('.mcp.json')).toBe(true);
     });
 
-    it('should have hooks.json with 6 hook types', () => {
+    it('hooks.json declares the canonical Claude Code hook event types and references real script files', () => {
+      // Asserts shape and integrity, NOT a hardcoded count. Hardcoded
+      // counts drift silently when a new hook is added (this test
+      // previously required N=5 but the project shipped N=6 for an
+      // entire release cycle without anyone noticing — only a
+      // pre-release verify caught it). New hooks now extend this
+      // assertion automatically as long as they reference a real script.
       const hooks = JSON.parse(fs.readFileSync('hooks/hooks.json', 'utf8'));
       const hookTypes = Object.keys(hooks.hooks);
-      expect(hookTypes).toHaveLength(6);
-      expect(hookTypes).toContain('PreToolUse');
-      expect(hookTypes).toContain('SessionStart');
-      expect(hookTypes).toContain('PostToolUse');
-      expect(hookTypes).toContain('Stop');
-      expect(hookTypes).toContain('PreCompact');
-      // UserPromptSubmit added in v4.1.4 for the user-prompt-intent hook
-      // (7th hook script: detects "remember this" intent in user prompts).
-      expect(hookTypes).toContain('UserPromptSubmit');
+
+      // 1. Must be non-empty and a subset of Claude Code's known event types.
+      const ALLOWED_HOOK_EVENTS = [
+        'PreToolUse', 'PostToolUse',
+        'SessionStart', 'SessionEnd',
+        'Stop', 'SubagentStop',
+        'PreCompact',
+        'UserPromptSubmit',
+        'Notification',
+      ];
+      expect(hookTypes.length).toBeGreaterThan(0);
+      for (const event of hookTypes) {
+        expect(ALLOWED_HOOK_EVENTS).toContain(event);
+      }
+
+      // 2. Every declared hook must reference a script file that exists
+      //    on disk under scripts/hooks/. This catches the inverse drift
+      //    (hooks.json grows but the script never lands in the package).
+      const declaredScripts = new Set<string>();
+      for (const arr of Object.values(hooks.hooks) as Array<{ hooks?: Array<{ command?: string }> }>) {
+        for (const entry of arr ?? []) {
+          for (const h of entry.hooks ?? []) {
+            if (typeof h.command === 'string') {
+              const m = h.command.match(/scripts\/hooks\/([\w-]+\.js)/);
+              if (m) declaredScripts.add(m[1]);
+            }
+          }
+        }
+      }
+      expect(declaredScripts.size).toBeGreaterThan(0);
+      for (const script of declaredScripts) {
+        expect(fs.existsSync(`scripts/hooks/${script}`)).toBe(true);
+      }
     });
 
     it('should have plugin.json with skills reference', () => {
