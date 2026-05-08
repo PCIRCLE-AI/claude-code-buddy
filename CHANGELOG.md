@@ -2,6 +2,21 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.1.5] — 2026-05-09
+
+Structural repackaging for Claude Code's plugin marketplace. No behavioural changes for existing users.
+
+### Changed
+- **Plugin manifest moved** to `.claude-plugin/plugin.json` from `plugin.json` (root). This is the canonical location Claude Code's plugin spec expects, and the prerequisite for shipping memesh on the plugin marketplace. The manifest itself is now minimal — `mcpServers`, `hooks`, and `skills` references were removed because Claude Code auto-discovers them from default locations (`.mcp.json`, `hooks/hooks.json`, `skills/`). Path references updated in 3 build/test scripts and 3 docs files.
+- **`.gitignore`** narrowed: previously `.claude-plugin/plugin.json` was ignored (a leftover rule from when `.claude-plugin/` only meant local-dev plugin installs). The pattern now ignores `.claude-plugin/<other-plugin>/` subdirectories while keeping memesh's own manifest tracked.
+
+### Backward compatibility
+- `npm install -g @pcircle/memesh` users: unaffected. CLI binaries unchanged.
+- `memesh install-hooks` users: unaffected. Hook wiring path unchanged.
+
+### Notes
+- A `.claude-plugin/marketplace.json` companion (so users can `claude plugin marketplace add PCIRCLE-AI/memesh-llm-memory`) is a deliberate follow-up, not part of this release.
+
 ## [4.1.4] — 2026-05-08
 
 Major release consolidating dashboard v2 + v3, the auto-update loop, the new `install-hooks` command, and an LLM-driven memory consolidation system.

@@ -26,7 +26,7 @@ Documentation is part of the change, not follow-up work.
 - Update `README.md` when behavior, installation, or development workflow changes.
 - Update `docs/api/API_REFERENCE.md` when MCP tool signatures, parameters, or responses change.
 - Update `docs/ARCHITECTURE.md` when module structure, storage behavior, or packaging flow changes.
-- Keep `package.json`, `package-lock.json`, and `plugin.json` version metadata aligned.
+- Keep `package.json`, `package-lock.json`, and `.claude-plugin/plugin.json` version metadata aligned.
 
 The repository-level engineering rules in `CLAUDE.md` apply to contributor changes as well.
 

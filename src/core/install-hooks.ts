@@ -4,8 +4,9 @@
 //
 // PROBLEM
 // ───────
-// memesh ships `plugin.json` + `hooks/hooks.json` so it can run as a
-// Claude Code plugin. But `npm install -g @pcircle/memesh` only puts
+// memesh ships `.claude-plugin/plugin.json` + `hooks/hooks.json` so it
+// can run as a Claude Code plugin. But `npm install -g @pcircle/memesh`
+// only puts
 // the CLI binary on PATH — Claude Code's plugin runtime never reads
 // memesh's hooks.json. Result: memesh's auto-capture (session-summary,
 // pre-edit-recall, pre-bash-orchestration-nudge, etc.) silently does

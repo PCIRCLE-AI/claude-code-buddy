@@ -17,9 +17,9 @@ describe('Installation Verification', () => {
       expect(pkg.name).toBe('@pcircle/memesh');
     });
 
-    it('should have plugin.json with matching version', () => {
+    it('should have .claude-plugin/plugin.json with matching version', () => {
       const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-      const plugin = JSON.parse(fs.readFileSync('plugin.json', 'utf8'));
+      const plugin = JSON.parse(fs.readFileSync('.claude-plugin/plugin.json', 'utf8'));
       expect(plugin.version).toBe(pkg.version);
     });
 
@@ -71,9 +71,14 @@ describe('Installation Verification', () => {
       }
     });
 
-    it('should have plugin.json with skills reference', () => {
-      const plugin = JSON.parse(fs.readFileSync('plugin.json', 'utf8'));
-      expect(plugin.skills).toBeDefined();
+    it('ships skills via the default-discovery `skills/` directory', () => {
+      // The new Claude Code plugin schema auto-discovers components from
+      // default locations; explicit refs in plugin.json are only needed
+      // for non-default paths. So this asserts the directory itself
+      // exists rather than checking plugin.json for an explicit `skills`
+      // field (which we deliberately omit so the manifest stays minimal).
+      expect(fs.existsSync('skills')).toBe(true);
+      expect(fs.statSync('skills').isDirectory()).toBe(true);
     });
   });
 

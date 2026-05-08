@@ -17,7 +17,7 @@
 //   - skills/**/SKILL.md           (loaded as Claude system prompt)
 //   - scripts/hooks/*.js           (run in user's Claude Code process)
 //   - hooks/hooks.json             (declares which hooks are active)
-//   - .mcp.json, plugin.json       (Claude Code wiring)
+//   - .mcp.json, .claude-plugin/plugin.json  (Claude Code wiring)
 //
 // What's NOT covered (out of scope for this manifest):
 //   - dist/**/*.js — Node code path. Tampering there is detected by
@@ -63,7 +63,7 @@ targets.push(...await walk(join(repoRoot, 'skills')));
 targets.push(...(await walk(join(repoRoot, 'scripts', 'hooks'))).filter(p => p.endsWith('.js')));
 
 // Single-file artefacts (declarative wiring read by Claude Code itself)
-for (const f of ['hooks/hooks.json', '.mcp.json', 'plugin.json']) {
+for (const f of ['hooks/hooks.json', '.mcp.json', '.claude-plugin/plugin.json']) {
   const full = join(repoRoot, f);
   try { statSync(full); targets.push(full); } catch { /* missing — skip */ }
 }
