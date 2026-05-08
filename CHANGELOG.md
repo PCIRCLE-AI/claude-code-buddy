@@ -2,6 +2,37 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.1.6] — 2026-05-09
+
+Marketplace manifest + plugin-context MCP wiring. The Claude Code plugin install (Option A) now delivers the full memesh experience — hooks, skills, MCP tools, CLI, and dashboard — without requiring a separate `npm install -g`. Aligns memesh with the canonical pattern used by Anthropic's official MCP plugins (e.g. `context7`).
+
+### Added
+- **`.claude-plugin/marketplace.json`** companion to the plugin manifest. With this file, the repo doubles as its own one-plugin marketplace. Users can install with:
+  ```
+  /plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+  /plugin install memesh@pcircle-ai
+  ```
+  alongside the existing `npm install -g @pcircle/memesh && memesh install-hooks` flow. The npm path is preserved verbatim — this is an additional install route, not a replacement.
+- **`.gitignore`** further narrowed: previously `.claude-plugin/marketplace.json` was ignored alongside `.claude-plugin/plugin.json`. Now only `.claude-plugin/<other-plugin>/` subdirectories are ignored (where local-dev plugin installs land).
+
+### Fixed
+- **`.mcp.json` rewritten to the canonical Claude Code MCP plugin pattern**: `command: "npx"`, `args: ["-y", "-p", "@pcircle/memesh", "memesh-mcp"]`. Previously `command: "memesh-mcp"` assumed the binary was on system PATH, which is only true after `npm install -g`. The new form works in all three contexts identically:
+  1. **Claude Code plugin install** (Option A) — `npx` fetches `@pcircle/memesh` from the npm registry on first launch and caches it; subsequent launches are instant. No `dist/` build step or `prepare` script needed in the plugin install flow.
+  2. **npm global install** (Option B) — `npx` finds the already-installed `memesh-mcp` on `PATH` immediately, no network round-trip.
+  3. **Dev clone with `npm install`** — `npx` finds the locally installed `@pcircle/memesh`.
+
+  This pattern is what Anthropic's own `context7` plugin uses (`npx -y @upstash/context7-mcp`) and is now the standard for stdio-based MCP plugins. Plugin-only users (Option A) get a fully functional MCP server with no extra steps.
+- **`marketplace.json` `source` field** changed from `"."` to `"./"` to match the [Claude Code marketplace spec](https://code.claude.com/docs/en/plugin-marketplaces#relative-paths) ("Must start with `./`"). Behaviour is unchanged in practice — both forms resolve to the marketplace root — but only `"./"` is spec-compliant.
+
+### Documentation
+- **README Get Started** rewritten so Option A is no longer a watered-down install. The plugin install gives hooks, skills, MCP tools, *and* full CLI / dashboard access — the latter via `npx @pcircle/memesh <command>` from any shell, with no `npm install -g` required. Option B (`npm install -g`) is now framed as an *optional optimisation*: it puts the `memesh` binary directly on `PATH` (skipping the per-call `npx` lookup) and exposes `memesh-mcp` as a fixed-path command for non-Claude-Code MCP clients (Cursor, Cline, etc.).
+- **Step 2 / Step 3** examples updated: the bash examples assume Option B; Option A users replace `memesh` with `npx @pcircle/memesh` (same flags, no install) or use the `/memesh` skill / MCP tools inside the Claude Code conversation.
+
+### Backward compatibility
+- `npm install -g @pcircle/memesh` users: the `memesh-mcp` binary is unchanged; behaviour is identical.
+- `memesh install-hooks` users: hook entries are unchanged.
+- Existing `~/.memesh/knowledge-graph.db`: untouched.
+
 ## [4.1.5] — 2026-05-09
 
 Structural repackaging for Claude Code's plugin marketplace. No behavioural changes for existing users.

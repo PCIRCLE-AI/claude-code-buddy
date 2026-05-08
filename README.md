@@ -44,7 +44,20 @@ Reproduction commands, dataset SHA256, raw per-question results, and known-failu
 
 ## Get Started in 60 Seconds
 
-### Step 1: Install
+### Option A — Claude Code plugin (one-line install)
+
+If you use Claude Code, install MeMesh as a plugin from inside the CLI:
+
+```
+/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin install memesh@pcircle-ai
+```
+
+Claude Code wires hooks, skills, and the MCP server automatically. You get in-session auto-capture, proactive recall, the `/memesh` skill (remember / recall / learn / forget) inside the Claude Code conversation, and `remember` / `recall` / `forget` / `learn` available as MCP tools to the agent. The CLI and the local dashboard are also fully accessible without any extra global install — `npx @pcircle/memesh <command>` runs every CLI command, and `npx @pcircle/memesh` launches the dashboard at `localhost:3737`. The MCP server uses the same `npx`-based launch pattern as Anthropic's official plugins (e.g. `context7`), so no `npm install -g` is needed for any feature.
+
+### Option B — npm global (optional optimisation)
+
+If you want the binary directly on your shell `PATH` (so plain `memesh`, `memesh-mcp`, etc. work in any terminal without the per-call `npx` lookup), or you want to expose `memesh-mcp` as a fixed-path stdio command to **non-Claude-Code MCP clients** (Cursor, Cline, terminal-only flows):
 
 ```bash
 npm install -g @pcircle/memesh
@@ -54,9 +67,11 @@ npm install -g @pcircle/memesh
 > - **Native modules** — `better-sqlite3` and `sqlite-vec` install via prebuilt binaries on macOS (arm64/x64), Linux (x64/arm64), and Windows x64. On uncommon platforms or when prebuilds fail, you'll need a working C/C++ toolchain.
 > - **Embedding model** — the first call that triggers a local embedding (e.g. `recall` with semantic mode) downloads `Xenova/all-MiniLM-L6-v2` (~80 MB) into `~/.memesh/models/`. Subsequent calls are instant. The default retrieval path (FTS5) does not require this download.
 
-### Step 1.5: Wire MeMesh into Claude Code (recommended, one-time)
+### Step 1.5: Wire MeMesh into Claude Code (npm path only)
 
-`npm install -g` puts the CLI on your PATH and registers the MCP server, but does **not** auto-wire MeMesh's Claude Code session hooks. Without these hooks, you can use `memesh remember` / `recall` manually but the **auto-capture loop** (sessions → lessons → recall on next session) is silent.
+If you installed via **Option A** (`/plugin install memesh@pcircle-ai`), skip this step — Claude Code wires plugin hooks automatically.
+
+If you installed via **Option B** (`npm install -g`), the CLI is on your PATH and the MCP server is registered, but the Claude Code session hooks are not auto-wired. Without them you can still use `memesh remember` / `recall` manually, but the **auto-capture loop** (sessions → lessons → recall on next session) is silent.
 
 ```bash
 memesh install-hooks         # adds memesh's hooks to ~/.claude/settings.json
@@ -66,6 +81,8 @@ memesh doctor                # verifies "Hooks wired into Claude Code" passes
 The hooks coexist with any custom hooks you already have under `~/.claude/hooks/` — `install-hooks` writes additive entries and never overwrites yours. To remove later: `memesh uninstall-hooks`.
 
 ### Step 2: Store a decision
+
+> The bash examples below assume `memesh` is on your `PATH` (Option B). Option A (plugin-only) users have two equivalent paths: ask in the Claude Code conversation (the `/memesh` skill + MCP tools cover the same flows), or replace `memesh` with `npx @pcircle/memesh` in any shell — same flags, no global install needed.
 
 ```bash
 memesh remember "Use OAuth 2.0 with PKCE for the new auth"
