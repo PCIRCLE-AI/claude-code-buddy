@@ -38,12 +38,17 @@ describe('session-start hook: agentic-orchestration telemetry', () => {
   }, 60_000);
 
   afterEach(() => {
-    // maxRetries handles the Windows ENOTEMPTY race where sqlite/log
-    // file handles linger briefly after process exit. 10 × 200ms gives
-    // 2s of slack — plenty for the sqlite WAL/SHM/db trio to release on
-    // GitHub Windows runners (where 5 × 100ms was sometimes too tight).
-    if (fs.existsSync(tmpHome)) {
+    // Best-effort tmp cleanup. On Windows GitHub runners, sqlite WAL/SHM
+    // file handles can linger past subprocess exit longer than any
+    // reasonable retry budget. The OS will reap the temp dir on its
+    // own; we don't need to fail the test on cleanup hygiene.
+    if (!fs.existsSync(tmpHome)) return;
+    try {
       fs.rmSync(tmpHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch {
+      // Cleanup is non-load-bearing — the test's assertions already
+      // passed. Letting an ENOTEMPTY here fail the test would conflate
+      // "the code under test misbehaved" with "Windows file-lock race".
     }
   });
 
