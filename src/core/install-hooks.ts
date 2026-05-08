@@ -77,15 +77,26 @@ export interface UninstallResult {
 
 const MARKER_FILE = 'install-hooks.json';
 
+// On Windows, os.homedir() reads from the GetUserProfileDirectoryW Win32
+// API and ignores both USERPROFILE and HOME env vars. That makes tests
+// unable to redirect home-dir lookups to a tmp dir for hermetic runs.
+// We accept HOME as a higher-priority override on all platforms so tests
+// (and any users who deliberately set HOME on Windows for compatibility)
+// can isolate filesystem operations. Production users on Windows almost
+// never set HOME, so this falls through to os.homedir() as before.
+function homeDir(): string {
+  return process.env.HOME ?? os.homedir();
+}
+
 function memeshDir(): string {
-  return process.env.MEMESH_DIR ?? path.join(os.homedir(), '.memesh');
+  return process.env.MEMESH_DIR ?? path.join(homeDir(), '.memesh');
 }
 
 function settingsPathFor(scope: 'user' | 'project', cwd: string): string {
   if (scope === 'project') {
     return path.join(cwd, '.claude', 'settings.json');
   }
-  return path.join(os.homedir(), '.claude', 'settings.json');
+  return path.join(homeDir(), '.claude', 'settings.json');
 }
 
 // settings.json writer. The CodeQL js/file-system-race rule fires here

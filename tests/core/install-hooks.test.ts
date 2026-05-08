@@ -36,8 +36,14 @@ describe('install-hooks', () => {
 
     originalEnv.MEMESH_DIR = process.env.MEMESH_DIR;
     originalEnv.HOME = process.env.HOME;
+    originalEnv.USERPROFILE = process.env.USERPROFILE;
     process.env.MEMESH_DIR = path.join(tmpDir, 'memesh-state');
     process.env.HOME = path.join(tmpDir, 'home');
+    // Windows parity: os.homedir() consults USERPROFILE first on Windows
+    // and HOMEDRIVE+HOMEPATH next; HOME is not checked. Without this
+    // override, install-hooks writes to the real user dir and the test's
+    // assertion (read from process.env.HOME path) sees an absent file.
+    process.env.USERPROFILE = path.join(tmpDir, 'home');
     fs.mkdirSync(process.env.HOME, { recursive: true });
     vi.resetModules();
   });
@@ -47,7 +53,9 @@ describe('install-hooks', () => {
     else process.env.MEMESH_DIR = originalEnv.MEMESH_DIR;
     if (originalEnv.HOME === undefined) delete process.env.HOME;
     else process.env.HOME = originalEnv.HOME;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    if (originalEnv.USERPROFILE === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = originalEnv.USERPROFILE;
+    fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   async function freshModule() {
