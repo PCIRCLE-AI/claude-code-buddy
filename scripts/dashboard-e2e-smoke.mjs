@@ -143,10 +143,15 @@ async function main() {
     MEMESH_DB_PATH: dbPath,
   };
 
+  // Use a knowledge-cluster type (lesson_learned) instead of 'note'.
+  // Browse tab defaults to Signal Mode = ON, which sets the cluster
+  // filter to 'knowledge'. 'note' is in the 'reference' cluster and
+  // gets hidden under that default. lesson_learned is in 'knowledge'
+  // and is visible without the user toggling Signal Mode off.
   runNode(cliEntry, [
     'remember',
     '--name', 'dashboard-e2e-memory',
-    '--type', 'note',
+    '--type', 'lesson_learned',
     '--obs', 'Dashboard smoke test memory',
     '--tags', 'project:dashboard-e2e',
   ], commonEnv);
