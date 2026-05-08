@@ -88,6 +88,23 @@ function settingsPathFor(scope: 'user' | 'project', cwd: string): string {
   return path.join(os.homedir(), '.claude', 'settings.json');
 }
 
+// CodeQL js/file-system-race fix: atomic write via temp + rename so
+// concurrent readers (e.g. Claude Code itself) never observe a torn
+// settings.json mid-write. The .tmp suffix carries pid+ts to avoid
+// collision when two `memesh install-hooks` invocations race; if both
+// land, last-rename-wins, but neither leaves a partial file behind.
+function atomicWriteFileSync(targetPath: string, data: string): void {
+  const tmpPath = `${targetPath}.tmp.${process.pid}.${Date.now()}`;
+  fs.writeFileSync(tmpPath, data, { encoding: 'utf8', mode: 0o600 });
+  try {
+    fs.renameSync(tmpPath, targetPath);
+  } catch (err) {
+    // Cleanup the temp on rename failure so we don't leak it.
+    try { fs.unlinkSync(tmpPath); } catch { /* best-effort */ }
+    throw err;
+  }
+}
+
 function readSettings(p: string): ClaudeSettings {
   if (!fs.existsSync(p)) return {};
   try {
@@ -210,7 +227,7 @@ export function installHooks(opts: InstallOptions): InstallResult {
     backupPath = backupSettings(settingsPath);
     settings.hooks = existing;
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8');
+    atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
     // Marker — doctor reads this to confirm hooks are wired AND
     // know which scope/path so it can verify they still match.
     fs.mkdirSync(path.dirname(markerPath), { recursive: true });
@@ -277,7 +294,7 @@ export function uninstallHooks(opts: UninstallOptions): UninstallResult {
   let backupPath: string | null = null;
   if (!opts.dryRun && removed > 0) {
     backupPath = backupSettings(settingsPath);
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8');
+    atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
     const markerPath = path.join(memeshDir(), MARKER_FILE);
     if (fs.existsSync(markerPath)) {
       try { fs.unlinkSync(markerPath); } catch { /* best-effort */ }
