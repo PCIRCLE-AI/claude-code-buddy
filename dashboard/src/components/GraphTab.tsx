@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
 import { fetchGraph, type GraphData, type Entity } from '../lib/api';
 import { t } from '../lib/i18n';
+import { useSignalMode } from '../lib/signalMode';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -102,6 +103,7 @@ export function GraphTab() {
 
   // UI state
   const [typeFilters, setTypeFilters] = useState<Record<string, boolean>>({});
+  const [signalMode] = useSignalMode();
   const [searchQuery, setSearchQuery] = useState('');
   const [egoNodeId, setEgoNodeId] = useState<string | null>(null);
   const [driftMode, setDriftMode] = useState(false);
@@ -133,6 +135,28 @@ export function GraphTab() {
   const egoNodeIdRef = useRef(egoNodeId);
   const driftModeRef = useRef(driftMode);
   useEffect(() => { typeFiltersRef.current = typeFilters; }, [typeFilters]);
+
+  // When the global Signal Mode toggles, snap the NOISE-type filters
+  // to match the new mode. User-curated signal types (lesson_learned,
+  // decision, etc.) keep whatever the user set them to — only the
+  // server-declared noise list flips. If signalMode goes ON, hide
+  // noise; if OFF, show it.
+  useEffect(() => {
+    if (!data) return;
+    const noise = new Set(data.noiseTypes ?? []);
+    setTypeFilters((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const t of noise) {
+        const desired = !signalMode;
+        if (next[t] !== desired) {
+          next[t] = desired;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [signalMode, data]);
   useEffect(() => { searchQueryRef.current = searchQuery; }, [searchQuery]);
   useEffect(() => { egoNodeIdRef.current = egoNodeId; }, [egoNodeId]);
   useEffect(() => { driftModeRef.current = driftMode; }, [driftMode]);
@@ -142,10 +166,15 @@ export function GraphTab() {
     fetchGraph()
       .then((d) => {
         setData(d);
-        // Init type filters: server-supplied noise types unchecked by default
+        // Init type filters from the server-supplied noise list. When
+        // global Signal Mode is ON we hide noise by default; when it
+        // is OFF the user explicitly opted into "show everything," so
+        // every type starts checked.
         const noise = new Set(d.noiseTypes ?? []);
         const types: Record<string, boolean> = {};
-        d.entities.forEach((e) => { types[e.type] = types[e.type] ?? !noise.has(e.type); });
+        d.entities.forEach((e) => {
+          types[e.type] = types[e.type] ?? (signalMode ? !noise.has(e.type) : true);
+        });
         setTypeFilters(types);
       })
       .catch((e) => setError(e.message))
