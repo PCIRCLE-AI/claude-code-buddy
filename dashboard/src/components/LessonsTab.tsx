@@ -8,6 +8,19 @@ import {
   accessSignal,
   type LessonKind,
 } from '../lib/entity-display';
+import { EntityIcon } from './icons/EntityIcon';
+
+/** Inline label that pairs an SVG glyph with text. Centralised so each
+ *  card / tab / empty-state stays visually identical instead of every
+ *  caller wrapping its own flex container. */
+function GlyphLabel({ type, children }: { type: string; children: preact.ComponentChild }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <EntityIcon type={type} size={16} />
+      {children}
+    </span>
+  );
+}
 
 /* ---------- structured-failure parser (Type A) ---------- */
 
@@ -97,10 +110,10 @@ function FailureCard({ entity }: { entity: Entity }) {
     <div class="card" style={{ borderLeft: `3px solid ${borderColor}`, marginBottom: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
         <div class="card-title" style={{ margin: 0, flex: 1, minWidth: 0 }}>
-          🎯 {entity.name}
+          <GlyphLabel type="lesson_learned">{entity.name}</GlyphLabel>
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
-          {project && <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)' }}>📂 {project}</span>}
+          {project && <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style={{ flexShrink: 0 }}><path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>{project}</span>}
           {severity && (
             <span class="badge" style={{ background: `${SEVERITY_COLORS[severity]}18`, color: SEVERITY_COLORS[severity] }}>
               {severity}
@@ -166,13 +179,15 @@ function PlanCard({ entity }: { entity: Entity }) {
     <div class="card" style={{ marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div class="card-title" style={{ margin: 0 }}>📋 {plan.planName}</div>
+          <div class="card-title" style={{ margin: 0 }}>
+            <GlyphLabel type="plan">{plan.planName}</GlyphLabel>
+          </div>
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
             {plan.stepCount} {t('lessons.stepsLabel')} · {t('lessons.commitsCount', { count: plan.commits.length })}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-          {project && <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)' }}>📂 {project}</span>}
+          {project && <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style={{ flexShrink: 0 }}><path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>{project}</span>}
           {access.tone !== 'none' && (
             <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.10)', color: 'var(--accent)' }}>
               ✓ {access.label}
@@ -205,10 +220,10 @@ function FreeformCard({ entity }: { entity: Entity }) {
     <div class="card" style={{ marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
         <div class="card-title" style={{ margin: 0, flex: 1, minWidth: 0 }}>
-          📝 {entity.name}
+          <GlyphLabel type="note">{entity.name}</GlyphLabel>
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-          {project && <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)' }}>📂 {project}</span>}
+          {project && <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style={{ flexShrink: 0 }}><path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>{project}</span>}
           {access.tone !== 'none' && (
             <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.10)', color: 'var(--accent)' }}>
               ✓ {access.label}
@@ -318,7 +333,7 @@ export function LessonsTab() {
             }}
             onClick={() => setTab('failure')}
           >
-            🎯 {t('lessons.tabFailure')} <span style={{ opacity: 0.6, fontFamily: 'var(--mono)', marginLeft: 6 }}>{categorized.failure.length}</span>
+            <GlyphLabel type="lesson_learned">{t('lessons.tabFailure')}</GlyphLabel> <span style={{ opacity: 0.6, fontFamily: 'var(--mono)', marginLeft: 6 }}>{categorized.failure.length}</span>
           </button>
           <button
             class="btn btn-sm"
@@ -329,7 +344,7 @@ export function LessonsTab() {
             }}
             onClick={() => setTab('plan-completion')}
           >
-            📋 {t('lessons.tabPlan')} <span style={{ opacity: 0.6, fontFamily: 'var(--mono)', marginLeft: 6 }}>{categorized['plan-completion'].length}</span>
+            <GlyphLabel type="plan">{t('lessons.tabPlan')}</GlyphLabel> <span style={{ opacity: 0.6, fontFamily: 'var(--mono)', marginLeft: 6 }}>{categorized['plan-completion'].length}</span>
           </button>
           <button
             class="btn btn-sm"
@@ -340,7 +355,7 @@ export function LessonsTab() {
             }}
             onClick={() => setTab('freeform')}
           >
-            📝 {t('lessons.tabFreeform')} <span style={{ opacity: 0.6, fontFamily: 'var(--mono)', marginLeft: 6 }}>{categorized.freeform.length}</span>
+            <GlyphLabel type="note">{t('lessons.tabFreeform')}</GlyphLabel> <span style={{ opacity: 0.6, fontFamily: 'var(--mono)', marginLeft: 6 }}>{categorized.freeform.length}</span>
           </button>
         </div>
 
@@ -375,7 +390,12 @@ export function LessonsTab() {
       <div style={{ marginTop: 14 }}>
         {visible.length === 0 ? (
           <div class="empty">
-            <span class="empty-icon">{tab === 'failure' ? '🎯' : tab === 'plan-completion' ? '📋' : '📝'}</span>
+            <span class="empty-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)' }}>
+              <EntityIcon
+                type={tab === 'failure' ? 'lesson_learned' : tab === 'plan-completion' ? 'plan' : 'note'}
+                size={28}
+              />
+            </span>
             {search ? t('lessons.noMatch', { query: search }) : t('lessons.emptyCategory')}
           </div>
         ) : (

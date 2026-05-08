@@ -2,7 +2,8 @@ import { useMemo, useRef } from 'preact/hooks';
 import type { Entity } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
 import { t } from '../lib/i18n';
-import { relativeDate, timeBucket, accessSignal, iconFor } from '../lib/entity-display';
+import { relativeDate, timeBucket, accessSignal } from '../lib/entity-display';
+import { EntityIcon } from './icons/EntityIcon';
 
 /** Type set that qualifies as a milestone for the rail. Releases are the
  *  primary signal; workflow_checkpoint and weekly-summary are optional
@@ -188,7 +189,13 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
   if (entities.length === 0) {
     return (
       <div class="empty">
-        <span class="empty-icon">🗺️</span>
+        <span class="empty-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)' }}>
+          {/* Map outline — empty roadmap fallback */}
+          <svg width="32" height="32" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2 4 L6 2 L10 4 L14 2 V12 L10 14 L6 12 L2 14 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+            <path d="M6 2 V12 M10 4 V14" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+        </span>
         {t('roadmap.emptyProject')}
       </div>
     );
@@ -208,9 +215,12 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-0)' }}>
-              📂 {projectName}
-              <span style={{ color: 'var(--text-3)', fontWeight: 400, fontSize: 13, marginLeft: 8 }}>
+            <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-0)', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true" style={{ color: 'var(--accent)' }}>
+                <path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+              </svg>
+              <span>{projectName}</span>
+              <span style={{ color: 'var(--text-3)', fontWeight: 400, fontSize: 13 }}>
                 · {t('roadmap.title')}
               </span>
             </div>
@@ -324,7 +334,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                     fontFamily: 'inherit',
                   }}
                 >
-                  <span style={{ fontSize: 14, lineHeight: '18px', flexShrink: 0 }}>{iconFor(m.type)}</span>
+                  <span style={{ flexShrink: 0, color: 'var(--accent)' }}><EntityIcon type={m.type} size={14} /></span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, color: 'var(--text-1)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {m.name}
@@ -364,7 +374,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                       fontFamily: 'inherit',
                     }}
                   >
-                    <span style={{ fontSize: 14, lineHeight: '18px', flexShrink: 0 }}>{iconFor(l.type)}</span>
+                    <span style={{ flexShrink: 0, color: 'var(--text-2)' }}><EntityIcon type={l.type} size={14} /></span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, color: 'var(--text-1)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {l.name}

@@ -268,7 +268,13 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
             of roadmap, or in manage mode. */}
         {!loading && (project === 'all' || viewMode === 'list' || manage) && active.length === 0 && (
           <div class="empty">
-            <span class="empty-icon">📭</span>
+            <span class="empty-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)' }}>
+              {/* Inbox / empty mailbox glyph */}
+              <svg width="32" height="32" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M2 9 L4 4 H12 L14 9 V13 H2 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                <path d="M2 9 H6 a2 2 0 0 0 4 0 H14" stroke="currentColor" strokeWidth="1.5" fill="none" />
+              </svg>
+            </span>
             {filter ? `${t('browse.noMatch')} "${filter}"` : t('browse.emptyFilter')}
           </div>
         )}
