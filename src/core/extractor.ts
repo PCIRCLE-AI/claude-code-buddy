@@ -38,6 +38,9 @@ interface TranscriptEntry {
       name?: string;
       input?: Record<string, unknown>;
       content?: unknown;
+      // Claude Code marks failed tool calls explicitly. Trust this flag
+      // instead of substring-matching the result text.
+      is_error?: boolean;
     }>;
   };
   // Legacy format: flat top-level tool entries
@@ -45,6 +48,7 @@ interface TranscriptEntry {
   tool_name?: string;
   tool_input?: Record<string, unknown>;
   content?: unknown;
+  is_error?: boolean;
 }
 
 /**
@@ -89,14 +93,20 @@ export function parseTranscript(transcriptPath: string): {
           }
         }
 
-        // Current format: user entries wrap tool_result blocks in message.content
+        // Current format: user entries wrap tool_result blocks in message.content.
+        //
+        // Use the explicit `is_error` flag (the same signal Claude Code
+        // itself uses) instead of substring matching the result text. The
+        // old text-match treated any Read/Bash output containing "Error"
+        // (READMEs, CHANGELOG, source comments) as a real error, which
+        // poisoned downstream analyzeFailure() with hundreds of fake errors
+        // per session. See session-summary.js for the matching fix.
         if (entry.type === 'user' && Array.isArray(entry.message?.content)) {
           for (const block of entry.message.content) {
             if (block.type !== 'tool_result') continue;
+            if (block.is_error !== true) continue;
             const text = typeof block.content === 'string' ? block.content : JSON.stringify(block.content);
-            if (text.includes('Error') || text.includes('FAIL') || text.includes('error:')) {
-              errorsEncountered.push(text.slice(0, 200));
-            }
+            errorsEncountered.push(text.slice(0, 200));
           }
         }
 
@@ -116,8 +126,8 @@ export function parseTranscript(transcriptPath: string): {
           }
         }
         if (entry.type === 'tool_result' && entry.content != null) {
-          const text = typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content);
-          if (text.includes('Error') || text.includes('FAIL') || text.includes('error:')) {
+          if (entry.is_error === true) {
+            const text = typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content);
             errorsEncountered.push(text.slice(0, 200));
           }
         }
@@ -145,7 +155,7 @@ export class RuleBasedExtractor implements Extractor {
   extract(context: SessionContext): ExtractedMemory[] {
     const memories: ExtractedMemory[] = [];
     const projectName = path.basename(context.cwd);
-    const sessionTag = `session:${context.sessionId.slice(0, 8)}`;
+    const sessionTag = `session:${context.sessionId}`;
     const baseTags = ['source:auto-capture', sessionTag, `project:${projectName}`];
 
     // Skip sessions that were interrupted or non-agentic
@@ -163,7 +173,7 @@ export class RuleBasedExtractor implements Extractor {
     // Rule 1: File editing session summary
     if (transcript.filesEdited.length > 0) {
       memories.push({
-        name: `session-${context.sessionId.slice(0, 8)}-files`,
+        name: `session-${context.sessionId}-files`,
         type: 'session-insight',
         observations: [
           `Session edited ${transcript.filesEdited.length} file(s): ${transcript.filesEdited.join(', ')}`,
@@ -176,7 +186,7 @@ export class RuleBasedExtractor implements Extractor {
     // Rule 2: Error → Fix pattern detection
     if (transcript.errorsEncountered.length > 0 && transcript.filesEdited.length > 0) {
       memories.push({
-        name: `session-${context.sessionId.slice(0, 8)}-fixes`,
+        name: `session-${context.sessionId}-fixes`,
         type: 'session-insight',
         observations: [
           `Fixed ${transcript.errorsEncountered.length} error(s) by editing ${transcript.filesEdited.join(', ')}`,
@@ -189,7 +199,7 @@ export class RuleBasedExtractor implements Extractor {
     // Rule 3: Heavy session summary (20+ tool calls = significant work)
     if (transcript.toolCallCount >= 20) {
       memories.push({
-        name: `session-${context.sessionId.slice(0, 8)}-summary`,
+        name: `session-${context.sessionId}-summary`,
         type: 'session-insight',
         observations: [
           `Significant session: ${transcript.toolCallCount} tool calls, ${transcript.filesEdited.length} files edited`,

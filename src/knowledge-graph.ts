@@ -3,6 +3,7 @@ export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/
 import type { Entity, Relation, CreateEntityInput, SearchOptions, EntityRow } from './core/types.js';
 import { findConflicts, trackAccess, type TrackAccessOptions } from './storage/conflicts.js';
 import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
+import { computeSignalScore } from './core/signal-scorer.js';
 
 export class KnowledgeGraph {
   constructor(private db: Database.Database) {}
@@ -44,13 +45,29 @@ export class KnowledgeGraph {
       trustOverride?: 'trusted' | 'untrusted';
     }
   ): number {
+    // Phase-1 of #39 (signal scorer): every entity gets a rule-based
+    // signal_score at creation time so the dashboard can default-hide
+    // empty session_keypoints, mechanical commits, and other captured
+    // noise without depending on an LLM round-trip. Stamping in
+    // metadata at write-time is cheaper than computing on every
+    // dashboard read.
+    const incomingMetadata = (opts?.metadata && typeof opts.metadata === 'object') ? { ...opts.metadata } : {};
+    if (incomingMetadata.signal_score === undefined) {
+      incomingMetadata.signal_score = computeSignalScore({
+        type,
+        name,
+        observations: opts?.observations ?? [],
+        tags: opts?.tags ?? [],
+      });
+    }
+
     // INSERT OR IGNORE — if entity already exists, get its id
     // namespace is set on creation only; existing entities keep their original namespace
     const insertResult = this.db
       .prepare(
         'INSERT OR IGNORE INTO entities (name, type, metadata, namespace) VALUES (?, ?, ?, ?)'
       )
-      .run(name, type, opts?.metadata ? JSON.stringify(opts.metadata) : null, opts?.namespace ?? 'personal');
+      .run(name, type, JSON.stringify(incomingMetadata), opts?.namespace ?? 'personal');
     const isNewEntity = insertResult.changes > 0;
 
     const row = this.db

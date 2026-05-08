@@ -37,6 +37,17 @@ Ce package constitue la couche de mémoire locale de la famille de produits MeMe
 npm install -g @pcircle/memesh
 ```
 
+### Étape 1,5 : Connecter MeMesh à Claude Code (recommandé, une seule fois)
+
+`npm install -g` place la CLI dans le PATH et enregistre le serveur MCP, mais **ne connecte pas** automatiquement les hooks de session MeMesh à Claude Code. Sans ces hooks, vous pouvez utiliser `memesh remember` / `recall` manuellement, mais la **boucle d'auto-capture** (session → leçons → rappel proactif à la session suivante) reste silencieuse.
+
+```bash
+memesh install-hooks         # ajoute les hooks memesh à ~/.claude/settings.json
+memesh doctor                # vérifie que « Hooks wired into Claude Code » passe
+```
+
+Ces hooks coexistent avec vos hooks personnalisés dans `~/.claude/hooks/` — `install-hooks` écrit de manière additive et n'écrase jamais les vôtres. Pour supprimer : `memesh uninstall-hooks`.
+
 ### Étape 2 : Mémoriser une décision
 
 ```bash

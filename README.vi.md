@@ -37,6 +37,17 @@ Package này là tầng bộ nhớ cục bộ của dòng sản phẩm MeMesh. N
 npm install -g @pcircle/memesh
 ```
 
+### Bước 1.5: Kết nối MeMesh vào Claude Code (khuyến nghị, một lần)
+
+`npm install -g` đặt CLI vào PATH và đăng ký MCP server, nhưng **không** tự động kết nối các session hooks của MeMesh vào Claude Code. Không có hooks, bạn vẫn dùng được `memesh remember` / `recall` thủ công, nhưng **vòng tự động ghi nhận** (session → bài học → gọi lại chủ động ở session sau) sẽ im lặng.
+
+```bash
+memesh install-hooks         # thêm hooks memesh vào ~/.claude/settings.json
+memesh doctor                # xác nhận "Hooks wired into Claude Code" PASS
+```
+
+Các hooks này cùng tồn tại với bất kỳ hook tùy chỉnh nào trong `~/.claude/hooks/` — `install-hooks` ghi theo kiểu thêm, không bao giờ ghi đè của bạn. Để gỡ: `memesh uninstall-hooks`.
+
 ### Bước 2: Lưu một quyết định
 
 ```bash

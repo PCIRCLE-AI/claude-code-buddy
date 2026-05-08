@@ -280,6 +280,33 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       {/* LLM Config */}
       <div class="card">
         <div class="card-title">{t('settings.llmProvider')}</div>
+        {/*
+          #31 — explain LLM is OPTIONAL up-front. memesh's wedge is
+          "95.40% R@5 with FTS5 alone, no LLM required". README already
+          says this; the Settings UI shouldn't make users feel they
+          "must" pick a provider just because it's the most prominent
+          card on this tab. Spell out exactly what stays available
+          without an LLM, and what an LLM unlocks.
+        */}
+        <div
+          style={{
+            padding: '10px 12px',
+            marginBottom: 14,
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 6,
+            fontSize: 12,
+            lineHeight: 1.55,
+            color: 'var(--text-2)',
+          }}
+        >
+          <div style={{ fontWeight: 600, color: 'var(--text-1)', marginBottom: 4 }}>
+            {t('settings.llmOptional.title')}
+          </div>
+          <div style={{ marginBottom: 6 }}>{t('settings.llmOptional.body')}</div>
+          <div><strong>{t('settings.llmOptional.coreLabel')}</strong> — {t('settings.llmOptional.coreFeatures')}</div>
+          <div><strong>{t('settings.llmOptional.smartLabel')}</strong> — {t('settings.llmOptional.smartFeatures')}</div>
+        </div>
         <form
           onSubmit={(e) => {
             e.preventDefault();

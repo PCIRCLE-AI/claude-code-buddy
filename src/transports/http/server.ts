@@ -248,6 +248,45 @@ app.get('/v1/health', (_req, res) => {
   }
 });
 
+// --- Doctor (structured diagnostics for the FeedbackWidget) ---
+//
+// The dashboard FeedbackWidget calls this when a user opts to
+// "include system info" in a feedback issue. Returning the same
+// `DoctorResult` shape the CLI emits with `--json` lets us evolve
+// the diagnostic surface in one place without divergence.
+//
+// SecretSafe defence (gstack pattern, gstack-brain-sync's stdin
+// regex scan): doctor itself never reads secret-bearing fields, but
+// a regex sweep belt-and-suspenders any future check that
+// accidentally includes one. Matches on Anthropic / OpenAI / GitHub
+// / AWS-style key prefixes plus generic `sk-` / Bearer tokens.
+function redactSecrets(input: string): string {
+  return input
+    .replace(/sk-ant-[A-Za-z0-9_-]{20,}/g, 'sk-ant-***REDACTED***')
+    .replace(/sk-proj-[A-Za-z0-9_-]{20,}/g, 'sk-proj-***REDACTED***')
+    .replace(/sk-[A-Za-z0-9]{32,}/g, 'sk-***REDACTED***')
+    .replace(/ghp_[A-Za-z0-9]{30,}/g, 'ghp_***REDACTED***')
+    .replace(/gho_[A-Za-z0-9]{30,}/g, 'gho_***REDACTED***')
+    .replace(/AKIA[A-Z0-9]{16}/g, 'AKIA***REDACTED***')
+    .replace(/Bearer\s+[A-Za-z0-9._-]{20,}/gi, 'Bearer ***REDACTED***');
+}
+
+app.get('/v1/doctor', async (_req, res) => {
+  try {
+    const { runDoctor } = await import('../../core/doctor.js');
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion,
+    });
+    // Walk the result and redact any secret-shaped substring before
+    // it leaves the server — defense in depth, not a primary defence.
+    const safe = JSON.parse(redactSecrets(JSON.stringify(result)));
+    res.json({ success: true, data: safe });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // DX: every POST endpoint used to repeat a 10-line safeParse + 400
 // error mapping + try/catch + 200/400 block. handlePost factors that
 // into one place. Async handlers are fine — Promise.resolve unifies

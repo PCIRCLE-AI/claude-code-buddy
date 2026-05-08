@@ -37,6 +37,17 @@
 npm install -g @pcircle/memesh
 ```
 
+### ขั้นตอนที่ 1.5: เชื่อม MeMesh เข้ากับ Claude Code (แนะนำ, ครั้งเดียว)
+
+`npm install -g` ติดตั้ง CLI ลงใน PATH และลงทะเบียน MCP server แต่**ไม่ได้**เชื่อม session hooks ของ MeMesh เข้ากับ Claude Code โดยอัตโนมัติ ถ้าไม่มี hooks เหล่านี้ คุณยังใช้ `memesh remember` / `recall` แบบ manual ได้ แต่**วงรอบจับข้อมูลอัตโนมัติ** (session → บทเรียน → เรียกคืนเชิงรุกใน session ถัดไป) จะเงียบ
+
+```bash
+memesh install-hooks         # เพิ่ม hooks ของ memesh ลงใน ~/.claude/settings.json
+memesh doctor                # ยืนยันว่า "Hooks wired into Claude Code" PASS
+```
+
+Hooks เหล่านี้อยู่ร่วมกับ custom hooks ที่คุณมีใน `~/.claude/hooks/` — `install-hooks` เขียนแบบเพิ่ม ไม่เขียนทับของคุณ หากต้องการลบ: `memesh uninstall-hooks`
+
 ### ขั้นตอนที่ 2: เก็บการตัดสินใจ
 
 ```bash

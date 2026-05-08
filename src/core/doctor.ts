@@ -6,6 +6,7 @@ import { detectCapabilities, getConfigPath } from './config.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
+import { getInstallRecord } from './install-id.js';
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
 export type DoctorOverallStatus = 'PASS' | 'PASS_WITH_CONCERNS' | 'FAIL';
@@ -276,6 +277,172 @@ function inspectHooksConfig(
       `All ${scriptPaths.length} hook scripts are present${platform === 'win32' ? '' : ' and executable'}.`,
     ),
   ];
+}
+
+/**
+ * Verify memesh's hooks are actually wired into Claude Code's
+ * settings.json — not just present on disk. The earlier doctor
+ * check only confirmed the hook scripts exist; it would PASS even
+ * for a user whose Claude Code never loaded them, which was the
+ * exact failure mode that masked memesh's "self-improving memory
+ * loop never runs" bug for two weeks of npm downloads.
+ *
+ * Source of truth: the install-hooks.json marker written by
+ * `memesh install-hooks`. Without that marker we can't tell a
+ * fresh-install-needs-wiring case apart from a manually-wired
+ * case the user did themselves — so we surface as WARN with a fix.
+ */
+function inspectHookWiring(
+  existsSyncImpl: typeof fs.existsSync,
+  readFileSyncImpl: typeof fs.readFileSync,
+  memeshDir: string,
+): DoctorCheck {
+  const markerPath = path.join(memeshDir, 'install-hooks.json');
+  if (!existsSyncImpl(markerPath)) {
+    return createCheck(
+      'hook-wiring',
+      'Hooks wired into Claude Code',
+      'warn',
+      'No install-hooks marker found. memesh\'s session-summary, pre-edit-recall, and other hooks may not be firing for Claude Code sessions — the auto-capture / lesson-generation flow is silent without them.',
+      'Run `memesh install-hooks` to wire memesh into ~/.claude/settings.json (one-time setup). Then `memesh doctor` to confirm.',
+    );
+  }
+  const parsed = parseJsonFile(markerPath, readFileSyncImpl);
+  if (!parsed.ok) {
+    return createCheck(
+      'hook-wiring',
+      'Hooks wired into Claude Code',
+      'warn',
+      `install-hooks marker at ${markerPath} is unreadable.`,
+      'Re-run `memesh install-hooks` to refresh the marker.',
+    );
+  }
+  const marker = parsed.value as {
+    plugin_root?: string;
+    settings_path?: string;
+    version?: string;
+    scope?: string;
+  };
+  if (typeof marker.settings_path !== 'string') {
+    return createCheck(
+      'hook-wiring',
+      'Hooks wired into Claude Code',
+      'warn',
+      'install-hooks marker is malformed (missing settings_path).',
+      'Re-run `memesh install-hooks`.',
+    );
+  }
+  if (!existsSyncImpl(marker.settings_path)) {
+    return createCheck(
+      'hook-wiring',
+      'Hooks wired into Claude Code',
+      'fail',
+      `Marker recorded settings at ${marker.settings_path} but the file no longer exists. Hooks are not wired.`,
+      'Re-run `memesh install-hooks`.',
+    );
+  }
+  const settingsParsed = parseJsonFile(marker.settings_path, readFileSyncImpl);
+  if (!settingsParsed.ok) {
+    return createCheck(
+      'hook-wiring',
+      'Hooks wired into Claude Code',
+      'fail',
+      `${marker.settings_path} is no longer valid JSON.`,
+      'Restore from your ~/.claude backups or re-create with `memesh install-hooks`.',
+    );
+  }
+  // Walk hooks looking for any _memesh:true entry. Doesn't need
+  // to count every event — presence is the contract.
+  const hooks = (settingsParsed.value as { hooks?: Record<string, unknown> }).hooks;
+  let hasMemeshHook = false;
+  if (hooks && typeof hooks === 'object') {
+    for (const entries of Object.values(hooks)) {
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries) {
+        const cmds = (entry as { hooks?: unknown[] }).hooks;
+        if (!Array.isArray(cmds)) continue;
+        if (cmds.some((c) => (c as { _memesh?: boolean })._memesh === true)) {
+          hasMemeshHook = true;
+          break;
+        }
+      }
+      if (hasMemeshHook) break;
+    }
+  }
+  if (!hasMemeshHook) {
+    return createCheck(
+      'hook-wiring',
+      'Hooks wired into Claude Code',
+      'fail',
+      `Marker recorded a memesh install at ${marker.settings_path}, but no _memesh:true hook entries are present anymore. Settings drifted (manual edit?) or memesh was uninstalled out-of-band.`,
+      'Re-run `memesh install-hooks` to re-wire.',
+    );
+  }
+  // Check the recorded plugin_root still exists — npm-global path
+  // can change after a Node.js upgrade, leaving stale absolute paths.
+  if (typeof marker.plugin_root === 'string' && !existsSyncImpl(marker.plugin_root)) {
+    return createCheck(
+      'hook-wiring',
+      'Hooks wired into Claude Code',
+      'fail',
+      `Hook commands point at ${marker.plugin_root}, which no longer exists (likely after an npm-global path change).`,
+      'Re-run `memesh install-hooks` to refresh paths.',
+    );
+  }
+  return createCheck(
+    'hook-wiring',
+    'Hooks wired into Claude Code',
+    'pass',
+    `Wired in ${marker.settings_path} (scope: ${marker.scope ?? 'user'}, version: ${marker.version ?? 'unknown'}).`,
+  );
+}
+
+/**
+ * Confirm memesh's hooks have actually produced an entity in the
+ * past 24 hours — the strongest signal that the auto-capture loop
+ * is alive end-to-end. memesh-attributed entities have type
+ * 'session-insight' (per RuleBasedExtractor + session-summary.js);
+ * user-global hooks (e.g. ~/.claude/hooks/stop.js) write
+ * 'session_keypoint' instead. The distinction matters: counting
+ * session_keypoint would mask the exact "memesh hooks aren't
+ * firing but custom hooks are" failure mode we just fixed.
+ */
+function inspectHookActivity(
+  openDatabaseImpl: typeof openDatabase,
+  closeDatabaseImpl: typeof closeDatabase,
+): DoctorCheck {
+  let db: DatabaseLike | null = null;
+  try {
+    db = openDatabaseImpl() as unknown as DatabaseLike;
+    const row = db.prepare(
+      "SELECT COUNT(*) as c FROM entities WHERE type = 'session-insight' AND created_at > datetime('now', '-24 hours')",
+    ).get() as { c: number };
+    const count = row?.c ?? 0;
+    if (count === 0) {
+      return createCheck(
+        'hook-activity',
+        'Hook activity (last 24h)',
+        'warn',
+        'No memesh-attributed entities (type=session-insight) in the past 24 hours. Hooks may be wired but not firing — likely a Claude Code restart is needed, or the agentic-loop guard is filtering all sessions.',
+        'Open a Claude Code session that uses ≥3 tools and ends naturally (not user_interrupt). Then run `memesh doctor` again.',
+      );
+    }
+    return createCheck(
+      'hook-activity',
+      'Hook activity (last 24h)',
+      'pass',
+      `${count} memesh-attributed entit${count === 1 ? 'y' : 'ies'} captured in the past 24h — auto-capture loop is alive.`,
+    );
+  } catch (err) {
+    return createCheck(
+      'hook-activity',
+      'Hook activity (last 24h)',
+      'warn',
+      `Could not query the database: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  } finally {
+    try { if (db) closeDatabaseImpl(); } catch { /* best-effort */ }
+  }
 }
 
 function inspectDashboardArtifact(
@@ -645,6 +812,12 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl));
   checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
   checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
+  // Runtime wiring + activity (#25 — file existence isn't enough;
+  // doctor used to PASS for users whose Claude Code never loaded
+  // memesh's hooks at all).
+  const memeshDir = process.env.MEMESH_DIR ?? path.join(os.homedir(), '.memesh');
+  checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir));
+  checks.push(inspectHookActivity(openDatabaseImpl, closeDatabaseImpl));
   checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
   checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));
 
@@ -659,6 +832,24 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   );
 
   checks.push(await inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSupport));
+
+  // Anonymous install ID — surfaced so the user can SEE what's
+  // included in feedback issues (transparency). Never sent
+  // automatically; only attached to feedback bodies the user
+  // explicitly opts into sharing via "Include system info".
+  try {
+    const record = getInstallRecord();
+    checks.push(
+      createCheck(
+        'install_id',
+        'Install ID',
+        'pass',
+        `Anonymous install ID: ${record.install_id} (created ${record.created_at}). Stored locally at ~/.memesh/install.json. Never transmitted automatically; included only in feedback issues you submit with the "Include system info" checkbox on.`,
+      ),
+    );
+  } catch {
+    // Non-critical — doctor must never fail because of an info check.
+  }
 
   if (probeHttp) {
     checks.push(await inspectHttpProbe(httpBaseUrl, fetchImpl));

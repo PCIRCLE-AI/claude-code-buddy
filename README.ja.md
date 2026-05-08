@@ -37,6 +37,17 @@
 npm install -g @pcircle/memesh
 ```
 
+### ステップ 1.5: MeMesh を Claude Code に接続(推奨、一度きり)
+
+`npm install -g` は CLI を PATH に配置し MCP サーバーを登録しますが、MeMesh の Claude Code セッションフックは自動的にはワイヤリング**されません**。フックがないと `memesh remember` / `recall` は手動で使えますが、**自動キャプチャループ**(セッション → レッスン → 次のセッションで自発的にリコール)はサイレントになります。
+
+```bash
+memesh install-hooks         # ~/.claude/settings.json に memesh フックを追加
+memesh doctor                # "Hooks wired into Claude Code" が PASS になることを確認
+```
+
+これらのフックは既存の `~/.claude/hooks/` カスタムフックと共存します — `install-hooks` は追加方式で書き込み、既存のものを上書きしません。削除する場合: `memesh uninstall-hooks`。
+
 ### ステップ 2: 決定を記録
 
 ```bash

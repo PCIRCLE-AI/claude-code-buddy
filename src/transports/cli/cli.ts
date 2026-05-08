@@ -9,7 +9,7 @@ import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
 import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn, reindex } from '../../core/operations.js';
 import { verifyAgentWork } from '../../core/verifier.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
-import { readConfig, updateConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
+import { readConfig, updateConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { flushPendingEmbeddings } from '../../core/embedder.js';
 import type { LessonSeverity, MergeStrategy } from '../../core/types.js';
 
@@ -392,48 +392,117 @@ configCmd
     console.log(`\nSearch level: ${caps.searchLevel} (${caps.searchLevel === 1 ? 'Smart Mode' : 'Core'})`);
   });
 
+// Allowlist of nested keys we accept for set/unset. Each entry is
+// the dotted path the user types. Anything outside this list is
+// rejected — preferring an explicit allowlist keeps `memesh config`
+// from accidentally writing arbitrary deep-nested junk into config.json.
+//
+// `aliases` lets the legacy `llm.api-key` (with hyphen) keep working
+// while the canonical key (used everywhere in code) is `llm.apiKey`.
+const SET_KEY_ALIASES: Record<string, string> = {
+  'llm.api-key': 'llm.apiKey',
+};
+
+const ALLOWED_KEYS = new Set([
+  'llm.provider',
+  'llm.apiKey',
+  'llm.model',
+  'embedder.provider',
+  'embedder.model',
+  'autoUpdate',
+  'theme',
+  'sessionLimit',
+  'enableAgenticOrchestration',
+  'autoCapture',
+]);
+
+const KEY_VALIDATORS: Record<string, (value: string) => string | null> = {
+  'llm.provider': (v) => ['anthropic', 'openai', 'ollama'].includes(v) ? null : `must be one of: anthropic, openai, ollama`,
+  'embedder.provider': (v) => ['onnx', 'openai', 'ollama'].includes(v) ? null : `must be one of: onnx, openai, ollama`,
+  'autoUpdate': (v) => ['off', 'patch', 'minor', 'major'].includes(v) ? null : `must be one of: off, patch, minor, major`,
+  'theme': (v) => ['light', 'dark'].includes(v) ? null : `must be one of: light, dark`,
+};
+
+function setNested(obj: Record<string, unknown>, path: string[], value: unknown): void {
+  let cur = obj;
+  for (let i = 0; i < path.length - 1; i++) {
+    const part = path[i];
+    if (typeof cur[part] !== 'object' || cur[part] === null) {
+      cur[part] = {};
+    }
+    cur = cur[part] as Record<string, unknown>;
+  }
+  cur[path[path.length - 1]] = value;
+}
+
+function deleteNested(obj: Record<string, unknown>, path: string[]): boolean {
+  if (path.length === 0) return false;
+  if (path.length === 1) {
+    if (path[0] in obj) { delete obj[path[0]]; return true; }
+    return false;
+  }
+  const head = path[0];
+  if (typeof obj[head] !== 'object' || obj[head] === null) return false;
+  const child = obj[head] as Record<string, unknown>;
+  const removed = deleteNested(child, path.slice(1));
+  // Prune empty parent so { llm: {} } doesn't linger after unsetting last key
+  if (removed && Object.keys(child).length === 0) delete obj[head];
+  return removed;
+}
+
 configCmd
   .command('set')
-  .description('Set a config value')
-  .argument('<key>', 'Config key (e.g., llm.provider)')
+  .description('Set a config value (e.g. llm.provider, embedder.provider)')
+  .argument('<key>', 'Config key — see `memesh config list` for valid keys')
   .argument('<value>', 'Config value')
   .action((key, value) => {
-    const config = readConfig();
-    if (key === 'llm.provider') {
-      const validProviders = ['anthropic', 'openai', 'ollama'] as const;
-      if (!validProviders.includes(value as any)) {
-        console.error(`Invalid provider: ${value}. Must be one of: ${validProviders.join(', ')}`);
-        process.exit(1);
-      }
-      config.llm = { ...config.llm, provider: value as 'anthropic' | 'openai' | 'ollama' };
-    } else if (key === 'llm.api-key') {
-      config.llm = { ...config.llm, provider: config.llm?.provider || 'anthropic', apiKey: value };
-    } else if (key === 'llm.model') {
-      config.llm = { ...config.llm, provider: config.llm?.provider || 'anthropic', model: value };
-    } else {
+    const canonical = SET_KEY_ALIASES[key] ?? key;
+    if (!ALLOWED_KEYS.has(canonical)) {
       console.error(`Unknown key: ${key}`);
+      console.error(`Allowed keys: ${Array.from(ALLOWED_KEYS).sort().join(', ')}`);
       process.exit(1);
     }
-    updateConfig(config);
-    console.log(`✅ Set ${key} = ${key.includes('key') ? maskApiKey(value) : value}`);
+    const validate = KEY_VALIDATORS[canonical];
+    if (validate) {
+      const err = validate(value);
+      if (err) {
+        console.error(`Invalid value for ${canonical}: ${err}`);
+        process.exit(1);
+      }
+    }
+    // Coerce numeric string values for keys that take numbers
+    let coerced: unknown = value;
+    if (canonical === 'sessionLimit') coerced = parseInt(value, 10);
+    if (canonical === 'enableAgenticOrchestration' || canonical === 'autoCapture') {
+      coerced = value === 'true' || value === '1';
+    }
+
+    const config = readConfig() as Record<string, unknown>;
+    setNested(config, canonical.split('.'), coerced);
+    writeConfig(config as never);
+    const displayValue = canonical.toLowerCase().includes('key') ? maskApiKey(String(value)) : String(value);
+    console.log(`✅ Set ${canonical} = ${displayValue}`);
   });
 
 configCmd
   .command('unset')
-  .description('Remove a config value')
-  .argument('<key>', 'Config key')
+  .description('Remove a config value (supports nested keys like llm.apiKey)')
+  .argument('<key>', 'Config key — see `memesh config list` for valid keys')
   .action((key) => {
-    const config = readConfig();
-    if (key === 'llm.api-key' && config.llm) {
-      delete config.llm.apiKey;
-    } else if (key === 'llm.provider') {
-      delete config.llm;
-    } else {
+    const canonical = SET_KEY_ALIASES[key] ?? key;
+    if (!ALLOWED_KEYS.has(canonical)) {
       console.error(`Unknown key: ${key}`);
+      console.error(`Allowed keys: ${Array.from(ALLOWED_KEYS).sort().join(', ')}`);
       process.exit(1);
     }
-    updateConfig(config);
-    console.log(`✅ Removed ${key}`);
+    const config = readConfig() as Record<string, unknown>;
+    const removed = deleteNested(config, canonical.split('.'));
+    if (!removed) {
+      console.log(`(no change — ${canonical} was not set)`);
+      return;
+    }
+    writeConfig(config as never);
+    console.log(`✅ Removed ${canonical}`);
   });
 
 // --- export-schema ---
@@ -566,10 +635,308 @@ program
       for (const line of formatDoctorReport(result, pkg.version)) {
         console.log(line);
       }
+      // Bridge from "doctor found a problem" to "user knows how to
+      // report it". Mirrors the dashboard DoctorBanner's Get-help
+      // affordance so terminal-only users get the same path. Skip
+      // for --json (machine output should stay clean for parsing).
+      if (result.status !== 'PASS') {
+        console.log('');
+        console.log('Need help? Run `memesh feedback` to file a GitHub issue with the diagnostics pre-attached.');
+      }
     }
 
     if (result.status === 'FAIL') {
       process.exitCode = 1;
+    }
+  });
+
+// --- dream (LLM cluster compactor — #39 Phase 2) ---
+//
+// `memesh dream` — runs the dreamer on recent episodic clusters,
+// writes pending proposals to dream_proposals (NEVER touches source
+// entities). User reviews via `memesh dream list` + `dream accept`
+// or `dream reject`. Mirrors Mem0's 4-op + Graphiti's
+// invalidate-don't-delete + Anthropic AutoDream's safety promise.
+const dreamCmd = program.command('dream').description('Consolidate noisy episodic memories into digests (LLM-driven, opt-in review)');
+
+dreamCmd
+  .command('run', { isDefault: true })
+  .description('Run a dream pass — propose digests for clusters of compactable entities')
+  .option('--project <name>', 'Restrict to one project')
+  .option('--dry-run', 'Compute proposals without writing to dream_proposals')
+  .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 100)', (v) => parseInt(v, 10))
+  .option('--window-days <n>', 'Look-back window in days (default 56 = 8 weeks)', (v) => parseInt(v, 10))
+  .action(async (opts) => {
+    await withDatabase(async () => {
+      const { runDreamer } = await import('../../core/dreamer.js');
+      const { readConfig } = await import('../../core/config.js');
+      const { getDatabase } = await import('../../db.js');
+      const cfg = readConfig();
+      if (!cfg.llm) {
+        console.error('No LLM configured. Run `memesh config set llm.provider <anthropic|openai|ollama>` first.');
+        console.error('LLM is required for `memesh dream` because consolidation is a semantic decision, not a rule.');
+        process.exit(1);
+      }
+      const result = await runDreamer(getDatabase(), cfg.llm, {
+        project: opts.project,
+        dryRun: !!opts.dryRun,
+        maxLlmCalls: opts.maxLlmCalls,
+        windowDays: opts.windowDays,
+      });
+      console.log(`${opts.dryRun ? '[dry-run] ' : ''}Dream pass complete in ${result.durationMs}ms`);
+      console.log(`  clusters scanned: ${result.clustersScanned}`);
+      console.log(`  LLM calls:        ${result.llmCalls}`);
+      console.log(`  proposals created: ${result.proposalsCreated}`);
+      if (result.skipped.length > 0) {
+        console.log(`  skipped:           ${result.skipped.length}`);
+        const reasonCounts = new Map<string, number>();
+        for (const s of result.skipped) {
+          const key = s.reason.split(':')[0];
+          reasonCounts.set(key, (reasonCounts.get(key) ?? 0) + 1);
+        }
+        for (const [reason, n] of reasonCounts) {
+          console.log(`    - ${reason}: ${n}`);
+        }
+      }
+      if (!opts.dryRun && result.proposalsCreated > 0) {
+        console.log('');
+        console.log(`Review with: memesh dream list`);
+        console.log(`Accept all:  memesh dream accept --all`);
+      }
+    });
+  });
+
+dreamCmd
+  .command('patterns')
+  .description('Run pattern detector — surface emerging patterns/conventions/repeated mistakes per project (Phase 3)')
+  .option('--project <name>', 'Restrict to one project (default: all projects)')
+  .option('--dry-run', 'Compute proposals without writing to dream_proposals')
+  .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 10)', (v) => parseInt(v, 10))
+  .option('--window-days <n>', 'Look-back window in days (default 30)', (v) => parseInt(v, 10))
+  .option('--min-signal <n>', 'Minimum signal_score to include in scan (default 0.3)', (v) => parseFloat(v))
+  .action(async (opts) => {
+    await withDatabase(async () => {
+      const { runPatternDetector } = await import('../../core/dreamer.js');
+      const { readConfig } = await import('../../core/config.js');
+      const { getDatabase } = await import('../../db.js');
+      const cfg = readConfig();
+      if (!cfg.llm) {
+        console.error('No LLM configured. Pattern detection requires an LLM.');
+        process.exit(1);
+      }
+      const result = await runPatternDetector(getDatabase(), cfg.llm, {
+        project: opts.project,
+        dryRun: !!opts.dryRun,
+        maxLlmCalls: opts.maxLlmCalls,
+        windowDays: opts.windowDays,
+        minSignal: opts.minSignal,
+      });
+      console.log(`${opts.dryRun ? '[dry-run] ' : ''}Pattern detector complete in ${result.durationMs}ms`);
+      console.log(`  entities scanned: ${result.entitiesScanned}`);
+      console.log(`  LLM calls:        ${result.llmCalls}`);
+      console.log(`  patterns proposed: ${result.proposalsCreated}`);
+      if (result.skipped.length > 0) {
+        console.log(`  skipped:           ${result.skipped.length}`);
+        for (const s of result.skipped.slice(0, 5)) {
+          console.log(`    - ${s.project ?? '?'}: ${s.reason}`);
+        }
+      }
+      if (!opts.dryRun && result.proposalsCreated > 0) {
+        console.log('');
+        console.log(`Review with: memesh dream list`);
+      }
+    });
+  });
+
+dreamCmd
+  .command('list')
+  .description('List dream proposals (pending by default)')
+  .option('--status <s>', 'Filter by status: pending | accepted | rejected | applied', 'pending')
+  .option('--json', 'Output JSON')
+  .action(async (opts) => {
+    await withDatabase(async () => {
+      const { listProposals } = await import('../../core/dreamer.js');
+      const { getDatabase } = await import('../../db.js');
+      const proposals = listProposals(getDatabase(), opts.status);
+      if (opts.json) { console.log(JSON.stringify(proposals, null, 2)); return; }
+      if (proposals.length === 0) {
+        console.log(`No ${opts.status} dream proposals.`);
+        return;
+      }
+      console.log(`${proposals.length} ${opts.status} proposal(s):`);
+      console.log('');
+      for (const p of proposals) {
+        console.log(`  #${p.id}  [${p.project}/${p.cluster_key}]  ${p.source_count} sources → "${p.digest_name}"`);
+        console.log(`         ${p.digest_observations_preview}`);
+        console.log(`         created: ${p.created_at}`);
+        console.log('');
+      }
+      console.log(`Apply: memesh dream accept <id>   |   Reject: memesh dream reject <id>`);
+    });
+  });
+
+dreamCmd
+  .command('accept <id>')
+  .description('Accept a pending proposal — creates digest entity, soft-archives sources')
+  .action(async (id) => {
+    await withDatabase(async () => {
+      const { applyProposal } = await import('../../core/dreamer.js');
+      const { getDatabase } = await import('../../db.js');
+      const { KnowledgeGraph } = await import('../../knowledge-graph.js');
+      const kg = new KnowledgeGraph(getDatabase());
+      const result = applyProposal(getDatabase(), parseInt(id, 10), kg);
+      console.log(`Applied proposal #${result.proposalId}`);
+      console.log(`  digest entity: ${result.digestEntityName}`);
+      console.log(`  sources archived: ${result.sourcesArchived}`);
+    });
+  });
+
+dreamCmd
+  .command('reject <id>')
+  .description('Reject a pending proposal — sources untouched, proposal marked rejected')
+  .option('--reason <text>', 'Reason for rejection (saved for audit)')
+  .action(async (id, opts) => {
+    await withDatabase(async () => {
+      const { rejectProposal } = await import('../../core/dreamer.js');
+      const { getDatabase } = await import('../../db.js');
+      rejectProposal(getDatabase(), parseInt(id, 10), opts.reason);
+      console.log(`Rejected proposal #${id}`);
+    });
+  });
+
+// --- install-hooks / uninstall-hooks ---
+//
+// memesh ships hooks/hooks.json for Claude Code's plugin runtime,
+// but `npm install -g` only puts the CLI on PATH — the plugin
+// runtime never reads them. Inject the hooks directly into
+// ~/.claude/settings.json so they fire on every Claude Code session,
+// preserving any user-global hooks the user already wired.
+program
+  .command('install-hooks')
+  .description('Wire memesh\'s session hooks into Claude Code (~/.claude/settings.json)')
+  .option('--scope <scope>', 'user (default) or project — project writes to ./.claude/settings.json', 'user')
+  .option('--dry-run', 'Show what would change without modifying any file')
+  .action(async (opts) => {
+    const { installHooks } = await import('../../core/install-hooks.js');
+    const scope = opts.scope === 'project' ? 'project' : 'user';
+    try {
+      const result = installHooks({
+        pluginRoot: packageRoot,
+        pluginVersion: pkg.version,
+        scope,
+        dryRun: !!opts.dryRun,
+      });
+      console.log(`${opts.dryRun ? '[dry-run] ' : ''}Settings: ${result.settingsPath}`);
+      console.log(`${opts.dryRun ? '[dry-run] ' : ''}Added ${result.added} hook entr${result.added === 1 ? 'y' : 'ies'}, skipped ${result.skipped} already-installed.`);
+      if (result.backupPath) console.log(`Backup: ${result.backupPath}`);
+      if (result.conflicts.length > 0) {
+        console.log('');
+        console.log('Note: memesh hooks now coexist with the following pre-existing entries:');
+        for (const c of result.conflicts) {
+          console.log(`  - ${c.event} (matcher: ${c.matcher}) — ${c.existingCount} non-memesh hook command${c.existingCount === 1 ? '' : 's'} preserved`);
+        }
+      }
+      if (!opts.dryRun) {
+        console.log('');
+        console.log('Restart Claude Code (or open a new session) for hooks to take effect.');
+        console.log('Verify with: memesh doctor');
+      }
+    } catch (err: any) {
+      console.error(`install-hooks failed: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('uninstall-hooks')
+  .description('Remove memesh\'s session hooks from Claude Code settings')
+  .option('--scope <scope>', 'user (default) or project', 'user')
+  .option('--dry-run', 'Show what would change without modifying any file')
+  .action(async (opts) => {
+    const { uninstallHooks } = await import('../../core/install-hooks.js');
+    const scope = opts.scope === 'project' ? 'project' : 'user';
+    try {
+      const result = uninstallHooks({ scope, dryRun: !!opts.dryRun });
+      console.log(`${opts.dryRun ? '[dry-run] ' : ''}Settings: ${result.settingsPath}`);
+      console.log(`${opts.dryRun ? '[dry-run] ' : ''}Removed ${result.removed} memesh hook command${result.removed === 1 ? '' : 's'}.`);
+      if (result.backupPath) console.log(`Backup: ${result.backupPath}`);
+    } catch (err: any) {
+      console.error(`uninstall-hooks failed: ${err.message}`);
+      process.exit(1);
+    }
+  });
+
+// --- feedback ---
+//
+// CLI counterpart to the dashboard FeedbackWidget. Builds the same
+// pre-filled GitHub issue URL (title + body + labels) and opens it
+// in the default browser. Same transparency contract: install_id
+// and doctor diagnostics are only included when the user opts in.
+program
+  .command('feedback')
+  .description('Open a pre-filled GitHub issue (bug / feature / question) with optional diagnostics')
+  .option('--bug', 'File a bug report (default if no type flag)')
+  .option('--feature', 'File a feature request')
+  .option('--question', 'Ask a question')
+  .option('--no-diagnostics', 'Skip including doctor output and install_id')
+  .option('--no-open', 'Print the URL instead of opening a browser (CI / headless)')
+  .option('-m, --message <text>', 'Pre-fill the description (otherwise prompt is omitted)')
+  .action(async (opts) => {
+    const { runDoctor } = await import('../../core/doctor.js');
+    const { getInstallId } = await import('../../core/install-id.js');
+
+    const fbType = opts.feature ? 'feature' : opts.question ? 'question' : 'bug';
+    const typeLabel = fbType.charAt(0).toUpperCase() + fbType.slice(1);
+    const labels = `feedback,from-cli,${fbType}`;
+
+    let body = (opts.message ?? '').trim() || `<!-- Describe the ${fbType} here -->`;
+
+    if (opts.diagnostics !== false) {
+      try {
+        const result = await runDoctor({ packageRoot, packageVersion: pkg.version });
+        const installCheck = result.checks.find(c => c.id === 'install_id');
+        const installLine = installCheck
+          ? `\n_Anonymous install ID: \`${(installCheck.summary.match(/[0-9a-f-]{36}/) ?? [getInstallId()])[0]}\` — included only because --diagnostics is on (default)._\n`
+          : '';
+        const otherChecks = result.checks
+          .filter(c => c.id !== 'install_id')
+          .sort((a, b) => {
+            const order: Record<string, number> = { fail: 0, warn: 1, pass: 2 };
+            return (order[a.status] ?? 3) - (order[b.status] ?? 3);
+          });
+        const lines = otherChecks.map(c => {
+          const icon = c.status === 'fail' ? '❌' : c.status === 'warn' ? '⚠️' : '✅';
+          const fix = c.fix ? ` _Fix: ${c.fix}_` : '';
+          return `- ${icon} **${c.label}**: ${c.summary}${fix}`;
+        });
+        body += `\n\n---\n**System Info**\n- Version: \`${pkg.version}\`\n- Node: \`${process.version}\`\n- Platform: \`${process.platform} ${process.arch}\`\n\n**Diagnostics** (overall: ${result.status})${installLine}\n${lines.join('\n')}`;
+      } catch {
+        // doctor failed — still let the user file an issue
+        body += `\n\n---\n**System Info**\n- Version: \`${pkg.version}\`\n- Node: \`${process.version}\`\n- Platform: \`${process.platform} ${process.arch}\`\n_Diagnostics unavailable: doctor probe failed._`;
+      }
+    }
+
+    const url = `https://github.com/PCIRCLE-AI/memesh-llm-memory/issues/new?title=${encodeURIComponent(`[${typeLabel}] `)}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
+
+    if (opts.open === false) {
+      console.log(url);
+      return;
+    }
+
+    // Cross-platform open. macOS `open`, Linux `xdg-open`, Windows `start`.
+    const { spawn } = await import('child_process');
+    const cmd = process.platform === 'darwin' ? 'open'
+      : process.platform === 'win32' ? 'cmd'
+      : 'xdg-open';
+    const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
+    try {
+      const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+      child.unref();
+      console.log(`Opened browser to file ${fbType} issue.`);
+      console.log('Edit the title + body before submitting.');
+    } catch {
+      console.log('Could not open browser. URL:');
+      console.log(url);
     }
   });
 

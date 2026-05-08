@@ -11,8 +11,35 @@ export interface LLMConfig {
   apiKey?: string;
 }
 
+/**
+ * Embedding provider config — DELIBERATELY separate from LLMConfig.
+ *
+ * Earlier memesh tied embedder.provider to llm.provider, so switching
+ * LLM (e.g. anthropic → ollama) silently changed the embedder backend
+ * (ONNX 384-dim → nomic-embed-text 768-dim). The dimension change
+ * triggered db.ts to drop and rebuild entities_vec, invalidating
+ * thousands of vectors. #36 split the two concerns: pick whichever
+ * LLM you want for chat completion, embeddings stay on whatever
+ * backend you chose for them (default: ONNX local 384-dim).
+ *
+ * `apiKey` is read from the corresponding LLMConfig if provider
+ * matches (e.g. embedder.provider='openai' uses llm.apiKey when
+ * llm.provider='openai'). Sharing the key avoids duplicating
+ * secrets between two config nodes.
+ */
+export interface EmbedderConfig {
+  provider: 'onnx' | 'openai' | 'ollama';
+  model?: string;
+}
+
 export interface MeMeshConfig {
   llm?: LLMConfig;
+  /**
+   * Defaults to ONNX 384-dim if omitted. Existing installs that have
+   * never set this field stay on whatever provider their entities_vec
+   * was last built with — see db.ts `getEmbeddingDimension`.
+   */
+  embedder?: EmbedderConfig;
   autoCapture?: boolean;     // default: true. Env override: MEMESH_AUTO_CAPTURE=false disables.
   sessionLimit?: number;     // default: 10. Env override: MEMESH_SESSION_LIMIT.
   /**
@@ -147,17 +174,33 @@ export function detectCapabilities(config?: MeMeshConfig): Capabilities {
     vectorSearch: true,
     scoring: true,
     knowledgeEvolution: true,
-    embeddings: detectEmbeddingSource(llm),
+    embeddings: detectEmbeddingSource(llm, cfg.embedder),
     llm,
     searchLevel: llm ? 1 : 0,
   };
 }
 
 /**
- * Determine the actual embedding source based on provider.
- * Anthropic has no embedding API — falls back to ONNX or tfidf.
+ * Determine the actual embedding source.
+ *
+ * Priority order:
+ *   1. config.embedder.provider — explicit user choice (added in #36)
+ *   2. legacy fallback derived from llm.provider — only when embedder
+ *      isn't set, preserves backward compat with pre-#36 configs that
+ *      had no embedder field.
+ *   3. ONNX local fallback when @huggingface/transformers is installed.
+ *   4. tfidf last-resort.
+ *
+ * #36 changed default from "follow LLM provider" to "pin to ONNX".
+ * Reason: switching LLM (e.g. anthropic → ollama) used to silently
+ * invalidate every stored vector when the embedder dim changed.
+ * Existing installs with `llm.provider=ollama` and NO embedder field
+ * still resolve to ollama embeddings (back-compat); fresh writes with
+ * an explicit `embedder.provider` win unconditionally.
  */
-function detectEmbeddingSource(llm: LLMConfig | null): Capabilities['embeddings'] {
+function detectEmbeddingSource(llm: LLMConfig | null, embedder?: EmbedderConfig): Capabilities['embeddings'] {
+  if (embedder?.provider) return embedder.provider;
+  // Back-compat for pre-#36 configs (no embedder field).
   if (llm?.provider === 'openai') return 'openai';
   if (llm?.provider === 'ollama') return 'ollama';
   // No LLM and Anthropic both use local ONNX when available.
@@ -188,7 +231,7 @@ export function getEmbeddingDimension(config?: MeMeshConfig): number {
   // only fires when MEMESH_AUTO_DETECT_LLM=1. Otherwise fresh installs
   // resolve to onnx (384-dim), keeping entities_vec consistent.
   const llm = cfg.llm ?? detectFromEnv() ?? null;
-  const source = detectEmbeddingSource(llm);
+  const source = detectEmbeddingSource(llm, cfg.embedder);
   return EMBEDDING_DIMENSIONS[source] ?? 384;
 }
 

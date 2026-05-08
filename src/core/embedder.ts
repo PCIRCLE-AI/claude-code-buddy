@@ -23,13 +23,17 @@ const pendingEmbeddingWrites = new Set<Promise<void>>();
 
 /**
  * Check if any embedding method is available.
- * Returns true if ONNX or a provider API is configured.
+ *
+ * Reads from `caps.embeddings` (which now respects `config.embedder`
+ * separately from `config.llm`, per #36) — pre-#36 this incorrectly
+ * tied embedding availability to the LLM provider.
  */
 export function isEmbeddingAvailable(): boolean {
   const caps = detectCapabilities();
-  if (caps.llm?.provider === 'openai') return true;
-  if (caps.llm?.provider === 'ollama') return true;
-  return isOnnxAvailable();
+  if (caps.embeddings === 'openai') return true;
+  if (caps.embeddings === 'ollama') return true;
+  if (caps.embeddings === 'onnx') return isOnnxAvailable();
+  return false;
 }
 
 // getEmbeddingDimension() is in config.ts to avoid circular dependency with db.ts
@@ -78,18 +82,29 @@ function isDatabaseLifecycleError(err: unknown): boolean {
 
 /**
  * Generate an embedding for the given text.
- * Tries providers in order: OpenAI API → Ollama → ONNX → null.
+ *
+ * Provider routing comes from `caps.embeddings` (driven by
+ * `config.embedder.provider`, #36), NOT from `caps.llm`. This is
+ * the fix for the cascade bug where switching LLM provider used to
+ * silently re-route embeddings to a different dimension.
+ *
+ * The provider's API key (when needed for openai/ollama) is read
+ * from the matching LLMConfig — they share credentials by provider.
  */
 export async function embedText(text: string): Promise<Float32Array | null> {
   const caps = detectCapabilities();
 
-  // Try provider API first
-  if (caps.llm) {
-    const result = await embedWithProvider(text, caps.llm);
+  if (caps.embeddings === 'openai' || caps.embeddings === 'ollama') {
+    // Reuse the LLM credential for the same provider, if present.
+    // Otherwise pass a minimal config — the embedder API call will
+    // fail and we fall through to ONNX below.
+    const sharedKey = caps.llm?.provider === caps.embeddings ? caps.llm.apiKey : undefined;
+    const cfg = { provider: caps.embeddings, model: undefined, apiKey: sharedKey } as LLMConfig;
+    const result = await embedWithProvider(text, cfg);
     if (result) return result;
   }
 
-  // Fallback to ONNX
+  // Fallback to ONNX (default for fresh installs and Anthropic LLM users).
   return embedWithOnnx(text);
 }
 
