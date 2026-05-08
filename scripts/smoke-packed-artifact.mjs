@@ -56,7 +56,7 @@ const packageDir = path.join(extractDir, 'package');
 const requiredFiles = [
   // Core
   'package.json',
-  'plugin.json',
+  '.claude-plugin/plugin.json',
   '.mcp.json',
   'hooks/hooks.json',
   // Dist — core engine

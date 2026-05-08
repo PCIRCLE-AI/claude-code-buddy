@@ -28,7 +28,7 @@
 /.github/CODEOWNERS        @PCIRCLE-AI/maintainers
 
 # Plugin manifest — wired up by Claude Code on install
-/plugin.json               @PCIRCLE-AI/maintainers
+/.claude-plugin/plugin.json               @PCIRCLE-AI/maintainers
 /.mcp.json                 @PCIRCLE-AI/maintainers
 
 # Manifest of shipped artefacts (skills, hooks) — generated at build

@@ -1,7 +1,7 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 4.1.4
+**Version**: 4.1.5
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 ---
