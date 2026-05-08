@@ -9,6 +9,7 @@ import { GraphTab } from './components/GraphTab';
 import { LessonsTab } from './components/LessonsTab';
 import { FeedbackWidget } from './components/FeedbackWidget';
 import { AuthPrompt } from './components/AuthPrompt';
+import { OnboardingBanner } from './components/OnboardingBanner';
 import { api, AuthRequiredError, getApiToken, setApiToken, type HealthData } from './lib/api';
 import { initLocale, t, type Locale } from './lib/i18n';
 
@@ -123,6 +124,7 @@ export function App() {
   return (
     <div class="shell">
       <Header health={health} error={error} />
+      <OnboardingBanner health={health} />
       <TabNav tabs={tabLabels} active={tab} onSelect={(k) => setTab(k as Tab)} />
       <div class="main">
         <div class={`panel ${tab === 'Search' ? 'active' : ''}`}><SearchTab /></div>

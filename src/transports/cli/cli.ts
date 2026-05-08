@@ -451,6 +451,43 @@ program
     }
   });
 
+// --- demo (seed onboarding tour) ---
+//
+// SDD plan SPEC-4: a fresh install (entity_count = 0) renders a
+// dashboard full of empty charts. `memesh demo` populates 30 curated
+// entities so the user can immediately see Browse / Lessons / Roadmap
+// behaving with real shape. Every demo entity carries
+// `metadata.demo = true` so `memesh demo --reset --yes` strips the
+// tour cleanly without touching anything the user captured for real.
+program
+  .command('demo')
+  .description('Seed (or reset) a 30-entity onboarding tour')
+  .option('--reset', 'Remove every entity tagged metadata.demo = true')
+  .option('--yes', 'Skip confirmation prompt for --reset')
+  .action(async (opts) => {
+    await withDatabase(async () => {
+      const { seedDemo } = await import('../../core/demo.js');
+      const db = getDatabase();
+      if (opts.reset) {
+        if (!opts.yes) {
+          console.error('memesh demo --reset is destructive. Re-run with --yes to confirm.');
+          process.exit(1);
+        }
+        const result = seedDemo(db, { reset: true });
+        console.log(`✓ Removed ${result.removed} demo entit${result.removed === 1 ? 'y' : 'ies'}.`);
+        return;
+      }
+      const result = seedDemo(db);
+      if (result.inserted === 0) {
+        console.log('Demo data already present — re-run with --reset --yes first if you want to refresh.');
+        return;
+      }
+      console.log(`✓ Seeded ${result.inserted} demo entit${result.inserted === 1 ? 'y' : 'ies'} tagged project:memesh-demo.`);
+      console.log('  Open the dashboard (memesh serve) and tour Browse / Lessons / Graph / Analytics.');
+      console.log('  Wipe with: memesh demo --reset --yes');
+    });
+  });
+
 // --- serve (start HTTP server) ---
 program
   .command('serve')
