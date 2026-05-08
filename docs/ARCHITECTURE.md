@@ -344,7 +344,7 @@ MeMesh works with any MCP-compatible client:
 
 | Client | Integration Method |
 |--------|-------------------|
-| Claude Code | Plugin (native, via plugin.json + hooks) |
+| Claude Code | Plugin (native, via `.claude-plugin/plugin.json` + hooks) |
 | Claude Managed Agents | MCP connector (beta, via session config) |
 | Claude Desktop | MCP server config |
 | Custom apps | Direct stdio MCP connection |
