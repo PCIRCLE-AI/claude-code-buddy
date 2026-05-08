@@ -2,7 +2,7 @@
 
 All notable changes to MeMesh are documented here.
 
-## [4.1.14] — 2026-05-08
+## [4.1.4] — 2026-05-08
 
 Major release consolidating dashboard v2 + v3, the auto-update loop, the new `install-hooks` command, and an LLM-driven memory consolidation system.
 

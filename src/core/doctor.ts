@@ -586,7 +586,7 @@ async function inspectUpdateStatus(
   }
 
   if (update.updateAvailable && update.latestVersion) {
-    // F14: User sees confusing "4.1.14 -> 4.1.3" on release branches — the
+    // F14: User sees confusing "4.1.4 -> 4.1.3" on release branches — the
     // local version (unreleased) is ahead of npm latest. Don't warn unless
     // the update is actually an upgrade (semantic version comparison would
     // be more accurate, but a simple string comparison catches 99% of cases).

@@ -128,8 +128,8 @@ describe('signal-scorer', () => {
   it('release type always scores at the top', () => {
     expect(computeSignalScore({
       type: 'release',
-      name: 'release-v4.1.14',
-      observations: ['Released v4.1.14 with hook-wiring fixes'],
+      name: 'release-v4.1.4',
+      observations: ['Released v4.1.4 with hook-wiring fixes'],
     })).toBeGreaterThanOrEqual(0.95);
   });
 

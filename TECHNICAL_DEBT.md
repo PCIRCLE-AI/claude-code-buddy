@@ -1,7 +1,7 @@
 # Technical Debt Tracker
 
 **Last Updated**: 2026-05-08  
-**Version**: 4.1.14
+**Version**: 4.1.4
 
 ---
 
@@ -29,7 +29,7 @@ This document tracks known technical debt items and the plan for gradual cleanup
 
 ### Strategy
 
-**Phase 1 (v4.1.14 → v4.2.0)**: Focus on `no-explicit-any`
+**Phase 1 (v4.1.4 → v4.2.0)**: Focus on `no-explicit-any`
 - Target: Reduce from 54 to <20
 - Approach: Replace with proper types in HTTP handlers
 - Estimated effort: 2-3 hours

@@ -143,7 +143,7 @@ describe('doctor', () => {
     });
     writeJson(path.join(memeshDir, 'install-hooks.json'), {
       installed_at: '2026-05-08T00:00:00.000Z',
-      version: '4.1.14',
+      version: '4.1.4',
       plugin_root: packageRoot,
       scope: 'user',
       settings_path: settingsPath,
@@ -570,7 +570,7 @@ describe('doctor', () => {
 
     const result = await runDoctor({
       packageRoot,
-      packageVersion: '4.1.14',
+      packageVersion: '4.1.4',
       openDatabaseImpl: () => makeDatabase(0) as never,
       closeDatabaseImpl: () => undefined,
       detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
@@ -603,7 +603,7 @@ describe('doctor', () => {
       },
       marker: {
         installed_at: '2026-05-08T00:00:00.000Z',
-        version: '4.1.14',
+        version: '4.1.4',
         plugin_root: packageRoot,
         scope: 'user',
         settings_path: path.join(env_settingsPathPlaceholder()), // see below
@@ -612,7 +612,7 @@ describe('doctor', () => {
     // Re-write the marker now that we know the settings path
     writeJson(path.join(env.memeshDir, 'install-hooks.json'), {
       installed_at: '2026-05-08T00:00:00.000Z',
-      version: '4.1.14',
+      version: '4.1.4',
       plugin_root: packageRoot,
       scope: 'user',
       settings_path: env.settingsPath,
@@ -620,7 +620,7 @@ describe('doctor', () => {
 
     const result = await runDoctor({
       packageRoot,
-      packageVersion: '4.1.14',
+      packageVersion: '4.1.4',
       openDatabaseImpl: () => makeDatabase(5) as never,
       closeDatabaseImpl: () => undefined,
       detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
@@ -656,7 +656,7 @@ describe('doctor', () => {
     });
     writeJson(path.join(env.memeshDir, 'install-hooks.json'), {
       installed_at: '2026-05-08T00:00:00.000Z',
-      version: '4.1.14',
+      version: '4.1.4',
       plugin_root: packageRoot,
       scope: 'user',
       settings_path: env.settingsPath,
@@ -664,7 +664,7 @@ describe('doctor', () => {
 
     const result = await runDoctor({
       packageRoot,
-      packageVersion: '4.1.14',
+      packageVersion: '4.1.4',
       openDatabaseImpl: () => makeDatabase(0) as never,
       closeDatabaseImpl: () => undefined,
       detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
@@ -691,7 +691,7 @@ describe('doctor', () => {
 
     const result = await runDoctor({
       packageRoot,
-      packageVersion: '4.1.14',
+      packageVersion: '4.1.4',
       openDatabaseImpl: () => makeDatabase(0) as never, // ← key: 0 entities
       closeDatabaseImpl: () => undefined,
       detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
@@ -730,7 +730,7 @@ describe('database failure diagnostics (F15)', () => {
     try {
       const result = await runDoctor({
         packageRoot,
-        packageVersion: '4.1.14',
+        packageVersion: '4.1.4',
         openDatabaseImpl: () => { throw new Error('SQLITE_CANTOPEN'); },
         closeDatabaseImpl: () => undefined,
         detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
@@ -771,7 +771,7 @@ describe('database failure diagnostics (F15)', () => {
     try {
       const result = await runDoctor({
         packageRoot,
-        packageVersion: '4.1.14',
+        packageVersion: '4.1.4',
         openDatabaseImpl: () => { throw new Error('SQLITE_NOTADB'); },
         closeDatabaseImpl: () => undefined,
         detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
@@ -811,7 +811,7 @@ describe('database failure diagnostics (F15)', () => {
     try {
       const result = await runDoctor({
         packageRoot,
-        packageVersion: '4.1.14',
+        packageVersion: '4.1.4',
         openDatabaseImpl: () => { throw new Error('SQLITE_CANTOPEN'); },
         closeDatabaseImpl: () => undefined,
         detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
@@ -846,7 +846,7 @@ describe('database failure diagnostics (F15)', () => {
 
     const result = await runDoctor({
       packageRoot,
-      packageVersion: '4.1.14',
+      packageVersion: '4.1.4',
       openDatabaseImpl: () => { throw new Error('SQLITE_CORRUPT'); },
       closeDatabaseImpl: () => undefined,
       detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
@@ -871,7 +871,7 @@ describe('database failure diagnostics (F15)', () => {
 });
 
 describe('database lifecycle preservation (F16 — regression)', () => {
-  // Regression: in v4.1.14 release testing, calling /v1/doctor in the
+  // Regression: in v4.1.4 release testing, calling /v1/doctor in the
   // running HTTP server caused doctor to close the global database
   // connection mid-flight. Subsequent /v1/* requests then returned 500
   // "Database not opened" until the server was restarted. Doctor must
@@ -884,7 +884,7 @@ describe('database lifecycle preservation (F16 — regression)', () => {
 
     await runDoctor({
       packageRoot,
-      packageVersion: '4.1.14',
+      packageVersion: '4.1.4',
       openDatabaseImpl: () => makeDatabase() as never,
       closeDatabaseImpl: () => { closeCallCount++; },
       isDatabaseOpenImpl: () => true, // ← simulates server-mode: db already open
@@ -912,7 +912,7 @@ describe('database lifecycle preservation (F16 — regression)', () => {
 
     await runDoctor({
       packageRoot,
-      packageVersion: '4.1.14',
+      packageVersion: '4.1.4',
       openDatabaseImpl: () => makeDatabase() as never,
       closeDatabaseImpl: () => { closeCallCount++; },
       isDatabaseOpenImpl: () => false, // ← simulates CLI mode: doctor opens db itself

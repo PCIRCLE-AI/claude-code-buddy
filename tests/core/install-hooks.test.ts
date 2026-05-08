@@ -56,7 +56,7 @@ describe('install-hooks', () => {
 
   it('writes 4 memesh hook entries on a fresh user-scope install', async () => {
     const { installHooks } = await freshModule();
-    const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.14', scope: 'user' });
+    const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
     // Manifest has 4 entries: SessionStart×1 + PreToolUse×2 + Stop×1
     expect(result.added).toBe(4);
     expect(result.skipped).toBe(0);
@@ -70,7 +70,7 @@ describe('install-hooks', () => {
 
   it('absolute-substitutes ${CLAUDE_PLUGIN_ROOT} on every hook command', async () => {
     const { installHooks } = await freshModule();
-    installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.14', scope: 'user' });
+    installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
     const settings = JSON.parse(fs.readFileSync(path.join(process.env.HOME!, '.claude', 'settings.json'), 'utf8'));
     const allCommands: string[] = [];
     for (const entries of Object.values(settings.hooks) as any[]) {
@@ -87,8 +87,8 @@ describe('install-hooks', () => {
 
   it('is idempotent: re-running adds 0, skips all', async () => {
     const { installHooks } = await freshModule();
-    installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.14', scope: 'user' });
-    const second = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.14', scope: 'user' });
+    installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
+    const second = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
     expect(second.added).toBe(0);
     expect(second.skipped).toBe(4);
   });
@@ -105,7 +105,7 @@ describe('install-hooks', () => {
     }));
 
     const { installHooks } = await freshModule();
-    const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.14', scope: 'user' });
+    const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
     expect(result.added).toBe(4);
     expect(result.conflicts.length).toBe(1);
     expect(result.conflicts[0].event).toBe('Stop');
@@ -123,7 +123,7 @@ describe('install-hooks', () => {
     fs.writeFileSync(settingsPath, JSON.stringify({ existing: 'config' }));
 
     const { installHooks } = await freshModule();
-    const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.14', scope: 'user' });
+    const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
     expect(result.backupPath).not.toBeNull();
     expect(fs.existsSync(result.backupPath!)).toBe(true);
     const backup = JSON.parse(fs.readFileSync(result.backupPath!, 'utf8'));
@@ -133,7 +133,7 @@ describe('install-hooks', () => {
   it('--dry-run touches no files', async () => {
     const settingsPath = path.join(process.env.HOME!, '.claude', 'settings.json');
     const { installHooks } = await freshModule();
-    const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.14', scope: 'user', dryRun: true });
+    const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user', dryRun: true });
     expect(result.added).toBe(4);
     expect(fs.existsSync(settingsPath)).toBe(false);
     expect(fs.existsSync(result.markerPath)).toBe(false);
@@ -141,10 +141,10 @@ describe('install-hooks', () => {
 
   it('writes a marker JSON that records version + scope + paths', async () => {
     const { installHooks, readInstallMarker } = await freshModule();
-    installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.14', scope: 'user' });
+    installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
     const marker = readInstallMarker();
     expect(marker).not.toBeNull();
-    expect(marker!.version).toBe('4.1.14');
+    expect(marker!.version).toBe('4.1.4');
     expect(marker!.scope).toBe('user');
     expect(marker!.plugin_root).toBe(pluginDir);
     expect(marker!.installed_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
@@ -155,7 +155,7 @@ describe('install-hooks', () => {
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
     fs.writeFileSync(settingsPath, 'not json at all');
     const { installHooks } = await freshModule();
-    expect(() => installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.14', scope: 'user' })).toThrow(/not valid JSON/);
+    expect(() => installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' })).toThrow(/not valid JSON/);
     // settings file is left untouched — no destructive overwrite
     expect(fs.readFileSync(settingsPath, 'utf8')).toBe('not json at all');
   });
@@ -163,7 +163,7 @@ describe('install-hooks', () => {
   it('upgrade in place: re-installing with a different pluginRoot replaces stale memesh entries', async () => {
     const { installHooks } = await freshModule();
     const oldRoot = pluginDir;
-    installHooks({ pluginRoot: oldRoot, pluginVersion: '4.1.14', scope: 'user' });
+    installHooks({ pluginRoot: oldRoot, pluginVersion: '4.1.4', scope: 'user' });
 
     // Simulate memesh moved to a new location (e.g., npm-global path
     // changed after a Node.js upgrade). Use a name that's NOT a
@@ -196,7 +196,7 @@ describe('install-hooks', () => {
     }));
 
     const { installHooks, uninstallHooks } = await freshModule();
-    installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.14', scope: 'user' });
+    installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
 
     const result = uninstallHooks({ scope: 'user' });
     expect(result.removed).toBe(4); // 4 memesh hook commands
@@ -212,7 +212,7 @@ describe('install-hooks', () => {
     const projectDir = path.join(tmpDir, 'fake-project');
     fs.mkdirSync(projectDir, { recursive: true });
     const { installHooks } = await freshModule();
-    const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.14', scope: 'project', cwd: projectDir });
+    const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'project', cwd: projectDir });
     expect(result.settingsPath).toBe(path.join(projectDir, '.claude', 'settings.json'));
     expect(fs.existsSync(result.settingsPath)).toBe(true);
   });
