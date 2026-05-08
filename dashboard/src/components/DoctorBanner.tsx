@@ -118,12 +118,19 @@ export function DoctorBanner() {
         {isFail ? t('doctorBanner.failTitle') : t('doctorBanner.warnTitle')}
       </div>
       <ul style={{ margin: '6px 0 10px', paddingLeft: 18, fontSize: 12, lineHeight: 1.5, color: 'var(--text-2)' }}>
-        {concerns.slice(0, 3).map(c => (
-          <li key={c.id}>
-            <strong>{c.label}:</strong> {c.summary}
-            {c.fix && <> — <em style={{ color: 'var(--text-3)' }}>{c.fix}</em></>}
-          </li>
-        ))}
+        {concerns.slice(0, 3).map(c => {
+          // Translate known check IDs, fallback to English summary from doctor
+          const summaryKey = `doctor.${c.id}.summary`;
+          const fixKey = `doctor.${c.id}.fix`;
+          const summary = t(summaryKey) !== summaryKey ? t(summaryKey) : c.summary;
+          const fix = c.fix && t(fixKey) !== fixKey ? t(fixKey) : c.fix;
+          return (
+            <li key={c.id}>
+              <strong>{c.label}:</strong> {summary}
+              {fix && <> — <em style={{ color: 'var(--text-3)' }}>{fix}</em></>}
+            </li>
+          );
+        })}
         {concerns.length > 3 && (
           <li style={{ color: 'var(--text-3)' }}>…and {concerns.length - 3} more (run `memesh doctor` for full list)</li>
         )}

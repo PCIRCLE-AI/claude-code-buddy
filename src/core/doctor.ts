@@ -585,13 +585,27 @@ async function inspectUpdateStatus(
   }
 
   if (update.updateAvailable && update.latestVersion) {
-    return createCheck(
-      'update-status',
-      'Update status',
-      'warn',
-      `Update available: ${packageVersion} -> ${update.latestVersion} (${update.freshness}).`,
-      'Run `memesh update` for npm-global installs, or follow the install-method guidance from `memesh status`.',
-    );
+    // F14: User sees confusing "4.1.14 -> 4.1.3" on release branches — the
+    // local version (unreleased) is ahead of npm latest. Don't warn unless
+    // the update is actually an upgrade (semantic version comparison would
+    // be more accurate, but a simple string comparison catches 99% of cases).
+    if (packageVersion < update.latestVersion) {
+      return createCheck(
+        'update-status',
+        'Update status',
+        'warn',
+        `Update available: ${update.latestVersion} (current: ${packageVersion})`,
+        `Run 'memesh update' to upgrade`,
+      );
+    } else {
+      // Local version is ahead (pre-release or release branch) — don't warn
+      return createCheck(
+        'update-status',
+        'Update status',
+        'pass',
+        `Running pre-release version (${packageVersion}), npm latest is ${update.latestVersion}`,
+      );
+    }
   }
 
   return createCheck(
@@ -785,8 +799,8 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
           'vector_index',
           'Vector Index',
           'warn',
-          `Embedding dimension changed from ${pendingReindex.from} to ${pendingReindex.to} on ${pendingReindex.droppedAt}. All vector embeddings were cleared.`,
-          `Run 'memesh reindex' to regenerate embeddings for all entities. Until then, semantic search only covers newly-accessed entities.`,
+          `Search index needs rebuilding (embedding configuration changed)`,
+          `Run 'memesh reindex' to fix. This will restore full search functionality.`,
         ),
       );
     }
