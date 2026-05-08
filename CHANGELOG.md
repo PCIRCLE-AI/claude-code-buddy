@@ -2,6 +2,22 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.1.6] — 2026-05-09
+
+Marketplace manifest — memesh is now installable as a Claude Code plugin in one step.
+
+### Added
+- **`.claude-plugin/marketplace.json`** companion to the plugin manifest. With this file, the repo doubles as its own one-plugin marketplace. Users can now install with:
+  ```
+  /plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+  /plugin install memesh@pcircle-ai
+  ```
+  vs. the previous flow of `npm install -g @pcircle/memesh && memesh install-hooks`. The npm path still works and is preserved verbatim — this is an additional install route, not a replacement.
+- **`.gitignore`** further narrowed: previously `.claude-plugin/marketplace.json` was ignored alongside `.claude-plugin/plugin.json`. Now only `.claude-plugin/<other-plugin>/` subdirectories are ignored (where local-dev plugin installs land).
+
+### Backward compatibility
+- Same as v4.1.5: `npm install -g` users + `memesh install-hooks` users see no behaviour change.
+
 ## [4.1.5] — 2026-05-09
 
 Structural repackaging for Claude Code's plugin marketplace. No behavioural changes for existing users.

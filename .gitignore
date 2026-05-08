@@ -20,10 +20,10 @@ secrets/
 # === Claude Code local config ===
 CLAUDE.md
 .claude/
-# Note: .claude-plugin/plugin.json IS the Claude Code plugin manifest for
-# memesh itself — it MUST be committed. Local-dev installs of OTHER
-# plugins land under .claude-plugin/<plugin-name>/ and stay ignored.
-.claude-plugin/marketplace.json
+# Note: .claude-plugin/plugin.json AND .claude-plugin/marketplace.json
+# ARE Claude Code plugin/marketplace manifests for memesh itself — both
+# MUST be committed. Local-dev installs of OTHER plugins land under
+# .claude-plugin/<plugin-name>/ and stay ignored.
 .claude-plugin/*/
 
 # === OS files ===

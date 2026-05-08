@@ -44,7 +44,20 @@ Reproduction commands, dataset SHA256, raw per-question results, and known-failu
 
 ## Get Started in 60 Seconds
 
-### Step 1: Install
+### Option A — Claude Code plugin (one-line install)
+
+If you use Claude Code, install MeMesh as a plugin from inside the CLI:
+
+```
+/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin install memesh@pcircle-ai
+```
+
+That's it. Hooks, MCP server, skills, and the dashboard ship together. No separate `install-hooks` step needed — Claude Code wires the plugin's hooks automatically.
+
+### Option B — npm global (works anywhere Node runs)
+
+If you want the CLI on your PATH outside Claude Code (Cursor, scripts, terminal-only flows), or you want fine-grained control over the install:
 
 ```bash
 npm install -g @pcircle/memesh
@@ -54,9 +67,11 @@ npm install -g @pcircle/memesh
 > - **Native modules** — `better-sqlite3` and `sqlite-vec` install via prebuilt binaries on macOS (arm64/x64), Linux (x64/arm64), and Windows x64. On uncommon platforms or when prebuilds fail, you'll need a working C/C++ toolchain.
 > - **Embedding model** — the first call that triggers a local embedding (e.g. `recall` with semantic mode) downloads `Xenova/all-MiniLM-L6-v2` (~80 MB) into `~/.memesh/models/`. Subsequent calls are instant. The default retrieval path (FTS5) does not require this download.
 
-### Step 1.5: Wire MeMesh into Claude Code (recommended, one-time)
+### Step 1.5: Wire MeMesh into Claude Code (npm path only)
 
-`npm install -g` puts the CLI on your PATH and registers the MCP server, but does **not** auto-wire MeMesh's Claude Code session hooks. Without these hooks, you can use `memesh remember` / `recall` manually but the **auto-capture loop** (sessions → lessons → recall on next session) is silent.
+If you installed via **Option A** (`/plugin install memesh@pcircle-ai`), skip this step — Claude Code wires plugin hooks automatically.
+
+If you installed via **Option B** (`npm install -g`), the CLI is on your PATH and the MCP server is registered, but the Claude Code session hooks are not auto-wired. Without them you can still use `memesh remember` / `recall` manually, but the **auto-capture loop** (sessions → lessons → recall on next session) is silent.
 
 ```bash
 memesh install-hooks         # adds memesh's hooks to ~/.claude/settings.json
