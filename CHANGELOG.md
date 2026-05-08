@@ -2,6 +2,36 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.1.7] — 2026-05-09
+
+Marketplace identifier renamed from `pcircle-ai` to `pcircle-memesh` to avoid name collision with sibling PCIRCLE AI plugin repos that also self-publish marketplaces named `pcircle-ai` (e.g. `toonify-mcp`, `claude-code-buddy`). Users with any of those marketplaces already registered hit `Plugin "memesh" not found in marketplace "pcircle-ai"` on `/plugin install` because Claude Code binds one repo per marketplace name on the local machine, and earlier siblings won the binding.
+
+### Changed
+- **Install command** (Option A — Claude Code plugin):
+  ```
+  /plugin marketplace add PCIRCLE-AI/memesh-llm-memory      # repo URL unchanged
+  /plugin install memesh@pcircle-memesh                      # was: memesh@pcircle-ai
+  ```
+  Only the marketplace identifier changed (`pcircle-ai` → `pcircle-memesh`). The plugin name (`memesh`) and the GitHub repo (`PCIRCLE-AI/memesh-llm-memory`) stay the same.
+- **`.claude-plugin/marketplace.json`** `name` field: `"pcircle-ai"` → `"pcircle-memesh"`. The marketplace is now uniquely identifiable per plugin, which lets a user have all PCIRCLE AI plugin marketplaces registered simultaneously without collision.
+
+### Migration for v4.1.6 plugin users
+If you ran `/plugin marketplace add PCIRCLE-AI/memesh-llm-memory` on v4.1.6, the registered marketplace name was `pcircle-ai`. After this release, run these once to switch to the new name:
+
+```
+/plugin marketplace remove pcircle-ai
+/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin install memesh@pcircle-memesh
+```
+
+The `marketplace add` step will register the marketplace under the new `pcircle-memesh` name (read from `marketplace.json`).
+
+### Backward compatibility
+- `npm install -g @pcircle/memesh` users (Option B): unaffected. CLI binaries and behaviour unchanged.
+- `memesh install-hooks` users: unaffected.
+- Existing `~/.memesh/knowledge-graph.db`: untouched.
+- The `.mcp.json` `npx -y -p @pcircle/memesh memesh-mcp` pattern from v4.1.6 stays — only the marketplace identifier changed.
+
 ## [4.1.6] — 2026-05-09
 
 Marketplace manifest + plugin-context MCP wiring. The Claude Code plugin install (Option A) now delivers the full memesh experience — hooks, skills, MCP tools, CLI, and dashboard — without requiring a separate `npm install -g`. Adopts the standard `npx -y` pattern used by other stdio MCP plugins so memesh works identically whether installed as a Claude Code plugin or as an npm global.
