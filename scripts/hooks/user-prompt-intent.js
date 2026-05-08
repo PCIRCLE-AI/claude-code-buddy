@@ -18,6 +18,7 @@
 // swallowed — stderr does not affect prompt submission.
 // Gated by `autoCapture` flag (same as other memesh write hooks).
 
+import { pathToFileURL } from 'url';
 import { isAutoCaptureEnabled } from './_shared.js';
 
 // Patterns compiled at module load — invalid regex MUST fail loudly. Do
@@ -108,8 +109,11 @@ function logError(scope, msg) {
 }
 
 // Only run the stdin pipeline when invoked directly as a script — not when
-// imported by the test suite for in-process unit testing.
-const isMainModule = import.meta.url === `file://${process.argv[1]}`;
+// imported by the test suite for in-process unit testing. On Windows,
+// `file://${process.argv[1]}` produces an invalid URL because the path uses
+// backslashes; pathToFileURL() correctly normalizes to a file:// URL on
+// every platform, so the comparison is portable.
+const isMainModule = import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMainModule) {
   let input = '';
   process.stdin.setEncoding('utf8');

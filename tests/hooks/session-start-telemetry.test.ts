@@ -39,9 +39,11 @@ describe('session-start hook: agentic-orchestration telemetry', () => {
 
   afterEach(() => {
     // maxRetries handles the Windows ENOTEMPTY race where sqlite/log
-    // file handles linger briefly after process exit.
+    // file handles linger briefly after process exit. 10 × 200ms gives
+    // 2s of slack — plenty for the sqlite WAL/SHM/db trio to release on
+    // GitHub Windows runners (where 5 × 100ms was sometimes too tight).
     if (fs.existsSync(tmpHome)) {
-      fs.rmSync(tmpHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      fs.rmSync(tmpHome, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     }
   });
 
