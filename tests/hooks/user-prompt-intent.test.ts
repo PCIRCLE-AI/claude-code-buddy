@@ -106,6 +106,76 @@ describe('Feature: User Prompt Intent Hook', () => {
       });
     });
 
+    describe('Spanish', () => {
+      it.each([
+        'recordar esto',
+        'Recordar eso para más tarde',
+        'Por favor recordar esto',
+        'memorizar eso',
+        'guardar esto en memesh',
+        'guardar en memesh',
+        'añadir esto a memesh',
+        'Por favor almacenar eso en memesh',
+      ])('detects: %s', (prompt) => {
+        expect(detectRememberIntent(prompt)).toBe(true);
+      });
+
+      it.each([
+        '¿Recuerdas esto?',                  // interrogative
+        'Yo recuerdo cuando discutimos eso', // narrative
+        'guardar este archivo',              // generic save (no "memesh")
+      ])('does NOT match: %s', (prompt) => {
+        expect(detectRememberIntent(prompt)).toBe(false);
+      });
+    });
+
+    describe('French', () => {
+      it.each([
+        'rappeler ceci',
+        'Rappeler cela pour plus tard',
+        "S'il vous plaît rappeler ça",
+        'mémoriser ceci',
+        'sauvegarder ceci dans memesh',
+        'sauvegarder dans memesh',
+        'enregistrer cela à memesh',
+        "S'il vous plaît ajouter ça dans memesh",
+      ])('detects: %s', (prompt) => {
+        expect(detectRememberIntent(prompt)).toBe(true);
+      });
+
+      it.each([
+        'Te rappelles-tu ceci?',             // interrogative
+        'Je rappelle quand nous avons discuté', // narrative
+        'sauvegarder ce fichier',            // generic save (no "memesh")
+      ])('does NOT match: %s', (prompt) => {
+        expect(detectRememberIntent(prompt)).toBe(false);
+      });
+    });
+
+    describe('Portuguese', () => {
+      it.each([
+        'lembrar isto',
+        'Lembrar isso para mais tarde',
+        'Por favor lembrar isto',
+        'memorizar isso',
+        'salvar isto em memesh',
+        'salvar em memesh',
+        'guardar isso no memesh',
+        'Por favor adicionar isto em memesh',
+        'armazenar isso em memesh',
+      ])('detects: %s', (prompt) => {
+        expect(detectRememberIntent(prompt)).toBe(true);
+      });
+
+      it.each([
+        'Você lembra disto?',                // interrogative
+        'Eu lembro quando discutimos isso', // narrative
+        'salvar este arquivo',               // generic save (no "memesh")
+      ])('does NOT match: %s', (prompt) => {
+        expect(detectRememberIntent(prompt)).toBe(false);
+      });
+    });
+
     describe('Multi-line / mid-prompt intent', () => {
       it('detects intent after multi-line content paste', () => {
         expect(
@@ -168,12 +238,11 @@ describe('Feature: User Prompt Intent Hook', () => {
   describe('Unit — buildHint structural assertions', () => {
     // Snapshot-style assertions that lock down behavior, not exact phrasing.
     // Rewording the hint text should not break these; structural changes (a
-    // missing dual-write instruction, a missing scope decision tree) should.
+    // missing memesh tool call instruction, a missing scope decision tree) should.
     const hint = buildHint();
 
-    it('mentions both stores explicitly', () => {
+    it('mentions mcp__memesh__remember tool', () => {
       expect(hint).toMatch(/mcp__memesh__remember/);
-      expect(hint).toMatch(/MEMORY\.md/);
     });
 
     it('describes the scope decision tree (personal / project / global)', () => {
@@ -182,8 +251,12 @@ describe('Feature: User Prompt Intent Hook', () => {
       expect(hint).toMatch(/namespace=global/);
     });
 
-    it('instructs bidirectional pointer between stores', () => {
-      expect(hint).toMatch(/bidirectional pointer/i);
+    it('instructs tool parameters (name, type, observations, tags, namespace)', () => {
+      expect(hint).toMatch(/name:/);
+      expect(hint).toMatch(/type:/);
+      expect(hint).toMatch(/observations:/);
+      expect(hint).toMatch(/tags:/);
+      expect(hint).toMatch(/namespace:/);
     });
 
     it('is wrapped in a recognisable tag pair', () => {

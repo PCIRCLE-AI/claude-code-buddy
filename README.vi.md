@@ -164,7 +164,7 @@ Bạn không cần phải manually nhớ mọi thứ. MeMesh có **7 hooks** đ�
 | **Mỗi lần session bắt đầu** | Load những memories liên quan nhất + cảnh báo chủ động từ bài học trong quá khứ + agentic-orchestration banner |
 | **Trước khi chỉnh sửa file** | Gọi lại memories liên quan đến file hoặc dự án trước khi Claude viết code |
 | **Trước bash commands** | Hướng dẫn Claude dispatch những commands có độ xác minh cao (test, build, lint, migrate, deploy, benchmark) dưới dạng background agents |
-| **Khi bạn yêu cầu ghi nhớ** | Phát hiện ý định "remember this" / "記下來" và nhắc nhở Claude ghi dual (memesh + MEMORY.md) |
+| **Khi bạn yêu cầu ghi nhớ** | Phát hiện ý định "remember this" / "記下來" và nhắc nhở (use memesh|ghi memesh) |
 | **Sau mỗi `git commit`** | Ghi lại những gì bạn thay đổi, với diff stats |
 | **Khi Claude dừng** | Capture những file đã chỉnh sửa, lỗi đã sửa, và auto-generate structured lessons từ failures |
 | **Trước khi context compact** | Lưu kiến thức trước khi nó bị mất do context limits |

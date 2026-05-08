@@ -3,11 +3,8 @@
 // User Prompt Intent — UserPromptSubmit hook
 //
 // Detects when the user explicitly asks Claude to remember / save / memorize
-// content from the current session, and injects a context hint so Claude
-// dual-writes the memory:
-//   1. mcp__memesh__remember (cross-project, FTS5/vector search via personal namespace)
-//   2. Claude Code MEMORY.md (~/.claude/projects/<proj>/memory/), keeping the native
-//      auto-load mechanism intact.
+// content from the current session, and injects a context hint reminding Claude
+// to use `mcp__memesh__remember` for cross-project recall.
 //
 // Why a hint instead of autonomous capture? The user's intent is clear, but
 // "what to remember" usually depends on the surrounding conversation —
@@ -33,24 +30,35 @@ import { isAutoCaptureEnabled } from './_shared.js';
 // a false hint pollutes context and pressures the LLM into a wrong action.
 //
 // Disambiguation policy:
-//   - All English imperatives anchored to sentence start (^ or after .!?\n)
-//     to skip interrogatives ("do you remember the X?", "What does save
-//     to memesh do?").
-//   - For save/add/put/store/write verbs, only "memesh" (this project's
-//     unique brand) is accepted — "memory" alone collides with the
-//     RAM/heap technical noun and produces unfixable false positives on
-//     compound nouns like "memory leak / cache / pool / mapped IO".
-//     Users who want intent capture know to say "memesh" explicitly.
-//   - CJK 記到 alone is ambiguous (recall vs save), so memesh suffix is
-//     required. 記憶起來 omitted because it appears in narrative prose.
+//   - All imperatives anchored to sentence start (^ or after .!?\n) to skip
+//     interrogatives ("do you remember X?", "What does save to memesh do?").
+//   - For save-class verbs, "memesh" suffix required to avoid false positives
+//     on generic "save this" (could mean clipboard, file, bookmark, etc.).
+//   - Supported languages: English, Spanish, French, Portuguese, Traditional Chinese.
+//     Additional languages welcome via PR (provide native-speaker validation).
 export const INTENT_PATTERNS = [
-  // English sentence-initial imperative: "Remember/memorize this|that".
+  // English: "Remember/memorize this|that"
   /(?:^|[.!?\n]\s*)(?:please\s+)?(?:remember|memorize)\s+(?:this|that)\b/im,
-  // English sentence-initial save-class to memesh. Anaphor (this|that|it)
-  // optional. "memory" intentionally excluded — see policy note above.
+  // English: "save/add/store to memesh"
   /(?:^|[.!?\n]\s*)(?:please\s+)?(?:save|add|put|store|write)\s+(?:(?:this|that|it)\s+)?(?:to|in|into)\s+memesh\b/im,
-  // CJK imperatives. memesh required for save-class verbs.
-  /記下來|記到\s*memesh|存到\s*memesh|寫進\s*記憶|存進\s*記憶/,
+
+  // Spanish: "Recordar/memorizar esto|eso"
+  /(?:^|[.!?\n]\s*)(?:por favor\s+)?(?:recordar|memorizar)\s+(?:esto|eso)\b/im,
+  // Spanish: "guardar en memesh"
+  /(?:^|[.!?\n]\s*)(?:por favor\s+)?(?:guardar|añadir|almacenar)\s+(?:(?:esto|eso)\s+)?(?:en|a)\s+memesh\b/im,
+
+  // French: "Rappeler/mémoriser ceci|cela"
+  /(?:^|[.!?\n]\s*)(?:s'il vous plaît\s+)?(?:rappeler|mémoriser)\s+(?:ceci|cela|ça)\b/im,
+  // French: "sauvegarder dans memesh"
+  /(?:^|[.!?\n]\s*)(?:s'il vous plaît\s+)?(?:sauvegarder|enregistrer|ajouter)\s+(?:(?:ceci|cela|ça)\s+)?(?:dans|à)\s+memesh\b/im,
+
+  // Portuguese: "Lembrar/memorizar isto|isso"
+  /(?:^|[.!?\n]\s*)(?:por favor\s+)?(?:lembrar|memorizar)\s+(?:isto|isso)\b/im,
+  // Portuguese: "salvar em memesh"
+  /(?:^|[.!?\n]\s*)(?:por favor\s+)?(?:salvar|guardar|adicionar|armazenar)\s+(?:(?:isto|isso)\s+)?(?:em|no)\s+memesh\b/im,
+
+  // Traditional Chinese: 記下來, 記到/存到/寫進/存進 memesh|記憶
+  /記下來|記到\s*(?:memesh|記憶)|存到\s*(?:memesh|記憶)|寫進\s*(?:memesh|記憶)|存進\s*(?:memesh|記憶)/,
 ];
 
 export function detectRememberIntent(prompt) {
@@ -67,27 +75,24 @@ export function detectRememberIntent(prompt) {
 export function buildHint() {
   return [
     '<memesh-remember-intent>',
-    'The user just asked you to save / remember content. Apply the dual-write protocol:',
+    'The user just asked you to save / remember content. Use memesh for cross-project recall:',
     '',
     '1. Decide WHAT to remember from the conversation context. Be specific — pick observations',
     '   that will be useful in *future* sessions, not session-local state.',
     '',
-    '2. Decide the SCOPE (this drives namespace + storage location):',
+    '2. Decide the SCOPE (this drives namespace + tags):',
     '   • Machine-level / cross-project / preferences  → memesh namespace=personal',
     '   • Project-internal decision / pattern / lesson → memesh + project tag (e.g. tag:project:memesh)',
     '   • Universal / public best practice             → memesh namespace=global (rare)',
     '',
-    '3. Write to BOTH stores:',
-    '   • Call `mcp__memesh__remember` with chosen name/type/observations/tags/namespace.',
-    '   • Mirror to Claude Code auto-memory at',
-    '     ~/.claude/projects/<encoded-cwd>/memory/<type>_<topic>.md',
-    '     and add a one-line entry to MEMORY.md index pointing at the file.',
-    '   • In the file frontmatter, note the memesh entity name; in the memesh observations,',
-    '     note the local file path. This bidirectional pointer lets either side recover the other.',
+    '3. Call `mcp__memesh__remember` with:',
+    '   • name: descriptive entity name (e.g., "aws-cdk-stack-pattern")',
+    '   • type: one of (decision, pattern, lesson_learned, bug, process, preference, etc.)',
+    '   • observations: array of specific facts / steps / rationale',
+    '   • tags: relevant tags (programming language, framework, domain)',
+    '   • namespace: personal (default) | team | global',
     '',
-    '4. Confirm to the user with: entity name + memesh id + local file path.',
-    '',
-    'Do not silently choose only one store — both are intentional layers.',
+    '4. Confirm to the user with: entity name + memesh ID returned by the tool.',
     '</memesh-remember-intent>',
   ].join('\n');
 }
