@@ -185,7 +185,11 @@ async function main() {
         }
       });
 
-      await page.goto(dashboardUrl, { waitUntil: 'networkidle' });
+      // Open the dashboard with ?tab=Browse to land on the "All Memories"
+      // view directly. Default tab is "Lessons" (a recent UX change), and
+      // a `note`-type entity wouldn't appear there. Browse renders all
+      // active entities, which is what this smoke test wants to verify.
+      await page.goto(`${dashboardUrl}?tab=Browse`, { waitUntil: 'networkidle' });
       await expectVisible(page, 'All Memories');
       await expectVisible(page, 'dashboard-e2e-memory');
 
