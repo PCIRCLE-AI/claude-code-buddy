@@ -5,6 +5,7 @@ import path from 'path';
 import Database from 'better-sqlite3';
 import { openDatabase, closeDatabase } from '../../src/db.js';
 import { remember } from '../../src/core/operations.js';
+import { computeAnalytics, NOISE_TYPES } from '../../src/core/analytics.js';
 
 let tmpDir: string;
 let db: Database.Database;
@@ -160,5 +161,97 @@ describe('recall effectiveness tracking', () => {
     expect(totals.misses).toBe(7);
     const rate = totals.hits / (totals.hits + totals.misses);
     expect(rate).toBeCloseTo(0.65, 2);
+  });
+});
+
+// ── ageMatrix + knowledgeRadar (v4.1.4 dashboard analytics) ────────────────
+
+describe('/v1/analytics ageMatrix', () => {
+  it('returns empty array on empty database', () => {
+    const result = computeAnalytics(db);
+    expect(result.ageMatrix).toEqual([]);
+  });
+
+  it('buckets entities by recency: a fresh entity lands in the "week" bucket', () => {
+    remember({ name: 'fresh-lesson', type: 'lesson_learned', observations: ['just learned this'] });
+    const result = computeAnalytics(db);
+    const fresh = result.ageMatrix.find(e => e.type === 'lesson_learned');
+    expect(fresh).toBeDefined();
+    expect(fresh!.bucket).toBe('week');
+    expect(fresh!.count).toBe(1);
+  });
+
+  it('excludes NOISE_TYPES from ageMatrix output', () => {
+    // NOISE_TYPES (e.g. session_keypoint, commit) should be filtered so
+    // the dashboard's hero "knowledge age" view doesn't drown in noise.
+    expect(NOISE_TYPES.size).toBeGreaterThan(0);
+    for (const noiseType of NOISE_TYPES) {
+      remember({ name: `noise-${noiseType}`, type: noiseType, observations: ['noise'] });
+    }
+    remember({ name: 'real-knowledge', type: 'lesson_learned', observations: ['signal'] });
+
+    const result = computeAnalytics(db);
+    const noiseInMatrix = result.ageMatrix.filter(e => NOISE_TYPES.has(e.type));
+    expect(noiseInMatrix).toEqual([]);
+    expect(result.ageMatrix.find(e => e.type === 'lesson_learned')).toBeDefined();
+  });
+
+  it('aggregates same type+bucket into a single entry (not duplicated rows)', () => {
+    // Two entities, same type, both fresh → one ageMatrix entry with count=2.
+    remember({ name: 'lesson-1', type: 'lesson_learned', observations: ['a'] });
+    remember({ name: 'lesson-2', type: 'lesson_learned', observations: ['b'] });
+    const result = computeAnalytics(db);
+    const entries = result.ageMatrix.filter(e => e.type === 'lesson_learned');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].count).toBe(2);
+  });
+});
+
+describe('/v1/analytics knowledgeRadar', () => {
+  it('returns six fixed axes regardless of database state', () => {
+    const result = computeAnalytics(db);
+    const axes = result.knowledgeRadar.map(e => e.axis);
+    expect(axes).toEqual(['lessons', 'decisions', 'patterns', 'bugs', 'processes', 'architecture']);
+  });
+
+  it('every axis carries its types[] mapping (the radar UI needs this for tooltips)', () => {
+    const result = computeAnalytics(db);
+    for (const entry of result.knowledgeRadar) {
+      expect(Array.isArray(entry.types)).toBe(true);
+      expect(entry.types.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('counts include entities even from NOISE_TYPES filter (radar uses raw counts)', () => {
+    // Knowledge Radar deliberately reads from the unfiltered ageMatrixRaw
+    // so it reflects total knowledge accumulation, not just non-noise.
+    // A `lesson_learned` is non-noise and maps to the `lessons` axis.
+    remember({ name: 'l1', type: 'lesson_learned', observations: ['a'] });
+    remember({ name: 'l2', type: 'lesson', observations: ['b'] });        // also `lessons` axis
+    remember({ name: 'l3', type: 'mistake', observations: ['c'] });       // also `lessons` axis
+
+    const result = computeAnalytics(db);
+    const lessons = result.knowledgeRadar.find(e => e.axis === 'lessons');
+    expect(lessons!.count).toBe(3);
+  });
+
+  it('unmapped types (e.g. concept) do not contribute to any axis', () => {
+    remember({ name: 'random-concept', type: 'concept', observations: ['unmapped'] });
+    const result = computeAnalytics(db);
+    // No axis should have counted the `concept` type since it's not in
+    // any axis's `types` whitelist. Total radar count stays 0.
+    const total = result.knowledgeRadar.reduce((sum, e) => sum + e.count, 0);
+    expect(total).toBe(0);
+  });
+
+  it('correctly buckets architecture-axis types', () => {
+    remember({ name: 'arch-1', type: 'architecture', observations: ['a'] });
+    remember({ name: 'arch-2', type: 'feature', observations: ['b'] });
+    remember({ name: 'arch-3', type: 'release', observations: ['c'] });
+    remember({ name: 'arch-4', type: 'infrastructure', observations: ['d'] });
+
+    const result = computeAnalytics(db);
+    const arch = result.knowledgeRadar.find(e => e.axis === 'architecture');
+    expect(arch!.count).toBe(4);
   });
 });
