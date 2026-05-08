@@ -1,6 +1,6 @@
 # MeMesh Plugin Architecture
 
-**Version**: 4.1.0
+**Version**: 4.1.14
 
 ---
 
@@ -11,7 +11,7 @@ MeMesh Plugin is the local memory layer for Claude Code and other MCP-compatible
 The package is intentionally local-first and inspectable:
 - one SQLite database under the user's control
 - no cloud service required
-- Claude Code hook integration for session-start, pre-edit recall, post-commit capture, session-summary learning, pre-compact save, and user-prompt-intent dual-write reminder
+- Claude Code hook integration for session-start, pre-edit recall, pre-bash orchestration nudge, user-prompt-intent detection, post-commit capture, session-summary learning, and pre-compact save
 - optional smarter retrieval and extraction when an LLM is configured
 
 This repository is the plugin/package wedge of the broader MeMesh effort. Hosted workspace and enterprise operating-system products are intentionally out of scope for this package architecture.
@@ -284,7 +284,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 | post-commit.js | PostToolUse (Bash) | Record git commits with diff stats |
 | session-summary.js | Stop | Auto-capture session knowledge + recall effectiveness tracking |
 | pre-compact.js | PreCompact | Save knowledge before compaction |
-| user-prompt-intent.js | UserPromptSubmit | Detect explicit "remember/save/memorize/記下來" intent and inject dual-write reminder |
+| user-prompt-intent.js | UserPromptSubmit | Detect "remember" intent (5 languages: en, es, fr, pt, zh-TW) and remind Claude to use mcp__memesh__remember |
 
 ### Pre-Edit Recall (`scripts/hooks/pre-edit-recall.js`)
 
@@ -320,7 +320,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 - **Trigger**: `UserPromptSubmit` event (every user prompt)
 - **Matcher**: `*` (all sessions)
-- **Behavior**: Detects explicit "remember/save/memorize" intent in the user's prompt via conservative regex (English imperatives anchored to sentence start; CJK 記下來 / 記到 memesh / 存到 memesh / 寫進 記憶 / 存進 記憶). On match, emits `additionalContext` JSON instructing the agent to dual-write — `mcp__memesh__remember` for cross-project recall AND a mirror in Claude Code's per-project `~/.claude/projects/<encoded-cwd>/memory/` so the native MEMORY.md auto-load mechanism stays in sync. Polite-reminder design (not autonomous extraction): the user's intent is clear, but *what* to remember depends on conversation context the calling agent already has. Defensive: never blocks the prompt; malformed stdin and other errors surface to stderr without affecting submission. Opt-out via `MEMESH_AUTO_CAPTURE=false`
+- **Behavior**: Detects explicit "remember/save/memorize" intent in the user's prompt via conservative regex. Supported languages: English ("remember this", "save to memesh"), Spanish ("recordar esto", "guardar en memesh"), French ("rappeler ceci", "sauvegarder dans memesh"), Portuguese ("lembrar isto", "salvar em memesh"), Traditional Chinese ("記下來", "存到 memesh"). On match, emits `additionalContext` JSON reminding the agent to call `mcp__memesh__remember` for cross-project recall. Polite-reminder design (not autonomous extraction): the user's intent is clear, but *what* to remember depends on conversation context the calling agent already has. Defensive: never blocks the prompt; malformed stdin and other errors surface to stderr without affecting submission. Opt-out via `MEMESH_AUTO_CAPTURE=false`
 
 ---
 
