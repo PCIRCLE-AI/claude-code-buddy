@@ -104,3 +104,30 @@ jobs:
 
       - name: Run packaged dashboard e2e smoke
         run: npm run test:e2e-dashboard
+
+  # The "verify before publish" gate (per user directive 2026-05-08).
+  # Catches drift that unit tests miss — e.g., installation.test.ts asserting
+  # 5 hook types when hooks.json shipped 6 went unnoticed for a full release
+  # cycle until release-verify.sh exposed it. Run this on every PR so drift
+  # is caught at PR-time, not at publish-time.
+  release-verify:
+    name: Release Verification Gate
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run release-verify (skip live LLM probe — no API key in CI)
+        run: bash scripts/release-verify.sh --skip-llm-probe

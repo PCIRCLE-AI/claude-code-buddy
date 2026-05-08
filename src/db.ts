@@ -5,6 +5,7 @@ import os from 'os';
 import fs from 'fs';
 import { runAutoDecay } from './core/lifecycle.js';
 import { getEmbeddingDimension } from './core/config.js';
+import { computeSignalScore } from './core/signal-scorer.js';
 import type { PragmaColumnRow } from './core/types.js';
 
 let db: Database.Database | null = null;
@@ -135,6 +136,21 @@ export function openDatabase(dbPath?: string): Database.Database {
   // Run auto-decay: reduce confidence for stale entities (throttled to once per 24h)
   runAutoDecay(db);
 
+  // Phase-1 of #39: backfill metadata.signal_score on any entity
+  // that doesn't already have one. One-time scan per install (the
+  // marker key 'signal_score_backfill_v1' guards against repeats).
+  // Rule-based scorer is fast — 3000 entities cost ~50ms. Future
+  // schema-version bumps to the scorer can re-run by changing the
+  // marker key.
+  backfillSignalScores(db);
+
+  // Phase-2 of #39 (LLM cluster compactor): proposed digests live in
+  // a staging table, written by the dreamer and reviewed by the user
+  // before any source entities are archived. Mirrors Mem0's 4-op
+  // tool-call constraint + Graphiti's invalidate-don't-delete +
+  // claude-mem dream-skill's safety promise.
+  ensureDreamProposalsTable(db);
+
   // Load sqlite-vec extension for vector similarity search
   sqliteVec.load(db);
 
@@ -220,6 +236,117 @@ export function clearPendingReindexFlag(): void {
   db.prepare("DELETE FROM memesh_metadata WHERE key = 'pending_reindex'").run();
 }
 
+/**
+ * Create the dream_proposals staging table (#39 Phase 2).
+ *
+ * Every consolidation pass writes proposals here BEFORE touching the
+ * source entities. The `memesh dream review` flow reads from here to
+ * present accept/reject decisions to the user. Once accepted, the
+ * dreamer apply path creates the digest entity + soft-archives the
+ * sources via metadata.compacted_into. Rejection just deletes the
+ * proposal row; sources are never disturbed.
+ *
+ * Schema notes:
+ *   - source_ids: JSON array of entity ids the proposal would compact.
+ *   - proposed_digest: JSON with name + type + observations + tags
+ *     the dreamer wants to insert as the digest entity.
+ *   - status: 'pending' | 'accepted' | 'rejected' | 'applied'.
+ *     'applied' means the digest has been created + sources archived;
+ *     useful for an audit trail of what consolidations have run.
+ *   - llm_model + prompt_version stamped so we can re-run with a new
+ *     model later and compare quality without losing the old proposal.
+ */
+function ensureDreamProposalsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dream_proposals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project TEXT NOT NULL,
+      cluster_key TEXT NOT NULL,
+      source_ids TEXT NOT NULL,
+      proposed_digest TEXT NOT NULL,
+      llm_model TEXT,
+      prompt_version TEXT NOT NULL DEFAULT 'v1',
+      status TEXT NOT NULL DEFAULT 'pending',
+      reason TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      reviewed_at TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_dream_proposals_status ON dream_proposals(status);
+    CREATE INDEX IF NOT EXISTS idx_dream_proposals_project ON dream_proposals(project);
+  `);
+}
+
+/**
+ * Backfill metadata.signal_score on existing entities (#39 Phase 1).
+ *
+ * One-time pass keyed by 'signal_score_backfill_v1' in
+ * memesh_metadata. Subsequent openDatabase calls are no-ops. If the
+ * scorer rules change materially, bump the marker key (v2, v3…) to
+ * trigger a re-scan against the new rules.
+ *
+ * Safe to run on a fresh DB (no entities → no-op) and on a 50k DB
+ * (~200ms at rule-based speed). Reads observations + tags per
+ * entity to feed the scorer the same inputs createEntity uses.
+ */
+function backfillSignalScores(db: Database.Database): void {
+  // Ensure memesh_metadata exists — same migration the vec table
+  // does, hoisted up so this runs even before ensureVecTable.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memesh_metadata (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
+  const MARKER = 'signal_score_backfill_v1';
+  const done = db.prepare(
+    "SELECT value FROM memesh_metadata WHERE key = ?"
+  ).get(MARKER);
+  if (done) return;
+
+  const rows = db.prepare(
+    'SELECT id, name, type, metadata FROM entities'
+  ).all() as Array<{ id: number; name: string; type: string; metadata: string | null }>;
+
+  if (rows.length === 0) {
+    db.prepare(
+      "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)"
+    ).run(MARKER, new Date().toISOString());
+    return;
+  }
+
+  const obsStmt = db.prepare('SELECT content FROM observations WHERE entity_id = ?');
+  const tagStmt = db.prepare('SELECT tag FROM tags WHERE entity_id = ?');
+  const updateStmt = db.prepare('UPDATE entities SET metadata = ? WHERE id = ?');
+
+  const tx = db.transaction(() => {
+    let scored = 0;
+    let skipped = 0;
+    for (const row of rows) {
+      let metadata: Record<string, unknown> = {};
+      try { metadata = row.metadata ? JSON.parse(row.metadata) : {}; } catch { metadata = {}; }
+      if (typeof metadata.signal_score === 'number') {
+        skipped++;
+        continue;
+      }
+      const observations = (obsStmt.all(row.id) as Array<{ content: string }>).map(o => o.content);
+      const tags = (tagStmt.all(row.id) as Array<{ tag: string }>).map(t => t.tag);
+      metadata.signal_score = computeSignalScore({
+        type: row.type,
+        name: row.name,
+        observations,
+        tags,
+      });
+      updateStmt.run(JSON.stringify(metadata), row.id);
+      scored++;
+    }
+    db.prepare(
+      "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)"
+    ).run(MARKER, JSON.stringify({ at: new Date().toISOString(), scored, skipped }));
+  });
+  tx();
+}
+
 export function closeDatabase(): void {
   if (db) {
     db.close();
@@ -230,4 +357,14 @@ export function closeDatabase(): void {
 export function getDatabase(): Database.Database {
   if (!db) throw new Error('Database not opened');
   return db;
+}
+
+// F16: Used by callers (e.g. doctor) that need to know whether the global
+// database is already open before they touch it. The HTTP server opens
+// the db at startup and expects it to stay open for the process lifetime;
+// any caller that opens-and-closes inside a request handler would close
+// the server's shared connection. Such callers must check this flag and
+// skip the close if the db was open before they arrived.
+export function isDatabaseOpen(): boolean {
+  return db !== null;
 }

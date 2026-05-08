@@ -88,6 +88,33 @@ describe('ProjectRoadmap — SPEC-9 v0/v1 acceptance criteria', () => {
     expect(container.textContent).not.toMatch(/里程碑|Milestones/i);
   });
 
+  it('renders auto-phase strip when entity density >= 3 within 7 days (v2 AC10)', () => {
+    // Two clusters: first 4 entities on April 17–18 (one phase),
+    // then a 14-day gap, then 3 entities on May 2–3 (second phase).
+    // Both clusters meet the >=3 threshold so two strip chips render.
+    const entities = [
+      makeEntity({ id: 1, name: 'a', type: 'decision', created_at: '2026-04-17T08:00:00.000Z' }),
+      makeEntity({ id: 2, name: 'b', type: 'pattern', created_at: '2026-04-17T10:00:00.000Z' }),
+      makeEntity({ id: 3, name: 'foundation-release', type: 'release', created_at: '2026-04-18T09:00:00.000Z' }),
+      makeEntity({ id: 4, name: 'd', type: 'note', created_at: '2026-04-18T11:00:00.000Z' }),
+      makeEntity({ id: 5, name: 'e', type: 'decision', created_at: '2026-05-02T08:00:00.000Z' }),
+      makeEntity({ id: 6, name: 'v2-release', type: 'release', created_at: '2026-05-02T12:00:00.000Z' }),
+      makeEntity({ id: 7, name: 'g', type: 'pattern', created_at: '2026-05-03T08:00:00.000Z' }),
+    ];
+    const { container } = render(<ProjectRoadmap projectName="x" entities={entities} />);
+    expect(container.textContent).toContain('foundation-release');
+    expect(container.textContent).toContain('v2-release');
+  });
+
+  it('does NOT render phase strip when density is below threshold (v2 AC12)', () => {
+    // Single entity, no phases possible.
+    const { container } = render(
+      <ProjectRoadmap projectName="x" entities={[makeEntity({ id: 1, name: 'lone' })]} />
+    );
+    // The "Phases" header label should not appear when phases is empty.
+    expect(container.textContent).not.toMatch(/Phases|階段/);
+  });
+
   it('renders Key Lessons rail sorted by access_count desc (v1 AC7)', () => {
     const entities = [
       makeEntity({ id: 1, name: 'low-recall', type: 'lesson_learned', access_count: 3 }),

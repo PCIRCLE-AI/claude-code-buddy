@@ -2,44 +2,70 @@
 
 All notable changes to MeMesh are documented here.
 
-## [Unreleased]
+## [4.1.4] — 2026-05-08
 
-Dashboard v2: shift Analytics and Graph from "how much data exists" toward "is my memory system working?"
+Major release consolidating dashboard v2 + v3, the auto-update loop, the new `install-hooks` command, and an LLM-driven memory consolidation system.
 
 ### Added
-- **Analytics tab**: `MemoryAgeMatrix` heat-map (type × age bucket — week / month / quarter / older) and `KnowledgeRadar` (six-axis SVG: lessons, decisions, patterns, bugs, processes, architecture). Both read from existing `/v1/analytics` payload (now augmented with `ageMatrix` and `knowledgeRadar` fields).
-- **Graph tab**: signal-first entity loading (all non-noise types always present + up to 200 recent noise entities), node radius scaled by `access_count` via log2, and a Drift Mode toggle that re-colors nodes by `last_accessed_at` recency.
-- **`/v1/entities`**: `?type=<type>` query parameter, validated by Zod (max 100 chars; `?limit` capped at 500).
-- **`/v1/config/test` endpoint + Settings test-first flow.** New `POST /v1/config/test` probes the provider's live `/v1/models` endpoint to (a) verify the supplied `apiKey` authenticates and (b) return the up-to-date model catalog. The Settings tab gains a Test button + provider-driven model dropdown; Save is disabled until the test passes (fail-closed). The model dropdown is populated from the server response, so it stays current as providers ship new releases. Suggested model picks the smallest / cheapest tier (`mini` / `nano` / `haiku` / `flash` / `lite`) by recency. Provider error messages are surfaced in short, human-readable form (e.g. `invalid x-api-key (authentication_error)`).
+- **`memesh install-hooks` / `uninstall-hooks` CLI.** `npm install -g` puts the CLI on PATH but did not previously wire MeMesh's session hooks into Claude Code. Without those hooks, the auto-capture loop (sessions → lessons → recall on next session) does not run for npm-global installs. `install-hooks` adds the hook entries directly to `~/.claude/settings.json` (or `<project>/.claude/settings.json` with `--scope project`), preserving any custom hooks the user already has. Idempotent + dry-run + backup-on-write. README Step 1.5 updated across all 11 locales.
+- **7th hook — `user-prompt-intent.js`** — UserPromptSubmit hook that detects explicit "remember/save/memorize" intent in the user's prompt via conservative regex. Supported languages: English ("remember this", "save to memesh"), Spanish ("recordar esto", "guardar en memesh"), French ("rappeler ceci", "sauvegarder dans memesh"), Portuguese ("lembrar isto", "salvar em memesh"), Traditional Chinese ("記下來", "存到 memesh"). On match, emits `additionalContext` JSON reminding the agent to call `mcp__memesh__remember` for cross-project recall. Polite-reminder design (not autonomous extraction): the user's intent is clear, but *what* to remember depends on conversation context the calling agent already has. Defensive: never blocks the prompt; malformed stdin and other errors surface to stderr without affecting submission. Opt-out via `MEMESH_AUTO_CAPTURE=false`.
+- **`memesh feedback` CLI** for terminal-only users. Builds the same pre-filled GitHub issue URL the dashboard widget produces, with `--bug` / `--feature` / `--question`, optional `--no-diagnostics` to opt out of the doctor JSON, and `--no-open` for headless flows.
+- **`memesh dream` CLI — LLM-driven memory consolidation.** Three subcommands: `dream run` proposes digests for clusters of compactable episodic entries (commits, session-insights, weekly summaries), `dream patterns` surfaces emerging patterns / repeated mistakes / knowledge gaps across recent project activity, `dream list` / `accept <id>` / `reject <id>` review and apply proposals. Proposals always go to a staging table (`dream_proposals`) — source entities are never touched until the user accepts.
+- **Rule-based `signal_score` on every entity.** `metadata.signal_score` ∈ [0, 1] stamped at creation time and backfilled on first run. Default threshold 0.4 hides empty session keypoints, trivial commits, and other low-value entries while keeping lessons / decisions / architecture / patterns visible.
+- **Anonymous `install_id`.** Random UUID written to `~/.memesh/install.json` on first read, never transmitted automatically. Included in feedback issues only when the user opts in via "Include system info"; visible in `memesh doctor` output for transparency.
+- **`embedder.provider` config** — separates embedding backend from LLM provider. Switching `llm.provider` no longer cascades into changing the embedder backend. Previously, that cascade could invalidate stored vectors. Defaults to ONNX (384-dim) for fresh installs; existing installs without `embedder.provider` keep their previous behaviour for back-compat.
+- **`/v1/doctor` HTTP endpoint** returning structured `DoctorResult` JSON, with secret-redaction defence-in-depth before the response leaves the server. Used by the dashboard FeedbackWidget to attach diagnostics to support issues.
+- **`DoctorBanner` dashboard component.** When doctor reports any WARN/FAIL check, a banner appears above the tabs with a "Get help" button that opens a pre-filled GitHub issue. Dismissable; remembers the dismissed-check signature so a *new* failure re-shows the banner without nagging on issues the user already chose to ignore.
+- **Two new doctor checks:** `Hooks wired into Claude Code` (verifies hook entries are present in `~/.claude/settings.json` and the recorded plugin path still exists) and `Hook activity (last 24h)` (counts memesh-attributed entities to confirm the loop is alive).
+- **Analytics tab v2:** `MemoryAgeMatrix` heat-map (type × age bucket) and `KnowledgeRadar` (six-axis SVG: lessons, decisions, patterns, bugs, processes, architecture). `/v1/analytics` augmented with `ageMatrix` and `knowledgeRadar` fields.
+- **Graph tab signal-first loading.** All non-noise types always present + up to 200 recent noise entries, node radius scaled by `access_count` (log2), Drift Mode toggle re-colors nodes by `last_accessed_at` recency.
+- **`/v1/entities ?type=<type>` query** parameter validated by Zod (max 100 chars; `?limit` capped at 500).
+- **Settings tab Test-first API key flow.** New `POST /v1/config/test` probes the provider's `/v1/models` endpoint to verify the key authenticates and return the live model catalog. Test button gates Save (fail-closed). Suggested model picks the smallest / cheapest tier (`mini` / `nano` / `haiku` / `flash` / `lite`).
+- **`scripts/release-verify.sh`** pre-publish gate. Runs typecheck, build, full vitest suite (LLM env stripped for offline runs), doctor smoke, install-hooks dry-run, feedback URL build, demo seed idempotency, and an optional live LLM probe. Exit non-zero blocks release.
 
 ### Changed
-- **`/v1/graph` response**: now includes a `noiseTypes: string[]` field so the dashboard's default-hide list stays in sync with the server. Single source of truth lives in `src/core/analytics.ts NOISE_TYPES`.
-- **`/v1/analytics` response**: `ageMatrix` and `knowledgeRadar` fields added. Existing fields unchanged.
-- **`POST /v1/config` applies LLM changes immediately.** Every LLM call site (`auto-tagger`, `failure-analyzer`, `consolidator`, `query-expander`) reads config fresh on each call; the embedder's module-level ONNX pipeline cache is reset by the config-write handler when provider or apiKey changes. The Settings tab confirmation message is now a plain "已儲存" — the previous "restart to apply" hint has been removed.
-
-### Fixed (pre-release; Dashboard v2 has not shipped to npm)
-- **30-day timeline chart rendering on tab switch.** `MemoryTimeline` writes to `canvas.style.width` for HiDPI rendering, and the inline value persisted across `display: none → block` transitions, leaving a 0px canvas. Switched to a `ResizeObserver` and clear inline width before measuring.
-- **Lessons tab data source.** `fetchLessons()` was calling `POST /v1/recall` (recency-ranked, dominated by session noise) and now uses `GET /v1/entities?type=lesson_learned`.
-- **Stop / PreCompact transcript parsers updated for the current agent transcript schema.** Earlier parsers expected a flat top-level `{type:'tool_use'}` shape; the current schema nests blocks under `{type:'assistant', message:{content:[...]}}`. Result: `toolCallCount` reported 0 and the LLM failure-analysis path was a no-op. `scripts/hooks/session-summary.js`, `scripts/hooks/pre-compact.js`, and `src/core/extractor.ts` now read both shapes.
-
-## [4.1.4] — 2026-05-07
-
-Auto-update loop completion, persistent reindex tracking, and codebase debt reduction.
-
-### Changed
-- **Auto-update spawn moved from SessionStart to Stop hook.** The `autoUpdate` policy field introduced in v4.1.3 now acts: when policy permits the detected bump and the update cache is fresh (< 24h), the Stop hook spawns a detached `npm install -g @pcircle/memesh@<latest>` after the session ends. Moving the spawn to Stop avoids a TOCTOU race where the install could overwrite `dist/` while peer hooks (pre-edit-recall, pre-bash-nudge) were still reading it mid-session. The shared lock and install-channel guards carry over: only `npm-global` installs self-update, and only one concurrent session wins the lock.
-- **Deprecation banner updated.** The `npm-global` remediation line now suggests `memesh config set autoUpdate patch` alongside `memesh update`, so users know the auto-update feature is active.
-- **Shared auto-update helpers extracted to `_shared.js`.** `readUpdateCheckCache`, `classifyBumpHook`, `decideAutoUpdateHook`, `logAutoUpdate`, `tryAcquireAutoUpdateLock`, `spawnAutoUpdate`, and `AUTO_UPDATE_LOCK_TTL_MS` moved from `session-start.js` to `_shared.js` so both hooks share a single implementation.
-- **Embedding dimension change now persists a reindex-needed flag.** When the vector table is rebuilt due to a provider switch (e.g. ONNX 384-dim → OpenAI 1536-dim), `db.ts` writes a `pending_reindex` record to `memesh_metadata` with the old/new dimensions and a timestamp. `memesh doctor` surfaces a `WARN` check as long as the flag is present; `memesh reindex` clears it on completion. Previously, the only signal was a transient stderr message that users might miss.
-- **`src/cli/view.ts` split into `view.ts` + `view-live.ts`.** The 2773-line file is now two focused modules: `view.ts` (the static dashboard for the `memesh-view` binary, ~590 lines) and `view-live.ts` (the live dashboard fallback served by the HTTP server when the Preact build is absent, ~2195 lines). The HTTP server import updated accordingly.
-- **Dead code removed from `version-check.ts`.** The stale `UPDATE_CHECK_PATH` constant (pointing to the pre-v4.1.3 shared cache path) and the unused `getUpdateCheckPathForTests()` export have been removed. Tests already use `MEMESH_UPDATE_CHECK_PATH` env-var injection for isolation.
+- **Auto-update spawn moved from SessionStart to Stop hook.** Avoids a TOCTOU race where `npm install -g` could overwrite `dist/` while peer hooks (pre-edit-recall, pre-bash-nudge) were still reading it mid-session. Shared flock and install-channel guards carry over: only `npm-global` installs self-update, only one concurrent session wins the lock.
+- **`POST /v1/config` applies LLM changes immediately.** Every LLM call site reads config fresh on each call; the embedder's ONNX pipeline cache resets when provider or apiKey changes. Settings tab confirmation message simplified to "saved".
+- **`memesh config set / unset` supports nested keys.** Previously only a hardcoded subset of `llm.*` keys was accepted. Now any key in the explicit allowlist (`llm.provider`, `llm.apiKey`, `llm.model`, `embedder.provider`, `embedder.model`, `autoUpdate`, `theme`, `sessionLimit`, etc.) works with dotted paths; unset prunes empty parent objects.
+- **`/v1/graph` response includes `noiseTypes`** so the dashboard's default-hide list stays in sync with the server. Single source of truth: `src/core/analytics.ts NOISE_TYPES`.
+- **Dashboard Onboarding banner is one-click GUI.** Replaced the previous "run `memesh demo` in your terminal" instruction with a primary button that POSTs `/v1/demo/seed` and refetches health automatically. CLI command kept for headless / CI flows.
+- **Settings tab + OnboardingBanner explicitly explain LLM is optional.** New "Without LLM (Core mode) / With LLM (Smart mode)" copy across all 11 locales sets the expectation up-front instead of making the LLM provider card feel mandatory.
+- **`src/cli/view.ts` split into `view.ts` + `view-live.ts`.** `view-live` is the HTTP-served fallback when the Preact build is absent.
+- **Embedding dimension change now persists a reindex-needed flag** in `memesh_metadata`. `memesh doctor` surfaces a WARN until `memesh reindex` clears it.
 
 ### Fixed
-- **Session-start hook output contract updated in tests.** The `suppressOutput + hookSpecificOutput.additionalContext` assertion shape was replaced with `systemMessage` to match the v4.1.4 output format. All 630 tests now pass cleanly.
+- **Stop / PreCompact transcript parsers** updated for the current Claude Code transcript shape. Earlier parsers missed nested tool-call blocks; `toolCallCount` reported 0 and the LLM failure-analysis path did not run. Updated in `scripts/hooks/session-summary.js`, `scripts/hooks/pre-compact.js`, and `src/core/extractor.ts`.
+- **Transcript parser false-positive errors.** The substring match `text.includes('Error') || text.includes('FAIL')` flagged any Read tool result containing the word "Error" (README/CHANGELOG content discussing errors) as a real session error. Now uses the explicit `is_error: true` flag Claude Code itself sets on failed tool calls.
+- **Session-id duplicate-guard collision.** The Stop hook used `sessionId.slice(0, 8)` as a dedup key. Two session_ids sharing an 8-character prefix could cause the second hook to abort. Now uses the full session_id for both entity names and the dedup key.
+- **30-day timeline chart blank after tab switch.** `MemoryTimeline` writes `canvas.style.width` for HiDPI; the inline value persisted across `display: none → block`, leaving a 0px canvas. Switched to `ResizeObserver` and clear inline width before measuring.
+- **Lessons tab data source.** `fetchLessons()` was calling `POST /v1/recall` (recency-ranked, dominated by session noise); now uses `GET /v1/entities?type=lesson_learned`.
+- **Demo `--reset` cleanup.** Now routes through `KnowledgeGraph.deleteEntity` so the FTS5 contentless virtual table and `entities_vec` rows are cleaned up (a bare `DELETE FROM entities` left orphan rows that resurfaced as phantom search hits). Wrapped in a single transaction so a mid-loop failure rolls back atomically.
+- **Hard `deleteEntity` removes the vec row.** Mirrors `archiveEntity`'s cleanup. Without this, hard-delete paths left orphan rows in `entities_vec`.
+- **`OnboardingBanner` runSeed clears `pending` in a finally block.** Previously the success path relied on the banner unmounting via `entity_count > 0`; if the follow-up health refetch was slow or failed, both buttons stayed disabled with no recovery path.
+- **`OnboardingBanner` error toast adds `role="alert"` + `aria-live="polite"`** so screen-reader users hear seed/reset failures.
+- **`failure-analyzer` LLM-failure path now logs to stderr** when the LLM call throws (401, network, rate-limit), so config issues are visible instead of producing no lesson without explanation.
+- **Doctor lifecycle safety alongside the HTTP server.** `runDoctor()` now detects whether the database is already open (via new `isDatabaseOpen()` guard) and only closes the connection if it opened it itself. The dashboard can call `/v1/doctor` against a running HTTP server while other requests continue normally. CLI mode is unaffected.
+- **Embedder dimension back-compat now consults explicit `cfg.llm` only**, never env-detected LLM. Keeps `embedder.provider` and `llm.provider` independent (per #36) regardless of shell environment. Regression tests assert the separation.
+
+### Added (late additions to v4.1.4)
+- **Settings dashboard "Remove provider" button** — drops the saved apiKey + model so the user can opt out of LLM-backed features without hand-editing `~/.memesh/config.json`. Falls back to env-var auto-detect or Core Mode (FTS5 + ONNX, no LLM features) if no credential is found. Only shown when an apiKey exists on disk; ollama (keyless) users switch via the radio buttons.
+- **Build-time smoke test** (`scripts/smoke-test.mjs`) — runs after `npm run build` and verifies dist/ modules load, database CRUD works, HTTP server starts, and the dashboard artifact is present.
+- **`isDatabaseOpen()` export** in `src/db.ts` for callers that need to detect whether the global database is already open before they touch its lifecycle.
+- **Doctor warnings i18n coverage** — translated 15 doctor check IDs across all 11 dashboard locales (EN + zh-TW translated, others fallback to English).
+
+### Removed
+- **Three internal surfaces (G2/G3/G4)** — entity types and a dashboard widget that were not wired to user-visible features.
+- **Dead code in `version-check.ts`** — stale `UPDATE_CHECK_PATH` constant + unused `getUpdateCheckPathForTests()` export.
+
+### Migrations (one-time, automatic)
+- `metadata.signal_score` is backfilled for all existing entities on first openDatabase call after upgrade. Marker `signal_score_backfill_v1` in `memesh_metadata` prevents re-runs.
+- `dream_proposals` table is created automatically. Empty on upgrade; populated by `memesh dream` runs.
+- Existing entities are preserved end-to-end. No data loss.
 
 ### Notes
-- No public API changes. Behaviour is unchanged for users not switching embedding providers.
-- The `pending_reindex` flag is cleared automatically when `memesh reindex` completes — no manual cleanup needed.
+- **LLM is optional**. memesh's wedge — 95.40% R@5 on LongMemEval-S using FTS5 alone — does not require an LLM. The `memesh dream` system, auto-tagger, and failure analyzer are all opt-in features that activate when `llm.provider` is configured.
+- **Embedder/LLM are now decoupled.** Existing users on `llm.provider=ollama` keep their current 768-dim embeddings (back-compat); fresh installs default to ONNX 384-dim. Switch the embedder explicitly with `memesh config set embedder.provider <onnx|openai|ollama>`.
+- **Run `memesh install-hooks` after upgrading** to ensure Claude Code session hooks are wired. `memesh doctor` will WARN until you do.
 
 ## [4.1.3] — 2026-05-06
 

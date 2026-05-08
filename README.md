@@ -54,6 +54,17 @@ npm install -g @pcircle/memesh
 > - **Native modules** — `better-sqlite3` and `sqlite-vec` install via prebuilt binaries on macOS (arm64/x64), Linux (x64/arm64), and Windows x64. On uncommon platforms or when prebuilds fail, you'll need a working C/C++ toolchain.
 > - **Embedding model** — the first call that triggers a local embedding (e.g. `recall` with semantic mode) downloads `Xenova/all-MiniLM-L6-v2` (~80 MB) into `~/.memesh/models/`. Subsequent calls are instant. The default retrieval path (FTS5) does not require this download.
 
+### Step 1.5: Wire MeMesh into Claude Code (recommended, one-time)
+
+`npm install -g` puts the CLI on your PATH and registers the MCP server, but does **not** auto-wire MeMesh's Claude Code session hooks. Without these hooks, you can use `memesh remember` / `recall` manually but the **auto-capture loop** (sessions → lessons → recall on next session) is silent.
+
+```bash
+memesh install-hooks         # adds memesh's hooks to ~/.claude/settings.json
+memesh doctor                # verifies "Hooks wired into Claude Code" passes
+```
+
+The hooks coexist with any custom hooks you already have under `~/.claude/hooks/` — `install-hooks` writes additive entries and never overwrites yours. To remove later: `memesh uninstall-hooks`.
+
 ### Step 2: Store a decision
 
 ```bash
@@ -169,13 +180,14 @@ Paste tools into any API call
 
 ## What Happens Automatically In Claude Code
 
-You don't need to manually remember everything. MeMesh has **6 hooks** that capture and inject knowledge while you work:
+You don't need to manually remember everything. MeMesh has **7 hooks** that capture and inject knowledge while you work:
 
 | When | What MeMesh does |
 |------|------------------|
 | **Every session start** | Loads your most relevant memories + proactive warnings from past lessons |
 | **Before editing files** | Recalls memories tied to the file or project before Claude writes code |
 | **Before bash commands** | (Opt-in) Nudges Claude to dispatch high-verifiability commands (test, build, lint, migrate, deploy, benchmark) as background agents |
+| **When you ask to remember** | Detects "remember this" / "guardar en memesh" / "sauvegarder dans memesh" / "記下來" intent (5 languages) and reminds Claude to use memesh |
 | **After every `git commit`** | Records what you changed, with diff stats |
 | **When Claude stops** | Captures files edited, errors fixed, and auto-generates structured lessons from failures |
 | **Before context compaction** | Saves knowledge before it's lost to context limits |

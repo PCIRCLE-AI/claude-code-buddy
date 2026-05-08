@@ -1,0 +1,28 @@
+# Force LF line endings on checkout for source files. Git on Windows
+# defaults to autocrlf=true and converts LF→CRLF on checkout, which
+# corrupts shebangs (`#!/usr/bin/env node\r\n`) and breaks regex
+# literals containing CJK characters when the parser is confused by
+# carriage returns. Symptoms on Windows CI:
+#   - tests/hooks/user-prompt-intent.test.ts collection fails with
+#     "SyntaxError: Invalid or unexpected token" because the JS file
+#     was checked out with CRLF endings.
+#   - All hooks scripts (which start with #!/usr/bin/env node) become
+#     unrunnable when invoked directly.
+# This file standardizes line endings across all platforms.
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Binaries — never auto-modify.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.db binary

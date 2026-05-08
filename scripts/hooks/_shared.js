@@ -8,6 +8,22 @@ import { fileURLToPath } from 'url';
 const require = createRequire(import.meta.url);
 
 /**
+ * Return the user's home directory, honoring HOME env var first.
+ *
+ * On POSIX, os.homedir() already consults HOME. On Windows, it ignores
+ * env vars and reads GetUserProfileDirectoryW directly — which makes
+ * tests unable to redirect home-dir lookups to a tmp dir. Honoring HOME
+ * first lets tests set HOME=<tmpdir> and have it actually take effect
+ * across platforms. Production users on Windows almost never set HOME,
+ * so this falls through to os.homedir() as before.
+ *
+ * @returns {string}
+ */
+function homeDir() {
+  return process.env.HOME ?? homedir();
+}
+
+/**
  * Resolve the package root from a hook file's `import.meta.url`.
  *
  * Hooks live at `<pkgRoot>/scripts/hooks/<file>.js`, so the path needs
@@ -48,7 +64,7 @@ export function resolvePluginRoot(metaUrl) {
  * @returns {Record<string, any>}
  */
 export function readHookConfig(_env = process.env) {
-  const path = join(homedir(), '.memesh', 'config.json');
+  const path = join(homeDir(), '.memesh', 'config.json');
   if (!existsSync(path)) return {};
   try {
     const raw = readFileSync(path, 'utf8');
@@ -218,8 +234,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
  * @returns {{ db: any, dbPath: string }}
  */
 export function openHookDb(env = process.env, opts = {}) {
-  const dbPath = env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
-  const dbDir = env.MEMESH_DB_PATH ? dirname(env.MEMESH_DB_PATH) : join(homedir(), '.memesh');
+  const dbPath = env.MEMESH_DB_PATH || join(homeDir(), '.memesh', 'knowledge-graph.db');
+  const dbDir = env.MEMESH_DB_PATH ? dirname(env.MEMESH_DB_PATH) : join(homeDir(), '.memesh');
   if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
 
   const Database = require('better-sqlite3');
@@ -242,7 +258,7 @@ const PRIVATE_DIR_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 
 export function getMemeshDir(env = process.env) {
-  return env.MEMESH_DB_PATH ? dirname(env.MEMESH_DB_PATH) : join(homedir(), '.memesh');
+  return env.MEMESH_DB_PATH ? dirname(env.MEMESH_DB_PATH) : join(homeDir(), '.memesh');
 }
 
 export function ensurePrivateDir(dirPath) {
@@ -316,7 +332,7 @@ export function readUpdateCheckCache(installedVersion) {
     && /^[0-9A-Za-z.+-]+$/.test(installedVersion)
     ? installedVersion
     : 'unknown';
-  const cachePath = join(homedir(), '.memesh', `update-check.${versionTag}.json`);
+  const cachePath = join(homeDir(), '.memesh', `update-check.${versionTag}.json`);
   try {
     if (!existsSync(cachePath)) return null;
     const parsed = JSON.parse(readFileSync(cachePath, 'utf8'));
@@ -389,7 +405,7 @@ export const AUTO_UPDATE_LOCK_TTL_MS = 10 * 60 * 1000;
 
 export function tryAcquireAutoUpdateLock(version) {
   try {
-    const dir = join(homedir(), '.memesh');
+    const dir = join(homeDir(), '.memesh');
     ensurePrivateDir(dir);
     const lockPath = join(dir, 'auto-update.lock');
     const fs = require('fs');
@@ -423,6 +439,15 @@ export function tryAcquireAutoUpdateLock(version) {
       try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
       return { acquired: false, lockPath };
     }
+    // The "race" here is the lock primitive itself: we just renamed our
+    // temp file onto lockPath, then immediately read back to see whether
+    // our token won. If a concurrent caller's rename landed in the
+    // window between our rename and our read, their token is now there
+    // and we correctly conclude we did NOT acquire the lock. That race
+    // outcome IS the contract — CodeQL flags it as TOCTOU but it is the
+    // standard last-writer-wins lock-file pattern.
+    // codeql[js/file-system-race]: justified — the read is the lock
+    // verification step, not a post-check before mutation.
     let recorded;
     try { recorded = fs.readFileSync(lockPath, 'utf8'); } catch { return { acquired: false, lockPath }; }
     return recorded.split('\n')[0] === myToken

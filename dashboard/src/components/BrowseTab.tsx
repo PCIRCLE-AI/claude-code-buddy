@@ -4,6 +4,7 @@ import { MemoryRow } from './MemoryRow';
 import { ProjectRoadmap } from './ProjectRoadmap';
 import { t } from '../lib/i18n';
 import { clusterOf, timeBucket, extractProject, type TypeCluster, type TimeBucket } from '../lib/entity-display';
+import { useSignalMode } from '../lib/signalMode';
 
 const ROADMAP_PREF_KEY = 'memesh.browse.viewMode';
 
@@ -56,8 +57,15 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
   const [error, setError] = useState('');
   const [page, setPage] = useState(0);
 
+  // Global Signal Mode — when ON, the cluster filter starts on
+  // 'knowledge' and the noise types (commit / session_keypoint /
+  // weekly-summary) are out of the default view. When OFF, the
+  // cluster filter defaults to 'all'. Either way the user can still
+  // override per-tab via the chip filter.
+  const [signalMode] = useSignalMode();
+
   // Filter state — defaults tuned for "show me useful things"
-  const [cluster, setCluster] = useState<ClusterKey>('knowledge');
+  const [cluster, setCluster] = useState<ClusterKey>(signalMode ? 'knowledge' : 'all');
   const [time, setTime] = useState<TimeKey>('all');
   const [value, setValue] = useState<ValueKey>('all');
   const [project, setProject] = useState<string | 'all'>('all');
@@ -96,6 +104,18 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
 
   useEffect(() => { load(); }, []);
   useEffect(() => { setPage(0); }, [filter, cluster, time, value, project, sort]);
+
+  // When the global Signal Mode toggles, snap the cluster filter to
+  // the natural default for that mode — but only if the user hasn't
+  // already moved it somewhere meaningful within the same tab session.
+  // The check `cluster === 'knowledge' || cluster === 'all'` lets a
+  // user's deliberate choice (`activity`, `session`, `reference`)
+  // survive a global toggle.
+  useEffect(() => {
+    if (cluster === 'knowledge' || cluster === 'all') {
+      setCluster(signalMode ? 'knowledge' : 'all');
+    }
+  }, [signalMode]);
 
   // Cluster counts (over the unfiltered set so chip counts don't move with selection)
   const clusterCounts = useMemo(() => {
@@ -268,7 +288,13 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
             of roadmap, or in manage mode. */}
         {!loading && (project === 'all' || viewMode === 'list' || manage) && active.length === 0 && (
           <div class="empty">
-            <span class="empty-icon">📭</span>
+            <span class="empty-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)' }}>
+              {/* Inbox / empty mailbox glyph */}
+              <svg width="32" height="32" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M2 9 L4 4 H12 L14 9 V13 H2 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                <path d="M2 9 H6 a2 2 0 0 0 4 0 H14" stroke="currentColor" strokeWidth="1.5" fill="none" />
+              </svg>
+            </span>
             {filter ? `${t('browse.noMatch')} "${filter}"` : t('browse.emptyFilter')}
           </div>
         )}

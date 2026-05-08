@@ -37,6 +37,17 @@ Ce package constitue la couche de mémoire locale de la famille de produits MeMe
 npm install -g @pcircle/memesh
 ```
 
+### Étape 1,5 : Connecter MeMesh à Claude Code (recommandé, une seule fois)
+
+`npm install -g` place la CLI dans le PATH et enregistre le serveur MCP, mais **ne connecte pas** automatiquement les hooks de session MeMesh à Claude Code. Sans ces hooks, vous pouvez utiliser `memesh remember` / `recall` manuellement, mais la **boucle d'auto-capture** (session → leçons → rappel proactif à la session suivante) reste silencieuse.
+
+```bash
+memesh install-hooks         # ajoute les hooks memesh à ~/.claude/settings.json
+memesh doctor                # vérifie que « Hooks wired into Claude Code » passe
+```
+
+Ces hooks coexistent avec vos hooks personnalisés dans `~/.claude/hooks/` — `install-hooks` écrit de manière additive et n'écrase jamais les vôtres. Pour supprimer : `memesh uninstall-hooks`.
+
 ### Étape 2 : Mémoriser une décision
 
 ```bash
@@ -146,13 +157,14 @@ Collez les outils dans n'importe quel appel API
 
 ## Ce Qui Se Passe Automatiquement Dans Claude Code
 
-Vous n'avez pas besoin de tout mémoriser manuellement. MeMesh possède **6 hooks** qui capturent et injectent les connaissances au fur et à mesure que vous travaillez :
+Vous n'avez pas besoin de tout mémoriser manuellement. MeMesh possède **7 hooks** qui capturent et injectent les connaissances au fur et à mesure que vous travaillez :
 
 | Quand | Ce que MeMesh fait |
 |---|---|
 | **Au début de chaque session** | Charge vos mémoires les plus pertinentes + avertissements proactifs des leçons passées + banneau d'orchestration agentique |
 | **Avant d'éditer des fichiers** | Rappelle les mémoires liées au fichier ou au projet avant que Claude ne rédige du code |
 | **Avant les commandes bash** | Encourage Claude à dispatcher les commandes très vérifiables (test, build, lint, migrate, deploy, benchmark) en tant qu'agents de fond |
+| **Lorsque vous demandez de mémoriser** | Détecte l'intention "remember this" / "記下來" et rappelle à Claude d'écrire en double (memesh + MEMORY.md) |
 | **Après chaque `git commit`** | Enregistre ce que vous avez modifié, avec les statistiques de diff |
 | **Quand Claude s'arrête** | Capture les fichiers édités, les erreurs corrigées et génère automatiquement des leçons structurées à partir des défaillances |
 | **Avant la compaction de contexte** | Sauvegarde les connaissances avant qu'elles ne soient perdues aux limites de contexte |

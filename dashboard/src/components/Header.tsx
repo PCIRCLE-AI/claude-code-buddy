@@ -1,7 +1,10 @@
 import type { HealthData } from '../lib/api';
 import { t } from '../lib/i18n';
+import { useSignalMode } from '../lib/signalMode';
 
 export function Header({ health, error }: { health: HealthData | null; error: string }) {
+  const [signalMode, setSignalMode] = useSignalMode();
+
   return (
     <div class="header">
       <div class="header-brand">
@@ -10,6 +13,31 @@ export function Header({ health, error }: { health: HealthData | null; error: st
       </div>
       <div class="header-right">
         <div class="header-meta">
+          {/* Signal Mode toggle. Browse defaults to the knowledge cluster
+              when ON; Graph default-hides noise types; Analytics scopes
+              its own counts. The single source of truth lives in the
+              `useSignalMode` hook so every tab sees the same value
+              without prop-drilling. */}
+          <button
+            type="button"
+            class="signal-toggle"
+            onClick={() => setSignalMode(!signalMode)}
+            aria-pressed={signalMode}
+            title={t(signalMode ? 'header.signalModeOnHint' : 'header.signalModeOffHint')}
+            style={{
+              fontSize: 11,
+              padding: '4px 10px',
+              borderRadius: 12,
+              border: `1px solid ${signalMode ? 'rgba(0, 214, 180, 0.4)' : 'rgba(255, 255, 255, 0.08)'}`,
+              background: signalMode ? 'rgba(0, 214, 180, 0.12)' : 'transparent',
+              color: signalMode ? 'var(--accent)' : 'var(--text-2)',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            <span style={{ marginRight: 4 }}>{signalMode ? '●' : '○'}</span>
+            {t(signalMode ? 'header.signalModeOn' : 'header.signalModeOff')}
+          </button>
           {health ? (
             <>
               <span><span class="dot dot-ok" />{t('header.connected')}</span>

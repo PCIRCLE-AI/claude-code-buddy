@@ -60,7 +60,7 @@ export function parseKeywords(text: string): string[] {
           .slice(0, 15);
       }
     }
-  } catch {}
+  } catch { /* JSON parse failed - use fallback parsing */ }
   // Fallback: split by commas or newlines, strip JSON-like artifacts
   return text
     .split(/[,\n]+/)

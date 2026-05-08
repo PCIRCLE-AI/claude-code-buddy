@@ -37,6 +37,17 @@
 npm install -g @pcircle/memesh
 ```
 
+### 第一步半：把 MeMesh 接入 Claude Code（推荐，一次性）
+
+`npm install -g` 把 CLI 放进 PATH 并注册 MCP server，但**不会**自动接上 MeMesh 的 Claude Code session hooks。没有这些 hooks，你还是可以手动用 `memesh remember` / `recall`，但**自动捕捉循环**（session → 教训 → 下次 session 主动回想）就会静默不动。
+
+```bash
+memesh install-hooks         # 把 memesh hooks 加到 ~/.claude/settings.json
+memesh doctor                # 确认「Hooks wired into Claude Code」通过
+```
+
+这些 hooks 会和你已有的 `~/.claude/hooks/` 自定义 hooks 并存 — `install-hooks` 用追加方式写，从不覆盖你的东西。要移除：`memesh uninstall-hooks`。
+
 ### 第二步：记录一个决策
 
 ```bash

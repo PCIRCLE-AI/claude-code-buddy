@@ -37,6 +37,17 @@
 npm install -g @pcircle/memesh
 ```
 
+### 1.5단계: MeMesh를 Claude Code에 연결(권장, 일회성)
+
+`npm install -g`는 CLI를 PATH에 추가하고 MCP 서버를 등록하지만, MeMesh의 Claude Code 세션 훅을 자동으로 연결하지는 **않습니다**. 훅이 없으면 `memesh remember` / `recall`을 수동으로 사용할 수 있지만, **자동 캡처 루프**(세션 → 교훈 → 다음 세션에서 능동적 회상)는 작동하지 않습니다.
+
+```bash
+memesh install-hooks         # ~/.claude/settings.json에 memesh 훅 추가
+memesh doctor                # "Hooks wired into Claude Code" PASS 확인
+```
+
+이 훅들은 기존 `~/.claude/hooks/` 사용자 훅과 공존합니다 — `install-hooks`는 추가 방식으로 작성하며 기존 항목을 덮어쓰지 않습니다. 제거하려면: `memesh uninstall-hooks`.
+
 ### 2단계: 의사결정 저장
 
 ```bash

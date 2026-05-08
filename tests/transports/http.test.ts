@@ -528,3 +528,64 @@ describe('HTTP Transport: GET /dashboard', () => {
     expect(res.status).toBe(204);
   });
 });
+
+// ── Startup Validation (F15) ──────────────────────────────────────────────────
+
+describe('HTTP Transport: Startup validation', () => {
+  it('throws with actionable error if database cannot be opened', () => {
+    // Create a path that fails on both POSIX and Windows: take a regular
+    // file, then ask SQLite to open a "child" of that file. Files can't
+    // have children, so mkdir-recursive (which db.ts calls) will fail
+    // with EEXIST/ENOTDIR. /dev/null worked on POSIX but Windows has no
+    // /dev/null analogue, so we make our own.
+    const badTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-http-bad-'));
+    const blockingFile = path.join(badTmpDir, 'iamafile.txt');
+    fs.writeFileSync(blockingFile, 'I am a regular file, not a directory.');
+    const badDbPath = path.join(blockingFile, 'cannot-write-here.db');
+    const previousDbPath = process.env.MEMESH_DB_PATH;
+    process.env.MEMESH_DB_PATH = badDbPath;
+
+    // The beforeAll opened a db at tmpDir/test.db. Close it so startServer's
+    // openDatabase() actually tries to open badDbPath instead of returning
+    // the cached connection (openDatabase is idempotent: returns existing).
+    closeDatabase();
+
+    try {
+      expect(() => startServer('127.0.0.1', 0)).toThrow(/Database initialization failed/);
+    } finally {
+      if (previousDbPath === undefined) delete process.env.MEMESH_DB_PATH;
+      else process.env.MEMESH_DB_PATH = previousDbPath;
+      fs.rmSync(badTmpDir, { recursive: true, force: true });
+      // Reopen the original db so subsequent tests in afterAll can closeDatabase
+      // and so other concurrent tests are not affected.
+      openDatabase(path.join(tmpDir, 'test.db'));
+    }
+  });
+
+  it('shows actual bound port instead of input port (F15 port display fix)', async () => {
+    const portTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-http-port-'));
+    const previousDbPath = process.env.MEMESH_DB_PATH;
+    process.env.MEMESH_DB_PATH = path.join(portTmpDir, 'test.db');
+
+    let testServer: ReturnType<typeof app.listen> | undefined;
+    try {
+      // Start with port=0 (random port)
+      testServer = startServer('127.0.0.1', 0);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      const actualPort = (testServer.address() as any).port;
+      expect(actualPort).toBeGreaterThan(0);
+      expect(actualPort).not.toBe(0); // Should not show ":0" in logs
+
+      // Verify server is actually listening on the reported port
+      const res = await fetch(`http://127.0.0.1:${actualPort}/v1/health`);
+      expect(res.status).toBe(200);
+    } finally {
+      if (testServer) await new Promise<void>((res, rej) => testServer!.close((err) => err ? rej(err) : res()));
+      closeDatabase();
+      if (previousDbPath === undefined) delete process.env.MEMESH_DB_PATH;
+      else process.env.MEMESH_DB_PATH = previousDbPath;
+      fs.rmSync(portTmpDir, { recursive: true, force: true });
+    }
+  });
+});
