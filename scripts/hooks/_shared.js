@@ -423,6 +423,15 @@ export function tryAcquireAutoUpdateLock(version) {
       try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
       return { acquired: false, lockPath };
     }
+    // The "race" here is the lock primitive itself: we just renamed our
+    // temp file onto lockPath, then immediately read back to see whether
+    // our token won. If a concurrent caller's rename landed in the
+    // window between our rename and our read, their token is now there
+    // and we correctly conclude we did NOT acquire the lock. That race
+    // outcome IS the contract — CodeQL flags it as TOCTOU but it is the
+    // standard last-writer-wins lock-file pattern.
+    // codeql[js/file-system-race]: justified — the read is the lock
+    // verification step, not a post-check before mutation.
     let recorded;
     try { recorded = fs.readFileSync(lockPath, 'utf8'); } catch { return { acquired: false, lockPath }; }
     return recorded.split('\n')[0] === myToken

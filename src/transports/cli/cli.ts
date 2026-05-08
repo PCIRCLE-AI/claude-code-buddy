@@ -9,7 +9,7 @@ import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
 import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn, reindex } from '../../core/operations.js';
 import { verifyAgentWork } from '../../core/verifier.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
-import { readConfig, updateConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
+import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { flushPendingEmbeddings } from '../../core/embedder.js';
 import type { LessonSeverity, MergeStrategy } from '../../core/types.js';
 

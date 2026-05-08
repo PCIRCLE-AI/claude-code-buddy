@@ -38,7 +38,11 @@ describe('session-start hook: agentic-orchestration telemetry', () => {
   }, 60_000);
 
   afterEach(() => {
-    if (fs.existsSync(tmpHome)) fs.rmSync(tmpHome, { recursive: true, force: true });
+    // maxRetries handles the Windows ENOTEMPTY race where sqlite/log
+    // file handles linger briefly after process exit.
+    if (fs.existsSync(tmpHome)) {
+      fs.rmSync(tmpHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
   });
 
   it('writes agentic_orchestration_banner_injected event when opted in', () => {

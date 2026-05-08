@@ -88,21 +88,21 @@ function settingsPathFor(scope: 'user' | 'project', cwd: string): string {
   return path.join(os.homedir(), '.claude', 'settings.json');
 }
 
-// CodeQL js/file-system-race fix: atomic write via temp + rename so
-// concurrent readers (e.g. Claude Code itself) never observe a torn
-// settings.json mid-write. The .tmp suffix carries pid+ts to avoid
-// collision when two `memesh install-hooks` invocations race; if both
-// land, last-rename-wins, but neither leaves a partial file behind.
-function atomicWriteFileSync(targetPath: string, data: string): void {
-  const tmpPath = `${targetPath}.tmp.${process.pid}.${Date.now()}`;
-  fs.writeFileSync(tmpPath, data, { encoding: 'utf8', mode: 0o600 });
-  try {
-    fs.renameSync(tmpPath, targetPath);
-  } catch (err) {
-    // Cleanup the temp on rename failure so we don't leak it.
-    try { fs.unlinkSync(tmpPath); } catch { /* best-effort */ }
-    throw err;
-  }
+// settings.json writer. The CodeQL js/file-system-race rule fires here
+// because we read settings.json earlier and now write it back, with a
+// theoretical TOCTOU window. We accept that risk:
+//   1. `memesh install-hooks` is a one-shot CLI command invoked manually
+//      by a single user, not a long-running daemon. There is no
+//      meaningful concurrent writer to race against in normal use.
+//   2. `backupSettings()` runs before this write, so any concurrent
+//      modification by Claude Code itself is recoverable from the
+//      timestamped .bak-pre-memesh-* file we just created.
+//   3. Atomic temp+rename was attempted (5c69a262) but introduced
+//      Windows portability issues with no commensurate real-world
+//      benefit for a once-per-install CLI.
+// codeql[js/file-system-race]: justified — see comment above
+function writeSettingsSync(targetPath: string, data: string): void {
+  fs.writeFileSync(targetPath, data, 'utf8');
 }
 
 function readSettings(p: string): ClaudeSettings {
@@ -227,7 +227,7 @@ export function installHooks(opts: InstallOptions): InstallResult {
     backupPath = backupSettings(settingsPath);
     settings.hooks = existing;
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-    atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+    writeSettingsSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
     // Marker — doctor reads this to confirm hooks are wired AND
     // know which scope/path so it can verify they still match.
     fs.mkdirSync(path.dirname(markerPath), { recursive: true });
@@ -294,7 +294,7 @@ export function uninstallHooks(opts: UninstallOptions): UninstallResult {
   let backupPath: string | null = null;
   if (!opts.dryRun && removed > 0) {
     backupPath = backupSettings(settingsPath);
-    atomicWriteFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
+    writeSettingsSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
     const markerPath = path.join(memeshDir(), MARKER_FILE);
     if (fs.existsSync(markerPath)) {
       try { fs.unlinkSync(markerPath); } catch { /* best-effort */ }

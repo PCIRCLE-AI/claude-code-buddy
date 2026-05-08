@@ -72,8 +72,12 @@ describe('MemoryRow', () => {
 
   it('does not render any emoji as a UI affordance (DESIGN.md mandate)', () => {
     const { container } = render(<MemoryRow entity={makeEntity({ type: 'lesson_learned' })} />);
-    // Codepoint regex covers the type-glyph emoji we historically used.
+    // Match the historical type-glyph emoji as alternation, not as a
+    // character class. Several glyphs (♻️, 🗺️, ⏱️, 🏗️, ⚙️) carry the
+    // U+FE0F variation selector, which would appear repeated inside a
+    // single [...] class — flagged by `js/regex/duplicate-in-character-class`.
     // SDD plan SPEC-5 AC1: no emoji in component-rendered DOM.
-    expect(container.textContent ?? '').not.toMatch(/[💡🎯🐛🧩✨♻️📝📋🗺️📓🚀⏱️📅🔖🏗️⚙️📚]/);
+    const TYPE_GLYPHS = /💡|🎯|🐛|🧩|✨|♻️|📝|📋|🗺️|📓|🚀|⏱️|📅|🔖|🏗️|⚙️|📚/;
+    expect(container.textContent ?? '').not.toMatch(TYPE_GLYPHS);
   });
 });

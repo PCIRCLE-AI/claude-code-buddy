@@ -383,7 +383,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
                   type="button"
                   class="btn"
                   onClick={() => void testConnection()}
-                  disabled={!provider || testing || (provider !== 'ollama' && !apiKey)}
+                  disabled={provider === '' || testing || (provider !== 'ollama' && apiKey === '')}
                   style={{ flexShrink: 0 }}
                 >
                   {testing ? t('settings.testing') : t('settings.test')}

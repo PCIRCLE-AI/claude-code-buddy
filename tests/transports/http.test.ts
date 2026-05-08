@@ -533,12 +533,15 @@ describe('HTTP Transport: GET /dashboard', () => {
 
 describe('HTTP Transport: Startup validation', () => {
   it('throws with actionable error if database cannot be opened', () => {
+    // Create a path that fails on both POSIX and Windows: take a regular
+    // file, then ask SQLite to open a "child" of that file. Files can't
+    // have children, so mkdir-recursive (which db.ts calls) will fail
+    // with EEXIST/ENOTDIR. /dev/null worked on POSIX but Windows has no
+    // /dev/null analogue, so we make our own.
     const badTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-http-bad-'));
-    // Use an unwritable path: /dev/null is a character device, openDatabase()
-    // will fail trying to use it as a SQLite file. This works regardless of
-    // whether the global db is already open, because we close it first to
-    // force startServer to actually call openDatabase.
-    const badDbPath = '/dev/null/cannot-write-here.db';
+    const blockingFile = path.join(badTmpDir, 'iamafile.txt');
+    fs.writeFileSync(blockingFile, 'I am a regular file, not a directory.');
+    const badDbPath = path.join(blockingFile, 'cannot-write-here.db');
     const previousDbPath = process.env.MEMESH_DB_PATH;
     process.env.MEMESH_DB_PATH = badDbPath;
 
