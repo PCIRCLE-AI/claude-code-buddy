@@ -89,9 +89,51 @@ memesh remember --name "missing-knowledge" --type decision --obs "..."
 memesh recall --limit 5 --json    # confirm changes took effect
 ```
 
+## Documentation Synchronization Check (PR/Merge Time)
+
+**When**: Before ANY PR merge or major feature commit  
+**Why**: Prevent documentation drift (code changes without doc updates)
+
+### Mandatory Checklist
+
+```bash
+# 1. Version consistency
+□ docs/ARCHITECTURE.md version matches package.json?
+□ docs/api/API_REFERENCE.md version matches package.json?
+
+# 2. Feature descriptions
+□ skills/*.md describe current functionality?
+□ README.md mentions new features/changes?
+□ README.*.md (i18n variants) synchronized?
+
+# 3. Deprecated terms cleanup
+□ grep -r "old-term" docs/ skills/ README*.md
+  (check for removed features, renamed concepts)
+
+# 4. Structural consistency
+□ Hook count matches? (scripts/hooks/*.js vs docs/ARCHITECTURE.md table)
+□ MCP tool count matches? (src/transports/mcp/handlers.ts TOOL_DEFINITIONS vs API_REFERENCE.md)
+
+# 5. Breaking changes
+□ CHANGELOG.md updated for breaking changes?
+□ Migration guide provided if needed?
+```
+
+### How to Execute
+
+```bash
+# Quick verification script
+grep -h "Version:" docs/ARCHITECTURE.md docs/api/API_REFERENCE.md package.json
+ls -1 scripts/hooks/*.js | wc -l  # should match docs count
+grep "dual" docs/ skills/ README.md  # should find none (or only valid uses)
+```
+
+---
+
 ## Tips
 
 - Run every 1-2 weeks to keep memory healthy
 - Health score < 50 → too many stale or low-quality memories
 - Noise > 80% → encourage deliberate `memesh remember` for decisions
 - Dashboard available at: http://localhost:3737/dashboard (run `memesh serve` first)
+- **Before merge**: Run documentation sync checklist above to prevent drift
