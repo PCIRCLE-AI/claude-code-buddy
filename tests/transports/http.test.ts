@@ -534,9 +534,18 @@ describe('HTTP Transport: GET /dashboard', () => {
 describe('HTTP Transport: Startup validation', () => {
   it('throws with actionable error if database cannot be opened', () => {
     const badTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-http-bad-'));
-    const badDbPath = path.join(badTmpDir, 'nonexistent', 'test.db');
+    // Use an unwritable path: /dev/null is a character device, openDatabase()
+    // will fail trying to use it as a SQLite file. This works regardless of
+    // whether the global db is already open, because we close it first to
+    // force startServer to actually call openDatabase.
+    const badDbPath = '/dev/null/cannot-write-here.db';
     const previousDbPath = process.env.MEMESH_DB_PATH;
     process.env.MEMESH_DB_PATH = badDbPath;
+
+    // The beforeAll opened a db at tmpDir/test.db. Close it so startServer's
+    // openDatabase() actually tries to open badDbPath instead of returning
+    // the cached connection (openDatabase is idempotent: returns existing).
+    closeDatabase();
 
     try {
       expect(() => startServer('127.0.0.1', 0)).toThrow(/Database initialization failed/);
@@ -544,6 +553,9 @@ describe('HTTP Transport: Startup validation', () => {
       if (previousDbPath === undefined) delete process.env.MEMESH_DB_PATH;
       else process.env.MEMESH_DB_PATH = previousDbPath;
       fs.rmSync(badTmpDir, { recursive: true, force: true });
+      // Reopen the original db so subsequent tests in afterAll can closeDatabase
+      // and so other concurrent tests are not affected.
+      openDatabase(path.join(tmpDir, 'test.db'));
     }
   });
 

@@ -358,3 +358,13 @@ export function getDatabase(): Database.Database {
   if (!db) throw new Error('Database not opened');
   return db;
 }
+
+// F16: Used by callers (e.g. doctor) that need to know whether the global
+// database is already open before they touch it. The HTTP server opens
+// the db at startup and expects it to stay open for the process lifetime;
+// any caller that opens-and-closes inside a request handler would close
+// the server's shared connection. Such callers must check this flag and
+// skip the close if the db was open before they arrived.
+export function isDatabaseOpen(): boolean {
+  return db !== null;
+}

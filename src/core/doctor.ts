@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { createHash } from 'crypto';
 import { detectCapabilities, getConfigPath } from './config.js';
-import { openDatabase, closeDatabase, getPendingReindexInfo } from '../db.js';
+import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
@@ -40,6 +40,7 @@ interface DoctorOptions {
   platform?: NodeJS.Platform;
   openDatabaseImpl?: typeof openDatabase;
   closeDatabaseImpl?: typeof closeDatabase;
+  isDatabaseOpenImpl?: typeof isDatabaseOpen;
   detectCapabilitiesImpl?: typeof detectCapabilities;
   getConfigPathImpl?: typeof getConfigPath;
   getUpdateCheckImpl?: typeof getUpdateCheck;
@@ -752,6 +753,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     platform = process.platform,
     openDatabaseImpl = openDatabase,
     closeDatabaseImpl = closeDatabase,
+    isDatabaseOpenImpl = isDatabaseOpen,
     detectCapabilitiesImpl = detectCapabilities,
     getConfigPathImpl = getConfigPath,
     getUpdateCheckImpl = getUpdateCheck,
@@ -762,6 +764,18 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     statSyncImpl = fs.statSync,
     fetchImpl = fetch,
   } = options;
+
+  // F16: If the database is already open before doctor runs (e.g., the
+  // HTTP server opened it at startup and is still serving requests), we
+  // must NOT close it — that would set the global db = null and break
+  // every subsequent /v1/* request. Substitute a noop close so doctor's
+  // "best-effort cleanup" is truly best-effort and never destructive.
+  // CLI usage (where db starts null) is unaffected: noop only kicks in
+  // when the db was already open when we arrived.
+  const wasDbOpenBeforeUs = isDatabaseOpenImpl();
+  const safeCloseDatabaseImpl: typeof closeDatabase = wasDbOpenBeforeUs
+    ? () => undefined
+    : closeDatabaseImpl;
 
   const checks: DoctorCheck[] = [];
 
@@ -867,7 +881,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     );
   } finally {
     try {
-      closeDatabaseImpl();
+      safeCloseDatabaseImpl();
     } catch {
       // Best-effort cleanup only.
     }
@@ -881,7 +895,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   // memesh's hooks at all).
   const memeshDir = process.env.MEMESH_DIR ?? path.join(os.homedir(), '.memesh');
   checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir));
-  checks.push(inspectHookActivity(openDatabaseImpl, closeDatabaseImpl));
+  checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl));
   checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
   checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));
 

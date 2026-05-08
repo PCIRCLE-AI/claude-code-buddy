@@ -869,3 +869,65 @@ describe('database failure diagnostics (F15)', () => {
     expect(dbCheck!.fix).toMatch(/mv.*backup|rm.*recall|chmod/);
   });
 });
+
+describe('database lifecycle preservation (F16 — regression)', () => {
+  // Regression: in v4.1.14 release testing, calling /v1/doctor in the
+  // running HTTP server caused doctor to close the global database
+  // connection mid-flight. Subsequent /v1/* requests then returned 500
+  // "Database not opened" until the server was restarted. Doctor must
+  // detect that someone else owns the db lifecycle and refuse to close.
+  it('does NOT close the database when it was already open before doctor ran', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    let closeCallCount = 0;
+
+    await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.14',
+      openDatabaseImpl: () => makeDatabase() as never,
+      closeDatabaseImpl: () => { closeCallCount++; },
+      isDatabaseOpenImpl: () => true, // ← simulates server-mode: db already open
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+    });
+
+    // The real closeDatabaseImpl must NEVER be called when db was already
+    // open. If it gets called, doctor would set the global db = null
+    // and break every subsequent request handler in the HTTP server.
+    expect(closeCallCount).toBe(0);
+  });
+
+  it('DOES close the database when doctor opened it (CLI mode)', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    let closeCallCount = 0;
+
+    await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.14',
+      openDatabaseImpl: () => makeDatabase() as never,
+      closeDatabaseImpl: () => { closeCallCount++; },
+      isDatabaseOpenImpl: () => false, // ← simulates CLI mode: doctor opens db itself
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+    });
+
+    // CLI mode: doctor opened the db itself, so it must close it to avoid
+    // leaking the connection to subsequent CLI commands or test runs.
+    expect(closeCallCount).toBeGreaterThan(0);
+  });
+});
