@@ -294,11 +294,17 @@ export function GraphTab() {
       const centerForce = 0.02 * alpha;
       const largeN = nodes.length > 200;
 
+      // Single nodeById built once per frame, shared by both spring-force
+      // (when physics is hot) and edge rendering (always). Earlier this
+      // was rebuilt twice per frame; reviewer flagged the redundant
+      // O(n) allocation.
+      const cx = w / 2;
+      const cy = h / 2;
+      const nodeById = new Map(nodes.map((n) => [n.id, n]));
+
       // Skip force accumulation when fully cooled. Velocities are already
       // 0 (frozen below) so positions stay put without burning cycles on
       // O(n²) repulsion every frame.
-      const cx = w / 2;
-      const cy = h / 2;
       if (physicsActive) {
         // Repulsion between ALL nodes (physics runs on full set for stability)
         for (let i = 0; i < nodes.length; i++) {
@@ -320,10 +326,9 @@ export function GraphTab() {
         }
 
         // Spring force for edges
-        const edgeNodeById = new Map(nodes.map((n) => [n.id, n]));
         for (const edge of edges) {
-          const a = edgeNodeById.get(edge.from);
-          const b = edgeNodeById.get(edge.to);
+          const a = nodeById.get(edge.from);
+          const b = nodeById.get(edge.to);
           if (!a || !b) continue;
           const dx = b.x - a.x;
           const dy = b.y - a.y;
@@ -344,9 +349,17 @@ export function GraphTab() {
         }
       }
 
-      // Apply velocities
-      for (const n of nodes) {
-        if (dragRef.current.node === n) continue;
+      // Apply velocities. Skip the whole loop when fully cooled AND nothing
+      // is moving (no drag, no residual velocity); reviewer flagged that
+      // even after settle the freeze loop ran O(n) comparisons + boundary
+      // checks every frame indefinitely. With the early-out the cooled
+      // graph costs ~0 per frame.
+      const dragNode = dragRef.current.node;
+      const skipApply = !physicsActive
+        && !dragNode
+        && nodes.every((n) => n.vx === 0 && n.vy === 0);
+      if (!skipApply) for (const n of nodes) {
+        if (dragNode === n) continue;
         n.vx *= damping;
         n.vy *= damping;
         // Freeze when nearly stopped
@@ -392,9 +405,8 @@ export function GraphTab() {
       const visibleEdges = edges.filter(isEdgeVisible);
       const showEdgeLabels = visibleEdges.length < 30;
 
-      // nodeById is needed for edge rendering; rebuild for the render
-      // path so the cooled-physics code path also has it.
-      const nodeById = new Map(nodes.map((n) => [n.id, n]));
+      // (nodeById was built once at the top of simulate() and is reused
+      // here for edge rendering — see physics block above.)
 
       // Draw edges
       for (const edge of visibleEdges) {
