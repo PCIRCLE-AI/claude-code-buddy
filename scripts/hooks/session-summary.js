@@ -5,12 +5,13 @@
 // and stores as session-insight entities in MeMesh.
 
 import { createRequire } from 'module';
-import { join, basename } from 'path';
+import { basename, join } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { pathToFileURL } from 'url';
 import {
   decideAutoUpdateHook,
-  getMemeshDir,
+  getMemeshDirFromDbPath,
+  getProjectName,
   isAutoCaptureEnabled,
   openHookDb,
   readUpdateCheckCache,
@@ -188,13 +189,34 @@ process.stdin.on('end', async () => {
     // LLM path threw `projectName is not defined` silently — caught by
     // the LLM try/catch but logged to stderr. Result: lesson_learned
     // creation never actually happened in production.
-    const projectName = basename(cwd);
+    const projectName = getProjectName(cwd);
 
     // Open DB via shared helper — applies SCHEMA_SQL + status migration.
     // sqlite-vec is loaded separately because only this hook needs it
     // (for embedding-aware recall-effectiveness tracking).
-    const sqliteVec = require('sqlite-vec');
-    const { db } = openHookDb(process.env);
+    const handle = openHookDb(process.env);
+    if (!handle) {
+      // Native module unavailable (plugin-marketplace cache install with no
+      // node_modules). Skip session-capture work, but still let the
+      // auto-update tail below run — auto-update is a separate concern from
+      // session-capture, and a transient DB-availability blip should not
+      // mask a security-override patch upgrade. Throwing this sentinel
+      // routes through the existing catch, which already stderr-traces;
+      // execution then falls through to runAutoUpdateAtStop().
+      throw new Error('skip-session-capture: better-sqlite3 unavailable');
+    }
+    const { db } = handle;
+    // sqlite-vec is also a native module; same plugin-cache scenario applies
+    // (the cache tarball ships neither node_module). Resolve through a
+    // try/require here so a missing vec module degrades the same way as a
+    // missing better-sqlite3 instead of throwing into the outer catch as a
+    // bug-shaped error.
+    let sqliteVec;
+    try {
+      sqliteVec = require('sqlite-vec');
+    } catch {
+      throw new Error('skip-session-capture: sqlite-vec unavailable');
+    }
     try {
       sqliteVec.load(db);
 
@@ -269,7 +291,7 @@ process.stdin.on('end', async () => {
       // their names appear in the transcript, update hits/misses.
       try {
         // FIX: Find the most recent session file for this project (within last hour)
-        const sessionsDir = join(getMemeshDir(process.env), 'sessions');
+        const sessionsDir = join(getMemeshDirFromDbPath(), 'sessions');
         let injectedData = null;
 
         if (existsSync(sessionsDir)) {
@@ -281,7 +303,10 @@ process.stdin.on('end', async () => {
               try {
                 const stats = require('fs').statSync(path);
                 return { path, mtime: stats.mtimeMs };
-              } catch {
+              } catch (err) {
+                // statSync threw — file vanished between readdir and stat,
+                // or perms changed mid-scan. Skip but trace.
+                try { process.stderr.write(`[memesh session-summary] sessions-stat ${path}: ${err?.message || err}\n`); } catch {}
                 return null;
               }
             })
@@ -298,7 +323,14 @@ process.stdin.on('end', async () => {
                 require('fs').unlinkSync(path);
                 break;
               }
-            } catch {}
+            } catch (err) {
+              // Three failure modes share this catch: JSON.parse on a
+              // corrupt session file, readFileSync on a perm-changed file,
+              // unlinkSync after read. Trace each so a silent unlink
+              // failure (which would re-count the same session) is
+              // visible. Loop continues to the next file regardless.
+              try { process.stderr.write(`[memesh session-summary] sessions-read ${path}: ${err?.message || err}\n`); } catch {}
+            }
           }
         }
 
@@ -339,8 +371,13 @@ process.stdin.on('end', async () => {
             }
           }
         }
-      } catch {
-        // Non-critical — don't break session summary
+      } catch (err) {
+        // Recall-effectiveness DB write failed. Silently dropping this
+        // converges impact scores to 0.5 (neutral) for every entity, which
+        // is the main signal core/scoring.ts uses to demote ignored
+        // memories — a real-world UX issue. Trace to stderr so a typo or
+        // missing-column failure is visible without crashing the hook.
+        try { process.stderr.write(`[memesh session-summary] recall-effectiveness write: ${err?.message || err}\n`); } catch {}
       }
     } finally {
       db.close();
@@ -380,8 +417,13 @@ process.stdin.on('end', async () => {
       }
     }
   } catch (err) {
-    // Never crash Claude Code — leave a trace for debugging
-    try { process.stderr.write(`[memesh session-summary] ${err?.message || err}\n`); } catch {}
+    // Never crash Claude Code — leave a trace for debugging.
+    // Suppress the expected "skip-session-capture" sentinel (raised when
+    // better-sqlite3 is unavailable in a marketplace-cache install). All
+    // other errors are real bugs and deserve a trace.
+    if (!String(err?.message || '').startsWith('skip-session-capture:')) {
+      try { process.stderr.write(`[memesh session-summary] ${err?.message || err}\n`); } catch {}
+    }
   }
 
   // Spawn auto-update if policy + cache permit. Runs after all session work

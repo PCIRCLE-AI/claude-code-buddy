@@ -2,10 +2,25 @@ import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, 
 import { spawn } from 'child_process';
 import { createRequire } from 'module';
 import { homedir } from 'os';
-import { dirname, join } from 'path';
+import { basename, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const require = createRequire(import.meta.url);
+
+// =============================================================================
+// Path helpers — MIRROR of src/core/paths.ts
+// =============================================================================
+//
+// Hooks cannot import from `dist/` (the F5 security boundary — `dist/` may
+// be stale or absent at hook execution time), so the path-resolution logic
+// is duplicated here. The contract MUST stay in lockstep with
+// `src/core/paths.ts`. Any change to the function shapes / precedence
+// rules in that file MUST be reflected here too.
+//
+// Unlike the schema duplication (which has a build-time diff guard via
+// `scripts/check-schema-drift.mjs`), these helpers are short enough that
+// human review at code-review time is sufficient. If they grow, add a
+// programmatic guard.
 
 /**
  * Return the user's home directory, honoring HOME env var first.
@@ -17,10 +32,61 @@ const require = createRequire(import.meta.url);
  * across platforms. Production users on Windows almost never set HOME,
  * so this falls through to os.homedir() as before.
  *
+ * Mirror of: src/core/paths.ts → homeDir()
+ *
  * @returns {string}
  */
 function homeDir() {
   return process.env.HOME ?? homedir();
+}
+
+/**
+ * Resolve the memesh data directory.
+ *
+ * Precedence: MEMESH_DIR env var > <home>/.memesh.
+ * Mirror of: src/core/paths.ts → memeshDir()
+ *
+ * No-arg to mirror the core helper exactly. Earlier drafts accepted a
+ * custom `env` parameter for symmetry with `getMemeshDirFromDbPath(env)`,
+ * but the inner `homeDir()` only ever read `process.env.HOME`, so a
+ * caller that passed `{HOME: '/tmp/x'}` would be silently ignored — a
+ * footgun. Tests redirect via `process.env.HOME`; that's the supported
+ * extension point.
+ *
+ * @returns {string}
+ */
+export function memeshDir() {
+  return process.env.MEMESH_DIR ?? join(homeDir(), '.memesh');
+}
+
+/**
+ * Resolve the active memesh DB path.
+ *
+ * Precedence: MEMESH_DB_PATH env var > <memeshDir>/knowledge-graph.db.
+ * Mirror of: src/core/paths.ts → getDbPath() — no-arg, see memeshDir().
+ *
+ * @returns {string}
+ */
+export function getDbPath() {
+  return process.env.MEMESH_DB_PATH ?? join(memeshDir(), 'knowledge-graph.db');
+}
+
+/**
+ * Derive the project name from a working directory.
+ *
+ * Hooks historically used `basename(data.cwd || process.cwd())`. Core
+ * had two variants (`basename(context.cwd)` and `basename(process.cwd())`).
+ * This helper unifies the contract — explicit cwd wins, falls through to
+ * process.cwd() — matching the most permissive caller's behaviour.
+ *
+ * Mirror of: src/core/paths.ts → getProjectName()
+ *
+ * @param {string|null|undefined} [cwdInput]
+ * @returns {string}
+ */
+export function getProjectName(cwdInput) {
+  const cwd = cwdInput && cwdInput.length > 0 ? cwdInput : process.cwd();
+  return basename(cwd);
 }
 
 /**
@@ -64,7 +130,7 @@ export function resolvePluginRoot(metaUrl) {
  * @returns {Record<string, any>}
  */
 export function readHookConfig(_env = process.env) {
-  const path = join(homeDir(), '.memesh', 'config.json');
+  const path = join(memeshDir(), 'config.json');
   if (!existsSync(path)) return {};
   try {
     const raw = readFileSync(path, 'utf8');
@@ -233,22 +299,91 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
  * @param {boolean} [opts.fts=false] - Also create the FTS5 virtual table.
  * @returns {{ db: any, dbPath: string }}
  */
+// Cached lookup for the better-sqlite3 native module. Plugin-marketplace
+// installs ship the tarball without node_modules, so the cache copy of the
+// hook scripts cannot resolve the binding. tryRequireBetterSqlite() returns
+// null in that scenario and lets each caller silent-skip — callers paired
+// with a working dev/npm-global registration still produce output.
+let _cachedDatabaseCtor;
+export function tryRequireBetterSqlite() {
+  // Test-only seam: force the "native module unavailable" branch so
+  // tests can exercise the silent-skip path that plugin-marketplace
+  // cache installs hit. Production callers never set this var.
+  if (process.env.MEMESH_TEST_FORCE_MISSING_NATIVE === '1') return null;
+  if (_cachedDatabaseCtor !== undefined) return _cachedDatabaseCtor;
+  try {
+    _cachedDatabaseCtor = require('better-sqlite3');
+  } catch {
+    _cachedDatabaseCtor = null;
+  }
+  return _cachedDatabaseCtor;
+}
+
 export function openHookDb(env = process.env, opts = {}) {
-  const dbPath = env.MEMESH_DB_PATH || join(homeDir(), '.memesh', 'knowledge-graph.db');
-  const dbDir = env.MEMESH_DB_PATH ? dirname(env.MEMESH_DB_PATH) : join(homeDir(), '.memesh');
+  const Database = tryRequireBetterSqlite();
+  if (!Database) return null;
+
+  const dbPath = getDbPath(env);
+  const dbDir = env.MEMESH_DB_PATH ? dirname(env.MEMESH_DB_PATH) : memeshDir(env);
   if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
 
-  const Database = require('better-sqlite3');
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
   if (opts.fts) db.exec(FTS_SQL);
 
+  // Apply the full migration chain — keep in lockstep with src/db.ts.
+  // Conditional ALTER TABLE blocks ARE idempotent within a single process,
+  // but two hook processes can race: each reads `colNames` from its own
+  // PRAGMA snapshot, so both see "column missing" and both run ALTER —
+  // the second one throws SQLITE_ERROR: duplicate column name. Each ALTER
+  // is wrapped in safeAlter() which treats that specific error as the
+  // expected no-op outcome (a peer beat us to it). Any other error
+  // re-throws so we don't paper over real bugs.
+  //
+  // Earlier this helper applied ONLY the v2.11->v2.12 status migration.
+  // That left a hook-only-touched DB at v2.12 even though core was at
+  // v4.0+, so session-start fell back to `ORDER BY id DESC` (degraded
+  // ranking) until the CLI/MCP/HTTP first opened the DB and finished
+  // the chain. Backfilled here so write-path hooks produce the same
+  // schema state as core.
+  const safeAlter = (sql) => {
+    try {
+      db.exec(sql);
+    } catch (e) {
+      if (!/duplicate column name/i.test(e?.message || '')) throw e;
+      // Peer hook process won the race; column already exists. Idempotent.
+    }
+  };
   const cols = db.prepare("PRAGMA table_info(entities)").all();
-  if (!cols.some((c) => c.name === 'status')) {
-    db.exec("ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+  const colNames = new Set(cols.map((c) => c.name));
+
+  // v2.11 -> v2.12: status
+  if (!colNames.has('status')) {
+    safeAlter("ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
     db.exec("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)");
+  }
+
+  // v2.14 -> v2.15: scoring + temporal-validity columns
+  if (!colNames.has('access_count')) {
+    safeAlter("ALTER TABLE entities ADD COLUMN access_count INTEGER DEFAULT 0");
+    safeAlter("ALTER TABLE entities ADD COLUMN last_accessed_at TIMESTAMP");
+    safeAlter("ALTER TABLE entities ADD COLUMN confidence REAL DEFAULT 1.0");
+    safeAlter("ALTER TABLE entities ADD COLUMN valid_from TIMESTAMP");
+    safeAlter("ALTER TABLE entities ADD COLUMN valid_until TIMESTAMP");
+  }
+
+  // v3.0.0-rc -> v3.0.0: namespace
+  if (!colNames.has('namespace')) {
+    safeAlter("ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace)");
+  }
+
+  // v4.0.0: recall effectiveness counters
+  if (!colNames.has('recall_hits')) {
+    safeAlter("ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
+    safeAlter("ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
   }
 
   return { db, dbPath };
@@ -257,8 +392,20 @@ export function openHookDb(env = process.env, opts = {}) {
 const PRIVATE_DIR_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 
-export function getMemeshDir(env = process.env) {
-  return env.MEMESH_DB_PATH ? dirname(env.MEMESH_DB_PATH) : join(homeDir(), '.memesh');
+/**
+ * Resolve the directory containing the active DB file.
+ *
+ * When MEMESH_DB_PATH is set, returns its parent directory (used for
+ * sibling files next to the DB). Otherwise returns memeshDir().
+ * Mirror of: src/core/paths.ts → getMemeshDirFromDbPath()
+ *
+ * Renamed from the legacy `getMemeshDir` to match the core helper —
+ * sibling helper `memeshDir()` returns the GLOBAL data directory, so a
+ * second function called `getMemeshDir` was confusing. Callers updated
+ * in lockstep.
+ */
+export function getMemeshDirFromDbPath() {
+  return process.env.MEMESH_DB_PATH ? dirname(process.env.MEMESH_DB_PATH) : memeshDir();
 }
 
 export function ensurePrivateDir(dirPath) {
@@ -332,7 +479,7 @@ export function readUpdateCheckCache(installedVersion) {
     && /^[0-9A-Za-z.+-]+$/.test(installedVersion)
     ? installedVersion
     : 'unknown';
-  const cachePath = join(homeDir(), '.memesh', `update-check.${versionTag}.json`);
+  const cachePath = join(memeshDir(), `update-check.${versionTag}.json`);
   try {
     if (!existsSync(cachePath)) return null;
     const parsed = JSON.parse(readFileSync(cachePath, 'utf8'));
@@ -391,7 +538,7 @@ export function decideAutoUpdateHook(currentVersion, cache, policy) {
 
 export function logAutoUpdate(line) {
   try {
-    const dir = getMemeshDir(process.env);
+    const dir = getMemeshDirFromDbPath();
     ensurePrivateDir(dir);
     const path = join(dir, 'auto-update.log');
     appendFileSync(path, `[${new Date().toISOString()}] ${line}\n`);
@@ -405,7 +552,7 @@ export const AUTO_UPDATE_LOCK_TTL_MS = 10 * 60 * 1000;
 
 export function tryAcquireAutoUpdateLock(version) {
   try {
-    const dir = join(homeDir(), '.memesh');
+    const dir = memeshDir();
     ensurePrivateDir(dir);
     const lockPath = join(dir, 'auto-update.lock');
     const fs = require('fs');
@@ -490,7 +637,7 @@ export function spawnAutoUpdate(version, deprecationOverride, installChannelMod)
       );
       return { state: 'in-progress' };
     }
-    const dir = getMemeshDir(process.env);
+    const dir = getMemeshDirFromDbPath();
     ensurePrivateDir(dir);
     const logPath = join(dir, 'auto-update.log');
     let fd = -1;

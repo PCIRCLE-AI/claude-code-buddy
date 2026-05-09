@@ -19,9 +19,9 @@
 // is helpful for support; never add anything that maps to a person).
 
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { memeshDir } from './paths.js';
 
 interface InstallRecord {
   install_id: string;
@@ -32,8 +32,7 @@ interface InstallRecord {
 const SCHEMA_VERSION = 1 as const;
 
 function installFilePath(): string {
-  const dir = process.env.MEMESH_DIR ?? path.join(os.homedir(), '.memesh');
-  return path.join(dir, 'install.json');
+  return path.join(memeshDir(), 'install.json');
 }
 
 /**

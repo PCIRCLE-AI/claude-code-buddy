@@ -62,10 +62,13 @@ describe('session-start hook: agentic-orchestration telemetry', () => {
     );
 
     expect(exitCode).toBe(0);
-    // Banner text must appear in additionalContext (regression: tone-down
-    // wording must contain "Experimental working model" so users see the
-    // "validation in progress" framing).
-    expect(stdout).toContain('Experimental working model');
+    // Banner text must appear in additionalContext. The new compact tree
+    // summary surfaces the protocol via a single tagged line ("[AO opt-in:
+    // ... skill: agentic-orchestration]") instead of the old multi-line
+    // banner — both shapes pin the user-visible signal that the protocol
+    // is active.
+    expect(stdout).toContain('agentic-orchestration');
+    expect(stdout).toContain('AO opt-in');
 
     // Telemetry file must exist with exactly one banner-injection event.
     const logPath = path.join(tmpHome, '.memesh', 'skill-usage.jsonl');
@@ -123,7 +126,8 @@ describe('session-start hook: agentic-orchestration telemetry', () => {
     );
 
     expect(exitCode).toBe(0);
-    expect(stdout).not.toContain('Experimental working model');
+    expect(stdout).not.toContain('AO opt-in');
+    expect(stdout).not.toContain('agentic-orchestration');
 
     const logPath = path.join(tmpHome, '.memesh', 'skill-usage.jsonl');
     expect(fs.existsSync(logPath)).toBe(false);
