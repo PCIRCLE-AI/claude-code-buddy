@@ -13,7 +13,7 @@ describe('Feature: Pre-Bash Orchestration Nudge Hook', () => {
   beforeEach(() => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-nudge-test-'));
     // We set MEMESH_DB_PATH to a file inside testDir; the hook derives memeshDir
-    // from dirname(MEMESH_DB_PATH), matching getMemeshDir() in _shared.js
+    // from dirname(MEMESH_DB_PATH), matching getMemeshDirFromDbPath() in _shared.js
     memeshDir = testDir;
     flagsDir = path.join(memeshDir, 'agent-nudge-flags');
   });

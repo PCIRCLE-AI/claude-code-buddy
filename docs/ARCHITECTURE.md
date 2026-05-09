@@ -63,7 +63,8 @@ src/
 │   ├── consolidator.ts    # LLM-powered observation compression (extracted from operations)
 │   ├── serializer.ts      # Export/import memory snapshots (extracted from operations)
 │   ├── config.ts          # Config management + capability detection + logCapabilities()
-│   ├── scoring.ts         # Multi-factor scoring engine (rankEntities)
+│   ├── paths.ts           # Centralised path helpers (homeDir, memeshDir, getDbPath, getProjectName)
+│   ├── scoring.ts         # Multi-factor scoring engine (rankEntities) + SESSION_START_WEIGHT_RATIO
 │   ├── query-expander.ts  # LLM query expansion (Level 1)
 │   ├── extractor.ts       # Session knowledge extraction (rule-based + LLM)
 │   ├── lifecycle.ts       # Auto-decay + consolidation orchestration
@@ -99,9 +100,13 @@ src/
 
 **operations.ts** — Pure functions implementing `remember`, `recall`, `forget`, `learn`, and others. All three transports delegate here — no transport-specific logic leaks into business logic.
 
-**config.ts** — Config management: reads `MEMESH_DB_PATH` and other environment variables, detects sqlite-vec availability, exposes a typed config object to transports and core functions. `logCapabilities()` logs detected search level and LLM provider to stderr on server startup (safe for MCP stdio transport).
+**config.ts** — Config management: reads `MEMESH_DB_PATH` and other environment variables, detects sqlite-vec availability, exposes a typed config object to transports and core functions. `logCapabilities()` logs detected search level and LLM provider to stderr on server startup (safe for MCP stdio transport). The on-disk config path is resolved lazily via `paths.ts:memeshDir()` so HOME-first override works in hermetic Windows tests.
 
-**scoring.ts** — Multi-factor scoring engine. `scoreEntity()` combines five signals: search relevance (0.35), recency via exponential decay (0.25), access frequency via log normalization (0.20), confidence (0.15), and temporal validity (0.05). `rankEntities()` sorts any entity list by score descending. Applied in all recall paths (`recall()` and `recallEnhanced()`).
+**paths.ts** — Centralised filesystem path resolution. Exports `homeDir()` (HOME-env-first override for testability), `memeshDir()` (MEMESH_DIR > `<home>/.memesh`), `getDbPath()` (MEMESH_DB_PATH > `<memeshDir>/knowledge-graph.db`), `getMemeshDirFromDbPath()` (parent dir of active DB file, used for sibling state files), and `getProjectName(cwdInput?)` (basename of explicit cwd or `process.cwd()`). Replaces 10+ inline `process.env.MEMESH_DB_PATH ?? path.join(os.homedir(), …)` patterns that had subtly different fallbacks. Hooks cannot import from `dist/` (the F5 boundary), so `scripts/hooks/_shared.js` keeps a mirror of these helpers; the JSDoc on each function cross-links to its core counterpart, and any change here MUST land in both files.
+
+**scoring.ts** — Multi-factor scoring engine. `scoreEntity()` combines five signals from `DEFAULT_WEIGHTS`: search relevance (0.30), recency via exponential decay (0.25), access frequency via log normalization (0.18), confidence (0.17), and recall-effectiveness impact via Laplace smoothing (0.10). `rankEntities()` sorts any entity list by score descending. Applied in all recall paths (`recall()` and `recallEnhanced()`).
+
+Session-start hook ranking is a SQL-only subset (no FTS query, no impact pass) that uses three of the five factors. `SESSION_START_WEIGHT_RATIO` exports the renormalised weights so the hook's hard-coded SQL stays in sync; a drift-guard test in `tests/core/scoring.test.ts` asserts the magic numbers in `scripts/hooks/session-start.js` match. The hook SQL uses SQLite's `exp()`/`log()` (available in better-sqlite3 v8+) to match the core math exactly, with a runtime probe + linear/rational fallback for stripped-down builds without `-DSQLITE_ENABLE_MATH_FUNCTIONS`.
 
 **query-expander.ts** — LLM-powered query expansion (Level 1). When a LLM is configured (Anthropic, OpenAI, or Ollama), `expandQuery()` generates related search terms for a user query. Results from expanded terms are merged with original-query results and re-ranked by score (original query = 1.0 relevance, expanded terms = 0.7 relevance).
 

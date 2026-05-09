@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import { execFile } from 'child_process';
+import { memeshDir } from './paths.js';
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -72,7 +72,7 @@ function getUpdateCheckPath(
   const versionTag = currentVersion && /^[0-9A-Za-z.+-]+$/.test(currentVersion)
     ? currentVersion
     : 'unknown';
-  return path.join(os.homedir(), '.memesh', `update-check.${versionTag}.json`);
+  return path.join(memeshDir(), `update-check.${versionTag}.json`);
 }
 
 function parseIsoDate(value: string | null): number | null {

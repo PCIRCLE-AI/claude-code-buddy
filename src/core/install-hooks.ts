@@ -35,8 +35,8 @@
 // blocking — users with their own hooks should know they coexist.
 
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
+import { homeDir, memeshDir } from './paths.js';
 
 type HookCommand = { type: 'command'; command: string; timeout?: number; _memesh?: boolean };
 type HookEntry = { matcher?: string; hooks: HookCommand[] };
@@ -78,20 +78,10 @@ export interface UninstallResult {
 
 const MARKER_FILE = 'install-hooks.json';
 
-// On Windows, os.homedir() reads from the GetUserProfileDirectoryW Win32
-// API and ignores both USERPROFILE and HOME env vars. That makes tests
-// unable to redirect home-dir lookups to a tmp dir for hermetic runs.
-// We accept HOME as a higher-priority override on all platforms so tests
-// (and any users who deliberately set HOME on Windows for compatibility)
-// can isolate filesystem operations. Production users on Windows almost
-// never set HOME, so this falls through to os.homedir() as before.
-function homeDir(): string {
-  return process.env.HOME ?? os.homedir();
-}
-
-function memeshDir(): string {
-  return process.env.MEMESH_DIR ?? path.join(homeDir(), '.memesh');
-}
+// homeDir() and memeshDir() now live in src/core/paths.ts as the single
+// canonical source. Imported above. Earlier this file had private copies;
+// the reasoning (HOME-first for hermetic tests on Windows) is preserved
+// in the JSDoc on `homeDir()` in paths.ts.
 
 function settingsPathFor(scope: 'user' | 'project', cwd: string): string {
   if (scope === 'project') {
