@@ -685,7 +685,7 @@ describe('doctor', () => {
     expect(result.status).toBe('FAIL');
   });
 
-  it('hook-activity: WARN when no memesh-attributed entities in past 24h', async () => {
+  it('hook-activity: WARN when no memesh-attributed entities in past 24h AND no install-hooks marker (grace period inapplicable)', async () => {
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 
@@ -703,12 +703,88 @@ describe('doctor', () => {
         recommendedCommand: 'memesh update',
         guidance: 'This installation can be updated directly from MeMesh.',
       }),
+      // No marker → grace period cannot fire → warn must surface.
+      existsSyncImpl: ((p: fs.PathLike) => {
+        if (typeof p === 'string' && p.endsWith('install-hooks.json')) return false;
+        return fs.existsSync(p);
+      }) as typeof fs.existsSync,
     });
 
     const activity = result.checks.find(c => c.id === 'hook-activity');
     expect(activity!.status).toBe('warn');
     expect(activity!.summary).toMatch(/No memesh-attributed entities/i);
-    expect(activity!.fix).toMatch(/Claude Code session/);
+    expect(activity!.fix).toMatch(/Claude Code session|commit/);
+  });
+
+  it('hook-activity: PASS via grace period when install-hooks marker is fresh and 0 entities', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.4',
+      openDatabaseImpl: () => makeDatabase(0) as never, // 0 entities
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update',
+        guidance: 'This installation can be updated directly from MeMesh.',
+      }),
+      // Fresh marker exists → grace period kicks in → no warn.
+      existsSyncImpl: ((p: fs.PathLike) => {
+        if (typeof p === 'string' && p.endsWith('install-hooks.json')) return true;
+        return fs.existsSync(p);
+      }) as typeof fs.existsSync,
+      statSyncImpl: ((p: fs.PathLike) => {
+        if (typeof p === 'string' && p.endsWith('install-hooks.json')) {
+          return { mtimeMs: Date.now() - 60_000 } as fs.Stats; // 1 min old
+        }
+        return fs.statSync(p);
+      }) as typeof fs.statSync,
+    });
+
+    const activity = result.checks.find(c => c.id === 'hook-activity');
+    expect(activity!.status).toBe('pass');
+    expect(activity!.summary).toMatch(/recently|fresh install/i);
+  });
+
+  it('hook-activity: WARN when install-hooks marker is older than the grace window AND 0 entities', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.4',
+      openDatabaseImpl: () => makeDatabase(0) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update',
+        guidance: 'This installation can be updated directly from MeMesh.',
+      }),
+      existsSyncImpl: ((p: fs.PathLike) => {
+        if (typeof p === 'string' && p.endsWith('install-hooks.json')) return true;
+        return fs.existsSync(p);
+      }) as typeof fs.existsSync,
+      statSyncImpl: ((p: fs.PathLike) => {
+        if (typeof p === 'string' && p.endsWith('install-hooks.json')) {
+          // 48h old — well past the 24h grace window
+          return { mtimeMs: Date.now() - 48 * 60 * 60 * 1000 } as fs.Stats;
+        }
+        return fs.statSync(p);
+      }) as typeof fs.statSync,
+    });
+
+    const activity = result.checks.find(c => c.id === 'hook-activity');
+    expect(activity!.status).toBe('warn');
   });
 });
 

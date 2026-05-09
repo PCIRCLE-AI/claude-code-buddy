@@ -257,9 +257,13 @@ export function GraphTab() {
     };
 
     /* ---------- simulation loop ---------- */
-    let alpha = 1.0;           // cooling factor: 1.0 = hot, 0 = frozen
-    const alphaDecay = 0.005;  // how fast it cools per frame
-    const alphaMin = 0.001;    // stop physics below this
+    // Cooling — D3-force-style. alpha decays from 1.0 toward 0; once it
+    // hits zero the simulate() inner loop short-circuits its physics so
+    // the graph truly settles instead of jittering forever. Earlier this
+    // floored at 0.001, which scaled repulsion to a tiny non-zero value
+    // every frame and produced the slow "drifting dots" the user noticed.
+    let alpha = 1.0;
+    const alphaDecay = 0.005;
 
     // Expose reheat function for drag/filter changes
     const reheat = () => { alpha = 0.3; };
@@ -272,60 +276,72 @@ export function GraphTab() {
       if (!ctx) return;
       const curDpr = window.devicePixelRatio || 1;
 
-      // Cool down
-      alpha = Math.max(alphaMin, alpha - alphaDecay);
+      // Cool down — clamp at exactly 0 so we can short-circuit force
+      // accumulation once the graph has settled. Render still runs, so
+      // hover highlights / selection halos keep working.
+      alpha = Math.max(0, alpha - alphaDecay);
+      const physicsActive = alpha > 0;
 
       // Physics constants (scaled by alpha)
       const damping = 0.85;
       const repulsion = 2000 * alpha;
       const springLen = 80;
       const springK = 0.02 * alpha;
-      const centerForce = 0.005 * alpha;
+      // centerForce previously 0.005 — too weak to reel in isolated
+      // (orphan) nodes that get pushed to the canvas edges by repulsion
+      // and then clamped there. Bumped to 0.02 (4× stronger) so disconnected
+      // entities settle near the cluster instead of pinning to corners.
+      const centerForce = 0.02 * alpha;
       const largeN = nodes.length > 200;
 
-      // Repulsion between ALL nodes (physics runs on full set for stability)
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const dx = nodes[j].x - nodes[i].x;
-          const dy = nodes[j].y - nodes[i].y;
-          const distSq = dx * dx + dy * dy;
-          // Performance: skip distant pairs for large graphs
-          if (largeN && distSq > 90000) continue; // 300px
-          const dist = Math.sqrt(distSq) || 1;
-          const force = repulsion / (dist * dist);
-          const fx = (dx / dist) * force;
-          const fy = (dy / dist) * force;
-          nodes[i].vx -= fx;
-          nodes[i].vy -= fy;
-          nodes[j].vx += fx;
-          nodes[j].vy += fy;
-        }
-      }
-
-      // Spring force for edges
-      const nodeById = new Map(nodes.map((n) => [n.id, n]));
-      for (const edge of edges) {
-        const a = nodeById.get(edge.from);
-        const b = nodeById.get(edge.to);
-        if (!a || !b) continue;
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const force = (dist - springLen) * springK;
-        const fx = (dx / dist) * force;
-        const fy = (dy / dist) * force;
-        a.vx += fx;
-        a.vy += fy;
-        b.vx -= fx;
-        b.vy -= fy;
-      }
-
-      // Center gravity
+      // Skip force accumulation when fully cooled. Velocities are already
+      // 0 (frozen below) so positions stay put without burning cycles on
+      // O(n²) repulsion every frame.
       const cx = w / 2;
       const cy = h / 2;
-      for (const n of nodes) {
-        n.vx += (cx - n.x) * centerForce;
-        n.vy += (cy - n.y) * centerForce;
+      if (physicsActive) {
+        // Repulsion between ALL nodes (physics runs on full set for stability)
+        for (let i = 0; i < nodes.length; i++) {
+          for (let j = i + 1; j < nodes.length; j++) {
+            const dx = nodes[j].x - nodes[i].x;
+            const dy = nodes[j].y - nodes[i].y;
+            const distSq = dx * dx + dy * dy;
+            // Performance: skip distant pairs for large graphs
+            if (largeN && distSq > 90000) continue; // 300px
+            const dist = Math.sqrt(distSq) || 1;
+            const force = repulsion / (dist * dist);
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+            nodes[i].vx -= fx;
+            nodes[i].vy -= fy;
+            nodes[j].vx += fx;
+            nodes[j].vy += fy;
+          }
+        }
+
+        // Spring force for edges
+        const edgeNodeById = new Map(nodes.map((n) => [n.id, n]));
+        for (const edge of edges) {
+          const a = edgeNodeById.get(edge.from);
+          const b = edgeNodeById.get(edge.to);
+          if (!a || !b) continue;
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const force = (dist - springLen) * springK;
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          a.vx += fx;
+          a.vy += fy;
+          b.vx -= fx;
+          b.vy -= fy;
+        }
+
+        // Center gravity
+        for (const n of nodes) {
+          n.vx += (cx - n.x) * centerForce;
+          n.vy += (cy - n.y) * centerForce;
+        }
       }
 
       // Apply velocities
@@ -337,8 +353,18 @@ export function GraphTab() {
         if (Math.abs(n.vx) < 0.01 && Math.abs(n.vy) < 0.01) { n.vx = 0; n.vy = 0; }
         n.x += n.vx;
         n.y += n.vy;
-        n.x = Math.max(20, Math.min(w - 20, n.x));
-        n.y = Math.max(20, Math.min(h - 20, n.y));
+        // Soft boundary: only clamp if a node strays well outside the
+        // viewport. The previous hard clamp at 20px from each edge
+        // pinned isolated nodes to corners — repulsion pushed them out,
+        // weak gravity couldn't pull back, clamp held them on the
+        // boundary forever. Letting nodes float to the visible edge
+        // (with a generous off-screen tolerance) lets gravity reel
+        // them back over a few frames instead.
+        const slack = 100;
+        if (n.x < -slack) n.x = -slack;
+        else if (n.x > w + slack) n.x = w + slack;
+        if (n.y < -slack) n.y = -slack;
+        else if (n.y > h + slack) n.y = h + slack;
       }
 
       // --- Auto-center on single search match ---
@@ -365,6 +391,10 @@ export function GraphTab() {
       // Collect visible edges
       const visibleEdges = edges.filter(isEdgeVisible);
       const showEdgeLabels = visibleEdges.length < 30;
+
+      // nodeById is needed for edge rendering; rebuild for the render
+      // path so the cooled-physics code path also has it.
+      const nodeById = new Map(nodes.map((n) => [n.id, n]));
 
       // Draw edges
       for (const edge of visibleEdges) {
