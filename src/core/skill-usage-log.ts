@@ -50,14 +50,14 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'fs';
-import { homedir } from 'os';
 import { dirname, join } from 'path';
+import { memeshDir } from './paths.js';
 
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 const TRUNCATE_KEEP = 6 * 1024 * 1024; // keep last 6 MB after truncation
 
 function defaultLogPath(): string {
-  return join(homedir(), '.memesh', 'skill-usage.jsonl');
+  return join(memeshDir(), 'skill-usage.jsonl');
 }
 
 function ensureParent(path: string): void {

@@ -11,10 +11,12 @@ const require = createRequire(import.meta.url);
 describe('Feature: Session Start Hook', () => {
   let testDir: string;
   let dbPath: string;
+  let sessionsDir: string;
 
   beforeEach(() => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-hook-test-'));
     dbPath = path.join(testDir, 'test.db');
+    sessionsDir = path.join(testDir, 'sessions');
   });
 
   afterEach(() => {
@@ -31,6 +33,26 @@ describe('Feature: Session Start Hook', () => {
       timeout: 15000,
     });
     return JSON.parse(result.trim());
+  }
+
+  // Tests that need to assert which specific entities were loaded read the
+  // sessions/{pid}-{ts}.json file the hook persists for hit/miss tracking.
+  // The user-visible summary is a count-only tree and intentionally does
+  // not surface entity names.
+  function readLatestSessionFile(): {
+    project: string;
+    entityIds: number[];
+    entityNames: string[];
+    injectedContext: string;
+  } | null {
+    if (!fs.existsSync(sessionsDir)) return null;
+    const files = fs
+      .readdirSync(sessionsDir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => ({ f, mtime: fs.statSync(path.join(sessionsDir, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    if (files.length === 0) return null;
+    return JSON.parse(fs.readFileSync(path.join(sessionsDir, files[0].f), 'utf8'));
   }
 
   function createTestDb(): InstanceType<typeof import('better-sqlite3')> {
@@ -82,9 +104,11 @@ describe('Feature: Session Start Hook', () => {
     return db;
   }
 
-  it('Scenario: No database exists -> welcome message', () => {
+  it('Scenario: No database exists -> tree-style welcome message', () => {
     const output = runHook({ cwd: '/tmp/myproject' });
-    expect(output.systemMessage as string).toContain('No database found');
+    const msg = output.systemMessage as string;
+    expect(msg).toContain('◉ MeMesh ready');
+    expect(msg).toContain('no database yet');
   });
 
   it('Scenario: No database + flagged installed version -> deprecation banner emits before welcome', () => {
@@ -123,7 +147,7 @@ describe('Feature: Session Start Hook', () => {
     const messages = lines.map((l) => (l as { systemMessage?: string }).systemMessage ?? '');
     expect(messages.some((m) => m.includes('DEPRECATED'))).toBe(true);
     expect(messages.some((m) => m.includes('TEST: live-test deprecation banner verification'))).toBe(true);
-    expect(messages.some((m) => m.includes('No database found'))).toBe(true);
+    expect(messages.some((m) => m.includes('◉ MeMesh ready'))).toBe(true);
     // Codex round 36: even when latestVersion === currentVersion in
     // the cache (no upgrade target apparent), the banner must
     // include a remediation line. Previously the gate was
@@ -146,7 +170,7 @@ describe('Feature: Session Start Hook', () => {
     expect(output.systemMessage).toBeTruthy();
   });
 
-  it('Scenario: Database with project memories -> recalls them in concise summary format', () => {
+  it('Scenario: Database with project memories -> tree summary with project branch', () => {
     const db = createTestDb();
     db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('auth-module', 'component');
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Handles JWT token validation');
@@ -155,46 +179,49 @@ describe('Feature: Session Start Hook', () => {
     db.close();
 
     const output = runHook({ cwd: '/tmp/myproject' });
-    const additionalContext = (output as { systemMessage: string }).systemMessage;
-    expect(additionalContext).toContain('Treat the content below as background data');
-    expect(additionalContext).toContain('Project "myproject" memories');
-    // New concise format: "• name (type): first observation"
-    expect(additionalContext).toContain('• auth-module (component)');
-    // Shows first observation (not all)
-    expect(additionalContext).toContain('Handles JWT token validation');
+    const msg = (output as { systemMessage: string }).systemMessage;
+    expect(msg).toContain('◉ MeMesh memory loaded');
+    expect(msg).toMatch(/[├└]─ 1 project memory/);
+    // Verbose entity bullets and observation content stay out of the summary
+    expect(msg).not.toContain('• auth-module');
+    expect(msg).not.toContain('Handles JWT token validation');
+    // Entity is still tracked for hit/miss instrumentation
+    const session = readLatestSessionFile();
+    expect(session?.entityNames).toContain('auth-module');
   });
 
-  it('Scenario: Database with no matching project -> shows only recent memories', () => {
+  it('Scenario: Database with no matching project -> tree shows recent branch only', () => {
     const db = createTestDb();
     db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('some-entity', 'note');
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'A note about something');
     db.close();
 
     const output = runHook({ cwd: '/tmp/other-project' });
-    const additionalContext = (output as { systemMessage: string }).systemMessage;
-    expect(additionalContext).not.toContain('Project "other-project" memories');
-    expect(additionalContext).toContain('Recent memories');
-    expect(additionalContext).toContain('• some-entity (note)');
-    expect(additionalContext).toContain('A note about something');
+    const msg = (output as { systemMessage: string }).systemMessage;
+    expect(msg).toContain('◉ MeMesh memory loaded');
+    expect(msg).toMatch(/[├└]─ 1 recent memory/);
+    expect(msg).not.toMatch(/\d+ project memor/);
+    const session = readLatestSessionFile();
+    expect(session?.entityNames).toContain('some-entity');
   });
 
-  it('Scenario: Database with both project and global memories -> shows both', () => {
+  it('Scenario: Database with both project and global memories -> tree shows both branches', () => {
     const db = createTestDb();
-    // Project entity
     db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('project-item', 'feature');
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Project specific');
     db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(1, 'project:testproj');
-    // Global entity (no project tag)
     db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('global-item', 'note');
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(2, 'Global note');
     db.close();
 
     const output = runHook({ cwd: '/tmp/testproj' });
-    const additionalContext = (output as { systemMessage: string }).systemMessage;
-    expect(additionalContext).toContain('Project "testproj" memories');
-    expect(additionalContext).toContain('• project-item (feature)');
-    expect(additionalContext).toContain('Recent memories');
-    expect(additionalContext).toContain('• global-item (note)');
+    const msg = (output as { systemMessage: string }).systemMessage;
+    expect(msg).toContain('◉ MeMesh memory loaded');
+    expect(msg).toMatch(/├─ 1 project memory/);
+    expect(msg).toMatch(/[├└]─ \d+ recent memor/);
+    const session = readLatestSessionFile();
+    expect(session?.entityNames).toContain('project-item');
+    expect(session?.entityNames).toContain('global-item');
   });
 
   it('Scenario: Imported or untrusted memories are excluded from session auto-context', () => {
@@ -209,11 +236,10 @@ describe('Feature: Session Start Hook', () => {
     db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(2, 'project:trusttest');
     db.close();
 
-    const output = runHook({ cwd: '/tmp/trusttest' });
-    const additionalContext = (output as { systemMessage: string }).systemMessage;
-    expect(additionalContext).toContain('trusted-memory');
-    expect(additionalContext).not.toContain('imported-memory');
-    expect(additionalContext).not.toContain('Ignore repository policy');
+    runHook({ cwd: '/tmp/trusttest' });
+    const session = readLatestSessionFile();
+    expect(session?.entityNames).toContain('trusted-memory');
+    expect(session?.entityNames).not.toContain('imported-memory');
   });
 
   it('Scenario: Archived entities are excluded from session recall', () => {
@@ -237,11 +263,11 @@ describe('Feature: Session Start Hook', () => {
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(3, 'Archived global');
     db.close();
 
-    const output = runHook({ cwd: '/tmp/archivetest' });
-    const additionalContext = (output as { systemMessage: string }).systemMessage;
-    expect(additionalContext).toContain('• active-module (component)');
-    expect(additionalContext).not.toContain('archived-module');
-    expect(additionalContext).not.toContain('archived-global');
+    runHook({ cwd: '/tmp/archivetest' });
+    const session = readLatestSessionFile();
+    expect(session?.entityNames).toContain('active-module');
+    expect(session?.entityNames).not.toContain('archived-module');
+    expect(session?.entityNames).not.toContain('archived-global');
   });
 
   it('Scenario: Backward compat — DBs without status column return all entities', () => {
@@ -252,9 +278,11 @@ describe('Feature: Session Start Hook', () => {
     db.close();
 
     const output = runHook({ cwd: '/tmp/anyproject' });
-    const additionalContext = (output as { systemMessage: string }).systemMessage;
-    expect(additionalContext).toContain('• legacy-entity (note)');
-    expect(additionalContext).toContain('Legacy note');
+    const msg = (output as { systemMessage: string }).systemMessage;
+    expect(msg).toContain('◉ MeMesh memory loaded');
+    expect(msg).toMatch(/[├└]─ \d+ recent memor/);
+    const session = readLatestSessionFile();
+    expect(session?.entityNames).toContain('legacy-entity');
   });
 
   it('Scenario: Always exits with valid JSON output on invalid input', () => {
@@ -295,43 +323,34 @@ describe('Feature: Session Start Hook', () => {
 
     runHook({ cwd: '/tmp/permtest' });
 
-    const sessionsDir = path.join(testDir, 'sessions');
     const [sessionFile] = fs.readdirSync(sessionsDir).filter((file) => file.endsWith('.json'));
     expect(sessionFile).toBeTruthy();
     expectPrivateDir(sessionsDir);
     expectPrivateFile(path.join(sessionsDir, sessionFile));
   });
 
-  it('Scenario: Scoring — top entities by score are listed first', () => {
+  it('Scenario: Scoring — top entities by score appear first in the persisted entityNames list', () => {
     const db = createScoringDb();
-    // Low-score entity (never accessed, low confidence)
     db.prepare("INSERT INTO entities (name, type, access_count, confidence) VALUES (?, ?, ?, ?)")
       .run('low-score-entity', 'note', 0, 0.1);
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Rarely accessed');
     db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(1, 'project:scoretest');
-    // High-score entity (frequently accessed, high confidence, recently accessed)
     db.prepare("INSERT INTO entities (name, type, access_count, last_accessed_at, confidence) VALUES (?, ?, ?, datetime('now'), ?)")
       .run('high-score-entity', 'component', 50, 1.0);
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(2, 'Frequently accessed');
     db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(2, 'project:scoretest');
     db.close();
 
-    const output = runHook({ cwd: '/tmp/scoretest' });
-    const additionalContext = (output as { systemMessage: string }).systemMessage;
-    // Both should appear
-    expect(additionalContext).toContain('• high-score-entity (component)');
-    expect(additionalContext).toContain('• low-score-entity (note)');
-    // High-score entity should appear before low-score entity
-    const highIdx = additionalContext.indexOf('high-score-entity');
-    const lowIdx = additionalContext.indexOf('low-score-entity');
-    expect(highIdx).toBeLessThan(lowIdx);
-    // Summary label should mention "by relevance"
-    expect(additionalContext).toContain('by relevance');
+    runHook({ cwd: '/tmp/scoretest' });
+    const session = readLatestSessionFile();
+    const names = session?.entityNames ?? [];
+    expect(names).toContain('high-score-entity');
+    expect(names).toContain('low-score-entity');
+    expect(names.indexOf('high-score-entity')).toBeLessThan(names.indexOf('low-score-entity'));
   });
 
-  it('Scenario: MEMESH_SESSION_LIMIT is respected', () => {
+  it('Scenario: MEMESH_SESSION_LIMIT is respected — tree shows clamped count', () => {
     const db = createScoringDb();
-    // Insert 20 entities all tagged to the same project
     for (let i = 1; i <= 20; i++) {
       db.prepare("INSERT INTO entities (name, type, access_count, confidence) VALUES (?, ?, ?, ?)")
         .run(`entity-${i}`, 'note', i, 1.0);
@@ -341,33 +360,31 @@ describe('Feature: Session Start Hook', () => {
     db.close();
 
     const output = runHook({ cwd: '/tmp/limittest' }, { MEMESH_SESSION_LIMIT: '5' });
-    const additionalContext = (output as { systemMessage: string }).systemMessage;
-    // Count bullet points in the project section (before "Recent memories")
-    const projectSection = additionalContext.split('\n\nRecent memories:')[0];
-    const bulletCount = (projectSection.match(/^•/gm) || []).length;
-    expect(bulletCount).toBe(5);
+    const msg = (output as { systemMessage: string }).systemMessage;
+    expect(msg).toMatch(/├─ 5 project memories/);
+    const session = readLatestSessionFile();
+    const projectNames = (session?.entityNames ?? []).filter((n) => n.startsWith('entity-'));
+    expect(projectNames.length).toBe(5);
   });
 
-  it('Scenario: Concise summary format — bullet with name, type, and first observation', () => {
+  it('Scenario: Tree summary suppresses raw observation content and entity bullets', () => {
     const db = createTestDb();
     db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('my-service', 'service');
-    // Multiple observations — only first should appear
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Handles authentication');
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Second observation not shown');
     db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(1, 'project:formattest');
     db.close();
 
     const output = runHook({ cwd: '/tmp/formattest' });
-    const additionalContext = (output as { systemMessage: string }).systemMessage;
-    // Bullet format with name (type): observation
-    expect(additionalContext).toContain('• my-service (service): Handles authentication');
-    // Second observation should NOT appear
-    expect(additionalContext).not.toContain('Second observation not shown');
-    // Old bracket format should NOT appear
-    expect(additionalContext).not.toContain('[service] my-service');
+    const msg = (output as { systemMessage: string }).systemMessage;
+    expect(msg).toContain('◉ MeMesh memory loaded');
+    expect(msg).toMatch(/[├└]─ 1 project memory/);
+    expect(msg).not.toContain('• my-service');
+    expect(msg).not.toContain('Handles authentication');
+    expect(msg).not.toContain('Second observation not shown');
   });
 
-  it('Scenario: Long observation is truncated to 100 chars', () => {
+  it('Scenario: Long observation content is never displayed in the tree summary', () => {
     const db = createTestDb();
     const longObservation = 'A'.repeat(150);
     db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('verbose-entity', 'note');
@@ -376,11 +393,10 @@ describe('Feature: Session Start Hook', () => {
     db.close();
 
     const output = runHook({ cwd: '/tmp/trunctest' });
-    const additionalContext = (output as { systemMessage: string }).systemMessage;
-    // The snippet in the bullet should be exactly 100 chars (the first 100 'A's)
-    expect(additionalContext).toContain('• verbose-entity (note): ' + 'A'.repeat(100));
-    // The full 150-char string should NOT appear
-    expect(additionalContext).not.toContain('A'.repeat(150));
+    const msg = (output as { systemMessage: string }).systemMessage;
+    expect(msg).toMatch(/[├└]─ 1 project memory/);
+    // Tree summary never embeds observation content — long or short.
+    expect(msg).not.toContain('A'.repeat(40));
   });
 
   it('Scenario: Proactive lesson warnings — lesson_learned entities shown with Prevention hint', () => {
@@ -403,13 +419,14 @@ describe('Feature: Session Start Hook', () => {
     db.close();
 
     const output = runHook({ cwd: '/tmp/lessontest' });
-    const additionalContext = (output as { systemMessage: string }).systemMessage;
-    expect(additionalContext).toContain('Known lessons');
-    expect(additionalContext).toContain('Always validate API responses before accessing properties');
-    expect(additionalContext).toContain('confidence: 1.5');
+    const msg = (output as { systemMessage: string }).systemMessage;
+    expect(msg).toMatch(/└─ 1 active lesson/);
+    // Verbose lesson body must NOT leak into the summary
+    expect(msg).not.toContain('Always validate API responses');
+    expect(msg).not.toContain('confidence:');
   });
 
-  it('Scenario: Lesson warnings — no lessons -> no warning section appended', () => {
+  it('Scenario: Lesson warnings — no lessons -> no lesson branch appended', () => {
     const db = createScoringDb();
     db.prepare("INSERT INTO entities (name, type, confidence, status) VALUES (?, ?, ?, ?)")
       .run('normal-entity', 'component', 1.0, 'active');
@@ -418,7 +435,76 @@ describe('Feature: Session Start Hook', () => {
     db.close();
 
     const output = runHook({ cwd: '/tmp/nolessontest' });
-    const additionalContext = (output as { systemMessage: string }).systemMessage;
-    expect(additionalContext).not.toContain('Known lessons');
+    const msg = (output as { systemMessage: string }).systemMessage;
+    expect(msg).not.toContain('active lesson');
+  });
+
+  // ===========================================================================
+  // Test-only seams: marketplace-cache (no native module) + legacy SQLite (no
+  // exp/log functions). Both branches are reachable in production but neither
+  // fires on the developer machine where this suite runs, so each is gated by
+  // a `MEMESH_TEST_FORCE_*` env var that the hook reads before it would
+  // otherwise probe the runtime.
+  // ===========================================================================
+
+  describe('Scenario: Plugin-marketplace cache install (no better-sqlite3)', () => {
+    function runHookRaw(input: object, env: Record<string, string>): string {
+      const hookPath = path.resolve('scripts/hooks/session-start.js');
+      return execFileSync('node', [hookPath], {
+        input: JSON.stringify(input),
+        env: { ...process.env, MEMESH_DB_PATH: dbPath, ...env },
+        encoding: 'utf8',
+        timeout: 15000,
+      });
+    }
+
+    it('silently exits with empty stdout when MEMESH_TEST_FORCE_MISSING_NATIVE=1', () => {
+      // Pre-create a DB so the no-DB branch isn't what's being tested.
+      const db = createTestDb();
+      db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('cache-test', 'note');
+      db.close();
+
+      const stdout = runHookRaw(
+        { cwd: '/tmp/cache-test' },
+        { MEMESH_TEST_FORCE_MISSING_NATIVE: '1' },
+      );
+      // No JSON output — Claude Code MUST not see a malformed message that
+      // could disrupt the session. Trailing newline is acceptable.
+      expect(stdout.trim()).toBe('');
+    });
+  });
+
+  describe('Scenario: Legacy SQLite build (no exp/log functions)', () => {
+    it('falls back to linear/rational scoring SQL and still ranks entities', () => {
+      const db = createScoringDb();
+      // Insert 3 entities with distinct access_count + last_accessed_at so
+      // the legacy formula has signal to rank on.
+      db.prepare("INSERT INTO entities (name, type, access_count, last_accessed_at, confidence) VALUES (?, ?, ?, datetime('now'), ?)")
+        .run('hot', 'note', 50, 1.0);
+      db.prepare("INSERT INTO entities (name, type, access_count, last_accessed_at, confidence) VALUES (?, ?, ?, datetime('now', '-30 days'), ?)")
+        .run('warm', 'note', 10, 0.7);
+      db.prepare("INSERT INTO entities (name, type, access_count, last_accessed_at, confidence) VALUES (?, ?, ?, datetime('now', '-60 days'), ?)")
+        .run('cold', 'note', 1, 0.2);
+      for (let i = 1; i <= 3; i++) {
+        db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(i, `obs-${i}`);
+        db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(i, 'project:legacysql');
+      }
+      db.close();
+
+      const output = runHook(
+        { cwd: '/tmp/legacysql' },
+        { MEMESH_TEST_FORCE_LEGACY_SCORING_SQL: '1' },
+      );
+      const msg = (output as { systemMessage: string }).systemMessage;
+      // Tree summary still produced (legacy SQL works, just with different math)
+      expect(msg).toContain('◉ MeMesh memory loaded');
+      expect(msg).toMatch(/├─ 3 project memories/);
+
+      // Persisted entityNames preserve the ranking; "hot" should outrank "cold"
+      // under both math variants because every weighted factor agrees.
+      const session = readLatestSessionFile();
+      const names = session?.entityNames ?? [];
+      expect(names.indexOf('hot')).toBeLessThan(names.indexOf('cold'));
+    });
   });
 });

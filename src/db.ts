@@ -1,11 +1,11 @@
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
 import path from 'path';
-import os from 'os';
 import fs from 'fs';
 import { runAutoDecay } from './core/lifecycle.js';
 import { getEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
+import { getDbPath } from './core/paths.js';
 import type { PragmaColumnRow } from './core/types.js';
 
 let db: Database.Database | null = null;
@@ -70,9 +70,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
 export function openDatabase(dbPath?: string): Database.Database {
   if (db) return db;
 
-  const resolvedPath = dbPath
-    ?? process.env.MEMESH_DB_PATH
-    ?? path.join(os.homedir(), '.memesh', 'knowledge-graph.db');
+  const resolvedPath = dbPath ?? getDbPath();
 
   const dir = path.dirname(resolvedPath);
   fs.mkdirSync(dir, { recursive: true });

@@ -1,5 +1,4 @@
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { createHash } from 'crypto';
 import { detectCapabilities, getConfigPath } from './config.js';
@@ -7,6 +6,7 @@ import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } fr
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
+import { getDbPath, memeshDir } from './paths.js';
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
 export type DoctorOverallStatus = 'PASS' | 'PASS_WITH_CONCERNS' | 'FAIL';
@@ -55,7 +55,7 @@ interface DoctorOptions {
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 
 function resolveDatabasePath(): string {
-  return process.env.MEMESH_DB_PATH ?? path.join(os.homedir(), '.memesh', 'knowledge-graph.db');
+  return getDbPath();
 }
 
 function createCheck(
@@ -893,8 +893,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   // Runtime wiring + activity (#25 — file existence isn't enough;
   // doctor used to PASS for users whose Claude Code never loaded
   // memesh's hooks at all).
-  const memeshDir = process.env.MEMESH_DIR ?? path.join(os.homedir(), '.memesh');
-  checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir));
+  checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir()));
   checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl));
   checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
   checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));

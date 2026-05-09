@@ -20,6 +20,29 @@ export const DEFAULT_WEIGHTS: ScoringWeights = {
 };
 
 /**
+ * Weights as used by `scripts/hooks/session-start.js` SQL ORDER BY.
+ *
+ * Session-start ranks the project's auto-context entities in pure SQL
+ * (no FTS query → no searchRelevance, and impact is folded into core's
+ * ranking pass instead). The three remaining factors (recency, frequency,
+ * confidence) are renormalised so they sum to 1.0 and preserve the
+ * proportions of `DEFAULT_WEIGHTS`.
+ *
+ * If you change `DEFAULT_WEIGHTS`, recompute these and update the SQL in
+ * `session-start.js` to match (the `0.4167 / 0.3000 / 0.2833` magic
+ * numbers in the ORDER BY clause). The values are exported here so a
+ * future test (or eslint rule) can assert the SQL stays in sync.
+ */
+export const SESSION_START_WEIGHT_RATIO = (() => {
+  const sub = DEFAULT_WEIGHTS.recency + DEFAULT_WEIGHTS.frequency + DEFAULT_WEIGHTS.confidence;
+  return {
+    recency: DEFAULT_WEIGHTS.recency / sub,
+    frequency: DEFAULT_WEIGHTS.frequency / sub,
+    confidence: DEFAULT_WEIGHTS.confidence / sub,
+  };
+})();
+
+/**
  * Calculate recency score using exponential decay.
  * Score = e^(-days_since_access / 30)
  * Recent = 1.0, 30 days = 0.37, 60 days = 0.14, 90 days = 0.05

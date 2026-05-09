@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'child_process';
-import { basename } from 'path';
-import { openHookDb } from './_shared.js';
+import { getProjectName, openHookDb } from './_shared.js';
 
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -27,11 +26,17 @@ process.stdin.on('end', () => {
 
     const commitHash = commitMatch[1];
     const commitMsg = commitMatch[2];
-    const projectName = basename(data.cwd || process.cwd());
+    const projectName = getProjectName(data.cwd);
 
     // Open DB via shared helper — applies SCHEMA_SQL + status migration.
     // Pass fts:true so the FTS5 entity-search index is also available.
-    const { db } = openHookDb(process.env, { fts: true });
+    // Returns null when the better-sqlite3 native module is unavailable
+    // (e.g. plugin-marketplace cache install with no node_modules); in
+    // that case silently skip — a sibling registered hook copy with
+    // proper deps still records the commit.
+    const handle = openHookDb(process.env, { fts: true });
+    if (!handle) return;
+    const { db } = handle;
     try {
       const entityName = `commit-${commitHash}`;
 

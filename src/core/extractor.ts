@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { getProjectName } from './paths.js';
 
 // =============================================================================
 // Extractor Interface (pluggable — rule-based now, LLM-based later)
@@ -154,7 +155,7 @@ export function parseTranscript(transcriptPath: string): {
 export class RuleBasedExtractor implements Extractor {
   extract(context: SessionContext): ExtractedMemory[] {
     const memories: ExtractedMemory[] = [];
-    const projectName = path.basename(context.cwd);
+    const projectName = getProjectName(context.cwd);
     const sessionTag = `session:${context.sessionId}`;
     const baseTags = ['source:auto-capture', sessionTag, `project:${projectName}`];
 

@@ -2,7 +2,7 @@
 
 import { basename } from 'path';
 import { existsSync, readFileSync } from 'fs';
-import { isAutoCaptureEnabled, openHookDb } from './_shared.js';
+import { getProjectName, isAutoCaptureEnabled, openHookDb } from './_shared.js';
 
 // Timeout guard: always exit within 10 seconds
 const TIMEOUT_MS = 10000;
@@ -27,7 +27,7 @@ process.stdin.on('end', () => {
     const transcriptPath = data.transcript_path || '';
     const cwd = data.cwd || process.cwd();
     const reason = data.reason || 'auto';
-    const projectName = basename(cwd);
+    const projectName = getProjectName(cwd);
 
     // Parse transcript to gather insights
     let toolCallCount = 0;
@@ -84,7 +84,11 @@ process.stdin.on('end', () => {
 
     // Open DB via shared helper — applies SCHEMA_SQL + status migration.
     // FTS5 needed for the entity-search index updates below.
-    const { db } = openHookDb(process.env, { fts: true });
+    // Returns null on plugin-marketplace cache installs without node_modules;
+    // silently skip in that case (sibling registered copy handles it).
+    const handle = openHookDb(process.env, { fts: true });
+    if (!handle) return;
+    const { db } = handle;
     try {
       // Upsert entity
       const insertResult = db.prepare('INSERT OR IGNORE INTO entities (name, type) VALUES (?, ?)').run(entityName, 'session-summary');

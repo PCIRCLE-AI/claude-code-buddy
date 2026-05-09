@@ -5,21 +5,23 @@
 // and injects them as context. Throttled: max 1 recall per file per session.
 
 import { createRequire } from 'module';
-import { homedir } from 'os';
-import { join, basename } from 'path';
+import { basename, join } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import {
   buildReferenceContext,
   ensurePrivateDir,
-  getMemeshDir,
+  getDbPath,
+  getMemeshDirFromDbPath,
+  getProjectName,
   isTrustedForAutoContext,
+  tryRequireBetterSqlite,
   writePrivateJson,
 } from './_shared.js';
 
 const require = createRequire(import.meta.url);
 
-const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
-const memeshDir = getMemeshDir(process.env);
+const dbPath = getDbPath();
+const memeshDir = getMemeshDirFromDbPath();
 const THROTTLE_FILE = join(memeshDir, 'session-recalled-files.json');
 const MAX_RESULTS = 3;
 
@@ -38,7 +40,7 @@ process.stdin.on('end', () => {
     }
 
     // Get project name from cwd for project-scoped filtering
-    const projectName = basename(data.cwd || process.cwd());
+    const projectName = getProjectName(data.cwd);
 
     // Throttle: skip if we already recalled for this file
     const fileKey = filePath.toLowerCase();
@@ -58,7 +60,12 @@ process.stdin.on('end', () => {
 
     if (!existsSync(dbPath)) return pass();
 
-    const Database = require('better-sqlite3');
+    // tryRequireBetterSqlite() returns null on plugin-marketplace cache
+    // installs that ship without node_modules; pass-through silently in
+    // that case so a sibling registered hook copy can still inject
+    // recall context.
+    const Database = tryRequireBetterSqlite();
+    if (!Database) return pass();
     const db = new Database(dbPath, { readonly: true });
     try {
 
@@ -155,8 +162,13 @@ process.stdin.on('end', () => {
     } finally {
       db.close();
     }
-  } catch {
-    // Never crash Claude Code
+  } catch (err) {
+    // Never crash Claude Code, but trace — peer hooks (post-commit,
+    // pre-compact, session-summary) all stderr-trace their outer
+    // catches. Without a trace here, a typo in any prepare statement
+    // would silently break continuous recall on every Edit/Write
+    // tool call indefinitely.
+    try { process.stderr.write(`[memesh pre-edit-recall] ${err?.message || err}\n`); } catch {}
     pass();
   }
 });

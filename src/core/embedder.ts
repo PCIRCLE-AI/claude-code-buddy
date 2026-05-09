@@ -7,9 +7,9 @@
 
 import { createRequire } from 'node:module';
 import { getDatabase } from '../db.js';
-import { homedir } from 'os';
 import { join } from 'path';
 import { detectCapabilities, type LLMConfig } from './config.js';
+import { memeshDir } from './paths.js';
 
 let onnxPipelineInstance: any = null;
 let onnxPipelineLoading: Promise<any> | null = null;
@@ -277,7 +277,7 @@ async function getOnnxPipeline(): Promise<any> {
       const createPipeline = mod.pipeline;
       const env = mod.env;
       if (env) {
-        env.cacheDir = join(homedir(), '.memesh', 'models');
+        env.cacheDir = join(memeshDir(), 'models');
         env.allowLocalModels = true;
       }
       onnxPipelineInstance = await createPipeline(
