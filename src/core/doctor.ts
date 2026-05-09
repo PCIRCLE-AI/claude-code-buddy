@@ -401,31 +401,71 @@ function inspectHookWiring(
 /**
  * Confirm memesh's hooks have actually produced an entity in the
  * past 24 hours — the strongest signal that the auto-capture loop
- * is alive end-to-end. memesh-attributed entities have type
- * 'session-insight' (per RuleBasedExtractor + session-summary.js);
- * user-global hooks (e.g. ~/.claude/hooks/stop.js) write
- * 'session_keypoint' instead. The distinction matters: counting
- * session_keypoint would mask the exact "memesh hooks aren't
- * firing but custom hooks are" failure mode we just fixed.
+ * is alive end-to-end.
+ *
+ * Hooks emit several memesh-attributed entity types:
+ *   - 'session-insight' — RuleBasedExtractor + session-summary.js (Stop)
+ *   - 'session-summary' — pre-compact.js (PreCompact)
+ *   - 'commit'          — post-commit.js (PostToolUse / git commits)
+ *   - 'lesson_learned'  — failure-analyzer / learn tool
+ * User-global hooks (`~/.claude/hooks/stop.js`) write 'session_keypoint'
+ * instead — counting that would mask the "memesh hooks aren't firing but
+ * custom hooks are" failure mode, so it stays excluded.
+ *
+ * Earlier this check counted ONLY 'session-insight'. session-insight is
+ * the strictest source: it requires an agentic session ≥3 tools, no
+ * user_interrupt, and the extractor's filters all to pass. A user who
+ * just installed memesh and opened the dashboard before completing such
+ * a session would see a false WARN even with hooks correctly wired —
+ * because post-commit and pre-compact may have already fired but they
+ * write different entity types. Broadened to the full set so any sign
+ * of life satisfies the check.
+ *
+ * Grace period: if the install-hooks marker is < 24h old, we accept
+ * "no activity yet" silently. A fresh install legitimately has nothing
+ * to count.
  */
 function inspectHookActivity(
   openDatabaseImpl: typeof openDatabase,
   closeDatabaseImpl: typeof closeDatabase,
+  existsSyncImpl: typeof fs.existsSync = fs.existsSync,
+  statSyncImpl: typeof fs.statSync = fs.statSync,
 ): DoctorCheck {
   let db: DatabaseLike | null = null;
   try {
     db = openDatabaseImpl() as unknown as DatabaseLike;
     const row = db.prepare(
-      "SELECT COUNT(*) as c FROM entities WHERE type = 'session-insight' AND created_at > datetime('now', '-24 hours')",
+      `SELECT COUNT(*) as c FROM entities
+       WHERE type IN ('session-insight', 'session-summary', 'commit', 'lesson_learned')
+         AND created_at > datetime('now', '-24 hours')`,
     ).get() as { c: number };
     const count = row?.c ?? 0;
     if (count === 0) {
+      // Grace period: the install-hooks marker tells us when hooks were
+      // wired. If that was recent (< 24h), 0 activity is expected — the
+      // user simply hasn't completed a captureable session yet. Skip the
+      // warning entirely so a freshly-installed dashboard doesn't open
+      // with a noisy banner that the user can't act on.
+      const markerPath = path.join(memeshDir(), 'install-hooks.json');
+      if (existsSyncImpl(markerPath)) {
+        try {
+          const ageMs = Date.now() - statSyncImpl(markerPath).mtimeMs;
+          if (ageMs < 24 * 60 * 60 * 1000) {
+            return createCheck(
+              'hook-activity',
+              'Hook activity (last 24h)',
+              'pass',
+              'Hooks wired recently — no captureable sessions yet (this is normal for a fresh install).',
+            );
+          }
+        } catch { /* best-effort */ }
+      }
       return createCheck(
         'hook-activity',
         'Hook activity (last 24h)',
         'warn',
-        'No memesh-attributed entities (type=session-insight) in the past 24 hours. Hooks may be wired but not firing — likely a Claude Code restart is needed, or the agentic-loop guard is filtering all sessions.',
-        'Open a Claude Code session that uses ≥3 tools and ends naturally (not user_interrupt). Then run `memesh doctor` again.',
+        'No memesh-attributed entities (session-insight, session-summary, commit, lesson_learned) in the past 24 hours. Hooks may be wired but not firing — likely a Claude Code restart is needed, or the agentic-loop guard is filtering all sessions.',
+        'Open a Claude Code session that uses ≥3 tools and ends naturally (not user_interrupt), or commit something. Then run `memesh doctor` again.',
       );
     }
     return createCheck(
@@ -894,7 +934,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   // doctor used to PASS for users whose Claude Code never loaded
   // memesh's hooks at all).
   checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir()));
-  checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl));
+  checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl));
   checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
   checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));
 
