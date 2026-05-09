@@ -323,8 +323,13 @@ export function openHookDb(env = process.env, opts = {}) {
   const Database = tryRequireBetterSqlite();
   if (!Database) return null;
 
-  const dbPath = getDbPath(env);
-  const dbDir = env.MEMESH_DB_PATH ? dirname(env.MEMESH_DB_PATH) : memeshDir(env);
+  // Path helpers read process.env directly (no-arg). The `env` parameter
+  // is kept on this signature for backward compatibility with callers
+  // and is consulted directly only for the DB-PATH dirname check below
+  // — that's the one place where a caller's custom env should win over
+  // process.env (e.g. the test harness redirects MEMESH_DB_PATH per test).
+  const dbPath = env.MEMESH_DB_PATH ?? getDbPath();
+  const dbDir = env.MEMESH_DB_PATH ? dirname(env.MEMESH_DB_PATH) : memeshDir();
   if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
 
   const db = new Database(dbPath);
