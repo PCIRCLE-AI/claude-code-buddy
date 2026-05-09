@@ -3,9 +3,9 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
+import { getDbPath, memeshDir } from '../core/paths.js';
 
 interface DashboardData {
   entities: Array<{
@@ -202,10 +202,7 @@ function escapeJsonForHtml(json: string): string {
  * Opens the database read-only and queries all data.
  */
 export function generateDashboardHtml(dbPath?: string): string {
-  const resolvedPath =
-    dbPath ??
-    process.env.MEMESH_DB_PATH ??
-    path.join(os.homedir(), '.memesh', 'knowledge-graph.db');
+  const resolvedPath = dbPath ?? getDbPath();
 
   const data = queryData(resolvedPath);
   const dataJson = escapeJsonForHtml(JSON.stringify(data));
@@ -563,12 +560,10 @@ const isDirectRun =
   fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 
 if (isDirectRun) {
-  const dbPath =
-    process.env.MEMESH_DB_PATH ??
-    path.join(os.homedir(), '.memesh', 'knowledge-graph.db');
+  const dbPath = getDbPath();
 
   const html = generateDashboardHtml(dbPath);
-  const dashboardDir = path.join(os.homedir(), '.memesh');
+  const dashboardDir = memeshDir();
   fs.mkdirSync(dashboardDir, { recursive: true });
   const outPath = path.join(dashboardDir, 'dashboard.html');
   fs.writeFileSync(outPath, html, { encoding: 'utf-8', mode: 0o600 });

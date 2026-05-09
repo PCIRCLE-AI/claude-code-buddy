@@ -5,7 +5,6 @@ import type { Request, Response, NextFunction } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { randomBytes, timingSafeEqual } from 'crypto';
-import { homedir } from 'os';
 import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
 import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
@@ -25,6 +24,7 @@ import {
 } from '../schemas.js';
 import { getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
+import { getDbPath, getMemeshDirFromDbPath } from '../../core/paths.js';
 
 import fs from 'fs';
 import path from 'path';
@@ -74,9 +74,7 @@ let remoteToken: Buffer | null = null;
 const serverAuthRequired = new WeakMap<import('http').Server, boolean>();
 
 function memeshDir(): string {
-  return process.env.MEMESH_DB_PATH
-    ? path.dirname(process.env.MEMESH_DB_PATH)
-    : path.join(homedir(), '.memesh');
+  return getMemeshDirFromDbPath();
 }
 
 function loadOrCreateRemoteToken(): { token: Buffer; freshlyCreated: boolean } {
@@ -726,7 +724,7 @@ export function startServer(
     db.prepare('SELECT COUNT(*) FROM entities').get();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const dbPath = process.env.MEMESH_DB_PATH || path.join(homedir(), '.memesh', 'knowledge-graph.db');
+    const dbPath = getDbPath();
     console.error('\n❌ MeMesh startup failed: database cannot be opened\n');
     console.error(`   Database path: ${dbPath}`);
     console.error(`   Error: ${message}\n`);

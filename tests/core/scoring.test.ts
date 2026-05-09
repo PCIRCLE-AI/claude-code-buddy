@@ -1,5 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { recencyScore, frequencyScore, impactScore, rankEntities } from '../../src/core/scoring.js';
+import { readFileSync } from 'fs';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import {
+  recencyScore,
+  frequencyScore,
+  impactScore,
+  rankEntities,
+  SESSION_START_WEIGHT_RATIO,
+  DEFAULT_WEIGHTS,
+} from '../../src/core/scoring.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe('Scoring Engine', () => {
   describe('recencyScore', () => {
@@ -81,6 +93,40 @@ describe('Scoring Engine', () => {
       const relevance = new Map([['old', 0.5], ['recent', 0.5]]);
       const ranked = rankEntities(entities, relevance);
       expect(ranked[0].name).toBe('recent');
+    });
+  });
+
+  describe('SESSION_START_WEIGHT_RATIO', () => {
+    it('renormalises recency/frequency/confidence to sum to 1.0', () => {
+      const sum = SESSION_START_WEIGHT_RATIO.recency
+        + SESSION_START_WEIGHT_RATIO.frequency
+        + SESSION_START_WEIGHT_RATIO.confidence;
+      expect(sum).toBeCloseTo(1.0, 6);
+    });
+
+    it('preserves the proportions of DEFAULT_WEIGHTS', () => {
+      const subTotal = DEFAULT_WEIGHTS.recency + DEFAULT_WEIGHTS.frequency + DEFAULT_WEIGHTS.confidence;
+      expect(SESSION_START_WEIGHT_RATIO.recency).toBeCloseTo(DEFAULT_WEIGHTS.recency / subTotal, 6);
+      expect(SESSION_START_WEIGHT_RATIO.frequency).toBeCloseTo(DEFAULT_WEIGHTS.frequency / subTotal, 6);
+      expect(SESSION_START_WEIGHT_RATIO.confidence).toBeCloseTo(DEFAULT_WEIGHTS.confidence / subTotal, 6);
+    });
+
+    // Drift guard: the session-start hook hard-codes these weights inside a
+    // SQL ORDER BY string (no module imports cross the F5 boundary). If
+    // DEFAULT_WEIGHTS changes the ratios, the hook SQL must be updated
+    // too. This test fails loudly so a maintainer cannot silently shift
+    // session-start ranking out of sync with core ranking.
+    it('matches the hard-coded magic numbers in scripts/hooks/session-start.js', () => {
+      const hookSrc = readFileSync(
+        resolve(__dirname, '../../scripts/hooks/session-start.js'),
+        'utf8',
+      );
+      const recencyStr = SESSION_START_WEIGHT_RATIO.recency.toFixed(4);
+      const frequencyStr = SESSION_START_WEIGHT_RATIO.frequency.toFixed(4);
+      const confidenceStr = SESSION_START_WEIGHT_RATIO.confidence.toFixed(4);
+      expect(hookSrc).toContain(`* ${recencyStr}`);
+      expect(hookSrc).toContain(`* ${frequencyStr}`);
+      expect(hookSrc).toContain(`* ${confidenceStr}`);
     });
   });
 });

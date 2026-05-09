@@ -4,18 +4,20 @@ import { createRequire } from 'module';
 import { spawn } from 'child_process';
 import { createHash } from 'crypto';
 import { homedir } from 'os';
-import { join, basename } from 'path';
+import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { existsSync, readFileSync, unlinkSync, rmSync, appendFileSync, chmodSync } from 'fs';
 import {
-  buildReferenceContext,
   ensurePrivateDir,
-  getMemeshDir,
+  getDbPath,
+  getMemeshDirFromDbPath,
+  getProjectName,
   isAgenticOrchestrationEnabled,
   isTrustedForAutoContext,
   readUpdateCheckCache,
   resolvePluginRoot,
   resolveSessionLimit,
+  tryRequireBetterSqlite,
   writePrivateJson,
 } from './_shared.js';
 
@@ -38,8 +40,8 @@ try {
   }
 } catch { /* best-effort — fall through to 'unknown' channel */ }
 
-const dbPath = process.env.MEMESH_DB_PATH || join(homedir(), '.memesh', 'knowledge-graph.db');
-const memeshDir = getMemeshDir(process.env);
+const dbPath = getDbPath();
+const memeshDir = getMemeshDirFromDbPath();
 const throttlePath = join(memeshDir, 'session-recalled-files.json');
 const nudgeFlagsDir = join(memeshDir, 'agent-nudge-flags');
 
@@ -178,7 +180,13 @@ function detectInstallChannelHook(pluginRoot) {
   if (!_installChannelMod) return 'unknown';
   try {
     return _installChannelMod.getCurrentInstallChannel({ packageRoot: pluginRoot });
-  } catch {
+  } catch (err) {
+    // Falling back to 'unknown' silences the deprecation banner's
+    // remediation hint (since it's gated on channel detection). When
+    // there's an active security-advisory deprecation, that's a
+    // user-visible regression — surface to stderr at least once per
+    // process so the reason is visible.
+    try { process.stderr.write(`[memesh session-start] install-channel detection: ${err?.message || err}\n`); } catch {}
     return 'unknown';
   }
 }
@@ -342,7 +350,7 @@ process.stdin.on('end', async () => {
   try {
     try {
     const data = JSON.parse(input);
-    const projectName = basename(data.cwd || process.cwd());
+    const projectName = getProjectName(data.cwd);
 
     // Clear per-session throttle files from previous session
     try {
@@ -364,11 +372,16 @@ process.stdin.on('end', async () => {
       // Combine deprecation banner (if any) into the same
       // systemMessage so stdout stays a single JSON document. Outer
       // finally runs runPostBannerUpdateTasks().
-      output(combineWithBanner('MeMesh: No database found. Memories will be created as you work.'));
+      output(combineWithBanner('◉ MeMesh ready · no database yet, memories will be created as you work'));
       return;
     }
 
-    const Database = require('better-sqlite3');
+    // Native module unavailable (typical for plugin-marketplace cache
+    // installs that ship without node_modules). Silently skip — the
+    // plugin's own MCP server runs via npx and a sibling registered
+    // copy of this hook (npm-global / dev path) supplies the summary.
+    const Database = tryRequireBetterSqlite();
+    if (!Database) return;
     const db = new Database(dbPath, { readonly: true });
     try {
       db.pragma('journal_mode = WAL');
@@ -378,7 +391,7 @@ process.stdin.on('end', async () => {
         "SELECT name FROM sqlite_master WHERE type='table' AND name='entities'"
       ).get();
       if (!tableCheck) {
-        output(combineWithBanner('MeMesh: Database exists but no memories stored yet.'));
+        output(combineWithBanner('◉ MeMesh ready · database initialised but no memories stored yet'));
         return;
       }
 
@@ -390,190 +403,166 @@ process.stdin.on('end', async () => {
       const hasScoringCols = colNames.has('access_count') && colNames.has('last_accessed_at') && colNames.has('confidence');
 
       const statusFilter = hasStatus ? "AND e.status = 'active'" : '';
-      const recentStatusFilter = hasStatus ? "WHERE status = 'active'" : '';
+      // (Note: a previous `recentStatusFilter` constant lived here; the
+      // refactor that introduced `buildScoringQuery` aliased the table
+      // as `e` for both the project- and recent-pool queries, so the
+      // bare-column `WHERE status = 'active'` form was replaced by the
+      // qualified `WHERE e.status = 'active'` computed inline below.)
 
       // Configurable limit: how many top-N entities to load per section.
       // Env > config.sessionLimit > default 10.
       const sessionLimit = resolveSessionLimit(process.env);
 
-      // Build scoring ORDER BY clause (or fallback to insertion order)
-      const scoringOrderBy = hasScoringCols
-        ? `ORDER BY
-            CASE WHEN e.confidence IS NULL THEN 0.5 ELSE e.confidence END * 0.4
+      // Scoring math is aligned to src/core/scoring.ts exactly:
+      //   - confidence  weight 0.2833  (core 0.17 / 0.60 sub-total)
+      //   - frequency   weight 0.3000  (core 0.18 / 0.60)
+      //   - recency     weight 0.4167  (core 0.25 / 0.60)
+      // Sub-total excludes searchRelevance + impact, which session-start
+      // can't compute without an FTS query. The renormalised ratios are
+      // exported from core/scoring.ts as `SESSION_START_WEIGHT_RATIO`;
+      // a drift-guard test in tests/core/scoring.test.ts asserts the SQL
+      // here stays in sync.
+      //
+      // Functions:
+      //   - frequency: log(c+1) / log(max(maxAccess,1) + 1)  (matches frequencyScore)
+      //   - recency:   exp(-(now - lastAccessed_days) / 30)  (matches recencyScore)
+      // SQLite >= 3.35 with -DSQLITE_ENABLE_MATH_FUNCTIONS provides exp/log;
+      // better-sqlite3 v8+ ships with this flag enabled by default. We probe
+      // once per process and fall back to the legacy linear/rational forms
+      // if a stripped-down build is detected, so ranking degrades gracefully
+      // rather than throwing.
+      // Test-only seam: force the legacy linear/rational fallback so the
+      // pre-math-functions code path is reachable in CI on builds where
+      // exp/log ARE available. Production callers never set this.
+      let hasSqliteMath = false;
+      if (process.env.MEMESH_TEST_FORCE_LEGACY_SCORING_SQL !== '1') {
+        try {
+          db.prepare('SELECT exp(1.0), log(2.0)').get();
+          hasSqliteMath = true;
+        } catch {
+          // Legacy SQLite build without math functions — keep linear fallback.
+        }
+      }
+
+      // The legacy schema (createTestDb in tests, plus very old installs)
+      // doesn't have confidence/access_count/last_accessed_at, so the
+      // SELECT can't reference them. Build the column list to match
+      // what the schema actually supports.
+      const baseCols = 'e.id, e.name, e.type, e.created_at, e.metadata';
+      const scoringCols = hasScoringCols
+        ? `, e.confidence, e.access_count, e.last_accessed_at`
+        : '';
+
+      const buildScoringQuery = (joinClause, whereClause) => {
+        const poolSelect = `SELECT DISTINCT ${baseCols}${scoringCols} FROM entities e ${joinClause}`;
+        if (!hasScoringCols) {
+          return `${poolSelect} ${whereClause} ORDER BY e.id DESC LIMIT ?`;
+        }
+        if (hasSqliteMath) {
+          return `WITH pool AS (
+              ${poolSelect} ${whereClause}
+            ),
+            pool_stats AS (
+              SELECT COALESCE(MAX(access_count), 0) AS max_access FROM pool
+            )
+            SELECT p.id, p.name, p.type, p.created_at, p.metadata
+            FROM pool p, pool_stats s
+            ORDER BY
+              COALESCE(p.confidence, 1.0) * 0.2833
+              + (CASE WHEN s.max_access <= 0 THEN 0
+                      ELSE log(COALESCE(p.access_count, 0) + 1) / log(max(s.max_access, 1) + 1) END) * 0.3000
+              + (CASE WHEN p.last_accessed_at IS NULL THEN 0.5
+                      ELSE exp(-(julianday('now') - julianday(p.last_accessed_at)) / 30.0) END) * 0.4167
+              DESC
+            LIMIT ?`;
+        }
+        // Legacy fallback (SQLite without math functions): linear cap + rational decay.
+        // Same direction as core ranking; absolute scores differ slightly.
+        return `${poolSelect} ${whereClause}
+          ORDER BY
+            COALESCE(e.confidence, 1.0) * 0.2833
             + CASE WHEN e.access_count IS NULL THEN 0
-                   ELSE MIN(CAST(e.access_count AS REAL) / 50.0, 1.0) END * 0.3
-            + CASE WHEN e.last_accessed_at IS NULL THEN 0.3
-                   ELSE MIN(1.0, 1.0 / (1.0 + (julianday('now') - julianday(e.last_accessed_at)) / 30.0)) END * 0.3
-            DESC`
-        : 'ORDER BY e.id DESC';
+                   ELSE MIN(CAST(e.access_count AS REAL) / 50.0, 1.0) END * 0.3000
+            + CASE WHEN e.last_accessed_at IS NULL THEN 0.5
+                   ELSE MIN(1.0, 1.0 / (1.0 + (julianday('now') - julianday(e.last_accessed_at)) / 30.0)) END * 0.4167
+            DESC
+          LIMIT ?`;
+      };
 
-      const recentScoringOrderBy = hasScoringCols
-        ? `ORDER BY
-            CASE WHEN confidence IS NULL THEN 0.5 ELSE confidence END * 0.4
-            + CASE WHEN access_count IS NULL THEN 0
-                   ELSE MIN(CAST(access_count AS REAL) / 50.0, 1.0) END * 0.3
-            + CASE WHEN last_accessed_at IS NULL THEN 0.3
-                   ELSE MIN(1.0, 1.0 / (1.0 + (julianday('now') - julianday(last_accessed_at)) / 30.0)) END * 0.3
-            DESC`
-        : 'ORDER BY id DESC';
-
-      // Query project-specific top-N entities by relevance score
       const projectTag = `project:${projectName}`;
-      const projectEntities = db.prepare(`
-        SELECT DISTINCT e.id, e.name, e.type, e.created_at, e.metadata
-        FROM entities e
-        JOIN tags t ON t.entity_id = e.id
-        WHERE t.tag = ?
-        ${statusFilter}
-        ${scoringOrderBy}
-        LIMIT ?
-      `).all(projectTag, sessionLimit * 3)
+      const projectQuery = buildScoringQuery(
+        `JOIN tags t ON t.entity_id = e.id`,
+        `WHERE t.tag = ? ${statusFilter}`,
+      );
+      const projectEntities = db.prepare(projectQuery).all(projectTag, sessionLimit * 3)
         .filter(entity => isTrustedForAutoContext(entity.metadata))
         .slice(0, sessionLimit);
 
-      // Fetch the first observation for each entity (for concise summary)
-      const getFirstObservation = db.prepare(
-        'SELECT content FROM observations WHERE entity_id = ? ORDER BY id ASC LIMIT 1'
-      );
-
-      // Query global recent/top entities (exclude project-tagged ones for this project)
-      const recentEntities = db.prepare(`
-        SELECT id, name, type, created_at, metadata
-        FROM entities
-        ${recentStatusFilter}
-        ${recentScoringOrderBy}
-        LIMIT 15
-      `).all()
+      // recentStatusFilter is "WHERE status = 'active'" or "" — the bare-column
+      // form is fine when there's no JOIN, but we now alias the table as `e`,
+      // so rewrite to e.status for consistency.
+      const recentWhere = hasStatus ? "WHERE e.status = 'active'" : '';
+      const recentQuery = buildScoringQuery('', recentWhere);
+      const recentEntities = db.prepare(recentQuery).all(15)
         .filter(entity => isTrustedForAutoContext(entity.metadata))
         .slice(0, 5);
 
-      // Format entity as concise bullet: "• name (type): first observation (truncated)"
-      function formatEntity(entity) {
-        const obs = getFirstObservation.get(entity.id);
-        const snippet = obs ? obs.content.slice(0, 100) : '';
-        return snippet
-          ? `• ${entity.name} (${entity.type}): ${snippet}`
-          : `• ${entity.name} (${entity.type})`;
-      }
-
-      // Build recall message
-      const lines = [];
-      if (projectEntities.length > 0) {
-        const label = hasScoringCols ? `top ${projectEntities.length} by relevance` : `${projectEntities.length}`;
-        lines.push(`Project "${projectName}" memories (${label}):`);
-        for (const e of projectEntities) {
-          lines.push(formatEntity(e));
-        }
-      }
-      if (recentEntities.length > 0) {
-        if (lines.length > 0) lines.push('');
-        lines.push('Recent memories:');
-        for (const e of recentEntities) {
-          lines.push(formatEntity(e));
-        }
-      }
-
-      // No memories at all — surface only the deprecation banner if
-      // active (so a flagged install still warns the user) and skip
-      // the rest of the recall-summary work. The outer finally still
-      // runs runPostBannerUpdateTasks().
-      if (lines.length === 0) {
-        const bannerOnly = combineWithBanner('');
-        if (bannerOnly && bannerOnly.trim().length > 0) {
-          output(bannerOnly.trim());
-        }
-        return;
-      }
-
-      let memorySummary = lines.join('\n');
-
-      // --- Proactive lesson warnings ---
+      // Lesson count (queried for summary, not listed individually).
+      // Status-column gate matches the project/recent queries above —
+      // legacy v2.11 schemas don't have e.status and would otherwise
+      // throw `no such column: status`, hiding lessons from session-start
+      // auto-context indefinitely.
+      let lessonCount = 0;
       try {
-        const lessonEntities = db.prepare(`
-          SELECT DISTINCT e.id, e.name, e.confidence, e.metadata
+        const lessonRows = db.prepare(`
+          SELECT DISTINCT e.id, e.metadata
           FROM entities e
           JOIN tags t ON t.entity_id = e.id
           WHERE e.type = 'lesson_learned'
-            AND e.status = 'active'
+            ${hasStatus ? "AND e.status = 'active'" : ''}
             AND t.tag = ?
-          ORDER BY CASE WHEN e.confidence IS NULL THEN 0.5 ELSE e.confidence END DESC,
-                   CASE WHEN e.access_count IS NULL THEN 0 ELSE e.access_count END DESC
-          LIMIT 15
+          LIMIT 50
         `).all(projectTag).filter(entity => isTrustedForAutoContext(entity.metadata));
-
-        if (lessonEntities.length > 0) {
-          memorySummary += '\n\n⚠️ Known lessons for this project:\n';
-          for (const lesson of lessonEntities) {
-            // Load ALL observations per lesson (not fragile LIKE pattern)
-            const allObs = db.prepare(
-              'SELECT content FROM observations WHERE entity_id = ? ORDER BY id'
-            ).all(lesson.id);
-
-            // Find the Prevention line
-            const prevention = allObs.find(o => o.content.startsWith('Prevention:'));
-            const display = prevention
-              ? prevention.content.replace(/^Prevention:\s*/, '')
-              : (allObs[allObs.length - 1]?.content || lesson.name);
-
-            const conf = typeof lesson.confidence === 'number' ? lesson.confidence.toFixed(1) : '1.0';
-            memorySummary += `• ${display} (confidence: ${conf})\n`;
-          }
-        }
-      } catch {
-        // Lesson query failed — don't break session start
+        lessonCount = lessonRows.length;
+      } catch (err) {
+        // Real query bug (typo, missing column on a schema older than v2.11)
+        // — surface to stderr so a maintainer sees it on next session.
+        try { process.stderr.write(`[memesh session-start] lesson query: ${err?.message || err}\n`); } catch {}
       }
 
-      // --- Agentic-orchestration mode banner (experimental protocol, opt-in) ---
-      // memesh ships an experimental working-model protocol alongside its
-      // memory layer. The banner reminds Claude at session start that the
-      // suggested default for verifiable work (build/test/lint/migrate/
-      // refactor/benchmark) is to dispatch a background agent rather than
-      // block the conversation; strategic work stays foreground.
-      //
-      // OPT-IN ONLY: enabled via MEMESH_ENABLE_AGENTIC_ORCHESTRATION=1.
-      // The default is OFF — main wedge of memesh is local memory; the
-      // working-model protocol is a separable experiment, and its banner
-      // would otherwise dominate every session for users who never asked
-      // for it. Setting the flag also enables local skill-usage telemetry
-      // (~/.memesh/skill-usage.jsonl) so the protocol can later be
-      // validated with real usage data.
-      if (isAgenticOrchestrationEnabled(process.env)) {
-        try {
-          memorySummary +=
-            '\n\n[Experimental working model — protocol; effectiveness still being validated] ' +
-            'User=CTO · Claude=Orchestrator · Agents=Engineering team\n' +
-            'Verifiable work (build/test/lint/refactor/benchmark) → dispatch as background agent (Task with run_in_background:true).\n' +
-            'Strategic work → stay foreground. Skill: agentic-orchestration.';
+      // Build multi-line tree summary (count-based, no entity bullets)
+      const projectCount = projectEntities.length;
+      const recentCount = recentEntities.length;
+      const memoryParts = [];
+      if (projectCount > 0) {
+        memoryParts.push(`${projectCount} project memor${projectCount === 1 ? 'y' : 'ies'}`);
+      }
+      if (recentCount > 0) {
+        memoryParts.push(`${recentCount} recent memor${recentCount === 1 ? 'y' : 'ies'}`);
+      }
+      if (lessonCount > 0) {
+        memoryParts.push(`${lessonCount} active lesson${lessonCount === 1 ? '' : 's'}`);
+      }
 
-          // Local-only telemetry — never networked. Hook writes the JSONL
-          // line directly to keep itself self-contained (no dynamic import
-          // of compiled TS). Only fires when the user has opted in above.
-          try {
-            const usagePath = join(homedir(), '.memesh', 'skill-usage.jsonl');
-            // Hash the cwd so distinct-project counting still works without
-            // persisting any path fragment. SHA-256 → first 16 hex chars =
-            // 64 bits, plenty to distinguish projects on one machine.
-            const cwd = String(data?.cwd || process.cwd());
-            const cwdHashed = createHash('sha256').update(cwd).digest('hex').slice(0, 16);
-            const line = JSON.stringify({
-              ts: new Date().toISOString(),
-              event: 'agentic_orchestration_banner_injected',
-              payload: { cwd_hashed: cwdHashed },
-            }) + '\n';
-            appendFileSync(usagePath, line);
-            // Tighten mode — telemetry includes timestamps + per-project
-            // hashed cwd which can profile user activity. Other local
-            // users on a shared system should not be able to read it.
-            try { chmodSync(usagePath, 0o600); } catch { /* non-POSIX */ }
-          } catch { /* swallow — telemetry must not break session-start */ }
-        } catch {
-          // Banner failed — non-critical, continue
+      let summary;
+      if (memoryParts.length === 0) {
+        summary = `◉ MeMesh ready · no memories for "${projectName}" yet`;
+      } else {
+        const treeLines = ['◉ MeMesh memory loaded'];
+        for (let i = 0; i < memoryParts.length; i++) {
+          const branch = i === memoryParts.length - 1 ? '└─' : '├─';
+          treeLines.push(`  ${branch} ${memoryParts[i]}`);
         }
+        summary = treeLines.join('\n');
       }
 
       // --- Record injected entity IDs for recall effectiveness tracking ---
+      // The hit/miss tracker excludes entity names found in `injectedContext`
+      // from the "user referenced this memory" signal. With the new
+      // count-only summary we no longer surface names, so set the field to
+      // a sentinel so substring matching is a no-op (any entity name is a
+      // genuine hit).
       try {
-        // CRITICAL: Deduplicate by entity ID (entity may appear in both project and recent lists)
         const seenIds = new Set();
         const allInjected = [...projectEntities, ...recentEntities].filter(e => {
           if (seenIds.has(e.id)) return false;
@@ -585,7 +574,6 @@ process.stdin.on('end', async () => {
           const sessionsDir = join(memeshDir, 'sessions');
           ensurePrivateDir(sessionsDir);
 
-          // FIX: Use session-scoped file with unique ID (pid + timestamp)
           const sessionId = `${process.pid}-${Date.now()}`;
           writePrivateJson(
             join(sessionsDir, `${sessionId}.json`),
@@ -594,8 +582,7 @@ process.stdin.on('end', async () => {
               project: projectName,
               entityIds: allInjected.map(e => e.id),
               entityNames: allInjected.map(e => e.name),
-              // FIX: Save injected context text to exclude from hit detection
-              injectedContext: memorySummary,
+              injectedContext: summary,
             }
           );
 
@@ -613,15 +600,35 @@ process.stdin.on('end', async () => {
             }
           } catch {}
         }
-      } catch {
-        // Non-critical — don't break session start
+      } catch (err) {
+        // Non-critical — sessions-file write powers recall-effectiveness
+        // tracking (recall_hits / recall_misses on the dashboard). If it
+        // silently breaks, the impact-score factor in core/scoring.ts
+        // converges on 0.5 (neutral) for everything. Stderr trace so a
+        // permission/serialisation regression is visible.
+        try { process.stderr.write(`[memesh session-start] sessions-write: ${err?.message || err}\n`); } catch {}
       }
 
-      // Deprecation-aware banner. Reads the cache produced by the
-      // last `getUpdateCheck` (CLI or background refresh). When the
-      // installed version was flagged by maintainers (typically a
-      // security advisory), prepend a strong warning so the user sees
-      // it on every session start until they upgrade.
+      // --- Agentic-orchestration mode (opt-in) ---
+      // Banner kept short. Telemetry write preserved for protocol validation.
+      if (isAgenticOrchestrationEnabled(process.env)) {
+        summary += '\n[AO opt-in: dispatch verifiable work as background agent · skill: agentic-orchestration]';
+        try {
+          const usagePath = join(homedir(), '.memesh', 'skill-usage.jsonl');
+          const cwd = String(data?.cwd || process.cwd());
+          const cwdHashed = createHash('sha256').update(cwd).digest('hex').slice(0, 16);
+          const line = JSON.stringify({
+            ts: new Date().toISOString(),
+            event: 'agentic_orchestration_banner_injected',
+            payload: { cwd_hashed: cwdHashed },
+          }) + '\n';
+          appendFileSync(usagePath, line);
+          try { chmodSync(usagePath, 0o600); } catch { /* non-POSIX */ }
+        } catch { /* swallow — telemetry must not break session-start */ }
+      }
+
+      // Deprecation banner (security advisory) — surfaced even with the
+      // short summary so flagged installs still warn on every session.
       let installedVersion = null;
       try {
         const pluginRoot = resolvePluginRoot(import.meta.url);
@@ -634,11 +641,11 @@ process.stdin.on('end', async () => {
       const deprecationLines = installedVersion
         ? buildDeprecationBanner(installedVersion, updateCache)
         : [];
-      const memorySummaryWithBanner = deprecationLines.length > 0
-        ? [...deprecationLines, '', ...memorySummary.split('\n')].join('\n')
-        : memorySummary;
+      const finalMessage = deprecationLines.length > 0
+        ? [...deprecationLines.filter(l => l.length > 0), '', summary].join('\n')
+        : summary;
 
-      output(buildReferenceContext(memorySummaryWithBanner.split('\n')));
+      output(finalMessage);
     } finally {
       db.close();
     }
@@ -657,8 +664,13 @@ process.stdin.on('end', async () => {
       } finally {
         dbMod.closeDatabase();
       }
-    } catch {
-      // Non-critical — noise compression failed, will retry next session
+    } catch (err) {
+      // Non-critical — noise compression failed, will retry next session.
+      // Trace because this catch previously hid an off-by-one regression
+      // in resolvePluginRoot (4.0.4-4.1.0) that silently disabled both
+      // noise compression AND LLM failure analysis for three minor
+      // releases. A one-line stderr would have surfaced it on day 1.
+      try { process.stderr.write(`[memesh session-start] noise-compression: ${err?.message || err}\n`); } catch {}
     }
 
     } catch (err) {

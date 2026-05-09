@@ -13,6 +13,7 @@ import { getDatabase, clearPendingReindexFlag } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { expandQuery, isExpansionAvailable } from './query-expander.js';
 import { rankEntities } from './scoring.js';
+import { getProjectName } from './paths.js';
 import { createExplicitLesson } from './lesson-engine.js';
 import { embedAndStore, isEmbeddingAvailable, embedText, scheduleEmbedAndStore, vectorSearch } from './embedder.js';
 import { autoTagAndApply } from './auto-tagger.js';
@@ -300,7 +301,7 @@ export { exportMemories, importMemories } from './serializer.js';
  * Uses createExplicitLesson from lesson-engine to build and store the entity.
  */
 export function learn(args: LearnInput): LearnResult {
-  const projectName = path.basename(process.cwd());
+  const projectName = getProjectName();
 
   const result = createExplicitLesson(
     args.error,

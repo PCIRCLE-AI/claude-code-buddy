@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import { createRequire } from 'module';
+import { memeshDir } from './paths.js';
 
 // --- Config Types ---
 
@@ -74,33 +74,47 @@ export interface Capabilities {
 }
 
 // --- Config File Path ---
-
-const CONFIG_DIR = path.join(os.homedir(), '.memesh');
-const CONFIG_PATH = path.join(CONFIG_DIR, 'config.json');
+//
+// Resolved lazily via `memeshDir()` so HOME-first override (used by hermetic
+// Windows tests that point HOME at a tmpdir) takes effect on every read /
+// write — the previous module-load-time constants captured the pre-test
+// HOME value, defeating isolation. See src/core/paths.ts for the precedence
+// rules (MEMESH_DIR > <home>/.memesh).
 const PRIVATE_DIR_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
+
+function configDir(): string {
+  return memeshDir();
+}
+
+function configFilePath(): string {
+  return path.join(configDir(), 'config.json');
+}
 
 // --- Read/Write ---
 
 export function readConfig(): MeMeshConfig {
   try {
-    if (!fs.existsSync(CONFIG_PATH)) return {};
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    const p = configFilePath();
+    if (!fs.existsSync(p)) return {};
+    return JSON.parse(fs.readFileSync(p, 'utf8'));
   } catch {
     return {};
   }
 }
 
 export function writeConfig(config: MeMeshConfig): void {
-  fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: PRIVATE_DIR_MODE });
+  const dir = configDir();
+  const p = configFilePath();
+  fs.mkdirSync(dir, { recursive: true, mode: PRIVATE_DIR_MODE });
   try {
-    fs.chmodSync(CONFIG_DIR, PRIVATE_DIR_MODE);
+    fs.chmodSync(dir, PRIVATE_DIR_MODE);
   } catch {
     // Best-effort hardening only.
   }
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), { mode: PRIVATE_FILE_MODE });
+  fs.writeFileSync(p, JSON.stringify(config, null, 2), { mode: PRIVATE_FILE_MODE });
   try {
-    fs.chmodSync(CONFIG_PATH, PRIVATE_FILE_MODE);
+    fs.chmodSync(p, PRIVATE_FILE_MODE);
   } catch {
     // Best-effort hardening only.
   }
@@ -266,5 +280,5 @@ export function logCapabilities(config?: MeMeshConfig): void {
 
 // --- Config Path Exports (for testing) ---
 
-export function getConfigDir(): string { return CONFIG_DIR; }
-export function getConfigPath(): string { return CONFIG_PATH; }
+export function getConfigDir(): string { return configDir(); }
+export function getConfigPath(): string { return configFilePath(); }

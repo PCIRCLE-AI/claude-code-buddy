@@ -13,9 +13,9 @@
 
 import { join } from 'path';
 import { openSync, closeSync } from 'fs';
-import { ensurePrivateDir, getMemeshDir, isAgenticOrchestrationEnabled } from './_shared.js';
+import { ensurePrivateDir, getMemeshDirFromDbPath, isAgenticOrchestrationEnabled } from './_shared.js';
 
-const memeshDir = getMemeshDir(process.env);
+const memeshDir = getMemeshDirFromDbPath();
 const FLAGS_DIR = join(memeshDir, 'agent-nudge-flags');
 
 // ---------------------------------------------------------------------------
