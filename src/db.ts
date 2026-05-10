@@ -58,6 +58,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, 
 CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);
+CREATE INDEX IF NOT EXISTS idx_entities_type_created ON entities(type, created_at);
 `;
 
 const FTS_SQL = `
@@ -102,33 +103,52 @@ export function openDatabase(dbPath?: string): Database.Database {
   }
 
   // Migrate: add status column if missing (v2.11 -> v2.12)
+  // Conditional ALTER TABLE blocks ARE idempotent within a single
+  // process, but two processes (e.g. CLI + HTTP server starting back-
+  // to-back, or a hook running concurrently with `memesh recall`) can
+  // race: each reads its own PRAGMA snapshot, both see "column missing",
+  // both run ALTER, the second one throws SQLITE_ERROR: duplicate column
+  // name. `safeAlter` treats that one error as the expected no-op
+  // outcome (a peer beat us to it). Any other error rethrows so we
+  // don't paper over real bugs. Mirrors `scripts/hooks/_shared.js`'s
+  // openHookDb exactly — the bug shape was caught there first; the
+  // core side was untreated until a reviewer flagged the asymmetry.
+  const safeAlter = (sql: string): void => {
+    try {
+      db!.exec(sql);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!/duplicate column name/i.test(msg)) throw e;
+    }
+  };
+
   const columns = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
   if (!columns.some((c) => c.name === 'status')) {
-    db.exec("ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+    safeAlter("ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
     db.exec("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)");
   }
 
   // Migrate: add scoring columns if missing (v2.14 -> v2.15)
   const scoringCols = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
   if (!scoringCols.some((c) => c.name === 'access_count')) {
-    db.exec("ALTER TABLE entities ADD COLUMN access_count INTEGER DEFAULT 0");
-    db.exec("ALTER TABLE entities ADD COLUMN last_accessed_at TIMESTAMP");
-    db.exec("ALTER TABLE entities ADD COLUMN confidence REAL DEFAULT 1.0");
-    db.exec("ALTER TABLE entities ADD COLUMN valid_from TIMESTAMP");
-    db.exec("ALTER TABLE entities ADD COLUMN valid_until TIMESTAMP");
+    safeAlter("ALTER TABLE entities ADD COLUMN access_count INTEGER DEFAULT 0");
+    safeAlter("ALTER TABLE entities ADD COLUMN last_accessed_at TIMESTAMP");
+    safeAlter("ALTER TABLE entities ADD COLUMN confidence REAL DEFAULT 1.0");
+    safeAlter("ALTER TABLE entities ADD COLUMN valid_from TIMESTAMP");
+    safeAlter("ALTER TABLE entities ADD COLUMN valid_until TIMESTAMP");
   }
 
   // Migrate: add namespace column if missing (v3.0.0-rc -> v3.0.0)
   if (!scoringCols.some((c) => c.name === 'namespace')) {
-    db.exec("ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
+    safeAlter("ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
     db.exec("CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace)");
   }
 
   // Migrate: add recall effectiveness columns if missing (v4.0.0)
   const recallCols = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
   if (!recallCols.some((c) => c.name === 'recall_hits')) {
-    db.exec("ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
-    db.exec("ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
+    safeAlter("ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
+    safeAlter("ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
   }
 
   // Run auto-decay: reduce confidence for stale entities (throttled to once per 24h)

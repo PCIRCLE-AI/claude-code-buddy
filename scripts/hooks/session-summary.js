@@ -114,29 +114,14 @@ function parseTranscript(transcriptPath) {
           }
         }
 
-        // Legacy format (older Claude Code versions): top-level tool_use/tool_result
-        if (entry.type === 'tool_use' || entry.tool_name) {
-          toolCallCount++;
-          if (entry.tool_name === 'Write' || entry.tool_name === 'Edit') {
-            const fp = (entry.tool_input?.file_path ?? entry.tool_input?.path);
-            if (fp && typeof fp === 'string') filesEdited.add(basename(fp));
-          }
-          if (entry.tool_name === 'Bash') {
-            const cmd = entry.tool_input?.command ?? '';
-            if (typeof cmd === 'string' && cmd.length > 10 && !cmd.startsWith('ls') && !cmd.startsWith('cd')) {
-              bashCommands.push(cmd.slice(0, 100));
-            }
-          }
-        }
-        if (entry.type === 'tool_result' && entry.content != null) {
-          // Same fix as the current-format branch: trust the flag, not text.
-          if (entry.is_error !== true) {
-            // empty
-          } else {
-            const text = typeof entry.content === 'string' ? entry.content : JSON.stringify(entry.content);
-            errorsEncountered.push(text.slice(0, 200));
-          }
-        }
+        // The legacy branch (top-level entry.tool_use / entry.tool_name /
+        // entry.tool_result with entry.content) was confirmed dead code
+        // via real-transcript audit: no Claude Code transcript ever
+        // shipped that shape — current production wraps every block
+        // under entry.message.content. Removed because the
+        // dead branch had a confusing empty if/else (lines 133-138 of
+        // the prior version) that signalled review fatigue more than
+        // working logic.
       } catch {
         // Skip malformed JSONL lines
       }
@@ -162,7 +147,14 @@ process.stdin.on('end', async () => {
     let inputData;
     try {
       inputData = JSON.parse(input);
-    } catch {
+    } catch (parseErr) {
+      // Schema mismatch / Claude Code payload-shape flip would land here.
+      // Trace so the next 24h of dev surfaces it instead of months of
+      // silent dropout. Mirrors user-prompt-intent.js's logError pattern.
+      try {
+        const preview = (input || '').slice(0, 80).replace(/\n/g, ' ');
+        process.stderr.write(`[memesh session-summary] malformed stdin JSON (len=${input.length}): ${parseErr?.message || parseErr}; preview="${preview}"\n`);
+      } catch {}
       return exit0();
     }
 
@@ -182,7 +174,23 @@ process.stdin.on('end', async () => {
     // Guards: skip low-signal sessions
     if (stopReason === 'user_interrupt') return exit0();
     if (!wasAgenticLoop) return exit0();
-    if (!transcriptPath || !existsSync(transcriptPath)) return exit0();
+    // Trace why we're skipping. Two failure modes:
+    //   (a) transcript_path absent — schema flip, Claude Code stopped
+    //       sending the field. Same bug shape as `was_in_agentic_loop`
+    //       (PR #39); without a trace it's invisible for months.
+    //   (b) transcript_path present but file vanished — race with
+    //       Claude Code's own log rotation, or a permissions issue.
+    // Either way, no transcript means no extractable session knowledge,
+    // so the silent-no-op is the right behaviour — but we leave a
+    // breadcrumb so a schema flip doesn't ship undetected again.
+    if (!transcriptPath) {
+      try { process.stderr.write(`[memesh session-summary] transcript_path absent in payload (keys: ${Object.keys(inputData).join(',')}); skipping capture\n`); } catch {}
+      return exit0();
+    }
+    if (!existsSync(transcriptPath)) {
+      try { process.stderr.write(`[memesh session-summary] transcript_path ${transcriptPath} does not exist; skipping capture\n`); } catch {}
+      return exit0();
+    }
 
     // Parse transcript
     const { filesEdited, bashCommands, errorsEncountered, toolCallCount } = parseTranscript(transcriptPath);
@@ -324,7 +332,15 @@ process.stdin.on('end', async () => {
           for (const { path } of recentFiles) {
             try {
               const data = JSON.parse(readFileSync(path, 'utf8'));
-              if (data.project === projectName || recentFiles.length === 1) {
+              // Project match must be exact. The earlier
+              // `|| recentFiles.length === 1` fallback caused
+              // cross-project recall-effectiveness leakage: with two
+              // concurrent Claude Code sessions in two repos, a
+              // project-mismatched Stop hook would pick up the OTHER
+              // project's entityIds and update THEIR hits/misses
+              // against this transcript. Lose one session's tracking
+              // rather than corrupt another's.
+              if (data.project === projectName) {
                 injectedData = data;
                 // Delete after reading to prevent reuse
                 require('fs').unlinkSync(path);

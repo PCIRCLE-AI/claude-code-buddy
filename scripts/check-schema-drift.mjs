@@ -45,6 +45,20 @@ function extractConstant(source, name) {
   if (!match) {
     throw new Error(`Could not locate \`${name}\` template literal`);
   }
+  // Defensive: if a future migration adds an embedded backtick to the
+  // SQL string, the lazy-match `[\s\S]*?` truncates the capture early,
+  // producing a partial body. The regex would silently match a wrong
+  // shorter capture rather than fail. Reject any body shorter than
+  // 100 chars (smallest realistic SCHEMA_SQL is ~400 chars; FTS_SQL
+  // is ~150). Forces a maintainer either to rename the constant or
+  // escape the backtick.
+  if (match[1].length < 100) {
+    throw new Error(
+      `Extracted body for \`${name}\` is implausibly short (${match[1].length} chars). `
+      + `Likely cause: an embedded backtick in the SQL truncated the match early. `
+      + `Either escape the backtick or split the constant.`,
+    );
+  }
   return match[1];
 }
 
