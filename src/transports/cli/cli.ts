@@ -682,6 +682,7 @@ dreamCmd
         dryRun: !!opts.dryRun,
         maxLlmCalls: opts.maxLlmCalls,
         windowDays: opts.windowDays,
+        fallbacks: cfg.llmFallbacks,
       });
       console.log(`${opts.dryRun ? '[dry-run] ' : ''}Dream pass complete in ${result.durationMs}ms`);
       console.log(`  clusters scanned: ${result.clustersScanned}`);
@@ -689,13 +690,17 @@ dreamCmd
       console.log(`  proposals created: ${result.proposalsCreated}`);
       if (result.skipped.length > 0) {
         console.log(`  skipped:           ${result.skipped.length}`);
+        // Group by the FULL reason text — earlier we split on ':' which
+        // truncated "LLM call failed: Anthropic API error: 401" down to
+        // just "LLM call failed" and silently dropped the actual error
+        // class. Surfacing the full reason makes outages debuggable
+        // without dropping into the dreamer module directly.
         const reasonCounts = new Map<string, number>();
         for (const s of result.skipped) {
-          const key = s.reason.split(':')[0];
-          reasonCounts.set(key, (reasonCounts.get(key) ?? 0) + 1);
+          reasonCounts.set(s.reason, (reasonCounts.get(s.reason) ?? 0) + 1);
         }
         for (const [reason, n] of reasonCounts) {
-          console.log(`    - ${reason}: ${n}`);
+          console.log(`    - ${reason}${n > 1 ? ` (×${n})` : ''}`);
         }
       }
       if (!opts.dryRun && result.proposalsCreated > 0) {
@@ -730,6 +735,7 @@ dreamCmd
         maxLlmCalls: opts.maxLlmCalls,
         windowDays: opts.windowDays,
         minSignal: opts.minSignal,
+        fallbacks: cfg.llmFallbacks,
       });
       console.log(`${opts.dryRun ? '[dry-run] ' : ''}Pattern detector complete in ${result.durationMs}ms`);
       console.log(`  entities scanned: ${result.entitiesScanned}`);

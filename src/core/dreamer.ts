@@ -31,7 +31,7 @@
 //   - all writes wrapped in transaction; partial-failure rolls back
 
 import type Database from 'better-sqlite3';
-import { callLLM } from './llm-client.js';
+import { callLLM, type LLMAttempt } from './llm-client.js';
 import type { LLMConfig } from './config.js';
 
 const PROMPT_VERSION = 'v1';
@@ -65,6 +65,19 @@ export interface DreamerOptions {
   dryRun?: boolean;
   maxLlmCalls?: number;
   windowDays?: number;
+  /**
+   * Cross-provider fallback chain. Forwarded to `callLLM`; tried in
+   * order if the primary `llm` fails with auth/network/upstream/rate
+   * errors. Empty / undefined preserves original single-provider
+   * behaviour.
+   */
+  fallbacks?: LLMConfig[];
+  /**
+   * Telemetry hook fired once per LLM call with the full attempt list
+   * (primary + each fallback that was tried). Optional — the dreamer
+   * does not depend on telemetry for correctness.
+   */
+  onAttempt?: (attempts: LLMAttempt[]) => void;
 }
 
 export interface DreamerResult {
@@ -143,7 +156,7 @@ export async function runDreamer(
 
     let digest: ProposedDigest | null;
     try {
-      digest = await consolidateCluster(cluster, llm);
+      digest = await consolidateCluster(cluster, llm, opts.fallbacks, opts.onAttempt);
       result.llmCalls++;
     } catch (err) {
       result.skipped.push({
@@ -256,7 +269,12 @@ function proposalAlreadyExists(db: Database.Database, cluster: Cluster): boolean
   return false;
 }
 
-async function consolidateCluster(cluster: Cluster, llm: LLMConfig): Promise<ProposedDigest | null> {
+async function consolidateCluster(
+  cluster: Cluster,
+  llm: LLMConfig,
+  fallbacks?: LLMConfig[],
+  onAttempt?: (attempts: LLMAttempt[]) => void,
+): Promise<ProposedDigest | null> {
   const sources = cluster.entities.map(e => {
     const obsPreview = e.observations.slice(0, 3).map(o => o.slice(0, 200)).join(' | ');
     return `[id=${e.id}] (${e.type}, ${e.created_at.slice(0, 10)}) ${e.name}\n  ${obsPreview}`;
@@ -277,7 +295,7 @@ Rules:
 Source entries:
 ${sources}`;
 
-  const text = await callLLM(prompt, llm, { maxTokens: 500 });
+  const text = await callLLM(prompt, llm, { maxTokens: 500, fallbacks, onAttempt });
   return parseDigest(text);
 }
 
@@ -344,6 +362,10 @@ export interface PatternDetectorOptions {
   dryRun?: boolean;
   maxLlmCalls?: number;
   windowDays?: number;
+  /** Cross-provider failover chain — see DreamerOptions.fallbacks. */
+  fallbacks?: LLMConfig[];
+  /** Telemetry hook — see DreamerOptions.onAttempt. */
+  onAttempt?: (attempts: LLMAttempt[]) => void;
   /** Min signal_score to include in scan (defaults to 0.3 — exclude pure noise but keep medium). */
   minSignal?: number;
 }
@@ -403,7 +425,7 @@ export async function runPatternDetector(
 
     let patterns: PatternProposal[];
     try {
-      patterns = await detectPatterns(project, entities, llm);
+      patterns = await detectPatterns(project, entities, llm, opts.fallbacks, opts.onAttempt);
       result.llmCalls++;
     } catch (err) {
       result.skipped.push({
@@ -484,7 +506,13 @@ function collectProjectEntitiesForPatterns(
   return out;
 }
 
-async function detectPatterns(project: string, entities: ProjectEntity[], llm: LLMConfig): Promise<PatternProposal[]> {
+async function detectPatterns(
+  project: string,
+  entities: ProjectEntity[],
+  llm: LLMConfig,
+  fallbacks?: LLMConfig[],
+  onAttempt?: (attempts: LLMAttempt[]) => void,
+): Promise<PatternProposal[]> {
   const sample = entities.map(e => {
     const obsPreview = e.observations.slice(0, 2).map(o => o.slice(0, 150)).join(' | ');
     return `[id=${e.id}] (${e.type}) ${e.name}: ${obsPreview}`;
@@ -508,7 +536,7 @@ Rules:
 Source entries:
 ${sample}`;
 
-  const text = await callLLM(prompt, llm, { maxTokens: 800 });
+  const text = await callLLM(prompt, llm, { maxTokens: 800, fallbacks, onAttempt });
   return parsePatterns(text);
 }
 
