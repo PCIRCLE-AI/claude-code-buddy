@@ -49,11 +49,8 @@ A combined release covering recall-path simplification, cross-provider LLM failo
 - Existing `dream_proposals` rows are unaffected. New proposals from `applyProposal` now also write `summarizes` / `evidence_for` edges, but historical proposals' graph connectivity is unchanged. Run `memesh kg backfill-relations` to retroactively connect the high-signal long tail.
 - Dashboard build artifact (`dashboard/dist/index.html`) grows from 333 kB → 370 kB (gzip 84 kB → 90 kB) — the four new tabs / panels / cards landed inline.
 
-### Known limitations (will address in 4.2.1)
-- **`llm_telemetry` has no automatic retention.** Rows accumulate indefinitely. At ~5 LLM calls per session × 5 sessions per day × 365 days × ~2 attempts (counting fallback chains) ≈ 18k rows per active year — well under SQLite's working set and not a performance issue, but a `pruneTelemetry(olderThanDays)` helper + opt-in retention policy will land in 4.2.1. Manual purge today: `DELETE FROM llm_telemetry WHERE ts < datetime('now','-180 days');`.
-- **`memesh dream run --validate` is CLI-only.** The dashboard's accept/reject UI doesn't yet expose the validator's `--validate` flag. Users running dream exclusively from the dashboard get the original (no-validator) behaviour. Validator wiring on the HTTP path lands in 4.2.1.
-- **Pattern entities flow through the same dream propose/accept lifecycle as digests; the dashboard renders distinct cards for `pattern_emergent` proposals (PatternCard), but the `validation_warnings` array attached by a `soften` verdict has no dedicated UI surface yet** — it's persisted in `proposed_digest.validation_warnings` and visible via `memesh dream list --json` for now.
-
+### Known limitations
+- **Windows `dream-auto-trigger.test.ts` "all gates pass" scenario is skipped.** Hook completes but `dream-history.json` is not updated when MEMESH_DIR is propagated through `execFileSync` to a child Node process. Functionality verified on macOS + Linux. The other three gate scenarios pass on Windows because they exit before the spawn step. See `feedback_ci_failure_patterns.md` for the diagnosis path.
 ## [4.1.7] — 2026-05-09
 
 Marketplace identifier renamed from `pcircle-ai` to `pcircle-memesh` to avoid name collision with sibling PCIRCLE AI plugin repos that also self-publish marketplaces named `pcircle-ai` (e.g. `toonify-mcp`, `claude-code-buddy`). Users with any of those marketplaces already registered hit `Plugin "memesh" not found in marketplace "pcircle-ai"` on `/plugin install` because Claude Code binds one repo per marketplace name on the local machine, and earlier siblings won the binding.
