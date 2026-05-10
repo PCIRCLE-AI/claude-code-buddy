@@ -12,9 +12,27 @@ process.stdin.on('end', () => {
 
     // Only process Bash tool outputs
     if (data.tool_name !== 'Bash') return exit0();
-    const toolOutput = typeof data.tool_output === 'string'
-      ? data.tool_output
-      : JSON.stringify(data.tool_output || '');
+
+    // Claude Code's PostToolUse hook payload has had two field-name shapes:
+    // legacy `tool_output: <string>` and current
+    // `tool_response: { stdout, stderr, interrupted, isError }`. Prefer the
+    // current shape; fall back to legacy so unit-test fixtures (which use
+    // tool_output) keep working. This block existed only as the legacy
+    // branch — once Claude Code unified on tool_response the hook silently
+    // stopped seeing any output and never wrote commit entities again.
+    const tr = data.tool_response;
+    let toolOutput = '';
+    if (typeof tr === 'string') {
+      toolOutput = tr;
+    } else if (tr && typeof tr === 'object') {
+      const stdout = typeof tr.stdout === 'string' ? tr.stdout : '';
+      const stderr = typeof tr.stderr === 'string' ? tr.stderr : '';
+      toolOutput = stdout + (stderr ? '\n' + stderr : '');
+    } else if (typeof data.tool_output === 'string') {
+      toolOutput = data.tool_output;
+    } else if (data.tool_output != null) {
+      toolOutput = JSON.stringify(data.tool_output);
+    }
 
     // Detect git commit in output
     // Pattern: [branch hash] commit message

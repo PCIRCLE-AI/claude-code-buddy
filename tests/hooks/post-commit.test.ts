@@ -202,4 +202,35 @@ describe('Feature: Post-Commit Hook', () => {
       timeout: 15000,
     });
   });
+
+  // Regression: Claude Code's PostToolUse hook payload uses
+  // `tool_response: { stdout, stderr, ... }` (current schema), not
+  // legacy `tool_output: <string>`. The hook silently stopped writing
+  // any commit entity once Claude Code unified on this shape, because
+  // the hook only consulted `tool_output`. This test pins the new
+  // shape so a future refactor can't regress it again.
+  it('Scenario: tool_response.stdout (current Claude Code schema) -> entity created', () => {
+    const input = {
+      tool_name: 'Bash',
+      cwd: '/tmp/myproject',
+      tool_input: { command: 'git commit -m "feat: tool_response shape"' },
+      tool_response: {
+        stdout: '[main c0ffee1] feat: tool_response shape\n 2 files changed, 8 insertions(+)',
+        stderr: '',
+        interrupted: false,
+        isError: false,
+      },
+    };
+
+    runHook(input);
+
+    const db = openDb();
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-c0ffee1');
+    expect(entity).toBeTruthy();
+    expect(entity.type).toBe('commit');
+    const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id').all(entity.id);
+    const msgObs = obs.find((o: { content: string }) => o.content === 'feat: tool_response shape');
+    expect(msgObs).toBeTruthy();
+    db.close();
+  });
 });
