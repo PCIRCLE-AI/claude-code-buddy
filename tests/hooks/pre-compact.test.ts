@@ -91,12 +91,14 @@ describe('Feature: PreCompact Hook', () => {
     // Write a minimal transcript JSONL with tool_use blocks
     const transcriptPath = path.join(testDir, 'transcript.jsonl');
     const assistantMsg = {
-      role: 'assistant',
-      content: [
-        { type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/tmp/foo.ts' } },
-        { type: 'tool_use', id: 't2', name: 'Edit', input: { file_path: '/tmp/bar.ts' } },
-        { type: 'tool_use', id: 't3', name: 'Write', input: { file_path: '/tmp/baz.ts' } },
-      ],
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/tmp/foo.ts' } },
+          { type: 'tool_use', id: 't2', name: 'Edit', input: { file_path: '/tmp/bar.ts' } },
+          { type: 'tool_use', id: 't3', name: 'Write', input: { file_path: '/tmp/baz.ts' } },
+        ],
+      },
     };
     fs.writeFileSync(transcriptPath, JSON.stringify(assistantMsg) + '\n');
 

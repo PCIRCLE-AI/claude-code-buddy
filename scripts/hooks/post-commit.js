@@ -10,7 +10,15 @@ process.stdin.on('end', () => {
   try {
     const data = JSON.parse(input);
 
-    // Only process Bash tool outputs
+    // tool_name absent is a schema-flip signal (Claude Code has done
+    // tool_name renames historically — e.g. tool_use/tool_result
+    // nesting). Trace to surface the rename day-1 instead of months
+    // of silent dropout (the bug shape that bit `tool_output` and
+    // `was_in_agentic_loop`).
+    if (data.tool_name === undefined) {
+      try { process.stderr.write(`[memesh post-commit] tool_name absent in payload (keys: ${Object.keys(data).join(',')}); skipping\n`); } catch {}
+      return exit0();
+    }
     if (data.tool_name !== 'Bash') return exit0();
 
     // Claude Code's PostToolUse hook payload has had two field-name shapes:
@@ -44,6 +52,17 @@ process.stdin.on('end', () => {
 
     const commitHash = commitMatch[1];
     const commitMsg = commitMatch[2];
+
+    // `data.cwd` MUST be present for project-tag and `git show` below
+    // to be correct. If absent, falling through to process.cwd() (the
+    // hook process's launch dir, unspecified for PostToolUse Bash)
+    // would either run git show against a different repo (silent
+    // corruption) or write the wrong project tag. Skip + trace
+    // instead — better to miss one commit than to tag it wrong.
+    if (!data.cwd) {
+      try { process.stderr.write(`[memesh post-commit] data.cwd absent — cannot resolve project / repo; skipping commit ${commitHash}\n`); } catch {}
+      return exit0();
+    }
     const projectName = getProjectName(data.cwd);
 
     // Open DB via shared helper — applies SCHEMA_SQL + status migration.

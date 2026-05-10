@@ -28,7 +28,23 @@ import path from 'path';
  * so this falls through to `os.homedir()` unchanged.
  */
 export function homeDir(): string {
-  return process.env.HOME ?? os.homedir();
+  // `??` only falls through on null/undefined — an env that exports
+  // HOME="" (some Docker base images, some CI sandboxes, broken nss
+  // configs) would silently return "" and route memesh's data dir
+  // under the process cwd via path.join("", ".memesh") === ".memesh".
+  //
+  // Three-step fallback:
+  //   1. process.env.HOME (most explicit)
+  //   2. os.homedir() — but on POSIX this ALSO reads HOME first, so
+  //      with HOME="" it returns "" too
+  //   3. os.userInfo().homedir — reads pw_dir via getpwuid syscall,
+  //      bypassing env vars entirely. Final defence against HOME=""
+  //      sandboxes.
+  const home = process.env.HOME;
+  if (home && home.length > 0) return home;
+  const fromOs = os.homedir();
+  if (fromOs && fromOs.length > 0) return fromOs;
+  return os.userInfo().homedir;
 }
 
 /**

@@ -31,7 +31,13 @@ process.stdin.on('data', (chunk) => { input += chunk; });
 process.stdin.on('end', () => {
   try {
     const data = JSON.parse(input);
-    const toolInput = data.tool_input || {};
+    if (!data.tool_input) {
+      // Schema-flip signal — Claude Code has renamed `tool_input` for
+      // transcript blocks before. Trace so the rename surfaces day-1.
+      try { process.stderr.write(`[memesh pre-edit-recall] tool_input absent (keys: ${Object.keys(data).join(',')}); skipping\n`); } catch {}
+      return pass();
+    }
+    const toolInput = data.tool_input;
     const filePath = toolInput.file_path || toolInput.path || '';
 
     // Only process if we have a file path

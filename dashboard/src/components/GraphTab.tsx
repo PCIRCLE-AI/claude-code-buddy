@@ -354,7 +354,17 @@ export function GraphTab() {
       // even after settle the freeze loop ran O(n) comparisons + boundary
       // checks every frame indefinitely. With the early-out the cooled
       // graph costs ~0 per frame.
-      const dragNode = dragRef.current.node;
+      // If a drag is in progress against a node that's no longer in the
+      // current `nodes` array (e.g. data refresh swapped the array
+      // mid-drag), the stale ref would make the spring-force / edge
+      // render lookups silently miss for one frame. Cheap to detect:
+      // if dragNode isn't in the current set, clear it so subsequent
+      // frames behave normally.
+      let dragNode = dragRef.current.node;
+      if (dragNode && !nodes.includes(dragNode)) {
+        dragRef.current.node = null;
+        dragNode = null;
+      }
       const skipApply = !physicsActive
         && !dragNode
         && nodes.every((n) => n.vx === 0 && n.vy === 0);
