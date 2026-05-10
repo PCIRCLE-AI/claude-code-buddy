@@ -102,8 +102,8 @@ function loadOrCreateRemoteToken(): { token: Buffer; freshlyCreated: boolean } {
     }
     try { fs.chmodSync(tokenPath, 0o600); } catch { /* non-POSIX */ }
     return { token: Buffer.from(generated, 'utf8'), freshlyCreated: true };
-  } catch (err: any) {
-    if (err?.code !== 'EEXIST') throw err;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code !== 'EEXIST') throw err;
     // File already exists — fall through to read it.
   }
 
@@ -241,16 +241,17 @@ app.get('/v1/health', (_req, res) => {
     const db = getDatabase();
     const count = db.prepare('SELECT COUNT(*) as c FROM entities').get() as CountRow;
     res.json({ success: true, data: { status: 'ok', version: packageVersion, entity_count: count.c } });
-  } catch (err: any) {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     // F15: Provide actionable error message for database initialization failures
-    if (err.message === 'Database not opened') {
+    if (message === 'Database not opened') {
       res.status(503).json({
         success: false,
         error: 'Database not initialized',
         details: 'MeMesh database failed to open at startup. Check server logs for details, or run "memesh doctor" to diagnose.',
       });
     } else {
-      res.status(500).json({ success: false, error: err.message });
+      res.status(500).json({ success: false, error: message });
     }
   }
 });
@@ -289,8 +290,8 @@ app.get('/v1/doctor', async (_req, res) => {
     // it leaves the server — defense in depth, not a primary defence.
     const safe = JSON.parse(redactSecrets(JSON.stringify(result)));
     res.json({ success: true, data: safe });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -314,7 +315,7 @@ function handlePost<T>(
   }
   Promise.resolve(handler(parsed.data))
     .then((data) => res.json({ success: true, data }))
-    .catch((err: any) => res.status(400).json({ success: false, error: err?.message ?? String(err) }));
+    .catch((err: unknown) => res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) }));
 }
 
 // --- Remember ---
@@ -337,8 +338,8 @@ app.post('/v1/recall', async (req, res) => {
     } else {
       res.json({ success: true, data: entities });
     }
-  } catch (err: any) {
-    res.status(400).json({ success: false, error: err.message });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -380,8 +381,8 @@ app.get('/v1/config', (_req, res) => {
       );
     }
     res.json({ success: true, data: { config: safeConfig, capabilities: caps } });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -457,8 +458,8 @@ app.post('/v1/config', async (req, res) => {
       safeUpdated.llm = { ...safeUpdated.llm, apiKey: '***' };
     }
     res.json({ success: true, data: safeUpdated });
-  } catch (err: any) {
-    res.status(400).json({ success: false, error: err.message });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -499,8 +500,8 @@ app.post('/v1/config/test', async (req, res) => {
     }
     const result = await probeProvider(provider, apiKey, host);
     res.json({ success: true, data: result });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -552,8 +553,8 @@ app.get('/v1/update-status', async (req, res) => {
         deprecationMessage: update?.deprecationMessage ?? null,
       },
     });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -564,15 +565,15 @@ app.get('/v1/update-status', async (req, res) => {
 // the SQL.
 app.get('/v1/graph', (_req, res) => {
   try { res.json({ success: true, data: computeGraph(getDatabase()) }); }
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err) { res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }); }
 });
 app.get('/v1/stats', (_req, res) => {
   try { res.json({ success: true, data: computeStats(getDatabase()) }); }
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err) { res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }); }
 });
 app.get('/v1/analytics', (_req, res) => {
   try { res.json({ success: true, data: computeAnalytics(getDatabase()) }); }
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err) { res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }); }
 });
 // --- Demo seeder ---
 //
@@ -585,8 +586,8 @@ app.post('/v1/demo/seed', async (_req, res) => {
     const { seedDemo } = await import('../../core/demo.js');
     const data = seedDemo(getDatabase());
     res.json({ success: true, data });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 app.post('/v1/demo/reset', async (_req, res) => {
@@ -594,8 +595,8 @@ app.post('/v1/demo/reset', async (_req, res) => {
     const { seedDemo } = await import('../../core/demo.js');
     const data = seedDemo(getDatabase(), { reset: true });
     res.json({ success: true, data });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -607,7 +608,7 @@ app.post('/v1/demo/reset', async (_req, res) => {
 // codebase at a time.
 app.get('/v1/projects', (_req, res) => {
   try { res.json({ success: true, data: computeProjects(getDatabase()) }); }
-  catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+  catch (err) { res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }); }
 });
 
 // --- Patterns ---
@@ -616,8 +617,8 @@ app.get('/v1/patterns', (_req, res) => {
     const db = getDatabase();
     const data = computePatterns(db);
     res.json({ success: true, data });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -639,8 +640,8 @@ app.get('/v1/telemetry', async (req, res) => {
     const { summariseTelemetry } = await import('../../core/llm-telemetry.js');
     const summaries = summariseTelemetry(parsed.data.window);
     res.json({ success: true, data: { window_days: parsed.data.window, summaries } });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -672,8 +673,8 @@ app.get('/v1/dream/proposals', (req, res) => {
         ? [...listProposals(db, 'pending'), ...listProposals(db, 'applied'), ...listProposals(db, 'rejected')]
         : listProposals(db, status);
       res.json({ success: true, data: rows });
-    }).catch((err: any) => res.status(500).json({ success: false, error: err.message }));
-  } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+    }).catch((err: unknown) => res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }));
+  } catch (err) { res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }); }
 });
 
 // Full proposed_digest content (observations, tags, source_ids) for the
@@ -708,8 +709,8 @@ app.get('/v1/dream/proposals/:id', (req, res) => {
     try { digest = JSON.parse(row.proposed_digest); } catch { /* corrupt — surface as null */ }
     try { sourceIds = JSON.parse(row.source_ids); } catch { /* leave empty */ }
     res.json({ success: true, data: { ...row, proposed_digest: digest, source_ids: sourceIds } });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -757,8 +758,8 @@ app.post('/v1/dream/run', async (req, res) => {
       validateBeforeStage: parsed.data.validate,
     });
     res.json({ success: true, data: result });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err?.message ?? String(err) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -773,10 +774,10 @@ app.post('/v1/dream/proposals/:id/accept', async (req, res) => {
     const kg = new KnowledgeGraph(getDatabase());
     const result = applyProposal(getDatabase(), id, kg);
     res.json({ success: true, data: result });
-  } catch (err: any) {
+  } catch (err) {
     // applyProposal throws "proposal #X not found or not pending" for
     // invalid IDs — surface as 404 rather than a 500.
-    const msg = err?.message ?? String(err);
+    const msg = err instanceof Error ? err.message : String(err);
     if (/not found or not pending/.test(msg)) {
       res.status(404).json({ success: false, error: msg });
     } else {
@@ -803,8 +804,8 @@ app.post('/v1/dream/proposals/:id/reject', async (req, res) => {
     const { rejectProposal } = await import('../../core/dreamer.js');
     rejectProposal(getDatabase(), id, parsed.data.reason);
     res.json({ success: true, data: { id, status: 'rejected' } });
-  } catch (err: any) {
-    const msg = err?.message ?? String(err);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     if (/not found or not pending/.test(msg)) {
       res.status(404).json({ success: false, error: msg });
     } else {
@@ -846,8 +847,8 @@ app.get('/v1/entities', (req, res) => {
       entities = kg.listRecent(limit, includeArchived);
     }
     res.json({ success: true, data: entities });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -862,8 +863,8 @@ app.get('/v1/entities/:name', (req, res) => {
       return;
     }
     res.json({ success: true, data: entity });
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -953,7 +954,7 @@ export function startServer(
     console.error('Quick fix: Backup and reset the database:');
     console.error(`  mv "${dbPath}" "${dbPath}.backup"`);
     console.error('  memesh (will create a fresh database)\n');
-    throw new Error(`Database initialization failed: ${message}`);
+    throw new Error(`Database initialization failed: ${message}`, { cause: err });
   }
 
   logCapabilities();

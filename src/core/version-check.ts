@@ -223,7 +223,7 @@ function writeStoredUpdateCheck(
     fs.writeFileSync(tempPath, JSON.stringify(stored, null, 2));
     try {
       fs.renameSync(tempPath, targetPath);
-    } catch (renameErr: any) {
+    } catch (renameErr) {
       // Codex round 36: only fall through to the destructive
       // unlink-then-rename path on error codes that actually mean
       // "destination cannot be replaced" (Windows AV / antivirus
@@ -235,12 +235,13 @@ function writeStoredUpdateCheck(
       // would silently demote the security path. Bail and let the
       // caller's catch swallow.
       const REPLACEABLE_ERRS = new Set(['EEXIST', 'EACCES', 'EPERM', 'EBUSY', 'ENOTEMPTY']);
-      if (!REPLACEABLE_ERRS.has(renameErr?.code)) {
+      const renameCode = (renameErr as NodeJS.ErrnoException)?.code;
+      if (!renameCode || !REPLACEABLE_ERRS.has(renameCode)) {
         try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
         throw renameErr;
       }
-      try { fs.unlinkSync(targetPath); } catch (err: any) {
-        if (err?.code !== 'ENOENT') {
+      try { fs.unlinkSync(targetPath); } catch (err) {
+        if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
           try { fs.unlinkSync(tempPath); } catch { /* best-effort */ }
           throw renameErr;
         }

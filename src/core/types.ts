@@ -22,7 +22,7 @@ export interface Entity {
   name: string;
   type: string;
   created_at: string;
-  metadata?: any;
+  metadata?: Record<string, unknown>;
   observations: string[];
   tags: string[];
   relations?: Relation[];
@@ -57,7 +57,7 @@ export interface CreateEntityInput {
   type: string;
   observations?: string[];
   tags?: string[];
-  metadata?: any;
+  metadata?: Record<string, unknown>;
   namespace?: string;
 }
 

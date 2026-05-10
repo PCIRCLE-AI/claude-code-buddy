@@ -262,7 +262,7 @@ function detectClusters(db: Database.Database, opts: DreamerOptions): Cluster[] 
     if (!COMPACTABLE_TYPES.has(row.type)) continue;
     if (PROTECTED_TYPES.has(row.type)) continue;
 
-    let metadata: Record<string, unknown> = {};
+    let metadata: Record<string, unknown>;
     try { metadata = row.metadata ? JSON.parse(row.metadata) : {}; } catch { metadata = {}; }
     const signal = typeof metadata.signal_score === 'number' ? metadata.signal_score : 0.5;
     const depth = typeof metadata.consolidation_depth === 'number' ? metadata.consolidation_depth : 0;
@@ -563,7 +563,7 @@ function collectProjectEntitiesForPatterns(
   const obsStmt = db.prepare('SELECT content FROM observations WHERE entity_id = ?');
   const out: ProjectEntity[] = [];
   for (const row of rows) {
-    let metadata: Record<string, unknown> = {};
+    let metadata: Record<string, unknown>;
     try { metadata = row.metadata ? JSON.parse(row.metadata) : {}; } catch { metadata = {}; }
     const signal = typeof metadata.signal_score === 'number' ? metadata.signal_score : 0.5;
     const pinned = metadata.pin === true;
@@ -731,7 +731,7 @@ export function applyProposal(
       for (const sourceId of sourceIds) {
         const sourceRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(sourceId) as { metadata: string | null } | undefined;
         if (!sourceRow) continue;
-        let meta: Record<string, unknown> = {};
+        let meta: Record<string, unknown>;
         try { meta = sourceRow.metadata ? JSON.parse(sourceRow.metadata) : {}; } catch { meta = {}; }
         const evidenceFor = Array.isArray(meta.evidence_for) ? meta.evidence_for as number[] : [];
         if (!evidenceFor.includes(digestId)) evidenceFor.push(digestId);
@@ -749,7 +749,7 @@ export function applyProposal(
       for (const sourceId of sourceIds) {
         const sourceRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(sourceId) as { metadata: string | null } | undefined;
         if (!sourceRow) continue;
-        let meta: Record<string, unknown> = {};
+        let meta: Record<string, unknown>;
         try { meta = sourceRow.metadata ? JSON.parse(sourceRow.metadata) : {}; } catch { meta = {}; }
         meta.compacted_into = digestId;
         updateMetaStmt.run(JSON.stringify(meta), sourceId);

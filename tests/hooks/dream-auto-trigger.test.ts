@@ -207,11 +207,19 @@ describe("Feature: Stop-hook dream auto-trigger", () => {
   // Windows skipped pending Windows-specific env-propagation investigation.
   // The hook completes but `dream-history.json` is not updated on Windows
   // when MEMESH_DIR is propagated through execFileSync. The gate-only
-  // scenarios (LLM gate, activity gate, throttle gate) all pass on
-  // Windows — the regression is specific to this all-gates-pass scenario
-  // that depends on the spawned dream child receiving the MEMESH_DIR env.
-  // Functionality verified on macOS + Linux. TODO: see memory file
-  // `feedback_ci_failure_patterns.md` for the diagnosis path.
+  // scenarios (LLM gate, activity gate, throttle gate, prefix-collision)
+  // all pass on Windows — the regression is specific to this all-gates-
+  // pass scenario where the hook should overwrite the pre-seeded
+  // `last_run_iso` with `Date.now()`.
+  //
+  // Diagnosis runbook (next Windows session):
+  //   docs/notes/windows-dream-trigger-diagnosis.md
+  //
+  // Quick path: remove this skipIf, set
+  //   env: { ..., MEMESH_DREAM_TRIGGER_DEBUG: '1' }
+  // in the runHook call below, and inspect the `[memesh dream-trigger]`
+  // stderr lines to see which gate is exiting early on Windows. The
+  // first `exit reason=...` line is the answer.
   it.skipIf(process.platform === 'win32')("triggers dream when all gates pass (LLM + activity ≥ 10 + last run > 24h)", () => {
     writeConfig({ llm: { provider: "anthropic", model: "claude-haiku-4-5", apiKey: "sk-ant-test-junk" } });
     writeMinimalTranscript();

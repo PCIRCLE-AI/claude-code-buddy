@@ -529,15 +529,51 @@ const DREAM_EPISODIC_TYPES = [
   'weekly_summary',
 ];
 
+// Debug-trace gate. Set MEMESH_DREAM_TRIGGER_DEBUG=1 to emit a stderr
+// breadcrumb at every gate decision in maybeTriggerDream. Contract:
+//   [memesh dream-trigger] <stage>=<value>...
+// Matches one line per stage (resolve, llm-gate, throttle-gate,
+// activity-gate, history-write, spawn). Stable across releases — if
+// you rename a stage, update the matching test fixture too.
+function dreamTrigTrace(stage, fields) {
+  if (process.env.MEMESH_DREAM_TRIGGER_DEBUG !== '1') return;
+  try {
+    const parts = Object.entries(fields || {}).map(([k, v]) => {
+      if (v === undefined) return `${k}=<undef>`;
+      if (v === null) return `${k}=<null>`;
+      return `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`;
+    });
+    process.stderr.write(`[memesh dream-trigger] ${stage} ${parts.join(' ')}\n`);
+  } catch {}
+}
+
 function dreamHistoryPath() {
   // Test isolation: tests set MEMESH_DB_PATH to a tmp file, expecting
   // sibling state (history, logs) to land beside it. Without honouring
   // that, real-home `~/.memesh/dream-history.json` would be polluted
   // by every test run. Same precedence as memesh's other state files —
   // see `getMemeshDirFromDbPath` in `_shared.js`.
-  const dir = process.env.MEMESH_DIR
-    || getMemeshDirFromDbPath()
-    || join(os.homedir() || (os.userInfo()?.homedir ?? '.'), '.memesh');
+  //
+  // Windows note: on Windows under execFileSync, env vars propagate as
+  // plain strings (no canonicalisation). If a caller passed MEMESH_DIR
+  // with mixed separators (e.g. `C:/Users/.../tmp/.memesh`), join() will
+  // happily mix `/` and `\`. Node fs accepts either — the only divergence
+  // is in pure string comparisons, which we don't do here. The trace
+  // below shows the resolved value verbatim so a Windows diagnosis run
+  // can confirm what actually arrived.
+  const fromEnv = process.env.MEMESH_DIR;
+  const fromDbPath = !fromEnv ? getMemeshDirFromDbPath() : null;
+  const fromHome = (!fromEnv && !fromDbPath)
+    ? join(os.homedir() || (os.userInfo()?.homedir ?? '.'), '.memesh')
+    : null;
+  const dir = fromEnv || fromDbPath || fromHome;
+  dreamTrigTrace('resolve', {
+    src: fromEnv ? 'env' : (fromDbPath ? 'db-path' : 'home'),
+    MEMESH_DIR: fromEnv,
+    MEMESH_DB_PATH: process.env.MEMESH_DB_PATH,
+    dir,
+    platform: process.platform,
+  });
   return { dir, historyFile: join(dir, DREAM_HISTORY_BASENAME), logDir: join(dir, DREAM_LOG_DIRNAME) };
 }
 
@@ -556,7 +592,9 @@ function writeDreamHistory(history) {
     const { dir, historyFile } = dreamHistoryPath();
     mkdirSync(dir, { recursive: true });
     writeFileSync(historyFile, JSON.stringify(history, null, 2));
+    dreamTrigTrace('history-write', { historyFile, ok: true, projects: Object.keys(history) });
   } catch (err) {
+    dreamTrigTrace('history-write', { ok: false, err: err?.message || String(err) });
     try { process.stderr.write(`[memesh dream-history write] ${err?.message || err}\n`); } catch {}
   }
 }
@@ -610,25 +648,39 @@ function countEpisodicEntities(projectName) {
  * used by callers.
  */
 export function maybeTriggerDream(projectName, config, pluginRoot) {
-  if (!projectName || projectName === 'unknown') return;
+  dreamTrigTrace('enter', { projectName, hasLlm: Boolean(config?.llm) });
+  if (!projectName || projectName === 'unknown') {
+    dreamTrigTrace('exit', { reason: 'no-project-name', projectName });
+    return;
+  }
 
   // Phase 2 & 3 both need a configured LLM. Without it the dreamer's
   // first action is to push `{reason: 'no LLM configured'}` into
   // skipped[] and exit, which would still bump our throttle clock
   // for no value — so gate here.
-  if (!config?.llm) return;
+  if (!config?.llm) {
+    dreamTrigTrace('exit', { reason: 'llm-gate-fail' });
+    return;
+  }
+  dreamTrigTrace('llm-gate', { ok: true });
 
   const history = readDreamHistory();
   const last = history[projectName];
   if (last?.last_run_iso) {
     const ageMs = Date.now() - new Date(last.last_run_iso).getTime();
     if (Number.isFinite(ageMs) && ageMs < DREAM_THROTTLE_HOURS * 3600 * 1000) {
+      dreamTrigTrace('exit', { reason: 'throttle-gate-fail', ageMs, last_run_iso: last.last_run_iso });
       return; // throttled
     }
   }
+  dreamTrigTrace('throttle-gate', { ok: true, prior_last_run_iso: last?.last_run_iso });
 
   const episodicCount = countEpisodicEntities(projectName);
-  if (episodicCount < DREAM_MIN_EPISODIC) return;
+  if (episodicCount < DREAM_MIN_EPISODIC) {
+    dreamTrigTrace('exit', { reason: 'activity-gate-fail', episodicCount, threshold: DREAM_MIN_EPISODIC });
+    return;
+  }
+  dreamTrigTrace('activity-gate', { ok: true, episodicCount });
 
   // Activity gate passed — record start BEFORE spawning so we don't
   // re-trigger on any subsequent Stop within the window even if the
@@ -674,7 +726,9 @@ export function maybeTriggerDream(projectName, config, pluginRoot) {
       env: { ...process.env, MEMESH_DIR: dir },
     });
     child.unref();
+    dreamTrigTrace('spawn', { ok: true, pid: child.pid, logFile, MEMESH_DIR: dir });
   } catch (err) {
+    dreamTrigTrace('spawn', { ok: false, err: err?.message || String(err) });
     try { process.stderr.write(`[memesh dream-trigger spawn] ${err?.message || err}\n`); } catch {}
   }
 }

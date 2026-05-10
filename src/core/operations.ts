@@ -17,7 +17,6 @@ import { createExplicitLesson } from './lesson-engine.js';
 import { embedAndStore, isEmbeddingAvailable, embedText, scheduleEmbedAndStore, vectorSearch } from './embedder.js';
 import { autoTagAndApply } from './auto-tagger.js';
 import { detectCapabilities } from './config.js';
-import path from 'path';
 import type {
   RememberInput,
   RememberResult,
@@ -93,8 +92,8 @@ export function remember(args: RememberInput): RememberResult {
       try {
         kg.createRelation(args.name, rel.to, rel.type);
         relationsCreated.push(rel);
-      } catch (err: any) {
-        relationErrors.push(`Relation to "${rel.to}" failed: ${err.message}`);
+      } catch (err) {
+        relationErrors.push(`Relation to "${rel.to}" failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }

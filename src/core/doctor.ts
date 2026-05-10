@@ -881,8 +881,8 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     const message = err instanceof Error ? err.message : 'unknown database error';
 
     // F15: Provide actionable diagnosis for common database failures
-    let diagnosis = '';
-    let fix = '';
+    let diagnosis: string;
+    let fix: string;
 
     // Check if database file exists but can't be opened
     if (existsSyncImpl(databasePath)) {
