@@ -11,7 +11,6 @@
 
 import { getDatabase, clearPendingReindexFlag } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
-import { expandQuery, isExpansionAvailable } from './query-expander.js';
 import { rankEntities } from './scoring.js';
 import { getProjectName } from './paths.js';
 import { createExplicitLesson } from './lesson-engine.js';
@@ -215,54 +214,23 @@ async function supplementWithVectors(
 }
 
 /**
- * Enhanced recall with optional LLM query expansion (async, Level 1).
- * When an LLM is configured, expands the query into related terms before searching.
- * Merges results from all expanded terms, de-duped by entity name.
- * Results are ranked by multi-factor score (relevance, recency, frequency, confidence, temporal validity).
- * Falls back to regular sync recall if expansion is unavailable or fails.
+ * Recall: FTS5 + sqlite-vec, no LLM in the hot path.
+ *
+ * The LLM-augmented variant (query expansion via `expandQuery`) was retired
+ * after the LongMemEval-S benchmark confirmed Mode A (FTS5 + vector
+ * supplement) holds at 95.40% R@5 — within 1.2pp of vendor-reported
+ * MemPalace's vector+reranker stack — at 18ms/query. The query-expander
+ * was paying ~500-10000ms per call (LLM round-trip + ollama fallback)
+ * for an estimated 1-2pp ceiling lift, which lost decisively on the
+ * UX axis given recall is the hot path for hooks (pre-edit-recall,
+ * session-start) and MCP agent calls. Async/analysis LLM flows
+ * (dreamer, consolidator, failure-analyzer, auto-tagger, llm-validator)
+ * are unaffected.
  */
 export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
   const db = getDatabase();
   const kg = new KnowledgeGraph(db);
 
-  if (args.query && isExpansionAvailable()) {
-    try {
-      const expandedTerms = await expandQuery(args.query);
-      // Search with each expanded term and merge results (de-duped by name).
-      // First term (original query) gets 1.0 relevance, expanded terms get 0.7.
-      const allResults = new Map<string, Entity>();
-      const relevanceMap = new Map<string, number>();
-
-      for (let i = 0; i < expandedTerms.length; i++) {
-        const termRelevance = i === 0 ? 1.0 : 0.7;
-        // cross_project=true means don't filter by project tag
-        const results = kg.search(expandedTerms[i], {
-          tag: recallTagFilter(args),
-          limit: args.limit,
-          includeArchived: args.include_archived,
-          namespace: args.namespace,
-        });
-        for (const entity of results) {
-          if (!allResults.has(entity.name)) {
-            allResults.set(entity.name, entity);
-          }
-          // Keep the highest relevance if found by multiple terms
-          const existing = relevanceMap.get(entity.name) ?? 0;
-          if (termRelevance > existing) {
-            relevanceMap.set(entity.name, termRelevance);
-          }
-        }
-      }
-
-      const merged = [...allResults.values()];
-      await supplementWithVectors(args.query, args, kg, merged, relevanceMap);
-      return rankEntities(merged, relevanceMap).slice(0, args.limit ?? 20);
-    } catch {
-      // Fallback to regular search on any expansion error
-    }
-  }
-
-  // Level 0: regular FTS5 search (no LLM expansion)
   // cross_project=true means don't filter by project tag
   const entities = kg.search(args.query, {
     tag: recallTagFilter(args),
