@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Entity } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
 import { t } from '../lib/i18n';
@@ -925,17 +925,188 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
   // Spread phases evenly around the circle, starting from -90deg (top)
   const phaseAngle = (i: number) => (2 * Math.PI * i) / phases.length - Math.PI / 2;
 
+  // ---- Pan / wheel-zoom state ----
+  // We translate then scale in SVG-space. The viewBox is fixed at 0..W x 0..H,
+  // so a screen-pixel delta is mapped to SVG-space via the SVG's actual
+  // bounding rect at event time (handled in the wheel/move helpers below).
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [scale, setScale] = useState(1);
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+  // Refs mirror state so the wheel handler (attached once via useEffect) reads
+  // current values without needing to be re-bound every render.
+  const scaleRef = useRef(scale);
+  const panRef2 = useRef({ x: panX, y: panY });
+  scaleRef.current = scale;
+  panRef2.current = { x: panX, y: panY };
+  const panRef = useRef<{ active: boolean; lastX: number; lastY: number }>({
+    active: false,
+    lastX: 0,
+    lastY: 0,
+  });
+  const [grabbing, setGrabbing] = useState(false);
+
+  const SCALE_MIN = 0.25;
+  const SCALE_MAX = 4;
+
+  /** Convert client (screen) coords to SVG-viewBox coords by undoing the
+   *  SVG element's CSS scaling. We do NOT undo the pan/scale transform —
+   *  callers want the pre-transform world position so we can re-anchor
+   *  zoom around the cursor. */
+  const clientToSvg = (clientX: number, clientY: number) => {
+    const el = svgRef.current;
+    if (!el) return { x: 0, y: 0 };
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return { x: 0, y: 0 };
+    return {
+      x: ((clientX - r.left) / r.width) * W,
+      y: ((clientY - r.top) / r.height) * H,
+    };
+  };
+
+  // Wheel handler must be attached as a non-passive listener so preventDefault()
+  // actually stops the page from scrolling. Preact's onWheel JSX prop is
+  // delegated and effectively passive, so we attach the listener manually.
+  // Bound once; reads current scale/pan via refs.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const cur = scaleRef.current;
+      const curPan = panRef2.current;
+      // Smooth, sign-correct zoom factor. deltaY > 0 (scroll down) zooms out.
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      const next = Math.max(SCALE_MIN, Math.min(SCALE_MAX, cur * factor));
+      if (next === cur) return;
+      // Anchor zoom on cursor: keep the world-point under the cursor stationary.
+      // World point pre-zoom: w = (svg - pan) / scale
+      // After zoom we want: w = (svg - panNew) / next  →  panNew = svg - w * next
+      const { x: sx, y: sy } = clientToSvg(e.clientX, e.clientY);
+      const wx = (sx - curPan.x) / cur;
+      const wy = (sy - curPan.y) / cur;
+      setScale(next);
+      setPanX(sx - wx * next);
+      setPanY(sy - wy * next);
+    };
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, []);
+
+  const onMouseDown = (e: MouseEvent) => {
+    // Only pan on background drags. Phase nodes and entity leaves are wrapped
+    // in <g style={{cursor:'pointer'}}> with onClick handlers — if mousedown
+    // landed inside one of those, let the click pass through (don't pan).
+    // The pan/zoom group itself has no cursor:pointer, so we can use that
+    // to distinguish background from interactive node.
+    const target = e.target as Element | null;
+    let cur: Element | null = target;
+    while (cur && cur !== svgRef.current) {
+      // SVGElement.style.cursor reflects the inline style attribute.
+      const c = (cur as SVGElement).style?.cursor;
+      if (c === 'pointer') return; // hit an interactive node — don't pan
+      cur = cur.parentElement;
+    }
+    e.preventDefault();
+    panRef.current.active = true;
+    panRef.current.lastX = e.clientX;
+    panRef.current.lastY = e.clientY;
+    setGrabbing(true);
+  };
+
+  const onMouseMove = (e: MouseEvent) => {
+    if (!panRef.current.active) return;
+    const el = svgRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return;
+    // Map screen-pixel deltas into viewBox coordinates so panning matches
+    // cursor speed regardless of CSS-rendered SVG size.
+    const dx = ((e.clientX - panRef.current.lastX) / r.width) * W;
+    const dy = ((e.clientY - panRef.current.lastY) / r.height) * H;
+    panRef.current.lastX = e.clientX;
+    panRef.current.lastY = e.clientY;
+    setPanX((p) => p + dx);
+    setPanY((p) => p + dy);
+  };
+
+  const endPan = () => {
+    if (!panRef.current.active) return;
+    panRef.current.active = false;
+    setGrabbing(false);
+  };
+
+  const resetView = () => {
+    setScale(1);
+    setPanX(0);
+    setPanY(0);
+  };
+
   return (
     <div
       style={{
+        position: 'relative',
         border: '1px solid var(--border-subtle)',
         borderRadius: 6,
         background: 'rgba(255,255,255,0.02)',
-        overflow: 'auto',
+        overflow: 'hidden',
         marginBottom: 14,
       }}
     >
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block', minHeight: 600 }}>
+      {/* Reset button — top-right overlay */}
+      <button
+        onClick={resetView}
+        title="Reset view (also: double-click background)"
+        style={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          zIndex: 2,
+          padding: '4px 10px',
+          fontSize: 11,
+          fontFamily: 'inherit',
+          background: 'rgba(0,0,0,0.4)',
+          color: 'var(--text-1)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 4,
+          cursor: 'pointer',
+        }}
+      >
+        Reset view
+      </button>
+      {/* Hint */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 8,
+          left: 12,
+          zIndex: 2,
+          fontSize: 10,
+          fontFamily: 'var(--mono)',
+          color: 'var(--text-3)',
+          pointerEvents: 'none',
+        }}
+      >
+        scroll to zoom · drag to pan · {Math.round(scale * 100)}%
+      </div>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${H}`}
+        width="100%"
+        style={{
+          display: 'block',
+          minHeight: 600,
+          cursor: grabbing ? 'grabbing' : 'grab',
+          userSelect: 'none',
+          touchAction: 'none',
+        }}
+        onMouseDown={onMouseDown as any}
+        onMouseMove={onMouseMove as any}
+        onMouseUp={endPan}
+        onMouseLeave={endPan}
+        onDblClick={resetView}
+      >
+        <g transform={`translate(${panX} ${panY}) scale(${scale})`}>
         {/* Connector curves: project → phase, phase → entities */}
         {phases.map((_, i) => {
           const ang = phaseAngle(i);
@@ -1091,6 +1262,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
             </g>
           );
         })}
+        </g>
       </svg>
     </div>
   );
