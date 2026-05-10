@@ -29,6 +29,22 @@ Este pacote é a camada de memória local da família de produtos MeMesh. É pro
 
 ---
 
+## Prova — 95,40% R@5 no LongMemEval-S
+
+O motor de recuperação do MeMesh é **apenas FTS5** (sem LLM, sem embeddings no hot path), medido contra o benchmark público [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) (500 perguntas, licença MIT):
+
+| Sistema | R@5 | Fonte |
+|---|---|---|
+| **MeMesh (Mode A, FTS5)** | **95,40%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| MemPalace | 96,6% | Auto-relato do fornecedor |
+| Supermemory | ~82% | Estimativa do fornecedor |
+| Zep | 63,8% | Paper LongMemEval |
+| Mem0 | 49,0% | Paper LongMemEval |
+
+Comandos de reprodução, SHA256 do dataset, resultados brutos por pergunta e análise de falhas conhecidas estão todos em [`benchmarks/longmemeval/`](benchmarks/longmemeval/). Reexecutável em ~10 segundos.
+
+---
+
 ## Comece em 60 Segundos
 
 ### Passo 1: Instale
@@ -170,6 +186,26 @@ Você não precisa lembrar tudo manualmente. MeMesh tem **7 hooks** que capturam
 | **Antes da compactação de contexto** | Salva conhecimento antes de ser perdido nos limites de contexto |
 
 > **Desative quando quiser:** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## Configuração
+
+Toda a configuração é feita por variáveis de ambiente. Os padrões são local-only e zero-network — você não precisa configurar nada para ter um sistema funcional.
+
+| Variável | Padrão | O que faz |
+|---|---|---|
+| `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | Sobrescreve a localização do banco SQLite. |
+| `MEMESH_AUTO_CAPTURE` | `true` | Desativa completamente os hooks de auto-captura (`Stop`, `PreCompact`). |
+| `MEMESH_AUTO_DETECT_LLM` | unset | Defina como `1` para que o memesh detecte automaticamente um provedor a partir do seu env de shell (`OPENAI_API_KEY` etc.) e mude para embeddings BYOK. **A instalação fresca por padrão é apenas ONNX local (384-dim)** — opte se quiser embeddings na nuvem. Sem essa flag, uma `OPENAI_API_KEY` esquecida no seu shell é ignorada. |
+| `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | unset | Defina como `1` para habilitar um protocolo experimental de modelo de trabalho (enquadramento CTO / Orchestrator / Agents). Adiciona um banner de início de sessão, um nudge para comandos Bash e telemetria `verify_agent_work`. A eficácia do protocolo está sendo instrumentada, ainda não comprovada — opte se quiser participar. **Padrão é OFF**: as funcionalidades de memória core funcionam sem essa flag. |
+| `MEMESH_AUTO_UPDATE` | `off` | Política de auto-update. `off` (padrão) nunca faz auto-update; `patch` permite `X.Y.Z → X.Y.Z+N`; `minor` adiciona `X.Y.Z → X.Y+1.0`; `major` permite qualquer bump. Quando permitido, um `npm install -g` desanexado dispara no fim da sessão (hook Stop) para nunca bloquear seu trabalho — os resultados aparecem em `~/.memesh/auto-update.log`. Também configurável como `autoUpdate` em `~/.memesh/config.json` (env vence). Quando a versão instalada é depreciada pelos mantenedores (advisory de segurança), `patch` é forçado mesmo em `off` — bumps minor / major continuam manuais para evitar drift silencioso de comportamento. |
+| `OPENAI_API_KEY` | unset | Sua chave OpenAI. Usada apenas quando `MEMESH_AUTO_DETECT_LLM=1` ou você configura o provedor explicitamente. |
+| `OLLAMA_HOST` | `http://localhost:11434` | Sobrescreve o endpoint do Ollama ao usar um provedor Ollama local. |
+
+`memesh doctor` imprime a configuração resolvida para você ver o que está ativo.
+
+Quando o npm sinaliza uma versão instalada como depreciada (tipicamente um advisory de segurança), o próximo início de sessão antepõe um banner forte `⚠️ MeMesh <ver> is DEPRECATED` e `memesh update-status` mostra a mesma linha até você atualizar. A verificação fica em cache em `~/.memesh/update-check.<version>.json` para que uma falha de rede transitória não atenue o aviso.
 
 ---
 
