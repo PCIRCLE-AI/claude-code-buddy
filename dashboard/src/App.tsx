@@ -7,23 +7,28 @@ import { AnalyticsTab } from './components/AnalyticsTab';
 import { SettingsTab } from './components/SettingsTab';
 import { GraphTab } from './components/GraphTab';
 import { LessonsTab } from './components/LessonsTab';
+import { InsightsTab } from './components/InsightsTab';
 import { FeedbackWidget } from './components/FeedbackWidget';
 import { AuthPrompt } from './components/AuthPrompt';
 import { OnboardingBanner } from './components/OnboardingBanner';
 import { DoctorBanner } from './components/DoctorBanner';
+import { InsightsBanner } from './components/InsightsBanner';
 import { api, AuthRequiredError, getApiToken, setApiToken, type HealthData } from './lib/api';
 import { initLocale, t, type Locale } from './lib/i18n';
 
-// Tab order — Lessons leads because the differentiated value of MeMesh
-// (failure → structured lesson loop) belongs front and centre. Search is
+// Tab order — Insights leads because it surfaces what memesh did for
+// the user automatically (LLM-driven weekly recaps + patterns), which
+// is the primary value proposition once dream/auto-tagger run. Lessons
+// is second because of the failure → structured lesson loop. Search is
 // demoted past Browse and Analytics because the discovery flow (browse +
 // roadmap) is more meaningful for a returning user than another keyword
 // box. Order is the source of truth for the nav bar AND the panel-render
 // block — keep them in sync.
-const TAB_KEYS = ['Lessons', 'Browse', 'Analytics', 'Search', 'Graph', 'Manage', 'Settings'] as const;
+const TAB_KEYS = ['Insights', 'Lessons', 'Browse', 'Analytics', 'Search', 'Graph', 'Manage', 'Settings'] as const;
 type Tab = typeof TAB_KEYS[number];
 
 const TAB_I18N_KEYS: Record<Tab, string> = {
+  Insights: 'tab.insights',
   Lessons: 'tab.lessons',
   Browse: 'tab.browse',
   Analytics: 'tab.analytics',
@@ -37,8 +42,10 @@ const TAB_STORAGE_KEY = 'memesh.tab';
 
 /**
  * Resolve the initial tab from (in order): URL ?tab=, localStorage,
- * default to Lessons. Deep-link wins so users can bookmark a specific
- * view; otherwise the last-used tab persists across reloads.
+ * default to Insights. Deep-link wins so users can bookmark a specific
+ * view; otherwise the last-used tab persists across reloads. Insights
+ * leads because surfacing what memesh auto-generated for the user is
+ * the dashboard's primary value once dream / auto-tagger run.
  */
 function initialTab(): Tab {
   try {
@@ -54,7 +61,7 @@ function initialTab(): Tab {
   } catch {
     // SSR / private mode / no window — fall through to default
   }
-  return 'Lessons';
+  return 'Insights';
 }
 
 export function App() {
@@ -126,9 +133,11 @@ export function App() {
     <div class="shell">
       <Header health={health} error={error} />
       <DoctorBanner />
+      <InsightsBanner currentTab={tab} onNavigateToInsights={() => setTab('Insights')} />
       <OnboardingBanner health={health} />
       <TabNav tabs={tabLabels} active={tab} onSelect={(k) => setTab(k as Tab)} />
       <div class="main">
+        <div class={`panel ${tab === 'Insights' ? 'active' : ''}`}>{tab === 'Insights' && <InsightsTab />}</div>
         <div class={`panel ${tab === 'Search' ? 'active' : ''}`}><SearchTab /></div>
         <div class={`panel ${tab === 'Browse' ? 'active' : ''}`}><BrowseTab /></div>
         <div class={`panel ${tab === 'Analytics' ? 'active' : ''}`}><AnalyticsTab /></div>

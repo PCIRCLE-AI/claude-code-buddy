@@ -2,13 +2,16 @@
 // LLM prompt-safety helpers (F7 — OWASP LLM01 defense-in-depth)
 // =============================================================================
 //
-// memesh feeds user-controlled content to LLM providers in four places:
-//   - query-expander    — search query
+// memesh feeds user-controlled content to LLM providers in three places:
 //   - failure-analyzer  — error strings + edited filenames from a session
 //                          transcript (transcript may contain malicious
 //                          dependency output)
 //   - auto-tagger       — entity name/type/observations
 //   - consolidator      — entity observations
+//
+// (query-expander was a fourth call site until it was retired from the
+// recall hot path — see src/core/operations.ts:recallEnhanced. This
+// helper is kept for the remaining three.)
 //
 // Even though every output path validates / whitelists / truncates the
 // LLM's response, defense-in-depth says we should also harden the input
@@ -26,14 +29,13 @@
  * Escape sequences that would let an attacker close our delimiter and
  * inject new instructions, regardless of which tag name we wrap with.
  *
- * The four call sites use different tag names:
- *   - query-expander    → `<user_query>`
+ * The three remaining call sites use different tag names:
  *   - failure-analyzer  → `<session_errors>` / `<files_edited>`
  *   - auto-tagger       → `<entity_name>` / `<entity_type>` / `<entity_facts>`
  *   - consolidator      → `<observations>`
  *
  * The first version of this sanitiser only stripped `</user_*>` closing
- * tags, which left 3 of 4 prompts exposed to closing-tag injection.
+ * tags, which left other prompts exposed to closing-tag injection.
  * This version strips ANY tag-shaped substring `<...>` whose name is a
  * lowercase identifier, plus the conventional `<system>` / `<assistant>`
  * roles that some providers interpret specially. Newlines and tabs are

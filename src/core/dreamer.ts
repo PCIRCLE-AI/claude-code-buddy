@@ -31,8 +31,10 @@
 //   - all writes wrapped in transaction; partial-failure rolls back
 
 import type Database from 'better-sqlite3';
-import { callLLM } from './llm-client.js';
+import { callLLM, type LLMAttempt } from './llm-client.js';
 import type { LLMConfig } from './config.js';
+import { recordTelemetry } from './llm-telemetry.js';
+import { validateDigest, type SuspiciousClaim } from './digest-validator.js';
 
 const PROMPT_VERSION = 'v1';
 const COMPACT_MIN_CLUSTER_SIZE = 5;
@@ -65,6 +67,32 @@ export interface DreamerOptions {
   dryRun?: boolean;
   maxLlmCalls?: number;
   windowDays?: number;
+  /**
+   * Cross-provider fallback chain. Forwarded to `callLLM`; tried in
+   * order if the primary `llm` fails with auth/network/upstream/rate
+   * errors. Empty / undefined preserves original single-provider
+   * behaviour.
+   */
+  fallbacks?: LLMConfig[];
+  /**
+   * Telemetry hook fired once per LLM call with the full attempt list
+   * (primary + each fallback that was tried). Optional — the dreamer
+   * does not depend on telemetry for correctness.
+   */
+  onAttempt?: (attempts: LLMAttempt[]) => void;
+  /**
+   * Opt-in: run a SECOND LLM call after the dreamer's digest is
+   * generated to cross-check claims against the source observations.
+   * Verdicts:
+   *   - 'pass'   → propose normally
+   *   - 'soften' → propose, but attach validation_warnings to the
+   *                 proposed_digest so reviewers see the flagged claims
+   *   - 'reject' → don't propose; report in result.skipped
+   *
+   * Default false because it doubles LLM cost per proposal. Surfaces
+   * its own row in `memesh telemetry` under flow='digest_validator'.
+   */
+  validateBeforeStage?: boolean;
 }
 
 export interface DreamerResult {
@@ -143,7 +171,7 @@ export async function runDreamer(
 
     let digest: ProposedDigest | null;
     try {
-      digest = await consolidateCluster(cluster, llm);
+      digest = await consolidateCluster(cluster, llm, opts.fallbacks, opts.onAttempt);
       result.llmCalls++;
     } catch (err) {
       result.skipped.push({
@@ -159,8 +187,48 @@ export async function runDreamer(
       continue;
     }
 
+    let validationWarnings: SuspiciousClaim[] | undefined;
+    if (opts.validateBeforeStage) {
+      // Second LLM pass: cross-check digest claims against source
+      // observations. Failures inside validateDigest already default
+      // to pass, so this won't reject real digests when the validator
+      // is unreachable.
+      const sourceObs = cluster.entities.flatMap(e => e.observations);
+      try {
+        const v = await validateDigest(digest.observations, sourceObs, llm, {
+          fallbacks: opts.fallbacks,
+          onAttempt: (attempts) => {
+            recordTelemetry(attempts, { flow: 'digest_validator', project: cluster.project });
+            opts.onAttempt?.(attempts);
+          },
+        });
+        result.llmCalls++;
+
+        if (v.status === 'reject') {
+          const claimsSummary = v.suspiciousClaims
+            .slice(0, 3)
+            .map(c => c.claim)
+            .join('; ') || 'no specific claims surfaced';
+          result.skipped.push({
+            reason: `LLM validator rejected digest: ${claimsSummary}`,
+            project: cluster.project,
+            clusterKey: cluster.key,
+          });
+          continue;
+        }
+        if (v.status === 'soften') {
+          validationWarnings = v.suspiciousClaims;
+        }
+      } catch {
+        // Validator wrapping itself failed — keep going. validateDigest
+        // is documented to swallow LLM failures internally; this catch
+        // is defense in depth for any synchronous throw (e.g. telemetry
+        // recordTelemetry inside the onAttempt wrapper).
+      }
+    }
+
     if (!opts.dryRun) {
-      writeProposal(db, cluster, digest, llm);
+      writeProposal(db, cluster, digest, llm, validationWarnings);
     }
     result.proposalsCreated++;
   }
@@ -256,7 +324,12 @@ function proposalAlreadyExists(db: Database.Database, cluster: Cluster): boolean
   return false;
 }
 
-async function consolidateCluster(cluster: Cluster, llm: LLMConfig): Promise<ProposedDigest | null> {
+async function consolidateCluster(
+  cluster: Cluster,
+  llm: LLMConfig,
+  fallbacks?: LLMConfig[],
+  onAttempt?: (attempts: LLMAttempt[]) => void,
+): Promise<ProposedDigest | null> {
   const sources = cluster.entities.map(e => {
     const obsPreview = e.observations.slice(0, 3).map(o => o.slice(0, 200)).join(' | ');
     return `[id=${e.id}] (${e.type}, ${e.created_at.slice(0, 10)}) ${e.name}\n  ${obsPreview}`;
@@ -277,7 +350,17 @@ Rules:
 Source entries:
 ${sources}`;
 
-  const text = await callLLM(prompt, llm, { maxTokens: 500 });
+  const text = await callLLM(prompt, llm, {
+    maxTokens: 500,
+    fallbacks,
+    onAttempt: (attempts) => {
+      // Persist telemetry FIRST so a user-supplied callback that
+      // throws can't lose the row. recordTelemetry has its own
+      // try/catch so it can never crash the LLM call.
+      recordTelemetry(attempts, { flow: 'dreamer', project: cluster.project });
+      onAttempt?.(attempts);
+    },
+  });
   return parseDigest(text);
 }
 
@@ -304,8 +387,16 @@ function writeProposal(
   cluster: Cluster,
   digest: ProposedDigest,
   llm: LLMConfig,
+  validationWarnings?: SuspiciousClaim[],
 ): void {
   const sourceIds = cluster.entities.map(e => e.id).sort((a, b) => a - b);
+  // Attach validation_warnings (if any) onto the digest JSON so the
+  // dashboard can render the flagged claims next to the digest preview
+  // without an additional table. Absent when the validator passed or
+  // wasn't run — preserves backwards-compatible JSON shape.
+  const digestWithWarnings = validationWarnings && validationWarnings.length > 0
+    ? { ...digest, validation_warnings: validationWarnings }
+    : digest;
   db.prepare(`
     INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -313,7 +404,7 @@ function writeProposal(
     cluster.project,
     cluster.key,
     JSON.stringify(sourceIds),
-    JSON.stringify(digest),
+    JSON.stringify(digestWithWarnings),
     `${llm.provider}/${llm.model ?? 'default'}`,
     PROMPT_VERSION,
   );
@@ -344,6 +435,10 @@ export interface PatternDetectorOptions {
   dryRun?: boolean;
   maxLlmCalls?: number;
   windowDays?: number;
+  /** Cross-provider failover chain — see DreamerOptions.fallbacks. */
+  fallbacks?: LLMConfig[];
+  /** Telemetry hook — see DreamerOptions.onAttempt. */
+  onAttempt?: (attempts: LLMAttempt[]) => void;
   /** Min signal_score to include in scan (defaults to 0.3 — exclude pure noise but keep medium). */
   minSignal?: number;
 }
@@ -403,7 +498,7 @@ export async function runPatternDetector(
 
     let patterns: PatternProposal[];
     try {
-      patterns = await detectPatterns(project, entities, llm);
+      patterns = await detectPatterns(project, entities, llm, opts.fallbacks, opts.onAttempt);
       result.llmCalls++;
     } catch (err) {
       result.skipped.push({
@@ -484,7 +579,13 @@ function collectProjectEntitiesForPatterns(
   return out;
 }
 
-async function detectPatterns(project: string, entities: ProjectEntity[], llm: LLMConfig): Promise<PatternProposal[]> {
+async function detectPatterns(
+  project: string,
+  entities: ProjectEntity[],
+  llm: LLMConfig,
+  fallbacks?: LLMConfig[],
+  onAttempt?: (attempts: LLMAttempt[]) => void,
+): Promise<PatternProposal[]> {
   const sample = entities.map(e => {
     const obsPreview = e.observations.slice(0, 2).map(o => o.slice(0, 150)).join(' | ');
     return `[id=${e.id}] (${e.type}) ${e.name}: ${obsPreview}`;
@@ -508,7 +609,14 @@ Rules:
 Source entries:
 ${sample}`;
 
-  const text = await callLLM(prompt, llm, { maxTokens: 800 });
+  const text = await callLLM(prompt, llm, {
+    maxTokens: 800,
+    fallbacks,
+    onAttempt: (attempts) => {
+      recordTelemetry(attempts, { flow: 'pattern_detector', project });
+      onAttempt?.(attempts);
+    },
+  });
   return parsePatterns(text);
 }
 
@@ -564,7 +672,11 @@ export interface ApplyResult {
   digestEntityName: string;
   sourcesArchived: number;
   sourcesLinked: number;
-  kind: 'digest' | 'pattern';
+  // Aligned with `ProposedDigest.type` and `ProposalSummary.kind` —
+  // earlier versions abbreviated 'pattern_emergent' to 'pattern' here,
+  // creating a quiet drift between the apply path and the listing /
+  // dashboard rendering paths.
+  kind: 'digest' | 'pattern_emergent';
 }
 
 export function applyProposal(
@@ -603,12 +715,19 @@ export function applyProposal(
     });
 
     const updateMetaStmt = db.prepare('UPDATE entities SET metadata = ? WHERE id = ?');
+    // Relation rows make the digest/pattern visible in graph traversal —
+    // metadata back-pointers alone leave digest entities orphaned in
+    // the graph view. Direction:
+    //   summarizes: digest -> source (the digest summarizes the source)
+    //   evidence_for: source -> pattern (the source is evidence for the pattern)
+    const relStmt = db.prepare(
+      'INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?)'
+    );
     let archived = 0;
     let linked = 0;
     if (isPattern) {
-      // Pattern: link sources to the new pattern via metadata, do
-      // NOT archive. Future Phase 5 will turn these into proper
-      // relation table edges.
+      // Pattern: link sources to the new pattern via metadata + edge,
+      // do NOT archive (Phase 3 is additive — sources stay primary).
       for (const sourceId of sourceIds) {
         const sourceRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(sourceId) as { metadata: string | null } | undefined;
         if (!sourceRow) continue;
@@ -618,10 +737,14 @@ export function applyProposal(
         if (!evidenceFor.includes(digestId)) evidenceFor.push(digestId);
         meta.evidence_for = evidenceFor;
         updateMetaStmt.run(JSON.stringify(meta), sourceId);
+        relStmt.run(sourceId, digestId, 'evidence_for');
         linked++;
       }
     } else {
-      // Compaction digest: soft-archive sources, link via compacted_into.
+      // Compaction digest: soft-archive sources, link via metadata
+      // back-pointer + a `summarizes` graph edge so dashboard graph
+      // traversal can find the sources from the digest hub. Without
+      // the edge, accepted digests show as orphans in the graph view.
       const archiveStmt = db.prepare("UPDATE entities SET status = 'archived' WHERE id = ?");
       for (const sourceId of sourceIds) {
         const sourceRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(sourceId) as { metadata: string | null } | undefined;
@@ -630,6 +753,7 @@ export function applyProposal(
         try { meta = sourceRow.metadata ? JSON.parse(sourceRow.metadata) : {}; } catch { meta = {}; }
         meta.compacted_into = digestId;
         updateMetaStmt.run(JSON.stringify(meta), sourceId);
+        relStmt.run(digestId, sourceId, 'summarizes');
         archiveStmt.run(sourceId);
         archived++;
       }
@@ -645,7 +769,7 @@ export function applyProposal(
     digestEntityName: digest.name,
     sourcesArchived: out.archived,
     sourcesLinked: out.linked,
-    kind: isPattern ? 'pattern' : 'digest',
+    kind: isPattern ? 'pattern_emergent' : 'digest',
   };
 }
 
@@ -665,6 +789,17 @@ export interface ProposalSummary {
   digest_observations_preview: string;
   status: string;
   created_at: string;
+  /**
+   * Surfaces whether the proposal came from the weekly compaction
+   * dreamer (`'digest'`) or from the pattern detector
+   * (`'pattern_emergent'`). The dashboard branches its renderer on
+   * this so pattern proposals get a distinct (orange/amber) card
+   * instead of being rendered as plain digests. Derived from
+   * `proposed_digest.type` — anything other than the literal
+   * `'pattern_emergent'` is treated as a digest, matching the
+   * apply-side check in `applyProposal`.
+   */
+  kind: 'digest' | 'pattern_emergent';
 }
 
 export function listProposals(db: Database.Database, status: string = 'pending'): ProposalSummary[] {
@@ -685,6 +820,7 @@ export function listProposals(db: Database.Database, status: string = 'pending')
       digest_observations_preview: digest.observations[0]?.slice(0, 120) ?? '(empty)',
       status: r.status,
       created_at: r.created_at,
+      kind: digest.type === 'pattern_emergent' ? 'pattern_emergent' : 'digest',
     };
   });
 }

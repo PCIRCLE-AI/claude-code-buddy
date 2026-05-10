@@ -12,6 +12,18 @@ function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n) + '…' : s;
 }
 
+/** Format a created_at ISO string as `YYYY-MM-DD HH:mm` in the user's
+ *  locale timezone. Memory rows surface this absolute timestamp so a
+ *  user can tell "exactly when was this captured" at a glance, without
+ *  having to hover the row or open it. */
+function formatCreatedAt(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 16).replace('T', ' ');
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 interface Props {
   entity: Entity;
   actions?: preact.ComponentChild;
@@ -82,6 +94,17 @@ export function MemoryRow({ entity: e, actions, highlight }: Props) {
             </span>
           )}
           <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{e.name}</span>
+          <span
+            style={{
+              color: 'var(--text-3)',
+              fontSize: 10,
+              fontFamily: 'var(--mono)',
+              opacity: 0.85,
+            }}
+            title={`created ${e.created_at}`}
+          >
+            · {formatCreatedAt(e.created_at)}
+          </span>
           {obsCount > 1 && (
             <span style={{ color: 'var(--text-3)', fontSize: 11 }}>
               · {translate('memory.factsCount', { count: obsCount })}

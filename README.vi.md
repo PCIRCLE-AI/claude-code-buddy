@@ -219,7 +219,7 @@ Các imported bundles vẫn có thể tìm kiếm được, nhưng MeMesh không
 
 ## Mở khóa Smart Mode (Tuỳ chọn)
 
-MeMesh hoạt động offline theo mặc định. Thêm LLM API key chỉ nếu bạn muốn query expansion, smarter extraction, và compression:
+MeMesh hoạt động offline theo mặc định — recall luôn LLM-free (95.40% R@5 trên LongMemEval-S, không cần LLM). Thêm LLM API key chỉ nếu bạn muốn các luồng phân tích LLM-augmented bổ sung: trích xuất session thông minh hơn, auto-tagging cho memories mới, phân tích lỗi thành lessons có cấu trúc, và compression `consolidate` / `dream`:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -234,10 +234,12 @@ memesh  # mở dashboard → Settings tab
 
 | | Level 0 (default) | Level 1 (Smart Mode) |
 |---|---|---|
-| **Search** | FTS5 keyword matching | + LLM query expansion (~97% recall) |
+| **Search** | FTS5 + sqlite-vec, 95.40% R@5 (~18ms/query) | giữ nguyên — recall luôn LLM-free ở mọi level |
 | **Auto-capture** | Rule-based patterns | + LLM extracts decisions & lessons |
-| **Compression** | Không có sẵn | `consolidate` compresses verbose memories |
-| **Chi phí** | Free, no API key | ~$0.0001 per search (Haiku) |
+| **Auto-tagging** | Chỉ thẻ thủ công | + LLM tự động gắn nhãn entity mới |
+| **Phân tích lỗi** | Không có sẵn | + LLM chuyển session errors thành structured lessons |
+| **Compression** | Không có sẵn | `consolidate` + `dream` nén verbose memories |
+| **Chi phí** | Free, no API key | ~$0.0001 mỗi analysis call (Haiku) |
 
 ---
 
@@ -246,7 +248,7 @@ memesh  # mở dashboard → Settings tab
 | Tool | Nó làm gì |
 |------|-------------|
 | `remember` | Lưu trữ kiến thức với observations, relations, và tags |
-| `recall` | Smart search với multi-factor scoring và LLM query expansion |
+| `recall` | Tìm kiếm FTS5 + sqlite-vec với multi-factor scoring (relevance, recency, frequency, confidence, temporal validity) — không có LLM trong hot path |
 | `forget` | Soft-archive (không bao giờ xóa) hoặc xóa observations cụ thể |
 | `consolidate` | LLM-powered compression của verbose memories |
 | `export` | Chia sẻ memories dưới dạng JSON giữa các dự án hoặc thành viên team |

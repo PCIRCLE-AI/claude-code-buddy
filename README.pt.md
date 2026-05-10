@@ -219,7 +219,7 @@ Bundles importados permanecem pesquisáveis, mas MeMesh não injeta automaticame
 
 ## Desbloqueie Smart Mode (Opcional)
 
-MeMesh funciona offline por padrão. Adicione uma chave de API de LLM apenas se quiser query expansion, extração mais inteligente e compressão:
+MeMesh funciona offline por padrão — o recall permanece estritamente LLM-free (95,40% R@5 no LongMemEval-S, sem LLM). Adicione uma chave de API de LLM apenas se quiser fluxos de análise LLM-augmented adicionais: extração de sessão mais inteligente, auto-tagging de novas memórias, geração de lessons a partir de falhas, e compressão `consolidate` / `dream`:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -234,10 +234,12 @@ memesh  # abre dashboard → aba Settings
 
 | | Level 0 (padrão) | Level 1 (Smart Mode) |
 |---|---|---|
-| **Busca** | Correspondência de keywords FTS5 | + query expansion de LLM (~97% recall) |
+| **Busca** | FTS5 + sqlite-vec, 95,40% R@5 (~18ms/query) | inalterado — recall é LLM-free em todos os níveis |
 | **Auto-capture** | Padrões baseados em regras | + LLM extrai decisões & lições |
-| **Compressão** | Não disponível | `consolidate` comprime memórias verbosas |
-| **Custo** | Grátis, sem chave de API | ~$0.0001 por busca (Haiku) |
+| **Auto-tagging** | Apenas tags manuais | + LLM gera tags para novas memórias |
+| **Análise de falhas** | Não disponível | + LLM converte erros de sessão em structured lessons |
+| **Compressão** | Não disponível | `consolidate` + `dream` comprimem memórias verbosas |
+| **Custo** | Grátis, sem chave de API | ~$0.0001 por analysis call (Haiku) |
 
 ---
 
@@ -246,7 +248,7 @@ memesh  # abre dashboard → aba Settings
 | Ferramenta | O que faz |
 |------|-------------|
 | `remember` | Armazena conhecimento com observações, relações e tags |
-| `recall` | Busca inteligente com scoring multi-fator e query expansion com LLM |
+| `recall` | Busca FTS5 + sqlite-vec com scoring multi-fator (relevância, recência, frequência, confiança, validade temporal) — sem LLM no hot path |
 | `forget` | Soft-archive (nunca deleta) ou remove observações específicas |
 | `consolidate` | Compressão com LLM de memórias verbosas |
 | `export` | Compartilha memórias como JSON entre projetos ou membros da equipe |
