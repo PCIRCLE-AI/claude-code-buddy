@@ -781,6 +781,7 @@ dreamCmd
   .option('--dry-run', 'Compute proposals without writing to dream_proposals')
   .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 100)', (v) => parseInt(v, 10))
   .option('--window-days <n>', 'Look-back window in days (default 56 = 8 weeks)', (v) => parseInt(v, 10))
+  .option('--validate', 'Run a second LLM pass to cross-check each digest against its sources (doubles LLM calls per proposal; surfaces under flow=digest_validator in `memesh telemetry`)')
   .action(async (opts) => {
     await withDatabase(async () => {
       const { runDreamer } = await import('../../core/dreamer.js');
@@ -798,6 +799,7 @@ dreamCmd
         maxLlmCalls: opts.maxLlmCalls,
         windowDays: opts.windowDays,
         fallbacks: cfg.llmFallbacks,
+        validateBeforeStage: !!opts.validate,
       });
       console.log(`${opts.dryRun ? '[dry-run] ' : ''}Dream pass complete in ${result.durationMs}ms`);
       console.log(`  clusters scanned: ${result.clustersScanned}`);
