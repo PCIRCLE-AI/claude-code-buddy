@@ -89,7 +89,10 @@ declare global {
   interface Window { __graphReheat?: () => void; }
 }
 
-const CANVAS_HEIGHT = 500;
+// Tuned to fit a 1440x900 viewport after header (~44px) + nav (~44px) +
+// stats row (~80px) + card padding (12+8) + filter strip (~36px). At 500
+// the canvas was overflowing the viewport bottom.
+const CANVAS_HEIGHT = 440;
 const CLICK_THRESHOLD = 4; // px — drag vs click detection
 
 /* ------------------------------------------------------------------ */
@@ -187,7 +190,12 @@ export function GraphTab() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const w = canvas.parentElement?.clientWidth || 800;
+    // getBoundingClientRect()/floor catches sub-pixel layout that
+    // clientWidth rounds away. Subtract the card's horizontal padding
+    // (12px each side) so the canvas can't end up wider than its
+    // container — the cause of horizontal scrollbars on the card.
+    const parentRect = canvas.parentElement?.getBoundingClientRect();
+    const w = parentRect ? Math.floor(parentRect.width) - 24 : 800;
     const h = CANVAS_HEIGHT;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = w * dpr;
@@ -716,17 +724,22 @@ export function GraphTab() {
       </div>
 
       <div class="card" style={{ padding: 12 }}>
-        {/* Row 1: Title + type filter checkboxes */}
+        {/* Row 1: Title + type filter checkboxes — horizontally
+            scrollable strip so 30+ types don't wrap into 3-4 lines and
+            push the canvas below the viewport on a 1440x900 screen. */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: 12,
             marginBottom: 8,
-            flexWrap: 'wrap',
+            flexWrap: 'nowrap',
+            overflowX: 'auto',
+            paddingBottom: 4,
+            scrollbarWidth: 'thin',
           }}
         >
-          <span class="card-title" style={{ margin: 0 }}>
+          <span class="card-title" style={{ margin: 0, flexShrink: 0 }}>
             {t('tab.graph')}
           </span>
           {Array.from(typeGroups.entries()).map(([type, count]) => {

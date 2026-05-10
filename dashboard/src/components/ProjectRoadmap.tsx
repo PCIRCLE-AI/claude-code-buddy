@@ -17,19 +17,35 @@ const LESSON_TYPES = new Set([
 
 /* ---------- v2: auto-phase derivation ---------- */
 
-/** Type ranking for choosing a phase's representative anchor entity.
- *  Lower number = higher priority. Releases are the strongest signal
- *  ("what we shipped"); plans / architecture decisions describe the
- *  shape of the period; everything else falls back to the first
- *  entity. */
+/** Types that qualify an entity as a phase anchor — i.e. a real PM
+ *  milestone: something named that we can label the period with.
+ *  Lower number = higher priority. Anything not in this map is
+ *  treated as activity noise (session_keypoint, commit, session_identity,
+ *  session-insight, session-summary, workflow_checkpoint, note, etc.)
+ *  and CANNOT seed a phase by itself. A run of pure activity entities
+ *  no longer becomes a "2026-04-15 – 2026-04-22" date-range phase —
+ *  the roadmap is meant to surface what was decided / shipped /
+ *  learned, not what days had typing. */
 const PHASE_ANCHOR_PRIORITY: Record<string, number> = {
   release: 0,
   architecture: 1,
   architecture_decision: 1,
+  infrastructure: 1,
   plan: 2,
   feature: 3,
   decision: 4,
   design_decision: 4,
+  bug_fix: 5,
+  refactoring: 6,
+  'weekly-summary': 7,
+  weekly_summary: 7,
+  lesson_learned: 8,
+  lesson: 8,
+  mistake: 8,
+  principle: 9,
+  best_practice: 10,
+  technical_pattern: 10,
+  pattern: 10,
 };
 
 interface Phase {
@@ -44,12 +60,21 @@ interface Phase {
 }
 
 /**
- * Heuristic phase derivation. Cluster entities into runs where every
- * consecutive pair lands within `MAX_GAP_DAYS` of each other. A run
- * with at least `MIN_PHASE_ENTITIES` becomes a phase; smaller runs are
- * dropped (they look noisy on a strip with two big phases beside
- * them). Each phase's label comes from the highest-priority entity in
- * the run, falling back to a date-range string when nothing matches.
+ * PM-meaningful phase derivation. Cluster entities into runs where every
+ * consecutive pair lands within `MAX_GAP_DAYS` of each other, then
+ * promote a run to a phase only if it satisfies BOTH:
+ *   1. `>= MIN_PHASE_ENTITIES` total entities (density floor — keeps
+ *      the strip from showing one-off events as their own phase)
+ *   2. has at least one PM-anchorable entity (release, feature,
+ *      decision, plan, architecture, bug_fix, lesson_learned, etc. —
+ *      see `PHASE_ANCHOR_PRIORITY`). Runs of pure activity noise
+ *      (session_keypoint, commit, session_identity, ...) are dropped
+ *      entirely — they would have produced an unhelpful date-range
+ *      label like "2026-04-15 – 2026-04-22".
+ *
+ * Each surviving phase is labelled by the highest-priority anchor in
+ * its run. There is no date-range fallback; if we can't name what
+ * happened in a period, the period is not a milestone.
  */
 function derivePhases(entities: Entity[]): Phase[] {
   const MAX_GAP_DAYS = 7;
@@ -73,23 +98,22 @@ function derivePhases(entities: Entity[]): Phase[] {
   }
   runs.push(current);
 
-  return runs
-    .filter((run) => run.length >= MIN_PHASE_ENTITIES)
-    .map<Phase>((run) => {
-      const anchor = run
-        .map((e) => ({ e, p: PHASE_ANCHOR_PRIORITY[e.type] ?? 99 }))
-        .sort((a, b) => a.p - b.p)[0];
-      const label = anchor.p < 99
-        ? anchor.e.name
-        : `${run[0].created_at.slice(0, 10)} – ${run[run.length - 1].created_at.slice(0, 10)}`;
-      return {
-        startIso: run[0].created_at,
-        endIso: run[run.length - 1].created_at,
-        entityCount: run.length,
-        label,
-        anchorId: anchor.p < 99 ? anchor.e.id : undefined,
-      };
+  const phases: Phase[] = [];
+  for (const run of runs) {
+    if (run.length < MIN_PHASE_ENTITIES) continue;
+    const anchor = run
+      .map((e) => ({ e, p: PHASE_ANCHOR_PRIORITY[e.type] ?? 99 }))
+      .sort((a, b) => a.p - b.p)[0];
+    if (anchor.p === 99) continue; // PM-meaningful gate: no named anchor → not a milestone
+    phases.push({
+      startIso: run[0].created_at,
+      endIso: run[run.length - 1].created_at,
+      entityCount: run.length,
+      label: anchor.e.name,
+      anchorId: anchor.e.id,
     });
+  }
+  return phases;
 }
 
 interface Props {
