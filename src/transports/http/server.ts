@@ -360,9 +360,24 @@ app.get('/v1/config', (_req, res) => {
     if (safeConfig.llm?.apiKey) {
       safeConfig.llm = { ...safeConfig.llm, apiKey: '***' };
     }
+    // Mask EVERY apiKey in the fallback chain — without this loop a
+    // user who configures `llmFallbacks: [{provider:'openai',
+    // apiKey:'sk-...'}]` would see their fallback key returned in
+    // plaintext to the dashboard SPA. The primary `llm.apiKey` mask
+    // above is mirrored here for the chain.
+    if (Array.isArray(safeConfig.llmFallbacks) && safeConfig.llmFallbacks.length > 0) {
+      safeConfig.llmFallbacks = safeConfig.llmFallbacks.map(fb =>
+        fb?.apiKey ? { ...fb, apiKey: '***' } : fb
+      );
+    }
     // Also mask API key in capabilities (detectCapabilities returns llm config with raw key)
     if (caps.llm?.apiKey) {
       caps.llm = { ...caps.llm, apiKey: '***' };
+    }
+    if (Array.isArray(caps.llmFallbacks) && caps.llmFallbacks.length > 0) {
+      caps.llmFallbacks = caps.llmFallbacks.map(fb =>
+        fb?.apiKey ? { ...fb, apiKey: '***' } : fb
+      );
     }
     res.json({ success: true, data: { config: safeConfig, capabilities: caps } });
   } catch (err: any) {
@@ -382,6 +397,16 @@ const ConfigBody = z.object({
     }),
     z.null(),
   ]).optional(),
+  // Cross-provider failover chain — accepted via dashboard Settings
+  // UI so the user can configure their fallback plan (e.g.
+  // anthropic-primary -> openai-fallback -> ollama-local) without
+  // hand-editing config.json. Without this entry, ConfigBody.strip()
+  // would silently drop the field on every POST.
+  llmFallbacks: z.array(z.object({
+    provider: z.enum(['anthropic', 'openai', 'ollama']),
+    model: z.string().optional(),
+    apiKey: z.string().optional(),
+  })).optional(),
   autoCapture: z.boolean().optional(),
   sessionLimit: z.number().int().min(1).max(100).optional(),
   // Opt-in for the experimental agentic-orchestration protocol.
@@ -593,6 +618,116 @@ app.get('/v1/patterns', (_req, res) => {
     res.json({ success: true, data });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// --- Dream proposals (Insights tab) ---
+//
+// Backs the dashboard's Insights surface, replacing CLI-only
+// `memesh dream list` / `accept` / `reject`. The dreamer's propose-
+// then-review pattern (see src/core/dreamer.ts) only generates value
+// when there is an interactive review surface; without these endpoints
+// proposals piled up indefinitely in the dream_proposals table, which
+// is why the maintainer reported "knowledge graph 很多memory沒有
+//被好好消化".
+const DreamProposalsQuerySchema = z.object({
+  status: z.enum(['pending', 'applied', 'rejected', 'all']).default('pending'),
+});
+app.get('/v1/dream/proposals', (req, res) => {
+  try {
+    const parsed = DreamProposalsQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ success: false, error: parsed.error.issues.map(i => i.message).join('; ') });
+      return;
+    }
+    const status = parsed.data.status;
+    // listProposals takes a single status; for 'all' we run the
+    // pending+applied+rejected union.
+    import('../../core/dreamer.js').then(({ listProposals }) => {
+      const db = getDatabase();
+      const rows = status === 'all'
+        ? [...listProposals(db, 'pending'), ...listProposals(db, 'applied'), ...listProposals(db, 'rejected')]
+        : listProposals(db, status);
+      res.json({ success: true, data: rows });
+    }).catch((err: any) => res.status(500).json({ success: false, error: err.message }));
+  } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// Full proposed_digest content (observations, tags, source_ids) for the
+// detail view in the Insights tab — listProposals only returns a
+// truncated preview.
+app.get('/v1/dream/proposals/:id', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id) || id < 1) {
+    res.status(400).json({ success: false, error: 'invalid id' });
+    return;
+  }
+  try {
+    const row = getDatabase().prepare(
+      'SELECT id, project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version, status, reason, created_at, reviewed_at FROM dream_proposals WHERE id = ?'
+    ).get(id) as { proposed_digest: string; source_ids: string; [k: string]: unknown } | undefined;
+    if (!row) {
+      res.status(404).json({ success: false, error: `proposal #${id} not found` });
+      return;
+    }
+    let digest: unknown = null;
+    let sourceIds: number[] = [];
+    try { digest = JSON.parse(row.proposed_digest); } catch { /* corrupt — surface as null */ }
+    try { sourceIds = JSON.parse(row.source_ids); } catch { /* leave empty */ }
+    res.json({ success: true, data: { ...row, proposed_digest: digest, source_ids: sourceIds } });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/v1/dream/proposals/:id/accept', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id) || id < 1) {
+    res.status(400).json({ success: false, error: 'invalid id' });
+    return;
+  }
+  try {
+    const { applyProposal } = await import('../../core/dreamer.js');
+    const kg = new KnowledgeGraph(getDatabase());
+    const result = applyProposal(getDatabase(), id, kg);
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    // applyProposal throws "proposal #X not found or not pending" for
+    // invalid IDs — surface as 404 rather than a 500.
+    const msg = err?.message ?? String(err);
+    if (/not found or not pending/.test(msg)) {
+      res.status(404).json({ success: false, error: msg });
+    } else {
+      res.status(500).json({ success: false, error: msg });
+    }
+  }
+});
+
+const RejectBodySchema = z.object({
+  reason: z.string().max(500).optional(),
+});
+app.post('/v1/dream/proposals/:id/reject', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id) || id < 1) {
+    res.status(400).json({ success: false, error: 'invalid id' });
+    return;
+  }
+  const parsed = RejectBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ success: false, error: parsed.error.issues.map(i => i.message).join('; ') });
+    return;
+  }
+  try {
+    const { rejectProposal } = await import('../../core/dreamer.js');
+    rejectProposal(getDatabase(), id, parsed.data.reason);
+    res.json({ success: true, data: { id, status: 'rejected' } });
+  } catch (err: any) {
+    const msg = err?.message ?? String(err);
+    if (/not found or not pending/.test(msg)) {
+      res.status(404).json({ success: false, error: msg });
+    } else {
+      res.status(500).json({ success: false, error: msg });
+    }
   }
 });
 

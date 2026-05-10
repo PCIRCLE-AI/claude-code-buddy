@@ -5,9 +5,9 @@
 
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
-import { detectCapabilities } from './config.js';
+import { detectCapabilities, readConfig } from './config.js';
 import type { LLMConfig } from './config.js';
-import { callLLM } from './llm-client.js';
+import { callLLM, type LLMAttempt } from './llm-client.js';
 import { sanitizeListForPrompt } from './prompt-safety.js';
 import type { ConsolidateInput, ConsolidateResult, Entity } from './types.js';
 
@@ -33,6 +33,10 @@ export async function consolidate(args: ConsolidateInput): Promise<ConsolidateRe
   const db = getDatabase();
   const kg = new KnowledgeGraph(db);
   const minObs = args.min_observations ?? 5;
+  // The LLM provider's failover chain — read once and reused per
+  // entity. consolidate-by-CLI wires this so a stale Anthropic key
+  // doesn't silently fail the whole consolidation pass.
+  const fallbacks = readConfig().llmFallbacks;
 
   // Collect candidates
   let entities: Entity[];
@@ -60,7 +64,7 @@ export async function consolidate(args: ConsolidateInput): Promise<ConsolidateRe
     totalBefore += entity.observations.length;
 
     try {
-      const compressed = await compressObservations(entity.observations, caps.llm);
+      const compressed = await compressObservations(entity.observations, caps.llm, fallbacks);
 
       if (compressed.length < entity.observations.length) {
         // Replace observations: remove old ones, add compressed set.
@@ -101,7 +105,12 @@ export async function consolidate(args: ConsolidateInput): Promise<ConsolidateRe
  * Ask the configured LLM to compress a list of observations into 2–3 dense sentences.
  * Returns the compressed array, or the original array if the LLM response is unusable.
  */
-async function compressObservations(observations: string[], llmConfig: LLMConfig): Promise<string[]> {
+async function compressObservations(
+  observations: string[],
+  llmConfig: LLMConfig,
+  fallbacks?: LLMConfig[],
+  onAttempt?: (attempts: LLMAttempt[]) => void,
+): Promise<string[]> {
   // F7: observations may contain attacker-influenced text
   // (auto-captured session content, imported entities, etc.). Wrap in
   // an explicit tag and tell the model to treat as data only.
@@ -117,7 +126,7 @@ async function compressObservations(observations: string[], llmConfig: LLMConfig
 
   let text: string;
   try {
-    text = await callLLM(prompt, llmConfig, { maxTokens: 500 });
+    text = await callLLM(prompt, llmConfig, { maxTokens: 500, fallbacks, onAttempt });
   } catch {
     // No API key, network error, or unsupported provider — preserve
     // prior behavior: silently fall back to original observations.

@@ -1,5 +1,5 @@
 import type { LLMConfig } from './config.js';
-import { callLLM } from './llm-client.js';
+import { callLLM, type LLMAttempt } from './llm-client.js';
 import { sanitizeForPrompt, sanitizeListForPrompt } from './prompt-safety.js';
 import type { LessonSeverity } from './types.js';
 
@@ -18,10 +18,18 @@ export interface StructuredLesson {
  * Deduplicates and limits errors to max 5 unique entries.
  * Returns null if LLM fails or produces unparseable output.
  */
+export interface AnalyzeFailureOptions {
+  /** Cross-provider failover chain (forwarded to callLLM). */
+  fallbacks?: LLMConfig[];
+  /** Per-call telemetry hook (forwarded to callLLM). */
+  onAttempt?: (attempts: LLMAttempt[]) => void;
+}
+
 export async function analyzeFailure(
   errors: string[],
   filesEdited: string[],
-  llmConfig: LLMConfig
+  llmConfig: LLMConfig,
+  opts: AnalyzeFailureOptions = {}
 ): Promise<StructuredLesson | null> {
   // Deduplicate and limit to 5
   const unique = [...new Set(errors)].slice(0, 5);
@@ -62,7 +70,7 @@ Analyze the root cause and return a JSON object (ONLY the JSON, no explanation):
 }`;
 
   try {
-    const text = await callLLM(prompt, llmConfig, { maxTokens: 300 });
+    const text = await callLLM(prompt, llmConfig, { maxTokens: 300, fallbacks: opts.fallbacks, onAttempt: opts.onAttempt });
     return parseLesson(text);
   } catch {
     return null;
