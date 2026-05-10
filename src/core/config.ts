@@ -35,6 +35,22 @@ export interface EmbedderConfig {
 export interface MeMeshConfig {
   llm?: LLMConfig;
   /**
+   * Ordered fallback chain. When the primary `llm` provider fails with
+   * an auth, network, or upstream error, callLLM walks this list in
+   * order and uses the first provider that succeeds. A 400-class
+   * "bad request" error is NOT retried (the prompt itself is broken,
+   * a second provider won't fix it).
+   *
+   * Telemetry on each attempt is reported via `opts.onAttempt` if the
+   * caller passes one — see `llm-client.ts`.
+   *
+   * Common pattern: cloud primary (Anthropic) with local-Ollama fallback
+   * for offline / outage / rotated-key resilience. The user explicitly
+   * said: "Anthropic key 死了我前幾天不是也加了gemma4, 為啥沒接手？
+   * it's the fallback plan" — this field is what wires that intent.
+   */
+  llmFallbacks?: LLMConfig[];
+  /**
    * Defaults to ONNX 384-dim if omitted. Existing installs that have
    * never set this field stay on whatever provider their entities_vec
    * was last built with — see db.ts `getEmbeddingDimension`.
