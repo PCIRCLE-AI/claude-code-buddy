@@ -6,6 +6,7 @@ import { MemoryTimeline } from './MemoryTimeline';
 import { MemoryAgeMatrix } from './MemoryAgeMatrix';
 import { KnowledgeRadar } from './KnowledgeRadar';
 import { UserPatterns } from './UserPatterns';
+import { LlmTelemetryPanel } from './LlmTelemetryPanel';
 import { t } from '../lib/i18n';
 
 export function AnalyticsTab() {
@@ -86,6 +87,13 @@ export function AnalyticsTab() {
           <UserPatterns data={patterns} />
         </div>
       )}
+
+      {/* Row 5b: LLM telemetry — quantifies "memesh did X for you"
+          across the 5 Smart-Mode flows. Renders even when other
+          analytics fail; sourced from a separate endpoint. */}
+      <div style={{ marginTop: 8 }}>
+        <LlmTelemetryPanel />
+      </div>
 
       {/* Row 6: Topics cloud */}
       {stats && (() => {

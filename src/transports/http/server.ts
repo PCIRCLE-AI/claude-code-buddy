@@ -621,6 +621,29 @@ app.get('/v1/patterns', (_req, res) => {
   }
 });
 
+// --- LLM telemetry ---
+//
+// Surfaces the `llm_telemetry` table contents (see core/llm-telemetry.ts)
+// as a per-flow scorecard for the dashboard Analytics tab. Same shape
+// as the `memesh telemetry` CLI output. Default 30-day window.
+const TelemetryQuerySchema = z.object({
+  window: z.coerce.number().int().min(1).max(365).default(30),
+});
+app.get('/v1/telemetry', async (req, res) => {
+  try {
+    const parsed = TelemetryQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ success: false, error: parsed.error.issues.map(i => i.message).join('; ') });
+      return;
+    }
+    const { summariseTelemetry } = await import('../../core/llm-telemetry.js');
+    const summaries = summariseTelemetry(parsed.data.window);
+    res.json({ success: true, data: { window_days: parsed.data.window, summaries } });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // --- Dream proposals (Insights tab) ---
 //
 // Backs the dashboard's Insights surface, replacing CLI-only
