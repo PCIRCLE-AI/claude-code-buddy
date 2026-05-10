@@ -530,30 +530,28 @@ process.stdin.on('end', async () => {
         try { process.stderr.write(`[memesh session-start] lesson query: ${err?.message || err}\n`); } catch {}
       }
 
-      // Build multi-line tree summary (count-based, no entity bullets)
+      // Build single-line summary with mid-dot separators. Earlier this
+      // was a multi-line tree (├─ / └─); switched to a one-liner so the
+      // SessionStart system message takes one row in the Claude Code
+      // log instead of four. Counts are count-only — no entity bullets.
       const projectCount = projectEntities.length;
       const recentCount = recentEntities.length;
-      const memoryParts = [];
-      if (projectCount > 0) {
-        memoryParts.push(`${projectCount} project memor${projectCount === 1 ? 'y' : 'ies'}`);
-      }
-      if (recentCount > 0) {
-        memoryParts.push(`${recentCount} recent memor${recentCount === 1 ? 'y' : 'ies'}`);
-      }
-      if (lessonCount > 0) {
-        memoryParts.push(`${lessonCount} active lesson${lessonCount === 1 ? '' : 's'}`);
-      }
+      const memoryFragments = [];
+      if (projectCount > 0) memoryFragments.push(`${projectCount} project`);
+      if (recentCount > 0) memoryFragments.push(`${recentCount} recent`);
 
       let summary;
-      if (memoryParts.length === 0) {
+      if (memoryFragments.length === 0 && lessonCount === 0) {
         summary = `◉ MeMesh ready · no memories for "${projectName}" yet`;
       } else {
-        const treeLines = ['◉ MeMesh memory loaded'];
-        for (let i = 0; i < memoryParts.length; i++) {
-          const branch = i === memoryParts.length - 1 ? '└─' : '├─';
-          treeLines.push(`  ${branch} ${memoryParts[i]}`);
+        const parts = ['◉ MeMesh'];
+        if (memoryFragments.length > 0) {
+          parts.push(`${memoryFragments.join(' + ')} memories`);
         }
-        summary = treeLines.join('\n');
+        if (lessonCount > 0) {
+          parts.push(`${lessonCount} active lesson${lessonCount === 1 ? '' : 's'}`);
+        }
+        summary = parts.join(' · ');
       }
 
       // --- Record injected entity IDs for recall effectiveness tracking ---
