@@ -40,6 +40,17 @@ interface ProposalSummary {
   kind?: string;
 }
 
+// Surfaced when the dreamer was run with `validateBeforeStage: true`
+// and the LLM validator returned a 'soften' verdict. Stored on the
+// proposed_digest JSON blob in dream_proposals; passes through GET
+// /v1/dream/proposals/:id untouched. Absent on validator-pass digests
+// and on every digest produced before the validator wiring landed —
+// the rendering branch is fully backward-compatible.
+interface ValidationWarning {
+  claim: string;
+  reason: string;
+}
+
 interface ProposalDetail {
   id: number;
   project: string;
@@ -49,6 +60,7 @@ interface ProposalDetail {
     type: string;
     observations: string[];
     tags: string[];
+    validation_warnings?: ValidationWarning[];
   } | null;
   source_ids: number[];
   llm_model: string | null;
@@ -125,6 +137,12 @@ export function InsightsTab() {
   // remove in the matching finally, so two concurrent ops can each
   // own their own button-disabled state.
   const [inFlight, setInFlight] = useState<Set<number>>(new Set());
+  // Dream-run trigger state for the hero buttons. Two distinct flags
+  // so the user sees which mode they kicked off (plain vs +validate)
+  // — collapsing both into a single `dreamRunning` boolean would
+  // disable BOTH buttons during a fast click and obscure which was
+  // pressed. `null` = idle.
+  const [dreamRunning, setDreamRunning] = useState<'plain' | 'validate' | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -212,6 +230,28 @@ export function InsightsTab() {
     }
   }, [refresh]);
 
+  // Trigger a dreamer pass on demand. `mode === 'validate'` plumbs the
+  // optional second LLM call through `digest-validator.ts`. Bounded to
+  // maxLlmCalls=3 from the dashboard so a casual click can't burn a
+  // whole hour of LLM budget — power users still have the CLI for
+  // larger passes (`memesh dream run --max-llm-calls 50 --validate`).
+  const runDream = useCallback(async (mode: 'plain' | 'validate') => {
+    setDreamRunning(mode);
+    setError('');
+    try {
+      await api('POST', '/v1/dream/run', {
+        maxLlmCalls: 3,
+        validate: mode === 'validate',
+      });
+      window.dispatchEvent(new Event('memesh:data-changed'));
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDreamRunning(null);
+    }
+  }, [refresh]);
+
   const pendingCount = allProposals.filter(p => p.status === 'pending').length;
   const appliedCount = allProposals.filter(p => p.status === 'applied').length;
   const rejectedCount = allProposals.filter(p => p.status === 'rejected').length;
@@ -229,6 +269,31 @@ export function InsightsTab() {
           <span><strong>{appliedCount}</strong> {t('insights.statApplied')}</span>
           <span><strong>{rejectedCount}</strong> {t('insights.statRejected')}</span>
         </div>
+        {/* On-demand dream run — closes the v4.2.0 known limitation that
+            forced users to drop into a CLI for `memesh dream run --validate`.
+            Only enabled when the LLM probe came back with a configured
+            provider; without one, runDreamer no-ops anyway and we show
+            the empty-state's "configure your LLM" hint instead. */}
+        {llmConfigured && (
+          <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              class="btn btn-primary"
+              onClick={() => runDream('plain')}
+              disabled={dreamRunning !== null}
+              aria-busy={dreamRunning === 'plain'}
+            >
+              {dreamRunning === 'plain' ? `${t('insights.runDream')}…` : t('insights.runDream')}
+            </button>
+            <button
+              class="btn btn-ghost"
+              onClick={() => runDream('validate')}
+              disabled={dreamRunning !== null}
+              aria-busy={dreamRunning === 'validate'}
+            >
+              {dreamRunning === 'validate' ? `${t('insights.runDreamWithValidate')}…` : t('insights.runDreamWithValidate')}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Filter tabs */}
@@ -351,6 +416,42 @@ export function InsightsTab() {
                 <div style={{ marginBottom: 8, color: 'var(--text-3)', fontSize: 11 }}>
                   {t('insights.generatedBy')}: <code>{detail.llm_model ?? 'unknown'}</code> · {t('insights.promptVersion')}: <code>{detail.prompt_version}</code>
                 </div>
+                {/* Flagged claims — only present when the dreamer was run
+                    with --validate AND the validator returned 'soften'.
+                    Renders ABOVE observations so the reviewer reads the
+                    caveats before the digest text. Absent/empty array
+                    skips this block entirely, preserving the original
+                    layout for digests without validator output. */}
+                {Array.isArray(detail.proposed_digest.validation_warnings)
+                  && detail.proposed_digest.validation_warnings.length > 0 && (
+                  <div
+                    style={{
+                      marginBottom: 10,
+                      padding: 10,
+                      borderRadius: 4,
+                      borderLeft: '3px solid var(--warning, #FFC800)',
+                      background: 'rgba(255,200,0,0.08)',
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, color: 'var(--warning, #FFC800)', marginBottom: 6 }}>
+                      ⚠ {t('insights.validationWarnings')}
+                    </div>
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {detail.proposed_digest.validation_warnings.map((w, i) => (
+                        <li key={i} style={{ marginBottom: 6, lineHeight: 1.5 }}>
+                          <div>
+                            <span style={{ color: 'var(--text-3)' }}>{t('insights.validationClaim')}: </span>
+                            <code style={{ fontSize: 12 }}>{w.claim}</code>
+                          </div>
+                          <div>
+                            <span style={{ color: 'var(--text-3)' }}>{t('insights.validationReason')}: </span>
+                            <span>{w.reason}</span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <div style={{ marginBottom: 8 }}>
                   <strong>{t('insights.observations')}:</strong>
                   <ol style={{ margin: '4px 0 0 18px', padding: 0 }}>

@@ -624,14 +624,23 @@ program
   .command('telemetry')
   .description('Show LLM call telemetry (per-flow scorecard for the last N days)')
   .option('--window <days>', 'Look-back window in days (default 30)', (v) => parseInt(v, 10), 30)
+  .option('--prune <days>', 'Delete rows older than N days BEFORE rendering (closes v4.2.0 retention gap)', (v) => parseInt(v, 10))
   .option('--json', 'Output as JSON')
   .action(async (opts) => {
     await withDatabase(async () => {
-      const { summariseTelemetry } = await import('../../core/llm-telemetry.js');
+      const { summariseTelemetry, pruneTelemetry } = await import('../../core/llm-telemetry.js');
+      let pruneResult: { deletedRows: number; cutoffIso: string; totalRowsAfter: number } | null = null;
+      if (typeof opts.prune === 'number' && Number.isFinite(opts.prune) && opts.prune >= 0) {
+        pruneResult = pruneTelemetry({ olderThanDays: opts.prune });
+      }
       const summaries = summariseTelemetry(opts.window);
       if (opts.json) {
-        console.log(JSON.stringify(summaries, null, 2));
+        console.log(JSON.stringify({ pruned: pruneResult, summaries }, null, 2));
         return;
+      }
+      if (pruneResult) {
+        console.log(`Pruned ${pruneResult.deletedRows} row${pruneResult.deletedRows === 1 ? '' : 's'} older than ${opts.prune} days.`);
+        console.log('');
       }
       if (summaries.length === 0) {
         console.log(`No LLM telemetry recorded in the last ${opts.window} days.`);

@@ -176,6 +176,12 @@ export function openDatabase(dbPath?: string): Database.Database {
   // what bit the maintainer when their Anthropic key died.
   ensureLlmTelemetryTable(db);
 
+  // Auto-prune telemetry rows older than 180 days, throttled to once
+  // per 24h. Closes the "no automatic retention" known limitation
+  // documented in v4.2.0 CHANGELOG. One indexed DELETE — milliseconds
+  // even at 100k rows.
+  runAutoTelemetryPrune(db);
+
   // Load sqlite-vec extension for vector similarity search
   sqliteVec.load(db);
 
@@ -336,6 +342,56 @@ function ensureLlmTelemetryTable(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_llm_telemetry_flow ON llm_telemetry(flow);
     CREATE INDEX IF NOT EXISTS idx_llm_telemetry_status ON llm_telemetry(status);
   `);
+}
+
+const TELEMETRY_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const TELEMETRY_PRUNE_DEFAULT_DAYS = 180;
+const TELEMETRY_PRUNE_MARKER = 'last_telemetry_prune_at';
+
+/**
+ * Auto-prune `llm_telemetry` rows older than 180 days, throttled to
+ * once per 24h via a marker key in `memesh_metadata` (same pattern as
+ * `runAutoDecay` and the `signal_score_backfill_v1` backfill). Closes
+ * the "no automatic retention" known limitation documented in the
+ * v4.2.0 CHANGELOG.
+ *
+ * Cheap: one indexed DELETE backed by `idx_llm_telemetry_ts`,
+ * milliseconds even at 100k rows. Caller can run an explicit prune
+ * via `pruneTelemetry()` (or `memesh telemetry --prune <days>`) at
+ * any time — this is the no-touch background sweep.
+ */
+function runAutoTelemetryPrune(db: Database.Database): void {
+  // memesh_metadata is created by ensureVecTable / backfillSignalScores
+  // earlier in openDatabase, but be defensive.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memesh_metadata (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
+  const last = db.prepare(
+    'SELECT value FROM memesh_metadata WHERE key = ?'
+  ).get(TELEMETRY_PRUNE_MARKER) as { value: string } | undefined;
+
+  if (last) {
+    const elapsed = Date.now() - new Date(last.value).getTime();
+    if (elapsed < TELEMETRY_PRUNE_INTERVAL_MS) return;
+  }
+
+  const cutoffIso = new Date(
+    Date.now() - TELEMETRY_PRUNE_DEFAULT_DAYS * 86400000
+  ).toISOString();
+  try {
+    db.prepare('DELETE FROM llm_telemetry WHERE ts < ?').run(cutoffIso);
+  } catch {
+    // If the table is missing for any reason, don't crash openDatabase.
+    return;
+  }
+
+  db.prepare(
+    'INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)'
+  ).run(TELEMETRY_PRUNE_MARKER, new Date().toISOString());
 }
 
 /**
