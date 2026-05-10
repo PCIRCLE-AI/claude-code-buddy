@@ -35,7 +35,12 @@ const MAX_ERROR_CHARS = 300;
  *  control chars (DEL + C0 except whitespace) so that a malformed/hostile
  *  upstream can't smuggle escape sequences into client logs or copy-paste. */
 function safeErrorString(s: string): string {
+  // Intentional control-character class: stripping C0 control chars and
+  // DEL is the whole point of this sanitiser, so the no-control-regex
+  // warning is exactly what the rule was meant to flag — and exactly
+  // what we don't want to silence project-wide.
   return s
+    // eslint-disable-next-line no-control-regex
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
     .slice(0, MAX_ERROR_CHARS);
 }

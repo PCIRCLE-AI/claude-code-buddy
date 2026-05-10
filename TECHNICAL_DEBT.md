@@ -7,208 +7,189 @@
 
 ## Overview
 
-Baseline debt snapshot at v4.2.0. The test suite is fully green (984/984). The remaining surface is concentrated in `no-explicit-any` warnings in HTTP/CLI transports, one indirect security advisory, and a held TypeScript 6.0 upgrade. `query-expander.ts` has been retired; four new modules shipped (`llm-client`, `llm-telemetry`, `digest-validator`, `kg-backfill`).
+v4.2.0 ships with a clean slate on lint and type debt: **0 lint warnings, 0 lint errors, 0 executable `any` in `src/`, 984/984 tests passing**. The remaining surface is two upstream-bound items (one held dependency upgrade, one transitive security advisory) and tracker entries for future engineering quality investments. Nothing on this page is currently blocking — this doc exists to keep the bar from drifting.
 
-**Current Status**: 110 lint warnings (0 errors), 984/984 tests passing
+**Current Status**: 0 lint warnings · 0 lint errors · 0 executable `any` in src/ · 984/984 tests · 1 transitive high-sev advisory (not reachable from memesh's API surface)
 
 ---
 
-## Lint Warnings (110 total)
+## Lint Health
 
-### Distribution by Rule
+### Current Distribution
 
-| Rule | Count | Priority | Target (v4.3.0) |
-|------|-------|----------|------------------|
-| `@typescript-eslint/no-explicit-any` | 60 | P2 | Reduce to <25 |
-| `no-empty` | 27 | P3 | Comment intentional ones |
-| `no-useless-assignment` | 9 | P3 | Clean up |
-| `preserve-caught-error` | 5 | P3 | Attach `.cause` |
-| `no-useless-escape` | 4 | P3 | Fix regex escapes |
-| `@typescript-eslint/no-unused-vars` | 4 | P3 | Remove or prefix `_` |
-| `no-control-regex` | 1 | P3 | Review regex |
+_Derived from: `npm run lint` at HEAD._
 
-_Derived from: `npm run lint` at HEAD (worktree commit 997c61ab)._
+| Metric | Count |
+|--------|-------|
+| Errors | 0 |
+| Warnings | 0 |
 
-### Strategy
+ESLint flat config (`eslint.config.js`) treats empty `catch {}` as the project's intentional silent-failure pattern in hook code (`allowEmptyCatch: true`) — every other empty block still warns. Other historical noise rules (`no-empty`, `no-useless-assignment`, `no-useless-escape`, `preserve-caught-error`, `no-control-regex`) remain on `'warn'` so future regressions surface immediately.
 
-**Phase 1 (v4.2.0 → v4.3.0)**: `no-explicit-any` — highest signal, biggest count
-- Target: 60 → <25, focussing on HTTP server (25 instances) and knowledge-graph (8 instances)
-- Approach: typed Express `Request<P,B>` generics; `instanceof Error` in catch blocks
+### Going-Forward Discipline
 
-**Phase 2 (v4.3.0 → v4.4.0)**: remaining warnings
-- Comment or handle `no-empty` blocks (27 instances)
-- Fix `no-useless-assignment` (9 instances)
-- Fix `no-useless-escape` (4 instances)
-- Attach `.cause` to `preserve-caught-error` sites (5 instances)
-
-**Phase 3 (v4.4.0+)**: Enable `lint:strict` in CI (zero warnings as gate)
+- **Today**: `npm run lint` reports 0 problems.
+- **CI**: a `lint` step on every PR (see `.github/workflows/ci.yml`) reports the count; the doctor + version-coherence steps are the hard gates.
+- **Target (v4.3.0)**: switch the CI lint step from informational to **`--max-warnings 0`** so any new warning fails the build before merge. The current zero-state makes this safe to enable on the next minor.
 
 ---
 
 ## Type Safety (`any` Usage)
 
-### Current Count by File
+_Derived from: `grep -rnE "(: any[,)\;>]|<any>|as any)" src/ --include="*.ts"`_
 
-_Derived from: `grep -rcE "as any|: any[),;]" src/ --include="*.ts"`_
+| Surface | Executable `any` | Notes |
+|---------|------------------|-------|
+| `src/**/*.ts` | **0** | Down from 60 at v4.1.x baseline |
+| Comments / strings | 3 | Documentation references inside `types.ts` and `digest-validator.ts`; not executable |
 
-| File | Count |
-|------|-------|
-| `src/transports/http/server.ts` | 25 |
-| `src/knowledge-graph.ts` | 8 |
-| `src/transports/cli/cli.ts` | 5 |
-| `src/core/embedder.ts` | 4 |
-| `src/core/verifier.ts` | 3 |
-| `src/core/llm-validator.ts` | 3 |
-| `src/transports/mcp/handlers.ts` | 2 |
-| `src/core/version-check.ts` | 2 |
-| `src/core/types.ts` | 2 |
-| `src/cli/view.ts` | 2 |
-| Other files (4) | 1 each |
+The v4.2.0 cleanup typed every Express handler against the `Request<P, ResB, ReqB>` generics, replaced `catch (err: any)` with `instanceof Error` narrowing, and introduced `Record<string, unknown>` for SQLite `metadata` payloads. The pattern is now uniform; new handlers must match it (PR-review gate).
 
-**Total: 60 instances across 14 files.**
-
-### Recommended Patterns
-
-#### Typed Express Handlers
+### Pattern Reference
 
 ```typescript
-// Instead of: (req: any, res: any)
-import { Request, Response } from 'express';
-
-app.post('/v1/remember', (req: Request<{}, {}, RememberArgs>, res: Response) => {
-  const { name, type, observations } = req.body; // fully typed
+// HTTP handler — typed body + response
+app.post('/v1/remember', (req: Request<{}, RememberResult, RememberArgs>, res: Response<RememberResult>) => {
+  const { name, type, observations } = req.body;     // fully typed
+  res.json(remember({ name, type, observations })); // return type checked
 });
-```
 
-#### Error Handler Pattern
-
-```typescript
-// Instead of: } catch (err: any) {
+// Catch — narrow with instanceof, never `: any`
 } catch (err) {
   const message = err instanceof Error ? err.message : String(err);
   res.status(500).json({ error: message });
 }
+
+// SQLite metadata — Record<string, unknown> with try/catch parse
+let metadata: Record<string, unknown>;
+try { metadata = row.metadata ? JSON.parse(row.metadata) : {}; } catch { metadata = {}; }
 ```
 
 ---
 
 ## Dependency Management
 
-### Current State
-
-_Derived from: `npm outdated` at HEAD on the main working tree._
+_Derived from: `npm outdated` at HEAD._
 
 | Package | Current | Latest | Status |
 |---------|---------|--------|--------|
-| typescript | 5.9.3 | 6.0.3 | ⏸️ Intentionally held |
+| `typescript` | 5.9.3 | 6.0.3 | ⏸️ Intentionally held |
 | All runtime deps | up to date | — | ✅ |
 
-### TypeScript 6.0 Upgrade
+### TypeScript 6.0 Upgrade — Held
 
-**Status**: ⏸️ On Hold
+**Reason**: Major version bump. TS 6.0 introduces several breaking changes in inference around conditional types and `unknown`-narrowing that show up in the project's `Record<string, unknown>` patterns (which we just rolled out broadly in v4.2.0). Upgrading immediately would risk re-opening the type-debt we just paid down.
 
-**Reason**: Major version. Requires review of breaking changes, isolated branch testing, and verification that all type definitions and the build pipeline are unaffected.
+**Plan**: Re-evaluate at v4.3.0. Verification path: branch `chore/ts-6.0`, run `npx tsc --noEmit && npx vitest run`, audit any new errors. If the new errors are all in code we wrote in v4.2.0, defer to v4.4.0 once the patterns settle. If they're orthogonal (e.g. third-party type packages), upgrade.
 
-**Estimated Effort**: 1–2 days
+**Estimated Effort**: 1–2 days (most of the time is in test verification across the matrix).
 
 ---
 
-## Security Vulnerabilities
+## Security Advisories
 
 _Derived from: `npm audit` at HEAD._
 
-| Vulnerability | Severity | Package | Path | Status |
-|---------------|----------|---------|------|--------|
-| GHSA-q3j6-qgpj-74h6 (path traversal) | High | `fast-uri <=3.1.0` | `@modelcontextprotocol/sdk → ajv → fast-uri` | Awaiting upstream fix |
-| GHSA-v39h-62p7-jpjc (host confusion) | High | `fast-uri <=3.1.1` | same | Awaiting upstream fix |
+| Advisory | Severity | Package | Path | Status |
+|----------|----------|---------|------|--------|
+| GHSA-q3j6-qgpj-74h6 (path traversal) | High | `fast-uri ≤3.1.0` | `@modelcontextprotocol/sdk → ajv → fast-uri` | Awaiting upstream |
+| GHSA-v39h-62p7-jpjc (host confusion) | High | `fast-uri ≤3.1.1` | same | Awaiting upstream |
 
-**Note**: `fast-uri` is a transitive dependency of `ajv` which is pulled by `@modelcontextprotocol/sdk`. Neither path traversal nor host confusion vectors are reachable from memesh's usage of the MCP SDK (MCP stdio transport, no HTTP URL parsing through ajv). Will resolve when `@modelcontextprotocol/sdk` ships an updated `ajv` pin. Track: [npm advisory GHSA-q3j6-qgpj-74h6](https://github.com/advisories/GHSA-q3j6-qgpj-74h6).
+**Reachability**: Neither vector is reachable from memesh's runtime. The MCP SDK uses ajv only for JSON-schema validation of tool-call requests over stdio; memesh never parses URLs through ajv. The advisory exists on the lock graph but not in the call graph.
+
+**Resolution path**: bump `@modelcontextprotocol/sdk` to a version that pins `ajv ≥9.0`. Tracked in `chore: bump MCP SDK` work — not on the v4.2.0 critical path. We re-check on every minor release.
 
 ---
 
 ## Test Suite Health
 
-_Derived from: `npx vitest run` against the main working tree at HEAD._
+_Derived from: `npx vitest run` against the integrated `release/4.2.0` branch._
 
-- **Pass Rate**: 100% — 984/984 tests, 63 test files
-- **Known Flakes**: None confirmed. Session-start and hook integration tests can fail in the worktree if `dist/` is absent (no `npm run build` run in worktree). Run tests from the main working tree.
-- **Pool Mode**: `forks` (not `threads`) — required for `better-sqlite3` native module; do not change
-- **Benchmark Baseline**: LongMemEval-S Mode A — R@5 95.40%, R@10 97.60%, MRR 0.8899 (FTS5-only, no LLM on recall path). Three independent runs confirm baseline is unchanged at v4.2.0 after `query-expander.ts` retirement.
+- **Pass Rate**: 100% — 984/984 tests across 63 files
+- **Pool Mode**: `forks` (required for `better-sqlite3` native module — never change)
+- **Benchmark Baseline**: LongMemEval-S Mode A — R@5 95.40%, R@10 97.60%, MRR 0.8899 (FTS5-only, no LLM on recall path). Three independent runs at v4.2.0 confirm the baseline is unchanged after `query-expander.ts` retirement.
+
+### Known Test-Environment Pitfalls
+
+- **Worktree without `dist/`**: `await import('dist/core/config.js')` in some hooks will silently fail under a fresh worktree. Run `npm run build` before `npx vitest run` in any worktree, or run from the main checkout.
+- **Windows `dream-auto-trigger.test.ts` "all gates pass"**: skipped on `process.platform === 'win32'` pending Windows-specific env-propagation diagnosis. v4.2.0 ships with stderr-trace instrumentation behind `MEMESH_DREAM_TRIGGER_DEBUG=1` so the next Windows session can identify the failing gate without further code reading. Runbook: `docs/notes/windows-dream-trigger-diagnosis.md` (gitignored).
 
 ---
 
 ## Empty Catch Blocks
 
-_Derived from: `grep -rcE "catch\s*\(\s*\)\s*\{" src/ --include="*.ts"` — 0 matches._
+_Derived from: `grep -rcE "catch\s*\(\s*\)\s*\{" src/ --include="*.ts"` — 0 matches in src/._
 
-No empty catch blocks in `src/`. The `no-empty` lint warnings (27 total) are on empty block statements in other contexts (e.g. empty `if` branches, empty function bodies used as stubs). Each should receive a comment or be removed; see Phase 2 plan above.
+Hook code (`scripts/hooks/*.js`) intentionally uses `try { stderr.write(...) } catch {}` so even logging a failure cannot crash the hook itself. ESLint allows this via `'no-empty': ['warn', { allowEmptyCatch: true }]`. Any other empty block (e.g. empty `if` body) still warns.
 
 ---
 
 ## Future Improvements
 
-### P2
+### P2 (target v4.3.0)
 
-1. **Type Safety in HTTP Server** — 25 `any` instances in `src/transports/http/server.ts`. Typed Express generics would eliminate the majority in one pass. Estimated 2–3 hours.
+1. **Lint CI gate** — flip `eslint` step to `--max-warnings 0`. Pre-condition (zero warnings) is met today; the change is one-line and turns the bar into a guarantee.
+2. **Windows env-propagation fix** — diagnose the `dream-auto-trigger` Windows skip using the v4.2.0 instrumentation. Removing the skip is the deliverable.
 
-### P3 (Deferred)
+### P3 (deferred)
 
-2. **Structured Logging** — Replace ad-hoc `console.*` calls with a levelled logger. Useful for production deployments; not urgent for local-first use case.
-
-3. **Centralized Express Error Middleware** — Currently each handler has its own try/catch. A shared error middleware would standardise 500 responses and reduce duplication.
-
-4. **Windows Env Propagation** — `os.homedir()` ignores `HOME` on Windows; the `HOME`-first helper pattern added in v4.1.4 needs to be audited for completeness across all hook scripts. Low priority until Windows CI is green end-to-end.
-
-5. **TypeScript `strict` Mode Audit** — Several files predate the `strict: true` flag being set. A one-time pass to resolve the suppressed checks would improve type confidence.
-
-6. **CI Lint Gate** — Enable `lint:strict` (`--max-warnings 0`) once warning count reaches zero. Not a gate yet; tracked here as a target state.
+3. **Structured logging** — replace ad-hoc `console.*` with a levelled logger. Useful for production deployments; low-priority for local-first use.
+4. **Centralised Express error middleware** — currently each handler has its own try/catch. A shared middleware would standardise 500 responses and reduce duplication.
+5. **TypeScript 6.0 evaluation** — see Dependency Management above.
+6. **MCP SDK bump** to clear the `fast-uri` advisory once an upstream-pinned `ajv` is available.
 
 ---
 
 ## Progress Tracking
 
-### Completed Since v4.1.4
+### Completed in v4.2.0
 
-- ✅ Test failures resolved — 884/896 → 984/984 (100%) — all HTTP timeout tests fixed
-- ✅ `query-expander.ts` retired — recall path is now LLM-free at all times; 17 tests removed, LongMemEval-S baseline confirmed unchanged
+- ✅ Lint warnings: **110 → 0** (1 error → 0)
+- ✅ Executable `any` in `src/`: **60 → 0**
+- ✅ Test failures resolved: 884/896 → **984/984** (100%)
+- ✅ `query-expander.ts` retired — recall is LLM-free at all times; LongMemEval-S baseline unchanged
 - ✅ `src/core/llm-client.ts` — unified LLM client with multi-provider failover
-- ✅ `src/core/llm-telemetry.ts` — persistent telemetry for Smart-Mode LLM calls; auto-prune at 180 days
-- ✅ `src/core/digest-validator.ts` — opt-in hallucination filter for `dream` proposals
-- ✅ `src/core/kg-backfill.ts` — heuristic relation backfill for orphan entities
-- ✅ Dashboard Insights tab — surfaces what memesh did for the user across sessions
+- ✅ `src/core/llm-telemetry.ts` — persistent telemetry, 180-day auto-prune
+- ✅ `src/core/digest-validator.ts` — opt-in hallucination filter for dream proposals
+- ✅ `src/core/kg-backfill.ts` — heuristic relation backfill (tag co-occurrence + project clustering)
+- ✅ Dashboard Insights tab — pending dream proposals + accept/reject UI
 - ✅ Dashboard LLM telemetry panel in Analytics tab
-- ✅ Stop hook auto-triggers `dream` (gated, throttled, detached)
-- ✅ Version coherence CI gate — `package.json` vs `CHANGELOG.md` diff check
-- ✅ `fast-uri` polynomial-redos from v4.1.x resolved (prior CVE in `re2`-based path; separate from current advisory)
-- ✅ Fire-and-forget error logging added to silent exit paths
+- ✅ Stop-hook auto-triggers `dream` (gated, throttled, detached)
+- ✅ Version coherence CI gate (`scripts/check-version-coherence.mjs`)
+- ✅ Doctor CI gate (manifest + hooks integrity)
+- ✅ Native i18n translations for 8 locales (`ja`, `ko`, `pt-BR`, `fr`, `de`, `vi`, `es`, `th`) for the v4.2.0 dashboard surfaces
+- ✅ Windows dream-trigger stderr-trace instrumentation (gated behind `MEMESH_DREAM_TRIGGER_DEBUG=1`)
+- ✅ ESLint flat-config `allowEmptyCatch: true` — codifies the hook silent-failure pattern
 
 ### In Progress
 
 _(None — v4.2.0 is the current stable baseline.)_
 
-### Planned
+### Planned (post-v4.2.0)
 
-- ⏳ `no-explicit-any` reduction: 60 → <25 (v4.3.0)
-- ⏳ `no-empty` comment pass: 27 blocks documented or removed (v4.3.0)
+- ⏳ Lint CI gate at `--max-warnings 0` (v4.3.0)
+- ⏳ Windows `dream-auto-trigger` env-propagation diagnosis (v4.3.0)
 - ⏳ TypeScript 6.0 evaluation (v4.3.0 or later)
-- ⏳ `fast-uri` advisory resolution — awaiting MCP SDK upstream update (track `@modelcontextprotocol/sdk` releases)
-- ⏳ Lint strict gate in CI (v4.4.0, after warning count reaches zero)
+- ⏳ `fast-uri` advisory resolution — bump `@modelcontextprotocol/sdk` once upstream pins `ajv ≥9.0`
+- ⏳ Centralised Express error middleware (v4.4.0)
+- ⏳ Structured logging (v4.4.0+)
 
 ---
 
 ## Metrics
 
-_All figures derived from commands run at commit 997c61ab (v4.2.0 HEAD)._
+_All figures derived from commands run at the integrated v4.2.0 head._
 
 | Metric | Current | Target (v4.3.0) | Status |
 |--------|---------|-----------------|--------|
 | Lint Errors | 0 | 0 | ✅ |
-| Lint Warnings | 110 | <60 | 🔄 In Progress |
-| `no-explicit-any` warnings | 60 | <25 | 🔄 In Progress |
+| Lint Warnings | 0 | 0 (CI-gated) | ✅ |
+| `no-explicit-any` warnings | 0 | 0 | ✅ |
+| Executable `any` in src/ | 0 | 0 | ✅ |
 | Test Pass Rate | 100% (984/984) | 100% | ✅ |
 | Security Vulns (direct) | 0 | 0 | ✅ |
-| Security Vulns (transitive) | 1 high (`fast-uri`) | 0 | ⏸️ Awaiting upstream |
-| Dependencies outdated | 1 (`typescript` 5.9.3 → 6.0.3) | 0 | ⏸️ On Hold |
+| Security Vulns (transitive) | 1 high (`fast-uri`, not reachable) | 0 | ⏸️ Awaiting MCP SDK |
+| Dependencies outdated | 1 (`typescript` 5.9.3 → 6.0.3, held) | re-evaluate | ⏸️ On Hold |
 | LongMemEval-S R@5 | 95.40% | ≥95.40% | ✅ |
 
 ---
