@@ -12,6 +12,7 @@ import { FeedbackWidget } from './components/FeedbackWidget';
 import { AuthPrompt } from './components/AuthPrompt';
 import { OnboardingBanner } from './components/OnboardingBanner';
 import { DoctorBanner } from './components/DoctorBanner';
+import { InsightsBanner } from './components/InsightsBanner';
 import { api, AuthRequiredError, getApiToken, setApiToken, type HealthData } from './lib/api';
 import { initLocale, t, type Locale } from './lib/i18n';
 
@@ -130,6 +131,7 @@ export function App() {
     <div class="shell">
       <Header health={health} error={error} />
       <DoctorBanner />
+      <InsightsBanner currentTab={tab} onNavigateToInsights={() => setTab('Insights')} />
       <OnboardingBanner health={health} />
       <TabNav tabs={tabLabels} active={tab} onSelect={(k) => setTab(k as Tab)} />
       <div class="main">
