@@ -29,6 +29,22 @@ Package này là tầng bộ nhớ cục bộ của dòng sản phẩm MeMesh. N
 
 ---
 
+## Proof — 95.40% R@5 trên LongMemEval-S
+
+Engine truy hồi của MeMesh là **chỉ FTS5** (không LLM, không embeddings trên hot path), được đo trên benchmark công khai [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) (500 câu hỏi, giấy phép MIT):
+
+| Hệ thống | R@5 | Nguồn |
+|---|---|---|
+| **MeMesh (Mode A, FTS5)** | **95.40%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| MemPalace | 96.6% | Vendor self-report |
+| Supermemory | ~82% | Vendor estimate |
+| Zep | 63.8% | LongMemEval paper |
+| Mem0 | 49.0% | LongMemEval paper |
+
+Lệnh tái hiện, SHA256 của dataset, kết quả thô theo từng câu hỏi, và phân tích các lỗi đã biết đều có trong [`benchmarks/longmemeval/`](benchmarks/longmemeval/). Có thể chạy lại trong ~10 giây.
+
+---
+
 ## Bắt đầu trong 60 giây
 
 ### Bước 1: Cài đặt
@@ -170,6 +186,26 @@ Bạn không cần phải manually nhớ mọi thứ. MeMesh có **7 hooks** đ�
 | **Trước khi context compact** | Lưu kiến thức trước khi nó bị mất do context limits |
 
 > **Opt out bất kỳ lúc nào:** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## Cấu hình
+
+Toàn bộ cấu hình thông qua biến môi trường. Các giá trị mặc định là local-only và zero-network — bạn không cần thiết lập gì để có một hệ thống hoạt động.
+
+| Biến | Mặc định | Tác dụng |
+|---|---|---|
+| `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | Ghi đè vị trí của database SQLite. |
+| `MEMESH_AUTO_CAPTURE` | `true` | Tắt hoàn toàn các hooks auto-capture (`Stop`, `PreCompact`). |
+| `MEMESH_AUTO_DETECT_LLM` | chưa đặt | Đặt thành `1` để memesh tự động phát hiện provider từ shell env (`OPENAI_API_KEY` v.v.) và chuyển sang BYOK embeddings. **Cài đặt mới mặc định chỉ dùng ONNX cục bộ (384-dim)** — opt in nếu bạn muốn cloud embeddings. Khi flag này không được đặt, một `OPENAI_API_KEY` còn sót trong shell sẽ bị bỏ qua. |
+| `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | chưa đặt | Đặt thành `1` để bật một giao thức working-model thử nghiệm (CTO / Orchestrator / Agents framing). Thêm session-start banner, một Bash command nudge, và telemetry `verify_agent_work`. Hiệu quả của giao thức đang được instrument, chưa được chứng minh — opt in nếu bạn muốn tham gia. **Mặc định là OFF**: các tính năng bộ nhớ cốt lõi vẫn hoạt động mà không cần flag này. |
+| `MEMESH_AUTO_UPDATE` | `off` | Chính sách auto-update. `off` (mặc định) không bao giờ tự cập nhật; `patch` cho phép `X.Y.Z → X.Y.Z+N`; `minor` thêm `X.Y.Z → X.Y+1.0`; `major` cho phép mọi bump. Khi được phép, một `npm install -g` detached chạy ở cuối session (Stop hook) để không bao giờ chặn công việc của bạn — kết quả lưu vào `~/.memesh/auto-update.log`. Cũng có thể đặt là `autoUpdate` trong `~/.memesh/config.json` (env thắng). Khi phiên bản đã cài bị maintainers đánh dấu deprecated (security advisory), `patch` sẽ được force-allowed ngay cả khi `off` — minor / major bumps vẫn manual để tránh behaviour drift im lặng. |
+| `OPENAI_API_KEY` | chưa đặt | Khóa OpenAI của bạn. Chỉ được dùng khi `MEMESH_AUTO_DETECT_LLM=1` hoặc bạn cấu hình provider tường minh. |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ghi đè endpoint Ollama khi dùng local Ollama provider. |
+
+`memesh doctor` in ra cấu hình đã resolve để bạn thấy cái gì đang active.
+
+Khi npm gắn cờ phiên bản đã cài là deprecated (thường là security advisory), session-start kế tiếp sẽ thêm banner mạnh `⚠️ MeMesh <ver> is DEPRECATED` ở đầu và `memesh update-status` hiển thị cùng dòng đó cho đến khi bạn nâng cấp. Kết quả check được cache tại `~/.memesh/update-check.<version>.json` để một lỗi mạng tạm thời không làm mờ cảnh báo.
 
 ---
 
