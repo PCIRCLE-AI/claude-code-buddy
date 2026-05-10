@@ -36,6 +36,9 @@ export default tseslint.config(
         document: 'readonly',
         localStorage: 'readonly',
         fetch: 'readonly',
+        // Node 20+ web standard globals
+        URL: 'readonly',
+        URLSearchParams: 'readonly',
       },
     },
     rules: {
@@ -53,12 +56,15 @@ export default tseslint.config(
       'no-console': 'off', // CLI tool, console is expected
       'prefer-const': 'warn',
       'no-var': 'error',
-      // Technical debt - downgrade to warnings for gradual cleanup
-      'no-empty': 'warn', // 10 instances - TODO: fix empty catch blocks
-      'no-useless-assignment': 'warn', // 6 instances - TODO: remove unused vars
-      'no-useless-escape': 'warn', // 5 instances - TODO: fix regex escapes
-      'preserve-caught-error': 'warn', // 3 instances - TODO: preserve error causes
-      'no-control-regex': 'warn', // 1 instance - TODO: review regex
+      // Hooks use the canonical pattern `try { stderr.write(...) } catch {}`
+      // so even logging a failure cannot crash the hook itself. Allow
+      // empty `catch {}`; any other empty block (e.g. empty if-body)
+      // still warns.
+      'no-empty': ['warn', { allowEmptyCatch: true }],
+      'no-useless-assignment': 'warn',
+      'no-useless-escape': 'warn',
+      'preserve-caught-error': 'warn',
+      'no-control-regex': 'warn',
     },
   },
 );

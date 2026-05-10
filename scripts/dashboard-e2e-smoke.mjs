@@ -53,7 +53,8 @@ async function launchBrowser() {
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `No browser available for dashboard e2e smoke. Install Playwright Chromium (for CI: "npx playwright install --with-deps chromium") or set CHROME_PATH. Original error: ${reason}`
+      `No browser available for dashboard e2e smoke. Install Playwright Chromium (for CI: "npx playwright install --with-deps chromium") or set CHROME_PATH. Original error: ${reason}`,
+      { cause: error }
     );
   }
 }
@@ -166,9 +167,10 @@ async function main() {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  let serverOutput = '';
-  server.stdout.on('data', (chunk) => { serverOutput += chunk.toString(); });
-  server.stderr.on('data', (chunk) => { serverOutput += chunk.toString(); });
+  // Pipe server stdout/stderr through to ours so CI logs include them
+  // when the smoke fails. Previously buffered into an unused string.
+  server.stdout.on('data', (chunk) => { process.stdout.write(`[server] ${chunk.toString()}`); });
+  server.stderr.on('data', (chunk) => { process.stderr.write(`[server] ${chunk.toString()}`); });
 
   try {
     await waitForServer(healthUrl, server);

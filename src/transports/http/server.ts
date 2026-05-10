@@ -954,7 +954,7 @@ export function startServer(
     console.error('Quick fix: Backup and reset the database:');
     console.error(`  mv "${dbPath}" "${dbPath}.backup"`);
     console.error('  memesh (will create a fresh database)\n');
-    throw new Error(`Database initialization failed: ${message}`);
+    throw new Error(`Database initialization failed: ${message}`, { cause: err });
   }
 
   logCapabilities();

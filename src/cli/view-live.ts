@@ -2059,7 +2059,7 @@ export function generateLiveDashboardHtml(): string {
   <!-- bundled d3.js -->
   <script>
 ${bundledD3}
-  <\/script>
+  </script>
 </head>
 <body>
 
@@ -2191,7 +2191,7 @@ ${bundledD3}
   <button class="btn btn-primary" id="fb-submit" style="width:100%;">Open GitHub Issue</button>
 </div>
 
-<script>${SCRIPT}<\/script>
+<script>${SCRIPT}</script>
 </body>
 </html>`;
 }

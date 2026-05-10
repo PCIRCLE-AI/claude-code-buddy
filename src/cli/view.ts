@@ -216,7 +216,7 @@ export function generateDashboardHtml(dbPath?: string): string {
   <!-- bundled d3.js -->
   <script>
 ${bundledD3}
-  <\/script>
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -549,7 +549,7 @@ renderEntityTable('');
       });
   }
 })();
-<\/script>
+</script>
 </body>
 </html>`;
 }

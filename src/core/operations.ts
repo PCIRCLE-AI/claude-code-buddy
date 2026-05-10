@@ -17,7 +17,6 @@ import { createExplicitLesson } from './lesson-engine.js';
 import { embedAndStore, isEmbeddingAvailable, embedText, scheduleEmbedAndStore, vectorSearch } from './embedder.js';
 import { autoTagAndApply } from './auto-tagger.js';
 import { detectCapabilities } from './config.js';
-import path from 'path';
 import type {
   RememberInput,
   RememberResult,

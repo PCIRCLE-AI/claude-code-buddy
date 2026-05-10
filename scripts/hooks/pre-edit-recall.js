@@ -4,7 +4,6 @@
 // When editing a file, checks if MeMesh has relevant memories
 // and injects them as context. Throttled: max 1 recall per file per session.
 
-import { createRequire } from 'module';
 import { basename, join } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import {
@@ -17,8 +16,6 @@ import {
   tryRequireBetterSqlite,
   writePrivateJson,
 } from './_shared.js';
-
-const require = createRequire(import.meta.url);
 
 const dbPath = getDbPath();
 const memeshDir = getMemeshDirFromDbPath();
