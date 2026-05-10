@@ -57,19 +57,19 @@ function queryData(dbPath: string): DashboardData {
   let db: Database.Database;
   try {
     db = new Database(dbPath, { readonly: true });
-  } catch (err: any) {
-    console.error(`[memesh-view] Cannot open database at ${dbPath}: ${err.message}`);
+  } catch (err) {
+    console.error(`[memesh-view] Cannot open database at ${dbPath}: ${err instanceof Error ? err.message : String(err)}`);
     return emptyData;
   }
 
   try {
     // Check if tables exist
-    const tables = db
+    const tables = (db
       .prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('entities', 'observations', 'relations', 'tags')"
       )
-      .all()
-      .map((r: any) => r.name as string);
+      .all() as { name: string }[])
+      .map(r => r.name);
 
     if (!tables.includes('entities')) {
       return emptyData;

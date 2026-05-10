@@ -48,12 +48,12 @@ export function removeFromFts(
     db.prepare(
       "INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)",
     ).run(entityId, name, prevObsText);
-  } catch (err: any) {
+  } catch (err) {
     if (isBenignFtsDeleteError(err)) return;
     // Real failure — log so an operator sees the index drift signal
     // instead of discovering it later via stale search results.
     process.stderr.write(
-      `[memesh fts-index] removeFromFts(rowid=${entityId}) failed: ${err?.message ?? err}\n`
+      `[memesh fts-index] removeFromFts(rowid=${entityId}) failed: ${err instanceof Error ? err.message : String(err)}\n`
     );
   }
 }

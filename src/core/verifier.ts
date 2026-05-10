@@ -109,15 +109,15 @@ function validateWorkdir(workdir: string): string {
   let canonical: string;
   try {
     canonical = realpathSync(workdir);
-  } catch (err: any) {
+  } catch (err) {
     throw new Error(
-      `workdir does not exist or is not accessible: "${workdir}" (${err?.message ?? err})`
+      `workdir does not exist or is not accessible: "${workdir}" (${err instanceof Error ? err.message : String(err)})`
     );
   }
 
   let stat;
   try { stat = statSync(canonical); }
-  catch (err: any) { throw new Error(`workdir not stat-able: ${err?.message ?? err}`); }
+  catch (err) { throw new Error(`workdir not stat-able: ${err instanceof Error ? err.message : String(err)}`); }
   if (!stat.isDirectory()) {
     throw new Error(`workdir is not a directory: "${canonical}"`);
   }
@@ -179,14 +179,14 @@ function realityCheck(workdir: string, base: string | null, expectedFiles?: numb
     stat = execFileSync('git', ['-C', workdir, 'diff', '--stat', `${base}..HEAD`], {
       encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'],
     });
-  } catch (err: any) {
+  } catch (err) {
     return {
       files_changed: 0,
       expected_files: expectedFiles ?? null,
       match: null,
       base,
       pass: false,
-      summary: `git diff failed: ${err?.message ?? 'unknown'}`,
+      summary: `git diff failed: ${err instanceof Error ? err.message : 'unknown'}`,
     };
   }
 

@@ -144,8 +144,8 @@ export async function probeAnthropic(apiKey: string): Promise<ValidationResult> 
       created: m.created_at,
     }));
     return { valid: true, models, suggested: pickSuggestedModel(models) };
-  } catch (err: any) {
-    return { valid: false, error: err.message || String(err) };
+  } catch (err) {
+    return { valid: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -170,8 +170,8 @@ export async function probeOpenAI(apiKey: string): Promise<ValidationResult> {
         created: m.created ? new Date(m.created * 1000).toISOString() : undefined,
       }));
     return { valid: true, models, suggested: pickSuggestedModel(models) };
-  } catch (err: any) {
-    return { valid: false, error: err.message || String(err) };
+  } catch (err) {
+    return { valid: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -222,8 +222,8 @@ export async function probeOllama(host?: string): Promise<ValidationResult> {
       };
     }
     return { valid: true, models, suggested: pickSuggestedModel(models) };
-  } catch (err: any) {
-    const msg = err.message || String(err);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('ECONNREFUSED') || msg.includes('fetch failed')) {
       return { valid: false, error: `Ollama not reachable at ${base}. Is it installed and running?` };
     }

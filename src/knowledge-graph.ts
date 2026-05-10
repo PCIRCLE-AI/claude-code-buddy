@@ -31,7 +31,7 @@ export class KnowledgeGraph {
     opts?: {
       observations?: string[];
       tags?: string[];
-      metadata?: any;
+      metadata?: Record<string, unknown>;
       namespace?: string;
       /**
        * Trust signal for the confidence-bump gate. Must arrive at
@@ -257,7 +257,7 @@ export class KnowledgeGraph {
     if (ids.length === 0) return [];
 
     const placeholders = ids.map(() => '?').join(',');
-    const params: any[] = [...ids];
+    const params: (string | number)[] = [...ids];
 
     // Build dynamic filters
     // Default behavior: include all (archived + active) unless explicitly excluded
@@ -399,7 +399,7 @@ export class KnowledgeGraph {
     let ftsRows: Array<{ id: number; name: string }>;
     try {
       if (opts?.tag) {
-        const params: any[] = [ftsQuery, opts.tag];
+        const params: (string | number)[] = [ftsQuery, opts.tag];
         if (opts?.namespace) params.push(opts.namespace);
         params.push(limit);
         ftsRows = this.db
@@ -416,7 +416,7 @@ export class KnowledgeGraph {
           )
           .all(...params) as Array<{ id: number; name: string }>;
       } else {
-        const params: any[] = [ftsQuery];
+        const params: (string | number)[] = [ftsQuery];
         if (opts?.namespace) params.push(opts.namespace);
         params.push(limit);
         ftsRows = this.db
@@ -431,9 +431,9 @@ export class KnowledgeGraph {
           )
           .all(...params) as Array<{ id: number; name: string }>;
       }
-    } catch (err: any) {
+    } catch (err) {
       // FTS5 syntax error from user query — return empty results
-      if (err.message?.includes('fts5')) return [];
+      if (err instanceof Error && err.message?.includes('fts5')) return [];
       throw err;
     }
 
@@ -451,7 +451,7 @@ export class KnowledgeGraph {
       const tagJoin = opts?.tag ? 'JOIN tags t ON t.entity_id = e.id' : '';
       const tagFilter = opts?.tag ? 'AND t.tag = ?' : '';
       const archivedNamespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
-      const archivedParams: any[] = [`%${query}%`, `%${query}%`];
+      const archivedParams: (string | number)[] = [`%${query}%`, `%${query}%`];
       if (opts?.tag) archivedParams.push(opts.tag);
       if (opts?.namespace) archivedParams.push(opts.namespace);
 
@@ -505,7 +505,7 @@ export class KnowledgeGraph {
   listRecent(limit?: number, includeArchived?: boolean, namespace?: string): Entity[] {
     const statusFilter = includeArchived ? '' : "AND status = 'active'";
     const namespaceFilter = namespace ? 'AND namespace = ?' : '';
-    const params: any[] = [];
+    const params: (string | number)[] = [];
     if (namespace) params.push(namespace);
     params.push(limit ?? 20);
     const rows = this.db
@@ -524,7 +524,7 @@ export class KnowledgeGraph {
   private listRecentByTag(tag: string, limit: number, includeArchived?: boolean, namespace?: string): Entity[] {
     const statusFilter = includeArchived ? '' : "AND e.status = 'active'";
     const namespaceFilter = namespace ? 'AND e.namespace = ?' : '';
-    const params: any[] = [tag];
+    const params: (string | number)[] = [tag];
     if (namespace) params.push(namespace);
     params.push(limit);
     const rows = this.db
