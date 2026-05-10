@@ -34,6 +34,7 @@ import type Database from 'better-sqlite3';
 import { callLLM, type LLMAttempt } from './llm-client.js';
 import type { LLMConfig } from './config.js';
 import { recordTelemetry } from './llm-telemetry.js';
+import { validateDigest, type SuspiciousClaim } from './digest-validator.js';
 
 const PROMPT_VERSION = 'v1';
 const COMPACT_MIN_CLUSTER_SIZE = 5;
@@ -79,6 +80,19 @@ export interface DreamerOptions {
    * does not depend on telemetry for correctness.
    */
   onAttempt?: (attempts: LLMAttempt[]) => void;
+  /**
+   * Opt-in: run a SECOND LLM call after the dreamer's digest is
+   * generated to cross-check claims against the source observations.
+   * Verdicts:
+   *   - 'pass'   → propose normally
+   *   - 'soften' → propose, but attach validation_warnings to the
+   *                 proposed_digest so reviewers see the flagged claims
+   *   - 'reject' → don't propose; report in result.skipped
+   *
+   * Default false because it doubles LLM cost per proposal. Surfaces
+   * its own row in `memesh telemetry` under flow='digest_validator'.
+   */
+  validateBeforeStage?: boolean;
 }
 
 export interface DreamerResult {
@@ -173,8 +187,48 @@ export async function runDreamer(
       continue;
     }
 
+    let validationWarnings: SuspiciousClaim[] | undefined;
+    if (opts.validateBeforeStage) {
+      // Second LLM pass: cross-check digest claims against source
+      // observations. Failures inside validateDigest already default
+      // to pass, so this won't reject real digests when the validator
+      // is unreachable.
+      const sourceObs = cluster.entities.flatMap(e => e.observations);
+      try {
+        const v = await validateDigest(digest.observations, sourceObs, llm, {
+          fallbacks: opts.fallbacks,
+          onAttempt: (attempts) => {
+            recordTelemetry(attempts, { flow: 'digest_validator', project: cluster.project });
+            opts.onAttempt?.(attempts);
+          },
+        });
+        result.llmCalls++;
+
+        if (v.status === 'reject') {
+          const claimsSummary = v.suspiciousClaims
+            .slice(0, 3)
+            .map(c => c.claim)
+            .join('; ') || 'no specific claims surfaced';
+          result.skipped.push({
+            reason: `LLM validator rejected digest: ${claimsSummary}`,
+            project: cluster.project,
+            clusterKey: cluster.key,
+          });
+          continue;
+        }
+        if (v.status === 'soften') {
+          validationWarnings = v.suspiciousClaims;
+        }
+      } catch {
+        // Validator wrapping itself failed — keep going. validateDigest
+        // is documented to swallow LLM failures internally; this catch
+        // is defense in depth for any synchronous throw (e.g. telemetry
+        // recordTelemetry inside the onAttempt wrapper).
+      }
+    }
+
     if (!opts.dryRun) {
-      writeProposal(db, cluster, digest, llm);
+      writeProposal(db, cluster, digest, llm, validationWarnings);
     }
     result.proposalsCreated++;
   }
@@ -333,8 +387,16 @@ function writeProposal(
   cluster: Cluster,
   digest: ProposedDigest,
   llm: LLMConfig,
+  validationWarnings?: SuspiciousClaim[],
 ): void {
   const sourceIds = cluster.entities.map(e => e.id).sort((a, b) => a - b);
+  // Attach validation_warnings (if any) onto the digest JSON so the
+  // dashboard can render the flagged claims next to the digest preview
+  // without an additional table. Absent when the validator passed or
+  // wasn't run — preserves backwards-compatible JSON shape.
+  const digestWithWarnings = validationWarnings && validationWarnings.length > 0
+    ? { ...digest, validation_warnings: validationWarnings }
+    : digest;
   db.prepare(`
     INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -342,7 +404,7 @@ function writeProposal(
     cluster.project,
     cluster.key,
     JSON.stringify(sourceIds),
-    JSON.stringify(digest),
+    JSON.stringify(digestWithWarnings),
     `${llm.provider}/${llm.model ?? 'default'}`,
     PROMPT_VERSION,
   );
