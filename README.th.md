@@ -29,6 +29,22 @@
 
 ---
 
+## หลักฐาน — 95.40% R@5 บน LongMemEval-S
+
+เครื่องมือเรียกคืนของ MeMesh ใช้ **FTS5 เพียงอย่างเดียว** (ไม่มี LLM ไม่มี embedding บนเส้นทางหลัก) วัดผลด้วยเบนช์มาร์กสาธารณะ [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) (500 คำถาม สัญญาอนุญาต MIT):
+
+| ระบบ | R@5 | ที่มา |
+|---|---|---|
+| **MeMesh (Mode A, FTS5)** | **95.40%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| MemPalace | 96.6% | รายงานของผู้พัฒนาเอง |
+| Supermemory | ~82% | ประมาณการของผู้พัฒนา |
+| Zep | 63.8% | เปเปอร์ LongMemEval |
+| Mem0 | 49.0% | เปเปอร์ LongMemEval |
+
+คำสั่งสำหรับทำซ้ำ SHA256 ของชุดข้อมูล ผลดิบรายคำถาม และการวิเคราะห์ความล้มเหลวที่รู้จัก ทั้งหมดอยู่ใน [`benchmarks/longmemeval/`](benchmarks/longmemeval/) รันซ้ำได้ใน ~10 วินาที
+
+---
+
 ## เริ่มต้นใน 60 วินาที
 
 ### ขั้นตอนที่ 1: ติดตั้ง
@@ -170,6 +186,26 @@ memesh export-schema \
 | **ก่อนการบีบอัด context** | บันทึกความรู้ก่อนที่จะหายไปจากขีดจำกัด context |
 
 > **ปิด ได้ตลอดเวลา:** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## การตั้งค่า
+
+การตั้งค่าทั้งหมดทำผ่านตัวแปรสภาพแวดล้อม ค่าเริ่มต้นทำงานภายในเครื่องล้วน ๆ และไม่มีเครือข่าย — ไม่ต้องตั้งค่าอะไรเพื่อให้ระบบใช้งานได้
+
+| ตัวแปร | ค่าเริ่มต้น | ทำอะไร |
+|---|---|---|
+| `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | เปลี่ยนตำแหน่งฐานข้อมูล SQLite |
+| `MEMESH_AUTO_CAPTURE` | `true` | ปิดการใช้ hook จับข้อมูลอัตโนมัติทั้งหมด (`Stop`, `PreCompact`) |
+| `MEMESH_AUTO_DETECT_LLM` | ไม่ตั้ง | ตั้งเป็น `1` เพื่อให้ memesh ตรวจหาผู้ให้บริการจาก shell env (`OPENAI_API_KEY` ฯลฯ) โดยอัตโนมัติและสลับไปใช้ BYOK embeddings **ค่าเริ่มต้นของการติดตั้งใหม่คือ ONNX ภายในเครื่อง (384 มิติ) เท่านั้น** — opt-in ถ้าต้องการ embedding บนคลาวด์ ถ้าไม่ตั้งค่าธงนี้ `OPENAI_API_KEY` ที่อยู่ใน shell จะถูกเพิกเฉย |
+| `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | ไม่ตั้ง | ตั้งเป็น `1` เพื่อเปิดใช้โปรโตคอล working-model เชิงทดลอง (กรอบ CTO / Orchestrator / Agents) เพิ่มแบนเนอร์ตอนเริ่มเซสชัน การเตือนคำสั่ง Bash และเทเลเมตรี `verify_agent_work` ประสิทธิผลของโปรโตคอลกำลังถูกเก็บข้อมูล ยังไม่ได้พิสูจน์ — opt-in ถ้าต้องการเข้าร่วม **ค่าเริ่มต้นปิด**: ฟีเจอร์หน่วยความจำหลักทำงานได้โดยไม่ต้องเปิดธงนี้ |
+| `MEMESH_AUTO_UPDATE` | `off` | นโยบายอัปเดตอัตโนมัติ `off` (ค่าเริ่มต้น) ไม่อัปเดตเลย; `patch` อนุญาต `X.Y.Z → X.Y.Z+N`; `minor` เพิ่ม `X.Y.Z → X.Y+1.0`; `major` อนุญาตทุกการเพิ่มเวอร์ชัน เมื่ออนุญาต `npm install -g` แบบ detached จะทำงานเมื่อจบเซสชัน (Stop hook) เพื่อไม่บล็อกงานของคุณ — ผลลัพธ์ลงใน `~/.memesh/auto-update.log` ตั้งใน `~/.memesh/config.json` ผ่านคีย์ `autoUpdate` ก็ได้ (env ชนะ) เมื่อเวอร์ชันที่ติดตั้งถูก deprecate (security advisory) `patch` จะถูกบังคับเปิดแม้ตั้งเป็น `off` — minor / major ยังต้องทำมือเพื่อหลีกเลี่ยงการเปลี่ยนพฤติกรรมเงียบ ๆ |
+| `OPENAI_API_KEY` | ไม่ตั้ง | คีย์ OpenAI ของคุณ ใช้เฉพาะเมื่อ `MEMESH_AUTO_DETECT_LLM=1` หรือคุณตั้งค่าผู้ให้บริการอย่างชัดเจน |
+| `OLLAMA_HOST` | `http://localhost:11434` | เปลี่ยนปลายทาง Ollama เมื่อใช้ผู้ให้บริการ Ollama ภายในเครื่อง |
+
+`memesh doctor` พิมพ์การตั้งค่าที่ resolve แล้วเพื่อให้คุณเห็นว่าอะไรทำงานอยู่
+
+เมื่อ npm ระบุว่าเวอร์ชันที่ติดตั้งถูก deprecate (โดยทั่วไปคือ security advisory) เซสชันถัดไปจะแสดงแบนเนอร์ `⚠️ MeMesh <ver> is DEPRECATED` แบบหนักนำหน้า และ `memesh update-status` จะแสดงบรรทัดเดียวกันจนกว่าคุณจะอัปเกรด การตรวจสอบถูก cache ที่ `~/.memesh/update-check.<version>.json` เพื่อไม่ให้ความล้มเหลวเครือข่ายชั่วคราวลดความสว่างของคำเตือน
 
 ---
 
