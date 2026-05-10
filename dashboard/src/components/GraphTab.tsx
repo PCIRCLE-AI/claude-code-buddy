@@ -829,14 +829,23 @@ export function GraphTab() {
   /* Attach a NON-passive wheel listener directly on the canvas. Preact's
    * synthetic `onWheel` cannot reliably preventDefault scroll on Mac
    * trackpads; the page scrolls instead of zoom. Native addEventListener
-   * with `{ passive: false }` is the only path that works here. */
+   * with `{ passive: false }` is the only path that works here.
+   *
+   * NOTE: depending on `[data, loading]` (not just `[onWheel]`) is REQUIRED.
+   * The component returns the loading <div> first — the canvas JSX (and
+   * therefore canvasRef.current) doesn't exist on the first render. After
+   * data arrives the component re-renders with the canvas, but a useEffect
+   * with deps=[onWheel] would NOT fire then because onWheel is stable from
+   * useCallback([]). Tying it to [data, loading] guarantees we re-run once
+   * the canvas is mounted. */
   useEffect(() => {
+    if (loading || !data) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const handler = (e: WheelEvent) => onWheel(e);
     canvas.addEventListener('wheel', handler, { passive: false });
     return () => canvas.removeEventListener('wheel', handler);
-  }, [onWheel]);
+  }, [data, loading, onWheel]);
 
   /* ---------- derived data for render ---------- */
   if (loading) return <div class="empty"><div class="loading" /></div>;
