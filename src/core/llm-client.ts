@@ -2,12 +2,16 @@
 // LLM client — single dispatch point for anthropic / openai / ollama
 // =============================================================================
 //
-// Four modules used to inline the same provider-switch + fetch + response
-// shape extraction (~50 lines each, ~200 LOC total):
-//   - query-expander.ts
+// Three modules use this dispatcher to avoid inlining provider-switch +
+// fetch + response shape extraction:
 //   - failure-analyzer.ts
 //   - auto-tagger.ts
 //   - consolidator.ts
+//
+// (query-expander.ts was a fourth caller until it was retired from the
+// recall hot path — Mode A FTS5-only at 95.40% R@5 won the UX axis
+// against a ~30× latency penalty. dreamer.ts and llm-validator.ts also
+// call into LLM providers but currently use their own paths.)
 //
 // Each call site keeps its own prompt construction, output parser, and
 // safety wrapper (deliberate-design from the F7 prompt-safety work — output
@@ -15,7 +19,7 @@
 // machinery moves here.
 //
 // Per-call-site differences worth preserving:
-//   - max_tokens varies: 200 (query-expander, auto-tagger),
+//   - max_tokens varies: 200 (auto-tagger),
 //                        300 (failure-analyzer),
 //                        500 (consolidator)
 //   - model defaults vary by provider
