@@ -104,7 +104,7 @@ describe('Feature: Session Start Hook', () => {
     return db;
   }
 
-  it('Scenario: No database exists -> tree-style welcome message', () => {
+  it('Scenario: No database exists -> single-line welcome message', () => {
     const output = runHook({ cwd: '/tmp/myproject' });
     const msg = output.systemMessage as string;
     expect(msg).toContain('◉ MeMesh ready');
@@ -170,7 +170,7 @@ describe('Feature: Session Start Hook', () => {
     expect(output.systemMessage).toBeTruthy();
   });
 
-  it('Scenario: Database with project memories -> tree summary with project branch', () => {
+  it('Scenario: Database with project memories -> single-line summary with project segment', () => {
     const db = createTestDb();
     db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('auth-module', 'component');
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Handles JWT token validation');
@@ -180,8 +180,8 @@ describe('Feature: Session Start Hook', () => {
 
     const output = runHook({ cwd: '/tmp/myproject' });
     const msg = (output as { systemMessage: string }).systemMessage;
-    expect(msg).toContain('◉ MeMesh memory loaded');
-    expect(msg).toMatch(/[├└]─ 1 project memory/);
+    expect(msg).toContain('◉ MeMesh');
+    expect(msg).toMatch(/1 project/);
     // Verbose entity bullets and observation content stay out of the summary
     expect(msg).not.toContain('• auth-module');
     expect(msg).not.toContain('Handles JWT token validation');
@@ -190,7 +190,7 @@ describe('Feature: Session Start Hook', () => {
     expect(session?.entityNames).toContain('auth-module');
   });
 
-  it('Scenario: Database with no matching project -> tree shows recent branch only', () => {
+  it('Scenario: Database with no matching project -> single-line shows recent segment only', () => {
     const db = createTestDb();
     db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('some-entity', 'note');
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'A note about something');
@@ -198,14 +198,14 @@ describe('Feature: Session Start Hook', () => {
 
     const output = runHook({ cwd: '/tmp/other-project' });
     const msg = (output as { systemMessage: string }).systemMessage;
-    expect(msg).toContain('◉ MeMesh memory loaded');
-    expect(msg).toMatch(/[├└]─ 1 recent memory/);
-    expect(msg).not.toMatch(/\d+ project memor/);
+    expect(msg).toContain('◉ MeMesh');
+    expect(msg).toMatch(/1 recent/);
+    expect(msg).not.toMatch(/\d+ project/);
     const session = readLatestSessionFile();
     expect(session?.entityNames).toContain('some-entity');
   });
 
-  it('Scenario: Database with both project and global memories -> tree shows both branches', () => {
+  it('Scenario: Database with both project and global memories -> single-line shows both segments', () => {
     const db = createTestDb();
     db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('project-item', 'feature');
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Project specific');
@@ -216,9 +216,9 @@ describe('Feature: Session Start Hook', () => {
 
     const output = runHook({ cwd: '/tmp/testproj' });
     const msg = (output as { systemMessage: string }).systemMessage;
-    expect(msg).toContain('◉ MeMesh memory loaded');
-    expect(msg).toMatch(/├─ 1 project memory/);
-    expect(msg).toMatch(/[├└]─ \d+ recent memor/);
+    expect(msg).toContain('◉ MeMesh');
+    expect(msg).toMatch(/1 project/);
+    expect(msg).toMatch(/\d+ recent/);
     const session = readLatestSessionFile();
     expect(session?.entityNames).toContain('project-item');
     expect(session?.entityNames).toContain('global-item');
@@ -279,8 +279,8 @@ describe('Feature: Session Start Hook', () => {
 
     const output = runHook({ cwd: '/tmp/anyproject' });
     const msg = (output as { systemMessage: string }).systemMessage;
-    expect(msg).toContain('◉ MeMesh memory loaded');
-    expect(msg).toMatch(/[├└]─ \d+ recent memor/);
+    expect(msg).toContain('◉ MeMesh');
+    expect(msg).toMatch(/\d+ recent/);
     const session = readLatestSessionFile();
     expect(session?.entityNames).toContain('legacy-entity');
   });
@@ -349,7 +349,7 @@ describe('Feature: Session Start Hook', () => {
     expect(names.indexOf('high-score-entity')).toBeLessThan(names.indexOf('low-score-entity'));
   });
 
-  it('Scenario: MEMESH_SESSION_LIMIT is respected — tree shows clamped count', () => {
+  it('Scenario: MEMESH_SESSION_LIMIT is respected — single-line shows clamped count', () => {
     const db = createScoringDb();
     for (let i = 1; i <= 20; i++) {
       db.prepare("INSERT INTO entities (name, type, access_count, confidence) VALUES (?, ?, ?, ?)")
@@ -361,13 +361,13 @@ describe('Feature: Session Start Hook', () => {
 
     const output = runHook({ cwd: '/tmp/limittest' }, { MEMESH_SESSION_LIMIT: '5' });
     const msg = (output as { systemMessage: string }).systemMessage;
-    expect(msg).toMatch(/├─ 5 project memories/);
+    expect(msg).toMatch(/5 project/);
     const session = readLatestSessionFile();
     const projectNames = (session?.entityNames ?? []).filter((n) => n.startsWith('entity-'));
     expect(projectNames.length).toBe(5);
   });
 
-  it('Scenario: Tree summary suppresses raw observation content and entity bullets', () => {
+  it('Scenario: Single-line summary suppresses raw observation content and entity bullets', () => {
     const db = createTestDb();
     db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('my-service', 'service');
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(1, 'Handles authentication');
@@ -377,14 +377,14 @@ describe('Feature: Session Start Hook', () => {
 
     const output = runHook({ cwd: '/tmp/formattest' });
     const msg = (output as { systemMessage: string }).systemMessage;
-    expect(msg).toContain('◉ MeMesh memory loaded');
-    expect(msg).toMatch(/[├└]─ 1 project memory/);
+    expect(msg).toContain('◉ MeMesh');
+    expect(msg).toMatch(/1 project/);
     expect(msg).not.toContain('• my-service');
     expect(msg).not.toContain('Handles authentication');
     expect(msg).not.toContain('Second observation not shown');
   });
 
-  it('Scenario: Long observation content is never displayed in the tree summary', () => {
+  it('Scenario: Long observation content is never displayed in the single-line summary', () => {
     const db = createTestDb();
     const longObservation = 'A'.repeat(150);
     db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('verbose-entity', 'note');
@@ -394,7 +394,7 @@ describe('Feature: Session Start Hook', () => {
 
     const output = runHook({ cwd: '/tmp/trunctest' });
     const msg = (output as { systemMessage: string }).systemMessage;
-    expect(msg).toMatch(/[├└]─ 1 project memory/);
+    expect(msg).toMatch(/1 project/);
     // Tree summary never embeds observation content — long or short.
     expect(msg).not.toContain('A'.repeat(40));
   });
@@ -420,13 +420,13 @@ describe('Feature: Session Start Hook', () => {
 
     const output = runHook({ cwd: '/tmp/lessontest' });
     const msg = (output as { systemMessage: string }).systemMessage;
-    expect(msg).toMatch(/└─ 1 active lesson/);
+    expect(msg).toMatch(/1 active lesson/);
     // Verbose lesson body must NOT leak into the summary
     expect(msg).not.toContain('Always validate API responses');
     expect(msg).not.toContain('confidence:');
   });
 
-  it('Scenario: Lesson warnings — no lessons -> no lesson branch appended', () => {
+  it('Scenario: Lesson warnings — no lessons -> no lesson segment appended', () => {
     const db = createScoringDb();
     db.prepare("INSERT INTO entities (name, type, confidence, status) VALUES (?, ?, ?, ?)")
       .run('normal-entity', 'component', 1.0, 'active');
@@ -497,8 +497,8 @@ describe('Feature: Session Start Hook', () => {
       );
       const msg = (output as { systemMessage: string }).systemMessage;
       // Tree summary still produced (legacy SQL works, just with different math)
-      expect(msg).toContain('◉ MeMesh memory loaded');
-      expect(msg).toMatch(/├─ 3 project memories/);
+      expect(msg).toContain('◉ MeMesh');
+      expect(msg).toMatch(/3 project/);
 
       // Persisted entityNames preserve the ranking; "hot" should outrank "cold"
       // under both math variants because every weighted factor agrees.
