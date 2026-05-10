@@ -663,6 +663,71 @@ program
     });
   });
 
+// --- kg backfill ---
+//
+// Heuristic relation backfill — fixes the orphan-entity problem in
+// the KG without an LLM call. Two rules: tag co-occurrence (≥ 2
+// shared topical tags → `related-to`) and project clustering
+// (orphan lesson / decision in project X → `belongs-to-project`
+// edge to the most-recent release / feature in that project).
+const kgCmd = program
+  .command('kg')
+  .description('Knowledge graph maintenance');
+
+kgCmd
+  .command('backfill-relations')
+  .description('Propose / apply heuristic relations to connect orphan entities (no LLM)')
+  .option('--project <name>', 'Restrict to one project')
+  .option('--dry-run', 'Show proposals without writing (default off — use to preview)')
+  .option('--max-per-source <n>', 'Max edges per orphan (default 3)', (v) => parseInt(v, 10), 3)
+  .option('--min-shared-tags <n>', 'Min shared topical tags to gate co-occurrence rule (default 2)', (v) => parseInt(v, 10), 2)
+  .option('--include-archived', 'Also process archived entities')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    await withDatabase(async () => {
+      const { backfillRelations, proposeBackfillCandidates } = await import('../../core/kg-backfill.js');
+      const baseOpts = {
+        project: opts.project,
+        maxEdgesPerSource: opts.maxPerSource,
+        minSharedTags: opts.minSharedTags,
+        includeArchived: !!opts.includeArchived,
+        dryRun: !!opts.dryRun,
+      };
+      if (opts.dryRun) {
+        const candidates = proposeBackfillCandidates(baseOpts);
+        if (opts.json) {
+          console.log(JSON.stringify({ candidates }, null, 2));
+          return;
+        }
+        console.log(`Proposed ${candidates.length} relation${candidates.length === 1 ? '' : 's'} (dry-run, nothing written).`);
+        const sample = candidates.slice(0, 20);
+        for (const c of sample) {
+          console.log(`  ${c.fromName}  --[${c.relationType}]-->  ${c.toName}   (${c.reason})`);
+        }
+        if (candidates.length > sample.length) {
+          console.log(`  … ${candidates.length - sample.length} more (use --json to see them all)`);
+        }
+        // Per-rule breakdown
+        const byRule = new Map<string, number>();
+        for (const c of candidates) byRule.set(c.relationType, (byRule.get(c.relationType) ?? 0) + 1);
+        console.log('');
+        for (const [rule, n] of byRule) console.log(`  ${rule}: ${n}`);
+        return;
+      }
+      const result = backfillRelations(baseOpts);
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      console.log(`Proposed ${result.candidatesProposed} relations, wrote ${result.edgesWritten} new edges.`);
+      console.log(`  tag co-occurrence: ${result.byRule.tagCooccurrence}`);
+      console.log(`  project clustering: ${result.byRule.projectClustering}`);
+      if (result.candidatesProposed > result.edgesWritten) {
+        console.log(`  (${result.candidatesProposed - result.edgesWritten} candidates were already-existing edges; INSERT OR IGNORE skipped them.)`);
+      }
+    });
+  });
+
 // --- doctor ---
 program
   .command('doctor')
