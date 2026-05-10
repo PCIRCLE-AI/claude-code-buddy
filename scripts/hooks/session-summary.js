@@ -425,7 +425,9 @@ process.stdin.on('end', async () => {
 
           openDatabase();
           try {
-            const lesson = await analyzeFailure(errorsEncountered, filesEdited, config.llm);
+            // Pass cross-provider failover chain so a stale Anthropic key
+            // doesn't silently disable Stop-hook lesson generation.
+            const lesson = await analyzeFailure(errorsEncountered, filesEdited, config.llm, { fallbacks: config.llmFallbacks });
             if (lesson) {
               createLesson(lesson, projectName);
             }

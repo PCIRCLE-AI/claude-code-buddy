@@ -86,6 +86,13 @@ export interface Capabilities {
   knowledgeEvolution: true;
   embeddings: 'onnx' | 'ollama' | 'anthropic' | 'openai' | 'tfidf';
   llm: LLMConfig | null;
+  /**
+   * Ordered cross-provider fallback chain — empty unless the user has
+   * configured `llmFallbacks` in their config.json. Surfaced here so
+   * any callsite that already reads `caps.llm` can also pick up the
+   * fallback chain in the same call without a second readConfig().
+   */
+  llmFallbacks: LLMConfig[];
   searchLevel: 0 | 1;
 }
 
@@ -222,6 +229,7 @@ export function detectCapabilities(config?: MeMeshConfig): Capabilities {
     knowledgeEvolution: true,
     embeddings,
     llm,
+    llmFallbacks: cfg.llmFallbacks ?? [],
     searchLevel: llm ? 1 : 0,
   };
 }
