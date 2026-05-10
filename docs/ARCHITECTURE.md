@@ -40,7 +40,6 @@ MeMesh separates concerns into two layers:
 - `operations.ts` — `remember`, `recall`, `forget`, `export`, `import` as pure functions called by all transports
 - `config.ts` — config management + capability detection (sqlite-vec availability); exports `logCapabilities()` for startup logging
 - `scoring.ts` — multi-factor scoring engine: weights search relevance, recency, frequency, confidence, temporal validity; exports `rankEntities()` used by all recall paths
-- `query-expander.ts` — LLM-powered query expansion (Level 1): expands a user query into related terms using a configured LLM (Anthropic/OpenAI/Ollama)
 - `verifier.ts` — `verify_agent_work` core: git reality-check + persistence of verification reports as `verification_record` entities
 - `version-check.ts` — npm registry version check for update notifications
 
@@ -65,7 +64,6 @@ src/
 │   ├── config.ts          # Config management + capability detection + logCapabilities()
 │   ├── paths.ts           # Centralised path helpers (homeDir, memeshDir, getDbPath, getProjectName)
 │   ├── scoring.ts         # Multi-factor scoring engine (rankEntities) + SESSION_START_WEIGHT_RATIO
-│   ├── query-expander.ts  # LLM query expansion (Level 1)
 │   ├── extractor.ts       # Session knowledge extraction (rule-based + LLM)
 │   ├── lifecycle.ts       # Auto-decay + consolidation orchestration
 │   ├── failure-analyzer.ts # LLM-powered failure analysis → StructuredLesson
@@ -108,7 +106,7 @@ src/
 
 Session-start hook ranking is a SQL-only subset (no FTS query, no impact pass) that uses three of the five factors. `SESSION_START_WEIGHT_RATIO` exports the renormalised weights so the hook's hard-coded SQL stays in sync; a drift-guard test in `tests/core/scoring.test.ts` asserts the magic numbers in `scripts/hooks/session-start.js` match. The hook SQL uses SQLite's `exp()`/`log()` (available in better-sqlite3 v8+) to match the core math exactly, with a runtime probe + linear/rational fallback for stripped-down builds without `-DSQLITE_ENABLE_MATH_FUNCTIONS`.
 
-**query-expander.ts** — LLM-powered query expansion (Level 1). When a LLM is configured (Anthropic, OpenAI, or Ollama), `expandQuery()` generates related search terms for a user query. Results from expanded terms are merged with original-query results and re-ranked by score (original query = 1.0 relevance, expanded terms = 0.7 relevance).
+**(retired) query-expander.ts** — LLM-powered query expansion was removed in 2026-05 after LongMemEval-S Mode A (FTS5 + sqlite-vec, no LLM) measured 95.40% R@5 / 9.2s on 500 questions, within 1.2pp of vendor reranker stacks. The expander cost ~500-10000ms per recall for an estimated 1-2pp ceiling lift, decisively losing the UX axis given that recall is the hot path for hooks (`pre-edit-recall`, `session-start`) and MCP agent calls. Recall is now strictly LLM-free; LLM augmentation is reserved for the async/analysis flows below (failure-analyzer, auto-tagger, consolidator, dreamer, llm-validator).
 
 **failure-analyzer.ts** — LLM-powered failure analysis (Level 1). `analyzeFailure()` takes session errors and files edited, sends them to the configured LLM, and returns a `StructuredLesson` with error, root cause, fix, prevention, error/fix patterns, and severity. Used by the Stop hook to automatically create lessons from session failures.
 
@@ -228,9 +226,8 @@ Tool call: remember({name, type, observations, tags, relations})
 Tool call: recall({query, tag, limit})
   -> Zod validation (RecallSchema)
   -> recallEnhanced() in core/operations
-     -> If LLM configured: expandQuery() generates related terms (Level 1)
-     -> KnowledgeGraph.search() for each term (original=1.0, expanded=0.7 relevance)
-     -> Merge results de-duped by entity name
+     -> KnowledgeGraph.search() — FTS5 keyword match
+     -> supplementWithVectors() — sqlite-vec embedding similarity merge
      -> rankEntities() applies multi-factor scoring (relevance, recency, frequency, confidence, temporal validity)
      -> KnowledgeGraph.findConflicts() checks for contradicts relations among results
   -> If conflicts: return {entities, conflicts}; else return Entity[]

@@ -234,10 +234,12 @@ memesh  # opens dashboard → Settings tab
 
 | | ระดับ 0 (ค่าเริ่มต้น) | ระดับ 1 (Smart Mode) |
 |---|---|---|
-| **Search** | FTS5 keyword matching | + LLM query expansion (~97% recall) |
+| **Search** | FTS5 + sqlite-vec, 95.40% R@5 (~18ms ต่อ query) | คงเดิม — recall ไม่ใช้ LLM ในทุก level |
 | **Auto-capture** | รูปแบบตามกฎ | + LLM สกัดการตัดสินใจ & บทเรียน |
-| **Compression** | ไม่พร้อมใช้ | `consolidate` บีบอัดหน่วยความจำที่มีเนื้อหามาก |
-| **Cost** | ฟรี ไม่ต้องคีย์ API | ~$0.0001 ต่อการค้นหา (Haiku) |
+| **Auto-tagging** | แท็กด้วยตนเองเท่านั้น | + LLM สร้างแท็กให้ entity ใหม่ |
+| **วิเคราะห์ความล้มเหลว** | ไม่พร้อมใช้ | + LLM แปลง session errors เป็น structured lessons |
+| **Compression** | ไม่พร้อมใช้ | `consolidate` + `dream` บีบอัดหน่วยความจำ |
+| **Cost** | ฟรี ไม่ต้องคีย์ API | ~$0.0001 ต่อ analysis call (Haiku) |
 
 ---
 

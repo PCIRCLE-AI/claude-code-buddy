@@ -1,9 +1,17 @@
 import { getDatabase } from '../db.js';
 import type { LLMConfig } from './config.js';
-import { callLLM } from './llm-client.js';
+import { callLLM, type LLMAttempt } from './llm-client.js';
+import { recordTelemetry } from './llm-telemetry.js';
 import { sanitizeForPrompt, sanitizeListForPrompt } from './prompt-safety.js';
 
 const VALID_PREFIXES = ['project:', 'topic:', 'tech:', 'severity:', 'scope:'];
+
+export interface AutoTagOptions {
+  /** Cross-provider failover chain (forwarded to callLLM). */
+  fallbacks?: LLMConfig[];
+  /** Per-call telemetry hook (forwarded to callLLM). */
+  onAttempt?: (attempts: LLMAttempt[]) => void;
+}
 
 /**
  * Generate tags for an entity using LLM.
@@ -14,7 +22,8 @@ export async function autoTag(
   name: string,
   type: string,
   observations: string[],
-  llmConfig: LLMConfig
+  llmConfig: LLMConfig,
+  opts: AutoTagOptions = {}
 ): Promise<string[]> {
   // F7: name/type/observations are user-supplied (or LLM-paraphrased
   // from session transcripts). Wrap in explicit tags and instruct the
@@ -35,7 +44,14 @@ ${safeFacts}
 </entity_facts>`;
 
   try {
-    const text = await callLLM(prompt, llmConfig, { maxTokens: 200 });
+    const text = await callLLM(prompt, llmConfig, {
+      maxTokens: 200,
+      fallbacks: opts.fallbacks,
+      onAttempt: (attempts) => {
+        recordTelemetry(attempts, { flow: 'auto_tagger' });
+        opts.onAttempt?.(attempts);
+      },
+    });
     return parseTags(text);
   } catch {
     return [];
@@ -51,9 +67,10 @@ export async function autoTagAndApply(
   name: string,
   type: string,
   observations: string[],
-  llmConfig: LLMConfig
+  llmConfig: LLMConfig,
+  opts: AutoTagOptions = {}
 ): Promise<void> {
-  const tags = await autoTag(name, type, observations, llmConfig);
+  const tags = await autoTag(name, type, observations, llmConfig, opts);
   if (tags.length === 0) return;
 
   try {

@@ -2,7 +2,7 @@
 // LLM-independent paths: cluster detection, idempotency, apply/reject,
 // safety guards. The LLM call itself is mocked via the dryRun path.
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -243,7 +243,11 @@ describe('dreamer', () => {
     const proposalRow = db.prepare("SELECT id FROM dream_proposals WHERE status='pending'").get() as { id: number };
 
     const result = applyProposal(db, proposalRow.id, kg);
-    expect(result.kind).toBe('pattern');
+    // Aligned with ProposalSummary.kind discriminator — earlier the
+    // apply path returned 'pattern' (abbreviated) which created
+    // contract drift with the listing path. Pinned at the canonical
+    // 'pattern_emergent' value as part of the v4.2.0 cleanup.
+    expect(result.kind).toBe('pattern_emergent');
     expect(result.sourcesLinked).toBe(4);
     expect(result.sourcesArchived).toBe(0);
 
@@ -261,6 +265,123 @@ describe('dreamer', () => {
       expect(sourceMeta.evidence_for).toContain(pattern.id);
       expect(sourceMeta.compacted_into).toBeUndefined(); // not compacted
     }
+  });
+
+  // ============================================================================
+  // validateBeforeStage (digest validator integration)
+  // ============================================================================
+
+  it('validateBeforeStage=true rejects digest when validator returns reject verdict', async () => {
+    const { runDreamer } = await import('../../src/core/dreamer.js');
+    seedCommits(6);
+
+    let callCount = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      callCount++;
+      // First call: dreamer's consolidateCluster returns a digest.
+      // Second call: digest-validator says "reject — fabricated branch".
+      const text = callCount === 1
+        ? JSON.stringify({
+            action: 'ADD',
+            digest: {
+              name: 'wk-19-feature',
+              type: 'digest',
+              observations: ['Implements feature on release/v4.1.14 branch'],
+              tags: ['digest', 'project:memesh', 'week:wk'],
+            },
+          })
+        : JSON.stringify({
+            verdict: 'reject',
+            suspicious: [{ claim: 'release/v4.1.14 branch', reason: 'no such branch in sources' }],
+          });
+      return { ok: true, json: async () => ({ content: [{ text }] }) } as any;
+    });
+
+    const result = await runDreamer(
+      db,
+      { provider: 'anthropic', apiKey: 'test-key-fake', model: 'claude-haiku-4-5' },
+      { dryRun: true, validateBeforeStage: true },
+    );
+
+    expect(callCount).toBe(2); // dreamer + validator
+    expect(result.proposalsCreated).toBe(0);
+    expect(result.skipped.some(s => s.reason.startsWith('LLM validator rejected digest'))).toBe(true);
+  });
+
+  it('validateBeforeStage=true with verdict=soften writes proposal with validation_warnings', async () => {
+    const { runDreamer } = await import('../../src/core/dreamer.js');
+    seedCommits(6);
+
+    let callCount = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      callCount++;
+      const text = callCount === 1
+        ? JSON.stringify({
+            action: 'ADD',
+            digest: {
+              name: 'wk-19-feature',
+              type: 'digest',
+              observations: ['Implements feature with mostly-correct details'],
+              tags: ['digest', 'project:memesh', 'week:wk'],
+            },
+          })
+        : JSON.stringify({
+            verdict: 'soften',
+            suspicious: [{ claim: 'minor detail', reason: 'not in sources' }],
+          });
+      return { ok: true, json: async () => ({ content: [{ text }] }) } as any;
+    });
+
+    const result = await runDreamer(
+      db,
+      { provider: 'anthropic', apiKey: 'test-key-fake', model: 'claude-haiku-4-5' },
+      { validateBeforeStage: true },
+    );
+
+    expect(result.proposalsCreated).toBe(1);
+    const row = db.prepare("SELECT proposed_digest FROM dream_proposals WHERE status='pending'").get() as { proposed_digest: string };
+    const digestObj = JSON.parse(row.proposed_digest);
+    expect(digestObj.validation_warnings).toBeDefined();
+    expect(digestObj.validation_warnings).toHaveLength(1);
+    expect(digestObj.validation_warnings[0].claim).toBe('minor detail');
+  });
+
+  it('validateBeforeStage=false (default) skips the validator entirely', async () => {
+    const { runDreamer } = await import('../../src/core/dreamer.js');
+    seedCommits(6);
+
+    let callCount = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      callCount++;
+      return {
+        ok: true,
+        json: async () => ({
+          content: [{
+            text: JSON.stringify({
+              action: 'ADD',
+              digest: {
+                name: 'wk-19',
+                type: 'digest',
+                observations: ['summary'],
+                tags: ['digest', 'project:memesh', 'week:wk'],
+              },
+            }),
+          }],
+        }),
+      } as any;
+    });
+
+    const result = await runDreamer(
+      db,
+      { provider: 'anthropic', apiKey: 'test-key-fake', model: 'claude-haiku-4-5' },
+      { /* validateBeforeStage absent */ },
+    );
+
+    expect(callCount).toBe(1); // only the dreamer call, no validator
+    expect(result.proposalsCreated).toBe(1);
+    const row = db.prepare("SELECT proposed_digest FROM dream_proposals WHERE status='pending'").get() as { proposed_digest: string };
+    const digestObj = JSON.parse(row.proposed_digest);
+    expect(digestObj.validation_warnings).toBeUndefined();
   });
 
   it('pattern detector includes high-signal entities (lessons/decisions) — patterns CAN draw from semantic types', async () => {

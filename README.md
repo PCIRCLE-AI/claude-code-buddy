@@ -279,7 +279,7 @@ Imported bundles stay searchable, but MeMesh does not auto-inject imported memor
 
 ## Unlock Smart Mode (Optional)
 
-MeMesh works offline by default. Add an LLM API key only if you want query expansion, smarter extraction, and compression:
+MeMesh works offline by default — recall stays strictly LLM-free (95.40% R@5 on LongMemEval-S out of the box). Add an LLM API key only if you want LLM-augmented analysis flows on top: smarter session extraction, auto-tagging of new memories, lesson generation from failures, and `consolidate` / `dream` compression:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -294,10 +294,12 @@ memesh  # opens dashboard → Settings tab
 
 | | Level 0 (default) | Level 1 (Smart Mode) |
 |---|---|---|
-| **Search** | FTS5 keyword matching | + LLM query expansion (~97% recall) |
+| **Search** | FTS5 + sqlite-vec, 95.40% R@5 (~18ms/query) | unchanged — recall is LLM-free at every level |
 | **Auto-capture** | Rule-based patterns | + LLM extracts decisions & lessons |
-| **Compression** | Not available | `consolidate` compresses verbose memories |
-| **Cost** | Free, no API key | ~$0.0001 per search (Haiku) |
+| **Auto-tagging** | Manual tags only | + LLM generates tags for new memories |
+| **Failure analysis** | Not available | + LLM converts session errors into structured lessons |
+| **Compression** | Not available | `consolidate` + `dream` compress verbose memories |
+| **Cost** | Free, no API key | ~$0.0001 per analysis call (Haiku) |
 
 ---
 
@@ -306,7 +308,7 @@ memesh  # opens dashboard → Settings tab
 | Tool | What it does |
 |------|-------------|
 | `remember` | Store knowledge with observations, relations, and tags |
-| `recall` | Smart search with multi-factor scoring and LLM query expansion |
+| `recall` | FTS5 + sqlite-vec search with multi-factor scoring (relevance, recency, frequency, confidence, temporal validity) — no LLM in the hot path |
 | `forget` | Soft-archive (never deletes) or remove specific observations |
 | `consolidate` | LLM-powered compression of verbose memories |
 | `export` | Share memories as JSON between projects or team members |

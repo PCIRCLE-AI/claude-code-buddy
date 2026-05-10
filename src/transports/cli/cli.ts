@@ -124,7 +124,7 @@ program
   .option('--json', 'Output as JSON')
   .action(async (query, opts) => {
     await withDatabase(async () => {
-      // recallEnhanced: uses LLM query expansion when configured, falls back otherwise
+      // recallEnhanced: FTS5 + sqlite-vec, no LLM in the hot path
       const entities = await recallEnhanced({
         query: query || undefined,
         tag: opts.tag,
@@ -613,6 +613,121 @@ program
     }
   });
 
+// --- telemetry ---
+//
+// Exposes the contents of the `llm_telemetry` table written by every
+// callLLM attempt across the 5 Smart-Mode flows. Lets a user answer
+// "is my LLM pipeline actually working?" without diving into SQLite —
+// surfaces the same data the Insights / Analytics dashboard tabs
+// will consume programmatically. Default window is 30 days.
+program
+  .command('telemetry')
+  .description('Show LLM call telemetry (per-flow scorecard for the last N days)')
+  .option('--window <days>', 'Look-back window in days (default 30)', (v) => parseInt(v, 10), 30)
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    await withDatabase(async () => {
+      const { summariseTelemetry } = await import('../../core/llm-telemetry.js');
+      const summaries = summariseTelemetry(opts.window);
+      if (opts.json) {
+        console.log(JSON.stringify(summaries, null, 2));
+        return;
+      }
+      if (summaries.length === 0) {
+        console.log(`No LLM telemetry recorded in the last ${opts.window} days.`);
+        console.log(`(Smart-Mode flows write rows automatically — run \`memesh dream run\`, \`memesh consolidate\`, or trigger a session with errors to populate.)`);
+        return;
+      }
+      console.log(`LLM telemetry — last ${opts.window} days`);
+      console.log('');
+      for (const s of summaries) {
+        const successRate = s.total_attempts > 0 ? Math.round((s.successes / s.total_attempts) * 100) : 0;
+        console.log(`▸ ${s.flow}`);
+        console.log(`    calls:        ${s.total_calls} (${s.total_attempts} provider attempts)`);
+        console.log(`    success rate: ${successRate}%  (${s.successes} ok, ${s.failures} failed)`);
+        if (s.fallback_used > 0) {
+          console.log(`    fallback used: ${s.fallback_used} time${s.fallback_used === 1 ? '' : 's'}  ⚠️  primary failed`);
+        }
+        if (s.median_latency_ms != null) {
+          console.log(`    median latency: ${s.median_latency_ms}ms`);
+        }
+        const providers = Object.entries(s.by_provider).map(([p, v]) => `${p}=${v.ok}/${v.ok + v.fail}`).join(', ');
+        if (providers) console.log(`    by provider:  ${providers}`);
+        const errors = Object.entries(s.by_error_class);
+        if (errors.length > 0) {
+          const errStr = errors.sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c}=${n}`).join(', ');
+          console.log(`    error classes: ${errStr}`);
+        }
+        console.log('');
+      }
+    });
+  });
+
+// --- kg backfill ---
+//
+// Heuristic relation backfill — fixes the orphan-entity problem in
+// the KG without an LLM call. Two rules: tag co-occurrence (≥ 2
+// shared topical tags → `related-to`) and project clustering
+// (orphan lesson / decision in project X → `belongs-to-project`
+// edge to the most-recent release / feature in that project).
+const kgCmd = program
+  .command('kg')
+  .description('Knowledge graph maintenance');
+
+kgCmd
+  .command('backfill-relations')
+  .description('Propose / apply heuristic relations to connect orphan entities (no LLM)')
+  .option('--project <name>', 'Restrict to one project')
+  .option('--dry-run', 'Show proposals without writing (default off — use to preview)')
+  .option('--max-per-source <n>', 'Max edges per orphan (default 3)', (v) => parseInt(v, 10), 3)
+  .option('--min-shared-tags <n>', 'Min shared topical tags to gate co-occurrence rule (default 2)', (v) => parseInt(v, 10), 2)
+  .option('--include-archived', 'Also process archived entities')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    await withDatabase(async () => {
+      const { backfillRelations, proposeBackfillCandidates } = await import('../../core/kg-backfill.js');
+      const baseOpts = {
+        project: opts.project,
+        maxEdgesPerSource: opts.maxPerSource,
+        minSharedTags: opts.minSharedTags,
+        includeArchived: !!opts.includeArchived,
+        dryRun: !!opts.dryRun,
+      };
+      if (opts.dryRun) {
+        const candidates = proposeBackfillCandidates(baseOpts);
+        if (opts.json) {
+          console.log(JSON.stringify({ candidates }, null, 2));
+          return;
+        }
+        console.log(`Proposed ${candidates.length} relation${candidates.length === 1 ? '' : 's'} (dry-run, nothing written).`);
+        const sample = candidates.slice(0, 20);
+        for (const c of sample) {
+          console.log(`  ${c.fromName}  --[${c.relationType}]-->  ${c.toName}   (${c.reason})`);
+        }
+        if (candidates.length > sample.length) {
+          console.log(`  … ${candidates.length - sample.length} more (use --json to see them all)`);
+        }
+        // Per-rule breakdown
+        const byRule = new Map<string, number>();
+        for (const c of candidates) byRule.set(c.relationType, (byRule.get(c.relationType) ?? 0) + 1);
+        console.log('');
+        for (const [rule, n] of byRule) console.log(`  ${rule}: ${n}`);
+        return;
+      }
+      const result = backfillRelations(baseOpts);
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      console.log(`Proposed ${result.candidatesProposed} relations, wrote ${result.edgesWritten} new edges.`);
+      console.log(`  tag co-occurrence: ${result.byRule.tagCooccurrence}`);
+      console.log(`  project clustering: ${result.byRule.projectClustering}`);
+      if (result.candidatesProposed > result.edgesWritten) {
+        console.log(`  (${result.candidatesProposed - result.edgesWritten} candidates were already-existing edges; INSERT OR IGNORE skipped them.)`);
+      }
+    });
+  });
+
 // --- doctor ---
 program
   .command('doctor')
@@ -666,6 +781,7 @@ dreamCmd
   .option('--dry-run', 'Compute proposals without writing to dream_proposals')
   .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 100)', (v) => parseInt(v, 10))
   .option('--window-days <n>', 'Look-back window in days (default 56 = 8 weeks)', (v) => parseInt(v, 10))
+  .option('--validate', 'Run a second LLM pass to cross-check each digest against its sources (doubles LLM calls per proposal; surfaces under flow=digest_validator in `memesh telemetry`)')
   .action(async (opts) => {
     await withDatabase(async () => {
       const { runDreamer } = await import('../../core/dreamer.js');
@@ -682,6 +798,8 @@ dreamCmd
         dryRun: !!opts.dryRun,
         maxLlmCalls: opts.maxLlmCalls,
         windowDays: opts.windowDays,
+        fallbacks: cfg.llmFallbacks,
+        validateBeforeStage: !!opts.validate,
       });
       console.log(`${opts.dryRun ? '[dry-run] ' : ''}Dream pass complete in ${result.durationMs}ms`);
       console.log(`  clusters scanned: ${result.clustersScanned}`);
@@ -689,13 +807,17 @@ dreamCmd
       console.log(`  proposals created: ${result.proposalsCreated}`);
       if (result.skipped.length > 0) {
         console.log(`  skipped:           ${result.skipped.length}`);
+        // Group by the FULL reason text — earlier we split on ':' which
+        // truncated "LLM call failed: Anthropic API error: 401" down to
+        // just "LLM call failed" and silently dropped the actual error
+        // class. Surfacing the full reason makes outages debuggable
+        // without dropping into the dreamer module directly.
         const reasonCounts = new Map<string, number>();
         for (const s of result.skipped) {
-          const key = s.reason.split(':')[0];
-          reasonCounts.set(key, (reasonCounts.get(key) ?? 0) + 1);
+          reasonCounts.set(s.reason, (reasonCounts.get(s.reason) ?? 0) + 1);
         }
         for (const [reason, n] of reasonCounts) {
-          console.log(`    - ${reason}: ${n}`);
+          console.log(`    - ${reason}${n > 1 ? ` (×${n})` : ''}`);
         }
       }
       if (!opts.dryRun && result.proposalsCreated > 0) {
@@ -730,6 +852,7 @@ dreamCmd
         maxLlmCalls: opts.maxLlmCalls,
         windowDays: opts.windowDays,
         minSignal: opts.minSignal,
+        fallbacks: cfg.llmFallbacks,
       });
       console.log(`${opts.dryRun ? '[dry-run] ' : ''}Pattern detector complete in ${result.durationMs}ms`);
       console.log(`  entities scanned: ${result.entitiesScanned}`);

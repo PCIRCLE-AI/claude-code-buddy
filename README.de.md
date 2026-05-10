@@ -218,7 +218,7 @@ Importierte Bundles bleiben durchsuchbar, aber MeMesh injiziert importierte Memo
 
 ## Smart Mode freischalten (optional)
 
-MeMesh funktioniert standardmäßig offline. Fügen Sie einen LLM API-Schlüssel nur hinzu, wenn Sie Query-Erweiterung, intelligentere Extraktion und Kompression wünschen:
+MeMesh funktioniert standardmäßig offline — Recall bleibt strikt LLM-frei (95,40 % R@5 auf LongMemEval-S, ohne LLM). Fügen Sie einen LLM API-Schlüssel nur hinzu, wenn Sie LLM-augmentierte Analyseflüsse zusätzlich nutzen möchten: intelligentere Session-Extraktion, Auto-Tagging neuer Memories, Lektionen aus Fehlern und `consolidate` / `dream` Kompression:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -233,10 +233,12 @@ memesh  # öffnet Dashboard → Settings-Reiter
 
 | | Stufe 0 (Standard) | Stufe 1 (Smart Mode) |
 |---|---|---|
-| **Search** | FTS5-Keyword-Matching | + LLM Query-Erweiterung (~97 % Recall) |
+| **Search** | FTS5 + sqlite-vec, 95,40 % R@5 (~18 ms/Query) | unverändert — Recall ist auf jeder Stufe LLM-frei |
 | **Auto-Capture** | Regelbasierte Muster | + LLM extrahiert Entscheidungen & Lektionen |
-| **Kompression** | Nicht verfügbar | `consolidate` komprimiert ausschweifende Memories |
-| **Kosten** | Kostenlos, kein API-Schlüssel | ~$0,0001 pro Suche (Haiku) |
+| **Auto-Tagging** | Nur manuelle Tags | + LLM generiert Tags für neue Memories |
+| **Fehleranalyse** | Nicht verfügbar | + LLM wandelt Session-Fehler in strukturierte Lektionen um |
+| **Kompression** | Nicht verfügbar | `consolidate` + `dream` komprimieren ausschweifende Memories |
+| **Kosten** | Kostenlos, kein API-Schlüssel | ~$0,0001 pro Analyseanfrage (Haiku) |
 
 ---
 
@@ -245,7 +247,7 @@ memesh  # öffnet Dashboard → Settings-Reiter
 | Tool | Was es tut |
 |------|-------------|
 | `remember` | Wissen mit Beobachtungen, Relationen und Tags speichern |
-| `recall` | Intelligente Suche mit Multi-Faktor-Bewertung und LLM Query-Erweiterung |
+| `recall` | FTS5 + sqlite-vec Suche mit Multi-Faktor-Bewertung (Relevanz, Aktualität, Häufigkeit, Konfidenz, zeitliche Gültigkeit) — kein LLM auf dem Hot Path |
 | `forget` | Soft-Archivierung (löscht nie) oder entfernt spezifische Beobachtungen |
 | `consolidate` | LLM-gestützte Kompression ausschweifender Memories |
 | `export` | Memories als JSON zwischen Projekten oder Teamkollegen teilen |
