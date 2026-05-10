@@ -104,7 +104,7 @@ export async function validateDigest(
     `<digest>\n${safeDigest}\n</digest>\n\n` +
     `<sources>\n${safeSources}\n</sources>`;
 
-  let rawResponse = '';
+  let rawResponse: string;
   try {
     rawResponse = await callLLM(prompt, llm, {
       maxTokens: 500,

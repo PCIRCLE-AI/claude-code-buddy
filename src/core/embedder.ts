@@ -8,11 +8,14 @@
 import { createRequire } from 'node:module';
 import { getDatabase } from '../db.js';
 import { join } from 'path';
+
+// Opaque type for the @huggingface/transformers pipeline — no published types
+type OnnxPipeline = (text: string, opts: { pooling: string; normalize: boolean }) => Promise<{ data: ArrayLike<number> }>;
 import { detectCapabilities, type LLMConfig } from './config.js';
 import { memeshDir } from './paths.js';
 
-let onnxPipelineInstance: any = null;
-let onnxPipelineLoading: Promise<any> | null = null;
+let onnxPipelineInstance: OnnxPipeline | null = null;
+let onnxPipelineLoading: Promise<OnnxPipeline> | null = null;
 let onnxAvailableChecked = false;
 let onnxAvailableResult = false;
 const MAX_VECTOR_DISTANCE = 1;
@@ -267,13 +270,13 @@ function isOnnxAvailable(): boolean {
   return onnxAvailableResult;
 }
 
-async function getOnnxPipeline(): Promise<any> {
+async function getOnnxPipeline(): Promise<OnnxPipeline> {
   if (onnxPipelineInstance) return onnxPipelineInstance;
   if (onnxPipelineLoading) return onnxPipelineLoading;
 
   onnxPipelineLoading = (async () => {
     try {
-      const mod: any = await import(ONNX_TRANSFORMERS_PACKAGE);
+      const mod = await import(ONNX_TRANSFORMERS_PACKAGE) as { pipeline: (task: string, model: string) => Promise<OnnxPipeline>; env?: { cacheDir?: string; allowLocalModels?: boolean } };
       const createPipeline = mod.pipeline;
       const env = mod.env;
       if (env) {

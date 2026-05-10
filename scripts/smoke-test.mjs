@@ -71,7 +71,7 @@ test('Core modules load', () => {
     execFileSync('node', ['-e', "require('./dist/db.js')"], { cwd: projectRoot, stdio: 'pipe' });
     execFileSync('node', ['-e', "require('./dist/core/operations.js')"], { cwd: projectRoot, stdio: 'pipe' });
   } catch (err) {
-    throw new Error('Module loading failed');
+    throw new Error('Module loading failed', { cause: err });
   }
 });
 

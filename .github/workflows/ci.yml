@@ -37,6 +37,9 @@ jobs:
       - name: TypeScript check
         run: npm run typecheck
 
+      - name: Version coherence (catches partial bumps)
+        run: node scripts/check-version-coherence.mjs
+
       - name: Build
         run: npm run build
 
@@ -45,6 +48,30 @@ jobs:
 
       - name: Run tests
         run: npm test -- --run
+
+      - name: Doctor (manifest + hooks integrity gate)
+        # Must run AFTER `npm run build` so dist/skills-manifest.json
+        # is present + current. Catches the "version bumped but
+        # manifest stale" failure pattern that surfaces post-install
+        # as `Skills + hooks integrity FAIL` for users.
+        # Acceptable: Overall: PASS. Also acceptable: PASS_WITH_CONCERNS
+        # where the only WARN is `Update status` (npm-published lag is
+        # expected on feature branches).
+        shell: bash
+        run: |
+          set -e
+          OUTPUT=$(node dist/transports/cli/cli.js doctor 2>&1 || true)
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -qE '^\[FAIL\]'; then
+            echo "::error::memesh doctor reported FAIL — see lines above"
+            exit 1
+          fi
+          # Also gate on Skills+hooks integrity specifically — that one is
+          # the highest-cost slip, easy to miss in a long doctor output.
+          if echo "$OUTPUT" | grep -qE 'Skills \+ hooks integrity.*FAIL|Manifest verification failed'; then
+            echo "::error::Skills+hooks integrity manifest mismatch detected"
+            exit 1
+          fi
 
   package-smoke:
     name: Packaged Artifact Smoke Test

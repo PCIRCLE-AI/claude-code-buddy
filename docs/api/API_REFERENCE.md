@@ -1,7 +1,7 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 4.1.7
+**Version**: 4.2.0
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 ---
@@ -813,6 +813,66 @@ See `packages/python-sdk/` for full SDK source and documentation.
 
 ---
 
+### memesh telemetry
+
+Render the per-flow LLM telemetry scorecard for the last N days.
+
+**Usage**:
+
+```bash
+memesh telemetry [--window <days>] [--prune <days>] [--json]
+```
+
+**Options**:
+
+| Flag | Description |
+|------|-------------|
+| `--window <days>` | Look-back window for the scorecard (default 30) |
+| `--prune <days>` | Run `pruneTelemetry({olderThanDays: N})` BEFORE rendering. Prints `Pruned X rows older than N days.` first. |
+| `--json` | Output as JSON for programmatic consumption |
+
+**Output**: per-flow scorecard with success rate, fallback usage, median latency, provider breakdown, and error-class chips. Auto-prune also runs from `openDatabase()` once per 24h with a 180-day default cutoff.
+
+### memesh kg backfill-relations
+
+Heuristic non-LLM relation backfill for orphan entities. Two rules:
+
+1. **Tag co-occurrence**: two active entities sharing ≥ 2 topical tags get a `related-to` edge. Topical filter excludes auto-capture noise (`session_end`, `auto_saved`, `commit`, `completed`, `lesson`, etc.) to prevent cartesian explosion.
+2. **Project clustering**: orphan lessons / decisions / bug-fixes / patterns in a project get a `belongs-to-project` edge to the most recent release / feature / architecture / plan in the same project.
+
+**Usage**:
+
+```bash
+memesh kg backfill-relations [--project <name>] [--dry-run] [--max-per-source <n>] [--min-shared-tags <n>] [--include-archived] [--json]
+```
+
+**Options**:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--project <name>` | (all) | Restrict to one project |
+| `--dry-run` | off | Preview proposals without writing |
+| `--max-per-source <n>` | 3 | Max `related-to` edges per orphan |
+| `--min-shared-tags <n>` | 2 | Minimum overlapping topical tags for tag co-occurrence rule |
+| `--include-archived` | off | Also process archived entities |
+| `--json` | off | Output as JSON |
+
+### memesh dream
+
+LLM cluster compactor + pattern detector with propose / accept / reject lifecycle. The dreamer also auto-triggers from the Stop hook (gated by ≥10 episodic entities + 24h throttle), so users typically don't run this manually.
+
+**Subcommands**:
+
+```bash
+memesh dream run [--project <name>] [--dry-run] [--max-llm-calls <n>] [--window-days <n>] [--validate]
+memesh dream patterns [--project <name>] [--dry-run] [--max-llm-calls <n>] [--window-days <n>] [--min-signal <n>]
+memesh dream list [--status <pending|applied|rejected|all>]
+memesh dream accept <id>
+memesh dream reject <id> [--reason <text>]
+```
+
+**`--validate`** on `dream run` enables the optional second-pass LLM validator (`src/core/digest-validator.ts`) which cross-checks the proposed digest's claims against source observations and attaches `validation_warnings` to soften'd proposals. Doubles per-proposal LLM cost; default off.
+
 ### memesh-view
 
 Generate and open an interactive HTML dashboard for exploring stored knowledge.
@@ -858,3 +918,62 @@ MeMesh runs as a stdio MCP server. Claude Code manages the connection automatica
 Returns user work patterns extracted from existing memory entities.
 
 **Response fields:** `workSchedule` (hour/day distribution), `toolPreferences`, `focusAreas`, `workflow` (avg session minutes, commits/session), `strengths` (high-confidence types), `learningAreas` (tags from lessons/mistakes).
+
+### GET /v1/telemetry
+
+Per-flow LLM telemetry scorecard for the last `window` days. Backs the dashboard Analytics tab's "LLM activity" panel and `memesh telemetry` CLI.
+
+**Query parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `window` | number | 30 | Look-back window in days (1–365) |
+
+**Response shape:** `{ window_days, summaries: FlowSummary[] }` where each `FlowSummary` is `{ flow, total_calls, total_attempts, successes, failures, fallback_used, median_latency_ms, by_provider, by_error_class, window_days }`. Flows: `dreamer`, `pattern_detector`, `consolidator`, `auto_tagger`, `failure_analyzer`, `digest_validator`.
+
+### GET /v1/dream/proposals
+
+Lists dream digest / pattern proposals from the staging table.
+
+**Query parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `status` | enum | `pending` | One of `pending`, `applied`, `rejected`, `all` |
+
+**Response:** array of `{ id, project, cluster_key, source_count, digest_name, digest_observations_preview, status, created_at, kind }` where `kind` is `digest | pattern_emergent`.
+
+### GET /v1/dream/proposals/:id
+
+Full proposal detail for the Insights tab's expanded card view.
+
+**Response:** `{ id, project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version, status, reason, created_at, reviewed_at }`. `proposed_digest` includes `name`, `type`, `observations`, `tags`, and (when the validator ran with a `soften` verdict) `validation_warnings: Array<{claim, reason}>`.
+
+### POST /v1/dream/run
+
+Trigger a dream pass via HTTP. Same logic as `memesh dream run`; runs `runDreamer()` synchronously and returns the result.
+
+**Body schema:**
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `project` | string | (all projects) | Restrict to one project |
+| `windowDays` | number | 14 | Look-back window in days (1–90) |
+| `maxLlmCalls` | number | 5 | Hard cap on LLM calls (1–20) |
+| `validate` | boolean | false | Run the digest validator as a second LLM pass before staging |
+
+**Response:** `DreamerResult` shape — `{ proposalsCreated, clustersScanned, llmCalls, skipped: Array<{reason, project, clusterKey}>, durationMs }`.
+
+### POST /v1/dream/proposals/:id/accept
+
+Apply a pending dream proposal — creates the digest entity (or `pattern_emergent` entity for pattern proposals), inserts `summarizes` / `evidence_for` relation edges, and soft-archives source entities for digest proposals.
+
+**Response:** `{ proposalId, digestEntityName, sourcesArchived, sourcesLinked, kind }`.
+
+### POST /v1/dream/proposals/:id/reject
+
+Mark a pending proposal as rejected. Source entities are untouched.
+
+**Body schema:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `reason` | string (optional, ≤500 chars) | Why this proposal was rejected |
+
+**Response:** `{ id, status: 'rejected' }`.

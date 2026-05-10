@@ -296,7 +296,7 @@ function parseOrFail<T>(schema: z.ZodType<T>, args: unknown): { ok: true; data: 
   return { ok: true, data: parsed.data };
 }
 
-export async function handleTool(name: string, args: any): Promise<ToolResult> {
+export async function handleTool(name: string, args: Record<string, unknown> | undefined): Promise<ToolResult> {
   try {
     if (name === 'remember') {
       const r = parseOrFail(RememberSchema, args);
@@ -427,7 +427,7 @@ export async function handleTool(name: string, args: any): Promise<ToolResult> {
       return ok(verifyAgentWork(r.data));
     }
     return fail(`Unknown tool: ${name}`);
-  } catch (err: any) {
-    return fail(`Tool "${name}" failed: ${err.message}`);
+  } catch (err) {
+    return fail(`Tool "${name}" failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

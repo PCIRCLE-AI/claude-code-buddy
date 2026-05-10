@@ -116,6 +116,25 @@ export function GraphTab() {
   const nodesRef = useRef<GNode[]>([]);
   const edgesRef = useRef<GEdge[]>([]);
   const animRef = useRef<number>(0);
+  // Viewport transform: world = (screen - rect.{left,top} - {panX,panY}) / scale.
+  // Render applies setTransform(scale*dpr, 0, 0, scale*dpr, panX*dpr, panY*dpr)
+  // so node coords stay authored in world-space; only hit-tests + render
+  // change. Defaults: identity (panX=panY=0, scale=1).
+  const viewportRef = useRef<{ scale: number; panX: number; panY: number }>({
+    scale: 1,
+    panX: 0,
+    panY: 0,
+  });
+  // panRef tracks an in-progress background pan (started on empty-area
+  // mousedown). dragRef remains the per-node grab state.
+  const panRef = useRef<{
+    active: boolean;
+    startScreenX: number;
+    startScreenY: number;
+    startPanX: number;
+    startPanY: number;
+    moved: boolean;
+  }>({ active: false, startScreenX: 0, startScreenY: 0, startPanX: 0, startPanY: 0, moved: false });
   const dragRef = useRef<{
     node: GNode | null;
     offsetX: number;
@@ -416,8 +435,20 @@ export function GraphTab() {
       }
 
       /* ---------- render ---------- */
+      // Clear in screen-space (identity transform).
       ctx.setTransform(curDpr, 0, 0, curDpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
+      // Then apply viewport transform so nodes/edges are drawn in world
+      // coords. Hit-tests use the inverse — see findNodeAt + getCanvasPos.
+      const vp = viewportRef.current;
+      ctx.setTransform(
+        vp.scale * curDpr,
+        0,
+        0,
+        vp.scale * curDpr,
+        vp.panX * curDpr,
+        vp.panY * curDpr,
+      );
 
       // Collect visible edges
       const visibleEdges = edges.filter(isEdgeVisible);
@@ -520,9 +551,12 @@ export function GraphTab() {
 
       ctx.globalAlpha = 1;
 
-      // Tooltip
+      // Tooltip — draw in SCREEN space (reset transform) so tooltip text
+      // size and position stay constant regardless of zoom level.
+      // tooltipRef.{x,y} is already in screen coords (canvas rect-local).
       const tip = tooltipRef.current;
       if (tip.node && isNodeVisible(tip.node)) {
+        ctx.setTransform(curDpr, 0, 0, curDpr, 0, 0);
         const tx = tip.x + 12;
         const ty = tip.y - 10;
         const name = tip.node.id;
@@ -556,14 +590,19 @@ export function GraphTab() {
     return () => cancelAnimationFrame(animRef.current);
   }, [data, loading]);
 
-  /* ---------- hit-test (only visible nodes) ---------- */
-  const findNodeAt = useCallback((mx: number, my: number): GNode | null => {
+  /* ---------- hit-test (only visible nodes) ----------
+   * `wx`/`wy` are WORLD coords (already inverse-transformed). Hit radius
+   * is divided by current zoom so the on-screen hit area stays constant
+   * (~12px) even when the user has zoomed in/out. */
+  const findNodeAt = useCallback((wx: number, wy: number): GNode | null => {
     const nodes = nodesRef.current;
     const filters = typeFiltersRef.current;
     const egoId = egoNodeIdRef.current;
+    const scale = viewportRef.current.scale || 1;
+    const hitR = 12 / scale; // keep ~12 screen pixels regardless of zoom
+    const hitR2 = hitR * hitR;
     for (let i = nodes.length - 1; i >= 0; i--) {
       const n = nodes[i];
-      // Skip hidden nodes
       if (filters[n.type] === false) continue;
       if (egoId && n.id !== egoId) {
         const isNeighbor = edgesRef.current.some(
@@ -571,13 +610,14 @@ export function GraphTab() {
         );
         if (!isNeighbor) continue;
       }
-      const dx = n.x - mx;
-      const dy = n.y - my;
-      if (dx * dx + dy * dy < 144) return n; // 12px hit area
+      const dx = n.x - wx;
+      const dy = n.y - wy;
+      if (dx * dx + dy * dy < hitR2) return n;
     }
     return null;
   }, []);
 
+  /** Returns SCREEN coords (inside canvas rect) — used for tooltip + pan tracking. */
   const getCanvasPos = useCallback((e: MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -585,70 +625,134 @@ export function GraphTab() {
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   }, []);
 
-  /* ---------- mouse handlers ---------- */
+  /** Inverse viewport transform: screen rect-local coords → world coords. */
+  const screenToWorld = useCallback((sx: number, sy: number) => {
+    const vp = viewportRef.current;
+    return {
+      x: (sx - vp.panX) / vp.scale,
+      y: (sy - vp.panY) / vp.scale,
+    };
+  }, []);
+
+  /* ---------- mouse handlers ----------
+   * Conventions:
+   *   - getCanvasPos(e) returns SCREEN coords inside the canvas rect.
+   *   - screenToWorld(sx, sy) converts to WORLD coords (the space nodes
+   *     are authored in). Hit-test + node-drag live in world space.
+   *   - Background pan tracks deltas in SCREEN space and writes to
+   *     viewportRef.{panX,panY} (also a screen-space offset). */
   const onMouseDown = useCallback(
     (e: MouseEvent) => {
-      const pos = getCanvasPos(e);
-      const node = findNodeAt(pos.x, pos.y);
-      if (node) window.__graphReheat?.();
-      dragRef.current = {
-        node: node || null,
-        offsetX: node ? pos.x - node.x : 0,
-        offsetY: node ? pos.y - node.y : 0,
-        startX: pos.x,
-        startY: pos.y,
-        dragged: false,
-      };
+      const screen = getCanvasPos(e);
+      const world = screenToWorld(screen.x, screen.y);
+      const node = findNodeAt(world.x, world.y);
+      if (node) {
+        // Grab a node
+        window.__graphReheat?.();
+        dragRef.current = {
+          node,
+          offsetX: world.x - node.x,
+          offsetY: world.y - node.y,
+          startX: screen.x,
+          startY: screen.y,
+          dragged: false,
+        };
+        panRef.current.active = false;
+      } else {
+        // Pan the viewport — start tracking screen-delta from current pan.
+        const vp = viewportRef.current;
+        panRef.current = {
+          active: true,
+          startScreenX: screen.x,
+          startScreenY: screen.y,
+          startPanX: vp.panX,
+          startPanY: vp.panY,
+          moved: false,
+        };
+        dragRef.current = {
+          node: null,
+          offsetX: 0,
+          offsetY: 0,
+          startX: screen.x,
+          startY: screen.y,
+          dragged: false,
+        };
+        const canvas = canvasRef.current;
+        if (canvas) canvas.style.cursor = 'grabbing';
+      }
     },
-    [findNodeAt, getCanvasPos],
+    [findNodeAt, getCanvasPos, screenToWorld],
   );
 
   const onMouseMove = useCallback(
     (e: MouseEvent) => {
-      const pos = getCanvasPos(e);
+      const screen = getCanvasPos(e);
+      const world = screenToWorld(screen.x, screen.y);
       const drag = dragRef.current;
+      const pan = panRef.current;
+
       if (drag.node) {
-        const dx = pos.x - drag.startX;
-        const dy = pos.y - drag.startY;
-        if (dx * dx + dy * dy > CLICK_THRESHOLD * CLICK_THRESHOLD) {
+        // Node drag — author in world coords.
+        const dxScreen = screen.x - drag.startX;
+        const dyScreen = screen.y - drag.startY;
+        if (dxScreen * dxScreen + dyScreen * dyScreen > CLICK_THRESHOLD * CLICK_THRESHOLD) {
           drag.dragged = true;
         }
-        drag.node.x = pos.x - drag.offsetX;
-        drag.node.y = pos.y - drag.offsetY;
+        drag.node.x = world.x - drag.offsetX;
+        drag.node.y = world.y - drag.offsetY;
         drag.node.vx = 0;
         drag.node.vy = 0;
+      } else if (pan.active) {
+        // Background pan — track screen-delta.
+        const dx = screen.x - pan.startScreenX;
+        const dy = screen.y - pan.startScreenY;
+        if (dx * dx + dy * dy > CLICK_THRESHOLD * CLICK_THRESHOLD) {
+          pan.moved = true;
+        }
+        viewportRef.current.panX = pan.startPanX + dx;
+        viewportRef.current.panY = pan.startPanY + dy;
       }
-      const node = findNodeAt(pos.x, pos.y);
+
+      const node = findNodeAt(world.x, world.y);
       hoverRef.current = node;
+      // Tooltip is drawn in screen space, so store screen coords.
       tooltipRef.current = node
-        ? { x: pos.x, y: pos.y, node }
+        ? { x: screen.x, y: screen.y, node }
         : { x: 0, y: 0, node: null };
       const canvas = canvasRef.current;
       if (canvas) {
-        if (node) {
+        if (drag.node) {
+          canvas.style.cursor = 'grabbing';
+        } else if (pan.active) {
+          canvas.style.cursor = 'grabbing';
+        } else if (node) {
           canvas.style.cursor = egoNodeIdRef.current ? 'pointer' : 'grab';
         } else {
-          canvas.style.cursor = 'default';
+          canvas.style.cursor = 'grab';
         }
       }
     },
-    [findNodeAt, getCanvasPos],
+    [findNodeAt, getCanvasPos, screenToWorld],
   );
 
   const onMouseUp = useCallback(
     (e: MouseEvent) => {
       const drag = dragRef.current;
-      const pos = getCanvasPos(e);
+      const pan = panRef.current;
+      const screen = getCanvasPos(e);
+      const world = screenToWorld(screen.x, screen.y);
+
       if (drag.node && !drag.dragged) {
-        // It's a click — toggle ego mode
+        // Click on a node — toggle ego mode.
         setEgoNodeId((prev) => (prev === drag.node!.id ? null : drag.node!.id));
-      } else if (!drag.node && !drag.dragged) {
-        // Click on empty canvas — exit ego mode
-        const nodeAtPos = findNodeAt(pos.x, pos.y);
+      } else if (!drag.node && pan.active && !pan.moved) {
+        // Click on empty canvas (no pan happened) — exit ego mode.
+        const nodeAtPos = findNodeAt(world.x, world.y);
         if (!nodeAtPos) {
           setEgoNodeId(null);
         }
       }
+
       dragRef.current = {
         node: null,
         offsetX: 0,
@@ -657,8 +761,16 @@ export function GraphTab() {
         startY: 0,
         dragged: false,
       };
+      panRef.current.active = false;
+      panRef.current.moved = false;
+
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const hovered = findNodeAt(world.x, world.y);
+        canvas.style.cursor = hovered ? (egoNodeIdRef.current ? 'pointer' : 'grab') : 'grab';
+      }
     },
-    [findNodeAt, getCanvasPos],
+    [findNodeAt, getCanvasPos, screenToWorld],
   );
 
   const onMouseLeave = useCallback(() => {
@@ -670,9 +782,70 @@ export function GraphTab() {
       startY: 0,
       dragged: false,
     };
+    panRef.current.active = false;
+    panRef.current.moved = false;
     hoverRef.current = null;
     tooltipRef.current = { x: 0, y: 0, node: null };
+    const canvas = canvasRef.current;
+    if (canvas) canvas.style.cursor = 'default';
   }, []);
+
+  /** Wheel zoom — zoom centred on the cursor. The world point under the
+   * cursor stays under the cursor by adjusting panX/panY along with scale. */
+  const onWheel = useCallback(
+    (e: WheelEvent) => {
+      e.preventDefault();
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+
+      const vp = viewportRef.current;
+      const oldScale = vp.scale;
+      // Trackpad pinch-zoom uses small deltaY (Mac), wheel uses large.
+      // Use exponential so each tick is multiplicative — feels natural.
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      const newScale = Math.max(0.25, Math.min(4, oldScale * factor));
+      if (newScale === oldScale) return;
+
+      // Keep the world point under the cursor pinned: solve
+      //   sx = panX + worldX * scale
+      // for new panX given worldX from the OLD transform.
+      const worldX = (sx - vp.panX) / oldScale;
+      const worldY = (sy - vp.panY) / oldScale;
+      vp.scale = newScale;
+      vp.panX = sx - worldX * newScale;
+      vp.panY = sy - worldY * newScale;
+    },
+    [],
+  );
+
+  /** Reset view to identity transform. */
+  const resetView = useCallback(() => {
+    viewportRef.current = { scale: 1, panX: 0, panY: 0 };
+  }, []);
+
+  /* Attach a NON-passive wheel listener directly on the canvas. Preact's
+   * synthetic `onWheel` cannot reliably preventDefault scroll on Mac
+   * trackpads; the page scrolls instead of zoom. Native addEventListener
+   * with `{ passive: false }` is the only path that works here.
+   *
+   * NOTE: depending on `[data, loading]` (not just `[onWheel]`) is REQUIRED.
+   * The component returns the loading <div> first — the canvas JSX (and
+   * therefore canvasRef.current) doesn't exist on the first render. After
+   * data arrives the component re-renders with the canvas, but a useEffect
+   * with deps=[onWheel] would NOT fire then because onWheel is stable from
+   * useCallback([]). Tying it to [data, loading] guarantees we re-run once
+   * the canvas is mounted. */
+  useEffect(() => {
+    if (loading || !data) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const handler = (e: WheelEvent) => onWheel(e);
+    canvas.addEventListener('wheel', handler, { passive: false });
+    return () => canvas.removeEventListener('wheel', handler);
+  }, [data, loading, onWheel]);
 
   /* ---------- derived data for render ---------- */
   if (loading) return <div class="empty"><div class="loading" /></div>;
@@ -830,9 +1003,24 @@ export function GraphTab() {
             </span>
           )}
           <button
-            onClick={() => setDriftMode((v) => !v)}
+            onClick={resetView}
+            title={t('graph.resetViewHint')}
             style={{
               marginLeft: 'auto',
+              padding: '3px 10px',
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 4,
+              color: '#7A828E',
+              fontSize: 11,
+              cursor: 'pointer',
+            }}
+          >
+            {t('graph.resetView')}
+          </button>
+          <button
+            onClick={() => setDriftMode((v) => !v)}
+            style={{
               padding: '3px 10px',
               background: driftMode ? 'rgba(0,214,180,0.15)' : 'rgba(255,255,255,0.04)',
               border: `1px solid ${driftMode ? 'rgba(0,214,180,0.4)' : 'rgba(255,255,255,0.08)'}`,
@@ -902,7 +1090,7 @@ export function GraphTab() {
               marginBottom: 6,
             }}
           >
-            {t('graph.clickHint')}
+            {t('graph.interactHint')}
           </div>
         )}
 
@@ -914,6 +1102,7 @@ export function GraphTab() {
             height: CANVAS_HEIGHT,
             borderRadius: 'var(--radius-sm)',
             background: '#080A0C',
+            cursor: 'grab',
           }}
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}

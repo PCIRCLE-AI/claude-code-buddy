@@ -1,6 +1,6 @@
 # MeMesh Plugin Architecture
 
-**Version**: 4.1.7
+**Version**: 4.2.0
 
 ---
 
@@ -38,15 +38,23 @@ MeMesh separates concerns into two layers:
 **Core** (`src/core/`) — pure business logic with zero transport dependencies:
 - `types.ts` — shared TypeScript interfaces (zero external deps)
 - `operations.ts` — `remember`, `recall`, `forget`, `export`, `import` as pure functions called by all transports
-- `config.ts` — config management + capability detection (sqlite-vec availability); exports `logCapabilities()` for startup logging
-- `scoring.ts` — multi-factor scoring engine: weights search relevance, recency, frequency, confidence, temporal validity; exports `rankEntities()` used by all recall paths
+- `config.ts` — config management + capability detection (incl. `llmFallbacks` chain); exports `logCapabilities()` for startup logging
+- `paths.ts` — centralised filesystem path resolution (HOME-first override, mirrored to hooks via `_shared.js`)
+- `scoring.ts` — multi-factor scoring engine: weights search relevance, recency, frequency, confidence, temporal validity, recall-impact; exports `rankEntities()` used by all recall paths
+- `llm-client.ts` — single dispatch for anthropic / openai / ollama with cross-provider failover, error classification, and per-attempt telemetry callback
+- `llm-telemetry.ts` — `llm_telemetry` SQLite table + `recordTelemetry()` + `summariseTelemetry()` + `pruneTelemetry()` retention
+- `dreamer.ts` — LLM cluster compactor + pattern detector with propose/accept/reject lifecycle; auto-trigger from Stop hook
+- `digest-validator.ts` — opt-in second-pass LLM cross-check on dreamer digests (`pass | soften | reject`)
+- `kg-backfill.ts` — non-LLM heuristic relation backfill (tag co-occurrence + project clustering)
+- `prompt-safety.ts` — F7 prompt-injection hardening (delimiter escaping for 3 LLM call sites)
+- `failure-analyzer.ts` / `auto-tagger.ts` / `consolidator.ts` — Smart-Mode LLM flows (all use `callLLM` failover + telemetry)
 - `verifier.ts` — `verify_agent_work` core: git reality-check + persistence of verification reports as `verification_record` entities
 - `version-check.ts` — npm registry version check for update notifications
 
 **Transports** (`src/transports/`) — thin adapters that expose core operations:
-- `cli/cli.ts` — Commander CLI (`memesh` command)
-- `http/server.ts` — Express REST API server (`memesh serve`, default port 3737)
-- `mcp/server.ts` + `mcp/handlers.ts` — stdio MCP server (`memesh-mcp`)
+- `cli/cli.ts` — Commander CLI (`memesh` command, 17 top-level commands; `kg` and `config` have subcommands)
+- `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, ~30 endpoints, bearer-auth gate when bound non-loopback)
+- `mcp/server.ts` + `mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 9 tools)
 
 This separation means the same `remember`/`recall`/`forget` logic runs identically whether invoked from a terminal, an HTTP request, or an MCP tool call.
 
@@ -70,7 +78,16 @@ src/
 │   ├── lesson-engine.ts   # Structured lesson creation, upsert, project query
 │   ├── embedder.ts        # Neural embeddings (@huggingface/transformers + all-MiniLM-L6-v2, 384-dim)
 │   ├── auto-tagger.ts     # LLM-powered auto-tag generation (fire-and-forget)
+│   ├── llm-client.ts      # Single dispatch for anthropic/openai/ollama + cross-provider failover + secret redaction
+│   ├── llm-telemetry.ts   # llm_telemetry table + recordTelemetry + summariseTelemetry + pruneTelemetry
+│   ├── llm-validator.ts   # Provider+model capability detection (list models, byte-capped fetch)
+│   ├── prompt-safety.ts   # F7 prompt-injection hardening (sanitizeForPrompt for 3 call sites)
+│   ├── dreamer.ts         # LLM cluster compactor + pattern detector (propose/accept/reject)
+│   ├── digest-validator.ts # Opt-in second-pass LLM cross-check on dreamer digests
+│   ├── kg-backfill.ts     # Heuristic relation backfill (tag co-occurrence + project clustering)
 │   ├── patterns.ts        # User work patterns computation (shared by MCP + HTTP)
+│   ├── doctor.ts          # `memesh doctor` health check (install / hooks / DB / capabilities)
+│   ├── demo.ts            # `memesh demo` 30-entity onboarding seed
 │   └── version-check.ts   # npm registry version check
 ├── db.ts                  # SQLite + FTS5 + sqlite-vec + migrations
 ├── knowledge-graph.ts     # Entity CRUD, relations, FTS5 search, findConflicts

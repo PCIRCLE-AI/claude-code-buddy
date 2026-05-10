@@ -441,7 +441,7 @@ function backfillSignalScores(db: Database.Database): void {
     let scored = 0;
     let skipped = 0;
     for (const row of rows) {
-      let metadata: Record<string, unknown> = {};
+      let metadata: Record<string, unknown>;
       try { metadata = row.metadata ? JSON.parse(row.metadata) : {}; } catch { metadata = {}; }
       if (typeof metadata.signal_score === 'number') {
         skipped++;

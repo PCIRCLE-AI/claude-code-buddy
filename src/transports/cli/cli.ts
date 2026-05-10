@@ -11,7 +11,7 @@ import { verifyAgentWork } from '../../core/verifier.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { flushPendingEmbeddings } from '../../core/embedder.js';
-import type { LessonSeverity, MergeStrategy } from '../../core/types.js';
+import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/types.js';
 
 // DX: every CLI command that touches the DB used to repeat
 //   openDatabase(); try { ...body... } finally { closeDatabase(); }
@@ -268,14 +268,14 @@ program
       let raw: string;
       try {
         raw = fs.readFileSync(file, 'utf8');
-      } catch (err: any) {
-        if (err?.code === 'ENOENT') {
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
           console.error(`Error: file not found: ${file}`);
           console.error(`       memesh import expects a file produced by 'memesh export'.`);
           console.error(`       Try: memesh export > my-export.json && memesh import my-export.json`);
           process.exit(1);
         }
-        if (err?.code === 'EACCES') {
+        if ((err as NodeJS.ErrnoException)?.code === 'EACCES') {
           console.error(`Error: cannot read ${file} (permission denied).`);
           console.error(`       Check file permissions: ls -la ${file}`);
           process.exit(1);
@@ -286,8 +286,8 @@ program
       let data: unknown;
       try {
         data = JSON.parse(raw);
-      } catch (err: any) {
-        const lineMatch = /position (\d+)/.exec(err?.message ?? '');
+      } catch (err) {
+        const lineMatch = /position (\d+)/.exec(err instanceof Error ? err.message : '');
         const where = lineMatch ? ` near position ${lineMatch[1]}` : '';
         console.error(`Error: ${file} is not valid JSON${where}.`);
         console.error(`       memesh import expects a file produced by 'memesh export'.`);
@@ -296,7 +296,7 @@ program
       }
 
       const result = importMemories({
-        data: data as any,
+        data: data as ExportResult,
         namespace: opts.namespace,
         merge_strategy: opts.merge as MergeStrategy,
       });
@@ -973,8 +973,8 @@ program
         console.log('Restart Claude Code (or open a new session) for hooks to take effect.');
         console.log('Verify with: memesh doctor');
       }
-    } catch (err: any) {
-      console.error(`install-hooks failed: ${err.message}`);
+    } catch (err) {
+      console.error(`install-hooks failed: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
     }
   });
@@ -992,8 +992,8 @@ program
       console.log(`${opts.dryRun ? '[dry-run] ' : ''}Settings: ${result.settingsPath}`);
       console.log(`${opts.dryRun ? '[dry-run] ' : ''}Removed ${result.removed} memesh hook command${result.removed === 1 ? '' : 's'}.`);
       if (result.backupPath) console.log(`Backup: ${result.backupPath}`);
-    } catch (err: any) {
-      console.error(`uninstall-hooks failed: ${err.message}`);
+    } catch (err) {
+      console.error(`uninstall-hooks failed: ${err instanceof Error ? err.message : String(err)}`);
       process.exit(1);
     }
   });

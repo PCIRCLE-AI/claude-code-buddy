@@ -148,7 +148,7 @@ async function compressObservations(
     if (match) {
       const arr = JSON.parse(match[0]);
       if (Array.isArray(arr) && arr.length > 0) {
-        const filtered = arr.filter((s: any) => typeof s === 'string' && s.length > 0);
+        const filtered = arr.filter((s: unknown) => typeof s === 'string' && s.length > 0);
         if (filtered.length > 0) return filtered;
       }
     }
