@@ -785,6 +785,17 @@ export interface ProposalSummary {
   digest_observations_preview: string;
   status: string;
   created_at: string;
+  /**
+   * Surfaces whether the proposal came from the weekly compaction
+   * dreamer (`'digest'`) or from the pattern detector
+   * (`'pattern_emergent'`). The dashboard branches its renderer on
+   * this so pattern proposals get a distinct (orange/amber) card
+   * instead of being rendered as plain digests. Derived from
+   * `proposed_digest.type` — anything other than the literal
+   * `'pattern_emergent'` is treated as a digest, matching the
+   * apply-side check in `applyProposal`.
+   */
+  kind: 'digest' | 'pattern_emergent';
 }
 
 export function listProposals(db: Database.Database, status: string = 'pending'): ProposalSummary[] {
@@ -805,6 +816,7 @@ export function listProposals(db: Database.Database, status: string = 'pending')
       digest_observations_preview: digest.observations[0]?.slice(0, 120) ?? '(empty)',
       status: r.status,
       created_at: r.created_at,
+      kind: digest.type === 'pattern_emergent' ? 'pattern_emergent' : 'digest',
     };
   });
 }
