@@ -679,6 +679,16 @@ app.get('/v1/dream/proposals', (req, res) => {
 // Full proposed_digest content (observations, tags, source_ids) for the
 // detail view in the Insights tab — listProposals only returns a
 // truncated preview.
+//
+// Validator surfacing channel: when the dreamer was invoked with
+// `validateBeforeStage: true` and the LLM validator returned a 'soften'
+// verdict, `writeProposal` in src/core/dreamer.ts persists the
+// SuspiciousClaim[] onto the JSON blob as `proposed_digest.validation_warnings`.
+// This endpoint JSON-parses the blob and returns it whole, so the
+// `validation_warnings` field passes through untouched and is the
+// channel the dashboard reads to render its "Flagged claims" section.
+// No additional projection is needed — adding/removing fields on the
+// digest blob automatically flows through here.
 app.get('/v1/dream/proposals/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isInteger(id) || id < 1) {
@@ -700,6 +710,55 @@ app.get('/v1/dream/proposals/:id', (req, res) => {
     res.json({ success: true, data: { ...row, proposed_digest: digest, source_ids: sourceIds } });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// --- Run a dream pass on demand ---
+//
+// Closes the v4.2.0 known limitation: the digest validator existed only
+// behind `memesh dream run --validate` on the CLI. The dashboard
+// Insights tab can now POST here to trigger a pass without leaving the
+// browser. Bounds match the CLI defaults (windowDays/maxLlmCalls) and
+// add a hard ceiling so a hostile/runaway client cannot ask for a
+// 1-year window with 10000 LLM calls.
+//
+// Forwards `cfg.llmFallbacks` so users with a primary+fallback chain
+// configured in Settings get the same failover behaviour the CLI does.
+const DreamRunBody = z.object({
+  project: z.string().min(1).max(100).optional(),
+  windowDays: z.number().int().min(1).max(90).default(14),
+  maxLlmCalls: z.number().int().min(1).max(20).default(5),
+  validate: z.boolean().default(false),
+});
+app.post('/v1/dream/run', async (req, res) => {
+  const parsed = DreamRunBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({
+      success: false,
+      error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
+    });
+    return;
+  }
+  try {
+    const { runDreamer } = await import('../../core/dreamer.js');
+    const cfg = readConfig();
+    if (!cfg.llm) {
+      res.status(400).json({
+        success: false,
+        error: 'No LLM configured — dream run requires Smart Mode. Configure a provider in Settings.',
+      });
+      return;
+    }
+    const result = await runDreamer(getDatabase(), cfg.llm, {
+      project: parsed.data.project,
+      windowDays: parsed.data.windowDays,
+      maxLlmCalls: parsed.data.maxLlmCalls,
+      fallbacks: cfg.llmFallbacks,
+      validateBeforeStage: parsed.data.validate,
+    });
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message ?? String(err) });
   }
 });
 

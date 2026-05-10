@@ -3,7 +3,7 @@ import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { recordTelemetry, summariseTelemetry } from '../../src/core/llm-telemetry.js';
+import { recordTelemetry, summariseTelemetry, pruneTelemetry } from '../../src/core/llm-telemetry.js';
 import type { LLMAttempt } from '../../src/core/llm-client.js';
 
 const require = createRequire(import.meta.url);
@@ -119,5 +119,115 @@ describe('llm-telemetry persistence + summarise', () => {
     const count = (db.prepare('SELECT COUNT(*) AS c FROM llm_telemetry').get() as { c: number }).c;
     db.close();
     expect(count).toBe(0);
+  });
+
+  // --- pruneTelemetry retention helper ---
+  //
+  // Closes the v4.2.0 "no automatic retention" known limitation. The
+  // CLI exposes this via `memesh telemetry --prune <days>`; the
+  // openDatabase auto-prune (180-day default, 24h-throttled) keeps
+  // the table bounded without user intervention. These tests pin
+  // both surfaces.
+
+  it('pruneTelemetry on an empty table returns deletedRows=0', () => {
+    const result = pruneTelemetry();
+    expect(result.deletedRows).toBe(0);
+    expect(result.totalRowsAfter).toBe(0);
+    expect(typeof result.cutoffIso).toBe('string');
+  });
+
+  it('pruneTelemetry with default 180d removes only old rows', () => {
+    // Seed 5 rows: 2 are 200 days old (older than the 180d default),
+    // 3 are recent. Use direct INSERTs because recordTelemetry stamps
+    // ts via DEFAULT CURRENT_TIMESTAMP — we need to forge `ts` for
+    // the retention test.
+    const Database = require('better-sqlite3');
+    const writer = new Database(dbPath);
+    const oldTs = new Date(Date.now() - 200 * 86400000).toISOString();
+    const newTs = new Date(Date.now() - 10 * 86400000).toISOString();
+    const ins = writer.prepare(
+      `INSERT INTO llm_telemetry (ts, flow, provider, attempt_index, status, latency_ms, fallback_used)
+       VALUES (?, 'dreamer', 'anthropic', 0, 'ok', 100, 0)`
+    );
+    ins.run(oldTs);
+    ins.run(oldTs);
+    ins.run(newTs);
+    ins.run(newTs);
+    ins.run(newTs);
+    writer.close();
+
+    const result = pruneTelemetry();
+    expect(result.deletedRows).toBe(2);
+    expect(result.totalRowsAfter).toBe(3);
+
+    const reader = new Database(dbPath, { readonly: true });
+    const remaining = (reader.prepare('SELECT COUNT(*) AS c FROM llm_telemetry').get() as { c: number }).c;
+    reader.close();
+    expect(remaining).toBe(3);
+  });
+
+  it('pruneTelemetry honours custom olderThanDays', () => {
+    const Database = require('better-sqlite3');
+    const writer = new Database(dbPath);
+    const t60 = new Date(Date.now() - 60 * 86400000).toISOString(); // older than 30d
+    const t10 = new Date(Date.now() - 10 * 86400000).toISOString(); // newer than 30d
+    const ins = writer.prepare(
+      `INSERT INTO llm_telemetry (ts, flow, provider, attempt_index, status, latency_ms, fallback_used)
+       VALUES (?, 'dreamer', 'anthropic', 0, 'ok', 100, 0)`
+    );
+    ins.run(t60);
+    ins.run(t60);
+    ins.run(t10);
+    writer.close();
+
+    const result = pruneTelemetry({ olderThanDays: 30 });
+    expect(result.deletedRows).toBe(2);
+    expect(result.totalRowsAfter).toBe(1);
+  });
+
+  it('pruneTelemetry is idempotent — second run deletes 0', () => {
+    const Database = require('better-sqlite3');
+    const writer = new Database(dbPath);
+    const oldTs = new Date(Date.now() - 365 * 86400000).toISOString();
+    writer.prepare(
+      `INSERT INTO llm_telemetry (ts, flow, provider, attempt_index, status, latency_ms, fallback_used)
+       VALUES (?, 'dreamer', 'anthropic', 0, 'ok', 100, 0)`
+    ).run(oldTs);
+    writer.close();
+
+    const first = pruneTelemetry({ olderThanDays: 180 });
+    expect(first.deletedRows).toBe(1);
+    const second = pruneTelemetry({ olderThanDays: 180 });
+    expect(second.deletedRows).toBe(0);
+    expect(second.totalRowsAfter).toBe(0);
+  });
+
+  it('openDatabase auto-prune is throttled — does not re-run within 24h', async () => {
+    // The beforeEach already ran openDatabase once, which writes the
+    // 'last_telemetry_prune_at' marker. Forge a marker 1h ago, seed
+    // an old row, and re-open the DB — the auto-prune should be a
+    // no-op so the seeded old row survives.
+    const { closeDatabase, openDatabase } = await import('../../src/db.js');
+    closeDatabase();
+
+    const Database = require('better-sqlite3');
+    const writer = new Database(dbPath);
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    writer.prepare(
+      `INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('last_telemetry_prune_at', ?)`
+    ).run(oneHourAgo);
+    const oldTs = new Date(Date.now() - 365 * 86400000).toISOString();
+    writer.prepare(
+      `INSERT INTO llm_telemetry (ts, flow, provider, attempt_index, status, latency_ms, fallback_used)
+       VALUES (?, 'dreamer', 'anthropic', 0, 'ok', 100, 0)`
+    ).run(oldTs);
+    writer.close();
+
+    openDatabase();
+
+    const reader = new Database(dbPath, { readonly: true });
+    const count = (reader.prepare('SELECT COUNT(*) AS c FROM llm_telemetry').get() as { c: number }).c;
+    reader.close();
+    expect(count).toBe(1);
   });
 });

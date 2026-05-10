@@ -184,3 +184,47 @@ export function summariseTelemetry(windowDays = 30, db?: Database.Database): Tel
 
   return out.sort((a, b) => b.total_attempts - a.total_attempts);
 }
+
+export interface PruneOptions {
+  /** Rows older than this many days are deleted. Default 180. */
+  olderThanDays?: number;
+  /** Optional db handle; defaults to the singleton. */
+  db?: Database.Database;
+}
+
+export interface PruneResult {
+  deletedRows: number;
+  cutoffIso: string;
+  totalRowsAfter: number;
+}
+
+/**
+ * Delete `llm_telemetry` rows older than `olderThanDays` (default
+ * 180 — matches the manual-purge example in the v4.2.0 CHANGELOG
+ * known-limitations note). Returns the deleted count, the ISO
+ * cutoff used, and the surviving row count so callers can render
+ * "Pruned X rows older than N days." without a follow-up SELECT.
+ *
+ * Single indexed DELETE — no transaction needed (atomic by default
+ * in SQLite for one statement). Cost is milliseconds even at 100k
+ * rows because `idx_llm_telemetry_ts` covers the WHERE clause.
+ */
+export function pruneTelemetry(opts: PruneOptions = {}): PruneResult {
+  const olderThanDays = opts.olderThanDays ?? 180;
+  const db = opts.db ?? getDatabase();
+  const cutoffIso = new Date(Date.now() - olderThanDays * 86400000).toISOString();
+
+  const result = db.prepare(
+    'DELETE FROM llm_telemetry WHERE ts < ?'
+  ).run(cutoffIso);
+
+  const totalRowsAfter = (
+    db.prepare('SELECT COUNT(*) AS c FROM llm_telemetry').get() as { c: number }
+  ).c;
+
+  return {
+    deletedRows: result.changes,
+    cutoffIso,
+    totalRowsAfter,
+  };
+}
