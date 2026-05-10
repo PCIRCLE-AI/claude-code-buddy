@@ -40,21 +40,14 @@ process.stdin.on('end', () => {
           if (!line.trim()) continue;
           try {
             const entry = JSON.parse(line);
-            // Current format: {type:'assistant', message:{content:[{type:'tool_use',...}]}}
+            // Claude Code transcript format: {type:'assistant', message:{content:[{type:'tool_use',...}]}}
+            // The earlier legacy branch (entry.role === 'assistant', entry.content
+            // at top level) was confirmed dead code via real-transcript audit:
+            // no entry in production transcripts ever shipped that shape.
+            // Removed to avoid confusion between two parsers that read
+            // different fields for the same logical event.
             if (entry.type === 'assistant' && Array.isArray(entry.message?.content)) {
               for (const block of entry.message.content) {
-                if (block.type !== 'tool_use') continue;
-                toolCallCount++;
-                const name = block.name || '';
-                if (name === 'Edit' || name === 'Write' || name === 'MultiEdit') {
-                  const filePath = block.input?.file_path || block.input?.path || '';
-                  if (filePath) editedFiles.add(basename(filePath));
-                }
-              }
-            }
-            // Legacy format: {role:'assistant', content:[{type:'tool_use',...}]}
-            if (entry.role === 'assistant' && Array.isArray(entry.content)) {
-              for (const block of entry.content) {
                 if (block.type !== 'tool_use') continue;
                 toolCallCount++;
                 const name = block.name || '';

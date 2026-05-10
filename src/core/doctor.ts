@@ -297,9 +297,28 @@ function inspectHookWiring(
   existsSyncImpl: typeof fs.existsSync,
   readFileSyncImpl: typeof fs.readFileSync,
   memeshDir: string,
+  packageRoot?: string,
 ): DoctorCheck {
   const markerPath = path.join(memeshDir, 'install-hooks.json');
   if (!existsSyncImpl(markerPath)) {
+    // Plugin-marketplace install path: when memesh is loaded as a
+    // Claude Code plugin (via `/plugin install memesh@pcircle-memesh`),
+    // hook wiring happens through the plugin runtime — `memesh
+    // install-hooks` never runs, so the marker file is legitimately
+    // absent. Detect that path by `<packageRoot>/.claude-plugin/plugin.json`
+    // and report PASS rather than WARN — the runtime signal of "are
+    // hooks actually firing" is what `inspectHookActivity` covers.
+    if (packageRoot) {
+      const pluginManifest = path.join(packageRoot, '.claude-plugin', 'plugin.json');
+      if (existsSyncImpl(pluginManifest)) {
+        return createCheck(
+          'hook-wiring',
+          'Hooks wired into Claude Code',
+          'pass',
+          'Wired via Claude Code plugin runtime (.claude-plugin/plugin.json present). The install-hooks marker is not used on this install path.',
+        );
+      }
+    }
     return createCheck(
       'hook-wiring',
       'Hooks wired into Claude Code',
@@ -933,7 +952,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   // Runtime wiring + activity (#25 — file existence isn't enough;
   // doctor used to PASS for users whose Claude Code never loaded
   // memesh's hooks at all).
-  checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir()));
+  checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), packageRoot));
   checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl));
   checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
   checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));

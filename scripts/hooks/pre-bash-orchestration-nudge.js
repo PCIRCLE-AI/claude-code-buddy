@@ -83,7 +83,12 @@ process.stdin.on('end', () => {
     if (!isAgenticOrchestrationEnabled(process.env)) return pass();
 
     const data = JSON.parse(input);
-    const command = (data.tool_input?.command ?? '').trim();
+    if (!data.tool_input) {
+      // Schema-flip signal: trace so a rename surfaces day-1.
+      try { process.stderr.write(`[memesh pre-bash-nudge] tool_input absent (keys: ${Object.keys(data).join(',')}); skipping\n`); } catch {}
+      return pass();
+    }
+    const command = (data.tool_input.command ?? '').trim();
 
     if (!command) return pass();
 
