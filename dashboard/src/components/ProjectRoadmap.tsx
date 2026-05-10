@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'preact/hooks';
+import { useMemo, useRef, useState } from 'preact/hooks';
 import type { Entity } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
 import { t } from '../lib/i18n';
@@ -212,7 +212,11 @@ function groupByDate(entities: Entity[], now: Date = new Date()): DateGroup[] {
   return groups;
 }
 
+type RoadmapView = 'tree' | 'mindmap';
+
 export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props) {
+  const [view, setView] = useState<RoadmapView>('tree');
+
   const stats = useMemo(() => {
     if (entities.length === 0) {
       return { total: 0, first: null as string | null, last: null as string | null, types: [] as Array<[string, number]> };
@@ -313,11 +317,50 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
               })}
             </div>
           </div>
-          {onSwitchToList && (
-            <button class="btn btn-sm" onClick={onSwitchToList}>
-              {t('roadmap.switchToList')}
-            </button>
-          )}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+            {/* Tree / mindmap toggle */}
+            <div
+              role="tablist"
+              aria-label="Roadmap view"
+              style={{
+                display: 'inline-flex',
+                background: 'rgba(255,255,255,0.04)',
+                borderRadius: 4,
+                padding: 2,
+                border: '1px solid var(--border-subtle)',
+              }}
+            >
+              {(['tree', 'mindmap'] as const).map((v) => {
+                const active = view === v;
+                return (
+                  <button
+                    key={v}
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setView(v)}
+                    style={{
+                      padding: '4px 10px',
+                      background: active ? 'rgba(0,214,180,0.15)' : 'transparent',
+                      color: active ? 'var(--accent)' : 'var(--text-2)',
+                      border: 'none',
+                      borderRadius: 3,
+                      fontSize: 11,
+                      fontFamily: 'inherit',
+                      cursor: 'pointer',
+                      fontWeight: active ? 600 : 400,
+                    }}
+                  >
+                    {v === 'tree' ? '🌲 Tree' : '🧠 Mindmap'}
+                  </button>
+                );
+              })}
+            </div>
+            {onSwitchToList && (
+              <button class="btn btn-sm" onClick={onSwitchToList}>
+                {t('roadmap.switchToList')}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Type distribution chips */}
@@ -406,52 +449,314 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
         </div>
       )}
 
+      {/* Mindmap view — radial dendrogram laid out in SVG. Project sits
+          at the centre; phases radiate out to evenly-spaced positions
+          on a circle; each phase's entities arrange along a fan from
+          that phase outward. Click any node to switch back to tree
+          view and scroll the corresponding entity into focus. */}
+      {view === 'mindmap' && phases.length > 0 && (
+        <RoadmapMindmap
+          projectName={projectName}
+          phases={phases}
+          entities={entities}
+          onNodeClick={(id) => { setView('tree'); window.requestAnimationFrame(() => focusEntry(id)); }}
+        />
+      )}
+      {view === 'mindmap' && phases.length === 0 && (
+        <div class="empty" style={{ padding: 24 }}>
+          {t('roadmap.emptyProject')} — mindmap requires ≥3 entities within a 7-day window.
+        </div>
+      )}
+
       {/* Two-column layout on wide screens: timeline + rails sidebar */}
+      {view === 'tree' && (
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 16, alignItems: 'start' }}>
-        {/* Timeline */}
+        {/* Vertical-timeline tree.
+            Each phase is a dot on the trunk; entities branch off as
+            indented leaves. ● for completed phases, ○ for the most-
+            recent / active one. When phase derivation produced too few
+            results (project below density threshold), fall through to
+            the date-grouped flat list so small projects still render. */}
         <div style={{ position: 'relative', minWidth: 0 }}>
-          {groups.map((group) => (
-            <div key={group.key} style={{ marginBottom: 18 }}>
+          {phases.length > 0 ? (
+            <div
+              style={{
+                position: 'relative',
+                paddingLeft: 28,
+              }}
+            >
+              {/* Trunk line — runs the full vertical extent */}
               <div
+                aria-hidden="true"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  marginBottom: 8,
-                  paddingBottom: 6,
-                  borderBottom: '1px solid var(--border-subtle)',
+                  position: 'absolute',
+                  left: 8,
+                  top: 4,
+                  bottom: 4,
+                  width: 2,
+                  background: 'var(--border-subtle)',
                 }}
-              >
-                <span
-                  style={{
-                    fontSize: 11,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.08em',
-                    fontWeight: 600,
-                    color: 'var(--accent)',
-                    fontFamily: 'var(--mono)',
-                  }}
-                >
-                  {group.label}
-                </span>
-                <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                  {group.entries.length}
-                </span>
-              </div>
-              {group.entries.map((e) => (
-                <div
-                  key={e.id}
-                  ref={setEntryRef(e.id)}
-                  style={{
-                    borderBottom: '1px solid var(--border-subtle)',
-                    padding: '12px 0',
-                  }}
-                >
-                  <MemoryRow entity={e} />
-                </div>
-              ))}
+              />
+              {(() => {
+                // Bucket entities into their derived phase by date range.
+                // Entities outside any phase window (single-day micro-runs
+                // dropped by derivePhases) hang off a synthetic "Other"
+                // group at the end.
+                const phaseEntries: Entity[][] = phases.map(() => []);
+                const orphans: Entity[] = [];
+                for (const e of entities) {
+                  const idx = phases.findIndex(
+                    (p) => e.created_at >= p.startIso && e.created_at <= p.endIso,
+                  );
+                  if (idx >= 0) phaseEntries[idx].push(e);
+                  else orphans.push(e);
+                }
+                // Sort within each phase by type priority then created_at desc
+                for (const arr of phaseEntries) {
+                  arr.sort((a, b) => {
+                    const dp = priorityOf(a.type) - priorityOf(b.type);
+                    if (dp !== 0) return dp;
+                    return b.created_at.localeCompare(a.created_at);
+                  });
+                }
+                // Show phases newest-first to match visual expectation
+                const phasesView = phases
+                  .map((p, i) => ({ phase: p, entries: phaseEntries[i], idx: i }))
+                  .reverse();
+
+                return (
+                  <>
+                    {phasesView.map(({ phase, entries: phEntries, idx }, vIdx) => {
+                      const isActive = vIdx === 0; // most-recent phase
+                      return (
+                        <div
+                          key={`${phase.startIso}-${phase.label}`}
+                          style={{ position: 'relative', marginBottom: 22 }}
+                        >
+                          {/* Phase dot */}
+                          <span
+                            aria-hidden="true"
+                            style={{
+                              position: 'absolute',
+                              left: -28,
+                              top: 4,
+                              width: 14,
+                              height: 14,
+                              borderRadius: '50%',
+                              background: isActive ? 'transparent' : 'var(--accent)',
+                              border: `2px solid var(--accent)`,
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          {/* Phase header */}
+                          <button
+                            onClick={() => phase.anchorId !== undefined && focusEntry(phase.anchorId)}
+                            disabled={phase.anchorId === undefined}
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'flex-start',
+                              gap: 2,
+                              padding: 0,
+                              background: 'transparent',
+                              border: 'none',
+                              color: 'inherit',
+                              cursor: phase.anchorId !== undefined ? 'pointer' : 'default',
+                              fontFamily: 'inherit',
+                              textAlign: 'left',
+                              width: '100%',
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontSize: 13,
+                                fontWeight: 600,
+                                color: 'var(--text-0)',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                maxWidth: '100%',
+                              }}
+                            >
+                              {phase.label}
+                              {isActive && (
+                                <span
+                                  style={{
+                                    marginLeft: 8,
+                                    fontSize: 10,
+                                    color: 'var(--accent)',
+                                    fontFamily: 'var(--mono)',
+                                    fontWeight: 500,
+                                  }}
+                                >
+                                  active
+                                </span>
+                              )}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 11,
+                                color: 'var(--text-3)',
+                                fontFamily: 'var(--mono)',
+                              }}
+                            >
+                              {phase.startIso.slice(0, 10)} → {phase.endIso.slice(0, 10)} · {phEntries.length} {phEntries.length === 1 ? 'entry' : 'entries'}
+                            </span>
+                          </button>
+                          {/* Branched entity leaves */}
+                          <div style={{ marginTop: 8 }}>
+                            {phEntries.map((e, i) => {
+                              const isLast = i === phEntries.length - 1;
+                              return (
+                                <div
+                                  key={e.id}
+                                  ref={setEntryRef(e.id)}
+                                  style={{
+                                    position: 'relative',
+                                    paddingLeft: 24,
+                                    paddingTop: 6,
+                                    paddingBottom: 6,
+                                  }}
+                                >
+                                  {/* Branch connector */}
+                                  <span
+                                    aria-hidden="true"
+                                    style={{
+                                      position: 'absolute',
+                                      left: 0,
+                                      top: 0,
+                                      bottom: isLast ? '50%' : 0,
+                                      width: 1,
+                                      background: 'var(--border-subtle)',
+                                    }}
+                                  />
+                                  <span
+                                    aria-hidden="true"
+                                    style={{
+                                      position: 'absolute',
+                                      left: 0,
+                                      top: '50%',
+                                      width: 18,
+                                      height: 1,
+                                      background: 'var(--border-subtle)',
+                                      transform: 'translateY(-50%)',
+                                    }}
+                                  />
+                                  <MemoryRow entity={e} />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {orphans.length > 0 && (
+                      <div style={{ position: 'relative', marginBottom: 22 }}>
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            position: 'absolute',
+                            left: -28,
+                            top: 4,
+                            width: 12,
+                            height: 12,
+                            borderRadius: '50%',
+                            background: 'var(--text-3)',
+                            opacity: 0.4,
+                          }}
+                        />
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: 'var(--text-2)',
+                            fontFamily: 'var(--mono)',
+                            marginBottom: 8,
+                          }}
+                        >
+                          Other ({orphans.length})
+                        </div>
+                        {orphans.map((e, i) => {
+                          const isLast = i === orphans.length - 1;
+                          return (
+                            <div
+                              key={e.id}
+                              ref={setEntryRef(e.id)}
+                              style={{ position: 'relative', paddingLeft: 24, paddingTop: 6, paddingBottom: 6 }}
+                            >
+                              <span
+                                aria-hidden="true"
+                                style={{
+                                  position: 'absolute', left: 0, top: 0,
+                                  bottom: isLast ? '50%' : 0, width: 1,
+                                  background: 'var(--border-subtle)',
+                                }}
+                              />
+                              <span
+                                aria-hidden="true"
+                                style={{
+                                  position: 'absolute', left: 0, top: '50%',
+                                  width: 18, height: 1,
+                                  background: 'var(--border-subtle)',
+                                  transform: 'translateY(-50%)',
+                                }}
+                              />
+                              <MemoryRow entity={e} />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
-          ))}
+          ) : (
+            // Fallback for projects below the phase-density threshold
+            // (<3 entities per 7-day window). Same flat date-bucketed
+            // list as before, since there's nothing meaningful to tree.
+            groups.map((group) => (
+              <div key={group.key} style={{ marginBottom: 18 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    marginBottom: 8,
+                    paddingBottom: 6,
+                    borderBottom: '1px solid var(--border-subtle)',
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 11,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.08em',
+                      fontWeight: 600,
+                      color: 'var(--accent)',
+                      fontFamily: 'var(--mono)',
+                    }}
+                  >
+                    {group.label}
+                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                    {group.entries.length}
+                  </span>
+                </div>
+                {group.entries.map((e) => (
+                  <div
+                    key={e.id}
+                    ref={setEntryRef(e.id)}
+                    style={{
+                      borderBottom: '1px solid var(--border-subtle)',
+                      padding: '12px 0',
+                    }}
+                  >
+                    <MemoryRow entity={e} />
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
         </div>
 
         {/* Sidebar: Milestones + Key Lessons rails */}
@@ -536,6 +841,233 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
           )}
         </div>
       </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================================
+ * RoadmapMindmap — radial dendrogram view for a project's phases + entities.
+ * ----------------------------------------------------------------------------
+ * Layout: project node at the SVG centre; phases sit on a circle of radius
+ * R_PHASE around it; each phase's entities fan out from the phase node along
+ * a wedge of the surrounding annulus. Connector curves use a quadratic
+ * Bézier that hands off near the parent then straightens at the leaf, which
+ * reads as "branches" rather than starbursts.
+ *
+ * Click any node → caller switches back to tree view and scrolls the
+ * corresponding entity into focus. The mindmap is read-only; everything
+ * navigation-shaped delegates to the tree view's existing focus behaviour.
+ * ========================================================================= */
+interface MindmapProps {
+  projectName: string;
+  phases: Phase[];
+  entities: Entity[];
+  onNodeClick: (entityId: number) => void;
+}
+
+function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapProps) {
+  // Bucket entities by phase (same logic as tree view)
+  const phaseEntries: Entity[][] = phases.map(() => []);
+  for (const e of entities) {
+    const idx = phases.findIndex(
+      (p) => e.created_at >= p.startIso && e.created_at <= p.endIso,
+    );
+    if (idx >= 0) phaseEntries[idx].push(e);
+  }
+  // Sort within each phase by type priority then date desc
+  for (const arr of phaseEntries) {
+    arr.sort((a, b) => {
+      const dp = priorityOf(a.type) - priorityOf(b.type);
+      if (dp !== 0) return dp;
+      return b.created_at.localeCompare(a.created_at);
+    });
+  }
+  // Cap entities per phase so a single dense phase doesn't crowd out the rest
+  const MAX_ENTITIES_PER_PHASE = 6;
+  const truncated = phaseEntries.map((arr) => ({
+    shown: arr.slice(0, MAX_ENTITIES_PER_PHASE),
+    extra: Math.max(0, arr.length - MAX_ENTITIES_PER_PHASE),
+  }));
+
+  const W = 900;
+  const H = 600;
+  const cx = W / 2;
+  const cy = H / 2;
+  const R_PHASE = 170;
+  const R_ENTITY_INNER = 230;
+  const R_ENTITY_STEP = 30;
+
+  // Spread phases evenly around the circle, starting from -90deg (top)
+  const phaseAngle = (i: number) => (2 * Math.PI * i) / phases.length - Math.PI / 2;
+
+  return (
+    <div
+      style={{
+        border: '1px solid var(--border-subtle)',
+        borderRadius: 6,
+        background: 'rgba(255,255,255,0.02)',
+        overflow: 'auto',
+        marginBottom: 14,
+      }}
+    >
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block', minHeight: 600 }}>
+        {/* Connector curves: project → phase, phase → entities */}
+        {phases.map((_, i) => {
+          const ang = phaseAngle(i);
+          const px = cx + R_PHASE * Math.cos(ang);
+          const py = cy + R_PHASE * Math.sin(ang);
+          return (
+            <path
+              key={`p-${i}`}
+              d={`M ${cx} ${cy} Q ${(cx + px) / 2} ${(cy + py) / 2 - 10} ${px} ${py}`}
+              fill="none"
+              stroke="rgba(0, 214, 180, 0.4)"
+              strokeWidth={1.5}
+            />
+          );
+        })}
+        {phases.map((_, i) => {
+          const { shown } = truncated[i];
+          const baseAng = phaseAngle(i);
+          const phasePx = cx + R_PHASE * Math.cos(baseAng);
+          const phasePy = cy + R_PHASE * Math.sin(baseAng);
+          const wedge = Math.PI / 6; // 30deg total wedge per phase
+          return shown.map((e, j) => {
+            const t = shown.length === 1 ? 0.5 : j / (shown.length - 1);
+            const ang = baseAng - wedge / 2 + wedge * t;
+            const r = R_ENTITY_INNER + R_ENTITY_STEP * (j % 3);
+            const ex = cx + r * Math.cos(ang);
+            const ey = cy + r * Math.sin(ang);
+            return (
+              <path
+                key={`e-${i}-${e.id}`}
+                d={`M ${phasePx} ${phasePy} Q ${(phasePx + ex) / 2} ${(phasePy + ey) / 2} ${ex} ${ey}`}
+                fill="none"
+                stroke="rgba(255,255,255,0.18)"
+                strokeWidth={1}
+              />
+            );
+          });
+        })}
+
+        {/* Project node — centre */}
+        <g>
+          <circle cx={cx} cy={cy} r={42} fill="rgba(0, 214, 180, 0.18)" stroke="var(--accent)" strokeWidth={1.5} />
+          <text
+            x={cx}
+            y={cy}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize={11}
+            fontWeight={600}
+            fill="var(--text-0)"
+            style={{ pointerEvents: 'none' }}
+          >
+            {projectName.length > 14 ? projectName.slice(0, 12) + '…' : projectName}
+          </text>
+        </g>
+
+        {/* Phase nodes */}
+        {phases.map((phase, i) => {
+          const ang = phaseAngle(i);
+          const px = cx + R_PHASE * Math.cos(ang);
+          const py = cy + R_PHASE * Math.sin(ang);
+          const labelTrunc = phase.label.length > 18 ? phase.label.slice(0, 16) + '…' : phase.label;
+          return (
+            <g
+              key={`phase-${i}`}
+              style={{ cursor: phase.anchorId !== undefined ? 'pointer' : 'default' }}
+              onClick={() => phase.anchorId !== undefined && onNodeClick(phase.anchorId)}
+            >
+              <circle
+                cx={px}
+                cy={py}
+                r={28}
+                fill="rgba(0, 214, 180, 0.10)"
+                stroke="var(--accent)"
+                strokeWidth={1.25}
+              />
+              <text
+                x={px}
+                y={py - 4}
+                textAnchor="middle"
+                fontSize={10}
+                fontWeight={600}
+                fill="var(--text-0)"
+                style={{ pointerEvents: 'none' }}
+              >
+                <tspan x={px} dy={0}>{labelTrunc}</tspan>
+                <tspan x={px} dy={12} fontSize={9} fill="var(--text-3)" fontWeight={400}>
+                  {phase.entityCount} · {phase.startIso.slice(5, 10)}
+                </tspan>
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Entity leaves */}
+        {phases.map((_, i) => {
+          const { shown, extra } = truncated[i];
+          const baseAng = phaseAngle(i);
+          const wedge = Math.PI / 6;
+          return (
+            <g key={`leaves-${i}`}>
+              {shown.map((e, j) => {
+                const t = shown.length === 1 ? 0.5 : j / (shown.length - 1);
+                const ang = baseAng - wedge / 2 + wedge * t;
+                const r = R_ENTITY_INNER + R_ENTITY_STEP * (j % 3);
+                const ex = cx + r * Math.cos(ang);
+                const ey = cy + r * Math.sin(ang);
+                const labelTrunc = e.name.length > 22 ? e.name.slice(0, 20) + '…' : e.name;
+                return (
+                  <g
+                    key={e.id}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => onNodeClick(e.id)}
+                  >
+                    <title>{`${e.name} (${e.type})`}</title>
+                    <circle
+                      cx={ex}
+                      cy={ey}
+                      r={4}
+                      fill="var(--text-2)"
+                    />
+                    <text
+                      x={ex}
+                      y={ey - 8}
+                      textAnchor={Math.cos(ang) > 0.2 ? 'start' : Math.cos(ang) < -0.2 ? 'end' : 'middle'}
+                      fontSize={9}
+                      fill="var(--text-1)"
+                      style={{ pointerEvents: 'none' }}
+                    >
+                      {labelTrunc}
+                    </text>
+                  </g>
+                );
+              })}
+              {extra > 0 && (() => {
+                const ang = baseAng + wedge / 2 + 0.05;
+                const r = R_ENTITY_INNER + R_ENTITY_STEP * 2 + 10;
+                const ex = cx + r * Math.cos(ang);
+                const ey = cy + r * Math.sin(ang);
+                return (
+                  <text
+                    x={ex}
+                    y={ey}
+                    textAnchor="middle"
+                    fontSize={9}
+                    fill="var(--text-3)"
+                    fontStyle="italic"
+                  >
+                    +{extra} more
+                  </text>
+                );
+              })()}
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }
