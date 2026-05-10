@@ -28,12 +28,23 @@ interface PatternProposalSummary {
   created_at: string;
 }
 
+// See InsightsTab's matching ValidationWarning interface — same shape
+// flows through GET /v1/dream/proposals/:id for both digest and
+// pattern_emergent kinds. Absent on patterns generated before the
+// validator wiring landed; the rendering branch below is
+// fully backward-compatible.
+interface ValidationWarning {
+  claim: string;
+  reason: string;
+}
+
 interface PatternProposalDetail {
   proposed_digest: {
     name: string;
     type: string;
     observations: string[];
     tags: string[];
+    validation_warnings?: ValidationWarning[];
   } | null;
   source_ids: number[];
   llm_model: string | null;
@@ -157,6 +168,40 @@ export function PatternCard(props: PatternCardProps) {
           <div style={{ marginBottom: 8, color: 'var(--text-3)', fontSize: 11 }}>
             {t('insights.generatedBy')}: <code>{detail.llm_model ?? 'unknown'}</code> {' '} {t('insights.promptVersion')}: <code>{detail.prompt_version}</code>
           </div>
+          {/* Flagged claims — surfaced ABOVE the pattern description
+              so reviewers see validator caveats first. Same channel and
+              shape as InsightsTab; renders only when the validator
+              flagged claims for this proposal. */}
+          {Array.isArray(detail.proposed_digest.validation_warnings)
+            && detail.proposed_digest.validation_warnings.length > 0 && (
+            <div
+              style={{
+                marginBottom: 10,
+                padding: 10,
+                borderRadius: 4,
+                borderLeft: '3px solid var(--warning, #FFC800)',
+                background: 'rgba(255,200,0,0.08)',
+              }}
+            >
+              <div style={{ fontWeight: 600, color: 'var(--warning, #FFC800)', marginBottom: 6 }}>
+                ⚠ {t('insights.validationWarnings')}
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {detail.proposed_digest.validation_warnings.map((w, i) => (
+                  <li key={i} style={{ marginBottom: 6, lineHeight: 1.5 }}>
+                    <div>
+                      <span style={{ color: 'var(--text-3)' }}>{t('insights.validationClaim')}: </span>
+                      <code style={{ fontSize: 12 }}>{w.claim}</code>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-3)' }}>{t('insights.validationReason')}: </span>
+                      <span>{w.reason}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div style={{ marginBottom: 8 }}>
             <strong>{t('pattern.description')}:</strong>
             <ol style={{ margin: '4px 0 0 18px', padding: 0 }}>
