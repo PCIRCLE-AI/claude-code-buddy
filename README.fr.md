@@ -29,6 +29,22 @@ Ce package constitue la couche de mémoire locale de la famille de produits MeMe
 
 ---
 
+## Preuve — 95,40 % R@5 sur LongMemEval-S
+
+Le moteur de récupération de MeMesh utilise **FTS5 seul** (pas de LLM, pas d'embeddings sur le chemin chaud), mesuré sur le benchmark public [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) (500 questions, licence MIT) :
+
+| Système | R@5 | Source |
+|---|---|---|
+| **MeMesh (Mode A, FTS5)** | **95,40 %** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| MemPalace | 96,6 % | Auto-déclaration de l'éditeur |
+| Supermemory | ~82 % | Estimation de l'éditeur |
+| Zep | 63,8 % | Article LongMemEval |
+| Mem0 | 49,0 % | Article LongMemEval |
+
+Les commandes de reproduction, le SHA256 du jeu de données, les résultats bruts par question et l'analyse des échecs connus se trouvent tous dans [`benchmarks/longmemeval/`](benchmarks/longmemeval/). Réexécutable en environ 10 secondes.
+
+---
+
 ## Démarrer en 60 Secondes
 
 ### Étape 1 : Installer
@@ -173,6 +189,26 @@ Vous n'avez pas besoin de tout mémoriser manuellement. MeMesh possède **7 hook
 
 ---
 
+## Configuration
+
+Toute la configuration passe par des variables d'environnement. Les valeurs par défaut sont strictement locales et sans accès réseau — vous n'avez rien à définir pour obtenir un système fonctionnel.
+
+| Variable | Défaut | Effet |
+|---|---|---|
+| `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | Remplace l'emplacement de la base SQLite. |
+| `MEMESH_AUTO_CAPTURE` | `true` | Désactive entièrement les hooks d'auto-capture (`Stop`, `PreCompact`). |
+| `MEMESH_AUTO_DETECT_LLM` | non défini | Mettre à `1` pour laisser memesh détecter automatiquement un fournisseur depuis l'environnement shell (`OPENAI_API_KEY`, etc.) et basculer sur des embeddings BYOK. **L'installation neuve par défaut utilise uniquement ONNX local (384 dimensions)** — activez cette option si vous voulez des embeddings cloud. Sans ce flag, une `OPENAI_API_KEY` présente dans le shell est ignorée. |
+| `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | non défini | Mettre à `1` pour activer un protocole de modèle de travail expérimental (cadre CTO / Orchestrateur / Agents). Ajoute une bannière en début de session, un nudge sur les commandes Bash et la télémétrie `verify_agent_work`. L'efficacité du protocole est instrumentée mais pas encore prouvée — activez-la si vous souhaitez participer. **Désactivé par défaut** : les fonctionnalités de mémoire principales fonctionnent sans ce flag. |
+| `MEMESH_AUTO_UPDATE` | `off` | Politique de mise à jour automatique. `off` (défaut) ne met jamais à jour automatiquement ; `patch` autorise `X.Y.Z → X.Y.Z+N` ; `minor` ajoute `X.Y.Z → X.Y+1.0` ; `major` autorise tout incrément. Quand c'est permis, un `npm install -g` détaché s'exécute en fin de session (hook Stop) pour ne jamais bloquer votre travail — les résultats arrivent dans `~/.memesh/auto-update.log`. Configurable aussi via `autoUpdate` dans `~/.memesh/config.json` (la variable d'environnement l'emporte). Quand la version installée est dépréciée par les mainteneurs (alerte de sécurité), `patch` est forcé même en `off` — les incréments minor / major restent manuels pour éviter une dérive de comportement silencieuse. |
+| `OPENAI_API_KEY` | non défini | Votre clé OpenAI. Utilisée uniquement quand `MEMESH_AUTO_DETECT_LLM=1` ou que vous configurez explicitement le fournisseur. |
+| `OLLAMA_HOST` | `http://localhost:11434` | Remplace l'endpoint Ollama lors de l'utilisation d'un fournisseur Ollama local. |
+
+`memesh doctor` affiche la configuration résolue pour que vous puissiez voir ce qui est actif.
+
+Lorsque npm signale une version installée comme dépréciée (typiquement une alerte de sécurité), le prochain démarrage de session ajoute en tête une bannière forte `⚠️ MeMesh <ver> is DEPRECATED` et `memesh update-status` affiche la même ligne jusqu'à la mise à jour. La vérification est mise en cache dans `~/.memesh/update-check.<version>.json` pour qu'une panne réseau transitoire ne puisse pas atténuer l'avertissement.
+
+---
+
 ## Tableau De Bord
 
 7 onglets, 11 langues, zéro dépendance externe. Accessible à `http://localhost:3737/dashboard` quand le serveur s'exécute.
@@ -191,7 +227,7 @@ Vous n'avez pas besoin de tout mémoriser manuellement. MeMesh possède **7 hook
 
 ## Fonctionnalités Intelligentes
 
-**🧠 Recherche Intelligente** — Cherchez « sécurité login » et trouvez des mémoires sur « OAuth PKCE ». MeMesh enrichit les requêtes avec des termes connexes en utilisant votre LLM configuré.
+**🧠 Recherche Intelligente** — Cherchez « sécurité login » et trouvez des mémoires sur « OAuth PKCE ». MeMesh combine FTS5 et la similarité vectorielle sqlite-vec pour trouver des mémoires sémantiquement liées sans LLM sur le chemin chaud.
 
 **📊 Classement Avec Score** — Les résultats sont classés par pertinence (30 %) + récence (25 %) + fréquence (15 %) + confiance (15 %) + impact de rappel (10 %) + validité temporelle (5 %).
 
@@ -219,7 +255,7 @@ Les bundles importés restent consultables, mais MeMesh n'injecte pas automatiqu
 
 ## Déverrouiller Le Mode Smart (Optionnel)
 
-MeMesh fonctionne hors ligne par défaut. Ajoutez une clé API LLM uniquement si vous souhaitez l'expansion de requête, l'extraction plus intelligente et la compression :
+MeMesh fonctionne hors ligne par défaut — le rappel reste strictement sans LLM (95,40 % R@5 sur LongMemEval-S dès l'installation). Ajoutez une clé API LLM uniquement si vous voulez des flux d'analyse augmentés par LLM par-dessus : extraction de session plus intelligente, auto-tagging des nouvelles mémoires, génération de leçons depuis les défaillances et compression `consolidate` / `dream` :
 
 ```bash
 memesh config set llm.provider anthropic
@@ -234,10 +270,12 @@ memesh  # ouvre le tableau de bord → onglet Settings
 
 | | Niveau 0 (défaut) | Niveau 1 (Mode Smart) |
 |---|---|---|
-| **Recherche** | Correspondance de mots-clés FTS5 | + expansion de requête LLM (~97 % de rappel) |
+| **Recherche** | FTS5 + sqlite-vec, 95,40 % R@5 (~18 ms/requête) | inchangé — le rappel est sans LLM à tous les niveaux |
 | **Auto-capture** | Motifs basés sur les règles | + LLM extrait les décisions & leçons |
-| **Compression** | Non disponible | `consolidate` compresse les mémoires verbeux |
-| **Coût** | Gratuit, aucune clé API | ~$0.0001 par recherche (Haiku) |
+| **Auto-tagging** | Tags manuels uniquement | + LLM génère des tags pour les nouvelles mémoires |
+| **Analyse de défaillance** | Indisponible | + LLM convertit les erreurs de session en leçons structurées |
+| **Compression** | Indisponible | `consolidate` + `dream` compressent les mémoires verbeux |
+| **Coût** | Gratuit, aucune clé API | ~$0,0001 par appel d'analyse (Haiku) |
 
 ---
 
@@ -246,7 +284,7 @@ memesh  # ouvre le tableau de bord → onglet Settings
 | Outil | Ce qu'il fait |
 |---|---|
 | `remember` | Stocker les connaissances avec observations, relations et tags |
-| `recall` | Recherche intelligente avec notation multi-facteurs et expansion de requête LLM |
+| `recall` | Recherche FTS5 + sqlite-vec avec notation multi-facteurs (pertinence, récence, fréquence, confiance, validité temporelle) — pas de LLM sur le chemin chaud |
 | `forget` | Soft-archivage (jamais supprimer) ou suppression d'observations spécifiques |
 | `consolidate` | Compression des mémoires verbeux alimentée par LLM |
 | `export` | Partager les mémoires au format JSON entre projets ou membres d'équipe |
