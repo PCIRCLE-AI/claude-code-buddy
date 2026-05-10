@@ -1,6 +1,7 @@
 import { getDatabase } from '../db.js';
 import type { LLMConfig } from './config.js';
 import { callLLM, type LLMAttempt } from './llm-client.js';
+import { recordTelemetry } from './llm-telemetry.js';
 import { sanitizeForPrompt, sanitizeListForPrompt } from './prompt-safety.js';
 
 const VALID_PREFIXES = ['project:', 'topic:', 'tech:', 'severity:', 'scope:'];
@@ -43,7 +44,14 @@ ${safeFacts}
 </entity_facts>`;
 
   try {
-    const text = await callLLM(prompt, llmConfig, { maxTokens: 200, fallbacks: opts.fallbacks, onAttempt: opts.onAttempt });
+    const text = await callLLM(prompt, llmConfig, {
+      maxTokens: 200,
+      fallbacks: opts.fallbacks,
+      onAttempt: (attempts) => {
+        recordTelemetry(attempts, { flow: 'auto_tagger' });
+        opts.onAttempt?.(attempts);
+      },
+    });
     return parseTags(text);
   } catch {
     return [];

@@ -169,6 +169,13 @@ export function openDatabase(dbPath?: string): Database.Database {
   // claude-mem dream-skill's safety promise.
   ensureDreamProposalsTable(db);
 
+  // LLM telemetry: every callLLM attempt (primary + each fallback)
+  // gets a row so the user can answer "what did memesh's LLM
+  // pipeline actually do this week?". Without this, primary outages
+  // (rotated keys, rate limits) stay invisible — which is exactly
+  // what bit the maintainer when their Anthropic key died.
+  ensureLlmTelemetryTable(db);
+
   // Load sqlite-vec extension for vector similarity search
   sqliteVec.load(db);
 
@@ -291,6 +298,43 @@ function ensureDreamProposalsTable(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_dream_proposals_status ON dream_proposals(status);
     CREATE INDEX IF NOT EXISTS idx_dream_proposals_project ON dream_proposals(project);
+  `);
+}
+
+/**
+ * Per-call telemetry for every LLM provider attempt across all 5
+ * Smart-Mode flows (dreamer, pattern-detector, consolidator,
+ * auto-tagger, failure-analyzer). One row PER ATTEMPT, not per call —
+ * a single high-level call that fails on Anthropic and falls through
+ * to Ollama writes 2 rows so the failover behaviour itself is
+ * observable.
+ *
+ * Schema kept narrow on purpose: prompt content is NEVER recorded
+ * (would add a privacy boundary the rest of memesh doesn't carry),
+ * and tokens are NULL until/unless the providers expose them in
+ * response bodies. Error messages are passed through callLLM's
+ * `redactSecrets()` before reaching this table — the persistence
+ * here is defence in depth, not the primary safeguard.
+ */
+function ensureLlmTelemetryTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS llm_telemetry (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      flow TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT,
+      project TEXT,
+      attempt_index INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      latency_ms INTEGER,
+      error_class TEXT,
+      error_message TEXT,
+      fallback_used INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_llm_telemetry_ts ON llm_telemetry(ts);
+    CREATE INDEX IF NOT EXISTS idx_llm_telemetry_flow ON llm_telemetry(flow);
+    CREATE INDEX IF NOT EXISTS idx_llm_telemetry_status ON llm_telemetry(status);
   `);
 }
 

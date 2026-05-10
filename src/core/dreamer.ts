@@ -33,6 +33,7 @@
 import type Database from 'better-sqlite3';
 import { callLLM, type LLMAttempt } from './llm-client.js';
 import type { LLMConfig } from './config.js';
+import { recordTelemetry } from './llm-telemetry.js';
 
 const PROMPT_VERSION = 'v1';
 const COMPACT_MIN_CLUSTER_SIZE = 5;
@@ -295,7 +296,17 @@ Rules:
 Source entries:
 ${sources}`;
 
-  const text = await callLLM(prompt, llm, { maxTokens: 500, fallbacks, onAttempt });
+  const text = await callLLM(prompt, llm, {
+    maxTokens: 500,
+    fallbacks,
+    onAttempt: (attempts) => {
+      // Persist telemetry FIRST so a user-supplied callback that
+      // throws can't lose the row. recordTelemetry has its own
+      // try/catch so it can never crash the LLM call.
+      recordTelemetry(attempts, { flow: 'dreamer', project: cluster.project });
+      onAttempt?.(attempts);
+    },
+  });
   return parseDigest(text);
 }
 
@@ -536,7 +547,14 @@ Rules:
 Source entries:
 ${sample}`;
 
-  const text = await callLLM(prompt, llm, { maxTokens: 800, fallbacks, onAttempt });
+  const text = await callLLM(prompt, llm, {
+    maxTokens: 800,
+    fallbacks,
+    onAttempt: (attempts) => {
+      recordTelemetry(attempts, { flow: 'pattern_detector', project });
+      onAttempt?.(attempts);
+    },
+  });
   return parsePatterns(text);
 }
 

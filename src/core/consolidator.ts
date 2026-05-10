@@ -8,6 +8,7 @@ import { KnowledgeGraph } from '../knowledge-graph.js';
 import { detectCapabilities, readConfig } from './config.js';
 import type { LLMConfig } from './config.js';
 import { callLLM, type LLMAttempt } from './llm-client.js';
+import { recordTelemetry } from './llm-telemetry.js';
 import { sanitizeListForPrompt } from './prompt-safety.js';
 import type { ConsolidateInput, ConsolidateResult, Entity } from './types.js';
 
@@ -126,7 +127,14 @@ async function compressObservations(
 
   let text: string;
   try {
-    text = await callLLM(prompt, llmConfig, { maxTokens: 500, fallbacks, onAttempt });
+    text = await callLLM(prompt, llmConfig, {
+      maxTokens: 500,
+      fallbacks,
+      onAttempt: (attempts) => {
+        recordTelemetry(attempts, { flow: 'consolidator' });
+        onAttempt?.(attempts);
+      },
+    });
   } catch {
     // No API key, network error, or unsupported provider — preserve
     // prior behavior: silently fall back to original observations.

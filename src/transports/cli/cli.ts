@@ -613,6 +613,56 @@ program
     }
   });
 
+// --- telemetry ---
+//
+// Exposes the contents of the `llm_telemetry` table written by every
+// callLLM attempt across the 5 Smart-Mode flows. Lets a user answer
+// "is my LLM pipeline actually working?" without diving into SQLite —
+// surfaces the same data the Insights / Analytics dashboard tabs
+// will consume programmatically. Default window is 30 days.
+program
+  .command('telemetry')
+  .description('Show LLM call telemetry (per-flow scorecard for the last N days)')
+  .option('--window <days>', 'Look-back window in days (default 30)', (v) => parseInt(v, 10), 30)
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    await withDatabase(async () => {
+      const { summariseTelemetry } = await import('../../core/llm-telemetry.js');
+      const summaries = summariseTelemetry(opts.window);
+      if (opts.json) {
+        console.log(JSON.stringify(summaries, null, 2));
+        return;
+      }
+      if (summaries.length === 0) {
+        console.log(`No LLM telemetry recorded in the last ${opts.window} days.`);
+        console.log(`(Smart-Mode flows write rows automatically — run \`memesh dream run\`, \`memesh consolidate\`, or trigger a session with errors to populate.)`);
+        return;
+      }
+      console.log(`LLM telemetry — last ${opts.window} days`);
+      console.log('');
+      for (const s of summaries) {
+        const successRate = s.total_attempts > 0 ? Math.round((s.successes / s.total_attempts) * 100) : 0;
+        console.log(`▸ ${s.flow}`);
+        console.log(`    calls:        ${s.total_calls} (${s.total_attempts} provider attempts)`);
+        console.log(`    success rate: ${successRate}%  (${s.successes} ok, ${s.failures} failed)`);
+        if (s.fallback_used > 0) {
+          console.log(`    fallback used: ${s.fallback_used} time${s.fallback_used === 1 ? '' : 's'}  ⚠️  primary failed`);
+        }
+        if (s.median_latency_ms != null) {
+          console.log(`    median latency: ${s.median_latency_ms}ms`);
+        }
+        const providers = Object.entries(s.by_provider).map(([p, v]) => `${p}=${v.ok}/${v.ok + v.fail}`).join(', ');
+        if (providers) console.log(`    by provider:  ${providers}`);
+        const errors = Object.entries(s.by_error_class);
+        if (errors.length > 0) {
+          const errStr = errors.sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c}=${n}`).join(', ');
+          console.log(`    error classes: ${errStr}`);
+        }
+        console.log('');
+      }
+    });
+  });
+
 // --- doctor ---
 program
   .command('doctor')
