@@ -6,7 +6,9 @@
 
 import { createRequire } from 'module';
 import { basename, join } from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'fs';
+import { spawn } from 'child_process';
+import os from 'os';
 import { pathToFileURL } from 'url';
 import {
   decideAutoUpdateHook,
@@ -441,6 +443,21 @@ process.stdin.on('end', async () => {
         try { process.stderr.write(`[memesh] LLM failure analysis skipped: ${llmErr?.message || llmErr}\n`); } catch {}
       }
     }
+
+    // Auto-trigger dream — solves the "Insights tab is empty for users
+    // who don't know `memesh dream run` exists" problem. Throttled to
+    // once per project per 24h, gated by minimum activity threshold.
+    // Background-detached spawn so the hook exits immediately even if
+    // the LLM call takes 30-60s. See `maybeTriggerDream` for the gate
+    // logic and dream-history.json schema.
+    try {
+      const pluginRoot = resolvePluginRoot(import.meta.url);
+      const configMod = await import(join(pluginRoot, 'dist/core/config.js'));
+      const config = configMod.readConfig();
+      maybeTriggerDream(projectName, config, pluginRoot);
+    } catch (dreamErr) {
+      try { process.stderr.write(`[memesh] dream auto-trigger skipped: ${dreamErr?.message || dreamErr}\n`); } catch {}
+    }
   } catch (err) {
     // Never crash Claude Code — leave a trace for debugging.
     // Suppress the expected "skip-session-capture" sentinel (raised when
@@ -462,4 +479,198 @@ process.stdin.on('end', async () => {
 
 function exit0() {
   process.exit(0);
+}
+
+// =============================================================================
+// Dream auto-trigger (Phase 2 / Phase 3 background runner)
+// =============================================================================
+//
+// Without an automated trigger, `memesh dream` only runs when the user
+// types it into a terminal — and most users never read the docs that
+// far. Result: Insights tab stays empty and the KG accumulates 89.7%
+// orphan rate (the maintainer's own observation on this DB).
+//
+// This trigger fires at the END of every Stop hook (after rule-based
+// session capture + optional LLM failure analysis). It:
+//   1. Loads ~/.memesh/dream-history.json — a per-project record of
+//      the last dream run timestamp + outcome.
+//   2. Throttles: skip if < THROTTLE_HOURS since the project's last
+//      run, even if the previous run produced zero proposals.
+//   3. Activity gate: skip if the project has < MIN_EPISODIC episodic
+//      entities to draw from in the last WINDOW_DAYS days.
+//   4. LLM gate: skip if no LLM provider configured (Phase 2 needs
+//      Smart Mode — Phase 3 patterns same).
+//   5. Spawns `node <pluginRoot>/dist/transports/cli/cli.js dream run
+//      --project <name> --max-llm-calls 2 --window-days 14` as a
+//      detached child process. Stdout/stderr go to a per-project log
+//      under ~/.memesh/dream-runs/ so the user can `tail -f` to see
+//      progress without the hook blocking.
+//   6. Records the run start in dream-history.json BEFORE spawning so
+//      a long-running spawn doesn't get re-triggered on the next
+//      Stop within the same window.
+//
+// The spawned process inherits config from disk, including the
+// `llmFallbacks` chain wired in commit 883abd4d, so a primary
+// outage falls through to Ollama automatically.
+
+const DREAM_THROTTLE_HOURS = 24;
+const DREAM_MIN_EPISODIC = 10;
+const DREAM_WINDOW_DAYS = 14;
+const DREAM_MAX_LLM_CALLS = 2;
+const DREAM_HISTORY_BASENAME = 'dream-history.json';
+const DREAM_LOG_DIRNAME = 'dream-runs';
+
+const DREAM_EPISODIC_TYPES = [
+  'commit',
+  'session_keypoint',
+  'session-insight',
+  'workflow_checkpoint',
+  'weekly-summary',
+  'weekly_summary',
+];
+
+function dreamHistoryPath() {
+  // Test isolation: tests set MEMESH_DB_PATH to a tmp file, expecting
+  // sibling state (history, logs) to land beside it. Without honouring
+  // that, real-home `~/.memesh/dream-history.json` would be polluted
+  // by every test run. Same precedence as memesh's other state files —
+  // see `getMemeshDirFromDbPath` in `_shared.js`.
+  const dir = process.env.MEMESH_DIR
+    || getMemeshDirFromDbPath()
+    || join(os.homedir() || (os.userInfo()?.homedir ?? '.'), '.memesh');
+  return { dir, historyFile: join(dir, DREAM_HISTORY_BASENAME), logDir: join(dir, DREAM_LOG_DIRNAME) };
+}
+
+function readDreamHistory() {
+  try {
+    const { historyFile } = dreamHistoryPath();
+    if (!existsSync(historyFile)) return {};
+    const raw = readFileSync(historyFile, 'utf8');
+    const parsed = JSON.parse(raw);
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch { return {}; }
+}
+
+function writeDreamHistory(history) {
+  try {
+    const { dir, historyFile } = dreamHistoryPath();
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(historyFile, JSON.stringify(history, null, 2));
+  } catch (err) {
+    try { process.stderr.write(`[memesh dream-history write] ${err?.message || err}\n`); } catch {}
+  }
+}
+
+/**
+ * Count episodic entities for the given project over the configured
+ * window. Read-only — uses the hook's _shared openHookDb helper which
+ * is already on the import path.
+ */
+function countEpisodicEntities(projectName) {
+  let handle;
+  try {
+    handle = openHookDb();
+    // openHookDb returns null if better-sqlite3 isn't loadable;
+    // otherwise { db, dbPath }. Don't try to call db.prepare() on
+    // the wrapper itself (the previous version did and silently
+    // skipped the gate, defeating the trigger's whole purpose).
+    if (!handle?.db) return 0;
+    const db = handle.db;
+    const since = new Date(Date.now() - DREAM_WINDOW_DAYS * 86400000).toISOString();
+    const types = DREAM_EPISODIC_TYPES.map(() => '?').join(',');
+    const sql = `SELECT COUNT(DISTINCT e.id) AS n
+                 FROM entities e
+                 LEFT JOIN tags t ON t.entity_id = e.id AND t.tag = ?
+                 WHERE e.status = 'active'
+                   AND e.type IN (${types})
+                   AND e.created_at >= ?
+                   AND (
+                     t.tag IS NOT NULL
+                     OR e.name LIKE ?
+                   )`;
+    const projectTag = `project:${projectName}`;
+    const namePrefix = `${projectName}-%`;
+    const row = db.prepare(sql).get(projectTag, ...DREAM_EPISODIC_TYPES, since, namePrefix);
+    return row?.n ?? 0;
+  } catch (err) {
+    try { process.stderr.write(`[memesh dream-trigger count] ${err?.message || err}\n`); } catch {}
+    return 0;
+  } finally {
+    try { handle?.db?.close(); } catch {}
+  }
+}
+
+/**
+ * Decide whether to fire dream for `projectName` and, if so, spawn
+ * the detached background runner. Pure side effect — no return value
+ * used by callers.
+ */
+export function maybeTriggerDream(projectName, config, pluginRoot) {
+  if (!projectName || projectName === 'unknown') return;
+
+  // Phase 2 & 3 both need a configured LLM. Without it the dreamer's
+  // first action is to push `{reason: 'no LLM configured'}` into
+  // skipped[] and exit, which would still bump our throttle clock
+  // for no value — so gate here.
+  if (!config?.llm) return;
+
+  const history = readDreamHistory();
+  const last = history[projectName];
+  if (last?.last_run_iso) {
+    const ageMs = Date.now() - new Date(last.last_run_iso).getTime();
+    if (Number.isFinite(ageMs) && ageMs < DREAM_THROTTLE_HOURS * 3600 * 1000) {
+      return; // throttled
+    }
+  }
+
+  const episodicCount = countEpisodicEntities(projectName);
+  if (episodicCount < DREAM_MIN_EPISODIC) return;
+
+  // Activity gate passed — record start BEFORE spawning so we don't
+  // re-trigger on any subsequent Stop within the window even if the
+  // child takes 30-60s.
+  history[projectName] = {
+    last_run_iso: new Date().toISOString(),
+    last_episodic_count: episodicCount,
+    last_window_days: DREAM_WINDOW_DAYS,
+  };
+  writeDreamHistory(history);
+
+  // Spawn detached so the hook exits immediately. Stdio routes to a
+  // per-project log file so the user can inspect dream output without
+  // the hook blocking on the LLM call.
+  try {
+    const { dir, logDir } = dreamHistoryPath();
+    mkdirSync(logDir, { recursive: true });
+    const safeProj = projectName.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64);
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const logFile = join(logDir, `${safeProj}-${ts}.log`);
+
+    // Append a header so a tail -f shows context for the run.
+    appendFileSync(logFile, `[memesh dream] ${new Date().toISOString()} project=${projectName} episodic_count=${episodicCount} window=${DREAM_WINDOW_DAYS}d max_llm_calls=${DREAM_MAX_LLM_CALLS}\n`);
+
+    const cliPath = join(pluginRoot, 'dist/transports/cli/cli.js');
+    if (!existsSync(cliPath)) {
+      appendFileSync(logFile, `[memesh dream] cli.js missing at ${cliPath}, skipping\n`);
+      return;
+    }
+
+    const args = [
+      cliPath, 'dream', 'run',
+      '--project', projectName,
+      '--max-llm-calls', String(DREAM_MAX_LLM_CALLS),
+      '--window-days', String(DREAM_WINDOW_DAYS),
+    ];
+
+    const out = require('fs').openSync(logFile, 'a');
+    const err = require('fs').openSync(logFile, 'a');
+    const child = spawn(process.execPath, args, {
+      detached: true,
+      stdio: ['ignore', out, err],
+      env: { ...process.env, MEMESH_DIR: dir },
+    });
+    child.unref();
+  } catch (err) {
+    try { process.stderr.write(`[memesh dream-trigger spawn] ${err?.message || err}\n`); } catch {}
+  }
 }
