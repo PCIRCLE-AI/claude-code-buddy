@@ -104,7 +104,7 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     db.close();
   });
 
-  it('Scenario: Non-agentic session is skipped', () => {
+  it('Scenario: Non-agentic session is skipped (explicit was_in_agentic_loop: false)', () => {
     writeTranscript([
       { type: 'tool_use', tool_name: 'Edit', tool_input: { file_path: '/tmp/proj/src/auth.ts' } },
     ]);
@@ -124,6 +124,34 @@ describe('Feature: Session Summary (Stop Hook)', () => {
       expect(count.c).toBe(0);
       db.close();
     }
+  });
+
+  // Regression: production Stop payloads were silently omitting
+  // `was_in_agentic_loop` for an unknown number of Claude Code releases,
+  // and the hook's default-deny gate (treat absent as false) caused zero
+  // session-insight entities to ever be written. Default-allow now: only
+  // an EXPLICIT `false` skips. This pins the new contract.
+  it('Scenario: Missing was_in_agentic_loop field still captures (default-allow)', () => {
+    writeTranscript([
+      { type: 'tool_use', tool_name: 'Edit', tool_input: { file_path: '/tmp/proj/src/auth.ts' } },
+      { type: 'tool_use', tool_name: 'Bash', tool_input: { command: 'npm test' } },
+      { type: 'tool_use', tool_name: 'Read', tool_input: { file_path: '/tmp/proj/README.md' } },
+      { type: 'tool_result', content: 'pass' },
+    ]);
+
+    runHook({
+      session_id: 'test-sess-noflag',
+      transcript_path: transcriptPath,
+      cwd: '/tmp/myproject',
+      stop_reason: 'end_turn',
+      // no was_in_agentic_loop — simulates current Claude Code Stop payload
+    });
+
+    expect(fs.existsSync(dbPath)).toBe(true);
+    const db = openDb();
+    const insights = db.prepare("SELECT COUNT(*) as c FROM entities WHERE type = 'session-insight'").get() as any;
+    expect(insights.c).toBeGreaterThan(0);
+    db.close();
   });
 
   it('Scenario: User interrupt is skipped', () => {
