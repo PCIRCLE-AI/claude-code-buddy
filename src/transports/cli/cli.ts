@@ -124,7 +124,7 @@ program
   .option('--json', 'Output as JSON')
   .action(async (query, opts) => {
     await withDatabase(async () => {
-      // recallEnhanced: uses LLM query expansion when configured, falls back otherwise
+      // recallEnhanced: FTS5 + sqlite-vec, no LLM in the hot path
       const entities = await recallEnhanced({
         query: query || undefined,
         tag: opts.tag,

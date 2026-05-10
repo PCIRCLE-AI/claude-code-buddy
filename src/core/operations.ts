@@ -209,7 +209,7 @@ async function supplementWithVectors(
       relevanceMap.set(entity.name, Math.max(0, 1 - dist));
     }
   } catch {
-    // Vector search failed — FTS5 + expanded results still valid.
+    // Vector search failed — FTS5 results still valid.
   }
 }
 

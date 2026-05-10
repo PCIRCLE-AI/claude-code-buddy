@@ -2,6 +2,23 @@
 
 All notable changes to MeMesh are documented here.
 
+## [Unreleased]
+
+### Removed
+- **`src/core/query-expander.ts`** — LLM-powered query expansion has been retired from the recall hot path. The `recall` / `recallEnhanced` operation now uses FTS5 + sqlite-vec exclusively, with no LLM dependency on the read path.
+
+### Changed
+- **`recallEnhanced`** simplified to single-pass FTS5 keyword search + sqlite-vec embedding supplement, no per-call LLM round-trip. Verified at 95.40% R@5 / 97.60% R@10 / MRR 0.8899 on LongMemEval-S Mode A — identical to baseline at the per-question-type level (single-session-user 97.1%, multi-session 94.7%, single-session-preference 83.3%, temporal-reasoning 94.0%, knowledge-update 98.7%, single-session-assistant 100.0%). Mean per-query latency stays at ~18ms.
+- **README.md** + 4 locale parities (de, vi, th, pt) — the Smart Mode comparison table and `recall` tool description no longer advertise "LLM query expansion (~97% recall)". Smart Mode benefits now accurately listed: auto-tagging, failure analysis, consolidate, dream.
+- **`docs/api/API_REFERENCE.md`** + **`docs/ARCHITECTURE.md`** — recall contract and architecture diagram updated to reflect LLM-free hot path.
+- **Dashboard `settings.llmOptional.smartFeatures`** (11 locales) — replaced "semantic query expansion" mention with "consolidate + dream compression" so users configure an LLM for what it actually delivers.
+
+### Why
+LongMemEval-S Mode A measures memesh's FTS5+sqlite-vec recall at 95.40% R@5 within 1.2pp of vendor-reported reranker stacks at ~18ms/query. The LLM expander was paying ~500-10000ms per recall (LLM round-trip plus fallback) for an estimated 1-2pp ceiling lift, which lost decisively on UX given recall is the hot path for hooks (`pre-edit-recall.js`, `session-start.js`) and MCP agent recall calls — a 40-call coding session takes 0.7s on Mode A vs 6.7min on ollama with the expander. The retire makes the implementation match the README claim of "FTS5 alone (no LLM, no embeddings on the hot path)" that has held for several releases.
+
+### Tests
+- 907 vitest tests passing (was 924 with the 17 query-expander tests). 3 independent benchmark runs confirm zero R@5 regression.
+
 ## [4.1.7] — 2026-05-09
 
 Marketplace identifier renamed from `pcircle-ai` to `pcircle-memesh` to avoid name collision with sibling PCIRCLE AI plugin repos that also self-publish marketplaces named `pcircle-ai` (e.g. `toonify-mcp`, `claude-code-buddy`). Users with any of those marketplaces already registered hit `Plugin "memesh" not found in marketplace "pcircle-ai"` on `/plugin install` because Claude Code binds one repo per marketplace name on the local machine, and earlier siblings won the binding.
