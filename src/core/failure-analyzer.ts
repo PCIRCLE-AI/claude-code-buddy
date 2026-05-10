@@ -1,5 +1,6 @@
 import type { LLMConfig } from './config.js';
 import { callLLM, type LLMAttempt } from './llm-client.js';
+import { recordTelemetry } from './llm-telemetry.js';
 import { sanitizeForPrompt, sanitizeListForPrompt } from './prompt-safety.js';
 import type { LessonSeverity } from './types.js';
 
@@ -70,7 +71,14 @@ Analyze the root cause and return a JSON object (ONLY the JSON, no explanation):
 }`;
 
   try {
-    const text = await callLLM(prompt, llmConfig, { maxTokens: 300, fallbacks: opts.fallbacks, onAttempt: opts.onAttempt });
+    const text = await callLLM(prompt, llmConfig, {
+      maxTokens: 300,
+      fallbacks: opts.fallbacks,
+      onAttempt: (attempts) => {
+        recordTelemetry(attempts, { flow: 'failure_analyzer' });
+        opts.onAttempt?.(attempts);
+      },
+    });
     return parseLesson(text);
   } catch {
     return null;
