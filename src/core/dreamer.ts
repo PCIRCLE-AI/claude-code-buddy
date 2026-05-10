@@ -603,12 +603,19 @@ export function applyProposal(
     });
 
     const updateMetaStmt = db.prepare('UPDATE entities SET metadata = ? WHERE id = ?');
+    // Relation rows make the digest/pattern visible in graph traversal —
+    // metadata back-pointers alone leave digest entities orphaned in
+    // the graph view. Direction:
+    //   summarizes: digest -> source (the digest summarizes the source)
+    //   evidence_for: source -> pattern (the source is evidence for the pattern)
+    const relStmt = db.prepare(
+      'INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?)'
+    );
     let archived = 0;
     let linked = 0;
     if (isPattern) {
-      // Pattern: link sources to the new pattern via metadata, do
-      // NOT archive. Future Phase 5 will turn these into proper
-      // relation table edges.
+      // Pattern: link sources to the new pattern via metadata + edge,
+      // do NOT archive (Phase 3 is additive — sources stay primary).
       for (const sourceId of sourceIds) {
         const sourceRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(sourceId) as { metadata: string | null } | undefined;
         if (!sourceRow) continue;
@@ -618,10 +625,14 @@ export function applyProposal(
         if (!evidenceFor.includes(digestId)) evidenceFor.push(digestId);
         meta.evidence_for = evidenceFor;
         updateMetaStmt.run(JSON.stringify(meta), sourceId);
+        relStmt.run(sourceId, digestId, 'evidence_for');
         linked++;
       }
     } else {
-      // Compaction digest: soft-archive sources, link via compacted_into.
+      // Compaction digest: soft-archive sources, link via metadata
+      // back-pointer + a `summarizes` graph edge so dashboard graph
+      // traversal can find the sources from the digest hub. Without
+      // the edge, accepted digests show as orphans in the graph view.
       const archiveStmt = db.prepare("UPDATE entities SET status = 'archived' WHERE id = ?");
       for (const sourceId of sourceIds) {
         const sourceRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(sourceId) as { metadata: string | null } | undefined;
@@ -630,6 +641,7 @@ export function applyProposal(
         try { meta = sourceRow.metadata ? JSON.parse(sourceRow.metadata) : {}; } catch { meta = {}; }
         meta.compacted_into = digestId;
         updateMetaStmt.run(JSON.stringify(meta), sourceId);
+        relStmt.run(digestId, sourceId, 'summarizes');
         archiveStmt.run(sourceId);
         archived++;
       }
