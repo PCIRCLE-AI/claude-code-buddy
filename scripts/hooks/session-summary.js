@@ -578,19 +578,23 @@ function countEpisodicEntities(projectName) {
     const db = handle.db;
     const since = new Date(Date.now() - DREAM_WINDOW_DAYS * 86400000).toISOString();
     const types = DREAM_EPISODIC_TYPES.map(() => '?').join(',');
+    // Project-membership is determined by the `project:<name>` tag only.
+    // The previous implementation also OR'd on `e.name LIKE 'project-%'`
+    // as a fallback for legacy entities, but that branch over-counts when
+    // two projects share a name prefix (e.g. counting `memesh` would
+    // sweep in `memesh-cloud-keypoint-*` entities). Post-v3.0 episodic
+    // entities all carry the project tag — the auto-tagger writes it on
+    // every session_keypoint / commit / session_insight / session_lesson
+    // / failure_pattern / decision_anchor — so the tag-only path is the
+    // accurate signal. See v4.2.1 CHANGELOG known-limitations note.
     const sql = `SELECT COUNT(DISTINCT e.id) AS n
                  FROM entities e
-                 LEFT JOIN tags t ON t.entity_id = e.id AND t.tag = ?
+                 INNER JOIN tags t ON t.entity_id = e.id AND t.tag = ?
                  WHERE e.status = 'active'
                    AND e.type IN (${types})
-                   AND e.created_at >= ?
-                   AND (
-                     t.tag IS NOT NULL
-                     OR e.name LIKE ?
-                   )`;
+                   AND e.created_at >= ?`;
     const projectTag = `project:${projectName}`;
-    const namePrefix = `${projectName}-%`;
-    const row = db.prepare(sql).get(projectTag, ...DREAM_EPISODIC_TYPES, since, namePrefix);
+    const row = db.prepare(sql).get(projectTag, ...DREAM_EPISODIC_TYPES, since);
     return row?.n ?? 0;
   } catch (err) {
     try { process.stderr.write(`[memesh dream-trigger count] ${err?.message || err}\n`); } catch {}

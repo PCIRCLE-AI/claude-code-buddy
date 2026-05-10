@@ -147,6 +147,63 @@ describe("Feature: Stop-hook dream auto-trigger", () => {
     expect(logs.length).toBe(0);
   });
 
+  // Regression for v4.2.1 prefix-collision fix. Before the fix the
+  // activity gate used `OR e.name LIKE 'project-%'`, which over-counted
+  // entities for `memesh` because `memesh-cloud-*` names share the same
+  // prefix. The throttle still gated correctly per project-name, but the
+  // dreamer fired earlier than it should for the shorter-named project.
+  // After the fix the gate uses `project:<name>` tag membership only —
+  // `memesh-cloud` entities are tagged `project:memesh-cloud`, so they
+  // do not count toward `memesh`'s gate.
+  it("activity gate does not over-count when two projects share a name prefix", () => {
+    writeConfig({ llm: { provider: "anthropic", model: "claude-haiku-4-5", apiKey: "sk-ant-test-junk" } });
+    writeMinimalTranscript();
+    // 5 episodic entities tagged `project:memesh`, 5 tagged
+    // `project:memesh-cloud`. Below the activity threshold (10) for
+    // `memesh` alone — but the legacy LIKE branch would have summed both
+    // groups (10) and tripped the gate.
+    seedEpisodicEntities("memesh", 5);
+    seedEpisodicEntities("memesh-cloud", 5);
+
+    const twoDaysAgo = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+    fs.writeFileSync(path.join(memeshDir, "dream-history.json"), JSON.stringify({
+      memesh: { last_run_iso: twoDaysAgo },
+    }));
+
+    // Run the hook with cwd implying project name `memesh`.
+    const hookPath = path.resolve("scripts/hooks/session-summary.js");
+    const input = JSON.stringify({
+      session_id: "test-prefix-collision",
+      transcript_path: transcriptPath,
+      cwd: "/tmp/memesh",
+      stop_reason: "end_turn",
+      was_in_agentic_loop: true,
+    });
+    try {
+      cp.execFileSync("node", [hookPath], {
+        input,
+        env: {
+          ...process.env,
+          MEMESH_DB_PATH: dbPath,
+          MEMESH_DIR: memeshDir,
+          MEMESH_AUTO_CAPTURE: "true",
+        },
+        encoding: "utf8",
+        timeout: 15000,
+      });
+    } catch { /* hook exits 0 normally; ignore */ }
+
+    // Activity gate should reject — last_run_iso must be unchanged
+    // (still twoDaysAgo, not bumped to "just now").
+    const history = JSON.parse(fs.readFileSync(path.join(memeshDir, "dream-history.json"), "utf8"));
+    expect(history.memesh.last_run_iso).toBe(twoDaysAgo);
+
+    // No dream-runs log directory should have been created either.
+    const logDir = path.join(memeshDir, "dream-runs");
+    const logs = fs.existsSync(logDir) ? fs.readdirSync(logDir) : [];
+    expect(logs.length).toBe(0);
+  });
+
   // Windows skipped pending Windows-specific env-propagation investigation.
   // The hook completes but `dream-history.json` is not updated on Windows
   // when MEMESH_DIR is propagated through execFileSync. The gate-only
