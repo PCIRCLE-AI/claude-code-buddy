@@ -37,7 +37,17 @@ const require = createRequire(import.meta.url);
  * @returns {string}
  */
 function homeDir() {
-  return process.env.HOME ?? homedir();
+  // Mirror src/core/paths.ts homeDir() — same three-step fallback to
+  // handle HOME="" environments. `os.homedir()` itself reads HOME on
+  // POSIX, so HOME="" makes it return "". `os.userInfo().homedir`
+  // reads pw_dir via getpwuid syscall, bypassing env vars entirely.
+  const home = process.env.HOME;
+  if (home && home.length > 0) return home;
+  const fromOs = homedir();
+  if (fromOs && fromOs.length > 0) return fromOs;
+  // userInfo is the final defence — re-import here to keep the
+  // top-of-file `import { homedir } from 'os'` line stable.
+  return require('os').userInfo().homedir;
 }
 
 /**
@@ -276,6 +286,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, 
 CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);
+CREATE INDEX IF NOT EXISTS idx_entities_type_created ON entities(type, created_at);
 `;
 
 // FTS5 virtual table — separate so hooks that don't need it stay lean.

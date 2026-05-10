@@ -49,10 +49,10 @@ describe('Feature: Session Summary (Stop Hook)', () => {
 
   it('Scenario: Agentic session with file edits creates session-insight entity', () => {
     writeTranscript([
-      { type: 'tool_use', tool_name: 'Edit', tool_input: { file_path: '/tmp/proj/src/auth.ts' } },
-      { type: 'tool_use', tool_name: 'Write', tool_input: { file_path: '/tmp/proj/src/config.ts' } },
-      { type: 'tool_use', tool_name: 'Bash', tool_input: { command: 'npm test -- --run' } },
-      { type: 'tool_result', content: 'All tests passed' },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/tmp/proj/src/config.ts' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test -- --run' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', content: 'All tests passed' }] } },
     ]);
 
     runHook({
@@ -76,14 +76,14 @@ describe('Feature: Session Summary (Stop Hook)', () => {
 
   it('Scenario: Session with errors creates bugfix entity', () => {
     writeTranscript([
-      { type: 'tool_use', tool_name: 'Edit', tool_input: { file_path: '/tmp/proj/src/auth.ts' } },
-      { type: 'tool_use', tool_name: 'Bash', tool_input: { command: 'npm test -- --run' } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test -- --run' } }] } },
       // Real Claude Code marks failed tool calls with `is_error: true`.
       // The parser now trusts this flag instead of substring-matching
       // the result text (which produced 315 false errors against ~28
       // real ones on a 47MB production transcript).
-      { type: 'tool_result', is_error: true, content: 'Error: Cannot find module ./config' },
-      { type: 'tool_use', tool_name: 'Edit', tool_input: { file_path: '/tmp/proj/src/config.ts' } },
+      { type: 'user', message: { content: [{ type: 'tool_result', is_error: true, content: 'Error: Cannot find module ./config' }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/config.ts' } }] } },
     ]);
 
     runHook({
@@ -106,7 +106,7 @@ describe('Feature: Session Summary (Stop Hook)', () => {
 
   it('Scenario: Non-agentic session is skipped (explicit was_in_agentic_loop: false)', () => {
     writeTranscript([
-      { type: 'tool_use', tool_name: 'Edit', tool_input: { file_path: '/tmp/proj/src/auth.ts' } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
     ]);
 
     runHook({
@@ -133,10 +133,10 @@ describe('Feature: Session Summary (Stop Hook)', () => {
   // an EXPLICIT `false` skips. This pins the new contract.
   it('Scenario: Missing was_in_agentic_loop field still captures (default-allow)', () => {
     writeTranscript([
-      { type: 'tool_use', tool_name: 'Edit', tool_input: { file_path: '/tmp/proj/src/auth.ts' } },
-      { type: 'tool_use', tool_name: 'Bash', tool_input: { command: 'npm test' } },
-      { type: 'tool_use', tool_name: 'Read', tool_input: { file_path: '/tmp/proj/README.md' } },
-      { type: 'tool_result', content: 'pass' },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/tmp/proj/README.md' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', content: 'pass' }] } },
     ]);
 
     runHook({
@@ -156,9 +156,9 @@ describe('Feature: Session Summary (Stop Hook)', () => {
 
   it('Scenario: User interrupt is skipped', () => {
     writeTranscript([
-      { type: 'tool_use', tool_name: 'Edit', tool_input: { file_path: '/tmp/proj/src/auth.ts' } },
-      { type: 'tool_use', tool_name: 'Bash', tool_input: { command: 'npm test -- --run' } },
-      { type: 'tool_result', content: 'All passed' },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test -- --run' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', content: 'All passed' }] } },
     ]);
 
     runHook({
@@ -179,9 +179,9 @@ describe('Feature: Session Summary (Stop Hook)', () => {
 
   it('Scenario: Auto-capture opt-out skips processing', () => {
     writeTranscript([
-      { type: 'tool_use', tool_name: 'Edit', tool_input: { file_path: '/tmp/proj/src/auth.ts' } },
-      { type: 'tool_use', tool_name: 'Bash', tool_input: { command: 'npm test -- --run' } },
-      { type: 'tool_result', content: 'All passed' },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test -- --run' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', content: 'All passed' }] } },
     ]);
 
     runHook(
@@ -206,9 +206,9 @@ describe('Feature: Session Summary (Stop Hook)', () => {
   it('Scenario: Heavy session (20+ tool calls) creates summary entity', () => {
     const entries: object[] = [];
     for (let i = 0; i < 22; i++) {
-      entries.push({ type: 'tool_use', tool_name: 'Bash', tool_input: { command: `echo "step ${i} of build"` } });
+      entries.push({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: `echo "step ${i} of build"` } }] } });
     }
-    entries.push({ type: 'tool_use', tool_name: 'Edit', tool_input: { file_path: '/tmp/proj/src/main.ts' } });
+    entries.push({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/main.ts' } }] } });
 
     writeTranscript(entries);
 
@@ -232,10 +232,10 @@ describe('Feature: Session Summary (Stop Hook)', () => {
 
   it('Scenario: Duplicate session is not re-captured', () => {
     writeTranscript([
-      { type: 'tool_use', tool_name: 'Edit', tool_input: { file_path: '/tmp/proj/src/auth.ts' } },
-      { type: 'tool_use', tool_name: 'Bash', tool_input: { command: 'npm test -- --run' } },
-      { type: 'tool_use', tool_name: 'Read', tool_input: { file_path: '/tmp/proj/src/auth.ts' } },
-      { type: 'tool_result', content: 'All passed' },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test -- --run' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', content: 'All passed' }] } },
     ]);
 
     const hookInput = {
@@ -259,10 +259,10 @@ describe('Feature: Session Summary (Stop Hook)', () => {
 
   it('Scenario: LLM analysis section does not run without LLM config (Level 0)', () => {
     writeTranscript([
-      { type: 'tool_use', tool_name: 'Edit', tool_input: { file_path: '/tmp/proj/src/auth.ts' } },
-      { type: 'tool_use', tool_name: 'Bash', tool_input: { command: 'npm test -- --run' } },
-      { type: 'tool_result', content: 'Error: Cannot find module ./config' },
-      { type: 'tool_use', tool_name: 'Edit', tool_input: { file_path: '/tmp/proj/src/config.ts' } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test -- --run' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', content: 'Error: Cannot find module ./config' }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/config.ts' } }] } },
     ]);
 
     runHook({
