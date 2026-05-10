@@ -170,7 +170,14 @@ process.stdin.on('end', async () => {
     const transcriptPath = inputData.transcript_path;
     const cwd = inputData.cwd || process.cwd();
     const stopReason = inputData.stop_reason || 'unknown';
-    const wasAgenticLoop = inputData.was_in_agentic_loop === true;
+    // Default-allow: when Claude Code's Stop payload omits
+    // `was_in_agentic_loop` (it has been silently absent in production
+    // for an unknown number of releases — symptom: zero session-insight
+    // entities written despite hooks otherwise wired correctly), fall
+    // back to "treat as agentic" so the toolCallCount<3 guard below is
+    // the real low-signal filter. Earlier this field was a hard gate
+    // (default-deny) and the hook silently never captured anything.
+    const wasAgenticLoop = inputData.was_in_agentic_loop !== false;
 
     // Guards: skip low-signal sessions
     if (stopReason === 'user_interrupt') return exit0();
