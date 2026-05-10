@@ -19,23 +19,26 @@ npm run test:packaged
 
 `npm run test:packaged` is required for changes that affect packaging, hooks, CLI assets, release automation, or any file included in the published npm tarball.
 
-## Documentation Discipline
+## Documentation Discipline (PR-review gate)
 
-Documentation is part of the change, not follow-up work.
+Documentation is part of the change, not follow-up work. The CI's `Version coherence` step and `Doctor (manifest + hooks integrity gate)` step enforce the most-fragile parts of this discipline; everything else is reviewer-judgment.
 
-- Update `README.md` when behavior, installation, or development workflow changes.
-- Update `docs/api/API_REFERENCE.md` when MCP tool signatures, parameters, or responses change.
-- Update `docs/ARCHITECTURE.md` when module structure, storage behavior, or packaging flow changes.
-- Keep `package.json`, `package-lock.json`, and `.claude-plugin/plugin.json` version metadata aligned.
+- Update `README.md` when behavior, installation, or development workflow changes (and re-sync the 10 locale parities — `README.de.md`, `README.vi.md`, `README.th.md`, `README.pt.md`, `README.ja.md`, `README.ko.md`, `README.zh-CN.md`, `README.zh-TW.md`, `README.es.md`, `README.fr.md`).
+- Update `docs/api/API_REFERENCE.md` when the MCP / HTTP / CLI surface changes (and bump its `**Version**: ` line on a release).
+- Update `docs/ARCHITECTURE.md` when module structure, storage behavior, or packaging flow changes (and bump its `**Version**: ` line on a release).
+- Keep version metadata coherent: `package.json` + `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` `plugins[].version` + `CHANGELOG.md` `## [X.Y.Z]` header + the two `**Version**:` lines above must all match. The `node scripts/check-version-coherence.mjs` check (run as a CI step) catches partial bumps.
+- After ANY change to `.claude-plugin/`, `scripts/hooks/`, `skills/`, or version files, run `npm run build` so `dist/skills-manifest.json` regenerates. Otherwise `memesh doctor` reports `Skills + hooks integrity FAIL` and users see "memesh setup is incomplete" in their dashboard. CI's `Doctor` step catches this before merge.
 
 The repository-level engineering rules in `CLAUDE.md` apply to contributor changes as well.
 
 ## Pull Requests
 
+- Use the project's `.github/pull_request_template.md` — it loads automatically when you open a PR. Fill in the "Docs synced" checklist; an unfilled checklist is treated as not-ready-for-review.
 - Keep pull requests focused. Smaller changes are easier to review and safer to release.
 - Include tests for behavior changes when practical.
 - Note any packaging or migration impact in the PR description.
 - If your change affects the published artifact, mention that `npm run test:packaged` passed.
+- If your change touches `scripts/hooks/*.js` or any hook payload consumer, follow the hook-change protocol: real-payload fixture (capture from a live Claude Code transcript), default-allow on optional fields, stderr-trace every silent exit, end-to-end install test in a real Claude Code session, `memesh doctor` hook-activity green post-install.
 
 ## Security
 
