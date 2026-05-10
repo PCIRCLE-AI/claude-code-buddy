@@ -4,7 +4,7 @@ All notable changes to MeMesh are documented here.
 
 ## [4.2.0] — 2026-05-10
 
-A combined release covering recall-path simplification, cross-provider LLM failover, end-to-end LLM telemetry, the new Insights / Analytics dashboard surfaces, and KG-connectivity work. 16 commits, +6k LOC, +35 tests (938 → 973 passing). Highlights below grouped per Keep-a-Changelog convention.
+A combined release covering recall-path simplification, cross-provider LLM failover, end-to-end LLM telemetry, the new Insights / Analytics dashboard surfaces, KG-connectivity work, and a clean-slate quality bar (0 lint warnings, 0 executable `any` in src/). +6k LOC, +46 tests (938 → 984 passing). Highlights below grouped per Keep-a-Changelog convention.
 
 ### Added
 - **Cross-provider LLM failover** (`src/core/llm-client.ts` + `config.ts`) — new optional `llmFallbacks: LLMConfig[]` config field walked in order when the primary `llm` provider fails with auth / rate-limit / upstream / network errors. A 400-class bad-request stops the chain (the prompt itself is broken). Per-attempt telemetry surfaces via `opts.onAttempt`; secret-shaped tokens (`sk-*`, `Bearer *`) are redacted before reaching telemetry. Wired into all 5 Smart-Mode flows (dreamer, pattern-detector, consolidator, auto-tagger, failure-analyzer). Also exposed via the dashboard's POST `/v1/config` endpoint with mirrored apiKey masking on GET responses.
@@ -27,6 +27,9 @@ A combined release covering recall-path simplification, cross-provider LLM failo
 - **Dashboard `Insights` is now the default landing tab** for fresh users (was Lessons). Existing users' last-tab persistence still wins.
 - **CLI `memesh dream` summary no longer truncates error messages.** The previous `s.reason.split(':')[0]` collapsed `"LLM call failed: Anthropic API error: 401"` into `"LLM call failed: 1"` (a count) — actual error class invisible. Now the full reason is grouped and printed.
 - **Doc-sync for the query-expander retire** — README + 4 locale parities (de / vi / th / pt) + ARCHITECTURE.md + API_REFERENCE.md + dashboard i18n's `settings.llmOptional.smartFeatures` (11 locales) all updated. Smart Mode benefits now described as auto-tagging + failure analysis + consolidate + dream, not "LLM query expansion (~97% recall)".
+- **Type-safety pass across `src/`** — eliminated all 60 executable `any` instances in shipping code. Express handlers now use typed `Request<P, ResB, ReqB>` generics; `catch (err: any)` replaced with `instanceof Error` narrowing; SQLite metadata payloads typed as `Record<string, unknown>`. Pattern is uniform and PR-review enforces it going forward.
+- **Lint health** — resolved every standing warning. `npm run lint` reports 0 errors and 0 warnings at v4.2.0. ESLint flat config now codifies the hook silent-failure pattern (`'no-empty': ['warn', { allowEmptyCatch: true }]`) so legitimate hook code passes while genuine empty blocks still surface.
+- **Native i18n translations for v4.2.0 dashboard surfaces** — 8 locales (`ja`, `ko`, `pt-BR`, `fr`, `de`, `vi`, `es`, `th`) now have native translations for Insights / banner / telemetry / pattern keys. Previously these locales carried English placeholders to satisfy the parity test.
 
 ### Fixed
 - **`/v1/config` GET response now masks `llmFallbacks[].apiKey`.** Previously an apiKey configured under a fallback entry leaked in plaintext to the dashboard SPA. Mirrors the existing `llm.apiKey` masking. Verified end-to-end with a fake key.
@@ -42,7 +45,7 @@ A combined release covering recall-path simplification, cross-provider LLM failo
 - API-key paths in fallback chains are masked on every dashboard config response (see Fixed).
 
 ### Tests
-- 938 → 973 vitest tests (+35) across 62 files, +6k LOC. New test files: `tests/core/llm-client.test.ts` (failover decision tree, 23 cases), `tests/core/llm-telemetry.test.ts` (persistence + summarise, 4 cases), `tests/core/kg-backfill.test.ts` (heuristic contract, 19 cases), `tests/core/digest-validator.test.ts` (pass / soften / reject + sanitiser integration, 13 cases), `tests/hooks/dream-auto-trigger.test.ts` (gate + throttle + spawn, 4 cases). 3 independent LongMemEval-S Mode A regression runs confirm 95.40% R@5 unchanged.
+- 938 → 984 vitest tests (+46) across 63 files, +6k LOC. New test files: `tests/core/llm-client.test.ts` (failover decision tree, 23 cases), `tests/core/llm-telemetry.test.ts` (persistence + summarise, 4 cases), `tests/core/kg-backfill.test.ts` (heuristic contract, 19 cases), `tests/core/digest-validator.test.ts` (pass / soften / reject + sanitiser integration, 13 cases), `tests/hooks/dream-auto-trigger.test.ts` (gate + throttle + spawn, 5 cases). 3 independent LongMemEval-S Mode A regression runs confirm 95.40% R@5 unchanged.
 
 ### Migration
 - A new `llm_telemetry` SQLite table is created on first `openDatabase()` after upgrade (idempotent `CREATE TABLE IF NOT EXISTS`). No data is migrated — telemetry starts fresh.
@@ -50,7 +53,7 @@ A combined release covering recall-path simplification, cross-provider LLM failo
 - Dashboard build artifact (`dashboard/dist/index.html`) grows from 333 kB → 370 kB (gzip 84 kB → 90 kB) — the four new tabs / panels / cards landed inline.
 
 ### Known limitations
-- **Windows `dream-auto-trigger.test.ts` "all gates pass" scenario is skipped.** Hook completes but `dream-history.json` is not updated when MEMESH_DIR is propagated through `execFileSync` to a child Node process. Functionality verified on macOS + Linux. The other three gate scenarios pass on Windows because they exit before the spawn step. See `feedback_ci_failure_patterns.md` for the diagnosis path.
+- **Windows `dream-auto-trigger.test.ts` "all gates pass" scenario is skipped.** Hook completes but `dream-history.json` is not updated when MEMESH_DIR is propagated through `execFileSync` to a child Node process. Functionality verified on macOS + Linux. The other four gate scenarios (LLM gate, activity gate, throttle gate, prefix-collision) all pass on Windows. v4.2.0 ships with stderr-trace instrumentation behind `MEMESH_DREAM_TRIGGER_DEBUG=1` so the next Windows session can identify the failing gate from the first `[memesh dream-trigger] exit reason=…` line. Diagnosis runbook at `docs/notes/windows-dream-trigger-diagnosis.md` (gitignored).
 ## [4.1.7] — 2026-05-09
 
 Marketplace identifier renamed from `pcircle-ai` to `pcircle-memesh` to avoid name collision with sibling PCIRCLE AI plugin repos that also self-publish marketplaces named `pcircle-ai` (e.g. `toonify-mcp`, `claude-code-buddy`). Users with any of those marketplaces already registered hit `Plugin "memesh" not found in marketplace "pcircle-ai"` on `/plugin install` because Claude Code binds one repo per marketplace name on the local machine, and earlier siblings won the binding.
