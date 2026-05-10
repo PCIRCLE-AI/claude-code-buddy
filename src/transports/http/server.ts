@@ -328,7 +328,7 @@ app.post('/v1/recall', async (req, res) => {
     return;
   }
   try {
-    // recallEnhanced: uses LLM query expansion when configured, falls back otherwise
+    // recallEnhanced: FTS5 + sqlite-vec, no LLM in the hot path
     const entities = await recallEnhanced(parsed.data);
     const kg = new KnowledgeGraph(getDatabase());
     const conflicts = kg.findConflicts(entities.map(e => e.name));

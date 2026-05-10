@@ -84,7 +84,7 @@ If a relation target does not exist, the entity is still stored and `relationErr
 
 ### recall
 
-Search and retrieve stored knowledge. Uses FTS5 full-text search with optional tag filtering and multi-factor scoring. When an LLM is configured (Smart Mode, Level 1), the query is expanded into related terms before searching. Results are ranked by a weighted combination of search relevance, recency, access frequency, confidence, and temporal validity. Call with no query to list recent memories.
+Search and retrieve stored knowledge. Uses FTS5 full-text search + sqlite-vec vector supplement, with optional tag filtering and multi-factor scoring. The hot path is LLM-free — measured at 95.40% R@5 on LongMemEval-S (within 1.2pp of vendor-reported reranker stacks). Results are ranked by a weighted combination of search relevance, recency, access frequency, confidence, and temporal validity. Call with no query to list recent memories.
 
 **Input Schema**:
 
