@@ -133,8 +133,8 @@ export function importMemories(args: ImportInput): ImportResult {
       }
 
       imported++;
-    } catch (err: any) {
-      errors.push(`${entity.name}: ${err.message}`);
+    } catch (err) {
+      errors.push(`${entity.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

@@ -93,8 +93,8 @@ export function remember(args: RememberInput): RememberResult {
       try {
         kg.createRelation(args.name, rel.to, rel.type);
         relationsCreated.push(rel);
-      } catch (err: any) {
-        relationErrors.push(`Relation to "${rel.to}" failed: ${err.message}`);
+      } catch (err) {
+        relationErrors.push(`Relation to "${rel.to}" failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }
