@@ -112,6 +112,11 @@ export function InsightsTab() {
   const [expanded, setExpanded] = useState<Map<number, ProposalDetail>>(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Whether the user has any LLM provider configured. Without one, the
+  // dreamer / pattern detector NEVER produce proposals — so the empty
+  // state should point the user to Settings rather than suggesting
+  // they "run `memesh dream run`" (which would also no-op).
+  const [llmConfigured, setLlmConfigured] = useState<boolean | null>(null);
   // Set-based in-flight tracking. The earlier scalar `busyId` had a
   // race: clicking accept on A then accept on B before A's
   // `await refresh()` resolved would let B's `setBusyId(B)` overwrite
@@ -138,6 +143,14 @@ export function InsightsTab() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // One-shot capability probe — answers "is the empty-state
+  // 'configure your LLM' or 'run dream run'?".
+  useEffect(() => {
+    api<{ capabilities?: { llm?: { provider?: string } | null } }>('GET', '/v1/config')
+      .then((d) => setLlmConfigured(!!d?.capabilities?.llm))
+      .catch(() => setLlmConfigured(false));
+  }, []);
 
   const proposals = filter === 'all' ? allProposals : allProposals.filter(p => p.status === filter);
 
@@ -248,7 +261,11 @@ export function InsightsTab() {
       {loading && <div style={{ color: 'var(--text-3)', fontSize: 13 }}>{t('insights.loading')}</div>}
       {!loading && proposals.length === 0 && (
         <div class="card" style={{ padding: 16, textAlign: 'center', color: 'var(--text-2)' }}>
-          {filter === 'pending' ? t('insights.emptyPending') : t('insights.emptyOther')}
+          {filter !== 'pending'
+            ? t('insights.emptyOther')
+            : llmConfigured === false
+              ? t('insights.emptyNoLlm')
+              : t('insights.emptyPending')}
         </div>
       )}
 

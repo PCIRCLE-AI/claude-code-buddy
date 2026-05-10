@@ -4,20 +4,55 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
-### Removed
-- **`src/core/query-expander.ts`** — LLM-powered query expansion has been retired from the recall hot path. The `recall` / `recallEnhanced` operation now uses FTS5 + sqlite-vec exclusively, with no LLM dependency on the read path.
+A combined release covering recall-path simplification, cross-provider LLM failover, end-to-end LLM telemetry, the new Insights / Analytics dashboard surfaces, and KG-connectivity work. 16 commits, +6k LOC, +35 tests (938 → 973 passing). Highlights below grouped per Keep-a-Changelog convention.
+
+### Added
+- **Cross-provider LLM failover** (`src/core/llm-client.ts` + `config.ts`) — new optional `llmFallbacks: LLMConfig[]` config field walked in order when the primary `llm` provider fails with auth / rate-limit / upstream / network errors. A 400-class bad-request stops the chain (the prompt itself is broken). Per-attempt telemetry surfaces via `opts.onAttempt`; secret-shaped tokens (`sk-*`, `Bearer *`) are redacted before reaching telemetry. Wired into all 5 Smart-Mode flows (dreamer, pattern-detector, consolidator, auto-tagger, failure-analyzer). Also exposed via the dashboard's POST `/v1/config` endpoint with mirrored apiKey masking on GET responses.
+- **Persistent LLM telemetry** (`src/core/llm-telemetry.ts` + `llm_telemetry` SQLite table) — every callLLM attempt (primary + each fallback tried) writes one row with `{flow, provider, model, project, attempt_index, status, latency_ms, error_class, error_message, fallback_used}`. New `memesh telemetry [--window N]` CLI command renders a per-flow scorecard. Prompt and response bodies are intentionally NOT persisted — the schema stays narrow to avoid a new privacy boundary.
+- **Dashboard Insights tab** (`dashboard/src/components/InsightsTab.tsx`) — surfaces the dreamer's pending / applied / rejected proposals with one-click accept/reject, replacing the CLI-only `memesh dream list`. New first-tab landing for fresh users. Backed by GET/POST `/v1/dream/proposals[/:id][/accept|reject]` endpoints.
+- **Dashboard Insights banner** (`dashboard/src/components/InsightsBanner.tsx`) — slim cross-tab nudge appearing when pending proposals > 0. Click navigates to Insights tab; × dismisses for the current session (re-surfaces next session). Hidden when current tab is already Insights.
+- **Dashboard Analytics LLM telemetry panel** (`dashboard/src/components/LlmTelemetryPanel.tsx`) — per-flow scorecard with success rate, fallback usage warning, median latency, provider breakdown, and error-class chips. 7d / 30d / 90d window pills. Color-coded left border by success rate (green ≥90%, yellow ≥50%, red <50%). Backed by GET `/v1/telemetry?window=N`.
+- **Dashboard PatternCard** (`dashboard/src/components/PatternCard.tsx`) — distinct visual treatment for `pattern_emergent` proposals (amber accent, severity surfacing) so emerging patterns read differently from weekly recap digests. Wired through a new `kind` field on `ProposalSummary` that `listProposals` now returns.
+- **Stop-hook dream auto-trigger** (`scripts/hooks/session-summary.js:maybeTriggerDream`) — after every coding session, if the project has ≥10 episodic entities and the project's last dream pass was >24h ago, spawn a detached `memesh dream run --max-llm-calls 2 --window-days 14` so the Insights tab populates without the user knowing the CLI exists. Per-project state in `~/.memesh/dream-history.json`; per-run logs under `~/.memesh/dream-runs/<project>-<ts>.log`.
+- **Heuristic KG relation backfill** (`src/core/kg-backfill.ts` + new `memesh kg backfill-relations` CLI) — non-LLM connector for orphan entities. Two rules: tag co-occurrence (`related-to` for entities sharing ≥2 topical tags after a strict allow-list filter) and project clustering (`belongs-to-project` linking orphan lessons / decisions / bug-fixes to the most recent release / feature in the same project). Conservative filter excludes auto-capture noise (session_end, auto_saved, commit, completed, lesson, etc.) to prevent cartesian explosion (the maintainer caught a 24-lesson × 23 = 276-edge case in pre-fix testing).
+- **Optional digest validator** (`src/core/digest-validator.ts` + `--validate` CLI flag on `memesh dream run`) — second LLM pass that cross-checks a proposed digest's claims against source observations. Returns `pass | soften | reject`. Soften writes the proposal with a `validation_warnings` array attached; reject skips the proposal entirely. Default off because it doubles per-proposal LLM cost. Validator's own LLM calls land in telemetry under flow=`digest_validator`.
+- **`summarizes` / `evidence_for` relations on accepted dream proposals** (`src/core/dreamer.ts:applyProposal`) — accepting a digest now creates one `summarizes` edge per source entity (digest → source). Patterns get `evidence_for` (source → pattern). Without these edges, accepted digests showed as graph orphans even though they conceptually summarize their sources.
+- **Dashboard roadmap tree + mindmap toggle** (`ProjectRoadmap.tsx`) — vertical timeline tree visualization (default) with a mindmap toggle for radial dendrogram view. Roadmap milestones now require a PM-anchorable entity (release / feature / decision / plan / architecture / bug_fix / lesson_learned / etc.) — date-range fallback labels for activity-only weeks have been retired.
+- **`created_at` timestamp on dashboard memory rows** — every row in Browse / Manage now displays its absolute timestamp in `YYYY-MM-DD HH:mm` form alongside the relative-time badge.
 
 ### Changed
-- **`recallEnhanced`** simplified to single-pass FTS5 keyword search + sqlite-vec embedding supplement, no per-call LLM round-trip. Verified at 95.40% R@5 / 97.60% R@10 / MRR 0.8899 on LongMemEval-S Mode A — identical to baseline at the per-question-type level (single-session-user 97.1%, multi-session 94.7%, single-session-preference 83.3%, temporal-reasoning 94.0%, knowledge-update 98.7%, single-session-assistant 100.0%). Mean per-query latency stays at ~18ms.
-- **README.md** + 4 locale parities (de, vi, th, pt) — the Smart Mode comparison table and `recall` tool description no longer advertise "LLM query expansion (~97% recall)". Smart Mode benefits now accurately listed: auto-tagging, failure analysis, consolidate, dream.
-- **`docs/api/API_REFERENCE.md`** + **`docs/ARCHITECTURE.md`** — recall contract and architecture diagram updated to reflect LLM-free hot path.
-- **Dashboard `settings.llmOptional.smartFeatures`** (11 locales) — replaced "semantic query expansion" mention with "consolidate + dream compression" so users configure an LLM for what it actually delivers.
+- **Recall is now strictly LLM-free.** The `query-expander` module has been retired (`src/core/query-expander.ts` and its 17 tests removed). `recallEnhanced` is single-pass FTS5 + sqlite-vec. Verified at 95.40% R@5 / 97.60% R@10 / MRR 0.8899 on LongMemEval-S Mode A — identical to the previously published baseline at every per-question-type breakdown. Mean per-query latency holds at ~18ms. The README's "FTS5 alone, no LLM on the hot path" pitch has been the documented production behaviour for several releases; the implementation now matches.
+- **Dashboard graph tab card overflow fixed** — type-filter row converted from `flexWrap: 'wrap'` to `flexWrap: 'nowrap'` + `overflowX: 'auto'` (a horizontal scroll strip) so the canvas is no longer pushed below the viewport on a 1440x900 screen. `CANVAS_HEIGHT` reduced 500 → 440. Canvas width measurement switched to `getBoundingClientRect` minus card horizontal padding (24px) so sub-pixel layout never produces a horizontal scrollbar on the card itself.
+- **Dashboard "dream" terminology replaced with user-friendly framing** — across 11 locales, "consolidate + dream compression" became "weekly recap + pattern detection". Same engineering work, less metaphorical naming.
+- **Dashboard `Insights` is now the default landing tab** for fresh users (was Lessons). Existing users' last-tab persistence still wins.
+- **CLI `memesh dream` summary no longer truncates error messages.** The previous `s.reason.split(':')[0]` collapsed `"LLM call failed: Anthropic API error: 401"` into `"LLM call failed: 1"` (a count) — actual error class invisible. Now the full reason is grouped and printed.
+- **Doc-sync for the query-expander retire** — README + 4 locale parities (de / vi / th / pt) + ARCHITECTURE.md + API_REFERENCE.md + dashboard i18n's `settings.llmOptional.smartFeatures` (11 locales) all updated. Smart Mode benefits now described as auto-tagging + failure analysis + consolidate + dream, not "LLM query expansion (~97% recall)".
 
-### Why
-LongMemEval-S Mode A measures memesh's FTS5+sqlite-vec recall at 95.40% R@5 within 1.2pp of vendor-reported reranker stacks at ~18ms/query. The LLM expander was paying ~500-10000ms per recall (LLM round-trip plus fallback) for an estimated 1-2pp ceiling lift, which lost decisively on UX given recall is the hot path for hooks (`pre-edit-recall.js`, `session-start.js`) and MCP agent recall calls — a 40-call coding session takes 0.7s on Mode A vs 6.7min on ollama with the expander. The retire makes the implementation match the README claim of "FTS5 alone (no LLM, no embeddings on the hot path)" that has held for several releases.
+### Fixed
+- **`/v1/config` GET response now masks `llmFallbacks[].apiKey`.** Previously an apiKey configured under a fallback entry leaked in plaintext to the dashboard SPA. Mirrors the existing `llm.apiKey` masking. Verified end-to-end with a fake key.
+- **`/v1/config` POST body schema accepts `llmFallbacks`.** Previously `ConfigBody.strip()` silently dropped the field, so the dashboard had no way to configure a fallback chain.
+- **PatternCard cosmetic fixes** (`InsightsTab.tsx`):
+  - busyId race on rapid accept clicks — replaced scalar `busyId` with `Set<number>` so two concurrent accepts don't stomp each other's button-disabled state.
+  - `digest_observations_preview === '(empty)'` no longer renders as `(empty)…`.
+  - Filter chips have `aria-pressed`, expand toggle has `aria-expanded` (P2 a11y).
+  - Status-badge color falls back to neutral gray on unknown future status values.
+  - Removed dead-code response-shape unwrap (`Array.isArray(data) ? data : ...`).
+
+### Security
+- API-key paths in fallback chains are masked on every dashboard config response (see Fixed).
 
 ### Tests
-- 907 vitest tests passing (was 924 with the 17 query-expander tests). 3 independent benchmark runs confirm zero R@5 regression.
+- 938 → 973 vitest tests (+35) across 62 files, +6k LOC. New test files: `tests/core/llm-client.test.ts` (failover decision tree, 23 cases), `tests/core/llm-telemetry.test.ts` (persistence + summarise, 4 cases), `tests/core/kg-backfill.test.ts` (heuristic contract, 19 cases), `tests/core/digest-validator.test.ts` (pass / soften / reject + sanitiser integration, 13 cases), `tests/hooks/dream-auto-trigger.test.ts` (gate + throttle + spawn, 4 cases). 3 independent LongMemEval-S Mode A regression runs confirm 95.40% R@5 unchanged.
+
+### Migration
+- A new `llm_telemetry` SQLite table is created on first `openDatabase()` after upgrade (idempotent `CREATE TABLE IF NOT EXISTS`). No data is migrated — telemetry starts fresh.
+- Existing `dream_proposals` rows are unaffected. New proposals from `applyProposal` now also write `summarizes` / `evidence_for` edges, but historical proposals' graph connectivity is unchanged. Run `memesh kg backfill-relations` to retroactively connect the high-signal long tail.
+- Dashboard build artifact (`dashboard/dist/index.html`) grows from 333 kB → 370 kB (gzip 84 kB → 90 kB) — the four new tabs / panels / cards landed inline.
+
+### Known limitations (will address in 4.2.1)
+- **`llm_telemetry` has no automatic retention.** Rows accumulate indefinitely. At ~5 LLM calls per session × 5 sessions per day × 365 days × ~2 attempts (counting fallback chains) ≈ 18k rows per active year — well under SQLite's working set and not a performance issue, but a `pruneTelemetry(olderThanDays)` helper + opt-in retention policy will land in 4.2.1. Manual purge today: `DELETE FROM llm_telemetry WHERE ts < datetime('now','-180 days');`.
+- **`memesh dream run --validate` is CLI-only.** The dashboard's accept/reject UI doesn't yet expose the validator's `--validate` flag. Users running dream exclusively from the dashboard get the original (no-validator) behaviour. Validator wiring on the HTTP path lands in 4.2.1.
+- **Pattern entities flow through the same dream propose/accept lifecycle as digests; the dashboard renders distinct cards for `pattern_emergent` proposals (PatternCard), but the `validation_warnings` array attached by a `soften` verdict has no dedicated UI surface yet** — it's persisted in `proposed_digest.validation_warnings` and visible via `memesh dream list --json` for now.
 
 ## [4.1.7] — 2026-05-09
 

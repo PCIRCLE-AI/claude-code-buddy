@@ -243,7 +243,11 @@ describe('dreamer', () => {
     const proposalRow = db.prepare("SELECT id FROM dream_proposals WHERE status='pending'").get() as { id: number };
 
     const result = applyProposal(db, proposalRow.id, kg);
-    expect(result.kind).toBe('pattern');
+    // Aligned with ProposalSummary.kind discriminator — earlier the
+    // apply path returned 'pattern' (abbreviated) which created
+    // contract drift with the listing path. Pinned at the canonical
+    // 'pattern_emergent' value as part of the v4.2.0 cleanup.
+    expect(result.kind).toBe('pattern_emergent');
     expect(result.sourcesLinked).toBe(4);
     expect(result.sourcesArchived).toBe(0);
 
