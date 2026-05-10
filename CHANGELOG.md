@@ -2,7 +2,7 @@
 
 All notable changes to MeMesh are documented here.
 
-## [Unreleased]
+## [4.2.0] — 2026-05-10
 
 A combined release covering recall-path simplification, cross-provider LLM failover, end-to-end LLM telemetry, the new Insights / Analytics dashboard surfaces, and KG-connectivity work. 16 commits, +6k LOC, +35 tests (938 → 973 passing). Highlights below grouped per Keep-a-Changelog convention.
 
