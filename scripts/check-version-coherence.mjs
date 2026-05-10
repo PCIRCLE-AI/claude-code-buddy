@@ -23,8 +23,14 @@
 
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+// Windows note: `new URL(import.meta.url).pathname` returns a leading-slash
+// drive path on Windows (e.g. "/D:/..."), which `path.resolve` then
+// concatenates with the cwd drive into a doubled "D:\D:\..." path.
+// `fileURLToPath` does the OS-correct conversion. Same family of issue
+// as `pathToFileURL` for the inverse direction.
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const errors = [];
 const findings = [];
 
