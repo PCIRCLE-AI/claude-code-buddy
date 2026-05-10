@@ -42,8 +42,10 @@ const TAB_STORAGE_KEY = 'memesh.tab';
 
 /**
  * Resolve the initial tab from (in order): URL ?tab=, localStorage,
- * default to Lessons. Deep-link wins so users can bookmark a specific
- * view; otherwise the last-used tab persists across reloads.
+ * default to Insights. Deep-link wins so users can bookmark a specific
+ * view; otherwise the last-used tab persists across reloads. Insights
+ * leads because surfacing what memesh auto-generated for the user is
+ * the dashboard's primary value once dream / auto-tagger run.
  */
 function initialTab(): Tab {
   try {

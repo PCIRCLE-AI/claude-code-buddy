@@ -672,7 +672,11 @@ export interface ApplyResult {
   digestEntityName: string;
   sourcesArchived: number;
   sourcesLinked: number;
-  kind: 'digest' | 'pattern';
+  // Aligned with `ProposedDigest.type` and `ProposalSummary.kind` —
+  // earlier versions abbreviated 'pattern_emergent' to 'pattern' here,
+  // creating a quiet drift between the apply path and the listing /
+  // dashboard rendering paths.
+  kind: 'digest' | 'pattern_emergent';
 }
 
 export function applyProposal(
@@ -765,7 +769,7 @@ export function applyProposal(
     digestEntityName: digest.name,
     sourcesArchived: out.archived,
     sourcesLinked: out.linked,
-    kind: isPattern ? 'pattern' : 'digest',
+    kind: isPattern ? 'pattern_emergent' : 'digest',
   };
 }
 
