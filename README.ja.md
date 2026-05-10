@@ -29,17 +29,52 @@
 
 ---
 
+## エビデンス — LongMemEval-S で 95.40% R@5
+
+MeMesh の検索エンジンは **FTS5 のみ**(LLM もホットパスのエンベディングも使用しない)で、公開されている [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) ベンチマーク(500 問、MIT ライセンス)で測定された結果です:
+
+| システム | R@5 | ソース |
+|---|---|---|
+| **MeMesh (Mode A, FTS5)** | **95.40%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| MemPalace | 96.6% | ベンダー自社申告 |
+| Supermemory | ~82% | ベンダー推定値 |
+| Zep | 63.8% | LongMemEval 論文 |
+| Mem0 | 49.0% | LongMemEval 論文 |
+
+再現コマンド、データセット SHA256、問題ごとの生結果、既知失敗の分析はすべて [`benchmarks/longmemeval/`](benchmarks/longmemeval/) にあります。約 10 秒で再実行可能です。
+
+---
+
 ## 60 秒で始める
 
-### ステップ 1: インストール
+### オプション A — Claude Code プラグイン(ワンライナーインストール)
+
+Claude Code を使っている場合、CLI 内から MeMesh をプラグインとしてインストールできます:
+
+```
+/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin install memesh@pcircle-memesh
+```
+
+Claude Code がフック、スキル、MCP サーバーを自動的にワイヤリングします。セッション内自動キャプチャ、プロアクティブリコール、Claude Code 会話内の `/memesh` スキル(remember / recall / learn / forget)、エージェント向け MCP ツールとしての `remember` / `recall` / `forget` / `learn` がすべて使えるようになります。CLI とローカルダッシュボードもグローバルインストールなしで完全にアクセス可能です — `npx @pcircle/memesh <command>` であらゆる CLI コマンドが実行でき、`npx @pcircle/memesh` で `localhost:3737` のダッシュボードが起動します。MCP サーバーは Anthropic の公式プラグイン(例: `context7`)と同じ `npx` ベースの起動パターンを使用するため、どの機能にも `npm install -g` は不要です。
+
+### オプション B — npm グローバル(オプションの最適化)
+
+シェルの `PATH` にバイナリを直接配置したい場合(`memesh`、`memesh-mcp` 等が任意のターミナルで `npx` ルックアップなしに動作)、または `memesh-mcp` を **Claude Code 以外の MCP クライアント**(Cursor、Cline、ターミナル専用フロー)に固定パスの stdio コマンドとして公開したい場合:
 
 ```bash
 npm install -g @pcircle/memesh
 ```
 
-### ステップ 1.5: MeMesh を Claude Code に接続(推奨、一度きり)
+> **初回インストールに関する注意(一度きり):**
+> - **ネイティブモジュール** — `better-sqlite3` と `sqlite-vec` は macOS (arm64/x64)、Linux (x64/arm64)、Windows x64 でビルド済みバイナリ経由でインストールされます。珍しいプラットフォームやビルド済みバイナリが失敗した場合は、動作する C/C++ ツールチェインが必要です。
+> - **エンベディングモデル** — ローカルエンベディングをトリガーする最初の呼び出し(例: セマンティックモードでの `recall`)で `Xenova/all-MiniLM-L6-v2`(~80 MB)が `~/.memesh/models/` にダウンロードされます。以降の呼び出しは即時です。デフォルトの検索パス(FTS5)はこのダウンロードを必要としません。
 
-`npm install -g` は CLI を PATH に配置し MCP サーバーを登録しますが、MeMesh の Claude Code セッションフックは自動的にはワイヤリング**されません**。フックがないと `memesh remember` / `recall` は手動で使えますが、**自動キャプチャループ**(セッション → レッスン → 次のセッションで自発的にリコール)はサイレントになります。
+### ステップ 1.5: MeMesh を Claude Code に接続(npm パスのみ)
+
+**オプション A**(`/plugin install memesh@pcircle-memesh`)でインストールした場合はこのステップをスキップしてください — Claude Code がプラグインフックを自動的にワイヤリングします。
+
+**オプション B**(`npm install -g`)でインストールした場合、CLI は PATH に配置され MCP サーバーは登録されますが、Claude Code セッションフックは自動的にはワイヤリングされません。フックがないと `memesh remember` / `recall` は手動で使えますが、**自動キャプチャループ**(セッション → レッスン → 次のセッションで自発的にリコール)はサイレントになります。
 
 ```bash
 memesh install-hooks         # ~/.claude/settings.json に memesh フックを追加
@@ -49,6 +84,14 @@ memesh doctor                # "Hooks wired into Claude Code" が PASS になる
 これらのフックは既存の `~/.claude/hooks/` カスタムフックと共存します — `install-hooks` は追加方式で書き込み、既存のものを上書きしません。削除する場合: `memesh uninstall-hooks`。
 
 ### ステップ 2: 決定を記録
+
+> 以下の bash 例は `memesh` が `PATH` 上にあること(オプション B)を前提にしています。オプション A(プラグイン専用)のユーザーには等価な 2 つのパスがあります: Claude Code 会話内で尋ねる(`/memesh` スキル + MCP ツールが同じフローをカバー)か、任意のシェルで `memesh` を `npx @pcircle/memesh` に置き換える — フラグは同じで、グローバルインストール不要です。
+
+```bash
+memesh remember "Use OAuth 2.0 with PKCE for the new auth"
+```
+
+または、後でフィルタリングしたい場合に安定した名前と型を付ける明示形式:
 
 ```bash
 memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
@@ -157,18 +200,39 @@ memesh export-schema \
 
 ## Claude Code での自動動作
 
-すべてを手動で記録する必要はありません。MeMesh に **6 つのフック** があり、作業中に知識を自動キャプチャ・注入します:
+すべてを手動で記録する必要はありません。MeMesh に **7 つのフック** があり、作業中に知識を自動キャプチャ・注入します:
 
 | タイミング | MeMesh の動作 |
 |---------|-----------|
-| **セッション開始時** | 最も関連の高いメモリ + 過去の教訓から得た予防警告 + エージェント編成バナーをロード |
+| **セッション開始時** | 最も関連の高いメモリ + 過去の教訓から得た予防警告をロード |
 | **ファイル編集前** | ファイルまたはプロジェクト関連のメモリをリコール (Claude がコード執筆前) |
-| **bash コマンド実行前** | 高い検証性を持つコマンド (テスト、ビルド、lint、マイグレーション、デプロイ、ベンチマーク) をバックグラウンドエージェントとして実行するよう促す |
+| **bash コマンド実行前** | (オプトイン)高い検証性を持つコマンド(テスト、ビルド、lint、マイグレーション、デプロイ、ベンチマーク)をバックグラウンドエージェントとして実行するよう Claude を促す |
+| **記憶を依頼したとき** | "remember this" / "guardar en memesh" / "sauvegarder dans memesh" / "記下來" の意図(5 言語)を検出し、Claude に memesh 使用をリマインド |
 | **`git commit` 後** | 変更内容と diff 統計を記録 |
 | **Claude 停止時** | 編集ファイル、修正エラー、失敗から自動生成した構造化教訓をキャプチャ |
 | **コンテキスト圧縮前** | コンテキスト限界で失われる前に知識を保存 |
 
 > **いつでも無効化可能:** `export MEMESH_AUTO_CAPTURE=false`
+
+---
+
+## 設定
+
+すべての設定は環境変数経由です。デフォルトはローカル専用・ネットワークなしで、何も設定せずに動作するシステムが手に入ります。
+
+| 変数 | デフォルト | 動作 |
+|---|---|---|
+| `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | SQLite データベースの保存場所を上書き。 |
+| `MEMESH_AUTO_CAPTURE` | `true` | 自動キャプチャフック(`Stop`、`PreCompact`)を完全に無効化。 |
+| `MEMESH_AUTO_DETECT_LLM` | 未設定 | `1` に設定すると、memesh がシェル環境変数(`OPENAI_API_KEY` 等)からプロバイダを自動検出し BYOK エンベディングに切り替えます。**新規インストールのデフォルトはローカル ONNX(384 次元)のみ** — クラウドエンベディングを使いたい場合のみオプトインしてください。このフラグが未設定なら、シェルに `OPENAI_API_KEY` があっても無視されます。 |
+| `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | 未設定 | `1` に設定すると、実験的なワーキングモデルプロトコル(CTO / Orchestrator / Agents のフレーミング)が有効になります。セッション開始バナー、Bash コマンドの促し、`verify_agent_work` テレメトリが追加されます。プロトコルの有効性は計測中であり、まだ証明されていません — 参加したい場合のみオプトイン。**デフォルトは OFF**: コアメモリ機能はこのフラグなしで動作します。 |
+| `MEMESH_AUTO_UPDATE` | `off` | 自動更新ポリシー。`off`(デフォルト)は自動更新を行いません。`patch` は `X.Y.Z → X.Y.Z+N` を許可、`minor` は `X.Y.Z → X.Y+1.0` を追加、`major` は任意のバンプを許可。許可されている場合、デタッチ実行された `npm install -g` がセッション終了時(Stop フック)に発火するため作業をブロックしません — 結果は `~/.memesh/auto-update.log` に記録されます。`~/.memesh/config.json` の `autoUpdate` でも設定可能(env が優先)。インストール済みバージョンがメンテナーによって非推奨化された場合(セキュリティアドバイザリ)、`off` でも `patch` は強制的に許可されます — minor / major バンプはサイレントな挙動変化を避けるため手動のままです。 |
+| `OPENAI_API_KEY` | 未設定 | OpenAI のキー。`MEMESH_AUTO_DETECT_LLM=1` のとき、または明示的にプロバイダを設定したときのみ使用。 |
+| `OLLAMA_HOST` | `http://localhost:11434` | ローカル Ollama プロバイダ使用時の Ollama エンドポイントを上書き。 |
+
+`memesh doctor` は解決された設定を表示するため、何が有効かを確認できます。
+
+npm がインストール済みバージョンを非推奨としてフラグした場合(典型的にはセキュリティアドバイザリ)、次のセッション開始時に強い `⚠️ MeMesh <ver> is DEPRECATED` バナーが先頭に表示され、`memesh update-status` がアップグレードまで同じ行を表示し続けます。チェックは `~/.memesh/update-check.<version>.json` にキャッシュされ、一時的なネットワーク障害で警告が薄まらないようになっています。
 
 ---
 
@@ -190,7 +254,7 @@ memesh export-schema \
 
 ## スマート機能
 
-**🧠 スマート検索** — 「login security」で検索すると「OAuth PKCE」についてのメモリが見つかります。設定した LLM を使いクエリを関連用語で拡張します。
+**🧠 スマート検索** — 「login security」で検索すると「OAuth PKCE」についてのメモリが見つかります。MeMesh は設定された LLM を使い、クエリを関連用語で拡張します。
 
 **📊 スコア付きランキング** — 関連性 (30%) + 新しさ (25%) + 頻度 (15%) + 信頼度 (15%) + リコール影響度 (10%) + 時間的有効性 (5%) でランク付け。
 
@@ -218,7 +282,7 @@ memesh export-schema \
 
 ## スマートモードをアンロック (オプション)
 
-MeMesh はデフォルトでオフライン動作します。クエリ拡張、より賢い抽出、圧縮が必要な場合のみ LLM API キーを追加:
+MeMesh はデフォルトでオフライン動作します — リコールは厳密に LLM フリーのまま(箱出し状態で LongMemEval-S 95.40% R@5)。LLM API キーを追加するのは、その上に LLM 拡張の分析フローを重ねたい場合のみです: より賢いセッション抽出、新規メモリの自動タグ付け、失敗からのレッスン生成、`consolidate` / `dream` 圧縮:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -233,10 +297,12 @@ memesh  # ダッシュボード → Settings タブを開く
 
 | | レベル 0 (デフォルト) | レベル 1 (スマートモード) |
 |---|---|---|
-| **検索** | FTS5 キーワードマッチング | + LLM クエリ拡張 (~97% リコール率) |
+| **検索** | FTS5 + sqlite-vec、95.40% R@5(~18ms/クエリ) | 変更なし — リコールはどのレベルでも LLM フリー |
 | **自動キャプチャ** | ルールベースパターン | + LLM が判断・教訓を抽出 |
-| **圧縮** | 利用不可 | `consolidate` で冗長メモリを圧縮 |
-| **コスト** | 無料、API キー不要 | 検索あたり ~$0.0001 (Haiku) |
+| **自動タグ付け** | 手動タグのみ | + LLM が新規メモリにタグを生成 |
+| **失敗分析** | 利用不可 | + LLM がセッションエラーを構造化教訓に変換 |
+| **圧縮** | 利用不可 | `consolidate` + `dream` が冗長メモリを圧縮 |
+| **コスト** | 無料、API キー不要 | 分析呼び出しあたり ~$0.0001(Haiku) |
 
 ---
 
@@ -245,7 +311,7 @@ memesh  # ダッシュボード → Settings タブを開く
 | ツール | 機能 |
 |------|------|
 | `remember` | 観察、関係、タグ付きで知識を保存 |
-| `recall` | 多要素スコアリングと LLM クエリ拡張のスマート検索 |
+| `recall` | FTS5 + sqlite-vec 検索、多要素スコアリング(関連性、新しさ、頻度、信頼度、時間的有効性) — ホットパスに LLM なし |
 | `forget` | ソフトアーカイブ (削除されない) または特定の観察を削除 |
 | `consolidate` | LLM が冗長メモリを圧縮 |
 | `export` | メモリを JSON でシェア (プロジェクト・チーム間) |
