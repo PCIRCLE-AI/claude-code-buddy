@@ -52,6 +52,27 @@ const SYSTEM_TAG_LITERALS = new Set([
 // YYYY-MM-DD pattern (date stamps that snuck through some tag pipelines)
 const DATE_TAG_RE = /^\d{4}-\d{2}-\d{2}/;
 
+const NAME_STOPWORDS = new Set([
+  'the','and','for','with','from','this','that','are','was','has',
+  'fix','add','get','set','use','via','not','new','old','update',
+  'into','onto','when','then','also','both','each','more','about',
+]);
+
+export function tokenizeName(name: string): Set<string> {
+  return new Set(
+    name.toLowerCase()
+        .split(/[\W_]+/)
+        .filter((t) => t.length >= 3 && !NAME_STOPWORDS.has(t))
+  );
+}
+
+export function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let intersection = 0;
+  for (const t of a) { if (b.has(t)) intersection++; }
+  return intersection / (a.size + b.size - intersection);
+}
+
 /**
  * Whether a tag carries enough topical signal to gate co-occurrence.
  * Conservative on purpose — false positives become bogus edges that
@@ -80,7 +101,7 @@ export interface RelationCandidate {
   fromName: string;
   toEntityId: number;
   toName: string;
-  relationType: 'related-to' | 'belongs-to-project';
+  relationType: 'related-to' | 'belongs-to-project' | 'co-created' | 'shares-name-tokens';
   /** Why we proposed this edge — for the CLI dry-run preview. */
   reason: string;
   /** Strength signal — number of shared topical tags or recency in days. */
@@ -98,13 +119,28 @@ export interface BackfillOptions {
   includeArchived?: boolean;
   /** When true, only propose; never write. Same shape used by both modes. */
   dryRun?: boolean;
+  /** Rule 3: link high-signal orphans co-created in the same session. Default false. */
+  includeSessionCooccurrence?: boolean;
+  /** Min signal_score for Rule 3 participants. Default 0.6. */
+  minSessionSignalScore?: number;
+  /** Rule 4: link orphans sharing ≥N name content tokens. Default false. */
+  includeNameTokenSimilarity?: boolean;
+  /** Min Jaccard for Rule 4. Default 0.25. */
+  minNameJaccard?: number;
+  /** Alt gate for Rule 4: ≥N shared tokens also qualifies. Default 2. */
+  minSharedNameTokens?: number;
 }
 
 export interface BackfillResult {
   candidatesProposed: number;
   edgesWritten: number;
   dryRun: boolean;
-  byRule: { tagCooccurrence: number; projectClustering: number };
+  byRule: {
+    tagCooccurrence: number;
+    projectClustering: number;
+    sessionCooccurrence: number;
+    nameTokenSimilarity: number;
+  };
 }
 
 interface OrphanRow {
@@ -133,7 +169,7 @@ export function backfillRelations(opts: BackfillOptions = {}, db?: Database.Data
     candidatesProposed: candidates.length,
     edgesWritten: 0,
     dryRun: !!opts.dryRun,
-    byRule: { tagCooccurrence: 0, projectClustering: 0 },
+    byRule: { tagCooccurrence: 0, projectClustering: 0, sessionCooccurrence: 0, nameTokenSimilarity: 0 },
   };
 
   if (opts.dryRun) return result;
@@ -151,6 +187,8 @@ export function backfillRelations(opts: BackfillOptions = {}, db?: Database.Data
         result.edgesWritten++;
         if (c.relationType === 'related-to') result.byRule.tagCooccurrence++;
         else if (c.relationType === 'belongs-to-project') result.byRule.projectClustering++;
+        else if (c.relationType === 'co-created') result.byRule.sessionCooccurrence++;
+        else if (c.relationType === 'shares-name-tokens') result.byRule.nameTokenSimilarity++;
       }
     }
   });
@@ -211,12 +249,13 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Datab
   for (const o of orphans) orphanById.set(o.id, o);
 
   // Build a lookup of all entity name+type for the from/to fields.
-  // Use the alias `e` consistently so `${statusFilter}` (which is
-  // `AND e.status = 'active'`) resolves correctly.
+  // Include metadata so Rules 3+4 can read signal_score without a
+  // second query. Use the alias `e` consistently so `${statusFilter}`
+  // (`AND e.status = 'active'`) resolves correctly.
   const allEntities = conn.prepare(
-    `SELECT e.id, e.name, e.type FROM entities e WHERE 1=1 ${statusFilter}`
-  ).all() as Array<{ id: number; name: string; type: string }>;
-  const entityById = new Map<number, { id: number; name: string; type: string }>();
+    `SELECT e.id, e.name, e.type, e.metadata FROM entities e WHERE 1=1 ${statusFilter}`
+  ).all() as Array<{ id: number; name: string; type: string; metadata: string | null }>;
+  const entityById = new Map<number, { id: number; name: string; type: string; metadata: string | null }>();
   for (const e of allEntities) entityById.set(e.id, e);
 
   // ---- Rule 1: Tag co-occurrence ----
@@ -318,6 +357,130 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Datab
       reason: `same-project anchor (${anchor.type})`,
       strength: 1,
     });
+  }
+
+  // ---- Rule 3: Session co-occurrence ----
+  // High-signal orphans that share a session: tag are co-created —
+  // they emerged from the same conversation and likely share context.
+  if (opts.includeSessionCooccurrence) {
+    const minScore = opts.minSessionSignalScore ?? 0.6;
+    const sessionEligibleTypes = new Set([
+      'lesson_learned', 'lesson', 'decision', 'architecture', 'architecture_decision',
+      'plan', 'feature', 'bug_fix', 'pattern', 'best_practice', 'release',
+    ]);
+
+    // Parse signal_score helper — missing score defaults to include (1.0).
+    const getSignalScore = (meta: string | null): number => {
+      try {
+        const parsed = JSON.parse(meta ?? '{}');
+        const s = parsed?.signal_score;
+        return typeof s === 'number' ? s : 1.0;
+      } catch { return 1.0; }
+    };
+
+    // Load session: tags for all entities (not just orphans — peers may have relations).
+    const sessionTagRows = conn.prepare(`
+      SELECT t.entity_id, t.tag
+      FROM tags t
+      JOIN entities e ON e.id = t.entity_id
+      WHERE 1=1 ${statusFilter}
+        AND t.tag LIKE 'session:%'
+    `).all() as TagRow[];
+
+    // Group eligible entity ids by session: tag.
+    const entitiesBySession = new Map<string, number[]>();
+    for (const row of sessionTagRows) {
+      const ent = entityById.get(row.entity_id);
+      if (!ent || !sessionEligibleTypes.has(ent.type)) continue;
+      if (getSignalScore(ent.metadata) < minScore) continue;
+      let list = entitiesBySession.get(row.tag);
+      if (!list) { list = []; entitiesBySession.set(row.tag, list); }
+      list.push(row.entity_id);
+    }
+
+    // Build session: tag list per orphan for fast lookup.
+    const sessionTagsByOrphan = new Map<number, string[]>();
+    for (const row of sessionTagRows) {
+      if (!orphanById.has(row.entity_id)) continue;
+      let list = sessionTagsByOrphan.get(row.entity_id);
+      if (!list) { list = []; sessionTagsByOrphan.set(row.entity_id, list); }
+      list.push(row.tag);
+    }
+
+    for (const orphan of orphans) {
+      if (!sessionEligibleTypes.has(orphan.type)) continue;
+      if (getSignalScore(orphan.metadata) < minScore) continue;
+
+      const sessionTags = sessionTagsByOrphan.get(orphan.id) ?? [];
+      let added = 0;
+
+      for (const stag of sessionTags) {
+        const peers = (entitiesBySession.get(stag) ?? []).filter((id) => id !== orphan.id);
+        for (const peerId of peers) {
+          if (added >= maxPerSource) break;
+          const peer = entityById.get(peerId);
+          if (!peer) continue;
+          candidates.push({
+            fromEntityId: orphan.id,
+            fromName: orphan.name,
+            toEntityId: peer.id,
+            toName: peer.name,
+            relationType: 'co-created',
+            reason: `co-created in same session (${stag})`,
+            strength: 2,
+          });
+          added++;
+        }
+        if (added >= maxPerSource) break;
+      }
+    }
+  }
+
+  // ---- Rule 4: Name token similarity ----
+  // Orphans whose names share ≥ minSharedNameTokens content tokens
+  // (or Jaccard ≥ minNameJaccard) are related in subject matter.
+  if (opts.includeNameTokenSimilarity) {
+    const minJaccard = opts.minNameJaccard ?? 0.25;
+    const minSharedTokens = opts.minSharedNameTokens ?? 2;
+
+    // Pre-compute token sets for all active entities.
+    const tokensByEntity = new Map<number, Set<string>>();
+    for (const e of allEntities) {
+      const tokens = tokenizeName(e.name);
+      if (tokens.size >= 2) tokensByEntity.set(e.id, tokens);
+    }
+
+    for (const orphan of orphans) {
+      const orphanTokens = tokensByEntity.get(orphan.id);
+      if (!orphanTokens) continue;
+
+      const scored: Array<{ id: number; shared: number; jaccard: number }> = [];
+      for (const [candidateId, candidateTokens] of tokensByEntity) {
+        if (candidateId === orphan.id) continue;
+        let shared = 0;
+        for (const t of orphanTokens) { if (candidateTokens.has(t)) shared++; }
+        if (shared === 0) continue;
+        const jaccard = jaccardSimilarity(orphanTokens, candidateTokens);
+        if (shared >= minSharedTokens || jaccard >= minJaccard) {
+          scored.push({ id: candidateId, shared, jaccard });
+        }
+      }
+
+      scored.sort((a, b) => b.shared - a.shared || b.jaccard - a.jaccard);
+      for (const { id: peerId, shared, jaccard } of scored.slice(0, maxPerSource)) {
+        const peer = entityById.get(peerId);
+        if (!peer) continue;
+        candidates.push({
+          fromEntityId: orphan.id,
+          fromName: orphan.name,
+          toEntityId: peer.id,
+          toName: peer.name,
+          relationType: 'shares-name-tokens',
+          reason: `${shared} shared name token(s), Jaccard=${jaccard.toFixed(2)}`,
+          strength: shared,
+        });
+      }
+    }
   }
 
   return candidates;

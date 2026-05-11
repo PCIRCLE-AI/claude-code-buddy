@@ -691,16 +691,24 @@ kgCmd
   .option('--max-per-source <n>', 'Max edges per orphan (default 3)', (v) => parseInt(v, 10), 3)
   .option('--min-shared-tags <n>', 'Min shared topical tags to gate co-occurrence rule (default 2)', (v) => parseInt(v, 10), 2)
   .option('--include-archived', 'Also process archived entities')
+  .option('--session-cooccurrence', 'Rule 3: link high-signal orphans co-created in the same session')
+  .option('--name-tokens', 'Rule 4: link orphans sharing ≥2 name content tokens')
+  .option('--min-jaccard <n>', 'Jaccard threshold for name similarity (default 0.25)', parseFloat)
+  .option('--all-rules', 'Enable all heuristic rules (Rules 1–4)')
   .option('--json', 'Output as JSON')
   .action(async (opts) => {
     await withDatabase(async () => {
       const { backfillRelations, proposeBackfillCandidates } = await import('../../core/kg-backfill.js');
+      const allRules = !!opts.allRules;
       const baseOpts = {
         project: opts.project,
         maxEdgesPerSource: opts.maxPerSource,
         minSharedTags: opts.minSharedTags,
         includeArchived: !!opts.includeArchived,
         dryRun: !!opts.dryRun,
+        includeSessionCooccurrence: allRules || !!opts.sessionCooccurrence,
+        includeNameTokenSimilarity: allRules || !!opts.nameTokens,
+        minNameJaccard: opts.minJaccard,
       };
       if (opts.dryRun) {
         const candidates = proposeBackfillCandidates(baseOpts);
@@ -731,6 +739,8 @@ kgCmd
       console.log(`Proposed ${result.candidatesProposed} relations, wrote ${result.edgesWritten} new edges.`);
       console.log(`  tag co-occurrence: ${result.byRule.tagCooccurrence}`);
       console.log(`  project clustering: ${result.byRule.projectClustering}`);
+      console.log(`  session co-occurrence: ${result.byRule.sessionCooccurrence}`);
+      console.log(`  name token similarity: ${result.byRule.nameTokenSimilarity}`);
       if (result.candidatesProposed > result.edgesWritten) {
         console.log(`  (${result.candidatesProposed - result.edgesWritten} candidates were already-existing edges; INSERT OR IGNORE skipped them.)`);
       }

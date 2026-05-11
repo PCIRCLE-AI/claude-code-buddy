@@ -5,6 +5,8 @@ import path from 'path';
 import os from 'os';
 import {
   isTopicalTag,
+  tokenizeName,
+  jaccardSimilarity,
   proposeBackfillCandidates,
   backfillRelations,
 } from '../../src/core/kg-backfill.js';
@@ -398,5 +400,172 @@ describe('kg-backfill integration', () => {
     // Rule 1 must propose nothing — all shared tags are system-literal noise
     const tagCooc = candidates.filter(c => c.relationType === 'related-to');
     expect(tagCooc).toHaveLength(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Rule 3: Session co-occurrence
+  // ---------------------------------------------------------------------------
+
+  function setMetadata(entityId: number, meta: Record<string, unknown>): void {
+    db.prepare("UPDATE entities SET metadata = ? WHERE id = ?").run(JSON.stringify(meta), entityId);
+  }
+
+  it('A1: links two high-signal orphans sharing a session: tag (co-created)', () => {
+    const idA = insertEntity('lesson from auth work', 'lesson_learned');
+    insertTag(idA, 'session:abc123');
+    setMetadata(idA, { signal_score: 1.0 });
+
+    const idB = insertEntity('decision on auth approach', 'decision');
+    insertTag(idB, 'session:abc123');
+    setMetadata(idB, { signal_score: 0.9 });
+
+    const result = backfillRelations({ includeSessionCooccurrence: true, dryRun: false });
+    expect(result.byRule.sessionCooccurrence).toBeGreaterThanOrEqual(1);
+
+    const rel = db.prepare(
+      "SELECT * FROM relations WHERE from_entity_id=? AND to_entity_id=? AND relation_type='co-created'"
+    ).get(idA, idB);
+    expect(rel).toBeTruthy();
+  });
+
+  it('A2: excludes low-signal entities (signal_score < 0.6) from session co-occurrence', () => {
+    const idC = insertEntity('Duration: 0s noise', 'session_keypoint');
+    insertTag(idC, 'session:xyz789');
+    setMetadata(idC, { signal_score: 0.0 });
+
+    const idD = insertEntity('real decision', 'decision');
+    insertTag(idD, 'session:xyz789');
+    setMetadata(idD, { signal_score: 0.9 });
+
+    const result = backfillRelations({ includeSessionCooccurrence: true, dryRun: false });
+    // session_keypoint is not in sessionEligibleTypes; also score=0 < 0.6
+    expect(result.byRule.sessionCooccurrence).toBe(0);
+  });
+
+  it('A3: dry-run proposes co-created edges without writing', () => {
+    const idE = insertEntity('lesson X', 'lesson_learned');
+    insertTag(idE, 'session:s1');
+    setMetadata(idE, { signal_score: 1.0 });
+
+    const idF = insertEntity('decision Y', 'decision');
+    insertTag(idF, 'session:s1');
+    setMetadata(idF, { signal_score: 0.9 });
+
+    const before = countRelations();
+    const result = backfillRelations({ includeSessionCooccurrence: true, dryRun: true });
+    const after = countRelations();
+
+    expect(result.candidatesProposed).toBeGreaterThanOrEqual(1);
+    expect(result.edgesWritten).toBe(0);
+    expect(after).toBe(before);
+  });
+
+  it('A6: maxEdgesPerSource caps co-created edges from Rule 3', () => {
+    const anchor = insertEntity('big lesson', 'lesson_learned');
+    insertTag(anchor, 'session:s2');
+    setMetadata(anchor, { signal_score: 1.0 });
+
+    for (let i = 0; i < 5; i++) {
+      const id = insertEntity(`decision ${i}`, 'decision');
+      insertTag(id, 'session:s2');
+      setMetadata(id, { signal_score: 0.9 });
+    }
+
+    backfillRelations({ includeSessionCooccurrence: true, maxEdgesPerSource: 2, dryRun: false });
+
+    const edges = db.prepare(
+      "SELECT COUNT(*) AS n FROM relations WHERE from_entity_id=? AND relation_type='co-created'"
+    ).get(anchor) as { n: number };
+    expect(edges.n).toBeLessThanOrEqual(2);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Rule 4: Name token similarity
+  // ---------------------------------------------------------------------------
+
+  it('A4: links orphans sharing ≥2 content name tokens (shares-name-tokens)', () => {
+    const idG = insertEntity('memesh auth flow refactor', 'feature');
+    setMetadata(idG, { signal_score: 0.65 });
+
+    const idH = insertEntity('auth flow session handling', 'bug_fix');
+    setMetadata(idH, { signal_score: 0.7 });
+
+    const result = backfillRelations({ includeNameTokenSimilarity: true, dryRun: false });
+    expect(result.byRule.nameTokenSimilarity).toBeGreaterThanOrEqual(1);
+  });
+
+  it('A5: does NOT link orphans with only stopword name overlap', () => {
+    // After removing stopwords: {auth,bug} vs {login,issue} — 0 shared tokens
+    insertEntity('fix the auth bug', 'bug_fix');
+    insertEntity('fix the login issue', 'bug_fix');
+
+    const result = backfillRelations({ includeNameTokenSimilarity: true, dryRun: false });
+    expect(result.byRule.nameTokenSimilarity).toBe(0);
+  });
+
+  it('A4-jaccard: qualifies via Jaccard ≥ 0.25 even when shared token count < minSharedNameTokens', () => {
+    // tokens: {oauth,implementation} vs {oauth,module} → intersection=1, union=3 → Jaccard=0.33
+    const idI = insertEntity('oauth implementation', 'feature');
+    setMetadata(idI, { signal_score: 0.65 });
+
+    const idJ = insertEntity('oauth module', 'architecture');
+    setMetadata(idJ, { signal_score: 0.9 });
+
+    const result = backfillRelations({
+      includeNameTokenSimilarity: true,
+      minSharedNameTokens: 2,   // shared=1 < 2, but Jaccard=0.33 ≥ 0.25 still qualifies
+      minNameJaccard: 0.25,
+      dryRun: false,
+    });
+    expect(result.byRule.nameTokenSimilarity).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task A2: Pure-function unit tests for tokenizeName + jaccardSimilarity
+// ---------------------------------------------------------------------------
+
+describe('tokenizeName — content token extraction', () => {
+  it('lowercases and splits on non-word chars, removes stopwords', () => {
+    // 'fix' is a stopword; 'auth' and 'flow' are content tokens
+    expect(tokenizeName('Auth-Flow Fix')).toEqual(new Set(['auth', 'flow']));
+  });
+
+  it('filters tokens shorter than 3 chars', () => {
+    expect(tokenizeName('io vs go')).toEqual(new Set([]));
+  });
+
+  it('removes stopwords', () => {
+    expect(tokenizeName('fix the auth bug')).toEqual(new Set(['auth', 'bug']));
+  });
+
+  it('handles empty string', () => {
+    expect(tokenizeName('')).toEqual(new Set());
+  });
+
+  it('splits on underscores (non-word boundary)', () => {
+    expect(tokenizeName('session_auth_handler')).toEqual(new Set(['session', 'auth', 'handler']));
+  });
+});
+
+describe('jaccardSimilarity', () => {
+  it('returns 1.0 for identical sets', () => {
+    expect(jaccardSimilarity(new Set(['a', 'b']), new Set(['a', 'b']))).toBe(1.0);
+  });
+
+  it('returns 0.0 for disjoint sets', () => {
+    expect(jaccardSimilarity(new Set(['a']), new Set(['b']))).toBe(0.0);
+  });
+
+  it('computes partial overlap correctly', () => {
+    // intersection={auth,flow}, union={auth,flow,memesh,session} → 2/4 = 0.5
+    const a = new Set(['auth', 'flow', 'memesh']);
+    const b = new Set(['auth', 'flow', 'session']);
+    expect(jaccardSimilarity(a, b)).toBeCloseTo(0.5);
+  });
+
+  it('returns 0.0 when either set is empty', () => {
+    expect(jaccardSimilarity(new Set(), new Set(['a']))).toBe(0.0);
+    expect(jaccardSimilarity(new Set(['a']), new Set())).toBe(0.0);
   });
 });
