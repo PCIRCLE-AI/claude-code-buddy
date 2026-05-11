@@ -1,0 +1,76 @@
+{
+  "schema": "memesh.skills-manifest/v1",
+  "generated_at": "2026-05-11T06:30:37.315Z",
+  "entries": [
+    {
+      "path": ".claude-plugin/plugin.json",
+      "sha256": "d3009a03016f1a724f7cbc7bd1083df017cf7e3e42a268a38093d26dd777b5ab",
+      "bytes": 441
+    },
+    {
+      "path": ".mcp.json",
+      "sha256": "51a8f054a6388ae093597ffde4d09acb4693de5f026fc1156a49647dca60d12f",
+      "bytes": 132
+    },
+    {
+      "path": "hooks/hooks.json",
+      "sha256": "ea54bdce8d52e14acdc3e5ddf3c7f241e6cfb45952ca720bbd4618d5bf94a241",
+      "bytes": 1767
+    },
+    {
+      "path": "scripts/hooks/_shared.js",
+      "sha256": "ee0e190f0c3a5b835a444c35f42f4cdd1d2217a6ebba2303d50212b2077a5287",
+      "bytes": 26463
+    },
+    {
+      "path": "scripts/hooks/post-commit.js",
+      "sha256": "0739155a05e54c4fd6056a4fff4a95878e1be631382f517c325e7f66990e7ef3",
+      "bytes": 6590
+    },
+    {
+      "path": "scripts/hooks/pre-bash-orchestration-nudge.js",
+      "sha256": "d8dac333d31634b91109ee12a5ff00ea14fb1c7fd12609cdab5b5d244cb6d40a",
+      "bytes": 6458
+    },
+    {
+      "path": "scripts/hooks/pre-compact.js",
+      "sha256": "31609cb91443e69da2509a38a62ea8597ce16a15ca19bc40b0de0c5b9e1d4bf1",
+      "bytes": 5469
+    },
+    {
+      "path": "scripts/hooks/pre-edit-recall.js",
+      "sha256": "b101eef853c3ed6deab317ed0b4f6cd81c024e6b54d60fda82a6c6468c166b0b",
+      "bytes": 6718
+    },
+    {
+      "path": "scripts/hooks/session-start.js",
+      "sha256": "2e6114f0260d494408f5332500536f2f08b9c12012b241e468aa0bba149b8f96",
+      "bytes": 31390
+    },
+    {
+      "path": "scripts/hooks/session-summary.js",
+      "sha256": "013f2aaefc323c100ab325407842a70d12fb4a5eef885c7d8e2eb4d33dd175ad",
+      "bytes": 32954
+    },
+    {
+      "path": "scripts/hooks/user-prompt-intent.js",
+      "sha256": "75143339c275ca3ec034d04454bd1e02281dcb892f4cb1515508a912466d699b",
+      "bytes": 7457
+    },
+    {
+      "path": "skills/agentic-orchestration/SKILL.md",
+      "sha256": "d06d0c3e1fb03cee675aff26b4b26f24111b9e9f6be9ccd4e1945ef454314f1c",
+      "bytes": 18202
+    },
+    {
+      "path": "skills/memesh-review/SKILL.md",
+      "sha256": "ed58c6dc0131ab332ac3c5bb7963476f169d723eee2587621328415402a36f01",
+      "bytes": 3588
+    },
+    {
+      "path": "skills/memesh/SKILL.md",
+      "sha256": "3e594f4db08ad51e8ff74426ce909ab9eda6fa13ee1a2b21ec3c7f29b7dd1a07",
+      "bytes": 6546
+    }
+  ]
+}

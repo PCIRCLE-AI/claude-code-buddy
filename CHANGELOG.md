@@ -2,6 +2,22 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.3.0] — 2026-05-11
+
+KG connectivity + dashboard PM filter release. Reduces entity orphan rate from 89.2% → 11.7% on a real-world knowledge base using two new non-LLM heuristics; adds milestone signal filtering to the Roadmap view; and introduces PM-framed analytics. +26 tests (984 → 1010 passing).
+
+### Added
+- **KG backfill Rule 3 — session co-occurrence** (`src/core/kg-backfill.ts`) — high-signal orphan entities sharing a `session:*` tag get a `co-created` relation. Gate: `signal_score ≥ 0.6` (reads entity `metadata`). Eligible types: lesson_learned, decision, architecture, feature, bug_fix, pattern, etc. Exposed via `memesh kg backfill-relations --session-cooccurrence`.
+- **KG backfill Rule 4 — name-token similarity** (`src/core/kg-backfill.ts`) — orphans whose tokenized names share ≥ 3 content tokens OR Jaccard similarity ≥ 0.50 get a `shares-name-tokens` relation. `tokenizeName()` and `jaccardSimilarity()` exported as pure functions. Stopword list extended with generic qualifiers, process/lifecycle terms, and month abbreviations to prevent cartesian explosion (same class of problem as the "completed" tag bug in Rule 1). Exposed via `memesh kg backfill-relations --name-tokens [--min-jaccard N]`.
+- **`memesh kg backfill-relations --all-rules`** — convenience flag enabling Rules 1–4 in a single pass.
+- **PM Analytics endpoint** (`GET /v1/analytics/pm?window=N`) — pure-SQL aggregation: decision velocity (decisions/week, releases/month), staleness (stale plans ≥30d, open decisions ≥14d), connectedness (orphan rate, total relations, active entities). Zero LLM dependency.
+- **Dashboard PM Analytics panel** (`dashboard/src/components/PmAnalyticsPanel.tsx`) — 4-stat grid surfacing the PM metrics in the Analytics tab. Color-coded orphan rate (green/amber/red). Fails silently if the endpoint is unavailable.
+- **Dashboard milestone signal filter** (`dashboard/src/components/ProjectRoadmap.tsx`) — Roadmap milestone rail now filters out `feature`-type milestones with `signal_score < 0.65`, reducing noise from low-confidence auto-captured entries. Releases are always shown regardless of score. A "(N low-signal hidden)" badge appears when entries are filtered.
+- **Integration test** (`tests/core/kg-backfill-integration.test.ts`) — seeds 46 entities across sessions, name-token clusters, and noise types; verifies orphan rate < 50% after all-rules backfill.
+
+### Fixed
+- **`doctor.test.ts` non-hermetic** — "reports PASS_WITH_CONCERNS" test was reading the real `~/.memesh/install-hooks.json`, which could have a stale `plugin_root` → `hook-wiring` returned `fail`. Test now sets `MEMESH_DIR` to an isolated temp dir like the other hermetic doctor tests.
+
 ## [4.2.0] — 2026-05-10
 
 A combined release covering recall-path simplification, cross-provider LLM failover, end-to-end LLM telemetry, the new Insights / Analytics dashboard surfaces, KG-connectivity work, and a clean-slate quality bar (0 lint warnings, 0 executable `any` in src/). +6k LOC, +46 tests (938 → 984 passing). Highlights below grouped per Keep-a-Changelog convention.
