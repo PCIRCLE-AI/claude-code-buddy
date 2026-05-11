@@ -693,7 +693,7 @@ kgCmd
   .option('--include-archived', 'Also process archived entities')
   .option('--session-cooccurrence', 'Rule 3: link high-signal orphans co-created in the same session')
   .option('--name-tokens', 'Rule 4: link orphans sharing ≥2 name content tokens')
-  .option('--min-jaccard <n>', 'Jaccard threshold for name similarity (default 0.25)', parseFloat)
+  .option('--min-jaccard <n>', 'Jaccard threshold for name similarity (default 0.50)', parseFloat)
   .option('--all-rules', 'Enable all heuristic rules (Rules 1–4)')
   .option('--json', 'Output as JSON')
   .action(async (opts) => {

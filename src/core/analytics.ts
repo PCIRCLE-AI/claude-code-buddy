@@ -395,22 +395,21 @@ export function computePmAnalytics(
   db: Database.Database,
   windowDays = 30,
 ): PmAnalyticsResult {
-  const since = new Date(Date.now() - windowDays * 86400 * 1000).toISOString();
-  const staleThreshold = new Date(Date.now() - 30 * 86400 * 1000).toISOString();
-
   const decisionsInWindow = (db.prepare(
-    `SELECT COUNT(*) AS n FROM entities WHERE type='decision' AND status='active' AND created_at >= ?`,
-  ).get(since) as { n: number }).n;
+    `SELECT COUNT(*) AS n FROM entities WHERE type='decision' AND status='active'
+     AND created_at >= datetime('now', '-' || ? || ' days')`,
+  ).get(windowDays) as { n: number }).n;
 
   const releasesInWindow = (db.prepare(
-    `SELECT COUNT(*) AS n FROM entities WHERE type='release' AND status='active' AND created_at >= ?`,
-  ).get(since) as { n: number }).n;
+    `SELECT COUNT(*) AS n FROM entities WHERE type='release' AND status='active'
+     AND created_at >= datetime('now', '-' || ? || ' days')`,
+  ).get(windowDays) as { n: number }).n;
 
   const stalePlans = (db.prepare(
     `SELECT COUNT(*) AS n FROM entities
      WHERE type='plan' AND status='active'
-       AND (last_accessed_at IS NULL OR last_accessed_at < ?)`,
-  ).get(staleThreshold) as { n: number }).n;
+       AND (last_accessed_at IS NULL OR last_accessed_at < datetime('now', '-30 days'))`,
+  ).get() as { n: number }).n;
 
   // Open decisions: created > 14 days ago and not yet superseded by another entity.
   const openDecisions = (db.prepare(

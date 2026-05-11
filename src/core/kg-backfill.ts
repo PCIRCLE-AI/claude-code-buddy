@@ -428,11 +428,15 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Datab
 
       const sessionTags = sessionTagsByOrphan.get(orphan.id) ?? [];
       let added = 0;
+      // Track already-proposed peers so an orphan sharing multiple
+      // session tags with the same peer doesn't produce duplicate edges.
+      const proposedPeers = new Set<number>();
 
       for (const stag of sessionTags) {
         const peers = (entitiesBySession.get(stag) ?? []).filter((id) => id !== orphan.id);
         for (const peerId of peers) {
           if (added >= maxPerSource) break;
+          if (proposedPeers.has(peerId)) continue;
           const peer = entityById.get(peerId);
           if (!peer) continue;
           candidates.push({
@@ -444,6 +448,7 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Datab
             reason: `co-created in same session (${stag})`,
             strength: 2,
           });
+          proposedPeers.add(peerId);
           added++;
         }
         if (added >= maxPerSource) break;
