@@ -56,13 +56,27 @@ const NAME_STOPWORDS = new Set([
   'the','and','for','with','from','this','that','are','was','has',
   'fix','add','get','set','use','via','not','new','old','update',
   'into','onto','when','then','also','both','each','more','about',
+  // Generic qualifier words that appear across many entity names without
+  // carrying topical signal (e.g. "X Best Practices", "Y Pattern Applied").
+  // Without this, any two "Best Practices" entities match on "best"+"practices"
+  // — same cartesian-explosion class as the "completed" tag bug.
+  'best','practices','pattern','applied','standards','professional',
+  'using','based','related','general','common','basic','simple',
+  // Process / lifecycle words — describe HOW, not WHAT.
+  'verification','cleanup','refactoring','implementation','migration',
+  'summary','overview','analysis','review','report','notes',
+  // Month abbreviations — dates in entity names cause cartesian pairing.
+  'jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec',
 ]);
+
+const NUMERIC_RE = /^\d+$/;
 
 export function tokenizeName(name: string): Set<string> {
   return new Set(
     name.toLowerCase()
         .split(/[\W_]+/)
-        .filter((t) => t.length >= 3 && !NAME_STOPWORDS.has(t))
+        // Filter: minimum length, not a stopword, not a bare number (year, count, etc.)
+        .filter((t) => t.length >= 3 && !NAME_STOPWORDS.has(t) && !NUMERIC_RE.test(t))
   );
 }
 
@@ -125,9 +139,10 @@ export interface BackfillOptions {
   minSessionSignalScore?: number;
   /** Rule 4: link orphans sharing ≥N name content tokens. Default false. */
   includeNameTokenSimilarity?: boolean;
-  /** Min Jaccard for Rule 4. Default 0.25. */
+  /** Min Jaccard for Rule 4. Default 0.50 (share ≥ half the tokens). Lower values
+   *  produce more edges but risk quality degradation on large KBs. */
   minNameJaccard?: number;
-  /** Alt gate for Rule 4: ≥N shared tokens also qualifies. Default 2. */
+  /** Alt gate for Rule 4: ≥N shared tokens also qualifies. Default 3. */
   minSharedNameTokens?: number;
 }
 
@@ -440,8 +455,8 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Datab
   // Orphans whose names share ≥ minSharedNameTokens content tokens
   // (or Jaccard ≥ minNameJaccard) are related in subject matter.
   if (opts.includeNameTokenSimilarity) {
-    const minJaccard = opts.minNameJaccard ?? 0.25;
-    const minSharedTokens = opts.minSharedNameTokens ?? 2;
+    const minJaccard = opts.minNameJaccard ?? 0.50;
+    const minSharedTokens = opts.minSharedNameTokens ?? 3;
 
     // Pre-compute token sets for all active entities.
     const tokensByEntity = new Map<number, Set<string>>();

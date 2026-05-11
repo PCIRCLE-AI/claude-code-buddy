@@ -483,11 +483,12 @@ describe('kg-backfill integration', () => {
   // Rule 4: Name token similarity
   // ---------------------------------------------------------------------------
 
-  it('A4: links orphans sharing ≥2 content name tokens (shares-name-tokens)', () => {
-    const idG = insertEntity('memesh auth flow refactor', 'feature');
+  it('A4: links orphans sharing ≥3 content name tokens (shares-name-tokens)', () => {
+    // Shared tokens: {auth, module, session} = 3 ≥ default minSharedNameTokens (3)
+    const idG = insertEntity('memesh auth module session config', 'feature');
     setMetadata(idG, { signal_score: 0.65 });
 
-    const idH = insertEntity('auth flow session handling', 'bug_fix');
+    const idH = insertEntity('auth module session handler', 'bug_fix');
     setMetadata(idH, { signal_score: 0.7 });
 
     const result = backfillRelations({ includeNameTokenSimilarity: true, dryRun: false });
@@ -504,8 +505,9 @@ describe('kg-backfill integration', () => {
   });
 
   it('A4-jaccard: qualifies via Jaccard ≥ 0.25 even when shared token count < minSharedNameTokens', () => {
-    // tokens: {oauth,implementation} vs {oauth,module} → intersection=1, union=3 → Jaccard=0.33
-    const idI = insertEntity('oauth implementation', 'feature');
+    // tokens: {oauth,service} vs {oauth,module} → intersection=1, union=3 → Jaccard=0.33
+    // ("implementation" is a stopword → would leave only 1 token, excluded by size≥2 gate)
+    const idI = insertEntity('oauth service', 'feature');
     setMetadata(idI, { signal_score: 0.65 });
 
     const idJ = insertEntity('oauth module', 'architecture');
