@@ -34,6 +34,10 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const errors = [];
 const findings = [];
 
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function read(p) {
   return fs.readFileSync(path.join(repoRoot, p), 'utf8');
 }
@@ -62,7 +66,7 @@ for (const v of marketplaceVersions) {
 
 // CHANGELOG must have a section header matching the current version
 const changelog = read('CHANGELOG.md');
-const headerRe = new RegExp(`^## \\[${pkgVersion.replace(/\./g, '\\.')}\\][\\s—-]`, 'm');
+const headerRe = new RegExp(`^## \\[${escapeRegex(pkgVersion)}\\][\\s—-]`, 'm');
 const changelogMatch = headerRe.test(changelog);
 findings.push(`CHANGELOG.md has [${pkgVersion}] section: ${changelogMatch ? 'YES' : 'NO'}`);
 if (!changelogMatch) {

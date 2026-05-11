@@ -568,10 +568,19 @@ if (isDirectRun) {
   const outPath = path.join(dashboardDir, 'dashboard.html');
   fs.writeFileSync(outPath, html, { encoding: 'utf-8', mode: 0o600 });
 
-  // Open in default browser
+  // Open in default browser.
+  // outPath is join(memeshDir(), 'dashboard.html'); memeshDir() may come from
+  // MEMESH_DIR env var. Validate before passing to cmd.exe (Windows), which
+  // processes the arg string through its own shell parser.
+  const resolvedOut = path.resolve(outPath);
+  if (!/\.html$/i.test(resolvedOut) || /[&|<>^"']/.test(resolvedOut)) {
+    console.error(`Unexpected dashboard path; cannot open browser automatically.`);
+    console.log(`Dashboard written to: ${resolvedOut}`);
+    process.exit(0);
+  }
   const platform = process.platform;
   const cmd = platform === 'darwin' ? 'open' : 'xdg-open';
-  const args = platform === 'win32' ? ['/c', 'start', '', outPath] : [outPath];
+  const args = platform === 'win32' ? ['/c', 'start', '', resolvedOut] : [resolvedOut];
   const bin = platform === 'win32' ? 'cmd.exe' : cmd;
 
   execFile(bin, args, (err) => {

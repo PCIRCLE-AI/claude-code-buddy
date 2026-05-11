@@ -207,13 +207,14 @@ Wenn npm eine installierte Version als veraltet kennzeichnet (typischerweise ein
 
 ## Dashboard
 
-7 Reiter, 11 Sprachen, keine externen Abhängigkeiten. Zugang unter `http://localhost:3737/dashboard` wenn der Server läuft.
+8 Reiter, 11 Sprachen, keine externen Abhängigkeiten. Zugang unter `http://localhost:3737/dashboard` wenn der Server läuft.
 
 | Reiter | Was Sie sehen |
 |--------|-------------|
+| **Insights** | Speicher-Insights — wöchentliche Zusammenfassungen und Mustervorschläge der Dreamer-Engine; Ein-Klick-Akzeptieren/Ablehnen |
 | **Search** | Volltextsuche + Vektorsimilarität über alle Memories |
 | **Browse** | Paginierte Liste aller Entitäten mit Archiv-/Restore-Funktion |
-| **Analytics** | Memory Health Score (0-100), 30-Tage-Timeline, Wertkennzahlen, Wissensabdeckung, Bereinigungsvorschläge, Ihre Arbeitsmuster |
+| **Analytics** | Memory Health Score, 30-Tage-Timeline, PM-Velocity + KG-Konnektivitätskennzahlen, Arbeitsmuster, Bereinigungsvorschläge |
 | **Graph** | Interaktiver kraft-gerichteter Wissensgraph mit Typfiltern, Suche, Ego-Modus, Aktualitäts-Heatmap |
 | **Lessons** | Strukturierte Lektionen aus vergangenen Fehlern (Fehler, Grundursache, Behebung, Prävention) |
 | **Manage** | Entitäten archivieren und wiederherstellen |
@@ -230,6 +231,8 @@ Wenn npm eine installierte Version als veraltet kennzeichnet (typischerweise ein
 **🔄 Wissensentwicklung** — Entscheidungen ändern sich. `forget` archiviert alte Memories (löscht nie). `supersedes`-Relationen verbinden alt → neu. Ihr KI sieht immer die aktuelle Version.
 
 **⚠️ Konflikterkennung** — Wenn Sie zwei Memories haben, die sich widersprechen, warnt Sie MeMesh.
+
+**🕸️ Wissensgraph-Konnektivität** — `memesh kg backfill-relations --all-rules` verknüpft verwaiste Entitäten über Tag-Kookurrenz, Projekt-Clustering, Sitzungskontext und Namensähnlichkeit — ohne LLM. Reduziert die Waisenrate auf einer repräsentativen Wissensbasis von 89% auf unter 12%.
 
 **📦 Team-Freigabe** — `memesh export > team-knowledge.json` → mit Team teilen → `memesh import team-knowledge.json`
 Importierte Bundles bleiben durchsuchbar, aber MeMesh injiziert importierte Memories nicht automatisch in Claude Hooks, bis Sie sie überprüfen oder lokal neu speichern.

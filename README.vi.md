@@ -208,13 +208,14 @@ Khi npm gắn cờ phiên bản đã cài là deprecated (thường là security
 
 ## Dashboard
 
-7 tabs, 11 ngôn ngữ, không phụ thuộc bên ngoài. Truy cập tại `http://localhost:3737/dashboard` khi server đang chạy.
+8 tabs, 11 ngôn ngữ, không phụ thuộc bên ngoài. Truy cập tại `http://localhost:3737/dashboard` khi server đang chạy.
 
 | Tab | Bạn thấy gì |
 |-----|-------------|
+| **Insights** | Thông tin chi tiết về bộ nhớ — tóm tắt hàng tuần và đề xuất mẫu từ công cụ dreamer; chấp nhận/từ chối một cú nhấp |
 | **Search** | Full-text + vector similarity search trên tất cả memories |
 | **Browse** | Danh sách paginated tất cả entities với archive/restore |
-| **Analytics** | Memory Health Score (0-100), timeline 30 ngày, value metrics, knowledge coverage, cleanup suggestions, work patterns của bạn |
+| **Analytics** | Memory Health Score, timeline 30 ngày, tốc độ PM + chỉ số kết nối KG, work patterns, cleanup suggestions |
 | **Graph** | Interactive force-directed knowledge graph với type filters, search, ego mode, recency heatmap |
 | **Lessons** | Structured lessons từ những lỗi trong quá khứ (error, root cause, fix, prevention) |
 | **Manage** | Archive và restore entities |
@@ -231,6 +232,8 @@ Khi npm gắn cờ phiên bản đã cài là deprecated (thường là security
 **🔄 Knowledge Evolution** — Quyết định thay đổi. `forget` archives old memories (không bao giờ xóa). `supersedes` relations liên kết old → new. AI của bạn luôn thấy phiên bản mới nhất.
 
 **⚠️ Conflict Detection** — Nếu bạn có hai memories mâu thuẫn với nhau, MeMesh cảnh báo bạn.
+
+**🕸️ Kết nối đồ thị tri thức** — `memesh kg backfill-relations --all-rules` liên kết các thực thể cô lập bằng cách sử dụng đồng xuất hiện thẻ, phân cụm dự án, ngữ cảnh phiên và độ tương đồng tên — không cần LLM. Giảm tỷ lệ cô lập từ 89% xuống dưới 12% trên cơ sở tri thức đại diện.
 
 **📦 Team Sharing** — `memesh export > team-knowledge.json` → chia sẻ với team → `memesh import team-knowledge.json`
 Các imported bundles vẫn có thể tìm kiếm được, nhưng MeMesh không auto-inject imported memories vào Claude hooks cho đến khi bạn review hoặc re-store chúng locally.

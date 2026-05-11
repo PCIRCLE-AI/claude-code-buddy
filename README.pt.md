@@ -208,13 +208,14 @@ Quando o npm sinaliza uma versão instalada como depreciada (tipicamente um advi
 
 ## Dashboard
 
-7 abas, 11 idiomas, zero dependências externas. Acesse em `http://localhost:3737/dashboard` quando o servidor estiver rodando.
+8 abas, 11 idiomas, zero dependências externas. Acesse em `http://localhost:3737/dashboard` quando o servidor estiver rodando.
 
 | Aba | O que você vê |
 |-----|-------------|
+| **Insights** | Insights de memória — resumos semanais e propostas de padrões do motor dreamer; aceitar/rejeitar com um clique |
 | **Search** | Busca full-text + similaridade vetorial em todas as memórias |
 | **Browse** | Lista paginada de todas as entidades com archive/restore |
-| **Analytics** | Memory Health Score (0-100), timeline de 30 dias, métricas de valor, cobertura de conhecimento, sugestões de limpeza, seus padrões de trabalho |
+| **Analytics** | Memory Health Score, timeline de 30 dias, velocidade PM + métricas de conectividade KG, padrões de trabalho, sugestões de limpeza |
 | **Graph** | Grafo de conhecimento interativo force-directed com filtros por tipo, busca, modo ego, heatmap de recência |
 | **Lessons** | Lições estruturadas de falhas passadas (erro, causa raiz, fix, prevenção) |
 | **Manage** | Archive e restore de entidades |
@@ -231,6 +232,8 @@ Quando o npm sinaliza uma versão instalada como depreciada (tipicamente um advi
 **🔄 Evolução de Conhecimento** — Decisões mudam. `forget` arquiva memórias antigas (nunca deleta). Relações `supersedes` vinculam antigas → novas. Sua IA sempre vê a versão mais recente.
 
 **⚠️ Detecção de Conflitos** — Se você tem duas memórias que se contradizem, MeMesh te avisa.
+
+**🕸️ Conectividade do grafo de conhecimento** — `memesh kg backfill-relations --all-rules` liga entidades órfãs usando co-ocorrência de tags, agrupamento de projetos, contexto de sessão e similaridade de nomes — sem LLM. Reduz a taxa de órfãos de 89% para menos de 12% numa base de conhecimento representativa.
 
 **📦 Compartilhamento em Equipe** — `memesh export > team-knowledge.json` → compartilhe com sua equipe → `memesh import team-knowledge.json`
 Bundles importados permanecem pesquisáveis, mas MeMesh não injeta automaticamente memórias importadas nos hooks do Claude até você revisar ou re-armazená-las localmente.

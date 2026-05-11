@@ -235,13 +235,14 @@ Cuando npm marca una versión instalada como deprecada (típicamente un aviso de
 
 ## Dashboard
 
-7 pestañas, 11 idiomas, cero dependencias externas. Accede en `http://localhost:3737/dashboard` cuando el servidor está en ejecución.
+8 pestañas, 11 idiomas, cero dependencias externas. Accede en `http://localhost:3737/dashboard` cuando el servidor está en ejecución.
 
 | Pestaña | Qué ves |
 |---|---|
+| **Insights** | Perspectivas de memoria — resúmenes semanales y propuestas de patrones del motor dreamer; aceptar/rechazar con un clic |
 | **Search** | Búsqueda de texto completo + similitud vectorial en todas las memorias |
 | **Browse** | Lista paginada de todas las entidades con archivo/restauración |
-| **Analytics** | Puntuación de Salud de Memoria (0-100), línea de tiempo de 30 días, métricas de valor, cobertura de conocimiento, sugerencias de limpieza, tus patrones de trabajo |
+| **Analytics** | Puntuación de Salud de Memoria, línea de tiempo de 30 días, velocidad PM + métricas de conectividad KG, patrones de trabajo, sugerencias de limpieza |
 | **Graph** | Grafo de conocimiento interactivo dirigido por fuerzas con filtros de tipo, búsqueda, modo ego, mapa de calor de recencia |
 | **Lessons** | Lecciones estructuradas de fallos pasados (error, causa raíz, corrección, prevención) |
 | **Manage** | Archiva y restaura entidades |
@@ -258,6 +259,8 @@ Cuando npm marca una versión instalada como deprecada (típicamente un aviso de
 **🔄 Evolución del Conocimiento** — Las decisiones cambian. `forget` archiva memorias antiguas (nunca borra). Las relaciones `supersedes` vinculan antiguas → nuevas. Tu IA siempre ve la versión más reciente.
 
 **⚠️ Detección de Conflictos** — Si tienes dos memorias que se contradicen, MeMesh te advierte.
+
+**🕸️ Conectividad del grafo de conocimiento** — `memesh kg backfill-relations --all-rules` vincula entidades huérfanas mediante co-ocurrencia de etiquetas, agrupación de proyectos, contexto de sesión y similitud de nombres — sin LLM. Reduce la tasa de huérfanos del 89% a menos del 12% en una base de conocimiento representativa.
 
 **📦 Compartir en Equipo** — `memesh export > team-knowledge.json` → comparte con tu equipo → `memesh import team-knowledge.json`
 Los bundles importados permanecen buscables, pero MeMesh no inyecta automáticamente memorias importadas en hooks de Claude hasta que las revises o las guardes localmente de nuevo.

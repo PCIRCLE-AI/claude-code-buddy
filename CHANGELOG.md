@@ -2,13 +2,13 @@
 
 All notable changes to MeMesh are documented here.
 
-## [4.3.0] — 2026-05-11
+## [4.2.1] — 2026-05-11
 
-KG connectivity + dashboard PM filter release. Reduces entity orphan rate from 89.2% → 11.7% on a real-world knowledge base using two new non-LLM heuristics; adds milestone signal filtering to the Roadmap view; and introduces PM-framed analytics. +26 tests (984 → 1010 passing).
+KG connectivity + dashboard PM filter release. Reduces entity orphan rate from 89.2% → 11.7% on a representative knowledge base using two new non-LLM heuristics; adds milestone signal filtering to the Roadmap view; and introduces PM-framed analytics. +26 tests (984 → 1010 passing).
 
 ### Added
 - **KG backfill Rule 3 — session co-occurrence** (`src/core/kg-backfill.ts`) — high-signal orphan entities sharing a `session:*` tag get a `co-created` relation. Gate: `signal_score ≥ 0.6` (reads entity `metadata`). Eligible types: lesson_learned, decision, architecture, feature, bug_fix, pattern, etc. Exposed via `memesh kg backfill-relations --session-cooccurrence`.
-- **KG backfill Rule 4 — name-token similarity** (`src/core/kg-backfill.ts`) — orphans whose tokenized names share ≥ 3 content tokens OR Jaccard similarity ≥ 0.50 get a `shares-name-tokens` relation. `tokenizeName()` and `jaccardSimilarity()` exported as pure functions. Stopword list extended with generic qualifiers, process/lifecycle terms, and month abbreviations to prevent cartesian explosion (same class of problem as the "completed" tag bug in Rule 1). Exposed via `memesh kg backfill-relations --name-tokens [--min-jaccard N]`.
+- **KG backfill Rule 4 — name-token similarity** (`src/core/kg-backfill.ts`) — orphans whose tokenized names share ≥ 3 content tokens OR Jaccard similarity ≥ 0.50 get a `shares-name-tokens` relation. `tokenizeName()` and `jaccardSimilarity()` exported as pure functions. Stopword list extended with generic qualifiers, process/lifecycle terms, and month abbreviations to prevent cartesian explosion (same failure mode as over-broad tag inclusion in Rule 1's co-occurrence filter). Exposed via `memesh kg backfill-relations --name-tokens [--min-jaccard N]`.
 - **`memesh kg backfill-relations --all-rules`** — convenience flag enabling Rules 1–4 in a single pass.
 - **PM Analytics endpoint** (`GET /v1/analytics/pm?window=N`) — pure-SQL aggregation: decision velocity (decisions/week, releases/month), staleness (stale plans ≥30d, open decisions ≥14d), connectedness (orphan rate, total relations, active entities). Zero LLM dependency.
 - **Dashboard PM Analytics panel** (`dashboard/src/components/PmAnalyticsPanel.tsx`) — 4-stat grid surfacing the PM metrics in the Analytics tab. Color-coded orphan rate (green/amber/red). Fails silently if the endpoint is unavailable.

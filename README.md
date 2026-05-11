@@ -235,13 +235,14 @@ When npm flags an installed version as deprecated (typically a security advisory
 
 ## Dashboard
 
-7 tabs, 11 languages, zero external dependencies. Access at `http://localhost:3737/dashboard` when the server is running.
+8 tabs, 11 languages, zero external dependencies. Access at `http://localhost:3737/dashboard` when the server is running.
 
 | Tab | What you see |
 |-----|-------------|
+| **Insights** | Memory insights — weekly recaps and pattern proposals from the dreamer engine; one-click accept/reject |
 | **Search** | Full-text + vector similarity search across all memories |
 | **Browse** | Paginated list of all entities with archive/restore |
-| **Analytics** | Memory Health Score (0-100), 30-day timeline, value metrics, knowledge coverage, cleanup suggestions, your work patterns |
+| **Analytics** | Memory Health Score, 30-day timeline, PM velocity + KG connectivity metrics, work patterns, cleanup suggestions |
 | **Graph** | Interactive force-directed knowledge graph with type filters, search, ego mode, recency heatmap |
 | **Lessons** | Structured lessons from past failures (error, root cause, fix, prevention) |
 | **Manage** | Archive and restore entities |
@@ -258,6 +259,8 @@ When npm flags an installed version as deprecated (typically a security advisory
 **🔄 Knowledge Evolution** — Decisions change. `forget` archives old memories (never deletes). `supersedes` relations link old → new. Your AI always sees the latest version.
 
 **⚠️ Conflict Detection** — If you have two memories that contradict each other, MeMesh warns you.
+
+**🕸️ Knowledge Graph Connectivity** — `memesh kg backfill-relations --all-rules` links orphan entities using tag co-occurrence, project clustering, session context, and name similarity — no LLM required. Reduces orphan rate from 89% to under 12% on a representative knowledge base.
 
 **📦 Team Sharing** — `memesh export > team-knowledge.json` → share with your team → `memesh import team-knowledge.json`
 Imported bundles stay searchable, but MeMesh does not auto-inject imported memories into Claude hooks until you review or re-store them locally.

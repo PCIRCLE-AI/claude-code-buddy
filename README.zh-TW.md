@@ -235,13 +235,14 @@ memesh export-schema \
 
 ## 儀表板
 
-7 個分頁、11 種語言、零外部相依性。伺服器執行時可在 `http://localhost:3737/dashboard` 存取。
+8 個分頁、11 種語言、零外部相依性。伺服器執行時可在 `http://localhost:3737/dashboard` 存取。
 
 | 分頁 | 你會看到 |
 |-----|-------------|
+| **Insights** | 記憶洞察 — 來自 dreamer 引擎的每週摘要和模式提案；一鍵接受／拒絕 |
 | **Search** | 全文 + 向量相似度搜尋所有記憶 |
 | **Browse** | 所有實體的分頁列表，可以歸檔／復原 |
-| **Analytics** | 記憶健康分數（0-100）、30 天時間線、價值指標、知識涵蓋範圍、清理建議、你的工作模式 |
+| **Analytics** | 記憶健康分數、30 天時間線、PM 速度 + KG 連通性指標、工作模式、清理建議 |
 | **Graph** | 互動式力導向知識圖，具有類型篩選、搜尋、自我中心模式、近期熱力圖 |
 | **Lessons** | 來自過去失敗的結構化教訓（錯誤、根本原因、修復、預防） |
 | **Manage** | 歸檔和復原實體 |
@@ -258,6 +259,8 @@ memesh export-schema \
 **🔄 知識演進** — 決策會改變。`forget` 歸檔舊記憶（永不刪除）。`supersedes` 關係連結舊 → 新。你的 AI 總是看到最新版本。
 
 **⚠️ 衝突偵測** — 如果你有兩個互相矛盾的記憶，MeMesh 會警告你。
+
+**🕸️ 知識圖連通性** — `memesh kg backfill-relations --all-rules` 使用標籤共現、專案叢集、會話上下文和名稱相似度連結孤立實體 — 無需 LLM。在代表性知識庫上將孤立率從 89% 降至 12% 以下。
 
 **📦 團隊共享** — `memesh export > team-knowledge.json` → 與團隊共享 → `memesh import team-knowledge.json`
 匯入的組合保持可搜尋，但 MeMesh 不會自動將匯入的記憶注入 Claude hooks，直到你檢查或在本地重新儲存。

@@ -718,11 +718,10 @@ export function maybeTriggerDream(projectName, config, pluginRoot) {
       '--window-days', String(DREAM_WINDOW_DAYS),
     ];
 
-    const out = require('fs').openSync(logFile, 'a');
-    const err = require('fs').openSync(logFile, 'a');
+    const logFd = require('fs').openSync(logFile, 'a');
     const child = spawn(process.execPath, args, {
       detached: true,
-      stdio: ['ignore', out, err],
+      stdio: ['ignore', logFd, logFd],
       env: { ...process.env, MEMESH_DIR: dir },
     });
     child.unref();

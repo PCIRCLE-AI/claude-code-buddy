@@ -26,7 +26,7 @@ const translations: Record<Locale, Record<string, string>> = {
     'tab.graph': 'Knowledge Graph',
     'tab.lessons': 'Lessons',
     'tab.settings': 'Settings',
-    'insights.title': 'What memesh did for you',
+    'insights.title': 'Memory insights',
     'insights.subtitle': 'auto-generated weekly recaps and patterns waiting for review',
     'insights.statPending': 'pending',
     'insights.statApplied': 'applied',
