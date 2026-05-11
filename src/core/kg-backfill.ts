@@ -470,6 +470,11 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Datab
       if (tokens.size >= 2) tokensByEntity.set(e.id, tokens);
     }
 
+    // Track undirected pairs already proposed so each (A,B) pair only
+    // generates one edge even when both A and B are orphans (otherwise
+    // the outer orphan loop proposes A→B then B→A, doubling the count).
+    const proposedNamePairs = new Set<string>();
+
     for (const orphan of orphans) {
       const orphanTokens = tokensByEntity.get(orphan.id);
       if (!orphanTokens) continue;
@@ -477,6 +482,8 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Datab
       const scored: Array<{ id: number; shared: number; jaccard: number }> = [];
       for (const [candidateId, candidateTokens] of tokensByEntity) {
         if (candidateId === orphan.id) continue;
+        const pairKey = `${Math.min(orphan.id, candidateId)}-${Math.max(orphan.id, candidateId)}`;
+        if (proposedNamePairs.has(pairKey)) continue;
         let shared = 0;
         for (const t of orphanTokens) { if (candidateTokens.has(t)) shared++; }
         if (shared === 0) continue;
@@ -490,6 +497,8 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Datab
       for (const { id: peerId, shared, jaccard } of scored.slice(0, maxPerSource)) {
         const peer = entityById.get(peerId);
         if (!peer) continue;
+        const pairKey = `${Math.min(orphan.id, peerId)}-${Math.max(orphan.id, peerId)}`;
+        proposedNamePairs.add(pairKey);
         candidates.push({
           fromEntityId: orphan.id,
           fromName: orphan.name,

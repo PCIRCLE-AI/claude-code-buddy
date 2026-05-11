@@ -694,7 +694,7 @@ Returns PM-framed metrics: decision velocity, knowledge-graph connectedness, and
 ```
 
 - `stalePlanCount`: active `plan` entities not accessed in 30+ days
-- `openDecisionCount`: active `decision` entities not accessed in 14+ days
+- `openDecisionCount`: active `decision` entities created more than 14 days ago and not yet superseded
 - `orphanRate`: fraction of active entities with zero relations (lower = better connected KG)
 
 ### POST /v1/config/test
@@ -873,15 +873,19 @@ memesh telemetry [--window <days>] [--prune <days>] [--json]
 
 ### memesh kg backfill-relations
 
-Heuristic non-LLM relation backfill for orphan entities. Two rules:
+Heuristic non-LLM relation backfill for orphan entities. Four rules:
 
 1. **Tag co-occurrence**: two active entities sharing ≥ 2 topical tags get a `related-to` edge. Topical filter excludes auto-capture noise (`session_end`, `auto_saved`, `commit`, `completed`, `lesson`, etc.) to prevent cartesian explosion.
 2. **Project clustering**: orphan lessons / decisions / bug-fixes / patterns in a project get a `belongs-to-project` edge to the most recent release / feature / architecture / plan in the same project.
+3. **Session co-occurrence** (`--session-cooccurrence`): high-signal orphans (signal_score ≥ 0.6) sharing a `session:*` tag get a `co-created` edge. Eligible types: lesson_learned, decision, architecture, feature, bug_fix, etc.
+4. **Name-token similarity** (`--name-tokens`): orphans whose tokenized names share ≥ 3 content tokens or Jaccard similarity ≥ 0.50 get a `shares-name-tokens` edge. Stopword list excludes generic qualifiers and month abbreviations to prevent cartesian explosion.
 
 **Usage**:
 
 ```bash
-memesh kg backfill-relations [--project <name>] [--dry-run] [--max-per-source <n>] [--min-shared-tags <n>] [--include-archived] [--json]
+memesh kg backfill-relations [--project <name>] [--dry-run] [--max-per-source <n>] \
+  [--min-shared-tags <n>] [--session-cooccurrence] [--name-tokens] \
+  [--min-jaccard <n>] [--all-rules] [--include-archived] [--json]
 ```
 
 **Options**:
@@ -890,8 +894,12 @@ memesh kg backfill-relations [--project <name>] [--dry-run] [--max-per-source <n
 |------|---------|-------------|
 | `--project <name>` | (all) | Restrict to one project |
 | `--dry-run` | off | Preview proposals without writing |
-| `--max-per-source <n>` | 3 | Max `related-to` edges per orphan |
-| `--min-shared-tags <n>` | 2 | Minimum overlapping topical tags for tag co-occurrence rule |
+| `--max-per-source <n>` | 3 | Max edges per orphan |
+| `--min-shared-tags <n>` | 2 | Minimum overlapping topical tags for Rule 1 |
+| `--session-cooccurrence` | off | Enable Rule 3: session co-occurrence |
+| `--name-tokens` | off | Enable Rule 4: name-token similarity |
+| `--min-jaccard <n>` | 0.50 | Jaccard threshold for Rule 4 |
+| `--all-rules` | off | Enable all four rules in one pass |
 | `--include-archived` | off | Also process archived entities |
 | `--json` | off | Output as JSON |
 

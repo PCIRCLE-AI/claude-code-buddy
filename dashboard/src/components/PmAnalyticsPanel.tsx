@@ -17,7 +17,10 @@ export function PmAnalyticsPanel() {
       .catch((e) => setError(String(e)));
   }, []);
 
-  if (error) return null; // fail silently — panel is supplementary
+  if (error) {
+    console.warn('[PmAnalyticsPanel]', error);
+    return null;
+  }
   if (!data) return null;
 
   const orphanPct = (data.connectedness.orphanRate * 100).toFixed(1);

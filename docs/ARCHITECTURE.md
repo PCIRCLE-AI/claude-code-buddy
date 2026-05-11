@@ -45,7 +45,7 @@ MeMesh separates concerns into two layers:
 - `llm-telemetry.ts` — `llm_telemetry` SQLite table + `recordTelemetry()` + `summariseTelemetry()` + `pruneTelemetry()` retention
 - `dreamer.ts` — LLM cluster compactor + pattern detector with propose/accept/reject lifecycle; auto-trigger from Stop hook
 - `digest-validator.ts` — opt-in second-pass LLM cross-check on dreamer digests (`pass | soften | reject`)
-- `kg-backfill.ts` — non-LLM heuristic relation backfill (tag co-occurrence + project clustering)
+- `kg-backfill.ts` — non-LLM heuristic relation backfill: 4 rules (tag co-occurrence, project clustering, session co-occurrence, name-token similarity)
 - `prompt-safety.ts` — F7 prompt-injection hardening (delimiter escaping for 3 LLM call sites)
 - `failure-analyzer.ts` / `auto-tagger.ts` / `consolidator.ts` — Smart-Mode LLM flows (all use `callLLM` failover + telemetry)
 - `verifier.ts` — `verify_agent_work` core: git reality-check + persistence of verification reports as `verification_record` entities

@@ -84,6 +84,7 @@ export interface Entity {
   last_accessed_at?: string;
   confidence?: number;
   namespace?: string;
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface HealthData {
