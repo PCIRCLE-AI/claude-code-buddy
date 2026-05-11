@@ -192,6 +192,13 @@ describe('doctor', () => {
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 
+    // Isolate from the real ~/.memesh so inspectHookWiring reads a
+    // fresh dir with no install-hooks.json → returns warn, not fail.
+    const memeshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-mdir-'));
+    tempRoots.push(memeshDir);
+    const originalMemeshDir = process.env.MEMESH_DIR;
+    process.env.MEMESH_DIR = memeshDir;
+
     const result = await runDoctor({
       packageRoot,
       packageVersion: '4.0.3',
@@ -219,6 +226,9 @@ describe('doctor', () => {
         guidance: 'Update this source checkout from its repository and rebuild it.',
       }),
     });
+
+    if (originalMemeshDir === undefined) delete process.env.MEMESH_DIR;
+    else process.env.MEMESH_DIR = originalMemeshDir;
 
     expect(result.status).toBe('PASS_WITH_CONCERNS');
     expect(result.checks.find((check) => check.id === 'config')?.status).toBe('pass');
