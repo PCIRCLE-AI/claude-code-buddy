@@ -10,7 +10,7 @@ import { remember, recallEnhanced, forget, consolidate, exportMemories, importMe
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
 import { computePatterns } from '../../core/patterns.js';
-import { computeAnalytics } from '../../core/analytics.js';
+import { computeAnalytics, computePmAnalytics } from '../../core/analytics.js';
 import { computeStats } from '../../core/stats.js';
 import { computeProjects } from '../../core/projects.js';
 import { computeGraph } from '../../core/graph.js';
@@ -573,6 +573,13 @@ app.get('/v1/stats', (_req, res) => {
 });
 app.get('/v1/analytics', (_req, res) => {
   try { res.json({ success: true, data: computeAnalytics(getDatabase()) }); }
+  catch (err) { res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }); }
+});
+app.get('/v1/analytics/pm', (req, res) => {
+  const raw = req.query.window;
+  const window = typeof raw === 'string' ? parseInt(raw, 10) : NaN;
+  const windowDays = Number.isFinite(window) && window > 0 ? window : 30;
+  try { res.json({ success: true, data: computePmAnalytics(getDatabase(), windowDays) }); }
   catch (err) { res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }); }
 });
 // --- Demo seeder ---

@@ -1,7 +1,7 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 4.2.0
+**Version**: 4.3.0
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 ---
@@ -658,6 +658,44 @@ Returns computed analytics insights for the memory database.
 - Quality (30%): percentage of active entities with confidence > 0.7
 - Freshness (20%): new entities this week relative to 5% of total (capped at 100%)
 - Lessons (20%): lesson_learned entity count, 5+ gives full score
+
+### GET /v1/analytics/pm
+
+Returns PM-framed metrics: decision velocity, knowledge-graph connectedness, and staleness indicators. Designed for the dashboard PM Analytics panel.
+
+**Query parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `window` | number | 30 | Lookback window in days for velocity calculations |
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "velocity": {
+      "decisionsPerWeek": 2.1,
+      "releasesPerMonth": 0.5,
+      "windowDays": 30
+    },
+    "staleness": {
+      "stalePlanCount": 1,
+      "openDecisionCount": 3
+    },
+    "connectedness": {
+      "orphanRate": 0.117,
+      "totalRelations": 2970,
+      "activeEntities": 1326
+    }
+  }
+}
+```
+
+- `stalePlanCount`: active `plan` entities not accessed in 30+ days
+- `openDecisionCount`: active `decision` entities not accessed in 14+ days
+- `orphanRate`: fraction of active entities with zero relations (lower = better connected KG)
 
 ### POST /v1/config/test
 

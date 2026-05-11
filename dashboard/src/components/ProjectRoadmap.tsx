@@ -10,6 +10,13 @@ import { EntityIcon } from './icons/EntityIcon';
  *  secondary signals only when explicitly tagged. */
 const MILESTONE_TYPES = new Set(['release', 'feature']);
 
+/** Milestone signal gate: feature/plan/decision entries below this are
+ *  filtered from the milestone rail. 'release' type is always exempt —
+ *  a shipped release is always PM-meaningful regardless of score. Entities
+ *  without signal_score (created before the scorer) pass through unfiltered. */
+const MILESTONE_SIGNAL_THRESHOLD = 0.65;
+const MILESTONE_ALWAYS_INCLUDE_TYPES = new Set(['release']);
+
 /** Type set that qualifies as a "key lesson" — drives the right rail. */
 const LESSON_TYPES = new Set([
   'lesson_learned', 'lesson', 'mistake', 'bug_fix',
@@ -258,14 +265,25 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
 
   const groups = useMemo(() => groupByDate(entities), [entities]);
 
-  // Milestones: release/feature entities, newest first, capped at 6
-  const milestones = useMemo(
-    () => entities
-      .filter((e) => MILESTONE_TYPES.has(e.type))
+  // Milestones: release/feature entities, signal-gated, newest first, capped at 6.
+  // 'release' type is always included; legacy entities (no signal_score) pass through.
+  const milestones = useMemo(() => {
+    return entities
+      .filter((e) => {
+        if (!MILESTONE_TYPES.has(e.type)) return false;
+        if (MILESTONE_ALWAYS_INCLUDE_TYPES.has(e.type)) return true;
+        const score = (e.metadata as Record<string, unknown> | undefined)?.signal_score;
+        if (typeof score !== 'number') return true; // legacy: pass through
+        return score >= MILESTONE_SIGNAL_THRESHOLD;
+      })
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
-      .slice(0, 6),
-    [entities],
-  );
+      .slice(0, 6);
+  }, [entities]);
+
+  const filteredMilestoneCount = useMemo(() => {
+    const eligible = entities.filter((e) => MILESTONE_TYPES.has(e.type));
+    return eligible.length - milestones.length;
+  }, [entities, milestones]);
 
   // Key lessons: top 5 lesson types by access_count desc
   const keyLessons = useMemo(
@@ -787,8 +805,13 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, position: 'sticky', top: 16 }}>
           {milestones.length > 0 && (
             <div class="card" style={{ padding: 14 }}>
-              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--text-2)', marginBottom: 10 }}>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--text-2)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
                 {t('roadmap.milestones')}
+                {filteredMilestoneCount > 0 && (
+                  <span style={{ fontSize: '0.7rem', fontWeight: 400, opacity: 0.55, textTransform: 'none', letterSpacing: 0 }}>
+                    ({filteredMilestoneCount} low-signal hidden)
+                  </span>
+                )}
               </div>
               {milestones.map((m) => (
                 <button

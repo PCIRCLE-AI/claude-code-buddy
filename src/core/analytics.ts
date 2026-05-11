@@ -369,3 +369,91 @@ export function computeAnalytics(db: Database.Database): AnalyticsResult {
     knowledgeRadar,
   };
 }
+
+export interface PmAnalyticsResult {
+  velocity: {
+    decisionsPerWeek: number;
+    releasesPerMonth: number;
+    windowDays: number;
+  };
+  staleness: {
+    stalePlanCount: number;
+    openDecisionCount: number;
+  };
+  connectedness: {
+    orphanRate: number;
+    totalRelations: number;
+    activeEntities: number;
+  };
+}
+
+/**
+ * PM-framed analytics: velocity, staleness, KG connectedness.
+ * All reads; no LLM. windowDays controls the velocity lookback (default 30).
+ */
+export function computePmAnalytics(
+  db: Database.Database,
+  windowDays = 30,
+): PmAnalyticsResult {
+  const decisionsInWindow = (db.prepare(
+    `SELECT COUNT(*) AS n FROM entities WHERE type='decision' AND status='active'
+     AND created_at >= datetime('now', '-' || ? || ' days')`,
+  ).get(windowDays) as { n: number }).n;
+
+  const releasesInWindow = (db.prepare(
+    `SELECT COUNT(*) AS n FROM entities WHERE type='release' AND status='active'
+     AND created_at >= datetime('now', '-' || ? || ' days')`,
+  ).get(windowDays) as { n: number }).n;
+
+  const stalePlans = (db.prepare(
+    `SELECT COUNT(*) AS n FROM entities
+     WHERE type='plan' AND status='active'
+       AND (last_accessed_at IS NULL OR last_accessed_at < datetime('now', '-30 days'))`,
+  ).get() as { n: number }).n;
+
+  // Open decisions: created > 14 days ago and not yet superseded by another entity.
+  const openDecisions = (db.prepare(
+    `SELECT COUNT(*) AS n FROM entities e
+     WHERE e.type='decision' AND e.status='active'
+       AND e.created_at < datetime('now', '-14 days')
+       AND NOT EXISTS (
+         SELECT 1 FROM relations r
+         WHERE r.from_entity_id=e.id AND r.relation_type='supersedes'
+       )`,
+  ).get() as { n: number }).n;
+
+  const totalActive = (db.prepare(
+    `SELECT COUNT(*) AS n FROM entities WHERE status='active'`,
+  ).get() as { n: number }).n;
+
+  const withRelations = (db.prepare(
+    `SELECT COUNT(DISTINCT e.id) AS n
+     FROM entities e
+     JOIN relations r ON r.from_entity_id=e.id OR r.to_entity_id=e.id
+     WHERE e.status='active'`,
+  ).get() as { n: number }).n;
+
+  const totalRelations = (db.prepare(
+    `SELECT COUNT(*) AS n FROM relations`,
+  ).get() as { n: number }).n;
+
+  const weeks = windowDays / 7;
+  const months = windowDays / 30;
+
+  return {
+    velocity: {
+      decisionsPerWeek: weeks > 0 ? decisionsInWindow / weeks : 0,
+      releasesPerMonth: months > 0 ? releasesInWindow / months : 0,
+      windowDays,
+    },
+    staleness: {
+      stalePlanCount: stalePlans,
+      openDecisionCount: openDecisions,
+    },
+    connectedness: {
+      orphanRate: totalActive > 0 ? (totalActive - withRelations) / totalActive : 0,
+      totalRelations,
+      activeEntities: totalActive,
+    },
+  };
+}

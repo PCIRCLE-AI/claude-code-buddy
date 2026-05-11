@@ -7,6 +7,7 @@ import { MemoryAgeMatrix } from './MemoryAgeMatrix';
 import { KnowledgeRadar } from './KnowledgeRadar';
 import { UserPatterns } from './UserPatterns';
 import { LlmTelemetryPanel } from './LlmTelemetryPanel';
+import { PmAnalyticsPanel } from './PmAnalyticsPanel';
 import { t } from '../lib/i18n';
 
 export function AnalyticsTab() {
@@ -94,6 +95,9 @@ export function AnalyticsTab() {
       <div style={{ marginTop: 8 }}>
         <LlmTelemetryPanel />
       </div>
+
+      {/* Row 5c: PM metrics — velocity, open decisions, KG orphan rate. */}
+      <PmAnalyticsPanel />
 
       {/* Row 6: Topics cloud */}
       {stats && (() => {

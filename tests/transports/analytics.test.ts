@@ -5,7 +5,7 @@ import path from 'path';
 import Database from 'better-sqlite3';
 import { openDatabase, closeDatabase } from '../../src/db.js';
 import { remember } from '../../src/core/operations.js';
-import { computeAnalytics, NOISE_TYPES } from '../../src/core/analytics.js';
+import { computeAnalytics, computePmAnalytics, NOISE_TYPES } from '../../src/core/analytics.js';
 
 let tmpDir: string;
 let db: Database.Database;
@@ -253,5 +253,33 @@ describe('/v1/analytics knowledgeRadar', () => {
     const result = computeAnalytics(db);
     const arch = result.knowledgeRadar.find(e => e.axis === 'architecture');
     expect(arch!.count).toBe(4);
+  });
+});
+
+// ── computePmAnalytics shape check ────────────────────────────────────────
+
+describe('computePmAnalytics — response shape', () => {
+  it('returns the expected PmAnalyticsResult structure on an empty DB', () => {
+    const result = computePmAnalytics(db, 30);
+    expect(result).toMatchObject({
+      velocity: { windowDays: 30, decisionsPerWeek: expect.any(Number), releasesPerMonth: expect.any(Number) },
+      staleness: { stalePlanCount: expect.any(Number), openDecisionCount: expect.any(Number) },
+      connectedness: { orphanRate: expect.any(Number), totalRelations: expect.any(Number), activeEntities: expect.any(Number) },
+    });
+  });
+
+  it('decisionsPerWeek and releasesPerMonth are ≥ 0', () => {
+    remember({ name: 'dec-a', type: 'decision', observations: ['decided x'] });
+    remember({ name: 'rel-a', type: 'release', observations: ['shipped v1'] });
+    const result = computePmAnalytics(db, 30);
+    expect(result.velocity.decisionsPerWeek).toBeGreaterThanOrEqual(0);
+    expect(result.velocity.releasesPerMonth).toBeGreaterThanOrEqual(0);
+  });
+
+  it('orphanRate is 1.0 when no relations exist', () => {
+    remember({ name: 'solo-a', type: 'knowledge', observations: ['alone'] });
+    remember({ name: 'solo-b', type: 'knowledge', observations: ['also alone'] });
+    const result = computePmAnalytics(db, 30);
+    expect(result.connectedness.orphanRate).toBeCloseTo(1.0);
   });
 });
