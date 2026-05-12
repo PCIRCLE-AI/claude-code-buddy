@@ -2,6 +2,14 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.2.5] — 2026-05-13
+
+### Added
+- **`plugin-marketplace` install channel** (`src/core/install-channel.ts`) — `detectInstallChannel()` now recognises `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>` paths and routes them through their own `InstallChannelSupport` entry with channel-specific guidance. Previously plugin-marketplace installs were classified as `unknown`, so doctor + session-start gave generic "upgrade via your install method" hints with no actionable command. The plugin path takes priority over `.git` / npm-global checks because the plugin cache is itself a git clone.
+- **`scripts/upgrade-plugin.sh`** — one-line upgrade for Claude Code plugin installs. Fast-forwards the marketplace cache, rsyncs the new version into `~/.claude/plugins/cache/`, installs runtime deps, patches `installed_plugins.json`. Idempotent (no-op when already current). Bridges Claude Code's version-pinned plugin layout to a single upgrade command — the marketplace itself does not auto-update.
+- **Session-start "update available" banner** (`scripts/hooks/session-start.js`) — when the installed version is NOT deprecated but a newer release exists on npm, the session-start hook prints a single info line with the channel-tailored upgrade command (`memesh update` for npm-global, `bash <plugin-root>/scripts/upgrade-plugin.sh` for plugin installs, `git pull && npm install && npm run build` for source checkouts, `npm install @pcircle/memesh@latest` for project-local). Throttled to once per 24h per installed version so the banner doesn't nag.
+- **README "Upgrading" section** — documents the three upgrade paths (Claude Code `/plugin` UI, one-line script, npm-global self-update) so users on an old version can find the path that applies to them.
+
 ## [4.2.4] — 2026-05-13
 
 ### Added

@@ -12,6 +12,10 @@ function getRootBeforeNodeModules(packageRoot) {
         return null;
     return packageRoot.slice(0, index);
 }
+function isPluginMarketplacePath(packageRoot) {
+    const segment = `${path.sep}.claude${path.sep}plugins${path.sep}cache${path.sep}`;
+    return packageRoot.includes(segment);
+}
 export function getGlobalNpmRoot(options = {}) {
     const { execFileSyncImpl = execFileSync } = options;
     try {
@@ -24,6 +28,9 @@ export function getGlobalNpmRoot(options = {}) {
 export function detectInstallChannel(options) {
     const { packageRoot, globalNpmRoot, existsSyncImpl = fs.existsSync, } = options;
     const normalizedPackageRoot = path.resolve(packageRoot);
+    if (isPluginMarketplacePath(normalizedPackageRoot)) {
+        return 'plugin-marketplace';
+    }
     if (existsSyncImpl(path.join(normalizedPackageRoot, '.git'))) {
         return 'source-checkout';
     }
@@ -69,6 +76,14 @@ export function getInstallChannelSupport(channel) {
                 canSelfUpdate: false,
                 recommendedCommand: null,
                 guidance: 'Update this source checkout from its repository and rebuild it.',
+            };
+        case 'plugin-marketplace':
+            return {
+                channel,
+                label: 'Claude Code plugin marketplace',
+                canSelfUpdate: false,
+                recommendedCommand: 'bash scripts/upgrade-plugin.sh',
+                guidance: 'Run `bash <plugin-root>/scripts/upgrade-plugin.sh` (or reinstall the plugin from the Claude Code /plugin UI). The plugin marketplace pins versions, so a new release does not auto-update.',
             };
         default:
             return {

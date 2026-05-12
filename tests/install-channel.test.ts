@@ -56,6 +56,21 @@ describe('install channel detection', () => {
 
     expect(channel).toBe('unknown');
   });
+
+  it('detects Claude Code plugin-marketplace cache paths', () => {
+    const packageRoot = '/Users/alice/.claude/plugins/cache/pcircle-memesh/memesh/4.2.4';
+
+    const channel = detectInstallChannel({
+      packageRoot,
+      globalNpmRoot: null,
+      // Plugin cache is a git clone, so .git exists — but we still want
+      // to classify as plugin-marketplace, not source-checkout. The path
+      // check runs before the .git check.
+      existsSyncImpl: existsFor([path.join(packageRoot, '.git')]),
+    });
+
+    expect(channel).toBe('plugin-marketplace');
+  });
 });
 
 describe('install channel support', () => {
@@ -73,6 +88,11 @@ describe('install channel support', () => {
     expect(getInstallChannelSupport('source-checkout')).toMatchObject({
       canSelfUpdate: false,
       recommendedCommand: null,
+    });
+
+    expect(getInstallChannelSupport('plugin-marketplace')).toMatchObject({
+      canSelfUpdate: false,
+      recommendedCommand: 'bash scripts/upgrade-plugin.sh',
     });
   });
 });

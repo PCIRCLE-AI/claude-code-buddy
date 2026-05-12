@@ -343,6 +343,26 @@ Core is framework-agnostic. Same logic runs from terminal, HTTP, or MCP.
 
 ---
 
+## Upgrading
+
+Claude Code's plugin marketplace pins versions at install time and does **not** auto-update. To pick up a new release:
+
+**Option A — `/plugin` UI**: uninstall `memesh@pcircle-memesh`, then reinstall. Claude Code fetches the latest marketplace version.
+
+**Option B — one-line script** (no UI clicking, idempotent):
+
+```bash
+bash ~/.claude/plugins/cache/pcircle-memesh/memesh/<current-version>/scripts/upgrade-plugin.sh
+```
+
+The script fast-forwards the marketplace cache, stages the new version under `~/.claude/plugins/cache/`, installs runtime deps, and re-points `installed_plugins.json`. Restart Claude Code afterwards so the MCP server reconnects.
+
+**npm-global installs** (`npm install -g @pcircle/memesh`) can self-update via `memesh update`. Source checkouts: `git pull && npm install && npm run build`.
+
+Session start surfaces a one-line banner (throttled to once per 24h per version) when a newer release is available, and `memesh doctor` reports the upgrade target with the channel-specific command.
+
+---
+
 ## Contributing
 
 ```bash

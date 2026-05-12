@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { execFileSync } from 'child_process';
-export type InstallChannel = 'npm-global' | 'npm-local' | 'source-checkout' | 'unknown';
+export type InstallChannel = 'npm-global' | 'npm-local' | 'source-checkout' | 'plugin-marketplace' | 'unknown';
 type ExistsSyncLike = typeof fs.existsSync;
 type ExecFileSyncLike = typeof execFileSync;
 interface DetectInstallChannelOptions {

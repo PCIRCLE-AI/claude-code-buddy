@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 
-export type InstallChannel = 'npm-global' | 'npm-local' | 'source-checkout' | 'unknown';
+export type InstallChannel = 'npm-global' | 'npm-local' | 'source-checkout' | 'plugin-marketplace' | 'unknown';
 
 type ExistsSyncLike = typeof fs.existsSync;
 type ExecFileSyncLike = typeof execFileSync;
@@ -39,6 +39,15 @@ function getRootBeforeNodeModules(packageRoot: string): string | null {
   return packageRoot.slice(0, index);
 }
 
+// Claude Code installs plugins under <home>/.claude/plugins/cache/<marketplace>/<plugin>/<version>.
+// Match that suffix anchored to the .claude/plugins/cache/ segment so we
+// don't false-positive on a user repo path that happens to contain
+// "plugins/cache". Using path.sep keeps the matcher Windows-correct.
+function isPluginMarketplacePath(packageRoot: string): boolean {
+  const segment = `${path.sep}.claude${path.sep}plugins${path.sep}cache${path.sep}`;
+  return packageRoot.includes(segment);
+}
+
 export function getGlobalNpmRoot(
   options: { execFileSyncImpl?: ExecFileSyncLike } = {},
 ): string | null {
@@ -59,6 +68,15 @@ export function detectInstallChannel(options: DetectInstallChannelOptions): Inst
   } = options;
 
   const normalizedPackageRoot = path.resolve(packageRoot);
+
+  // Plugin-marketplace cache wins over .git / npm-global checks because
+  // a plugin install can legitimately contain a `.git` directory (the
+  // marketplace cache is a git clone of the source repo) AND can sit
+  // under a custom npm prefix path. Anchor on the .claude/plugins/cache/
+  // path segment, which only Claude Code's plugin runtime writes.
+  if (isPluginMarketplacePath(normalizedPackageRoot)) {
+    return 'plugin-marketplace';
+  }
 
   if (existsSyncImpl(path.join(normalizedPackageRoot, '.git'))) {
     return 'source-checkout';
@@ -117,6 +135,20 @@ export function getInstallChannelSupport(channel: InstallChannel): InstallChanne
         canSelfUpdate: false,
         recommendedCommand: null,
         guidance: 'Update this source checkout from its repository and rebuild it.',
+      };
+    case 'plugin-marketplace':
+      return {
+        channel,
+        label: 'Claude Code plugin marketplace',
+        canSelfUpdate: false,
+        // The bundled script reconciles the marketplace cache, copies the
+        // new version into the plugin cache, runs npm install for runtime
+        // deps, and patches installed_plugins.json to point at the new
+        // version. It's the missing piece that bridges Claude Code's
+        // version-pinned plugin layout to a single one-liner upgrade.
+        recommendedCommand: 'bash scripts/upgrade-plugin.sh',
+        guidance:
+          'Run `bash <plugin-root>/scripts/upgrade-plugin.sh` (or reinstall the plugin from the Claude Code /plugin UI). The plugin marketplace pins versions, so a new release does not auto-update.',
       };
     default:
       return {
