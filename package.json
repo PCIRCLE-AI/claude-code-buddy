@@ -30,8 +30,7 @@
     "test:e2e-dashboard": "node scripts/dashboard-e2e-smoke.mjs",
     "test:packaged": "node scripts/smoke-packed-artifact.mjs",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/ scripts/",
-    "lint:strict": "eslint src/ scripts/ --max-warnings 0",
+    "lint": "eslint src/ scripts/ --max-warnings 0",
     "lint:fix": "eslint src/ scripts/ --fix",
     "start": "node dist/mcp/launcher.js",
     "bench:longmemeval": "node benchmarks/longmemeval/run.mjs --mode A --dataset /tmp/longmemeval_s.json"
