@@ -476,6 +476,22 @@ Start: `memesh serve` (default: `localhost:3737`)
 
 Safety note: non-loopback binds are blocked by default. To expose the HTTP server beyond the local machine, you must pass `memesh serve --host 0.0.0.0 --allow-remote` or set `MEMESH_HTTP_ALLOW_REMOTE=true`. MeMesh does not add an auth layer for you.
 
+### Request body limits
+
+All `POST /v1/*` endpoints enforce a **1 MB request body limit**. Requests larger than this receive a structured `413 Payload Too Large` response:
+
+```json
+{
+  "success": false,
+  "error": "Request body exceeds the 1MB limit",
+  "code": "PAYLOAD_TOO_LARGE",
+  "limit": "1mb",
+  "hint": "Split large exports/imports into smaller batches, or compress and stream them via the CLI (`memesh export` / `memesh import`) which has no per-request size cap."
+}
+```
+
+The limit protects the server from accidentally parsing large payloads (e.g. an unbounded `/v1/import` with a multi-MB JSON bundle) under memory pressure. For bulk operations that exceed 1 MB, prefer the CLI: `memesh export > bundle.json` and `memesh import bundle.json` read and write files directly without buffering the whole payload through Express's body parser, so they have no per-request size cap.
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | /v1/health | Health check + version + entity count |
