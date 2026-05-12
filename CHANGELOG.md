@@ -2,6 +2,12 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.2.3] — 2026-05-12
+
+### Fixed
+- **Hook silent-skip guard misses lazy native-binding failure** (`scripts/hooks/_shared.js`) — `tryRequireBetterSqlite()` only caught `require('better-sqlite3')` failures, but the package's JS wrapper defers the `bindings()` call until the first `new Database()`. In plugin-marketplace cache installs the JS layer loads cleanly while the compiled `.node` is absent, so the helper handed back a constructor that threw "Could not locate the bindings file" on first use. The session-start hook then surfaced `MeMesh: Session start failed (Could not locate the bindings file ...)` to Claude Code on every startup. The probe now opens an in-memory database and closes it inside the same try/catch, returning `null` on either failure mode. Plugin-marketplace cache copies fall through to silent skip while dev / npm-global registrations continue to produce the summary.
+- **Test coverage gap** (`tests/hooks/session-start.test.ts`) — added a second test seam (`MEMESH_TEST_FORCE_BINDING_LOAD_FAIL`) and matching test case that simulates the exact "require ok, native binding missing" failure mode. The pre-existing `MEMESH_TEST_FORCE_MISSING_NATIVE` seam short-circuited before `require()`, so the regression that v4.2.3 fixes was not exercised by the suite.
+
 ## [4.2.2] — 2026-05-12
 
 ### Fixed

@@ -472,6 +472,25 @@ describe('Feature: Session Start Hook', () => {
       // could disrupt the session. Trailing newline is acceptable.
       expect(stdout.trim()).toBe('');
     });
+
+    it('silently exits when require() succeeds but native binding fails to load', () => {
+      // Real-world failure mode in plugin-marketplace cache: better-sqlite3's
+      // JS wrapper exists (require ok), but build/Release/better_sqlite3.node
+      // is absent, so the first construction throws. The hook must NOT emit
+      // the "Session start failed (Could not locate the bindings file...)"
+      // systemMessage to Claude Code in this state.
+      const db = createTestDb();
+      db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('binding-fail-test', 'note');
+      db.close();
+
+      const stdout = runHookRaw(
+        { cwd: '/tmp/binding-fail-test' },
+        { MEMESH_TEST_FORCE_BINDING_LOAD_FAIL: '1' },
+      );
+      expect(stdout.trim()).toBe('');
+      expect(stdout).not.toContain('Could not locate the bindings file');
+      expect(stdout).not.toContain('Session start failed');
+    });
   });
 
   describe('Scenario: Legacy SQLite build (no exp/log functions)', () => {

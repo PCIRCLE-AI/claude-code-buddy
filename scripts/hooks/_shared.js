@@ -311,10 +311,15 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
  * @returns {{ db: any, dbPath: string }}
  */
 // Cached lookup for the better-sqlite3 native module. Plugin-marketplace
-// installs ship the tarball without node_modules, so the cache copy of the
-// hook scripts cannot resolve the binding. tryRequireBetterSqlite() returns
-// null in that scenario and lets each caller silent-skip — callers paired
-// with a working dev/npm-global registration still produce output.
+// installs ship the tarball without node_modules OR with a node_modules
+// tree that lacks the compiled .node binding. tryRequireBetterSqlite()
+// returns null in either scenario and lets each caller silent-skip —
+// callers paired with a working dev/npm-global registration still produce
+// output. The require() call alone is NOT sufficient: better-sqlite3's
+// `lib/index.js` defers the bindings() call until the first
+// `new Database()`, so a successful require() can still hand back a
+// constructor that throws "Could not locate the bindings file" on use.
+// We probe with an in-memory DB to force the binding load up-front.
 let _cachedDatabaseCtor;
 export function tryRequireBetterSqlite() {
   // Test-only seam: force the "native module unavailable" branch so
@@ -323,7 +328,18 @@ export function tryRequireBetterSqlite() {
   if (process.env.MEMESH_TEST_FORCE_MISSING_NATIVE === '1') return null;
   if (_cachedDatabaseCtor !== undefined) return _cachedDatabaseCtor;
   try {
-    _cachedDatabaseCtor = require('better-sqlite3');
+    const Database = require('better-sqlite3');
+    // Second test-only seam: simulate the exact plugin-marketplace cache
+    // failure mode where require() succeeds (JS wrapper present) but the
+    // native .node is missing, so the first construction throws. This
+    // path is NOT covered by MEMESH_TEST_FORCE_MISSING_NATIVE, which
+    // short-circuits before require() even runs.
+    if (process.env.MEMESH_TEST_FORCE_BINDING_LOAD_FAIL === '1') {
+      throw new Error('Could not locate the bindings file. (test forced)');
+    }
+    const probe = new Database(':memory:');
+    probe.close();
+    _cachedDatabaseCtor = Database;
   } catch {
     _cachedDatabaseCtor = null;
   }
