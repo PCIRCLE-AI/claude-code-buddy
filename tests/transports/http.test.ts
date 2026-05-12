@@ -296,6 +296,40 @@ describe('HTTP Transport: GET /v1/stats', () => {
   });
 });
 
+// ── Body limit ────────────────────────────────────────────────────────────────
+
+describe('HTTP Transport: 1MB request body limit', () => {
+  it('rejects oversized JSON with a structured 413 (not an HTML error page)', async () => {
+    // Build a JSON body > 1MB. The simplest path: a string field whose
+    // value is 1.5 MB of repeated characters. JSON.stringify wraps with
+    // quotes + the field name; the resulting body comfortably exceeds the cap.
+    const filler = 'x'.repeat(1.5 * 1024 * 1024);
+    const url = `http://127.0.0.1:${port}/v1/remember`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'oversize', type: 'note', observations: [filler] }),
+    });
+    expect(res.status).toBe(413);
+    const contentType = res.headers.get('content-type') ?? '';
+    expect(contentType).toMatch(/application\/json/);
+    const body = await res.json() as { success: boolean; code?: string; limit?: string };
+    expect(body.success).toBe(false);
+    expect(body.code).toBe('PAYLOAD_TOO_LARGE');
+    expect(body.limit).toBe('1mb');
+  });
+
+  it('accepts a small JSON payload (control — confirms 1MB cap is not too aggressive)', async () => {
+    const res = await req('POST', '/v1/remember', {
+      name: 'tiny',
+      type: 'note',
+      observations: ['short observation'],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+});
+
 // ── Graph ─────────────────────────────────────────────────────────────────────
 
 describe('HTTP Transport: GET /v1/graph', () => {

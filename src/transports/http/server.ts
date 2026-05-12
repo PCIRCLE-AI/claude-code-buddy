@@ -207,6 +207,33 @@ app.use('/v1/', bearerAuth);
 app.use('/v1/', apiLimiter);
 app.use('/v1/', express.json({ limit: '1mb' }));
 
+// Convert express.json's PayloadTooLargeError into a clean 413 JSON
+// response. Without this, clients receive Express's default HTML error
+// page on oversize requests — hostile to programmatic API consumers,
+// and inconsistent with the JSON-shaped errors every other handler
+// emits. The 1MB limit is the documented contract (see
+// docs/api/API_REFERENCE.md → "Request body limits"); this middleware
+// surfaces it as data rather than markup.
+//
+// Implementation note: declared as a `function` expression (not an
+// arrow) so that Express's 4-arg arity detection (used to distinguish
+// error handlers from regular middleware) survives any downstream code
+// transformation that might rename or drop unused parameters.
+function payloadTooLargeHandler(err: unknown, _req: Request, res: Response, next: NextFunction): void {
+  if (!err || typeof err !== 'object') return next(err);
+  const e = err as { type?: string; status?: number; statusCode?: number; message?: string };
+  const isTooLarge = e.type === 'entity.too.large' || e.status === 413 || e.statusCode === 413;
+  if (!isTooLarge) return next(err);
+  res.status(413).json({
+    success: false,
+    error: 'Request body exceeds the 1MB limit',
+    code: 'PAYLOAD_TOO_LARGE',
+    limit: '1mb',
+    hint: 'Split large exports/imports into smaller batches, or stream them via the CLI (`memesh export` / `memesh import`) which reads/writes files directly and is not subject to the per-request 1MB cap.',
+  });
+}
+app.use('/v1/', payloadTooLargeHandler);
+
 app.get('/favicon.ico', (_req, res) => {
   res.status(204).end();
 });
