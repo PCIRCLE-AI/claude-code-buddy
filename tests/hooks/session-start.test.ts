@@ -491,6 +491,76 @@ describe('Feature: Session Start Hook', () => {
       expect(stdout).not.toContain('Could not locate the bindings file');
       expect(stdout).not.toContain('Session start failed');
     });
+
+    it('writes a single stderr trace line on probe failure (cause is diagnosable)', () => {
+      // Silent-failure guard: an empty catch would collapse "plugin cache
+      // missing .node" together with ABI mismatch, disk full, fd
+      // exhaustion, and tampered modules. The probe MUST emit a single
+      // diagnostic line to stderr (not stdout — stdout stays the hook
+      // protocol channel) so `memesh doctor` and hook logs can surface
+      // the underlying cause.
+      const db = createTestDb();
+      db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('stderr-trace-test', 'note');
+      db.close();
+
+      const { spawnSync } = require('child_process');
+      const result = spawnSync(
+        'node',
+        [path.resolve('scripts/hooks/session-start.js')],
+        {
+          input: JSON.stringify({ cwd: '/tmp/stderr-trace-test' }),
+          env: {
+            ...process.env,
+            MEMESH_DB_PATH: dbPath,
+            MEMESH_TEST_FORCE_BINDING_LOAD_FAIL: '1',
+          },
+          encoding: 'utf8',
+          timeout: 15000,
+        },
+      );
+      const stdout = (result.stdout ?? '') as string;
+      const stderr = (result.stderr ?? '') as string;
+
+      expect(stdout.trim()).toBe('');
+      expect(stderr).toContain('[memesh hook] better-sqlite3 probe failed');
+      expect(stderr).toContain('Could not locate the bindings file');
+      // Exactly one trace line — not a stack trace dump.
+      const traceLines = stderr.split('\n').filter((l) => l.includes('[memesh hook]'));
+      expect(traceLines.length).toBe(1);
+    });
+
+    it('test seams are inert outside test environment', () => {
+      // Hardening check: an accidental shell export of
+      // MEMESH_TEST_FORCE_BINDING_LOAD_FAIL on a real user's machine
+      // must NOT disable memesh. The seam only fires when VITEST=true
+      // or NODE_ENV=test. Simulate "production" by clearing both.
+      const db = createTestDb();
+      db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('seam-guard-test', 'note');
+      db.close();
+
+      const { spawnSync } = require('child_process');
+      const result = spawnSync(
+        'node',
+        [path.resolve('scripts/hooks/session-start.js')],
+        {
+          input: JSON.stringify({ cwd: '/tmp/seam-guard-test' }),
+          env: {
+            ...process.env,
+            VITEST: '',
+            NODE_ENV: 'production',
+            MEMESH_DB_PATH: dbPath,
+            MEMESH_TEST_FORCE_BINDING_LOAD_FAIL: '1',
+            MEMESH_TEST_FORCE_MISSING_NATIVE: '1',
+          },
+          encoding: 'utf8',
+          timeout: 15000,
+        },
+      );
+      const stdout = (result.stdout ?? '') as string;
+      // With seams gated off, the real better-sqlite3 binding loads and
+      // memesh produces its normal summary line.
+      expect(stdout).toContain('◉ MeMesh');
+    });
   });
 
   describe('Scenario: Legacy SQLite build (no exp/log functions)', () => {

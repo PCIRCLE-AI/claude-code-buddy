@@ -320,27 +320,48 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
 // `new Database()`, so a successful require() can still hand back a
 // constructor that throws "Could not locate the bindings file" on use.
 // We probe with an in-memory DB to force the binding load up-front.
+function _inTestEnv() {
+  return process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
+}
+
 let _cachedDatabaseCtor;
 export function tryRequireBetterSqlite() {
   // Test-only seam: force the "native module unavailable" branch so
   // tests can exercise the silent-skip path that plugin-marketplace
-  // cache installs hit. Production callers never set this var.
-  if (process.env.MEMESH_TEST_FORCE_MISSING_NATIVE === '1') return null;
+  // cache installs hit. Gated to test environments so an accidental
+  // shell export cannot disable memesh on a real user's machine.
+  if (_inTestEnv() && process.env.MEMESH_TEST_FORCE_MISSING_NATIVE === '1') return null;
   if (_cachedDatabaseCtor !== undefined) return _cachedDatabaseCtor;
   try {
     const Database = require('better-sqlite3');
     // Second test-only seam: simulate the exact plugin-marketplace cache
     // failure mode where require() succeeds (JS wrapper present) but the
-    // native .node is missing, so the first construction throws. This
-    // path is NOT covered by MEMESH_TEST_FORCE_MISSING_NATIVE, which
-    // short-circuits before require() even runs.
-    if (process.env.MEMESH_TEST_FORCE_BINDING_LOAD_FAIL === '1') {
+    // native .node is missing, so the first construction throws. Same
+    // test-env gate as the seam above.
+    if (_inTestEnv() && process.env.MEMESH_TEST_FORCE_BINDING_LOAD_FAIL === '1') {
       throw new Error('Could not locate the bindings file. (test forced)');
     }
     const probe = new Database(':memory:');
     probe.close();
     _cachedDatabaseCtor = Database;
-  } catch {
+  } catch (err) {
+    // Stderr-trace-then-silent: an empty catch would collapse plugin-
+    // marketplace's "no .node binding" case together with ABI mismatches,
+    // disk full, fd exhaustion, OOM, and tampered native modules — all
+    // distinct causes with distinct fixes. Following the project's hook
+    // pattern (e.g. session-summary.js, post-commit.js), we surface a
+    // single line on stderr (NOT stdout — Claude Code's hook contract
+    // requires stdout stays a single JSON document or empty) and let
+    // each caller continue its silent-skip behavior. The stderr trace
+    // is visible to anyone running `memesh doctor` or inspecting hook
+    // exit logs; it does NOT reach the Claude Code conversation.
+    try {
+      const code = err && typeof err === 'object' && 'code' in err ? err.code : '';
+      const msg = (err && typeof err === 'object' && 'message' in err ? err.message : String(err)) || 'unknown';
+      process.stderr.write(`[memesh hook] better-sqlite3 probe failed: ${code} ${msg}\n`);
+    } catch {
+      // stderr write itself failed (closed pipe, etc.) — give up silently.
+    }
     _cachedDatabaseCtor = null;
   }
   return _cachedDatabaseCtor;
