@@ -5,6 +5,7 @@ All notable changes to MeMesh are documented here.
 ## [Unreleased]
 
 ### Fixed
+- **MCP server startup guard** (`src/mcp/launcher.ts`) — `db.ts` uses a static ESM import of `better-sqlite3`, which crashes the process before any try-catch can run when the native binding is absent. A new `launcher.ts` entry point uses a CJS `require` (catchable) to detect the missing binary, runs `npm rebuild better-sqlite3`, then hands off to `server.ts` whose ESM import cache is still empty and picks up the freshly compiled binary. `memesh-mcp` bin now points to `dist/mcp/launcher.js`.
 - **`postinstall` script for native addon compilation** (`scripts/postinstall-rebuild.mjs`) — Claude Code's plugin marketplace installs packages with scripts that can silently skip `better-sqlite3`'s native build step, leaving the plugin non-functional. A new `postinstall` npm script detects a missing binary and rebuilds it; exits silently if the binary already exists. Non-fatal: warns to stderr and exits 0 if `npm rebuild` fails (e.g., missing build tools).
 - **Entity name sanitization** (`src/transports/schemas.ts`) — `RememberSchema`, `ForgetSchema`, and `ExportResultSchema` now strip `\r\n\t` from entity names via `.transform()`. Prevents LLM-generated multi-line markdown from being stored raw as entity names, which produced garbled briefings in the session-start hook.
 

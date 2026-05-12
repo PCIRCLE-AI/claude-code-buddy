@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 const targets = [
+  'dist/mcp/launcher.js',
   'dist/mcp/server.js',
   'dist/cli/view.js',
   'scripts/hooks/session-start.js',

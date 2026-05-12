@@ -6,7 +6,7 @@
   "type": "module",
   "bin": {
     "memesh": "dist/transports/cli/cli.js",
-    "memesh-mcp": "dist/mcp/server.js",
+    "memesh-mcp": "dist/mcp/launcher.js",
     "memesh-http": "dist/transports/http/server.js",
     "memesh-view": "dist/cli/view.js"
   },
