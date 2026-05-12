@@ -1,0 +1,41 @@
+import fs from 'fs';
+import { detectCapabilities, getConfigPath } from './config.js';
+import { openDatabase, closeDatabase, isDatabaseOpen } from '../db.js';
+import { getUpdateCheck } from './version-check.js';
+import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
+export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
+export type DoctorOverallStatus = 'PASS' | 'PASS_WITH_CONCERNS' | 'FAIL';
+export interface DoctorCheck {
+    id: string;
+    label: string;
+    status: DoctorCheckStatus;
+    summary: string;
+    fix?: string;
+}
+export interface DoctorResult {
+    status: DoctorOverallStatus;
+    checks: DoctorCheck[];
+}
+interface DoctorOptions {
+    packageRoot: string;
+    packageVersion: string;
+    probeHttp?: boolean;
+    httpBaseUrl?: string;
+    platform?: NodeJS.Platform;
+    openDatabaseImpl?: typeof openDatabase;
+    closeDatabaseImpl?: typeof closeDatabase;
+    isDatabaseOpenImpl?: typeof isDatabaseOpen;
+    detectCapabilitiesImpl?: typeof detectCapabilities;
+    getConfigPathImpl?: typeof getConfigPath;
+    getUpdateCheckImpl?: typeof getUpdateCheck;
+    getCurrentInstallChannelImpl?: typeof getCurrentInstallChannel;
+    getInstallChannelSupportImpl?: typeof getInstallChannelSupport;
+    existsSyncImpl?: typeof fs.existsSync;
+    readFileSyncImpl?: typeof fs.readFileSync;
+    statSyncImpl?: typeof fs.statSync;
+    fetchImpl?: typeof fetch;
+}
+export declare function runDoctor(options: DoctorOptions): Promise<DoctorResult>;
+export declare function formatDoctorReport(result: DoctorResult, packageVersion: string): string[];
+export {};
+//# sourceMappingURL=doctor.d.ts.map

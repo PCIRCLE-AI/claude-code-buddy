@@ -1,0 +1,748 @@
+#!/usr/bin/env node
+import express from 'express';
+import { rateLimit } from 'express-rate-limit';
+import { z } from 'zod';
+import { randomBytes, timingSafeEqual } from 'crypto';
+import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
+import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
+import { KnowledgeGraph } from '../../knowledge-graph.js';
+import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
+import { computePatterns } from '../../core/patterns.js';
+import { computeAnalytics, computePmAnalytics } from '../../core/analytics.js';
+import { computeStats } from '../../core/stats.js';
+import { computeProjects } from '../../core/projects.js';
+import { computeGraph } from '../../core/graph.js';
+import { verifyAgentWork } from '../../core/verifier.js';
+import { RememberSchema as RememberBody, RecallSchema as RecallBody, ForgetSchema as ForgetBody, ConsolidateSchema as ConsolidateBody, ExportSchema as ExportBody, ImportSchema as ImportBody, LearnSchema as LearnBody, VerifyAgentWorkSchema as VerifyBody, } from '../schemas.js';
+import { getUpdateCheck } from '../../core/version-check.js';
+import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
+import { getDbPath, getMemeshDirFromDbPath } from '../../core/paths.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+const packageJsonPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../package.json');
+const packageRoot = path.dirname(packageJsonPath);
+const packageVersion = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')).version ?? '0.0.0';
+const app = express();
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many requests from this IP, please try again later.',
+});
+let remoteToken = null;
+const serverAuthRequired = new WeakMap();
+function memeshDir() {
+    return getMemeshDirFromDbPath();
+}
+function loadOrCreateRemoteToken() {
+    const fromEnv = process.env.MEMESH_REMOTE_TOKEN;
+    if (fromEnv && fromEnv.length >= 16) {
+        return { token: Buffer.from(fromEnv, 'utf8'), freshlyCreated: false };
+    }
+    const dir = memeshDir();
+    const tokenPath = path.join(dir, 'remote-token');
+    fs.mkdirSync(dir, { recursive: true });
+    try {
+        fs.chmodSync(dir, 0o700);
+    }
+    catch { }
+    const generated = randomBytes(32).toString('hex');
+    try {
+        const fd = fs.openSync(tokenPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+        try {
+            fs.writeFileSync(fd, generated + '\n');
+        }
+        finally {
+            fs.closeSync(fd);
+        }
+        try {
+            fs.chmodSync(tokenPath, 0o600);
+        }
+        catch { }
+        return { token: Buffer.from(generated, 'utf8'), freshlyCreated: true };
+    }
+    catch (err) {
+        if (err?.code !== 'EEXIST')
+            throw err;
+    }
+    const value = fs.readFileSync(tokenPath, 'utf8').trim();
+    if (value.length < 16) {
+        throw new Error(`Existing ${tokenPath} is too short (<16 chars). Delete it and restart memesh-http to regenerate.`);
+    }
+    try {
+        fs.chmodSync(tokenPath, 0o600);
+    }
+    catch { }
+    return { token: Buffer.from(value, 'utf8'), freshlyCreated: false };
+}
+function constantTimeEquals(a, b) {
+    const max = Math.max(a.length, b.length);
+    const aPad = Buffer.alloc(max);
+    const bPad = Buffer.alloc(max);
+    a.copy(aPad);
+    b.copy(bPad);
+    const eq = timingSafeEqual(aPad, bPad);
+    return eq && a.length === b.length;
+}
+function bearerAuth(req, res, next) {
+    const ownerServer = req.socket.server;
+    const requiresAuth = ownerServer ? (serverAuthRequired.get(ownerServer) ?? false) : false;
+    if (!requiresAuth) {
+        next();
+        return;
+    }
+    if (!remoteToken) {
+        res.status(503).json({
+            success: false,
+            error: 'remote bearer auth not configured on this server',
+        });
+        return;
+    }
+    const header = req.header('authorization') || req.header('Authorization') || '';
+    const trimmed = header.trim();
+    const wsIndex = trimmed.search(/\s/);
+    if (wsIndex < 0 || trimmed.slice(0, wsIndex).toLowerCase() !== 'bearer') {
+        res.status(401).json({ success: false, error: 'Missing Authorization: Bearer <token>' });
+        return;
+    }
+    const tokenPart = trimmed.slice(wsIndex + 1).trim();
+    if (!tokenPart) {
+        res.status(401).json({ success: false, error: 'Missing Authorization: Bearer <token>' });
+        return;
+    }
+    const presented = Buffer.from(tokenPart, 'utf8');
+    if (!constantTimeEquals(presented, remoteToken)) {
+        res.status(401).json({ success: false, error: 'Invalid bearer token' });
+        return;
+    }
+    next();
+}
+app.use('/v1/', bearerAuth);
+app.use('/v1/', apiLimiter);
+app.use('/v1/', express.json({ limit: '1mb' }));
+function payloadTooLargeHandler(err, _req, res, next) {
+    if (!err || typeof err !== 'object')
+        return next(err);
+    const e = err;
+    const isTooLarge = e.type === 'entity.too.large' || e.status === 413 || e.statusCode === 413;
+    if (!isTooLarge)
+        return next(err);
+    res.status(413).json({
+        success: false,
+        error: 'Request body exceeds the 1MB limit',
+        code: 'PAYLOAD_TOO_LARGE',
+        limit: '1mb',
+        hint: 'Split large exports/imports into smaller batches, or stream them via the CLI (`memesh export` / `memesh import`) which reads/writes files directly and is not subject to the per-request 1MB cap.',
+    });
+}
+app.use('/v1/', payloadTooLargeHandler);
+app.get('/favicon.ico', (_req, res) => {
+    res.status(204).end();
+});
+app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '0');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    next();
+});
+app.get('/dashboard', (_req, res) => {
+    const dashboardPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../dashboard/dist/index.html');
+    if (fs.existsSync(dashboardPath)) {
+        res.type('html').sendFile(dashboardPath, { dotfiles: 'allow' });
+    }
+    else {
+        import('../../cli/view-live.js')
+            .then(m => res.type('html').send(m.generateLiveDashboardHtml()))
+            .catch(() => res.status(500).send('Dashboard unavailable'));
+    }
+});
+app.get('/v1/health', (_req, res) => {
+    try {
+        const db = getDatabase();
+        const count = db.prepare('SELECT COUNT(*) as c FROM entities').get();
+        res.json({ success: true, data: { status: 'ok', version: packageVersion, entity_count: count.c } });
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message === 'Database not opened') {
+            res.status(503).json({
+                success: false,
+                error: 'Database not initialized',
+                details: 'MeMesh database failed to open at startup. Check server logs for details, or run "memesh doctor" to diagnose.',
+            });
+        }
+        else {
+            res.status(500).json({ success: false, error: message });
+        }
+    }
+});
+function redactSecrets(input) {
+    return input
+        .replace(/sk-ant-[A-Za-z0-9_-]{20,}/g, 'sk-ant-***REDACTED***')
+        .replace(/sk-proj-[A-Za-z0-9_-]{20,}/g, 'sk-proj-***REDACTED***')
+        .replace(/sk-[A-Za-z0-9]{32,}/g, 'sk-***REDACTED***')
+        .replace(/ghp_[A-Za-z0-9]{30,}/g, 'ghp_***REDACTED***')
+        .replace(/gho_[A-Za-z0-9]{30,}/g, 'gho_***REDACTED***')
+        .replace(/AKIA[A-Z0-9]{16}/g, 'AKIA***REDACTED***')
+        .replace(/Bearer\s+[A-Za-z0-9._-]{20,}/gi, 'Bearer ***REDACTED***');
+}
+app.get('/v1/doctor', async (_req, res) => {
+    try {
+        const { runDoctor } = await import('../../core/doctor.js');
+        const result = await runDoctor({
+            packageRoot,
+            packageVersion,
+        });
+        const safe = JSON.parse(redactSecrets(JSON.stringify(result)));
+        res.json({ success: true, data: safe });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+function handlePost(schema, req, res, handler) {
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+        res.status(400).json({
+            success: false,
+            error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
+        });
+        return;
+    }
+    Promise.resolve(handler(parsed.data))
+        .then((data) => res.json({ success: true, data }))
+        .catch((err) => res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) }));
+}
+app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, remember));
+app.post('/v1/recall', async (req, res) => {
+    const parsed = RecallBody.safeParse(req.body);
+    if (!parsed.success) {
+        res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+        return;
+    }
+    try {
+        const entities = await recallEnhanced(parsed.data);
+        const kg = new KnowledgeGraph(getDatabase());
+        const conflicts = kg.findConflicts(entities.map(e => e.name));
+        if (conflicts.length > 0) {
+            res.json({ success: true, data: { entities, conflicts } });
+        }
+        else {
+            res.json({ success: true, data: entities });
+        }
+    }
+    catch (err) {
+        res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+app.post('/v1/forget', (req, res) => handlePost(ForgetBody, req, res, forget));
+app.post('/v1/consolidate', (req, res) => handlePost(ConsolidateBody, req, res, consolidate));
+app.post('/v1/export', (req, res) => handlePost(ExportBody, req, res, exportMemories));
+app.post('/v1/import', (req, res) => handlePost(ImportBody, req, res, importMemories));
+app.post('/v1/learn', (req, res) => handlePost(LearnBody, req, res, learn));
+app.post('/v1/verify', (req, res) => handlePost(VerifyBody, req, res, verifyAgentWork));
+app.get('/v1/config', (_req, res) => {
+    try {
+        const config = readConfig();
+        const caps = detectCapabilities(config);
+        const safeConfig = { ...config };
+        if (safeConfig.llm?.apiKey) {
+            safeConfig.llm = { ...safeConfig.llm, apiKey: '***' };
+        }
+        if (Array.isArray(safeConfig.llmFallbacks) && safeConfig.llmFallbacks.length > 0) {
+            safeConfig.llmFallbacks = safeConfig.llmFallbacks.map(fb => fb?.apiKey ? { ...fb, apiKey: '***' } : fb);
+        }
+        if (caps.llm?.apiKey) {
+            caps.llm = { ...caps.llm, apiKey: '***' };
+        }
+        if (Array.isArray(caps.llmFallbacks) && caps.llmFallbacks.length > 0) {
+            caps.llmFallbacks = caps.llmFallbacks.map(fb => fb?.apiKey ? { ...fb, apiKey: '***' } : fb);
+        }
+        res.json({ success: true, data: { config: safeConfig, capabilities: caps } });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+const ConfigBody = z.object({
+    llm: z.union([
+        z.object({
+            provider: z.enum(['anthropic', 'openai', 'ollama']),
+            model: z.string().optional(),
+            apiKey: z.string().optional(),
+        }),
+        z.null(),
+    ]).optional(),
+    llmFallbacks: z.array(z.object({
+        provider: z.enum(['anthropic', 'openai', 'ollama']),
+        model: z.string().optional(),
+        apiKey: z.string().optional(),
+    })).optional(),
+    autoCapture: z.boolean().optional(),
+    sessionLimit: z.number().int().min(1).max(100).optional(),
+    enableAgenticOrchestration: z.boolean().optional(),
+    autoUpdate: z.enum(['off', 'patch', 'minor', 'major']).optional(),
+    theme: z.enum(['light', 'dark']).optional(),
+    setupCompleted: z.boolean().optional(),
+}).strip();
+app.post('/v1/config', async (req, res) => {
+    const parsed = ConfigBody.safeParse(req.body);
+    if (!parsed.success) {
+        res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+        return;
+    }
+    try {
+        const before = readConfig();
+        const updated = updateConfig(parsed.data);
+        const llmChanged = parsed.data.llm !== undefined &&
+            (before.llm?.provider !== updated.llm?.provider ||
+                before.llm?.apiKey !== updated.llm?.apiKey);
+        if (llmChanged) {
+            const { resetEmbeddingState } = await import('../../core/embedder.js');
+            resetEmbeddingState();
+        }
+        const safeUpdated = { ...updated };
+        if (safeUpdated.llm?.apiKey) {
+            safeUpdated.llm = { ...safeUpdated.llm, apiKey: '***' };
+        }
+        res.json({ success: true, data: safeUpdated });
+    }
+    catch (err) {
+        res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+const ConfigTestBody = z.object({
+    provider: z.enum(['anthropic', 'openai', 'ollama']),
+    apiKey: z.string().max(500).optional(),
+    host: z.string().max(500).optional(),
+});
+app.post('/v1/config/test', async (req, res) => {
+    const parsed = ConfigTestBody.safeParse(req.body);
+    if (!parsed.success) {
+        res.status(400).json({
+            success: false,
+            error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
+        });
+        return;
+    }
+    try {
+        const { probeProvider } = await import('../../core/llm-validator.js');
+        const { provider, host } = parsed.data;
+        let { apiKey } = parsed.data;
+        if (!apiKey && (provider === 'anthropic' || provider === 'openai')) {
+            const existing = readConfig();
+            if (existing.llm?.provider === provider && existing.llm.apiKey) {
+                apiKey = existing.llm.apiKey;
+            }
+        }
+        const result = await probeProvider(provider, apiKey, host);
+        res.json({ success: true, data: result });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+app.get('/v1/update-status', async (req, res) => {
+    try {
+        const cached = req.query.cached === '1' || req.query.cached === 'true';
+        const install = getCurrentInstallChannel({ packageRoot });
+        const installSupport = getInstallChannelSupport(install);
+        const update = await getUpdateCheck(packageVersion, { preferFresh: !cached });
+        res.json({
+            success: true,
+            data: {
+                currentVersion: packageVersion,
+                latestVersion: update?.latestVersion ?? null,
+                checkedAt: update?.checkedAt ?? null,
+                lastAttemptAt: update?.lastAttemptAt ?? null,
+                lastSuccessfulCheckAt: update?.lastSuccessfulCheckAt ?? null,
+                lastError: update?.lastError ?? null,
+                updateAvailable: update?.updateAvailable ?? false,
+                checkSucceeded: update?.checkSucceeded ?? false,
+                source: update?.source ?? null,
+                freshness: update?.freshness ?? 'unavailable',
+                installChannel: installSupport.channel,
+                canSelfUpdate: installSupport.canSelfUpdate,
+                recommendedCommand: (update?.currentVersionDeprecated
+                    && update.latestVersion
+                    && update.latestVersion === update.currentVersion
+                    && update.freshness === 'fresh') ? null : installSupport.recommendedCommand,
+                currentVersionDeprecated: update?.currentVersionDeprecated ?? false,
+                deprecationMessage: update?.deprecationMessage ?? null,
+            },
+        });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+app.get('/v1/graph', (_req, res) => {
+    try {
+        res.json({ success: true, data: computeGraph(getDatabase()) });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+app.get('/v1/stats', (_req, res) => {
+    try {
+        res.json({ success: true, data: computeStats(getDatabase()) });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+app.get('/v1/analytics', (_req, res) => {
+    try {
+        res.json({ success: true, data: computeAnalytics(getDatabase()) });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+app.get('/v1/analytics/pm', (req, res) => {
+    const raw = req.query.window;
+    const window = typeof raw === 'string' ? parseInt(raw, 10) : NaN;
+    const windowDays = Number.isFinite(window) && window > 0 ? window : 30;
+    try {
+        res.json({ success: true, data: computePmAnalytics(getDatabase(), windowDays) });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+app.post('/v1/demo/seed', async (_req, res) => {
+    try {
+        const { seedDemo } = await import('../../core/demo.js');
+        const data = seedDemo(getDatabase());
+        res.json({ success: true, data });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+app.post('/v1/demo/reset', async (_req, res) => {
+    try {
+        const { seedDemo } = await import('../../core/demo.js');
+        const data = seedDemo(getDatabase(), { reset: true });
+        res.json({ success: true, data });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+app.get('/v1/projects', (_req, res) => {
+    try {
+        res.json({ success: true, data: computeProjects(getDatabase()) });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+app.get('/v1/patterns', (_req, res) => {
+    try {
+        const db = getDatabase();
+        const data = computePatterns(db);
+        res.json({ success: true, data });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+const TelemetryQuerySchema = z.object({
+    window: z.coerce.number().int().min(1).max(365).default(30),
+});
+app.get('/v1/telemetry', async (req, res) => {
+    try {
+        const parsed = TelemetryQuerySchema.safeParse(req.query);
+        if (!parsed.success) {
+            res.status(400).json({ success: false, error: parsed.error.issues.map(i => i.message).join('; ') });
+            return;
+        }
+        const { summariseTelemetry } = await import('../../core/llm-telemetry.js');
+        const summaries = summariseTelemetry(parsed.data.window);
+        res.json({ success: true, data: { window_days: parsed.data.window, summaries } });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+const DreamProposalsQuerySchema = z.object({
+    status: z.enum(['pending', 'applied', 'rejected', 'all']).default('pending'),
+});
+app.get('/v1/dream/proposals', (req, res) => {
+    try {
+        const parsed = DreamProposalsQuerySchema.safeParse(req.query);
+        if (!parsed.success) {
+            res.status(400).json({ success: false, error: parsed.error.issues.map(i => i.message).join('; ') });
+            return;
+        }
+        const status = parsed.data.status;
+        import('../../core/dreamer.js').then(({ listProposals }) => {
+            const db = getDatabase();
+            const rows = status === 'all'
+                ? [...listProposals(db, 'pending'), ...listProposals(db, 'applied'), ...listProposals(db, 'rejected')]
+                : listProposals(db, status);
+            res.json({ success: true, data: rows });
+        }).catch((err) => res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }));
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+app.get('/v1/dream/proposals/:id', (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id < 1) {
+        res.status(400).json({ success: false, error: 'invalid id' });
+        return;
+    }
+    try {
+        const row = getDatabase().prepare('SELECT id, project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version, status, reason, created_at, reviewed_at FROM dream_proposals WHERE id = ?').get(id);
+        if (!row) {
+            res.status(404).json({ success: false, error: `proposal #${id} not found` });
+            return;
+        }
+        let digest = null;
+        let sourceIds = [];
+        try {
+            digest = JSON.parse(row.proposed_digest);
+        }
+        catch { }
+        try {
+            sourceIds = JSON.parse(row.source_ids);
+        }
+        catch { }
+        res.json({ success: true, data: { ...row, proposed_digest: digest, source_ids: sourceIds } });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+const DreamRunBody = z.object({
+    project: z.string().min(1).max(100).optional(),
+    windowDays: z.number().int().min(1).max(90).default(14),
+    maxLlmCalls: z.number().int().min(1).max(20).default(5),
+    validate: z.boolean().default(false),
+});
+app.post('/v1/dream/run', async (req, res) => {
+    const parsed = DreamRunBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+        res.status(400).json({
+            success: false,
+            error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
+        });
+        return;
+    }
+    try {
+        const { runDreamer } = await import('../../core/dreamer.js');
+        const cfg = readConfig();
+        if (!cfg.llm) {
+            res.status(400).json({
+                success: false,
+                error: 'No LLM configured — dream run requires Smart Mode. Configure a provider in Settings.',
+            });
+            return;
+        }
+        const result = await runDreamer(getDatabase(), cfg.llm, {
+            project: parsed.data.project,
+            windowDays: parsed.data.windowDays,
+            maxLlmCalls: parsed.data.maxLlmCalls,
+            fallbacks: cfg.llmFallbacks,
+            validateBeforeStage: parsed.data.validate,
+        });
+        res.json({ success: true, data: result });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+app.post('/v1/dream/proposals/:id/accept', async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id < 1) {
+        res.status(400).json({ success: false, error: 'invalid id' });
+        return;
+    }
+    try {
+        const { applyProposal } = await import('../../core/dreamer.js');
+        const kg = new KnowledgeGraph(getDatabase());
+        const result = applyProposal(getDatabase(), id, kg);
+        res.json({ success: true, data: result });
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/not found or not pending/.test(msg)) {
+            res.status(404).json({ success: false, error: msg });
+        }
+        else {
+            res.status(500).json({ success: false, error: msg });
+        }
+    }
+});
+const RejectBodySchema = z.object({
+    reason: z.string().max(500).optional(),
+});
+app.post('/v1/dream/proposals/:id/reject', async (req, res) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id < 1) {
+        res.status(400).json({ success: false, error: 'invalid id' });
+        return;
+    }
+    const parsed = RejectBodySchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+        res.status(400).json({ success: false, error: parsed.error.issues.map(i => i.message).join('; ') });
+        return;
+    }
+    try {
+        const { rejectProposal } = await import('../../core/dreamer.js');
+        rejectProposal(getDatabase(), id, parsed.data.reason);
+        res.json({ success: true, data: { id, status: 'rejected' } });
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/not found or not pending/.test(msg)) {
+            res.status(404).json({ success: false, error: msg });
+        }
+        else {
+            res.status(500).json({ success: false, error: msg });
+        }
+    }
+});
+const EntitiesQuerySchema = z.object({
+    type: z.string().min(1).max(100).optional(),
+    limit: z.coerce.number().int().min(1).max(5000).default(20),
+    status: z.enum(['all', 'active']).optional(),
+});
+app.get('/v1/entities', (req, res) => {
+    try {
+        const parsed = EntitiesQuerySchema.safeParse(req.query);
+        if (!parsed.success) {
+            res.status(400).json({ success: false, error: `Invalid query: ${parsed.error.message}` });
+            return;
+        }
+        const { type: typeFilter, limit, status } = parsed.data;
+        const includeArchived = status === 'all';
+        const db = getDatabase();
+        const kg = new KnowledgeGraph(db);
+        let entities;
+        if (typeFilter) {
+            const statusFilter = includeArchived ? '' : "AND status = 'active'";
+            const names = db.prepare(`SELECT name FROM entities WHERE type = ? ${statusFilter} ORDER BY id DESC LIMIT ?`).all(typeFilter, limit);
+            entities = names.map(r => kg.getEntity(r.name)).filter(Boolean);
+        }
+        else {
+            entities = kg.listRecent(limit, includeArchived);
+        }
+        res.json({ success: true, data: entities });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+app.get('/v1/entities/:name', (req, res) => {
+    try {
+        const db = getDatabase();
+        const kg = new KnowledgeGraph(db);
+        const entity = kg.getEntity(req.params.name);
+        if (!entity) {
+            res.status(404).json({ success: false, error: `Entity "${req.params.name}" not found` });
+            return;
+        }
+        res.json({ success: true, data: entity });
+    }
+    catch (err) {
+        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    }
+});
+const HOST = process.env.MEMESH_HTTP_HOST || '127.0.0.1';
+const PORT = parseInt(process.env.MEMESH_HTTP_PORT || '3737');
+const ALLOW_REMOTE_BY_ENV = /^(1|true|yes)$/i.test(process.env.MEMESH_HTTP_ALLOW_REMOTE || '');
+function normalizeHost(host) {
+    return host.trim().toLowerCase().replace(/^\[(.*)\]$/, '$1');
+}
+function isLoopbackHost(host) {
+    const normalized = normalizeHost(host);
+    return normalized === 'localhost'
+        || normalized === '::1'
+        || normalized === '127.0.0.1'
+        || normalized.startsWith('127.')
+        || normalized.startsWith('::ffff:127.');
+}
+export function startServer(host = HOST, port = PORT, opts) {
+    const allowRemote = opts?.allowRemote ?? ALLOW_REMOTE_BY_ENV;
+    const isRemote = !isLoopbackHost(host);
+    if (!allowRemote && isRemote) {
+        throw new Error(`Refusing to bind MeMesh HTTP server to non-loopback host "${host}" without explicit remote access opt-in. Use --allow-remote or MEMESH_HTTP_ALLOW_REMOTE=true.`);
+    }
+    if (isRemote) {
+        const { token, freshlyCreated } = loadOrCreateRemoteToken();
+        remoteToken = token;
+        if (freshlyCreated) {
+            const dir = memeshDir();
+            const tokenPath = path.join(dir, 'remote-token');
+            process.stderr.write(`\nMeMesh HTTP: bearer token generated for remote access.\n` +
+                `  Token file: ${tokenPath} (mode 600)\n` +
+                `  Use header: Authorization: Bearer <token>\n` +
+                `  Rotate by deleting ${tokenPath} and restarting.\n` +
+                `  Override: set MEMESH_REMOTE_TOKEN.\n\n`);
+        }
+        else {
+            process.stderr.write(`MeMesh HTTP: remote bind requires Authorization: Bearer <token>. ` +
+                `Token loaded from ${process.env.MEMESH_REMOTE_TOKEN ? 'MEMESH_REMOTE_TOKEN' : path.join(memeshDir(), 'remote-token')}.\n`);
+        }
+    }
+    try {
+        openDatabase();
+        const db = getDatabase();
+        db.prepare('SELECT COUNT(*) FROM entities').get();
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const dbPath = getDbPath();
+        console.error('\n❌ MeMesh startup failed: database cannot be opened\n');
+        console.error(`   Database path: ${dbPath}`);
+        console.error(`   Error: ${message}\n`);
+        console.error('Possible causes:');
+        console.error('  • Database file is corrupted (run: memesh doctor)');
+        console.error('  • Insufficient permissions (check file ownership)');
+        console.error('  • Another process has locked the database');
+        console.error('  • Disk is full or read-only\n');
+        console.error('Quick fix: Backup and reset the database:');
+        console.error(`  mv "${dbPath}" "${dbPath}.backup"`);
+        console.error('  memesh (will create a fresh database)\n');
+        throw new Error(`Database initialization failed: ${message}`, { cause: err });
+    }
+    logCapabilities();
+    const server = app.listen(port, host, () => {
+        const addr = server.address();
+        if (addr && typeof addr === 'object') {
+            console.log(`MeMesh HTTP server running at http://${addr.address}:${addr.port}`);
+        }
+        else {
+            console.log(`MeMesh HTTP server running at http://${host}:${port}`);
+        }
+    });
+    serverAuthRequired.set(server, isRemote);
+    return server;
+}
+export function __setRemoteTokenForTest(value) {
+    remoteToken = value;
+}
+const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'));
+if (isMain || process.argv[1]?.endsWith('memesh-http')) {
+    const server = startServer();
+    function shutdown() {
+        server.close();
+        try {
+            closeDatabase();
+        }
+        catch { }
+        process.exit(0);
+    }
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+}
+export { app };
+//# sourceMappingURL=server.js.map

@@ -2,6 +2,26 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.2.4] — 2026-05-13
+
+### Added
+- **`memesh doctor` README locale-parity check** — compares H2 heading count across `README.md` and the 10 locale READMEs. Drift of 2+ headings (after ±1 translation tolerance) raises WARN; missing locales raise WARN; missing `README.md` skips silently. Fenced code blocks are ignored when counting so example markdown doesn't inflate the count.
+- **`memesh kg backfill-relations --reset-idempotency`** — clear the persistent processed-orphan cache before running, so every orphan is reconsidered from scratch. Useful after schema changes or when you want a clean re-evaluation.
+
+### Changed
+- **LLM client now classifies malformed 2xx responses as recoverable** (`src/core/llm-client.ts`) — a body with missing or renamed fields, or a non-JSON body returned as JSON, raises a `parse` error so the cross-provider failover chain advances to the next provider instead of returning an empty string and treating it as success. An intentionally empty string from a provider is still a successful call (existing caller contract preserved).
+- **`memesh kg backfill-relations` skips already-considered orphans** — the orphan-id cache lives in `memesh_metadata` under key `kg_backfill_processed_v1`. Reruns no longer pay the tokenisation and scoring cost for entities the command has previously inspected. Use `--reset-idempotency` to opt out.
+- **HTTP body-limit response is now structured JSON** (`src/transports/http/server.ts`) — requests exceeding the 1MB body cap get `{ success: false, code: "PAYLOAD_TOO_LARGE", limit: "1mb", hint: ... }` instead of Express's default HTML error page. CLI export/import is unaffected (no per-request cap).
+- **Lint runs at `--max-warnings 0` by default** (`package.json`, CI) — new lint warnings now block PRs. The redundant `lint:strict` script has been removed. CI runs lint before typecheck for faster fail-fast.
+
+### Fixed
+- **Plugin marketplace installs now work without npm/npx** (`.mcp.json`, `.gitignore`, `dist/`, `dashboard/dist/`) — Claude Code's plugin marketplace does not execute npm scripts on install (security model), so the previous setup left users with `-32000 "failed to reconnect to plugin:memesh"` because `dist/` was gitignored and the MCP server was re-installed via `npx` on every start. Compiled `dist/` and the dashboard build are now tracked in git so the plugin is runnable on clone. `.mcp.json` points at the plugin cache's local launcher.js, which already self-heals a missing better-sqlite3 binding via in-process rebuild (v4.2.2 work).
+- **Dashboard launcher no longer invokes a shell** (`src/cli/view.ts`) — CodeQL flagged the Windows code path as `js/shell-command-injection-from-environment` / `js/indirect-command-line-injection` because `cmd.exe /c start <path>` re-parses the path through cmd's shell parser, and `MEMESH_DIR` can feed into that path. Windows now dispatches via `rundll32.exe url.dll,FileProtocolHandler` (no shell). macOS `open` and Linux `xdg-open` are unchanged.
+- **F15 doctor test now inspects the actual corruption fixture** (`tests/core/doctor.test.ts`) — the "provides actionable fix commands for all failure modes" test uses the `MEMESH_DB_PATH` env override (matching every sibling F15 test) so doctor inspects the test database instead of falling through to the default path.
+
+### Documentation
+- **HTTP API request body limits** (`docs/api/API_REFERENCE.md`) — new section documents the 1MB cap, the 413 response shape, and points users at `memesh export` / `memesh import` for bulk operations that exceed the cap.
+
 ## [4.2.3] — 2026-05-12
 
 ### Fixed

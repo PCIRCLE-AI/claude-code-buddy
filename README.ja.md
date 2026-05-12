@@ -53,7 +53,7 @@ Claude Code を使っている場合、CLI 内から MeMesh をプラグイン�
 /plugin install memesh@pcircle-memesh
 ```
 
-Claude Code がフック、スキル、MCP サーバーを自動的にワイヤリングします。セッション内自動キャプチャ、プロアクティブリコール、Claude Code 会話内の `/memesh` スキル(remember / recall / learn / forget)、エージェント向け MCP ツールとしての `remember` / `recall` / `forget` / `learn` がすべて使えるようになります。CLI とローカルダッシュボードもグローバルインストールなしで完全にアクセス可能です — `npx @pcircle/memesh <command>` であらゆる CLI コマンドが実行でき、`npx @pcircle/memesh` で `localhost:3737` のダッシュボードが起動します。MCP サーバーは Anthropic の公式プラグイン(例: `context7`)と同じ `npx` ベースの起動パターンを使用するため、どの機能にも `npm install -g` は不要です。
+Claude Code がフック、スキル、MCP サーバーを自動的にワイヤリングします。セッション内自動キャプチャ、プロアクティブリコール、Claude Code 会話内の `/memesh` スキル(remember / recall / learn / forget)、エージェント向け MCP ツールとしての `remember` / `recall` / `forget` / `learn` がすべて使えるようになります。CLI とローカルダッシュボードもグローバルインストールなしで完全にアクセス可能です — `npx @pcircle/memesh <command>` であらゆる CLI コマンドが実行でき、`npx @pcircle/memesh` で `localhost:3737` のダッシュボードが起動します。MCP サーバーはプラグイン同梱のコンパイル済みコードから直接起動します — `npx` ルックアップ、`npm install -g`、ビルド手順はいずれも不要です。最初の起動時に `better-sqlite3` のネイティブバインディングが見つからない場合(例: Node のメジャーバージョン更新後)、ランチャーがインプロセスで自動的にリビルドして処理を継続します。
 
 ### オプション B — npm グローバル(オプションの最適化)
 

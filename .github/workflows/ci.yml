@@ -34,6 +34,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint (hard gate — max-warnings 0)
+        # Run BEFORE typecheck because lint is significantly faster and
+        # most regressions land here first. Fail-fast cuts CI minutes
+        # on bad PRs. Hard-gated at zero warnings since v4.2.0; new
+        # `eslint-disable` comments require explicit justification.
+        run: npm run lint
+
       - name: TypeScript check
         run: npm run typecheck
 

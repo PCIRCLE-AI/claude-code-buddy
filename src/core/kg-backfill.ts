@@ -144,6 +144,18 @@ export interface BackfillOptions {
   minNameJaccard?: number;
   /** Alt gate for Rule 4: ≥N shared tokens also qualifies. Default 3. */
   minSharedNameTokens?: number;
+  /**
+   * Idempotency cache — clear the persistent "already-attempted" set before
+   * running. Useful after a schema change or rule-set change where you want
+   * to reconsider every orphan from scratch. Default false (preserve cache).
+   */
+  resetIdempotency?: boolean;
+  /**
+   * Test seam — bypass the persistent cache entirely (don't read, don't
+   * write). Production callers should not set this; the natural mode of
+   * operation is "skip already-attempted orphans, then mark new ones".
+   */
+  ignoreIdempotency?: boolean;
 }
 
 export interface BackfillResult {
@@ -156,6 +168,52 @@ export interface BackfillResult {
     sessionCooccurrence: number;
     nameTokenSimilarity: number;
   };
+  /** Number of orphans skipped because they were already attempted in a prior run. */
+  orphansSkippedIdempotent: number;
+  /** Orphans newly added to the idempotency cache by this run. */
+  orphansMarkedProcessed: number;
+}
+
+// memesh_metadata key for the persistent "already attempted" orphan-id set.
+// Versioned so a future schema rev (e.g. per-rule tracking) can ignore the v1
+// cache without colliding.
+const IDEMPOTENCY_KEY = 'kg_backfill_processed_v1';
+
+interface MetadataRow { value: string }
+
+function readProcessedSet(conn: Database.Database): Set<number> {
+  // memesh_metadata is created by openDatabase / ensureVecTable; if a caller
+  // somehow runs before that migration, skip the cache rather than error out.
+  try {
+    const row = conn.prepare(
+      'SELECT value FROM memesh_metadata WHERE key = ?'
+    ).get(IDEMPOTENCY_KEY) as MetadataRow | undefined;
+    if (!row) return new Set();
+    const parsed = JSON.parse(row.value);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((id): id is number => typeof id === 'number'));
+  } catch {
+    return new Set();
+  }
+}
+
+function writeProcessedSet(conn: Database.Database, ids: Set<number>): void {
+  const payload = JSON.stringify([...ids]);
+  conn.prepare(
+    'INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)'
+  ).run(IDEMPOTENCY_KEY, payload);
+}
+
+function clearProcessedSet(conn: Database.Database): void {
+  conn.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(IDEMPOTENCY_KEY);
+}
+
+/**
+ * Public helper for the CLI's `--reset-idempotency` flag. Idempotent —
+ * safe to call even if no cache row exists.
+ */
+export function resetBackfillIdempotencyCache(db?: Database.Database): void {
+  clearProcessedSet(db ?? getDatabase());
 }
 
 interface OrphanRow {
@@ -171,20 +229,44 @@ interface TagRow {
 }
 
 /**
+ * Output of `proposeBackfillCandidates`. Beyond the candidate edges, it
+ * also reports which orphans were considered this run (after applying
+ * the idempotency filter) and which were skipped because the persistent
+ * cache already has them. `backfillRelations` uses these IDs to mark
+ * processed entities without re-querying SQL, and the CLI uses them for
+ * an accurate "skipped N orphans" summary line.
+ */
+export interface BackfillProposalResult {
+  candidates: RelationCandidate[];
+  /** Orphan IDs that this run actually considered (after idempotency filter). */
+  consideredOrphanIds: number[];
+  /** Orphan IDs skipped because the persistent cache already had them. */
+  skippedOrphanIds: number[];
+}
+
+/**
  * Propose (and optionally apply) heuristic relations to fix the
- * orphan-entity problem in the KG. Returns counts; the actual
- * candidate list is exposed via `proposeBackfillCandidates` for the
- * dry-run path.
+ * orphan-entity problem in the KG. The actual candidate list is exposed
+ * via `proposeBackfillCandidates` for the dry-run path.
  */
 export function backfillRelations(opts: BackfillOptions = {}, db?: Database.Database): BackfillResult {
   const conn = db ?? getDatabase();
-  const candidates = proposeBackfillCandidates(opts, conn);
+
+  // Single entry point for proposing candidates. `proposeBackfillCandidates`
+  // owns the reset / filter logic, so dry-run and non-dry-run behave
+  // identically with respect to idempotency. It also returns the orphan
+  // IDs we considered, which we re-use below to mark them as processed
+  // without re-running the orphan SQL.
+  const { candidates, consideredOrphanIds, skippedOrphanIds } =
+    proposeBackfillCandidates(opts, conn);
 
   const result: BackfillResult = {
     candidatesProposed: candidates.length,
     edgesWritten: 0,
     dryRun: !!opts.dryRun,
     byRule: { tagCooccurrence: 0, projectClustering: 0, sessionCooccurrence: 0, nameTokenSimilarity: 0 },
+    orphansSkippedIdempotent: skippedOrphanIds.length,
+    orphansMarkedProcessed: 0,
   };
 
   if (opts.dryRun) return result;
@@ -208,10 +290,24 @@ export function backfillRelations(opts: BackfillOptions = {}, db?: Database.Data
     }
   });
   tx(candidates);
+
+  // Mark every considered orphan as processed, regardless of whether
+  // any rule fired for it. This is the key idempotency win: an orphan
+  // with no peers still costs CPU to evaluate, so we record it so a
+  // re-run skips it. consideredOrphanIds came from
+  // proposeBackfillCandidates — no second SQL query needed.
+  if (!opts.ignoreIdempotency && consideredOrphanIds.length > 0) {
+    const processedBefore = readProcessedSet(conn);
+    const next = new Set(processedBefore);
+    for (const id of consideredOrphanIds) next.add(id);
+    writeProcessedSet(conn, next);
+    result.orphansMarkedProcessed = next.size - processedBefore.size;
+  }
+
   return result;
 }
 
-export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Database.Database): RelationCandidate[] {
+export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Database.Database): BackfillProposalResult {
   const conn = db ?? getDatabase();
   const maxPerSource = opts.maxEdgesPerSource ?? 3;
   const minShared = opts.minSharedTags ?? 2;
@@ -219,8 +315,22 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Datab
   const projectClause = opts.project ? "AND EXISTS (SELECT 1 FROM tags t2 WHERE t2.entity_id = e.id AND t2.tag = ?)" : "";
   const projectArgs = opts.project ? [`project:${opts.project}`] : [];
 
-  // Step 1: identify orphan entities (no relations, optionally project-scoped)
-  const orphans = conn.prepare(`
+  // Reset the persistent cache first if requested. This runs BEFORE the
+  // orphan filter so the cleared state is what the rest of the function
+  // sees — meaning `--dry-run --reset-idempotency` actually re-considers
+  // every orphan rather than silently using the stale cache.
+  // `ignoreIdempotency` bypasses both reset and read (test seam).
+  if (opts.resetIdempotency && !opts.ignoreIdempotency) {
+    clearProcessedSet(conn);
+  }
+
+  // Step 1: identify orphan entities (no relations, optionally project-scoped).
+  // Idempotency filter: skip any orphan whose id is in the persistent
+  // "already attempted" set. This is what makes re-running the command
+  // cheap after a partial crash — we don't re-tokenise every orphan from
+  // the start. The set is cleared by `--reset-idempotency` or bypassed
+  // by `ignoreIdempotency` (test seam only).
+  const allOrphans = conn.prepare(`
     SELECT e.id, e.name, e.type, e.metadata
     FROM entities e
     WHERE 1=1 ${statusFilter}
@@ -228,7 +338,18 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Datab
       AND NOT EXISTS (SELECT 1 FROM relations r WHERE r.from_entity_id = e.id OR r.to_entity_id = e.id)
   `).all(...projectArgs) as OrphanRow[];
 
-  if (orphans.length === 0) return [];
+  const processed = opts.ignoreIdempotency ? new Set<number>() : readProcessedSet(conn);
+  const orphans = processed.size === 0
+    ? allOrphans
+    : allOrphans.filter((o) => !processed.has(o.id));
+  const skippedOrphanIds = processed.size === 0
+    ? []
+    : allOrphans.filter((o) => processed.has(o.id)).map((o) => o.id);
+  const consideredOrphanIds = orphans.map((o) => o.id);
+
+  if (orphans.length === 0) {
+    return { candidates: [], consideredOrphanIds, skippedOrphanIds };
+  }
 
   // Step 2: load every active entity's topical tag set into memory once.
   // 1300 entities × ~3 tags = ~4000 rows — trivial.
@@ -512,5 +633,5 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Datab
     }
   }
 
-  return candidates;
+  return { candidates, consideredOrphanIds, skippedOrphanIds };
 }

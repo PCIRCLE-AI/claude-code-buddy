@@ -1,0 +1,6 @@
+export declare function homeDir(): string;
+export declare function memeshDir(): string;
+export declare function getDbPath(): string;
+export declare function getMemeshDirFromDbPath(): string;
+export declare function getProjectName(cwdInput?: string | null): string;
+//# sourceMappingURL=paths.d.ts.map

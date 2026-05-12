@@ -1,7 +1,7 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 4.2.3
+**Version**: 4.2.4
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 ---
@@ -476,6 +476,22 @@ Start: `memesh serve` (default: `localhost:3737`)
 
 Safety note: non-loopback binds are blocked by default. To expose the HTTP server beyond the local machine, you must pass `memesh serve --host 0.0.0.0 --allow-remote` or set `MEMESH_HTTP_ALLOW_REMOTE=true`. MeMesh does not add an auth layer for you.
 
+### Request body limits
+
+All `POST /v1/*` endpoints enforce a **1 MB request body limit**. Requests larger than this receive a structured `413 Payload Too Large` response:
+
+```json
+{
+  "success": false,
+  "error": "Request body exceeds the 1MB limit",
+  "code": "PAYLOAD_TOO_LARGE",
+  "limit": "1mb",
+  "hint": "Split large exports/imports into smaller batches, or compress and stream them via the CLI (`memesh export` / `memesh import`) which has no per-request size cap."
+}
+```
+
+The limit protects the server from accidentally parsing large payloads (e.g. an unbounded `/v1/import` with a multi-MB JSON bundle) under memory pressure. For bulk operations that exceed 1 MB, prefer the CLI: `memesh export > bundle.json` and `memesh import bundle.json` read and write files directly without buffering the whole payload through Express's body parser, so they have no per-request size cap.
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | /v1/health | Health check + version + entity count |
@@ -885,7 +901,8 @@ Heuristic non-LLM relation backfill for orphan entities. Four rules:
 ```bash
 memesh kg backfill-relations [--project <name>] [--dry-run] [--max-per-source <n>] \
   [--min-shared-tags <n>] [--session-cooccurrence] [--name-tokens] \
-  [--min-jaccard <n>] [--all-rules] [--include-archived] [--json]
+  [--min-jaccard <n>] [--all-rules] [--include-archived] \
+  [--reset-idempotency] [--json]
 ```
 
 **Options**:
@@ -901,7 +918,10 @@ memesh kg backfill-relations [--project <name>] [--dry-run] [--max-per-source <n
 | `--min-jaccard <n>` | 0.50 | Jaccard threshold for Rule 4 |
 | `--all-rules` | off | Enable all four rules in one pass |
 | `--include-archived` | off | Also process archived entities |
+| `--reset-idempotency` | off | Clear the persistent "already-attempted" orphan cache (`memesh_metadata.kg_backfill_processed_v1`) before running, so every orphan is reconsidered |
 | `--json` | off | Output as JSON |
+
+**Idempotency**: re-running this command is cheap by default — orphan IDs considered in a prior run are remembered in `memesh_metadata` and skipped on subsequent runs. Use `--reset-idempotency` after a schema change or when you want every orphan reconsidered from scratch. The output summary reports `idempotency: skipped N orphans` so you can see how many were filtered.
 
 ### memesh dream
 

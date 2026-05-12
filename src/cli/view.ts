@@ -569,19 +569,34 @@ if (isDirectRun) {
   fs.writeFileSync(outPath, html, { encoding: 'utf-8', mode: 0o600 });
 
   // Open in default browser.
-  // outPath is join(memeshDir(), 'dashboard.html'); memeshDir() may come from
-  // MEMESH_DIR env var. Validate before passing to cmd.exe (Windows), which
-  // processes the arg string through its own shell parser.
+  // outPath comes from memeshDir(), which may incorporate the MEMESH_DIR
+  // environment variable. Validate before launching anything.
   const resolvedOut = path.resolve(outPath);
   if (!/\.html$/i.test(resolvedOut) || /[&|<>^"']/.test(resolvedOut)) {
     console.error(`Unexpected dashboard path; cannot open browser automatically.`);
     console.log(`Dashboard written to: ${resolvedOut}`);
     process.exit(0);
   }
+  // Avoid invoking a shell on any platform. macOS `open` and Linux
+  // `xdg-open` accept the path as a direct argv element; on Windows we
+  // dispatch via rundll32 + url.dll's FileProtocolHandler, which is the
+  // documented way to launch the default protocol handler without
+  // routing the path string through cmd.exe's shell parser (the
+  // pattern flagged by CodeQL `js/shell-command-injection-from-environment`
+  // and `js/indirect-command-line-injection`).
   const platform = process.platform;
-  const cmd = platform === 'darwin' ? 'open' : 'xdg-open';
-  const args = platform === 'win32' ? ['/c', 'start', '', resolvedOut] : [resolvedOut];
-  const bin = platform === 'win32' ? 'cmd.exe' : cmd;
+  let bin: string;
+  let args: string[];
+  if (platform === 'darwin') {
+    bin = 'open';
+    args = [resolvedOut];
+  } else if (platform === 'win32') {
+    bin = 'rundll32.exe';
+    args = ['url.dll,FileProtocolHandler', resolvedOut];
+  } else {
+    bin = 'xdg-open';
+    args = [resolvedOut];
+  }
 
   execFile(bin, args, (err) => {
     if (err) {

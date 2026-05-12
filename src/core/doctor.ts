@@ -54,6 +54,122 @@ interface DoctorOptions {
 
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 
+// Locale READMEs that MUST stay in lockstep with README.md. Order matters
+// only for the doctor output — alphabetised for readability.
+const LOCALE_README_FILES = [
+  'README.de.md',
+  'README.es.md',
+  'README.fr.md',
+  'README.ja.md',
+  'README.ko.md',
+  'README.pt.md',
+  'README.th.md',
+  'README.vi.md',
+  'README.zh-CN.md',
+  'README.zh-TW.md',
+];
+
+// Locales legitimately translate headings, so we don't text-match the
+// anchors — instead we compare H2 *counts*. A locale that's off by ≥2
+// almost always means an English section was added (or removed) without
+// the locale being resynced. ±1 stays a pass to absorb routine
+// translation drift (one locale may collapse two short H2s).
+const LOCALE_H2_TOLERANCE = 1;
+
+function countH2Headings(content: string): number {
+  // Track whether we're inside a fenced code block (``` or ~~~).
+  // A `## comment` line inside a code block is example markdown, not a
+  // real H2, so it shouldn't be counted. A simple toggling state
+  // machine is enough for the well-formed READMEs this check targets.
+  let n = 0;
+  let inFence = false;
+  for (const line of content.split('\n')) {
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith('```') || trimmed.startsWith('~~~')) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (line.startsWith('## ')) n++;
+  }
+  return n;
+}
+
+function inspectLocaleReadmeParity(
+  packageRoot: string,
+  existsSyncImpl: typeof fs.existsSync,
+  readFileSyncImpl: typeof fs.readFileSync,
+): DoctorCheck {
+  const englishPath = path.join(packageRoot, 'README.md');
+  if (!existsSyncImpl(englishPath)) {
+    // Most likely a packaged install where READMEs aren't shipped to the
+    // npm tarball. Not a problem for end-users — skip silently with pass.
+    return createCheck(
+      'readme_locale_parity',
+      'README locale parity',
+      'pass',
+      'README.md not present in this install (likely a packaged tarball without docs); locale-parity check skipped.',
+    );
+  }
+  let englishCount: number;
+  try {
+    englishCount = countH2Headings(readFileSyncImpl(englishPath, 'utf8'));
+  } catch (err) {
+    return createCheck(
+      'readme_locale_parity',
+      'README locale parity',
+      'warn',
+      `Could not read README.md: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const missing: string[] = [];
+  const drift: Array<{ name: string; count: number }> = [];
+  for (const filename of LOCALE_README_FILES) {
+    const localePath = path.join(packageRoot, filename);
+    if (!existsSyncImpl(localePath)) {
+      missing.push(filename);
+      continue;
+    }
+    try {
+      const count = countH2Headings(readFileSyncImpl(localePath, 'utf8'));
+      if (Math.abs(count - englishCount) > LOCALE_H2_TOLERANCE) {
+        drift.push({ name: filename, count });
+      }
+    } catch {
+      // unreadable locale — treat as drift so it surfaces in the report
+      drift.push({ name: filename, count: -1 });
+    }
+  }
+
+  if (missing.length === 0 && drift.length === 0) {
+    return createCheck(
+      'readme_locale_parity',
+      'README locale parity',
+      'pass',
+      `All ${LOCALE_README_FILES.length} locale READMEs match English H2 count (${englishCount}).`,
+    );
+  }
+
+  const parts: string[] = [];
+  if (missing.length > 0) {
+    parts.push(`missing: ${missing.join(', ')}`);
+  }
+  if (drift.length > 0) {
+    const driftDetail = drift
+      .map((d) => `${d.name}=${d.count === -1 ? 'unreadable' : d.count}`)
+      .join(', ');
+    parts.push(`H2 count drift (English=${englishCount}): ${driftDetail}`);
+  }
+  return createCheck(
+    'readme_locale_parity',
+    'README locale parity',
+    'warn',
+    parts.join('; '),
+    `Re-sync the listed READMEs against README.md so section structure matches (±${LOCALE_H2_TOLERANCE} H2 tolerated to absorb translation collapse).`,
+  );
+}
+
 function resolveDatabasePath(): string {
   return getDbPath();
 }
@@ -986,6 +1102,8 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   } catch {
     // Non-critical — doctor must never fail because of an info check.
   }
+
+  checks.push(inspectLocaleReadmeParity(packageRoot, existsSyncImpl, readFileSyncImpl));
 
   if (probeHttp) {
     checks.push(await inspectHttpProbe(httpBaseUrl, fetchImpl));

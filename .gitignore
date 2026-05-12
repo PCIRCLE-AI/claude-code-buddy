@@ -4,10 +4,17 @@ yarn.lock
 pnpm-lock.yaml
 
 # === Build outputs ===
-dist/
+# dist/ IS tracked — the Claude Code plugin marketplace installs do NOT
+# run npm scripts (security model), so compiled JS must be in the repo
+# for the plugin to run on clone. See .mcp.json which uses local dist/.
+# Build it with `npm run build` before committing.
 build/
 out/
 !.claude-plugin/*/dist/
+
+# Build incrementals (still ignored)
+dist/**/*.tsbuildinfo
+dist/__tests__/
 
 # === Environment & secrets ===
 .env

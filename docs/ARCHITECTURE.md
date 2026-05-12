@@ -1,6 +1,6 @@
 # MeMesh Plugin Architecture
 
-**Version**: 4.2.3
+**Version**: 4.2.4
 
 ---
 

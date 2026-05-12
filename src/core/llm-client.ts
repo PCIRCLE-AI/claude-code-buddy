@@ -46,7 +46,22 @@ export type LLMErrorClass =
   | 'upstream'     // 5xx / 503 — provider outage; another provider may help
   | 'bad_request'  // 4xx (not 401/403/429) — prompt itself is broken; do NOT retry
   | 'network'      // DNS / connection / timeout — another provider may help
+  | 'parse'        // 2xx body did not match expected shape — provider drift; another provider may help
   | 'unknown';     // unclassified — conservatively retried
+
+/**
+ * Thrown when a 2xx provider response cannot be coerced into the
+ * expected shape (e.g. provider drift, HTML error page returned as
+ * 200, JSON whose top-level field renamed). Classified as 'parse' so
+ * the failover chain advances instead of treating an empty string as
+ * a successful no-op.
+ */
+export class LLMResponseParseError extends Error {
+  constructor(provider: LLMConfig['provider'], detail: string) {
+    super(`${provider}: response parse failed — ${detail}`);
+    this.name = 'LLMResponseParseError';
+  }
+}
 
 export interface LLMAttempt {
   provider: LLMConfig['provider'];
@@ -165,8 +180,12 @@ async function callSingle(
       }),
     });
     if (!res.ok) throw new Error(`Anthropic API error: ${res.status}`);
-    const data = await res.json() as AnthropicResponse;
-    return data.content?.[0]?.text || '';
+    const data = await readJsonOrThrow(res, 'anthropic');
+    const text = extractAnthropicText(data);
+    if (text == null) {
+      throw new LLMResponseParseError('anthropic', `missing content[0].text in ${describeShape(data)}`);
+    }
+    return text;
   }
 
   if (config.provider === 'openai') {
@@ -185,8 +204,12 @@ async function callSingle(
       }),
     });
     if (!res.ok) throw new Error(`OpenAI API error: ${res.status}`);
-    const data = await res.json() as OpenAIResponse;
-    return data.choices?.[0]?.message?.content || '';
+    const data = await readJsonOrThrow(res, 'openai');
+    const text = extractOpenAIText(data);
+    if (text == null) {
+      throw new LLMResponseParseError('openai', `missing choices[0].message.content in ${describeShape(data)}`);
+    }
+    return text;
   }
 
   if (config.provider === 'ollama') {
@@ -205,11 +228,90 @@ async function callSingle(
       }),
     });
     if (!res.ok) throw new Error(`Ollama error: ${res.status}`);
-    const data = await res.json() as OllamaResponse;
-    return data.response || '';
+    const data = await readJsonOrThrow(res, 'ollama');
+    const text = extractOllamaText(data);
+    if (text == null) {
+      throw new LLMResponseParseError('ollama', `missing response field in ${describeShape(data)}`);
+    }
+    return text;
   }
 
   return '';
+}
+
+// ---------------------------------------------------------------------------
+// Response shape validation
+// ---------------------------------------------------------------------------
+//
+// Earlier these were `res.json() as XxxResponse` casts, and the
+// extraction site fell back to `|| ''`. Result: a provider returning
+// an HTML error page with content-type: application/json, or a 2xx
+// body whose top-level field renamed, silently produced an empty
+// string that the failover loop treated as success — the fallback
+// chain never engaged. The validators below convert shape drift into
+// a thrown LLMResponseParseError so classifyError() routes it through
+// the 'parse' decision class and the chain advances normally.
+//
+// Empty *string* (provider replied with content: "") is still treated
+// as a successful call — that's distinct from missing-field drift and
+// matches the prior `|| ''` semantics for callers that handle empty
+// output (failure-analyzer's "nothing structured to extract" path).
+
+async function readJsonOrThrow(res: Response, provider: LLMConfig['provider']): Promise<unknown> {
+  try {
+    return await res.json();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new LLMResponseParseError(provider, `body is not valid JSON (${msg})`);
+  }
+}
+
+function extractAnthropicText(data: unknown): string | null {
+  if (!isObject(data)) return null;
+  const content = (data as AnthropicResponse).content;
+  if (!Array.isArray(content) || content.length === 0) return null;
+  const first = content[0];
+  if (!isObject(first)) return null;
+  const text = (first as { text?: unknown }).text;
+  return typeof text === 'string' ? text : null;
+}
+
+function extractOpenAIText(data: unknown): string | null {
+  if (!isObject(data)) return null;
+  const choices = (data as OpenAIResponse).choices;
+  if (!Array.isArray(choices) || choices.length === 0) return null;
+  const first = choices[0];
+  if (!isObject(first)) return null;
+  const message = (first as { message?: unknown }).message;
+  if (!isObject(message)) return null;
+  const content = (message as { content?: unknown }).content;
+  return typeof content === 'string' ? content : null;
+}
+
+function extractOllamaText(data: unknown): string | null {
+  if (!isObject(data)) return null;
+  const response = (data as OllamaResponse).response;
+  return typeof response === 'string' ? response : null;
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+
+/**
+ * Cheap shape summary for the LLMResponseParseError message. Reports
+ * only the structural type and a count — never the actual key names —
+ * so custom or self-hosted providers (e.g. Ollama on a private endpoint
+ * with non-standard internal fields) cannot leak field identifiers into
+ * error messages that may later land in telemetry, logs, or user-facing
+ * output.
+ */
+function describeShape(v: unknown): string {
+  if (v == null) return String(v);
+  if (Array.isArray(v)) return `array(len=${v.length})`;
+  if (typeof v !== 'object') return typeof v;
+  const keyCount = Object.keys(v as Record<string, unknown>).length;
+  return `object(${keyCount}-keys)`;
 }
 
 /**
@@ -220,6 +322,9 @@ async function callSingle(
  * structure its own error type.
  */
 export function classifyError(e: Error): LLMErrorClass {
+  // Response shape drift — the prompt + creds were fine, the provider
+  // body just didn't match what we expected. Try the next provider.
+  if (e instanceof LLMResponseParseError) return 'parse';
   const msg = e.message;
   // Auth — credential rejected
   if (/\b(401|403|invalid_api_key|authentication|x-api-key|unauthorized)\b/i.test(msg)) return 'auth';
