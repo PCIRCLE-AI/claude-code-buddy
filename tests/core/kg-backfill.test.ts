@@ -161,7 +161,7 @@ describe('kg-backfill integration', () => {
     insertTag(idC, 'topic:ci');
     insertTag(idC, 'tech:docker');
 
-    const candidates = proposeBackfillCandidates({ minSharedTags: 2 });
+    const { candidates } = proposeBackfillCandidates({ minSharedTags: 2 });
 
     // A↔B pair must exist (A→B or B→A depending on iteration order)
     const abCandidate = candidates.find(
@@ -195,7 +195,7 @@ describe('kg-backfill integration', () => {
     const idAnchor = insertEntity('some-anchor', 'release');
     insertRelation(idConnected, idAnchor);
 
-    const candidates = proposeBackfillCandidates({ minSharedTags: 2 });
+    const { candidates } = proposeBackfillCandidates({ minSharedTags: 2 });
 
     // The connected entity must not appear as fromEntityId
     const connectedAsSource = candidates.filter(c => c.fromEntityId === idConnected);
@@ -225,7 +225,7 @@ describe('kg-backfill integration', () => {
       insertTag(id, 'tech:oauth');
     }
 
-    const candidates = proposeBackfillCandidates({ maxEdgesPerSource: 3, minSharedTags: 2 });
+    const { candidates } = proposeBackfillCandidates({ maxEdgesPerSource: 3, minSharedTags: 2 });
     const fromOrphan = candidates.filter(c => c.fromEntityId === idOrphan);
     expect(fromOrphan.length).toBeLessThanOrEqual(3);
   });
@@ -247,7 +247,7 @@ describe('kg-backfill integration', () => {
     const idLesson = insertEntity('bug-fix-auth', 'lesson_learned');
     insertTag(idLesson, 'project:demo');
 
-    const candidates = proposeBackfillCandidates();
+    const { candidates } = proposeBackfillCandidates();
     const pc = candidates.find(
       c => c.fromEntityId === idLesson && c.toEntityId === idRelease
     );
@@ -277,7 +277,7 @@ describe('kg-backfill integration', () => {
     const idLesson = insertEntity('critical-bug-fix', 'lesson_learned');
     insertTag(idLesson, 'project:demo');
 
-    const candidates = proposeBackfillCandidates();
+    const { candidates } = proposeBackfillCandidates();
     const pcCandidates = candidates.filter(
       c => c.fromEntityId === idLesson && c.relationType === 'belongs-to-project'
     );
@@ -367,7 +367,7 @@ describe('kg-backfill integration', () => {
     insertTag(idOtherB, 'tech:oauth');
     insertTag(idOtherB, 'project:other');
 
-    const candidates = proposeBackfillCandidates({ project: 'demo', minSharedTags: 2 });
+    const { candidates } = proposeBackfillCandidates({ project: 'demo', minSharedTags: 2 });
 
     // All candidates must involve only demo entities as the FROM (orphan source)
     const demoEntityIds = new Set([idDemoA, idDemoB]);
@@ -395,7 +395,7 @@ describe('kg-backfill integration', () => {
       insertTag(id, 'lesson');      // SYSTEM_TAG_LITERALS
     }
 
-    const candidates = proposeBackfillCandidates({ minSharedTags: 2 });
+    const { candidates } = proposeBackfillCandidates({ minSharedTags: 2 });
 
     // Rule 1 must propose nothing — all shared tags are system-literal noise
     const tagCooc = candidates.filter(c => c.relationType === 'related-to');
@@ -541,6 +541,196 @@ describe('kg-backfill integration', () => {
       dryRun: false,
     });
     expect(result.byRule.nameTokenSimilarity).toBeGreaterThanOrEqual(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Idempotency cache — persistent "already-attempted" orphan tracking
+  // ---------------------------------------------------------------------------
+  //
+  // The cache stores orphan-ids the backfill has *attempted*, regardless of
+  // whether any rule fired. Re-running skips those orphans so a crash in
+  // mid-batch doesn't re-tokenise the first 2000 entries on the next run.
+  // Reset path (`--reset-idempotency` flag → resetIdempotency: true) clears
+  // the cache so users can reconsider every orphan after a schema change.
+
+  it('idempotency: second run skips orphans that were marked attempted in run 1', () => {
+    // Two orphans with no peer match — they get inspected but no rule fires.
+    const idA = insertEntity('orphan-alpha', 'knowledge');
+    insertTag(idA, 'topic:unique-a');
+    const idB = insertEntity('orphan-beta', 'knowledge');
+    insertTag(idB, 'topic:unique-b');
+
+    const run1 = backfillRelations({ minSharedTags: 2 });
+    expect(run1.candidatesProposed).toBe(0);
+    expect(run1.orphansMarkedProcessed).toBe(2);
+    expect(run1.orphansSkippedIdempotent).toBe(0);
+
+    // Now add a third orphan that DOES match nothing — and re-run.
+    // Run 2 should see only the new orphan; A and B were marked.
+    const idC = insertEntity('orphan-gamma', 'knowledge');
+    insertTag(idC, 'topic:unique-c');
+
+    const run2 = backfillRelations({ minSharedTags: 2 });
+    // Exact counts pin behaviour: precisely A and B are skipped (not a
+    // monotonically growing "cache size"), and precisely C is newly added.
+    expect(run2.orphansSkippedIdempotent).toBe(2);
+    expect(run2.orphansMarkedProcessed).toBe(1);
+  });
+
+  it('idempotency: orphansSkippedIdempotent reflects THIS run, not cache size', () => {
+    // Regression test for a previous bug where orphansSkippedIdempotent
+    // was computed from the persistent cache size. That number grows
+    // monotonically forever (cache never shrinks), so it would drift away
+    // from "orphans actually skipped this run" as entities get edges and
+    // stop being orphans.
+    //
+    // Setup: 3 orphans, mark all as processed via a run.
+    const idA = insertEntity('orph-a', 'knowledge');
+    insertTag(idA, 'topic:a');
+    const idB = insertEntity('orph-b', 'knowledge');
+    insertTag(idB, 'topic:b');
+    const idC = insertEntity('orph-c', 'knowledge');
+    insertTag(idC, 'topic:c');
+    backfillRelations({ minSharedTags: 2 }); // marks A, B, C as processed
+
+    // Manually add a relation TO A so A is no longer an orphan
+    const peer = insertEntity('peer', 'knowledge');
+    insertRelation(peer, idA, 'related-to');
+
+    // New orphan D appears
+    const idD = insertEntity('orph-d', 'knowledge');
+    insertTag(idD, 'topic:d');
+
+    // Run 2: cache contains {A,B,C}. Actual orphans now: {B,C,D}.
+    // We expect skippedIdempotent === 2 (B and C are still orphans AND in cache),
+    // not 3 (the raw cache size).
+    const run2 = backfillRelations({ minSharedTags: 2 });
+    expect(run2.orphansSkippedIdempotent).toBe(2);
+    expect(run2.orphansMarkedProcessed).toBe(1); // only D newly added to cache
+  });
+
+  it('idempotency: cache size does not monotonically grow across 3 stable runs', () => {
+    // After processing the same set of orphans, repeated runs should not
+    // keep inflating the cache — the same IDs should be re-added (or kept)
+    // without making `orphansSkippedIdempotent` lie. This is a second
+    // regression guard for the same bug class.
+    const ids = [
+      insertEntity('stable-a', 'knowledge'),
+      insertEntity('stable-b', 'knowledge'),
+      insertEntity('stable-c', 'knowledge'),
+    ];
+    for (const id of ids) insertTag(id, `topic:${id}`);
+
+    const run1 = backfillRelations({ minSharedTags: 2 });
+    const run2 = backfillRelations({ minSharedTags: 2 });
+    const run3 = backfillRelations({ minSharedTags: 2 });
+
+    // Run 1: all 3 newly marked, 0 skipped
+    expect(run1.orphansMarkedProcessed).toBe(3);
+    expect(run1.orphansSkippedIdempotent).toBe(0);
+    // Runs 2 and 3: all 3 skipped, 0 newly marked (cache is stable)
+    expect(run2.orphansSkippedIdempotent).toBe(3);
+    expect(run2.orphansMarkedProcessed).toBe(0);
+    expect(run3.orphansSkippedIdempotent).toBe(3);
+    expect(run3.orphansMarkedProcessed).toBe(0);
+  });
+
+  it('idempotency: dry-run path honours --reset-idempotency (not a silent no-op)', () => {
+    // Regression test: a previous bug had the reset logic only inside
+    // backfillRelations, so the dry-run path (which calls
+    // proposeBackfillCandidates directly) walked through with the stale
+    // cache still applied. Result: --dry-run --reset-idempotency was a
+    // silent no-op and the user saw a confusingly empty proposal list.
+    //
+    // Use orphans with non-overlapping topical tags so Rule 1 doesn't
+    // create edges (and thus doesn't change their orphan status). The
+    // test focuses on whether reset actually clears the cache.
+    const idA = insertEntity('dry-reset-a', 'knowledge');
+    insertTag(idA, 'topic:unique-dr-a');
+    const idB = insertEntity('dry-reset-b', 'knowledge');
+    insertTag(idB, 'topic:unique-dr-b');
+
+    // Run 1: marks both as processed (no edges since topics don't overlap)
+    backfillRelations({ minSharedTags: 2 });
+
+    // Without reset: proposeBackfillCandidates sees the populated cache
+    const withoutReset = proposeBackfillCandidates({ minSharedTags: 2 });
+    expect(withoutReset.skippedOrphanIds.length).toBe(2);
+    expect(withoutReset.consideredOrphanIds.length).toBe(0);
+
+    // With reset: cache cleared, both A and B reconsidered
+    const withReset = proposeBackfillCandidates({ minSharedTags: 2, resetIdempotency: true });
+    expect(withReset.skippedOrphanIds.length).toBe(0);
+    expect(withReset.consideredOrphanIds.length).toBe(2);
+  });
+
+  it('idempotency: --reset-idempotency clears the cache so all orphans are reconsidered', () => {
+    const idA = insertEntity('orphan-a', 'knowledge');
+    insertTag(idA, 'topic:isolated-a');
+
+    // First run marks A as attempted.
+    backfillRelations({ minSharedTags: 2 });
+
+    // Second run with resetIdempotency: cache cleared, A re-attempted.
+    const run2 = backfillRelations({ minSharedTags: 2, resetIdempotency: true });
+    expect(run2.orphansSkippedIdempotent).toBe(0);
+    expect(run2.orphansMarkedProcessed).toBeGreaterThanOrEqual(1);
+  });
+
+  it('idempotency: dry-run does NOT update the cache (no persistence side effects)', () => {
+    const idA = insertEntity('orphan-dry', 'knowledge');
+    insertTag(idA, 'topic:dry-run-test');
+
+    // Dry-run: skipped count should be 0 (fresh cache) and nothing persisted.
+    const dry = backfillRelations({ minSharedTags: 2, dryRun: true });
+    expect(dry.dryRun).toBe(true);
+    expect(dry.orphansMarkedProcessed).toBe(0);
+
+    // Real run: cache still empty, so A gets marked.
+    const real = backfillRelations({ minSharedTags: 2 });
+    expect(real.orphansSkippedIdempotent).toBe(0);
+    expect(real.orphansMarkedProcessed).toBeGreaterThanOrEqual(1);
+  });
+
+  it('idempotency: ignoreIdempotency bypasses the cache entirely (test seam)', () => {
+    const idA = insertEntity('orphan-ig', 'knowledge');
+    insertTag(idA, 'topic:bypass-test');
+
+    backfillRelations({ minSharedTags: 2 }); // populates cache
+
+    // Without ignoreIdempotency, second run skips A.
+    const skipping = backfillRelations({ minSharedTags: 2 });
+    expect(skipping.orphansSkippedIdempotent).toBeGreaterThanOrEqual(1);
+
+    // With ignoreIdempotency, A is considered again — and the cache is not
+    // updated (no write side effects).
+    const bypassed = backfillRelations({ minSharedTags: 2, ignoreIdempotency: true });
+    expect(bypassed.orphansSkippedIdempotent).toBe(0);
+    expect(bypassed.orphansMarkedProcessed).toBe(0);
+  });
+
+  it('idempotency: persists the cache across openDatabase cycles (real metadata table)', async () => {
+    const idA = insertEntity('orphan-persist', 'knowledge');
+    insertTag(idA, 'topic:persist-test');
+
+    backfillRelations({ minSharedTags: 2 });
+
+    // Close + reopen the managed singleton — simulates a CLI invocation
+    // completing and the user re-running the command later.
+    const { closeDatabase, openDatabase } = await import('../../src/db.js');
+    closeDatabase();
+    openDatabase();
+
+    // Verify the persisted cache survives via the public metadata table.
+    const row = db.prepare(
+      "SELECT value FROM memesh_metadata WHERE key = 'kg_backfill_processed_v1'"
+    ).get() as { value: string } | undefined;
+    expect(row).toBeDefined();
+    expect(JSON.parse(row!.value)).toContain(idA);
+
+    // And the next backfillRelations call still skips A.
+    const run = backfillRelations({ minSharedTags: 2 });
+    expect(run.orphansSkippedIdempotent).toBeGreaterThanOrEqual(1);
   });
 });
 

@@ -695,6 +695,7 @@ kgCmd
   .option('--name-tokens', 'Rule 4: link orphans sharing ≥3 name content tokens (or Jaccard ≥ 0.50)')
   .option('--min-jaccard <n>', 'Jaccard threshold for name similarity (default 0.50)', parseFloat)
   .option('--all-rules', 'Enable all heuristic rules (Rules 1–4)')
+  .option('--reset-idempotency', 'Clear the persistent "already-attempted" orphan cache before running (use after schema changes or to reconsider every orphan)')
   .option('--json', 'Output as JSON')
   .action(async (opts) => {
     await withDatabase(async () => {
@@ -709,11 +710,12 @@ kgCmd
         includeSessionCooccurrence: allRules || !!opts.sessionCooccurrence,
         includeNameTokenSimilarity: allRules || !!opts.nameTokens,
         minNameJaccard: opts.minJaccard,
+        resetIdempotency: !!opts.resetIdempotency,
       };
       if (opts.dryRun) {
-        const candidates = proposeBackfillCandidates(baseOpts);
+        const { candidates, skippedOrphanIds } = proposeBackfillCandidates(baseOpts);
         if (opts.json) {
-          console.log(JSON.stringify({ candidates }, null, 2));
+          console.log(JSON.stringify({ candidates, skippedOrphanIds }, null, 2));
           return;
         }
         console.log(`Proposed ${candidates.length} relation${candidates.length === 1 ? '' : 's'} (dry-run, nothing written).`);
@@ -729,6 +731,10 @@ kgCmd
         for (const c of candidates) byRule.set(c.relationType, (byRule.get(c.relationType) ?? 0) + 1);
         console.log('');
         for (const [rule, n] of byRule) console.log(`  ${rule}: ${n}`);
+        if (skippedOrphanIds.length > 0) {
+          console.log('');
+          console.log(`  idempotency: ${skippedOrphanIds.length} orphan${skippedOrphanIds.length === 1 ? '' : 's'} skipped (already attempted in a prior run; use --reset-idempotency to reconsider).`);
+        }
         return;
       }
       const result = backfillRelations(baseOpts);
@@ -743,6 +749,12 @@ kgCmd
       console.log(`  name token similarity: ${result.byRule.nameTokenSimilarity}`);
       if (result.candidatesProposed > result.edgesWritten) {
         console.log(`  (${result.candidatesProposed - result.edgesWritten} candidates were already-existing edges; INSERT OR IGNORE skipped them.)`);
+      }
+      if (result.orphansSkippedIdempotent > 0) {
+        console.log(`  idempotency: skipped ${result.orphansSkippedIdempotent} orphan${result.orphansSkippedIdempotent === 1 ? '' : 's'} already attempted in a prior run (use --reset-idempotency to reconsider them).`);
+      }
+      if (result.orphansMarkedProcessed > 0) {
+        console.log(`  idempotency: marked ${result.orphansMarkedProcessed} new orphan${result.orphansMarkedProcessed === 1 ? '' : 's'} as attempted.`);
       }
     });
   });
