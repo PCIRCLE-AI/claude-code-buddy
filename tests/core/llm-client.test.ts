@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { callLLM, classifyError, type LLMAttempt } from '../../src/core/llm-client.js';
+import { callLLM, classifyError, LLMResponseParseError, type LLMAttempt } from '../../src/core/llm-client.js';
 
 // Cross-provider failover behaviour pinned by these tests. Live API
 // calls are stubbed via fetch mocking — none of these tests touch
@@ -160,6 +160,84 @@ describe('callLLM — cross-provider failover', () => {
       callLLM('hi', { provider: 'anthropic', apiKey: 'dead' })
     ).rejects.toThrow(/Anthropic API error: 401/);
   });
+
+  // ---------------------------------------------------------------------------
+  // Response shape validation — the historical pitfall was that a 2xx body
+  // with missing/renamed fields silently extracted '' and the failover loop
+  // treated that as success, so a malformed provider response would block
+  // the fallback chain. With LLMResponseParseError, drift now classifies as
+  // 'parse' and the next provider is tried.
+  // ---------------------------------------------------------------------------
+
+  it('falls through to fallback when anthropic returns a malformed 2xx body', async () => {
+    globalThis.fetch = makeFetch([
+      { ok: true, status: 200, body: { unexpected: 'shape' } }, // no content[]
+      { ok: true, status: 200, body: { response: 'ollama-rescued-drift' } },
+    ]);
+    const attempts: LLMAttempt[] = [];
+    const out = await callLLM('hi', { provider: 'anthropic', apiKey: 'sk-ant-test' }, {
+      fallbacks: [{ provider: 'ollama', model: 'gemma4:e4b' }],
+      onAttempt: (a) => { attempts.push(...a); },
+    });
+    expect(out).toBe('ollama-rescued-drift');
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]).toMatchObject({ provider: 'anthropic', status: 'fail', errorClass: 'parse', index: 0 });
+    expect(attempts[1]).toMatchObject({ provider: 'ollama', status: 'ok', index: 1 });
+  });
+
+  it('classifies a 2xx OpenAI body with renamed top-level fields as parse', async () => {
+    globalThis.fetch = makeFetch([
+      { ok: true, status: 200, body: { results: [{ text: 'wrong shape' }] } },
+      { ok: true, status: 200, body: { response: 'ollama-rescued' } },
+    ]);
+    const attempts: LLMAttempt[] = [];
+    const out = await callLLM('hi', { provider: 'openai', apiKey: 'sk-test' }, {
+      fallbacks: [{ provider: 'ollama' }],
+      onAttempt: (a) => { attempts.push(...a); },
+    });
+    expect(out).toBe('ollama-rescued');
+    expect(attempts[0]).toMatchObject({ provider: 'openai', status: 'fail', errorClass: 'parse' });
+  });
+
+  it('an empty string from the provider is NOT a parse error (provider replied "" intentionally)', async () => {
+    globalThis.fetch = makeFetch([
+      { ok: true, status: 200, body: { content: [{ text: '' }] } },
+    ]);
+    const attempts: LLMAttempt[] = [];
+    const out = await callLLM('hi', { provider: 'anthropic', apiKey: 'sk-ant-test' }, {
+      onAttempt: (a) => { attempts.push(...a); },
+    });
+    expect(out).toBe('');
+    expect(attempts[0]).toMatchObject({ provider: 'anthropic', status: 'ok' });
+  });
+
+  it('non-JSON 2xx body classifies as parse and walks to fallback', async () => {
+    const queue = [
+      { ok: true, status: 200, body: { response: 'ollama-rescued' } },
+    ];
+    // Custom fetch: anthropic responds 200 with a body that throws on .json()
+    globalThis.fetch = vi.fn(async (url: string) => {
+      if (typeof url === 'string' && url.includes('anthropic.com')) {
+        return {
+          ok: true, status: 200,
+          json: async () => { throw new SyntaxError('Unexpected token < in JSON at position 0'); },
+          text: async () => '<html>cdn error page</html>',
+        } as unknown as Response;
+      }
+      const r = queue.shift()!;
+      return {
+        ok: r.ok, status: r.status,
+        json: async () => r.body, text: async () => JSON.stringify(r.body),
+      } as unknown as Response;
+    });
+    const attempts: LLMAttempt[] = [];
+    const out = await callLLM('hi', { provider: 'anthropic', apiKey: 'sk-ant-test' }, {
+      fallbacks: [{ provider: 'ollama' }],
+      onAttempt: (a) => { attempts.push(...a); },
+    });
+    expect(out).toBe('ollama-rescued');
+    expect(attempts[0]).toMatchObject({ status: 'fail', errorClass: 'parse' });
+  });
 });
 
 describe('classifyError', () => {
@@ -180,5 +258,10 @@ describe('classifyError', () => {
     ['something completely unexpected', 'unknown'],
   ])('classifies %s -> %s', (msg, expected) => {
     expect(classifyError(new Error(msg))).toBe(expected);
+  });
+
+  it('classifies an LLMResponseParseError instance as parse regardless of message', () => {
+    expect(classifyError(new LLMResponseParseError('anthropic', 'missing content'))).toBe('parse');
+    expect(classifyError(new LLMResponseParseError('openai', 'body is not valid JSON'))).toBe('parse');
   });
 });
