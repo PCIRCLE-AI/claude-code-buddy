@@ -803,6 +803,100 @@ describe('doctor', () => {
 // a dummy stand-in we overwrite immediately after.
 function env_settingsPathPlaceholder(): string { return ''; }
 
+describe('README locale parity (doctor sub-check)', () => {
+  function buildReadme(h2Count: number, title = 'MeMesh'): string {
+    const lines = [`# ${title}`, ''];
+    for (let i = 0; i < h2Count; i++) {
+      lines.push(`## Section ${i + 1}`, '', `body for section ${i + 1}`, '');
+    }
+    return lines.join('\n');
+  }
+  const LOCALES = ['de', 'es', 'fr', 'ja', 'ko', 'pt', 'th', 'vi', 'zh-CN', 'zh-TW'];
+
+  async function doctorOn(packageRoot: string) {
+    return runDoctor({
+      packageRoot,
+      packageVersion: '4.2.3',
+      openDatabaseImpl: () => makeDatabase(3) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'onnx' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'source-checkout',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'source-checkout', label: 'source', canSelfUpdate: false,
+        recommendedCommand: '', guidance: 'source checkout',
+      }),
+    });
+  }
+
+  it('passes when all 10 locale READMEs match the English H2 count', async () => {
+    const root = createPackageRoot();
+    tempRoots.push(root);
+    fs.writeFileSync(path.join(root, 'README.md'), buildReadme(15));
+    for (const loc of LOCALES) fs.writeFileSync(path.join(root, `README.${loc}.md`), buildReadme(15));
+
+    const result = await doctorOn(root);
+    const check = result.checks.find(c => c.id === 'readme_locale_parity')!;
+    expect(check).toBeDefined();
+    expect(check.status).toBe('pass');
+    expect(check.summary).toContain('All 10 locale READMEs');
+  });
+
+  it('tolerates ±1 H2 drift (locale translators sometimes collapse a heading)', async () => {
+    const root = createPackageRoot();
+    tempRoots.push(root);
+    fs.writeFileSync(path.join(root, 'README.md'), buildReadme(15));
+    for (const loc of LOCALES) fs.writeFileSync(path.join(root, `README.${loc}.md`), buildReadme(14));
+
+    const result = await doctorOn(root);
+    const check = result.checks.find(c => c.id === 'readme_locale_parity')!;
+    expect(check.status).toBe('pass');
+  });
+
+  it('warns when a locale has drifted by ≥2 H2 (likely added/removed section)', async () => {
+    const root = createPackageRoot();
+    tempRoots.push(root);
+    fs.writeFileSync(path.join(root, 'README.md'), buildReadme(15));
+    for (const loc of LOCALES) {
+      const count = loc === 'ja' ? 12 : 15; // Japanese is stale by 3 sections
+      fs.writeFileSync(path.join(root, `README.${loc}.md`), buildReadme(count));
+    }
+
+    const result = await doctorOn(root);
+    const check = result.checks.find(c => c.id === 'readme_locale_parity')!;
+    expect(check.status).toBe('warn');
+    expect(check.summary).toMatch(/README\.ja\.md=12/);
+    expect(check.fix).toBeTruthy();
+  });
+
+  it('warns when a locale README is missing entirely', async () => {
+    const root = createPackageRoot();
+    tempRoots.push(root);
+    fs.writeFileSync(path.join(root, 'README.md'), buildReadme(15));
+    // omit Korean
+    for (const loc of LOCALES.filter(l => l !== 'ko')) {
+      fs.writeFileSync(path.join(root, `README.${loc}.md`), buildReadme(15));
+    }
+
+    const result = await doctorOn(root);
+    const check = result.checks.find(c => c.id === 'readme_locale_parity')!;
+    expect(check.status).toBe('warn');
+    expect(check.summary).toMatch(/missing: README\.ko\.md/);
+  });
+
+  it('skips silently when README.md is not present (packaged install)', async () => {
+    const root = createPackageRoot();
+    tempRoots.push(root);
+    // No README.md at all — simulates an npm-published tarball that
+    // didn't bundle docs.
+    const result = await doctorOn(root);
+    const check = result.checks.find(c => c.id === 'readme_locale_parity')!;
+    expect(check.status).toBe('pass');
+    expect(check.summary).toMatch(/check skipped/);
+  });
+});
+
 describe('database failure diagnostics (F15)', () => {
   it('diagnoses insufficient permissions', async () => {
     const packageRoot = createPackageRoot();
@@ -927,32 +1021,43 @@ describe('database failure diagnostics (F15)', () => {
     tempRoots.push(packageRoot);
     const dbPath = path.join(packageRoot, 'test.db');
 
-    // Create a DB file that can't be opened
+    // Create a DB file that can't be opened. Doctor resolves the DB path
+    // via paths.ts (env MEMESH_DB_PATH, then default ~/.memesh/...), not
+    // via an injectable option — so use the env override to point at our
+    // corrupted fixture. This matches the pattern the sibling F15 tests use.
     fs.writeFileSync(dbPath, 'corrupted');
+    const previousEnv = process.env.MEMESH_DB_PATH;
+    process.env.MEMESH_DB_PATH = dbPath;
 
-    const result = await runDoctor({
-      packageRoot,
-      packageVersion: '4.1.4',
-      openDatabaseImpl: () => { throw new Error('SQLITE_CORRUPT'); },
-      closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
-      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
-      getUpdateCheckImpl: async () => makeUpdateCheck(),
-      getCurrentInstallChannelImpl: () => 'npm-global',
-      getInstallChannelSupportImpl: () => ({
-        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
-        recommendedCommand: 'memesh update', guidance: '',
-      }),
-      existsSyncImpl: fs.existsSync,
-      statSyncImpl: fs.statSync,
-      getDatabasePathImpl: () => dbPath,
-    });
+    try {
+      const result = await runDoctor({
+        packageRoot,
+        packageVersion: '4.1.4',
+        openDatabaseImpl: () => { throw new Error('SQLITE_CORRUPT'); },
+        closeDatabaseImpl: () => undefined,
+        detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+        getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+        getUpdateCheckImpl: async () => makeUpdateCheck(),
+        getCurrentInstallChannelImpl: () => 'npm-global',
+        getInstallChannelSupportImpl: () => ({
+          channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+          recommendedCommand: 'memesh update', guidance: '',
+        }),
+        existsSyncImpl: fs.existsSync,
+        statSyncImpl: fs.statSync,
+      });
 
-    const dbCheck = result.checks.find(c => c.id === 'database');
-    expect(dbCheck!.status).toBe('fail');
-    expect(dbCheck!.fix).toBeTruthy();
-    // Fix should contain either a backup command or recovery command
-    expect(dbCheck!.fix).toMatch(/mv.*backup|rm.*recall|chmod/);
+      const dbCheck = result.checks.find(c => c.id === 'database');
+      expect(dbCheck!.status).toBe('fail');
+      expect(dbCheck!.fix).toBeTruthy();
+      // Corrupted non-empty file path produces the "backup and reset" fix.
+      // Pattern accepts the three concrete recovery shapes the F15 paths
+      // produce: backup+rename, rm+recreate, or chmod fix.
+      expect(dbCheck!.fix).toMatch(/mv.*backup|rm.*recall|chmod/);
+    } finally {
+      if (previousEnv === undefined) delete process.env.MEMESH_DB_PATH;
+      else process.env.MEMESH_DB_PATH = previousEnv;
+    }
   });
 });
 
