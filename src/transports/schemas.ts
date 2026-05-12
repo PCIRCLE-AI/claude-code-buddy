@@ -5,8 +5,10 @@
 
 import { z } from 'zod';
 
+const sanitizeName = (s: string) => s.replace(/[\r\n\t]+/g, ' ').trim();
+
 export const RememberSchema = z.object({
-  name: z.string().min(1).max(255),
+  name: z.string().min(1).max(255).transform(sanitizeName),
   type: z.string().min(1).max(100),
   observations: z.array(z.string().max(10000)).max(100).optional(),
   tags: z.array(z.string().max(255)).max(50).optional(),
@@ -27,7 +29,7 @@ export const RecallSchema = z.object({
 });
 
 export const ForgetSchema = z.object({
-  name: z.string().min(1).max(255),
+  name: z.string().min(1).max(255).transform(sanitizeName),
   observation: z.string().max(10000).optional(),
 });
 
@@ -48,7 +50,7 @@ export const ExportResultSchema = z.object({
   exported_at: z.string(),
   entity_count: z.number(),
   entities: z.array(z.object({
-    name: z.string().min(1).max(255),
+    name: z.string().min(1).max(255).transform(sanitizeName),
     type: z.string().min(1).max(100),
     namespace: z.string(),
     observations: z.array(z.string().max(10000)),

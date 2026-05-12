@@ -2,6 +2,12 @@
 
 All notable changes to MeMesh are documented here.
 
+## [Unreleased]
+
+### Fixed
+- **`postinstall` script for native addon compilation** (`scripts/postinstall-rebuild.mjs`) — Claude Code's plugin marketplace installs packages with scripts that can silently skip `better-sqlite3`'s native build step, leaving the plugin non-functional. A new `postinstall` npm script detects a missing binary and rebuilds it; exits silently if the binary already exists. Non-fatal: warns to stderr and exits 0 if `npm rebuild` fails (e.g., missing build tools).
+- **Entity name sanitization** (`src/transports/schemas.ts`) — `RememberSchema`, `ForgetSchema`, and `ExportResultSchema` now strip `\r\n\t` from entity names via `.transform()`. Prevents LLM-generated multi-line markdown from being stored raw as entity names, which produced garbled briefings in the session-start hook.
+
 ## [4.2.1] — 2026-05-11
 
 KG connectivity + dashboard PM filter release. Reduces entity orphan rate from 89.2% → 11.7% on a representative knowledge base using two new non-LLM heuristics; adds milestone signal filtering to the Roadmap view; and introduces PM-framed analytics. +26 tests (984 → 1010 passing).
