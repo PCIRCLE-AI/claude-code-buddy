@@ -67,9 +67,11 @@ echo "==> Fetching latest from marketplace origin..."
 ) || exit 1
 
 # ─── 2. Read new version ──────────────────────────────────────────────────
-NEW_VERSION="$(node -e "
+# Pass paths via env vars so bash variables never become JS string literals
+# — quote-safety + injection-safety in one move. Same pattern as section 5.
+NEW_VERSION="$(MARKETPLACE_DIR="$MARKETPLACE_DIR" node -e "
   const fs = require('fs');
-  const p = '$MARKETPLACE_DIR/.claude-plugin/marketplace.json';
+  const p = process.env.MARKETPLACE_DIR + '/.claude-plugin/marketplace.json';
   const j = JSON.parse(fs.readFileSync(p, 'utf8'));
   const e = (j.plugins || []).find(x => x && x.name === 'memesh');
   if (!e || typeof e.version !== 'string') { process.exit(2); }
@@ -86,9 +88,9 @@ fi
 
 echo "==> Target version: $NEW_VERSION"
 
-CURRENT_VERSION="$(node -e "
+CURRENT_VERSION="$(INSTALL_REGISTRY="$INSTALL_REGISTRY" node -e "
   const fs = require('fs');
-  const j = JSON.parse(fs.readFileSync('$INSTALL_REGISTRY', 'utf8'));
+  const j = JSON.parse(fs.readFileSync(process.env.INSTALL_REGISTRY, 'utf8'));
   const entries = (j.plugins && j.plugins['memesh@pcircle-memesh']) || [];
   if (entries.length === 0) { process.stdout.write('none'); process.exit(0); }
   process.stdout.write(entries[0].version || 'unknown');

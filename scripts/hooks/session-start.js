@@ -163,6 +163,36 @@ function buildDeprecationBanner(currentVersion, cache) {
  * old version's TTL.
  */
 const UPDATE_BANNER_THROTTLE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Return true iff `a` is strictly older than `b` under semver-ish
+ * ordering. Compares the dot-separated numeric portion of each version
+ * componentwise (so 4.2.10 > 4.2.9, unlike string compare). Anything
+ * after the first non-numeric char falls back to lex compare on the
+ * trailing fragment — fine for the prerelease / 4-segment build tags
+ * memesh uses (e.g. 4.2.5-rc.1).
+ */
+function isStrictlyOlder(a, b) {
+  const parse = (v) => {
+    const [main, ...rest] = String(v).split(/[-+]/);
+    const nums = main.split('.').map((s) => Number.parseInt(s, 10));
+    return { nums, tail: rest.join('-') };
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  const len = Math.max(pa.nums.length, pb.nums.length);
+  for (let i = 0; i < len; i++) {
+    const ai = Number.isFinite(pa.nums[i]) ? pa.nums[i] : 0;
+    const bi = Number.isFinite(pb.nums[i]) ? pb.nums[i] : 0;
+    if (ai !== bi) return ai < bi;
+  }
+  // Numeric prefix tied. A prerelease tail counts as OLDER than no
+  // tail (semver: 1.0.0-rc.1 < 1.0.0); otherwise lex on tail.
+  if (pa.tail && !pb.tail) return true;
+  if (!pa.tail && pb.tail) return false;
+  return pa.tail < pb.tail;
+}
+
 function buildUpdateAvailableBanner(currentVersion, cache, channel) {
   if (!cache || cache.currentVersion !== currentVersion) return [];
   // Deprecation banner takes precedence — when set, it owns the
@@ -173,10 +203,12 @@ function buildUpdateAvailableBanner(currentVersion, cache, channel) {
     return [];
   }
   if (!cache.latestVersion || cache.latestVersion === currentVersion) return [];
-  // String compare is a safe proxy for "is this an upgrade" — full
-  // semver compare lives in the doctor module, but we don't want this
-  // hook to pull in semver just for a banner.
-  if (!(currentVersion < cache.latestVersion)) return [];
+  // Numeric semver compare. Lexicographic compare (`'4.2.10' < '4.2.9'`
+  // is true) would silently suppress the banner once patches hit two
+  // digits. Split on `.`, compare each component as integer, prerelease
+  // / build metadata after `-` or `+` falls back to lex compare. Keeps
+  // the hook dep-free; full semver lives in version-check.ts.
+  if (!isStrictlyOlder(currentVersion, cache.latestVersion)) return [];
 
   // Throttle. We use file mtime instead of a stored timestamp because
   // the operation is atomic on POSIX (`touch` / open-with-CREAT) and
