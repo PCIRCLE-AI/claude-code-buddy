@@ -215,9 +215,15 @@ describe('callLLM — cross-provider failover', () => {
     const queue = [
       { ok: true, status: 200, body: { response: 'ollama-rescued' } },
     ];
-    // Custom fetch: anthropic responds 200 with a body that throws on .json()
+    // Custom fetch: anthropic responds 200 with a body that throws on .json().
+    // Route by exact hostname (not substring) — substring matching against
+    // 'anthropic.com' would also match attacker-controlled hosts like
+    // anthropic.com.evil.example, which is exactly the CodeQL
+    // "incomplete URL substring sanitization" anti-pattern.
     globalThis.fetch = vi.fn(async (url: string) => {
-      if (typeof url === 'string' && url.includes('anthropic.com')) {
+      let hostname = '';
+      try { hostname = typeof url === 'string' ? new URL(url).hostname : ''; } catch { /* not a URL */ }
+      if (hostname === 'api.anthropic.com') {
         return {
           ok: true, status: 200,
           json: async () => { throw new SyntaxError('Unexpected token < in JSON at position 0'); },
