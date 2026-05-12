@@ -1,0 +1,388 @@
+import { z } from 'zod';
+import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
+import { KnowledgeGraph } from '../../knowledge-graph.js';
+import { getDatabase } from '../../db.js';
+import { computePatterns } from '../../core/patterns.js';
+import { verifyAgentWork } from '../../core/verifier.js';
+import { RememberSchema, RecallSchema, ForgetSchema, ConsolidateSchema, ExportSchema, ImportSchema, LearnSchema, UserPatternsSchema, VerifyAgentWorkSchema, } from '../schemas.js';
+export const TOOL_DEFINITIONS = [
+    {
+        name: 'remember',
+        description: 'Store knowledge as an entity with observations, tags, and relations. Use this to remember decisions, patterns, lessons learned, and important context.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                name: {
+                    type: 'string',
+                    description: 'Unique entity name (e.g., "auth-decision", "jwt-pattern"). Reusing a name appends observations and dedupes tags instead of replacing the entity.',
+                },
+                type: {
+                    type: 'string',
+                    description: 'Entity type (e.g., "decision", "pattern", "lesson", "commit")',
+                },
+                observations: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Key facts or observations about this entity',
+                },
+                tags: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Tags for filtering (e.g., "project:myapp", "type:decision")',
+                },
+                relations: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            to: { type: 'string', description: 'Target entity name' },
+                            type: {
+                                type: 'string',
+                                description: 'Relation type (e.g., "implements", "related-to")',
+                            },
+                        },
+                        required: ['to', 'type'],
+                        additionalProperties: false,
+                    },
+                    description: 'Relations to other entities',
+                },
+                namespace: {
+                    type: 'string',
+                    enum: ['personal', 'team', 'global'],
+                    description: 'Namespace for organizing the entity (default: "personal")',
+                },
+            },
+            required: ['name', 'type'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'recall',
+        description: 'Search and retrieve stored knowledge. Uses full-text search with optional project tag filtering. Call with no query to list recent memories.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                query: {
+                    type: 'string',
+                    description: 'Search query (uses FTS5 full-text search). Leave empty to list recent.',
+                },
+                tag: {
+                    type: 'string',
+                    description: 'Filter by tag (e.g., "project:myapp")',
+                },
+                limit: {
+                    type: 'number',
+                    description: 'Max results (default: 20, max: 100)',
+                },
+                include_archived: {
+                    type: 'boolean',
+                    description: 'Include archived (forgotten) entities in results. Default: false.',
+                },
+                namespace: {
+                    type: 'string',
+                    enum: ['personal', 'team', 'global'],
+                    description: 'Filter results by namespace. Omit to search all namespaces.',
+                },
+                cross_project: {
+                    type: 'boolean',
+                    description: 'Search across all project tags (ignores tag filter). Default: false.',
+                },
+            },
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'forget',
+        description: 'Archive an entity (soft-delete) or remove a specific observation. Archived entities are hidden from recall but preserved in the database. To remove just one observation, pass the observation parameter.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                name: { type: 'string', description: 'Entity name to archive or modify' },
+                observation: {
+                    type: 'string',
+                    description: 'If provided, only this specific observation is removed (entity stays active). If omitted, the entire entity is archived.',
+                },
+            },
+            required: ['name'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'consolidate',
+        description: 'Compress verbose entity observations using an LLM into 2–3 dense sentences that preserve all key facts. Requires Smart Mode (run: memesh setup). Original observations are replaced by the LLM summary.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                name: { type: 'string', description: 'Specific entity name to consolidate' },
+                tag: { type: 'string', description: 'Consolidate all entities with this tag' },
+                min_observations: {
+                    type: 'number',
+                    description: 'Minimum observations required to trigger consolidation (default: 5)',
+                },
+            },
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'export',
+        description: 'Export memories as JSON for sharing or backup. Returns a portable snapshot of entities and their observations, tags, and relations.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                tag: { type: 'string', description: 'Export only entities with this tag' },
+                namespace: { type: 'string', description: 'Export only from this namespace (personal, team, global)' },
+                limit: { type: 'number', description: 'Max entities to export (default: 1000)' },
+            },
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'import',
+        description: 'Import memories from a JSON export snapshot. Supports skip, append, or overwrite strategies for handling existing entities.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                data: { type: 'object', description: 'Export JSON data (from the export tool)' },
+                namespace: { type: 'string', description: 'Override namespace for all imported entities' },
+                merge_strategy: {
+                    type: 'string',
+                    enum: ['skip', 'overwrite', 'append'],
+                    description: 'How to handle existing entities: skip (default) = leave untouched, append = add observations, overwrite = archive existing and recreate',
+                },
+            },
+            required: ['data', 'merge_strategy'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'learn',
+        description: 'Record a structured lesson from a mistake or discovery. Creates a lesson_learned entity with error, root cause, fix, and prevention.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                error: { type: 'string', description: 'What went wrong' },
+                fix: { type: 'string', description: 'What fixed it' },
+                root_cause: { type: 'string', description: 'Why it happened (optional)' },
+                prevention: { type: 'string', description: 'How to prevent it next time (optional)' },
+                severity: {
+                    type: 'string',
+                    enum: ['critical', 'major', 'minor'],
+                    description: 'Severity level (default: minor)',
+                },
+            },
+            required: ['error', 'fix'],
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'user_patterns',
+        description: 'Analyze user work patterns from existing memory. Returns: work schedule (peak hours/days), tool preferences, focus areas, workflow metrics (session duration, commits/session), knowledge strengths, and learning areas. Use at session start for context about the user.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                categories: {
+                    type: 'array',
+                    items: {
+                        type: 'string',
+                        enum: ['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'],
+                    },
+                    description: 'Specific categories to return. Omit for all.',
+                },
+            },
+            additionalProperties: false,
+        },
+    },
+    {
+        name: 'verify_agent_work',
+        description: 'Record a verification report for work done by a background agent. Runs a deterministic git reality-check on the workdir (files changed vs claim) and persists the report as a verification_record entity tagged pass/fail. Heavier checks (typecheck/tests/lint) are expected to be pre-computed by a local hook and passed in via report.*.pass — this tool focuses on persistence + cross-checking, not running test suites.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                agent_id: {
+                    type: 'string',
+                    description: 'Identifier for the agent whose work is being verified.',
+                },
+                workdir: {
+                    type: 'string',
+                    description: 'Absolute path to the git working tree the agent edited.',
+                },
+                base: {
+                    type: 'string',
+                    description: 'Git ref/sha to diff against. Defaults to merge-base with origin/main.',
+                },
+                claim: {
+                    type: 'object',
+                    properties: {
+                        expected_files: { type: 'number', description: 'Files the agent claimed to change.' },
+                    },
+                    additionalProperties: false,
+                },
+                report: {
+                    type: 'object',
+                    description: 'Pre-computed external verification report (typecheck/tests/lint/build).',
+                    properties: {
+                        pass: { type: 'boolean' },
+                        typecheck: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } }, required: ['pass'] },
+                        tests: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } }, required: ['pass'] },
+                        lint: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } }, required: ['pass'] },
+                        build: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } }, required: ['pass'] },
+                        summary: { type: 'string' },
+                    },
+                    required: ['pass'],
+                },
+            },
+            required: ['agent_id', 'workdir'],
+            additionalProperties: false,
+        },
+    },
+];
+function ok(data) {
+    return { content: [{ type: 'text', text: JSON.stringify(data) }] };
+}
+function fail(message) {
+    return { content: [{ type: 'text', text: message }], isError: true };
+}
+function parseOrFail(schema, args) {
+    const parsed = schema.safeParse(args ?? {});
+    if (!parsed.success) {
+        const message = parsed.error instanceof z.ZodError
+            ? parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+            : String(parsed.error);
+        return { ok: false, result: fail(message) };
+    }
+    return { ok: true, data: parsed.data };
+}
+export async function handleTool(name, args) {
+    try {
+        if (name === 'remember') {
+            const r = parseOrFail(RememberSchema, args);
+            if (!r.ok)
+                return r.result;
+            return ok(remember(r.data));
+        }
+        if (name === 'recall') {
+            const r = parseOrFail(RecallSchema, args);
+            if (!r.ok)
+                return r.result;
+            const entities = await recallEnhanced(r.data);
+            const kg = new KnowledgeGraph(getDatabase());
+            const conflicts = kg.findConflicts(entities.map(e => e.name));
+            if (conflicts.length > 0) {
+                return ok({ entities, conflicts });
+            }
+            return ok(entities);
+        }
+        if (name === 'forget') {
+            const r = parseOrFail(ForgetSchema, args);
+            if (!r.ok)
+                return r.result;
+            return ok(forget(r.data));
+        }
+        if (name === 'consolidate') {
+            const r = parseOrFail(ConsolidateSchema, args);
+            if (!r.ok)
+                return r.result;
+            return ok(await consolidate(r.data));
+        }
+        if (name === 'export') {
+            const r = parseOrFail(ExportSchema, args);
+            if (!r.ok)
+                return r.result;
+            return ok(exportMemories(r.data));
+        }
+        if (name === 'import') {
+            const r = parseOrFail(ImportSchema, args);
+            if (!r.ok)
+                return r.result;
+            return ok(importMemories(r.data));
+        }
+        if (name === 'learn') {
+            const r = parseOrFail(LearnSchema, args);
+            if (!r.ok)
+                return r.result;
+            return ok(learn(r.data));
+        }
+        if (name === 'user_patterns') {
+            const r = parseOrFail(UserPatternsSchema, args);
+            if (!r.ok)
+                return r.result;
+            const db = getDatabase();
+            const cats = r.data.categories;
+            const allCategories = !cats || cats.length === 0;
+            const data = computePatterns(db, cats);
+            const lines = ['## User Patterns'];
+            if (allCategories || cats.includes('workSchedule')) {
+                lines.push('', '### Work Schedule');
+                const peakHours = [...data.workSchedule.hourDistribution]
+                    .sort((a, b) => b.count - a.count)
+                    .slice(0, 3)
+                    .map(h => `${String(h.hour).padStart(2, '0')}:00 (${h.count})`)
+                    .join(', ');
+                lines.push(`Peak hours: ${peakHours || 'No data'}`);
+                const busiestDays = [...data.workSchedule.dayDistribution]
+                    .sort((a, b) => b.count - a.count)
+                    .slice(0, 3)
+                    .map(d => `${d.day} (${d.count})`)
+                    .join(', ');
+                lines.push(`Busiest days: ${busiestDays || 'No data'}`);
+            }
+            if (allCategories || cats.includes('toolPreferences')) {
+                lines.push('', '### Tool Preferences');
+                if (data.toolPreferences.length > 0) {
+                    data.toolPreferences.forEach((tp, i) => {
+                        lines.push(`${i + 1}. ${tp.tool} (${tp.sessions} sessions)`);
+                    });
+                }
+                else {
+                    lines.push('No tool usage data yet.');
+                }
+            }
+            if (allCategories || cats.includes('focusAreas')) {
+                lines.push('', '### Focus Areas');
+                if (data.focusAreas.length > 0) {
+                    data.focusAreas.forEach(f => {
+                        lines.push(`- ${f.type} (${f.count})`);
+                    });
+                }
+                else {
+                    lines.push('No focus area data yet.');
+                }
+            }
+            if (allCategories || cats.includes('workflow')) {
+                lines.push('', '### Workflow');
+                lines.push(`Avg session: ${data.workflow.avgSessionMinutes} min | Commits per session: ${data.workflow.commitsPerSession}`);
+                lines.push(`Total sessions: ${data.workflow.totalSessions} | Total commits: ${data.workflow.totalCommits}`);
+            }
+            if (allCategories || cats.includes('strengths')) {
+                lines.push('', '### Strengths (high confidence areas)');
+                if (data.strengths.length > 0) {
+                    lines.push('- ' + data.strengths.map(s => `${s.type} (${s.avgConfidence})`).join(', '));
+                }
+                else {
+                    lines.push('No strength data yet.');
+                }
+            }
+            if (allCategories || cats.includes('learningAreas')) {
+                lines.push('', '### Learning Areas');
+                if (data.learningAreas.length > 0) {
+                    lines.push('- ' + data.learningAreas.map(l => l.tag).join(', '));
+                }
+                else {
+                    lines.push('No learning area data yet.');
+                }
+            }
+            return { content: [{ type: 'text', text: lines.join('\n') }] };
+        }
+        if (name === 'verify_agent_work') {
+            const r = parseOrFail(VerifyAgentWorkSchema, args);
+            if (!r.ok)
+                return r.result;
+            return ok(verifyAgentWork(r.data));
+        }
+        return fail(`Unknown tool: ${name}`);
+    }
+    catch (err) {
+        return fail(`Tool "${name}" failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+}
+//# sourceMappingURL=handlers.js.map

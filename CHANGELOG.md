@@ -15,6 +15,8 @@ All notable changes to MeMesh are documented here.
 - **Lint runs at `--max-warnings 0` by default** (`package.json`, CI) — new lint warnings now block PRs. The redundant `lint:strict` script has been removed. CI runs lint before typecheck for faster fail-fast.
 
 ### Fixed
+- **Plugin marketplace installs now work without npm/npx** (`.mcp.json`, `.gitignore`, `dist/`, `dashboard/dist/`) — Claude Code's plugin marketplace does not execute npm scripts on install (security model), so the previous setup left users with `-32000 "failed to reconnect to plugin:memesh"` because `dist/` was gitignored and the MCP server was re-installed via `npx` on every start. Compiled `dist/` and the dashboard build are now tracked in git so the plugin is runnable on clone. `.mcp.json` points at the plugin cache's local launcher.js, which already self-heals a missing better-sqlite3 binding via in-process rebuild (v4.2.2 work).
+- **Dashboard launcher no longer invokes a shell** (`src/cli/view.ts`) — CodeQL flagged the Windows code path as `js/shell-command-injection-from-environment` / `js/indirect-command-line-injection` because `cmd.exe /c start <path>` re-parses the path through cmd's shell parser, and `MEMESH_DIR` can feed into that path. Windows now dispatches via `rundll32.exe url.dll,FileProtocolHandler` (no shell). macOS `open` and Linux `xdg-open` are unchanged.
 - **F15 doctor test now inspects the actual corruption fixture** (`tests/core/doctor.test.ts`) — the "provides actionable fix commands for all failure modes" test uses the `MEMESH_DB_PATH` env override (matching every sibling F15 test) so doctor inspects the test database instead of falling through to the default path.
 
 ### Documentation

@@ -1,0 +1,49 @@
+import type Database from 'better-sqlite3';
+export declare function tokenizeName(name: string): Set<string>;
+export declare function jaccardSimilarity(a: Set<string>, b: Set<string>): number;
+export declare function isTopicalTag(tag: string): boolean;
+export interface RelationCandidate {
+    fromEntityId: number;
+    fromName: string;
+    toEntityId: number;
+    toName: string;
+    relationType: 'related-to' | 'belongs-to-project' | 'co-created' | 'shares-name-tokens';
+    reason: string;
+    strength: number;
+}
+export interface BackfillOptions {
+    project?: string;
+    maxEdgesPerSource?: number;
+    minSharedTags?: number;
+    includeArchived?: boolean;
+    dryRun?: boolean;
+    includeSessionCooccurrence?: boolean;
+    minSessionSignalScore?: number;
+    includeNameTokenSimilarity?: boolean;
+    minNameJaccard?: number;
+    minSharedNameTokens?: number;
+    resetIdempotency?: boolean;
+    ignoreIdempotency?: boolean;
+}
+export interface BackfillResult {
+    candidatesProposed: number;
+    edgesWritten: number;
+    dryRun: boolean;
+    byRule: {
+        tagCooccurrence: number;
+        projectClustering: number;
+        sessionCooccurrence: number;
+        nameTokenSimilarity: number;
+    };
+    orphansSkippedIdempotent: number;
+    orphansMarkedProcessed: number;
+}
+export declare function resetBackfillIdempotencyCache(db?: Database.Database): void;
+export interface BackfillProposalResult {
+    candidates: RelationCandidate[];
+    consideredOrphanIds: number[];
+    skippedOrphanIds: number[];
+}
+export declare function backfillRelations(opts?: BackfillOptions, db?: Database.Database): BackfillResult;
+export declare function proposeBackfillCandidates(opts?: BackfillOptions, db?: Database.Database): BackfillProposalResult;
+//# sourceMappingURL=kg-backfill.d.ts.map

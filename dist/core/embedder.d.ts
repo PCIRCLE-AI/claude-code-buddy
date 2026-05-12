@@ -1,0 +1,12 @@
+export declare function isEmbeddingAvailable(): boolean;
+export { getEmbeddingDimension } from './config.js';
+export declare function resetEmbeddingState(): void;
+export declare function scheduleEmbedAndStore(entityId: number, text: string): void;
+export declare function flushPendingEmbeddings(): Promise<void>;
+export declare function embedText(text: string): Promise<Float32Array | null>;
+export declare function embedAndStore(entityId: number, text: string): Promise<void>;
+export declare function vectorSearch(queryEmbedding: Float32Array, limit?: number): Array<{
+    id: number;
+    distance: number;
+}>;
+//# sourceMappingURL=embedder.d.ts.map

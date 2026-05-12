@@ -1,0 +1,178 @@
+export type Namespace = 'personal' | 'team' | 'global';
+export type MergeStrategy = 'skip' | 'overwrite' | 'append';
+export type LessonSeverity = 'critical' | 'major' | 'minor';
+export type EntityStatus = 'active' | 'archived';
+export type LLMProvider = 'anthropic' | 'openai' | 'ollama';
+export interface Entity {
+    id: number;
+    name: string;
+    type: string;
+    created_at: string;
+    metadata?: Record<string, unknown>;
+    observations: string[];
+    tags: string[];
+    relations?: Relation[];
+    archived?: boolean;
+    access_count?: number;
+    last_accessed_at?: string;
+    confidence?: number;
+    namespace: 'personal' | 'team' | 'global' | string;
+}
+export interface Relation {
+    from: string;
+    to: string;
+    type: string;
+}
+export interface CreateEntityInput {
+    name: string;
+    type: string;
+    observations?: string[];
+    tags?: string[];
+    metadata?: Record<string, unknown>;
+    namespace?: string;
+}
+export interface SearchOptions {
+    tag?: string;
+    limit?: number;
+    includeArchived?: boolean;
+    namespace?: string;
+}
+export interface RememberInput {
+    name: string;
+    type: string;
+    observations?: string[];
+    tags?: string[];
+    relations?: Array<{
+        to: string;
+        type: string;
+    }>;
+    namespace?: string;
+    trustOverride?: 'trusted' | 'untrusted';
+    provenanceOverride?: Record<string, unknown>;
+}
+export interface RecallInput {
+    query?: string;
+    tag?: string;
+    limit?: number;
+    include_archived?: boolean;
+    namespace?: string;
+    cross_project?: boolean;
+}
+export interface ForgetInput {
+    name: string;
+    observation?: string;
+}
+export interface RememberResult {
+    stored: boolean;
+    entityId: number;
+    name: string;
+    type: string;
+    observations: number;
+    tags: number;
+    relations: number;
+    superseded?: string[];
+    relationErrors?: string[];
+}
+export interface ForgetResult {
+    archived?: boolean;
+    name?: string;
+    message?: string;
+    observation_removed?: boolean;
+    observation?: string;
+    remaining_observations?: number;
+}
+export interface ConsolidateInput {
+    name?: string;
+    tag?: string;
+    min_observations?: number;
+}
+export interface ConsolidateResult {
+    consolidated: number;
+    entities_processed: string[];
+    observations_before: number;
+    observations_after: number;
+    error?: string;
+}
+export interface ExportInput {
+    tag?: string;
+    namespace?: string;
+    limit?: number;
+}
+export interface ExportResult {
+    version: string;
+    exported_at: string;
+    entity_count: number;
+    entities: Array<{
+        name: string;
+        type: string;
+        namespace: string;
+        observations: string[];
+        tags: string[];
+        relations: Array<{
+            to: string;
+            type: string;
+        }>;
+    }>;
+}
+export interface ImportInput {
+    data: ExportResult;
+    namespace?: string;
+    merge_strategy: MergeStrategy;
+}
+export interface ImportResult {
+    imported: number;
+    skipped: number;
+    appended: number;
+    errors: string[];
+}
+export interface LearnInput {
+    error: string;
+    fix: string;
+    root_cause?: string;
+    prevention?: string;
+    severity?: LessonSeverity;
+}
+export interface LearnResult {
+    learned: boolean;
+    name: string;
+    type: string;
+}
+export interface EntityRow {
+    id: number;
+    name: string;
+    type: string;
+    created_at: string;
+    metadata: string | null;
+    status: EntityStatus;
+    access_count: number;
+    last_accessed_at: string | null;
+    confidence: number;
+    namespace: string;
+}
+export interface CountRow {
+    c: number;
+}
+export interface PragmaColumnRow {
+    cid: number;
+    name: string;
+    type: string;
+    notnull: number;
+    dflt_value: string | null;
+    pk: number;
+}
+export interface AnthropicResponse {
+    content?: Array<{
+        text?: string;
+    }>;
+}
+export interface OpenAIResponse {
+    choices?: Array<{
+        message?: {
+            content?: string;
+        };
+    }>;
+}
+export interface OllamaResponse {
+    response?: string;
+}
+//# sourceMappingURL=types.d.ts.map
