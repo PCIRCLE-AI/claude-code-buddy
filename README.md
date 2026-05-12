@@ -53,7 +53,7 @@ If you use Claude Code, install MeMesh as a plugin from inside the CLI:
 /plugin install memesh@pcircle-memesh
 ```
 
-Claude Code wires hooks, skills, and the MCP server automatically. You get in-session auto-capture, proactive recall, the `/memesh` skill (remember / recall / learn / forget) inside the Claude Code conversation, and `remember` / `recall` / `forget` / `learn` available as MCP tools to the agent. The CLI and the local dashboard are also fully accessible without any extra global install — `npx @pcircle/memesh <command>` runs every CLI command, and `npx @pcircle/memesh` launches the dashboard at `localhost:3737`. The MCP server uses the same `npx`-based launch pattern as Anthropic's official plugins (e.g. `context7`), so no `npm install -g` is needed for any feature.
+Claude Code wires hooks, skills, and the MCP server automatically. You get in-session auto-capture, proactive recall, the `/memesh` skill (remember / recall / learn / forget) inside the Claude Code conversation, and `remember` / `recall` / `forget` / `learn` available as MCP tools to the agent. The CLI and the local dashboard are also fully accessible without any extra global install — `npx @pcircle/memesh <command>` runs every CLI command, and `npx @pcircle/memesh` launches the dashboard at `localhost:3737`. The MCP server runs directly from the plugin's bundled compiled output — no `npx` lookup, no `npm install -g`, no build step needed. If the native `better-sqlite3` binding is missing on first start (e.g. after a Node major upgrade), the launcher self-heals by rebuilding it in-process before continuing.
 
 ### Option B — npm global (optional optimisation)
 

@@ -901,7 +901,8 @@ Heuristic non-LLM relation backfill for orphan entities. Four rules:
 ```bash
 memesh kg backfill-relations [--project <name>] [--dry-run] [--max-per-source <n>] \
   [--min-shared-tags <n>] [--session-cooccurrence] [--name-tokens] \
-  [--min-jaccard <n>] [--all-rules] [--include-archived] [--json]
+  [--min-jaccard <n>] [--all-rules] [--include-archived] \
+  [--reset-idempotency] [--json]
 ```
 
 **Options**:
@@ -917,7 +918,10 @@ memesh kg backfill-relations [--project <name>] [--dry-run] [--max-per-source <n
 | `--min-jaccard <n>` | 0.50 | Jaccard threshold for Rule 4 |
 | `--all-rules` | off | Enable all four rules in one pass |
 | `--include-archived` | off | Also process archived entities |
+| `--reset-idempotency` | off | Clear the persistent "already-attempted" orphan cache (`memesh_metadata.kg_backfill_processed_v1`) before running, so every orphan is reconsidered |
 | `--json` | off | Output as JSON |
+
+**Idempotency**: re-running this command is cheap by default — orphan IDs considered in a prior run are remembered in `memesh_metadata` and skipped on subsequent runs. Use `--reset-idempotency` after a schema change or when you want every orphan reconsidered from scratch. The output summary reports `idempotency: skipped N orphans` so you can see how many were filtered.
 
 ### memesh dream
 

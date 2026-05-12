@@ -53,7 +53,7 @@ MeMesh 的檢索引擎**只用 FTS5**（熱路徑上不使用 LLM、不使用嵌
 /plugin install memesh@pcircle-memesh
 ```
 
-Claude Code 會自動接好 hooks、skills 和 MCP server。你會獲得對話內自動擷取、主動回憶、可在 Claude Code 對話中使用的 `/memesh` skill（remember / recall / learn / forget），以及代理可呼叫的 `remember` / `recall` / `forget` / `learn` MCP 工具。CLI 與本地儀表板無需任何額外的全域安裝就能完整使用 — `npx @pcircle/memesh <command>` 可執行所有 CLI 指令，`npx @pcircle/memesh` 可在 `localhost:3737` 啟動儀表板。MCP server 採用與 Anthropic 官方外掛（例如 `context7`）相同的 `npx` 啟動模式，因此任何功能都不需要 `npm install -g`。
+Claude Code 會自動接好 hooks、skills 和 MCP server。你會獲得對話內自動擷取、主動回憶、可在 Claude Code 對話中使用的 `/memesh` skill（remember / recall / learn / forget），以及代理可呼叫的 `remember` / `recall` / `forget` / `learn` MCP 工具。CLI 與本地儀表板無需任何額外的全域安裝就能完整使用 — `npx @pcircle/memesh <command>` 可執行所有 CLI 指令，`npx @pcircle/memesh` 可在 `localhost:3737` 啟動儀表板。MCP server 直接從外掛內建的編譯產物啟動 — 不需要 `npx` 查找、不需要 `npm install -g`、不需要本地建置步驟。如果 `better-sqlite3` 原生 binding 在第一次啟動時缺少（例如 Node 主版本升級後），啟動器會在程序內自動重新編譯後繼續執行。
 
 ### 選項 B — npm 全域安裝（可選最佳化）
 

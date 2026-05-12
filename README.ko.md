@@ -53,7 +53,7 @@ Claude Code를 사용한다면 CLI 안에서 MeMesh를 플러그인으로 설치
 /plugin install memesh@pcircle-memesh
 ```
 
-Claude Code가 훅, 스킬, MCP 서버를 자동으로 연결합니다. 세션 내 자동 캡처, 능동적 회상, Claude Code 대화 내 `/memesh` 스킬(remember / recall / learn / forget), 그리고 에이전트가 사용할 수 있는 MCP 도구 `remember` / `recall` / `forget` / `learn`을 모두 얻을 수 있습니다. CLI와 로컬 대시보드도 추가 글로벌 설치 없이 완전히 접근 가능합니다 — `npx @pcircle/memesh <command>`로 모든 CLI 명령을 실행하고, `npx @pcircle/memesh`로 `localhost:3737`의 대시보드를 시작합니다. MCP 서버는 Anthropic 공식 플러그인(예: `context7`)과 동일한 `npx` 기반 실행 패턴을 사용하므로, 어떤 기능도 `npm install -g`가 필요하지 않습니다.
+Claude Code가 훅, 스킬, MCP 서버를 자동으로 연결합니다. 세션 내 자동 캡처, 능동적 회상, Claude Code 대화 내 `/memesh` 스킬(remember / recall / learn / forget), 그리고 에이전트가 사용할 수 있는 MCP 도구 `remember` / `recall` / `forget` / `learn`을 모두 얻을 수 있습니다. CLI와 로컬 대시보드도 추가 글로벌 설치 없이 완전히 접근 가능합니다 — `npx @pcircle/memesh <command>`로 모든 CLI 명령을 실행하고, `npx @pcircle/memesh`로 `localhost:3737`의 대시보드를 시작합니다. MCP 서버는 플러그인에 번들된 컴파일 결과물에서 직접 실행됩니다 — `npx` 조회, `npm install -g`, 빌드 단계가 모두 필요 없습니다. 첫 시작 시 `better-sqlite3` 네이티브 바인딩이 없는 경우(예: Node 메이저 버전 업그레이드 이후), 런처가 프로세스 내에서 자동으로 재빌드한 뒤 실행을 이어갑니다.
 
 ### 옵션 B — npm 글로벌 (선택적 최적화)
 
