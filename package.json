@@ -1,6 +1,6 @@
 {
   "name": "@pcircle/memesh",
-  "version": "4.2.1",
+  "version": "4.2.2",
   "description": "MeMesh — Local memory for Claude Code and MCP coding agents. One SQLite file, zero cloud required.",
   "main": "dist/index.js",
   "type": "module",
@@ -33,7 +33,7 @@
     "lint": "eslint src/ scripts/",
     "lint:strict": "eslint src/ scripts/ --max-warnings 0",
     "lint:fix": "eslint src/ scripts/ --fix",
-    "start": "node dist/mcp/server.js",
+    "start": "node dist/mcp/launcher.js",
     "bench:longmemeval": "node benchmarks/longmemeval/run.mjs --mode A --dataset /tmp/longmemeval_s.json"
   },
   "author": "PCIRCLE-AI",

@@ -1,10 +1,10 @@
 {
   "schema": "memesh.skills-manifest/v1",
-  "generated_at": "2026-05-12T08:40:35.838Z",
+  "generated_at": "2026-05-12T09:18:17.394Z",
   "entries": [
     {
       "path": ".claude-plugin/plugin.json",
-      "sha256": "0b637a80beeea346cb9639f11869f4e8824c7f7fa6881a61d9989c90d2745886",
+      "sha256": "7dd8941d99b163f339951858e31afcd039c221dcb29db022651b1896c02c33c3",
       "bytes": 441
     },
     {

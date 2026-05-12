@@ -75,6 +75,7 @@ const requiredFiles = [
   'dist/core/embedder.js',
   // Dist — transports
   'dist/transports/schemas.js',
+  'dist/mcp/launcher.js',
   'dist/mcp/server.js',
   'dist/transports/mcp/handlers.js',
   'dist/transports/http/server.js',

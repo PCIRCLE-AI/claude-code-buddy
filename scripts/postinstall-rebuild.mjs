@@ -4,16 +4,19 @@
 // skips better-sqlite3's own build step. This script is a safety net that
 // detects a missing binary and attempts a rebuild. Errors are non-fatal —
 // the hook and MCP server will report the missing binding at runtime.
-import { existsSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
-import { join } from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
 const require = createRequire(import.meta.url);
 
 function isBinaryPresent() {
+  // better-sqlite3 loads its native binding lazily inside Database() —
+  // a plain require() always succeeds. Must instantiate to trigger the probe.
   try {
-    require('better-sqlite3');
+    const Db = require('better-sqlite3');
+    new Db(':memory:').close();
     return true;
   } catch {
     return false;
@@ -24,7 +27,8 @@ if (isBinaryPresent()) {
   process.exit(0);
 }
 
-const cwd = new URL('..', import.meta.url).pathname;
+// dirname(fileURLToPath(...)) → scripts/ ; one more dirname → package root
+const cwd = dirname(dirname(fileURLToPath(import.meta.url)));
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 try {

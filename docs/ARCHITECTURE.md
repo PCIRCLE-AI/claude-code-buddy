@@ -1,6 +1,6 @@
 # MeMesh Plugin Architecture
 
-**Version**: 4.2.1
+**Version**: 4.2.2
 
 ---
 
@@ -97,6 +97,7 @@ src/
 └── transports/
     ├── schemas.ts         # Shared Zod validation schemas (single source of truth)
     ├── mcp/
+    │   ├── launcher.ts    # memesh-mcp entry point: probes better-sqlite3 binding, rebuilds if missing, re-execs for fresh module cache
     │   ├── handlers.ts    # MCP tool handlers (imports schemas, ToolResult wrapper, conflict detection)
     │   └── server.ts      # MCP stdio server (logs capabilities on startup)
     ├── http/
@@ -166,9 +167,13 @@ CRUD operations and full-text search over the entity graph.
 
 FTS5 is configured as a contentless virtual table (`content=''`). The `rebuildFts()` method handles explicit insert/delete operations required by contentless FTS5.
 
+### transports/mcp/launcher.ts -- MCP Startup Guard
+
+Entry point for the `memesh-mcp` binary. Probes `better-sqlite3` by instantiating an in-memory database (the binding loads lazily inside the constructor). On failure, runs `npm rebuild better-sqlite3` then re-execs the process via `spawnSync` so the fresh Node.js instance has a clean module cache. An env guard (`MEMESH_REBUILD_ATTEMPTED`) prevents infinite loops if rebuild fails.
+
 ### transports/mcp/server.ts -- MCP Server
 
-Entry point for the `memesh-mcp` binary. Creates the MCP server with stdio transport, registers tool handlers from `handlers.ts`, opens the database on startup.
+Actual MCP server logic. Creates the MCP server with stdio transport, registers tool handlers from `handlers.ts`, opens the database on startup. Invoked by `launcher.ts` after the native addon is confirmed working.
 
 ### transports/mcp/handlers.ts -- MCP Tool Handlers
 
