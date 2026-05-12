@@ -8,7 +8,7 @@
       "name": "memesh",
       "source": "./",
       "description": "MeMesh — Local memory for Claude Code and MCP coding agents. One SQLite file, zero cloud required.",
-      "version": "4.2.3",
+      "version": "4.2.4",
       "author": {
         "name": "PCIRCLE AI"
       },
