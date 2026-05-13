@@ -291,16 +291,17 @@ function defaultNativeBindingProbe(packageRoot) {
         return { ok: false, message: err instanceof Error ? err.message : String(err) };
     }
 }
-function inspectNativeBinding(packageRoot, existsSyncImpl, probeImpl = defaultNativeBindingProbe) {
-    const pkgDir = path.join(packageRoot, 'node_modules', 'better-sqlite3');
-    if (!existsSyncImpl(pkgDir)) {
-        return createCheck('native-binding', 'Native SQLite binding', 'fail', `better-sqlite3 is not installed in ${pkgDir}.`, `Run: cd "${packageRoot}" && npm install --omit=dev`);
-    }
+function inspectNativeBinding(packageRoot, _existsSyncImpl, probeImpl = defaultNativeBindingProbe) {
     const result = probeImpl(packageRoot);
     if (result.ok) {
         return createCheck('native-binding', 'Native SQLite binding', 'pass', 'better-sqlite3 native binding loads cleanly (Database probe succeeded).');
     }
     const isMissingBinding = /bindings file|locate the bindings/i.test(result.message);
+    const isMissingPackage = /MODULE_NOT_FOUND|Cannot find module/i.test(result.message);
+    if (isMissingPackage) {
+        return createCheck('native-binding', 'Native SQLite binding', 'fail', 'better-sqlite3 is not installed (Node could not resolve the module from any '
+            + 'parent node_modules). Memesh hooks and database operations will not work.', `Run: npm install   (in the directory that depends on @pcircle/memesh)`);
+    }
     if (isMissingBinding) {
         return createCheck('native-binding', 'Native SQLite binding', 'fail', 'better-sqlite3 is installed but the native binding (.node file) is missing. '
             + 'Hooks will silently skip-and-exit, and auto-capture will NOT write any entities. '

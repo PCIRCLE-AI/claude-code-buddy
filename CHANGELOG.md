@@ -2,6 +2,12 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.2.6] — 2026-05-13
+
+### Fixed
+- **`memesh doctor` and hook self-heal now follow npm hoisting** (`src/core/doctor.ts`, `scripts/hooks/_shared.js`) — the v4.2.5 native-binding check pre-checked `<packageRoot>/node_modules/better-sqlite3` literally, but when memesh is installed as a dependency npm hoists `better-sqlite3` to the consumer's top-level `node_modules/`. Result: every fresh `npm install @pcircle/memesh` saw a FAIL on the native-binding check even though the binding worked correctly. Both surfaces now resolve via `require.resolve('better-sqlite3', { paths: [pkgRoot] })`, which follows Node's normal resolution algorithm and finds hoisted packages. The hook's `npm rebuild` self-heal also targets the correct project root now (the package that owns the hoisted `node_modules`), not memesh's own pkgRoot.
+- Doctor test `reports FAIL when node_modules/better-sqlite3 is entirely missing` updated to `reports FAIL with npm install hint when better-sqlite3 is not resolvable` — exercises the MODULE_NOT_FOUND probe response now that the existence-check branch is gone.
+
 ## [4.2.5] — 2026-05-13
 
 ### Added

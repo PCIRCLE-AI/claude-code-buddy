@@ -1167,10 +1167,9 @@ describe('native binding probe (plugin-marketplace silent-dropout guard)', () =>
     expect(result.status).toBe('FAIL');
   });
 
-  it('reports FAIL when node_modules/better-sqlite3 is entirely missing', async () => {
+  it('reports FAIL with `npm install` hint when better-sqlite3 is not resolvable', async () => {
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
-    fs.rmSync(path.join(packageRoot, 'node_modules', 'better-sqlite3'), { recursive: true, force: true });
 
     const result = await runDoctor({
       packageRoot,
@@ -1184,6 +1183,10 @@ describe('native binding probe (plugin-marketplace silent-dropout guard)', () =>
       getInstallChannelSupportImpl: () => ({
         channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
         recommendedCommand: 'memesh update', guidance: '',
+      }),
+      nativeBindingProbeImpl: () => ({
+        ok: false,
+        message: "Cannot find module 'better-sqlite3' — code: MODULE_NOT_FOUND",
       }),
     });
 
