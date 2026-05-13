@@ -1,4 +1,4 @@
-import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'fs';
+import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs';
 import { spawn } from 'child_process';
 import { createRequire } from 'module';
 import { homedir } from 'os';
@@ -412,11 +412,11 @@ function _attemptBetterSqliteRebuild() {
     // EEXIST and bail; the marker's mtime gates the next window.
     let mustClaim = true;
     try {
-      const stat = require('fs').statSync(markerPath);
+      const stat = statSync(markerPath);
       if (Date.now() - stat.mtimeMs < REBUILD_THROTTLE_MS) {
         mustClaim = false; // within window — peer or recent attempt owns it
       } else {
-        try { require('fs').unlinkSync(markerPath); } catch {}
+        try { unlinkSync(markerPath); } catch {}
       }
     } catch { /* no marker yet — claim path runs below */ }
     if (!mustClaim) return;
@@ -438,6 +438,13 @@ function _attemptBetterSqliteRebuild() {
       stdio: 'ignore',
       windowsHide: true,
     });
+    // 'error' is emitted asynchronously (e.g. npm not on PATH). Without a
+    // listener it becomes an uncaught exception that the outer sync
+    // try/catch cannot catch — and a hook crash here would turn a silent
+    // dropout into a louder broken-hook story. Swallow it: self-heal is
+    // best-effort by design, and the binding probe already left a stderr
+    // breadcrumb explaining the manual fix.
+    child.on('error', () => {});
     child.unref();
   } catch {
     // Best-effort — never let self-heal failures crash the hook.

@@ -280,8 +280,6 @@ function inspectHookActivity(openDatabaseImpl, closeDatabaseImpl, existsSyncImpl
     }
 }
 function defaultNativeBindingProbe(packageRoot) {
-    if (process.env.VITEST === 'true')
-        return { ok: true };
     try {
         const localRequire = createRequire(pathToFileURL(path.join(packageRoot, 'package.json')).href);
         const Database = localRequire('better-sqlite3');

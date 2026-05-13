@@ -644,13 +644,15 @@ function inspectHookActivity(
  * is invisible until a user notices "the dashboard is empty" days later.
  */
 function defaultNativeBindingProbe(packageRoot: string): { ok: true } | { ok: false; message: string } {
-  // Test-env seam: vitest fixtures stub `node_modules/better-sqlite3` as
-  // an empty directory and inject failure cases via
-  // `nativeBindingProbeImpl`. Without this guard, every test that
-  // doesn't inject would crash here when the require resolves to a
-  // package without a real `package.json`. The seam ONLY honors VITEST;
-  // production code paths never set it.
-  if (process.env.VITEST === 'true') return { ok: true };
+  // No test-env seam here. Earlier versions of this function gated on
+  // `process.env.VITEST === 'true'` to let test fixtures stub
+  // `node_modules/better-sqlite3` as an empty directory. That seam was
+  // too permissive: any user who happened to have VITEST exported in
+  // their shell (e.g. shared between projects) would silently bypass
+  // the binding probe and see a green PASS on a broken install — the
+  // exact failure mode this check exists to surface. Tests must inject
+  // `nativeBindingProbeImpl` explicitly via runDoctor options. Production
+  // code paths always exercise the real probe.
   try {
     // ESM-safe createRequire (the doctor module is emitted as ESM by
     // the project's tsconfig — bare `require` would throw

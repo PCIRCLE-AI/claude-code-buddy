@@ -179,6 +179,10 @@ describe('doctor', () => {
         guidance: 'This installation can be updated directly from MeMesh.',
       }),
       fetchImpl: (async () => new Response(JSON.stringify({ ok: true }), { status: 200 })) as typeof fetch,
+      // Fixture stubs node_modules/better-sqlite3 as an empty dir, so the real
+      // probe would fail. Inject success since this test is verifying the
+      // overall-PASS flow, not the binding probe itself.
+      nativeBindingProbeImpl: () => ({ ok: true }),
     });
 
     expect(result.status).toBe('PASS');
@@ -230,6 +234,9 @@ describe('doctor', () => {
         recommendedCommand: null,
         guidance: 'Update this source checkout from its repository and rebuild it.',
       }),
+      // Fixture's better-sqlite3 dir is an empty stub; let the binding
+      // check pass so this test focuses on the update-status WARN.
+      nativeBindingProbeImpl: () => ({ ok: true }),
     });
 
     if (originalMemeshDir === undefined) delete process.env.MEMESH_DIR;
