@@ -42,6 +42,67 @@ MeMesh 的检索引擎**只用 FTS5**（热路径上没有 LLM、也没有 embed
 
 ---
 
+## 安装路径一览
+
+MeMesh 有**两条共存的安装路径**。多数用户两条都需要。它们写入**同一份记忆数据库**（`~/.memesh/knowledge-graph.db`），所以 Claude Code 对话里记下的东西在 terminal 也看得到，反之亦然。
+
+```mermaid
+flowchart TB
+    classDef client fill:#1f2937,stroke:#4b5563,color:#f9fafb,stroke-width:1px
+    classDef pathA  fill:#1e3a8a,stroke:#3b82f6,color:#eff6ff,stroke-width:2px
+    classDef pathB  fill:#14532d,stroke:#22c55e,color:#f0fdf4,stroke-width:2px
+    classDef db     fill:#7c2d12,stroke:#f97316,color:#fff7ed,stroke-width:2px
+
+    subgraph clients["Where you use memesh from"]
+      direction LR
+      CC["Claude Code<br/>(chat + agent)"]:::client
+      TERM["Terminal / other<br/>MCP clients<br/>(Cursor, Cline...)"]:::client
+    end
+
+    subgraph paths["Two install paths"]
+      direction LR
+      A["<b>Path A — /plugin install</b><br/>───────────────<br/>Lives in <code>~/.claude/plugins/</code><br/><br/>• MCP tools in chat<br/>• Auto-capture hooks<br/>• <code>/memesh</code> skill<br/>• Session-start banner"]:::pathA
+      B["<b>Path B — npm install -g</b><br/>───────────────<br/>Lives in <code>$(npm prefix -g)/bin/</code><br/><br/>• <code>memesh</code> shell command<br/>• <code>memesh-mcp</code>, <code>-http</code>, <code>-view</code> bins<br/>• For Cursor / Cline / other MCP"]:::pathB
+    end
+
+    DB[("Shared memory DB<br/><code>~/.memesh/knowledge-graph.db</code><br/>Same data, both paths see it")]:::db
+
+    CC -->|uses| A
+    TERM -->|uses| B
+    A --> DB
+    B --> DB
+```
+
+**你需要哪条？**
+
+| 你想做什么 | 安装路径 |
+|---|---|
+| 在 Claude Code 对话里用 `/memesh` skill | Path A（plugin）|
+| 在 Claude Code 启用自动 capture（session → 教训 → 下次 recall） | Path A（plugin）|
+| 在任何 terminal 跑 `memesh remember` / `memesh recall` / `memesh doctor` | Path B（npm-global）|
+| 用 `memesh` 直接开 dashboard（没有 `npx` 启动延迟） | Path B（npm-global）|
+| 把 `memesh-mcp` 接到 Cursor、Cline 或其他 MCP client | Path B（npm-global）|
+| 以上全要 | **两条都装** — 不会冲突 |
+
+> **常见误会**：Claude Code 的 plugin **不会** 把 `memesh` 放到你的 shell `PATH` 上。如果你只跑 `/plugin install`，然后在 terminal 打 `memesh reindex`，你会看到 `command not found`。这是正常的 — 还要加 `npm install -g @pcircle/memesh` 才有 shell 命令。
+
+### ⚠️ 装 plugin 不会装 CLI
+
+这是最常见的踩坑点，读一次省下未来的循环：
+
+- 从 Claude Code 跑 `/plugin install memesh@pcircle-memesh` → 只装 **Path A**。给你 MCP 工具、hooks、`/memesh` skill。**不会**把 `memesh` 放到你的 shell `PATH`。
+- 在 terminal 打 `memesh reindex` / `memesh update` / `memesh doctor` → 需要 **Path B**（npm-global）。没装就会 `zsh: command not found: memesh`。
+- **Claude Code 使用者建议的安装方式**：**两条都装**。共存、共用同一份数据库、不冲突。
+
+```bash
+# 跑完 /plugin install ... 之后，再跑这个：
+npm install -g @pcircle/memesh
+```
+
+如果你只透过 Claude Code 对话用 memesh（从不在 terminal 打 `memesh`），Path A 自己就够了。其他人请两条都装。
+
+---
+
 ## 60 秒快速开始
 
 ### 选项 A — Claude Code 插件（一行安装）

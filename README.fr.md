@@ -42,6 +42,67 @@ Les commandes de reproduction, le SHA256 du jeu de données, les résultats brut
 
 ---
 
+## Aperçu des chemins d'installation
+
+MeMesh a **deux chemins d'installation coexistants**. La plupart des utilisateurs veulent les deux. Ils écrivent dans la **même base de données mémoire** (`~/.memesh/knowledge-graph.db`), donc les mémoires capturées dans Claude Code apparaissent dans votre shell, et vice versa.
+
+```mermaid
+flowchart TB
+    classDef client fill:#1f2937,stroke:#4b5563,color:#f9fafb,stroke-width:1px
+    classDef pathA  fill:#1e3a8a,stroke:#3b82f6,color:#eff6ff,stroke-width:2px
+    classDef pathB  fill:#14532d,stroke:#22c55e,color:#f0fdf4,stroke-width:2px
+    classDef db     fill:#7c2d12,stroke:#f97316,color:#fff7ed,stroke-width:2px
+
+    subgraph clients["Where you use memesh from"]
+      direction LR
+      CC["Claude Code<br/>(chat + agent)"]:::client
+      TERM["Terminal / other<br/>MCP clients<br/>(Cursor, Cline...)"]:::client
+    end
+
+    subgraph paths["Two install paths"]
+      direction LR
+      A["<b>Path A — /plugin install</b><br/>───────────────<br/>Lives in <code>~/.claude/plugins/</code><br/><br/>• MCP tools in chat<br/>• Auto-capture hooks<br/>• <code>/memesh</code> skill<br/>• Session-start banner"]:::pathA
+      B["<b>Path B — npm install -g</b><br/>───────────────<br/>Lives in <code>$(npm prefix -g)/bin/</code><br/><br/>• <code>memesh</code> shell command<br/>• <code>memesh-mcp</code>, <code>-http</code>, <code>-view</code> bins<br/>• For Cursor / Cline / other MCP"]:::pathB
+    end
+
+    DB[("Shared memory DB<br/><code>~/.memesh/knowledge-graph.db</code><br/>Same data, both paths see it")]:::db
+
+    CC -->|uses| A
+    TERM -->|uses| B
+    A --> DB
+    B --> DB
+```
+
+**Lequel vous faut-il ?**
+
+| Ce que vous voulez faire | Chemin d'installation |
+|---|---|
+| Utiliser le skill `/memesh` dans une conversation Claude Code | Path A (plugin) |
+| Auto-capture dans Claude Code (session → leçons → recall suivant) | Path A (plugin) |
+| Exécuter `memesh remember` / `memesh recall` / `memesh doctor` dans n'importe quel terminal | Path B (npm-global) |
+| Ouvrir le dashboard via `memesh` (sans délai de démarrage `npx`) | Path B (npm-global) |
+| Brancher `memesh-mcp` à Cursor, Cline ou un autre client MCP | Path B (npm-global) |
+| Tout ce qui précède | **Installez les deux** — ils ne sont pas en conflit |
+
+> **Confusion courante** : le plugin Claude Code **ne** met **pas** `memesh` sur votre `PATH` shell. Si vous lancez seulement `/plugin install` puis tapez `memesh reindex` dans un terminal, vous verrez `command not found`. C'est normal — il faut aussi `npm install -g @pcircle/memesh` pour l'accès shell.
+
+### ⚠️ Installer le plugin n'installe PAS le CLI
+
+C'est la confusion la plus fréquente. Lisez ceci une fois et vous gagnerez du temps plus tard :
+
+- `/plugin install memesh@pcircle-memesh` depuis Claude Code → installe **uniquement Path A**. Vous obtenez les outils MCP, les hooks, le skill `/memesh`. `memesh` n'est **PAS** ajouté à votre `PATH` shell.
+- `memesh reindex` / `memesh update` / `memesh doctor` dans un terminal → nécessite **Path B** (npm-global). Sans : `zsh: command not found: memesh`.
+- **Configuration recommandée pour les utilisateurs Claude Code** : **installez les deux**. Coexistent, partagent la même base de données, aucun conflit.
+
+```bash
+# Après /plugin install ..., exécutez aussi ceci :
+npm install -g @pcircle/memesh
+```
+
+Si vous utilisez memesh uniquement via le chat Claude Code (jamais `memesh` dans un terminal), Path A suffit. Tous les autres : installez les deux.
+
+---
+
 ## Démarrer en 60 Secondes
 
 ### Étape 1 : Installer

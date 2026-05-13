@@ -42,6 +42,67 @@ MeMesh の検索エンジンは **FTS5 のみ**(LLM もホットパスのエン�
 
 ---
 
+## インストールパス早見表
+
+MeMesh には**共存する 2 つのインストールパス**があります。ほとんどのユーザーは両方が必要です。両者は**同じメモリデータベース**（`~/.memesh/knowledge-graph.db`）に書き込むため、Claude Code チャットで捕捉した記憶がシェルにも反映され、逆も同様です。
+
+```mermaid
+flowchart TB
+    classDef client fill:#1f2937,stroke:#4b5563,color:#f9fafb,stroke-width:1px
+    classDef pathA  fill:#1e3a8a,stroke:#3b82f6,color:#eff6ff,stroke-width:2px
+    classDef pathB  fill:#14532d,stroke:#22c55e,color:#f0fdf4,stroke-width:2px
+    classDef db     fill:#7c2d12,stroke:#f97316,color:#fff7ed,stroke-width:2px
+
+    subgraph clients["Where you use memesh from"]
+      direction LR
+      CC["Claude Code<br/>(chat + agent)"]:::client
+      TERM["Terminal / other<br/>MCP clients<br/>(Cursor, Cline...)"]:::client
+    end
+
+    subgraph paths["Two install paths"]
+      direction LR
+      A["<b>Path A — /plugin install</b><br/>───────────────<br/>Lives in <code>~/.claude/plugins/</code><br/><br/>• MCP tools in chat<br/>• Auto-capture hooks<br/>• <code>/memesh</code> skill<br/>• Session-start banner"]:::pathA
+      B["<b>Path B — npm install -g</b><br/>───────────────<br/>Lives in <code>$(npm prefix -g)/bin/</code><br/><br/>• <code>memesh</code> shell command<br/>• <code>memesh-mcp</code>, <code>-http</code>, <code>-view</code> bins<br/>• For Cursor / Cline / other MCP"]:::pathB
+    end
+
+    DB[("Shared memory DB<br/><code>~/.memesh/knowledge-graph.db</code><br/>Same data, both paths see it")]:::db
+
+    CC -->|uses| A
+    TERM -->|uses| B
+    A --> DB
+    B --> DB
+```
+
+**どちらが必要？**
+
+| やりたいこと | インストールパス |
+|---|---|
+| Claude Code の会話で `/memesh` skill を使う | Path A（プラグイン）|
+| Claude Code で自動キャプチャ（session → 学習 → 次回リコール） | Path A（プラグイン）|
+| ターミナルで `memesh remember` / `memesh recall` / `memesh doctor` を実行 | Path B（npm-global）|
+| `memesh` でダッシュボードを直接起動（`npx` 起動遅延なし） | Path B（npm-global）|
+| `memesh-mcp` を Cursor、Cline、その他の MCP クライアントに接続 | Path B（npm-global）|
+| すべて | **両方インストール** — 競合しません |
+
+> **よくある誤解**：Claude Code のプラグインは **`memesh` をシェルの `PATH` には追加しません**。`/plugin install` だけを実行して、ターミナルで `memesh reindex` と打つと `command not found` が出ます。これは仕様です — シェルコマンドを使うには `npm install -g @pcircle/memesh` も必要です。
+
+### ⚠️ プラグインのインストールでは CLI は入りません
+
+最もよくある混乱です。一度読んでおけば、後で時間を節約できます：
+
+- Claude Code 内で `/plugin install memesh@pcircle-memesh` → **Path A のみ**インストール。MCP ツール、hooks、`/memesh` skill が手に入ります。`memesh` はシェルの `PATH` には**入りません**。
+- ターミナルで `memesh reindex` / `memesh update` / `memesh doctor` → **Path B**（npm-global）が必要。なければ `zsh: command not found: memesh`。
+- **Claude Code ユーザーへの推奨セットアップ**：**両方インストール**。共存し、同じデータベースを共有し、競合しません。
+
+```bash
+# /plugin install ... の後、これも実行：
+npm install -g @pcircle/memesh
+```
+
+Claude Code の会話だけで memesh を使う場合（ターミナルで `memesh` を打たない場合）、Path A だけで十分です。それ以外の方は両方インストールしてください。
+
+---
+
 ## 60 秒で始める
 
 ### オプション A — Claude Code プラグイン(ワンライナーインストール)
