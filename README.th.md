@@ -44,15 +44,30 @@
 
 ## เริ่มต้นใน 60 วินาที
 
-### ขั้นตอนที่ 1: ติดตั้ง
+### ตัวเลือก A — Claude Code plugin (ติดตั้งด้วยบรรทัดเดียว)
+
+ถ้าใช้ Claude Code ติดตั้ง MeMesh เป็น plugin จากใน CLI ได้เลย:
+
+```
+/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin install memesh@pcircle-memesh
+```
+
+Claude Code จะเชื่อม hooks, skills และ MCP server ให้อัตโนมัติ คุณจะได้ auto-capture ในระหว่าง session, การเรียกคืนแบบเชิงรุก, `/memesh` skill (remember / recall / learn / forget) ในบทสนทนา Claude Code และเครื่องมือ `remember` / `recall` / `forget` / `learn` แบบ MCP สำหรับเอเจนต์ — โดยไม่ต้องลง global หรือสั่ง build เพิ่ม
+
+### ตัวเลือก B — npm global (ตัวเลือกเสริม)
+
+ถ้าต้องการ binary บน shell `PATH` (เพื่อให้ `memesh`, `memesh-mcp` ฯลฯ ใช้ได้ใน terminal ใดก็ได้โดยไม่ต้องผ่าน `npx`) หรือต้องการเปิด `memesh-mcp` ให้ MCP client อื่น (Cursor, Cline, terminal-only flows):
 
 ```bash
 npm install -g @pcircle/memesh
 ```
 
-### ขั้นตอนที่ 1.5: เชื่อม MeMesh เข้ากับ Claude Code (แนะนำ, ครั้งเดียว)
+### ขั้นตอนที่ 1.5: เชื่อม MeMesh เข้ากับ Claude Code (เฉพาะเส้นทาง npm)
 
-`npm install -g` ติดตั้ง CLI ลงใน PATH และลงทะเบียน MCP server แต่**ไม่ได้**เชื่อม session hooks ของ MeMesh เข้ากับ Claude Code โดยอัตโนมัติ ถ้าไม่มี hooks เหล่านี้ คุณยังใช้ `memesh remember` / `recall` แบบ manual ได้ แต่**วงรอบจับข้อมูลอัตโนมัติ** (session → บทเรียน → เรียกคืนเชิงรุกใน session ถัดไป) จะเงียบ
+ถ้าติดตั้งผ่าน **ตัวเลือก A** (`/plugin install memesh@pcircle-memesh`) ข้ามขั้นนี้ไปได้ — Claude Code เชื่อม plugin hooks ให้แล้ว
+
+ถ้าติดตั้งผ่าน **ตัวเลือก B** (`npm install -g`) CLI อยู่บน PATH และ MCP server ลงทะเบียนแล้ว แต่ session hooks ของ Claude Code **ไม่ได้** เชื่อมอัตโนมัติ ถ้าไม่มี hooks เหล่านี้ คุณยังใช้ `memesh remember` / `recall` แบบ manual ได้ แต่**วงรอบจับข้อมูลอัตโนมัติ** (session → บทเรียน → เรียกคืนเชิงรุกใน session ถัดไป) จะเงียบ
 
 ```bash
 memesh install-hooks         # เพิ่ม hooks ของ memesh ลงใน ~/.claude/settings.json
@@ -316,7 +331,27 @@ Core เป็นอิสระจากเฟรมเวิร์ก ตร�
 
 ---
 
-## บริจาค
+## การอัปเกรด
+
+Claude Code plugin marketplace ปักหมุดเวอร์ชันตอนติดตั้ง และ **ไม่** อัปเดตอัตโนมัติ วิธีรับเวอร์ชันใหม่:
+
+**ตัวเลือก A — `/plugin` UI**: ถอนการติดตั้ง `memesh@pcircle-memesh` แล้วติดตั้งใหม่ Claude Code จะดึงเวอร์ชันล่าสุดจาก marketplace
+
+**ตัวเลือก B — สคริปต์บรรทัดเดียว** (ไม่ต้องคลิก UI, idempotent):
+
+```bash
+bash ~/.claude/plugins/cache/pcircle-memesh/memesh/<current-version>/scripts/upgrade-plugin.sh
+```
+
+สคริปต์จะ fast-forward marketplace cache, ติดตั้งเวอร์ชันใหม่ใน `~/.claude/plugins/cache/`, ลง runtime deps และชี้ `installed_plugins.json` ไปยังเวอร์ชันใหม่ รีสตาร์ท Claude Code เพื่อให้ MCP server reconnect
+
+**การติดตั้งแบบ npm-global** (`npm install -g @pcircle/memesh`) อัปเดตได้ด้วย `memesh update` Source checkouts: `git pull && npm install && npm run build`
+
+ตอนเริ่ม session ระบบแสดง banner บรรทัดเดียว (throttle ทุก 24 ชั่วโมงต่อเวอร์ชัน) เมื่อมีเวอร์ชันใหม่ และ `memesh doctor` รายงานเวอร์ชันเป้าหมายพร้อมคำสั่งที่เหมาะกับ channel นั้น
+
+---
+
+## การร่วมพัฒนา
 
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
