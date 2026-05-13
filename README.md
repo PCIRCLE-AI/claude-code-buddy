@@ -16,6 +16,9 @@
 
 ---
 
+> [!IMPORTANT]
+> **Actively developed project** — features evolve and may change between releases. If you hit a bug or have a feature request, please [open an issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues).
+
 ## The Problem
 
 Your coding agent forgets what happened between sessions. Every architecture decision, bug fix, failed test, and hard-won lesson has to be re-explained. Claude Code starts fresh, re-discovers old constraints, and burns context on things it should already know.

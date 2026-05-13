@@ -16,6 +16,9 @@
 
 ---
 
+> [!IMPORTANT]
+> **Projeto em desenvolvimento ativo** — funcionalidades evoluem continuamente e podem mudar entre releases. Em caso de bug ou pedido de funcionalidade, por favor [abra uma issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues).
+
 ## O Problema
 
 Seu agente de código esquece tudo entre sessões. Toda decisão arquitetônica, correção de bug, teste que falhou e lição conquistada na marra precisa ser re-explicada. Claude Code sempre começa do zero, redescobre restrições antigas e queima contexto em coisas que já deveria saber.
@@ -374,6 +377,35 @@ memesh  # abre dashboard → aba Settings
 ```
 
 Core é agnóstico a framework. A mesma lógica roda de terminal, HTTP ou MCP.
+
+---
+
+## Atualizando
+
+O plugin marketplace do Claude Code fixa versões no momento da instalação e **não** atualiza automaticamente. Para obter uma nova versão:
+
+**Opção A — UI `/plugin`**: desinstale `memesh@pcircle-memesh`, depois reinstale. O Claude Code busca a versão mais recente do marketplace.
+
+**Opção B — Script de uma linha** (sem cliques na UI, idempotente):
+
+```bash
+# Se o seu plugin instalado for v4.2.5 ou mais recente, o script já está incluído:
+bash ~/.claude/plugins/cache/pcircle-memesh/memesh/<current-version>/scripts/upgrade-plugin.sh
+
+# Se você instalou antes de v4.2.5 (ou seja, v4.2.4 ou v4.2.3),
+# o script ainda não está no seu plugin. Use a cópia npm-global no lugar:
+bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"
+
+# (Isso assume que você também executou `npm install -g @pcircle/memesh`. Se não,
+# este é um bom momento para fazê-lo — veja a seção "Caminhos de instalação resumidos"
+# acima para entender por que a maioria dos usuários quer ambos os caminhos.)
+```
+
+O script fast-forwarded o cache do marketplace, prepara a nova versão em `~/.claude/plugins/cache/`, instala runtime deps e repõe o ponteiro de `installed_plugins.json`. Reinicie o Claude Code depois para o MCP server reconectar.
+
+**Instalações npm-global** (`npm install -g @pcircle/memesh`) podem se auto-atualizar via `memesh update`. Source checkouts: `git pull && npm install && npm run build`.
+
+No início da sessão aparece um banner de uma linha (limitado a uma vez por 24h por versão) quando há uma nova versão disponível, e `memesh doctor` reporta o alvo de upgrade com o comando específico do canal.
 
 ---
 

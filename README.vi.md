@@ -16,6 +16,9 @@
 
 ---
 
+> [!IMPORTANT]
+> **Dự án đang phát triển tích cực** — tính năng cập nhật liên tục và có thể thay đổi giữa các bản phát hành. Nếu gặp lỗi hoặc có yêu cầu tính năng, vui lòng [mở issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues).
+
 ## Vấn đề
 
 Agent coding của bạn quên mất những gì đã xảy ra giữa các phiên làm việc. Mỗi quyết định kiến trúc, bug fix, test thất bại và bài học từng trải phải được giải thích lại từ đầu. Claude Code luôn bắt đầu từ trang trắng, phát hiện lại những ràng buộc cũ, và lãng phí context cho những thứ nó đã nên biết.
@@ -374,6 +377,35 @@ memesh  # mở dashboard → Settings tab
 ```
 
 Core là framework-agnostic. Logic tương tự chạy từ terminal, HTTP, hoặc MCP.
+
+---
+
+## Nâng cấp
+
+Plugin marketplace của Claude Code ghim phiên bản lúc cài đặt và **không** tự động cập nhật. Để lấy bản phát hành mới:
+
+**Tùy chọn A — Giao diện `/plugin`**: gỡ cài `memesh@pcircle-memesh`, rồi cài lại. Claude Code sẽ kéo phiên bản mới nhất từ marketplace.
+
+**Tùy chọn B — Script một dòng** (không cần click UI, idempotent):
+
+```bash
+# Nếu bản plugin đã cài là v4.2.5 trở lên, script đã có sẵn:
+bash ~/.claude/plugins/cache/pcircle-memesh/memesh/<current-version>/scripts/upgrade-plugin.sh
+
+# Nếu bạn cài trước v4.2.5 (tức là v4.2.4 hoặc v4.2.3),
+# script chưa nằm trong plugin của bạn. Dùng bản sao npm-global thay thế:
+bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"
+
+# (Giả định bạn cũng đã chạy `npm install -g @pcircle/memesh`. Nếu chưa, đây là
+# thời điểm tốt để cài — xem phần "Tổng quan các đường cài đặt" ở trên để hiểu
+# vì sao đa số người dùng muốn có cả hai đường.)
+```
+
+Script sẽ fast-forward marketplace cache, đặt phiên bản mới vào `~/.claude/plugins/cache/`, cài runtime deps, rồi trỏ lại `installed_plugins.json`. Khởi động lại Claude Code sau đó để MCP server kết nối lại.
+
+**Bản cài npm-global** (`npm install -g @pcircle/memesh`) có thể tự cập nhật qua `memesh update`. Source checkouts: `git pull && npm install && npm run build`.
+
+Khi bắt đầu session, banner một dòng (throttle mỗi 24h mỗi version) hiện ra khi có bản phát hành mới, và `memesh doctor` báo cáo phiên bản nâng cấp với lệnh tương ứng kênh cài đặt.
 
 ---
 

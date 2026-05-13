@@ -16,6 +16,9 @@
 
 ---
 
+> [!IMPORTANT]
+> **Proyecto en desarrollo activo** — las funcionalidades evolucionan continuamente y pueden cambiar entre versiones. Si encuentras un bug o tienes una solicitud de funcionalidad, por favor [abre un issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues).
+
 ## El Problema
 
 Tu agente de codificación olvida lo que sucedió en sesiones anteriores. Cada decisión arquitectónica, corrección de bugs, prueba fallida y lección aprendida con esfuerzo debe explicarse de nuevo. Claude Code comienza desde cero, redescubre restricciones antiguas y gasta contexto en cosas que ya debería saber.
@@ -401,6 +404,35 @@ memesh  # abre dashboard → pestaña Settings
 ```
 
 El core es agnóstico de framework. La misma lógica se ejecuta desde terminal, HTTP o MCP.
+
+---
+
+## Actualizar
+
+El plugin marketplace de Claude Code fija las versiones en el momento de la instalación y **no** se actualiza automáticamente. Para obtener una nueva versión:
+
+**Opción A — Interfaz `/plugin`**: desinstala `memesh@pcircle-memesh`, luego reinstala. Claude Code obtiene la versión más reciente del marketplace.
+
+**Opción B — Script en una línea** (sin hacer clic en la UI, idempotente):
+
+```bash
+# Si tu plugin instalado es v4.2.5 o posterior, el script viene incluido:
+bash ~/.claude/plugins/cache/pcircle-memesh/memesh/<current-version>/scripts/upgrade-plugin.sh
+
+# Si instalaste antes de v4.2.5 (es decir, v4.2.4 o v4.2.3),
+# el script aún no está en tu plugin. Usa la copia npm-global en su lugar:
+bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"
+
+# (Esto asume que también ejecutaste `npm install -g @pcircle/memesh`. Si no lo has hecho,
+# este es un buen momento para hacerlo — consulta la sección "Vista rápida de las rutas
+# de instalación" arriba para entender por qué la mayoría de los usuarios quieren ambas.)
+```
+
+El script fast-forwarded el caché del marketplace, prepara la nueva versión en `~/.claude/plugins/cache/`, instala las runtime deps y repunta `installed_plugins.json`. Reinicia Claude Code después para que el MCP server se reconecte.
+
+**Las instalaciones npm-global** (`npm install -g @pcircle/memesh`) pueden auto-actualizarse mediante `memesh update`. Source checkouts: `git pull && npm install && npm run build`.
+
+Al inicio de sesión aparece un banner de una línea (limitado a una vez cada 24h por versión) cuando hay una nueva versión disponible, y `memesh doctor` reporta el objetivo de actualización con el comando específico del canal.
 
 ---
 

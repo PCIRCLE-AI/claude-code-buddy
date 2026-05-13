@@ -118,10 +118,19 @@ describe('HTTP Transport: POST /v1/recall', () => {
   });
 
   it('returns array (possibly empty) for no-match query', async () => {
+    // Recall supplements FTS5 with sqlite-vec when ONNX embeddings are
+    // available, so a query that misses FTS5 can still surface near-neighbour
+    // entities under the MAX_VECTOR_DISTANCE threshold. Asserting toHaveLength(0)
+    // is brittle in that path — the API contract here is "always return a
+    // valid JSON array, never a 500" and a generous upper bound on count.
     const res = await req('POST', '/v1/recall', { query: 'no-match-xyz-999' });
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.data)).toBe(true);
-    expect(res.body.data).toHaveLength(0);
+    expect(res.body.data.length).toBeLessThanOrEqual(20);
+    for (const e of res.body.data) {
+      expect(typeof e.name).toBe('string');
+      expect(typeof e.type).toBe('string');
+    }
   });
 
   it('lists entities when no query provided', async () => {
