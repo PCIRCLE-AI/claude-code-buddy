@@ -42,6 +42,67 @@ MeMesh의 검색 엔진은 **FTS5 단독**(핫 패스에 LLM 없음, 임베딩 �
 
 ---
 
+## 설치 경로 한눈에 보기
+
+MeMesh에는 **공존하는 두 가지 설치 경로**가 있습니다. 대부분의 사용자는 둘 다 필요합니다. 동일한 **메모리 데이터베이스**(`~/.memesh/knowledge-graph.db`)에 기록되므로 Claude Code 채팅에서 저장한 기억이 셸에서도 보이고 그 반대도 마찬가지입니다.
+
+```mermaid
+flowchart TB
+    classDef client fill:#1f2937,stroke:#4b5563,color:#f9fafb,stroke-width:1px
+    classDef pathA  fill:#1e3a8a,stroke:#3b82f6,color:#eff6ff,stroke-width:2px
+    classDef pathB  fill:#14532d,stroke:#22c55e,color:#f0fdf4,stroke-width:2px
+    classDef db     fill:#7c2d12,stroke:#f97316,color:#fff7ed,stroke-width:2px
+
+    subgraph clients["Where you use memesh from"]
+      direction LR
+      CC["Claude Code<br/>(chat + agent)"]:::client
+      TERM["Terminal / other<br/>MCP clients<br/>(Cursor, Cline...)"]:::client
+    end
+
+    subgraph paths["Two install paths"]
+      direction LR
+      A["<b>Path A — /plugin install</b><br/>───────────────<br/>Lives in <code>~/.claude/plugins/</code><br/><br/>• MCP tools in chat<br/>• Auto-capture hooks<br/>• <code>/memesh</code> skill<br/>• Session-start banner"]:::pathA
+      B["<b>Path B — npm install -g</b><br/>───────────────<br/>Lives in <code>$(npm prefix -g)/bin/</code><br/><br/>• <code>memesh</code> shell command<br/>• <code>memesh-mcp</code>, <code>-http</code>, <code>-view</code> bins<br/>• For Cursor / Cline / other MCP"]:::pathB
+    end
+
+    DB[("Shared memory DB<br/><code>~/.memesh/knowledge-graph.db</code><br/>Same data, both paths see it")]:::db
+
+    CC -->|uses| A
+    TERM -->|uses| B
+    A --> DB
+    B --> DB
+```
+
+**어느 쪽이 필요한가요?**
+
+| 하고 싶은 일 | 설치 경로 |
+|---|---|
+| Claude Code 대화에서 `/memesh` skill 사용 | Path A(플러그인) |
+| Claude Code에서 자동 캡처(session → 교훈 → 다음 recall) | Path A(플러그인) |
+| 터미널에서 `memesh remember` / `memesh recall` / `memesh doctor` 실행 | Path B(npm-global) |
+| `memesh`로 대시보드 바로 열기(`npx` 시작 지연 없음) | Path B(npm-global) |
+| `memesh-mcp`를 Cursor, Cline 또는 기타 MCP 클라이언트에 연결 | Path B(npm-global) |
+| 위 전부 | **둘 다 설치** — 충돌 없음 |
+
+> **흔한 오해**: Claude Code 플러그인은 `memesh`를 셸 `PATH`에 **추가하지 않습니다**. `/plugin install`만 실행하고 터미널에 `memesh reindex`를 입력하면 `command not found`가 나옵니다. 정상입니다 — 셸 명령을 쓰려면 `npm install -g @pcircle/memesh`도 실행해야 합니다.
+
+### ⚠️ 플러그인 설치만으로는 CLI가 설치되지 않습니다
+
+가장 흔한 혼란입니다. 한 번만 읽어두면 됩니다:
+
+- Claude Code에서 `/plugin install memesh@pcircle-memesh` → **Path A만** 설치. MCP 도구, hooks, `/memesh` skill을 제공. `memesh`를 셸 `PATH`에 **추가하지 않음**.
+- 터미널에서 `memesh reindex` / `memesh update` / `memesh doctor` 입력 → **Path B**(npm-global)가 필요. 없으면 `zsh: command not found: memesh`.
+- **Claude Code 사용자 권장 설정**: **둘 다 설치**. 공존하며 동일한 데이터베이스를 공유하고 충돌하지 않습니다.
+
+```bash
+# /plugin install ... 후에 이것도 실행:
+npm install -g @pcircle/memesh
+```
+
+Claude Code 대화에서만 memesh를 사용한다면(터미널에서 `memesh`를 입력하지 않는다면) Path A만으로 충분합니다. 나머지는 둘 다 설치하세요.
+
+---
+
 ## 60초 안에 시작하기
 
 ### 옵션 A — Claude Code 플러그인 (한 줄 설치)

@@ -42,6 +42,65 @@ Reproduction commands, dataset SHA256, raw per-question results, and known-failu
 
 ---
 
+## Install paths at a glance
+
+MeMesh has **two install paths that coexist**. Most users want both. They write to the **same memory database** (`~/.memesh/knowledge-graph.db`), so memories captured in Claude Code chat appear in your shell, and vice versa.
+
+```mermaid
+flowchart TB
+    classDef client fill:#1f2937,stroke:#4b5563,color:#f9fafb,stroke-width:1px
+    classDef pathA  fill:#1e3a8a,stroke:#3b82f6,color:#eff6ff,stroke-width:2px
+    classDef pathB  fill:#14532d,stroke:#22c55e,color:#f0fdf4,stroke-width:2px
+    classDef db     fill:#7c2d12,stroke:#f97316,color:#fff7ed,stroke-width:2px
+
+    subgraph clients["Where you use memesh from"]
+      direction LR
+      CC["Claude Code<br/>(chat + agent)"]:::client
+      TERM["Terminal / other<br/>MCP clients<br/>(Cursor, Cline...)"]:::client
+    end
+
+    subgraph paths["Two install paths"]
+      direction LR
+      A["<b>Path A — /plugin install</b><br/>───────────────<br/>Lives in <code>~/.claude/plugins/</code><br/><br/>• MCP tools in chat<br/>• Auto-capture hooks<br/>• <code>/memesh</code> skill<br/>• Session-start banner"]:::pathA
+      B["<b>Path B — npm install -g</b><br/>───────────────<br/>Lives in <code>$(npm prefix -g)/bin/</code><br/><br/>• <code>memesh</code> shell command<br/>• <code>memesh-mcp</code>, <code>-http</code>, <code>-view</code> bins<br/>• For Cursor / Cline / other MCP"]:::pathB
+    end
+
+    DB[("Shared memory DB<br/><code>~/.memesh/knowledge-graph.db</code><br/>Same data, both paths see it")]:::db
+
+    CC -->|uses| A
+    TERM -->|uses| B
+    A --> DB
+    B --> DB
+```
+
+**Which one do you need?**
+
+| What you want to do | Install path |
+|---|---|
+| Use the `/memesh` skill inside a Claude Code conversation | Path A (plugin) |
+| Get auto-capture (sessions → lessons → recall) in Claude Code | Path A (plugin) |
+| Run `memesh remember` / `memesh recall` / `memesh doctor` in any terminal | Path B (npm-global) |
+| Open the local dashboard via `memesh` (no `npx` lookup delay) | Path B (npm-global) |
+| Plug `memesh-mcp` into Cursor, Cline, or another MCP client | Path B (npm-global) |
+| All of the above | **Install both** — they don't conflict |
+
+### ⚠️ Installing the plugin does NOT install the CLI
+
+This is the most common confusion. Read this once and you'll save yourself the loop:
+
+- `/plugin install memesh@pcircle-memesh` from inside Claude Code → installs **Path A only**. Gives you MCP tools, hooks, the `/memesh` skill. Does **NOT** put `memesh` on your shell `PATH`.
+- `memesh reindex` / `memesh update` / `memesh doctor` typed in a normal terminal → needs **Path B** (npm-global). Without it: `zsh: command not found: memesh`.
+- **Recommended setup for Claude Code users**: install **both**. They coexist, share the same database, never conflict.
+
+```bash
+# After /plugin install ..., also run this:
+npm install -g @pcircle/memesh
+```
+
+If you only use memesh through Claude Code chat (never type `memesh` in a terminal), Path A alone is enough. Everyone else: install both.
+
+---
+
 ## Get Started in 60 Seconds
 
 ### Option A — Claude Code plugin (one-line install)
@@ -53,7 +112,11 @@ If you use Claude Code, install MeMesh as a plugin from inside the CLI:
 /plugin install memesh@pcircle-memesh
 ```
 
-Claude Code wires hooks, skills, and the MCP server automatically. You get in-session auto-capture, proactive recall, the `/memesh` skill (remember / recall / learn / forget) inside the Claude Code conversation, and `remember` / `recall` / `forget` / `learn` available as MCP tools to the agent. The CLI and the local dashboard are also fully accessible without any extra global install — `npx @pcircle/memesh <command>` runs every CLI command, and `npx @pcircle/memesh` launches the dashboard at `localhost:3737`. The MCP server runs directly from the plugin's bundled compiled output — no `npx` lookup, no `npm install -g`, no build step needed. If the native `better-sqlite3` binding is missing on first start (e.g. after a Node major upgrade), the launcher self-heals by rebuilding it in-process before continuing.
+Claude Code wires hooks, skills, and the MCP server automatically. You get in-session auto-capture, proactive recall, the `/memesh` skill (remember / recall / learn / forget) inside the Claude Code conversation, and `remember` / `recall` / `forget` / `learn` available as MCP tools to the agent.
+
+The MCP server runs directly from the plugin's bundled compiled output — no `npx` lookup, no build step needed. If the native `better-sqlite3` binding is missing on first start (e.g. after a Node major upgrade), the launcher self-heals by rebuilding it in-process.
+
+> **This installs the plugin only.** You can run CLI commands via `npx @pcircle/memesh <command>` if you absolutely don't want a global install, but typing plain `memesh` in a terminal will report `command not found`. To get a real shell `memesh` command, also run **Option B** below — both paths coexist and share the same memory database. The "Install paths at a glance" diagram above covers this.
 
 ### Option B — npm global (optional optimisation)
 

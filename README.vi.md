@@ -42,6 +42,67 @@ Lệnh tái hiện, SHA256 của dataset, kết quả thô theo từng câu hỏ
 
 ---
 
+## Tổng quan các đường cài đặt
+
+MeMesh có **hai đường cài đặt cùng tồn tại**. Hầu hết người dùng muốn cả hai. Chúng ghi vào **cùng một cơ sở dữ liệu bộ nhớ** (`~/.memesh/knowledge-graph.db`), nên ký ức ghi trong chat Claude Code sẽ xuất hiện ở shell, và ngược lại.
+
+```mermaid
+flowchart TB
+    classDef client fill:#1f2937,stroke:#4b5563,color:#f9fafb,stroke-width:1px
+    classDef pathA  fill:#1e3a8a,stroke:#3b82f6,color:#eff6ff,stroke-width:2px
+    classDef pathB  fill:#14532d,stroke:#22c55e,color:#f0fdf4,stroke-width:2px
+    classDef db     fill:#7c2d12,stroke:#f97316,color:#fff7ed,stroke-width:2px
+
+    subgraph clients["Where you use memesh from"]
+      direction LR
+      CC["Claude Code<br/>(chat + agent)"]:::client
+      TERM["Terminal / other<br/>MCP clients<br/>(Cursor, Cline...)"]:::client
+    end
+
+    subgraph paths["Two install paths"]
+      direction LR
+      A["<b>Path A — /plugin install</b><br/>───────────────<br/>Lives in <code>~/.claude/plugins/</code><br/><br/>• MCP tools in chat<br/>• Auto-capture hooks<br/>• <code>/memesh</code> skill<br/>• Session-start banner"]:::pathA
+      B["<b>Path B — npm install -g</b><br/>───────────────<br/>Lives in <code>$(npm prefix -g)/bin/</code><br/><br/>• <code>memesh</code> shell command<br/>• <code>memesh-mcp</code>, <code>-http</code>, <code>-view</code> bins<br/>• For Cursor / Cline / other MCP"]:::pathB
+    end
+
+    DB[("Shared memory DB<br/><code>~/.memesh/knowledge-graph.db</code><br/>Same data, both paths see it")]:::db
+
+    CC -->|uses| A
+    TERM -->|uses| B
+    A --> DB
+    B --> DB
+```
+
+**Bạn cần đường nào?**
+
+| Bạn muốn làm gì | Đường cài đặt |
+|---|---|
+| Dùng skill `/memesh` trong cuộc trò chuyện Claude Code | Path A (plugin) |
+| Tự động capture trong Claude Code (session → bài học → recall lần sau) | Path A (plugin) |
+| Chạy `memesh remember` / `memesh recall` / `memesh doctor` ở bất kỳ terminal nào | Path B (npm-global) |
+| Mở dashboard qua `memesh` (không bị trễ khởi động `npx`) | Path B (npm-global) |
+| Cắm `memesh-mcp` vào Cursor, Cline hoặc client MCP khác | Path B (npm-global) |
+| Tất cả các mục trên | **Cài cả hai** — không xung đột |
+
+> **Nhầm lẫn phổ biến**: plugin Claude Code **không** đặt `memesh` lên `PATH` của shell. Nếu bạn chỉ chạy `/plugin install` rồi gõ `memesh reindex` trong terminal, bạn sẽ thấy `command not found`. Đó là điều bình thường — thêm `npm install -g @pcircle/memesh` để có lệnh shell.
+
+### ⚠️ Cài plugin KHÔNG cài CLI
+
+Đây là nhầm lẫn phổ biến nhất. Đọc một lần để tiết kiệm thời gian sau này:
+
+- `/plugin install memesh@pcircle-memesh` từ Claude Code → chỉ cài **Path A**. Bạn có công cụ MCP, hooks, skill `/memesh`. **KHÔNG** đặt `memesh` lên `PATH` shell.
+- `memesh reindex` / `memesh update` / `memesh doctor` gõ trong terminal → cần **Path B** (npm-global). Không có nó: `zsh: command not found: memesh`.
+- **Thiết lập khuyến nghị cho người dùng Claude Code**: **cài cả hai**. Cùng tồn tại, chia sẻ cùng DB, không xung đột.
+
+```bash
+# Sau khi /plugin install ..., chạy luôn dòng này:
+npm install -g @pcircle/memesh
+```
+
+Nếu bạn chỉ dùng memesh qua chat Claude Code (không bao giờ gõ `memesh` trong terminal), Path A đủ rồi. Còn lại: cài cả hai.
+
+---
+
 ## Bắt đầu trong 60 giây
 
 ### Bước 1: Cài đặt
