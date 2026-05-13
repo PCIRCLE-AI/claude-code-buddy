@@ -408,28 +408,31 @@ function _attemptBetterSqliteRebuild() {
     const memesh = join(homedir(), '.memesh');
     try { mkdirSync(memesh, { recursive: true, mode: 0o700 }); } catch {}
     const markerPath = join(memesh, 'last-rebuild-attempt.lock');
-    // O_EXCL claim: one rebuild attempt per hour. Concurrent hooks see
-    // EEXIST and bail; the marker's mtime gates the next window.
-    let mustClaim = true;
-    try {
-      const stat = statSync(markerPath);
-      if (Date.now() - stat.mtimeMs < REBUILD_THROTTLE_MS) {
-        mustClaim = false; // within window — peer or recent attempt owns it
-      } else {
-        try { unlinkSync(markerPath); } catch {}
-      }
-    } catch { /* no marker yet — claim path runs below */ }
-    if (!mustClaim) return;
+    // Atomic one-shot claim via O_EXCL. Once the marker exists, every
+    // future hook bails — no stale-cleanup-then-recreate dance, which
+    // would open a TOCTOU window (stat → unlink → open is racy: a peer
+    // can insert between any two steps and the result is either a
+    // double-spawn of `npm rebuild` or one peer's fresh marker being
+    // stomped by another peer's stale-cleanup).
+    //
+    // Trade-off: if the rebuild fails, the marker blocks retries until
+    // the user removes it manually. That's acceptable because the
+    // stderr breadcrumb below tells the user the exact manual command,
+    // and `memesh doctor` will also surface the failure. A retry-loop
+    // here would either re-introduce the race or burn CPU on a broken
+    // npm config.
     try {
       const fd = openSync(markerPath, 'wx', 0o600);
       try { writeFileSync(fd, String(Date.now())); } finally { closeSync(fd); }
     } catch (err) {
-      if (err && err.code === 'EEXIST') return; // peer won
+      if (err && err.code === 'EEXIST') return; // peer / prior attempt owns it
       return; // any other write failure — bail silently
     }
     process.stderr.write(
       `[memesh hook] Attempting to rebuild better-sqlite3 in background — `
-      + `next session should capture normally. (pkgRoot: ${pkgRoot})\n`,
+      + `next session should capture normally. (pkgRoot: ${pkgRoot})\n`
+      + `[memesh hook] To retry later, manually: rm "${markerPath}" && `
+      + `cd "${pkgRoot}" && npm rebuild better-sqlite3\n`,
     );
     const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     const child = spawn(npm, ['rebuild', 'better-sqlite3'], {

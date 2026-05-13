@@ -17,6 +17,12 @@ All notable changes to MeMesh are documented here.
 - **Dashboard banner uses raw doctor summary/fix** — earlier it preferred a generic `doctor.<id>.summary` i18n override, which obliterated the actual diagnostic detail for WARN/FAIL states. A "binding missing" FAIL would render as the generic PASS-state label "Native binding detected". Now the banner shows what doctor actually said.
 - **Removed the misleading `doctor.install-channel.fix: 'No action needed'` i18n overrides** across all 11 locales (`dashboard/src/lib/i18n.ts`) — these were the proximate cause of the self-contradicting banner copy. The check's real `fix` field (channel-specific upgrade instructions for FAIL/WARN) now reaches the user verbatim.
 
+### Fixed
+- **TOCTOU race in `tryRequireBetterSqlite()` self-heal block** (`scripts/hooks/_shared.js`) — the stale-marker cleanup path was `statSync → unlinkSync → openSync('wx')`, a 3-step dance where a peer hook could insert between any two steps. Worst-case outcome was duplicate `npm rebuild` spawns or one peer's fresh lock being stomped by another peer's stale-cleanup. Replaced with a single atomic `O_EXCL` claim — once the marker exists, every future hook bails. If a rebuild fails, the user clears the marker manually (the path is logged in the stderr breadcrumb alongside the manual `npm rebuild` command). Flagged by CodeQL as `js/file-system-race` (HIGH security severity).
+
+### Changed
+- **CodeQL analysis scoped to source paths** (`.github/codeql/codeql-config.yml`, `.github/workflows/codeql.yml`) — added an advanced-setup config that includes `src/`, `scripts/`, `dashboard/src/`, `tests/`, `hooks/` and excludes built artifacts (`dist/`, `dashboard/dist/`, minified bundles). Built outputs are regenerated from source on every release and would otherwise produce non-actionable findings (`js/property-access-on-non-object` on Vite runtime helpers, `js/automatic-semicolon-insertion` from minification, `js/trivial-conditional` from constant-folded bundler output). The matching source is already analyzed via the `paths` include.
+
 ## [4.2.4] — 2026-05-13
 
 ### Added
