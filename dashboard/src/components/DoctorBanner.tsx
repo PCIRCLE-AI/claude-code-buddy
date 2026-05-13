@@ -44,7 +44,25 @@ export function DoctorBanner() {
   if (!doctor) return null;
   if (doctor.status === 'PASS') return null;
 
-  const concerns = doctor.checks.filter(c => c.status === 'fail' || c.status === 'warn');
+  // Only surface concerns that are actually actionable to a user.
+  // FAIL always counts (broken install — user has to act). WARN counts
+  // ONLY when doctor attached a `fix` hint AND that hint isn't a
+  // self-contradicting "no action needed" placeholder. Without this
+  // filter, "PASS_WITH_CONCERNS" produced banners like
+  // `Install method: Installation method detection — No action needed`
+  // — alarmist title + non-actionable body. The CLI / `memesh doctor`
+  // still reports every WARN; the dashboard just stops popping a
+  // banner for ones the user can't (or shouldn't) act on.
+  const isActionable = (c: DoctorCheck) => {
+    if (c.status === 'fail') return true;
+    if (c.status !== 'warn') return false;
+    if (!c.fix) return false;
+    const fix = c.fix.trim().toLowerCase();
+    if (!fix) return false;
+    if (fix === 'no action needed' || fix.startsWith('no action')) return false;
+    return true;
+  };
+  const concerns = doctor.checks.filter(isActionable);
   if (concerns.length === 0) return null;
 
   // Signature is stable for the same set of failing checks. Sort
@@ -115,19 +133,22 @@ export function DoctorBanner() {
         ×
       </button>
       <div style={{ fontSize: 13, fontWeight: 600, color: tone, marginBottom: 6 }}>
-        {isFail ? t('doctorBanner.failTitle') : t('doctorBanner.warnTitle')}
+        {isFail ? t('doctorBanner.failTitle') : t('doctorBanner.warnTitleSoft')}
       </div>
       <ul style={{ margin: '6px 0 10px', paddingLeft: 18, fontSize: 12, lineHeight: 1.5, color: 'var(--text-2)' }}>
         {concerns.slice(0, 3).map(c => {
-          // Translate known check IDs, fallback to English summary from doctor
-          const summaryKey = `doctor.${c.id}.summary`;
-          const fixKey = `doctor.${c.id}.fix`;
-          const summary = t(summaryKey) !== summaryKey ? t(summaryKey) : c.summary;
-          const fix = c.fix && t(fixKey) !== fixKey ? t(fixKey) : c.fix;
+          // Use the raw doctor summary/fix — they carry the actual
+          // diagnostic detail (e.g. "Install method detected: unknown"
+          // + the specific rebuild command). Earlier this layer
+          // preferred a generic `doctor.<id>.summary` i18n override,
+          // which destroyed FAIL/WARN context: a "binding missing"
+          // FAIL appeared as the generic "Native binding detected"
+          // PASS-state label. The raw text is always more useful
+          // here because the banner only renders WARN/FAIL.
           return (
             <li key={c.id}>
-              <strong>{c.label}:</strong> {summary}
-              {fix && <> — <em style={{ color: 'var(--text-3)' }}>{fix}</em></>}
+              <strong>{c.label}:</strong> {c.summary}
+              {c.fix && <> — <em style={{ color: 'var(--text-3)' }}>{c.fix}</em></>}
             </li>
           );
         })}
@@ -135,14 +156,20 @@ export function DoctorBanner() {
           <li style={{ color: 'var(--text-3)' }}>…and {concerns.length - 3} more (run `memesh doctor` for full list)</li>
         )}
       </ul>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button type="button" class="btn" onClick={getHelp} style={{ fontSize: 12, padding: '4px 12px' }}>
-          {t('doctorBanner.getHelp')}
-        </button>
-        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
-          {t('doctorBanner.helpHint')}
-        </span>
-      </div>
+      {/* "Get help" pushes a GitHub issue. Only show for FAIL (broken
+          install — the user can't fix it themselves). For WARN-only
+          the fix command is already in the list above, so the GitHub
+          escalation route would be premature and noisy. */}
+      {isFail && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button type="button" class="btn" onClick={getHelp} style={{ fontSize: 12, padding: '4px 12px' }}>
+            {t('doctorBanner.getHelp')}
+          </button>
+          <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+            {t('doctorBanner.helpHint')}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
