@@ -669,22 +669,19 @@ function defaultNativeBindingProbe(packageRoot: string): { ok: true } | { ok: fa
 
 function inspectNativeBinding(
   packageRoot: string,
-  existsSyncImpl: typeof fs.existsSync,
+  _existsSyncImpl: typeof fs.existsSync,
   probeImpl: (packageRoot: string) => { ok: true } | { ok: false; message: string } = defaultNativeBindingProbe,
 ): DoctorCheck {
-  const pkgDir = path.join(packageRoot, 'node_modules', 'better-sqlite3');
-  if (!existsSyncImpl(pkgDir)) {
-    return createCheck(
-      'native-binding',
-      'Native SQLite binding',
-      'fail',
-      `better-sqlite3 is not installed in ${pkgDir}.`,
-      `Run: cd "${packageRoot}" && npm install --omit=dev`,
-    );
-  }
-  // Probe via dynamic require + actual instantiation. A bare require()
-  // is not enough — the JS wrapper succeeds even when the binding is
-  // missing; only `new Database()` triggers the binding load.
+  // DO NOT pre-check `<packageRoot>/node_modules/better-sqlite3` for
+  // existence — npm hoists dependencies, so when memesh is installed as
+  // a dependency the better-sqlite3 directory lives at the consumer's
+  // top-level node_modules, not nested under memesh's packageRoot. The
+  // probe below uses Node's normal `require.resolve` which follows the
+  // resolution algorithm (current dir → parent → ancestor's node_modules)
+  // and correctly finds hoisted packages. If better-sqlite3 is genuinely
+  // not installed anywhere on the resolution path, `require()` throws
+  // MODULE_NOT_FOUND and the probe returns ok=false with that message,
+  // which we surface below with a clean reinstall instruction.
   const result = probeImpl(packageRoot);
   if (result.ok) {
     return createCheck(
@@ -695,6 +692,17 @@ function inspectNativeBinding(
     );
   }
   const isMissingBinding = /bindings file|locate the bindings/i.test(result.message);
+  const isMissingPackage = /MODULE_NOT_FOUND|Cannot find module/i.test(result.message);
+  if (isMissingPackage) {
+    return createCheck(
+      'native-binding',
+      'Native SQLite binding',
+      'fail',
+      'better-sqlite3 is not installed (Node could not resolve the module from any '
+        + 'parent node_modules). Memesh hooks and database operations will not work.',
+      `Run: npm install   (in the directory that depends on @pcircle/memesh)`,
+    );
+  }
   if (isMissingBinding) {
     return createCheck(
       'native-binding',

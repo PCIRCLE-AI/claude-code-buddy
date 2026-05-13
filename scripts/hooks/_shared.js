@@ -387,22 +387,41 @@ export function tryRequireBetterSqlite() {
 function _attemptBetterSqliteRebuild() {
   try {
     // Package root = parent of the scripts/hooks/ directory that contains
-    // this file. That's where `package.json` + `node_modules/` live.
+    // this file. That's where memesh's own `package.json` lives.
     const here = dirname(fileURLToPath(import.meta.url));
     const pkgRoot = dirname(dirname(here));
     if (!existsSync(join(pkgRoot, 'package.json'))) return;
-    if (!existsSync(join(pkgRoot, 'node_modules', 'better-sqlite3'))) {
-      // No better-sqlite3 directory at all (npm install never ran).
-      // `npm rebuild` would no-op; the right fix is a full install,
-      // which we don't trigger here (could pull arbitrary packages).
-      // Surface a clear actionable line instead.
+    // Resolve better-sqlite3's actual install location via Node's normal
+    // resolution algorithm, which follows hoisting (the consumer's
+    // top-level node_modules holds the package when memesh is installed
+    // as a dependency). Looking at `<pkgRoot>/node_modules/better-sqlite3`
+    // directly would false-negative on every hoisted install.
+    let bsqliteDir;
+    try {
+      // `require.resolve` returns the path to `lib/index.js` inside the
+      // package. Walk up to the package directory.
+      const entry = require.resolve('better-sqlite3', { paths: [pkgRoot] });
+      // `<bsqliteDir>/lib/index.js` → walk back twice to the package root.
+      bsqliteDir = dirname(dirname(entry));
+    } catch {
+      // Genuinely not installed anywhere on the resolution path. `npm
+      // rebuild` cannot help; the user needs a full install.
       try {
         process.stderr.write(
-          `[memesh hook] No better-sqlite3 in ${join(pkgRoot, 'node_modules')}. `
-          + `Run: cd "${pkgRoot}" && npm install --omit=dev\n`,
+          `[memesh hook] better-sqlite3 is not installed (Node could not resolve from ${pkgRoot}). `
+          + `Run: cd to the project that depends on @pcircle/memesh and run \`npm install\`.\n`,
         );
       } catch {}
       return;
+    }
+    // The hoisted install location's package root — npm rebuild needs to
+    // be run from a project that owns this node_modules tree. Walking
+    // up to the nearest directory that has its own package.json gives
+    // us the right cwd.
+    let rebuildCwd = dirname(bsqliteDir);
+    while (rebuildCwd !== dirname(rebuildCwd)) {
+      if (existsSync(join(rebuildCwd, 'package.json')) && !rebuildCwd.endsWith('node_modules')) break;
+      rebuildCwd = dirname(rebuildCwd);
     }
     const memesh = join(homedir(), '.memesh');
     try { mkdirSync(memesh, { recursive: true, mode: 0o700 }); } catch {}
@@ -429,13 +448,13 @@ function _attemptBetterSqliteRebuild() {
     }
     process.stderr.write(
       `[memesh hook] Attempting to rebuild better-sqlite3 in background — `
-      + `next session should capture normally. (pkgRoot: ${pkgRoot})\n`
+      + `next session should capture normally. (rebuildCwd: ${rebuildCwd})\n`
       + `[memesh hook] To retry later, manually: rm "${markerPath}" && `
-      + `cd "${pkgRoot}" && npm rebuild better-sqlite3\n`,
+      + `cd "${rebuildCwd}" && npm rebuild better-sqlite3\n`,
     );
     const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
     const child = spawn(npm, ['rebuild', 'better-sqlite3'], {
-      cwd: pkgRoot,
+      cwd: rebuildCwd,
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
