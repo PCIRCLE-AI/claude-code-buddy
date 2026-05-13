@@ -224,4 +224,88 @@ describe('install-hooks', () => {
     expect(result.settingsPath).toBe(path.join(projectDir, '.claude', 'settings.json'));
     expect(fs.existsSync(result.settingsPath)).toBe(true);
   });
+
+  // ── v4.2.7 plugin-runtime detection ─────────────────────────────────
+  // Prevents the double-firing failure mode: when Claude Code's
+  // `/plugin install memesh@pcircle-memesh` is already wiring memesh's
+  // hooks, also writing them into ~/.claude/settings.json would fire
+  // every hook script twice per event.
+
+  it('refuses to write when Claude Code plugin install is already active', async () => {
+    // Stub a plugin-install record pointing at any path (just needs to
+    // exist with a memesh@pcircle-memesh entry).
+    const installedPluginsPath = path.join(tmpDir, 'fake-installed_plugins.json');
+    fs.writeFileSync(installedPluginsPath, JSON.stringify({
+      plugins: {
+        'memesh@pcircle-memesh': [{
+          installPath: '/Users/test/.claude/plugins/cache/pcircle-memesh/memesh/4.2.7',
+          version: '4.2.7',
+        }],
+      },
+    }));
+
+    const { installHooks } = await freshModule();
+    const result = installHooks({
+      pluginRoot: pluginDir,
+      pluginVersion: '4.2.7',
+      scope: 'user',
+      installedPluginsPathImpl: installedPluginsPath,
+    });
+
+    // No writes — the plugin runtime already covers it.
+    expect(result.added).toBe(0);
+    expect(result.skipped).toBe(0);
+    expect(result.pluginRuntimeDetected).not.toBeNull();
+    expect(result.pluginRuntimeDetected?.version).toBe('4.2.7');
+    expect(result.pluginRuntimeDetected?.installPath).toContain('/plugins/cache/pcircle-memesh/');
+
+    // Settings file should NOT have been created.
+    const settingsPath = path.join(process.env.HOME!, '.claude', 'settings.json');
+    expect(fs.existsSync(settingsPath)).toBe(false);
+  });
+
+  it('forceOverPlugin escape hatch writes anyway with the same plugin record present', async () => {
+    const installedPluginsPath = path.join(tmpDir, 'fake-installed_plugins.json');
+    fs.writeFileSync(installedPluginsPath, JSON.stringify({
+      plugins: {
+        'memesh@pcircle-memesh': [{
+          installPath: '/Users/test/.claude/plugins/cache/pcircle-memesh/memesh/4.2.7',
+          version: '4.2.7',
+        }],
+      },
+    }));
+
+    const { installHooks } = await freshModule();
+    const result = installHooks({
+      pluginRoot: pluginDir,
+      pluginVersion: '4.2.7',
+      scope: 'user',
+      installedPluginsPathImpl: installedPluginsPath,
+      forceOverPlugin: true,
+    });
+
+    expect(result.added).toBeGreaterThan(0);
+    expect(result.pluginRuntimeDetected).toBeUndefined();
+  });
+
+  it('proceeds normally when installed_plugins.json exists but has no memesh entry', async () => {
+    const installedPluginsPath = path.join(tmpDir, 'fake-installed_plugins.json');
+    fs.writeFileSync(installedPluginsPath, JSON.stringify({
+      plugins: {
+        'some-other-plugin@vendor': [{ installPath: '/tmp/x', version: '1.0.0' }],
+      },
+    }));
+
+    const { installHooks } = await freshModule();
+    const result = installHooks({
+      pluginRoot: pluginDir,
+      pluginVersion: '4.2.7',
+      scope: 'user',
+      installedPluginsPathImpl: installedPluginsPath,
+    });
+
+    // Plugin runtime not detected for memesh specifically — installs.
+    expect(result.added).toBeGreaterThan(0);
+    expect(result.pluginRuntimeDetected).toBeUndefined();
+  });
 });

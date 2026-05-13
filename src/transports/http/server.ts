@@ -920,6 +920,20 @@ function isLoopbackHost(host: string): boolean {
     || normalized.startsWith('::ffff:127.');
 }
 
+// JSON 404 catch-all — MUST be registered after every route + middleware.
+// Without this, Express falls back to its default text/html 404 page,
+// which breaks the JSON contract every other route honors: clients
+// (CLI, dashboard, third-party) that pipe responses into `JSON.parse`
+// choke on `<!DOCTYPE html>`. Loopback /v1/health, /favicon.ico, and
+// /dashboard are matched above and never reach this layer.
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    code: 'NOT_FOUND',
+    error: `No route for ${req.method} ${req.path}`,
+  });
+});
+
 export function startServer(
   host = HOST,
   port = PORT,

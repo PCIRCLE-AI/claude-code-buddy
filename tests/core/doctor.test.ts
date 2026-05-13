@@ -1220,3 +1220,109 @@ describe('native binding probe (plugin-marketplace silent-dropout guard)', () =>
     expect(bindingCheck?.status).toBe('pass');
   });
 });
+
+describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
+  it('WARNs when plugin-marketplace install has no shell-PATH memesh', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.2.6',
+      openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 1, embeddings: 'onnx' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'plugin-marketplace',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'plugin-marketplace', label: 'Claude Code plugin marketplace', canSelfUpdate: false,
+        recommendedCommand: 'bash scripts/upgrade-plugin.sh', guidance: '',
+      }),
+      nativeBindingProbeImpl: () => ({ ok: true }),
+      resolveShellMemeshImpl: () => null,
+    });
+
+    const cliCheck = result.checks.find((c) => c.id === 'shell-cli');
+    expect(cliCheck?.status).toBe('warn');
+    expect(cliCheck?.summary).toContain('not on the shell PATH');
+    expect(cliCheck?.fix).toContain('npm install -g @pcircle/memesh');
+  });
+
+  it('PASSes plugin-marketplace install when a separate shell-PATH memesh exists', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.2.6',
+      openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 1, embeddings: 'onnx' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'plugin-marketplace',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'plugin-marketplace', label: 'Claude Code plugin marketplace', canSelfUpdate: false,
+        recommendedCommand: 'bash scripts/upgrade-plugin.sh', guidance: '',
+      }),
+      nativeBindingProbeImpl: () => ({ ok: true }),
+      resolveShellMemeshImpl: () => '/usr/local/bin/memesh',
+    });
+
+    const cliCheck = result.checks.find((c) => c.id === 'shell-cli');
+    expect(cliCheck?.status).toBe('pass');
+    expect(cliCheck?.summary).toContain('/usr/local/bin/memesh');
+  });
+
+  it('PASSes npm-global install regardless of which output (running from global = same path)', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.2.6',
+      openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 1, embeddings: 'onnx' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+      nativeBindingProbeImpl: () => ({ ok: true }),
+      resolveShellMemeshImpl: () => path.join(packageRoot, 'dist/transports/cli/cli.js'),
+    });
+
+    const cliCheck = result.checks.find((c) => c.id === 'shell-cli');
+    expect(cliCheck?.status).toBe('pass');
+  });
+
+  it('is informational (not WARN) for source-checkout installs without shell CLI', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.2.6',
+      openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 1, embeddings: 'onnx' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'source-checkout',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'source-checkout', label: 'source checkout', canSelfUpdate: false,
+        recommendedCommand: null, guidance: '',
+      }),
+      nativeBindingProbeImpl: () => ({ ok: true }),
+      resolveShellMemeshImpl: () => null,
+    });
+
+    const cliCheck = result.checks.find((c) => c.id === 'shell-cli');
+    expect(cliCheck?.status).toBe('pass');
+    expect(cliCheck?.summary).toContain('informational');
+  });
+});

@@ -58,6 +58,12 @@ interface DoctorOptions {
    * hitting the real native module.
    */
   nativeBindingProbeImpl?: (packageRoot: string) => { ok: true } | { ok: false; message: string };
+  /**
+   * Test seam: resolve `memesh` on the user's shell PATH. Default uses
+   * `which` / `where` via execFileSync. Returns the resolved absolute
+   * path or null when not found. Tests inject a stub.
+   */
+  resolveShellMemeshImpl?: () => string | null;
 }
 
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
@@ -643,6 +649,26 @@ function inspectHookActivity(
  * skip-and-exits without writing entities. Without this check, the bug
  * is invisible until a user notices "the dashboard is empty" days later.
  */
+function defaultResolveShellMemesh(): string | null {
+  // Use `which` on POSIX and `where` on Windows. Both return the first
+  // matching binary on PATH. Return null on any failure (not found,
+  // command missing, permission error) — caller treats null as "no
+  // shell memesh available".
+  try {
+    const cmd = process.platform === 'win32' ? 'where' : 'which';
+    // node:child_process is already imported lazily by other doctor checks;
+    // re-use the createRequire chain so we don't add a top-level import
+    // just for this seam.
+    const localRequire = createRequire(import.meta.url);
+    const { execFileSync } = localRequire('child_process');
+    const out = execFileSync(cmd, ['memesh'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const first = String(out).split(/\r?\n/).map((s) => s.trim()).find(Boolean);
+    return first || null;
+  } catch {
+    return null;
+  }
+}
+
 function defaultNativeBindingProbe(packageRoot: string): { ok: true } | { ok: false; message: string } {
   // No test-env seam here. Earlier versions of this function gated on
   // `process.env.VITEST === 'true'` to let test fixtures stub
@@ -720,6 +746,78 @@ function inspectNativeBinding(
     'fail',
     `better-sqlite3 failed to load: ${result.message}`,
     `Run: cd "${packageRoot}" && npm rebuild better-sqlite3`,
+  );
+}
+
+/**
+ * Detect the "plugin without shell CLI" gotcha that confuses every new
+ * plugin-marketplace user. Symptom: `/plugin install memesh@pcircle-memesh`
+ * gives you MCP tools + hooks + the `/memesh` skill inside Claude Code,
+ * but does NOT put `memesh` on the shell `PATH`. Users then try
+ * `memesh reindex` in a terminal and see `command not found: memesh`.
+ *
+ * Resolution: also run `npm install -g @pcircle/memesh`. Both paths
+ * coexist and share the same DB.
+ *
+ * This check fires WARN only on plugin-marketplace installs that lack
+ * a separate shell-PATH `memesh`. For npm-global / source-checkout
+ * channels the check reports PASS with the resolved path. We don't
+ * gate it as FAIL because plugin-only is a valid setup for users who
+ * only ever interact with memesh through Claude Code chat.
+ */
+function inspectShellCli(
+  installChannel: import('./install-channel.js').InstallChannel,
+  packageRoot: string,
+  resolveShellMemeshImpl: () => string | null,
+): DoctorCheck {
+  const shellPath = resolveShellMemeshImpl();
+  // Normalize and compare: a shell `memesh` that points back into the
+  // same install we're currently running from isn't a "separate" shell
+  // CLI — it's the same one. The common case where this matters is
+  // plugin-marketplace, where `which memesh` returns null and the user
+  // typed `memesh doctor` via some launcher / npx.
+  const isSameAsCurrent = shellPath ? path.resolve(shellPath).startsWith(path.resolve(packageRoot)) : false;
+  const hasDistinctShellCli = !!shellPath && !isSameAsCurrent;
+
+  if (installChannel === 'npm-global') {
+    return createCheck(
+      'shell-cli',
+      'Shell CLI on PATH',
+      'pass',
+      shellPath
+        ? `\`memesh\` resolves to ${shellPath} (npm-global install — terminals across the machine pick it up).`
+        : 'Running from npm-global install — shell access available in this terminal.',
+    );
+  }
+
+  if (hasDistinctShellCli) {
+    return createCheck(
+      'shell-cli',
+      'Shell CLI on PATH',
+      'pass',
+      `\`memesh\` resolves to ${shellPath} (separate from this install at ${packageRoot}). Both paths coexist and share the same DB.`,
+    );
+  }
+
+  if (installChannel === 'plugin-marketplace') {
+    return createCheck(
+      'shell-cli',
+      'Shell CLI on PATH',
+      'warn',
+      'Plugin is installed but `memesh` is not on the shell PATH. Typing `memesh` in a regular terminal will report `command not found`. '
+        + 'Claude Code MCP / hooks / `/memesh` skill still work — this only affects standalone shell usage and other MCP clients (Cursor, Cline, etc.).',
+      'Run `npm install -g @pcircle/memesh` to add the shell CLI. Both paths coexist; they share the same `~/.memesh/knowledge-graph.db`.',
+    );
+  }
+
+  // source-checkout / npm-local / unknown — informational only.
+  return createCheck(
+    'shell-cli',
+    'Shell CLI on PATH',
+    'pass',
+    shellPath
+      ? `\`memesh\` resolves to ${shellPath}.`
+      : `No shell-PATH \`memesh\` detected. If you want terminal access, run \`npm install -g @pcircle/memesh\` (this install is a ${installChannel}, so the check is informational only).`,
   );
 }
 
@@ -1041,6 +1139,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     statSyncImpl = fs.statSync,
     fetchImpl = fetch,
     nativeBindingProbeImpl,
+    resolveShellMemeshImpl = defaultResolveShellMemesh,
   } = options;
 
   // F16: If the database is already open before doctor runs (e.g., the
@@ -1175,6 +1274,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl));
   checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
   checks.push(inspectNativeBinding(packageRoot, existsSyncImpl, nativeBindingProbeImpl));
+  checks.push(inspectShellCli(install, packageRoot, resolveShellMemeshImpl));
   checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));
 
   const capabilities = detectCapabilitiesImpl();

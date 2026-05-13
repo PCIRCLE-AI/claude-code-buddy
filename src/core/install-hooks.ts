@@ -58,6 +58,15 @@ export interface InstallOptions {
   scope: 'user' | 'project';
   cwd?: string;
   dryRun?: boolean;
+  // Force-write even when Claude Code's plugin runtime already wires the
+  // same hooks via `/plugin install memesh@pcircle-memesh`. Without this
+  // flag, install-hooks bails on plugin-runtime detection to avoid
+  // double-firing every hook every event. Set to true when you genuinely
+  // want both paths (rare).
+  forceOverPlugin?: boolean;
+  // Test seam: override the path used to detect a Claude Code plugin
+  // install. Default is `<home>/.claude/plugins/installed_plugins.json`.
+  installedPluginsPathImpl?: string;
 }
 
 export interface InstallResult {
@@ -68,6 +77,14 @@ export interface InstallResult {
   skipped: number;
   conflicts: Array<{ event: string; matcher: string; existingCount: number }>;
   markerPath: string;
+  // When non-null, install-hooks detected an active plugin-runtime install
+  // and refused to write. Callers (CLI / dashboard) should surface this
+  // to the user with the `--force-over-plugin` escape hatch. `null` means
+  // the install either proceeded or was a dry-run.
+  pluginRuntimeDetected?: {
+    installPath: string;
+    version: string;
+  } | null;
 }
 
 export interface UninstallResult {
@@ -77,6 +94,40 @@ export interface UninstallResult {
 }
 
 const MARKER_FILE = 'install-hooks.json';
+
+/**
+ * Inspect Claude Code's `installed_plugins.json` for an active memesh
+ * plugin install. When present, Claude Code's plugin runtime is already
+ * loading memesh's hooks via `<plugin>/hooks/hooks.json`, and writing
+ * the same hooks into `~/.claude/settings.json` would double-fire every
+ * event. Returns the install metadata when found, else null.
+ *
+ * Used by `installHooks` as a guard. The default lookup path is
+ * `<home>/.claude/plugins/installed_plugins.json` but tests can inject
+ * an alternate path via `installedPluginsPathImpl`.
+ */
+function detectPluginRuntime(
+  installedPluginsPathImpl?: string,
+): { installPath: string; version: string } | null {
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  const defaultPath = path.join(home, '.claude', 'plugins', 'installed_plugins.json');
+  const targetPath = installedPluginsPathImpl ?? defaultPath;
+  if (!fs.existsSync(targetPath)) return null;
+  try {
+    const raw = fs.readFileSync(targetPath, 'utf8');
+    const j = JSON.parse(raw);
+    const entries = j?.plugins?.['memesh@pcircle-memesh'];
+    if (!Array.isArray(entries) || entries.length === 0) return null;
+    const first = entries[0];
+    if (!first || typeof first.installPath !== 'string') return null;
+    return {
+      installPath: first.installPath,
+      version: typeof first.version === 'string' ? first.version : 'unknown',
+    };
+  } catch {
+    return null;
+  }
+}
 
 // homeDir() and memeshDir() now live in src/core/paths.ts as the single
 // canonical source. Imported above. Earlier this file had private copies;
@@ -182,6 +233,29 @@ function entryAlreadyPresent(existing: HookEntry[], desired: HookEntry): boolean
 export function installHooks(opts: InstallOptions): InstallResult {
   const cwd = opts.cwd ?? process.cwd();
   const settingsPath = settingsPathFor(opts.scope, cwd);
+
+  // Detect existing Claude Code plugin install BEFORE doing any work.
+  // If `/plugin install memesh@pcircle-memesh` already wired the hooks
+  // through the plugin runtime, writing user-level hooks here would
+  // double-fire every event (plugin runtime + user settings both invoke
+  // the same hook scripts → two `session-summary` entities per session,
+  // two `pre-edit-recall` injections per Edit, etc.). Bail by default;
+  // `forceOverPlugin` is the escape hatch for the rare user who knows
+  // they want both surfaces.
+  const pluginRuntime = detectPluginRuntime(opts.installedPluginsPathImpl);
+  if (pluginRuntime && !opts.forceOverPlugin) {
+    return {
+      settingsPath,
+      backupPath: null,
+      scope: opts.scope,
+      added: 0,
+      skipped: 0,
+      conflicts: [],
+      markerPath: path.join(memeshDir(), MARKER_FILE),
+      pluginRuntimeDetected: pluginRuntime,
+    };
+  }
+
   const desired = loadPluginHooks(opts.pluginRoot);
   const settings = readSettings(settingsPath);
   const existing = settings.hooks ?? {};

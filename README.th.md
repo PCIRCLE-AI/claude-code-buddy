@@ -401,7 +401,15 @@ Claude Code plugin marketplace ปักหมุดเวอร์ชันต�
 **ตัวเลือก B — สคริปต์บรรทัดเดียว** (ไม่ต้องคลิก UI, idempotent):
 
 ```bash
+# ถ้า plugin ของคุณเป็น v4.2.5 ขึ้นไป สคริปต์อยู่ในนั้นแล้ว:
 bash ~/.claude/plugins/cache/pcircle-memesh/memesh/<current-version>/scripts/upgrade-plugin.sh
+
+# ถ้าคุณติดตั้งก่อน v4.2.5 (คือ v4.2.4 หรือ v4.2.3)
+# สคริปต์ยังไม่อยู่ใน plugin ของคุณ ใช้สำเนา npm-global แทน:
+bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"
+
+# (สมมติว่าคุณรัน `npm install -g @pcircle/memesh` แล้ว ถ้ายังก็ทำตอนนี้เลย —
+# ผู้ใช้ส่วนใหญ่ต้องการทั้งสองเส้นทาง ดู "ภาพรวมเส้นทางการติดตั้ง" ด้านบน)
 ```
 
 สคริปต์จะ fast-forward marketplace cache, ติดตั้งเวอร์ชันใหม่ใน `~/.claude/plugins/cache/`, ลง runtime deps และชี้ `installed_plugins.json` ไปยังเวอร์ชันใหม่ รีสตาร์ท Claude Code เพื่อให้ MCP server reconnect
