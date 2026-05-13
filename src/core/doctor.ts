@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { createHash } from 'crypto';
+import { createRequire } from 'module';
+import { pathToFileURL } from 'url';
 import { detectCapabilities, getConfigPath } from './config.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
@@ -50,6 +52,12 @@ interface DoctorOptions {
   readFileSyncImpl?: typeof fs.readFileSync;
   statSyncImpl?: typeof fs.statSync;
   fetchImpl?: typeof fetch;
+  /**
+   * Test seam: probe better-sqlite3 by instantiating a Database. Default
+   * uses Node's resolver from packageRoot. Tests inject a stub to avoid
+   * hitting the real native module.
+   */
+  nativeBindingProbeImpl?: (packageRoot: string) => { ok: true } | { ok: false; message: string };
 }
 
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
@@ -621,6 +629,90 @@ function inspectHookActivity(
   }
 }
 
+/**
+ * Probe `better-sqlite3`'s native binding directly. The JS wrapper at
+ * `require('better-sqlite3')` always resolves once the package is
+ * installed — but instantiating `new Database()` is what triggers
+ * `bindings()`, which is where the missing `.node` file surfaces.
+ *
+ * The failure mode this catches: Claude Code's `/plugin install` runs
+ * `npm install --ignore-scripts` (security default), which skips
+ * better-sqlite3's `install` script that fetches/builds the prebuilt
+ * binary AND skips memesh's own `postinstall-rebuild.mjs` safety net.
+ * Result: JS files present, native binding missing, every hook silently
+ * skip-and-exits without writing entities. Without this check, the bug
+ * is invisible until a user notices "the dashboard is empty" days later.
+ */
+function defaultNativeBindingProbe(packageRoot: string): { ok: true } | { ok: false; message: string } {
+  // Test-env seam: vitest fixtures stub `node_modules/better-sqlite3` as
+  // an empty directory and inject failure cases via
+  // `nativeBindingProbeImpl`. Without this guard, every test that
+  // doesn't inject would crash here when the require resolves to a
+  // package without a real `package.json`. The seam ONLY honors VITEST;
+  // production code paths never set it.
+  if (process.env.VITEST === 'true') return { ok: true };
+  try {
+    // ESM-safe createRequire (the doctor module is emitted as ESM by
+    // the project's tsconfig — bare `require` would throw
+    // "require is not defined").
+    const localRequire = createRequire(pathToFileURL(path.join(packageRoot, 'package.json')).href);
+    const Database = localRequire('better-sqlite3');
+    const probe = new Database(':memory:');
+    probe.close();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+function inspectNativeBinding(
+  packageRoot: string,
+  existsSyncImpl: typeof fs.existsSync,
+  probeImpl: (packageRoot: string) => { ok: true } | { ok: false; message: string } = defaultNativeBindingProbe,
+): DoctorCheck {
+  const pkgDir = path.join(packageRoot, 'node_modules', 'better-sqlite3');
+  if (!existsSyncImpl(pkgDir)) {
+    return createCheck(
+      'native-binding',
+      'Native SQLite binding',
+      'fail',
+      `better-sqlite3 is not installed in ${pkgDir}.`,
+      `Run: cd "${packageRoot}" && npm install --omit=dev`,
+    );
+  }
+  // Probe via dynamic require + actual instantiation. A bare require()
+  // is not enough — the JS wrapper succeeds even when the binding is
+  // missing; only `new Database()` triggers the binding load.
+  const result = probeImpl(packageRoot);
+  if (result.ok) {
+    return createCheck(
+      'native-binding',
+      'Native SQLite binding',
+      'pass',
+      'better-sqlite3 native binding loads cleanly (Database probe succeeded).',
+    );
+  }
+  const isMissingBinding = /bindings file|locate the bindings/i.test(result.message);
+  if (isMissingBinding) {
+    return createCheck(
+      'native-binding',
+      'Native SQLite binding',
+      'fail',
+      'better-sqlite3 is installed but the native binding (.node file) is missing. '
+        + 'Hooks will silently skip-and-exit, and auto-capture will NOT write any entities. '
+        + 'This is the plugin-marketplace silent-dropout class of bug.',
+      `Run: cd "${packageRoot}" && npm rebuild better-sqlite3   (or "npm install --omit=dev" for a clean reinstall)`,
+    );
+  }
+  return createCheck(
+    'native-binding',
+    'Native SQLite binding',
+    'fail',
+    `better-sqlite3 failed to load: ${result.message}`,
+    `Run: cd "${packageRoot}" && npm rebuild better-sqlite3`,
+  );
+}
+
 function inspectDashboardArtifact(
   packageRoot: string,
   existsSyncImpl: typeof fs.existsSync,
@@ -938,6 +1030,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     readFileSyncImpl = fs.readFileSync,
     statSyncImpl = fs.statSync,
     fetchImpl = fetch,
+    nativeBindingProbeImpl,
   } = options;
 
   // F16: If the database is already open before doctor runs (e.g., the
@@ -1071,6 +1164,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), packageRoot));
   checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl));
   checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
+  checks.push(inspectNativeBinding(packageRoot, existsSyncImpl, nativeBindingProbeImpl));
   checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));
 
   const capabilities = detectCapabilitiesImpl();

@@ -362,9 +362,86 @@ export function tryRequireBetterSqlite() {
     } catch {
       // stderr write itself failed (closed pipe, etc.) — give up silently.
     }
+    // Self-heal for the plugin-marketplace silent-dropout class of bug.
+    // When Claude Code's `/plugin install` runs `npm install --ignore-scripts`
+    // (security default), better-sqlite3's `install` script never fetches
+    // / builds the native binding. Result: `require()` returns a JS
+    // wrapper but `new Database()` throws "Could not locate the bindings
+    // file" — and every hook silently exits without writing entities.
+    // Without this self-heal, the user has no signal that auto-capture
+    // is broken; the DB just stays empty forever.
+    //
+    // Strategy: spawn a detached `npm rebuild better-sqlite3` in the
+    // package root so the *next* hook invocation succeeds. Cap to one
+    // attempt per hour per package root via an exclusive-create marker
+    // so a crash-loop can't drive a rebuild storm. Skipped under test
+    // env (tests deliberately exercise the failure path).
+    if (!_inTestEnv()) {
+      _attemptBetterSqliteRebuild();
+    }
     _cachedDatabaseCtor = null;
   }
   return _cachedDatabaseCtor;
+}
+
+const REBUILD_THROTTLE_MS = 60 * 60 * 1000; // one rebuild attempt per hour
+function _attemptBetterSqliteRebuild() {
+  try {
+    // Package root = parent of the scripts/hooks/ directory that contains
+    // this file. That's where `package.json` + `node_modules/` live.
+    const here = dirname(fileURLToPath(import.meta.url));
+    const pkgRoot = dirname(dirname(here));
+    if (!existsSync(join(pkgRoot, 'package.json'))) return;
+    if (!existsSync(join(pkgRoot, 'node_modules', 'better-sqlite3'))) {
+      // No better-sqlite3 directory at all (npm install never ran).
+      // `npm rebuild` would no-op; the right fix is a full install,
+      // which we don't trigger here (could pull arbitrary packages).
+      // Surface a clear actionable line instead.
+      try {
+        process.stderr.write(
+          `[memesh hook] No better-sqlite3 in ${join(pkgRoot, 'node_modules')}. `
+          + `Run: cd "${pkgRoot}" && npm install --omit=dev\n`,
+        );
+      } catch {}
+      return;
+    }
+    const memesh = join(homedir(), '.memesh');
+    try { mkdirSync(memesh, { recursive: true, mode: 0o700 }); } catch {}
+    const markerPath = join(memesh, 'last-rebuild-attempt.lock');
+    // O_EXCL claim: one rebuild attempt per hour. Concurrent hooks see
+    // EEXIST and bail; the marker's mtime gates the next window.
+    let mustClaim = true;
+    try {
+      const stat = require('fs').statSync(markerPath);
+      if (Date.now() - stat.mtimeMs < REBUILD_THROTTLE_MS) {
+        mustClaim = false; // within window — peer or recent attempt owns it
+      } else {
+        try { require('fs').unlinkSync(markerPath); } catch {}
+      }
+    } catch { /* no marker yet — claim path runs below */ }
+    if (!mustClaim) return;
+    try {
+      const fd = openSync(markerPath, 'wx', 0o600);
+      try { writeFileSync(fd, String(Date.now())); } finally { closeSync(fd); }
+    } catch (err) {
+      if (err && err.code === 'EEXIST') return; // peer won
+      return; // any other write failure — bail silently
+    }
+    process.stderr.write(
+      `[memesh hook] Attempting to rebuild better-sqlite3 in background — `
+      + `next session should capture normally. (pkgRoot: ${pkgRoot})\n`,
+    );
+    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const child = spawn(npm, ['rebuild', 'better-sqlite3'], {
+      cwd: pkgRoot,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.unref();
+  } catch {
+    // Best-effort — never let self-heal failures crash the hook.
+  }
 }
 
 export function openHookDb(env = process.env, opts = {}) {
