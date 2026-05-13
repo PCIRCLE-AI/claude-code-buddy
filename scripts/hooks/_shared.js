@@ -1,4 +1,4 @@
-import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'fs';
+import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'fs';
 import { spawn } from 'child_process';
 import { createRequire } from 'module';
 import { homedir } from 'os';
@@ -384,7 +384,6 @@ export function tryRequireBetterSqlite() {
   return _cachedDatabaseCtor;
 }
 
-const REBUILD_THROTTLE_MS = 60 * 60 * 1000; // one rebuild attempt per hour
 function _attemptBetterSqliteRebuild() {
   try {
     // Package root = parent of the scripts/hooks/ directory that contains
