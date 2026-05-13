@@ -670,6 +670,13 @@ function isLoopbackHost(host) {
         || normalized.startsWith('127.')
         || normalized.startsWith('::ffff:127.');
 }
+app.use((req, res) => {
+    res.status(404).json({
+        success: false,
+        code: 'NOT_FOUND',
+        error: `No route for ${req.method} ${req.path}`,
+    });
+});
 export function startServer(host = HOST, port = PORT, opts) {
     const allowRemote = opts?.allowRemote ?? ALLOW_REMOTE_BY_ENV;
     const isRemote = !isLoopbackHost(host);

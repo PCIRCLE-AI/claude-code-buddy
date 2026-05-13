@@ -4,6 +4,8 @@ export interface InstallOptions {
     scope: 'user' | 'project';
     cwd?: string;
     dryRun?: boolean;
+    forceOverPlugin?: boolean;
+    installedPluginsPathImpl?: string;
 }
 export interface InstallResult {
     settingsPath: string;
@@ -17,6 +19,10 @@ export interface InstallResult {
         existingCount: number;
     }>;
     markerPath: string;
+    pluginRuntimeDetected?: {
+        installPath: string;
+        version: string;
+    } | null;
 }
 export interface UninstallResult {
     settingsPath: string;

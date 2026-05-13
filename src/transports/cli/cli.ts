@@ -169,10 +169,16 @@ program
 // --- forget ---
 program
   .command('forget')
-  .description('Archive an entity or remove an observation')
+  .description('Archive an entity or remove an observation (soft-delete, recoverable)')
   .requiredOption('--name <name>', 'Entity name')
   .option('--observation <text>', 'Remove specific observation only')
   .option('--json', 'Output as JSON')
+  // Accept --confirm as a no-op for forward-compat. Users hitting forget
+  // for the first time often type `--confirm` by analogy with `rm -i` /
+  // `git branch -D` and got "unknown option" before. Soft-archive doesn't
+  // need a confirmation gate, but rejecting the flag is hostile UX. Silent
+  // accept matches the principle of least surprise.
+  .option('--confirm', '[deprecated, no-op] forget is a soft archive — no confirmation needed')
   .action(async (opts) => {
     await withDatabase(() => {
       const result = forget({
@@ -237,10 +243,11 @@ program
 // --- export ---
 program
   .command('export')
-  .description('Export memories as JSON for sharing or backup')
+  .description('Export memories as JSON. Defaults to stdout (pipe-friendly); use `-o <file>` to write directly.')
   .option('--tag <tag>', 'Export only entities with this tag')
   .option('--namespace <ns>', 'Export only from this namespace (personal, team, global)')
   .option('--limit <n>', 'Max entities to export', '1000')
+  .option('-o, --out <file>', 'Write JSON to <file> instead of stdout. Parent directory must exist.')
   .action(async (opts) => {
     await withDatabase(() => {
       const result = exportMemories({
@@ -248,7 +255,18 @@ program
         namespace: opts.namespace,
         limit: parseInt(opts.limit),
       });
-      console.log(JSON.stringify(result, null, 2));
+      const json = JSON.stringify(result, null, 2);
+      if (opts.out) {
+        // Synchronous write so the CLI exits with a deterministic
+        // success/error code. ENOENT on the parent dir surfaces as the
+        // commander error path with the underlying path in the message,
+        // which is more useful than silent stdout output the user then
+        // has to figure out wasn't written.
+        fs.writeFileSync(opts.out, json + '\n');
+        process.stderr.write(`✅ Exported ${result.entity_count} entities to ${opts.out}\n`);
+      } else {
+        console.log(json);
+      }
     });
   });
 
@@ -970,6 +988,7 @@ program
   .description('Wire memesh\'s session hooks into Claude Code (~/.claude/settings.json)')
   .option('--scope <scope>', 'user (default) or project — project writes to ./.claude/settings.json', 'user')
   .option('--dry-run', 'Show what would change without modifying any file')
+  .option('--force-over-plugin', 'Write user-level hooks even when Claude Code\'s plugin runtime already wires them. Causes double-firing — only use if you genuinely want both surfaces.')
   .action(async (opts) => {
     const { installHooks } = await import('../../core/install-hooks.js');
     const scope = opts.scope === 'project' ? 'project' : 'user';
@@ -979,9 +998,19 @@ program
         pluginVersion: pkg.version,
         scope,
         dryRun: !!opts.dryRun,
+        forceOverPlugin: !!opts.forceOverPlugin,
       });
+      if (result.pluginRuntimeDetected) {
+        console.log('memesh is already wired via the Claude Code plugin runtime — skipping install-hooks to avoid double-firing.');
+        console.log(`  Plugin install: ${result.pluginRuntimeDetected.installPath} (v${result.pluginRuntimeDetected.version})`);
+        console.log('');
+        console.log('Hooks are active. Verify with: memesh doctor');
+        console.log('');
+        console.log('If you really want a second copy in ~/.claude/settings.json on top of the plugin, re-run with --force-over-plugin. (Not recommended — every session-start / Stop / PreToolUse event will fire memesh\'s hooks twice.)');
+        return;
+      }
       console.log(`${opts.dryRun ? '[dry-run] ' : ''}Settings: ${result.settingsPath}`);
-      console.log(`${opts.dryRun ? '[dry-run] ' : ''}Added ${result.added} hook entr${result.added === 1 ? 'y' : 'ies'}, skipped ${result.skipped} already-installed.`);
+      console.log(`${opts.dryRun ? '[dry-run] Would add ' : 'Added '}${result.added} hook entr${result.added === 1 ? 'y' : 'ies'}, ${opts.dryRun ? 'would skip ' : 'skipped '}${result.skipped} already-installed.`);
       if (result.backupPath) console.log(`Backup: ${result.backupPath}`);
       if (result.conflicts.length > 0) {
         console.log('');

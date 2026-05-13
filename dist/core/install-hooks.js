@@ -2,6 +2,30 @@ import fs from 'fs';
 import path from 'path';
 import { homeDir, memeshDir } from './paths.js';
 const MARKER_FILE = 'install-hooks.json';
+function detectPluginRuntime(installedPluginsPathImpl) {
+    const home = process.env.HOME || process.env.USERPROFILE || '';
+    const defaultPath = path.join(home, '.claude', 'plugins', 'installed_plugins.json');
+    const targetPath = installedPluginsPathImpl ?? defaultPath;
+    if (!fs.existsSync(targetPath))
+        return null;
+    try {
+        const raw = fs.readFileSync(targetPath, 'utf8');
+        const j = JSON.parse(raw);
+        const entries = j?.plugins?.['memesh@pcircle-memesh'];
+        if (!Array.isArray(entries) || entries.length === 0)
+            return null;
+        const first = entries[0];
+        if (!first || typeof first.installPath !== 'string')
+            return null;
+        return {
+            installPath: first.installPath,
+            version: typeof first.version === 'string' ? first.version : 'unknown',
+        };
+    }
+    catch {
+        return null;
+    }
+}
 function settingsPathFor(scope, cwd) {
     if (scope === 'project') {
         return path.join(cwd, '.claude', 'settings.json');
@@ -68,6 +92,19 @@ function entryAlreadyPresent(existing, desired) {
 export function installHooks(opts) {
     const cwd = opts.cwd ?? process.cwd();
     const settingsPath = settingsPathFor(opts.scope, cwd);
+    const pluginRuntime = detectPluginRuntime(opts.installedPluginsPathImpl);
+    if (pluginRuntime && !opts.forceOverPlugin) {
+        return {
+            settingsPath,
+            backupPath: null,
+            scope: opts.scope,
+            added: 0,
+            skipped: 0,
+            conflicts: [],
+            markerPath: path.join(memeshDir(), MARKER_FILE),
+            pluginRuntimeDetected: pluginRuntime,
+        };
+    }
     const desired = loadPluginHooks(opts.pluginRoot);
     const settings = readSettings(settingsPath);
     const existing = settings.hooks ?? {};
