@@ -362,9 +362,95 @@ export function tryRequireBetterSqlite() {
     } catch {
       // stderr write itself failed (closed pipe, etc.) — give up silently.
     }
+    // Self-heal for the plugin-marketplace silent-dropout class of bug.
+    // When Claude Code's `/plugin install` runs `npm install --ignore-scripts`
+    // (security default), better-sqlite3's `install` script never fetches
+    // / builds the native binding. Result: `require()` returns a JS
+    // wrapper but `new Database()` throws "Could not locate the bindings
+    // file" — and every hook silently exits without writing entities.
+    // Without this self-heal, the user has no signal that auto-capture
+    // is broken; the DB just stays empty forever.
+    //
+    // Strategy: spawn a detached `npm rebuild better-sqlite3` in the
+    // package root so the *next* hook invocation succeeds. Cap to one
+    // attempt per hour per package root via an exclusive-create marker
+    // so a crash-loop can't drive a rebuild storm. Skipped under test
+    // env (tests deliberately exercise the failure path).
+    if (!_inTestEnv()) {
+      _attemptBetterSqliteRebuild();
+    }
     _cachedDatabaseCtor = null;
   }
   return _cachedDatabaseCtor;
+}
+
+function _attemptBetterSqliteRebuild() {
+  try {
+    // Package root = parent of the scripts/hooks/ directory that contains
+    // this file. That's where `package.json` + `node_modules/` live.
+    const here = dirname(fileURLToPath(import.meta.url));
+    const pkgRoot = dirname(dirname(here));
+    if (!existsSync(join(pkgRoot, 'package.json'))) return;
+    if (!existsSync(join(pkgRoot, 'node_modules', 'better-sqlite3'))) {
+      // No better-sqlite3 directory at all (npm install never ran).
+      // `npm rebuild` would no-op; the right fix is a full install,
+      // which we don't trigger here (could pull arbitrary packages).
+      // Surface a clear actionable line instead.
+      try {
+        process.stderr.write(
+          `[memesh hook] No better-sqlite3 in ${join(pkgRoot, 'node_modules')}. `
+          + `Run: cd "${pkgRoot}" && npm install --omit=dev\n`,
+        );
+      } catch {}
+      return;
+    }
+    const memesh = join(homedir(), '.memesh');
+    try { mkdirSync(memesh, { recursive: true, mode: 0o700 }); } catch {}
+    const markerPath = join(memesh, 'last-rebuild-attempt.lock');
+    // Atomic one-shot claim via O_EXCL. Once the marker exists, every
+    // future hook bails — no stale-cleanup-then-recreate dance, which
+    // would open a TOCTOU window (stat → unlink → open is racy: a peer
+    // can insert between any two steps and the result is either a
+    // double-spawn of `npm rebuild` or one peer's fresh marker being
+    // stomped by another peer's stale-cleanup).
+    //
+    // Trade-off: if the rebuild fails, the marker blocks retries until
+    // the user removes it manually. That's acceptable because the
+    // stderr breadcrumb below tells the user the exact manual command,
+    // and `memesh doctor` will also surface the failure. A retry-loop
+    // here would either re-introduce the race or burn CPU on a broken
+    // npm config.
+    try {
+      const fd = openSync(markerPath, 'wx', 0o600);
+      try { writeFileSync(fd, String(Date.now())); } finally { closeSync(fd); }
+    } catch (err) {
+      if (err && err.code === 'EEXIST') return; // peer / prior attempt owns it
+      return; // any other write failure — bail silently
+    }
+    process.stderr.write(
+      `[memesh hook] Attempting to rebuild better-sqlite3 in background — `
+      + `next session should capture normally. (pkgRoot: ${pkgRoot})\n`
+      + `[memesh hook] To retry later, manually: rm "${markerPath}" && `
+      + `cd "${pkgRoot}" && npm rebuild better-sqlite3\n`,
+    );
+    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const child = spawn(npm, ['rebuild', 'better-sqlite3'], {
+      cwd: pkgRoot,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    // 'error' is emitted asynchronously (e.g. npm not on PATH). Without a
+    // listener it becomes an uncaught exception that the outer sync
+    // try/catch cannot catch — and a hook crash here would turn a silent
+    // dropout into a louder broken-hook story. Swallow it: self-heal is
+    // best-effort by design, and the binding probe already left a stderr
+    // breadcrumb explaining the manual fix.
+    child.on('error', () => {});
+    child.unref();
+  } catch {
+    // Best-effort — never let self-heal failures crash the hook.
+  }
 }
 
 export function openHookDb(env = process.env, opts = {}) {

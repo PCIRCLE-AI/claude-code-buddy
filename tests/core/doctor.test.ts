@@ -66,6 +66,11 @@ function createPackageRoot(): string {
   fs.mkdirSync(path.join(root, 'dashboard', 'dist'), { recursive: true });
   fs.writeFileSync(path.join(root, 'dashboard', 'dist', 'index.html'), '<html></html>');
 
+  // Stub the better-sqlite3 directory so the new native-binding existence
+  // check passes. The probe itself is overridden per-test via
+  // `nativeBindingProbeImpl`, so no real native module is touched here.
+  fs.mkdirSync(path.join(root, 'node_modules', 'better-sqlite3'), { recursive: true });
+
   // F4: doctor verifies dist/skills-manifest.json. The fixture must
   // include one matching the on-disk hook stubs, otherwise the new
   // skills-manifest check fires and the overall status downgrades.
@@ -174,6 +179,10 @@ describe('doctor', () => {
         guidance: 'This installation can be updated directly from MeMesh.',
       }),
       fetchImpl: (async () => new Response(JSON.stringify({ ok: true }), { status: 200 })) as typeof fetch,
+      // Fixture stubs node_modules/better-sqlite3 as an empty dir, so the real
+      // probe would fail. Inject success since this test is verifying the
+      // overall-PASS flow, not the binding probe itself.
+      nativeBindingProbeImpl: () => ({ ok: true }),
     });
 
     expect(result.status).toBe('PASS');
@@ -225,6 +234,9 @@ describe('doctor', () => {
         recommendedCommand: null,
         guidance: 'Update this source checkout from its repository and rebuild it.',
       }),
+      // Fixture's better-sqlite3 dir is an empty stub; let the binding
+      // check pass so this test focuses on the update-status WARN.
+      nativeBindingProbeImpl: () => ({ ok: true }),
     });
 
     if (originalMemeshDir === undefined) delete process.env.MEMESH_DIR;
@@ -1120,5 +1132,88 @@ describe('database lifecycle preservation (F16 — regression)', () => {
     // CLI mode: doctor opened the db itself, so it must close it to avoid
     // leaking the connection to subsequent CLI commands or test runs.
     expect(closeCallCount).toBeGreaterThan(0);
+  });
+});
+
+describe('native binding probe (plugin-marketplace silent-dropout guard)', () => {
+  it('reports FAIL with the exact rebuild command when the .node binding is missing', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.2.5',
+      openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 1, embeddings: 'onnx' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'plugin-marketplace',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'plugin-marketplace',
+        label: 'Claude Code plugin marketplace',
+        canSelfUpdate: false,
+        recommendedCommand: 'bash scripts/upgrade-plugin.sh',
+        guidance: '',
+      }),
+      nativeBindingProbeImpl: () => ({ ok: false, message: 'Could not locate the bindings file. Tried: ...' }),
+    });
+
+    const bindingCheck = result.checks.find((c) => c.id === 'native-binding');
+    expect(bindingCheck).toBeDefined();
+    expect(bindingCheck?.status).toBe('fail');
+    expect(bindingCheck?.summary).toContain('native binding');
+    expect(bindingCheck?.fix).toContain('npm rebuild better-sqlite3');
+    expect(result.status).toBe('FAIL');
+  });
+
+  it('reports FAIL when node_modules/better-sqlite3 is entirely missing', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    fs.rmSync(path.join(packageRoot, 'node_modules', 'better-sqlite3'), { recursive: true, force: true });
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.2.5',
+      openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 1, embeddings: 'onnx' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+    });
+
+    const bindingCheck = result.checks.find((c) => c.id === 'native-binding');
+    expect(bindingCheck?.status).toBe('fail');
+    expect(bindingCheck?.summary).toContain('not installed');
+    expect(bindingCheck?.fix).toContain('npm install');
+  });
+
+  it('reports PASS when the probe succeeds (binding loads + Database() works)', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.2.5',
+      openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 1, embeddings: 'onnx' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+      nativeBindingProbeImpl: () => ({ ok: true }),
+    });
+
+    const bindingCheck = result.checks.find((c) => c.id === 'native-binding');
+    expect(bindingCheck?.status).toBe('pass');
   });
 });

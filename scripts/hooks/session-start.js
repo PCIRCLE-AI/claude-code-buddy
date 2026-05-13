@@ -151,6 +151,109 @@ function buildDeprecationBanner(currentVersion, cache) {
 }
 
 /**
+ * Build the softer "update available" banner that fires when the
+ * installed version is NOT deprecated but a newer version exists on
+ * npm. Lighter than the deprecation banner (single info line, no
+ * security framing), and throttled to once per 24h so the user isn't
+ * nagged on every session.
+ *
+ * Throttle marker lives at ~/.memesh/last-update-banner.<version>.lock.
+ * Scoped by version so an upgrade from 4.2.3 → 4.2.4 immediately allows
+ * the next "4.2.5 available" banner to fire instead of waiting out the
+ * old version's TTL.
+ */
+const UPDATE_BANNER_THROTTLE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Return true iff `a` is strictly older than `b` under semver-ish
+ * ordering. Compares the dot-separated numeric portion of each version
+ * componentwise (so 4.2.10 > 4.2.9, unlike string compare). Anything
+ * after the first non-numeric char falls back to lex compare on the
+ * trailing fragment — fine for the prerelease / 4-segment build tags
+ * memesh uses (e.g. 4.2.5-rc.1).
+ */
+function isStrictlyOlder(a, b) {
+  const parse = (v) => {
+    const [main, ...rest] = String(v).split(/[-+]/);
+    const nums = main.split('.').map((s) => Number.parseInt(s, 10));
+    return { nums, tail: rest.join('-') };
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  const len = Math.max(pa.nums.length, pb.nums.length);
+  for (let i = 0; i < len; i++) {
+    const ai = Number.isFinite(pa.nums[i]) ? pa.nums[i] : 0;
+    const bi = Number.isFinite(pb.nums[i]) ? pb.nums[i] : 0;
+    if (ai !== bi) return ai < bi;
+  }
+  // Numeric prefix tied. A prerelease tail counts as OLDER than no
+  // tail (semver: 1.0.0-rc.1 < 1.0.0); otherwise lex on tail.
+  if (pa.tail && !pb.tail) return true;
+  if (!pa.tail && pb.tail) return false;
+  return pa.tail < pb.tail;
+}
+
+function buildUpdateAvailableBanner(currentVersion, cache, channel) {
+  if (!cache || cache.currentVersion !== currentVersion) return [];
+  // Deprecation banner takes precedence — when set, it owns the
+  // session-start real estate. Skip the soft banner so the user sees
+  // one message, not two.
+  if (typeof cache.currentVersionDeprecation === 'string'
+      && cache.currentVersionDeprecation.length > 0) {
+    return [];
+  }
+  if (!cache.latestVersion || cache.latestVersion === currentVersion) return [];
+  // Numeric semver compare. Lexicographic compare (`'4.2.10' < '4.2.9'`
+  // is true) would silently suppress the banner once patches hit two
+  // digits. Split on `.`, compare each component as integer, prerelease
+  // / build metadata after `-` or `+` falls back to lex compare. Keeps
+  // the hook dep-free; full semver lives in version-check.ts.
+  if (!isStrictlyOlder(currentVersion, cache.latestVersion)) return [];
+
+  // Throttle. We use file mtime instead of a stored timestamp because
+  // the operation is atomic on POSIX (`touch` / open-with-CREAT) and
+  // we don't care about exact wall-clock — just "did we already show
+  // this user a banner today?"
+  try {
+    const fs = require('fs');
+    const dir = join(homedir(), '.memesh');
+    try { ensurePrivateDir(dir); } catch { /* best-effort */ }
+    const versionTag = /^[0-9A-Za-z.+-]+$/.test(currentVersion) ? currentVersion : 'unknown';
+    const markerPath = join(dir, `last-update-banner.${versionTag}.lock`);
+    let stat;
+    try { stat = fs.statSync(markerPath); } catch { stat = null; }
+    if (stat && Date.now() - stat.mtimeMs < UPDATE_BANNER_THROTTLE_MS) {
+      return [];
+    }
+    // Touch the marker BEFORE printing so a concurrent session that
+    // races us doesn't both print the banner. Best-effort — failure
+    // here just means the banner may show twice, which is annoying
+    // but not broken.
+    try {
+      fs.writeFileSync(markerPath, String(Date.now()));
+      try { fs.chmodSync(markerPath, 0o600); } catch { /* non-POSIX */ }
+    } catch { /* best-effort */ }
+  } catch { /* best-effort */ }
+
+  const lines = [
+    '',
+    `ℹ️  MeMesh update available: ${cache.latestVersion} (you're on ${currentVersion}).`,
+  ];
+  if (channel === 'npm-global') {
+    lines.push(`    Run: memesh update`);
+  } else if (channel === 'plugin-marketplace') {
+    lines.push(`    Run: bash <plugin-root>/scripts/upgrade-plugin.sh   (or reinstall from /plugin UI)`);
+  } else if (channel === 'source-checkout') {
+    lines.push(`    Source checkout: \`git pull && npm install && npm run build\`.`);
+  } else if (channel === 'npm-local') {
+    lines.push(`    Project-local install: run \`npm install @pcircle/memesh@latest\` in this project.`);
+  } else {
+    lines.push(`    Upgrade via your install method (fetch @pcircle/memesh@latest from npm).`);
+  }
+  return lines;
+}
+
+/**
  * Detect the install channel of the running memesh binary by
  * delegating to src/core/install-channel.ts via the dist build. The
  * core helper resolves `npm root -g` so it correctly classifies:
@@ -335,7 +438,18 @@ function combineWithBanner(baseMessage) {
     const pkg = JSON.parse(readFileSync(join(pluginRoot, 'package.json'), 'utf8'));
     const installedVersion = typeof pkg.version === 'string' ? pkg.version : null;
     const cache = readUpdateCheckCache(installedVersion);
-    lines = installedVersion ? buildDeprecationBanner(installedVersion, cache) : [];
+    if (installedVersion) {
+      const deprecation = buildDeprecationBanner(installedVersion, cache);
+      // Deprecation owns the spot when present; the update-available
+      // banner is the fallback for the much more common "not flagged,
+      // just out of date" case.
+      if (deprecation.length > 0) {
+        lines = deprecation;
+      } else {
+        const channel = detectInstallChannelHook(pluginRoot);
+        lines = buildUpdateAvailableBanner(installedVersion, cache, channel);
+      }
+    }
   } catch {
     // Best-effort — fall through to base message only.
   }
@@ -636,11 +750,22 @@ process.stdin.on('end', async () => {
         // Best-effort — without the version we can't compare to cache.
       }
       const updateCache = readUpdateCheckCache(installedVersion);
-      const deprecationLines = installedVersion
-        ? buildDeprecationBanner(installedVersion, updateCache)
-        : [];
-      const finalMessage = deprecationLines.length > 0
-        ? [...deprecationLines.filter(l => l.length > 0), '', summary].join('\n')
+      let bannerLines = [];
+      if (installedVersion) {
+        const deprecation = buildDeprecationBanner(installedVersion, updateCache);
+        if (deprecation.length > 0) {
+          bannerLines = deprecation;
+        } else {
+          let channel = 'unknown';
+          try {
+            const pluginRoot = resolvePluginRoot(import.meta.url);
+            channel = detectInstallChannelHook(pluginRoot);
+          } catch { /* best-effort */ }
+          bannerLines = buildUpdateAvailableBanner(installedVersion, updateCache, channel);
+        }
+      }
+      const finalMessage = bannerLines.length > 0
+        ? [...bannerLines.filter(l => l.length > 0), '', summary].join('\n')
         : summary;
 
       output(finalMessage);

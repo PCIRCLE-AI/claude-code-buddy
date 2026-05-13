@@ -1,0 +1,37 @@
+name: "MeMesh CodeQL config"
+
+# Scope CodeQL analysis to source code. Build outputs (TypeScript `tsc`
+# output, Vite/Preact bundled+minified single-file dashboard) are
+# generated from the source on every release and would otherwise produce
+# noise findings that are not actionable against source — e.g.
+# `js/property-access-on-non-object` on Vite's runtime helpers,
+# `js/automatic-semicolon-insertion` from minification, and
+# `js/trivial-conditional` from constant-folded bundler output. The
+# corresponding source is already analyzed via the `paths` include below.
+#
+# `node_modules/` is excluded by CodeQL's defaults but listed here too
+# for clarity (CodeQL re-includes shipped node_modules when the package
+# imports them, which would bring third-party JS into the analysis).
+#
+# This is the recommended setup pattern per GitHub's docs:
+# https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/customizing-your-advanced-setup-for-code-scanning#specifying-directories-to-scan
+queries:
+  - uses: security-and-quality
+
+paths:
+  - src
+  - scripts
+  - dashboard/src
+  - tests
+  - hooks
+
+paths-ignore:
+  - dist
+  - dashboard/dist
+  - node_modules
+  - "**/node_modules"
+  - .claude
+  - benchmarks
+  - docs
+  - "**/*.min.js"
+  - "**/*.bundle.js"

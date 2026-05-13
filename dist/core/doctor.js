@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { createHash } from 'crypto';
+import { createRequire } from 'module';
+import { pathToFileURL } from 'url';
 import { detectCapabilities, getConfigPath } from './config.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
@@ -277,6 +279,35 @@ function inspectHookActivity(openDatabaseImpl, closeDatabaseImpl, existsSyncImpl
         catch { }
     }
 }
+function defaultNativeBindingProbe(packageRoot) {
+    try {
+        const localRequire = createRequire(pathToFileURL(path.join(packageRoot, 'package.json')).href);
+        const Database = localRequire('better-sqlite3');
+        const probe = new Database(':memory:');
+        probe.close();
+        return { ok: true };
+    }
+    catch (err) {
+        return { ok: false, message: err instanceof Error ? err.message : String(err) };
+    }
+}
+function inspectNativeBinding(packageRoot, existsSyncImpl, probeImpl = defaultNativeBindingProbe) {
+    const pkgDir = path.join(packageRoot, 'node_modules', 'better-sqlite3');
+    if (!existsSyncImpl(pkgDir)) {
+        return createCheck('native-binding', 'Native SQLite binding', 'fail', `better-sqlite3 is not installed in ${pkgDir}.`, `Run: cd "${packageRoot}" && npm install --omit=dev`);
+    }
+    const result = probeImpl(packageRoot);
+    if (result.ok) {
+        return createCheck('native-binding', 'Native SQLite binding', 'pass', 'better-sqlite3 native binding loads cleanly (Database probe succeeded).');
+    }
+    const isMissingBinding = /bindings file|locate the bindings/i.test(result.message);
+    if (isMissingBinding) {
+        return createCheck('native-binding', 'Native SQLite binding', 'fail', 'better-sqlite3 is installed but the native binding (.node file) is missing. '
+            + 'Hooks will silently skip-and-exit, and auto-capture will NOT write any entities. '
+            + 'This is the plugin-marketplace silent-dropout class of bug.', `Run: cd "${packageRoot}" && npm rebuild better-sqlite3   (or "npm install --omit=dev" for a clean reinstall)`);
+    }
+    return createCheck('native-binding', 'Native SQLite binding', 'fail', `better-sqlite3 failed to load: ${result.message}`, `Run: cd "${packageRoot}" && npm rebuild better-sqlite3`);
+}
 function inspectDashboardArtifact(packageRoot, existsSyncImpl) {
     const dashboardPath = path.join(packageRoot, 'dashboard', 'dist', 'index.html');
     if (!existsSyncImpl(dashboardPath)) {
@@ -414,7 +445,7 @@ function summarizeOverallStatus(checks) {
     return 'PASS';
 }
 export async function runDoctor(options) {
-    const { packageRoot, packageVersion, probeHttp = false, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, } = options;
+    const { packageRoot, packageVersion, probeHttp = false, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, nativeBindingProbeImpl, } = options;
     const wasDbOpenBeforeUs = isDatabaseOpenImpl();
     const safeCloseDatabaseImpl = wasDbOpenBeforeUs
         ? () => undefined
@@ -502,6 +533,7 @@ export async function runDoctor(options) {
     checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), packageRoot));
     checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl));
     checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
+    checks.push(inspectNativeBinding(packageRoot, existsSyncImpl, nativeBindingProbeImpl));
     checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));
     const capabilities = detectCapabilitiesImpl();
     checks.push(createCheck('capabilities', 'Capabilities', 'pass', `Search level ${capabilities.searchLevel} (${capabilities.searchLevel === 1 ? 'Smart Mode' : 'Core'}); embeddings: ${capabilities.embeddings}; LLM: ${capabilities.llm ? `${capabilities.llm.provider} (${capabilities.llm.model ?? 'default'})` : 'not configured'}.`));

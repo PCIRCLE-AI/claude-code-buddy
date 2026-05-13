@@ -34,6 +34,12 @@ interface DoctorOptions {
     readFileSyncImpl?: typeof fs.readFileSync;
     statSyncImpl?: typeof fs.statSync;
     fetchImpl?: typeof fetch;
+    nativeBindingProbeImpl?: (packageRoot: string) => {
+        ok: true;
+    } | {
+        ok: false;
+        message: string;
+    };
 }
 export declare function runDoctor(options: DoctorOptions): Promise<DoctorResult>;
 export declare function formatDoctorReport(result: DoctorResult, packageVersion: string): string[];
