@@ -2,6 +2,17 @@
 
 All notable changes to MeMesh are documented here.
 
+## [Unreleased]
+
+### Docs
+- **All 11 README locales now have an `## Upgrading` section** (`README.md`, `README.zh-TW.md`, `README.zh-CN.md`, `README.ja.md`, `README.ko.md`, `README.de.md`, `README.fr.md`, `README.es.md`, `README.pt.md`, `README.vi.md`, `README.th.md`) — v4.2.5–v4.2.7 release notes added the upgrade flow + pre-v4.2.5 fallback to English + Thai only, so 9 locales were missing the section entirely. Now every locale has the three upgrade paths and the npm-global fallback note.
+- **"Actively developed" callout at the top of every README** — adds a `> [!IMPORTANT]` block immediately after the hero divider linking to the GitHub Issues tracker. Sets expectations that features evolve between releases and routes bug reports / feature requests to the correct channel from the first glance.
+
+### Fixed
+- **Test flake: `tests/transports/http.test.ts > returns array (possibly empty) for no-match query`** — assertion was `toHaveLength(0)`, but `recallEnhanced` may supplement FTS5 results with sqlite-vec near-neighbours when ONNX embeddings are loaded, so a query that misses FTS5 can still legitimately return a small set. The API contract is "always return a valid JSON array of entities, never a 500"; assertion now mirrors that contract (length bounded, all rows shaped like entities).
+- **Test flake: `tests/tools.test.ts > auto-archives entity when superseded by new remember`** — same root cause; the `recall('JWT')` after archiving `auth-v2` asserted exactly `[]`, but vector supplement could surface the related `auth-v3`. The behavioural guarantee is "archived rows stay hidden from default recall", so the assertion now checks `not.toContain('auth-v2')` instead of empty-array.
+- **Test isolation: `tests/hooks/pre-bash-orchestration-nudge.test.ts` no longer reads the developer's real `~/.memesh/config.json`** — `isAgenticOrchestrationEnabled()` falls back to `readHookConfig()` when the env var is unset, and `readHookConfig()` reads `<memeshDir>/config.json`. The "default off" test deleted the env var but didn't pin `MEMESH_DIR`, so a developer with `enableAgenticOrchestration: true` in their personal config saw the test fail even though hook code was correct. Both the test helper and the gate-off case now point `MEMESH_DIR` at the per-test tmpdir.
+
 ## [4.2.7] — 2026-05-13
 
 ### Added

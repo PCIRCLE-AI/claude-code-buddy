@@ -86,15 +86,21 @@ describe('remember', () => {
       relations: [{ to: 'auth-v2', type: 'supersedes' }],
     });
 
-    // auth-v2 should be auto-archived
+    // auth-v2 should be auto-archived — must NOT appear in default recall.
+    // (We don't assert []: if ONNX embeddings are loaded, recallEnhanced
+    // can supplement with vector hits, e.g. surfacing the related auth-v3.
+    // The behavioural guarantee here is "archived rows stay hidden", not
+    // "no results at all".)
     const recallOld = await handleTool('recall', { query: 'JWT' });
-    expect(JSON.parse(recallOld.content[0].text)).toEqual([]);
+    const oldNames = JSON.parse(recallOld.content[0].text).map((e: any) => e.name);
+    expect(oldNames).not.toContain('auth-v2');
 
-    // auth-v3 should be active
+    // auth-v3 should be active and surfaced by an OAuth query.
     const recallNew = await handleTool('recall', { query: 'OAuth' });
     const data = JSON.parse(recallNew.content[0].text);
-    expect(data).toHaveLength(1);
-    expect(data[0].name).toBe('auth-v3');
+    expect(data.length).toBeGreaterThanOrEqual(1);
+    expect(data.map((e: any) => e.name)).toContain('auth-v3');
+    expect(data.map((e: any) => e.name)).not.toContain('auth-v2');
 
     // Both visible with include_archived
     const recallAll = await handleTool('recall', { include_archived: true });

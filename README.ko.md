@@ -16,6 +16,9 @@
 
 ---
 
+> [!IMPORTANT]
+> **활발히 개발 중인 프로젝트** — 기능이 지속적으로 업데이트되며 릴리스 간에 변경될 수 있습니다. 버그나 기능 요청이 있으면 [issue를 열어주세요](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues).
+
 ## 문제점
 
 코딩 에이전트는 세션이 끝나면 모든 것을 잊어버립니다. 아키텍처 결정, 버그 수정, 실패한 테스트, 힘들게 얻은 교훈 — 매번 다시 설명해야 합니다. Claude Code는 매번 새로 시작하고, 이미 알아야 할 제약 조건을 다시 발견하며, 불필요하게 컨텍스트를 소비합니다.
@@ -401,6 +404,35 @@ memesh  # 대시보드 열기 → Settings 탭
 ```
 
 코어는 프레임워크에 구애받지 않습니다. 같은 로직이 터미널, HTTP, MCP에서 실행됩니다.
+
+---
+
+## 업그레이드
+
+Claude Code의 plugin marketplace는 설치 시 버전을 고정하며 **자동으로 업데이트되지 않습니다**. 새 릴리스를 가져오려면:
+
+**옵션 A — `/plugin` UI**: `memesh@pcircle-memesh`를 제거한 후 다시 설치합니다. Claude Code가 marketplace의 최신 버전을 가져옵니다.
+
+**옵션 B — 한 줄 스크립트** (UI 클릭 불필요, 멱등):
+
+```bash
+# plugin이 v4.2.5 이상이면 스크립트가 함께 제공됩니다:
+bash ~/.claude/plugins/cache/pcircle-memesh/memesh/<current-version>/scripts/upgrade-plugin.sh
+
+# v4.2.5 이전 버전(즉 v4.2.4 또는 v4.2.3)을 설치한 경우,
+# 스크립트가 plugin에 아직 없습니다. npm-global 사본을 사용하세요:
+bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"
+
+# (이는 `npm install -g @pcircle/memesh`도 실행했다고 가정합니다. 아직 안 했다면
+# 지금이 적기입니다 — 위의 "설치 경로 한눈에 보기" 섹션에서 대부분의 사용자가
+# 두 경로를 모두 원하는 이유를 확인하세요.)
+```
+
+스크립트는 marketplace cache를 fast-forward하고, 새 버전을 `~/.claude/plugins/cache/`에 스테이징하고, runtime deps를 설치하고, `installed_plugins.json`을 새 버전으로 다시 가리킵니다. 완료 후 MCP server가 다시 연결되도록 Claude Code를 재시작하세요.
+
+**npm-global 설치**(`npm install -g @pcircle/memesh`)는 `memesh update`로 자체 업데이트할 수 있습니다. Source checkouts: `git pull && npm install && npm run build`.
+
+세션 시작 시 새 릴리스가 있으면 한 줄 배너가 표시됩니다(버전당 24시간 스로틀). `memesh doctor`는 업그레이드 대상과 채널별 명령을 보고합니다.
 
 ---
 

@@ -40,6 +40,10 @@ describe('Feature: Pre-Bash Orchestration Nudge Hook', () => {
       input: jsonInput,
       env: {
         ...process.env,
+        // Point MEMESH_DIR at the isolated testDir so readHookConfig() in
+        // _shared.js doesn't pick up the developer's real
+        // ~/.memesh/config.json (which may have enableAgenticOrchestration: true).
+        MEMESH_DIR: testDir,
         MEMESH_DB_PATH: dbPath,
         MEMESH_ENABLE_AGENTIC_ORCHESTRATION: '1',
         ...extraEnv,
@@ -56,7 +60,14 @@ describe('Feature: Pre-Bash Orchestration Nudge Hook', () => {
     const dbPath = path.join(testDir, 'knowledge-graph.db');
     const jsonInput = JSON.stringify({ tool_input: { command: 'npm test' } });
     // Build a clean env that explicitly does NOT carry the opt-in flag.
-    const cleanEnv: Record<string, string> = { ...process.env, MEMESH_DB_PATH: dbPath };
+    // MEMESH_DIR pins config lookup to testDir so a developer's real
+    // ~/.memesh/config.json with enableAgenticOrchestration:true can't
+    // smuggle the gate open via readHookConfig().
+    const cleanEnv: Record<string, string> = {
+      ...process.env,
+      MEMESH_DIR: testDir,
+      MEMESH_DB_PATH: dbPath,
+    };
     delete cleanEnv.MEMESH_ENABLE_AGENTIC_ORCHESTRATION;
     let out = '';
     try {

@@ -16,6 +16,9 @@
 
 ---
 
+> [!IMPORTANT]
+> **持續開發中的專案** — 功能會持續更新，版本之間可能會有變動。遇到問題或想要新功能，請[開 issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues)。
+
 ## 問題所在
 
 你的程式開發代理在每次對話之間就會忘記一切。每個架構決策、每個修復的臭蟲、每個失敗的測試、每個代價不菲的教訓，都得重新跟它解釋一遍。Claude Code 每次都從零開始，重新發現舊的限制條件，浪費寶貴的上下文在它本應已知的事情上。
@@ -401,6 +404,34 @@ memesh  # 開啟儀表板 → Settings 分頁
 ```
 
 核心與框架無關。同一邏輯從終端、HTTP 或 MCP 執行。
+
+---
+
+## 升級
+
+Claude Code 的 plugin marketplace 在安裝時把版本釘住，**不會**自動更新。要拿到新版本：
+
+**方法 A — `/plugin` 介面**：先 uninstall `memesh@pcircle-memesh`，再重新安裝。Claude Code 會抓 marketplace 最新版。
+
+**方法 B — 一行指令**（不用點 UI、可重複執行）：
+
+```bash
+# 如果 plugin 已經是 v4.2.5 或更新，腳本已經內建：
+bash ~/.claude/plugins/cache/pcircle-memesh/memesh/<current-version>/scripts/upgrade-plugin.sh
+
+# 如果是 v4.2.5 之前的版本（也就是 v4.2.4 或 v4.2.3），
+# 腳本還沒在你的 plugin 裡，改用 npm-global 的副本：
+bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"
+
+# （這假設你也跑過 `npm install -g @pcircle/memesh`。如果還沒，
+# 現在正好可以一起裝 — 參考上面「安裝路徑一覽」說明為什麼大部分人兩條路徑都裝。）
+```
+
+腳本會 fast-forward marketplace cache、把新版本放進 `~/.claude/plugins/cache/`、安裝 runtime deps，然後把 `installed_plugins.json` 重指向新版本。執行完請重啟 Claude Code 讓 MCP server 重連。
+
+**npm-global 安裝**（`npm install -g @pcircle/memesh`）可以直接 `memesh update` 自動更新。Source checkouts：`git pull && npm install && npm run build`。
+
+Session 開始時，有新版本可下載時會跳一行 banner（每版本每 24 小時節流一次），`memesh doctor` 會回報升級目標版本與對應指令。
 
 ---
 
