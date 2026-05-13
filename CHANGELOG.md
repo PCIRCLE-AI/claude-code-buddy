@@ -2,6 +2,11 @@
 
 All notable changes to MeMesh are documented here.
 
+## [4.2.7] — 2026-05-13
+
+### Added
+- **`memesh doctor` Shell CLI check** (`src/core/doctor.ts`) — new check `Shell CLI on PATH` resolves `memesh` via the user's shell PATH (`which` / `where`) and detects the most common plugin-marketplace gotcha: plugin is installed (MCP + hooks + `/memesh` skill work) but `memesh` is NOT on the shell PATH, so typing `memesh reindex` in a terminal yields `command not found`. WARN on plugin-marketplace installs without a separate shell-PATH `memesh`, with the exact fix command (`npm install -g @pcircle/memesh`) and the clarification that both paths coexist and share the same DB. Informational PASS on `npm-global` (running from the install itself), `source-checkout` (informational only), and any plugin-marketplace install that already has a separate shell-PATH `memesh`. Mirrors the new "Install paths at a glance" section landed in v4.2.6 docs — users who hit the gotcha now get told by doctor instead of having to re-read the README.
+
 ## [4.2.6] — 2026-05-13
 
 ### Fixed
