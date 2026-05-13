@@ -279,6 +279,19 @@ function inspectHookActivity(openDatabaseImpl, closeDatabaseImpl, existsSyncImpl
         catch { }
     }
 }
+function defaultResolveShellMemesh() {
+    try {
+        const cmd = process.platform === 'win32' ? 'where' : 'which';
+        const localRequire = createRequire(import.meta.url);
+        const { execFileSync } = localRequire('child_process');
+        const out = execFileSync(cmd, ['memesh'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+        const first = String(out).split(/\r?\n/).map((s) => s.trim()).find(Boolean);
+        return first || null;
+    }
+    catch {
+        return null;
+    }
+}
 function defaultNativeBindingProbe(packageRoot) {
     try {
         const localRequire = createRequire(pathToFileURL(path.join(packageRoot, 'package.json')).href);
@@ -308,6 +321,26 @@ function inspectNativeBinding(packageRoot, _existsSyncImpl, probeImpl = defaultN
             + 'This is the plugin-marketplace silent-dropout class of bug.', `Run: cd "${packageRoot}" && npm rebuild better-sqlite3   (or "npm install --omit=dev" for a clean reinstall)`);
     }
     return createCheck('native-binding', 'Native SQLite binding', 'fail', `better-sqlite3 failed to load: ${result.message}`, `Run: cd "${packageRoot}" && npm rebuild better-sqlite3`);
+}
+function inspectShellCli(installChannel, packageRoot, resolveShellMemeshImpl) {
+    const shellPath = resolveShellMemeshImpl();
+    const isSameAsCurrent = shellPath ? path.resolve(shellPath).startsWith(path.resolve(packageRoot)) : false;
+    const hasDistinctShellCli = !!shellPath && !isSameAsCurrent;
+    if (installChannel === 'npm-global') {
+        return createCheck('shell-cli', 'Shell CLI on PATH', 'pass', shellPath
+            ? `\`memesh\` resolves to ${shellPath} (npm-global install — terminals across the machine pick it up).`
+            : 'Running from npm-global install — shell access available in this terminal.');
+    }
+    if (hasDistinctShellCli) {
+        return createCheck('shell-cli', 'Shell CLI on PATH', 'pass', `\`memesh\` resolves to ${shellPath} (separate from this install at ${packageRoot}). Both paths coexist and share the same DB.`);
+    }
+    if (installChannel === 'plugin-marketplace') {
+        return createCheck('shell-cli', 'Shell CLI on PATH', 'warn', 'Plugin is installed but `memesh` is not on the shell PATH. Typing `memesh` in a regular terminal will report `command not found`. '
+            + 'Claude Code MCP / hooks / `/memesh` skill still work — this only affects standalone shell usage and other MCP clients (Cursor, Cline, etc.).', 'Run `npm install -g @pcircle/memesh` to add the shell CLI. Both paths coexist; they share the same `~/.memesh/knowledge-graph.db`.');
+    }
+    return createCheck('shell-cli', 'Shell CLI on PATH', 'pass', shellPath
+        ? `\`memesh\` resolves to ${shellPath}.`
+        : `No shell-PATH \`memesh\` detected. If you want terminal access, run \`npm install -g @pcircle/memesh\` (this install is a ${installChannel}, so the check is informational only).`);
 }
 function inspectDashboardArtifact(packageRoot, existsSyncImpl) {
     const dashboardPath = path.join(packageRoot, 'dashboard', 'dist', 'index.html');
@@ -446,7 +479,7 @@ function summarizeOverallStatus(checks) {
     return 'PASS';
 }
 export async function runDoctor(options) {
-    const { packageRoot, packageVersion, probeHttp = false, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, nativeBindingProbeImpl, } = options;
+    const { packageRoot, packageVersion, probeHttp = false, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, nativeBindingProbeImpl, resolveShellMemeshImpl = defaultResolveShellMemesh, } = options;
     const wasDbOpenBeforeUs = isDatabaseOpenImpl();
     const safeCloseDatabaseImpl = wasDbOpenBeforeUs
         ? () => undefined
@@ -535,6 +568,7 @@ export async function runDoctor(options) {
     checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl));
     checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
     checks.push(inspectNativeBinding(packageRoot, existsSyncImpl, nativeBindingProbeImpl));
+    checks.push(inspectShellCli(install, packageRoot, resolveShellMemeshImpl));
     checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));
     const capabilities = detectCapabilitiesImpl();
     checks.push(createCheck('capabilities', 'Capabilities', 'pass', `Search level ${capabilities.searchLevel} (${capabilities.searchLevel === 1 ? 'Smart Mode' : 'Core'}); embeddings: ${capabilities.embeddings}; LLM: ${capabilities.llm ? `${capabilities.llm.provider} (${capabilities.llm.model ?? 'default'})` : 'not configured'}.`));

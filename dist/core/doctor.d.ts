@@ -40,6 +40,7 @@ interface DoctorOptions {
         ok: false;
         message: string;
     };
+    resolveShellMemeshImpl?: () => string | null;
 }
 export declare function runDoctor(options: DoctorOptions): Promise<DoctorResult>;
 export declare function formatDoctorReport(result: DoctorResult, packageVersion: string): string[];
