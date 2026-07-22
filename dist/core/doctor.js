@@ -12,6 +12,15 @@ import { getCurrentInstallChannel, getInstallChannelSupport } from './install-ch
 import { getInstallRecord } from './install-id.js';
 import { getDbPath, memeshDir } from './paths.js';
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
+const ONNX_CACHED_WEIGHTS = ['models', 'Xenova', 'all-MiniLM-L6-v2', 'onnx', 'model.onnx'];
+function isOnnxModelCached(existsSyncImpl) {
+    try {
+        return existsSyncImpl(path.join(memeshDir(), ...ONNX_CACHED_WEIGHTS));
+    }
+    catch {
+        return false;
+    }
+}
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 const LOCALE_README_FILES = [
     'README.de.md',
@@ -495,7 +504,19 @@ async function inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyn
         return createCheck('config_parse', 'Config parses', 'fail', `${configPath} could not be read or parsed (${msg}). Every setting in it — LLM provider, fallbacks, embedder — is being silently ignored right now.`, `Fix the JSON or remove the file to fall back to defaults: mv ${configPath} ${configPath}.bak`);
     }
 }
-async function inspectEmbeddingProbe(capabilities, embedTextImpl) {
+async function inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl, existsSyncImpl) {
+    if (capabilities.embeddings === 'tfidf') {
+        return createInfo('embeddings_probe', 'Embeddings work', 'No neural embedder configured — recall runs on FTS5 keyword search alone. That is a supported mode, not a fault.');
+    }
+    if (!probeCapabilities) {
+        const isLocal = capabilities.embeddings === 'onnx';
+        if (!isLocal) {
+            return createInfo('embeddings_probe', 'Embeddings work', `NOT VERIFIED. Config names "${capabilities.embeddings}", but generating a test embedding is a network call (billed on hosted providers) so it was not made — a revoked key or an unreachable host would look identical to a healthy setup here.`, 'Run: memesh doctor --probe   (generates one test embedding to confirm)');
+        }
+        if (!isOnnxModelCached(existsSyncImpl)) {
+            return createInfo('embeddings_probe', 'Embeddings work', `NOT VERIFIED. Config names "onnx" but the model is not in the local cache yet, and probing would download ~90 MB — which a diagnostic command must not do on its own.`, 'Run: memesh doctor --probe   (downloads the model once, then verifies)');
+        }
+    }
     try {
         const vector = await Promise.race([
             embedTextImpl('memesh doctor embedding probe'),
@@ -636,7 +657,7 @@ export async function runDoctor(options) {
     const capabilities = detectCapabilitiesImpl();
     checks.push(createInfo('capabilities', 'Capabilities (configured)', `Search level ${capabilities.searchLevel} (${capabilities.searchLevel === 1 ? 'Smart Mode' : 'Core'}); embeddings: ${capabilities.embeddings}; LLM: ${capabilities.llm ? `${capabilities.llm.provider} (${capabilities.llm.model ?? 'default'})` : 'not configured'}. Configured values only — see the probe rows below for what actually works.`));
     checks.push(await inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyncImpl));
-    checks.push(await inspectEmbeddingProbe(capabilities, embedTextImpl));
+    checks.push(await inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl, existsSyncImpl));
     checks.push(await inspectLlmProbe(capabilities, probeCapabilities, probeProviderImpl));
     checks.push(await inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSupport));
     try {

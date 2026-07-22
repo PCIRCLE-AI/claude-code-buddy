@@ -3,8 +3,30 @@ import os from 'os';
 import path from 'path';
 import { createHash } from 'crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { formatDoctorReport, runDoctor } from '../../src/core/doctor.js';
+import { formatDoctorReport, runDoctor as runDoctorImpl } from '../../src/core/doctor.js';
 import type { UpdateCheck } from '../../src/core/version-check.js';
+
+/**
+ * Stand-in for the real embedder. 384 dims = all-MiniLM-L6-v2's output.
+ *
+ * Every doctor test MUST inject this. The real `embedText()` builds a
+ * module-level ONNX pipeline singleton that downloads ~90 MB of model
+ * weights into whatever MEMESH_DIR is set at that moment and never releases
+ * its file handles. In this suite MEMESH_DIR points at a per-test temp dir,
+ * so `afterEach`'s `rmSync` then hits ENOTEMPTY on Windows — which is how
+ * this landed as a red CI job on windows-latest while every other platform
+ * stayed green.
+ */
+const stubEmbedText = async (): Promise<Float32Array> => new Float32Array(384);
+
+/**
+ * All tests go through this wrapper so no call site can accidentally reach
+ * the real embedder. A test that wants different embedding behaviour passes
+ * its own `embedTextImpl` — the spread means it wins.
+ */
+function runDoctor(options: Parameters<typeof runDoctorImpl>[0]) {
+  return runDoctorImpl({ embedTextImpl: stubEmbedText, ...options });
+}
 
 function makeUpdateCheck(overrides: Partial<UpdateCheck> = {}): UpdateCheck {
   return {
@@ -1324,5 +1346,207 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
     const cliCheck = result.checks.find((c) => c.id === 'shell-cli');
     expect(cliCheck?.status).toBe('pass');
     expect(cliCheck?.summary).toContain('informational');
+  });
+});
+
+/**
+ * The embedding probe row.
+ *
+ * It shipped with no tests at all, which is how it reached CI as a job that
+ * downloaded ~90 MB of model weights mid-suite. These lock in both halves of
+ * the contract: it must really probe when probing is cheap, and it must
+ * refuse to probe — visibly, never silently green — when probing would cost
+ * the user a download or a billed API call.
+ */
+describe('doctor: embeddings probe', () => {
+  function baseOptions(packageRoot: string, embeddings: string) {
+    return {
+      packageRoot,
+      packageVersion: '4.2.7',
+      openDatabaseImpl: () => makeDatabase(3) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({ searchLevel: 1, llm: null, embeddings }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'source-checkout',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'source-checkout', label: 'source checkout', canSelfUpdate: false,
+        recommendedCommand: null, guidance: '',
+      }),
+      nativeBindingProbeImpl: () => ({ ok: true }),
+    } as unknown as Parameters<typeof runDoctorImpl>[0];
+  }
+
+  /** Isolate MEMESH_DIR so the ONNX cache lookup sees only what we put there. */
+  function withMemeshDir(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-embed-probe-'));
+    tempRoots.push(dir);
+    memeshDirOverrides.push(process.env.MEMESH_DIR);
+    process.env.MEMESH_DIR = dir;
+    return dir;
+  }
+
+  const memeshDirOverrides: (string | undefined)[] = [];
+
+  afterEach(() => {
+    for (const prev of memeshDirOverrides.splice(0)) {
+      if (prev === undefined) delete process.env.MEMESH_DIR;
+      else process.env.MEMESH_DIR = prev;
+    }
+  });
+
+  function cacheOnnxModel(memeshDir: string): void {
+    const weights = path.join(memeshDir, 'models', 'Xenova', 'all-MiniLM-L6-v2', 'onnx', 'model.onnx');
+    fs.mkdirSync(path.dirname(weights), { recursive: true });
+    fs.writeFileSync(weights, 'not really onnx, only its presence is read');
+  }
+
+  function findProbe(result: { checks: { id: string }[] }) {
+    return result.checks.find((c) => c.id === 'embeddings_probe') as
+      | { id: string; status: string; summary: string; fix?: string; informational?: boolean }
+      | undefined;
+  }
+
+  it('really probes when the local ONNX model is already cached (no --probe needed)', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const memeshDir = withMemeshDir();
+    cacheOnnxModel(memeshDir);
+
+    let called = 0;
+    const result = await runDoctorImpl({
+      ...baseOptions(packageRoot, 'onnx'),
+      embedTextImpl: async () => { called++; return new Float32Array(384); },
+    });
+
+    const check = findProbe(result)!;
+    expect(called).toBe(1);
+    expect(check.status).toBe('pass');
+    expect(check.informational).toBeFalsy();
+    expect(check.summary).toContain('384-dim');
+  });
+
+  it('does NOT download: cold ONNX cache reports NOT VERIFIED instead of probing', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    withMemeshDir(); // deliberately left empty — no cached weights
+
+    let called = 0;
+    const result = await runDoctorImpl({
+      ...baseOptions(packageRoot, 'onnx'),
+      embedTextImpl: async () => { called++; return new Float32Array(384); },
+    });
+
+    const check = findProbe(result)!;
+    expect(called).toBe(0);
+    expect(check.informational).toBe(true);
+    expect(check.summary).toContain('NOT VERIFIED');
+    expect(check.summary).toContain('90 MB');
+    expect(check.fix).toContain('--probe');
+  });
+
+  it('does NOT bill the user: a BYOK provider is not probed without --probe', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    withMemeshDir();
+
+    let called = 0;
+    const result = await runDoctorImpl({
+      ...baseOptions(packageRoot, 'openai'),
+      embedTextImpl: async () => { called++; return new Float32Array(1536); },
+    });
+
+    const check = findProbe(result)!;
+    expect(called).toBe(0);
+    expect(check.informational).toBe(true);
+    expect(check.summary).toContain('NOT VERIFIED');
+    expect(check.fix).toContain('memesh doctor --probe');
+  });
+
+  it('probes a BYOK provider once --probe is given', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    withMemeshDir();
+
+    let called = 0;
+    const result = await runDoctorImpl({
+      ...baseOptions(packageRoot, 'openai'),
+      probeCapabilities: true,
+      embedTextImpl: async () => { called++; return new Float32Array(1536); },
+    });
+
+    const check = findProbe(result)!;
+    expect(called).toBe(1);
+    expect(check.status).toBe('pass');
+    expect(check.informational).toBeFalsy();
+    expect(check.summary).toContain('1536-dim');
+  });
+
+  it('warns when a probed embedder returns nothing (the silent-degradation case)', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    withMemeshDir();
+
+    const result = await runDoctorImpl({
+      ...baseOptions(packageRoot, 'openai'),
+      probeCapabilities: true,
+      embedTextImpl: async () => null,
+    });
+
+    const check = findProbe(result)!;
+    expect(check.status).toBe('warn');
+    expect(check.informational).toBeFalsy();
+    expect(check.summary).toContain('returned nothing');
+  });
+
+  it('warns when a probed embedder throws', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    withMemeshDir();
+
+    const result = await runDoctorImpl({
+      ...baseOptions(packageRoot, 'openai'),
+      probeCapabilities: true,
+      embedTextImpl: async () => { throw new Error('401 invalid api key'); },
+    });
+
+    const check = findProbe(result)!;
+    expect(check.status).toBe('warn');
+    expect(check.summary).toContain('401 invalid api key');
+  });
+
+  it('reports no-embedder as informational, not as a failure', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    withMemeshDir();
+
+    let called = 0;
+    const result = await runDoctorImpl({
+      ...baseOptions(packageRoot, 'tfidf'),
+      embedTextImpl: async () => { called++; return new Float32Array(384); },
+    });
+
+    const check = findProbe(result)!;
+    expect(called).toBe(0);
+    expect(check.informational).toBe(true);
+    expect(check.status).toBe('pass');
+    expect(check.summary).toContain('FTS5');
+  });
+
+  it('a half-finished model download reads as cold, not cached', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const memeshDir = withMemeshDir();
+    // Model directory exists but the weights file never finished writing.
+    fs.mkdirSync(path.join(memeshDir, 'models', 'Xenova', 'all-MiniLM-L6-v2', 'onnx'), { recursive: true });
+
+    let called = 0;
+    const result = await runDoctorImpl({
+      ...baseOptions(packageRoot, 'onnx'),
+      embedTextImpl: async () => { called++; return new Float32Array(384); },
+    });
+
+    expect(called).toBe(0);
+    expect(findProbe(result)!.summary).toContain('NOT VERIFIED');
   });
 });

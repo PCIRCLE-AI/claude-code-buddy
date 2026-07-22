@@ -106,6 +106,30 @@ interface DoctorOptions {
  */
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
 
+/**
+ * Weights file the local ONNX embedder loads, relative to `memeshDir()`.
+ *
+ * Mirrors `embedder.ts → getOnnxPipeline()`, which sets
+ * `env.cacheDir = join(memeshDir(), 'models')` and loads
+ * `Xenova/all-MiniLM-L6-v2`. Pointing at the leaf weights file rather than
+ * the model directory means a half-finished download reads as "not cached"
+ * instead of "cached", which is the honest answer.
+ *
+ * If the embedder ever changes model or cache dir, this must move with it —
+ * a stale path here makes doctor claim a cold cache forever and silently
+ * stop probing.
+ */
+const ONNX_CACHED_WEIGHTS = ['models', 'Xenova', 'all-MiniLM-L6-v2', 'onnx', 'model.onnx'];
+
+function isOnnxModelCached(existsSyncImpl: typeof fs.existsSync): boolean {
+  try {
+    return existsSyncImpl(path.join(memeshDir(), ...ONNX_CACHED_WEIGHTS));
+  } catch {
+    // An unreadable MEMESH_DIR is itself a reason not to start a download.
+    return false;
+  }
+}
+
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 
 // Locale READMEs that MUST stay in lockstep with README.md. Order matters
@@ -1221,11 +1245,59 @@ async function inspectConfigParse(
  * to a file. A blocked model download, a corrupt `~/.memesh/models` cache,
  * a bad BYOK key or a dimension mismatch all leave the config untouched
  * while every vector write and semantic recall silently returns nothing.
+ *
+ * The probe is therefore real — but it must never have side effects the
+ * user did not ask a *diagnostic* command for. Two cases are gated behind
+ * `--probe`:
+ *
+ *   - a BYOK provider (openai / ollama / anthropic) is a network call, and
+ *     for hosted providers a billed one;
+ *   - local ONNX with a cold cache would download ~90 MB of model weights.
+ *     `memesh doctor` is what you reach for when the network is already
+ *     misbehaving; it must not be the command that starts a large download.
+ *
+ * When the probe is skipped the row says NOT VERIFIED and names the reason.
+ * That is not the hardcoded-'pass' failure this row was rewritten to fix —
+ * the point of that fix was that "not verified" and "verified working" must
+ * never look the same, which is exactly what this preserves. Same shape as
+ * `inspectLlmProbe`.
  */
 async function inspectEmbeddingProbe(
   capabilities: Capabilities,
+  probeCapabilities: boolean,
   embedTextImpl: (text: string) => Promise<Float32Array | null>,
+  existsSyncImpl: typeof fs.existsSync,
 ): Promise<DoctorCheck> {
+  if (capabilities.embeddings === 'tfidf') {
+    return createInfo(
+      'embeddings_probe',
+      'Embeddings work',
+      'No neural embedder configured — recall runs on FTS5 keyword search alone. That is a supported mode, not a fault.',
+    );
+  }
+
+  if (!probeCapabilities) {
+    const isLocal = capabilities.embeddings === 'onnx';
+    if (!isLocal) {
+      return createInfo(
+        'embeddings_probe',
+        'Embeddings work',
+        `NOT VERIFIED. Config names "${capabilities.embeddings}", but generating a test embedding is a network call (billed on hosted providers) so it was not made — a revoked key or an unreachable host would look identical to a healthy setup here.`,
+        'Run: memesh doctor --probe   (generates one test embedding to confirm)',
+      );
+    }
+    if (!isOnnxModelCached(existsSyncImpl)) {
+      return createInfo(
+        'embeddings_probe',
+        'Embeddings work',
+        `NOT VERIFIED. Config names "onnx" but the model is not in the local cache yet, and probing would download ~90 MB — which a diagnostic command must not do on its own.`,
+        'Run: memesh doctor --probe   (downloads the model once, then verifies)',
+      );
+    }
+    // Local model already on disk: probing costs a few hundred ms and no
+    // network, so verify for real even without --probe.
+  }
+
   try {
     // Bound the probe. A BYOK embedder is a network call and the local ONNX
     // path can block on a cold model load, so an unbounded await turns
@@ -1501,7 +1573,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   );
 
   checks.push(await inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyncImpl));
-  checks.push(await inspectEmbeddingProbe(capabilities, embedTextImpl));
+  checks.push(await inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl, existsSyncImpl));
   checks.push(await inspectLlmProbe(capabilities, probeCapabilities, probeProviderImpl));
 
   checks.push(await inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSupport));
