@@ -939,6 +939,8 @@ memesh dream reject <id> [--reason <text>]
 
 **`--validate`** on `dream run` enables the optional second-pass LLM validator (`src/core/digest-validator.ts`) which cross-checks the proposed digest's claims against source observations and attaches `validation_warnings` to soften'd proposals. Doubles per-proposal LLM cost; default off.
 
+Validator verdicts are `pass` | `soften` | `reject` | `unavailable`. Only `reject` skips a proposal and only `soften` annotates one. `unavailable` means the validator could not run at all (LLM unreachable, fallback chain exhausted) — it is deliberately distinct from `pass`, which asserts that every claim was checked and supported. Both let the proposal through, so an unreachable validator never costs you a real digest, but a proposal validated by nothing is no longer indistinguishable from one that passed a clean check.
+
 ### memesh-view
 
 Generate and open an interactive HTML dashboard for exploring stored knowledge.
