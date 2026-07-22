@@ -67,4 +67,16 @@ export default tseslint.config(
       'no-control-regex': 'warn',
     },
   },
+  {
+    // The core engine is where "fake working" lives: a silent `catch {}` here
+    // turns a real failure (corrupt config, unreadable transcript, dead LLM
+    // call) into an all-green no-op. In src/core an empty catch must carry a
+    // one-line reason — `catch { /* why */ }` satisfies the rule, `catch {}`
+    // does not. This makes every swallowed error a decision someone wrote down
+    // rather than an accident. See docs prevention rule #4 in the audit.
+    files: ['src/core/**/*.ts'],
+    rules: {
+      'no-empty': ['error', { allowEmptyCatch: false }],
+    },
+  },
 );

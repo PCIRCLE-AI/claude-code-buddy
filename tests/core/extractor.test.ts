@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -271,6 +271,39 @@ describe('parseTranscript', () => {
     expect(result.filesEdited).toEqual([]);
     expect(result.bashCommands).toEqual([]);
     expect(result.errorsEncountered).toEqual([]);
+  });
+
+  it('a MISSING transcript is silent — that is the normal "not written yet" case', () => {
+    const stderr: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((c: any) => {
+      stderr.push(String(c)); return true;
+    });
+    try {
+      parseTranscript(path.join(tmpDir, 'never-created.jsonl'));
+      expect(stderr.join('')).toBe('');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('an UNREADABLE transcript (exists but errors) traces to stderr — extraction silently emptied otherwise', () => {
+    // A directory at the transcript path makes readFileSync throw EISDIR
+    // (not ENOENT), standing in for a permission/IO fault on a real file.
+    const p = path.join(tmpDir, 'is-a-dir.jsonl');
+    fs.mkdirSync(p);
+    const stderr: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((c: any) => {
+      stderr.push(String(c)); return true;
+    });
+    try {
+      const result = parseTranscript(p);
+      expect(result.toolCallCount).toBe(0); // still graceful
+      const trace = stderr.join('');
+      expect(trace).toContain('[memesh extractor]');
+      expect(trace).toContain('unreadable');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('skips malformed JSONL lines without throwing', () => {

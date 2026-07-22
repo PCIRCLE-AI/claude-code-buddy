@@ -61,6 +61,8 @@ export function recordTelemetry(attempts: LLMAttempt[], opts: RecordTelemetryOpt
   try {
     db = opts.db ?? getDatabase();
   } catch {
+    // No DB available (e.g. hook process before openDatabase): telemetry is
+    // best-effort and must never block the LLM flow it observes. Drop silently.
     return;
   }
   // Mark every attempt as fallback_used=1 except the primary (index 0).

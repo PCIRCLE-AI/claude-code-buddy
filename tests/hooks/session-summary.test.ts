@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
@@ -41,6 +41,44 @@ describe('Feature: Session Summary (Stop Hook)', () => {
       return err.stdout || '';
     }
   }
+
+  // Like runHook but captures stderr regardless of exit code (execFileSync
+  // only surfaces stderr when the process throws; the hook exits 0).
+  function runHookCapturingStderr(input: object, env: Record<string, string> = {}): { stderr: string } {
+    const hookPath = path.resolve('scripts/hooks/session-summary.js');
+    const res = spawnSync('node', [hookPath], {
+      input: JSON.stringify(input),
+      env: { ...process.env, MEMESH_DB_PATH: dbPath, MEMESH_AUTO_CAPTURE: undefined, ...env },
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    return { stderr: res.stderr || '' };
+  }
+
+  it('Scenario: an unreadable transcript traces to stderr instead of silently emptying capture', () => {
+    // A directory at the transcript path makes readFileSync throw EISDIR
+    // (not ENOENT) — stands in for a permission/IO fault on a real file.
+    const dirAsTranscript = path.join(testDir, 'transcript-is-a-dir');
+    fs.mkdirSync(dirAsTranscript);
+    const { stderr } = runHookCapturingStderr({
+      session_id: 'test-unreadable',
+      transcript_path: dirAsTranscript,
+      cwd: '/tmp/myproject',
+      stop_reason: 'end_turn',
+    });
+    expect(stderr).toContain('[memesh session-summary]');
+    expect(stderr).toContain('unreadable');
+  });
+
+  it('Scenario: a MISSING transcript does not emit the unreadable trace (normal case)', () => {
+    const { stderr } = runHookCapturingStderr({
+      session_id: 'test-missing',
+      transcript_path: path.join(testDir, 'never-created.jsonl'),
+      cwd: '/tmp/myproject',
+      stop_reason: 'end_turn',
+    });
+    expect(stderr).not.toContain('unreadable');
+  });
 
   function openDb(): InstanceType<typeof import('better-sqlite3')> {
     const Database = require('better-sqlite3');

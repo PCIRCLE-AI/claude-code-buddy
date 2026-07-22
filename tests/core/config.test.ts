@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import {
   maskApiKey,
   detectCapabilities,
@@ -255,6 +258,60 @@ describe('Config: read/write/update (isolated temp dir)', () => {
     } finally {
       writeConfig(originalConfig);
     }
+  });
+});
+
+// ── Corrupt-config visibility (fake-working audit) ────────────────────────────
+
+describe('Config: a corrupt config file is traced, not silently ignored', () => {
+  // Isolate every read to a throwaway MEMESH_DIR — this must NEVER touch the
+  // developer's real ~/.memesh/config.json.
+  let dir: string;
+  let savedMemeshDir: string | undefined;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  let written: string[];
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cfg-corrupt-'));
+    savedMemeshDir = process.env.MEMESH_DIR;
+    process.env.MEMESH_DIR = dir;
+    written = [];
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: any) => {
+      written.push(String(chunk));
+      return true;
+    });
+  });
+
+  afterEach(() => {
+    stderrSpy.mockRestore();
+    if (savedMemeshDir === undefined) delete process.env.MEMESH_DIR;
+    else process.env.MEMESH_DIR = savedMemeshDir;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('returns {} AND writes a stderr trace naming the file when JSON is corrupt', () => {
+    fs.writeFileSync(path.join(dir, 'config.json'), '{ not valid json');
+    const result = readConfig();
+    expect(result).toEqual({});
+    const trace = written.join('');
+    expect(trace).toContain('[memesh config]');
+    expect(trace).toContain('config.json');
+    expect(trace).toContain('Smart Mode is off');
+  });
+
+  it('a MISSING file is silent (normal Core Mode, not an error)', () => {
+    const result = readConfig();
+    expect(result).toEqual({});
+    expect(written.join('')).toBe('');
+  });
+
+  it('does not flood: repeated reads of the same corrupt file trace once', () => {
+    fs.writeFileSync(path.join(dir, 'config.json'), 'still not json');
+    readConfig();
+    readConfig();
+    readConfig();
+    const hits = written.filter((w) => w.includes('[memesh config]'));
+    expect(hits).toHaveLength(1);
   });
 });
 

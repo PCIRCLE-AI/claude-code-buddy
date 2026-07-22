@@ -79,8 +79,31 @@ Analyze the root cause and return a JSON object (ONLY the JSON, no explanation):
         opts.onAttempt?.(attempts);
       },
     });
-    return parseLesson(text);
-  } catch {
+    const lesson = parseLesson(text);
+    if (!lesson) {
+      // The transport call succeeded — telemetry above recorded `ok`, truthfully
+      // — but the model's answer was not a usable lesson JSON. Without this
+      // trace the self-improvement loop dies invisibly: every session runs the
+      // analysis, spends the tokens, and produces no lesson, while telemetry
+      // shows healthy calls. Surface the disconnect between "call worked" and
+      // "we got something usable".
+      try {
+        const preview = (text ?? '').trim().slice(0, 120).replace(/\s+/g, ' ');
+        process.stderr.write(
+          `[memesh failure-analyzer] LLM answered but the reply was not a usable lesson ` +
+            `(no valid JSON with error+fix); no lesson stored. Reply preview: "${preview}"\n`,
+        );
+      } catch { /* stderr must never throw the caller */ }
+    }
+    return lesson;
+  } catch (err) {
+    // Every provider in the failover chain threw. The loop that turns failures
+    // into lessons is off for this run; trace so a persistent auth/host problem
+    // is visible rather than a silently empty Insights tab.
+    const msg = err instanceof Error ? err.message : String(err);
+    try {
+      process.stderr.write(`[memesh failure-analyzer] analysis call failed (${msg}); no lesson stored.\n`);
+    } catch { /* stderr must never throw the caller */ }
     return null;
   }
 }

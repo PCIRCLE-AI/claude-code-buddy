@@ -116,12 +116,36 @@ function configFilePath(): string {
 
 // --- Read/Write ---
 
+// Dedup key for the corrupt-config warning. readConfig() runs on a hot path
+// (every hook invocation, every HTTP request), so a genuinely corrupt file
+// must trace ONCE per (path, error) rather than flood stderr on every call.
+let lastConfigReadWarning: string | null = null;
+
 export function readConfig(): MeMeshConfig {
+  const p = configFilePath();
+  // A missing file is the normal Core-Mode state, not an error.
+  if (!fs.existsSync(p)) return {};
   try {
-    const p = configFilePath();
-    if (!fs.existsSync(p)) return {};
     return JSON.parse(fs.readFileSync(p, 'utf8'));
-  } catch {
+  } catch (err) {
+    // The file EXISTS but could not be read or parsed: corrupt JSON, a bad
+    // permission bit, a truncated write. Returning {} here silently disables
+    // every Smart-Mode feature AND drops a BYOK embedder back to 384-dim ONNX
+    // (a dimension mismatch against existing vectors) — all with no signal.
+    // Trace so the cause is visible; still return {} so a broken config never
+    // crashes the caller.
+    const msg = err instanceof Error ? err.message : String(err);
+    const key = `${p}::${msg}`;
+    if (key !== lastConfigReadWarning) {
+      lastConfigReadWarning = key;
+      try {
+        process.stderr.write(
+          `[memesh config] ${p} exists but could not be read/parsed (${msg}). ` +
+            `Every setting in it — LLM provider, fallbacks, embedder — is being ignored, ` +
+            `so Smart Mode is off until this is fixed.\n`,
+        );
+      } catch { /* stderr must never throw the caller */ }
+    }
     return {};
   }
 }

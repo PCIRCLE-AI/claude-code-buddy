@@ -39,9 +39,23 @@ Analyze the root cause and return a JSON object (ONLY the JSON, no explanation):
                 opts.onAttempt?.(attempts);
             },
         });
-        return parseLesson(text);
+        const lesson = parseLesson(text);
+        if (!lesson) {
+            try {
+                const preview = (text ?? '').trim().slice(0, 120).replace(/\s+/g, ' ');
+                process.stderr.write(`[memesh failure-analyzer] LLM answered but the reply was not a usable lesson ` +
+                    `(no valid JSON with error+fix); no lesson stored. Reply preview: "${preview}"\n`);
+            }
+            catch { }
+        }
+        return lesson;
     }
-    catch {
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        try {
+            process.stderr.write(`[memesh failure-analyzer] analysis call failed (${msg}); no lesson stored.\n`);
+        }
+        catch { }
         return null;
     }
 }

@@ -66,7 +66,16 @@ export function parseTranscript(transcriptPath) {
             }
         }
     }
-    catch {
+    catch (err) {
+        const nodeErr = err;
+        if (nodeErr?.code !== 'ENOENT') {
+            const msg = err instanceof Error ? err.message : String(err);
+            try {
+                process.stderr.write(`[memesh extractor] transcript ${transcriptPath} unreadable (${msg}); ` +
+                    `session knowledge extraction skipped this run.\n`);
+            }
+            catch { }
+        }
     }
     return {
         filesEdited: [...filesEdited],

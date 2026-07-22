@@ -126,11 +126,23 @@ function parseTranscript(transcriptPath) {
         // the prior version) that signalled review fatigue more than
         // working logic.
       } catch {
-        // Skip malformed JSONL lines
+        // Skip malformed JSONL lines — benign, per-line, deliberately not traced.
       }
     }
-  } catch {
-    // Transcript unreadable — return empty results
+  } catch (err) {
+    // The transcript file itself could not be read, which empties this
+    // session's entire capture — filesEdited/errors/toolCallCount all return
+    // zero, so downstream `toolCallCount < 3` bails and no session insight,
+    // failure analysis or lesson is produced. An absent file is the normal
+    // "not written yet" case; anything else is a real fault worth a trace.
+    if (err?.code !== 'ENOENT') {
+      try {
+        process.stderr.write(
+          `[memesh session-summary] transcript ${transcriptPath} unreadable ` +
+            `(${err?.message || err}); session capture skipped this run.\n`,
+        );
+      } catch { /* stderr must never throw */ }
+    }
   }
 
   return { filesEdited: [...filesEdited], bashCommands, errorsEncountered, toolCallCount };

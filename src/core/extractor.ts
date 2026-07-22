@@ -133,11 +133,26 @@ export function parseTranscript(transcriptPath: string): {
           }
         }
       } catch {
-        // Skip malformed JSONL lines
+        // Skip malformed JSONL lines — one bad line must not abort the
+        // whole transcript. Benign and per-line, so deliberately not traced.
       }
     }
-  } catch {
-    // Transcript unreadable — return empty results
+  } catch (err) {
+    // The transcript file itself could not be read, which stops ALL session
+    // knowledge extraction (files edited, errors, tool counts) — the input to
+    // auto-capture, failure analysis and lessons. An absent file is the normal
+    // "not written yet" case; anything else (permission, I/O) is a real fault
+    // worth a trace, since it silently empties every downstream write flow.
+    const nodeErr = err as NodeJS.ErrnoException;
+    if (nodeErr?.code !== 'ENOENT') {
+      const msg = err instanceof Error ? err.message : String(err);
+      try {
+        process.stderr.write(
+          `[memesh extractor] transcript ${transcriptPath} unreadable (${msg}); ` +
+            `session knowledge extraction skipped this run.\n`,
+        );
+      } catch { /* stderr must never throw the caller */ }
+    }
   }
 
   return {

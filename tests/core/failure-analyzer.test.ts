@@ -1,4 +1,67 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+
+// Control what the LLM "returns" so we can drive the two silent paths the
+// fake-working audit flagged: (1) the call throws, (2) the call succeeds but
+// the reply is not usable lesson JSON. Both used to return null with no signal.
+const callLLMMock = vi.fn();
+vi.mock('../../src/core/llm-client.js', () => ({
+  callLLM: (...args: unknown[]) => callLLMMock(...args),
+}));
+vi.mock('../../src/core/llm-telemetry.js', () => ({
+  recordTelemetry: () => {},
+}));
+
+describe('Failure Analyzer: unusable results are traced, not silent', () => {
+  let stderr: string[];
+  let spy: ReturnType<typeof vi.spyOn>;
+
+  afterEach(() => {
+    spy?.mockRestore();
+    callLLMMock.mockReset();
+  });
+
+  function captureStderr() {
+    stderr = [];
+    spy = vi.spyOn(process.stderr, 'write').mockImplementation((c: any) => {
+      stderr.push(String(c));
+      return true;
+    });
+  }
+
+  it('traces when the LLM answers but the reply is not usable lesson JSON', async () => {
+    callLLMMock.mockResolvedValue('Sure! Here is my analysis in prose, no JSON at all.');
+    captureStderr();
+    const { analyzeFailure } = await import('../../src/core/failure-analyzer.js');
+    const result = await analyzeFailure(['TypeError: x'], ['a.ts'], { provider: 'anthropic' });
+    expect(result).toBeNull();
+    const trace = stderr.join('');
+    expect(trace).toContain('[memesh failure-analyzer]');
+    expect(trace).toContain('not a usable lesson');
+  });
+
+  it('traces when every provider throws', async () => {
+    callLLMMock.mockRejectedValue(new Error('401 all providers failed'));
+    captureStderr();
+    const { analyzeFailure } = await import('../../src/core/failure-analyzer.js');
+    const result = await analyzeFailure(['TypeError: x'], ['a.ts'], { provider: 'anthropic' });
+    expect(result).toBeNull();
+    const trace = stderr.join('');
+    expect(trace).toContain('[memesh failure-analyzer]');
+    expect(trace).toContain('401 all providers failed');
+  });
+
+  it('does NOT trace on a healthy parse (usable JSON → lesson, silence)', async () => {
+    callLLMMock.mockResolvedValue(JSON.stringify({
+      error: 'TypeError on undefined', rootCause: 'missing guard', fix: 'added guard',
+      prevention: 'validate input', errorPattern: 'null-reference', fixPattern: 'type-guard', severity: 'major',
+    }));
+    captureStderr();
+    const { analyzeFailure } = await import('../../src/core/failure-analyzer.js');
+    const result = await analyzeFailure(['TypeError: x'], ['a.ts'], { provider: 'anthropic' });
+    expect(result).not.toBeNull();
+    expect(stderr.join('')).toBe('');
+  });
+});
 
 describe('Failure Analyzer', () => {
   it('exports analyzeFailure function', async () => {
