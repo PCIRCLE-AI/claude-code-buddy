@@ -13,6 +13,7 @@ import {
   getDbPath,
   getMemeshDirFromDbPath,
   getProjectName,
+  importFromPluginRoot,
   isAgenticOrchestrationEnabled,
   isTrustedForAutoContext,
   readUpdateCheckCache,
@@ -896,8 +897,8 @@ process.stdin.on('end', async () => {
       // F5: derive pluginRoot strictly from this file's location.
       // See `resolvePluginRoot` for the full reasoning.
       const pluginRoot = resolvePluginRoot(import.meta.url);
-      const dbMod = await import(join(pluginRoot, 'dist/db.js'));
-      const lifecycleMod = await import(join(pluginRoot, 'dist/core/lifecycle.js'));
+      const dbMod = await importFromPluginRoot(pluginRoot, 'dist/db.js');
+      const lifecycleMod = await importFromPluginRoot(pluginRoot, 'dist/core/lifecycle.js');
       dbMod.openDatabase();
       try {
         lifecycleMod.compressWeeklyNoise(dbMod.getDatabase());

@@ -6,6 +6,7 @@ import { pathToFileURL } from 'url';
 import {
   resolvePluginRoot,
   readHookConfig,
+  importFromPluginRoot,
   // @ts-ignore — _shared.js is JS, not TS
 } from '../../scripts/hooks/_shared.js';
 
@@ -53,6 +54,56 @@ describe('resolvePluginRoot — three dirname hops to package root', () => {
     const hookPath = path.join(repoRoot, 'scripts', 'hooks', 'session-summary.js');
     const computed = resolvePluginRoot(pathToFileURL(hookPath).toString());
     expect(computed).toBe(repoRoot);
+  });
+});
+
+describe('hook → dist dynamic imports must be Windows-safe', () => {
+  // Root cause of a 100%-Windows silent failure: ESM import() takes a URL,
+  // and `import(join(pluginRoot, 'dist/db.js'))` passes an absolute path.
+  // On POSIX it works by luck (leading '/'); on Windows 'D:\...' is read as
+  // a 'd:' scheme and throws, killing LLM failure analysis, lesson creation,
+  // dream auto-trigger and auto-decay — traced to stderr only, so doctor and
+  // CI on macOS/Linux stayed green. This gate makes the discipline structural
+  // instead of per-site: any hook that hand-rolls import(join(...)) fails here.
+  const hooksDir = path.resolve(__dirname, '..', '..', 'scripts', 'hooks');
+
+  // import(<expr>) where the argument begins with join(/path.join( — i.e. a
+  // filesystem path rather than a URL. The sanctioned form is
+  // importFromPluginRoot(...) or import(pathToFileURL(...).href).
+  const RAW_PATH_IMPORT = /\bimport\(\s*(?:path\.)?join\(/;
+
+  const hookFiles = fs
+    .readdirSync(hooksDir)
+    .filter((f) => f.endsWith('.js'));
+
+  it('covers every shipped hook (guard is not vacuously empty)', () => {
+    expect(hookFiles.length).toBeGreaterThanOrEqual(7);
+  });
+
+  for (const file of hookFiles) {
+    it(`${file} uses no raw-path dynamic import()`, () => {
+      const src = fs.readFileSync(path.join(hooksDir, file), 'utf8');
+      const offending = src
+        .split('\n')
+        .map((line, i) => ({ line, n: i + 1 }))
+        .filter(({ line }) => RAW_PATH_IMPORT.test(line));
+      expect(
+        offending,
+        `${file} has import(join(...)) — use importFromPluginRoot() so Windows ` +
+          `('D:\\...') isn't rejected as a 'd:' URL scheme:\n` +
+          offending.map((o) => `  L${o.n}: ${o.line.trim()}`).join('\n'),
+      ).toEqual([]);
+    });
+  }
+
+  it('importFromPluginRoot loads a real module cross-platform', async () => {
+    // Prove the helper actually resolves + loads, using this repo as its own
+    // plugin root and a dist module that exists after `npm run build`. If dist
+    // is absent (pre-build source checkout), skip rather than false-fail.
+    const repoRoot = path.resolve(__dirname, '..', '..');
+    if (!fs.existsSync(path.join(repoRoot, 'dist', 'core', 'config.js'))) return;
+    const mod = await importFromPluginRoot(repoRoot, 'dist/core/config.js');
+    expect(typeof mod.readConfig).toBe('function');
   });
 });
 

@@ -14,6 +14,7 @@ import {
   decideAutoUpdateHook,
   getMemeshDirFromDbPath,
   getProjectName,
+  importFromPluginRoot,
   isAutoCaptureEnabled,
   openHookDb,
   readUpdateCheckCache,
@@ -418,13 +419,13 @@ process.stdin.on('end', async () => {
         // F5: derive pluginRoot strictly from this file's location.
         // See `resolvePluginRoot` for the full reasoning.
         const pluginRoot = resolvePluginRoot(import.meta.url);
-        const configMod = await import(join(pluginRoot, 'dist/core/config.js'));
+        const configMod = await importFromPluginRoot(pluginRoot, 'dist/core/config.js');
         const config = configMod.readConfig();
 
         if (config.llm) {
-          const { openDatabase, closeDatabase } = await import(join(pluginRoot, 'dist/db.js'));
-          const { analyzeFailure } = await import(join(pluginRoot, 'dist/core/failure-analyzer.js'));
-          const { createLesson } = await import(join(pluginRoot, 'dist/core/lesson-engine.js'));
+          const { openDatabase, closeDatabase } = await importFromPluginRoot(pluginRoot, 'dist/db.js');
+          const { analyzeFailure } = await importFromPluginRoot(pluginRoot, 'dist/core/failure-analyzer.js');
+          const { createLesson } = await importFromPluginRoot(pluginRoot, 'dist/core/lesson-engine.js');
 
           openDatabase();
           try {
@@ -453,7 +454,7 @@ process.stdin.on('end', async () => {
     // logic and dream-history.json schema.
     try {
       const pluginRoot = resolvePluginRoot(import.meta.url);
-      const configMod = await import(join(pluginRoot, 'dist/core/config.js'));
+      const configMod = await importFromPluginRoot(pluginRoot, 'dist/core/config.js');
       const config = configMod.readConfig();
       maybeTriggerDream(projectName, config, pluginRoot);
     } catch (dreamErr) {
