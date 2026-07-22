@@ -194,7 +194,36 @@ export function maskApiKey(key: string): string {
  * `detectCapabilities`) — env auto-detect only fires when the user has not
  * set a provider in their config.
  */
+/**
+ * Is env auto-detect switched off by the user?
+ *
+ * History: auto-detect used to be OPT-IN behind `MEMESH_AUTO_DETECT_LLM=1`,
+ * because an auto-detected `OPENAI_API_KEY` locked embeddings to 1536-dim
+ * and broke vector writes. #36 fixed that properly by decoupling the
+ * embedder from the LLM provider, and F17 then removed the gate — correctly,
+ * since its reason for existing was gone.
+ *
+ * But the flag was carrying a SECOND promise that nobody re-homed: the
+ * README told users "without this flag set, an OPENAI_API_KEY lying around
+ * in your shell is ignored". After F17 that became false — a stray key in
+ * the shell is silently used for every LLM write flow (consolidation,
+ * failure analysis, auto-tagging, dream), which costs the user money and
+ * sends their memory content to a provider they never chose here.
+ *
+ * Re-adding the opt-in would undo F17's deliberate decision and silently
+ * turn Smart Mode off for everyone relying on env detection today. So the
+ * flag becomes an explicit OPT-OUT instead: auto-detect stays the default,
+ * and anyone who does not want their shell key spent can say so.
+ */
+function envAutoDetectDisabled(): boolean {
+  const raw = process.env.MEMESH_AUTO_DETECT_LLM;
+  if (raw === undefined) return false;
+  const v = raw.trim().toLowerCase();
+  return v === '0' || v === 'false' || v === 'no' || v === 'off';
+}
+
 function detectFromEnv(): LLMConfig | null {
+  if (envAutoDetectDisabled()) return null;
   if (process.env.ANTHROPIC_API_KEY) {
     return { provider: 'anthropic', model: 'claude-haiku-4-5', apiKey: process.env.ANTHROPIC_API_KEY };
   }

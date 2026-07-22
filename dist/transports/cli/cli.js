@@ -369,12 +369,34 @@ const ALLOWED_KEYS = new Set([
     'sessionLimit',
     'enableAgenticOrchestration',
     'autoCapture',
+    'llmFallbacks',
 ]);
 const KEY_VALIDATORS = {
     'llm.provider': (v) => ['anthropic', 'openai', 'ollama'].includes(v) ? null : `must be one of: anthropic, openai, ollama`,
     'embedder.provider': (v) => ['onnx', 'openai', 'ollama'].includes(v) ? null : `must be one of: onnx, openai, ollama`,
     'autoUpdate': (v) => ['off', 'patch', 'minor', 'major'].includes(v) ? null : `must be one of: off, patch, minor, major`,
     'theme': (v) => ['light', 'dark'].includes(v) ? null : `must be one of: light, dark`,
+    'llmFallbacks': (v) => {
+        let parsed;
+        try {
+            parsed = JSON.parse(v);
+        }
+        catch {
+            return 'must be a JSON array, e.g. \'[{"provider":"openai","model":"gpt-4o-mini","apiKey":"sk-..."}]\'';
+        }
+        if (!Array.isArray(parsed))
+            return 'must be a JSON ARRAY of provider objects';
+        for (const entry of parsed) {
+            if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+                return 'every entry must be an object like {"provider":"openai"}';
+            }
+            const provider = entry.provider;
+            if (!['anthropic', 'openai', 'ollama'].includes(String(provider))) {
+                return `every entry needs provider = anthropic | openai | ollama (got ${JSON.stringify(provider)})`;
+            }
+        }
+        return null;
+    },
 };
 function setNested(obj, path, value) {
     let cur = obj;
@@ -429,6 +451,8 @@ configCmd
     let coerced = value;
     if (canonical === 'sessionLimit')
         coerced = parseInt(value, 10);
+    if (canonical === 'llmFallbacks')
+        coerced = JSON.parse(value);
     if (canonical === 'enableAgenticOrchestration' || canonical === 'autoCapture') {
         coerced = value === 'true' || value === '1';
     }
@@ -683,6 +707,7 @@ program
     .description('Verify local install health and show actionable fixes')
     .option('--json', 'Output machine-readable diagnostics as JSON')
     .option('--probe-http', 'Also probe the local HTTP server health endpoint')
+    .option('--probe', 'Make one small live call to the configured LLM to confirm it actually answers')
     .option('--url <url>', 'Base URL for --probe-http', 'http://127.0.0.1:3737')
     .action(async (opts) => {
     const { formatDoctorReport, runDoctor } = await import('../../core/doctor.js');
@@ -690,6 +715,7 @@ program
         packageRoot,
         packageVersion: pkg.version,
         probeHttp: opts.probeHttp,
+        probeCapabilities: opts.probe,
         httpBaseUrl: opts.url,
     });
     if (opts.json) {
@@ -802,7 +828,7 @@ dreamCmd
 dreamCmd
     .command('list')
     .description('List dream proposals (pending by default)')
-    .option('--status <s>', 'Filter by status: pending | accepted | rejected | applied', 'pending')
+    .option('--status <s>', 'Filter by status: pending | applied | rejected', 'pending')
     .option('--json', 'Output JSON')
     .action(async (opts) => {
     await withDatabase(async () => {

@@ -3,7 +3,9 @@ import path from 'path';
 import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
-import { detectCapabilities, getConfigPath } from './config.js';
+import { detectCapabilities, getConfigPath, type Capabilities } from './config.js';
+import { embedText } from './embedder.js';
+import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
@@ -19,6 +21,27 @@ export interface DoctorCheck {
   status: DoctorCheckStatus;
   summary: string;
   fix?: string;
+  /**
+   * True for rows that REPORT a value rather than ASSERT a fact.
+   *
+   * A doctor row is one of two very different things:
+   *   - an assertion — "the native binding loads", "hooks are wired". It
+   *     makes a claim that the outside world can falsify, so it can fail.
+   *   - an informational row — "your install id is X", "your config names
+   *     ollama". It describes state. It cannot fail, because it is not
+   *     claiming anything is working.
+   *
+   * Before this flag existed both rendered as `[PASS]` and both counted
+   * toward `Overall`, so "13/13 PASS" read as "13 things verified" when
+   * some had verified nothing. The Capabilities row was the worst case: it
+   * was hardcoded to 'pass' and merely echoed config, so an expired API key
+   * or a broken embedder could never move doctor off PASS.
+   *
+   * Informational rows are excluded from `summarizeOverallStatus` and are
+   * rendered as `[INFO]`. If you want a row to be able to fail, it must
+   * probe something — see `probeEmbeddings` / `probeLlm`.
+   */
+  informational?: boolean;
 }
 
 export interface DoctorResult {
@@ -38,6 +61,16 @@ interface DoctorOptions {
   packageRoot: string;
   packageVersion: string;
   probeHttp?: boolean;
+  /**
+   * Make one small LIVE call to the configured LLM provider.
+   *
+   * Off by default: probing on every run costs latency and, for hosted
+   * providers, money. When off, the LLM row reports "NOT VERIFIED" rather
+   * than a green it did not earn.
+   */
+  probeCapabilities?: boolean;
+  embedTextImpl?: (text: string) => Promise<Float32Array | null>;
+  probeProviderImpl?: typeof probeProvider;
   httpBaseUrl?: string;
   platform?: NodeJS.Platform;
   openDatabaseImpl?: typeof openDatabase;
@@ -65,6 +98,13 @@ interface DoctorOptions {
    */
   resolveShellMemeshImpl?: () => string | null;
 }
+
+/**
+ * Cap on the live embedding probe in `memesh doctor`. Generous enough for a
+ * cold ONNX model load or a local ollama call, short enough that doctor
+ * always returns.
+ */
+const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
 
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 
@@ -196,6 +236,19 @@ function createCheck(
   fix?: string,
 ): DoctorCheck {
   return { id, label, status, summary, fix };
+}
+
+/**
+ * Build a row that REPORTS state instead of asserting it.
+ *
+ * Use this whenever the row cannot fail. It is excluded from `Overall`, so
+ * it can never inflate a green verdict. If you find yourself wanting to
+ * write `createCheck(..., 'pass', ...)` with a literal status at the top
+ * level of `runDoctor` — i.e. with no branch that could produce 'fail' —
+ * that row is informational, not a check. Use this instead.
+ */
+function createInfo(id: string, label: string, summary: string, fix?: string): DoctorCheck {
+  return { id, label, status: 'pass', summary, fix, informational: true };
 }
 
 function parseJsonFile(
@@ -1113,9 +1166,164 @@ function verifySkillsManifest(
   );
 }
 
+/**
+ * Is `~/.memesh/config.json` actually parseable?
+ *
+ * `readConfig()` returns `{}` on ANY read failure — corrupt JSON, a
+ * half-written file, EACCES — not just "file absent". A corrupt config
+ * therefore erases `llm`, `llmFallbacks` and `embedder` silently, and every
+ * Smart-Mode feature degrades to a no-op while doctor happily reported
+ * "Config file is readable". This row makes that state visible.
+ */
+async function inspectConfigParse(
+  getConfigPathImpl: typeof getConfigPath,
+  existsSyncImpl: typeof fs.existsSync,
+  readFileSyncImpl: typeof fs.readFileSync,
+): Promise<DoctorCheck> {
+  const configPath = getConfigPathImpl();
+  if (!existsSyncImpl(configPath)) {
+    return createCheck(
+      'config_parse',
+      'Config parses',
+      'pass',
+      'No config file yet — defaults apply. This is normal for a fresh install.',
+    );
+  }
+  try {
+    const raw = readFileSyncImpl(configPath, 'utf8') as string;
+    const parsed = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return createCheck(
+        'config_parse',
+        'Config parses',
+        'fail',
+        `${configPath} parsed but is not a JSON object — every setting is being ignored.`,
+        `Fix or remove ${configPath}, then re-run memesh doctor.`,
+      );
+    }
+    return createCheck('config_parse', 'Config parses', 'pass', `${configPath} is valid JSON and its settings are in effect.`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return createCheck(
+      'config_parse',
+      'Config parses',
+      'fail',
+      `${configPath} could not be read or parsed (${msg}). Every setting in it — LLM provider, fallbacks, embedder — is being silently ignored right now.`,
+      `Fix the JSON or remove the file to fall back to defaults: mv ${configPath} ${configPath}.bak`,
+    );
+  }
+}
+
+/**
+ * Does embedding generation actually work?
+ *
+ * Config saying `embeddings: openai` proves only that a string was written
+ * to a file. A blocked model download, a corrupt `~/.memesh/models` cache,
+ * a bad BYOK key or a dimension mismatch all leave the config untouched
+ * while every vector write and semantic recall silently returns nothing.
+ */
+async function inspectEmbeddingProbe(
+  capabilities: Capabilities,
+  embedTextImpl: (text: string) => Promise<Float32Array | null>,
+): Promise<DoctorCheck> {
+  try {
+    // Bound the probe. A BYOK embedder is a network call and the local ONNX
+    // path can block on a cold model load, so an unbounded await turns
+    // `memesh doctor` — the command you reach for when things are wrong —
+    // into the thing that hangs. Timing out is itself a useful answer.
+    const vector = await Promise.race([
+      embedTextImpl('memesh doctor embedding probe'),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), EMBEDDING_PROBE_TIMEOUT_MS)).then(() => {
+        throw new Error(`no response within ${EMBEDDING_PROBE_TIMEOUT_MS / 1000}s`);
+      }),
+    ]);
+    if (!vector || vector.length === 0) {
+      return createCheck(
+        'embeddings_probe',
+        'Embeddings work',
+        'warn',
+        `Config selects "${capabilities.embeddings}" but generating a test embedding returned nothing. Semantic recall is degraded to FTS5-only; keyword search still works.`,
+        'Run: memesh doctor --probe for detail, or check network access to the embedding provider.',
+      );
+    }
+    return createCheck(
+      'embeddings_probe',
+      'Embeddings work',
+      'pass',
+      `Generated a ${vector.length}-dim test embedding via "${capabilities.embeddings}".`,
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return createCheck(
+      'embeddings_probe',
+      'Embeddings work',
+      'warn',
+      `Config selects "${capabilities.embeddings}" but the embedder threw (${msg}). Semantic recall is degraded to FTS5-only.`,
+      'Check the embedding provider is reachable, or set: memesh config set embedder.provider onnx',
+    );
+  }
+}
+
+/**
+ * Does the configured LLM actually answer?
+ *
+ * Network-probing on every `memesh doctor` would add latency and (for
+ * hosted providers) cost, so the live probe is opt-in via `--probe`.
+ * Crucially, when the probe has NOT run this row says so explicitly rather
+ * than reporting a green it did not earn — "not verified" and "verified
+ * working" must never look the same.
+ */
+async function inspectLlmProbe(
+  capabilities: Capabilities,
+  probeCapabilities: boolean,
+  probeProviderImpl: typeof probeProvider,
+): Promise<DoctorCheck> {
+  const llm = capabilities.llm;
+  if (!llm) {
+    return createInfo(
+      'llm_probe',
+      'LLM reachable',
+      'No LLM configured — Core Mode. Write-side features (consolidate, lessons, auto-tag, dream) are off by design.',
+    );
+  }
+  if (!probeCapabilities) {
+    return createInfo(
+      'llm_probe',
+      'LLM reachable',
+      `NOT VERIFIED. Config names ${llm.provider} (${llm.model ?? 'default'}), but no live call was made — an expired key or an unreachable host would look identical to a healthy setup here.`,
+      'Run: memesh doctor --probe   (makes one small live call to confirm)',
+    );
+  }
+  try {
+    const result = await probeProviderImpl(llm.provider, llm.apiKey);
+    if (result.valid) {
+      return createCheck('llm_probe', 'LLM reachable', 'pass', `${llm.provider} answered a live probe.`);
+    }
+    return createCheck(
+      'llm_probe',
+      'LLM reachable',
+      'fail',
+      `${llm.provider} is configured but did not answer: ${result.error ?? 'unknown error'}. Every LLM-backed feature is silently doing nothing.`,
+      'Check the API key / host, then re-run: memesh doctor --probe',
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return createCheck(
+      'llm_probe',
+      'LLM reachable',
+      'fail',
+      `${llm.provider} probe threw: ${msg}. Every LLM-backed feature is silently doing nothing.`,
+      'Check the API key / host, then re-run: memesh doctor --probe',
+    );
+  }
+}
+
 function summarizeOverallStatus(checks: DoctorCheck[]): DoctorOverallStatus {
-  if (checks.some((check) => check.status === 'fail')) return 'FAIL';
-  if (checks.some((check) => check.status === 'warn')) return 'PASS_WITH_CONCERNS';
+  // Informational rows describe state and cannot fail — counting them would
+  // pad the verdict with rows that verified nothing. See DoctorCheck.informational.
+  const assertions = checks.filter((check) => !check.informational);
+  if (assertions.some((check) => check.status === 'fail')) return 'FAIL';
+  if (assertions.some((check) => check.status === 'warn')) return 'PASS_WITH_CONCERNS';
   return 'PASS';
 }
 
@@ -1124,6 +1332,9 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     packageRoot,
     packageVersion,
     probeHttp = false,
+    probeCapabilities = false,
+    embedTextImpl = embedText,
+    probeProviderImpl = probeProvider,
     httpBaseUrl = 'http://127.0.0.1:3737',
     platform = process.platform,
     openDatabaseImpl = openDatabase,
@@ -1277,15 +1488,21 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   checks.push(inspectShellCli(install, packageRoot, resolveShellMemeshImpl));
   checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));
 
+  // Capabilities: what the CONFIG says. This row asserts nothing about
+  // whether any of it works, so it is informational by construction.
+  // The rows that follow do the actual verifying.
   const capabilities = detectCapabilitiesImpl();
   checks.push(
-    createCheck(
+    createInfo(
       'capabilities',
-      'Capabilities',
-      'pass',
-      `Search level ${capabilities.searchLevel} (${capabilities.searchLevel === 1 ? 'Smart Mode' : 'Core'}); embeddings: ${capabilities.embeddings}; LLM: ${capabilities.llm ? `${capabilities.llm.provider} (${capabilities.llm.model ?? 'default'})` : 'not configured'}.`,
+      'Capabilities (configured)',
+      `Search level ${capabilities.searchLevel} (${capabilities.searchLevel === 1 ? 'Smart Mode' : 'Core'}); embeddings: ${capabilities.embeddings}; LLM: ${capabilities.llm ? `${capabilities.llm.provider} (${capabilities.llm.model ?? 'default'})` : 'not configured'}. Configured values only — see the probe rows below for what actually works.`,
     ),
   );
+
+  checks.push(await inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyncImpl));
+  checks.push(await inspectEmbeddingProbe(capabilities, embedTextImpl));
+  checks.push(await inspectLlmProbe(capabilities, probeCapabilities, probeProviderImpl));
 
   checks.push(await inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSupport));
 
@@ -1335,7 +1552,10 @@ export function formatDoctorReport(result: DoctorResult, packageVersion: string)
 
   for (const check of result.checks) {
     lines.push('');
-    lines.push(`[${iconForStatus(check.status)}] ${check.label}`);
+    // Informational rows must NOT read as [PASS] — that is the whole bug
+    // this flag exists to prevent (a row that verified nothing looking
+    // identical to one that did).
+    lines.push(`[${check.informational ? 'INFO' : iconForStatus(check.status)}] ${check.label}`);
     lines.push(`  ${check.summary}`);
     if (check.fix) {
       lines.push(`  Fix: ${check.fix}`);

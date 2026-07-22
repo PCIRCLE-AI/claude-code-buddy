@@ -115,6 +115,40 @@ describe('Config: detectCapabilities', () => {
     expect(caps.llm?.apiKey).toBe('sk-ant-env-key');
   });
 
+  // The env-detect flag is an explicit OPT-OUT (it used to be an opt-in
+  // gate; F17 removed the gate but left the README promising that a stray
+  // shell key would be ignored). These pin the promise the README now makes:
+  // a user can always stop memesh spending a key it merely found lying around.
+  it('does NOT auto-detect from env when MEMESH_AUTO_DETECT_LLM=0', () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-env-key';
+    process.env.MEMESH_AUTO_DETECT_LLM = '0';
+    const caps = detectCapabilities({});
+    expect(caps.llm).toBeNull();
+    expect(caps.searchLevel).not.toBe(1);
+  });
+
+  it('accepts false/no/off as opt-out spellings', () => {
+    process.env.OPENAI_API_KEY = 'sk-openai-env-key';
+    for (const spelling of ['false', 'NO', ' Off ']) {
+      process.env.MEMESH_AUTO_DETECT_LLM = spelling;
+      expect(detectCapabilities({}).llm).toBeNull();
+    }
+  });
+
+  it('still auto-detects when the flag is absent or set to 1 (F17 behaviour preserved)', () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-env-key';
+    delete process.env.MEMESH_AUTO_DETECT_LLM;
+    expect(detectCapabilities({}).llm?.provider).toBe('anthropic');
+    process.env.MEMESH_AUTO_DETECT_LLM = '1';
+    expect(detectCapabilities({}).llm?.provider).toBe('anthropic');
+  });
+
+  it('opt-out never overrides an explicitly configured provider', () => {
+    process.env.MEMESH_AUTO_DETECT_LLM = '0';
+    const caps = detectCapabilities({ llm: { provider: 'ollama', model: 'llama3.2' } });
+    expect(caps.llm?.provider).toBe('ollama');
+  });
+
   it('detects OPENAI_API_KEY from environment when no anthropic key', () => {
     process.env.OPENAI_API_KEY = 'sk-openai-env-key';
     const caps = detectCapabilities({});

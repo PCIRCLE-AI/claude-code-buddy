@@ -190,9 +190,10 @@ export async function runDreamer(
     let validationWarnings: SuspiciousClaim[] | undefined;
     if (opts.validateBeforeStage) {
       // Second LLM pass: cross-check digest claims against source
-      // observations. Failures inside validateDigest already default
-      // to pass, so this won't reject real digests when the validator
-      // is unreachable.
+      // observations. When the validator's LLM is unreachable it returns
+      // status 'unavailable' (NOT 'pass') — it still doesn't block, so
+      // real digests survive, but "never ran" stays distinguishable from
+      // "ran and found nothing". Only 'reject' skips; 'soften' annotates.
       const sourceObs = cluster.entities.flatMap(e => e.observations);
       try {
         const v = await validateDigest(digest.observations, sourceObs, llm, {

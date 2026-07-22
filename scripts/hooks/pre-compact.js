@@ -118,11 +118,19 @@ process.stdin.on('end', () => {
       db.close();
     }
 
+    // Claude Code defines `hookSpecificOutput` variants for a fixed set of
+    // events only — PreToolUse, PostToolUse, PostToolUseFailure,
+    // PermissionRequest, UserPromptSubmit, SessionStart, Setup,
+    // SubagentStart, Notification. There is no PreCompact variant, so
+    // emitting one fails schema validation at the root and shows the user a
+    // "Hook JSON output validation failed" error on *every* compaction —
+    // even though the save above already succeeded (#53).
+    //
+    // `systemMessage` is a valid top-level field for any event and carries
+    // the same information to the user. The contract is asserted in
+    // tests/helpers/hook-output-contract.ts; do not hand-roll a shape here.
     const hookOutput = {
-      hookSpecificOutput: {
-        hookEventName: 'PreCompact',
-        additionalContext: `Saved ${insightCount} insights to MeMesh before compaction`,
-      },
+      systemMessage: `Saved ${insightCount} insights to MeMesh before compaction`,
     };
     console.log(JSON.stringify(hookOutput));
   } catch (err) {

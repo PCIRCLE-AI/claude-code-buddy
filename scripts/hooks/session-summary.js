@@ -366,15 +366,16 @@ process.stdin.on('end', async () => {
             // Check if recall_hits column exists (v4.0+ migration)
             const colCheck = db.prepare("PRAGMA table_info(entities)").all();
             if (colCheck.some(c => c.name === 'recall_hits')) {
-              // Build a lowercase transcript text for matching
-              let transcriptText = readFileSync(transcriptPath, 'utf8').toLowerCase();
+              // Drop the records Claude Code created FROM our own hook
+              // output before matching. One SessionStart injection lands in
+              // the transcript 2+ times (hook_success + hook_additional_context),
+              // so any count-based discount depends on guessing an
+              // undocumented internal — get it wrong and every entity scores
+              // a hit instead of a miss. Structural removal is copy-count
+              // and encoding independent.
+              const sessionText = stripHookEchoes(readFileSync(transcriptPath, 'utf8')).toLowerCase();
 
-              // FIX: Exclude injected context from hit detection to avoid pollution
-              // Remove the memorySummary that was injected at session start
-              const injectedContext = (injectedData.injectedContext || '').toLowerCase();
-              if (injectedContext) {
-                transcriptText = transcriptText.replace(injectedContext, '');
-              }
+              // Hit/miss decision lives in `isRecallHit` (exported, unit-tested).
 
               const updateHit = db.prepare(
                 'UPDATE entities SET recall_hits = COALESCE(recall_hits, 0) + 1 WHERE id = ?'
@@ -387,7 +388,7 @@ process.stdin.on('end', async () => {
                 const name = (entityNames[i] || '').toLowerCase();
                 // Skip very short names to avoid false positives
                 if (name.length < 4) continue;
-                if (transcriptText.includes(name)) {
+                if (isRecallHit(sessionText, name)) {
                   updateHit.run(entityIds[i]);
                 } else {
                   updateMiss.run(entityIds[i]);
@@ -647,6 +648,83 @@ function countEpisodicEntities(projectName) {
  * the detached background runner. Pure side effect — no return value
  * used by callers.
  */
+/**
+ * Attachment record types Claude Code uses to persist a hook's own output
+ * into the transcript. Anything memesh injected reaches the transcript
+ * through one of these, so they must be removed before asking "did the
+ * session reference this memory?".
+ *
+ * Verified against Claude Code v2.1.19: ONE SessionStart injection lands in
+ * the transcript at least twice — once as `hook_success` (carrying the raw
+ * hook stdout) and once as `hook_additional_context` (the parsed payload).
+ */
+const HOOK_ECHO_ATTACHMENT_TYPES = new Set([
+  'hook_success',
+  'hook_additional_context',
+  'hook_system_message',
+]);
+
+/**
+ * Remove memesh's own injected text from a raw JSONL transcript.
+ *
+ * Counting occurrences and subtracting the injected copies does NOT work:
+ * it depends on knowing exactly how many times Claude Code echoes a hook
+ * payload, which is an undocumented internal that has already been observed
+ * at 2+ copies (and 16 in one real transcript). Guessing that constant is
+ * how "every entity is a miss" becomes "every entity is a hit" — equally
+ * useless, and invisible to a hand-built test fixture.
+ *
+ * Dropping the hook-echo records structurally is independent of both the
+ * copy count and the JSON escaping.
+ */
+export function stripHookEchoes(rawTranscript) {
+  const kept = [];
+  for (const line of String(rawTranscript ?? '').split('\n')) {
+    if (!line.trim()) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      // Unparseable line: keep it. Losing a line can only cause a false
+      // MISS (we under-count references), which is the safe direction —
+      // it never manufactures a hit the session did not earn.
+      kept.push(line);
+      continue;
+    }
+    const type = entry?.attachment?.type ?? entry?.type;
+    if (typeof type === 'string' && HOOK_ECHO_ATTACHMENT_TYPES.has(type)) continue;
+    kept.push(line);
+  }
+  return kept.join('\n');
+}
+
+/**
+ * Did the session actually USE the memory named `name`, or does the name
+ * only appear because memesh injected it at session start?
+ *
+ * Session-start injects the memory block into the model's context, so every
+ * injected entity name is already present in the transcript before the
+ * session does anything. Naive `transcript.includes(name)` therefore scores
+ * all of them as hits.
+ *
+ * The previous approach deleted the injected blob from the transcript
+ * (`transcriptText.replace(injectedContext, '')`) and then matched. That
+ * breaks on real transcripts: they are JSON-encoded, so newlines are `\n`
+ * escapes and quotes are escaped — a raw multi-line replace of a ~2 KB block
+ * silently fails to match, leaving the injected text in place and turning
+ * every entity into a false hit.
+ *
+ * Counting occurrences is encoding-independent: entity names are plain
+ * identifiers that survive JSON escaping unchanged. A memory is a hit only
+ * if it shows up MORE often than we injected it.
+ *
+ * Callers pass lowercased strings.
+ */
+export function isRecallHit(sessionText, name) {
+  if (!name || name.length < 4) return false;
+  return String(sessionText ?? '').toLowerCase().includes(String(name).toLowerCase());
+}
+
 export function maybeTriggerDream(projectName, config, pluginRoot) {
   dreamTrigTrace('enter', { projectName, hasLlm: Boolean(config?.llm) });
   if (!projectName || projectName === 'unknown') {

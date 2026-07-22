@@ -58,7 +58,16 @@ export function maskApiKey(key) {
         return '***';
     return key.slice(0, 4) + '***' + key.slice(-4);
 }
+function envAutoDetectDisabled() {
+    const raw = process.env.MEMESH_AUTO_DETECT_LLM;
+    if (raw === undefined)
+        return false;
+    const v = raw.trim().toLowerCase();
+    return v === '0' || v === 'false' || v === 'no' || v === 'off';
+}
 function detectFromEnv() {
+    if (envAutoDetectDisabled())
+        return null;
     if (process.env.ANTHROPIC_API_KEY) {
         return { provider: 'anthropic', model: 'claude-haiku-4-5', apiKey: process.env.ANTHROPIC_API_KEY };
     }

@@ -4,11 +4,14 @@ import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
 import { detectCapabilities, getConfigPath } from './config.js';
+import { embedText } from './embedder.js';
+import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
 import { getDbPath, memeshDir } from './paths.js';
+const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 const LOCALE_README_FILES = [
     'README.de.md',
@@ -89,6 +92,9 @@ function resolveDatabasePath() {
 }
 function createCheck(id, label, status, summary, fix) {
     return { id, label, status, summary, fix };
+}
+function createInfo(id, label, summary, fix) {
+    return { id, label, status: 'pass', summary, fix, informational: true };
 }
 function parseJsonFile(filePath, readFileSyncImpl) {
     try {
@@ -471,15 +477,72 @@ function verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl) {
     ].filter(Boolean).join('; ');
     return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', `Manifest verification failed: ${detail}.`, 'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem reproduces on a fresh install, open a security issue at https://github.com/PCIRCLE-AI/memesh-llm-memory/security.');
 }
+async function inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyncImpl) {
+    const configPath = getConfigPathImpl();
+    if (!existsSyncImpl(configPath)) {
+        return createCheck('config_parse', 'Config parses', 'pass', 'No config file yet — defaults apply. This is normal for a fresh install.');
+    }
+    try {
+        const raw = readFileSyncImpl(configPath, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return createCheck('config_parse', 'Config parses', 'fail', `${configPath} parsed but is not a JSON object — every setting is being ignored.`, `Fix or remove ${configPath}, then re-run memesh doctor.`);
+        }
+        return createCheck('config_parse', 'Config parses', 'pass', `${configPath} is valid JSON and its settings are in effect.`);
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return createCheck('config_parse', 'Config parses', 'fail', `${configPath} could not be read or parsed (${msg}). Every setting in it — LLM provider, fallbacks, embedder — is being silently ignored right now.`, `Fix the JSON or remove the file to fall back to defaults: mv ${configPath} ${configPath}.bak`);
+    }
+}
+async function inspectEmbeddingProbe(capabilities, embedTextImpl) {
+    try {
+        const vector = await Promise.race([
+            embedTextImpl('memesh doctor embedding probe'),
+            new Promise((resolve) => setTimeout(() => resolve(null), EMBEDDING_PROBE_TIMEOUT_MS)).then(() => {
+                throw new Error(`no response within ${EMBEDDING_PROBE_TIMEOUT_MS / 1000}s`);
+            }),
+        ]);
+        if (!vector || vector.length === 0) {
+            return createCheck('embeddings_probe', 'Embeddings work', 'warn', `Config selects "${capabilities.embeddings}" but generating a test embedding returned nothing. Semantic recall is degraded to FTS5-only; keyword search still works.`, 'Run: memesh doctor --probe for detail, or check network access to the embedding provider.');
+        }
+        return createCheck('embeddings_probe', 'Embeddings work', 'pass', `Generated a ${vector.length}-dim test embedding via "${capabilities.embeddings}".`);
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return createCheck('embeddings_probe', 'Embeddings work', 'warn', `Config selects "${capabilities.embeddings}" but the embedder threw (${msg}). Semantic recall is degraded to FTS5-only.`, 'Check the embedding provider is reachable, or set: memesh config set embedder.provider onnx');
+    }
+}
+async function inspectLlmProbe(capabilities, probeCapabilities, probeProviderImpl) {
+    const llm = capabilities.llm;
+    if (!llm) {
+        return createInfo('llm_probe', 'LLM reachable', 'No LLM configured — Core Mode. Write-side features (consolidate, lessons, auto-tag, dream) are off by design.');
+    }
+    if (!probeCapabilities) {
+        return createInfo('llm_probe', 'LLM reachable', `NOT VERIFIED. Config names ${llm.provider} (${llm.model ?? 'default'}), but no live call was made — an expired key or an unreachable host would look identical to a healthy setup here.`, 'Run: memesh doctor --probe   (makes one small live call to confirm)');
+    }
+    try {
+        const result = await probeProviderImpl(llm.provider, llm.apiKey);
+        if (result.valid) {
+            return createCheck('llm_probe', 'LLM reachable', 'pass', `${llm.provider} answered a live probe.`);
+        }
+        return createCheck('llm_probe', 'LLM reachable', 'fail', `${llm.provider} is configured but did not answer: ${result.error ?? 'unknown error'}. Every LLM-backed feature is silently doing nothing.`, 'Check the API key / host, then re-run: memesh doctor --probe');
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return createCheck('llm_probe', 'LLM reachable', 'fail', `${llm.provider} probe threw: ${msg}. Every LLM-backed feature is silently doing nothing.`, 'Check the API key / host, then re-run: memesh doctor --probe');
+    }
+}
 function summarizeOverallStatus(checks) {
-    if (checks.some((check) => check.status === 'fail'))
+    const assertions = checks.filter((check) => !check.informational);
+    if (assertions.some((check) => check.status === 'fail'))
         return 'FAIL';
-    if (checks.some((check) => check.status === 'warn'))
+    if (assertions.some((check) => check.status === 'warn'))
         return 'PASS_WITH_CONCERNS';
     return 'PASS';
 }
 export async function runDoctor(options) {
-    const { packageRoot, packageVersion, probeHttp = false, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, nativeBindingProbeImpl, resolveShellMemeshImpl = defaultResolveShellMemesh, } = options;
+    const { packageRoot, packageVersion, probeHttp = false, probeCapabilities = false, embedTextImpl = embedText, probeProviderImpl = probeProvider, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, nativeBindingProbeImpl, resolveShellMemeshImpl = defaultResolveShellMemesh, } = options;
     const wasDbOpenBeforeUs = isDatabaseOpenImpl();
     const safeCloseDatabaseImpl = wasDbOpenBeforeUs
         ? () => undefined
@@ -571,7 +634,10 @@ export async function runDoctor(options) {
     checks.push(inspectShellCli(install, packageRoot, resolveShellMemeshImpl));
     checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));
     const capabilities = detectCapabilitiesImpl();
-    checks.push(createCheck('capabilities', 'Capabilities', 'pass', `Search level ${capabilities.searchLevel} (${capabilities.searchLevel === 1 ? 'Smart Mode' : 'Core'}); embeddings: ${capabilities.embeddings}; LLM: ${capabilities.llm ? `${capabilities.llm.provider} (${capabilities.llm.model ?? 'default'})` : 'not configured'}.`));
+    checks.push(createInfo('capabilities', 'Capabilities (configured)', `Search level ${capabilities.searchLevel} (${capabilities.searchLevel === 1 ? 'Smart Mode' : 'Core'}); embeddings: ${capabilities.embeddings}; LLM: ${capabilities.llm ? `${capabilities.llm.provider} (${capabilities.llm.model ?? 'default'})` : 'not configured'}. Configured values only — see the probe rows below for what actually works.`));
+    checks.push(await inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyncImpl));
+    checks.push(await inspectEmbeddingProbe(capabilities, embedTextImpl));
+    checks.push(await inspectLlmProbe(capabilities, probeCapabilities, probeProviderImpl));
     checks.push(await inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSupport));
     try {
         const record = getInstallRecord();
@@ -602,7 +668,7 @@ export function formatDoctorReport(result, packageVersion) {
     const lines = [`MeMesh doctor v${packageVersion}`, `Overall: ${result.status}`];
     for (const check of result.checks) {
         lines.push('');
-        lines.push(`[${iconForStatus(check.status)}] ${check.label}`);
+        lines.push(`[${check.informational ? 'INFO' : iconForStatus(check.status)}] ${check.label}`);
         lines.push(`  ${check.summary}`);
         if (check.fix) {
             lines.push(`  Fix: ${check.fix}`);
