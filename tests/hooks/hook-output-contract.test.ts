@@ -32,6 +32,17 @@ interface HookCase {
   input: Record<string, unknown>;
   /** Extra env needed to reach the emitting path */
   env?: Record<string, string>;
+  /**
+   * Memories to write into the test DB BEFORE running the hook.
+   *
+   * Two hooks (pre-edit-recall, session-start) only emit their
+   * `hookSpecificOutput` — the branch this whole gate exists to validate —
+   * when the DB actually has matching memories. With an empty DB that branch
+   * never fires, so the contract assertion passes vacuously on empty output
+   * and a malformed `hookSpecificOutput` would ship unnoticed (the exact #53
+   * class, on the input the gate is meant to cover). Seeding forces the branch.
+   */
+  seed?: Array<{ name: string; type: string; tags: string[]; obs: string }>;
 }
 
 /**
@@ -50,6 +61,15 @@ const HOOK_CASES: HookCase[] = [
       tool_name: 'Edit',
       tool_input: { file_path: '/tmp/contract-project/src/auth.ts' },
     },
+    // Without a matching memory the hook emits nothing and the contract check
+    // is vacuous. This entity (file:auth tag + the cwd's project tag) makes
+    // Strategy 1 fire so the real additionalContext payload is validated.
+    seed: [{
+      name: 'auth-decision',
+      type: 'decision',
+      tags: ['file:auth', 'project:contract-project'],
+      obs: 'Use OAuth PKCE for the auth flow',
+    }],
   },
   {
     file: 'pre-bash-orchestration-nudge.js',
@@ -73,6 +93,13 @@ const HOOK_CASES: HookCase[] = [
       hook_event_name: 'SessionStart',
       source: 'startup',
     },
+    // session-start only emits additionalContext when top-N recall returns
+    // something. Seed entities in this project so memoryContext is truthy and
+    // the SessionStart hookSpecificOutput payload is actually validated.
+    seed: [
+      { name: 'oauth-lesson', type: 'lesson', tags: ['project:contract-project'], obs: 'Always validate the OAuth state parameter' },
+      { name: 'db-decision', type: 'decision', tags: ['project:contract-project'], obs: 'Use WAL mode for concurrent reads' },
+    ],
   },
   {
     file: 'post-commit.js',
@@ -132,7 +159,23 @@ describe('Feature: Claude Code hook-output contract', () => {
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 
+  // Seed memories into the test DB via the real CLI so the schema matches
+  // exactly what the hooks read (openHookDb applies the same SCHEMA_SQL).
+  function seedMemories(seed: NonNullable<HookCase['seed']>): void {
+    for (const m of seed) {
+      execFileSync('node', [
+        path.resolve('dist/transports/cli/cli.js'), 'remember',
+        '--name', m.name, '--type', m.type, '--obs', m.obs, '--tags', ...m.tags,
+      ], {
+        env: { ...process.env, MEMESH_DB_PATH: dbPath, MEMESH_DIR: testDir, MEMESH_AUTO_UPDATE: '0' },
+        encoding: 'utf8',
+        timeout: 30000,
+      });
+    }
+  }
+
   function runHook(hookCase: HookCase): string {
+    if (hookCase.seed) seedMemories(hookCase.seed);
     const hookPath = path.resolve('scripts/hooks', hookCase.file);
     try {
       return execFileSync('node', [hookPath], {

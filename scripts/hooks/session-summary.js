@@ -176,7 +176,6 @@ process.stdin.on('end', async () => {
     const sessionId = inputData.session_id || 'unknown';
     const transcriptPath = inputData.transcript_path;
     const cwd = inputData.cwd || process.cwd();
-    const stopReason = inputData.stop_reason || 'unknown';
     // Default-allow: when Claude Code's Stop payload omits
     // `was_in_agentic_loop` (it has been silently absent in production
     // for an unknown number of releases — symptom: zero session-insight
@@ -186,8 +185,18 @@ process.stdin.on('end', async () => {
     // (default-deny) and the hook silently never captured anything.
     const wasAgenticLoop = inputData.was_in_agentic_loop !== false;
 
-    // Guards: skip low-signal sessions
-    if (stopReason === 'user_interrupt') return exit0();
+    // Guards: skip low-signal sessions.
+    //
+    // A `stop_reason === 'user_interrupt'` guard used to live here, but
+    // Claude Code's Stop payload carries no `stop_reason` field — verified
+    // against the shipped cli.js bundle, whose Stop input is
+    // `{...base, hook_event_name:"Stop", stop_hook_active}` with no such key
+    // (the `stop_reason` that appears in the bundle is the Anthropic API
+    // message field, not a hook input). So the guard read `undefined`, was
+    // always false, and never skipped anything — a filter that looked active
+    // but did nothing, the exact sibling of the `was_in_agentic_loop` absence
+    // above. Removed; the `toolCallCount < 3` check below is the real
+    // low-signal filter.
     if (!wasAgenticLoop) return exit0();
     // Trace why we're skipping. Two failure modes:
     //   (a) transcript_path absent — schema flip, Claude Code stopped

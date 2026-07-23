@@ -223,7 +223,12 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     db.close();
   });
 
-  it('Scenario: User interrupt is skipped', () => {
+  it('Scenario: low-signal session (< 3 tool calls) is skipped', () => {
+    // This previously claimed to test a `stop_reason === 'user_interrupt'`
+    // guard, feeding a stop_reason the Stop payload never carries — so the
+    // guard was dead and the session was actually skipped by the toolCallCount
+    // filter below (2 tool calls < 3). The guard has been removed; this now
+    // honestly tests the real low-signal filter, which is what does the work.
     writeTranscript([
       { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
       { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test -- --run' } }] } },
@@ -234,7 +239,6 @@ describe('Feature: Session Summary (Stop Hook)', () => {
       session_id: 'test-sess-004',
       transcript_path: transcriptPath,
       cwd: '/tmp/myproject',
-      stop_reason: 'user_interrupt',
       was_in_agentic_loop: true,
     });
 

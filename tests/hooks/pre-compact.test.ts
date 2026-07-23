@@ -37,6 +37,33 @@ describe('Feature: PreCompact Hook', () => {
     return new Database(dbPath, { readonly: true });
   }
 
+  // spawnSync variant so stderr is visible regardless of exit code.
+  function runHookStderr(input: object): string {
+    const { spawnSync } = require('child_process') as typeof import('child_process');
+    const res = spawnSync('node', [path.resolve('scripts/hooks/pre-compact.js')], {
+      input: JSON.stringify(input),
+      env: { ...process.env, MEMESH_DB_PATH: dbPath },
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    return res.stderr || '';
+  }
+
+  it('Scenario: an unreadable transcript traces to stderr (not a silent "0 insights")', () => {
+    // A directory at the transcript path makes readFileSync throw EISDIR after
+    // existsSync passes — stands in for a permission/IO fault on a real file.
+    const dirAsTranscript = path.join(testDir, 'transcript-is-a-dir');
+    fs.mkdirSync(dirAsTranscript);
+    const stderr = runHookStderr({
+      session_id: 'sess-unreadable',
+      transcript_path: dirAsTranscript,
+      cwd: '/tmp/myproject',
+      trigger: 'auto',
+    });
+    expect(stderr).toContain('[memesh pre-compact]');
+    expect(stderr).toContain('unreadable');
+  });
+
   it('Scenario: Basic pre-compact event -> entity created with correct type and tags', () => {
     const input = {
       session_id: 'sess-abc123',
@@ -69,13 +96,17 @@ describe('Feature: PreCompact Hook', () => {
     db.close();
   });
 
-  it('Scenario: Reason stored as observation', () => {
+  it('Scenario: trigger (the real Claude Code field) stored as reason observation', () => {
+    // Claude Code's PreCompact payload names the field `trigger`, not `reason`.
+    // Feeding the REAL field proves the hook reads it; before the fix (which
+    // read data.reason) this asserted 'auto' and the manual/auto distinction
+    // was silently lost on every compaction.
     const input = {
       session_id: 'sess-manual1',
       transcript_path: '',
       cwd: '/tmp/testproject',
       hook_event_name: 'PreCompact',
-      reason: 'manual',
+      trigger: 'manual',
     };
 
     runHook(input);

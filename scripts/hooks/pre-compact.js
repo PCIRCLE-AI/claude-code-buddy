@@ -26,7 +26,13 @@ process.stdin.on('end', () => {
     const sessionId = data.session_id || 'unknown';
     const transcriptPath = data.transcript_path || '';
     const cwd = data.cwd || process.cwd();
-    const reason = data.reason || 'auto';
+    // Claude Code's PreCompact payload names this field `trigger` ('manual' |
+    // 'auto'), not `reason` — verified against the shipped cli.js bundle
+    // (`hook_event_name:"PreCompact",trigger:A.trigger,custom_instructions:...`).
+    // Reading `data.reason` silently recorded "Compaction reason: auto" for
+    // every compaction, manual and automatic alike. `reason` is kept as a
+    // defensive fallback in case an older CLI used it.
+    const reason = data.trigger || data.reason || 'auto';
     const projectName = getProjectName(cwd);
 
     // Parse transcript to gather insights
@@ -58,11 +64,21 @@ process.stdin.on('end', () => {
               }
             }
           } catch {
-            // Skip malformed lines
+            // Skip malformed lines — benign, per-line, deliberately not traced.
           }
         }
-      } catch {
-        // Transcript read failed — proceed with zero counts
+      } catch (err) {
+        // existsSync passed above, so this is a REAL read failure (permission,
+        // I/O, deleted mid-read), not a missing file. Left untraced, the hook
+        // still reports "Saved 0 insights" — a success-shaped message hiding
+        // that the whole pre-compaction capture was lost. Mirrors the trace
+        // added to session-summary.js / extractor.ts for the same pattern.
+        try {
+          process.stderr.write(
+            `[memesh pre-compact] transcript ${transcriptPath} unreadable ` +
+              `(${err?.message || err}); saved 0 insights this compaction.\n`,
+          );
+        } catch { /* stderr must never throw */ }
       }
     }
 
