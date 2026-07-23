@@ -298,12 +298,7 @@ export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkRes
   // flag that gates the banner and Bash nudge — opt-in to the experiment is
   // the user's consent to local usage logging.
   if (isAgenticOrchestrationEnabled()) {
-    logSkillEvent('verify_agent_work_invoked', {
-      agent_id_hashed: safeAgentId.slice(0, 8),
-      pass,
-      files_changed: rc.files_changed,
-      has_external_report: Boolean(input.report),
-    });
+    logSkillEvent('verify_agent_work_invoked');
   }
 
   return {

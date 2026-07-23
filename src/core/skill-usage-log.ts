@@ -18,12 +18,12 @@
 //
 //   - No network call, ever. The data lives only on the user's machine. A
 //     future opt-in `memesh patterns --skill-usage` reads it locally.
-//   - No PII other than what the caller passes in `payload`. Callers must
-//     keep payloads metadata-only (counters, durations, pass/fail flags) —
-//     never user content.
+//   - No PII: only { ts, event } is written. There is deliberately no free-form
+//     payload — an earlier one stored a hashed cwd and pass/fail metadata that
+//     nothing ever read.
 //
 // Schema of a line:
-//   { ts: ISO-8601 string, event: string, payload?: object }
+//   { ts: ISO-8601 string, event: string }
 //
 // Known events emitted by the rest of the codebase:
 //   "agentic_orchestration_banner_injected"  — session-start.js after the
@@ -129,12 +129,18 @@ function rotateIfNeeded(path: string): void {
   }
 }
 
-export function logSkillEvent(event: string, payload?: Record<string, unknown>, path?: string): void {
+export function logSkillEvent(event: string, path?: string): void {
   const target = path ?? defaultLogPath();
   try {
     ensureParent(target);
     rotateIfNeeded(target);
-    const line = JSON.stringify({ ts: new Date().toISOString(), event, payload }) + '\n';
+    // Only { ts, event } is written. An earlier `payload` field carried
+    // per-event metadata (hashed cwd, pass/fail, files_changed) that NO reader
+    // ever consumed — summariseSkillUsage counts by `event` name only. Writing
+    // unconsumed, privacy-adjacent data "in case we surface it later" is the
+    // exact fake-working pattern this audit removed; if per-event stats are
+    // wanted, add them together with their consumer.
+    const line = JSON.stringify({ ts: new Date().toISOString(), event }) + '\n';
     appendFileSync(target, line);
     // Tighten mode after every append. appendFileSync's `mode` option only
     // applies on creation, but on shared systems we cannot rely on the file

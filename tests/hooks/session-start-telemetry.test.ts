@@ -80,20 +80,12 @@ describe('session-start hook: agentic-orchestration telemetry', () => {
     const event = JSON.parse(lines[0]);
     expect(event.event).toBe('agentic_orchestration_banner_injected');
     expect(typeof event.ts).toBe('string');
-    expect(event.payload).toBeDefined();
-    expect(typeof event.payload.cwd_hashed).toBe('string');
-    // Specifically guard against the bug that previously shipped:
-    // a stray `cwd` reference threw "cwd is not defined" inside the inner
-    // try, and the empty catch swallowed it, leaving the file empty.
-    expect(event.payload.cwd_hashed).not.toBe('undefined');
-    expect(event.payload.cwd_hashed.length).toBeGreaterThan(0);
-    // PRIVACY GUARD: cwd_hashed must be a real hex hash, not a raw path
-    // slice. A pre-release form took String(cwd).slice(0, 16) — the field
-    // name promises hashing, and this assertion makes that promise
-    // enforceable so a future regression cannot silently revert it.
-    expect(event.payload.cwd_hashed).toMatch(/^[a-f0-9]{16}$/);
-    expect(event.payload.cwd_hashed).not.toContain('/');
-    expect(event.payload.cwd_hashed).not.toContain('some');
+    // The line is now { ts, event } only. The former `payload.cwd_hashed`
+    // was write-only, privacy-adjacent data (summariseSkillUsage counts by
+    // event name and never read it), so it was removed. Assert it is gone —
+    // no PII leaks into the local telemetry line.
+    expect(event.payload).toBeUndefined();
+    expect(Object.keys(event).sort()).toEqual(['event', 'ts']);
   });
 
   it('does not write a banner-injection event when the hook short-circuits on missing DB', () => {
