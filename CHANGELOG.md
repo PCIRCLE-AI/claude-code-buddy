@@ -4,6 +4,9 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Docs
+- **10 locale READMEs re-synced for `MEMESH_AUTO_DETECT_LLM` opt-out semantics** (`README.{de,es,fr,ja,ko,pt,th,vi,zh-CN,zh-TW}.md`) — the honestly-unticked box from the Phase-1 PR. Every locale still described the pre-#36 OPT-IN behaviour ("set to `1` to enable; without the flag a shell key is ignored") and incorrectly tied the flag to BYOK embeddings. Corrected to match the English README: auto-detect is ON by default, `0` disables it, a shell key is used for write-side LLM features unless disabled, and embeddings are unaffected (stay local ONNX). H2 structure unchanged, so `memesh doctor` locale parity stays PASS.
+
 ### Removed
 - **Dead analytics compute + components, and the unread `config.theme`** (`src/core/analytics.ts`, `dashboard/src/components/`, `src/core/config.ts`, `src/transports/http/server.ts`, `src/transports/cli/cli.ts`) — `/v1/analytics` computed `valueMetrics`, `recallEffectiveness`, and `cleanup` (the latter with an O(n²) duplicate-candidate self-join) on every request, but no dashboard component ever rendered them — the dedicated `ValueMetrics` / `RecallEffectiveness` / `CleanupSuggestions` components were never imported. Removed the compute, the three components, and the response fields. Separately, `config.theme` was settable via `memesh config set theme` and `POST /v1/config` but read by nothing — the dashboard theme lives entirely in `localStorage`. Removed from the config type, CLI `ALLOWED_KEYS`, and the HTTP schema. (`tfidf`, also flagged by the audit, was checked and KEPT — it is the live sentinel for "no neural embedder".)
 

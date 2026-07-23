@@ -285,10 +285,10 @@ memesh export-schema \
 |---|---|---|
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | SQLite データベースの保存場所を上書き。 |
 | `MEMESH_AUTO_CAPTURE` | `true` | 自動キャプチャフック(`Stop`、`PreCompact`)を完全に無効化。 |
-| `MEMESH_AUTO_DETECT_LLM` | 未設定 | `1` に設定すると、memesh がシェル環境変数(`OPENAI_API_KEY` 等)からプロバイダを自動検出し BYOK エンベディングに切り替えます。**新規インストールのデフォルトはローカル ONNX(384 次元)のみ** — クラウドエンベディングを使いたい場合のみオプトインしてください。このフラグが未設定なら、シェルに `OPENAI_API_KEY` があっても無視されます。 |
+| `MEMESH_AUTO_DETECT_LLM` | 未設定(自動検出**オン**) | `0` に設定すると、シェル環境で見つかった API キーを memesh が使用しなくなります。デフォルトでは、`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` が設定されていて `~/.memesh/config.json` にプロバイダを構成していない場合、memesh は書き込み側の LLM 機能(統合、レッスン抽出、自動タグ付け、dream)にそれを使用します。エンベディングは影響を受けません — `embedder.provider` を明示的に設定しない限りローカル ONNX(384 次元)のままです。 |
 | `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | 未設定 | `1` に設定すると、実験的なワーキングモデルプロトコル(CTO / Orchestrator / Agents のフレーミング)が有効になります。セッション開始バナー、Bash コマンドの促し、`verify_agent_work` テレメトリが追加されます。プロトコルの有効性は計測中であり、まだ証明されていません — 参加したい場合のみオプトイン。**デフォルトは OFF**: コアメモリ機能はこのフラグなしで動作します。 |
 | `MEMESH_AUTO_UPDATE` | `off` | 自動更新ポリシー。`off`(デフォルト)は自動更新を行いません。`patch` は `X.Y.Z → X.Y.Z+N` を許可、`minor` は `X.Y.Z → X.Y+1.0` を追加、`major` は任意のバンプを許可。許可されている場合、デタッチ実行された `npm install -g` がセッション終了時(Stop フック)に発火するため作業をブロックしません — 結果は `~/.memesh/auto-update.log` に記録されます。`~/.memesh/config.json` の `autoUpdate` でも設定可能(env が優先)。インストール済みバージョンがメンテナーによって非推奨化された場合(セキュリティアドバイザリ)、`off` でも `patch` は強制的に許可されます — minor / major バンプはサイレントな挙動変化を避けるため手動のままです。 |
-| `OPENAI_API_KEY` | 未設定 | OpenAI のキー。`MEMESH_AUTO_DETECT_LLM=1` のとき、または明示的にプロバイダを設定したときのみ使用。 |
+| `OPENAI_API_KEY` | 未設定 | OpenAI のキー。`MEMESH_AUTO_DETECT_LLM=0` を設定するか、明示的にプロバイダを設定しない限り、LLM 機能で自動的に使用されます。 |
 | `OLLAMA_HOST` | `http://localhost:11434` | ローカル Ollama プロバイダ使用時の Ollama エンドポイントを上書き。 |
 
 `memesh doctor` は解決された設定を表示するため、何が有効かを確認できます。

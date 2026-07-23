@@ -273,10 +273,10 @@ memesh export-schema \
 |---|---|---|
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | เปลี่ยนตำแหน่งฐานข้อมูล SQLite |
 | `MEMESH_AUTO_CAPTURE` | `true` | ปิดการใช้ hook จับข้อมูลอัตโนมัติทั้งหมด (`Stop`, `PreCompact`) |
-| `MEMESH_AUTO_DETECT_LLM` | ไม่ตั้ง | ตั้งเป็น `1` เพื่อให้ memesh ตรวจหาผู้ให้บริการจาก shell env (`OPENAI_API_KEY` ฯลฯ) โดยอัตโนมัติและสลับไปใช้ BYOK embeddings **ค่าเริ่มต้นของการติดตั้งใหม่คือ ONNX ภายในเครื่อง (384 มิติ) เท่านั้น** — opt-in ถ้าต้องการ embedding บนคลาวด์ ถ้าไม่ตั้งค่าธงนี้ `OPENAI_API_KEY` ที่อยู่ใน shell จะถูกเพิกเฉย |
+| `MEMESH_AUTO_DETECT_LLM` | ไม่ได้ตั้งค่า (ตรวจจับอัตโนมัติ **เปิด**) | ตั้งเป็น `0` เพื่อไม่ให้ memesh ใช้คีย์ API ที่พบในสภาพแวดล้อมของเชลล์ โดยค่าเริ่มต้น หากตั้ง `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` ไว้ และคุณยังไม่ได้กำหนดผู้ให้บริการใน `~/.memesh/config.json` memesh จะใช้คีย์นั้นสำหรับฟีเจอร์ LLM ฝั่งเขียน (consolidation, การสกัดบทเรียน, auto-tagging, dream) ส่วน embeddings ไม่ได้รับผลกระทบ — ยังคงเป็น ONNX ในเครื่อง (384 มิติ) เว้นแต่คุณจะตั้ง `embedder.provider` อย่างชัดเจน |
 | `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | ไม่ตั้ง | ตั้งเป็น `1` เพื่อเปิดใช้โปรโตคอล working-model เชิงทดลอง (กรอบ CTO / Orchestrator / Agents) เพิ่มแบนเนอร์ตอนเริ่มเซสชัน การเตือนคำสั่ง Bash และเทเลเมตรี `verify_agent_work` ประสิทธิผลของโปรโตคอลกำลังถูกเก็บข้อมูล ยังไม่ได้พิสูจน์ — opt-in ถ้าต้องการเข้าร่วม **ค่าเริ่มต้นปิด**: ฟีเจอร์หน่วยความจำหลักทำงานได้โดยไม่ต้องเปิดธงนี้ |
 | `MEMESH_AUTO_UPDATE` | `off` | นโยบายอัปเดตอัตโนมัติ `off` (ค่าเริ่มต้น) ไม่อัปเดตเลย; `patch` อนุญาต `X.Y.Z → X.Y.Z+N`; `minor` เพิ่ม `X.Y.Z → X.Y+1.0`; `major` อนุญาตทุกการเพิ่มเวอร์ชัน เมื่ออนุญาต `npm install -g` แบบ detached จะทำงานเมื่อจบเซสชัน (Stop hook) เพื่อไม่บล็อกงานของคุณ — ผลลัพธ์ลงใน `~/.memesh/auto-update.log` ตั้งใน `~/.memesh/config.json` ผ่านคีย์ `autoUpdate` ก็ได้ (env ชนะ) เมื่อเวอร์ชันที่ติดตั้งถูก deprecate (security advisory) `patch` จะถูกบังคับเปิดแม้ตั้งเป็น `off` — minor / major ยังต้องทำมือเพื่อหลีกเลี่ยงการเปลี่ยนพฤติกรรมเงียบ ๆ |
-| `OPENAI_API_KEY` | ไม่ตั้ง | คีย์ OpenAI ของคุณ ใช้เฉพาะเมื่อ `MEMESH_AUTO_DETECT_LLM=1` หรือคุณตั้งค่าผู้ให้บริการอย่างชัดเจน |
+| `OPENAI_API_KEY` | ไม่ได้ตั้งค่า | คีย์ OpenAI ของคุณ ใช้โดยอัตโนมัติสำหรับฟีเจอร์ LLM เว้นแต่คุณจะตั้ง `MEMESH_AUTO_DETECT_LLM=0` หรือกำหนดผู้ให้บริการอย่างชัดเจน |
 | `OLLAMA_HOST` | `http://localhost:11434` | เปลี่ยนปลายทาง Ollama เมื่อใช้ผู้ให้บริการ Ollama ภายในเครื่อง |
 
 `memesh doctor` พิมพ์การตั้งค่าที่ resolve แล้วเพื่อให้คุณเห็นว่าอะไรทำงานอยู่

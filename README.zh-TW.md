@@ -285,10 +285,10 @@ memesh export-schema \
 |---|---|---|
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | 覆寫 SQLite 資料庫位置。 |
 | `MEMESH_AUTO_CAPTURE` | `true` | 完全停用自動擷取 hooks（`Stop`、`PreCompact`）。 |
-| `MEMESH_AUTO_DETECT_LLM` | 未設定 | 設為 `1` 讓 memesh 從你的 shell 環境（`OPENAI_API_KEY` 等）自動偵測供應商，並切換到 BYOK 嵌入。**全新安裝的預設僅使用本地 ONNX（384-dim）** — 想要雲端嵌入時才加入。沒設定這個旗標時，shell 中閒置的 `OPENAI_API_KEY` 會被忽略。 |
+| `MEMESH_AUTO_DETECT_LLM` | 未設定（自動偵測**開啟**） | 設為 `0` 讓 memesh 不使用它在 shell 環境中找到的 API 金鑰。預設情況下，如果設定了 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` 且你沒有在 `~/.memesh/config.json` 設定供應商，memesh 會用它來跑寫入側的 LLM 功能（整合、經驗提取、自動打標籤、dream）。嵌入不受影響 —— 除非你明確設定 `embedder.provider`，否則保持本地 ONNX（384 維）。 |
 | `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | 未設定 | 設為 `1` 啟用實驗性的工作模型協定（CTO／Orchestrator／Agents 框架）。會加上 session-start 橫幅、Bash 指令提示，以及 `verify_agent_work` 遙測。協定的有效性正在量測中、尚未獲得驗證 — 想參與時才加入。**預設關閉**：核心記憶功能不需要這個旗標就能運作。 |
 | `MEMESH_AUTO_UPDATE` | `off` | 自動更新策略。`off`（預設）永不自動更新；`patch` 允許 `X.Y.Z → X.Y.Z+N`；`minor` 加上 `X.Y.Z → X.Y+1.0`；`major` 允許任何升級。允許時，分離的 `npm install -g` 會在 session 結束時（Stop hook）執行，避免阻塞你的工作 — 結果寫入 `~/.memesh/auto-update.log`。也可在 `~/.memesh/config.json` 中以 `autoUpdate` 設定（環境變數優先）。當已安裝版本被維護者標為 deprecated（安全公告）時，即使是 `off` 也會強制允許 `patch` — 仍維持 minor／major 升級的手動門檻，避免靜默行為偏移。 |
-| `OPENAI_API_KEY` | 未設定 | 你的 OpenAI 金鑰。僅在 `MEMESH_AUTO_DETECT_LLM=1` 或你明確設定供應商時才使用。 |
+| `OPENAI_API_KEY` | 未設定 | 你的 OpenAI 金鑰。除非你設定 `MEMESH_AUTO_DETECT_LLM=0` 或明確設定供應商，否則會自動用於 LLM 功能。 |
 | `OLLAMA_HOST` | `http://localhost:11434` | 使用本地 Ollama 供應商時覆寫 Ollama 的端點。 |
 
 `memesh doctor` 會印出已解析的設定，讓你看到目前實際生效的內容。
