@@ -739,26 +739,22 @@ export function stripHookEchoes(rawTranscript) {
 }
 
 /**
- * Did the session actually USE the memory named `name`, or does the name
- * only appear because memesh injected it at session start?
+ * Did the session actually USE the memory named `name`, or does the name only
+ * appear because memesh injected it at session start?
  *
- * Session-start injects the memory block into the model's context, so every
- * injected entity name is already present in the transcript before the
- * session does anything. Naive `transcript.includes(name)` therefore scores
- * all of them as hits.
+ * The caller passes `sessionText` with memesh's own SessionStart injection
+ * already stripped structurally (see `stripHookEchoes` — matches on
+ * `attachment.type`, so it is independent of JSON escaping and of how many
+ * times Claude Code echoes one injection). That removal is what stops an
+ * injected name from scoring a false hit; once the echo is gone, a plain
+ * substring match is the whole test.
  *
- * The previous approach deleted the injected blob from the transcript
- * (`transcriptText.replace(injectedContext, '')`) and then matched. That
- * breaks on real transcripts: they are JSON-encoded, so newlines are `\n`
- * escapes and quotes are escaped — a raw multi-line replace of a ~2 KB block
- * silently fails to match, leaving the injected text in place and turning
- * every entity into a false hit.
+ * (This replaced an earlier `transcript.replace(injectedBlob, '')` + match,
+ * which silently failed on JSON-encoded transcripts and scored every entity a
+ * hit — see the callsite comment.)
  *
- * Counting occurrences is encoding-independent: entity names are plain
- * identifiers that survive JSON escaping unchanged. A memory is a hit only
- * if it shows up MORE often than we injected it.
- *
- * Callers pass lowercased strings.
+ * Self-contained for its unit tests: lowercases both sides and ignores names
+ * shorter than 4 chars (too generic to match reliably).
  */
 export function isRecallHit(sessionText, name) {
   if (!name || name.length < 4) return false;

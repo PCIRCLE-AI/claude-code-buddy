@@ -60,16 +60,14 @@ export function summariseTelemetry(windowDays = 30, db) {
         const byProvider = {};
         const byModel = {};
         const byProject = {};
+        const bump = (rec, key, slot) => {
+            (rec[key] ??= { ok: 0, fail: 0 })[slot]++;
+        };
         for (const a of bucket.attempts) {
             const slot = a.status === 'ok' ? 'ok' : 'fail';
-            byProvider[a.provider] ??= { ok: 0, fail: 0 };
-            byProvider[a.provider][slot]++;
-            const modelKey = a.model ?? 'unknown';
-            byModel[modelKey] ??= { ok: 0, fail: 0 };
-            byModel[modelKey][slot]++;
-            const projectKey = a.project ?? '_unscoped';
-            byProject[projectKey] ??= { ok: 0, fail: 0 };
-            byProject[projectKey][slot]++;
+            bump(byProvider, a.provider, slot);
+            bump(byModel, a.model ?? 'unknown', slot);
+            bump(byProject, a.project ?? '_unscoped', slot);
         }
         const byErrorClass = {};
         for (const a of bucket.attempts) {

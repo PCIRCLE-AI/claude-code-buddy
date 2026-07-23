@@ -6,6 +6,7 @@
 // =============================================================================
 
 import { createRequire } from 'node:module';
+import { existsSync } from 'fs';
 import { getDatabase } from '../db.js';
 import { join } from 'path';
 
@@ -20,7 +21,30 @@ let onnxAvailableChecked = false;
 let onnxAvailableResult = false;
 const MAX_VECTOR_DISTANCE = 1;
 const ONNX_TRANSFORMERS_PACKAGE = '@huggingface/transformers';
+// The local ONNX model id + on-disk cache layout. These are the ONE authoritative
+// home for "which model, cached where" — getOnnxPipeline() and isOnnxModelCached()
+// both derive from them, so a caller (e.g. `memesh doctor`) never has to
+// reconstruct the path and can't drift from what the embedder actually loads.
+const ONNX_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+const ONNX_CACHE_SUBDIR = 'models';
 const pendingEmbeddingWrites = new Set<Promise<void>>();
+
+/**
+ * Is the local ONNX model already downloaded (so an embed call would NOT
+ * trigger a ~90 MB download)? Owned here because this module owns the model id
+ * and cache dir. Callers ask the embedder rather than hardcoding its layout.
+ *
+ * Points at the leaf weights file: a half-finished download (dir present,
+ * weights absent) correctly reads as NOT cached.
+ */
+export function isOnnxModelCached(): boolean {
+  try {
+    const [org, name] = ONNX_MODEL_ID.split('/');
+    return existsSync(join(memeshDir(), ONNX_CACHE_SUBDIR, org, name, 'onnx', 'model.onnx'));
+  } catch {
+    return false;
+  }
+}
 
 // --- Public API ---
 
@@ -280,12 +304,12 @@ async function getOnnxPipeline(): Promise<OnnxPipeline> {
       const createPipeline = mod.pipeline;
       const env = mod.env;
       if (env) {
-        env.cacheDir = join(memeshDir(), 'models');
+        env.cacheDir = join(memeshDir(), ONNX_CACHE_SUBDIR);
         env.allowLocalModels = true;
       }
       onnxPipelineInstance = await createPipeline(
         'feature-extraction',
-        'Xenova/all-MiniLM-L6-v2'
+        ONNX_MODEL_ID,
       );
       return onnxPipelineInstance;
     } catch (err) {

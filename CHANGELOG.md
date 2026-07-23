@@ -4,6 +4,13 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **Simplify pass over the audit's changes (quality-only; a 4-agent reuse/simplification/efficiency/altitude review)** — no behaviour change:
+  - `memesh doctor --probe` no longer hangs up to 15s after printing its report. The embedding-probe timeout used a `setTimeout` that was never cleared, so on the happy path (the embedder answers first) the timer kept the event loop alive; it is now cleared in a `finally`, and the timeout arm rejects cleanly instead of `resolve(null).then(throw)`.
+  - `doctor` no longer hardcodes the ONNX model id + cache layout — `embedder.ts` now owns and exports `isOnnxModelCached()`, so the two can't drift (the exact fake-working risk the code's own comment flagged).
+  - Deduped `memesh pin`/`unpin` behind one registrar, the three `by_provider`/`by_model`/`by_project` telemetry accumulators behind one `bump()` helper, and corrected a stale `isRecallHit` docblock that still described a superseded "count occurrences" approach.
+
+
 ### Docs
 - **Documented BYOK embeddings + fixed a stale CLI count** (`README.md` + 10 locales, `docs/ARCHITECTURE.md`) — the READMEs documented `config set llm.provider` but never `embedder.provider` / `embedder.model`, so BYOK embeddings (OpenAI / Ollama, independent of the chat LLM, with automatic vector-index rebuild on dimension change) were undocumented. Added a "Bring-your-own embeddings" subsection to all 11 READMEs (H3 — locale H2 parity unchanged). ARCHITECTURE.md's "17 top-level commands" corrected to the actual 24 (config/kg/dream have subcommands).
 - **10 locale READMEs re-synced for `MEMESH_AUTO_DETECT_LLM` opt-out semantics** (`README.{de,es,fr,ja,ko,pt,th,vi,zh-CN,zh-TW}.md`) — the honestly-unticked box from the Phase-1 PR. Every locale still described the pre-#36 OPT-IN behaviour ("set to `1` to enable; without the flag a shell key is ignored") and incorrectly tied the flag to BYOK embeddings. Corrected to match the English README: auto-detect is ON by default, `0` disables it, a shell key is used for write-side LLM features unless disabled, and embeddings are unaffected (stay local ONNX). H2 structure unchanged, so `memesh doctor` locale parity stays PASS.
