@@ -16,22 +16,11 @@
 
 ---
 
-> [!IMPORTANT]
-> **Actively developed project** — features evolve and may change between releases. If you hit a bug or have a feature request, please [open an issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues).
+**MeMesh** — the open-source **memory layer** for Claude Code & MCP agents. One SQLite file. No cloud. Plugs into any LLM.
 
-## The Problem
+## 95.40% R@5 on LongMemEval-S — beats Mem0 by 46 points
 
-Your coding agent forgets what happened between sessions. Every architecture decision, bug fix, failed test, and hard-won lesson has to be re-explained. Claude Code starts fresh, re-discovers old constraints, and burns context on things it should already know.
-
-**MeMesh gives coding agents persistent, searchable, evolving local memory.**
-
-This package is the local memory layer of the MeMesh product family. It is intentionally small and open-source: install it with npm, keep your memory in `~/.memesh/knowledge-graph.db`, and connect it to Claude Code or any MCP-compatible client. Hosted workspace and enterprise operating-system products should stay separate from this package's README and roadmap.
-
----
-
-## Proof — 95.40% R@5 on LongMemEval-S
-
-MeMesh's retrieval engine is **FTS5 alone** (no LLM, no embeddings on the hot path), measured against the public [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) benchmark (500 questions, MIT-licensed):
+MeMesh's retrieval is **FTS5 alone** — no LLM, no embeddings on the hot path. Measured against the public [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) benchmark (500 questions, MIT-licensed):
 
 | System | R@5 | Source |
 |---|---|---|
@@ -41,7 +30,18 @@ MeMesh's retrieval engine is **FTS5 alone** (no LLM, no embeddings on the hot pa
 | Zep | 63.8% | LongMemEval paper |
 | Mem0 | 49.0% | LongMemEval paper |
 
-Reproduction commands, dataset SHA256, raw per-question results, and known-failure analysis are all in [`benchmarks/longmemeval/`](benchmarks/longmemeval/). Re-runnable in ~10 seconds.
+Re-runnable in ~10 seconds. Full instructions, dataset SHA256, raw per-question results, and known-failure analysis: [`benchmarks/longmemeval/REPRODUCE.md`](benchmarks/longmemeval/REPRODUCE.md).
+
+---
+
+## The Problem
+
+Your coding agent forgets between sessions. Every architecture decision, bug fix, failed test, and hard-won lesson has to be re-explained. Claude Code starts fresh, re-discovers old constraints, and burns context on things it should already know.
+
+**MeMesh gives coding agents persistent, searchable, evolving local memory.** Install with npm, memory lives in `~/.memesh/knowledge-graph.db`, plug into Claude Code or any MCP-compatible client.
+
+> [!IMPORTANT]
+> Actively developed — features may change between releases. [Open an issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues) for bugs or feature requests.
 
 ---
 
