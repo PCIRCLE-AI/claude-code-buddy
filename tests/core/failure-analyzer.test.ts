@@ -75,16 +75,25 @@ describe('Failure Analyzer', () => {
     expect(result).toBeNull();
   });
 
-  it('deduplicates errors', async () => {
+  it('deduplicates errors before sending them to the LLM', async () => {
     const { analyzeFailure } = await import('../../src/core/failure-analyzer.js');
-    // Without a real LLM, this will fail the API call and return null
-    // That's the expected graceful behavior
-    const result = await analyzeFailure(
+    // Capture the prompt actually built, so we verify DEDUP (not just that a
+    // failed call returns null — the prior version of this test asserted only
+    // the latter and would have stayed green with dedup completely broken).
+    callLLMMock.mockReset();
+    let prompt = '';
+    callLLMMock.mockImplementation((p: string) => { prompt = p; return Promise.resolve('not-json'); });
+
+    await analyzeFailure(
       ['Error A', 'Error A', 'Error A', 'Error B'],
       ['file.ts'],
-      { provider: 'anthropic', apiKey: 'invalid' }
+      { provider: 'anthropic' },
     );
-    expect(result).toBeNull(); // API fails gracefully
+
+    // 'Error A' appeared 3× in the input but must reach the prompt once.
+    const occurrencesOfA = prompt.split('Error A').length - 1;
+    expect(occurrencesOfA).toBe(1);
+    expect(prompt).toContain('Error B');
   });
 
   it('parseLesson is exported and defined', async () => {
