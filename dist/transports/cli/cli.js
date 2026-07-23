@@ -643,13 +643,26 @@ program
             if (s.median_latency_ms != null) {
                 console.log(`    median latency: ${s.median_latency_ms}ms`);
             }
-            const providers = Object.entries(s.by_provider).map(([p, v]) => `${p}=${v.ok}/${v.ok + v.fail}`).join(', ');
+            const okFail = (rec) => Object.entries(rec).map(([k, v]) => `${k}=${v.ok}/${v.ok + v.fail}`).join(', ');
+            const providers = okFail(s.by_provider);
             if (providers)
                 console.log(`    by provider:  ${providers}`);
+            const models = okFail(s.by_model);
+            if (models)
+                console.log(`    by model:     ${models}`);
+            const projects = okFail(s.by_project);
+            if (projects)
+                console.log(`    by project:   ${projects}`);
             const errors = Object.entries(s.by_error_class);
             if (errors.length > 0) {
                 const errStr = errors.sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c}=${n}`).join(', ');
                 console.log(`    error classes: ${errStr}`);
+            }
+            if (s.sample_errors.length > 0) {
+                console.log(`    recent errors:`);
+                for (const e of s.sample_errors) {
+                    console.log(`      • [${e.error_class ?? 'unknown'}] ${e.message.slice(0, 100)}`);
+                }
             }
             console.log('');
         }

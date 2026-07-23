@@ -29,11 +29,12 @@ export function recordTelemetry(attempts, opts) {
     }
     catch { }
 }
+const MAX_SAMPLE_ERRORS = 5;
 export function summariseTelemetry(windowDays = 30, db) {
     const conn = db ?? getDatabase();
     const since = new Date(Date.now() - windowDays * 86400000).toISOString();
     const rows = conn.prepare(`
-    SELECT flow, provider, status, latency_ms, error_class, attempt_index, fallback_used
+    SELECT flow, provider, model, project, status, latency_ms, error_class, error_message, attempt_index, fallback_used
     FROM llm_telemetry
     WHERE ts >= ?
     ORDER BY ts ASC
@@ -57,14 +58,30 @@ export function summariseTelemetry(windowDays = 30, db) {
         const okLatencies = bucket.attempts.filter(a => a.status === 'ok' && a.latency_ms != null).map(a => a.latency_ms).sort((a, b) => a - b);
         const median = okLatencies.length === 0 ? null : okLatencies[Math.floor(okLatencies.length / 2)];
         const byProvider = {};
+        const byModel = {};
+        const byProject = {};
         for (const a of bucket.attempts) {
+            const slot = a.status === 'ok' ? 'ok' : 'fail';
             byProvider[a.provider] ??= { ok: 0, fail: 0 };
-            byProvider[a.provider][a.status === 'ok' ? 'ok' : 'fail']++;
+            byProvider[a.provider][slot]++;
+            const modelKey = a.model ?? 'unknown';
+            byModel[modelKey] ??= { ok: 0, fail: 0 };
+            byModel[modelKey][slot]++;
+            const projectKey = a.project ?? '_unscoped';
+            byProject[projectKey] ??= { ok: 0, fail: 0 };
+            byProject[projectKey][slot]++;
         }
         const byErrorClass = {};
         for (const a of bucket.attempts) {
             if (a.error_class)
                 byErrorClass[a.error_class] = (byErrorClass[a.error_class] ?? 0) + 1;
+        }
+        const sampleErrors = [];
+        for (let i = bucket.attempts.length - 1; i >= 0 && sampleErrors.length < MAX_SAMPLE_ERRORS; i--) {
+            const a = bucket.attempts[i];
+            if (a.status === 'fail' && a.error_message) {
+                sampleErrors.push({ error_class: a.error_class, message: a.error_message });
+            }
         }
         out.push({
             flow,
@@ -75,7 +92,10 @@ export function summariseTelemetry(windowDays = 30, db) {
             fallback_used: fallbackUsed,
             median_latency_ms: median,
             by_provider: byProvider,
+            by_model: byModel,
+            by_project: byProject,
             by_error_class: byErrorClass,
+            sample_errors: sampleErrors,
             window_days: windowDays,
         });
     }

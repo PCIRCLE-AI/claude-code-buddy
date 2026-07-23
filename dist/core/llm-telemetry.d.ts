@@ -18,7 +18,19 @@ export interface TelemetrySummary {
         ok: number;
         fail: number;
     }>;
+    by_model: Record<string, {
+        ok: number;
+        fail: number;
+    }>;
+    by_project: Record<string, {
+        ok: number;
+        fail: number;
+    }>;
     by_error_class: Record<string, number>;
+    sample_errors: Array<{
+        error_class: string | null;
+        message: string;
+    }>;
     window_days: number;
 }
 export declare function summariseTelemetry(windowDays?: number, db?: Database.Database): TelemetrySummary[];

@@ -1020,7 +1020,7 @@ Per-flow LLM telemetry scorecard for the last `window` days. Backs the dashboard
 |-----------|------|---------|-------------|
 | `window` | number | 30 | Look-back window in days (1–365) |
 
-**Response shape:** `{ window_days, summaries: FlowSummary[] }` where each `FlowSummary` is `{ flow, total_calls, total_attempts, successes, failures, fallback_used, median_latency_ms, by_provider, by_error_class, window_days }`. Flows: `dreamer`, `pattern_detector`, `consolidator`, `auto_tagger`, `failure_analyzer`, `digest_validator`.
+**Response shape:** `{ window_days, summaries: FlowSummary[] }` where each `FlowSummary` is `{ flow, total_calls, total_attempts, successes, failures, fallback_used, median_latency_ms, by_provider, by_model, by_project, by_error_class, sample_errors, window_days }`. `by_model` and `by_project` are `Record<string, { ok, fail }>` (per-model and per-project ok/fail counts); `sample_errors` is up to 5 recent `{ error_class, message }` failure samples. Flows: `dreamer`, `pattern_detector`, `consolidator`, `auto_tagger`, `failure_analyzer`, `digest_validator`.
 
 ### GET /v1/dream/proposals
 

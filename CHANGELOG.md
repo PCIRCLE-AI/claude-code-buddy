@@ -11,6 +11,9 @@ All notable changes to MeMesh are documented here.
 - **"Actively developed" callout at the top of every README** — adds a `> [!IMPORTANT]` block immediately after the hero divider linking to the GitHub Issues tracker. Sets expectations that features evolve between releases and routes bug reports / feature requests to the correct channel from the first glance.
 
 ### Added
+- **LLM telemetry now surfaces per-model, per-project, and recent-error detail** (`src/core/llm-telemetry.ts`, `src/transports/cli/cli.ts`, `dashboard/src/components/LlmTelemetryPanel.tsx`) — the `model`, `project`, and `error_message` columns were written on every attempt but never read back, so "which model is failing", "which project's calls fail most", and "what did the failure actually say" were all unanswerable. `summariseTelemetry` now returns `by_model`, `by_project`, and up to 5 recent `sample_errors` alongside the existing `by_provider`/`by_error_class`; the `memesh telemetry` CLI and the dashboard LLM-activity panel render them. `/v1/telemetry` returns the new fields automatically.
+
+### Added
 - **`memesh pin` / `memesh unpin` — protect a memory from the dreamer's auto-compaction** (`src/core/operations.ts`, `src/transports/cli/cli.ts`) — the dreamer already read `metadata.pin === true` and documented "never compresses pinned entities", but nothing could ever SET the flag: `remember` exposes no metadata field, and import discards it. The protection was inert — every entity was compactable regardless of the promise. `setPinned()` (behind the new `pin`/`unpin` commands) writes/removes the flag via `updateEntityMetadata`, preserving trust/provenance. End-to-end verified: an unpinned commit cluster is proposed for compaction; after `pin` the same cluster is skipped (`clustersScanned` drops to 0).
 
 ### Fixed
