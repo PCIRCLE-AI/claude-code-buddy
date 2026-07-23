@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { exportOpenAITools } from '../../src/core/schema-export.js';
+import { RememberSchema, RecallSchema } from '../../src/transports/schemas.js';
 
 describe('exportOpenAITools', () => {
   const tools = exportOpenAITools();
@@ -70,6 +71,45 @@ describe('exportOpenAITools', () => {
   it('memesh_learn requires error and fix', () => {
     const tool = tools.find((t: any) => t.function.name === 'memesh_learn') as any;
     expect(tool.function.parameters.required).toEqual(['error', 'fix']);
+  });
+
+  // Non-tautological parity: derive the expected fields from the Zod schemas
+  // that are the real validation source of truth, not from the export itself.
+  // If someone adds a field to RememberSchema/RecallSchema, the OpenAI export
+  // must expose it or an agent driven off the export can never send it — the
+  // exact gap that left `relations`/`namespace` off `remember` and made every
+  // agent-created entity an orphan.
+  it('memesh_remember exposes every field in RememberSchema (incl. relations, namespace)', () => {
+    const tool = tools.find((t: any) => t.function.name === 'memesh_remember') as any;
+    const exported = Object.keys(tool.function.parameters.properties);
+    const zodKeys = Object.keys(RememberSchema.shape);
+    for (const key of zodKeys) {
+      expect(exported, `RememberSchema.${key} missing from OpenAI export`).toContain(key);
+    }
+    // Guard against silent regression on the two that were missing.
+    expect(exported).toContain('relations');
+    expect(exported).toContain('namespace');
+  });
+
+  it('memesh_recall exposes every field in RecallSchema (incl. include_archived, cross_project)', () => {
+    const tool = tools.find((t: any) => t.function.name === 'memesh_recall') as any;
+    const exported = Object.keys(tool.function.parameters.properties);
+    const zodKeys = Object.keys(RecallSchema.shape);
+    for (const key of zodKeys) {
+      expect(exported, `RecallSchema.${key} missing from OpenAI export`).toContain(key);
+    }
+    expect(exported).toContain('include_archived');
+    expect(exported).toContain('cross_project');
+    expect(exported).toContain('namespace');
+  });
+
+  it('the relations field is shaped as an array of {to, type} objects', () => {
+    const tool = tools.find((t: any) => t.function.name === 'memesh_remember') as any;
+    const rel = tool.function.parameters.properties.relations;
+    expect(rel.type).toBe('array');
+    expect(rel.items.type).toBe('object');
+    expect(Object.keys(rel.items.properties).sort()).toEqual(['to', 'type']);
+    expect(rel.items.required.sort()).toEqual(['to', 'type']);
   });
 
   it('all parameter properties have a type field', () => {
