@@ -375,7 +375,11 @@ function spawnFreshUpdateCheck(installedVersion) {
       {
         detached: true,
         stdio: 'ignore',
-        env: { ...process.env, MEMESH_UPDATE_REFRESH: '1' },
+        // `memesh status` already forces a fresh npm lookup (getUpdateCheck
+        // with preferFresh, the default) and rewrites the cache — so the
+        // spawn itself is the refresh. An earlier MEMESH_UPDATE_REFRESH='1'
+        // env var here had NO reader anywhere and did nothing; removed.
+        env: { ...process.env },
         windowsHide: true,
       },
     );
