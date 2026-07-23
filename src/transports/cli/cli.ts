@@ -10,6 +10,7 @@ import { remember, recallEnhanced, forget, consolidate, exportMemories, importMe
 import { verifyAgentWork } from '../../core/verifier.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
+import { getDbPath } from '../../core/paths.js';
 import { flushPendingEmbeddings } from '../../core/embedder.js';
 import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/types.js';
 
@@ -840,6 +841,73 @@ kgCmd
       if (result.orphansMarkedProcessed > 0) {
         console.log(`  idempotency: marked ${result.orphansMarkedProcessed} new orphan${result.orphansMarkedProcessed === 1 ? '' : 's'} as attempted.`);
       }
+    });
+  });
+
+kgCmd
+  .command('rename-project')
+  .description('Merge or rename a project:<name> tag across all entities (heals mis-homed tags from before git-based project identity)')
+  .option('--from <name>', 'Existing project name to rewrite. Omit both --from/--to to just LIST all project tags + counts.')
+  .option('--to <name>', 'New project name to rewrite it to')
+  .option('--apply', 'Actually write the change. Default is a dry-run preview. Backs up the DB first.')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    await withDatabase(async () => {
+      const { listProjectTags, renameProjectTag } = await import('../../core/project-tags.js');
+
+      // List mode — no --from/--to: show the current project-tag distribution
+      // so the user can spot splits (e.g. tim vs TIM) before mapping them.
+      if (!opts.from && !opts.to) {
+        const tags = listProjectTags();
+        if (opts.json) { console.log(JSON.stringify(tags, null, 2)); return; }
+        if (tags.length === 0) { console.log('No project:* tags found.'); return; }
+        console.log('Project tags (entity count):');
+        for (const t of tags) console.log(`  ${String(t.count).padStart(5)}  ${t.project}`);
+        console.log(`\nRewrite one with:  memesh kg rename-project --from <old> --to <new>   (add --apply to write)`);
+        return;
+      }
+      if (!opts.from || !opts.to) {
+        console.error('Provide BOTH --from and --to (or neither, to list).');
+        process.exitCode = 1;
+        return;
+      }
+
+      // Dry-run preview first (always computed).
+      const preview = renameProjectTag(opts.from, opts.to, { apply: false });
+      if (!opts.apply) {
+        if (opts.json) { console.log(JSON.stringify({ ...preview, dryRun: true }, null, 2)); return; }
+        console.log(`Dry-run: project:${opts.from} → project:${opts.to}`);
+        console.log(`  ${preview.affectedEntities} entit${preview.affectedEntities === 1 ? 'y' : 'ies'} carry project:${opts.from}`);
+        console.log(`  ${preview.renamed} would be renamed, ${preview.merged} already have project:${opts.to} (their project:${opts.from} row would be removed)`);
+        console.log(`\nNothing written. Re-run with --apply to commit (the DB is backed up first).`);
+        return;
+      }
+
+      if (preview.affectedEntities === 0) {
+        console.log(`No entities carry project:${opts.from} — nothing to do.`);
+        return;
+      }
+
+      // --apply: back up the whole DB file before any mutation (recoverable).
+      const dbPath = getDbPath();
+      const backupDir = path.join(process.cwd(), 'data', 'backups');
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupPath = path.join(backupDir, `kg-before-rename-project-${stamp}.db`);
+      try {
+        fs.mkdirSync(backupDir, { recursive: true });
+        fs.copyFileSync(dbPath, backupPath);
+      } catch (err) {
+        console.error(`❌ Could not back up the DB before applying (${err instanceof Error ? err.message : err}); aborting without changes.`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const result = renameProjectTag(opts.from, opts.to, { apply: true });
+      if (opts.json) { console.log(JSON.stringify({ ...result, backupPath }, null, 2)); return; }
+      console.log(`✅ project:${opts.from} → project:${opts.to}`);
+      console.log(`  ${result.renamed} renamed, ${result.merged} merged (${result.affectedEntities} entities total)`);
+      console.log(`  Backup: ${backupPath}`);
+      console.log(`  Restore if needed: cp "${backupPath}" "${dbPath}"`);
     });
   });
 
