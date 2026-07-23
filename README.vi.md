@@ -332,6 +332,17 @@ Hoặc dùng dashboard Settings tab (visual setup):
 memesh  # mở dashboard → Settings tab
 ```
 
+### Dùng embeddings của riêng bạn (tùy chọn)
+
+Mặc định embeddings dùng mô hình ONNX cục bộ (`Xenova/all-MiniLM-L6-v2`, 384 chiều) — không cần khóa API, không có gì rời khỏi máy bạn, và recall FTS5 mặc định thậm chí không cần đến. Để dùng embedder lưu trữ đám mây hoặc máy chủ cục bộ:
+
+```bash
+memesh config set embedder.provider openai          # or: ollama
+memesh config set embedder.model text-embedding-3-small
+```
+
+Embedder được cấu hình **độc lập với LLM chat** — thay đổi `llm.provider` không bao giờ âm thầm thay đổi embeddings của bạn. Nếu bạn chuyển sang chiều khác (ví dụ 384 → 1536), MeMesh tự động xây dựng lại chỉ mục vector ở lần ghi tiếp theo. Các giá trị `embedder.provider` được hỗ trợ: `onnx` (mặc định, cục bộ), `openai`, `ollama`.
+
 | | Level 0 (default) | Level 1 (Smart Mode) |
 |---|---|---|
 | **Search** | FTS5 + sqlite-vec, 95.40% R@5 (~18ms/query) | giữ nguyên — recall luôn LLM-free ở mọi level |

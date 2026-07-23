@@ -359,6 +359,17 @@ memesh config set llm.api-key sk-ant-...
 memesh  # 打开仪表板 → 设置标签页
 ```
 
+### 自带嵌入(可选)
+
+嵌入默认使用本地 ONNX 模型(`Xenova/all-MiniLM-L6-v2`,384 维)—— 无需 API 密钥,数据不离开你的机器,而且默认的 FTS5 召回根本不需要它。若要改用托管或本地服务器的嵌入器:
+
+```bash
+memesh config set embedder.provider openai          # or: ollama
+memesh config set embedder.model text-embedding-3-small
+```
+
+嵌入器**独立于对话 LLM** 配置 —— 更改 `llm.provider` 绝不会悄悄改变你的嵌入。如果切换到不同维度(如 384 → 1536),MeMesh 会在下次写入时自动重建向量索引。支持的 `embedder.provider` 取值:`onnx`(默认,本地)、`openai`、`ollama`。
+
 | | 级别 0（默认） | 级别 1（智能模式） |
 |---|---|---|
 | **搜索** | FTS5 + sqlite-vec，95.40% R@5（每次查询 ~18ms） | 不变 — 回忆在每个级别都是无 LLM 的 |

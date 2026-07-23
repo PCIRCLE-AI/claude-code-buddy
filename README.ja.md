@@ -359,6 +359,17 @@ memesh config set llm.api-key sk-ant-...
 memesh  # ダッシュボード → Settings タブを開く
 ```
 
+### 独自のエンベディングを使う(任意)
+
+エンベディングはデフォルトでローカル ONNX モデル(`Xenova/all-MiniLM-L6-v2`、384 次元)を使用します — API キー不要、データは端末外に出ず、デフォルトの FTS5 リコールはそもそも不要です。ホスト型またはローカルサーバーのエンベダーを使うには:
+
+```bash
+memesh config set embedder.provider openai          # or: ollama
+memesh config set embedder.model text-embedding-3-small
+```
+
+エンベダーは**チャット LLM とは独立して**構成されます — `llm.provider` を変更してもエンベディングが黙って変わることはありません。異なる次元(例: 384 → 1536)に切り替えると、MeMesh は次回の書き込み時にベクトルインデックスを自動的に再構築します。対応する `embedder.provider`: `onnx`(デフォルト、ローカル)、`openai`、`ollama`。
+
 | | レベル 0 (デフォルト) | レベル 1 (スマートモード) |
 |---|---|---|
 | **検索** | FTS5 + sqlite-vec、95.40% R@5(~18ms/クエリ) | 変更なし — リコールはどのレベルでも LLM フリー |

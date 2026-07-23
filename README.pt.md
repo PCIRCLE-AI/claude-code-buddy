@@ -332,6 +332,17 @@ Ou use a aba Settings do dashboard (setup visual):
 memesh  # abre dashboard → aba Settings
 ```
 
+### Use seus próprios embeddings (opcional)
+
+Os embeddings usam por padrão um modelo ONNX local (`Xenova/all-MiniLM-L6-v2`, 384-dim) — sem chave de API, nada sai da sua máquina, e o recall FTS5 padrão nem precisa deles. Para usar um embedder hospedado ou de servidor local:
+
+```bash
+memesh config set embedder.provider openai          # or: ollama
+memesh config set embedder.model text-embedding-3-small
+```
+
+O embedder é configurado **independentemente do LLM de chat** — mudar `llm.provider` nunca muda seus embeddings silenciosamente. Se você trocar para uma dimensão diferente (ex.: 384 → 1536), o MeMesh reconstrói o índice vetorial automaticamente na próxima escrita. Valores de `embedder.provider` suportados: `onnx` (padrão, local), `openai`, `ollama`.
+
 | | Level 0 (padrão) | Level 1 (Smart Mode) |
 |---|---|---|
 | **Busca** | FTS5 + sqlite-vec, 95,40% R@5 (~18ms/query) | inalterado — recall é LLM-free em todos os níveis |

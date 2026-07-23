@@ -332,6 +332,17 @@ Ou utilisez l'onglet Settings du tableau de bord (configuration visuelle) :
 memesh  # ouvre le tableau de bord → onglet Settings
 ```
 
+### Utilisez vos propres embeddings (optionnel)
+
+Les embeddings utilisent par défaut un modèle ONNX local (`Xenova/all-MiniLM-L6-v2`, 384-dim) — aucune clé API, rien ne quitte votre machine, et le recall FTS5 par défaut n'en a pas besoin. Pour utiliser un embedder hébergé ou de serveur local :
+
+```bash
+memesh config set embedder.provider openai          # or: ollama
+memesh config set embedder.model text-embedding-3-small
+```
+
+L'embedder se configure **indépendamment du LLM de chat** — changer `llm.provider` ne change jamais silencieusement vos embeddings. Si vous passez à une dimension différente (p. ex. 384 → 1536), MeMesh reconstruit l'index vectoriel automatiquement à la prochaine écriture. Valeurs `embedder.provider` prises en charge : `onnx` (par défaut, local), `openai`, `ollama`.
+
 | | Niveau 0 (défaut) | Niveau 1 (Mode Smart) |
 |---|---|---|
 | **Recherche** | FTS5 + sqlite-vec, 95,40 % R@5 (~18 ms/requête) | inchangé — le rappel est sans LLM à tous les niveaux |
