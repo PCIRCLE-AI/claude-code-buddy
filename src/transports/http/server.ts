@@ -446,7 +446,6 @@ const ConfigBody = z.object({
   // Without this on the write surface, the only way to opt into
   // the new policy was hand-editing ~/.memesh/config.json.
   autoUpdate: z.enum(['off', 'patch', 'minor', 'major']).optional(),
-  theme: z.enum(['light', 'dark']).optional(),
   setupCompleted: z.boolean().optional(),
 }).strip();
 

@@ -457,7 +457,6 @@ const ALLOWED_KEYS = new Set([
   'embedder.provider',
   'embedder.model',
   'autoUpdate',
-  'theme',
   'sessionLimit',
   'enableAgenticOrchestration',
   'autoCapture',
@@ -474,7 +473,6 @@ const KEY_VALIDATORS: Record<string, (value: string) => string | null> = {
   'llm.provider': (v) => ['anthropic', 'openai', 'ollama'].includes(v) ? null : `must be one of: anthropic, openai, ollama`,
   'embedder.provider': (v) => ['onnx', 'openai', 'ollama'].includes(v) ? null : `must be one of: onnx, openai, ollama`,
   'autoUpdate': (v) => ['off', 'patch', 'minor', 'major'].includes(v) ? null : `must be one of: off, patch, minor, major`,
-  'theme': (v) => ['light', 'dark'].includes(v) ? null : `must be one of: light, dark`,
   'llmFallbacks': (v) => {
     let parsed: unknown;
     try {

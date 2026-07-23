@@ -18,10 +18,18 @@ export function AnalyticsTab() {
 
   const loadData = useCallback(() => {
     setLoading(true);
+    // Each endpoint degrades independently. Trace a failure to the console so a
+    // single-endpoint outage (e.g. /v1/patterns) doesn't just make its panel
+    // vanish with no signal — the overall error box only shows when BOTH stats
+    // and analytics are null, so a patterns-only failure was previously silent.
+    const guard = (label: string) => (err: unknown) => {
+      console.warn(`[memesh dashboard] ${label} failed to load:`, err);
+      return null;
+    };
     Promise.all([
-      api<StatsData>('GET', '/v1/stats').catch(() => null),
-      api<AnalyticsData>('GET', '/v1/analytics').catch(() => null),
-      api<PatternsData>('GET', '/v1/patterns').catch(() => null),
+      api<StatsData>('GET', '/v1/stats').catch(guard('/v1/stats')),
+      api<AnalyticsData>('GET', '/v1/analytics').catch(guard('/v1/analytics')),
+      api<PatternsData>('GET', '/v1/patterns').catch(guard('/v1/patterns')),
     ]).then(([s, a, p]) => {
       setStats(s);
       setAnalytics(a);

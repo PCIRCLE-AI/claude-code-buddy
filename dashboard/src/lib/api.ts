@@ -135,7 +135,6 @@ export interface ConfigData {
   config: {
     llm?: LlmConfig;
     setupCompleted?: boolean;
-    theme?: string;
     autoCapture?: boolean;
     /** Auto-update policy. Mirrors MEMESH_AUTO_UPDATE env var with env > config precedence. */
     autoUpdate?: AutoUpdatePolicy;
@@ -174,26 +173,6 @@ export interface AnalyticsData {
   };
   loopMetric: LoopMetric;
   timeline: Array<{ date: string; created: number; recalled: number }>;
-  valueMetrics: {
-    totalRecalls: number;
-    lessonsWithWarnings: number;
-    lessonCount: number;
-    typeDistribution: Array<{ type: string; count: number }>;
-  };
-  recallEffectiveness: {
-    overallHitRate: number;
-    totalHits: number;
-    totalMisses: number;
-    trackedEntities: number;
-    topEffective: Array<{ name: string; type: string; hits: number; misses: number; hitRate: number }>;
-    mostIgnored: Array<{ name: string; type: string; hits: number; misses: number; hitRate: number }>;
-  } | null;
-  cleanup: {
-    staleEntities: Array<{
-      id: number; name: string; type: string; confidence: number; days_unused: number;
-    }>;
-    duplicateCandidates: Array<{ name1: string; name2: string; type: string }>;
-  };
   ageMatrix: Array<{ type: string; bucket: 'week' | 'month' | 'quarter' | 'older'; count: number }>;
   knowledgeRadar: Array<{ axis: string; count: number; types: string[] }>;
 }

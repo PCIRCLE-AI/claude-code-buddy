@@ -4,6 +4,14 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Removed
+- **Dead analytics compute + components, and the unread `config.theme`** (`src/core/analytics.ts`, `dashboard/src/components/`, `src/core/config.ts`, `src/transports/http/server.ts`, `src/transports/cli/cli.ts`) — `/v1/analytics` computed `valueMetrics`, `recallEffectiveness`, and `cleanup` (the latter with an O(n²) duplicate-candidate self-join) on every request, but no dashboard component ever rendered them — the dedicated `ValueMetrics` / `RecallEffectiveness` / `CleanupSuggestions` components were never imported. Removed the compute, the three components, and the response fields. Separately, `config.theme` was settable via `memesh config set theme` and `POST /v1/config` but read by nothing — the dashboard theme lives entirely in `localStorage`. Removed from the config type, CLI `ALLOWED_KEYS`, and the HTTP schema. (`tfidf`, also flagged by the audit, was checked and KEPT — it is the live sentinel for "no neural embedder".)
+
+### Fixed
+- **Dashboard analytics panels no longer vanish silently on a single-endpoint failure** (`dashboard/src/components/AnalyticsTab.tsx`) — the tab fetched `/v1/stats`, `/v1/analytics`, `/v1/patterns` with `.catch(() => null)` each, but the error box only showed when both stats and analytics were null, so a `/v1/patterns`-only outage made the patterns panel disappear with no signal. Each failure now logs to the console.
+- **`POST /v1/config` test now verifies persistence** (`tests/transports/http.test.ts`) — it asserted only status 200 + `success:true`, so a silent write-drop stayed green; it now writes `sessionLimit` and reads it back via `GET /v1/config`.
+
+
 ### Docs
 - **Corrected long-standing doc drift against the code** — `docs/ARCHITECTURE.md` listed `temporal validity` as a live scoring factor, but `scoring.ts` removed it in 2026-05 (`valid_from` / `valid_until` were never written by any code path, so it was a constant 1.0 no-op); `ARCHITECTURE.md` also contradicted itself, describing six factors in one place and "five signals" in another. Both now list the five real weights. The MCP file tree was also wrong in both docs: `launcher.ts` and `server.ts` live in `src/mcp/`, not `src/transports/mcp/` (which contains only `handlers.ts`), and `src/mcp/tools.ts` is a re-export shim. HTTP endpoint count corrected to ~32 to match `src/transports/http/server.ts`.
 - **`docs/ARCHITECTURE.md` Session Start section rewritten** to document the two-channel output contract (human `systemMessage` vs model `additionalContext`), why the split is load-bearing, and the real session-file path (`~/.memesh/sessions/<pid>-<timestamp>.json`, not `~/.memesh/last-session-injected.json`).

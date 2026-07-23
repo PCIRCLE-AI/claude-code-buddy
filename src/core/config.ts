@@ -75,7 +75,6 @@ export interface MeMeshConfig {
    * Env override: MEMESH_AUTO_UPDATE.
    */
   autoUpdate?: 'off' | 'patch' | 'minor' | 'major';
-  theme?: 'light' | 'dark';
   setupCompleted?: boolean;
 }
 

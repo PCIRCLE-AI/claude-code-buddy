@@ -285,7 +285,6 @@ const ConfigBody = z.object({
     sessionLimit: z.number().int().min(1).max(100).optional(),
     enableAgenticOrchestration: z.boolean().optional(),
     autoUpdate: z.enum(['off', 'patch', 'minor', 'major']).optional(),
-    theme: z.enum(['light', 'dark']).optional(),
     setupCompleted: z.boolean().optional(),
 }).strip();
 app.post('/v1/config', async (req, res) => {

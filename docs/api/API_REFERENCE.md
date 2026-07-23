@@ -510,7 +510,7 @@ The limit protects the server from accidentally parsing large payloads (e.g. an 
 | POST | /v1/config/test | Validate provider+apiKey against the live `/v1/models` endpoint and return the available model list |
 | GET | /v1/stats | Aggregate counts: entities, observations, relations, tags; type/tag/status distributions |
 | GET | /v1/graph | Signal entities (all non-noise types) + up to 200 recent noise entities + all relations |
-| GET | /v1/analytics | Health score, 30-day timeline, value metrics, ageMatrix, knowledgeRadar, cleanup suggestions |
+| GET | /v1/analytics | Health score, memory-loop metric, 30-day timeline, ageMatrix, knowledgeRadar |
 | GET | /v1/patterns | User work patterns: schedule, tools, focus areas, workflow, strengths, learning |
 | GET | /dashboard | Interactive web dashboard (HTML) |
 
@@ -640,14 +640,10 @@ Returns computed analytics insights for the memory database.
     "timeline": [
       { "day": "2026-04-01", "created": 5, "recalled": 12 }
     ],
-    "valueMetrics": {
-      "totalRecalls": 500,
-      "lessonsSaved": 5,
-      "lessonCount": 8,
-      "typeDistribution": [
-        { "type": "concept", "count": 120 },
-        { "type": "decision", "count": 45 }
-      ]
+    "loopMetric": {
+      "reusedThisWeek": 12,
+      "trend": [ { "date": "2026-04-01", "count": 3 } ],
+      "computedFrom": "last_accessed_at_approximation"
     },
     "ageMatrix": [
       { "type": "lesson_learned", "bucket": "week", "count": 3 },
@@ -656,18 +652,12 @@ Returns computed analytics insights for the memory database.
     "knowledgeRadar": [
       { "axis": "lessons", "count": 57, "types": ["lesson_learned", "lesson", "mistake"] },
       { "axis": "decisions", "count": 28, "types": ["decision", "architecture_decision", "design_decision"] }
-    ],
-    "cleanup": {
-      "staleEntities": [
-        { "id": 42, "name": "old-auth", "type": "concept", "confidence": 0.2, "days_unused": 90 }
-      ],
-      "duplicateCandidates": [
-        { "name1": "auth-flow", "name2": "authentication-flow", "type": "concept" }
-      ]
-    }
+    ]
   }
 }
 ```
+
+> `valueMetrics`, `recallEffectiveness`, and `cleanup` were removed — they were computed on every request but never rendered by any dashboard component. The dashboard reads `healthScore`, `healthFactors`, `loopMetric`, `timeline`, `ageMatrix`, and `knowledgeRadar`.
 
 **Health Score Algorithm:**
 - Activity (30%): percentage of active entities accessed in last 30 days
