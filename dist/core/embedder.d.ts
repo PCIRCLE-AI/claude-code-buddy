@@ -1,3 +1,4 @@
+export declare function isOnnxModelCached(): boolean;
 export declare function isEmbeddingAvailable(): boolean;
 export { getEmbeddingDimension } from './config.js';
 export declare function resetEmbeddingState(): void;

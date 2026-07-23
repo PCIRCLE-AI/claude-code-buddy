@@ -158,38 +158,24 @@ program
         }
     });
 });
-program
-    .command('pin')
-    .description('Protect an entity from the dreamer’s auto-compaction')
-    .requiredOption('--name <name>', 'Entity name')
-    .option('--json', 'Output as JSON')
-    .action(async (opts) => {
-    await withDatabase(() => {
-        const result = setPinned(opts.name, true);
-        if (opts.json)
-            console.log(JSON.stringify(result));
-        else if (result.found)
-            console.log(`📌 Pinned "${opts.name}" — the dreamer will not compact it`);
-        else
-            console.log(`Entity "${opts.name}" not found`);
+function registerPinCommand(name, description, pinned, onFound) {
+    program
+        .command(name)
+        .description(description)
+        .requiredOption('--name <name>', 'Entity name')
+        .option('--json', 'Output as JSON')
+        .action(async (opts) => {
+        await withDatabase(() => {
+            const result = setPinned(opts.name, pinned);
+            if (opts.json)
+                console.log(JSON.stringify(result));
+            else
+                console.log(result.found ? onFound(opts.name) : `Entity "${opts.name}" not found`);
+        });
     });
-});
-program
-    .command('unpin')
-    .description('Allow the dreamer to auto-compact an entity again')
-    .requiredOption('--name <name>', 'Entity name')
-    .option('--json', 'Output as JSON')
-    .action(async (opts) => {
-    await withDatabase(() => {
-        const result = setPinned(opts.name, false);
-        if (opts.json)
-            console.log(JSON.stringify(result));
-        else if (result.found)
-            console.log(`📍 Unpinned "${opts.name}"`);
-        else
-            console.log(`Entity "${opts.name}" not found`);
-    });
-});
+}
+registerPinCommand('pin', 'Protect an entity from the dreamer’s auto-compaction', true, (e) => `📌 Pinned "${e}" — the dreamer will not compact it`);
+registerPinCommand('unpin', 'Allow the dreamer to auto-compact an entity again', false, (e) => `📍 Unpinned "${e}"`);
 program
     .command('consolidate')
     .description('Compress verbose entity observations using an LLM (requires Smart Mode)')

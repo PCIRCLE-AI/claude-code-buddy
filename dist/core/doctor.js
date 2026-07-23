@@ -4,7 +4,7 @@ import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
 import { detectCapabilities, getConfigPath } from './config.js';
-import { embedText } from './embedder.js';
+import { embedText, isOnnxModelCached } from './embedder.js';
 import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
@@ -12,15 +12,6 @@ import { getCurrentInstallChannel, getInstallChannelSupport } from './install-ch
 import { getInstallRecord } from './install-id.js';
 import { getDbPath, memeshDir } from './paths.js';
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
-const ONNX_CACHED_WEIGHTS = ['models', 'Xenova', 'all-MiniLM-L6-v2', 'onnx', 'model.onnx'];
-function isOnnxModelCached(existsSyncImpl) {
-    try {
-        return existsSyncImpl(path.join(memeshDir(), ...ONNX_CACHED_WEIGHTS));
-    }
-    catch {
-        return false;
-    }
-}
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 const LOCALE_README_FILES = [
     'README.de.md',
@@ -504,7 +495,7 @@ async function inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyn
         return createCheck('config_parse', 'Config parses', 'fail', `${configPath} could not be read or parsed (${msg}). Every setting in it — LLM provider, fallbacks, embedder — is being silently ignored right now.`, `Fix the JSON or remove the file to fall back to defaults: mv ${configPath} ${configPath}.bak`);
     }
 }
-async function inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl, existsSyncImpl) {
+async function inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl) {
     if (capabilities.embeddings === 'tfidf') {
         return createInfo('embeddings_probe', 'Embeddings work', 'No neural embedder configured — recall runs on FTS5 keyword search alone. That is a supported mode, not a fault.');
     }
@@ -513,15 +504,16 @@ async function inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextI
         if (!isLocal) {
             return createInfo('embeddings_probe', 'Embeddings work', `NOT VERIFIED. Config names "${capabilities.embeddings}", but generating a test embedding is a network call (billed on hosted providers) so it was not made — a revoked key or an unreachable host would look identical to a healthy setup here.`, 'Run: memesh doctor --probe   (generates one test embedding to confirm)');
         }
-        if (!isOnnxModelCached(existsSyncImpl)) {
+        if (!isOnnxModelCached()) {
             return createInfo('embeddings_probe', 'Embeddings work', `NOT VERIFIED. Config names "onnx" but the model is not in the local cache yet, and probing would download ~90 MB — which a diagnostic command must not do on its own.`, 'Run: memesh doctor --probe   (downloads the model once, then verifies)');
         }
     }
+    let timer;
     try {
         const vector = await Promise.race([
             embedTextImpl('memesh doctor embedding probe'),
-            new Promise((resolve) => setTimeout(() => resolve(null), EMBEDDING_PROBE_TIMEOUT_MS)).then(() => {
-                throw new Error(`no response within ${EMBEDDING_PROBE_TIMEOUT_MS / 1000}s`);
+            new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error(`no response within ${EMBEDDING_PROBE_TIMEOUT_MS / 1000}s`)), EMBEDDING_PROBE_TIMEOUT_MS);
             }),
         ]);
         if (!vector || vector.length === 0) {
@@ -532,6 +524,9 @@ async function inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextI
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return createCheck('embeddings_probe', 'Embeddings work', 'warn', `Config selects "${capabilities.embeddings}" but the embedder threw (${msg}). Semantic recall is degraded to FTS5-only.`, 'Check the embedding provider is reachable, or set: memesh config set embedder.provider onnx');
+    }
+    finally {
+        clearTimeout(timer);
     }
 }
 async function inspectLlmProbe(capabilities, probeCapabilities, probeProviderImpl) {
@@ -657,7 +652,7 @@ export async function runDoctor(options) {
     const capabilities = detectCapabilitiesImpl();
     checks.push(createInfo('capabilities', 'Capabilities (configured)', `Search level ${capabilities.searchLevel} (${capabilities.searchLevel === 1 ? 'Smart Mode' : 'Core'}); embeddings: ${capabilities.embeddings}; LLM: ${capabilities.llm ? `${capabilities.llm.provider} (${capabilities.llm.model ?? 'default'})` : 'not configured'}. Configured values only — see the probe rows below for what actually works.`));
     checks.push(await inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyncImpl));
-    checks.push(await inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl, existsSyncImpl));
+    checks.push(await inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl));
     checks.push(await inspectLlmProbe(capabilities, probeCapabilities, probeProviderImpl));
     checks.push(await inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSupport));
     try {

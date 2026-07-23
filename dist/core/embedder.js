@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { existsSync } from 'fs';
 import { getDatabase } from '../db.js';
 import { join } from 'path';
 import { detectCapabilities } from './config.js';
@@ -9,7 +10,18 @@ let onnxAvailableChecked = false;
 let onnxAvailableResult = false;
 const MAX_VECTOR_DISTANCE = 1;
 const ONNX_TRANSFORMERS_PACKAGE = '@huggingface/transformers';
+const ONNX_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+const ONNX_CACHE_SUBDIR = 'models';
 const pendingEmbeddingWrites = new Set();
+export function isOnnxModelCached() {
+    try {
+        const [org, name] = ONNX_MODEL_ID.split('/');
+        return existsSync(join(memeshDir(), ONNX_CACHE_SUBDIR, org, name, 'onnx', 'model.onnx'));
+    }
+    catch {
+        return false;
+    }
+}
 export function isEmbeddingAvailable() {
     const caps = detectCapabilities();
     if (caps.embeddings === 'openai')
@@ -186,10 +198,10 @@ async function getOnnxPipeline() {
             const createPipeline = mod.pipeline;
             const env = mod.env;
             if (env) {
-                env.cacheDir = join(memeshDir(), 'models');
+                env.cacheDir = join(memeshDir(), ONNX_CACHE_SUBDIR);
                 env.allowLocalModels = true;
             }
-            onnxPipelineInstance = await createPipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+            onnxPipelineInstance = await createPipeline('feature-extraction', ONNX_MODEL_ID);
             return onnxPipelineInstance;
         }
         catch (err) {

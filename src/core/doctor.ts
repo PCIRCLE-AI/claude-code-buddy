@@ -4,7 +4,7 @@ import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
 import { detectCapabilities, getConfigPath, type Capabilities } from './config.js';
-import { embedText } from './embedder.js';
+import { embedText, isOnnxModelCached } from './embedder.js';
 import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
@@ -105,30 +105,6 @@ interface DoctorOptions {
  * always returns.
  */
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
-
-/**
- * Weights file the local ONNX embedder loads, relative to `memeshDir()`.
- *
- * Mirrors `embedder.ts → getOnnxPipeline()`, which sets
- * `env.cacheDir = join(memeshDir(), 'models')` and loads
- * `Xenova/all-MiniLM-L6-v2`. Pointing at the leaf weights file rather than
- * the model directory means a half-finished download reads as "not cached"
- * instead of "cached", which is the honest answer.
- *
- * If the embedder ever changes model or cache dir, this must move with it —
- * a stale path here makes doctor claim a cold cache forever and silently
- * stop probing.
- */
-const ONNX_CACHED_WEIGHTS = ['models', 'Xenova', 'all-MiniLM-L6-v2', 'onnx', 'model.onnx'];
-
-function isOnnxModelCached(existsSyncImpl: typeof fs.existsSync): boolean {
-  try {
-    return existsSyncImpl(path.join(memeshDir(), ...ONNX_CACHED_WEIGHTS));
-  } catch {
-    // An unreadable MEMESH_DIR is itself a reason not to start a download.
-    return false;
-  }
-}
 
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 
@@ -1266,7 +1242,6 @@ async function inspectEmbeddingProbe(
   capabilities: Capabilities,
   probeCapabilities: boolean,
   embedTextImpl: (text: string) => Promise<Float32Array | null>,
-  existsSyncImpl: typeof fs.existsSync,
 ): Promise<DoctorCheck> {
   if (capabilities.embeddings === 'tfidf') {
     return createInfo(
@@ -1286,7 +1261,7 @@ async function inspectEmbeddingProbe(
         'Run: memesh doctor --probe   (generates one test embedding to confirm)',
       );
     }
-    if (!isOnnxModelCached(existsSyncImpl)) {
+    if (!isOnnxModelCached()) {
       return createInfo(
         'embeddings_probe',
         'Embeddings work',
@@ -1298,15 +1273,19 @@ async function inspectEmbeddingProbe(
     // network, so verify for real even without --probe.
   }
 
+  // Bound the probe. A BYOK embedder is a network call and the local ONNX
+  // path can block on a cold model load, so an unbounded await turns
+  // `memesh doctor` — the command you reach for when things are wrong — into
+  // the thing that hangs. Timing out is itself a useful answer.
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    // Bound the probe. A BYOK embedder is a network call and the local ONNX
-    // path can block on a cold model load, so an unbounded await turns
-    // `memesh doctor` — the command you reach for when things are wrong —
-    // into the thing that hangs. Timing out is itself a useful answer.
     const vector = await Promise.race([
       embedTextImpl('memesh doctor embedding probe'),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), EMBEDDING_PROBE_TIMEOUT_MS)).then(() => {
-        throw new Error(`no response within ${EMBEDDING_PROBE_TIMEOUT_MS / 1000}s`);
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`no response within ${EMBEDDING_PROBE_TIMEOUT_MS / 1000}s`)),
+          EMBEDDING_PROBE_TIMEOUT_MS,
+        );
       }),
     ]);
     if (!vector || vector.length === 0) {
@@ -1333,6 +1312,12 @@ async function inspectEmbeddingProbe(
       `Config selects "${capabilities.embeddings}" but the embedder threw (${msg}). Semantic recall is degraded to FTS5-only.`,
       'Check the embedding provider is reachable, or set: memesh config set embedder.provider onnx',
     );
+  } finally {
+    // If the embedder answered first, the timeout is still pending — and
+    // because the CLI sets exitCode without calling process.exit(), a live
+    // timer would keep the event loop open and hang `memesh doctor` for up to
+    // EMBEDDING_PROBE_TIMEOUT_MS after the report prints. Clear it.
+    clearTimeout(timer);
   }
 }
 
@@ -1573,7 +1558,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   );
 
   checks.push(await inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyncImpl));
-  checks.push(await inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl, existsSyncImpl));
+  checks.push(await inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl));
   checks.push(await inspectLlmProbe(capabilities, probeCapabilities, probeProviderImpl));
 
   checks.push(await inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSupport));
