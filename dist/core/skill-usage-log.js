@@ -65,12 +65,12 @@ function rotateIfNeeded(path) {
         }
     }
 }
-export function logSkillEvent(event, payload, path) {
+export function logSkillEvent(event, path) {
     const target = path ?? defaultLogPath();
     try {
         ensureParent(target);
         rotateIfNeeded(target);
-        const line = JSON.stringify({ ts: new Date().toISOString(), event, payload }) + '\n';
+        const line = JSON.stringify({ ts: new Date().toISOString(), event }) + '\n';
         appendFileSync(target, line);
         try {
             chmodSync(target, 0o600);

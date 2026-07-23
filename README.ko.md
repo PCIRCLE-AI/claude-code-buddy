@@ -359,6 +359,17 @@ memesh config set llm.api-key sk-ant-...
 memesh  # 대시보드 열기 → Settings 탭
 ```
 
+### 자체 임베딩 사용 (선택)
+
+임베딩은 기본적으로 로컬 ONNX 모델(`Xenova/all-MiniLM-L6-v2`, 384차원)을 사용합니다 — API 키 불필요, 데이터가 기기를 벗어나지 않으며, 기본 FTS5 리콜은 아예 필요하지 않습니다. 호스팅형 또는 로컬 서버 임베더를 쓰려면:
+
+```bash
+memesh config set embedder.provider openai          # or: ollama
+memesh config set embedder.model text-embedding-3-small
+```
+
+임베더는 **채팅 LLM과 독립적으로** 구성됩니다 — `llm.provider`를 바꿔도 임베딩이 조용히 바뀌지 않습니다. 다른 차원(예: 384 → 1536)으로 전환하면 MeMesh가 다음 쓰기 시 벡터 인덱스를 자동으로 재구축합니다. 지원되는 `embedder.provider`: `onnx`(기본, 로컬), `openai`, `ollama`.
+
 | | Level 0 (기본) | Level 1 (스마트 모드) |
 |---|---|---|
 | **검색** | FTS5 + sqlite-vec, R@5 95.40% (~18ms/쿼리) | 변경 없음 — 회상은 모든 레벨에서 LLM-free |

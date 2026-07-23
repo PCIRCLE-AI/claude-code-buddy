@@ -347,6 +347,17 @@ memesh config set llm.api-key sk-ant-...
 memesh  # opens dashboard → Settings tab
 ```
 
+### ใช้ embeddings ของคุณเอง (ไม่บังคับ)
+
+โดยค่าเริ่มต้น embeddings ใช้โมเดล ONNX ในเครื่อง (`Xenova/all-MiniLM-L6-v2`, 384 มิติ) — ไม่ต้องใช้คีย์ API ไม่มีข้อมูลออกจากเครื่อง และการ recall แบบ FTS5 เริ่มต้นก็ไม่ต้องใช้เลย หากต้องการใช้ embedder แบบโฮสต์หรือเซิร์ฟเวอร์ในเครื่อง:
+
+```bash
+memesh config set embedder.provider openai          # or: ollama
+memesh config set embedder.model text-embedding-3-small
+```
+
+embedder ถูกตั้งค่า**แยกจาก LLM แชท** — การเปลี่ยน `llm.provider` จะไม่เปลี่ยน embeddings ของคุณอย่างเงียบ ๆ หากเปลี่ยนไปใช้มิติที่ต่างกัน (เช่น 384 → 1536) MeMesh จะสร้างดัชนีเวกเตอร์ใหม่โดยอัตโนมัติในการเขียนครั้งถัดไป ค่า `embedder.provider` ที่รองรับ: `onnx` (ค่าเริ่มต้น ในเครื่อง), `openai`, `ollama`
+
 | | ระดับ 0 (ค่าเริ่มต้น) | ระดับ 1 (Smart Mode) |
 |---|---|---|
 | **Search** | FTS5 + sqlite-vec, 95.40% R@5 (~18ms ต่อ query) | คงเดิม — recall ไม่ใช้ LLM ในทุก level |

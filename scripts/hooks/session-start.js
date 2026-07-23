@@ -2,7 +2,6 @@
 
 import { createRequire } from 'module';
 import { spawn } from 'child_process';
-import { createHash } from 'crypto';
 import { homedir } from 'os';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
@@ -849,12 +848,12 @@ process.stdin.on('end', async () => {
         summary += '\n[AO opt-in: dispatch verifiable work as background agent · skill: agentic-orchestration]';
         try {
           const usagePath = join(homedir(), '.memesh', 'skill-usage.jsonl');
-          const cwd = String(data?.cwd || process.cwd());
-          const cwdHashed = createHash('sha256').update(cwd).digest('hex').slice(0, 16);
+          // Only { ts, event } — an earlier `payload: { cwd_hashed }` was never
+          // read by summariseSkillUsage (counts by event name only), so it was
+          // write-only privacy-adjacent data. Removed.
           const line = JSON.stringify({
             ts: new Date().toISOString(),
             event: 'agentic_orchestration_banner_injected',
-            payload: { cwd_hashed: cwdHashed },
           }) + '\n';
           appendFileSync(usagePath, line);
           try { chmodSync(usagePath, 0o600); } catch { /* non-POSIX */ }

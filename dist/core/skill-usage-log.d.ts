@@ -1,4 +1,4 @@
-export declare function logSkillEvent(event: string, payload?: Record<string, unknown>, path?: string): void;
+export declare function logSkillEvent(event: string, path?: string): void;
 export interface SkillUsageSummary {
     total_events: number;
     events_by_name: Record<string, number>;

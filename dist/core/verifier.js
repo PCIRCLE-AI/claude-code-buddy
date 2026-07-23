@@ -177,12 +177,7 @@ export function verifyAgentWork(input) {
         tags,
     });
     if (isAgenticOrchestrationEnabled()) {
-        logSkillEvent('verify_agent_work_invoked', {
-            agent_id_hashed: safeAgentId.slice(0, 8),
-            pass,
-            files_changed: rc.files_changed,
-            has_external_report: Boolean(input.report),
-        });
+        logSkillEvent('verify_agent_work_invoked');
     }
     return {
         entity_name: entityName,
