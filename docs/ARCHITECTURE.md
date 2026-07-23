@@ -2,6 +2,8 @@
 
 **Version**: 4.2.8
 
+> Looking for "which file do I change for X?" — see [CODEMAP.md](../CODEMAP.md).
+
 ---
 
 ## Overview
