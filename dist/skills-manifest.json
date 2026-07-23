@@ -1,6 +1,6 @@
 {
   "schema": "memesh.skills-manifest/v1",
-  "generated_at": "2026-07-22T22:45:57.275Z",
+  "generated_at": "2026-07-23T01:58:32.352Z",
   "entries": [
     {
       "path": ".claude-plugin/plugin.json",
@@ -19,8 +19,8 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "9f3f1ee9221092686eb63d66b4898c790a034f0e11c1e6640aaca3da9e5f3ad1",
-      "bytes": 35498
+      "sha256": "ab54c76dbba1d5cac6b25564f10114e1b190758ad84d48060f2c3ae56c9dd8c3",
+      "bytes": 37142
     },
     {
       "path": "scripts/hooks/post-commit.js",
@@ -49,8 +49,8 @@
     },
     {
       "path": "scripts/hooks/session-summary.js",
-      "sha256": "8e58287cc1f7ac202716cc533e94e7403ab75887db5c52ba2e571e6fc20cd1a5",
-      "bytes": 36960
+      "sha256": "63d39e3d7b2c5abdc94693b258600d5c0eafb68ffb6f9bd1c867f47467f6aaba",
+      "bytes": 37884
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",

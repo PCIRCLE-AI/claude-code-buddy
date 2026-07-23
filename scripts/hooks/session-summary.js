@@ -264,6 +264,24 @@ process.stdin.on('end', async () => {
       // Build and store session memories
       const baseTags = ['source:auto-capture', `session:${sessionId}`, `project:${projectName}`];
 
+      // Producer for pre-edit-recall's Strategy 1 (`file:<name>` tag lookup).
+      // That read path queries both the full basename and the extension-less
+      // form (`file:auth.ts` OR `file:auth`), but nothing ever WROTE these
+      // tags — on every real DB the query returned zero rows and the strategy
+      // was dead. Emitting both forms here lights it up: a memory captured while
+      // editing a file becomes findable the next time that file is edited.
+      // filesEdited already holds basenames (see parseTranscript).
+      function fileTagsFor(files) {
+        const tags = new Set();
+        for (const f of files) {
+          if (!f) continue;
+          tags.add(`file:${f}`);
+          const noExt = f.replace(/\.[^.]+$/, '');
+          if (noExt && noExt !== f) tags.add(`file:${noExt}`);
+        }
+        return [...tags];
+      }
+
       const insertEntity = db.prepare('INSERT OR IGNORE INTO entities (name, type) VALUES (?, ?)');
       const selectEntity = db.prepare('SELECT id FROM entities WHERE name = ?');
       const insertObs = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
@@ -286,7 +304,7 @@ process.stdin.on('end', async () => {
             `Session edited ${filesEdited.length} file(s): ${filesEdited.join(', ')}`,
             `Total tool calls: ${toolCallCount}`,
           ],
-          baseTags
+          [...baseTags, ...fileTagsFor(filesEdited)]
         );
       }
 
@@ -299,7 +317,7 @@ process.stdin.on('end', async () => {
             `Fixed ${errorsEncountered.length} error(s) by editing ${filesEdited.join(', ')}`,
             ...errorsEncountered.slice(0, 3).map(e => `Error: ${e.slice(0, 100)}`),
           ],
-          [...baseTags, 'type:bugfix']
+          [...baseTags, 'type:bugfix', ...fileTagsFor(filesEdited)]
         );
       }
 

@@ -112,6 +112,37 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     db.close();
   });
 
+  it('Scenario: producer writes file: tags that pre-edit-recall Strategy 1 queries', () => {
+    // The capture is the PRODUCER for pre-edit-recall's `file:<name>` lookup.
+    // Before this, nothing wrote those tags, so Strategy 1 returned zero rows
+    // on every real DB. Assert both forms are emitted: full basename and the
+    // extension-less form, since the read path queries `file:auth.ts` OR
+    // `file:auth`.
+    writeTranscript([
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/tmp/proj/src/config.ts' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test -- --run' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', content: 'done' }] } },
+    ]);
+
+    runHook({
+      session_id: 'test-filetags',
+      transcript_path: transcriptPath,
+      cwd: '/tmp/myproject',
+      stop_reason: 'end_turn',
+    });
+
+    const db = openDb();
+    const entity = db.prepare("SELECT id FROM entities WHERE name = 'session-test-filetags-files'").get() as any;
+    expect(entity).toBeTruthy();
+    const tags = (db.prepare('SELECT tag FROM tags WHERE entity_id = ?').all(entity.id) as any[]).map((r) => r.tag);
+    expect(tags).toContain('file:auth.ts');
+    expect(tags).toContain('file:auth');
+    expect(tags).toContain('file:config.ts');
+    expect(tags).toContain('file:config');
+    db.close();
+  });
+
   it('Scenario: Session with errors creates bugfix entity', () => {
     writeTranscript([
       { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },

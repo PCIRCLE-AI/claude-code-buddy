@@ -16,6 +16,7 @@
 
 import os from 'os';
 import path from 'path';
+import { execFileSync } from 'child_process';
 
 /**
  * Resolve the user's home directory, honouring `HOME` first.
@@ -100,5 +101,80 @@ export function getMemeshDirFromDbPath(): string {
  */
 export function getProjectName(cwdInput?: string | null): string {
   const cwd = cwdInput && cwdInput.length > 0 ? cwdInput : process.cwd();
+  const cached = projectNameCache.get(cwd);
+  if (cached !== undefined) return cached;
+  const resolved = resolveProjectIdentity(cwd);
+  projectNameCache.set(cwd, resolved);
+  return resolved;
+}
+
+// Resolved names are stable for the life of a process (a cwd's git identity
+// doesn't change mid-run), and getProjectName runs on hot paths — every hook
+// invocation, every core operation. Cache so the git subprocess runs at most
+// once per distinct cwd.
+const projectNameCache = new Map<string, string>();
+
+/**
+ * Layered project identity, most-canonical first:
+ *
+ *   1. git remote slug — the repo name from `remote.origin.url`. This is the
+ *      only identity that is BOTH location-independent (same from any
+ *      subdirectory, worktree, or clone path) AND case-canonical (the remote
+ *      spells the name once). It fixes the real-data failures: a memory
+ *      captured in `<repo>/backend` and one captured at `<repo>` now share an
+ *      identity, and `tim` vs `TIM` collapse to whatever the remote says.
+ *   2. git repo root basename — for a real repo with no remote configured.
+ *      Still fixes the subdirectory split.
+ *   3. cwd basename — non-git directories keep the original behaviour, so a
+ *      scratch dir or `~/Developer/Projects` is unchanged.
+ *
+ * A `config.project` override would sit above all three, but adding a config
+ * field with no setter is itself the "fake working" pattern this audit is
+ * removing; it should land WITH its setter, not before.
+ *
+ * git failures at every layer fall through silently to the next — a missing
+ * git binary, a non-repo cwd, or a deleted directory must never break capture.
+ */
+function resolveProjectIdentity(cwd: string): string {
+  const remote = tryGit(cwd, ['config', '--get', 'remote.origin.url']);
+  if (remote) {
+    const slug = slugFromRemoteUrl(remote);
+    if (slug) return slug;
+  }
+  const root = tryGit(cwd, ['rev-parse', '--show-toplevel']);
+  if (root) return path.basename(root);
   return path.basename(cwd);
+}
+
+function tryGit(cwd: string, args: string[]): string | null {
+  try {
+    const out = execFileSync('git', ['-C', cwd, ...args], {
+      encoding: 'utf8',
+      timeout: 2000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const trimmed = out.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reduce a git remote URL to its repo name. Handles both URL-style
+ * (`https://host/owner/repo.git`) and scp-style (`git@host:owner/repo.git`).
+ * Returns just the repo segment, matching the existing `project:<basename>`
+ * tag style, so a checkout whose directory name already equals the repo name
+ * stays byte-identical and needs no migration.
+ */
+export function slugFromRemoteUrl(url: string): string | null {
+  const cleaned = url.trim().replace(/\.git$/i, '').replace(/[/\\]+$/, '');
+  if (!cleaned) return null;
+  const seg = cleaned.split(/[/:\\]/).filter(Boolean).pop();
+  return seg && seg.length > 0 ? seg : null;
+}
+
+/** Test seam: clear the per-cwd resolution cache between cases. */
+export function _clearProjectNameCache(): void {
+  projectNameCache.clear();
 }
