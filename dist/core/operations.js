@@ -178,6 +178,22 @@ export function forget(args) {
     }
     return { archived: true, name: args.name };
 }
+export function setPinned(name, pinned) {
+    const db = getDatabase();
+    const kg = new KnowledgeGraph(db);
+    const exists = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(name);
+    if (!exists)
+        return { name, pinned, found: false };
+    kg.updateEntityMetadata(name, (current) => {
+        const next = { ...current };
+        if (pinned)
+            next.pin = true;
+        else
+            delete next.pin;
+        return next;
+    });
+    return { name, pinned, found: true };
+}
 export async function reindex(opts) {
     if (!isEmbeddingAvailable()) {
         throw new Error('No embedding provider available. Configure OpenAI API key, Ollama, or install @huggingface/transformers.');

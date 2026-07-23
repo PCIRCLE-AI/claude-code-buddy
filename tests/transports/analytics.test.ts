@@ -268,12 +268,15 @@ describe('computePmAnalytics — response shape', () => {
     });
   });
 
-  it('decisionsPerWeek and releasesPerMonth are ≥ 0', () => {
+  it('decisionsPerWeek and releasesPerMonth reflect seeded activity (not a constant 0)', () => {
     remember({ name: 'dec-a', type: 'decision', observations: ['decided x'] });
     remember({ name: 'rel-a', type: 'release', observations: ['shipped v1'] });
     const result = computePmAnalytics(db, 30);
-    expect(result.velocity.decisionsPerWeek).toBeGreaterThanOrEqual(0);
-    expect(result.velocity.releasesPerMonth).toBeGreaterThanOrEqual(0);
+    // Was `toBeGreaterThanOrEqual(0)`, which cannot fail — a broken date filter
+    // zeroing velocity would still pass. We just seeded a decision and a release
+    // dated now (inside the 30-day window), so both metrics must be positive.
+    expect(result.velocity.decisionsPerWeek).toBeGreaterThan(0);
+    expect(result.velocity.releasesPerMonth).toBeGreaterThan(0);
   });
 
   it('orphanRate is 1.0 when no relations exist', () => {

@@ -150,11 +150,15 @@ gate_llm_probe_optional() {
   fi
   REPO_ROOT="$REPO_ROOT" node --input-type=module -e "
     import { join } from 'path';
+    import { pathToFileURL } from 'url';
     const root = process.env.REPO_ROOT;
-    const { readConfig } = await import(join(root, 'dist/core/config.js'));
+    // ESM import() takes a URL; a bare Windows path (D:\\...) is rejected as
+    // an unknown 'd:' scheme. pathToFileURL keeps this cross-platform.
+    const imp = (rel) => import(pathToFileURL(join(root, rel)).href);
+    const { readConfig } = await imp('dist/core/config.js');
     const cfg = readConfig();
     if (!cfg.llm) { console.log('no LLM configured — skip'); process.exit(0); }
-    const { callLLM } = await import(join(root, 'dist/core/llm-client.js'));
+    const { callLLM } = await imp('dist/core/llm-client.js');
     try {
       const text = await callLLM('Reply with PONG only.', cfg.llm, { maxTokens: 5 });
       if (typeof text !== 'string' || text.length === 0) { console.error('empty LLM response'); process.exit(1); }

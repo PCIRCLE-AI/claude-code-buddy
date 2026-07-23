@@ -6,6 +6,11 @@ export { consolidate } from './consolidator.js';
 export { exportMemories, importMemories } from './serializer.js';
 export declare function learn(args: LearnInput): LearnResult;
 export declare function forget(args: ForgetInput): ForgetResult;
+export declare function setPinned(name: string, pinned: boolean): {
+    name: string;
+    pinned: boolean;
+    found: boolean;
+};
 export declare function reindex(opts?: {
     namespace?: string;
 }): Promise<{

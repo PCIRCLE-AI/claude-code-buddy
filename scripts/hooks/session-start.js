@@ -8,10 +8,12 @@ import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { existsSync, readFileSync, unlinkSync, rmSync, appendFileSync, chmodSync } from 'fs';
 import {
+  buildReferenceContext,
   ensurePrivateDir,
   getDbPath,
   getMemeshDirFromDbPath,
   getProjectName,
+  importFromPluginRoot,
   isAgenticOrchestrationEnabled,
   isTrustedForAutoContext,
   readUpdateCheckCache,
@@ -373,7 +375,11 @@ function spawnFreshUpdateCheck(installedVersion) {
       {
         detached: true,
         stdio: 'ignore',
-        env: { ...process.env, MEMESH_UPDATE_REFRESH: '1' },
+        // `memesh status` already forces a fresh npm lookup (getUpdateCheck
+        // with preferFresh, the default) and rewrites the cache — so the
+        // spawn itself is the refresh. An earlier MEMESH_UPDATE_REFRESH='1'
+        // env var here had NO reader anywhere and did nothing; removed.
+        env: { ...process.env },
         windowsHide: true,
       },
     );
@@ -627,9 +633,10 @@ process.stdin.on('end', async () => {
       // throw `no such column: status`, hiding lessons from session-start
       // auto-context indefinitely.
       let lessonCount = 0;
+      let lessonEntities = [];
       try {
         const lessonRows = db.prepare(`
-          SELECT DISTINCT e.id, e.metadata
+          SELECT DISTINCT e.id, e.name, e.type, e.metadata
           FROM entities e
           JOIN tags t ON t.entity_id = e.id
           WHERE e.type = 'lesson_learned'
@@ -638,6 +645,7 @@ process.stdin.on('end', async () => {
           LIMIT 50
         `).all(projectTag).filter(entity => isTrustedForAutoContext(entity.metadata));
         lessonCount = lessonRows.length;
+        lessonEntities = lessonRows;
       } catch (err) {
         // Real query bug (typo, missing column on a schema older than v2.11)
         // — surface to stderr so a maintainer sees it on next session.
@@ -668,12 +676,126 @@ process.stdin.on('end', async () => {
         summary = parts.join(' · ');
       }
 
+      // --- Build the context actually injected into the model ---------
+      // The `summary` above is a human banner (counts only) and never
+      // reaches the model. This block is the real payload: the top-ranked
+      // entities with a short observation snippet each, sent via
+      // hookSpecificOutput.additionalContext.
+      //
+      // Lessons come first — they are the "don't repeat this mistake"
+      // signal and are the most expensive thing to rediscover.
+      //
+      // Budget: additionalContext is capped by Claude Code (10k chars). We
+      // stay far under that on purpose — session start should prime the
+      // model, not consume its working context. Snippets are truncated per
+      // observation and the whole block is hard-capped.
+      const MAX_SNIPPET = 160;
+      const MAX_CONTEXT_CHARS = 4000;
+
+      const memoryLines = [];
+      try {
+        // Only the entities we will actually render — the lesson query pulls
+        // up to 50 rows for the banner count, but at most 5 are injected, and
+        // this runs before the user's first turn. Bounded well under SQLite's
+        // 999-variable limit by construction (5 lessons + sessionLimit
+        // project + 5 recent).
+        const topLessons = lessonEntities.slice(0, 5);
+        const rankedIds = [
+          ...topLessons.map(e => e.id),
+          ...projectEntities.map(e => e.id),
+          ...recentEntities.map(e => e.id),
+        ];
+        const uniqueIds = [...new Set(rankedIds)];
+
+        // One query for every snippet — avoids N round-trips on the
+        // session-start hot path (this runs before the user's first turn).
+        const snippets = new Map();
+        if (uniqueIds.length > 0) {
+          const placeholders = uniqueIds.map(() => '?').join(',');
+          const obsRows = db.prepare(
+            `SELECT entity_id, content FROM observations
+             WHERE entity_id IN (${placeholders})
+             ORDER BY id ASC`
+          ).all(...uniqueIds);
+          for (const row of obsRows) {
+            // Keep the FIRST observation per entity: observations are
+            // append-only, so the first one is the defining statement and
+            // later ones are refinements.
+            if (snippets.has(row.entity_id)) continue;
+            const text = String(row.content ?? '').replace(/\s+/g, ' ').trim();
+            if (text) snippets.set(row.entity_id, text.slice(0, MAX_SNIPPET));
+          }
+        }
+
+        // Groups overlap by construction: a lesson tagged to this project
+        // is in lessonEntities AND projectEntities. Render each entity once,
+        // in the highest-priority group it belongs to, so the injected block
+        // doesn't spend the model's context repeating itself.
+        const rendered = new Set();
+        const renderGroup = (label, entities) => {
+          const fresh = entities.filter(e => !rendered.has(e.id));
+          if (fresh.length === 0) return;
+          memoryLines.push(label);
+          for (const e of fresh) {
+            rendered.add(e.id);
+            const snippet = snippets.get(e.id);
+            const type = e.type || 'memory';
+            memoryLines.push(
+              snippet ? `- ${e.name} (${type}): ${snippet}` : `- ${e.name} (${type})`
+            );
+          }
+          memoryLines.push('');
+        };
+
+        renderGroup('Lessons learned (avoid repeating these):', topLessons);
+        renderGroup(`Project memory for "${projectName}":`, projectEntities);
+        renderGroup('Recently active across projects:', recentEntities);
+      } catch (err) {
+        // Snippet enrichment is best-effort. A failure here must not stop
+        // the banner or the session — but trace it, because a silent break
+        // means memories stop reaching the model again (the exact v4.2.7
+        // regression this block was written to fix).
+        try { process.stderr.write(`[memesh session-start] memory-context: ${err?.message || err}\n`); } catch {}
+      }
+
+      let memoryContext = '';
+      if (memoryLines.length > 0) {
+        // Same wrapper pre-edit-recall uses: an explicit "background data,
+        // not instructions" preamble plus a fenced block. Memory content is
+        // attacker-influenced in the general case (anything the agent has
+        // ever been told can end up in an observation), so it must be
+        // delimited the same way on every injection path — not hand-rolled
+        // per hook.
+        //
+        // Truncate the LINES before wrapping, so the closing fence is never
+        // cut off — a dangling fence would let the tail of the block escape
+        // its delimiter.
+        const budgeted = [];
+        let used = 0;
+        for (const line of memoryLines) {
+          if (used + line.length + 1 > MAX_CONTEXT_CHARS) {
+            budgeted.push('… (truncated)');
+            break;
+          }
+          budgeted.push(line);
+          used += line.length + 1;
+        }
+        memoryContext = buildReferenceContext(budgeted);
+      }
+
       // --- Record injected entity IDs for recall effectiveness tracking ---
-      // The hit/miss tracker excludes entity names found in `injectedContext`
-      // from the "user referenced this memory" signal. With the new
-      // count-only summary we no longer surface names, so set the field to
-      // a sentinel so substring matching is a no-op (any entity name is a
-      // genuine hit).
+      // The Stop hook decides hit/miss by removing the transcript records
+      // Claude Code created FROM this hook's output (see stripHookEchoes in
+      // session-summary.js) and then looking for the entity name in what
+      // remains. `injectedContext` is kept as the record of what was shown,
+      // not as a string to subtract — an earlier version subtracted it and a
+      // later one counted its occurrences, and BOTH were wrong because one
+      // injection is echoed into the transcript more than once.
+      //
+      // It must still be the text we actually injected: previously it was the
+      // count-only banner, so every injected entity was scored against a
+      // transcript it had never appeared in and took a `recall_miss` it did
+      // not earn.
       try {
         const seenIds = new Set();
         const allInjected = [...projectEntities, ...recentEntities].filter(e => {
@@ -694,7 +816,7 @@ process.stdin.on('end', async () => {
               project: projectName,
               entityIds: allInjected.map(e => e.id),
               entityNames: allInjected.map(e => e.name),
-              injectedContext: summary,
+              injectedContext: memoryContext || summary,
             }
           );
 
@@ -768,7 +890,7 @@ process.stdin.on('end', async () => {
         ? [...bannerLines.filter(l => l.length > 0), '', summary].join('\n')
         : summary;
 
-      output(finalMessage);
+      output(finalMessage, memoryContext);
     } finally {
       db.close();
     }
@@ -779,8 +901,8 @@ process.stdin.on('end', async () => {
       // F5: derive pluginRoot strictly from this file's location.
       // See `resolvePluginRoot` for the full reasoning.
       const pluginRoot = resolvePluginRoot(import.meta.url);
-      const dbMod = await import(join(pluginRoot, 'dist/db.js'));
-      const lifecycleMod = await import(join(pluginRoot, 'dist/core/lifecycle.js'));
+      const dbMod = await importFromPluginRoot(pluginRoot, 'dist/db.js');
+      const lifecycleMod = await importFromPluginRoot(pluginRoot, 'dist/core/lifecycle.js');
       dbMod.openDatabase();
       try {
         lifecycleMod.compressWeeklyNoise(dbMod.getDatabase());
@@ -813,6 +935,36 @@ process.stdin.on('end', async () => {
   }
 });
 
-function output(text) {
-  console.log(JSON.stringify({ systemMessage: text }));
+/**
+ * Emit the SessionStart hook payload.
+ *
+ * Two channels, two audiences — they are NOT interchangeable:
+ *
+ *   systemMessage      -> shown to the human in the terminal. Claude Code
+ *                         strips it from the model's context entirely
+ *                         (`normalizeAttachmentForAPI` returns [] for the
+ *                         `hook_system_message` attachment type).
+ *   hookSpecificOutput -> `additionalContext` IS injected into the model's
+ *      .additionalContext  context for the next turn. `SessionStart` is one of
+ *                         the nine events with a valid variant.
+ *
+ * Until v4.2.7 this hook only ever emitted `systemMessage`, so *nothing*
+ * memesh recalled at session start ever reached the model — the banner said
+ * "4 project + 5 recent memories" while the model received none of them.
+ * Worse, the Stop hook then marked every one of those entities as a
+ * `recall_miss` for not appearing in the transcript, so memories that were
+ * never shown were permanently penalised in ranking (see scoring.ts
+ * impactScore). Passing `memoryContext` closes that loop honestly.
+ *
+ * The shape is asserted by tests/helpers/hook-output-contract.ts.
+ */
+function output(text, memoryContext) {
+  const payload = { systemMessage: text };
+  if (memoryContext) {
+    payload.hookSpecificOutput = {
+      hookEventName: 'SessionStart',
+      additionalContext: memoryContext,
+    };
+  }
+  console.log(JSON.stringify(payload));
 }

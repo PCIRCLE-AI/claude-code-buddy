@@ -14,6 +14,7 @@ import {
   decideAutoUpdateHook,
   getMemeshDirFromDbPath,
   getProjectName,
+  importFromPluginRoot,
   isAutoCaptureEnabled,
   openHookDb,
   readUpdateCheckCache,
@@ -125,11 +126,23 @@ function parseTranscript(transcriptPath) {
         // the prior version) that signalled review fatigue more than
         // working logic.
       } catch {
-        // Skip malformed JSONL lines
+        // Skip malformed JSONL lines — benign, per-line, deliberately not traced.
       }
     }
-  } catch {
-    // Transcript unreadable — return empty results
+  } catch (err) {
+    // The transcript file itself could not be read, which empties this
+    // session's entire capture — filesEdited/errors/toolCallCount all return
+    // zero, so downstream `toolCallCount < 3` bails and no session insight,
+    // failure analysis or lesson is produced. An absent file is the normal
+    // "not written yet" case; anything else is a real fault worth a trace.
+    if (err?.code !== 'ENOENT') {
+      try {
+        process.stderr.write(
+          `[memesh session-summary] transcript ${transcriptPath} unreadable ` +
+            `(${err?.message || err}); session capture skipped this run.\n`,
+        );
+      } catch { /* stderr must never throw */ }
+    }
   }
 
   return { filesEdited: [...filesEdited], bashCommands, errorsEncountered, toolCallCount };
@@ -163,7 +176,6 @@ process.stdin.on('end', async () => {
     const sessionId = inputData.session_id || 'unknown';
     const transcriptPath = inputData.transcript_path;
     const cwd = inputData.cwd || process.cwd();
-    const stopReason = inputData.stop_reason || 'unknown';
     // Default-allow: when Claude Code's Stop payload omits
     // `was_in_agentic_loop` (it has been silently absent in production
     // for an unknown number of releases — symptom: zero session-insight
@@ -173,8 +185,18 @@ process.stdin.on('end', async () => {
     // (default-deny) and the hook silently never captured anything.
     const wasAgenticLoop = inputData.was_in_agentic_loop !== false;
 
-    // Guards: skip low-signal sessions
-    if (stopReason === 'user_interrupt') return exit0();
+    // Guards: skip low-signal sessions.
+    //
+    // A `stop_reason === 'user_interrupt'` guard used to live here, but
+    // Claude Code's Stop payload carries no `stop_reason` field — verified
+    // against the shipped cli.js bundle, whose Stop input is
+    // `{...base, hook_event_name:"Stop", stop_hook_active}` with no such key
+    // (the `stop_reason` that appears in the bundle is the Anthropic API
+    // message field, not a hook input). So the guard read `undefined`, was
+    // always false, and never skipped anything — a filter that looked active
+    // but did nothing, the exact sibling of the `was_in_agentic_loop` absence
+    // above. Removed; the `toolCallCount < 3` check below is the real
+    // low-signal filter.
     if (!wasAgenticLoop) return exit0();
     // Trace why we're skipping. Two failure modes:
     //   (a) transcript_path absent — schema flip, Claude Code stopped
@@ -251,6 +273,24 @@ process.stdin.on('end', async () => {
       // Build and store session memories
       const baseTags = ['source:auto-capture', `session:${sessionId}`, `project:${projectName}`];
 
+      // Producer for pre-edit-recall's Strategy 1 (`file:<name>` tag lookup).
+      // That read path queries both the full basename and the extension-less
+      // form (`file:auth.ts` OR `file:auth`), but nothing ever WROTE these
+      // tags — on every real DB the query returned zero rows and the strategy
+      // was dead. Emitting both forms here lights it up: a memory captured while
+      // editing a file becomes findable the next time that file is edited.
+      // filesEdited already holds basenames (see parseTranscript).
+      function fileTagsFor(files) {
+        const tags = new Set();
+        for (const f of files) {
+          if (!f) continue;
+          tags.add(`file:${f}`);
+          const noExt = f.replace(/\.[^.]+$/, '');
+          if (noExt && noExt !== f) tags.add(`file:${noExt}`);
+        }
+        return [...tags];
+      }
+
       const insertEntity = db.prepare('INSERT OR IGNORE INTO entities (name, type) VALUES (?, ?)');
       const selectEntity = db.prepare('SELECT id FROM entities WHERE name = ?');
       const insertObs = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
@@ -273,7 +313,7 @@ process.stdin.on('end', async () => {
             `Session edited ${filesEdited.length} file(s): ${filesEdited.join(', ')}`,
             `Total tool calls: ${toolCallCount}`,
           ],
-          baseTags
+          [...baseTags, ...fileTagsFor(filesEdited)]
         );
       }
 
@@ -286,7 +326,7 @@ process.stdin.on('end', async () => {
             `Fixed ${errorsEncountered.length} error(s) by editing ${filesEdited.join(', ')}`,
             ...errorsEncountered.slice(0, 3).map(e => `Error: ${e.slice(0, 100)}`),
           ],
-          [...baseTags, 'type:bugfix']
+          [...baseTags, 'type:bugfix', ...fileTagsFor(filesEdited)]
         );
       }
 
@@ -366,15 +406,16 @@ process.stdin.on('end', async () => {
             // Check if recall_hits column exists (v4.0+ migration)
             const colCheck = db.prepare("PRAGMA table_info(entities)").all();
             if (colCheck.some(c => c.name === 'recall_hits')) {
-              // Build a lowercase transcript text for matching
-              let transcriptText = readFileSync(transcriptPath, 'utf8').toLowerCase();
+              // Drop the records Claude Code created FROM our own hook
+              // output before matching. One SessionStart injection lands in
+              // the transcript 2+ times (hook_success + hook_additional_context),
+              // so any count-based discount depends on guessing an
+              // undocumented internal — get it wrong and every entity scores
+              // a hit instead of a miss. Structural removal is copy-count
+              // and encoding independent.
+              const sessionText = stripHookEchoes(readFileSync(transcriptPath, 'utf8')).toLowerCase();
 
-              // FIX: Exclude injected context from hit detection to avoid pollution
-              // Remove the memorySummary that was injected at session start
-              const injectedContext = (injectedData.injectedContext || '').toLowerCase();
-              if (injectedContext) {
-                transcriptText = transcriptText.replace(injectedContext, '');
-              }
+              // Hit/miss decision lives in `isRecallHit` (exported, unit-tested).
 
               const updateHit = db.prepare(
                 'UPDATE entities SET recall_hits = COALESCE(recall_hits, 0) + 1 WHERE id = ?'
@@ -387,7 +428,7 @@ process.stdin.on('end', async () => {
                 const name = (entityNames[i] || '').toLowerCase();
                 // Skip very short names to avoid false positives
                 if (name.length < 4) continue;
-                if (transcriptText.includes(name)) {
+                if (isRecallHit(sessionText, name)) {
                   updateHit.run(entityIds[i]);
                 } else {
                   updateMiss.run(entityIds[i]);
@@ -417,13 +458,13 @@ process.stdin.on('end', async () => {
         // F5: derive pluginRoot strictly from this file's location.
         // See `resolvePluginRoot` for the full reasoning.
         const pluginRoot = resolvePluginRoot(import.meta.url);
-        const configMod = await import(join(pluginRoot, 'dist/core/config.js'));
+        const configMod = await importFromPluginRoot(pluginRoot, 'dist/core/config.js');
         const config = configMod.readConfig();
 
         if (config.llm) {
-          const { openDatabase, closeDatabase } = await import(join(pluginRoot, 'dist/db.js'));
-          const { analyzeFailure } = await import(join(pluginRoot, 'dist/core/failure-analyzer.js'));
-          const { createLesson } = await import(join(pluginRoot, 'dist/core/lesson-engine.js'));
+          const { openDatabase, closeDatabase } = await importFromPluginRoot(pluginRoot, 'dist/db.js');
+          const { analyzeFailure } = await importFromPluginRoot(pluginRoot, 'dist/core/failure-analyzer.js');
+          const { createLesson } = await importFromPluginRoot(pluginRoot, 'dist/core/lesson-engine.js');
 
           openDatabase();
           try {
@@ -452,7 +493,7 @@ process.stdin.on('end', async () => {
     // logic and dream-history.json schema.
     try {
       const pluginRoot = resolvePluginRoot(import.meta.url);
-      const configMod = await import(join(pluginRoot, 'dist/core/config.js'));
+      const configMod = await importFromPluginRoot(pluginRoot, 'dist/core/config.js');
       const config = configMod.readConfig();
       maybeTriggerDream(projectName, config, pluginRoot);
     } catch (dreamErr) {
@@ -647,6 +688,83 @@ function countEpisodicEntities(projectName) {
  * the detached background runner. Pure side effect — no return value
  * used by callers.
  */
+/**
+ * Attachment record types Claude Code uses to persist a hook's own output
+ * into the transcript. Anything memesh injected reaches the transcript
+ * through one of these, so they must be removed before asking "did the
+ * session reference this memory?".
+ *
+ * Verified against Claude Code v2.1.19: ONE SessionStart injection lands in
+ * the transcript at least twice — once as `hook_success` (carrying the raw
+ * hook stdout) and once as `hook_additional_context` (the parsed payload).
+ */
+const HOOK_ECHO_ATTACHMENT_TYPES = new Set([
+  'hook_success',
+  'hook_additional_context',
+  'hook_system_message',
+]);
+
+/**
+ * Remove memesh's own injected text from a raw JSONL transcript.
+ *
+ * Counting occurrences and subtracting the injected copies does NOT work:
+ * it depends on knowing exactly how many times Claude Code echoes a hook
+ * payload, which is an undocumented internal that has already been observed
+ * at 2+ copies (and 16 in one real transcript). Guessing that constant is
+ * how "every entity is a miss" becomes "every entity is a hit" — equally
+ * useless, and invisible to a hand-built test fixture.
+ *
+ * Dropping the hook-echo records structurally is independent of both the
+ * copy count and the JSON escaping.
+ */
+export function stripHookEchoes(rawTranscript) {
+  const kept = [];
+  for (const line of String(rawTranscript ?? '').split('\n')) {
+    if (!line.trim()) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      // Unparseable line: keep it. Losing a line can only cause a false
+      // MISS (we under-count references), which is the safe direction —
+      // it never manufactures a hit the session did not earn.
+      kept.push(line);
+      continue;
+    }
+    const type = entry?.attachment?.type ?? entry?.type;
+    if (typeof type === 'string' && HOOK_ECHO_ATTACHMENT_TYPES.has(type)) continue;
+    kept.push(line);
+  }
+  return kept.join('\n');
+}
+
+/**
+ * Did the session actually USE the memory named `name`, or does the name
+ * only appear because memesh injected it at session start?
+ *
+ * Session-start injects the memory block into the model's context, so every
+ * injected entity name is already present in the transcript before the
+ * session does anything. Naive `transcript.includes(name)` therefore scores
+ * all of them as hits.
+ *
+ * The previous approach deleted the injected blob from the transcript
+ * (`transcriptText.replace(injectedContext, '')`) and then matched. That
+ * breaks on real transcripts: they are JSON-encoded, so newlines are `\n`
+ * escapes and quotes are escaped — a raw multi-line replace of a ~2 KB block
+ * silently fails to match, leaving the injected text in place and turning
+ * every entity into a false hit.
+ *
+ * Counting occurrences is encoding-independent: entity names are plain
+ * identifiers that survive JSON escaping unchanged. A memory is a hit only
+ * if it shows up MORE often than we injected it.
+ *
+ * Callers pass lowercased strings.
+ */
+export function isRecallHit(sessionText, name) {
+  if (!name || name.length < 4) return false;
+  return String(sessionText ?? '').toLowerCase().includes(String(name).toLowerCase());
+}
+
 export function maybeTriggerDream(projectName, config, pluginRoot) {
   dreamTrigTrace('enter', { projectName, hasLlm: Boolean(config?.llm) });
   if (!projectName || projectName === 'unknown') {

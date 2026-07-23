@@ -5,7 +5,7 @@ export interface SuspiciousClaim {
     reason: string;
 }
 export interface ValidationResult {
-    status: 'pass' | 'soften' | 'reject';
+    status: 'pass' | 'soften' | 'reject' | 'unavailable';
     suspiciousClaims: SuspiciousClaim[];
     rawResponse: string;
 }

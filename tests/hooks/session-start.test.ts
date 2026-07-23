@@ -104,6 +104,104 @@ describe('Feature: Session Start Hook', () => {
     return db;
   }
 
+  // ── Memory actually reaches the model ────────────────────────────────
+  // Until v4.2.7 this hook emitted ONLY `systemMessage`, which Claude Code
+  // shows to the human and strips from the model's context. The banner said
+  // "N project memories" while the model received nothing — and the Stop
+  // hook then charged every one of those entities a `recall_miss` for not
+  // appearing in a transcript they were never shown in, permanently sinking
+  // them in `impactScore`. These tests assert the payload the model actually
+  // receives, so a regression to a counts-only banner fails CI.
+  describe('Scenario: recalled memories are injected into the model context', () => {
+    function seedProjectMemory() {
+      const db = createScoringDb();
+      const insert = db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)');
+      const addObs = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      const addTag = db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)');
+
+      const decision = insert.run('oauth-pkce-decision', 'decision').lastInsertRowid as number;
+      addObs.run(decision, 'We use OAuth with PKCE because the CLI cannot hold a client secret.');
+      addTag.run(decision, 'project:myproject');
+
+      const lesson = insert.run('lesson-flaky-timeout', 'lesson_learned').lastInsertRowid as number;
+      addObs.run(lesson, 'Error: raising the vitest timeout hid a real deadlock. Fix the deadlock.');
+      addTag.run(lesson, 'project:myproject');
+
+      db.close();
+    }
+
+    it('emits hookSpecificOutput with the SessionStart variant', () => {
+      seedProjectMemory();
+      const output = runHook({ cwd: '/tmp/myproject' });
+
+      const hso = output.hookSpecificOutput as { hookEventName?: string; additionalContext?: string };
+      expect(hso).toBeTruthy();
+      expect(hso.hookEventName).toBe('SessionStart');
+      expect(typeof hso.additionalContext).toBe('string');
+    });
+
+    it('injects real entity names and observation content, not just counts', () => {
+      seedProjectMemory();
+      const output = runHook({ cwd: '/tmp/myproject' });
+      const injected = (output.hookSpecificOutput as { additionalContext: string }).additionalContext;
+
+      // Entity names must be present so the model can recall them by name.
+      expect(injected).toContain('oauth-pkce-decision');
+      // Observation content must be present — a name-only list would still
+      // leave the model unable to use the memory.
+      expect(injected).toContain('PKCE');
+      // Lessons are the highest-value signal and get their own section.
+      expect(injected).toContain('lesson-flaky-timeout');
+      expect(injected).toContain('Lessons learned');
+    });
+
+    it('keeps the human banner and the model context on separate channels', () => {
+      seedProjectMemory();
+      const output = runHook({ cwd: '/tmp/myproject' });
+
+      // systemMessage stays the short human banner (Claude Code strips it
+      // from model context, so memory content must NOT live here).
+      const banner = output.systemMessage as string;
+      expect(banner).toContain('◉ MeMesh');
+      expect(banner).not.toContain('oauth-pkce-decision');
+
+      const injected = (output.hookSpecificOutput as { additionalContext: string }).additionalContext;
+      expect(injected).toContain('oauth-pkce-decision');
+    });
+
+    it('records the injected text (not the banner) for hit/miss accounting', () => {
+      seedProjectMemory();
+      const output = runHook({ cwd: '/tmp/myproject' }, { MEMESH_DIR: testDir });
+
+      const session = readLatestSessionFile();
+      expect(session).toBeTruthy();
+
+      const injected = (output.hookSpecificOutput as { additionalContext: string }).additionalContext;
+      // The Stop hook subtracts injectedContext from the transcript before
+      // matching. If this were the counts banner, the hook's own injection
+      // would be double-counted as the user referencing the memory.
+      expect(session!.injectedContext).toBe(injected);
+      expect(session!.entityNames).toContain('oauth-pkce-decision');
+    });
+
+    it('does not render the same entity twice across groups', () => {
+      seedProjectMemory();
+      const output = runHook({ cwd: '/tmp/myproject' });
+      const injected = (output.hookSpecificOutput as { additionalContext: string }).additionalContext;
+
+      const occurrences = injected.split('lesson-flaky-timeout').length - 1;
+      expect(occurrences).toBe(1);
+    });
+
+    it('omits hookSpecificOutput entirely when there is no database', () => {
+      const output = runHook({ cwd: '/tmp/myproject' });
+      // Nothing recalled means nothing to inject — emitting an empty
+      // additionalContext would waste a context slot on every fresh install.
+      expect(output.hookSpecificOutput).toBeUndefined();
+      expect(output.systemMessage).toBeTruthy();
+    });
+  });
+
   it('Scenario: No database exists -> single-line welcome message', () => {
     const output = runHook({ cwd: '/tmp/myproject' });
     const msg = output.systemMessage as string;

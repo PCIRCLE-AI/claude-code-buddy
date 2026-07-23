@@ -779,6 +779,30 @@ curl -s http://localhost:3737/v1/health
 
 ## CLI Commands
 
+### memesh pin / memesh unpin
+
+Protect an entity from the dreamer's automatic compaction (or release that protection).
+
+The dreamer periodically compacts low-signal clusters of memories into digests. `pin` marks an entity so the compactor skips it; `unpin` removes the mark. Pinning writes `metadata.pin = true` (and unpinning removes the key), which is exactly the flag the dreamer reads before compacting.
+
+**Usage**:
+
+```bash
+memesh pin --name "auth-architecture-decision"
+memesh unpin --name "auth-architecture-decision"
+```
+
+**Options**:
+
+| Option | Description |
+|--------|-------------|
+| `--name <name>` | Entity name (required). |
+| `--json` | Output the result as JSON (`{ name, pinned, found }`). |
+
+If the named entity does not exist, the command reports it and exits without error (`found: false`).
+
+---
+
 ### memesh export-schema
 
 Export MeMesh tools in OpenAI function calling format. Use this to integrate MeMesh with any OpenAI-compatible API or SDK.
@@ -939,6 +963,8 @@ memesh dream reject <id> [--reason <text>]
 
 **`--validate`** on `dream run` enables the optional second-pass LLM validator (`src/core/digest-validator.ts`) which cross-checks the proposed digest's claims against source observations and attaches `validation_warnings` to soften'd proposals. Doubles per-proposal LLM cost; default off.
 
+Validator verdicts are `pass` | `soften` | `reject` | `unavailable`. Only `reject` skips a proposal and only `soften` annotates one. `unavailable` means the validator could not run at all (LLM unreachable, fallback chain exhausted) — it is deliberately distinct from `pass`, which asserts that every claim was checked and supported. Both let the proposal through, so an unreachable validator never costs you a real digest, but a proposal validated by nothing is no longer indistinguishable from one that passed a clean check.
+
 ### memesh-view
 
 Generate and open an interactive HTML dashboard for exploring stored knowledge.
@@ -994,7 +1020,7 @@ Per-flow LLM telemetry scorecard for the last `window` days. Backs the dashboard
 |-----------|------|---------|-------------|
 | `window` | number | 30 | Look-back window in days (1–365) |
 
-**Response shape:** `{ window_days, summaries: FlowSummary[] }` where each `FlowSummary` is `{ flow, total_calls, total_attempts, successes, failures, fallback_used, median_latency_ms, by_provider, by_error_class, window_days }`. Flows: `dreamer`, `pattern_detector`, `consolidator`, `auto_tagger`, `failure_analyzer`, `digest_validator`.
+**Response shape:** `{ window_days, summaries: FlowSummary[] }` where each `FlowSummary` is `{ flow, total_calls, total_attempts, successes, failures, fallback_used, median_latency_ms, by_provider, by_model, by_project, by_error_class, sample_errors, window_days }`. `by_model` and `by_project` are `Record<string, { ok, fail }>` (per-model and per-project ok/fail counts); `sample_errors` is up to 5 recent `{ error_class, message }` failure samples. Flows: `dreamer`, `pattern_detector`, `consolidator`, `auto_tagger`, `failure_analyzer`, `digest_validator`.
 
 ### GET /v1/dream/proposals
 

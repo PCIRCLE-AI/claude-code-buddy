@@ -1,9 +1,9 @@
 import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'fs';
-import { spawn } from 'child_process';
+import { spawn, execFileSync } from 'child_process';
 import { createRequire } from 'module';
 import { homedir } from 'os';
 import { basename, dirname, join } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const require = createRequire(import.meta.url);
 
@@ -89,14 +89,59 @@ export function getDbPath() {
  * This helper unifies the contract — explicit cwd wins, falls through to
  * process.cwd() — matching the most permissive caller's behaviour.
  *
- * Mirror of: src/core/paths.ts → getProjectName()
+ * Mirror of: src/core/paths.ts → getProjectName() + resolveProjectIdentity().
+ * The layered git resolution MUST stay identical to that file — a divergence
+ * means hooks (which write project tags) and core (which reads them) would
+ * disagree on identity, re-creating the split this change fixes.
  *
  * @param {string|null|undefined} [cwdInput]
  * @returns {string}
  */
+const _projectNameCache = new Map();
+
 export function getProjectName(cwdInput) {
   const cwd = cwdInput && cwdInput.length > 0 ? cwdInput : process.cwd();
+  const cached = _projectNameCache.get(cwd);
+  if (cached !== undefined) return cached;
+  const resolved = _resolveProjectIdentity(cwd);
+  _projectNameCache.set(cwd, resolved);
+  return resolved;
+}
+
+// Layered identity: git remote slug > git repo root basename > cwd basename.
+// See src/core/paths.ts resolveProjectIdentity for the full rationale. git
+// failures at any layer fall through to the next; capture must never break.
+function _resolveProjectIdentity(cwd) {
+  const remote = _tryGit(cwd, ['config', '--get', 'remote.origin.url']);
+  if (remote) {
+    const slug = slugFromRemoteUrl(remote);
+    if (slug) return slug;
+  }
+  const root = _tryGit(cwd, ['rev-parse', '--show-toplevel']);
+  if (root) return basename(root);
   return basename(cwd);
+}
+
+function _tryGit(cwd, args) {
+  try {
+    const out = execFileSync('git', ['-C', cwd, ...args], {
+      encoding: 'utf8',
+      timeout: 2000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const trimmed = out.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Mirror of paths.ts slugFromRemoteUrl. */
+export function slugFromRemoteUrl(url) {
+  const cleaned = url.trim().replace(/\.git$/i, '').replace(/[/\\]+$/, '');
+  if (!cleaned) return null;
+  const seg = cleaned.split(/[/:\\]/).filter(Boolean).pop();
+  return seg && seg.length > 0 ? seg : null;
 }
 
 /**
@@ -118,6 +163,37 @@ export function getProjectName(cwdInput) {
  */
 export function resolvePluginRoot(metaUrl) {
   return dirname(dirname(dirname(fileURLToPath(metaUrl))));
+}
+
+/**
+ * Dynamically import a built module from `<pluginRoot>/dist/...`.
+ *
+ * ESM `import()` takes a URL, not a filesystem path. On POSIX an absolute
+ * path happens to work because it starts with `/`; on Windows an absolute
+ * path is `D:\...`, which the ESM loader reads as a URL whose scheme is
+ * `d:` and rejects with:
+ *
+ *   Only URLs with a scheme in: file, data, and node are supported by the
+ *   default ESM loader. On Windows, absolute paths must be valid file://
+ *   URLs. Received protocol 'd:'
+ *
+ * That error is caught by each caller's surrounding try/catch and only
+ * traced to stderr, so on Windows every hook that reaches for a dist module
+ * — LLM failure analysis, lesson creation, dream auto-trigger, auto-decay —
+ * silently did nothing, while macOS/Linux and `memesh doctor` stayed green.
+ * A textbook fake-working boundary: the discipline of converting the path
+ * (already applied to the install-channel import above via
+ * `pathToFileURL().href`) simply stopped at these call sites.
+ *
+ * Centralising the conversion here means it is done correctly once and can
+ * never drift per-site again. All hook → dist imports MUST go through this.
+ *
+ * @param {string} pluginRoot - from `resolvePluginRoot(import.meta.url)`
+ * @param {string} relativePath - e.g. `'dist/core/config.js'`
+ * @returns {Promise<any>} the imported module namespace
+ */
+export function importFromPluginRoot(pluginRoot, relativePath) {
+  return import(pathToFileURL(join(pluginRoot, relativePath)).href);
 }
 
 /**

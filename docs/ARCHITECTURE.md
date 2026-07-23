@@ -40,7 +40,7 @@ MeMesh separates concerns into two layers:
 - `operations.ts` — `remember`, `recall`, `forget`, `export`, `import` as pure functions called by all transports
 - `config.ts` — config management + capability detection (incl. `llmFallbacks` chain); exports `logCapabilities()` for startup logging
 - `paths.ts` — centralised filesystem path resolution (HOME-first override, mirrored to hooks via `_shared.js`)
-- `scoring.ts` — multi-factor scoring engine: weights search relevance, recency, frequency, confidence, temporal validity, recall-impact; exports `rankEntities()` used by all recall paths
+- `scoring.ts` — multi-factor scoring engine: weights search relevance, recency, frequency, confidence, recall-impact; exports `rankEntities()` used by all recall paths
 - `llm-client.ts` — single dispatch for anthropic / openai / ollama with cross-provider failover, error classification, and per-attempt telemetry callback
 - `llm-telemetry.ts` — `llm_telemetry` SQLite table + `recordTelemetry()` + `summariseTelemetry()` + `pruneTelemetry()` retention
 - `dreamer.ts` — LLM cluster compactor + pattern detector with propose/accept/reject lifecycle; auto-trigger from Stop hook
@@ -53,8 +53,8 @@ MeMesh separates concerns into two layers:
 
 **Transports** (`src/transports/`) — thin adapters that expose core operations:
 - `cli/cli.ts` — Commander CLI (`memesh` command, 17 top-level commands; `kg` and `config` have subcommands)
-- `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, ~30 endpoints, bearer-auth gate when bound non-loopback)
-- `mcp/server.ts` + `mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 9 tools)
+- `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, ~32 endpoints, bearer-auth gate when bound non-loopback)
+- `src/mcp/server.ts` + `src/transports/mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 9 tools); `src/mcp/tools.ts` is a re-export shim
 
 This separation means the same `remember`/`recall`/`forget` logic runs identically whether invoked from a terminal, an HTTP request, or an MCP tool call.
 
@@ -94,12 +94,15 @@ src/
 ├── index.ts               # Package exports
 ├── cli/
 │   └── view.ts            # HTML dashboard generator
+├── mcp/
+│   ├── launcher.ts        # memesh-mcp entry point: probes better-sqlite3 binding, rebuilds if missing, re-execs for fresh module cache
+│   ├── server.ts          # MCP stdio server (logs capabilities on startup)
+│   └── tools.ts           # Re-export shim → transports/mcp/handlers.ts
 └── transports/
     ├── schemas.ts         # Shared Zod validation schemas (single source of truth)
     ├── mcp/
-    │   ├── launcher.ts    # memesh-mcp entry point: probes better-sqlite3 binding, rebuilds if missing, re-execs for fresh module cache
-    │   ├── handlers.ts    # MCP tool handlers (imports schemas, ToolResult wrapper, conflict detection)
-    │   └── server.ts      # MCP stdio server (logs capabilities on startup)
+    │   └── handlers.ts    # MCP tool handlers (imports schemas, ToolResult wrapper, conflict detection)
+    │                      # NOTE: launcher.ts + server.ts live in src/mcp/ (see below), NOT here
     ├── http/
     │   └── server.ts      # Express REST API server (imports schemas, 1MB body limit, rate limiting)
     └── cli/
@@ -118,7 +121,7 @@ src/
 
 **config.ts** — Config management: reads `MEMESH_DB_PATH` and other environment variables, detects sqlite-vec availability, exposes a typed config object to transports and core functions. `logCapabilities()` logs detected search level and LLM provider to stderr on server startup (safe for MCP stdio transport). The on-disk config path is resolved lazily via `paths.ts:memeshDir()` so HOME-first override works in hermetic Windows tests.
 
-**paths.ts** — Centralised filesystem path resolution. Exports `homeDir()` (HOME-env-first override for testability), `memeshDir()` (MEMESH_DIR > `<home>/.memesh`), `getDbPath()` (MEMESH_DB_PATH > `<memeshDir>/knowledge-graph.db`), `getMemeshDirFromDbPath()` (parent dir of active DB file, used for sibling state files), and `getProjectName(cwdInput?)` (basename of explicit cwd or `process.cwd()`). Replaces 10+ inline `process.env.MEMESH_DB_PATH ?? path.join(os.homedir(), …)` patterns that had subtly different fallbacks. Hooks cannot import from `dist/` (the F5 boundary), so `scripts/hooks/_shared.js` keeps a mirror of these helpers; the JSDoc on each function cross-links to its core counterpart, and any change here MUST land in both files.
+**paths.ts** — Centralised filesystem path resolution. Exports `homeDir()` (HOME-env-first override for testability), `memeshDir()` (MEMESH_DIR > `<home>/.memesh`), `getDbPath()` (MEMESH_DB_PATH > `<memeshDir>/knowledge-graph.db`), `getMemeshDirFromDbPath()` (parent dir of active DB file, used for sibling state files), and `getProjectName(cwdInput?)` (layered project identity: git remote slug → git repo root basename → cwd basename, resolved once per cwd and cached; the git layers make a memory captured in a subdirectory share identity with one captured at the repo root, and collapse case/path variants of the same repo). Replaces 10+ inline `process.env.MEMESH_DB_PATH ?? path.join(os.homedir(), …)` patterns that had subtly different fallbacks. Hooks cannot import from `dist/` (the F5 boundary), so `scripts/hooks/_shared.js` keeps a mirror of these helpers; the JSDoc on each function cross-links to its core counterpart, and any change here MUST land in both files.
 
 **scoring.ts** — Multi-factor scoring engine. `scoreEntity()` combines five signals from `DEFAULT_WEIGHTS`: search relevance (0.30), recency via exponential decay (0.25), access frequency via log normalization (0.18), confidence (0.17), and recall-effectiveness impact via Laplace smoothing (0.10). `rankEntities()` sorts any entity list by score descending. Applied in all recall paths (`recall()` and `recallEnhanced()`).
 
@@ -167,11 +170,11 @@ CRUD operations and full-text search over the entity graph.
 
 FTS5 is configured as a contentless virtual table (`content=''`). The `rebuildFts()` method handles explicit insert/delete operations required by contentless FTS5.
 
-### transports/mcp/launcher.ts -- MCP Startup Guard
+### mcp/launcher.ts -- MCP Startup Guard
 
 Entry point for the `memesh-mcp` binary. Probes `better-sqlite3` by instantiating an in-memory database (the binding loads lazily inside the constructor). On failure, runs `npm rebuild better-sqlite3` then re-execs the process via `spawnSync` so the fresh Node.js instance has a clean module cache. An env guard (`MEMESH_REBUILD_ATTEMPTED`) prevents infinite loops if rebuild fails.
 
-### transports/mcp/server.ts -- MCP Server
+### mcp/server.ts -- MCP Server
 
 Actual MCP server logic. Creates the MCP server with stdio transport, registers tool handlers from `handlers.ts`, opens the database on startup. Invoked by `launcher.ts` after the native addon is confirmed working.
 
@@ -250,7 +253,7 @@ Tool call: recall({query, tag, limit})
   -> recallEnhanced() in core/operations
      -> KnowledgeGraph.search() — FTS5 keyword match
      -> supplementWithVectors() — sqlite-vec embedding similarity merge
-     -> rankEntities() applies multi-factor scoring (relevance, recency, frequency, confidence, temporal validity)
+     -> rankEntities() applies multi-factor scoring (relevance, recency, frequency, confidence, impact)
      -> KnowledgeGraph.findConflicts() checks for contradicts relations among results
   -> If conflicts: return {entities, conflicts}; else return Entity[]
 ```
@@ -320,7 +323,14 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 
 - **Trigger**: `SessionStart` event (every new Claude Code session)
 - **Matcher**: `*` (all sessions)
-- **Behavior**: Opens the database, queries recent entities tagged with the current project, outputs a summary for Claude to use as context. Also shows proactive warnings for known `lesson_learned` entities matching the current project. Records injected entity IDs to `~/.memesh/last-session-injected.json` for recall effectiveness tracking. After output, runs `compressWeeklyNoise()` (throttled to once per 24h) to archive old auto-tracked noise into weekly summaries
+- **Behavior**: Opens the database, ranks entities tagged with the current project (plus recently-active entities across projects and active `lesson_learned` entities), and emits **two separate channels**:
+  - `systemMessage` — a one-line count banner (`◉ MeMesh · 4 project + 5 recent memories · 1 active lesson`) plus any deprecation / update-available banner. Claude Code renders this to the **human only**; `normalizeAttachmentForAPI` strips the `hook_system_message` attachment from the model's context.
+  - `hookSpecificOutput.additionalContext` (`hookEventName: "SessionStart"`) — the **model-facing** payload: the ranked entities with a first-observation snippet each, lessons first. Capped at 4000 characters (Claude Code's own limit is 10000) so session start primes the model without eating its working context.
+
+  Splitting the channels is load-bearing, not cosmetic. Before v4.2.7 the hook emitted **only** `systemMessage`, so nothing it recalled ever reached the model even though the banner reported a memory count — and the Stop hook then charged each of those entities a `recall_miss` for not appearing in a transcript they were never shown in, permanently depressing their `impactScore`. Regression tests in `tests/hooks/session-start.test.ts` assert the model-facing payload directly.
+
+- Records the injected entity IDs, names, and the **exact injected text** to `~/.memesh/sessions/<pid>-<timestamp>.json` for recall-effectiveness tracking. `session-summary.js` subtracts that text from the transcript before hit/miss matching so memesh's own injection is never mistaken for the user referencing a memory. Files older than 24h are pruned on each run.
+- After output, runs `compressWeeklyNoise()` (throttled to once per 24h) to archive old auto-tracked noise into weekly summaries
 
 ### Post Commit (`scripts/hooks/post-commit.js`)
 

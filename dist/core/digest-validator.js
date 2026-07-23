@@ -27,8 +27,13 @@ export async function validateDigest(digestObservations, sourceObservations, llm
             onAttempt: opts.onAttempt,
         });
     }
-    catch {
-        return { status: 'pass', suspiciousClaims: [], rawResponse: '' };
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        try {
+            process.stderr.write(`[memesh digest-validator] validation did not run: ${msg}\n`);
+        }
+        catch { }
+        return { status: 'unavailable', suspiciousClaims: [], rawResponse: '' };
     }
     return parseValidatorResponse(rawResponse);
 }

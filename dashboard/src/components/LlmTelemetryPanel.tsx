@@ -19,7 +19,10 @@ interface FlowSummary {
   fallback_used: number;
   median_latency_ms: number | null;
   by_provider: Record<string, { ok: number; fail: number }>;
+  by_model: Record<string, { ok: number; fail: number }>;
+  by_project: Record<string, { ok: number; fail: number }>;
   by_error_class: Record<string, number>;
+  sample_errors: Array<{ error_class: string | null; message: string }>;
   window_days: number;
 }
 
@@ -101,6 +104,8 @@ export function LlmTelemetryPanel() {
             const fallbackPct = s.total_calls > 0 ? s.fallback_used / s.total_calls : 0;
             const flowLabel = FLOW_LABELS[s.flow] ?? s.flow;
             const providerEntries = Object.entries(s.by_provider);
+            const modelEntries = Object.entries(s.by_model);
+            const projectEntries = Object.entries(s.by_project);
             const errorEntries = Object.entries(s.by_error_class).sort((a, b) => b[1] - a[1]);
 
             return (
@@ -137,6 +142,26 @@ export function LlmTelemetryPanel() {
                   <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 4 }}>
                     {t('telemetry.byProvider')}:{' '}
                     {providerEntries.map(([p, v]) => (
+                      <span key={p} class="tag" style={{ marginRight: 6, fontSize: 11 }}>
+                        {p} {v.ok}/{v.ok + v.fail}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {modelEntries.length > 0 && (
+                  <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 4 }}>
+                    {t('telemetry.byModel')}:{' '}
+                    {modelEntries.map(([m, v]) => (
+                      <span key={m} class="tag" style={{ marginRight: 6, fontSize: 11 }}>
+                        {m} {v.ok}/{v.ok + v.fail}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {projectEntries.length > 0 && (
+                  <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 4 }}>
+                    {t('telemetry.byProject')}:{' '}
+                    {projectEntries.map(([p, v]) => (
                       <span key={p} class="tag" style={{ marginRight: 6, fontSize: 11 }}>
                         {p} {v.ok}/{v.ok + v.fail}
                       </span>

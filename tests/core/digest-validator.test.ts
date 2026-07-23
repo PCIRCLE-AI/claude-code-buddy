@@ -115,7 +115,13 @@ describe('validateDigest', () => {
     expect(result.suspiciousClaims).toEqual([]);
   });
 
-  it('defaults to status=pass when LLM throws (network error)', async () => {
+  // Was: "defaults to status=pass when LLM throws". That made a validator
+  // that never ran indistinguishable from one that ran and found nothing —
+  // the proposal got recorded as validated on the strength of a failed
+  // network call. The non-blocking bias is unchanged (callers still let the
+  // digest through); what changed is that the two outcomes are now
+  // different values, so the UI and the caller can tell them apart.
+  it('returns status=unavailable (NOT pass) when the LLM throws — it never ran', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('fetch failed'));
 
     const { validateDigest } = await import('../../src/core/digest-validator.js');
@@ -125,9 +131,21 @@ describe('validateDigest', () => {
       validLLM,
     );
 
-    expect(result.status).toBe('pass');
+    expect(result.status).toBe('unavailable');
+    expect(result.status).not.toBe('pass');
     expect(result.suspiciousClaims).toEqual([]);
     expect(result.rawResponse).toBe('');
+  });
+
+  it('unavailable must not be treated as a rejection — the digest still ships', async () => {
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('fetch failed'));
+
+    const { validateDigest } = await import('../../src/core/digest-validator.js');
+    const result = await validateDigest(['d'], ['s'], validLLM);
+
+    // dreamer.ts only skips on 'reject' and only annotates on 'soften'.
+    expect(result.status).not.toBe('reject');
+    expect(result.status).not.toBe('soften');
   });
 
   it('defaults to status=pass when verdict is missing/unknown', async () => {

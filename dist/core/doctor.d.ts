@@ -1,5 +1,6 @@
 import fs from 'fs';
 import { detectCapabilities, getConfigPath } from './config.js';
+import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, isDatabaseOpen } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
@@ -11,6 +12,7 @@ export interface DoctorCheck {
     status: DoctorCheckStatus;
     summary: string;
     fix?: string;
+    informational?: boolean;
 }
 export interface DoctorResult {
     status: DoctorOverallStatus;
@@ -20,6 +22,9 @@ interface DoctorOptions {
     packageRoot: string;
     packageVersion: string;
     probeHttp?: boolean;
+    probeCapabilities?: boolean;
+    embedTextImpl?: (text: string) => Promise<Float32Array | null>;
+    probeProviderImpl?: typeof probeProvider;
     httpBaseUrl?: string;
     platform?: NodeJS.Platform;
     openDatabaseImpl?: typeof openDatabase;

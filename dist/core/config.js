@@ -10,14 +10,26 @@ function configDir() {
 function configFilePath() {
     return path.join(configDir(), 'config.json');
 }
+let lastConfigReadWarning = null;
 export function readConfig() {
+    const p = configFilePath();
+    if (!fs.existsSync(p))
+        return {};
     try {
-        const p = configFilePath();
-        if (!fs.existsSync(p))
-            return {};
         return JSON.parse(fs.readFileSync(p, 'utf8'));
     }
-    catch {
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const key = `${p}::${msg}`;
+        if (key !== lastConfigReadWarning) {
+            lastConfigReadWarning = key;
+            try {
+                process.stderr.write(`[memesh config] ${p} exists but could not be read/parsed (${msg}). ` +
+                    `Every setting in it — LLM provider, fallbacks, embedder — is being ignored, ` +
+                    `so Smart Mode is off until this is fixed.\n`);
+            }
+            catch { }
+        }
         return {};
     }
 }
@@ -58,7 +70,16 @@ export function maskApiKey(key) {
         return '***';
     return key.slice(0, 4) + '***' + key.slice(-4);
 }
+function envAutoDetectDisabled() {
+    const raw = process.env.MEMESH_AUTO_DETECT_LLM;
+    if (raw === undefined)
+        return false;
+    const v = raw.trim().toLowerCase();
+    return v === '0' || v === 'false' || v === 'no' || v === 'off';
+}
 function detectFromEnv() {
+    if (envAutoDetectDisabled())
+        return null;
     if (process.env.ANTHROPIC_API_KEY) {
         return { provider: 'anthropic', model: 'claude-haiku-4-5', apiKey: process.env.ANTHROPIC_API_KEY };
     }

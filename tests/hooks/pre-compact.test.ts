@@ -4,6 +4,7 @@ import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { expectValidHookOutput, HOOK_SPECIFIC_OUTPUT_EVENTS } from '../helpers/hook-output-contract.js';
 
 const require = createRequire(import.meta.url);
 
@@ -36,6 +37,33 @@ describe('Feature: PreCompact Hook', () => {
     return new Database(dbPath, { readonly: true });
   }
 
+  // spawnSync variant so stderr is visible regardless of exit code.
+  function runHookStderr(input: object): string {
+    const { spawnSync } = require('child_process') as typeof import('child_process');
+    const res = spawnSync('node', [path.resolve('scripts/hooks/pre-compact.js')], {
+      input: JSON.stringify(input),
+      env: { ...process.env, MEMESH_DB_PATH: dbPath },
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    return res.stderr || '';
+  }
+
+  it('Scenario: an unreadable transcript traces to stderr (not a silent "0 insights")', () => {
+    // A directory at the transcript path makes readFileSync throw EISDIR after
+    // existsSync passes — stands in for a permission/IO fault on a real file.
+    const dirAsTranscript = path.join(testDir, 'transcript-is-a-dir');
+    fs.mkdirSync(dirAsTranscript);
+    const stderr = runHookStderr({
+      session_id: 'sess-unreadable',
+      transcript_path: dirAsTranscript,
+      cwd: '/tmp/myproject',
+      trigger: 'auto',
+    });
+    expect(stderr).toContain('[memesh pre-compact]');
+    expect(stderr).toContain('unreadable');
+  });
+
   it('Scenario: Basic pre-compact event -> entity created with correct type and tags', () => {
     const input = {
       session_id: 'sess-abc123',
@@ -48,9 +76,10 @@ describe('Feature: PreCompact Hook', () => {
     const result = runHook(input);
     const parsed = JSON.parse(result.trim());
 
-    // Output has correct structure
-    expect(parsed.hookSpecificOutput.hookEventName).toBe('PreCompact');
-    expect(parsed.hookSpecificOutput.additionalContext).toContain('MeMesh');
+    // Output must satisfy the real Claude Code contract, not a hand-written
+    // shape. PreCompact has no `hookSpecificOutput` variant (#53).
+    expectValidHookOutput(result, 'pre-compact output');
+    expect(parsed.systemMessage).toContain('MeMesh');
 
     // Entity created in DB
     const db = openDb();
@@ -67,13 +96,17 @@ describe('Feature: PreCompact Hook', () => {
     db.close();
   });
 
-  it('Scenario: Reason stored as observation', () => {
+  it('Scenario: trigger (the real Claude Code field) stored as reason observation', () => {
+    // Claude Code's PreCompact payload names the field `trigger`, not `reason`.
+    // Feeding the REAL field proves the hook reads it; before the fix (which
+    // read data.reason) this asserted 'auto' and the manual/auto distinction
+    // was silently lost on every compaction.
     const input = {
       session_id: 'sess-manual1',
       transcript_path: '',
       cwd: '/tmp/testproject',
       hook_event_name: 'PreCompact',
-      reason: 'manual',
+      trigger: 'manual',
     };
 
     runHook(input);
@@ -192,7 +225,7 @@ describe('Feature: PreCompact Hook', () => {
     db.close();
   });
 
-  it('Scenario: Output JSON has correct hookEventName', () => {
+  it('Scenario: Output JSON satisfies the Claude Code hook-output contract', () => {
     const input = {
       session_id: 'sess-output-check',
       transcript_path: '',
@@ -202,9 +235,30 @@ describe('Feature: PreCompact Hook', () => {
     };
 
     const result = runHook(input);
+    expectValidHookOutput(result, 'pre-compact output');
+
     const parsed = JSON.parse(result.trim());
-    expect(parsed).toHaveProperty('hookSpecificOutput');
-    expect(parsed.hookSpecificOutput.hookEventName).toBe('PreCompact');
-    expect(typeof parsed.hookSpecificOutput.additionalContext).toBe('string');
+    expect(typeof parsed.systemMessage).toBe('string');
+  });
+
+  // Regression guard for #53. Claude Code has no `hookSpecificOutput` variant
+  // for PreCompact, so emitting one fails validation at the root and surfaces
+  // an error to the user on every single compaction. The previous version of
+  // this test asserted the broken shape, which is why CI stayed green while
+  // the bug shipped — assert the absence explicitly so it cannot come back.
+  it('Scenario: Output never contains hookSpecificOutput (no PreCompact variant exists)', () => {
+    const input = {
+      session_id: 'sess-no-hso',
+      transcript_path: '',
+      cwd: '/tmp/someproject',
+      hook_event_name: 'PreCompact',
+      reason: 'manual',
+    };
+
+    const result = runHook(input);
+    const parsed = JSON.parse(result.trim());
+
+    expect(parsed).not.toHaveProperty('hookSpecificOutput');
+    expect(HOOK_SPECIFIC_OUTPUT_EVENTS).not.toHaveProperty('PreCompact');
   });
 });

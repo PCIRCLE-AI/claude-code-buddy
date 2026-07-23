@@ -12,8 +12,14 @@ export function PmAnalyticsPanel() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api<{ data: PmAnalytics }>('GET', '/v1/analytics/pm')
-      .then((r) => setData(r.data))
+    // `api()` already unwraps the {success, data} envelope and returns
+    // `json.data`, so the type argument is the PAYLOAD, not the envelope.
+    // Declaring `{ data: PmAnalytics }` and then reading `r.data` unwrapped
+    // twice: `data` stayed undefined, `if (!data) return null` always fired,
+    // and this whole card silently never rendered while the server computed
+    // it on every load.
+    api<PmAnalytics>('GET', '/v1/analytics/pm')
+      .then((r) => setData(r))
       .catch((e) => setError(String(e)));
   }, []);
 

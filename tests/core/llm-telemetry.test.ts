@@ -83,15 +83,15 @@ describe('llm-telemetry persistence + summarise', () => {
   it('summariseTelemetry aggregates per-flow with provider + error-class breakdown', () => {
     // Seed three calls across two flows with varying outcomes
     recordTelemetry([
-      { provider: 'anthropic', status: 'ok', latencyMs: 500, index: 0 },
-    ], { flow: 'dreamer' });
+      { provider: 'anthropic', model: 'claude-haiku', status: 'ok', latencyMs: 500, index: 0 },
+    ], { flow: 'dreamer', project: 'memesh' });
     recordTelemetry([
-      { provider: 'anthropic', status: 'fail', latencyMs: 90, errorClass: 'auth', index: 0 },
-      { provider: 'ollama', status: 'ok', latencyMs: 8000, index: 1 },
-    ], { flow: 'dreamer' });
+      { provider: 'anthropic', model: 'claude-haiku', status: 'fail', latencyMs: 90, errorClass: 'auth', errorMessage: '401 invalid key', index: 0 },
+      { provider: 'ollama', model: 'llama3.2', status: 'ok', latencyMs: 8000, index: 1 },
+    ], { flow: 'dreamer', project: 'memesh' });
     recordTelemetry([
-      { provider: 'anthropic', status: 'fail', latencyMs: 80, errorClass: 'auth', index: 0 },
-    ], { flow: 'auto_tagger' });
+      { provider: 'anthropic', model: 'claude-haiku', status: 'fail', latencyMs: 80, errorClass: 'auth', errorMessage: '401 again', index: 0 },
+    ], { flow: 'auto_tagger', project: 'other-proj' });
 
     const summaries = summariseTelemetry(30);
     expect(summaries).toHaveLength(2);
@@ -105,6 +105,12 @@ describe('llm-telemetry persistence + summarise', () => {
     expect(dreamer.by_provider.anthropic).toEqual({ ok: 1, fail: 1 });
     expect(dreamer.by_provider.ollama).toEqual({ ok: 1, fail: 0 });
     expect(dreamer.by_error_class.auth).toBe(1);
+    // by_model / by_project / sample_errors surface the previously write-only columns.
+    expect(dreamer.by_model['claude-haiku']).toEqual({ ok: 1, fail: 1 });
+    expect(dreamer.by_model['llama3.2']).toEqual({ ok: 1, fail: 0 });
+    expect(dreamer.by_project.memesh).toEqual({ ok: 2, fail: 1 });
+    expect(dreamer.sample_errors).toHaveLength(1);
+    expect(dreamer.sample_errors[0]).toEqual({ error_class: 'auth', message: '401 invalid key' });
 
     const tagger = summaries.find(s => s.flow === 'auto_tagger')!;
     expect(tagger.total_calls).toBe(1);

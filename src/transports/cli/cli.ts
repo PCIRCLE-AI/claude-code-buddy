@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
-import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn, reindex } from '../../core/operations.js';
+import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { verifyAgentWork } from '../../core/verifier.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
@@ -194,6 +194,35 @@ program
       } else {
         console.log(`Entity "${opts.name}" not found`);
       }
+    });
+  });
+
+// --- pin / unpin ---
+program
+  .command('pin')
+  .description('Protect an entity from the dreamer’s auto-compaction')
+  .requiredOption('--name <name>', 'Entity name')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    await withDatabase(() => {
+      const result = setPinned(opts.name, true);
+      if (opts.json) console.log(JSON.stringify(result));
+      else if (result.found) console.log(`📌 Pinned "${opts.name}" — the dreamer will not compact it`);
+      else console.log(`Entity "${opts.name}" not found`);
+    });
+  });
+
+program
+  .command('unpin')
+  .description('Allow the dreamer to auto-compact an entity again')
+  .requiredOption('--name <name>', 'Entity name')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    await withDatabase(() => {
+      const result = setPinned(opts.name, false);
+      if (opts.json) console.log(JSON.stringify(result));
+      else if (result.found) console.log(`📍 Unpinned "${opts.name}"`);
+      else console.log(`Entity "${opts.name}" not found`);
     });
   });
 
@@ -432,6 +461,13 @@ const ALLOWED_KEYS = new Set([
   'sessionLimit',
   'enableAgenticOrchestration',
   'autoCapture',
+  // Cross-provider LLM failover. Shipped in v4.2.0 with a full consumer
+  // side (config.ts, consolidator, dream, session-summary) but NO setter:
+  // it was absent here and the dashboard never sent it, so the only way to
+  // populate it was hand-editing config.json. Effectively every install ran
+  // with `llmFallbacks: []`, meaning the failover feature never engaged for
+  // anyone. Takes a JSON array because it is a list of provider objects.
+  'llmFallbacks',
 ]);
 
 const KEY_VALIDATORS: Record<string, (value: string) => string | null> = {
@@ -439,6 +475,25 @@ const KEY_VALIDATORS: Record<string, (value: string) => string | null> = {
   'embedder.provider': (v) => ['onnx', 'openai', 'ollama'].includes(v) ? null : `must be one of: onnx, openai, ollama`,
   'autoUpdate': (v) => ['off', 'patch', 'minor', 'major'].includes(v) ? null : `must be one of: off, patch, minor, major`,
   'theme': (v) => ['light', 'dark'].includes(v) ? null : `must be one of: light, dark`,
+  'llmFallbacks': (v) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(v);
+    } catch {
+      return 'must be a JSON array, e.g. \'[{"provider":"openai","model":"gpt-4o-mini","apiKey":"sk-..."}]\'';
+    }
+    if (!Array.isArray(parsed)) return 'must be a JSON ARRAY of provider objects';
+    for (const entry of parsed) {
+      if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+        return 'every entry must be an object like {"provider":"openai"}';
+      }
+      const provider = (entry as { provider?: unknown }).provider;
+      if (!['anthropic', 'openai', 'ollama'].includes(String(provider))) {
+        return `every entry needs provider = anthropic | openai | ollama (got ${JSON.stringify(provider)})`;
+      }
+    }
+    return null;
+  },
 };
 
 function setNested(obj: Record<string, unknown>, path: string[], value: unknown): void {
@@ -491,6 +546,7 @@ configCmd
     // Coerce numeric string values for keys that take numbers
     let coerced: unknown = value;
     if (canonical === 'sessionLimit') coerced = parseInt(value, 10);
+    if (canonical === 'llmFallbacks') coerced = JSON.parse(value);
     if (canonical === 'enableAgenticOrchestration' || canonical === 'autoCapture') {
       coerced = value === 'true' || value === '1';
     }
@@ -678,12 +734,24 @@ program
         if (s.median_latency_ms != null) {
           console.log(`    median latency: ${s.median_latency_ms}ms`);
         }
-        const providers = Object.entries(s.by_provider).map(([p, v]) => `${p}=${v.ok}/${v.ok + v.fail}`).join(', ');
+        const okFail = (rec: Record<string, { ok: number; fail: number }>) =>
+          Object.entries(rec).map(([k, v]) => `${k}=${v.ok}/${v.ok + v.fail}`).join(', ');
+        const providers = okFail(s.by_provider);
         if (providers) console.log(`    by provider:  ${providers}`);
+        const models = okFail(s.by_model);
+        if (models) console.log(`    by model:     ${models}`);
+        const projects = okFail(s.by_project);
+        if (projects) console.log(`    by project:   ${projects}`);
         const errors = Object.entries(s.by_error_class);
         if (errors.length > 0) {
           const errStr = errors.sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c}=${n}`).join(', ');
           console.log(`    error classes: ${errStr}`);
+        }
+        if (s.sample_errors.length > 0) {
+          console.log(`    recent errors:`);
+          for (const e of s.sample_errors) {
+            console.log(`      • [${e.error_class ?? 'unknown'}] ${e.message.slice(0, 100)}`);
+          }
         }
         console.log('');
       }
@@ -783,6 +851,7 @@ program
   .description('Verify local install health and show actionable fixes')
   .option('--json', 'Output machine-readable diagnostics as JSON')
   .option('--probe-http', 'Also probe the local HTTP server health endpoint')
+  .option('--probe', 'Make one small live call to the configured LLM to confirm it actually answers')
   .option('--url <url>', 'Base URL for --probe-http', 'http://127.0.0.1:3737')
   .action(async (opts) => {
     const { formatDoctorReport, runDoctor } = await import('../../core/doctor.js');
@@ -790,6 +859,7 @@ program
       packageRoot,
       packageVersion: pkg.version,
       probeHttp: opts.probeHttp,
+      probeCapabilities: opts.probe,
       httpBaseUrl: opts.url,
     });
 
@@ -923,7 +993,10 @@ dreamCmd
 dreamCmd
   .command('list')
   .description('List dream proposals (pending by default)')
-  .option('--status <s>', 'Filter by status: pending | accepted | rejected | applied', 'pending')
+  // Accepting a proposal writes status 'applied' (see dreamer.ts), so
+  // 'accepted' was never a value any row could hold — `--status accepted`
+  // silently returned nothing while the help text advertised it.
+  .option('--status <s>', 'Filter by status: pending | applied | rejected', 'pending')
   .option('--json', 'Output JSON')
   .action(async (opts) => {
     await withDatabase(async () => {

@@ -61,6 +61,8 @@ export function recordTelemetry(attempts: LLMAttempt[], opts: RecordTelemetryOpt
   try {
     db = opts.db ?? getDatabase();
   } catch {
+    // No DB available (e.g. hook process before openDatabase): telemetry is
+    // best-effort and must never block the LLM flow it observes. Drop silently.
     return;
   }
   // Mark every attempt as fallback_used=1 except the primary (index 0).
@@ -107,9 +109,28 @@ export interface TelemetrySummary {
   fallback_used: number;
   median_latency_ms: number | null;
   by_provider: Record<string, { ok: number; fail: number }>;
+  /**
+   * Per-model ok/fail counts. The `model` column was written on every attempt
+   * but never read until this — "which model is failing" was unanswerable.
+   */
+  by_model: Record<string, { ok: number; fail: number }>;
+  /**
+   * Per-project ok/fail counts. Same story as `by_model`: `project` was a
+   * write-only column. Rows with no project are bucketed under '_unscoped'.
+   */
+  by_project: Record<string, { ok: number; fail: number }>;
   by_error_class: Record<string, number>;
+  /**
+   * A few most-recent failure messages (redacted at write time). The
+   * `error_message` column was write-only; this surfaces it so a failure can
+   * be diagnosed beyond its error_class. Capped to keep the summary small.
+   */
+  sample_errors: Array<{ error_class: string | null; message: string }>;
   window_days: number;
 }
+
+/** Max failure messages surfaced per flow in `sample_errors`. */
+const MAX_SAMPLE_ERRORS = 5;
 
 /**
  * Aggregate telemetry over the last `windowDays` days. Returns one
@@ -121,16 +142,19 @@ export function summariseTelemetry(windowDays = 30, db?: Database.Database): Tel
   const conn = db ?? getDatabase();
   const since = new Date(Date.now() - windowDays * 86400000).toISOString();
   const rows = conn.prepare(`
-    SELECT flow, provider, status, latency_ms, error_class, attempt_index, fallback_used
+    SELECT flow, provider, model, project, status, latency_ms, error_class, error_message, attempt_index, fallback_used
     FROM llm_telemetry
     WHERE ts >= ?
     ORDER BY ts ASC
   `).all(since) as Array<{
     flow: string;
     provider: string;
+    model: string | null;
+    project: string | null;
     status: string;
     latency_ms: number | null;
     error_class: string | null;
+    error_message: string | null;
     attempt_index: number;
     fallback_used: number;
   }>;
@@ -158,14 +182,32 @@ export function summariseTelemetry(windowDays = 30, db?: Database.Database): Tel
     const median = okLatencies.length === 0 ? null : okLatencies[Math.floor(okLatencies.length / 2)];
 
     const byProvider: Record<string, { ok: number; fail: number }> = {};
+    const byModel: Record<string, { ok: number; fail: number }> = {};
+    const byProject: Record<string, { ok: number; fail: number }> = {};
     for (const a of bucket.attempts) {
+      const slot = a.status === 'ok' ? 'ok' : 'fail';
       byProvider[a.provider] ??= { ok: 0, fail: 0 };
-      byProvider[a.provider][a.status === 'ok' ? 'ok' : 'fail']++;
+      byProvider[a.provider][slot]++;
+      const modelKey = a.model ?? 'unknown';
+      byModel[modelKey] ??= { ok: 0, fail: 0 };
+      byModel[modelKey][slot]++;
+      const projectKey = a.project ?? '_unscoped';
+      byProject[projectKey] ??= { ok: 0, fail: 0 };
+      byProject[projectKey][slot]++;
     }
 
     const byErrorClass: Record<string, number> = {};
     for (const a of bucket.attempts) {
       if (a.error_class) byErrorClass[a.error_class] = (byErrorClass[a.error_class] ?? 0) + 1;
+    }
+
+    // Most-recent failure messages (rows are ASC by ts, so take from the end).
+    const sampleErrors: Array<{ error_class: string | null; message: string }> = [];
+    for (let i = bucket.attempts.length - 1; i >= 0 && sampleErrors.length < MAX_SAMPLE_ERRORS; i--) {
+      const a = bucket.attempts[i];
+      if (a.status === 'fail' && a.error_message) {
+        sampleErrors.push({ error_class: a.error_class, message: a.error_message });
+      }
     }
 
     out.push({
@@ -177,7 +219,10 @@ export function summariseTelemetry(windowDays = 30, db?: Database.Database): Tel
       fallback_used: fallbackUsed,
       median_latency_ms: median,
       by_provider: byProvider,
+      by_model: byModel,
+      by_project: byProject,
       by_error_class: byErrorClass,
+      sample_errors: sampleErrors,
       window_days: windowDays,
     });
   }

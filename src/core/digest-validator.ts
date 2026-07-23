@@ -17,9 +17,13 @@
 //   - reject  — major hallucination, don't even propose
 //
 // Failure modes are biased toward NOT blocking real proposals:
-// - LLM throws (network)              → defaults to pass
+// - LLM throws (network)              → `unavailable` (ran nothing), never blocks
 // - LLM returns malformed JSON        → defaults to pass
 // - validator returns no verdict      → defaults to pass
+//
+// `unavailable` exists because "I could not check" and "I checked and it
+// is clean" must not look identical. Both let the proposal through; only
+// one of them earned a green.
 //
 // The opposite default ("when in doubt, reject") would silently lose
 // real digests when the validator's LLM is down — worse than the
@@ -47,7 +51,18 @@ export interface SuspiciousClaim {
  * uses `verdict` — the contract is that callers see `status`.
  */
 export interface ValidationResult {
-  status: 'pass' | 'soften' | 'reject';
+  /**
+   * `unavailable` is deliberately distinct from `pass`.
+   *
+   * `pass` asserts "I checked every claim and they are all supported".
+   * `unavailable` says "the validator never ran" (LLM unreachable, chain
+   * exhausted). Collapsing the second into the first is what turns an
+   * opt-in hallucination check into decoration: the proposal gets recorded
+   * as validated when nothing was validated. Callers still must NOT block
+   * on `unavailable` — the bias against losing real digests is unchanged —
+   * but they can now tell the two apart and say so in the UI.
+   */
+  status: 'pass' | 'soften' | 'reject' | 'unavailable';
   suspiciousClaims: SuspiciousClaim[];
   /** Raw LLM output for debugging — never persisted, only for caller-side trace. */
   rawResponse: string;
@@ -111,9 +126,15 @@ export async function validateDigest(
       fallbacks: opts.fallbacks,
       onAttempt: opts.onAttempt,
     });
-  } catch {
-    // LLM unreachable / chain exhausted — DON'T block the proposal.
-    return { status: 'pass', suspiciousClaims: [], rawResponse: '' };
+  } catch (err) {
+    // LLM unreachable / chain exhausted. Still DON'T block the proposal —
+    // but do not report 'pass' either. 'pass' means "I checked and every
+    // claim is supported"; this is "I could not check at all". Reporting
+    // the second as the first is how a validation gate becomes decoration:
+    // the digest gets recorded as validated when nothing ever ran.
+    const msg = err instanceof Error ? err.message : String(err);
+    try { process.stderr.write(`[memesh digest-validator] validation did not run: ${msg}\n`); } catch { /* stderr closed — nothing we can do */ }
+    return { status: 'unavailable', suspiciousClaims: [], rawResponse: '' };
   }
 
   return parseValidatorResponse(rawResponse);

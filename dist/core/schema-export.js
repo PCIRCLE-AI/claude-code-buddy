@@ -12,6 +12,19 @@ export function exportOpenAITools() {
                         type: { type: 'string', description: 'Entity type (decision, pattern, lesson, etc.)' },
                         observations: { type: 'array', items: { type: 'string' }, description: 'Key facts about this entity' },
                         tags: { type: 'array', items: { type: 'string' }, description: 'Tags for filtering' },
+                        relations: {
+                            type: 'array',
+                            description: 'Graph edges from this entity to others. Without these the entity is an orphan node.',
+                            items: {
+                                type: 'object',
+                                properties: {
+                                    to: { type: 'string', description: 'Name of the target entity to link to' },
+                                    type: { type: 'string', description: 'Relation type, e.g. depends-on, supersedes, relates-to' },
+                                },
+                                required: ['to', 'type'],
+                            },
+                        },
+                        namespace: { type: 'string', enum: ['personal', 'team', 'global'], description: 'Storage scope (default: personal)' },
                     },
                     required: ['name', 'type'],
                 },
@@ -27,7 +40,10 @@ export function exportOpenAITools() {
                     properties: {
                         query: { type: 'string', description: 'Search query' },
                         tag: { type: 'string', description: 'Filter by tag' },
-                        limit: { type: 'number', description: 'Max results (default: 20)' },
+                        limit: { type: 'number', description: 'Max results (1-100, default: 20)' },
+                        include_archived: { type: 'boolean', description: 'Include soft-archived (superseded) entities (default: false)' },
+                        namespace: { type: 'string', enum: ['personal', 'team', 'global'], description: 'Restrict to a storage scope' },
+                        cross_project: { type: 'boolean', description: 'Search across all projects instead of only the current one (default: false)' },
                     },
                 },
             },

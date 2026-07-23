@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
@@ -42,6 +42,44 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     }
   }
 
+  // Like runHook but captures stderr regardless of exit code (execFileSync
+  // only surfaces stderr when the process throws; the hook exits 0).
+  function runHookCapturingStderr(input: object, env: Record<string, string> = {}): { stderr: string } {
+    const hookPath = path.resolve('scripts/hooks/session-summary.js');
+    const res = spawnSync('node', [hookPath], {
+      input: JSON.stringify(input),
+      env: { ...process.env, MEMESH_DB_PATH: dbPath, MEMESH_AUTO_CAPTURE: undefined, ...env },
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    return { stderr: res.stderr || '' };
+  }
+
+  it('Scenario: an unreadable transcript traces to stderr instead of silently emptying capture', () => {
+    // A directory at the transcript path makes readFileSync throw EISDIR
+    // (not ENOENT) — stands in for a permission/IO fault on a real file.
+    const dirAsTranscript = path.join(testDir, 'transcript-is-a-dir');
+    fs.mkdirSync(dirAsTranscript);
+    const { stderr } = runHookCapturingStderr({
+      session_id: 'test-unreadable',
+      transcript_path: dirAsTranscript,
+      cwd: '/tmp/myproject',
+      stop_reason: 'end_turn',
+    });
+    expect(stderr).toContain('[memesh session-summary]');
+    expect(stderr).toContain('unreadable');
+  });
+
+  it('Scenario: a MISSING transcript does not emit the unreadable trace (normal case)', () => {
+    const { stderr } = runHookCapturingStderr({
+      session_id: 'test-missing',
+      transcript_path: path.join(testDir, 'never-created.jsonl'),
+      cwd: '/tmp/myproject',
+      stop_reason: 'end_turn',
+    });
+    expect(stderr).not.toContain('unreadable');
+  });
+
   function openDb(): InstanceType<typeof import('better-sqlite3')> {
     const Database = require('better-sqlite3');
     return new Database(dbPath, { readonly: true });
@@ -71,6 +109,37 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(entity.id) as any[];
     const filesObs = obs.find((o: any) => o.content.includes('auth.ts'));
     expect(filesObs).toBeTruthy();
+    db.close();
+  });
+
+  it('Scenario: producer writes file: tags that pre-edit-recall Strategy 1 queries', () => {
+    // The capture is the PRODUCER for pre-edit-recall's `file:<name>` lookup.
+    // Before this, nothing wrote those tags, so Strategy 1 returned zero rows
+    // on every real DB. Assert both forms are emitted: full basename and the
+    // extension-less form, since the read path queries `file:auth.ts` OR
+    // `file:auth`.
+    writeTranscript([
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/tmp/proj/src/config.ts' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test -- --run' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', content: 'done' }] } },
+    ]);
+
+    runHook({
+      session_id: 'test-filetags',
+      transcript_path: transcriptPath,
+      cwd: '/tmp/myproject',
+      stop_reason: 'end_turn',
+    });
+
+    const db = openDb();
+    const entity = db.prepare("SELECT id FROM entities WHERE name = 'session-test-filetags-files'").get() as any;
+    expect(entity).toBeTruthy();
+    const tags = (db.prepare('SELECT tag FROM tags WHERE entity_id = ?').all(entity.id) as any[]).map((r) => r.tag);
+    expect(tags).toContain('file:auth.ts');
+    expect(tags).toContain('file:auth');
+    expect(tags).toContain('file:config.ts');
+    expect(tags).toContain('file:config');
     db.close();
   });
 
@@ -154,7 +223,12 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     db.close();
   });
 
-  it('Scenario: User interrupt is skipped', () => {
+  it('Scenario: low-signal session (< 3 tool calls) is skipped', () => {
+    // This previously claimed to test a `stop_reason === 'user_interrupt'`
+    // guard, feeding a stop_reason the Stop payload never carries — so the
+    // guard was dead and the session was actually skipped by the toolCallCount
+    // filter below (2 tool calls < 3). The guard has been removed; this now
+    // honestly tests the real low-signal filter, which is what does the work.
     writeTranscript([
       { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
       { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test -- --run' } }] } },
@@ -165,7 +239,6 @@ describe('Feature: Session Summary (Stop Hook)', () => {
       session_id: 'test-sess-004',
       transcript_path: transcriptPath,
       cwd: '/tmp/myproject',
-      stop_reason: 'user_interrupt',
       was_in_agentic_loop: true,
     });
 
