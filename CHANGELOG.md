@@ -2,7 +2,7 @@
 
 All notable changes to MeMesh are documented here.
 
-## [Unreleased]
+## [4.2.8] — 2026-07-23
 
 ### Changed
 - **Simplify pass over the audit's changes (quality-only; a 4-agent reuse/simplification/efficiency/altitude review)** — no behaviour change:
