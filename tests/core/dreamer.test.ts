@@ -93,6 +93,32 @@ describe('dreamer', () => {
     expect(result.clustersScanned).toBe(0);
   });
 
+  it('protection reachable via the real setPinned writer (end-to-end, not just seeded metadata)', async () => {
+    // The test above seeds metadata.pin directly. This proves the PRODUCTION
+    // path: `setPinned` (behind `memesh pin`) is what a user actually calls,
+    // and it must connect to the dreamer's `metadata.pin === true` read. Before
+    // this writer existed the read was inert — nothing could set the flag.
+    const { runDreamer } = await import('../../src/core/dreamer.js');
+    const { setPinned } = await import('../../src/core/operations.js');
+    const names: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const name = `commit-to-pin-${i}`;
+      kg.createEntity(name, 'commit', {
+        observations: [`commit message ${i} long enough to be a body content`],
+        tags: ['project:memesh'],
+      });
+      names.push(name);
+    }
+    // Baseline: unpinned, these DO form a compactable cluster.
+    const before = await runDreamer(db, { provider: 'ollama', model: 'fake' }, { dryRun: true });
+    expect(before.clustersScanned).toBeGreaterThan(0);
+
+    for (const name of names) expect(setPinned(name, true).found).toBe(true);
+
+    const after = await runDreamer(db, { provider: 'ollama', model: 'fake' }, { dryRun: true });
+    expect(after.clustersScanned).toBe(0);
+  });
+
   it('NEVER re-compacts entities with consolidation_depth >= 1 (no recursive degradation)', async () => {
     const { runDreamer } = await import('../../src/core/dreamer.js');
     for (let i = 0; i < 10; i++) {

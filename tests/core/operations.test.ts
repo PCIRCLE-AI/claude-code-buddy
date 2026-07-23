@@ -1,8 +1,46 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { remember, recall, forget, learn, importMemories } from '../../src/core/operations.js';
+import { remember, recall, forget, learn, importMemories, setPinned } from '../../src/core/operations.js';
+import { getDatabase } from '../../src/db.js';
 import { useTestDatabase } from '../helpers/db-fixture.js';
 
 useTestDatabase('memesh-ops-');
+
+// ── Pin / unpin (dreamer compaction protection) ───────────────────────────────
+
+describe('Core Operations: setPinned', () => {
+  function metadataOf(name: string): Record<string, unknown> {
+    const row = getDatabase().prepare('SELECT metadata FROM entities WHERE name = ?').get(name) as { metadata: string | null } | undefined;
+    return row?.metadata ? JSON.parse(row.metadata) : {};
+  }
+
+  it('writes metadata.pin = true so the dreamer read (metadata.pin === true) now fires', () => {
+    remember({ name: 'keep-me', type: 'decision', observations: ['critical call'] });
+    const result = setPinned('keep-me', true);
+    expect(result).toEqual({ name: 'keep-me', pinned: true, found: true });
+    expect(metadataOf('keep-me').pin).toBe(true);
+  });
+
+  it('unpin removes the flag (not just sets false) so the === true check is clean', () => {
+    remember({ name: 'keep-me', type: 'decision' });
+    setPinned('keep-me', true);
+    setPinned('keep-me', false);
+    expect(metadataOf('keep-me')).not.toHaveProperty('pin');
+  });
+
+  it('preserves other metadata (trust/provenance) when pinning', () => {
+    remember({ name: 'keep-me', type: 'decision' });
+    const before = metadataOf('keep-me');
+    expect(before.trust).toBeDefined();
+    setPinned('keep-me', true);
+    const after = metadataOf('keep-me');
+    expect(after.trust).toBe(before.trust);
+    expect(after.pin).toBe(true);
+  });
+
+  it('reports found=false for a missing entity without throwing', () => {
+    expect(setPinned('nope', true)).toEqual({ name: 'nope', pinned: true, found: false });
+  });
+});
 
 // ── Remember ────────────────────────────────────────────────────────────────
 

@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
-import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn, reindex } from '../../core/operations.js';
+import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { verifyAgentWork } from '../../core/verifier.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
@@ -194,6 +194,35 @@ program
       } else {
         console.log(`Entity "${opts.name}" not found`);
       }
+    });
+  });
+
+// --- pin / unpin ---
+program
+  .command('pin')
+  .description('Protect an entity from the dreamer’s auto-compaction')
+  .requiredOption('--name <name>', 'Entity name')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    await withDatabase(() => {
+      const result = setPinned(opts.name, true);
+      if (opts.json) console.log(JSON.stringify(result));
+      else if (result.found) console.log(`📌 Pinned "${opts.name}" — the dreamer will not compact it`);
+      else console.log(`Entity "${opts.name}" not found`);
+    });
+  });
+
+program
+  .command('unpin')
+  .description('Allow the dreamer to auto-compact an entity again')
+  .requiredOption('--name <name>', 'Entity name')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    await withDatabase(() => {
+      const result = setPinned(opts.name, false);
+      if (opts.json) console.log(JSON.stringify(result));
+      else if (result.found) console.log(`📍 Unpinned "${opts.name}"`);
+      else console.log(`Entity "${opts.name}" not found`);
     });
   });
 

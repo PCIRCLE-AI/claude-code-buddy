@@ -318,6 +318,33 @@ export function forget(args: ForgetInput): ForgetResult {
 }
 
 /**
+ * Pin or unpin an entity so the dreamer's compactor leaves it alone.
+ *
+ * The dreamer reads `metadata.pin === true` and skips pinned entities from
+ * LLM compaction (`dreamer.ts`). That read existed with NO writer — nothing
+ * could ever set the flag, so the "protected from compaction" guarantee was
+ * inert and every entity was compactable regardless. This is the writer that
+ * makes the guarantee real. Uses `updateEntityMetadata` so the rest of the
+ * metadata (trust, provenance, signal_score) is preserved.
+ */
+export function setPinned(name: string, pinned: boolean): { name: string; pinned: boolean; found: boolean } {
+  const db = getDatabase();
+  const kg = new KnowledgeGraph(db);
+
+  const exists = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(name);
+  if (!exists) return { name, pinned, found: false };
+
+  kg.updateEntityMetadata(name, (current) => {
+    const next = { ...current };
+    if (pinned) next.pin = true;
+    else delete next.pin;
+    return next;
+  });
+
+  return { name, pinned, found: true };
+}
+
+/**
  * Regenerate embeddings for all active entities.
  * Use after changing embedding provider or when vectors were lost during dimension migration.
  * Progress is logged to stderr.

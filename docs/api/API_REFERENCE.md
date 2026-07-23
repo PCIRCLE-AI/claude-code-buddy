@@ -779,6 +779,30 @@ curl -s http://localhost:3737/v1/health
 
 ## CLI Commands
 
+### memesh pin / memesh unpin
+
+Protect an entity from the dreamer's automatic compaction (or release that protection).
+
+The dreamer periodically compacts low-signal clusters of memories into digests. `pin` marks an entity so the compactor skips it; `unpin` removes the mark. Pinning writes `metadata.pin = true` (and unpinning removes the key), which is exactly the flag the dreamer reads before compacting.
+
+**Usage**:
+
+```bash
+memesh pin --name "auth-architecture-decision"
+memesh unpin --name "auth-architecture-decision"
+```
+
+**Options**:
+
+| Option | Description |
+|--------|-------------|
+| `--name <name>` | Entity name (required). |
+| `--json` | Output the result as JSON (`{ name, pinned, found }`). |
+
+If the named entity does not exist, the command reports it and exits without error (`found: false`).
+
+---
+
 ### memesh export-schema
 
 Export MeMesh tools in OpenAI function calling format. Use this to integrate MeMesh with any OpenAI-compatible API or SDK.
