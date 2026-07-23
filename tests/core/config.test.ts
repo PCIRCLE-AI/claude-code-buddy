@@ -251,10 +251,10 @@ describe('Config: read/write/update (isolated temp dir)', () => {
     const originalConfig = readConfig();
 
     try {
-      writeConfig({ sessionLimit: 5, theme: 'light' });
-      const updated = updateConfig({ theme: 'dark' });
+      writeConfig({ sessionLimit: 5, autoUpdate: 'off' });
+      const updated = updateConfig({ autoUpdate: 'patch' });
       expect(updated.sessionLimit).toBe(5);
-      expect(updated.theme).toBe('dark');
+      expect(updated.autoUpdate).toBe('patch');
     } finally {
       writeConfig(originalConfig);
     }

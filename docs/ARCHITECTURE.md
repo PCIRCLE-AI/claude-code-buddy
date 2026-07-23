@@ -46,6 +46,7 @@ MeMesh separates concerns into two layers:
 - `dreamer.ts` — LLM cluster compactor + pattern detector with propose/accept/reject lifecycle; auto-trigger from Stop hook
 - `digest-validator.ts` — opt-in second-pass LLM cross-check on dreamer digests (`pass | soften | reject`)
 - `kg-backfill.ts` — non-LLM heuristic relation backfill: 4 rules (tag co-occurrence, project clustering, session co-occurrence, name-token similarity)
+- `project-tags.ts` — list / merge / rename `project:<name>` tags (heals tags mis-homed before git-based project identity); backs `memesh kg rename-project`
 - `prompt-safety.ts` — F7 prompt-injection hardening (delimiter escaping for 3 LLM call sites)
 - `failure-analyzer.ts` / `auto-tagger.ts` / `consolidator.ts` — Smart-Mode LLM flows (all use `callLLM` failover + telemetry)
 - `verifier.ts` — `verify_agent_work` core: git reality-check + persistence of verification reports as `verification_record` entities

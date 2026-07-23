@@ -15,7 +15,6 @@ export interface MeMeshConfig {
     sessionLimit?: number;
     enableAgenticOrchestration?: boolean;
     autoUpdate?: 'off' | 'patch' | 'minor' | 'major';
-    theme?: 'light' | 'dark';
     setupCompleted?: boolean;
 }
 export interface Capabilities {

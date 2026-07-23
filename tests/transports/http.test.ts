@@ -282,10 +282,17 @@ describe('HTTP Transport: GET /v1/update-status', () => {
 });
 
 describe('HTTP Transport: POST /v1/config', () => {
-  it('saves config and returns updated config', async () => {
-    const res = await req('POST', '/v1/config', { theme: 'dark' });
+  it('saves config and the value is actually persisted (read-back)', async () => {
+    // Was asserting only status 200 + success:true, so a silent write-drop
+    // still passed. Assert the written value survives a GET round-trip, using
+    // a real read-back field (sessionLimit — theme was removed as dead).
+    const res = await req('POST', '/v1/config', { sessionLimit: 33 });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
+
+    const check = await req('GET', '/v1/config');
+    expect(check.status).toBe(200);
+    expect(check.body.data.config.sessionLimit).toBe(33);
   });
 });
 

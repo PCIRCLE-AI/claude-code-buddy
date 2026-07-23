@@ -510,7 +510,7 @@ The limit protects the server from accidentally parsing large payloads (e.g. an 
 | POST | /v1/config/test | Validate provider+apiKey against the live `/v1/models` endpoint and return the available model list |
 | GET | /v1/stats | Aggregate counts: entities, observations, relations, tags; type/tag/status distributions |
 | GET | /v1/graph | Signal entities (all non-noise types) + up to 200 recent noise entities + all relations |
-| GET | /v1/analytics | Health score, 30-day timeline, value metrics, ageMatrix, knowledgeRadar, cleanup suggestions |
+| GET | /v1/analytics | Health score, memory-loop metric, 30-day timeline, ageMatrix, knowledgeRadar |
 | GET | /v1/patterns | User work patterns: schedule, tools, focus areas, workflow, strengths, learning |
 | GET | /dashboard | Interactive web dashboard (HTML) |
 
@@ -640,14 +640,10 @@ Returns computed analytics insights for the memory database.
     "timeline": [
       { "day": "2026-04-01", "created": 5, "recalled": 12 }
     ],
-    "valueMetrics": {
-      "totalRecalls": 500,
-      "lessonsSaved": 5,
-      "lessonCount": 8,
-      "typeDistribution": [
-        { "type": "concept", "count": 120 },
-        { "type": "decision", "count": 45 }
-      ]
+    "loopMetric": {
+      "reusedThisWeek": 12,
+      "trend": [ { "date": "2026-04-01", "count": 3 } ],
+      "computedFrom": "last_accessed_at_approximation"
     },
     "ageMatrix": [
       { "type": "lesson_learned", "bucket": "week", "count": 3 },
@@ -656,18 +652,12 @@ Returns computed analytics insights for the memory database.
     "knowledgeRadar": [
       { "axis": "lessons", "count": 57, "types": ["lesson_learned", "lesson", "mistake"] },
       { "axis": "decisions", "count": 28, "types": ["decision", "architecture_decision", "design_decision"] }
-    ],
-    "cleanup": {
-      "staleEntities": [
-        { "id": 42, "name": "old-auth", "type": "concept", "confidence": 0.2, "days_unused": 90 }
-      ],
-      "duplicateCandidates": [
-        { "name1": "auth-flow", "name2": "authentication-flow", "type": "concept" }
-      ]
-    }
+    ]
   }
 }
 ```
+
+> `valueMetrics`, `recallEffectiveness`, and `cleanup` were removed — they were computed on every request but never rendered by any dashboard component. The dashboard reads `healthScore`, `healthFactors`, `loopMetric`, `timeline`, `ageMatrix`, and `knowledgeRadar`.
 
 **Health Score Algorithm:**
 - Activity (30%): percentage of active entities accessed in last 30 days
@@ -946,6 +936,29 @@ memesh kg backfill-relations [--project <name>] [--dry-run] [--max-per-source <n
 | `--json` | off | Output as JSON |
 
 **Idempotency**: re-running this command is cheap by default — orphan IDs considered in a prior run are remembered in `memesh_metadata` and skipped on subsequent runs. Use `--reset-idempotency` after a schema change or when you want every orphan reconsidered from scratch. The output summary reports `idempotency: skipped N orphans` so you can see how many were filtered.
+
+### memesh kg rename-project
+
+Merge or rename a `project:<name>` tag across every entity. Heals project tags that were split before project identity became git-based (e.g. a repo captured under both `project:tim` and `project:TIM`, or memories captured in a subdirectory tagged with the subdirectory name). The system cannot infer the correct project for an old value, so the mapping is user-driven.
+
+**Usage**:
+
+```bash
+memesh kg rename-project                          # list all project tags + counts
+memesh kg rename-project --from tim --to TIM      # dry-run preview (writes nothing)
+memesh kg rename-project --from tim --to TIM --apply   # commit (backs up the DB first)
+```
+
+**Options**:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--from <name>` | — | Existing project name to rewrite. Omit both `--from`/`--to` to list all project tags. |
+| `--to <name>` | — | New project name |
+| `--apply` | off (dry-run) | Actually write the change. **Backs up the whole DB to `data/backups/kg-before-rename-project-<timestamp>.db` first**, and prints the restore command. |
+| `--json` | off | Output as JSON |
+
+**Safety**: dry-run is the default — nothing is written until `--apply`. On `--apply` the DB file is copied to `data/backups/` before any mutation; if the backup fails, the command aborts without changing anything. The tags table has a `UNIQUE(entity_id, tag)` constraint, so an entity that already carries the target tag has its old tag removed (a merge) rather than getting a duplicate.
 
 ### memesh dream
 

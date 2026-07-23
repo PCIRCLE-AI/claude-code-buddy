@@ -4,26 +4,6 @@ export interface HealthFactor {
     weight: number;
     detail: string;
 }
-export interface RecallEffectiveness {
-    overallHitRate: number;
-    totalHits: number;
-    totalMisses: number;
-    trackedEntities: number;
-    topEffective: Array<{
-        name: string;
-        type: string;
-        hits: number;
-        misses: number;
-        hitRate: number;
-    }>;
-    mostIgnored: Array<{
-        name: string;
-        type: string;
-        hits: number;
-        misses: number;
-        hitRate: number;
-    }>;
-}
 export declare const NOISE_TYPES: Set<string>;
 export type AgeBucket = 'week' | 'month' | 'quarter' | 'older';
 export interface AgeMatrixEntry {
@@ -58,17 +38,6 @@ export interface AnalyticsResult {
         created: number;
         recalled: number;
     }>;
-    valueMetrics: {
-        totalRecalls: number;
-        lessonCount: number;
-        lessonsWithWarnings: number;
-        typeDistribution: unknown[];
-    };
-    recallEffectiveness: RecallEffectiveness | null;
-    cleanup: {
-        staleEntities: unknown[];
-        duplicateCandidates: unknown[];
-    };
     ageMatrix: AgeMatrixEntry[];
     knowledgeRadar: KnowledgeRadarEntry[];
 }

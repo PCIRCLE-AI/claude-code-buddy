@@ -16,15 +16,6 @@ export interface HealthFactor {
   detail: string;
 }
 
-export interface RecallEffectiveness {
-  overallHitRate: number;
-  totalHits: number;
-  totalMisses: number;
-  trackedEntities: number;
-  topEffective: Array<{ name: string; type: string; hits: number; misses: number; hitRate: number }>;
-  mostIgnored: Array<{ name: string; type: string; hits: number; misses: number; hitRate: number }>;
-}
-
 // Knowledge types shown in the age matrix and radar (excludes high-noise session dumps)
 export const NOISE_TYPES = new Set([
   'session_keypoint', 'commit', 'weekly-summary', 'session-insight',
@@ -67,17 +58,6 @@ export interface AnalyticsResult {
   };
   loopMetric: LoopMetric;
   timeline: Array<{ date: string; created: number; recalled: number }>;
-  valueMetrics: {
-    totalRecalls: number;
-    lessonCount: number;
-    lessonsWithWarnings: number;
-    typeDistribution: unknown[];
-  };
-  recallEffectiveness: RecallEffectiveness | null;
-  cleanup: {
-    staleEntities: unknown[];
-    duplicateCandidates: unknown[];
-  };
   ageMatrix: AgeMatrixEntry[];
   knowledgeRadar: KnowledgeRadarEntry[];
 }
@@ -171,88 +151,12 @@ export function computeAnalytics(db: Database.Database): AnalyticsResult {
   }
   const timeline = Array.from(timelineMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 
-  // --- Value Metrics ---
-  const totalRecalls = (db.prepare(
-    "SELECT COALESCE(SUM(access_count), 0) as c FROM entities",
-  ).get() as CountRow).c;
-
-  const lessonsWithWarnings = (db.prepare(
-    "SELECT COUNT(*) as c FROM entities WHERE type = 'lesson_learned' AND access_count > 0",
-  ).get() as CountRow).c;
-
-  const typeDistribution = db.prepare(
-    "SELECT type, COUNT(*) as count FROM entities GROUP BY type ORDER BY count DESC",
-  ).all();
-
-  const valueMetrics = {
-    totalRecalls,
-    lessonCount,
-    lessonsWithWarnings,
-    typeDistribution,
-  };
-
-  // --- Cleanup Suggestions ---
-  const staleEntities = db.prepare(`
-    SELECT id, name, type, confidence,
-      CAST((julianday('now') - julianday(COALESCE(last_accessed_at, created_at))) AS INTEGER) as days_unused
-    FROM entities
-    WHERE status = 'active'
-      AND confidence < 0.4
-      AND (last_accessed_at IS NULL OR last_accessed_at < datetime('now', '-30 days'))
-    ORDER BY confidence ASC
-    LIMIT 10
-  `).all();
-
-  const duplicateCandidates = db.prepare(`
-    SELECT e1.name as name1, e2.name as name2, e1.type
-    FROM entities e1
-    JOIN entities e2 ON e1.id < e2.id AND e1.type = e2.type
-    WHERE e1.status = 'active' AND e2.status = 'active'
-      AND (INSTR(LOWER(e1.name), LOWER(e2.name)) > 0 OR INSTR(LOWER(e2.name), LOWER(e1.name)) > 0)
-    LIMIT 5
-  `).all();
-
-  const cleanup = { staleEntities, duplicateCandidates };
-
-  // --- Recall Effectiveness (only if recall_hits column exists) ---
-  let recallEffectiveness: RecallEffectiveness | null = null;
-  try {
-    const recallColCheck = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
-    if (recallColCheck.some((c: PragmaColumnRow) => c.name === 'recall_hits')) {
-      const totals = db.prepare(
-        `SELECT COALESCE(SUM(recall_hits), 0) as hits, COALESCE(SUM(recall_misses), 0) as misses,
-         COUNT(*) as tracked FROM entities WHERE (recall_hits > 0 OR recall_misses > 0)`,
-      ).get() as { hits: number; misses: number; tracked: number };
-
-      const total = totals.hits + totals.misses;
-      const overallHitRate = total > 0 ? totals.hits / total : 0;
-
-      const topEffective = db.prepare(
-        `SELECT name, type, COALESCE(recall_hits, 0) as hits, COALESCE(recall_misses, 0) as misses,
-         CAST(COALESCE(recall_hits, 0) AS REAL) / (COALESCE(recall_hits, 0) + COALESCE(recall_misses, 0)) as hitRate
-         FROM entities WHERE (COALESCE(recall_hits, 0) + COALESCE(recall_misses, 0)) > 0
-         ORDER BY hitRate DESC, hits DESC LIMIT 5`,
-      ).all() as RecallEffectiveness['topEffective'];
-
-      const mostIgnored = db.prepare(
-        `SELECT name, type, COALESCE(recall_hits, 0) as hits, COALESCE(recall_misses, 0) as misses,
-         CAST(COALESCE(recall_hits, 0) AS REAL) / (COALESCE(recall_hits, 0) + COALESCE(recall_misses, 0)) as hitRate
-         FROM entities WHERE (COALESCE(recall_hits, 0) + COALESCE(recall_misses, 0)) > 0
-         ORDER BY hitRate ASC, misses DESC LIMIT 5`,
-      ).all() as RecallEffectiveness['mostIgnored'];
-
-      recallEffectiveness = {
-        overallHitRate,
-        totalHits: totals.hits,
-        totalMisses: totals.misses,
-        trackedEntities: totals.tracked,
-        topEffective,
-        mostIgnored,
-      };
-    }
-  } catch {
-    // recall_hits column may not exist yet — skip gracefully
-  }
+  // NOTE: valueMetrics, cleanup (stale + duplicate candidates), and
+  // recallEffectiveness were computed here and returned by /v1/analytics, but
+  // no dashboard component ever rendered them — the dedicated ValueMetrics /
+  // CleanupSuggestions / RecallEffectiveness components were never imported.
+  // The queries (including an O(n²) duplicate-candidate self-join) ran on every
+  // analytics request for output nobody consumed. Removed with the components.
 
   // --- Age Matrix (knowledge types × time buckets, noise types excluded) ---
   const ageMatrixRaw = db.prepare(`
@@ -362,9 +266,6 @@ export function computeAnalytics(db: Database.Database): AnalyticsResult {
     healthFactors,
     loopMetric,
     timeline,
-    valueMetrics,
-    recallEffectiveness,
-    cleanup,
     ageMatrix,
     knowledgeRadar,
   };

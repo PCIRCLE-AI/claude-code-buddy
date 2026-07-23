@@ -443,7 +443,9 @@ export function generateLiveDashboardHtml(): string {
         var isLight = document.body.classList.contains('light');
         themeBtn.textContent = isLight ? '\\ud83c\\udf19' : '\\u2600\\ufe0f';
         localStorage.setItem('memesh-theme', isLight ? 'light' : 'dark');
-        try { apiCall('POST', '/v1/config', { theme: isLight ? 'light' : 'dark' }); } catch (_) {}
+        // Theme is persisted client-side in localStorage only. An earlier
+        // POST /v1/config { theme } wrote a config.theme that nothing ever
+        // read back; removed with that dead field.
         // Update graph label colors if graph has been rendered
         var newLabelColor = isLight ? '#09090b' : '#fafafa';
         var graphWrap = document.getElementById('graph-svg-wrap');
