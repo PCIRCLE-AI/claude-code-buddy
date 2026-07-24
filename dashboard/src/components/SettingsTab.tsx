@@ -202,6 +202,22 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
     }
   }
 
+  // Persist a single behaviour field and SURFACE the outcome. The autoUpdate
+  // select and the agentic checkbox used to swallow POST failures in an empty
+  // catch, so a failed write snapped the control back to its old value with no
+  // explanation — the user thought it saved. Route both through the same msg
+  // banner save()/removeProvider() use.
+  async function saveField(patch: Record<string, unknown>, apply: (cur: ConfigData) => ConfigData) {
+    setMsg('');
+    try {
+      await api('POST', '/v1/config', patch);
+      setConfig((cur) => (cur ? apply(cur) : cur));
+      setMsg(t('settings.saved'));
+    } catch (e: any) {
+      setMsg(t('common.error') + ': ' + e.message);
+    }
+  }
+
   if (loading) return <div class="empty"><div class="loading" /></div>;
 
   const caps = config?.capabilities;
@@ -612,10 +628,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             value={config?.config.autoUpdate ?? 'off'}
             onChange={async (e) => {
               const next = (e.target as HTMLSelectElement).value as 'off' | 'patch' | 'minor' | 'major';
-              try {
-                await api('POST', '/v1/config', { autoUpdate: next });
-                setConfig((cur) => cur ? { ...cur, config: { ...cur.config, autoUpdate: next } } : cur);
-              } catch { /* surfaced via msg banner if present */ }
+              await saveField({ autoUpdate: next }, (cur) => ({ ...cur, config: { ...cur.config, autoUpdate: next } }));
             }}
             style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-1)', cursor: 'pointer' }}
           >
@@ -636,10 +649,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
               checked={Boolean(config?.config.enableAgenticOrchestration)}
               onChange={async (e) => {
                 const next = (e.target as HTMLInputElement).checked;
-                try {
-                  await api('POST', '/v1/config', { enableAgenticOrchestration: next });
-                  setConfig((cur) => cur ? { ...cur, config: { ...cur.config, enableAgenticOrchestration: next } } : cur);
-                } catch { /* swallow — read-back will refresh on next load */ }
+                await saveField({ enableAgenticOrchestration: next }, (cur) => ({ ...cur, config: { ...cur.config, enableAgenticOrchestration: next } }));
               }}
               style={{ marginTop: 2 }}
             />
