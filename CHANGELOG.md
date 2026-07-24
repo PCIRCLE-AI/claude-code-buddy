@@ -2,7 +2,7 @@
 
 All notable changes to MeMesh are documented here.
 
-## [Unreleased]
+## [4.2.9] — 2026-07-24
 
 ### Security
 - **`POST /v1/config` no longer echoes fallback-provider API keys in plaintext** (`src/transports/http/server.ts`) — the POST response masked only `llm.apiKey`, so saving an `llmFallbacks: [{provider, apiKey}]` chain returned each fallback key in cleartext to the dashboard SPA (the GET handler already masked the whole chain). Consolidated both surfaces onto one `maskLlmSecrets()` helper that redacts the primary key and every fallback entry, so they can't drift again. Persistence was unaffected; only the response surface leaked.
