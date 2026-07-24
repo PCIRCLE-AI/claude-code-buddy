@@ -618,15 +618,9 @@ app.get('/v1/entities', (req, res) => {
         const includeArchived = status === 'all';
         const db = getDatabase();
         const kg = new KnowledgeGraph(db);
-        let entities;
-        if (typeFilter) {
-            const statusFilter = includeArchived ? '' : "AND status = 'active'";
-            const names = db.prepare(`SELECT name FROM entities WHERE type = ? ${statusFilter} ORDER BY id DESC LIMIT ?`).all(typeFilter, limit);
-            entities = names.map(r => kg.getEntity(r.name)).filter(Boolean);
-        }
-        else {
-            entities = kg.listRecent(limit, includeArchived);
-        }
+        const entities = typeFilter
+            ? kg.listByType(typeFilter, limit, includeArchived)
+            : kg.listRecent(limit, includeArchived);
         res.json({ success: true, data: entities });
     }
     catch (err) {

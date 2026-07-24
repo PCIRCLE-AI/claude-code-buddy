@@ -342,14 +342,23 @@ export class KnowledgeGraph {
             params.push(namespace);
         params.push(limit ?? 20);
         const rows = this.db
-            .prepare(`SELECT name FROM entities WHERE 1=1 ${statusFilter} ${namespaceFilter} ORDER BY id DESC LIMIT ?`)
+            .prepare(`SELECT id FROM entities WHERE 1=1 ${statusFilter} ${namespaceFilter} ORDER BY id DESC LIMIT ?`)
             .all(...params);
-        const results = rows
-            .map((r) => this.getEntity(r.name))
-            .filter((e) => e !== null);
-        const entityIds = results.map((e) => e.id);
-        this.trackAccess(entityIds);
+        const results = this.getEntitiesByIds(rows.map((r) => r.id), { includeArchived, namespace });
+        this.trackAccess(results.map((e) => e.id));
         return results;
+    }
+    listByType(type, limit, includeArchived, namespace) {
+        const statusFilter = includeArchived ? '' : "AND status = 'active'";
+        const namespaceFilter = namespace ? 'AND namespace = ?' : '';
+        const params = [type];
+        if (namespace)
+            params.push(namespace);
+        params.push(limit ?? 20);
+        const rows = this.db
+            .prepare(`SELECT id FROM entities WHERE type = ? ${statusFilter} ${namespaceFilter} ORDER BY id DESC LIMIT ?`)
+            .all(...params);
+        return this.getEntitiesByIds(rows.map((r) => r.id), { includeArchived, namespace });
     }
     listRecentByTag(tag, limit, includeArchived, namespace) {
         const statusFilter = includeArchived ? '' : "AND e.status = 'active'";
@@ -359,7 +368,7 @@ export class KnowledgeGraph {
             params.push(namespace);
         params.push(limit);
         const rows = this.db
-            .prepare(`SELECT DISTINCT e.name
+            .prepare(`SELECT DISTINCT e.id
          FROM entities e
          JOIN tags t ON t.entity_id = e.id
          WHERE t.tag = ?
@@ -368,11 +377,8 @@ export class KnowledgeGraph {
          ORDER BY e.id DESC
          LIMIT ?`)
             .all(...params);
-        const results = rows
-            .map((r) => this.getEntity(r.name))
-            .filter((e) => e !== null);
-        const entityIds = results.map((e) => e.id);
-        this.trackAccess(entityIds, { incrementHits: true });
+        const results = this.getEntitiesByIds(rows.map((r) => r.id), { includeArchived, namespace });
+        this.trackAccess(results.map((e) => e.id), { incrementHits: true });
         return results;
     }
     clearEntityData(name) {
