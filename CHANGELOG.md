@@ -4,6 +4,9 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Tests
+- **Permanent CI gates for the fake-working write-path class** (`tests/hooks/write-hook-invariants.test.ts`) — turns the session-capture-FTS fix into invariants that can't silently regress: (1) `captureEntity()` really keeps `entities_fts` in sync (write → `MATCH` returns the row), and (2) every write hook (session-summary / post-commit / pre-compact) routes through `captureEntity()` and hand-rolls no `INSERT INTO observations` / `entities_fts` of its own — so a future hook can't drop the FTS step again. Mirrors the i18n key-coverage guard shipped for the AuthPrompt fix.
+
 ### Performance
 - **Dashboard graph + browse + type-list no longer fire a query storm** (`src/knowledge-graph.ts`, `src/core/graph.ts`, `src/transports/http/server.ts`) — `computeGraph` (the `/v1/graph` endpoint), `listRecent` / `listRecentByTag` (empty-query recall + Browse tab), and the `/v1/entities?type=` branch each mapped `getEntity()` over their result rows, and `getEntity()` fires 4 queries per row. A 700-entity graph meant ~2800 queries per request. All now route their id list through the existing order-preserving `getEntitiesByIds()` batch hydrator (4 queries total). The transport's hand-rolled `SELECT ... WHERE type = ?` moved into a new `KnowledgeGraph.listByType()` so status/ordering semantics live in the storage layer, not the HTTP handler. Same fields, same active/archived filtering, same ordering — verified by the existing listRecent tests plus a new listByType test.
 
