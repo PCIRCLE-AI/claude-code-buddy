@@ -1,6 +1,6 @@
 {
   "schema": "memesh.skills-manifest/v1",
-  "generated_at": "2026-07-23T19:28:19.967Z",
+  "generated_at": "2026-07-24T18:23:19.382Z",
   "entries": [
     {
       "path": ".claude-plugin/plugin.json",
@@ -19,13 +19,13 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "ab54c76dbba1d5cac6b25564f10114e1b190758ad84d48060f2c3ae56c9dd8c3",
-      "bytes": 37142
+      "sha256": "a32a2548e0375207744b282fa65cbc461ad7acae18800f29985de38fb5d83af2",
+      "bytes": 40338
     },
     {
       "path": "scripts/hooks/post-commit.js",
-      "sha256": "0739155a05e54c4fd6056a4fff4a95878e1be631382f517c325e7f66990e7ef3",
-      "bytes": 6590
+      "sha256": "2004a86975086019ca48f614e714717adb40ace5e3bee8870af0b2f6025b6896",
+      "bytes": 5063
     },
     {
       "path": "scripts/hooks/pre-bash-orchestration-nudge.js",
@@ -34,8 +34,8 @@
     },
     {
       "path": "scripts/hooks/pre-compact.js",
-      "sha256": "e8277f0e40be169307d1e75cb58b7f6b180bc8cff784164989a754343c79c735",
-      "bytes": 7220
+      "sha256": "f1b8c8d09fb5593b00ab78a2a95ee0bb01ec7ca2ecedf68066392fa6a8d4a6a2",
+      "bytes": 6011
     },
     {
       "path": "scripts/hooks/pre-edit-recall.js",
@@ -49,8 +49,8 @@
     },
     {
       "path": "scripts/hooks/session-summary.js",
-      "sha256": "c1765ad41999d407c9f9e277360f5b6cf355c15f8d5380196a305d1cd443ec77",
-      "bytes": 38315
+      "sha256": "08e11cb6c43ceb61ebe1be2526521662cf0f1adcd080500b23810eea68f6780d",
+      "bytes": 38270
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",

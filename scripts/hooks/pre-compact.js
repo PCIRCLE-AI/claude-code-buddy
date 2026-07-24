@@ -2,7 +2,7 @@
 
 import { basename } from 'path';
 import { existsSync, readFileSync } from 'fs';
-import { getProjectName, isAutoCaptureEnabled, openHookDb } from './_shared.js';
+import { captureEntity, getProjectName, isAutoCaptureEnabled, openHookDb } from './_shared.js';
 
 // Timeout guard: always exit within 10 seconds
 const TIMEOUT_MS = 10000;
@@ -99,37 +99,14 @@ process.stdin.on('end', () => {
     if (!handle) return;
     const { db } = handle;
     try {
-      // Upsert entity
-      const insertResult = db.prepare('INSERT OR IGNORE INTO entities (name, type) VALUES (?, ?)').run(entityName, 'session-summary');
-      const isNew = insertResult.changes > 0;
-      const entity = db.prepare('SELECT id FROM entities WHERE name = ?').get(entityName);
-
-      if (entity) {
-        // Capture existing observations for FTS delete
-        const prevObs = isNew
-          ? []
-          : db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(entity.id);
-        const prevObsText = isNew ? undefined : prevObs.map(o => o.content).join(' ');
-
-        // Insert each observation line
-        for (const line of obsLines) {
-          db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, line);
-        }
-
-        // Add tags
-        const tags = ['source:auto-capture', 'urgency:pre-compact', `project:${projectName}`];
-        for (const tag of tags) {
-          db.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)').run(entity.id, tag);
-        }
-
-        // Update FTS
-        if (prevObsText !== undefined) {
-          db.prepare("INSERT INTO entities_fts(entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)").run(entity.id, entityName, prevObsText);
-        }
-        const allObs = db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(entity.id);
-        const allObsText = allObs.map(o => o.content).join(' ');
-        db.prepare('INSERT INTO entities_fts(rowid, name, observations) VALUES(?, ?, ?)').run(entity.id, entityName, allObsText);
-      }
+      // Shared write dance — upsert entity + observations + tags AND reindex FTS
+      // so the pre-compact memory is recallable via the FTS keyword path.
+      captureEntity(db, {
+        name: entityName,
+        type: 'session-summary',
+        observations: obsLines,
+        tags: ['source:auto-capture', 'urgency:pre-compact', `project:${projectName}`],
+      });
     } finally {
       db.close();
     }
