@@ -2,6 +2,10 @@ import type { RememberInput, RememberResult, RecallInput, ForgetInput, ForgetRes
 export declare function remember(args: RememberInput): RememberResult;
 export declare function recall(args: RecallInput): Entity[];
 export declare function recallEnhanced(args: RecallInput): Promise<Entity[]>;
+export declare function recallWithConflicts(args: RecallInput): Promise<{
+    entities: Entity[];
+    conflicts: string[];
+}>;
 export { consolidate } from './consolidator.js';
 export { exportMemories, importMemories } from './serializer.js';
 export declare function learn(args: LearnInput): LearnResult;

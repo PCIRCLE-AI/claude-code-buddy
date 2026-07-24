@@ -251,6 +251,20 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
   return rankEntities(mergedEntities, relevanceMap).slice(0, args.limit ?? 20);
 }
 
+/**
+ * recallEnhanced + conflict annotation. The MCP, HTTP, and CLI transports each
+ * hand-rolled `recall → new KnowledgeGraph → findConflicts → wrap`; lifting it
+ * here makes "recall results carry conflict annotations" a single core rule the
+ * transports can't drift on. Always returns `conflicts` (possibly empty) — how
+ * to present them (omit when empty, render inline, etc.) stays a transport call.
+ */
+export async function recallWithConflicts(args: RecallInput) {
+  const entities = await recallEnhanced(args);
+  const kg = new KnowledgeGraph(getDatabase());
+  const conflicts = kg.findConflicts(entities.map((e) => e.name));
+  return { entities, conflicts };
+}
+
 // --- Consolidation (extracted to consolidator.ts) ---
 export { consolidate } from './consolidator.js';
 

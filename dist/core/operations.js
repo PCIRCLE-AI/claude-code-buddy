@@ -145,6 +145,12 @@ export async function recallEnhanced(args) {
     }
     return rankEntities(mergedEntities, relevanceMap).slice(0, args.limit ?? 20);
 }
+export async function recallWithConflicts(args) {
+    const entities = await recallEnhanced(args);
+    const kg = new KnowledgeGraph(getDatabase());
+    const conflicts = kg.findConflicts(entities.map((e) => e.name));
+    return { entities, conflicts };
+}
 export { consolidate } from './consolidator.js';
 export { exportMemories, importMemories } from './serializer.js';
 export function learn(args) {
