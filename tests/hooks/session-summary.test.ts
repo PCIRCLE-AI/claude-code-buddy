@@ -112,6 +112,40 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     db.close();
   });
 
+  it('Regression: session-insight memory is FTS-recallable (was written but never indexed)', () => {
+    // Root-cause guard for the fake-working bug: storeMemory used to insert
+    // entity + observations + tags but skip entities_fts, so every session
+    // memory was invisible to `recall` and pre-edit-recall (both FTS paths).
+    // There is no FTS trigger and no rebuild-on-open, so the omission was total.
+    // captureEntity() now owns the write dance and keeps FTS in sync.
+    writeTranscript([
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/authentication.ts' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/tmp/proj/src/config.ts' } }] } },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test -- --run' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', content: 'All tests passed' }] } },
+    ]);
+
+    runHook({
+      session_id: 'test-fts-recall',
+      transcript_path: transcriptPath,
+      cwd: '/tmp/myproject',
+      stop_reason: 'end_turn',
+      was_in_agentic_loop: true,
+    });
+
+    const db = openDb();
+    const entity = db.prepare("SELECT id FROM entities WHERE name = 'session-test-fts-recall-files'").get() as any;
+    expect(entity).toBeTruthy();
+
+    // The observation text contains the edited filename token — it must be
+    // reachable through the FTS5 index, not just the entities table.
+    const ftsRowids = (db.prepare(
+      "SELECT rowid FROM entities_fts WHERE entities_fts MATCH 'authentication'",
+    ).all() as any[]).map((r) => r.rowid);
+    expect(ftsRowids).toContain(entity.id);
+    db.close();
+  });
+
   it('Scenario: producer writes file: tags that pre-edit-recall Strategy 1 queries', () => {
     // The capture is the PRODUCER for pre-edit-recall's `file:<name>` lookup.
     // Before this, nothing wrote those tags, so Strategy 1 returned zero rows

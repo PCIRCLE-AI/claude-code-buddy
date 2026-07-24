@@ -623,6 +623,70 @@ export function openHookDb(env = process.env, opts = {}) {
   return { db, dbPath };
 }
 
+/**
+ * Single owner of the hook-side entity write dance: upsert entity, append
+ * observations + tags, and — critically — keep the contentless `entities_fts`
+ * index in sync so the memory is recallable via the FTS keyword hot path.
+ *
+ * Why this exists: post-commit.js, pre-compact.js, and session-summary.js each
+ * hand-rolled this dance inline. Three copies drifted — session-summary's copy
+ * omitted the FTS reindex entirely, so every `session-insight` memory it wrote
+ * was invisible to `recall` and pre-edit-recall (no FTS trigger, no self-heal
+ * rebuild on open back it up). Centralising the dance here makes the FTS step
+ * impossible to forget in a future hook. This mirrors, on the hook side, what
+ * `src/storage/fts-index.ts` already does for core (the F5 boundary keeps them
+ * as two implementations of the same contract).
+ *
+ * The caller MUST open its DB with `openHookDb(env, { fts: true })` so the FTS
+ * table is guaranteed present. Embeddings + auto-tagging + signal-scoring are
+ * deliberately NOT done here: hooks are cheap always-on capture, and those are
+ * the heavier, user-initiated `remember` concerns (core owns them).
+ *
+ * @param {import('better-sqlite3').Database} db - an open hook DB handle
+ * @param {{name: string, type: string, observations?: string[], tags?: string[]}} entity
+ * @returns {{ id: number, isNew: boolean } | null} null if the row could not be resolved
+ */
+export function captureEntity(db, { name, type, observations = [], tags = [] }) {
+  const insertResult = db
+    .prepare('INSERT OR IGNORE INTO entities (name, type) VALUES (?, ?)')
+    .run(name, type);
+  const isNew = insertResult.changes > 0;
+  const row = db.prepare('SELECT id FROM entities WHERE name = ?').get(name);
+  if (!row) return null;
+  const id = row.id;
+
+  // Capture the previously-indexed observation text BEFORE inserting new rows,
+  // so the contentless-FTS 'delete' below matches what was indexed. Only for
+  // existing entities — a brand-new row has no prior FTS entry to remove.
+  const prevObsText = isNew
+    ? undefined
+    : db
+        .prepare('SELECT content FROM observations WHERE entity_id = ?')
+        .all(id)
+        .map((o) => o.content)
+        .join(' ');
+
+  const insertObs = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+  for (const obs of observations) insertObs.run(id, obs);
+  const insertTag = db.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)');
+  for (const tag of tags) insertTag.run(id, tag);
+
+  // Reindex FTS: delete the stale entry (if any) then insert the full,
+  // current observation set. Keep in lockstep with post-commit/pre-compact's
+  // historical inline form and with src/storage/fts-index.ts.
+  if (prevObsText !== undefined) {
+    db.prepare("INSERT INTO entities_fts(entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)").run(id, name, prevObsText);
+  }
+  const allObsText = db
+    .prepare('SELECT content FROM observations WHERE entity_id = ?')
+    .all(id)
+    .map((o) => o.content)
+    .join(' ');
+  db.prepare('INSERT INTO entities_fts(rowid, name, observations) VALUES(?, ?, ?)').run(id, name, allObsText);
+
+  return { id, isNew };
+}
+
 const PRIVATE_DIR_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 

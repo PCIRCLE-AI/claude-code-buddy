@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'child_process';
-import { getProjectName, openHookDb } from './_shared.js';
+import { captureEntity, getProjectName, openHookDb } from './_shared.js';
 
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -77,53 +77,32 @@ process.stdin.on('end', () => {
     try {
       const entityName = `commit-${commitHash}`;
 
-      // Check if this is a new or existing entity
-      const insertResult = db.prepare('INSERT OR IGNORE INTO entities (name, type) VALUES (?, ?)').run(entityName, 'commit');
-      const isNew = insertResult.changes > 0;
-      const entity = db.prepare('SELECT id FROM entities WHERE name = ?').get(entityName);
-      if (entity) {
-        // Capture existing observations for FTS delete (before inserting new one)
-        const prevObs = isNew
-          ? []
-          : db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(entity.id);
-        const prevObsText = isNew ? undefined : prevObs.map(o => o.content).join(' ');
-
-        // Add observations
-        db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, commitMsg);
-        db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, `Branch: ${branch}`);
-
-        // Add richer diff stats as an observation (backward compatible — failures are silently ignored)
-        try {
-          const stat = execFileSync('git', ['show', '--stat', '--format=', commitHash], {
-            cwd: data.cwd || process.cwd(),
-            encoding: 'utf8',
-            timeout: 5000,
-          }).trim();
-          if (stat) {
-            // Last non-empty line is the summary, e.g. "3 files changed, 45 insertions(+), 12 deletions(-)"
-            const statLines = stat.split('\n').filter(l => l.trim());
-            const summary = statLines[statLines.length - 1]?.trim() || '';
-            if (summary) {
-              db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(entity.id, `Diff stats: ${summary}`);
-            }
-          }
-        } catch {
-          // git show failed — no diff stats recorded, existing behavior unchanged
+      // Build the observation set: commit message, branch, and — best-effort —
+      // richer diff stats (git failures are silently ignored, unchanged behavior).
+      const observations = [commitMsg, `Branch: ${branch}`];
+      try {
+        const stat = execFileSync('git', ['show', '--stat', '--format=', commitHash], {
+          cwd: data.cwd || process.cwd(),
+          encoding: 'utf8',
+          timeout: 5000,
+        }).trim();
+        if (stat) {
+          // Last non-empty line is the summary, e.g. "3 files changed, 45 insertions(+), 12 deletions(-)"
+          const statLines = stat.split('\n').filter(l => l.trim());
+          const summary = statLines[statLines.length - 1]?.trim() || '';
+          if (summary) observations.push(`Diff stats: ${summary}`);
         }
-
-        // Add project tag
-        const projectTag = `project:${projectName}`;
-        db.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)').run(entity.id, projectTag);
-
-        // Update FTS index — delete old entry first if entity existed
-        if (prevObsText !== undefined) {
-          db.prepare("INSERT INTO entities_fts(entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)").run(entity.id, entityName, prevObsText);
-        }
-        // Fetch all observations (including the one just added) for the new FTS entry
-        const allObs = db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(entity.id);
-        const allObsText = allObs.map(o => o.content).join(' ');
-        db.prepare('INSERT INTO entities_fts(rowid, name, observations) VALUES(?, ?, ?)').run(entity.id, entityName, allObsText);
+      } catch {
+        // git show failed — no diff stats recorded, existing behavior unchanged
       }
+
+      // Shared write dance — upsert entity + observations + tags AND reindex FTS.
+      captureEntity(db, {
+        name: entityName,
+        type: 'commit',
+        observations,
+        tags: [`project:${projectName}`],
+      });
     } finally {
       db.close();
     }

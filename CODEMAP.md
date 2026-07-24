@@ -98,7 +98,7 @@ docs/                # ARCHITECTURE.md, api/API_REFERENCE.md
 | `post-commit.js` | PostToolUse Bash | git commit tracking |
 | `user-prompt-intent.js` | UserPromptSubmit | detect "remember" intent |
 | `pre-bash-orchestration-nudge.js` | PreToolUse Bash | opt-in orchestration nudge |
-| `_shared.js` | — | shared helpers (NOT a hook); `importFromPluginRoot`, `getProjectName` mirror |
+| `_shared.js` | — | shared helpers (NOT a hook); `importFromPluginRoot`, `getProjectName` mirror, `captureEntity` (single owner of the hook write dance incl. FTS reindex) |
 
 ---
 

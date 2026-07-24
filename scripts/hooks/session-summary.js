@@ -11,6 +11,7 @@ import { spawn } from 'child_process';
 import os from 'os';
 import { pathToFileURL } from 'url';
 import {
+  captureEntity,
   decideAutoUpdateHook,
   getMemeshDirFromDbPath,
   getProjectName,
@@ -233,7 +234,9 @@ process.stdin.on('end', async () => {
     // Open DB via shared helper — applies SCHEMA_SQL + status migration.
     // sqlite-vec is loaded separately because only this hook needs it
     // (for embedding-aware recall-effectiveness tracking).
-    const handle = openHookDb(process.env);
+    // { fts: true } guarantees the entities_fts table exists so captureEntity()
+    // can keep it in sync — session-insight memories must be FTS-recallable.
+    const handle = openHookDb(process.env, { fts: true });
     if (!handle) {
       // Native module unavailable (plugin-marketplace cache install with no
       // node_modules). Skip session-capture work, but still let the
@@ -291,17 +294,12 @@ process.stdin.on('end', async () => {
         return [...tags];
       }
 
-      const insertEntity = db.prepare('INSERT OR IGNORE INTO entities (name, type) VALUES (?, ?)');
-      const selectEntity = db.prepare('SELECT id FROM entities WHERE name = ?');
-      const insertObs = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
-      const insertTag = db.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)');
-
+      // Delegate the write to the shared captureEntity() so entities land in
+      // entities_fts too. This copy used to insert entity + observations + tags
+      // only, skipping the FTS reindex the sibling hooks did — which left every
+      // session-insight memory unrecallable via the FTS keyword path.
       function storeMemory(name, type, observations, tags) {
-        insertEntity.run(name, type);
-        const row = selectEntity.get(name);
-        if (!row) return;
-        for (const obs of observations) insertObs.run(row.id, obs);
-        for (const tag of tags) insertTag.run(row.id, tag);
+        captureEntity(db, { name, type, observations, tags });
       }
 
       // Rule 1: File editing session summary
