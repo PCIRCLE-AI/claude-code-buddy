@@ -4,6 +4,9 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Security
+- **`POST /v1/config` no longer echoes fallback-provider API keys in plaintext** (`src/transports/http/server.ts`) — the POST response masked only `llm.apiKey`, so saving an `llmFallbacks: [{provider, apiKey}]` chain returned each fallback key in cleartext to the dashboard SPA (the GET handler already masked the whole chain). Consolidated both surfaces onto one `maskLlmSecrets()` helper that redacts the primary key and every fallback entry, so they can't drift again. Persistence was unaffected; only the response surface leaked.
+
 ### Fixed
 - **Session-capture memories are now FTS-recallable (fake-working bug)** (`scripts/hooks/session-summary.js`, `scripts/hooks/_shared.js`) — the Stop hook's `storeMemory()` inserted the entity + observations + tags but never reindexed `entities_fts`, unlike its sibling hooks (post-commit, pre-compact). With no FTS trigger and no rebuild-on-open, every `session-insight` memory was invisible to `recall` and pre-edit-recall — the two keyword paths that inject memory when it matters. The hook reported success; the knowledge could not be keyword-recalled. Root-caused to three hand-rolled copies of the write dance drifting apart: extracted the correct dance (incl. FTS reindex) into a single `captureEntity()` in `_shared.js` now used by all three write hooks, so the FTS step can't be forgotten again. Added a regression test asserting a captured session memory is returned by an `entities_fts MATCH`.
 

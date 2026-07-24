@@ -244,24 +244,21 @@ app.post('/v1/export', (req, res) => handlePost(ExportBody, req, res, exportMemo
 app.post('/v1/import', (req, res) => handlePost(ImportBody, req, res, importMemories));
 app.post('/v1/learn', (req, res) => handlePost(LearnBody, req, res, learn));
 app.post('/v1/verify', (req, res) => handlePost(VerifyBody, req, res, verifyAgentWork));
+function maskLlmSecrets(obj) {
+    const masked = { ...obj };
+    if (masked.llm?.apiKey) {
+        masked.llm = { ...masked.llm, apiKey: '***' };
+    }
+    if (Array.isArray(masked.llmFallbacks) && masked.llmFallbacks.length > 0) {
+        masked.llmFallbacks = masked.llmFallbacks.map(fb => fb?.apiKey ? { ...fb, apiKey: '***' } : fb);
+    }
+    return masked;
+}
 app.get('/v1/config', (_req, res) => {
     try {
         const config = readConfig();
         const caps = detectCapabilities(config);
-        const safeConfig = { ...config };
-        if (safeConfig.llm?.apiKey) {
-            safeConfig.llm = { ...safeConfig.llm, apiKey: '***' };
-        }
-        if (Array.isArray(safeConfig.llmFallbacks) && safeConfig.llmFallbacks.length > 0) {
-            safeConfig.llmFallbacks = safeConfig.llmFallbacks.map(fb => fb?.apiKey ? { ...fb, apiKey: '***' } : fb);
-        }
-        if (caps.llm?.apiKey) {
-            caps.llm = { ...caps.llm, apiKey: '***' };
-        }
-        if (Array.isArray(caps.llmFallbacks) && caps.llmFallbacks.length > 0) {
-            caps.llmFallbacks = caps.llmFallbacks.map(fb => fb?.apiKey ? { ...fb, apiKey: '***' } : fb);
-        }
-        res.json({ success: true, data: { config: safeConfig, capabilities: caps } });
+        res.json({ success: true, data: { config: maskLlmSecrets(config), capabilities: maskLlmSecrets(caps) } });
     }
     catch (err) {
         res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
@@ -303,11 +300,7 @@ app.post('/v1/config', async (req, res) => {
             const { resetEmbeddingState } = await import('../../core/embedder.js');
             resetEmbeddingState();
         }
-        const safeUpdated = { ...updated };
-        if (safeUpdated.llm?.apiKey) {
-            safeUpdated.llm = { ...safeUpdated.llm, apiKey: '***' };
-        }
-        res.json({ success: true, data: safeUpdated });
+        res.json({ success: true, data: maskLlmSecrets(updated) });
     }
     catch (err) {
         res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) });
