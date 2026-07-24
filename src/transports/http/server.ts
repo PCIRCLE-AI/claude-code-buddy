@@ -380,34 +380,40 @@ app.post('/v1/learn',       (req, res) => handlePost(LearnBody, req, res, learn)
 app.post('/v1/verify',      (req, res) => handlePost(VerifyBody, req, res, verifyAgentWork));
 
 // --- Config ---
+/**
+ * Redact every apiKey in an `{ llm, llmFallbacks }`-shaped object before it
+ * leaves the process over the wire. Masks the primary `llm.apiKey` AND every
+ * entry in the `llmFallbacks` chain.
+ *
+ * Single owner for BOTH the GET and POST /v1/config responses: previously each
+ * handler hand-rolled its own masking, and the POST copy masked only
+ * `llm.apiKey` — so a saved fallback provider's key was echoed back to the
+ * dashboard SPA in plaintext. Routing both surfaces through one helper makes
+ * that drift impossible. Returns a shallow clone; the stored config is untouched.
+ */
+function maskLlmSecrets<T extends {
+  llm?: { apiKey?: string } | null;
+  llmFallbacks?: Array<{ apiKey?: string } | null> | null;
+}>(obj: T): T {
+  const masked: T = { ...obj };
+  if (masked.llm?.apiKey) {
+    masked.llm = { ...masked.llm, apiKey: '***' };
+  }
+  if (Array.isArray(masked.llmFallbacks) && masked.llmFallbacks.length > 0) {
+    masked.llmFallbacks = masked.llmFallbacks.map(fb =>
+      fb?.apiKey ? { ...fb, apiKey: '***' } : fb
+    );
+  }
+  return masked;
+}
+
 app.get('/v1/config', (_req, res) => {
   try {
     const config = readConfig();
     const caps = detectCapabilities(config);
-    const safeConfig = { ...config };
-    if (safeConfig.llm?.apiKey) {
-      safeConfig.llm = { ...safeConfig.llm, apiKey: '***' };
-    }
-    // Mask EVERY apiKey in the fallback chain — without this loop a
-    // user who configures `llmFallbacks: [{provider:'openai',
-    // apiKey:'sk-...'}]` would see their fallback key returned in
-    // plaintext to the dashboard SPA. The primary `llm.apiKey` mask
-    // above is mirrored here for the chain.
-    if (Array.isArray(safeConfig.llmFallbacks) && safeConfig.llmFallbacks.length > 0) {
-      safeConfig.llmFallbacks = safeConfig.llmFallbacks.map(fb =>
-        fb?.apiKey ? { ...fb, apiKey: '***' } : fb
-      );
-    }
-    // Also mask API key in capabilities (detectCapabilities returns llm config with raw key)
-    if (caps.llm?.apiKey) {
-      caps.llm = { ...caps.llm, apiKey: '***' };
-    }
-    if (Array.isArray(caps.llmFallbacks) && caps.llmFallbacks.length > 0) {
-      caps.llmFallbacks = caps.llmFallbacks.map(fb =>
-        fb?.apiKey ? { ...fb, apiKey: '***' } : fb
-      );
-    }
-    res.json({ success: true, data: { config: safeConfig, capabilities: caps } });
+    // detectCapabilities returns the llm config with the raw key, so mask both
+    // the config and the capabilities view before returning them.
+    res.json({ success: true, data: { config: maskLlmSecrets(config), capabilities: maskLlmSecrets(caps) } });
   } catch (err) {
     res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }
@@ -478,12 +484,10 @@ app.post('/v1/config', async (req, res) => {
       const { resetEmbeddingState } = await import('../../core/embedder.js');
       resetEmbeddingState();
     }
-    // Mask API key before returning
-    const safeUpdated = { ...updated };
-    if (safeUpdated.llm?.apiKey) {
-      safeUpdated.llm = { ...safeUpdated.llm, apiKey: '***' };
-    }
-    res.json({ success: true, data: safeUpdated });
+    // Mask every apiKey (primary + fallback chain) before returning — same
+    // helper the GET handler uses, so the response can't leak a saved
+    // llmFallbacks[].apiKey in plaintext.
+    res.json({ success: true, data: maskLlmSecrets(updated) });
   } catch (err) {
     res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }

@@ -294,6 +294,27 @@ describe('HTTP Transport: POST /v1/config', () => {
     expect(check.status).toBe(200);
     expect(check.body.data.config.sessionLimit).toBe(33);
   });
+
+  it('POST response masks apiKey across the whole fallback chain, not just llm', async () => {
+    // Regression (security): the POST response used to mask only llm.apiKey, so
+    // a saved llmFallbacks[].apiKey was echoed back to the SPA in plaintext.
+    const res = await req('POST', '/v1/config', {
+      llm: { provider: 'anthropic', apiKey: 'sk-primary-should-be-masked' },
+      llmFallbacks: [
+        { provider: 'openai', apiKey: 'sk-fallback-should-be-masked' },
+        { provider: 'ollama' },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.data.llm.apiKey).toBe('***');
+    expect(res.body.data.llmFallbacks[0].apiKey).toBe('***');
+    // No plaintext secret anywhere in the response body.
+    expect(JSON.stringify(res.body)).not.toContain('should-be-masked');
+
+    // Reset to Core Mode so the fake credentials don't leak into other tests'
+    // capability detection.
+    await req('POST', '/v1/config', { llm: null, llmFallbacks: [] });
+  });
 });
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
