@@ -139,4 +139,42 @@ describe('dashboard i18n', () => {
 
     expect(violations).toEqual([]);
   });
+
+  // Blind-spot guard: the parity test above only checks locale-to-locale
+  // agreement, so a key that is MISSING FROM ALL locales (never added to the
+  // catalogue at all) passes it. That is exactly how AuthPrompt shipped
+  // rendering raw `auth.title` / `auth.submit` keys: `t()` returns the key
+  // string itself on a miss (truthy), so the `t('x') || 'English'` fallback
+  // was dead code and the user saw the dotted key. This scans components for
+  // static t('...') keys and asserts each exists in the English catalogue.
+  it('has an English translation for every static t() key used in the dashboard', () => {
+    const { readdirSync } = require('node:fs');
+    const { join } = require('node:path');
+    const englishKeys = parseTranslationKeys().get('en');
+    expect(englishKeys).toBeDefined();
+
+    function* walk(dir: string): Generator<string> {
+      for (const ent of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, ent.name);
+        if (ent.isDirectory()) yield* walk(p);
+        else if (ent.isFile() && (ent.name.endsWith('.ts') || ent.name.endsWith('.tsx'))) yield p;
+      }
+    }
+
+    const missing: Array<{ file: string; key: string }> = [];
+    for (const path of walk('dashboard/src')) {
+      const rel = path.replace(/\\/g, '/').replace(/^.+memesh-llm-memory\//, '');
+      if (rel === 'dashboard/src/lib/i18n.ts') continue;
+      const src = readFileSync(path, 'utf8');
+      // Only STATIC single-quoted keys: t('foo.bar'). Dynamic/template keys
+      // (e.g. t(`graph.age${bucket}`)) can't be verified statically and are
+      // intentionally skipped — they use backticks and won't match here.
+      for (const m of src.matchAll(/\bt\(\s*'([^']+)'/g)) {
+        const key = m[1];
+        if (!englishKeys!.has(key)) missing.push({ file: rel, key });
+      }
+    }
+
+    expect(missing).toEqual([]);
+  });
 });
