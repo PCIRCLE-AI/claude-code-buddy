@@ -424,8 +424,11 @@ process.stdin.on('end', async () => {
 
               for (let i = 0; i < entityIds.length; i++) {
                 const name = (entityNames[i] || '').toLowerCase();
-                // Skip very short names to avoid false positives
-                if (name.length < 4) continue;
+                // Skip names that carry no recall signal: too short, or a
+                // machine identifier (auto-capture entities) that can never
+                // substring-match prose. Scoring those would be a guaranteed
+                // unearned miss — see isMeasurableRecallName.
+                if (!isMeasurableRecallName(name)) continue;
                 if (isRecallHit(sessionText, name)) {
                   updateHit.run(entityIds[i]);
                 } else {
@@ -757,6 +760,28 @@ export function stripHookEchoes(rawTranscript) {
 export function isRecallHit(sessionText, name) {
   if (!name || name.length < 4) return false;
   return String(sessionText ?? '').toLowerCase().includes(String(name).toLowerCase());
+}
+
+/**
+ * Whether an injected entity's NAME can serve as a recall-effectiveness signal.
+ *
+ * Recall-effectiveness decides "was this injected memory used?" by substring-
+ * matching the entity NAME in the session transcript (isRecallHit). That only
+ * works for names a human might type. Auto-capture entities are named with
+ * machine identifiers — `session-<pid>-<ts>-files`, `commit-<hash>`,
+ * `pre-compact-<id>` — which never appear verbatim in conversation prose, so
+ * they take a `recall_miss` they didn't earn on every injection. Over repeated
+ * sessions that drags their Laplace-smoothed impact factor (scoring.ts, 10%
+ * weight) down and quietly suppresses auto-captured memories from future recall.
+ *
+ * We can't measure their usefulness by name, so we don't count them either way —
+ * they keep the neutral 0.5 impact. The prefix set is coupled to the auto-capture
+ * producers' `<kind>-<id>` naming (post-commit / session-summary / pre-compact);
+ * a new auto-capture producer should add its prefix here.
+ */
+export function isMeasurableRecallName(name) {
+  if (!name || name.length < 4) return false;
+  return !/^(session-|commit-|pre-compact-)/i.test(name);
 }
 
 export function maybeTriggerDream(projectName, config, pluginRoot) {

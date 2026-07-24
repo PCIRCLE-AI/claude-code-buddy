@@ -2,6 +2,11 @@
 
 All notable changes to MeMesh are documented here.
 
+## [Unreleased]
+
+### Fixed
+- **Recall-effectiveness stops scoring machine-named auto-capture entities against a name they can't match** (`scripts/hooks/session-summary.js`) — the Stop hook decided "was this injected memory used?" by substring-matching the entity name in the session transcript. Auto-capture entities are named with machine identifiers (`session-<pid>-…`, `commit-<hash>`, `pre-compact-<id>`) that never appear verbatim in prose, so every injection scored a `recall_miss` they didn't earn, dragging their Laplace-smoothed impact factor (10% of ranking) down over time and quietly suppressing auto-captured memories from future recall. These names carry no name-match signal, so they're now excluded from hit/miss accounting (kept at the neutral 0.5 impact) via a new `isMeasurableRecallName()` guard. The name-substring heuristic is unchanged for human/LLM-slug names.
+
 ## [4.2.9] — 2026-07-24
 
 ### Security
