@@ -27,16 +27,19 @@ export function computeGraph(db: Database.Database): GraphResult {
 
   // All signal entities (non-noise) — typically <500, always include all
   const signalRows = db.prepare(
-    `SELECT name FROM entities WHERE type NOT IN (${placeholders}) ORDER BY COALESCE(last_accessed_at, created_at) DESC`,
-  ).all(...noiseList) as { name: string }[];
+    `SELECT id FROM entities WHERE type NOT IN (${placeholders}) ORDER BY COALESCE(last_accessed_at, created_at) DESC`,
+  ).all(...noiseList) as { id: number }[];
 
   // Recent noise entities — fill up to cap of 200 for those who want to see them
   const noiseRows = db.prepare(
-    `SELECT name FROM entities WHERE type IN (${placeholders}) ORDER BY created_at DESC LIMIT 200`,
-  ).all(...noiseList) as { name: string }[];
+    `SELECT id FROM entities WHERE type IN (${placeholders}) ORDER BY created_at DESC LIMIT 200`,
+  ).all(...noiseList) as { id: number }[];
 
-  const allNames = [...signalRows, ...noiseRows].map((r) => r.name);
-  const entities = allNames.map((n) => kg.getEntity(n)).filter(Boolean) as Entity[];
+  // Batch-hydrate in one shot instead of getEntity()-in-a-loop (which fired
+  // 4 queries per row — ~2800 on a 700-entity graph). getEntitiesByIds
+  // preserves input order, so the signal-then-noise ordering above is kept.
+  const allIds = [...signalRows, ...noiseRows].map((r) => r.id);
+  const entities = kg.getEntitiesByIds(allIds);
 
   const relations = db.prepare(`
     SELECT e_from.name AS "from", e_to.name AS "to", r.relation_type AS type

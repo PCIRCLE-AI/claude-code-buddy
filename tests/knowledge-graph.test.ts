@@ -232,6 +232,26 @@ describe('Feature: Knowledge Graph', () => {
       expect(recent[1].name).toBe('Second');
     });
 
+    it('listByType filters by type, orders most-recent-first, excludes archived, and does not track access', () => {
+      kg.createEntity('note-a', 'note');
+      kg.createEntity('task-b', 'task');
+      kg.createEntity('note-c', 'note');
+      kg.createEntity('note-old', 'note');
+      kg.archiveEntity('note-old');
+
+      const notes = kg.listByType('note');
+      // Only 'note' type, id DESC (most recent first), archived excluded by default.
+      expect(notes.map((e) => e.name)).toEqual(['note-c', 'note-a']);
+
+      // A type browse is a catalogue read — it must NOT inflate access_count
+      // (this matched the raw HTTP path it replaced; access feeds scoring).
+      expect(kg.getEntity('note-a')!.access_count ?? 0).toBe(0);
+
+      // includeArchived surfaces the archived row.
+      const withArchived = kg.listByType('note', 20, true);
+      expect(withArchived.map((e) => e.name)).toContain('note-old');
+    });
+
     it('should return listRecent when search query is empty', () => {
       kg.createEntity('Alpha', 'test');
       kg.createEntity('Beta', 'test');

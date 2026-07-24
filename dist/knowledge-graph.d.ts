@@ -26,6 +26,7 @@ export declare class KnowledgeGraph {
     trackAccess(entityIds: number[], opts?: TrackAccessOptions): void;
     findConflicts(entityNames: string[]): string[];
     listRecent(limit?: number, includeArchived?: boolean, namespace?: string): Entity[];
+    listByType(type: string, limit?: number, includeArchived?: boolean, namespace?: string): Entity[];
     private listRecentByTag;
     clearEntityData(name: string): void;
     archiveEntity(name: string): {

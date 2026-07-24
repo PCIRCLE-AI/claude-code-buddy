@@ -509,16 +509,41 @@ export class KnowledgeGraph {
     if (namespace) params.push(namespace);
     params.push(limit ?? 20);
     const rows = this.db
-      .prepare(`SELECT name FROM entities WHERE 1=1 ${statusFilter} ${namespaceFilter} ORDER BY id DESC LIMIT ?`)
-      .all(...params) as { name: string }[];
+      .prepare(`SELECT id FROM entities WHERE 1=1 ${statusFilter} ${namespaceFilter} ORDER BY id DESC LIMIT ?`)
+      .all(...params) as { id: number }[];
 
-    const results = rows
-      .map((r) => this.getEntity(r.name))
-      .filter((e): e is Entity => e !== null);
+    // Batch-hydrate instead of getEntity()-in-a-loop (4 queries per row →
+    // 4 queries total). getEntitiesByIds preserves input order, so the
+    // ORDER BY id DESC above is retained.
+    const results = this.getEntitiesByIds(
+      rows.map((r) => r.id),
+      { includeArchived, namespace }
+    );
 
-    const entityIds = results.map((e) => e.id);
-    this.trackAccess(entityIds);
+    this.trackAccess(results.map((e) => e.id));
     return results;
+  }
+
+  /**
+   * List active (or all) entities of one type, most-recent first. The storage
+   * counterpart of the raw `SELECT ... WHERE type = ?` the HTTP transport used
+   * to hand-roll — keeps the status/ordering semantics in one place and batch-
+   * hydrates via getEntitiesByIds. Does NOT trackAccess (a type browse is a
+   * catalogue read, matching the prior transport behavior).
+   */
+  listByType(type: string, limit?: number, includeArchived?: boolean, namespace?: string): Entity[] {
+    const statusFilter = includeArchived ? '' : "AND status = 'active'";
+    const namespaceFilter = namespace ? 'AND namespace = ?' : '';
+    const params: (string | number)[] = [type];
+    if (namespace) params.push(namespace);
+    params.push(limit ?? 20);
+    const rows = this.db
+      .prepare(`SELECT id FROM entities WHERE type = ? ${statusFilter} ${namespaceFilter} ORDER BY id DESC LIMIT ?`)
+      .all(...params) as { id: number }[];
+    return this.getEntitiesByIds(
+      rows.map((r) => r.id),
+      { includeArchived, namespace }
+    );
   }
 
   private listRecentByTag(tag: string, limit: number, includeArchived?: boolean, namespace?: string): Entity[] {
@@ -529,7 +554,7 @@ export class KnowledgeGraph {
     params.push(limit);
     const rows = this.db
       .prepare(
-        `SELECT DISTINCT e.name
+        `SELECT DISTINCT e.id
          FROM entities e
          JOIN tags t ON t.entity_id = e.id
          WHERE t.tag = ?
@@ -538,15 +563,16 @@ export class KnowledgeGraph {
          ORDER BY e.id DESC
          LIMIT ?`
       )
-      .all(...params) as { name: string }[];
+      .all(...params) as { id: number }[];
 
-    const results = rows
-      .map((r) => this.getEntity(r.name))
-      .filter((e): e is Entity => e !== null);
+    // Batch-hydrate (see listRecent) — order-preserving, same fields/filters.
+    const results = this.getEntitiesByIds(
+      rows.map((r) => r.id),
+      { includeArchived, namespace }
+    );
 
-    const entityIds = results.map((e) => e.id);
     // listRecentByTag() is an intentional tag-filtered query — count it.
-    this.trackAccess(entityIds, { incrementHits: true });
+    this.trackAccess(results.map((e) => e.id), { incrementHits: true });
     return results;
   }
 

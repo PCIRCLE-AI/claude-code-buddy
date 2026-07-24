@@ -4,6 +4,9 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Performance
+- **Dashboard graph + browse + type-list no longer fire a query storm** (`src/knowledge-graph.ts`, `src/core/graph.ts`, `src/transports/http/server.ts`) — `computeGraph` (the `/v1/graph` endpoint), `listRecent` / `listRecentByTag` (empty-query recall + Browse tab), and the `/v1/entities?type=` branch each mapped `getEntity()` over their result rows, and `getEntity()` fires 4 queries per row. A 700-entity graph meant ~2800 queries per request. All now route their id list through the existing order-preserving `getEntitiesByIds()` batch hydrator (4 queries total). The transport's hand-rolled `SELECT ... WHERE type = ?` moved into a new `KnowledgeGraph.listByType()` so status/ordering semantics live in the storage layer, not the HTTP handler. Same fields, same active/archived filtering, same ordering — verified by the existing listRecent tests plus a new listByType test.
+
 ### Fixed
 - **Recall-effectiveness stops scoring machine-named auto-capture entities against a name they can't match** (`scripts/hooks/session-summary.js`) — the Stop hook decided "was this injected memory used?" by substring-matching the entity name in the session transcript. Auto-capture entities are named with machine identifiers (`session-<pid>-…`, `commit-<hash>`, `pre-compact-<id>`) that never appear verbatim in prose, so every injection scored a `recall_miss` they didn't earn, dragging their Laplace-smoothed impact factor (10% of ranking) down over time and quietly suppressing auto-captured memories from future recall. These names carry no name-match signal, so they're now excluded from hit/miss accounting (kept at the neutral 0.5 impact) via a new `isMeasurableRecallName()` guard. The name-substring heuristic is unchanged for human/LLM-slug names.
 
