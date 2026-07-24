@@ -4,6 +4,9 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Fixed
+- **`memesh config list` shows every settable key, not just `llm.*`** (`src/transports/cli/cli.ts`) — `list` hard-coded three `llm.*` lines, so a user who ran `config set sessionLimit 50` (or `llmFallbacks`, `autoCapture`, `autoUpdate`, `embedder.*`) got `✅ Set` but saw no trace of it in `list` — reads as a silent write-drop. `list` now iterates `ALLOWED_KEYS` (the single source of truth for settable keys) so the two can't drift, printing each present value with `apiKey` fields — including every `llmFallbacks[].apiKey` — masked.
+
 ### Tests
 - **Permanent CI gates for the fake-working write-path class** (`tests/hooks/write-hook-invariants.test.ts`) — turns the session-capture-FTS fix into invariants that can't silently regress: (1) `captureEntity()` really keeps `entities_fts` in sync (write → `MATCH` returns the row), and (2) every write hook (session-summary / post-commit / pre-compact) routes through `captureEntity()` and hand-rolls no `INSERT INTO observations` / `entities_fts` of its own — so a future hook can't drop the FTS step again. Mirrors the i18n key-coverage guard shipped for the AuthPrompt fix.
 
