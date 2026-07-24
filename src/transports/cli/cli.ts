@@ -421,15 +421,15 @@ configCmd
     const config = readConfig();
     const caps = detectCapabilities(config);
     console.log('Configuration (~/.memesh/config.json):');
-    if (config.llm) {
-      console.log(`  LLM provider: ${config.llm.provider}`);
-      console.log(`  LLM model: ${config.llm.model || 'default'}`);
-      if (config.llm.apiKey) {
-        const masked = maskApiKey(config.llm.apiKey); // never logs raw key
-        console.log(`  API key: ${masked}`);
-      }
+    // Iterate ALLOWED_KEYS (the single source of truth for settable keys) so
+    // `list` and `set` can't drift — previously `list` hard-coded only the
+    // three llm.* keys, so a user who set sessionLimit / llmFallbacks /
+    // embedder.* got "✅ Set" but saw no trace of it here.
+    const rows = buildConfigListing(config as unknown as Record<string, unknown>);
+    if (rows.length === 0) {
+      console.log('  (no keys set — all defaults)');
     } else {
-      console.log('  LLM provider: not configured');
+      for (const { key, value } of rows) console.log(`  ${key}: ${value}`);
     }
     console.log(`\nSearch level: ${caps.searchLevel} (${caps.searchLevel === 1 ? 'Smart Mode' : 'Core'})`);
   });
@@ -499,6 +499,55 @@ function setNested(obj: Record<string, unknown>, path: string[], value: unknown)
     cur = cur[part] as Record<string, unknown>;
   }
   cur[path[path.length - 1]] = value;
+}
+
+/** Read a dotted path (mirror of setNested); undefined if any segment is absent. */
+function getNested(obj: Record<string, unknown>, path: string[]): unknown {
+  return path.reduce<unknown>(
+    (cur, part) => (cur && typeof cur === 'object' ? (cur as Record<string, unknown>)[part] : undefined),
+    obj,
+  );
+}
+
+/** Marker shown in place of any secret in the `config list` dump. Full
+ *  redaction (not maskApiKey's first4+last4) because `list` prints EVERY key
+ *  including the whole fallback chain — a broad dump should reveal no key
+ *  bytes at all, and it keeps the tainted value out of the log entirely. */
+const REDACTED = '***';
+
+/** Format a value for display, dropping every apiKey so no key bytes reach the
+ *  log (same leak class as the HTTP config response). Secrets are removed from
+ *  the value before it is stringified, not merely overwritten. */
+function formatConfigValue(key: string, raw: unknown): string {
+  if (key.toLowerCase().includes('key')) return REDACTED;
+  if (key === 'llmFallbacks' && Array.isArray(raw)) {
+    const redacted = raw.map((fb) => {
+      if (fb && typeof fb === 'object') {
+        // Destructure apiKey OUT so the raw value never flows into the result.
+        const { apiKey, ...rest } = fb as Record<string, unknown>;
+        return apiKey ? { ...rest, apiKey: REDACTED } : rest;
+      }
+      return fb;
+    });
+    return JSON.stringify(redacted);
+  }
+  if (typeof raw === 'object') return JSON.stringify(raw);
+  return String(raw);
+}
+
+/**
+ * Build the `config list` rows from ALLOWED_KEYS — the single source of truth
+ * for settable keys — so `list` shows every key `set` accepts and the two can't
+ * drift. Only keys that are actually present are listed. Exported for testing.
+ */
+export function buildConfigListing(config: Record<string, unknown>): Array<{ key: string; value: string }> {
+  const rows: Array<{ key: string; value: string }> = [];
+  for (const key of Array.from(ALLOWED_KEYS).sort()) {
+    const raw = getNested(config, key.split('.'));
+    if (raw === undefined || raw === null) continue;
+    rows.push({ key, value: formatConfigValue(key, raw) });
+  }
+  return rows;
 }
 
 function deleteNested(obj: Record<string, unknown>, path: string[]): boolean {

@@ -361,16 +361,13 @@ configCmd
     const config = readConfig();
     const caps = detectCapabilities(config);
     console.log('Configuration (~/.memesh/config.json):');
-    if (config.llm) {
-        console.log(`  LLM provider: ${config.llm.provider}`);
-        console.log(`  LLM model: ${config.llm.model || 'default'}`);
-        if (config.llm.apiKey) {
-            const masked = maskApiKey(config.llm.apiKey);
-            console.log(`  API key: ${masked}`);
-        }
+    const rows = buildConfigListing(config);
+    if (rows.length === 0) {
+        console.log('  (no keys set — all defaults)');
     }
     else {
-        console.log('  LLM provider: not configured');
+        for (const { key, value } of rows)
+            console.log(`  ${key}: ${value}`);
     }
     console.log(`\nSearch level: ${caps.searchLevel} (${caps.searchLevel === 1 ? 'Smart Mode' : 'Core'})`);
 });
@@ -425,6 +422,37 @@ function setNested(obj, path, value) {
         cur = cur[part];
     }
     cur[path[path.length - 1]] = value;
+}
+function getNested(obj, path) {
+    return path.reduce((cur, part) => (cur && typeof cur === 'object' ? cur[part] : undefined), obj);
+}
+const REDACTED = '***';
+function formatConfigValue(key, raw) {
+    if (key.toLowerCase().includes('key'))
+        return REDACTED;
+    if (key === 'llmFallbacks' && Array.isArray(raw)) {
+        const redacted = raw.map((fb) => {
+            if (fb && typeof fb === 'object') {
+                const { apiKey, ...rest } = fb;
+                return apiKey ? { ...rest, apiKey: REDACTED } : rest;
+            }
+            return fb;
+        });
+        return JSON.stringify(redacted);
+    }
+    if (typeof raw === 'object')
+        return JSON.stringify(raw);
+    return String(raw);
+}
+export function buildConfigListing(config) {
+    const rows = [];
+    for (const key of Array.from(ALLOWED_KEYS).sort()) {
+        const raw = getNested(config, key.split('.'));
+        if (raw === undefined || raw === null)
+            continue;
+        rows.push({ key, value: formatConfigValue(key, raw) });
+    }
+    return rows;
 }
 function deleteNested(obj, path) {
     if (path.length === 0)
