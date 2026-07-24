@@ -1,7 +1,7 @@
 # MeMesh Plugin -- API Reference
 
 **Protocol**: Model Context Protocol (MCP) over stdio
-**Version**: 4.2.8
+**Version**: 4.2.9
 **Compatibility**: Works with Claude Code plugins, Claude Managed Agents (via MCP connector), and any MCP-compatible client.
 
 ---
@@ -552,8 +552,8 @@ Use `?cached=1` to read the cached state only. Without it, MeMesh prefers a fres
 {
   "success": true,
   "data": {
-    "currentVersion": "4.2.7",
-    "latestVersion": "4.2.8",
+    "currentVersion": "4.2.8",
+    "latestVersion": "4.2.9",
     "checkedAt": "2026-04-24T10:15:00.000Z",
     "lastAttemptAt": "2026-04-24T10:15:00.000Z",
     "lastSuccessfulCheckAt": "2026-04-24T10:00:00.000Z",
