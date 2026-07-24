@@ -5,9 +5,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
-import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
+import { remember, recallWithConflicts, forget, consolidate, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { verifyAgentWork } from '../../core/verifier.js';
-import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { getDbPath } from '../../core/paths.js';
 import { flushPendingEmbeddings } from '../../core/embedder.js';
@@ -89,7 +88,7 @@ program
     .option('--json', 'Output as JSON')
     .action(async (query, opts) => {
     await withDatabase(async () => {
-        const entities = await recallEnhanced({
+        const { entities, conflicts } = await recallWithConflicts({
             query: query || undefined,
             tag: opts.tag,
             limit: parseInt(opts.limit),
@@ -97,8 +96,6 @@ program
             namespace: opts.namespace,
             cross_project: opts.crossProject,
         });
-        const kg = new KnowledgeGraph(getDatabase());
-        const conflicts = kg.findConflicts(entities.map(e => e.name));
         if (opts.json) {
             if (conflicts.length > 0) {
                 console.log(JSON.stringify({ entities, conflicts }));

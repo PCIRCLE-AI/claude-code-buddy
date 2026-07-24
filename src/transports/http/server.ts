@@ -6,7 +6,7 @@ import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
-import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
+import { remember, recallWithConflicts, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
 import { computePatterns } from '../../core/patterns.js';
@@ -356,15 +356,10 @@ app.post('/v1/recall', async (req, res) => {
     return;
   }
   try {
-    // recallEnhanced: FTS5 + sqlite-vec, no LLM in the hot path
-    const entities = await recallEnhanced(parsed.data);
-    const kg = new KnowledgeGraph(getDatabase());
-    const conflicts = kg.findConflicts(entities.map(e => e.name));
-    if (conflicts.length > 0) {
-      res.json({ success: true, data: { entities, conflicts } });
-    } else {
-      res.json({ success: true, data: entities });
-    }
+    // recallWithConflicts: FTS5 + sqlite-vec recall + conflict annotation,
+    // owned by core so the transports can't drift on the wrapping rule.
+    const { entities, conflicts } = await recallWithConflicts(parsed.data);
+    res.json({ success: true, data: conflicts.length > 0 ? { entities, conflicts } : entities });
   } catch (err) {
     res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) });
   }

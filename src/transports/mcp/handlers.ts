@@ -5,8 +5,7 @@
 // =============================================================================
 
 import { z } from 'zod';
-import { remember, recallEnhanced, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
-import { KnowledgeGraph } from '../../knowledge-graph.js';
+import { remember, recallWithConflicts, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { getDatabase } from '../../db.js';
 import { computePatterns } from '../../core/patterns.js';
 import { verifyAgentWork } from '../../core/verifier.js';
@@ -306,14 +305,10 @@ export async function handleTool(name: string, args: Record<string, unknown> | u
     if (name === 'recall') {
       const r = parseOrFail(RecallSchema, args);
       if (!r.ok) return r.result;
-      // Use recallEnhanced — internally falls back to sync recall if no LLM configured
-      const entities = await recallEnhanced(r.data);
-      const kg = new KnowledgeGraph(getDatabase());
-      const conflicts = kg.findConflicts(entities.map(e => e.name));
-      if (conflicts.length > 0) {
-        return ok({ entities, conflicts });
-      }
-      return ok(entities);
+      // recallWithConflicts: recall + conflict annotation, owned by core so the
+      // three transports can't drift on the wrapping rule.
+      const { entities, conflicts } = await recallWithConflicts(r.data);
+      return ok(conflicts.length > 0 ? { entities, conflicts } : entities);
     }
     if (name === 'forget') {
       const r = parseOrFail(ForgetSchema, args);

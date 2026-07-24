@@ -4,6 +4,9 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **`recall`'s conflict annotation is owned by core, not re-implemented in each transport** (`src/core/operations.ts`, `src/transports/{mcp,http,cli}`) — all three transports independently ran `recallEnhanced → new KnowledgeGraph → findConflicts → wrap`, so a change to how recall results carry conflicts meant editing three files that had already drifted (different try/catch shapes). Lifted the composition into `recallWithConflicts()` in core; the transports now call it and only format. No behavior change — same `{ entities, conflicts }` when conflicts exist, bare entities otherwise.
+
 ### Fixed
 - **Dashboard Behaviour toggles no longer swallow a failed save** (`dashboard/src/components/SettingsTab.tsx`) — the auto-update `<select>` and the agentic-orchestration checkbox POSTed to `/v1/config` inside an empty `catch`, so a failed write snapped the control back to its old value with no message; the user thought the setting saved. Both now route through a shared `saveField()` that surfaces the error (and a "saved" confirmation) via the same status banner the provider save uses.
 - **`memesh config list` shows every settable key, not just `llm.*`** (`src/transports/cli/cli.ts`) — `list` hard-coded three `llm.*` lines, so a user who ran `config set sessionLimit 50` (or `llmFallbacks`, `autoCapture`, `autoUpdate`, `embedder.*`) got `✅ Set` but saw no trace of it in `list` — reads as a silent write-drop. `list` now iterates `ALLOWED_KEYS` (the single source of truth for settable keys) so the two can't drift, printing each present value with `apiKey` fields — including every `llmFallbacks[].apiKey` — masked.
