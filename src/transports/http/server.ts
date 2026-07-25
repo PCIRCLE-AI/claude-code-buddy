@@ -345,6 +345,18 @@ function handlePost<T>(
     .catch((err: unknown) => res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) }));
 }
 
+// DX: read-only GET endpoints that just compute-a-value-and-return used to
+// each hand-roll the identical `try { res.json({success,data}) } catch { 500 }`
+// block. handleGet factors that into one place so the server-error response
+// shape (500 + `success:false`) can never drift between endpoints. Promise
+// support unifies the sync (graph/stats) and async (dynamic-import) handlers.
+function handleGet<T>(res: Response, produce: () => T | Promise<T>): void {
+  Promise.resolve()
+    .then(produce)
+    .then((data) => res.json({ success: true, data }))
+    .catch((err: unknown) => res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }));
+}
+
 // --- Remember ---
 app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, remember));
 
@@ -588,24 +600,14 @@ app.get('/v1/update-status', async (req, res) => {
 // shapes used to be inlined here; they now live in src/core/{graph,stats,
 // analytics}.ts so CLI/MCP can call the same logic without re-implementing
 // the SQL.
-app.get('/v1/graph', (_req, res) => {
-  try { res.json({ success: true, data: computeGraph(getDatabase()) }); }
-  catch (err) { res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }); }
-});
-app.get('/v1/stats', (_req, res) => {
-  try { res.json({ success: true, data: computeStats(getDatabase()) }); }
-  catch (err) { res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }); }
-});
-app.get('/v1/analytics', (_req, res) => {
-  try { res.json({ success: true, data: computeAnalytics(getDatabase()) }); }
-  catch (err) { res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }); }
-});
+app.get('/v1/graph', (_req, res) => handleGet(res, () => computeGraph(getDatabase())));
+app.get('/v1/stats', (_req, res) => handleGet(res, () => computeStats(getDatabase())));
+app.get('/v1/analytics', (_req, res) => handleGet(res, () => computeAnalytics(getDatabase())));
 app.get('/v1/analytics/pm', (req, res) => {
   const raw = req.query.window;
   const window = typeof raw === 'string' ? parseInt(raw, 10) : NaN;
   const windowDays = Number.isFinite(window) && window > 0 ? window : 30;
-  try { res.json({ success: true, data: computePmAnalytics(getDatabase(), windowDays) }); }
-  catch (err) { res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }); }
+  handleGet(res, () => computePmAnalytics(getDatabase(), windowDays));
 });
 // --- Demo seeder ---
 //
@@ -638,21 +640,10 @@ app.post('/v1/demo/reset', async (_req, res) => {
 // name prefixes. Used by the dashboard Browse / Lessons tabs to populate
 // per-project filter chips so users can scope memory exploration to one
 // codebase at a time.
-app.get('/v1/projects', (_req, res) => {
-  try { res.json({ success: true, data: computeProjects(getDatabase()) }); }
-  catch (err) { res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }); }
-});
+app.get('/v1/projects', (_req, res) => handleGet(res, () => computeProjects(getDatabase())));
 
 // --- Patterns ---
-app.get('/v1/patterns', (_req, res) => {
-  try {
-    const db = getDatabase();
-    const data = computePatterns(db);
-    res.json({ success: true, data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
-  }
-});
+app.get('/v1/patterns', (_req, res) => handleGet(res, () => computePatterns(getDatabase())));
 
 // --- LLM telemetry ---
 //
