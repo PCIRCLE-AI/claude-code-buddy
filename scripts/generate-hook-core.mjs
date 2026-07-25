@@ -30,6 +30,12 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { builtinModules } from 'node:module';
+
+// A runtime-leaf module may import ONLY node builtins — those resolve next to
+// the hooks even when dist/ and node_modules are absent. Anything else (a
+// relative sibling or an external package) makes the verbatim copy unsafe.
+const NODE_BUILTINS = new Set(builtinModules);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
@@ -66,16 +72,26 @@ function generate() {
       console.error(`generate-hook-core: cannot read ${from} — run \`tsc\` first. (${err.message})`);
       process.exit(2);
     }
-    // Guard the leaf invariant: a relative import means the source stopped
-    // being self-contained and this copy would break at hook runtime.
-    const relImport = code.match(/^\s*import[^;]*from\s+['"]\.[^'"]+['"]/m);
-    if (relImport) {
-      console.error(
-        `generate-hook-core: ${from} has a relative import (${relImport[0].trim()}). ` +
-        `${src} is no longer a runtime-leaf module and cannot be copied verbatim. ` +
-        `Bundle it or keep its dependency graph leaf.`,
-      );
-      process.exit(1);
+    // Guard the leaf invariant: every import in the copied module must resolve
+    // to a node builtin. A relative import ('./x') or an external package
+    // ('somepkg') means the source stopped being self-contained, so the copy
+    // would break at hook runtime where dist/ and node_modules may be absent.
+    // Matches `import ... from 'spec'` AND bare `import 'spec'` (spans newlines
+    // for multi-line specifier lists via the newline-inclusive [^;] class).
+    const importRe = /^\s*import\b\s*(?:[^;]*?\bfrom\s+)?['"]([^'"]+)['"]/gm;
+    let imp;
+    while ((imp = importRe.exec(code)) !== null) {
+      const spec = imp[1];
+      const isBuiltin = spec.startsWith('node:') || NODE_BUILTINS.has(spec);
+      if (!isBuiltin) {
+        const kind = spec.startsWith('.') ? 'a relative import' : 'an external package';
+        console.error(
+          `generate-hook-core: ${from} imports '${spec}' (${kind}). ` +
+          `${src} must stay a runtime-leaf module (node builtins only) to be copied ` +
+          `verbatim next to the hooks. Drop the dependency, or bundle it instead of copying.`,
+        );
+        process.exit(1);
+      }
     }
     // Strip the tsc sourceMappingURL footer — the .map isn't copied alongside.
     code = code.replace(/\n?\/\/# sourceMappingURL=.*\s*$/, '\n');
