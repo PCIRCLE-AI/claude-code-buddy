@@ -31,6 +31,7 @@
 //   - all writes wrapped in transaction; partial-failure rolls back
 
 import type Database from 'better-sqlite3';
+import { extractJsonBlock } from './json-utils.js';
 import { callLLM, type LLMAttempt } from './llm-client.js';
 import type { LLMConfig } from './config.js';
 import { recordTelemetry } from './llm-telemetry.js';
@@ -367,9 +368,9 @@ ${sources}`;
 
 function parseDigest(text: string): ProposedDigest | null {
   try {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    const obj = JSON.parse(match[0]) as { action?: string; digest?: ProposedDigest };
+    const block = extractJsonBlock(text, 'object');
+    if (!block) return null;
+    const obj = JSON.parse(block) as { action?: string; digest?: ProposedDigest };
     if (obj.action !== 'ADD' || !obj.digest) return null;
     if (!obj.digest.name || !obj.digest.observations || obj.digest.observations.length === 0) return null;
     return {
@@ -623,9 +624,9 @@ ${sample}`;
 
 function parsePatterns(text: string): PatternProposal[] {
   try {
-    const match = text.match(/\[[\s\S]*\]/);
-    if (!match) return [];
-    const arr = JSON.parse(match[0]) as Array<Partial<PatternProposal>>;
+    const block = extractJsonBlock(text, 'array');
+    if (!block) return [];
+    const arr = JSON.parse(block) as Array<Partial<PatternProposal>>;
     if (!Array.isArray(arr)) return [];
     return arr
       .filter(p => p.name && Array.isArray(p.observations) && p.observations.length > 0 && Array.isArray(p.evidence) && p.evidence.length >= 2)

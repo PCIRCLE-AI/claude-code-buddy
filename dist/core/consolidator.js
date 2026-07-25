@@ -1,4 +1,5 @@
 import { getDatabase } from '../db.js';
+import { extractJsonBlock } from './json-utils.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { detectCapabilities, readConfig } from './config.js';
 import { callLLM } from './llm-client.js';
@@ -91,9 +92,9 @@ async function compressObservations(observations, llmConfig, fallbacks, onAttemp
     if (!text)
         return observations;
     try {
-        const match = text.match(/\[[\s\S]*?\]/);
-        if (match) {
-            const arr = JSON.parse(match[0]);
+        const block = extractJsonBlock(text, 'array');
+        if (block) {
+            const arr = JSON.parse(block);
             if (Array.isArray(arr) && arr.length > 0) {
                 const filtered = arr.filter((s) => typeof s === 'string' && s.length > 0);
                 if (filtered.length > 0)
