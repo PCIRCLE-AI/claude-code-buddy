@@ -37,6 +37,7 @@
 //   LLM response can't blow up the dream_proposals row.
 
 import { callLLM, type LLMAttempt } from './llm-client.js';
+import { extractJsonBlock } from './json-utils.js';
 import type { LLMConfig } from './config.js';
 import { sanitizeForPrompt, sanitizeListForPrompt } from './prompt-safety.js';
 
@@ -160,12 +161,12 @@ export function parseValidatorResponse(text: string): ValidationResult {
 
   if (!text || typeof text !== 'string') return fallback;
 
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return fallback;
+  const block = extractJsonBlock(text, 'object');
+  if (!block) return fallback;
 
   let obj: unknown;
   try {
-    obj = JSON.parse(match[0]);
+    obj = JSON.parse(block);
   } catch {
     return fallback;
   }

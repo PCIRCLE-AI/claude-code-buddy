@@ -1,4 +1,5 @@
 import { getDatabase } from '../db.js';
+import { extractJsonBlock } from './json-utils.js';
 import type { LLMConfig } from './config.js';
 import { callLLM, type LLMAttempt } from './llm-client.js';
 import { recordTelemetry } from './llm-telemetry.js';
@@ -86,9 +87,9 @@ export async function autoTagAndApply(
 
 export function parseTags(text: string): string[] {
   try {
-    const match = text.match(/\[[\s\S]*?\]/);
-    if (!match) return [];
-    const arr = JSON.parse(match[0]);
+    const block = extractJsonBlock(text, 'array');
+    if (!block) return [];
+    const arr = JSON.parse(block);
     if (!Array.isArray(arr)) return [];
 
     return arr

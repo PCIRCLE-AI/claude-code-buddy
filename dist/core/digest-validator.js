@@ -1,4 +1,5 @@
 import { callLLM } from './llm-client.js';
+import { extractJsonBlock } from './json-utils.js';
 import { sanitizeForPrompt, sanitizeListForPrompt } from './prompt-safety.js';
 const MAX_CLAIM_LEN = 500;
 const MAX_REASON_LEN = 300;
@@ -45,12 +46,12 @@ export function parseValidatorResponse(text) {
     };
     if (!text || typeof text !== 'string')
         return fallback;
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match)
+    const block = extractJsonBlock(text, 'object');
+    if (!block)
         return fallback;
     let obj;
     try {
-        obj = JSON.parse(match[0]);
+        obj = JSON.parse(block);
     }
     catch {
         return fallback;

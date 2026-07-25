@@ -1,3 +1,4 @@
+import { extractJsonBlock } from './json-utils.js';
 import { callLLM } from './llm-client.js';
 import { recordTelemetry } from './llm-telemetry.js';
 import { validateDigest } from './digest-validator.js';
@@ -223,10 +224,10 @@ ${sources}`;
 }
 function parseDigest(text) {
     try {
-        const match = text.match(/\{[\s\S]*\}/);
-        if (!match)
+        const block = extractJsonBlock(text, 'object');
+        if (!block)
             return null;
-        const obj = JSON.parse(match[0]);
+        const obj = JSON.parse(block);
         if (obj.action !== 'ADD' || !obj.digest)
             return null;
         if (!obj.digest.name || !obj.digest.observations || obj.digest.observations.length === 0)
@@ -388,10 +389,10 @@ ${sample}`;
 }
 function parsePatterns(text) {
     try {
-        const match = text.match(/\[[\s\S]*\]/);
-        if (!match)
+        const block = extractJsonBlock(text, 'array');
+        if (!block)
             return [];
-        const arr = JSON.parse(match[0]);
+        const arr = JSON.parse(block);
         if (!Array.isArray(arr))
             return [];
         return arr
