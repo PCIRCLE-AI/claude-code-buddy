@@ -216,6 +216,12 @@ function handlePost(schema, req, res, handler) {
         .then((data) => res.json({ success: true, data }))
         .catch((err) => res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) }));
 }
+function handleGet(res, produce) {
+    Promise.resolve()
+        .then(produce)
+        .then((data) => res.json({ success: true, data }))
+        .catch((err) => res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }));
+}
 app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, remember));
 app.post('/v1/recall', async (req, res) => {
     const parsed = RecallBody.safeParse(req.body);
@@ -364,40 +370,14 @@ app.get('/v1/update-status', async (req, res) => {
         res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
     }
 });
-app.get('/v1/graph', (_req, res) => {
-    try {
-        res.json({ success: true, data: computeGraph(getDatabase()) });
-    }
-    catch (err) {
-        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
-    }
-});
-app.get('/v1/stats', (_req, res) => {
-    try {
-        res.json({ success: true, data: computeStats(getDatabase()) });
-    }
-    catch (err) {
-        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
-    }
-});
-app.get('/v1/analytics', (_req, res) => {
-    try {
-        res.json({ success: true, data: computeAnalytics(getDatabase()) });
-    }
-    catch (err) {
-        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
-    }
-});
+app.get('/v1/graph', (_req, res) => handleGet(res, () => computeGraph(getDatabase())));
+app.get('/v1/stats', (_req, res) => handleGet(res, () => computeStats(getDatabase())));
+app.get('/v1/analytics', (_req, res) => handleGet(res, () => computeAnalytics(getDatabase())));
 app.get('/v1/analytics/pm', (req, res) => {
     const raw = req.query.window;
     const window = typeof raw === 'string' ? parseInt(raw, 10) : NaN;
     const windowDays = Number.isFinite(window) && window > 0 ? window : 30;
-    try {
-        res.json({ success: true, data: computePmAnalytics(getDatabase(), windowDays) });
-    }
-    catch (err) {
-        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
-    }
+    handleGet(res, () => computePmAnalytics(getDatabase(), windowDays));
 });
 app.post('/v1/demo/seed', async (_req, res) => {
     try {
@@ -419,24 +399,8 @@ app.post('/v1/demo/reset', async (_req, res) => {
         res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
     }
 });
-app.get('/v1/projects', (_req, res) => {
-    try {
-        res.json({ success: true, data: computeProjects(getDatabase()) });
-    }
-    catch (err) {
-        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
-    }
-});
-app.get('/v1/patterns', (_req, res) => {
-    try {
-        const db = getDatabase();
-        const data = computePatterns(db);
-        res.json({ success: true, data });
-    }
-    catch (err) {
-        res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
-    }
-});
+app.get('/v1/projects', (_req, res) => handleGet(res, () => computeProjects(getDatabase())));
+app.get('/v1/patterns', (_req, res) => handleGet(res, () => computePatterns(getDatabase())));
 const TelemetryQuerySchema = z.object({
     window: z.coerce.number().int().min(1).max(365).default(30),
 });
