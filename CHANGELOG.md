@@ -4,6 +4,8 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+## [4.2.10] — 2026-07-25
+
 ### Fixed
 - **LLM JSON-block extraction is now nesting- and prose-safe (latent bug)** (`src/core/json-utils.ts` + auto-tagger / consolidator / digest-validator / dreamer) — five sites pulled a JSON object/array out of a chatty LLM reply with a regex, and they had drifted between a greedy `/\{[\s\S]*\}/` and a lazy `/\{[\s\S]*?\}/`. Both are fragile: greedy over-matches a `]`/`}` that appears later in prose and breaks `JSON.parse`; lazy stops at the first closer and truncates a nested block. Replaced all five with one `extractJsonBlock(text, kind)` that scans for the first balanced block, tracking depth and skipping brackets inside string literals — robust to nesting, trailing prose, and quoted brackets. Covered by a new unit test hitting each case the old regexes broke on.
 
