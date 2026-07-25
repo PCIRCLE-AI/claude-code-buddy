@@ -1,0 +1,205 @@
+/**
+ * F5 mirror-parity gates — the CI guard the P0 FTS bug proved was missing.
+ *
+ * `scripts/hooks/_shared.js` hand-mirrors part of `src/core` because hooks must
+ * run the always-on capture path even when `dist/` is absent (plugin-marketplace
+ * `--ignore-scripts`) or stale. The danger is DRIFT: when the mirror diverges
+ * from core, real bugs ship silently. Two divergences matter most:
+ *
+ *   1. PATHS — if the mirror's DB-path / project-identity logic drifts from
+ *      `src/core/paths.ts`, a hook resolves the WRONG database file or WRONG
+ *      project and writes memory to the wrong place. Silent corruption.
+ *
+ *   2. FTS reindex — if the mirror's `captureEntity` FTS dance drifts from
+ *      `src/storage/fts-index.ts`, hook-written memory stops being searchable.
+ *      This is exactly the P0 (entity+obs written, FTS index skipped).
+ *
+ * `write-hook-invariants.test.ts` already checks captureEntity FTS-syncs in
+ * isolation. THIS file is stronger: it pins the mirror to the CORE source of
+ * truth, so a change to `paths.ts` / `fts-index.ts` that forgets the mirror
+ * turns CI red. Verified non-vacuous: reintroducing the FTS omission in
+ * captureEntity, or changing the mirror's path precedence, fails these tests.
+ */
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { createRequire } from 'module';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import {
+  memeshDir as coreMemeshDir,
+  getDbPath as coreGetDbPath,
+  getMemeshDirFromDbPath as coreGetMemeshDirFromDbPath,
+  slugFromRemoteUrl as coreSlugFromRemoteUrl,
+  getProjectName as coreGetProjectName,
+} from '../../src/core/paths.js';
+import { removeFromFts, insertFtsRow } from '../../src/storage/fts-index.js';
+
+const require = createRequire(import.meta.url);
+// _shared.js is plain JS (hooks cannot import compiled TS) — require it raw.
+const shared = require('../../scripts/hooks/_shared.js');
+
+describe('F5 mirror parity: scripts/hooks/_shared.js vs src/core', () => {
+  const savedHome = process.env.HOME;
+  const savedDbPath = process.env.MEMESH_DB_PATH;
+
+  afterEach(() => {
+    // Restore env the path helpers read at call time.
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+    if (savedDbPath === undefined) delete process.env.MEMESH_DB_PATH;
+    else process.env.MEMESH_DB_PATH = savedDbPath;
+  });
+
+  describe('paths parity (wrong DB path / project = silent corruption)', () => {
+    it('slugFromRemoteUrl matches core for every URL shape', () => {
+      const urls = [
+        'https://github.com/PCIRCLE-AI/memesh-llm-memory.git',
+        'https://github.com/PCIRCLE-AI/memesh-llm-memory',
+        'git@github.com:PCIRCLE-AI/memesh-llm-memory.git',
+        'https://gitlab.com/group/subgroup/project.git',
+        'ssh://git@example.com:2222/team/repo.git',
+        'not-a-url',
+        '',
+      ];
+      for (const url of urls) {
+        expect(shared.slugFromRemoteUrl(url), `slug drift for ${JSON.stringify(url)}`)
+          .toBe(coreSlugFromRemoteUrl(url));
+      }
+    });
+
+    it('memeshDir matches core (MEMESH_DB_PATH unset, HOME redirected)', () => {
+      const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-parity-home-'));
+      try {
+        delete process.env.MEMESH_DB_PATH;
+        process.env.HOME = tmpHome;
+        expect(shared.memeshDir()).toBe(coreMemeshDir());
+      } finally {
+        fs.rmSync(tmpHome, { recursive: true, force: true });
+      }
+    });
+
+    it('getDbPath matches core with and without MEMESH_DB_PATH override', () => {
+      const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-parity-home-'));
+      try {
+        // (a) no override — derived from HOME.
+        delete process.env.MEMESH_DB_PATH;
+        process.env.HOME = tmpHome;
+        expect(shared.getDbPath()).toBe(coreGetDbPath());
+
+        // (b) explicit override wins identically on both sides.
+        const override = path.join(tmpHome, 'custom', 'kg.db');
+        process.env.MEMESH_DB_PATH = override;
+        expect(shared.getDbPath()).toBe(coreGetDbPath());
+      } finally {
+        fs.rmSync(tmpHome, { recursive: true, force: true });
+      }
+    });
+
+    it('getMemeshDirFromDbPath matches core (override set and unset)', () => {
+      const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-parity-home-'));
+      try {
+        process.env.HOME = tmpHome;
+        const override = path.join(tmpHome, 'nested', 'kg.db');
+        process.env.MEMESH_DB_PATH = override;
+        expect(shared.getMemeshDirFromDbPath()).toBe(coreGetMemeshDirFromDbPath());
+
+        delete process.env.MEMESH_DB_PATH;
+        expect(shared.getMemeshDirFromDbPath()).toBe(coreGetMemeshDirFromDbPath());
+      } finally {
+        fs.rmSync(tmpHome, { recursive: true, force: true });
+      }
+    });
+
+    it('getProjectName matches core for the same working directory', () => {
+      // Both read git identity for the same cwd; they must agree. This repo is
+      // a git checkout, so the real remote/dir-name path is exercised.
+      const cwd = process.cwd();
+      expect(shared.getProjectName(cwd)).toBe(coreGetProjectName(cwd));
+    });
+  });
+
+  describe('FTS reindex parity (the P0 class): captureEntity vs core fts-index', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-parity-fts-'));
+    });
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    /** Open a fresh hook DB (creates entities/observations/tags/entities_fts). */
+    function openDb(file: string) {
+      const handle = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: file }, { fts: true });
+      expect(handle).not.toBeNull();
+      return handle.db;
+    }
+
+    /** rowids that MATCH a token in entities_fts, sorted for comparison. */
+    function ftsMatch(db: any, token: string): number[] {
+      return (db.prepare("SELECT rowid FROM entities_fts WHERE entities_fts MATCH ?").all(token) as Array<{ rowid: number }>)
+        .map((r) => r.rowid)
+        .sort((a, b) => a - b);
+    }
+
+    /** Reference write via the CORE primitive (what captureEntity must equal). */
+    function coreWrite(db: any, name: string, type: string, observations: string[]): number {
+      db.prepare('INSERT OR IGNORE INTO entities (name, type) VALUES (?, ?)').run(name, type);
+      const id = (db.prepare('SELECT id FROM entities WHERE name = ?').get(name) as { id: number }).id;
+      const insertObs = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+      for (const o of observations) insertObs.run(id, o);
+      insertFtsRow(db, id, name, observations.join(' '));
+      return id;
+    }
+
+    it('new-entity FTS state is identical to the core insertFtsRow path', () => {
+      const observations = ['the quick brown zebra', 'jumped the fence at dawn'];
+
+      const hookDb = openDb(path.join(tmpDir, 'hook.db'));
+      const coreDb = openDb(path.join(tmpDir, 'core.db'));
+      try {
+        const hookRes = shared.captureEntity(hookDb, { name: 'e1', type: 'note', observations });
+        const coreId = coreWrite(coreDb, 'e1', 'note', observations);
+
+        for (const token of ['zebra', 'fence', 'dawn', 'brown']) {
+          expect(ftsMatch(hookDb, token), `token ${token} drift`).toEqual(ftsMatch(coreDb, token));
+        }
+        // Both index the same single rowid.
+        expect(ftsMatch(hookDb, 'zebra')).toEqual([hookRes.id]);
+        expect(ftsMatch(coreDb, 'zebra')).toEqual([coreId]);
+      } finally {
+        hookDb.close();
+        coreDb.close();
+      }
+    });
+
+    it('re-index (existing entity) FTS state matches core remove+insert', () => {
+      const first = ['alpha bravo charlie'];
+      const second = ['delta echo foxtrot'];
+
+      const hookDb = openDb(path.join(tmpDir, 'hook.db'));
+      const coreDb = openDb(path.join(tmpDir, 'core.db'));
+      try {
+        // First write.
+        shared.captureEntity(hookDb, { name: 'e1', type: 'note', observations: first });
+        const coreId = coreWrite(coreDb, 'e1', 'note', first);
+
+        // Second write to the SAME entity — captureEntity does delete-then-insert.
+        shared.captureEntity(hookDb, { name: 'e1', type: 'note', observations: second });
+        // Core reference: remove stale FTS, add the new observation, reindex full set.
+        removeFromFts(coreDb, coreId, 'e1', first.join(' '));
+        coreDb.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(coreId, second[0]);
+        insertFtsRow(coreDb, coreId, 'e1', [...first, ...second].join(' '));
+
+        // Old and new tokens must resolve identically on both sides — and the
+        // stale index must NOT double-count (the reindex delete worked).
+        for (const token of ['alpha', 'charlie', 'delta', 'foxtrot']) {
+          expect(ftsMatch(hookDb, token), `token ${token} drift`).toEqual(ftsMatch(coreDb, token));
+        }
+      } finally {
+        hookDb.close();
+        coreDb.close();
+      }
+    });
+  });
+});
