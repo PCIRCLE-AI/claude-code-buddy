@@ -25,7 +25,7 @@
   ],
   "scripts": {
     "postinstall": "node scripts/postinstall-rebuild.mjs",
-    "build": "node scripts/check-schema-drift.mjs && tsc && node scripts/copy-cli-assets.mjs && node scripts/set-executable-bits.mjs && node scripts/generate-skills-manifest.mjs && npm run build:dashboard && node scripts/smoke-test.mjs",
+    "build": "node scripts/check-schema-drift.mjs && tsc && node scripts/generate-hook-core.mjs && node scripts/copy-cli-assets.mjs && node scripts/set-executable-bits.mjs && node scripts/generate-skills-manifest.mjs && npm run build:dashboard && node scripts/smoke-test.mjs",
     "build:dashboard": "node scripts/build-dashboard.mjs",
     "test": "vitest",
     "test:e2e-dashboard": "node scripts/dashboard-e2e-smoke.mjs",
