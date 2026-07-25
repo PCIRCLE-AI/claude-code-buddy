@@ -1,148 +1,42 @@
 import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'fs';
-import { spawn, execFileSync } from 'child_process';
+import { spawn } from 'child_process';
 import { createRequire } from 'module';
 import { homedir } from 'os';
-import { basename, dirname, join } from 'path';
+import { dirname, join } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
+// =============================================================================
+// Path helpers + FTS primitives — GENERATED from src/core (do not hand-mirror)
+// =============================================================================
+//
+// These were once a 965-line hand-mirror of `src/core`, kept in lockstep by
+// human review — until the copies drifted and shipped the P0 FTS bug (a hook
+// wrote an entity+observations but the mirror's reindex step diverged, leaving
+// the memory unrecallable).
+//
+// `src/core/paths.ts` and `src/storage/fts-index.ts` are runtime-LEAF modules
+// (paths.ts imports only node builtins; fts-index.ts has only a type-only
+// import), so `tsc` emits self-contained JS for them. `scripts/generate-hook-core.mjs`
+// copies that compiled JS to `_generated/` at build time — committed, shipped in
+// the tarball, and version-locked to its own install. So the hook path still
+// survives a missing/stale `dist/` (the F5 constraint) exactly as the hand-mirror
+// did, but the copy is byte-locked to core and CI-gated (`git diff` on rebuild +
+// `tests/hooks/mirror-parity.test.ts`), making drift structurally impossible.
+//
+// Re-exported here so all 7 hooks keep importing these names from `_shared.js`
+// unchanged.
+import {
+  memeshDir,
+  getDbPath,
+  getMemeshDirFromDbPath,
+  getProjectName,
+  slugFromRemoteUrl,
+} from './_generated/core-paths.js';
+import { removeFromFts, insertFtsRow } from './_generated/fts-index.js';
+
+export { memeshDir, getDbPath, getMemeshDirFromDbPath, getProjectName, slugFromRemoteUrl };
+
 const require = createRequire(import.meta.url);
-
-// =============================================================================
-// Path helpers — MIRROR of src/core/paths.ts
-// =============================================================================
-//
-// Hooks cannot import from `dist/` (the F5 security boundary — `dist/` may
-// be stale or absent at hook execution time), so the path-resolution logic
-// is duplicated here. The contract MUST stay in lockstep with
-// `src/core/paths.ts`. Any change to the function shapes / precedence
-// rules in that file MUST be reflected here too.
-//
-// Unlike the schema duplication (which has a build-time diff guard via
-// `scripts/check-schema-drift.mjs`), these helpers are short enough that
-// human review at code-review time is sufficient. If they grow, add a
-// programmatic guard.
-
-/**
- * Return the user's home directory, honoring HOME env var first.
- *
- * On POSIX, os.homedir() already consults HOME. On Windows, it ignores
- * env vars and reads GetUserProfileDirectoryW directly — which makes
- * tests unable to redirect home-dir lookups to a tmp dir. Honoring HOME
- * first lets tests set HOME=<tmpdir> and have it actually take effect
- * across platforms. Production users on Windows almost never set HOME,
- * so this falls through to os.homedir() as before.
- *
- * Mirror of: src/core/paths.ts → homeDir()
- *
- * @returns {string}
- */
-function homeDir() {
-  // Mirror src/core/paths.ts homeDir() — same three-step fallback to
-  // handle HOME="" environments. `os.homedir()` itself reads HOME on
-  // POSIX, so HOME="" makes it return "". `os.userInfo().homedir`
-  // reads pw_dir via getpwuid syscall, bypassing env vars entirely.
-  const home = process.env.HOME;
-  if (home && home.length > 0) return home;
-  const fromOs = homedir();
-  if (fromOs && fromOs.length > 0) return fromOs;
-  // userInfo is the final defence — re-import here to keep the
-  // top-of-file `import { homedir } from 'os'` line stable.
-  return require('os').userInfo().homedir;
-}
-
-/**
- * Resolve the memesh data directory.
- *
- * Precedence: MEMESH_DIR env var > <home>/.memesh.
- * Mirror of: src/core/paths.ts → memeshDir()
- *
- * No-arg to mirror the core helper exactly. Earlier drafts accepted a
- * custom `env` parameter for symmetry with `getMemeshDirFromDbPath(env)`,
- * but the inner `homeDir()` only ever read `process.env.HOME`, so a
- * caller that passed `{HOME: '/tmp/x'}` would be silently ignored — a
- * footgun. Tests redirect via `process.env.HOME`; that's the supported
- * extension point.
- *
- * @returns {string}
- */
-export function memeshDir() {
-  return process.env.MEMESH_DIR ?? join(homeDir(), '.memesh');
-}
-
-/**
- * Resolve the active memesh DB path.
- *
- * Precedence: MEMESH_DB_PATH env var > <memeshDir>/knowledge-graph.db.
- * Mirror of: src/core/paths.ts → getDbPath() — no-arg, see memeshDir().
- *
- * @returns {string}
- */
-export function getDbPath() {
-  return process.env.MEMESH_DB_PATH ?? join(memeshDir(), 'knowledge-graph.db');
-}
-
-/**
- * Derive the project name from a working directory.
- *
- * Hooks historically used `basename(data.cwd || process.cwd())`. Core
- * had two variants (`basename(context.cwd)` and `basename(process.cwd())`).
- * This helper unifies the contract — explicit cwd wins, falls through to
- * process.cwd() — matching the most permissive caller's behaviour.
- *
- * Mirror of: src/core/paths.ts → getProjectName() + resolveProjectIdentity().
- * The layered git resolution MUST stay identical to that file — a divergence
- * means hooks (which write project tags) and core (which reads them) would
- * disagree on identity, re-creating the split this change fixes.
- *
- * @param {string|null|undefined} [cwdInput]
- * @returns {string}
- */
-const _projectNameCache = new Map();
-
-export function getProjectName(cwdInput) {
-  const cwd = cwdInput && cwdInput.length > 0 ? cwdInput : process.cwd();
-  const cached = _projectNameCache.get(cwd);
-  if (cached !== undefined) return cached;
-  const resolved = _resolveProjectIdentity(cwd);
-  _projectNameCache.set(cwd, resolved);
-  return resolved;
-}
-
-// Layered identity: git remote slug > git repo root basename > cwd basename.
-// See src/core/paths.ts resolveProjectIdentity for the full rationale. git
-// failures at any layer fall through to the next; capture must never break.
-function _resolveProjectIdentity(cwd) {
-  const remote = _tryGit(cwd, ['config', '--get', 'remote.origin.url']);
-  if (remote) {
-    const slug = slugFromRemoteUrl(remote);
-    if (slug) return slug;
-  }
-  const root = _tryGit(cwd, ['rev-parse', '--show-toplevel']);
-  if (root) return basename(root);
-  return basename(cwd);
-}
-
-function _tryGit(cwd, args) {
-  try {
-    const out = execFileSync('git', ['-C', cwd, ...args], {
-      encoding: 'utf8',
-      timeout: 2000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    const trimmed = out.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Mirror of paths.ts slugFromRemoteUrl. */
-export function slugFromRemoteUrl(url) {
-  const cleaned = url.trim().replace(/\.git$/i, '').replace(/[/\\]+$/, '');
-  if (!cleaned) return null;
-  const seg = cleaned.split(/[/:\\]/).filter(Boolean).pop();
-  return seg && seg.length > 0 ? seg : null;
-}
 
 /**
  * Resolve the package root from a hook file's `import.meta.url`.
@@ -672,39 +566,23 @@ export function captureEntity(db, { name, type, observations = [], tags = [] }) 
   for (const tag of tags) insertTag.run(id, tag);
 
   // Reindex FTS: delete the stale entry (if any) then insert the full,
-  // current observation set. Keep in lockstep with post-commit/pre-compact's
-  // historical inline form and with src/storage/fts-index.ts.
+  // current observation set. Uses the generated copy of src/storage/fts-index.ts
+  // so the contentless-FTS5 delete+insert dance can no longer drift from core.
   if (prevObsText !== undefined) {
-    db.prepare("INSERT INTO entities_fts(entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)").run(id, name, prevObsText);
+    removeFromFts(db, id, name, prevObsText);
   }
   const allObsText = db
     .prepare('SELECT content FROM observations WHERE entity_id = ?')
     .all(id)
     .map((o) => o.content)
     .join(' ');
-  db.prepare('INSERT INTO entities_fts(rowid, name, observations) VALUES(?, ?, ?)').run(id, name, allObsText);
+  insertFtsRow(db, id, name, allObsText);
 
   return { id, isNew };
 }
 
 const PRIVATE_DIR_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
-
-/**
- * Resolve the directory containing the active DB file.
- *
- * When MEMESH_DB_PATH is set, returns its parent directory (used for
- * sibling files next to the DB). Otherwise returns memeshDir().
- * Mirror of: src/core/paths.ts → getMemeshDirFromDbPath()
- *
- * Renamed from the legacy `getMemeshDir` to match the core helper —
- * sibling helper `memeshDir()` returns the GLOBAL data directory, so a
- * second function called `getMemeshDir` was confusing. Callers updated
- * in lockstep.
- */
-export function getMemeshDirFromDbPath() {
-  return process.env.MEMESH_DB_PATH ? dirname(process.env.MEMESH_DB_PATH) : memeshDir();
-}
 
 export function ensurePrivateDir(dirPath) {
   mkdirSync(dirPath, { recursive: true, mode: PRIVATE_DIR_MODE });
