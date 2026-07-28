@@ -244,9 +244,8 @@ export class KnowledgeGraph {
             }
             return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
         }
-        const sanitized = query.replace(/"/g, '""').trim();
-        const tokens = sanitized
-            .split(/\s+/)
+        const tokens = query
+            .split(/[^\p{L}\p{N}]+/u)
             .filter((t) => t.length > 0)
             .slice(0, MAX_QUERY_TERMS);
         if (tokens.length === 0)

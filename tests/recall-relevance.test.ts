@@ -139,6 +139,61 @@ describe('Feature: recall relevance', () => {
     });
   });
 
+  describe('punctuation inside a word does not become a phrase requirement', () => {
+    it('matches a memory that spells the word without the apostrophe', () => {
+      kg.createEntity('kitchen-tips', 'note', {
+        observations: ['Wipe the kitchen counters before the oil dries.'],
+      });
+      // Quoting the raw whitespace token makes "kitchen's" the PHRASE
+      // kitchen + s, which only matches those tokens adjacent and in order.
+      expect(kg.search("kitchen's").map((e) => e.name)).toContain('kitchen-tips');
+    });
+
+    it('matches either half of a hyphenated query word', () => {
+      kg.createEntity('garden-log', 'note', {
+        observations: ['Spent Sunday on gardening: repotted the tomatoes.'],
+      });
+      expect(kg.search('gardening-related activity').map((e) => e.name)).toContain('garden-log');
+    });
+
+    it('does not erase non-Latin queries', () => {
+      // Splitting on [^a-zA-Z0-9] would reduce this query to nothing and
+      // silently fall through to the recent-list path, which looks like a
+      // successful search returning wrong rows. \p{L} keeps the token.
+      kg.createEntity('cjk-note', 'note', { observations: ['資料庫 遷移 備份'] });
+      kg.createEntity('other-note', 'note', { observations: ['unrelated english text'] });
+
+      const names = kg.search('備份').map((e) => e.name);
+      expect(names).toContain('cjk-note');
+      expect(names).not.toContain('other-note');
+    });
+
+    it('documents the CJK segmentation limit (pre-existing, tokenizer-level)', () => {
+      // FTS5's unicode61 tokenizer treats an unbroken run of CJK characters as
+      // ONE token, so a substring of it cannot match. This is unchanged by the
+      // OR/tokenising work — whitespace splitting produced the identical token.
+      // Lifting it means switching entities_fts to a trigram tokenizer, which
+      // is an index migration, not a query change.
+      kg.createEntity('cjk-run', 'note', { observations: ['資料庫遷移前一定要先備份'] });
+
+      expect(kg.search('資料庫遷移前一定要先備份').map((e) => e.name)).toContain('cjk-run');
+      expect(kg.search('資料庫遷移').map((e) => e.name)).not.toContain('cjk-run');
+    });
+
+    it('treats FTS5 operator words as plain search terms', () => {
+      kg.createEntity('or-note', 'note', { observations: ['choose redis or postgres'] });
+      // Unquoted, OR / NOT / NEAR are FTS5 syntax; the tokens stay quoted so a
+      // user asking about them searches for the word.
+      expect(() => kg.search('redis or postgres')).not.toThrow();
+      expect(kg.search('redis or postgres').map((e) => e.name)).toContain('or-note');
+    });
+
+    it('falls back to the recent list when the query is only punctuation', () => {
+      kg.createEntity('anything', 'note', { observations: ['some content'] });
+      expect(kg.search('?!...').map((e) => e.name)).toContain('anything');
+    });
+  });
+
   describe('existing behaviour is preserved', () => {
     it('respects the tag filter', () => {
       kg.createEntity('tagged', 'note', {

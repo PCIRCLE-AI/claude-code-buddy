@@ -407,9 +407,16 @@ export class KnowledgeGraph {
     // natural-language questions returned zero rows. OR + BM25 ranking is the
     // standard behaviour: memories matching more of the query score higher and
     // surface first, instead of being excluded outright.
-    const sanitized = query.replace(/"/g, '""').trim();
-    const tokens = sanitized
-      .split(/\s+/)
+    // Split on the same boundaries FTS5's `unicode61` tokenizer uses — anything
+    // that is not a letter or a digit — rather than on whitespace alone.
+    // Whitespace splitting left punctuation inside the quotes, so `"kitchen's"`
+    // and `"gardening-related"` became multi-word PHRASES that only matched a
+    // memory containing those words adjacent and in order: a memory saying
+    // "kitchen" or "gardening" was missed entirely. The \p{L}/\p{N} classes
+    // keep this correct for non-Latin scripts — a plain [^a-zA-Z0-9] strip
+    // would erase CJK queries completely.
+    const tokens = query
+      .split(/[^\p{L}\p{N}]+/u)
       .filter((t) => t.length > 0)
       .slice(0, MAX_QUERY_TERMS);
     if (tokens.length === 0) return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
