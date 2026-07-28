@@ -84,13 +84,15 @@ If a relation target does not exist, the entity is still stored and `relationErr
 
 ### recall
 
-Search and retrieve stored knowledge. Uses FTS5 full-text search + sqlite-vec vector supplement, with optional tag filtering and multi-factor scoring. The hot path is LLM-free — measured at 95.40% R@5 on LongMemEval-S (within 1.2pp of vendor-reported reranker stacks). Results are ranked by a weighted combination of search relevance, recency, access frequency, confidence, and temporal validity. Call with no query to list recent memories.
+Search and retrieve stored knowledge. Uses FTS5 full-text search + sqlite-vec vector supplement, with optional tag filtering and multi-factor scoring. The hot path is LLM-free. Results are ranked by a weighted combination of search relevance, recency, access frequency, confidence, and recall-effectiveness impact. Call with no query to list recent memories.
+
+Query terms are OR-ed and the matches are ordered by relevance (BM25) before scoring, so a question phrased in your own words finds the memory instead of requiring every word to appear in it. A memory matching more of your terms ranks higher; adding words narrows the ranking, not the result set. Terms beyond the first 32 are ignored, and punctuation inside a word splits it (`kitchen's` searches for `kitchen` and `s`, not for the exact phrase).
 
 **Input Schema**:
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `query` | string | No | Search query (FTS5 full-text search). Leave empty to list recent entities. |
+| `query` | string | No | Search query (FTS5 full-text search; terms are OR-ed and ranked by relevance, first 32 terms used). Leave empty to list recent entities. |
 | `tag` | string | No | Filter by tag (e.g., `"project:myapp"`) |
 | `limit` | number | No | Max results (default: 20, max: 100) |
 | `include_archived` | boolean | No | Include archived (forgotten) entities in results (default: false) |
@@ -99,7 +101,7 @@ Search and retrieve stored knowledge. Uses FTS5 full-text search + sqlite-vec ve
 
 **Response**:
 
-Returns an array of matching entities ranked by multi-factor score (relevance, recency, frequency, confidence, temporal validity):
+Returns an array of matching entities ranked by multi-factor score — relevance 0.30, recency 0.25, frequency 0.18, confidence 0.17, recall-effectiveness impact 0.10:
 
 ```json
 [

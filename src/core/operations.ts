@@ -55,6 +55,21 @@ function recallTagFilter(args: RecallInput): string | undefined {
 }
 
 /**
+ * Turn search results into the relevance input for `rankEntities`.
+ *
+ * `search()` returns FTS5 hits in BM25 order, so position carries the relevance
+ * signal: first hit 1.0, last just above 0. Handing every hit the same value
+ * instead would tie them on the 0.30 relevance factor and let `rankEntities`
+ * re-sort purely on recency/frequency/confidence, discarding the ordering the
+ * search just computed. Callers with no query pass an empty map — there is no
+ * relevance signal on the recent-list path, and `rankEntities` already treats a
+ * missing entry as the neutral 0.5.
+ */
+function buildRelevanceMap(entities: Entity[]): Map<string, number> {
+  return new Map(entities.map((entity, index) => [entity.name, 1 - index / (entities.length + 1)]));
+}
+
+/**
  * Store knowledge as an entity with observations, tags, and relations.
  * If entity exists, appends observations and dedupes tags.
  * If any relation has type "supersedes", auto-archives the target entity.
@@ -144,7 +159,9 @@ export function remember(args: RememberInput): RememberResult {
 /**
  * Search and retrieve stored knowledge.
  * Uses FTS5 full-text search with optional tag filtering.
- * Results are ranked by multi-factor score (recency, frequency, confidence, temporal validity).
+ * Results are ranked by multi-factor score: relevance (0.30, the BM25 position
+ * `search()` returned them in), recency (0.25), access frequency (0.18),
+ * confidence (0.17), recall-effectiveness impact (0.10).
  * Empty query returns recent entities.
  */
 export function recall(args: RecallInput): Entity[] {
@@ -159,11 +176,7 @@ export function recall(args: RecallInput): Entity[] {
     namespace: args.namespace,
   });
 
-  // Build relevance map: FTS results get 1.0 relevance, recent-list gets 0.5
-  const relevanceMap = new Map<string, number>();
-  for (const e of entities) {
-    relevanceMap.set(e.name, args.query ? 1.0 : 0.5);
-  }
+  const relevanceMap = args.query ? buildRelevanceMap(entities) : new Map<string, number>();
 
   return rankEntities(entities, relevanceMap).slice(0, args.limit ?? 20);
 }
@@ -216,9 +229,12 @@ async function supplementWithVectors(
  * Recall: FTS5 + sqlite-vec, no LLM in the hot path.
  *
  * The LLM-augmented variant (query expansion via `expandQuery`) was retired
- * after the LongMemEval-S benchmark confirmed Mode A (FTS5 + vector
- * supplement) holds at 95.40% R@5 — within 1.2pp of vendor-reported
- * MemPalace's vector+reranker stack — at 18ms/query. The query-expander
+ * after the LongMemEval-S benchmark showed FTS5 + vector supplement carries
+ * the load without it. Note the 95.40% figure quoted elsewhere comes from
+ * `benchmarks/longmemeval/run.mjs`, which re-implements retrieval and does not
+ * call this function; measured through THIS function on the same 500 questions
+ * the result is 95.60% R@5 (and was 5.20% before the retrieval fixes landed).
+ * The query-expander
  * was paying ~500-10000ms per call (LLM round-trip + ollama fallback)
  * for an estimated 1-2pp ceiling lift, which lost decisively on the
  * UX axis given recall is the hot path for hooks (pre-edit-recall,
@@ -238,11 +254,7 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
     namespace: args.namespace,
   });
 
-  // Build relevance map: FTS results get 1.0, recent-list gets 0.5
-  const relevanceMap = new Map<string, number>();
-  for (const e of entities) {
-    relevanceMap.set(e.name, args.query ? 1.0 : 0.5);
-  }
+  const relevanceMap = args.query ? buildRelevanceMap(entities) : new Map<string, number>();
 
   const mergedEntities = [...entities];
   if (args.query) {

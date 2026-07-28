@@ -5,6 +5,40 @@ import { findConflicts, trackAccess, type TrackAccessOptions } from './storage/c
 import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 
+/**
+ * Cap on how many terms of a query reach the FTS5 MATCH expression. Terms are
+ * OR-ed, so an unbounded query (a pasted stack trace, a log dump) would build
+ * an arbitrarily large disjunction. Real questions are well under this.
+ */
+const MAX_QUERY_TERMS = 32;
+
+/**
+ * Split a user query into the terms that go into an FTS5 MATCH expression.
+ *
+ * The token class mirrors what `unicode61` itself treats as part of a word —
+ * letters, digits, and the combining marks that belong to them — so the query
+ * is cut the same way the index was. Two properties depend on it:
+ *
+ *   - `\p{L}\p{N}` keeps non-Latin scripts alive. A plain `[^a-zA-Z0-9]` strip
+ *     would reduce a CJK query to nothing, and an empty query falls through to
+ *     the recent-list path: a search that looks successful while answering a
+ *     different question.
+ *   - `\p{M}` plus the NFC normalisation keep decomposed text whole. Splitting
+ *     on a combining mark cut words in half — NFD `naïve` became `nai` + `ve`,
+ *     neither of which is a token in the index, because unicode61 folds the
+ *     mark and stores `naive`.
+ *
+ * Every token is alphanumeric by construction, so callers can quote them
+ * without escaping and no FTS5 operator (`OR`, `NEAR`, `*`, `^`, `:`) can
+ * survive as syntax.
+ *
+ * See the CHANGELOG entry for the measured effect and for why both the mark
+ * class and the normalisation are kept when either alone would do.
+ */
+function buildQueryTerms(query: string): string[] {
+  return (query.normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? []).slice(0, MAX_QUERY_TERMS);
+}
+
 export class KnowledgeGraph {
   constructor(private db: Database.Database) {}
 
@@ -386,51 +420,53 @@ export class KnowledgeGraph {
       return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
     }
 
-    // Use FTS5 MATCH to find entity names
-    // Escape double quotes and wrap each token in quotes for safe FTS5 matching
-    const sanitized = query.replace(/"/g, '""').trim();
-    const tokens = sanitized.split(/\s+/).filter((t) => t.length > 0);
+    // Terms are OR-ed, not space-separated. A space is FTS5's implicit AND,
+    // which required EVERY word of a question — "what", "did", "with" — to
+    // appear in one memory, so a question asked in the user's own words matched
+    // nothing. The invariant to preserve: terms are OR-ed and BM25 decides the
+    // order. See the CHANGELOG entry for the measured effect.
+    const tokens = buildQueryTerms(query);
     if (tokens.length === 0) return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
-    const ftsQuery = tokens.map((token) => `"${token}"`).join(' ');
+    const ftsQuery = tokens.map((token) => `"${token}"`).join(' OR ');
+
     // Contentless FTS5: columns return null, so join via rowid → entities.id
     // Archived entities are removed from FTS5 by archiveEntity(), so status filter is a safety net.
+    //
+    // Ordering is FTS5's `rank` (BM25), not `e.id DESC`. LIMIT decides which
+    // rows survive to the multi-factor scorer, so ordering by id meant the
+    // NEWEST matches survived and the best match was discarded before it could
+    // ever be scored. Recency still counts — it is one of the five scoring
+    // factors — but it no longer decides what gets scored.
+    //
+    // The tag filter is an EXISTS subquery rather than a join: a join against a
+    // multi-row `tags` table needs SELECT DISTINCT to dedupe, and DISTINCT both
+    // adds a temp B-tree and constrains what ORDER BY can reference. EXISTS
+    // keeps this to one statement for every filter combination.
+    // Parameter order is MATCH → tag → namespace → limit, matching the clause
+    // order below; `tests/recall-relevance.test.ts` pins it.
     const statusFilter = opts?.includeArchived ? '' : "AND e.status = 'active'";
     const namespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
-    let ftsRows: Array<{ id: number; name: string }>;
+    const tagFilter = opts?.tag
+      ? 'AND EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag = ?)'
+      : '';
+    const params: (string | number)[] = [ftsQuery];
+    if (opts?.tag) params.push(opts.tag);
+    if (opts?.namespace) params.push(opts.namespace);
+    params.push(limit);
+    let ftsRows: Array<{ id: number }>;
     try {
-      if (opts?.tag) {
-        const params: (string | number)[] = [ftsQuery, opts.tag];
-        if (opts?.namespace) params.push(opts.namespace);
-        params.push(limit);
-        ftsRows = this.db
-          .prepare(
-            `SELECT DISTINCT e.id, e.name FROM entities_fts f
-             JOIN entities e ON e.id = f.rowid
-             JOIN tags t ON t.entity_id = e.id
-             WHERE entities_fts MATCH ?
-               AND t.tag = ?
-               ${statusFilter}
-               ${namespaceFilter}
-             ORDER BY e.id DESC
-             LIMIT ?`
-          )
-          .all(...params) as Array<{ id: number; name: string }>;
-      } else {
-        const params: (string | number)[] = [ftsQuery];
-        if (opts?.namespace) params.push(opts.namespace);
-        params.push(limit);
-        ftsRows = this.db
-          .prepare(
-            `SELECT e.id, e.name FROM entities_fts f
-             JOIN entities e ON e.id = f.rowid
-             WHERE entities_fts MATCH ?
-               ${statusFilter}
-               ${namespaceFilter}
-             ORDER BY e.id DESC
-             LIMIT ?`
-          )
-          .all(...params) as Array<{ id: number; name: string }>;
-      }
+      ftsRows = this.db
+        .prepare(
+          `SELECT e.id FROM entities_fts f
+           JOIN entities e ON e.id = f.rowid
+           WHERE entities_fts MATCH ?
+             ${tagFilter}
+             ${statusFilter}
+             ${namespaceFilter}
+           ORDER BY f.rank
+           LIMIT ?`
+        )
+        .all(...params) as Array<{ id: number }>;
     } catch (err) {
       // FTS5 syntax error from user query — return empty results
       if (err instanceof Error && err.message?.includes('fts5')) return [];
