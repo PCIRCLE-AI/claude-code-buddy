@@ -245,7 +245,8 @@ export class KnowledgeGraph {
             return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
         }
         const tokens = query
-            .split(/[^\p{L}\p{N}]+/u)
+            .normalize('NFC')
+            .split(/[^\p{L}\p{N}\p{M}]+/u)
             .filter((t) => t.length > 0)
             .slice(0, MAX_QUERY_TERMS);
         if (tokens.length === 0)

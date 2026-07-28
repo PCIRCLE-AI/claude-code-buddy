@@ -164,7 +164,9 @@ export function remember(args: RememberInput): RememberResult {
 /**
  * Search and retrieve stored knowledge.
  * Uses FTS5 full-text search with optional tag filtering.
- * Results are ranked by multi-factor score (recency, frequency, confidence, temporal validity).
+ * Results are ranked by multi-factor score: relevance (0.30, the BM25 position
+ * `search()` returned them in), recency (0.25), access frequency (0.18),
+ * confidence (0.17), recall-effectiveness impact (0.10).
  * Empty query returns recent entities.
  */
 export function recall(args: RecallInput): Entity[] {
@@ -232,9 +234,12 @@ async function supplementWithVectors(
  * Recall: FTS5 + sqlite-vec, no LLM in the hot path.
  *
  * The LLM-augmented variant (query expansion via `expandQuery`) was retired
- * after the LongMemEval-S benchmark confirmed Mode A (FTS5 + vector
- * supplement) holds at 95.40% R@5 — within 1.2pp of vendor-reported
- * MemPalace's vector+reranker stack — at 18ms/query. The query-expander
+ * after the LongMemEval-S benchmark showed FTS5 + vector supplement carries
+ * the load without it. Note the 95.40% figure quoted elsewhere comes from
+ * `benchmarks/longmemeval/run.mjs`, which re-implements retrieval and does not
+ * call this function; measured through THIS function on the same 500 questions
+ * the result is 95.60% R@5 (and was 5.20% before the retrieval fixes landed).
+ * The query-expander
  * was paying ~500-10000ms per call (LLM round-trip + ollama fallback)
  * for an estimated 1-2pp ceiling lift, which lost decisively on the
  * UX axis given recall is the hot path for hooks (pre-edit-recall,

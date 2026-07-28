@@ -58,6 +58,12 @@ describe('Feature: recall relevance', () => {
       kg.createEntity('pasta-recipe', 'note', {
         observations: ['Tomato pasta: garlic, basil, olive oil, simmer for twenty minutes.'],
       });
+      // Matches ONE of the three terms in the ranking test below. Without a
+      // partial matcher in the fixture, only one row is ever returned and
+      // "ranks first" is true no matter what the ordering does.
+      kg.createEntity('college-trip', 'note', {
+        observations: ['Drove past my old college on the way to the airport.'],
+      });
     });
 
     it('finds the memory when the query words are scattered through it', () => {
@@ -69,8 +75,12 @@ describe('Feature: recall relevance', () => {
 
     it('ranks the memory that matches more query terms first', () => {
       const results = kg.search('degree graduated college');
-      expect(results.length).toBeGreaterThan(0);
-      expect(results[0].name).toBe('grad-record');
+      const names = results.map((e) => e.name);
+      // Both memories match; grad-record matches all three terms and
+      // college-trip only one, so BM25 must put grad-record first.
+      expect(names).toContain('grad-record');
+      expect(names).toContain('college-trip');
+      expect(names.indexOf('grad-record')).toBeLessThan(names.indexOf('college-trip'));
     });
 
     it('still returns nothing when no query term appears anywhere', () => {
@@ -110,10 +120,12 @@ describe('Feature: recall relevance', () => {
       expect(results[0].name).toBe('jwt-rotation-decision');
     });
 
-    it('survives the scoring pass in recall() — relevance is not flattened', () => {
-      // search() can order correctly and still lose it: if every FTS hit enters
-      // the scorer with the same relevance value, rankEntities re-sorts on
-      // recency/frequency alone and the newest row wins again.
+    it('the ordering survives recall()’s scoring pass', () => {
+      // Guards the search() → rankEntities() handoff: the BM25 winner must
+      // still be first after scoring. NOTE this case does NOT pin the
+      // graded-relevance fix — with a flat relevance map every other factor
+      // ties and the tie-break preserves order, so it stays green either way.
+      // The case below is the one that pins it; do not delete it as redundant.
       const results = recall({ query: 'jwt', limit: 20 });
       expect(results[0].name).toBe('jwt-rotation-decision');
     });
@@ -126,13 +138,15 @@ describe('Feature: recall relevance', () => {
       // relevance is graded, in which case the 0.30 relevance gap between rank
       // 1 and rank 19 outweighs it.
       //
-      // standup-017 is chosen because it is actually inside the returned page:
-      // the 40 standups tie on BM25 and only the first 19 of them survive
-      // `limit: 20`. Bumping a row the query never returns would make this
-      // assertion vacuous.
+      // Pick the victim from the page the query actually returns, at runtime.
+      // The 40 standups tie on BM25 and only 19 of them survive `limit: 20`;
+      // which 19 depends on FTS5 doclist iteration order, which is unspecified.
+      // Hard-coding a name would make this vacuous the day that order shifts.
+      // The LAST row is used so the relevance gap against rank 1 is widest.
       const returned = kg.search('jwt', { limit: 20 }).map((e) => e.name);
-      expect(returned).toContain('standup-017');
-      db.prepare('UPDATE entities SET access_count = 500 WHERE name = ?').run('standup-017');
+      const victim = returned[returned.length - 1];
+      expect(victim).not.toBe('jwt-rotation-decision');
+      db.prepare('UPDATE entities SET access_count = 500 WHERE name = ?').run(victim);
 
       const results = recall({ query: 'jwt', limit: 20 });
       expect(results[0].name).toBe('jwt-rotation-decision');
@@ -154,6 +168,38 @@ describe('Feature: recall relevance', () => {
         observations: ['Spent Sunday on gardening: repotted the tomatoes.'],
       });
       expect(kg.search('gardening-related activity').map((e) => e.name)).toContain('garden-log');
+    });
+
+    it('keeps combining marks attached to their base character', () => {
+      // A decomposed (NFD) query is ordinary input — macOS filesystem APIs and
+      // several IMEs emit it. If the split treated combining marks as
+      // separators, "naïve" would tokenise as ["nai","ve"] and match nothing,
+      // while the visually identical NFC form matched. Same word, same screen,
+      // different result.
+      kg.createEntity('naive-note', 'note', {
+        observations: ['a naïve approach to cache invalidation'],
+      });
+
+      const nfc = 'naïve'.normalize('NFC');
+      const nfd = 'naïve'.normalize('NFD');
+      expect(nfc).not.toBe(nfd); // the two encodings really do differ
+
+      expect(kg.search(nfc).map((e) => e.name)).toContain('naive-note');
+      expect(kg.search(nfd).map((e) => e.name)).toContain('naive-note');
+    });
+
+    it('does not shatter scripts whose marks have no precomposed form', () => {
+      // NFC cannot compose Arabic harakat or Hebrew niqqud, so normalisation
+      // alone would not save these — the \p{M} class is what keeps the word
+      // whole. Without it "مَرحَبا" tokenises to three single letters and ORs
+      // together the most common letters in the script.
+      const arabic = 'مَرحَبا';
+      kg.createEntity('arabic-note', 'note', { observations: [`${arabic} everyone`] });
+      kg.createEntity('other-note', 'note', { observations: ['unrelated english text'] });
+
+      const names = kg.search(arabic).map((e) => e.name);
+      expect(names).toContain('arabic-note');
+      expect(names).not.toContain('other-note');
     });
 
     it('does not erase non-Latin queries', () => {
@@ -194,7 +240,69 @@ describe('Feature: recall relevance', () => {
     });
   });
 
+  describe('documented limits', () => {
+    it('uses only the first MAX_QUERY_TERMS (32) terms, head-first', () => {
+      kg.createEntity('tail-match', 'note', { observations: ['a note about zebras'] });
+      const filler = Array.from({ length: 40 }, (_, i) => `word${i}`).join(' ');
+
+      // Truncation takes the head, so a matching term past position 32 is
+      // dropped. Pinned so the cap and its direction cannot change silently.
+      expect(kg.search(`${filler} zebras`).map((e) => e.name)).not.toContain('tail-match');
+      expect(kg.search(`zebras ${filler}`).map((e) => e.name)).toContain('tail-match');
+    });
+
+    it('does not apply the query tokeniser to archived-only matches', () => {
+      // include_archived pulls archived rows from a separate LIKE scan (they
+      // are removed from FTS5 on archive), so the OR/tokenising work does not
+      // reach them: a scattered-word question finds the active copy but not the
+      // archived one. Pinned so the asymmetry is a known limit, not a surprise.
+      kg.createEntity('active-grad', 'note', {
+        observations: ['I finished college in 2011 with a Business degree.'],
+      });
+      kg.createEntity('archived-grad', 'note', {
+        observations: ['I finished college in 2011 with a Business degree.'],
+      });
+      kg.archiveEntity('archived-grad');
+
+      const q = 'What degree did I graduate with?';
+      expect(kg.search(q).map((e) => e.name)).toContain('active-grad');
+      expect(kg.search(q, { includeArchived: true }).map((e) => e.name)).not.toContain(
+        'archived-grad'
+      );
+      // A literal substring still reaches it, which is the LIKE behaviour.
+      expect(
+        kg.search('Business degree', { includeArchived: true }).map((e) => e.name)
+      ).toContain('archived-grad');
+    });
+  });
+
   describe('existing behaviour is preserved', () => {
+    it('applies tag and namespace filters together', () => {
+      // The tag branch is a different SQL statement with four positional
+      // parameters (MATCH, tag, namespace, limit). Neither single-filter test
+      // would catch them being bound in the wrong order.
+      kg.createEntity('both', 'note', {
+        observations: ['release checklist'],
+        tags: ['project:alpha'],
+        namespace: 'team',
+      });
+      kg.createEntity('wrong-namespace', 'note', {
+        observations: ['release checklist'],
+        tags: ['project:alpha'],
+        namespace: 'personal',
+      });
+      kg.createEntity('wrong-tag', 'note', {
+        observations: ['release checklist'],
+        tags: ['project:beta'],
+        namespace: 'team',
+      });
+
+      const names = kg
+        .search('release checklist', { tag: 'project:alpha', namespace: 'team' })
+        .map((e) => e.name);
+      expect(names).toEqual(['both']);
+    });
+
     it('respects the tag filter', () => {
       kg.createEntity('tagged', 'note', {
         observations: ['deployment pipeline caching strategy'],

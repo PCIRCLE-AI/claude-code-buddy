@@ -101,7 +101,7 @@ Query terms are OR-ed and the matches are ordered by relevance (BM25) before sco
 
 **Response**:
 
-Returns an array of matching entities ranked by multi-factor score (relevance, recency, frequency, confidence, temporal validity):
+Returns an array of matching entities ranked by multi-factor score — relevance 0.30, recency 0.25, frequency 0.18, confidence 0.17, recall-effectiveness impact 0.10:
 
 ```json
 [

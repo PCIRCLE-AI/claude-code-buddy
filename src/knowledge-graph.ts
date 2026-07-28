@@ -396,27 +396,48 @@ export class KnowledgeGraph {
       return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
     }
 
-    // Use FTS5 MATCH to find entity names
-    // Escape double quotes and wrap each token in quotes for safe FTS5 matching.
+    // Build the FTS5 MATCH expression.
+    //
+    // Tokens are split on the same boundaries FTS5's `unicode61` tokenizer
+    // uses — letters, digits and the combining marks that belong to them —
+    // then each is wrapped in double quotes. No separate quote-escaping step is
+    // needed: `"` is not a letter or digit, so the split consumes it, and every
+    // token that reaches the query is alphanumeric by construction. That also
+    // means no FTS5 operator (`OR`, `NEAR`, `*`, `^`, `:`) can survive as
+    // syntax.
     //
     // Terms are joined with OR, not with a bare space. A space is FTS5's
     // implicit AND, which required EVERY word of the query — including "what",
-    // "did", "with" — to appear in the same memory. A question asked in the
-    // user's own words therefore matched nothing: measured over LongMemEval-S,
-    // recall fell from 62.5% R@5 at one keyword to 18% at five, and 473 of 500
-    // natural-language questions returned zero rows. OR + BM25 ranking is the
-    // standard behaviour: memories matching more of the query score higher and
-    // surface first, instead of being excluded outright.
-    // Split on the same boundaries FTS5's `unicode61` tokenizer uses — anything
-    // that is not a letter or a digit — rather than on whitespace alone.
-    // Whitespace splitting left punctuation inside the quotes, so `"kitchen's"`
-    // and `"gardening-related"` became multi-word PHRASES that only matched a
-    // memory containing those words adjacent and in order: a memory saying
-    // "kitchen" or "gardening" was missed entirely. The \p{L}/\p{N} classes
-    // keep this correct for non-Latin scripts — a plain [^a-zA-Z0-9] strip
-    // would erase CJK queries completely.
+    // "did", "with" — to appear in the same memory, so a question asked in the
+    // user's own words matched nothing. See the CHANGELOG entry for the
+    // measured effect; the invariant to preserve here is that terms are OR-ed
+    // and BM25 decides the order.
+    //
+    // The three parts of the token class each earn their place:
+    //   \p{L}\p{N} — keeps non-Latin scripts working. A plain [^a-zA-Z0-9]
+    //     strip would reduce a CJK query to the empty string, and an empty
+    //     query silently falls through to the recent-list path: a search that
+    //     looks successful while answering a different question.
+    //   \p{M}      — combining marks stay attached to their base character.
+    //     Splitting on them cut decomposed text mid-word: NFD "naïve" became
+    //     the two OR-ed terms "nai" and "ve", neither of which is a token in
+    //     the index (unicode61 folds the mark, so the indexed token is
+    //     "naive"), and the query matched nothing.
+    //   normalize  — NFC first, so decomposed Latin composes back to the
+    //     precomposed form before it is ever split.
+    //
+    // Measured, so the next editor does not have to re-derive it: for Latin,
+    // either mechanism alone is sufficient — unicode61 (remove_diacritics 1)
+    // folds the mark on BOTH sides, so `"naive"`, NFC `"naïve"` and NFD
+    // `"naïve"` all match the same indexed token. Both are kept because they
+    // fail differently. For scripts whose marks unicode61 treats as separators
+    // rather than folding (Arabic harakat: the indexed doc is fragmented too),
+    // either form retrieves, but keeping the mark makes the query a phrase of
+    // adjacent fragments instead of a bag of OR-ed letters — same recall,
+    // better precision.
     const tokens = query
-      .split(/[^\p{L}\p{N}]+/u)
+      .normalize('NFC')
+      .split(/[^\p{L}\p{N}\p{M}]+/u)
       .filter((t) => t.length > 0)
       .slice(0, MAX_QUERY_TERMS);
     if (tokens.length === 0) return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
@@ -427,12 +448,15 @@ export class KnowledgeGraph {
     // Ordering is FTS5's `rank` (BM25), not `e.id DESC`. LIMIT decides which
     // rows survive to the multi-factor scorer, so ordering by id meant the
     // NEWEST matches survived and the best match was discarded before it could
-    // ever be scored: with 26+ memories mentioning a term, the most relevant one
-    // was unreachable at any database size. Recency still counts — it is one of
-    // the five scoring factors — but it no longer decides what gets scored.
+    // ever be scored. Recency still counts — it is one of the five scoring
+    // factors — but it no longer decides what gets scored.
+    //
+    // Both branches project `f.rank`: the tag branch needs it in the result set
+    // because SELECT DISTINCT can only ORDER BY a selected column, and the
+    // other branch keeps the same shape so the two cannot drift.
     const statusFilter = opts?.includeArchived ? '' : "AND e.status = 'active'";
     const namespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
-    let ftsRows: Array<{ id: number; name: string }>;
+    let ftsRows: Array<{ id: number; name: string; fts_rank: number }>;
     try {
       if (opts?.tag) {
         const params: (string | number)[] = [ftsQuery, opts.tag];
@@ -450,7 +474,7 @@ export class KnowledgeGraph {
              ORDER BY fts_rank
              LIMIT ?`
           )
-          .all(...params) as Array<{ id: number; name: string }>;
+          .all(...params) as Array<{ id: number; name: string; fts_rank: number }>;
       } else {
         const params: (string | number)[] = [ftsQuery];
         if (opts?.namespace) params.push(opts.namespace);
@@ -465,7 +489,7 @@ export class KnowledgeGraph {
              ORDER BY fts_rank
              LIMIT ?`
           )
-          .all(...params) as Array<{ id: number; name: string }>;
+          .all(...params) as Array<{ id: number; name: string; fts_rank: number }>;
       }
     } catch (err) {
       // FTS5 syntax error from user query — return empty results
