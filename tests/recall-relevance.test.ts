@@ -117,6 +117,26 @@ describe('Feature: recall relevance', () => {
       const results = recall({ query: 'jwt', limit: 20 });
       expect(results[0].name).toBe('jwt-rotation-decision');
     });
+
+    it('relevance outweighs a much weaker match that has been accessed far more often', () => {
+      // The case a fresh database cannot expose. With every other factor equal,
+      // a flat relevance value still leaves the BM25 order intact through the
+      // tie-break, so flattening looks harmless. Give a far-down match a large
+      // access_count and the 0.18 frequency factor decides the winner — unless
+      // relevance is graded, in which case the 0.30 relevance gap between rank
+      // 1 and rank 19 outweighs it.
+      //
+      // standup-017 is chosen because it is actually inside the returned page:
+      // the 40 standups tie on BM25 and only the first 19 of them survive
+      // `limit: 20`. Bumping a row the query never returns would make this
+      // assertion vacuous.
+      const returned = kg.search('jwt', { limit: 20 }).map((e) => e.name);
+      expect(returned).toContain('standup-017');
+      db.prepare('UPDATE entities SET access_count = 500 WHERE name = ?').run('standup-017');
+
+      const results = recall({ query: 'jwt', limit: 20 });
+      expect(results[0].name).toBe('jwt-rotation-decision');
+    });
   });
 
   describe('existing behaviour is preserved', () => {
