@@ -14,7 +14,7 @@ All notable changes to MeMesh are documented here.
 
 ### Tests
 
-- **A retrieval-quality floor that runs on every CI leg** (`tests/recall-quality.test.ts`) — the LongMemEval dataset is a 278 MB download and committing a slice is dataset redistribution, so the gate uses a small synthetic corpus instead: ten memories, ten questions phrased as a person would ask them, and thirty function-word notes so `limit: 5` has to choose which rows reach the scorer. It asserts an aggregate R@5 floor of 80% (measured 100%) and is calibrated to catch collapse, not drift. Each of the four retrieval defects fixed in this release breaches it.
+- **A retrieval-quality floor that runs on every CI leg** (`tests/recall-quality.test.ts`) — the LongMemEval dataset is a 278 MB download and committing a slice is dataset redistribution, so the gate uses a small synthetic corpus instead: ten memories, ten questions phrased as a person would ask them, and thirty function-word notes so `limit: 5` has to choose which rows reach the scorer. It asserts an aggregate R@5 floor of 80% (measured 100%) and is calibrated to catch collapse, not drift. Measured by breaking each fix in turn: AND-joined terms take it to 0% and ordering by `e.id DESC` takes it to 20%, both failing the gate; flat relevance (100%) and whitespace tokenising (90%) do not breach it, because they cost individual terms and positions rather than whole answers. That split is recorded in the test file — those two are pinned by the targeted cases in `tests/recall-relevance.test.ts`, where one mechanism can be isolated. Use the gate for "did retrieval collapse", the targeted file for "did this mechanism regress".
 
 ### Fixed
 

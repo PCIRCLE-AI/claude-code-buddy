@@ -16,10 +16,27 @@ import { useTestDatabase } from './helpers/db-fixture.js';
  *
  * The real dataset is deliberately NOT used here: it is a 278 MB download, and
  * committing a slice is dataset redistribution. This corpus is synthetic, tiny
- * and deterministic, and its job is to catch collapse, not to reproduce the
- * published number. Every defect fixed in PR #78 drops it below the floor —
- * there is a break matrix in the PR proving that, and any future change to the
- * gate should re-prove it rather than trusting this comment.
+ * and deterministic.
+ *
+ * What it catches, measured by breaking each fix in turn and re-running:
+ *
+ *   AND-joined query terms        R@5 100% -> 0%    fails
+ *   ORDER BY e.id DESC before LIMIT        -> 20%   fails
+ *   flat relevance value                   -> 100%  PASSES
+ *   whitespace tokenising                  -> 90%   PASSES
+ *
+ * That split is the useful thing to know about this gate, so it is written down
+ * rather than claimed away. The first two are collapse-class: a query returns
+ * nothing, or the relevant row never survives `LIMIT` to be scored, and an
+ * aggregate score falls off a cliff. The last two are degradation-class: they
+ * cost individual terms and individual positions. Tuning this corpus until they
+ * breach an aggregate floor would mean contriving questions where every
+ * distinctive term carries punctuation, which is not how people write.
+ *
+ * They are pinned instead by the targeted cases in `recall-relevance.test.ts`,
+ * where a single property can be isolated. Use this file for "did retrieval
+ * collapse", that file for "did this specific mechanism regress". Any change
+ * here should re-run the break matrix rather than trust this comment.
  */
 
 // Written first, so they hold the LOWEST ids. Anything that ranks by recency

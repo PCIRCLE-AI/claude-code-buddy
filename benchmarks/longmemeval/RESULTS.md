@@ -57,13 +57,14 @@ npm install
 curl -L "https://huggingface.co/datasets/xiaowu0162/longmemeval/resolve/main/longmemeval_s" \
   -o /tmp/longmemeval_s.json
 
-# Run the benchmark (Mode A, FTS5-only, ~10 seconds)
+# Build — the runner measures compiled code, so this must run first
+npm run build
+
+# Run the benchmark (Mode A, no embeddings, ~10 seconds)
 npm run bench:longmemeval
 
-# Or run all modes:
-node benchmarks/longmemeval/run.mjs --mode A --dataset /tmp/longmemeval_s.json
+# Or with embeddings populated (~25 minutes, downloads the ONNX model once)
 node benchmarks/longmemeval/run.mjs --mode B --dataset /tmp/longmemeval_s.json
-node benchmarks/longmemeval/run.mjs --mode C --dataset /tmp/longmemeval_s.json
 ```
 
 See [REPRODUCE.md](REPRODUCE.md) for the full step-by-step walkthrough.
@@ -98,18 +99,45 @@ API and calls it. No schema, no query builder, no ranking of its own.
 
 ## Results — Per-Mode Metrics
 
-| Mode | Description | R@5 | R@10 | MRR | Elapsed | Result file SHA256[:16] |
-|------|-------------|-----|------|-----|---------|-------------------------|
-| A | FTS5 only | **95.40%** | 97.60% | 0.8899 | 10s | `61e89a9fd91cfb49` |
-| B | FTS5+ONNX (max fusion) | **95.40%** | 97.60% | 0.8904 | ~25min | `1b0e2fb85c1a2bf6` |
-| C | FTS5+ONNX (weighted 60/40) | 82.40% | 96.40% | 0.3123 | ~13min | `c875798ee6534f8a` |
+Measured through `recallEnhanced()`:
 
-All three modes recomputed independently from raw per-question JSON; stored `overall_metrics` matches recomputation exactly. Dataset SHA256 `08d8dad4...` verified against on-disk file and against `run_info.dataset_sha256` in all three result JSONs.
+| Mode | Description | R@5 | R@10 | MRR | Zero-result questions | Elapsed |
+|------|-------------|-----|------|-----|-----------------------|---------|
+| A | no embeddings | **95.60%** | 97.80% | 0.8931 | 0 / 500 | 9.5s |
+
+For contrast, the same 500 questions through the same function **before** the
+retrieval fixes in this release: R@5 **5.20%**, R@10 5.20%, MRR 0.0520, and
+**473 of 500** questions returning nothing.
+
+**Mode B measures identical to Mode A** — R@5 95.60%, R@10 97.80%, MRR 0.8931,
+to every digit. Populating embeddings changes nothing, because `vectorSearch()`
+discards nearly every hit at `MAX_VECTOR_DISTANCE = 1` while sqlite-vec returns
+L2 distances around 1.2–1.4 for related text. The vector half of "hybrid search"
+contributes nothing today. That is a defect with its own fix pending, not a
+property of the benchmark (METHODOLOGY.md §4.2).
+
+The Mode B row is held out of the table above until its raw result file is
+committed: the run that produced these numbers started before the commit that
+rewrote the runner, so its `run_info.git_sha` points at the parent commit. A
+publishable result file has to agree with the code that produced it — that is
+the whole subject of this change — so it is being regenerated rather than
+committed with a stale SHA. The 95.40% Mode B figure published previously came
+from the adapter reimplementation and does not carry over; do not quote it.
+
+Dataset SHA256 `08d8dad4...` verified against the on-disk file and against
+`run_info.dataset_sha256` in the result JSON.
 
 **Key findings:**
-1. **Mode A and Mode B tie at R@5 = 95.40%.** Adding 384-dim ONNX vector search via max-fusion contributes zero additional top-5 hits over FTS5 alone — vector retrieval found sessions that FTS5 didn't, but they ranked outside the top 5. **Recommended production configuration: Mode A.**
-2. **Mode C regresses 13pp.** Weighted fusion (60% FTS5 + 40% vector) is hurt by `ultrachat_*`/`sharegpt_*` distractor sessions that have high cosine similarity to query text but aren't personal memory. Vector signal as a tie-breaker (max) is safe; vector signal as a weight is unsafe with this haystack composition. See METHODOLOGY.md §6.
-3. **FTS5 carries the load.** `BM25(question_keywords)` over per-question isolated SQLite databases hits 95.40% R@5 in 10 seconds for 500 questions on a 2023 laptop. Within 1.2pp of vendor-reported MemPalace (96.6%, vector + reranker stack).
+1. **FTS5 carries the load.** BM25 over per-question isolated SQLite databases
+   reaches 95.60% R@5 in under ten seconds for 500 questions on a laptop, with
+   no LLM and no embeddings in the loop.
+2. **The scorer is not what makes this work here.** Every database is fresh, so
+   recency, frequency, confidence and recall-impact are uniform across
+   candidates and only the 0.30 relevance factor distinguishes anything. Those
+   four factors matter in an aged memory base; this benchmark cannot see them.
+3. **What the number does not cover** is in METHODOLOGY.md §3 — and that section
+   used to draw the opposite conclusion, calling this a "conservative lower
+   bound" on production quality. It was not.
 
 ---
 
@@ -117,12 +145,12 @@ All three modes recomputed independently from raw per-question JSON; stored `ove
 
 | Question Type | R@5 | R@10 | MRR | n |
 |---------------|-----|------|-----|---|
+| knowledge-update | 100.0% | 100.0% | 0.987 | 78 |
 | single-session-assistant | 100.0% | 100.0% | 1.000 | 56 |
-| knowledge-update | 98.7% | 100.0% | 0.952 | 78 |
-| single-session-user | 97.1% | 98.6% | 0.898 | 70 |
-| temporal-reasoning | 94.0% | 96.2% | 0.874 | 133 |
+| single-session-user | 97.1% | 98.6% | 0.892 | 70 |
 | multi-session | 94.7% | 96.2% | 0.884 | 133 |
-| single-session-preference | 83.3% | 93.3% | 0.764 | 30 |
+| temporal-reasoning | 94.0% | 97.0% | 0.852 | 133 |
+| single-session-preference | 83.3% | 96.7% | 0.673 | 30 |
 
 ---
 
@@ -130,7 +158,7 @@ All three modes recomputed independently from raw per-question JSON; stored `ove
 
 | System | R@5 | Source | Notes |
 |--------|-----|--------|-------|
-| **MeMesh v4.0.4 (Mode A)** | **95.40%** | This benchmark | FTS5 only |
+| **MeMesh (Mode A)** | **95.60%** | This benchmark, measured through `recallEnhanced()` | FTS5 + BM25, no LLM, no embeddings |
 | MemPalace | 96.6% | Vendor self-report | Architecture differs |
 | Supermemory | ~82% | Vendor estimate | Not independently verified |
 | Zep | 63.8% | LongMemEval paper | Paper: doi.org/10.48550/arXiv.2410.10813 |
@@ -148,19 +176,31 @@ All three modes recomputed independently from raw per-question JSON; stored `ove
 - NOT tested: production scoring factors (recency, frequency, impact), LLM query expansion, entity graph traversal
 
 ### What it does not measure
-- MeMesh's full multi-factor production scoring (recency, frequency, confidence, impact) — would likely increase R@5
-- LLM query expansion (Smart Mode) — would likely increase R@5 further
-- Cross-entity linking and knowledge graph retrieval
-- Performance at scale (1000+ sessions per user)
+- **An aged memory base.** Every database is fresh, so recency, frequency,
+  confidence and recall-impact are uniform and only relevance separates
+  candidates. Those four factors are 70% of the score in real use and this
+  benchmark cannot see them — in either direction.
+- **Scale.** ~50 sessions per question. A real base is thousands, where `LIMIT`
+  binds harder and term frequencies differ.
+- Cross-entity linking and knowledge graph retrieval.
+- Auto-capture, consolidation, knowledge evolution, conflict detection.
+- Whether an answer is correct. No LLM answers anything here.
 
-### Known failures (Mode A, n=23, 4.6%)
-- **Temporal queries** (8 failures): "3 trips in past 3 months" — FTS5 ranks wrong sessions higher
-- **Counting queries** (7 failures): "how many doctors" — generic medical content outranks diary entries
-- **Preference questions** (5 failures): implicit topic references that require cross-session context
-- **Vocabulary mismatch** (3 failures): question vocabulary doesn't appear in session text
+Earlier versions of this section said the omitted scoring factors and LLM query
+expansion "would likely increase R@5". Do not read it that way. The one time the
+gap between this benchmark and the shipped path was actually measured, the
+shipped path scored 5.20% against this benchmark's 95.40%.
 
-### Mode C regression (13pp drop)
-The weighted ONNX fusion (60/40) is NOT recommended. The haystack includes generic public Q&A sessions (ultrachat_*, sharegpt_*) with high semantic similarity to questions but no personal relevance. The 0.4 ONNX weight boosts these distractors above personal sessions. This is a known failure mode documented for transparency, not hidden.
+### Known failures (Mode A, 22 of 500, 4.4%)
+By question type: temporal-reasoning 8, multi-session 7, single-session-preference 5,
+single-session-user 2.
+
+Every one of the 22 is a ranking failure, not a retrieval failure: **no question
+returned zero results**, and 18 of the 22 had the right session somewhere in the
+returned set, below position 5. The remaining 4 fell outside the top 10.
+Vocabulary mismatch is the recurring cause — the question's words do not appear
+in the session that answers it, which is precisely the case a working vector
+supplement would cover (see METHODOLOGY.md §4.2 on why it currently does not).
 
 ### Dataset note
 We use `longmemeval_s`, the original public dataset (ICLR 2025 paper). A `longmemeval-cleaned` variant exists with some data corrections — recent competitors may use this. We have not tested the cleaned variant.
@@ -171,24 +211,28 @@ We use `longmemeval_s`, the original public dataset (ICLR 2025 paper). A `longme
 
 | Item | Value |
 |------|-------|
-| MeMesh version | 4.0.4 |
-| Node.js | v22.22.0 |
-| Platform | macOS (darwin 25.4.0, arm64) |
-| CPU | Apple M2 Pro (12 cores) |
+| MeMesh version | see `run_info.environment.memesh_version` in the result JSON |
+| Retrieval entrypoint | `dist/core/operations.js::recallEnhanced` |
+| Node.js / platform / CPU | recorded per run in `run_info.environment` |
 | Dataset | longmemeval_s |
 | Dataset SHA256 | 08d8dad4be43ee2049a22ff5674eb86725d0ce5ff434cde2627e5e8e7e117894 |
 | Dataset source | https://huggingface.co/datasets/xiaowu0162/longmemeval |
-| Benchmark branch | bench/longmemeval-public-r1 |
 | Adapter SHA (run.mjs) | Included in each result JSON |
 
 ---
 
 ## Raw Data
 
-All per-question results are in `results/`:
-- `results/mode-A-2026-05-03T12-31-26.json` — Mode A (500 questions, sha256[:16] `61e89a9fd91cfb49`)
-- `results/mode-B-2026-05-03T12-55-57.json` — Mode B (500 questions, sha256[:16] `1b0e2fb85c1a2bf6`)
-- `results/mode-C-2026-05-03T12-56-25.json` — Mode C (500 questions, sha256[:16] `c875798ee6534f8a`)
+All per-question results are in `results/`. **Read
+[`results/README.md`](results/README.md) first** — the directory holds files
+produced by two different things, and the difference is larger than any
+version-to-version change.
+
+- `results/mode-A-2026-07-28T21-36-54.json` — the shipped path (500 questions).
+  `run_info.measures` is `"shipped_recall_path"`.
+- `results/mode-A-2026-05-03T12-31-26.json`, `mode-B-…`, `mode-C-…` — the adapter
+  reimplementation, kept unmodified for history. No `measures` field. These do
+  not describe MeMesh at any version.
 
 Each JSON includes `run_info` (versions, SHA256, timestamp), `overall_metrics`, `metrics_by_type`, and `results` (per-question: question_id, question, ranked_session_ids, answer_session_ids, hit_at, r_at_5, r_at_10, reciprocal_rank).
 
@@ -200,4 +244,4 @@ Each JSON includes `run_info` (versions, SHA256, timestamp), `overall_metrics`, 
 
 ---
 
-*MeMesh v4.0.4 | LongMemEval-S | bench/longmemeval-public-r1 | 2026-05-03*
+*LongMemEval-S | measured through `recallEnhanced()` | see `results/README.md` for what each result file measures*
