@@ -134,20 +134,25 @@ describe('Integration: supersedes relation', () => {
       relations: [{ to: 'config-v1', type: 'supersedes' }],
     });
 
-    // Old entity should be hidden
+    // Old entity should be hidden. Query terms are OR-ed and both memories
+    // contain "config", so assert the archiving contract (which name comes
+    // back) rather than a result count that would really be testing FTS5's
+    // AND semantics.
     const active = recall({ query: 'YAML config' });
-    expect(active).toHaveLength(0);
+    expect(active.map((e) => e.name)).not.toContain('config-v1');
 
-    // New entity should be visible
+    // New entity should be visible, and rank first for its own terms
     const newResults = recall({ query: 'TOML config' });
-    expect(newResults).toHaveLength(1);
     expect(newResults[0].name).toBe('config-v2');
 
-    // Old entity visible with include_archived
+    // Old entity visible with include_archived. Note it is NOT expected first:
+    // archiveEntity() removes the row from FTS5, so archived matches come from
+    // a separate LIKE scan that is appended after the ranked FTS rows and does
+    // not take part in relevance ordering.
     const all = recall({ query: 'YAML config', include_archived: true });
-    expect(all).toHaveLength(1);
-    expect(all[0].name).toBe('config-v1');
-    expect(all[0].archived).toBe(true);
+    const archived = all.find((e) => e.name === 'config-v1');
+    expect(archived).toBeDefined();
+    expect(archived!.archived).toBe(true);
   });
 });
 

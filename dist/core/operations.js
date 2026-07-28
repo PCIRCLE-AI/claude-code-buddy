@@ -21,6 +21,13 @@ function buildLocalMetadata(existingMetadata, overrides) {
 function recallTagFilter(args) {
     return args.cross_project ? undefined : args.tag;
 }
+function buildRelevanceMap(entities, hasQuery) {
+    const relevanceMap = new Map();
+    entities.forEach((entity, index) => {
+        relevanceMap.set(entity.name, hasQuery ? 1 - index / (entities.length + 1) : 0.5);
+    });
+    return relevanceMap;
+}
 export function remember(args) {
     const db = getDatabase();
     const kg = new KnowledgeGraph(db);
@@ -92,10 +99,7 @@ export function recall(args) {
         includeArchived: args.include_archived,
         namespace: args.namespace,
     });
-    const relevanceMap = new Map();
-    for (const e of entities) {
-        relevanceMap.set(e.name, args.query ? 1.0 : 0.5);
-    }
+    const relevanceMap = buildRelevanceMap(entities, Boolean(args.query));
     return rankEntities(entities, relevanceMap).slice(0, args.limit ?? 20);
 }
 async function supplementWithVectors(query, args, kg, merged, relevanceMap) {
@@ -135,10 +139,7 @@ export async function recallEnhanced(args) {
         includeArchived: args.include_archived,
         namespace: args.namespace,
     });
-    const relevanceMap = new Map();
-    for (const e of entities) {
-        relevanceMap.set(e.name, args.query ? 1.0 : 0.5);
-    }
+    const relevanceMap = buildRelevanceMap(entities, Boolean(args.query));
     const mergedEntities = [...entities];
     if (args.query) {
         await supplementWithVectors(args.query, args, kg, mergedEntities, relevanceMap);

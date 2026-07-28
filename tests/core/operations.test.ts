@@ -111,9 +111,11 @@ describe('Core Operations: remember', () => {
     });
     expect(result.superseded).toContain('old');
 
-    // old should be invisible from normal recall
+    // old should be invisible from normal recall. Assert that, not the result
+    // count: query terms are OR-ed, so 'new' legitimately matches "way" and
+    // pinning toEqual([]) would test FTS5's AND semantics rather than archiving.
     const results = recall({ query: 'old way' });
-    expect(results).toEqual([]);
+    expect(results.map((e) => e.name)).not.toContain('old');
   });
 
   it('superseded entity is visible with include_archived', () => {

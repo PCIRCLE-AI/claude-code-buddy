@@ -55,6 +55,26 @@ function recallTagFilter(args: RecallInput): string | undefined {
 }
 
 /**
+ * Turn search results into the relevance input for `rankEntities`.
+ *
+ * `search()` returns FTS5 hits in BM25 order, so position carries the relevance
+ * signal: first hit 1.0, last hit just above 0. Handing every hit the same 1.0
+ * instead would tie them on the 0.30 relevance factor and let `rankEntities`
+ * re-sort purely on recency/frequency/confidence — silently discarding the
+ * ordering the search just computed. In a fresh database every other factor is
+ * equal, so ties preserve order and the flattening is invisible; in an aged
+ * memory base the newest match wins again. Empty queries take the recent-list
+ * path, where there is no relevance signal at all, so they stay at a flat 0.5.
+ */
+function buildRelevanceMap(entities: Entity[], hasQuery: boolean): Map<string, number> {
+  const relevanceMap = new Map<string, number>();
+  entities.forEach((entity, index) => {
+    relevanceMap.set(entity.name, hasQuery ? 1 - index / (entities.length + 1) : 0.5);
+  });
+  return relevanceMap;
+}
+
+/**
  * Store knowledge as an entity with observations, tags, and relations.
  * If entity exists, appends observations and dedupes tags.
  * If any relation has type "supersedes", auto-archives the target entity.
@@ -159,11 +179,7 @@ export function recall(args: RecallInput): Entity[] {
     namespace: args.namespace,
   });
 
-  // Build relevance map: FTS results get 1.0 relevance, recent-list gets 0.5
-  const relevanceMap = new Map<string, number>();
-  for (const e of entities) {
-    relevanceMap.set(e.name, args.query ? 1.0 : 0.5);
-  }
+  const relevanceMap = buildRelevanceMap(entities, Boolean(args.query));
 
   return rankEntities(entities, relevanceMap).slice(0, args.limit ?? 20);
 }
@@ -238,11 +254,7 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
     namespace: args.namespace,
   });
 
-  // Build relevance map: FTS results get 1.0, recent-list gets 0.5
-  const relevanceMap = new Map<string, number>();
-  for (const e of entities) {
-    relevanceMap.set(e.name, args.query ? 1.0 : 0.5);
-  }
+  const relevanceMap = buildRelevanceMap(entities, Boolean(args.query));
 
   const mergedEntities = [...entities];
   if (args.query) {

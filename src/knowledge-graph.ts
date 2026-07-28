@@ -5,6 +5,16 @@ import { findConflicts, trackAccess, type TrackAccessOptions } from './storage/c
 import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 
+/**
+ * Upper bound on how many terms of a query reach the FTS5 MATCH expression.
+ *
+ * Terms are OR-ed, so an unbounded query would build an arbitrarily large
+ * disjunction — a pasted stack trace or log dump is a cheap way to make one
+ * search scan the whole index. Real questions are well under this; the cap only
+ * truncates pathological input.
+ */
+const MAX_QUERY_TERMS = 32;
+
 export class KnowledgeGraph {
   constructor(private db: Database.Database) {}
 
@@ -387,13 +397,32 @@ export class KnowledgeGraph {
     }
 
     // Use FTS5 MATCH to find entity names
-    // Escape double quotes and wrap each token in quotes for safe FTS5 matching
+    // Escape double quotes and wrap each token in quotes for safe FTS5 matching.
+    //
+    // Terms are joined with OR, not with a bare space. A space is FTS5's
+    // implicit AND, which required EVERY word of the query — including "what",
+    // "did", "with" — to appear in the same memory. A question asked in the
+    // user's own words therefore matched nothing: measured over LongMemEval-S,
+    // recall fell from 62.5% R@5 at one keyword to 18% at five, and 473 of 500
+    // natural-language questions returned zero rows. OR + BM25 ranking is the
+    // standard behaviour: memories matching more of the query score higher and
+    // surface first, instead of being excluded outright.
     const sanitized = query.replace(/"/g, '""').trim();
-    const tokens = sanitized.split(/\s+/).filter((t) => t.length > 0);
+    const tokens = sanitized
+      .split(/\s+/)
+      .filter((t) => t.length > 0)
+      .slice(0, MAX_QUERY_TERMS);
     if (tokens.length === 0) return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
-    const ftsQuery = tokens.map((token) => `"${token}"`).join(' ');
+    const ftsQuery = tokens.map((token) => `"${token}"`).join(' OR ');
     // Contentless FTS5: columns return null, so join via rowid → entities.id
     // Archived entities are removed from FTS5 by archiveEntity(), so status filter is a safety net.
+    //
+    // Ordering is FTS5's `rank` (BM25), not `e.id DESC`. LIMIT decides which
+    // rows survive to the multi-factor scorer, so ordering by id meant the
+    // NEWEST matches survived and the best match was discarded before it could
+    // ever be scored: with 26+ memories mentioning a term, the most relevant one
+    // was unreachable at any database size. Recency still counts — it is one of
+    // the five scoring factors — but it no longer decides what gets scored.
     const statusFilter = opts?.includeArchived ? '' : "AND e.status = 'active'";
     const namespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
     let ftsRows: Array<{ id: number; name: string }>;
@@ -404,14 +433,14 @@ export class KnowledgeGraph {
         params.push(limit);
         ftsRows = this.db
           .prepare(
-            `SELECT DISTINCT e.id, e.name FROM entities_fts f
+            `SELECT DISTINCT e.id, e.name, f.rank AS fts_rank FROM entities_fts f
              JOIN entities e ON e.id = f.rowid
              JOIN tags t ON t.entity_id = e.id
              WHERE entities_fts MATCH ?
                AND t.tag = ?
                ${statusFilter}
                ${namespaceFilter}
-             ORDER BY e.id DESC
+             ORDER BY fts_rank
              LIMIT ?`
           )
           .all(...params) as Array<{ id: number; name: string }>;
@@ -421,12 +450,12 @@ export class KnowledgeGraph {
         params.push(limit);
         ftsRows = this.db
           .prepare(
-            `SELECT e.id, e.name FROM entities_fts f
+            `SELECT e.id, e.name, f.rank AS fts_rank FROM entities_fts f
              JOIN entities e ON e.id = f.rowid
              WHERE entities_fts MATCH ?
                ${statusFilter}
                ${namespaceFilter}
-             ORDER BY e.id DESC
+             ORDER BY fts_rank
              LIMIT ?`
           )
           .all(...params) as Array<{ id: number; name: string }>;

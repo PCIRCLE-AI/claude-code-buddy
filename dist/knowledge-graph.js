@@ -1,6 +1,7 @@
 import { findConflicts, trackAccess } from './storage/conflicts.js';
 import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
+const MAX_QUERY_TERMS = 32;
 export class KnowledgeGraph {
     db;
     constructor(db) {
@@ -244,10 +245,13 @@ export class KnowledgeGraph {
             return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
         }
         const sanitized = query.replace(/"/g, '""').trim();
-        const tokens = sanitized.split(/\s+/).filter((t) => t.length > 0);
+        const tokens = sanitized
+            .split(/\s+/)
+            .filter((t) => t.length > 0)
+            .slice(0, MAX_QUERY_TERMS);
         if (tokens.length === 0)
             return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
-        const ftsQuery = tokens.map((token) => `"${token}"`).join(' ');
+        const ftsQuery = tokens.map((token) => `"${token}"`).join(' OR ');
         const statusFilter = opts?.includeArchived ? '' : "AND e.status = 'active'";
         const namespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
         let ftsRows;
@@ -258,14 +262,14 @@ export class KnowledgeGraph {
                     params.push(opts.namespace);
                 params.push(limit);
                 ftsRows = this.db
-                    .prepare(`SELECT DISTINCT e.id, e.name FROM entities_fts f
+                    .prepare(`SELECT DISTINCT e.id, e.name, f.rank AS fts_rank FROM entities_fts f
              JOIN entities e ON e.id = f.rowid
              JOIN tags t ON t.entity_id = e.id
              WHERE entities_fts MATCH ?
                AND t.tag = ?
                ${statusFilter}
                ${namespaceFilter}
-             ORDER BY e.id DESC
+             ORDER BY fts_rank
              LIMIT ?`)
                     .all(...params);
             }
@@ -275,12 +279,12 @@ export class KnowledgeGraph {
                     params.push(opts.namespace);
                 params.push(limit);
                 ftsRows = this.db
-                    .prepare(`SELECT e.id, e.name FROM entities_fts f
+                    .prepare(`SELECT e.id, e.name, f.rank AS fts_rank FROM entities_fts f
              JOIN entities e ON e.id = f.rowid
              WHERE entities_fts MATCH ?
                ${statusFilter}
                ${namespaceFilter}
-             ORDER BY e.id DESC
+             ORDER BY fts_rank
              LIMIT ?`)
                     .all(...params);
             }

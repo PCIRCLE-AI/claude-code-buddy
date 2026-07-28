@@ -167,7 +167,7 @@ CRUD operations and full-text search over the entity graph.
 - `getRelations(entityName)` -- All outgoing relations for an entity
 
 **Search**:
-- `search(query?, opts?)` -- FTS5 MATCH query with optional tag filtering; tracks access on returned entities
+- `search(query?, opts?)` -- FTS5 MATCH query with optional tag filtering; tracks access on returned entities. Query terms are OR-ed (a bare space is FTS5's implicit AND, which required every word of a question to appear in one memory) and rows are ordered by FTS5 `rank` (BM25), not by id — `LIMIT` decides what survives to the scorer, so ordering by id discarded the best match before it could be scored. Terms are capped at `MAX_QUERY_TERMS` (32) so a pasted log dump cannot build an unbounded disjunction.
 - `listRecent(limit?)` -- Most recent entities by ID
 - `findConflicts(entityNames[])` -- Returns conflict descriptions for any `contradicts` relations among the given entity names; surfaced as warnings by all three transports
 

@@ -4,6 +4,22 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`recall` now finds the memory when you ask a question in your own words** (`src/knowledge-graph.ts`, `src/core/operations.ts`) — three defects in the retrieval path compounded into near-total recall failure for anything but a single keyword, and each one hid the others.
+
+  1. **Query terms were AND-ed.** `search()` joined the quoted tokens with a bare space, which is FTS5's implicit AND, so every word of the query — including `what`, `did`, `I`, `with` — had to appear in the same memory. Recall therefore got *worse* the more precisely you asked: measured over LongMemEval-S, R@5 fell from 62.5% with one keyword to 41% with two, 29% with three and 18% with five. Terms are now OR-ed, so a memory matching more of the query ranks higher instead of being excluded outright.
+  2. **Relevance was discarded before ranking.** The SQL ordered by `e.id DESC` and applied `LIMIT` — so the *newest* matches survived to the multi-factor scorer and the best match was thrown away before it could ever be scored. FTS5's `rank` (BM25) column was available and unused. With 26 or more memories mentioning a term, the most relevant one became unreachable at any database size — a failure that grows silently as a memory base fills up. Ordering is now by `rank`; recency still counts as one of the five scoring factors, it just no longer decides what gets scored.
+  3. **The relevance signal was flattened.** Every FTS hit entered `rankEntities()` with a hard-coded relevance of `1.0`, tying them all on the 0.30 relevance weight and letting the scorer re-sort purely on recency/frequency/confidence — undoing the ordering the search had just computed. Relevance is now graded by BM25 position. This one is invisible in a fresh database (equal factors, ties preserve order) and decisive in an aged one, which is why it ships with the other two rather than after them.
+
+  Measured end to end on the same 500 LongMemEval-S questions the published benchmark uses, through `recallEnhanced()` — the code path a real `recall` call takes: **R@5 5.20% → 95.00%, R@10 5.20% → 97.60%, MRR 0.0520 → 0.8895, and questions returning zero results 473/500 → 0/500.**
+
+  Behaviour note: OR raises recall and lowers precision. A query now returns weaker partial matches below the strong ones instead of returning nothing, and result lists are longer. Ranking, not exclusion, is what keeps the top of the list clean. The hooks are unaffected — `pre-edit-recall` searches a single file basename and `session-start` issues no query.
+
+### Tests
+
+- **Regression suite for the recall-quality class the old tests structurally could not catch** (`tests/recall-relevance.test.ts`) — the pre-existing `search()` tests always queried with the *exact literal string that was stored* (`observations: ['shared query terms']` then `search('shared query terms')`), so AND semantics could never fail and relevance ordering was never exercised. The new cases pin what a memory layer actually has to hold: a question whose words are scattered through the memory still finds it, a memory matching more terms ranks first, a relevant older memory beats 40 newer passing mentions (both in `search()` and after the `recall()` scoring pass), and a query sharing no term with anything still returns nothing. Two older assertions in `tests/core/operations.test.ts` and `tests/core/integration.test.ts` were pinning result *counts* that only held under AND; they now assert the archiving contract they were actually written for.
+
 ## [4.2.10] — 2026-07-25
 
 ### Fixed
