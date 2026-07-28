@@ -29,13 +29,13 @@
 
 ---
 
-## 實證 — 在 LongMemEval-S 上 R@5 達 95.40%
+## 實證 — 在 LongMemEval-S 上 R@5 達 95.60%
 
 MeMesh 的檢索引擎**只用 FTS5**（熱路徑上不使用 LLM、不使用嵌入），對照公開的 [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) 基準測試（500 題，MIT 授權）量測：
 
 | 系統 | R@5 | 來源 |
 |---|---|---|
-| **MeMesh（Mode A，FTS5）** | **95.40%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| **MeMesh（Mode A，經由 `recallEnhanced()`）** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
 | MemPalace | 96.6% | 廠商自行回報 |
 | Supermemory | ~82% | 廠商估計值 |
 | Zep | 63.8% | LongMemEval 論文 |
@@ -318,7 +318,7 @@ memesh export-schema \
 
 **🧠 智慧搜尋** — 搜尋「登入安全」並找到關於「OAuth PKCE」的記憶。MeMesh 用 FTS5 + sqlite-vec 在熱路徑上保持 LLM-free，仍能跨同義詞匹配。
 
-**📊 評分排名** — 結果按相關性（30%）+ 近期性（25%）+ 頻率（15%）+ 信心（15%）+ 回憶影響（10%）+ 時間有效性（5%）排名。
+**📊 評分排名** — 結果按相關性（30%）+ 近期性（25%）+ 頻率（18%）+ 信心（17%）+ 回憶影響（10%）排名。
 
 **🔄 知識演進** — 決策會改變。`forget` 歸檔舊記憶（永不刪除）。`supersedes` 關係連結舊 → 新。你的 AI 總是看到最新版本。
 
@@ -346,7 +346,7 @@ memesh export-schema \
 
 ## 解鎖智慧模式（可選）
 
-MeMesh 預設離線運作 — 回憶嚴格保持 LLM-free（開箱即用就有 LongMemEval-S 上 95.40% R@5）。只有當你想要在上層加入 LLM 增強的分析流程時，才需要加入 LLM API 金鑰：更聰明的 session 擷取、新記憶的自動標籤、從失敗產生教訓，以及 `consolidate` / `dream` 壓縮：
+MeMesh 預設離線運作 — 回憶嚴格保持 LLM-free（開箱即用就有 LongMemEval-S 上 95.60% R@5）。只有當你想要在上層加入 LLM 增強的分析流程時，才需要加入 LLM API 金鑰：更聰明的 session 擷取、新記憶的自動標籤、從失敗產生教訓，以及 `consolidate` / `dream` 壓縮：
 
 ```bash
 memesh config set llm.provider anthropic
@@ -372,7 +372,7 @@ memesh config set embedder.model text-embedding-3-small
 
 | | 等級 0（預設） | 等級 1（智慧模式） |
 |---|---|---|
-| **搜尋** | FTS5 + sqlite-vec，95.40% R@5（約 18ms/查詢） | 不變 — 回憶在每個等級都保持 LLM-free |
+| **搜尋** | FTS5 + sqlite-vec，95.60% R@5（每次回憶約 4ms） | 不變 — 回憶在每個等級都保持 LLM-free |
 | **自動擷取** | 基於規則的模式 | + LLM 擷取決策與教訓 |
 | **自動標籤** | 僅手動標籤 | + LLM 為新記憶產生標籤 |
 | **失敗分析** | 不可用 | + LLM 將 session 錯誤轉為結構化教訓 |
@@ -386,7 +386,7 @@ memesh config set embedder.model text-embedding-3-small
 | 工具 | 做什麼 |
 |------|--------|
 | `remember` | 用觀察、關係和標籤儲存知識 |
-| `recall` | FTS5 + sqlite-vec 搜尋，包含多因素評分（相關性、近期性、頻率、信心、時間有效性）— 熱路徑上不使用 LLM |
+| `recall` | FTS5 + sqlite-vec 搜尋，包含多因素評分（相關性、近期性、頻率、信心、回憶影響）— 熱路徑上不使用 LLM |
 | `forget` | 軟歸檔（永不刪除）或移除特定觀察 |
 | `consolidate` | LLM 驅動的冗長記憶壓縮 |
 | `export` | 在專案或團隊成員之間以 JSON 共享記憶 |

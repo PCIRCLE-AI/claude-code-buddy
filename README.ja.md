@@ -29,13 +29,13 @@
 
 ---
 
-## エビデンス — LongMemEval-S で 95.40% R@5
+## エビデンス — LongMemEval-S で 95.60% R@5
 
 MeMesh の検索エンジンは **FTS5 のみ**(LLM もホットパスのエンベディングも使用しない)で、公開されている [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) ベンチマーク(500 問、MIT ライセンス)で測定された結果です:
 
 | システム | R@5 | ソース |
 |---|---|---|
-| **MeMesh (Mode A, FTS5)** | **95.40%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
 | MemPalace | 96.6% | ベンダー自社申告 |
 | Supermemory | ~82% | ベンダー推定値 |
 | Zep | 63.8% | LongMemEval 論文 |
@@ -318,7 +318,7 @@ npm がインストール済みバージョンを非推奨としてフラグし�
 
 **🧠 スマート検索** — 「login security」で検索すると「OAuth PKCE」についてのメモリが見つかります。MeMesh は設定された LLM を使い、クエリを関連用語で拡張します。
 
-**📊 スコア付きランキング** — 関連性 (30%) + 新しさ (25%) + 頻度 (15%) + 信頼度 (15%) + リコール影響度 (10%) + 時間的有効性 (5%) でランク付け。
+**📊 スコア付きランキング** — 関連性 (30%) + 新しさ (25%) + 頻度 (18%) + 信頼度 (17%) + リコール影響度 (10%) でランク付け。
 
 **🔄 知識の進化** — 判断は変わります。`forget` で古いメモリをアーカイブ (削除されない)。`supersedes` 関係で古い → 新しい をリンク。AI は常に最新版を参照します。
 
@@ -346,7 +346,7 @@ npm がインストール済みバージョンを非推奨としてフラグし�
 
 ## スマートモードをアンロック (オプション)
 
-MeMesh はデフォルトでオフライン動作します — リコールは厳密に LLM フリーのまま(箱出し状態で LongMemEval-S 95.40% R@5)。LLM API キーを追加するのは、その上に LLM 拡張の分析フローを重ねたい場合のみです: より賢いセッション抽出、新規メモリの自動タグ付け、失敗からのレッスン生成、`consolidate` / `dream` 圧縮:
+MeMesh はデフォルトでオフライン動作します — リコールは厳密に LLM フリーのまま(箱出し状態で LongMemEval-S 95.60% R@5)。LLM API キーを追加するのは、その上に LLM 拡張の分析フローを重ねたい場合のみです: より賢いセッション抽出、新規メモリの自動タグ付け、失敗からのレッスン生成、`consolidate` / `dream` 圧縮:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -372,7 +372,7 @@ memesh config set embedder.model text-embedding-3-small
 
 | | レベル 0 (デフォルト) | レベル 1 (スマートモード) |
 |---|---|---|
-| **検索** | FTS5 + sqlite-vec、95.40% R@5(~18ms/クエリ) | 変更なし — リコールはどのレベルでも LLM フリー |
+| **検索** | FTS5 + sqlite-vec、95.60% R@5(リコール 1 回あたり ~4ms) | 変更なし — リコールはどのレベルでも LLM フリー |
 | **自動キャプチャ** | ルールベースパターン | + LLM が判断・教訓を抽出 |
 | **自動タグ付け** | 手動タグのみ | + LLM が新規メモリにタグを生成 |
 | **失敗分析** | 利用不可 | + LLM がセッションエラーを構造化教訓に変換 |
@@ -386,7 +386,7 @@ memesh config set embedder.model text-embedding-3-small
 | ツール | 機能 |
 |------|------|
 | `remember` | 観察、関係、タグ付きで知識を保存 |
-| `recall` | FTS5 + sqlite-vec 検索、多要素スコアリング(関連性、新しさ、頻度、信頼度、時間的有効性) — ホットパスに LLM なし |
+| `recall` | FTS5 + sqlite-vec 検索、多要素スコアリング(関連性、新しさ、頻度、信頼度、リコール影響度) — ホットパスに LLM なし |
 | `forget` | ソフトアーカイブ (削除されない) または特定の観察を削除 |
 | `consolidate` | LLM が冗長メモリを圧縮 |
 | `export` | メモリを JSON でシェア (プロジェクト・チーム間) |

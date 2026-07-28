@@ -29,13 +29,13 @@
 
 ---
 
-## 实测数据 — LongMemEval-S 上 R@5 达到 95.40%
+## 实测数据 — LongMemEval-S 上 R@5 达到 95.60%
 
 MeMesh 的检索引擎**只用 FTS5**（热路径上没有 LLM、也没有 embeddings），在公开的 [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) 基准（500 道题，MIT 许可）上的实测结果：
 
 | 系统 | R@5 | 来源 |
 |---|---|---|
-| **MeMesh (Mode A, FTS5)** | **95.40%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
 | MemPalace | 96.6% | 厂商自报 |
 | Supermemory | ~82% | 厂商估计 |
 | Zep | 63.8% | LongMemEval 论文 |
@@ -318,7 +318,7 @@ memesh export-schema \
 
 **🧠 智能搜索** — 搜索"登录安全"也能找到"OAuth PKCE"相关的记忆。MeMesh 在热路径上用 FTS5 + sqlite-vec，零 LLM。
 
-**📊 评分排序** — 结果按相关性（30%）+ 新近度（25%）+ 频率（15%）+ 置信度（15%）+ 回忆影响（10%）+ 时间有效性（5%）排序。
+**📊 评分排序** — 结果按相关性（30%）+ 新近度（25%）+ 频率（18%）+ 置信度（17%）+ 回忆影响（10%）排序。
 
 **🔄 知识演进** — 决策会变化。`forget` 归档旧记忆（永不删除）。`supersedes` 关系链接 旧 → 新。你的 AI 总是看到最新版本。
 
@@ -346,7 +346,7 @@ memesh export-schema \
 
 ## 解锁智能模式（可选）
 
-MeMesh 默认离线工作 — 回忆始终是严格无 LLM 的（开箱即用 LongMemEval-S R@5 95.40%）。仅当你想要在此之上叠加 LLM 增强分析流程时才添加 LLM API 密钥：更聪慧的会话提取、为新记忆自动打标签、从失败生成经验教训，以及 `consolidate` / `dream` 压缩：
+MeMesh 默认离线工作 — 回忆始终是严格无 LLM 的（开箱即用 LongMemEval-S R@5 95.60%）。仅当你想要在此之上叠加 LLM 增强分析流程时才添加 LLM API 密钥：更聪慧的会话提取、为新记忆自动打标签、从失败生成经验教训，以及 `consolidate` / `dream` 压缩：
 
 ```bash
 memesh config set llm.provider anthropic
@@ -372,7 +372,7 @@ memesh config set embedder.model text-embedding-3-small
 
 | | 级别 0（默认） | 级别 1（智能模式） |
 |---|---|---|
-| **搜索** | FTS5 + sqlite-vec，95.40% R@5（每次查询 ~18ms） | 不变 — 回忆在每个级别都是无 LLM 的 |
+| **搜索** | FTS5 + sqlite-vec，95.60% R@5（每次回忆约 4ms） | 不变 — 回忆在每个级别都是无 LLM 的 |
 | **自动捕获** | 基于规则的模式 | + LLM 提取决策和经验教训 |
 | **自动打标签** | 仅手动标签 | + LLM 为新记忆生成标签 |
 | **失败分析** | 不可用 | + LLM 把会话错误转化为结构化经验教训 |
@@ -386,7 +386,7 @@ memesh config set embedder.model text-embedding-3-small
 | 工具 | 它做什么 |
 |------|--------|
 | `remember` | 存储知识，附带观察、关系和标签 |
-| `recall` | FTS5 + sqlite-vec 搜索，附带多因素评分（相关性、新近度、频率、置信度、时间有效性）— 热路径上无 LLM |
+| `recall` | FTS5 + sqlite-vec 搜索，附带多因素评分（相关性、新近度、频率、置信度、回忆影响）— 热路径上无 LLM |
 | `forget` | 软归档（永不删除）或移除特定观察 |
 | `consolidate` | LLM 驱动的冗长记忆压缩 |
 | `export` | 在项目或团队成员间共享内存，格式为 JSON |

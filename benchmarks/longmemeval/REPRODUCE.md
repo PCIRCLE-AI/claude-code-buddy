@@ -1,12 +1,16 @@
 # Reproducing the MeMesh LongMemEval Benchmark
 
-Anyone — journalist, competitor, researcher — can reproduce these results in under 10 commands. Total time: ~10 seconds (Mode A) or ~25 minutes (Modes B/C, ONNX-dependent).
+Anyone — journalist, competitor, researcher — can reproduce these results in under 10 commands. Total time: ~10 seconds (Mode A) or ~25 minutes (Mode B, ONNX-dependent).
+
+The runner calls MeMesh's shipped retrieval path (`recallEnhanced()`), so what
+you measure here is what a `recall` call does. That was not true before 2026-07;
+see RESULTS.md if you are comparing against an older figure.
 
 ## Prerequisites
 
 - Node.js >= 20.0.0
 - ~500MB disk space (dataset)
-- Internet access (first run downloads ONNX model ~25MB for Modes B/C)
+- Internet access (first run downloads ONNX model ~25MB for Mode B)
 
 ## Step-by-step
 
@@ -15,54 +19,39 @@ Anyone — journalist, competitor, researcher — can reproduce these results in
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory.git
 cd memesh-llm-memory
 
-# 2. Check out the benchmark branch
-git checkout bench/longmemeval-public-r1
-
-# 3. Install dependencies
+# 2. Install dependencies and build
+#    The runner imports from dist/, so the build must run first.
 npm install
+npm run build
 
-# 4. Download the LongMemEval-S dataset (~278MB, MIT license)
+# 3. Download the LongMemEval-S dataset (~278MB, MIT license)
 curl -L "https://huggingface.co/datasets/xiaowu0162/longmemeval/resolve/main/longmemeval_s" \
   -o /tmp/longmemeval_s.json
 
-# 5. Verify dataset integrity (optional but recommended)
+# 4. Verify dataset integrity (optional but recommended)
 # Expected SHA256: 08d8dad4be43ee2049a22ff5674eb86725d0ce5ff434cde2627e5e8e7e117894
 shasum -a 256 /tmp/longmemeval_s.json
 
-# 6. Run Mode A (FTS5 only — ~10 seconds)
+# 5. Run Mode A (no embeddings — ~10 seconds)
 node benchmarks/longmemeval/run.mjs --mode A --dataset /tmp/longmemeval_s.json
 
-# 7. Run Mode B (FTS5 + ONNX max — ~25 minutes, downloads model on first run)
+# 6. Run Mode B (embeddings populated — ~25 minutes, downloads model on first run)
 node benchmarks/longmemeval/run.mjs --mode B --dataset /tmp/longmemeval_s.json
-
-# 8. Run Mode C (FTS5 + ONNX weighted — ~25 minutes)
-node benchmarks/longmemeval/run.mjs --mode C --dataset /tmp/longmemeval_s.json
 ```
+
+The runner sets `HOME` to a throwaway directory for the duration of the run, so
+it cannot read your `~/.memesh/config.json` or write near your real knowledge
+graph. Nothing you have stored is touched.
 
 ## Expected Output
 
-Mode A (FTS5 only):
+Mode A (no embeddings):
 ```
-R@5:  95.40%
-R@10: 97.60%
-MRR:  0.8899
+R@5:  95.60%
+R@10: 97.80%
+MRR:  0.8931
+Questions returning zero results: 0/500
 Time: ~10s
-```
-
-Mode B (FTS5 + ONNX max fusion):
-```
-R@5:  95.40%
-R@10: 97.60%
-MRR:  0.8904
-Time: ~1300s
-```
-
-Mode C (FTS5 + ONNX weighted 60/40):
-```
-R@5:  82.40%
-R@10: 96.40%
-MRR:  0.3123
-Time: ~770s
 ```
 
 ## Verifying the Aggregation
@@ -105,4 +94,9 @@ LongMemEval is released under the MIT license by Xiaowu0162/LongMemEval. The dat
 **Different results** — If your numbers differ by more than ±0.5pp, check:
 1. Dataset SHA256 matches the value above
 2. Node.js version >= 20
-3. You're on the `bench/longmemeval-public-r1` branch (same adapter code)
+3. `npm run build` has run since your last checkout — the runner imports the
+   compiled retrieval path from `dist/`, so a stale build measures stale code
+4. Which commit you are on. The runner now measures the shipped path, so the
+   figure moves when retrieval changes — that is the point of it. Numbers from
+   before 2026-07 came from a separate implementation inside the runner and are
+   not comparable; see `results/README.md`.

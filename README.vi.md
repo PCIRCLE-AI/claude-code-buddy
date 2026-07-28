@@ -29,13 +29,13 @@ Package này là tầng bộ nhớ cục bộ của dòng sản phẩm MeMesh. N
 
 ---
 
-## Proof — 95.40% R@5 trên LongMemEval-S
+## Proof — 95.60% R@5 trên LongMemEval-S
 
 Engine truy hồi của MeMesh là **chỉ FTS5** (không LLM, không embeddings trên hot path), được đo trên benchmark công khai [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) (500 câu hỏi, giấy phép MIT):
 
 | Hệ thống | R@5 | Nguồn |
 |---|---|---|
-| **MeMesh (Mode A, FTS5)** | **95.40%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
 | MemPalace | 96.6% | Vendor self-report |
 | Supermemory | ~82% | Vendor estimate |
 | Zep | 63.8% | LongMemEval paper |
@@ -291,7 +291,7 @@ Khi npm gắn cờ phiên bản đã cài là deprecated (thường là security
 
 **🧠 Smart Search** — Tìm "login security" và tìm thấy memories về "OAuth PKCE". MeMesh mở rộng queries với các terms liên quan bằng LLM được cấu hình của bạn.
 
-**📊 Scored Ranking** — Kết quả được xếp hạng theo relevance (30%) + recency (25%) + frequency (15%) + confidence (15%) + recall impact (10%) + temporal validity (5%).
+**📊 Scored Ranking** — Kết quả được xếp hạng theo relevance (30%) + recency (25%) + frequency (18%) + confidence (17%) + recall impact (10%).
 
 **🔄 Knowledge Evolution** — Quyết định thay đổi. `forget` archives old memories (không bao giờ xóa). `supersedes` relations liên kết old → new. AI của bạn luôn thấy phiên bản mới nhất.
 
@@ -319,7 +319,7 @@ Các imported bundles vẫn có thể tìm kiếm được, nhưng MeMesh không
 
 ## Mở khóa Smart Mode (Tuỳ chọn)
 
-MeMesh hoạt động offline theo mặc định — recall luôn LLM-free (95.40% R@5 trên LongMemEval-S, không cần LLM). Thêm LLM API key chỉ nếu bạn muốn các luồng phân tích LLM-augmented bổ sung: trích xuất session thông minh hơn, auto-tagging cho memories mới, phân tích lỗi thành lessons có cấu trúc, và compression `consolidate` / `dream`:
+MeMesh hoạt động offline theo mặc định — recall luôn LLM-free (95.60% R@5 trên LongMemEval-S, không cần LLM). Thêm LLM API key chỉ nếu bạn muốn các luồng phân tích LLM-augmented bổ sung: trích xuất session thông minh hơn, auto-tagging cho memories mới, phân tích lỗi thành lessons có cấu trúc, và compression `consolidate` / `dream`:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -345,7 +345,7 @@ Embedder được cấu hình **độc lập với LLM chat** — thay đổi `l
 
 | | Level 0 (default) | Level 1 (Smart Mode) |
 |---|---|---|
-| **Search** | FTS5 + sqlite-vec, 95.40% R@5 (~18ms/query) | giữ nguyên — recall luôn LLM-free ở mọi level |
+| **Search** | FTS5 + sqlite-vec, 95.60% R@5 (~4ms mỗi recall) | giữ nguyên — recall luôn LLM-free ở mọi level |
 | **Auto-capture** | Rule-based patterns | + LLM extracts decisions & lessons |
 | **Auto-tagging** | Chỉ thẻ thủ công | + LLM tự động gắn nhãn entity mới |
 | **Phân tích lỗi** | Không có sẵn | + LLM chuyển session errors thành structured lessons |
@@ -359,7 +359,7 @@ Embedder được cấu hình **độc lập với LLM chat** — thay đổi `l
 | Tool | Nó làm gì |
 |------|-------------|
 | `remember` | Lưu trữ kiến thức với observations, relations, và tags |
-| `recall` | Tìm kiếm FTS5 + sqlite-vec với multi-factor scoring (relevance, recency, frequency, confidence, temporal validity) — không có LLM trong hot path |
+| `recall` | Tìm kiếm FTS5 + sqlite-vec với multi-factor scoring (relevance, recency, frequency, confidence, recall impact) — không có LLM trong hot path |
 | `forget` | Soft-archive (không bao giờ xóa) hoặc xóa observations cụ thể |
 | `consolidate` | LLM-powered compression của verbose memories |
 | `export` | Chia sẻ memories dưới dạng JSON giữa các dự án hoặc thành viên team |

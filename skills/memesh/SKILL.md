@@ -82,7 +82,7 @@ memesh recall "authentication" --json
 memesh recall --tag "project:myapp" --limit 10
 memesh recall --cross-project                # search across all projects
 ```
-Results are ranked by relevance, recency, frequency, confidence, and temporal validity.
+Results are ranked by relevance, recency, frequency, confidence, and recall impact.
 
 ### A decision was just made
 ```bash

@@ -18,13 +18,13 @@
 
 **MeMesh** — the open-source **memory layer** for Claude Code & MCP agents. One SQLite file. No cloud. Plugs into any LLM.
 
-## 95.40% R@5 on LongMemEval-S — beats Mem0 by 46 points
+## 95.60% R@5 on LongMemEval-S — beats Mem0 by 46 points
 
 MeMesh's retrieval is **FTS5 alone** — no LLM, no embeddings on the hot path. Measured against the public [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) benchmark (500 questions, MIT-licensed):
 
 | System | R@5 | Source |
 |---|---|---|
-| **MeMesh (Mode A, FTS5)** | **95.40%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
 | MemPalace | 96.6% | Vendor self-report |
 | Supermemory | ~82% | Vendor estimate |
 | Zep | 63.8% | LongMemEval paper |
@@ -320,7 +320,7 @@ When npm flags an installed version as deprecated (typically a security advisory
 
 **🧠 Smart Search** — Search "login security" and find memories about "OAuth PKCE". MeMesh expands queries with related terms using your configured LLM.
 
-**📊 Scored Ranking** — Results ranked by relevance (30%) + recency (25%) + frequency (15%) + confidence (15%) + recall impact (10%) + temporal validity (5%).
+**📊 Scored Ranking** — Results ranked by relevance (30%) + recency (25%) + frequency (18%) + confidence (17%) + recall impact (10%).
 
 **🔄 Knowledge Evolution** — Decisions change. `forget` archives old memories (never deletes). `supersedes` relations link old → new. Your AI always sees the latest version.
 
@@ -348,7 +348,7 @@ Imported bundles stay searchable, but MeMesh does not auto-inject imported memor
 
 ## Unlock Smart Mode (Optional)
 
-MeMesh works offline by default — recall stays strictly LLM-free (95.40% R@5 on LongMemEval-S out of the box). Add an LLM API key only if you want LLM-augmented analysis flows on top: smarter session extraction, auto-tagging of new memories, lesson generation from failures, and `consolidate` / `dream` compression:
+MeMesh works offline by default — recall stays strictly LLM-free (95.60% R@5 on LongMemEval-S out of the box). Add an LLM API key only if you want LLM-augmented analysis flows on top: smarter session extraction, auto-tagging of new memories, lesson generation from failures, and `consolidate` / `dream` compression:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -374,7 +374,7 @@ The embedder is configured **independently of the chat LLM** — changing `llm.p
 
 | | Level 0 (default) | Level 1 (Smart Mode) |
 |---|---|---|
-| **Search** | FTS5 + sqlite-vec, 95.40% R@5 (~18ms/query) | unchanged — recall is LLM-free at every level |
+| **Search** | FTS5 + sqlite-vec, 95.60% R@5 (~4ms per recall) | unchanged — recall is LLM-free at every level |
 | **Auto-capture** | Rule-based patterns | + LLM extracts decisions & lessons |
 | **Auto-tagging** | Manual tags only | + LLM generates tags for new memories |
 | **Failure analysis** | Not available | + LLM converts session errors into structured lessons |
@@ -388,7 +388,7 @@ The embedder is configured **independently of the chat LLM** — changing `llm.p
 | Tool | What it does |
 |------|-------------|
 | `remember` | Store knowledge with observations, relations, and tags |
-| `recall` | FTS5 + sqlite-vec search with multi-factor scoring (relevance, recency, frequency, confidence, temporal validity) — no LLM in the hot path |
+| `recall` | FTS5 + sqlite-vec search with multi-factor scoring (relevance, recency, frequency, confidence, recall impact) — no LLM in the hot path |
 | `forget` | Soft-archive (never deletes) or remove specific observations |
 | `consolidate` | LLM-powered compression of verbose memories |
 | `export` | Share memories as JSON between projects or team members |

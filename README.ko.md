@@ -29,13 +29,13 @@
 
 ---
 
-## 검증 — LongMemEval-S에서 R@5 95.40%
+## 검증 — LongMemEval-S에서 R@5 95.60%
 
 MeMesh의 검색 엔진은 **FTS5 단독**(핫 패스에 LLM 없음, 임베딩 없음)이며, 공개 [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) 벤치마크(500개 질문, MIT 라이선스)로 측정되었습니다:
 
 | 시스템 | R@5 | 출처 |
 |---|---|---|
-| **MeMesh (Mode A, FTS5)** | **95.40%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
 | MemPalace | 96.6% | 벤더 자체 보고 |
 | Supermemory | ~82% | 벤더 추정치 |
 | Zep | 63.8% | LongMemEval 논문 |
@@ -316,9 +316,9 @@ npm이 설치된 버전을 deprecated로 플래그하면(일반적으로 보안 
 
 ## 스마트 기능
 
-**🧠 스마트 검색** — FTS5 + sqlite-vec를 사용해 모든 메모리에서 즉시 검색. 핫 패스에 LLM이 없어 LongMemEval-S에서 R@5 95.40% 달성.
+**🧠 스마트 검색** — FTS5 + sqlite-vec를 사용해 모든 메모리에서 즉시 검색. 핫 패스에 LLM이 없어 LongMemEval-S에서 R@5 95.60% 달성.
 
-**📊 점수 순위 매김** — 결과는 관련성(30%) + 최근성(25%) + 빈도(15%) + 신뢰도(15%) + 회상 영향(10%) + 시계열 유효성(5%)으로 순위 매겨집니다.
+**📊 점수 순위 매김** — 결과는 관련성(30%) + 최근성(25%) + 빈도(18%) + 신뢰도(17%) + 회상 영향(10%)으로 순위 매겨집니다.
 
 **🔄 지식 진화** — 결정은 변합니다. `forget`으로 오래된 메모리 보관(절대 삭제 안 함). `supersedes` 관계가 구 → 신을 연결합니다. AI는 항상 최신 버전을 봅니다.
 
@@ -346,7 +346,7 @@ npm이 설치된 버전을 deprecated로 플래그하면(일반적으로 보안 
 
 ## 스마트 모드 언락 (선택)
 
-MeMesh는 기본적으로 오프라인에서 작동합니다 — 회상은 엄격히 LLM-free로 유지됩니다(기본 설치만으로 LongMemEval-S에서 R@5 95.40%). LLM API 키는 그 위에 LLM 증강 분석 흐름을 원할 때만 추가합니다: 더 스마트한 세션 추출, 새 메모리의 자동 태그 부여, 실패로부터의 교훈 생성, `consolidate` / `dream` 압축:
+MeMesh는 기본적으로 오프라인에서 작동합니다 — 회상은 엄격히 LLM-free로 유지됩니다(기본 설치만으로 LongMemEval-S에서 R@5 95.60%). LLM API 키는 그 위에 LLM 증강 분석 흐름을 원할 때만 추가합니다: 더 스마트한 세션 추출, 새 메모리의 자동 태그 부여, 실패로부터의 교훈 생성, `consolidate` / `dream` 압축:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -372,7 +372,7 @@ memesh config set embedder.model text-embedding-3-small
 
 | | Level 0 (기본) | Level 1 (스마트 모드) |
 |---|---|---|
-| **검색** | FTS5 + sqlite-vec, R@5 95.40% (~18ms/쿼리) | 변경 없음 — 회상은 모든 레벨에서 LLM-free |
+| **검색** | FTS5 + sqlite-vec, R@5 95.60% (회상 1회당 ~4ms) | 변경 없음 — 회상은 모든 레벨에서 LLM-free |
 | **자동 캡처** | 규칙 기반 패턴 | + LLM이 결정과 교훈 추출 |
 | **자동 태그 부여** | 수동 태그만 | + LLM이 새 메모리에 태그 생성 |
 | **실패 분석** | 사용 불가 | + LLM이 세션 에러를 구조화된 교훈으로 변환 |
@@ -386,7 +386,7 @@ memesh config set embedder.model text-embedding-3-small
 | 도구 | 역할 |
 |---|---|
 | `remember` | 관찰, 관계, 태그를 포함한 지식 저장 |
-| `recall` | 다중 요소 점수 매김(관련성, 최근성, 빈도, 신뢰도, 시계열 유효성)이 있는 FTS5 + sqlite-vec 검색 — 핫 패스에 LLM 없음 |
+| `recall` | 다중 요소 점수 매김(관련성, 최근성, 빈도, 신뢰도, 회상 영향)이 있는 FTS5 + sqlite-vec 검색 — 핫 패스에 LLM 없음 |
 | `forget` | 소프트 보관(절대 삭제 안 함) 또는 특정 관찰 제거 |
 | `consolidate` | LLM 기반 장황한 메모리 압축 |
 | `export` | 프로젝트나 팀 멤버 간 메모리 JSON 공유 |
