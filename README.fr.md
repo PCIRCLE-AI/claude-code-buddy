@@ -29,13 +29,13 @@ Ce package constitue la couche de mémoire locale de la famille de produits MeMe
 
 ---
 
-## Preuve — 95,40 % R@5 sur LongMemEval-S
+## Preuve — 95,60 % R@5 sur LongMemEval-S
 
 Le moteur de récupération de MeMesh utilise **FTS5 seul** (pas de LLM, pas d'embeddings sur le chemin chaud), mesuré sur le benchmark public [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) (500 questions, licence MIT) :
 
 | Système | R@5 | Source |
 |---|---|---|
-| **MeMesh (Mode A, FTS5)** | **95,40 %** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| **MeMesh (Mode A, via `recallEnhanced()`)** | **95,60 %** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
 | MemPalace | 96,6 % | Auto-déclaration de l'éditeur |
 | Supermemory | ~82 % | Estimation de l'éditeur |
 | Zep | 63,8 % | Article LongMemEval |
@@ -291,7 +291,7 @@ Lorsque npm signale une version installée comme dépréciée (typiquement une a
 
 **🧠 Recherche Intelligente** — Cherchez « sécurité login » et trouvez des mémoires sur « OAuth PKCE ». MeMesh combine FTS5 et la similarité vectorielle sqlite-vec pour trouver des mémoires sémantiquement liées sans LLM sur le chemin chaud.
 
-**📊 Classement Avec Score** — Les résultats sont classés par pertinence (30 %) + récence (25 %) + fréquence (15 %) + confiance (15 %) + impact de rappel (10 %) + validité temporelle (5 %).
+**📊 Classement Avec Score** — Les résultats sont classés par pertinence (30 %) + récence (25 %) + fréquence (18 %) + confiance (17 %) + impact de rappel (10 %).
 
 **🔄 Évolution Des Connaissances** — Les décisions changent. `forget` archive les anciennes mémoires (jamais supprimer). Les relations `supersedes` relient ancien → nouveau. Votre IA voit toujours la version la plus récente.
 
@@ -319,7 +319,7 @@ Les bundles importés restent consultables, mais MeMesh n'injecte pas automatiqu
 
 ## Déverrouiller Le Mode Smart (Optionnel)
 
-MeMesh fonctionne hors ligne par défaut — le rappel reste strictement sans LLM (95,40 % R@5 sur LongMemEval-S dès l'installation). Ajoutez une clé API LLM uniquement si vous voulez des flux d'analyse augmentés par LLM par-dessus : extraction de session plus intelligente, auto-tagging des nouvelles mémoires, génération de leçons depuis les défaillances et compression `consolidate` / `dream` :
+MeMesh fonctionne hors ligne par défaut — le rappel reste strictement sans LLM (95,60 % R@5 sur LongMemEval-S dès l'installation). Ajoutez une clé API LLM uniquement si vous voulez des flux d'analyse augmentés par LLM par-dessus : extraction de session plus intelligente, auto-tagging des nouvelles mémoires, génération de leçons depuis les défaillances et compression `consolidate` / `dream` :
 
 ```bash
 memesh config set llm.provider anthropic
@@ -345,7 +345,7 @@ L'embedder se configure **indépendamment du LLM de chat** — changer `llm.prov
 
 | | Niveau 0 (défaut) | Niveau 1 (Mode Smart) |
 |---|---|---|
-| **Recherche** | FTS5 + sqlite-vec, 95,40 % R@5 (~18 ms/requête) | inchangé — le rappel est sans LLM à tous les niveaux |
+| **Recherche** | FTS5 + sqlite-vec, 95,60 % R@5 (~4 ms par rappel) | inchangé — le rappel est sans LLM à tous les niveaux |
 | **Auto-capture** | Motifs basés sur les règles | + LLM extrait les décisions & leçons |
 | **Auto-tagging** | Tags manuels uniquement | + LLM génère des tags pour les nouvelles mémoires |
 | **Analyse de défaillance** | Indisponible | + LLM convertit les erreurs de session en leçons structurées |
@@ -359,7 +359,7 @@ L'embedder se configure **indépendamment du LLM de chat** — changer `llm.prov
 | Outil | Ce qu'il fait |
 |---|---|
 | `remember` | Stocker les connaissances avec observations, relations et tags |
-| `recall` | Recherche FTS5 + sqlite-vec avec notation multi-facteurs (pertinence, récence, fréquence, confiance, validité temporelle) — pas de LLM sur le chemin chaud |
+| `recall` | Recherche FTS5 + sqlite-vec avec notation multi-facteurs (pertinence, récence, fréquence, confiance, impact de rappel) — pas de LLM sur le chemin chaud |
 | `forget` | Soft-archivage (jamais supprimer) ou suppression d'observations spécifiques |
 | `consolidate` | Compression des mémoires verbeux alimentée par LLM |
 | `export` | Partager les mémoires au format JSON entre projets ou membres d'équipe |

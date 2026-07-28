@@ -29,13 +29,13 @@ Este paquete es la capa de memoria local de la familia de productos MeMesh. Es i
 
 ---
 
-## Prueba — 95.40% R@5 en LongMemEval-S
+## Prueba — 95.60% R@5 en LongMemEval-S
 
 El motor de recuperación de MeMesh es **solo FTS5** (sin LLM, sin embeddings en la ruta caliente), medido contra el benchmark público [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) (500 preguntas, licencia MIT):
 
 | Sistema | R@5 | Fuente |
 |---|---|---|
-| **MeMesh (Modo A, FTS5)** | **95.40%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| **MeMesh (Modo A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
 | MemPalace | 96.6% | Auto-reporte del proveedor |
 | Supermemory | ~82% | Estimación del proveedor |
 | Zep | 63.8% | Paper de LongMemEval |
@@ -318,7 +318,7 @@ Cuando npm marca una versión instalada como deprecada (típicamente un aviso de
 
 **🧠 Búsqueda Inteligente** — Busca "login security" y encuentra memorias sobre "OAuth PKCE". MeMesh expande consultas con términos relacionados usando tu LLM configurado.
 
-**📊 Ranking Puntuado** — Los resultados se clasifican por relevancia (30%) + recencia (25%) + frecuencia (15%) + confianza (15%) + impacto de recuperación (10%) + validez temporal (5%).
+**📊 Ranking Puntuado** — Los resultados se clasifican por relevancia (30%) + recencia (25%) + frecuencia (18%) + confianza (17%) + impacto de recuperación (10%).
 
 **🔄 Evolución del Conocimiento** — Las decisiones cambian. `forget` archiva memorias antiguas (nunca borra). Las relaciones `supersedes` vinculan antiguas → nuevas. Tu IA siempre ve la versión más reciente.
 
@@ -346,7 +346,7 @@ Los bundles importados permanecen buscables, pero MeMesh no inyecta automáticam
 
 ## Desbloquea Modo Inteligente (Opcional)
 
-MeMesh funciona sin conexión por defecto — el recall permanece estrictamente sin LLM (95.40% R@5 en LongMemEval-S de fábrica). Añade una clave API de LLM solo si quieres flujos de análisis aumentados por LLM encima: extracción de sesión más inteligente, auto-etiquetado de nuevas memorias, generación de lecciones a partir de fallos, y compresión `consolidate` / `dream`:
+MeMesh funciona sin conexión por defecto — el recall permanece estrictamente sin LLM (95.60% R@5 en LongMemEval-S de fábrica). Añade una clave API de LLM solo si quieres flujos de análisis aumentados por LLM encima: extracción de sesión más inteligente, auto-etiquetado de nuevas memorias, generación de lecciones a partir de fallos, y compresión `consolidate` / `dream`:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -372,7 +372,7 @@ El embedder se configura **independientemente del LLM de chat** — cambiar `llm
 
 | | Nivel 0 (por defecto) | Nivel 1 (Modo Inteligente) |
 |---|---|---|
-| **Búsqueda** | FTS5 + sqlite-vec, 95.40% R@5 (~18ms/consulta) | sin cambios — el recall es sin LLM en cada nivel |
+| **Búsqueda** | FTS5 + sqlite-vec, 95.60% R@5 (~4ms por recall) | sin cambios — el recall es sin LLM en cada nivel |
 | **Auto-capture** | Patrones basados en reglas | + LLM extrae decisiones y lecciones |
 | **Auto-etiquetado** | Solo etiquetas manuales | + LLM genera etiquetas para nuevas memorias |
 | **Análisis de fallos** | No disponible | + LLM convierte errores de sesión en lecciones estructuradas |
@@ -386,7 +386,7 @@ El embedder se configura **independientemente del LLM de chat** — cambiar `llm
 | Herramienta | Qué hace |
 |---|---|
 | `remember` | Guardar conocimiento con observaciones, relaciones y etiquetas |
-| `recall` | Búsqueda FTS5 + sqlite-vec con scoring multifactor (relevancia, recencia, frecuencia, confianza, validez temporal) — sin LLM en la ruta caliente |
+| `recall` | Búsqueda FTS5 + sqlite-vec con scoring multifactor (relevancia, recencia, frecuencia, confianza, impacto de recuperación) — sin LLM en la ruta caliente |
 | `forget` | Archivo suave (nunca borra) o elimina observaciones específicas |
 | `consolidate` | Compresión impulsada por LLM de memorias verbosas |
 | `export` | Compartir memorias como JSON entre proyectos o miembros del equipo |

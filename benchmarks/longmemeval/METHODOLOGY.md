@@ -38,9 +38,13 @@ The adapter (`benchmarks/longmemeval/run.mjs`) maps the LongMemEval question for
 > terms and ordered by `e.id DESC` instead of by BM25 `rank`. On the same 500
 > questions the adapter scored 95.40% R@5 and the shipped path scored **5.20%**,
 > with 473 of 500 questions returning nothing at all. Result files in `results/`
-> written before this change are labelled `harness_reimplementation` in their
-> `run_info` and are retained for history only; they do not describe the
-> product at any version. See CHANGELOG `[Unreleased]` and PR #78.
+> written before this change are kept byte-identical — they are published
+> evidence, and editing them would be worse than labelling them — so they carry
+> no marker of their own. Which file measured what is recorded in
+> [`results/README.md`](results/README.md); files produced by the current runner
+> are the ones whose `run_info.measures` reads `"shipped_recall_path"`. The older
+> files do not describe the product at any version. See CHANGELOG `[Unreleased]`
+> and PR #78.
 
 Key design decisions:
 

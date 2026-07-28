@@ -10,6 +10,12 @@ change.
 `run_info.retrieval_entrypoint` names the function that produced them
 (`dist/core/operations.js::recallEnhanced`). These are measurements of MeMesh.
 
+- `mode-A-2026-07-28T21-36-54.json` — no embeddings. R@5 95.60%.
+- `mode-B-2026-07-28T21-54-01.json` — embeddings populated. R@5 95.60%, byte-for-byte
+  the same metrics as Mode A: the vector supplement contributes nothing while
+  `MAX_VECTOR_DISTANCE = 1` discards hits that sqlite-vec returns at L2 distances
+  of 1.2–1.4.
+
 ## Files from 2026-05 — an adapter reimplementation
 
 `mode-A-2026-05-*.json`, `mode-B-2026-05-*.json`, `mode-C-2026-05-*.json`.

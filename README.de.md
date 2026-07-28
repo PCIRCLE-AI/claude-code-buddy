@@ -29,13 +29,13 @@ Dieses Paket ist die lokale Speicherschicht der MeMesh-Produktfamilie. Es ist be
 
 ---
 
-## Proof — 95.40% R@5 on LongMemEval-S
+## Proof — 95.60% R@5 on LongMemEval-S
 
 MeMeshs Retrieval-Engine ist **FTS5 alleine** (kein LLM, keine Embeddings auf dem Hot Path), gemessen am öffentlichen [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) Benchmark (500 Fragen, MIT-lizenziert):
 
 | System | R@5 | Quelle |
 |---|---|---|
-| **MeMesh (Mode A, FTS5)** | **95.40%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
 | MemPalace | 96.6% | Eigenangabe des Anbieters |
 | Supermemory | ~82% | Schätzung des Anbieters |
 | Zep | 63.8% | LongMemEval-Paper |
@@ -290,7 +290,7 @@ Wenn npm eine installierte Version als veraltet kennzeichnet (typischerweise ein
 
 **🧠 Intelligente Suche** — Suche nach „Login Security" und finde Memories über „OAuth PKCE". MeMesh erweitert Anfragen mit verwandten Begriffen unter Verwendung Ihres konfigurierten LLM.
 
-**📊 Bewertetes Ranking** — Ergebnisse geordnet nach Relevanz (30%) + Aktualität (25%) + Häufigkeit (15%) + Konfidenz (15%) + Abruf-Auswirkung (10%) + Zeitliche Gültigkeit (5%).
+**📊 Bewertetes Ranking** — Ergebnisse geordnet nach Relevanz (30%) + Aktualität (25%) + Häufigkeit (18%) + Konfidenz (17%) + Abruf-Auswirkung (10%).
 
 **🔄 Wissensentwicklung** — Entscheidungen ändern sich. `forget` archiviert alte Memories (löscht nie). `supersedes`-Relationen verbinden alt → neu. Ihr KI sieht immer die aktuelle Version.
 
@@ -318,7 +318,7 @@ Importierte Bundles bleiben durchsuchbar, aber MeMesh injiziert importierte Memo
 
 ## Smart Mode freischalten (optional)
 
-MeMesh funktioniert standardmäßig offline — Recall bleibt strikt LLM-frei (95,40 % R@5 auf LongMemEval-S, ohne LLM). Fügen Sie einen LLM API-Schlüssel nur hinzu, wenn Sie LLM-augmentierte Analyseflüsse zusätzlich nutzen möchten: intelligentere Session-Extraktion, Auto-Tagging neuer Memories, Lektionen aus Fehlern und `consolidate` / `dream` Kompression:
+MeMesh funktioniert standardmäßig offline — Recall bleibt strikt LLM-frei (95,60 % R@5 auf LongMemEval-S, ohne LLM). Fügen Sie einen LLM API-Schlüssel nur hinzu, wenn Sie LLM-augmentierte Analyseflüsse zusätzlich nutzen möchten: intelligentere Session-Extraktion, Auto-Tagging neuer Memories, Lektionen aus Fehlern und `consolidate` / `dream` Kompression:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -344,7 +344,7 @@ Der Embedder wird **unabhängig vom Chat-LLM** konfiguriert — `llm.provider` z
 
 | | Stufe 0 (Standard) | Stufe 1 (Smart Mode) |
 |---|---|---|
-| **Search** | FTS5 + sqlite-vec, 95,40 % R@5 (~18 ms/Query) | unverändert — Recall ist auf jeder Stufe LLM-frei |
+| **Search** | FTS5 + sqlite-vec, 95,60 % R@5 (~4 ms pro Recall) | unverändert — Recall ist auf jeder Stufe LLM-frei |
 | **Auto-Capture** | Regelbasierte Muster | + LLM extrahiert Entscheidungen & Lektionen |
 | **Auto-Tagging** | Nur manuelle Tags | + LLM generiert Tags für neue Memories |
 | **Fehleranalyse** | Nicht verfügbar | + LLM wandelt Session-Fehler in strukturierte Lektionen um |
@@ -358,7 +358,7 @@ Der Embedder wird **unabhängig vom Chat-LLM** konfiguriert — `llm.provider` z
 | Tool | Was es tut |
 |------|-------------|
 | `remember` | Wissen mit Beobachtungen, Relationen und Tags speichern |
-| `recall` | FTS5 + sqlite-vec Suche mit Multi-Faktor-Bewertung (Relevanz, Aktualität, Häufigkeit, Konfidenz, zeitliche Gültigkeit) — kein LLM auf dem Hot Path |
+| `recall` | FTS5 + sqlite-vec Suche mit Multi-Faktor-Bewertung (Relevanz, Aktualität, Häufigkeit, Konfidenz, Abruf-Auswirkung) — kein LLM auf dem Hot Path |
 | `forget` | Soft-Archivierung (löscht nie) oder entfernt spezifische Beobachtungen |
 | `consolidate` | LLM-gestützte Kompression ausschweifender Memories |
 | `export` | Memories als JSON zwischen Projekten oder Teamkollegen teilen |

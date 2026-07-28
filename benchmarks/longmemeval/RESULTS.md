@@ -104,25 +104,25 @@ Measured through `recallEnhanced()`:
 | Mode | Description | R@5 | R@10 | MRR | Zero-result questions | Elapsed |
 |------|-------------|-----|------|-----|-----------------------|---------|
 | A | no embeddings | **95.60%** | 97.80% | 0.8931 | 0 / 500 | 9.5s |
+| B | embeddings populated | **95.60%** | 97.80% | 0.8931 | 0 / 500 | 822.8s |
 
 For contrast, the same 500 questions through the same function **before** the
 retrieval fixes in this release: R@5 **5.20%**, R@10 5.20%, MRR 0.0520, and
 **473 of 500** questions returning nothing.
 
-**Mode B measures identical to Mode A** — R@5 95.60%, R@10 97.80%, MRR 0.8931,
-to every digit. Populating embeddings changes nothing, because `vectorSearch()`
-discards nearly every hit at `MAX_VECTOR_DISTANCE = 1` while sqlite-vec returns
-L2 distances around 1.2–1.4 for related text. The vector half of "hybrid search"
-contributes nothing today. That is a defect with its own fix pending, not a
-property of the benchmark (METHODOLOGY.md §4.2).
+**Mode B is identical to Mode A to every digit** — same R@5, same R@10, same MRR
+to sixteen decimal places. Storing 25,000 embeddings and letting
+`recallEnhanced()` consult them changes not one result. `vectorSearch()` filters
+hits at `MAX_VECTOR_DISTANCE = 1` while sqlite-vec returns L2 distances around
+1.2–1.4 for related text, so essentially every vector hit is discarded before it
+can supplement FTS5. The vector half of "hybrid search" contributes nothing
+today. That is a defect with its own fix pending, not a property of the
+benchmark (METHODOLOGY.md §4.2), and it is worth knowing that the 22 remaining
+Mode A failures are dominated by vocabulary mismatch — exactly what a working
+vector supplement would cover.
 
-The Mode B row is held out of the table above until its raw result file is
-committed: the run that produced these numbers started before the commit that
-rewrote the runner, so its `run_info.git_sha` points at the parent commit. A
-publishable result file has to agree with the code that produced it — that is
-the whole subject of this change — so it is being regenerated rather than
-committed with a stale SHA. The 95.40% Mode B figure published previously came
-from the adapter reimplementation and does not carry over; do not quote it.
+The 95.40% Mode B figure published previously came from the adapter
+reimplementation and does not carry over; do not quote it.
 
 Dataset SHA256 `08d8dad4...` verified against the on-disk file and against
 `run_info.dataset_sha256` in the result JSON.
@@ -173,7 +173,10 @@ Dataset SHA256 `08d8dad4...` verified against the on-disk file and against
 ### What this benchmark measures
 - Session-level retrieval: given a question, find the right session(s) in ~50 sessions
 - FTS5 keyword search quality on conversational data
-- NOT tested: production scoring factors (recency, frequency, impact), LLM query expansion, entity graph traversal
+- The whole shipped read path, including the five-factor scorer — though see
+  below for why four of those five factors have nothing to say here
+- (There is no LLM query expansion to test: `query-expander.ts` was removed in
+  v4.2.0 and recall has been strictly LLM-free since.)
 
 ### What it does not measure
 - **An aged memory base.** Every database is fresh, so recency, frequency,
