@@ -21,12 +21,8 @@ function buildLocalMetadata(existingMetadata, overrides) {
 function recallTagFilter(args) {
     return args.cross_project ? undefined : args.tag;
 }
-function buildRelevanceMap(entities, hasQuery) {
-    const relevanceMap = new Map();
-    entities.forEach((entity, index) => {
-        relevanceMap.set(entity.name, hasQuery ? 1 - index / (entities.length + 1) : 0.5);
-    });
-    return relevanceMap;
+function buildRelevanceMap(entities) {
+    return new Map(entities.map((entity, index) => [entity.name, 1 - index / (entities.length + 1)]));
 }
 export function remember(args) {
     const db = getDatabase();
@@ -99,7 +95,7 @@ export function recall(args) {
         includeArchived: args.include_archived,
         namespace: args.namespace,
     });
-    const relevanceMap = buildRelevanceMap(entities, Boolean(args.query));
+    const relevanceMap = args.query ? buildRelevanceMap(entities) : new Map();
     return rankEntities(entities, relevanceMap).slice(0, args.limit ?? 20);
 }
 async function supplementWithVectors(query, args, kg, merged, relevanceMap) {
@@ -139,7 +135,7 @@ export async function recallEnhanced(args) {
         includeArchived: args.include_archived,
         namespace: args.namespace,
     });
-    const relevanceMap = buildRelevanceMap(entities, Boolean(args.query));
+    const relevanceMap = args.query ? buildRelevanceMap(entities) : new Map();
     const mergedEntities = [...entities];
     if (args.query) {
         await supplementWithVectors(args.query, args, kg, mergedEntities, relevanceMap);

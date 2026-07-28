@@ -1,11 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { openDatabase, closeDatabase } from '../src/db.js';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { getDatabase } from '../src/db.js';
 import { KnowledgeGraph } from '../src/knowledge-graph.js';
 import { recall } from '../src/core/operations.js';
+import { useTestDatabase } from './helpers/db-fixture.js';
 import Database from 'better-sqlite3';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
 
 /**
  * Regression suite for the recall-quality class the existing tests structurally
@@ -25,27 +23,14 @@ import os from 'os';
  *      survives to the scorer.
  */
 describe('Feature: recall relevance', () => {
-  let testDir: string;
+  useTestDatabase('memesh-recall-rel-');
+
   let db: Database.Database;
   let kg: KnowledgeGraph;
 
   beforeEach(() => {
-    testDir = path.join(
-      os.tmpdir(),
-      `memesh-recall-rel-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    );
-    fs.mkdirSync(testDir, { recursive: true });
-    db = openDatabase(path.join(testDir, 'test.db'));
+    db = getDatabase();
     kg = new KnowledgeGraph(db);
-  });
-
-  afterEach(() => {
-    try {
-      closeDatabase();
-    } catch {
-      /* already closed */
-    }
-    fs.rmSync(testDir, { recursive: true, force: true });
   });
 
   describe('a natural-language question finds the memory', () => {
@@ -81,16 +66,13 @@ describe('Feature: recall relevance', () => {
       expect(names).toContain('grad-record');
       expect(names).toContain('college-trip');
       expect(names.indexOf('grad-record')).toBeLessThan(names.indexOf('college-trip'));
+      // OR widens the net; it must not drag in a memory sharing no term.
+      expect(names).not.toContain('pasta-recipe');
     });
 
     it('still returns nothing when no query term appears anywhere', () => {
       // OR must not turn "no match" into "everything".
       expect(kg.search('kubernetes helm chart')).toHaveLength(0);
-    });
-
-    it('does not return unrelated memories for a well-matched query', () => {
-      const names = kg.search('degree graduated college').map((e) => e.name);
-      expect(names).not.toContain('pasta-recipe');
     });
   });
 
@@ -110,14 +92,13 @@ describe('Feature: recall relevance', () => {
       }
     });
 
-    it('returns the most relevant memory even though 40 newer ones also match', () => {
-      const results = kg.search('jwt', { limit: 20 });
-      expect(results.map((e) => e.name)).toContain('jwt-rotation-decision');
-    });
-
     it('ranks the most relevant memory first, not the newest', () => {
       const results = kg.search('jwt', { limit: 20 });
-      expect(results[0].name).toBe('jwt-rotation-decision');
+      const names = results.map((e) => e.name);
+      // Two separate failures, two separate messages: `toContain` fails when
+      // LIMIT dropped it before scoring, `[0]` fails when the ordering is wrong.
+      expect(names).toContain('jwt-rotation-decision');
+      expect(names[0]).toBe('jwt-rotation-decision');
     });
 
     it('the ordering survives recall()’s scoring pass', () => {
@@ -276,11 +257,15 @@ describe('Feature: recall relevance', () => {
     });
   });
 
-  describe('existing behaviour is preserved', () => {
+  describe('filters still apply', () => {
+    // Single-filter coverage (tag alone, namespace alone, limit, archived
+    // excluded by default) lives in tests/knowledge-graph.test.ts and is not
+    // repeated here. This is the case that file does not have: both filters at
+    // once, which is what pins the positional parameter order.
     it('applies tag and namespace filters together', () => {
-      // The tag branch is a different SQL statement with four positional
-      // parameters (MATCH, tag, namespace, limit). Neither single-filter test
-      // would catch them being bound in the wrong order.
+      // One statement builds MATCH ? → tag ? → namespace ? → limit ? from
+      // optional fragments, so a mis-ordered `params.push` binds the tag as the
+      // namespace and silently returns nothing (or the wrong row).
       kg.createEntity('both', 'note', {
         observations: ['release checklist'],
         tags: ['project:alpha'],
@@ -301,50 +286,6 @@ describe('Feature: recall relevance', () => {
         .search('release checklist', { tag: 'project:alpha', namespace: 'team' })
         .map((e) => e.name);
       expect(names).toEqual(['both']);
-    });
-
-    it('respects the tag filter', () => {
-      kg.createEntity('tagged', 'note', {
-        observations: ['deployment pipeline caching strategy'],
-        tags: ['project:alpha'],
-      });
-      kg.createEntity('untagged', 'note', {
-        observations: ['deployment pipeline caching strategy'],
-      });
-
-      const results = kg.search('deployment caching', { tag: 'project:alpha' });
-      expect(results.map((e) => e.name)).toEqual(['tagged']);
-    });
-
-    it('respects the namespace filter', () => {
-      kg.createEntity('personal-note', 'note', {
-        observations: ['quarterly planning notes'],
-        namespace: 'personal',
-      });
-      kg.createEntity('team-note', 'note', {
-        observations: ['quarterly planning notes'],
-        namespace: 'team',
-      });
-
-      const results = kg.search('quarterly planning', { namespace: 'team' });
-      expect(results.map((e) => e.name)).toEqual(['team-note']);
-    });
-
-    it('honours the limit', () => {
-      for (let i = 0; i < 10; i++) {
-        kg.createEntity(`doc-${i}`, 'note', { observations: ['shared indexing term'] });
-      }
-      expect(kg.search('indexing', { limit: 3 })).toHaveLength(3);
-    });
-
-    it('excludes archived entities by default', () => {
-      kg.createEntity('live-doc', 'note', { observations: ['migration checklist'] });
-      kg.createEntity('dead-doc', 'note', { observations: ['migration checklist'] });
-      kg.archiveEntity('dead-doc');
-
-      const names = kg.search('migration checklist').map((e) => e.name);
-      expect(names).toContain('live-doc');
-      expect(names).not.toContain('dead-doc');
     });
   });
 });

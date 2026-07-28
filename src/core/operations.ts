@@ -58,20 +58,15 @@ function recallTagFilter(args: RecallInput): string | undefined {
  * Turn search results into the relevance input for `rankEntities`.
  *
  * `search()` returns FTS5 hits in BM25 order, so position carries the relevance
- * signal: first hit 1.0, last hit just above 0. Handing every hit the same 1.0
+ * signal: first hit 1.0, last just above 0. Handing every hit the same value
  * instead would tie them on the 0.30 relevance factor and let `rankEntities`
- * re-sort purely on recency/frequency/confidence — silently discarding the
- * ordering the search just computed. In a fresh database every other factor is
- * equal, so ties preserve order and the flattening is invisible; in an aged
- * memory base the newest match wins again. Empty queries take the recent-list
- * path, where there is no relevance signal at all, so they stay at a flat 0.5.
+ * re-sort purely on recency/frequency/confidence, discarding the ordering the
+ * search just computed. Callers with no query pass an empty map — there is no
+ * relevance signal on the recent-list path, and `rankEntities` already treats a
+ * missing entry as the neutral 0.5.
  */
-function buildRelevanceMap(entities: Entity[], hasQuery: boolean): Map<string, number> {
-  const relevanceMap = new Map<string, number>();
-  entities.forEach((entity, index) => {
-    relevanceMap.set(entity.name, hasQuery ? 1 - index / (entities.length + 1) : 0.5);
-  });
-  return relevanceMap;
+function buildRelevanceMap(entities: Entity[]): Map<string, number> {
+  return new Map(entities.map((entity, index) => [entity.name, 1 - index / (entities.length + 1)]));
 }
 
 /**
@@ -181,7 +176,7 @@ export function recall(args: RecallInput): Entity[] {
     namespace: args.namespace,
   });
 
-  const relevanceMap = buildRelevanceMap(entities, Boolean(args.query));
+  const relevanceMap = args.query ? buildRelevanceMap(entities) : new Map<string, number>();
 
   return rankEntities(entities, relevanceMap).slice(0, args.limit ?? 20);
 }
@@ -259,7 +254,7 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
     namespace: args.namespace,
   });
 
-  const relevanceMap = buildRelevanceMap(entities, Boolean(args.query));
+  const relevanceMap = args.query ? buildRelevanceMap(entities) : new Map<string, number>();
 
   const mergedEntities = [...entities];
   if (args.query) {

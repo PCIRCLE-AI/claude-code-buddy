@@ -2,6 +2,9 @@ import { findConflicts, trackAccess } from './storage/conflicts.js';
 import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 const MAX_QUERY_TERMS = 32;
+function buildQueryTerms(query) {
+    return (query.normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? []).slice(0, MAX_QUERY_TERMS);
+}
 export class KnowledgeGraph {
     db;
     constructor(db) {
@@ -244,50 +247,33 @@ export class KnowledgeGraph {
             }
             return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
         }
-        const tokens = query
-            .normalize('NFC')
-            .split(/[^\p{L}\p{N}\p{M}]+/u)
-            .filter((t) => t.length > 0)
-            .slice(0, MAX_QUERY_TERMS);
+        const tokens = buildQueryTerms(query);
         if (tokens.length === 0)
             return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
         const ftsQuery = tokens.map((token) => `"${token}"`).join(' OR ');
         const statusFilter = opts?.includeArchived ? '' : "AND e.status = 'active'";
         const namespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
+        const tagFilter = opts?.tag
+            ? 'AND EXISTS (SELECT 1 FROM tags t WHERE t.entity_id = e.id AND t.tag = ?)'
+            : '';
+        const params = [ftsQuery];
+        if (opts?.tag)
+            params.push(opts.tag);
+        if (opts?.namespace)
+            params.push(opts.namespace);
+        params.push(limit);
         let ftsRows;
         try {
-            if (opts?.tag) {
-                const params = [ftsQuery, opts.tag];
-                if (opts?.namespace)
-                    params.push(opts.namespace);
-                params.push(limit);
-                ftsRows = this.db
-                    .prepare(`SELECT DISTINCT e.id, e.name, f.rank AS fts_rank FROM entities_fts f
-             JOIN entities e ON e.id = f.rowid
-             JOIN tags t ON t.entity_id = e.id
-             WHERE entities_fts MATCH ?
-               AND t.tag = ?
-               ${statusFilter}
-               ${namespaceFilter}
-             ORDER BY fts_rank
-             LIMIT ?`)
-                    .all(...params);
-            }
-            else {
-                const params = [ftsQuery];
-                if (opts?.namespace)
-                    params.push(opts.namespace);
-                params.push(limit);
-                ftsRows = this.db
-                    .prepare(`SELECT e.id, e.name, f.rank AS fts_rank FROM entities_fts f
-             JOIN entities e ON e.id = f.rowid
-             WHERE entities_fts MATCH ?
-               ${statusFilter}
-               ${namespaceFilter}
-             ORDER BY fts_rank
-             LIMIT ?`)
-                    .all(...params);
-            }
+            ftsRows = this.db
+                .prepare(`SELECT e.id FROM entities_fts f
+           JOIN entities e ON e.id = f.rowid
+           WHERE entities_fts MATCH ?
+             ${tagFilter}
+             ${statusFilter}
+             ${namespaceFilter}
+           ORDER BY f.rank
+           LIMIT ?`)
+                .all(...params);
         }
         catch (err) {
             if (err instanceof Error && err.message?.includes('fts5'))
