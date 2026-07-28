@@ -4,6 +4,18 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **The LongMemEval benchmark now measures the shipped retrieval path** (`benchmarks/longmemeval/run.mjs`, `benchmarks/longmemeval/*.md`, `tests/recall-quality.test.ts`) — the runner used to carry its own `CREATE TABLE`, its own FTS5 query construction and its own ranking, so the published 95.40% R@5 scored that reimplementation rather than MeMesh. The two had drifted: the runner OR-joined query terms and ordered by BM25 `rank` while the shipped `search()` AND-joined and ordered by `e.id DESC`. On the same 500 questions the runner reported 95.40% and the product scored 5.20%, with 473 of 500 questions returning nothing — the defects fixed earlier in this release. A benchmark that reimplements the thing it measures cannot fail when the thing breaks.
+
+  The runner now seeds through `KnowledgeGraph.createEntity()` (the call `remember()` makes) and retrieves through `recallEnhanced()` (the call every transport makes), and records `run_info.measures: "shipped_recall_path"` so a result file states what produced it. Modes now name real product configurations — A without embeddings, B with them — instead of adapter-internal fusion strategies; mode C applied a 60/40 weighted fusion MeMesh has never implemented and is removed. Result files from before the change are kept unmodified and labelled in `benchmarks/longmemeval/results/README.md`.
+
+  Two published claims were corrected rather than quietly dropped. `RESULTS.md` said the figure was "measured using FTS5 full-text search — the same retrieval engine MeMesh uses in production"; it was not. `METHODOLOGY.md` §3 concluded that the benchmark was "a conservative lower bound on MeMesh's production retrieval quality — the full system would score at least as well, likely better", which the 5.20% measurement disproved in the most direct way available. §4.2 had listed OR-joining as an adapter *limitation* while the product AND-joined — the divergence was written down next to the number and read as a caveat about the harness.
+
+### Tests
+
+- **A retrieval-quality floor that runs on every CI leg** (`tests/recall-quality.test.ts`) — the LongMemEval dataset is a 278 MB download and committing a slice is dataset redistribution, so the gate uses a small synthetic corpus instead: ten memories, ten questions phrased as a person would ask them, and thirty function-word notes so `limit: 5` has to choose which rows reach the scorer. It asserts an aggregate R@5 floor of 80% (measured 100%) and is calibrated to catch collapse, not drift. Each of the four retrieval defects fixed in this release breaches it.
+
 ### Fixed
 
 - **`recall` now finds the memory when you ask a question in your own words** (`src/knowledge-graph.ts`, `src/core/operations.ts`) — four defects in the retrieval path compounded into near-total recall failure for anything but a single keyword, and each one hid the others.

@@ -1,19 +1,49 @@
 # MeMesh LongMemEval Benchmark Results
 
-**Version measured:** MeMesh v4.0.4 (2026-05-03)
-**Applies to:** v4.0.4 and later — v4.1.0 is unchanged on the retrieval path (same FTS5 query, same scoring). v4.1.0 adds the `agentic-orchestration` opt-in skill, telemetry plumbing, BYOK fixes, and i18n READMEs — none of those touch retrieval. R@5 = 95.40% holds for v4.1.0.
-**Branch:** bench/longmemeval-public-r1
-**Status:** PUBLIC — All three modes complete and independently verified (recomputed from raw per-question JSON, dataset SHA256 cross-checked).
+**Measured through:** `recallEnhanced()` — the function every transport calls for `recall`.
+**Status:** PUBLIC — recomputed from raw per-question JSON, dataset SHA256 cross-checked.
 
 > See METHODOLOGY.md for technical details. See REPRODUCE.md to run this yourself.
 
 ---
 
+## Read this before the numbers
+
+Until 2026-07 this benchmark did **not** measure MeMesh. `run.mjs` carried its own
+`CREATE TABLE`, its own FTS5 query construction and its own ranking, and the
+95.40% published here was that code's score. This file said the number was
+"measured using FTS5 full-text search — the same retrieval engine MeMesh uses in
+production". It was not, and the two had drifted: the adapter OR-joined query
+terms and ordered by BM25 `rank`; the shipped `search()` AND-joined and ordered
+by `e.id DESC`.
+
+On the same 500 questions the shipped path scored **5.20% R@5**, with 473 of 500
+questions returning nothing at all.
+
+`run.mjs` now calls the product. The retrieval defects it exposed are fixed (PR
+#78). The figures below are the shipped path, re-measured. Result files from
+before the change are retained unmodified and labelled in
+[`results/README.md`](results/README.md).
+
+---
+
 ## Summary
 
-MeMesh v4.0.4 achieves **R@5 = 95.40%** on LongMemEval-S (500 questions, MIT license dataset, publicly available from Hugging Face). This is measured using FTS5 full-text search — the same retrieval engine MeMesh uses in production. The benchmark simulates the core task of long-term memory systems: given a question, retrieve the relevant session(s) from a haystack of ~50 sessions.
+MeMesh achieves **R@5 = 95.60%** on LongMemEval-S (500 questions, MIT license
+dataset, publicly available from Hugging Face), measured end to end through the
+code path a real `recall` call takes. The benchmark covers one task: given a
+question, retrieve the relevant session(s) from a haystack of ~50 sessions.
 
-MeMesh significantly outperforms open-source alternatives (Supermemory ~82%, Zep 63.8%, Mem0 49%) and is within 1.2pp of the vendor-reported MemPalace ceiling (96.6%).
+What that number is not: it is a keyword-retrieval score on a small, fresh
+corpus. Every database is new, so recency, frequency and recall-impact are
+uniform and only relevance does any work. Nothing here tests auto-capture,
+consolidation, knowledge evolution, or whether an answer is correct. See
+METHODOLOGY.md §3 — which used to claim this benchmark was a "conservative lower
+bound" on production quality, a claim the 5.20% measurement disproved.
+
+Against published baselines (Supermemory ~82%, Zep 63.8%, Mem0 49%) and within
+1.0pp of the vendor-reported MemPalace figure (96.6%) — with the caveat below
+that those numbers come from other people's harnesses.
 
 ---
 
@@ -47,18 +77,20 @@ See [REPRODUCE.md](REPRODUCE.md) for the full step-by-step walkthrough.
 - Average haystack: ~50 sessions per question
 - SHA256: `08d8dad4be43ee2049a22ff5674eb86725d0ce5ff434cde2627e5e8e7e117894`
 
-**Adapter:** `benchmarks/longmemeval/run.mjs`
+**Adapter:** `benchmarks/longmemeval/run.mjs` — maps the dataset onto the shipped
+API and calls it. No schema, no query builder, no ranking of its own.
 - Each question: fresh isolated SQLite DB (no cross-contamination)
-- Sessions indexed as MeMesh entities with FTS5 full-text search
-- FTS5 query: question keywords OR-joined as quoted terms
-- Scoring: FTS5 rank position → normalized score (1 - i/nFts)
+- Seeded through `KnowledgeGraph.createEntity()`, the call `remember()` makes
+- Retrieved through `recallEnhanced()`, the call every transport makes
 
-**Mode definitions:**
-- **Mode A (FTS5 only):** Pure FTS5 retrieval, no embeddings
-- **Mode B (FTS5+ONNX max):** FTS5 + ONNX embeddings, score = max(fts_score, vec_score)
-- **Mode C (FTS5+ONNX weighted):** FTS5 + ONNX embeddings, score = 0.6*fts + 0.4*vec
+**Mode definitions** — real product configurations, not adapter strategies:
+- **Mode A:** no embeddings stored. FTS5 + BM25, then the five-factor scorer.
+- **Mode B:** embeddings populated via the product's own `embedAndStore()`, so
+  `recallEnhanced()`'s vector supplement can contribute.
+- **Mode C removed.** It applied a 60/40 weighted fusion that MeMesh has never
+  implemented. Its historical result file is retained.
 
-**Embedding model (Modes B/C):** Xenova/all-MiniLM-L6-v2 (384 dimensions, ONNX Runtime)
+**Embedding model (Mode B):** Xenova/all-MiniLM-L6-v2 (384 dimensions, ONNX Runtime)
 
 **Metric:** R@k = fraction of questions where any answer session appears in top-k results. MRR = mean(1/rank_of_first_answer_session).
 

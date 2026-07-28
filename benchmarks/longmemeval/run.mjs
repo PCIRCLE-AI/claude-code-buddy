@@ -1,133 +1,276 @@
 #!/usr/bin/env node
-// LongMemEval Benchmark Runner -- PUBLIC EVIDENCE PACKAGE
-// bench/longmemeval-public-r1 -- Dataset SHA256: 08d8dad4be43ee2049a22ff5674eb86725d0ce5ff434cde2627e5e8e7e117894
-// Original publish: v4.0.4. Reads memesh_version from package.json so future
-// re-runs record the version actually under test.
-// Usage: node benchmarks/longmemeval/run.mjs --mode A|B|C --dataset /tmp/longmemeval_s.json
-import Database from "better-sqlite3";
-import * as sqliteVec from "sqlite-vec";
-import path from "path";
-import { createHash } from "crypto";
-import { createReadStream } from "fs";
-import { unlinkSync, existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
-import { fileURLToPath } from "url";
-import os from "os";
-import { spawnSync } from "child_process";
-const __dirname=path.dirname(fileURLToPath(import.meta.url));
+// LongMemEval benchmark runner — PUBLIC EVIDENCE PACKAGE
+//
+// This runner drives MeMesh's SHIPPED retrieval path. It seeds each question's
+// haystack through `KnowledgeGraph.createEntity()` — the storage call
+// `remember()` makes — and retrieves through `recallEnhanced()`, the function
+// every transport (MCP, HTTP, CLI) calls for `recall`. There is no benchmark
+// copy of the schema, the query builder, or the ranking.
+//
+// It did not always work that way. Until 2026-07 this file carried its own
+// `CREATE TABLE`, its own FTS5 query construction and its own ranking, and the
+// published 95.40% R@5 measured that reimplementation rather than the product.
+// The two had drifted: the harness OR-joined query terms and ordered by BM25
+// `rank` while the shipped `search()` AND-joined and ordered by `e.id DESC`,
+// so the same 500 questions scored 95.40% here and 5.20% through the product.
+// See CHANGELOG [Unreleased] / PR #78. Results produced before that fix are
+// kept in `results/` for history and are labelled `harness_reimplementation`.
+//
+// Usage:
+//   node benchmarks/longmemeval/run.mjs --mode A --dataset /tmp/longmemeval_s.json
+//
+// Modes map to real product configurations, not to harness-internal fusion
+// strategies:
+//   A — embeddings absent. FTS5 + BM25 only. ~10s for 500 questions.
+//   B — embeddings populated (local ONNX, 384-dim), so `recallEnhanced()`'s
+//       vector supplement can contribute. ~25min for 500 questions.
+// The old mode C (a 60/40 weighted FTS+vector fusion) is gone: it was a
+// harness-only experiment. The product has never implemented weighted fusion,
+// so there was nothing for it to measure.
 
-async function sha256File(fp){return new Promise((res,rej)=>{const h=createHash("sha256");const s=createReadStream(fp);s.on("data",c=>h.update(c));s.on("end",()=>res(h.digest("hex")));s.on("error",rej);});}
-function readMemeshVersion(){try{const pkg=JSON.parse(readFileSync(path.join(__dirname,"../../package.json"),"utf8"));return pkg.version||"unknown";}catch{return"unknown";}}
-function getEnvInfo(){const cpus=os.cpus();let gitSha="unknown";try{const r=spawnSync("git",["rev-parse","HEAD"],{cwd:path.join(__dirname,"../.."),encoding:"utf8"});gitSha=(r.stdout||"").trim()||"unknown";}catch{}return{node_version:process.version,platform:os.platform(),os_version:os.release(),arch:os.arch(),cpu_model:cpus[0]?.model||"unknown",cpu_cores:cpus.length,memesh_version:readMemeshVersion(),git_sha:gitSha};}
+import path from 'path';
+import os from 'os';
+import { createHash } from 'crypto';
+import { createReadStream } from 'fs';
+import { unlinkSync, existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { spawnSync } from 'child_process';
 
-function parseArgs(a){const r={};for(let i=2;i<a.length;i++){if(a[i].startsWith("--")){const k=a[i].slice(2);r[k]=a[i+1]||true;i++;}}return r;}
-const args=parseArgs(process.argv);
-const mode=args.mode||"A";
-const datasetPath=args.dataset||"/tmp/longmemeval_s.json";
-const limitArg=parseInt(args.limit||"500",10);
-const outputDir=args.output||path.join(__dirname,"results");
-const dbDir=args.dbdir||"/tmp";
-function sessionToText(s){return s.map(t=>t.role+": "+t.content).join("\n").slice(0,8000);}
-function escapeFts(q){
-  const c=q.replace(/[^a-zA-Z0-9 ]/g," ").replace(/ +/g," ").trim();
-  if(!c)return "\"\"";
-  const terms=c.split(" ").filter(t=>t.length>2).slice(0,20);
-  if(!terms.length)return "\"\"";
-  return terms.map(t=>"\""+t+"\"").join(" OR ");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.join(__dirname, '../..');
+
+function parseArgs(a) {
+  const r = {};
+  for (let i = 2; i < a.length; i++) {
+    if (a[i].startsWith('--')) { r[a[i].slice(2)] = a[i + 1] ?? true; i++; }
+  }
+  return r;
 }
-function openDb(p,v){
-  const db=new Database(p);
-  db.pragma("journal_mode=WAL");db.pragma("foreign_keys=ON");
-  db.exec("CREATE TABLE IF NOT EXISTS entities (id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE,type TEXT NOT NULL DEFAULT 'session',status TEXT NOT NULL DEFAULT 'active',created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,access_count INTEGER DEFAULT 0,last_accessed_at TIMESTAMP,confidence REAL DEFAULT 1.0,valid_from TIMESTAMP,valid_until TIMESTAMP,namespace TEXT DEFAULT 'personal',recall_hits INTEGER DEFAULT 0,recall_misses INTEGER DEFAULT 0,metadata JSON)");
-  db.exec("CREATE TABLE IF NOT EXISTS observations (id INTEGER PRIMARY KEY AUTOINCREMENT,entity_id INTEGER NOT NULL,content TEXT NOT NULL,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE)");
-  db.exec("CREATE INDEX IF NOT EXISTS idx_obs ON observations(entity_id)");
-  db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(name,observations,content='',tokenize='unicode61 remove_diacritics 1')");
-  db.exec("CREATE TABLE IF NOT EXISTS memesh_metadata (key TEXT PRIMARY KEY,value TEXT NOT NULL)");
-  sqliteVec.load(db);
-  if(v){db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS entities_vec USING vec0(embedding float[384])");
-    db.exec("INSERT OR REPLACE INTO memesh_metadata (key,value) VALUES ('embedding_dimension','384')");}
-  return db;
+const args = parseArgs(process.argv);
+const mode = String(args.mode || 'A').toUpperCase();
+if (mode !== 'A' && mode !== 'B') {
+  process.stderr.write(`Unknown mode "${mode}". Use A (no embeddings) or B (embeddings populated).\n`);
+  process.exit(1);
 }
-function insertSess(db,sid,text,date){
-  const meta=date?JSON.stringify({session_date:date}):null;
-  const res=db.prepare("INSERT OR REPLACE INTO entities (name,type,metadata) VALUES (?,'session',?)").run(sid,meta);
-  const eid=res.lastInsertRowid;
-  db.prepare("INSERT INTO observations (entity_id,content) VALUES (?,?)").run(eid,text);
-  db.prepare("INSERT INTO entities_fts (rowid,name,observations) VALUES (?,?,?)").run(eid,sid,text);
-  return eid;
+const datasetPath = args.dataset || '/tmp/longmemeval_s.json';
+const limitArg = parseInt(args.limit || '500', 10);
+const recallLimit = parseInt(args['recall-limit'] || '20', 10);
+const outputDir = args.output || path.join(__dirname, 'results');
+
+// Isolate from the real install. The runner opens hundreds of throwaway
+// databases; without this it would read ~/.memesh/config.json (picking up the
+// operator's provider/embedder settings and making the run unreproducible) and
+// risk writing next to their real knowledge graph.
+const workRoot = args.workdir || path.join(os.tmpdir(), 'memesh-longmemeval');
+const fakeHome = path.join(workRoot, 'home');
+mkdirSync(path.join(fakeHome, '.memesh'), { recursive: true });
+process.env.HOME = fakeHome;
+process.env.USERPROFILE = fakeHome;
+
+// The runner measures compiled code on purpose. Fail with something readable
+// rather than a bare ERR_MODULE_NOT_FOUND when the build has not run.
+if (!existsSync(path.join(repoRoot, 'dist/core/operations.js'))) {
+  process.stderr.write('dist/ is missing — this runner measures the shipped retrieval path.\nRun `npm run build` first.\n');
+  process.exit(1);
 }
-let _pipe=null;
-async function getPipe(){if(_pipe)return _pipe;const{pipeline}=await import("@huggingface/transformers");_pipe=await pipeline("feature-extraction","Xenova/all-MiniLM-L6-v2",{dtype:"fp32"});return _pipe;}
-async function embed(text){try{const p=await getPipe();const r=await p(text.slice(0,2048),{pooling:"mean",normalize:true});return Buffer.from(r.data.buffer);}catch{return null;}}
-async function runQ(item,mode,dbDir){
-  const dbPath=path.join(dbDir,"bench-"+item.question_id+"-"+mode+".db");
-  if(existsSync(dbPath))unlinkSync(dbPath);
-  const db=openDb(dbPath,mode!=="A");
-  try{
-    const eids=new Map();
-    for(let i=0;i<item.haystack_sessions.length;i++){
-      const sid=item.haystack_session_ids[i];
-      const text=sessionToText(item.haystack_sessions[i]);
-      const date=item.haystack_dates&&item.haystack_dates[i];
-      eids.set(sid,insertSess(db,sid,text,date));
-    }
-    if(mode!=="A"){
-      for(let i=0;i<item.haystack_sessions.length;i++){
-        const sid=item.haystack_session_ids[i];
-        const emb=await embed(sid+" "+sessionToText(item.haystack_sessions[i]));
-        if(!emb)continue;const eid=eids.get(sid);if(eid===undefined)continue;
-        try{db.prepare("INSERT OR REPLACE INTO entities_vec (rowid,embedding) VALUES (?,?)").run(BigInt(Number(eid)),emb);}catch{}
+
+const { openDatabase, closeDatabase, getDatabase } = await import(path.join(repoRoot, 'dist/db.js'));
+const { KnowledgeGraph } = await import(path.join(repoRoot, 'dist/knowledge-graph.js'));
+const { recallEnhanced } = await import(path.join(repoRoot, 'dist/core/operations.js'));
+const { embedAndStore, isEmbeddingAvailable } = await import(path.join(repoRoot, 'dist/core/embedder.js'));
+
+if (mode === 'B' && !isEmbeddingAvailable()) {
+  process.stderr.write('Mode B needs embeddings available (local ONNX via @huggingface/transformers). Run `npm install`.\n');
+  process.exit(1);
+}
+
+function sha256File(fp) {
+  return new Promise((res, rej) => {
+    const h = createHash('sha256');
+    const s = createReadStream(fp);
+    s.on('data', (c) => h.update(c));
+    s.on('end', () => res(h.digest('hex')));
+    s.on('error', rej);
+  });
+}
+function readMemeshVersion() {
+  try { return JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).version || 'unknown'; }
+  catch { return 'unknown'; }
+}
+function getEnvInfo() {
+  const cpus = os.cpus();
+  let gitSha = 'unknown';
+  try {
+    const r = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8' });
+    gitSha = (r.stdout || '').trim() || 'unknown';
+  } catch { /* not a git checkout */ }
+  return {
+    node_version: process.version,
+    platform: os.platform(),
+    os_version: os.release(),
+    arch: os.arch(),
+    cpu_model: cpus[0]?.model || 'unknown',
+    cpu_cores: cpus.length,
+    memesh_version: readMemeshVersion(),
+    git_sha: gitSha,
+  };
+}
+
+// Same mapping the dataset's own evaluation uses: one session -> one memory.
+const sessionToText = (s) => s.map((t) => `${t.role}: ${t.content}`).join('\n').slice(0, 8000);
+
+function removeDb(dbPath) {
+  for (const suffix of ['', '-wal', '-shm']) {
+    try { if (existsSync(dbPath + suffix)) unlinkSync(dbPath + suffix); } catch { /* best effort */ }
+  }
+}
+
+async function runQuestion(item) {
+  const dbPath = path.join(workRoot, `bench-${item.question_id}-${mode}.db`);
+  removeDb(dbPath);
+  process.env.MEMESH_DB_PATH = dbPath;
+  openDatabase(dbPath);
+  try {
+    const db = getDatabase();
+    const kg = new KnowledgeGraph(db);
+
+    // Write path: the storage call `remember()` makes. remember()'s extras
+    // (auto-tagging, provenance metadata, scheduled embedding) are
+    // fire-and-forget LLM work that does not affect retrieval; mode B does the
+    // embedding explicitly below so the run stays deterministic.
+    const seeded = [];
+    db.transaction(() => {
+      for (let i = 0; i < item.haystack_sessions.length; i++) {
+        const name = item.haystack_session_ids[i];
+        const text = sessionToText(item.haystack_sessions[i]);
+        seeded.push([kg.createEntity(name, 'session', { observations: [text] }), name, text]);
       }
+    })();
+
+    if (mode === 'B') {
+      for (const [id, name, text] of seeded) await embedAndStore(id, `${name} ${text}`);
     }
-    const q=escapeFts(item.question);
-    let fts=[];
-    try{fts=db.prepare("SELECT e.id,e.name,entities_fts.rank AS rank FROM entities_fts JOIN entities e ON e.id=entities_fts.rowid WHERE entities_fts MATCH ? ORDER BY rank LIMIT 20").all(q);}catch{}
-    let vec=[];
-    if(mode!=="A"){const qe=await embed(item.question);if(qe){try{vec=db.prepare("SELECT ev.rowid AS id,e.name,ev.distance FROM entities_vec ev JOIN entities e ON e.id=ev.rowid WHERE ev.embedding MATCH ? AND k=20 ORDER BY ev.distance").all(qe);}catch{}}}
-    const sm=new Map();const nf=Math.max(fts.length,1);
-    for(let i=0;i<fts.length;i++)sm.set(fts[i].name,1-i/nf);
-    if(mode!=="A"){for(const vr of vec){const vs=Math.max(0,1-vr.distance);const ex=sm.get(vr.name);if(ex!==undefined){sm.set(vr.name,mode==="C"?0.6*ex+0.4*vs:Math.max(ex,vs));}else{sm.set(vr.name,vs*0.7);}}}
-    const ranked=[...sm.entries()].sort((a,b)=>b[1]-a[1]).map(([n])=>n);
-    const aset=new Set(item.answer_session_ids);let hit=null;
-    for(let i=0;i<ranked.length;i++){if(aset.has(ranked[i])){hit=i+1;break;}}
-    return{question_id:item.question_id,question_type:item.question_type,question:item.question,ranked_session_ids:ranked.slice(0,10),answer_session_ids:item.answer_session_ids,hit_at:hit,r_at_5:hit!==null&&hit<=5,r_at_10:hit!==null&&hit<=10,reciprocal_rank:hit!==null?1/hit:0,fts_hit_count:fts.length,vec_hit_count:vec.length,haystack_size:item.haystack_sessions.length};
-  }finally{db.close();try{if(existsSync(dbPath))unlinkSync(dbPath);}catch{}}
-}
-function mets(rs){const n=rs.length;if(!n)return{r_at_5:0,r_at_10:0,mrr:0,total:0};return{r_at_5:rs.filter(r=>r.r_at_5).length/n,r_at_10:rs.filter(r=>r.r_at_10).length/n,mrr:rs.reduce((s,r)=>s+r.reciprocal_rank,0)/n,total:n};}
-function metsByType(rs){const m={};for(const r of rs){if(!m[r.question_type])m[r.question_type]=[];m[r.question_type].push(r);}return Object.fromEntries(Object.entries(m).map(([t,v])=>[t,mets(v)]));}
-async function main(){
-  const md={A:"FTS5 only",B:"FTS5+ONNX (max)",C:"FTS5+ONNX (weighted)"}[mode];
-  process.stderr.write("\nMeMesh LongMemEval -- INTERNAL ONLY\nMode "+mode+":"+md+"\n");
-  if(mode!=="A"){
-    process.stderr.write("Warming ONNX..."+"\n");
-    await embed("warmup");
-    process.stderr.write("Ready."+"\n");
+
+    // Read path: exactly what a `recall` call runs.
+    const entities = await recallEnhanced({ query: item.question, limit: recallLimit });
+    const ranked = entities.map((e) => e.name);
+
+    const answers = new Set(item.answer_session_ids);
+    let hit = null;
+    for (let i = 0; i < ranked.length; i++) { if (answers.has(ranked[i])) { hit = i + 1; break; } }
+
+    return {
+      question_id: item.question_id,
+      question_type: item.question_type,
+      question: item.question,
+      ranked_session_ids: ranked.slice(0, 10),
+      answer_session_ids: item.answer_session_ids,
+      hit_at: hit,
+      r_at_5: hit !== null && hit <= 5,
+      r_at_10: hit !== null && hit <= 10,
+      reciprocal_rank: hit !== null ? 1 / hit : 0,
+      returned_count: ranked.length,
+      haystack_size: item.haystack_sessions.length,
+    };
+  } finally {
+    closeDatabase();
+    removeDb(dbPath);
   }
-  process.stderr.write("Computing dataset SHA256...\n");const datasetSha=await sha256File(datasetPath);process.stderr.write("SHA256: "+datasetSha+"\n");const data=JSON.parse(readFileSync(datasetPath,"utf8"));
-  const items=data.slice(0,limitArg);
-  process.stderr.write("Loaded "+items.length+" questions."+"\n");
-  mkdirSync(outputDir,{recursive:true});
-  const results=[];const t0=Date.now();
-  for(let i=0;i<items.length;i++){
-    try{results.push(await runQ(items[i],mode,dbDir));}
-    catch(err){
-      process.stderr.write("ERR "+items[i].question_id+": "+err.message+"\n");
-      results.push({question_id:items[i].question_id,question_type:items[i].question_type,question:items[i].question,ranked_session_ids:[],answer_session_ids:items[i].answer_session_ids,hit_at:null,r_at_5:false,r_at_10:false,reciprocal_rank:0,fts_hit_count:0,vec_hit_count:0,haystack_size:0,error:err.message});
+}
+
+function metrics(rs) {
+  const n = rs.length;
+  if (!n) return { r_at_5: 0, r_at_10: 0, mrr: 0, total: 0 };
+  return {
+    r_at_5: rs.filter((r) => r.r_at_5).length / n,
+    r_at_10: rs.filter((r) => r.r_at_10).length / n,
+    mrr: rs.reduce((s, r) => s + r.reciprocal_rank, 0) / n,
+    total: n,
+  };
+}
+function metricsByType(rs) {
+  const m = {};
+  for (const r of rs) { (m[r.question_type] ||= []).push(r); }
+  return Object.fromEntries(Object.entries(m).map(([t, v]) => [t, metrics(v)]));
+}
+
+async function main() {
+  const description = mode === 'A' ? 'shipped recall, no embeddings' : 'shipped recall, embeddings populated';
+  process.stderr.write(`\nMeMesh LongMemEval — mode ${mode}: ${description}\n`);
+  process.stderr.write('Retrieval: dist/core/operations.js -> recallEnhanced()\n');
+
+  process.stderr.write('Computing dataset SHA256...\n');
+  const datasetSha = await sha256File(datasetPath);
+  process.stderr.write(`SHA256: ${datasetSha}\n`);
+
+  const items = JSON.parse(readFileSync(datasetPath, 'utf8')).slice(0, limitArg);
+  process.stderr.write(`Loaded ${items.length} questions.\n`);
+  mkdirSync(outputDir, { recursive: true });
+
+  const results = [];
+  const t0 = Date.now();
+  for (let i = 0; i < items.length; i++) {
+    try {
+      results.push(await runQuestion(items[i]));
+    } catch (err) {
+      process.stderr.write(`ERR ${items[i].question_id}: ${err.message}\n`);
+      results.push({
+        question_id: items[i].question_id,
+        question_type: items[i].question_type,
+        question: items[i].question,
+        ranked_session_ids: [],
+        answer_session_ids: items[i].answer_session_ids,
+        hit_at: null, r_at_5: false, r_at_10: false, reciprocal_rank: 0,
+        returned_count: 0, haystack_size: 0, error: err.message,
+      });
     }
-    if((i+1)%50===0){const m=mets(results);process.stderr.write("["+((i+1))+"/"+items.length+"] R@5="+(m.r_at_5*100).toFixed(1)+"% R@10="+(m.r_at_10*100).toFixed(1)+"% MRR="+m.mrr.toFixed(3)+"\n");}
+    if ((i + 1) % 50 === 0) {
+      const m = metrics(results);
+      process.stderr.write(`[${i + 1}/${items.length}] R@5=${(m.r_at_5 * 100).toFixed(1)}% R@10=${(m.r_at_10 * 100).toFixed(1)}% MRR=${m.mrr.toFixed(3)}\n`);
+    }
   }
-  const ov=mets(results);const bt=metsByType(results);
-  const ts=new Date().toISOString().replace(/[:.]/g,"-").slice(0,19);
-  const outFile=path.join(outputDir,"mode-"+mode+"-"+ts+".json");
-  const ri={mode,mode_description:md,dataset:datasetPath,dataset_sha256:datasetSha,n_questions:results.length,elapsed_seconds:parseFloat(((Date.now()-t0)/1000).toFixed(1)),timestamp:new Date().toISOString(),environment:getEnvInfo(),dataset_variant:"longmemeval_s",status:"PUBLIC"};
-  writeFileSync(outFile,JSON.stringify({run_info:ri,overall_metrics:ov,metrics_by_type:bt,results},null,2));
-  const elap=((Date.now()-t0)/1000).toFixed(1);
-  process.stderr.write("\n=== RESULTS Mode "+mode+" ===\n");
-  process.stderr.write("R@5:  "+(ov.r_at_5*100).toFixed(2)+"%"+"\n");
-  process.stderr.write("R@10: "+(ov.r_at_10*100).toFixed(2)+"%"+"\n");
-  process.stderr.write("MRR:  "+ov.mrr.toFixed(4)+"\n");
-  process.stderr.write("Time: "+elap+"s Saved: "+outFile+"\n");
-  process.stderr.write("By type:"+"\n");
-  for(const[t,m]of Object.entries(bt))process.stderr.write("  "+t+": R@5="+(m.r_at_5*100).toFixed(1)+"% (n="+m.total+")"+"\n");
-  console.log(JSON.stringify({mode,overall:ov,outFile},null,2));
+
+  const overall = metrics(results);
+  const byType = metricsByType(results);
+  const elapsed = parseFloat(((Date.now() - t0) / 1000).toFixed(1));
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const outFile = path.join(outputDir, `mode-${mode}-${stamp}.json`);
+
+  writeFileSync(outFile, JSON.stringify({
+    run_info: {
+      mode,
+      mode_description: description,
+      // Which code produced these numbers. Result files written before
+      // 2026-07 say `harness_reimplementation` and do not describe the product.
+      measures: 'shipped_recall_path',
+      retrieval_entrypoint: 'dist/core/operations.js::recallEnhanced',
+      recall_limit: recallLimit,
+      dataset: datasetPath,
+      dataset_sha256: datasetSha,
+      dataset_variant: 'longmemeval_s',
+      n_questions: results.length,
+      elapsed_seconds: elapsed,
+      timestamp: new Date().toISOString(),
+      environment: getEnvInfo(),
+      status: 'PUBLIC',
+    },
+    overall_metrics: overall,
+    metrics_by_type: byType,
+    results,
+  }, null, 2));
+
+  process.stderr.write(`\n=== RESULTS mode ${mode} ===\n`);
+  process.stderr.write(`R@5:  ${(overall.r_at_5 * 100).toFixed(2)}%\n`);
+  process.stderr.write(`R@10: ${(overall.r_at_10 * 100).toFixed(2)}%\n`);
+  process.stderr.write(`MRR:  ${overall.mrr.toFixed(4)}\n`);
+  process.stderr.write(`Questions returning zero results: ${results.filter((r) => r.returned_count === 0).length}/${results.length}\n`);
+  process.stderr.write(`Time: ${elapsed}s  Saved: ${outFile}\n`);
+  process.stderr.write('By type:\n');
+  for (const [t, m] of Object.entries(byType)) {
+    process.stderr.write(`  ${t}: R@5=${(m.r_at_5 * 100).toFixed(1)}% (n=${m.total})\n`);
+  }
+  try { rmSync(workRoot, { recursive: true, force: true }); } catch { /* best effort */ }
+  console.log(JSON.stringify({ mode, overall, outFile }, null, 2));
 }
-main().catch(e=>{process.stderr.write("Fatal: "+e.message+"\n");process.exit(1);});
+
+main().catch((e) => { process.stderr.write(`Fatal: ${e.message}\n`); process.exit(1); });
