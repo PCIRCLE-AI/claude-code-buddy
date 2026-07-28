@@ -4,6 +4,18 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Chinese, Japanese and Korean memories are searchable by part of a phrase, not only by their exact stored text** (`src/storage/fts-index.ts`, `src/knowledge-graph.ts`, `src/db.ts`) — FTS5's `unicode61` tokenizer classifies every CJK character as a letter and puts no boundary between them, so an unbroken run indexed as **one token**. A memory holding 「資料庫遷移前一定要先備份」 could be found by searching that exact string and by nothing else: 「資料庫遷移」 matched nothing, 「備份」 matched nothing. Measured on a mixed corpus, Chinese recall was **2/9** while English was 4/4 — which is why it stayed invisible. For anyone whose notes are in one of these scripts, keyword recall was effectively broken.
+
+  Text now passes through `segmentUnspacedScripts()` on the way into the index and on the way into a query, cutting unspaced-script runs into overlapping character bigrams (「資料庫遷移」 → 「資料 料庫 庫遷 遷移」). Latin text is returned byte-for-byte unchanged, so English behaviour is untouched — the 500-question LongMemEval-S run is identical before and after (R@5 95.60%, R@10 97.80%, MRR 0.8931). Chinese recall on the same mixed corpus goes **2/9 → 9/9**.
+
+  Chosen over migrating `entities_fts` to FTS5's `trigram` tokenizer, which measured **3/9** on the same corpus for **4×** the index size, against 9/9 and 1.6× here — and which would have meant recreating the virtual table rather than only its contents. Because the segmentation lives in `fts-index.ts`, the hooks' always-on capture path picks it up through the build-generated mirror (`scripts/hooks/_generated/fts-index.js`) with no hook change at all.
+
+  **Existing databases rebuild their index once, automatically, on the next open** (`fts_segmentation_version` in `memesh_metadata`, following the `embedding_dimension` idiom). Without it the change would take CJK recall from bad to zero on upgrade, silently, since English would keep working. Measured at 19ms for 5,000 entities, so it runs inline; a failure logs and retries next start rather than blocking the database from opening.
+
+  Known bound, pinned by a test rather than chased: a single-character query becomes a prefix match, so it reaches any bigram starting with that character but not one where it sits last (「收」 will not find 「營收」). Fixing that means indexing every character as well, for a rare query shape.
+
 ### Changed
 
 - **Every published claim that no longer matched the code has been corrected** (`README.md` + 10 locales, `docs/ARCHITECTURE.md`, `skills/memesh/SKILL.md`) — a sweep prompted by finding that the headline benchmark figure described a different implementation. Each was checked against source before being rewritten, not adjusted by eye:

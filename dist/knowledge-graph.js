@@ -1,9 +1,16 @@
 import { findConflicts, trackAccess } from './storage/conflicts.js';
-import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
+import { insertFtsRow, removeFromFts, segmentUnspacedScripts } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 const MAX_QUERY_TERMS = 32;
-function buildQueryTerms(query) {
-    return (query.normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? []).slice(0, MAX_QUERY_TERMS);
+function buildMatchExpression(query) {
+    const terms = (segmentUnspacedScripts(query).normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
+        .slice(0, MAX_QUERY_TERMS);
+    if (terms.length === 0)
+        return null;
+    return terms.map((term) => (isLoneUnspacedChar(term) ? `"${term}"*` : `"${term}"`)).join(' OR ');
+}
+function isLoneUnspacedChar(term) {
+    return [...term].length === 1 && /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]/u.test(term);
 }
 export class KnowledgeGraph {
     db;
@@ -247,10 +254,9 @@ export class KnowledgeGraph {
             }
             return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
         }
-        const tokens = buildQueryTerms(query);
-        if (tokens.length === 0)
+        const ftsQuery = buildMatchExpression(query);
+        if (ftsQuery === null)
             return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
-        const ftsQuery = tokens.map((token) => `"${token}"`).join(' OR ');
         const statusFilter = opts?.includeArchived ? '' : "AND e.status = 'active'";
         const namespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
         const tagFilter = opts?.tag
