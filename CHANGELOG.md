@@ -4,6 +4,16 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Performance
+
+- **A query term present in most of the corpus no longer drags the whole index into the scan** (`src/knowledge-graph.ts`, `src/db.ts`, `scripts/hooks/_shared.js`) — query terms are OR-ed, so the cost of a search is the union of their postings and one ubiquitous word dominates it. `dropUbiquitousTerms()` removes terms appearing in more than half the indexed rows, using a new `fts_vocab` (`fts5vocab`) view that stores nothing of its own. Measured with a 12-term query, 200 iterations, including the lookup's own cost: **0.071 → 0.039 ms at 50 rows (−45%), 0.411 → 0.079 ms at 500 (−81%), 4.147 → 0.481 ms at 5 000 (−88%), 80.15 → 8.57 ms at 100 000 (−89%)**.
+
+  The dropped terms are the ones BM25 already scores near zero — a word in every row has no inverse document frequency — so this removes work rather than signal. R@5 on LongMemEval is unchanged at cut-offs of 90%, 70% and 50%, and falls at 30% (94.0% → 93.0%); 50% takes the speed with margin against that cliff. The full 500-question run holds at R@5 95.60% / R@10 97.80%.
+
+  Two edges are pinned by tests, because they are where a frequency filter goes wrong: a query made entirely of common words keeps its rarest term rather than filtering to nothing, and the guard does not apply below 25 rows, where a term in most of the corpus is the subject rather than a stopword. A missing `fts_vocab` falls back to searching every term.
+
+  Preventive rather than remedial — no one is at a scale where this bites today, which is why it had to be free at every size to justify shipping.
+
 ### Fixed
 
 - **The vector half of "hybrid search" was doing nothing, and now does what it says** (`src/core/embedder.ts`, `src/core/operations.ts`) — two constants encoded the same wrong assumption about what `entities_vec` returns. The table is declared `vec0(embedding float[N])` with no `distance_metric`, so sqlite-vec measures **L2**; over unit vectors that is a 0…2 range, and related text lands at 1.0–1.44. Both constants assumed a 0…1 cosine-distance scale:
