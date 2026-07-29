@@ -63,18 +63,37 @@ export interface VerifyAgentWorkInput {
   };
 }
 
+/**
+ * Three outcomes, because there are three.
+ *
+ * `unverified` is the one that used to be missing, and its absence was the
+ * defect: a call with no `claim` and no `report` has nothing to check, and
+ * this file reported that as `pass: true`. It also stored a memory reading
+ * "verification: PASS" tagged `verification:pass`, and `memesh verify` printed
+ * PASS and exited 0 — so a CI gate written as `memesh verify … && deploy`
+ * proceeded on the strength of a check that never ran.
+ *
+ * Recording a snapshot without a claim is a legitimate mode and still works.
+ * What changes is that it stops calling itself a pass. Absence of evidence is
+ * not evidence: it gets its own verdict, and every surface says so.
+ *
+ * A single tri-state rather than `pass` plus a `verified` flag — two fields
+ * describing one fact is how the `recall_hits` double-writer happened.
+ */
+export type Verdict = 'pass' | 'fail' | 'unverified';
+
 export interface RealityCheckResult {
   files_changed: number;
   expected_files: number | null;
   match: boolean | null;  // null when no claim to check against
   base: string | null;
-  pass: boolean;
+  verdict: Verdict;
   summary: string;
 }
 
 export interface VerifyAgentWorkResult {
   entity_name: string;
-  pass: boolean;
+  verdict: Verdict;
   reality_check: RealityCheckResult;
   external_report: VerifyAgentWorkInput['report'] | null;
   timestamp: string;
@@ -164,13 +183,16 @@ function resolveBase(workdir: string, explicit?: string): string | null {
 }
 
 function realityCheck(workdir: string, base: string | null, expectedFiles?: number): RealityCheckResult {
+  // Could not check, as opposed to checked and found wrong. These used to
+  // return `pass: false`, which reads as "the agent's work failed" when what
+  // actually happened is that this tool could not run.
   if (!base) {
     return {
       files_changed: 0,
       expected_files: expectedFiles ?? null,
       match: null,
       base: null,
-      pass: false,
+      verdict: 'unverified',
       summary: 'no git base discoverable; cannot reality-check',
     };
   }
@@ -186,7 +208,7 @@ function realityCheck(workdir: string, base: string | null, expectedFiles?: numb
       expected_files: expectedFiles ?? null,
       match: null,
       base,
-      pass: false,
+      verdict: 'unverified',
       summary: `git diff failed: ${err instanceof Error ? err.message : 'unknown'}`,
     };
   }
@@ -196,13 +218,15 @@ function realityCheck(workdir: string, base: string | null, expectedFiles?: numb
     .filter((l) => l.includes('|') && !l.includes('files changed'));
   const filesChanged = fileLines.length;
 
+  // The original defect. Counting files is not checking them against
+  // anything, so there is nothing here that can pass.
   if (expectedFiles == null) {
     return {
       files_changed: filesChanged,
       expected_files: null,
       match: null,
       base,
-      pass: true,
+      verdict: 'unverified',
       summary: `${filesChanged} files changed (no claim to check against)`,
     };
   }
@@ -213,7 +237,7 @@ function realityCheck(workdir: string, base: string | null, expectedFiles?: numb
     expected_files: expectedFiles,
     match,
     base,
-    pass: match,
+    verdict: match ? 'pass' : 'fail',
     summary: match
       ? `reality OK: ${filesChanged}/${expectedFiles} files`
       : `reality MISMATCH: agent claimed ${expectedFiles}, actual ${filesChanged}`,
@@ -223,11 +247,13 @@ function realityCheck(workdir: string, base: string | null, expectedFiles?: numb
 function buildObservations(
   input: VerifyAgentWorkInput,
   rc: RealityCheckResult,
-  pass: boolean,
+  verdict: Verdict,
   canonicalWorkdir: string,
 ): string[] {
   const obs: string[] = [];
-  obs.push(`Agent ${input.agent_id} verification: ${pass ? 'PASS' : 'FAIL'}`);
+  // This line is what a future agent recalls and acts on, so it has to be
+  // able to say "nobody checked" — it used to read PASS in that case.
+  obs.push(`Agent ${input.agent_id} verification: ${verdict.toUpperCase()}`);
   // Record both the input path AND the canonical (realpath'd) path so
   // a future reader can spot symlink-induced surprises.
   obs.push(`Workdir: ${canonicalWorkdir}`);
@@ -251,6 +277,28 @@ function buildObservations(
   return obs;
 }
 
+/**
+ * Combine the git reality-check with the externally-computed report.
+ *
+ * Three rules, in order:
+ *
+ *   1. Any `fail` wins. A failed claim cross-check or a failing test report is
+ *      a failure regardless of what the other half says.
+ *   2. Otherwise, a `pass` needs at least one thing to have actually been
+ *      checked. A matched file claim counts; a supplied external report counts.
+ *   3. If nothing was checked, the verdict is `unverified`.
+ *
+ * Rule 2 is the fix. The previous expression was
+ * `rc.pass && (input.report?.pass ?? true)`, which defaulted a missing report
+ * to `true` and combined it with a reality-check that also returned `true`
+ * when there was no claim — so two absences multiplied into a pass.
+ */
+function combineVerdict(realityVerdict: Verdict, reportPass: boolean | undefined): Verdict {
+  if (realityVerdict === 'fail' || reportPass === false) return 'fail';
+  if (realityVerdict === 'pass' || reportPass === true) return 'pass';
+  return 'unverified';
+}
+
 export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkResult {
   // F8: validate workdir before shelling out to git. Reject non-existent
   // paths, non-directories, non-absolute paths, and paths that are not
@@ -265,8 +313,7 @@ export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkRes
   const base = resolveBase(canonicalWorkdir, input.base);
   const rc = realityCheck(canonicalWorkdir, base, input.claim?.expected_files);
 
-  const reportPass = input.report?.pass ?? true;
-  const pass = rc.pass && reportPass;
+  const verdict = combineVerdict(rc.verdict, input.report?.pass);
   const timestamp = new Date().toISOString();
   const safeAgentId = input.agent_id.replace(/[^a-zA-Z0-9_-]/g, '-');
   // 6-char random suffix prevents same-millisecond collisions (two parallel
@@ -278,13 +325,13 @@ export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkRes
   const tags = [
     'verification',
     `agent:${safeAgentId}`,
-    pass ? 'verification:pass' : 'verification:fail',
+    `verification:${verdict}`,
   ];
 
   remember({
     name: entityName,
     type: 'verification_record',
-    observations: buildObservations(input, rc, pass, canonicalWorkdir),
+    observations: buildObservations(input, rc, verdict, canonicalWorkdir),
     tags,
   });
 
@@ -303,7 +350,7 @@ export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkRes
 
   return {
     entity_name: entityName,
-    pass,
+    verdict,
     reality_check: rc,
     external_report: input.report ?? null,
     timestamp,

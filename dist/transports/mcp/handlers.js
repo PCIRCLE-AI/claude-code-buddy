@@ -193,7 +193,7 @@ export const TOOL_DEFINITIONS = [
     },
     {
         name: 'verify_agent_work',
-        description: 'Record a verification report for work done by a background agent. Runs a deterministic git reality-check on the workdir (files changed vs claim) and persists the report as a verification_record entity tagged pass/fail. Heavier checks (typecheck/tests/lint) are expected to be pre-computed by a local hook and passed in via report.*.pass — this tool focuses on persistence + cross-checking, not running test suites.',
+        description: 'Record a verification report for work done by a background agent. Runs a deterministic git reality-check on the workdir (files changed vs claim) and persists the result as a verification_record entity. Returns verdict: "pass" | "fail" | "unverified". IMPORTANT: calling this with neither `claim` nor `report` checks nothing and returns "unverified" — it counts changed files, which is not a verification. To get a "pass" you must give it something to check: `claim.expected_files`, a `report`, or both. Heavier checks (typecheck/tests/lint) are expected to be pre-computed by a local hook and passed in via report.*.pass — this tool focuses on persistence + cross-checking, not running test suites.',
         inputSchema: {
             type: 'object',
             properties: {

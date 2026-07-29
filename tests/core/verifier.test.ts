@@ -56,7 +56,7 @@ describe('verifyAgentWork — reality check', () => {
       claim: { expected_files: 2 },
     });
 
-    expect(result.pass).toBe(true);
+    expect(result.verdict).toBe('pass');
     expect(result.reality_check.match).toBe(true);
     expect(result.reality_check.files_changed).toBe(2);
     expect(result.entity_name).toMatch(/^verification:agent-1:/);
@@ -72,12 +72,19 @@ describe('verifyAgentWork — reality check', () => {
       claim: { expected_files: 1 },
     });
 
-    expect(result.pass).toBe(false);
+    expect(result.verdict).toBe('fail');
     expect(result.reality_check.match).toBe(false);
     expect(result.reality_check.files_changed).toBe(2);
   });
 
-  it('reports without claim and still passes (informational mode)', () => {
+  // This case used to be called "informational mode" and asserted
+  // `pass === true`. Recording a snapshot without a claim is still a
+  // supported mode — what changed is that it no longer calls itself a pass.
+  // Counting files is not checking them against anything, and the old
+  // encoding meant `memesh verify` printed PASS and exited 0, stored a memory
+  // reading "verification: PASS", and handed an agent `"pass": true` when
+  // nothing whatsoever had been verified.
+  it('returns unverified — not pass — when there is no claim and no report', () => {
     commitFiles(tmpRepo, { 'x.txt': 'X\n' }, 'add x');
 
     const result = verifyAgentWork({
@@ -86,9 +93,80 @@ describe('verifyAgentWork — reality check', () => {
       base: 'main',
     });
 
-    expect(result.pass).toBe(true);
+    expect(result.verdict).toBe('unverified');
+    expect(result.reality_check.verdict).toBe('unverified');
+    // The informational half still works: it did look, and it says what it saw.
     expect(result.reality_check.match).toBeNull();
     expect(result.reality_check.files_changed).toBe(1);
+    expect(result.reality_check.summary).toContain('no claim to check against');
+  });
+
+  it('a claim alone is enough to earn a pass', () => {
+    commitFiles(tmpRepo, { 'x.txt': 'X\n' }, 'add x');
+
+    const result = verifyAgentWork({
+      agent_id: 'claim-only',
+      workdir: tmpRepo,
+      base: 'main',
+      claim: { expected_files: 1 },
+    });
+
+    expect(result.verdict).toBe('pass');
+  });
+
+  it('a report alone is enough to earn a pass, even with no claim to cross-check', () => {
+    commitFiles(tmpRepo, { 'x.txt': 'X\n' }, 'add x');
+
+    const result = verifyAgentWork({
+      agent_id: 'report-only',
+      workdir: tmpRepo,
+      base: 'main',
+      report: { pass: true, tests: { pass: true, summary: '12/12' } },
+    });
+
+    // Something real was checked — just not by the git half.
+    expect(result.verdict).toBe('pass');
+    expect(result.reality_check.verdict).toBe('unverified');
+  });
+
+  it('a failing report still fails when there is no claim', () => {
+    commitFiles(tmpRepo, { 'x.txt': 'X\n' }, 'add x');
+
+    const result = verifyAgentWork({
+      agent_id: 'report-fail',
+      workdir: tmpRepo,
+      base: 'main',
+      report: { pass: false, tests: { pass: false, summary: '3 failed' } },
+    });
+
+    expect(result.verdict).toBe('fail');
+  });
+
+  it('tags and observations carry the verdict, because that is what future recall reads', () => {
+    commitFiles(tmpRepo, { 'x.txt': 'X\n' }, 'add x');
+
+    const result = verifyAgentWork({
+      agent_id: 'tagged',
+      workdir: tmpRepo,
+      base: 'main',
+    });
+
+    const db = getDatabase();
+    const row = db
+      .prepare('SELECT id FROM entities WHERE name = ?')
+      .get(result.entity_name) as { id: number };
+    const tags = db
+      .prepare('SELECT tag FROM tags WHERE entity_id = ?')
+      .all(row.id)
+      .map((t: any) => t.tag);
+    const observations = db
+      .prepare('SELECT content FROM observations WHERE entity_id = ?')
+      .all(row.id)
+      .map((o: any) => o.content);
+
+    expect(tags).toContain('verification:unverified');
+    expect(tags).not.toContain('verification:pass');
+    expect(observations[0]).toBe('Agent tagged verification: UNVERIFIED');
   });
 });
 
@@ -108,7 +186,7 @@ describe('verifyAgentWork — external report integration', () => {
       },
     });
 
-    expect(result.pass).toBe(true);
+    expect(result.verdict).toBe('pass');
     expect(result.external_report?.tests?.summary).toBe('77/77 pass');
   });
 
@@ -126,8 +204,8 @@ describe('verifyAgentWork — external report integration', () => {
       },
     });
 
-    expect(result.pass).toBe(false);
-    expect(result.reality_check.pass).toBe(true);
+    expect(result.verdict).toBe('fail');
+    expect(result.reality_check.verdict).toBe('pass');
   });
 });
 
@@ -149,7 +227,7 @@ describe('verifyAgentWork — persistence', () => {
     expect(names.size).toBe(20);
   });
 
-  it('stores the report as a verification_record entity tagged pass/fail', () => {
+  it('stores the report as a verification_record entity tagged with its verdict', () => {
     commitFiles(tmpRepo, { 'a.txt': 'A\n' }, 'add a');
     const result = verifyAgentWork({
       agent_id: 'tagged',
@@ -275,7 +353,10 @@ describe('verifyAgentWork — workdir handling (subdir + symlink, codex 2026-05-
         workdir: linkPath,
         base: 'main',
       });
-      expect(result.pass).toBe(true);
+      // No claim and no report here, so the verdict is unverified. What this
+      // case is really asserting is that resolving the symlink did not throw
+      // and did not silently bypass the git-working-tree check.
+      expect(result.verdict).toBe('unverified');
       // The recorded entity should know the canonical path. We can't
       // read observations directly here without DB access, but the
       // entity name persists through remember(); the assertion that

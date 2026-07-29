@@ -4,6 +4,40 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The auth screen's translation fallbacks were dead code** (`dashboard/src/components/AuthPrompt.tsx`, `dashboard/src/lib/i18n.ts`) — five lookups were written as `t('auth.x') || 'English literal'`, which reads as a safety net and cannot be one: `t()` returns the key string itself on a miss, and a non-empty string is truthy, so the right-hand branch is unreachable. When those keys were genuinely missing from every locale, this screen rendered `auth.title` at a remote operator and the fallback did nothing. The keys and a guard test both landed earlier; the dead branches did not, leaving five unsynced copies of the English strings that no build step compares against the catalogue. They are removed — English is already the fallback inside `t()` (locale → en → key), and `tests/dashboard-i18n.test.ts` fails the build if a key used in a component is absent from the English catalogue.
+
+  Found while auditing that file: the token input's `placeholder` was a hardcoded `"paste token here"`, the one string on this screen that never went through translation. Now `auth.tokenPlaceholder`, added to all 11 locales.
+
+- **`verify_agent_work` no longer reports a pass when it verified nothing** (`src/core/verifier.ts`, `src/transports/cli/cli.ts`, `src/transports/mcp/handlers.ts`, `src/core/schema-export.ts`) — both `claim` and `report` are optional. With neither supplied the tool counted changed files, which is not a check against anything, and then said so with `pass: true`.
+
+  Measured before changing anything, calling it with only a workdir:
+
+  ```json
+  {
+    "pass": true,
+    "reality_check": {
+      "match": null,
+      "expected_files": null,
+      "summary": "18 files changed (no claim to check against)"
+    },
+    "external_report": null
+  }
+  ```
+
+  It also wrote a permanent memory reading `Agent <id> verification: PASS`, tagged `verification:pass`, which a later `recall` hands to another agent as evidence the work was checked. And `memesh verify` printed `PASS` and **exited 0**, so a gate written as `memesh verify … && deploy` deployed on a check that never ran.
+
+  The root cause was two absences multiplying into a pass: `realityCheck()` returned `pass: true` when there was no claim, and the overall verdict was `rc.pass && (input.report?.pass ?? true)` — a missing report defaulting to true. Absence of evidence was being read as evidence.
+
+  `pass: boolean` is replaced by `verdict: 'pass' | 'fail' | 'unverified'` on both the result and its nested `reality_check`. One tri-state rather than a boolean plus a `verified` flag, because two fields describing one fact is how the `recall_hits` double-writer happened. A `pass` now requires that something was actually checked — a matched file claim, or a supplied external report; any `fail` still wins over both. `unverified` also covers the cases where the check could not run at all (no git base discoverable, `git diff` failed), which previously returned `pass: false` and read as "the agent's work failed" rather than "this tool could not look".
+
+  Recording a snapshot without a claim — the mode a test called "informational" — still works and still reports what it saw. It just stops calling itself a pass.
+
+  Surfaces updated so none of them can round the third state back to two: the entity tag is `verification:unverified`, the stored observation reads `UNVERIFIED`, the MCP and OpenAI-function tool descriptions tell the model that calling with neither argument checks nothing, and `memesh verify` prints `UNVERIFIED`, says what to pass to actually verify something, and **exits 2** — distinct from 0 (pass) and 1 (fail) so a shell gate cannot confuse "checked nothing" with success. A caller still reading `result.pass` gets `undefined`, which is falsy: the safe direction.
+
+  Pinned by seven cases in `tests/core/verifier.test.ts` covering each cell of the claim × report matrix plus the stored tags and observation text. Proven non-vacuous by restoring the old combining rule: **3 of 19 tests fail**, and pass again once reverted.
+
 ## [4.2.11] — 2026-07-29
 
 This release exists because the headline benchmark figure was measuring the

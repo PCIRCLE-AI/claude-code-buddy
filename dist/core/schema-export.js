@@ -155,7 +155,7 @@ export function exportOpenAITools() {
             type: 'function',
             function: {
                 name: 'memesh_verify_agent_work',
-                description: 'Record a verification report for work done by a background agent. Runs git reality-check (files changed vs claim) and persists report as a verification_record entity.',
+                description: 'Record a verification report for work done by a background agent. Runs git reality-check (files changed vs claim) and persists the result as a verification_record entity. Returns verdict: "pass" | "fail" | "unverified" — with neither claim nor report there is nothing to check, and the verdict is "unverified", not "pass".',
                 parameters: {
                     type: 'object',
                     properties: {

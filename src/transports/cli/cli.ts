@@ -401,11 +401,17 @@ program
       if (opts.json) {
         console.log(JSON.stringify(result, null, 2));
       } else {
-        const status = result.pass ? 'PASS' : 'FAIL';
-        console.log(`${status}  agent=${opts.agentId}  entity=${result.entity_name}`);
+        console.log(`${result.verdict.toUpperCase()}  agent=${opts.agentId}  entity=${result.entity_name}`);
         console.log(`  reality: ${result.reality_check.summary}`);
+        if (result.verdict === 'unverified') {
+          console.log('  nothing was checked — pass --expected-files <n> and/or --report <file> to verify something.');
+        }
       }
-      process.exit(result.pass ? 0 : 1);
+      // Distinct exit codes, because a shell gate cannot tell PASS from
+      // "checked nothing" if both exit 0 — and `memesh verify … && deploy`
+      // used to deploy on the strength of a check that never ran.
+      //   0 = pass   1 = fail   2 = unverified (nothing to check against)
+      process.exit(result.verdict === 'pass' ? 0 : result.verdict === 'fail' ? 1 : 2);
     });
   });
 

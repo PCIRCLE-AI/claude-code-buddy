@@ -81,7 +81,7 @@ function realityCheck(workdir, base, expectedFiles) {
             expected_files: expectedFiles ?? null,
             match: null,
             base: null,
-            pass: false,
+            verdict: 'unverified',
             summary: 'no git base discoverable; cannot reality-check',
         };
     }
@@ -97,7 +97,7 @@ function realityCheck(workdir, base, expectedFiles) {
             expected_files: expectedFiles ?? null,
             match: null,
             base,
-            pass: false,
+            verdict: 'unverified',
             summary: `git diff failed: ${err instanceof Error ? err.message : 'unknown'}`,
         };
     }
@@ -111,7 +111,7 @@ function realityCheck(workdir, base, expectedFiles) {
             expected_files: null,
             match: null,
             base,
-            pass: true,
+            verdict: 'unverified',
             summary: `${filesChanged} files changed (no claim to check against)`,
         };
     }
@@ -121,15 +121,15 @@ function realityCheck(workdir, base, expectedFiles) {
         expected_files: expectedFiles,
         match,
         base,
-        pass: match,
+        verdict: match ? 'pass' : 'fail',
         summary: match
             ? `reality OK: ${filesChanged}/${expectedFiles} files`
             : `reality MISMATCH: agent claimed ${expectedFiles}, actual ${filesChanged}`,
     };
 }
-function buildObservations(input, rc, pass, canonicalWorkdir) {
+function buildObservations(input, rc, verdict, canonicalWorkdir) {
     const obs = [];
-    obs.push(`Agent ${input.agent_id} verification: ${pass ? 'PASS' : 'FAIL'}`);
+    obs.push(`Agent ${input.agent_id} verification: ${verdict.toUpperCase()}`);
     obs.push(`Workdir: ${canonicalWorkdir}`);
     if (canonicalWorkdir !== input.workdir) {
         obs.push(`Workdir input (pre-realpath): ${input.workdir}`);
@@ -155,12 +155,18 @@ function buildObservations(input, rc, pass, canonicalWorkdir) {
     }
     return obs;
 }
+function combineVerdict(realityVerdict, reportPass) {
+    if (realityVerdict === 'fail' || reportPass === false)
+        return 'fail';
+    if (realityVerdict === 'pass' || reportPass === true)
+        return 'pass';
+    return 'unverified';
+}
 export function verifyAgentWork(input) {
     const canonicalWorkdir = validateWorkdir(input.workdir);
     const base = resolveBase(canonicalWorkdir, input.base);
     const rc = realityCheck(canonicalWorkdir, base, input.claim?.expected_files);
-    const reportPass = input.report?.pass ?? true;
-    const pass = rc.pass && reportPass;
+    const verdict = combineVerdict(rc.verdict, input.report?.pass);
     const timestamp = new Date().toISOString();
     const safeAgentId = input.agent_id.replace(/[^a-zA-Z0-9_-]/g, '-');
     const suffix = randomBytes(3).toString('hex');
@@ -168,12 +174,12 @@ export function verifyAgentWork(input) {
     const tags = [
         'verification',
         `agent:${safeAgentId}`,
-        pass ? 'verification:pass' : 'verification:fail',
+        `verification:${verdict}`,
     ];
     remember({
         name: entityName,
         type: 'verification_record',
-        observations: buildObservations(input, rc, pass, canonicalWorkdir),
+        observations: buildObservations(input, rc, verdict, canonicalWorkdir),
         tags,
     });
     if (isAgenticOrchestrationEnabled()) {
@@ -181,7 +187,7 @@ export function verifyAgentWork(input) {
     }
     return {
         entity_name: entityName,
-        pass,
+        verdict,
         reality_check: rc,
         external_report: input.report ?? null,
         timestamp,
