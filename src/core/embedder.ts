@@ -19,7 +19,59 @@ let onnxPipelineInstance: OnnxPipeline | null = null;
 let onnxPipelineLoading: Promise<OnnxPipeline> | null = null;
 let onnxAvailableChecked = false;
 let onnxAvailableResult = false;
-const MAX_VECTOR_DISTANCE = 1;
+/**
+ * Cut-off for a vector hit, in the units `entities_vec` actually returns.
+ *
+ * `entities_vec` is declared as `vec0(embedding float[N])` with no
+ * `distance_metric`, so sqlite-vec uses **L2**. Embeddings are unit vectors
+ * (`normalize: true` in `embedWithOnnx`, and both API providers return
+ * normalised vectors), which puts L2 in the range 0…2 and relates it to cosine
+ * by `cos = 1 - d²/2`. √2 is therefore exactly cosine 0 — "no relationship" —
+ * and everything above it is negatively correlated.
+ *
+ * This used to be `1`, a value that only makes sense if the distance were
+ * cosine *distance* on a 0…1 scale. Against real L2 numbers it discarded
+ * essentially every hit: measured over 50 LongMemEval questions, 5 of 1000
+ * vector hits survived it (0.5%), and the correct session sat at a median
+ * distance of 1.187 — above the cut. The vector half of "hybrid search" was
+ * doing nothing at all, silently, while the README advertised it.
+ *
+ * 1.30 is calibrated against two independent measurements, not derived. The
+ * geometric cut — √2, exactly cosine 0 — turned out to sit in the middle of the
+ * noise, because MiniLM's space is roughly isotropic and unrelated text lands
+ * *at* cosine 0 rather than below it:
+ *
+ *   LongMemEval, distance of the CORRECT session   min 0.864  p50 1.187  p75 1.269
+ *   LongMemEval, distance of ALL returned hits                p50 1.357
+ *   nonsense query ("nonexistent-xyz-123")         nearest    1.413
+ *   random letters                                 nearest    1.371
+ *   unrelated English sentence                     nearest    1.430
+ *   genuinely related question                     nearest    0.872 / 1.157
+ *
+ * Signal sits below ~1.27, noise above ~1.37. A cut at √2 lets every one of
+ * those noise cases through, which means a query matching nothing lexically
+ * comes back with an unrelated memory instead of an honest "no results".
+ *
+ * The recall cost is nil: R@5 measured identical (95.0%) at thresholds 1.20,
+ * 1.35, 1.50 and 2.00 over 100 questions, so the tight end of that range trades
+ * no recall for the precision. Re-derive it if the embedding model changes —
+ * the number belongs to MiniLM-L6, not to the algorithm.
+ */
+export const MAX_VECTOR_DISTANCE = 1.30;
+
+/**
+ * Map a distance from `entities_vec` onto the 0…1 relevance scale the scorer
+ * expects. Lives next to `MAX_VECTOR_DISTANCE` because both encode the same
+ * fact — that these are L2 distances over unit vectors, ranging 0…2 — and
+ * keeping them apart is how they drifted: the cut-off assumed 0…1 and the
+ * conversion assumed 0…1, against numbers that are neither.
+ *
+ * `1 - d` (the previous form) sends every distance above 1.0 to zero, and real
+ * distances for related text sit at 1.0–1.44: 98.8% of hits collapsed to 0.
+ */
+export function vectorSimilarity(distance: number): number {
+  return Math.max(0, 1 - distance / 2);
+}
 const ONNX_TRANSFORMERS_PACKAGE = '@huggingface/transformers';
 // The local ONNX model id + on-disk cache layout. These are the ONE authoritative
 // home for "which model, cached where" — getOnnxPipeline() and isOnnxModelCached()

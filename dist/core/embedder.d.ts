@@ -1,3 +1,5 @@
+export declare const MAX_VECTOR_DISTANCE = 1.3;
+export declare function vectorSimilarity(distance: number): number;
 export declare function isOnnxModelCached(): boolean;
 export declare function isEmbeddingAvailable(): boolean;
 export { getEmbeddingDimension } from './config.js';

@@ -8,7 +8,10 @@ let onnxPipelineInstance = null;
 let onnxPipelineLoading = null;
 let onnxAvailableChecked = false;
 let onnxAvailableResult = false;
-const MAX_VECTOR_DISTANCE = 1;
+export const MAX_VECTOR_DISTANCE = 1.30;
+export function vectorSimilarity(distance) {
+    return Math.max(0, 1 - distance / 2);
+}
 const ONNX_TRANSFORMERS_PACKAGE = '@huggingface/transformers';
 const ONNX_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 const ONNX_CACHE_SUBDIR = 'models';

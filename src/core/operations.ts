@@ -14,7 +14,7 @@ import { KnowledgeGraph } from '../knowledge-graph.js';
 import { rankEntities } from './scoring.js';
 import { getProjectName } from './paths.js';
 import { createExplicitLesson } from './lesson-engine.js';
-import { embedAndStore, isEmbeddingAvailable, embedText, scheduleEmbedAndStore, vectorSearch } from './embedder.js';
+import { embedAndStore, isEmbeddingAvailable, embedText, scheduleEmbedAndStore, vectorSearch, vectorSimilarity, MAX_VECTOR_DISTANCE } from './embedder.js';
 import { autoTagAndApply } from './auto-tagger.js';
 import { detectCapabilities } from './config.js';
 import type {
@@ -190,6 +190,25 @@ export function recall(args: RecallInput): Entity[] {
  * cannot be embedded — FTS5 results stay valid.
  *
  * Returns nothing; caller continues with the mutated arrays.
+ *
+ * **A vector hit cannot outrank the best FTS hit, however certain it is.**
+ * The two relevance values are not on the same scale: FTS relevance is
+ * *positional* — `buildRelevanceMap` gives the top FTS row 1.0 no matter how
+ * weak the match — while a vector hit's relevance is *absolute*, and a genuinely
+ * good semantic match sits near 0.4. So this stays a supplement in the literal
+ * sense: it can add rows the keyword search missed, and they will rank below
+ * every strong keyword row.
+ *
+ * That is a real limit, not a tuning parameter. Measured over 100 LongMemEval
+ * questions: of the 5 the keyword search missed, the vector index ranked the
+ * correct session **#1** in three of them — and none surfaced in the top 5 at
+ * any distance threshold. The fix for that is rank fusion (score both sides by
+ * position, e.g. RRF), which was evaluated and NOT adopted here: on this corpus
+ * it recovered 4 of the 5 misses and cost more elsewhere, R@5 95% → 92%.
+ * LongMemEval's haystack is padded with generic public Q&A that scores high on
+ * semantic similarity while being nobody's memory (METHODOLOGY.md §4.1), so it
+ * is the wrong corpus to tune fusion on. Revisiting needs a set of personal
+ * notes where the question's vocabulary differs from the note's.
  */
 async function supplementWithVectors(
   query: string,
@@ -216,9 +235,8 @@ async function supplementWithVectors(
     for (const entity of hitEntities) {
       if (existingNames.has(entity.name)) continue;
       merged.push(entity);
-      // Convert cosine distance to similarity (0=identical, 2=opposite).
-      const dist = vectorHits.find(h => h.id === entity.id)?.distance ?? 1;
-      relevanceMap.set(entity.name, Math.max(0, 1 - dist));
+      const dist = vectorHits.find(h => h.id === entity.id)?.distance ?? MAX_VECTOR_DISTANCE;
+      relevanceMap.set(entity.name, vectorSimilarity(dist));
     }
   } catch {
     // Vector search failed — FTS5 results still valid.
