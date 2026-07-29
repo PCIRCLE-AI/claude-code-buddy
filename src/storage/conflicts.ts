@@ -47,41 +47,40 @@ export function findConflicts(db: Database.Database, entityNames: string[]): str
   return conflicts;
 }
 
-export interface TrackAccessOptions {
-  /**
-   * Whether to also increment `recall_hits`. Set true for *intentional*
-   * retrieval (filtered query, tag lookup) and false for browse-style
-   * listings (e.g. `listRecent`) where the user did not explicitly ask
-   * for these entities. The signal that powers recall-effectiveness
-   * analytics depends on this distinction — without it every browse
-   * page-load would inflate the hit count.
-   */
-  incrementHits?: boolean;
-}
-
 /**
- * Increment access_count and refresh last_accessed_at for the given
- * entity ids. Optionally also increments `recall_hits` (see
- * `TrackAccessOptions.incrementHits`).
+ * Increment access_count and refresh last_accessed_at for the given entity ids.
  *
- * Called by every search/recall path so scoring can factor recency +
- * frequency, and analytics can report which entities the user actually
- * pulled into work.
+ * Called by every search/recall path so scoring can factor recency and
+ * frequency. It deliberately does NOT touch `recall_hits`.
  *
- * No-op for empty input. Wraps all updates in a single transaction so
- * partial failures roll back cleanly.
+ * `recall_hits` / `recall_misses` answer a different question — "was a memory we
+ * injected actually used?" — and only the Stop hook can observe that, by
+ * matching injected names against the session transcript
+ * (`scripts/hooks/session-summary.js`). It is the only writer, and it writes
+ * both sides. `scoring.ts::impactScore` reads the pair as a Laplace-smoothed
+ * ratio, which is only meaningful if hits and misses come from the same
+ * question.
+ *
+ * A retrieval path used to bump `recall_hits` too, under the reading "this
+ * memory was pulled". That is a different definition, it can only ever add to
+ * the hit side, and "was pulled" is already recorded — by `access_count`, in the
+ * same statement. Measured on a real 91-entity database the two definitions had
+ * not yet collided (29 hits against 365 misses; the impact factor's median sat
+ * exactly at the neutral 0.5), but OR-joined query terms now return many more
+ * rows per search, which is precisely when a one-sided writer starts to matter.
+ *
+ * No-op for empty input. Wraps all updates in a single transaction so partial
+ * failures roll back cleanly.
  */
 export function trackAccess(
   db: Database.Database,
   entityIds: number[],
-  opts: TrackAccessOptions = {},
 ): void {
   if (entityIds.length === 0) return;
   const now = new Date().toISOString();
-  const sql = opts.incrementHits
-    ? 'UPDATE entities SET access_count = access_count + 1, recall_hits = recall_hits + 1, last_accessed_at = ? WHERE id = ?'
-    : 'UPDATE entities SET access_count = access_count + 1, last_accessed_at = ? WHERE id = ?';
-  const stmt = db.prepare(sql);
+  const stmt = db.prepare(
+    'UPDATE entities SET access_count = access_count + 1, last_accessed_at = ? WHERE id = ?',
+  );
   const txn = db.transaction(() => {
     for (const id of entityIds) {
       stmt.run(now, id);

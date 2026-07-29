@@ -1,7 +1,6 @@
 import Database from 'better-sqlite3';
 export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
 import type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
-import { type TrackAccessOptions } from './storage/conflicts.js';
 export declare class KnowledgeGraph {
     private db;
     constructor(db: Database.Database);
@@ -23,7 +22,7 @@ export declare class KnowledgeGraph {
     }): Entity[];
     getRelations(entityName: string): Relation[];
     search(query?: string, opts?: SearchOptions): Entity[];
-    trackAccess(entityIds: number[], opts?: TrackAccessOptions): void;
+    trackAccess(entityIds: number[]): void;
     findConflicts(entityNames: string[]): string[];
     listRecent(limit?: number, includeArchived?: boolean, namespace?: string): Entity[];
     listByType(type: string, limit?: number, includeArchived?: boolean, namespace?: string): Entity[];

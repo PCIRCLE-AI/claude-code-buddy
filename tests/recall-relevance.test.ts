@@ -233,11 +233,13 @@ describe('Feature: recall relevance', () => {
       expect(kg.search(`zebras ${filler}`).map((e) => e.name)).toContain('tail-match');
     });
 
-    it('does not apply the query tokeniser to archived-only matches', () => {
-      // include_archived pulls archived rows from a separate LIKE scan (they
-      // are removed from FTS5 on archive), so the OR/tokenising work does not
-      // reach them: a scattered-word question finds the active copy but not the
-      // archived one. Pinned so the asymmetry is a known limit, not a surprise.
+    it('applies the same terms to archived-only matches', () => {
+      // include_archived pulls archived rows from a separate LIKE scan — they
+      // are removed from FTS5 on archive — but that scan now matches the same
+      // tokens the FTS branch does. This case used to assert the opposite, as a
+      // documented asymmetry: a scattered-word question found the active copy
+      // and missed the archived one because the raw query string was matched as
+      // a literal substring.
       kg.createEntity('active-grad', 'note', {
         observations: ['I finished college in 2011 with a Business degree.'],
       });
@@ -248,13 +250,25 @@ describe('Feature: recall relevance', () => {
 
       const q = 'What degree did I graduate with?';
       expect(kg.search(q).map((e) => e.name)).toContain('active-grad');
-      expect(kg.search(q, { includeArchived: true }).map((e) => e.name)).not.toContain(
-        'archived-grad'
-      );
-      // A literal substring still reaches it, which is the LIKE behaviour.
-      expect(
-        kg.search('Business degree', { includeArchived: true }).map((e) => e.name)
-      ).toContain('archived-grad');
+      expect(kg.search(q, { includeArchived: true }).map((e) => e.name)).toContain('archived-grad');
+    });
+
+    it('cannot let a LIKE wildcard widen an archived match', () => {
+      // `%` and `_` ARE wildcards in the archived branch's LIKE. They cannot
+      // reach it: the tokeniser emits only [\p{L}\p{N}\p{M}]+, so a query of
+      // `planning%` searches for the word and the `%` never survives — the same
+      // guarantee the FTS branch relies on for its operators. The escaping in
+      // archivedLikeTerms() is defence for the raw-query fallback, which
+      // search() cannot reach because a query with no terms returns the recent
+      // list before this branch runs.
+      kg.createEntity('archived-planning', 'note', { observations: ['quarterly planning notes'] });
+      kg.createEntity('archived-budget', 'note', { observations: ['budget review meeting'] });
+      kg.archiveEntity('archived-planning');
+      kg.archiveEntity('archived-budget');
+
+      const names = kg.search('planning%', { includeArchived: true }).map((e) => e.name);
+      expect(names).toContain('archived-planning');
+      expect(names).not.toContain('archived-budget');
     });
   });
 

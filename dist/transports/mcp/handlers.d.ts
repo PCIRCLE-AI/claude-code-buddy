@@ -56,13 +56,13 @@ export declare const TOOL_DEFINITIONS: readonly [{
     };
 }, {
     readonly name: "recall";
-    readonly description: "Search and retrieve stored knowledge. Uses full-text search with optional project tag filtering. Call with no query to list recent memories.";
+    readonly description: "Search and retrieve stored knowledge. Uses full-text search with optional project tag filtering. Call with no query to list recent memories. Query words are OR-ed and results ranked by relevance, so a question phrased naturally works — adding words narrows the ranking, not the result set.";
     readonly inputSchema: {
         readonly type: "object";
         readonly properties: {
             readonly query: {
                 readonly type: "string";
-                readonly description: "Search query (uses FTS5 full-text search). Leave empty to list recent.";
+                readonly description: "Search query. Words are OR-ed and ranked by relevance (BM25); only the first 32 terms are used, and words present in most of the corpus are ignored as noise. Leave empty to list recent.";
             };
             readonly tag: {
                 readonly type: "string";
