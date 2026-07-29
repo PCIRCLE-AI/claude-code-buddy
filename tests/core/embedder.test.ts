@@ -4,6 +4,8 @@ import {
   resetEmbeddingState,
   getEmbeddingDimension,
   vectorSearch,
+  vectorSimilarity,
+  MAX_VECTOR_DISTANCE,
 } from '../../src/core/embedder.js';
 import { closeDatabase, getDatabase, openDatabase } from '../../src/db.js';
 import fs from 'fs';
@@ -88,5 +90,69 @@ describe('Embedder', () => {
     expect(hits).toHaveLength(1);
     expect(hits[0].id).toBe(123);
     expect(hits[0].distance).toBe(0);
+  });
+
+  describe('distance scale', () => {
+    // `entities_vec` is vec0(...) with no distance_metric, so sqlite-vec uses
+    // L2. Over unit vectors that is a 0…2 range related to cosine by
+    // cos = 1 - d²/2. Both the cut-off and the similarity mapping encode that
+    // one fact, and both used to assume a 0…1 cosine-distance scale instead.
+
+    /** Unit vector at a chosen cosine angle from [1,0,0,…]. */
+    function vectorAtCosine(cos: number, dim: number): Float32Array {
+      const v = new Float32Array(dim);
+      v[0] = cos;
+      v[1] = Math.sqrt(1 - cos * cos);
+      return v;
+    }
+
+    it('keeps a hit that is merely related, not near-identical', () => {
+      const db = openTempDb();
+      const dim = getEmbeddingDimension();
+      const query = vectorAtCosine(1, dim);
+      // cos 0.3 -> L2 sqrt(1.4) ≈ 1.183, right at the measured median distance
+      // of a CORRECT LongMemEval session. The old cut-off of 1 discarded it.
+      const related = vectorAtCosine(0.3, dim);
+      db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)')
+        .run(7n, Buffer.from(related.buffer, related.byteOffset, related.byteLength));
+
+      const hits = vectorSearch(query, 5);
+      expect(hits.map((h) => h.id)).toContain(7);
+      expect(hits[0].distance).toBeGreaterThan(1);
+      expect(hits[0].distance).toBeLessThan(MAX_VECTOR_DISTANCE);
+    });
+
+    it('drops a hit that is not related at all', () => {
+      const db = openTempDb();
+      const dim = getEmbeddingDimension();
+      const query = vectorAtCosine(1, dim);
+      // cos 0.05 -> L2 ≈ 1.378, which is where a nonsense query's nearest
+      // neighbour actually lands. Not an exotic opposite vector: this is the
+      // ordinary noise case, and it must not come back as an answer.
+      const opposed = vectorAtCosine(0.05, dim);
+      db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)')
+        .run(8n, Buffer.from(opposed.buffer, opposed.byteOffset, opposed.byteLength));
+
+      expect(vectorSearch(query, 5)).toHaveLength(0);
+    });
+
+    it('sits between the measured signal and noise bands', () => {
+      // Pinned from both sides so neither the 1.0 that made the supplement
+      // inert nor a loose geometric cut can be restored quietly. Measured:
+      // the correct session lands at p75 1.269, while a nonsense query's
+      // nearest neighbour lands at 1.371-1.430.
+      expect(MAX_VECTOR_DISTANCE).toBeGreaterThan(1.269);
+      expect(MAX_VECTOR_DISTANCE).toBeLessThan(1.371);
+    });
+
+    it('maps the full 0…2 distance range onto 0…1 similarity', () => {
+      expect(vectorSimilarity(0)).toBe(1);
+      expect(vectorSimilarity(Math.SQRT2)).toBeCloseTo(0.293, 3);
+      expect(vectorSimilarity(MAX_VECTOR_DISTANCE)).toBeCloseTo(0.35, 2);
+      expect(vectorSimilarity(2)).toBe(0);
+      // The previous `1 - d` form returned 0 for everything past 1.0, which is
+      // where every real hit lives.
+      expect(vectorSimilarity(1.187)).toBeGreaterThan(0);
+    });
   });
 });

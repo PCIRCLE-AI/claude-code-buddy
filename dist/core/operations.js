@@ -3,7 +3,7 @@ import { KnowledgeGraph } from '../knowledge-graph.js';
 import { rankEntities } from './scoring.js';
 import { getProjectName } from './paths.js';
 import { createExplicitLesson } from './lesson-engine.js';
-import { embedAndStore, isEmbeddingAvailable, embedText, scheduleEmbedAndStore, vectorSearch } from './embedder.js';
+import { embedAndStore, isEmbeddingAvailable, embedText, scheduleEmbedAndStore, vectorSearch, vectorSimilarity, MAX_VECTOR_DISTANCE } from './embedder.js';
 import { autoTagAndApply } from './auto-tagger.js';
 import { detectCapabilities } from './config.js';
 function buildLocalMetadata(existingMetadata, overrides) {
@@ -119,8 +119,8 @@ async function supplementWithVectors(query, args, kg, merged, relevanceMap) {
             if (existingNames.has(entity.name))
                 continue;
             merged.push(entity);
-            const dist = vectorHits.find(h => h.id === entity.id)?.distance ?? 1;
-            relevanceMap.set(entity.name, Math.max(0, 1 - dist));
+            const dist = vectorHits.find(h => h.id === entity.id)?.distance ?? MAX_VECTOR_DISTANCE;
+            relevanceMap.set(entity.name, vectorSimilarity(dist));
         }
     }
     catch {
