@@ -5,7 +5,7 @@
     "measures": "shipped_recall_path",
     "retrieval_entrypoint": "dist/core/operations.js::recallEnhanced",
     "recall_limit": 20,
-    "dataset": "/private/tmp/claude-501/-Users-ktseng-Developer-Projects-memesh-llm-memory/79c9d208-49f0-4702-bb72-9ea9a8a90514/scratchpad/longmemeval_s.json",
+    "dataset": "longmemeval_s.json",
     "dataset_sha256": "08d8dad4be43ee2049a22ff5674eb86725d0ce5ff434cde2627e5e8e7e117894",
     "dataset_variant": "longmemeval_s",
     "n_questions": 500,

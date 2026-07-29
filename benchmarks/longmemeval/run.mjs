@@ -240,12 +240,16 @@ async function main() {
     run_info: {
       mode,
       mode_description: description,
-      // Which code produced these numbers. Result files written before
-      // 2026-07 say `harness_reimplementation` and do not describe the product.
+      // Which code produced these numbers. Result files written before 2026-07
+      // have no `measures` field at all — they came from this runner's own
+      // reimplementation of retrieval and do not describe the product.
       measures: 'shipped_recall_path',
       retrieval_entrypoint: 'dist/core/operations.js::recallEnhanced',
       recall_limit: recallLimit,
-      dataset: datasetPath,
+      // Basename only. These files are published, and the absolute path leaks
+      // the local home directory of whoever ran the benchmark; the SHA-256
+      // below is what actually identifies the dataset.
+      dataset: path.basename(datasetPath),
       dataset_sha256: datasetSha,
       dataset_variant: 'longmemeval_s',
       n_questions: results.length,

@@ -63,7 +63,7 @@ npm run build
 # Run the benchmark (Mode A, no embeddings, ~10 seconds)
 npm run bench:longmemeval
 
-# Or with embeddings populated (~25 minutes, downloads the ONNX model once)
+# Or with embeddings populated (~14 minutes, downloads the ONNX model once)
 node benchmarks/longmemeval/run.mjs --mode B --dataset /tmp/longmemeval_s.json
 ```
 
@@ -103,23 +103,39 @@ Measured through `recallEnhanced()`:
 
 | Mode | Description | R@5 | R@10 | MRR | Zero-result questions | Elapsed |
 |------|-------------|-----|------|-----|-----------------------|---------|
-| A | no embeddings | **95.60%** | 97.80% | 0.8931 | 0 / 500 | 9.5s |
-| B | embeddings populated | **95.60%** | 97.80% | 0.8931 | 0 / 500 | 822.8s |
+| A | no embeddings | **95.60%** | 97.80% | 0.8929 | 0 / 500 | 9.1s |
+| B | embeddings populated | **95.60%** | 97.80% | 0.8931 | 0 / 500 | 807.7s |
 
 For contrast, the same 500 questions through the same function **before** the
 retrieval fixes in this release: R@5 **5.20%**, R@10 5.20%, MRR 0.0520, and
 **473 of 500** questions returning nothing.
 
-**Mode B is identical to Mode A to every digit** — same R@5, same R@10, same MRR
-to sixteen decimal places. Storing 25,000 embeddings and letting
-`recallEnhanced()` consult them changes not one result. `vectorSearch()` filters
-hits at `MAX_VECTOR_DISTANCE = 1` while sqlite-vec returns L2 distances around
-1.2–1.4 for related text, so essentially every vector hit is discarded before it
-can supplement FTS5. The vector half of "hybrid search" contributes nothing
-today. That is a defect with its own fix pending, not a property of the
-benchmark (METHODOLOGY.md §4.2), and it is worth knowing that the 22 remaining
-Mode A failures are dominated by vocabulary mismatch — exactly what a working
-vector supplement would cover.
+### What the embeddings buy: 14 changed result lists and nothing at the cut-off
+
+Before the vector threshold was fixed, Mode B was identical to Mode A to sixteen
+decimal places — `MAX_VECTOR_DISTANCE = 1` discarded essentially every hit
+sqlite-vec returned, so storing 25 000 embeddings changed not one result. The
+cut-off is now 1.30 and the supplement does reach the ranker: **14 of the 500
+result lists differ between the modes.**
+
+It still does not move the metric. R@5 and R@10 are unchanged, and only **two**
+questions move the position of the correct session at all:
+
+| Question | Type | Mode A | Mode B |
+|---|---|---|---|
+| `gpt4_f2262a51` | multi-session | not found | rank 14 |
+| `2ebe6c92` | temporal-reasoning | rank 14 | rank 16 |
+
+One recovery and one small regression, both far outside the top 10. MRR moves
+from 0.8929348706848708 to 0.8930598706848707 — a gain of 0.000125 for **89×
+the wall-clock** (807.7s against 9.1s).
+
+This refutes a prediction this file used to make. It said the 22 remaining Mode
+A failures were "dominated by vocabulary mismatch — exactly what a working
+vector supplement would cover". The supplement now works, and it covers one of
+the 22, at a rank no one would ever see. Vocabulary mismatch may still be the
+right diagnosis; MiniLM-L6 at 384 dimensions is not the cure. Recall stays
+LLM-free and embeddings stay optional, which is what these numbers support.
 
 The 95.40% Mode B figure published previously came from the adapter
 reimplementation and does not carry over; do not quote it.
@@ -147,7 +163,7 @@ Dataset SHA256 `08d8dad4...` verified against the on-disk file and against
 |---------------|-----|------|-----|---|
 | knowledge-update | 100.0% | 100.0% | 0.987 | 78 |
 | single-session-assistant | 100.0% | 100.0% | 1.000 | 56 |
-| single-session-user | 97.1% | 98.6% | 0.892 | 70 |
+| single-session-user | 97.1% | 98.6% | 0.891 | 70 |
 | multi-session | 94.7% | 96.2% | 0.884 | 133 |
 | temporal-reasoning | 94.0% | 97.0% | 0.852 | 133 |
 | single-session-preference | 83.3% | 96.7% | 0.673 | 30 |

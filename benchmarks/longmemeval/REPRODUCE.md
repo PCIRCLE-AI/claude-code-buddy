@@ -1,6 +1,6 @@
 # Reproducing the MeMesh LongMemEval Benchmark
 
-Anyone — journalist, competitor, researcher — can reproduce these results in under 10 commands. Total time: ~10 seconds (Mode A) or ~25 minutes (Mode B, ONNX-dependent).
+Anyone — journalist, competitor, researcher — can reproduce these results in under 10 commands. Total time: ~10 seconds (Mode A) or ~14 minutes (Mode B, ONNX-dependent).
 
 The runner calls MeMesh's shipped retrieval path (`recallEnhanced()`), so what
 you measure here is what a `recall` call does. That was not true before 2026-07;
@@ -35,7 +35,7 @@ shasum -a 256 /tmp/longmemeval_s.json
 # 5. Run Mode A (no embeddings — ~10 seconds)
 node benchmarks/longmemeval/run.mjs --mode A --dataset /tmp/longmemeval_s.json
 
-# 6. Run Mode B (embeddings populated — ~25 minutes, downloads model on first run)
+# 6. Run Mode B (embeddings populated — ~14 minutes, downloads model on first run)
 node benchmarks/longmemeval/run.mjs --mode B --dataset /tmp/longmemeval_s.json
 ```
 
@@ -49,7 +49,7 @@ Mode A (no embeddings):
 ```
 R@5:  95.60%
 R@10: 97.80%
-MRR:  0.8931
+MRR:  0.8929
 Questions returning zero results: 0/500
 Time: ~10s
 ```
