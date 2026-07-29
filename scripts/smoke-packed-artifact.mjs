@@ -83,12 +83,13 @@ const requiredFiles = [
   // Dist — dashboard assets
   'dist/cli/view.js',
   'dist/cli/assets/d3.v7.min.js',
-  // Hooks (5)
-  'scripts/hooks/session-start.js',
-  'scripts/hooks/post-commit.js',
-  'scripts/hooks/session-summary.js',
-  'scripts/hooks/pre-compact.js',
-  'scripts/hooks/pre-edit-recall.js',
+  // Hook support: hooks cannot import from dist/, so these are the whole of
+  // their dependency surface. Missing, every hook throws on first require.
+  // The hooks themselves are not listed here — they are derived from
+  // hooks/hooks.json below, so adding one cannot silently go unchecked.
+  'scripts/hooks/_shared.js',
+  'scripts/hooks/_generated/core-paths.js',
+  'scripts/hooks/_generated/fts-index.js',
   // Skills (2)
   'skills/memesh/SKILL.md',
   'skills/memesh-review/SKILL.md',
@@ -100,6 +101,32 @@ for (const relativePath of requiredFiles) {
   assert.ok(
     fs.existsSync(path.join(packageDir, relativePath)),
     `Missing packaged file: ${relativePath}`
+  );
+}
+
+// Every hook the plugin manifest can invoke has to be in the tarball. Deriving
+// the list from hooks.json rather than repeating it here is the point: a
+// hand-written list drifted to five entries while the project shipped seven,
+// so two hooks were packaged but never checked, and a narrowed `files` glob
+// would have produced a tarball this test called good.
+const hooksManifest = JSON.parse(
+  fs.readFileSync(path.join(packageDir, 'hooks', 'hooks.json'), 'utf8')
+);
+const hookCommands = new Set(
+  Object.values(hooksManifest.hooks ?? {})
+    .flat()
+    .flatMap((matcher) => matcher.hooks ?? [])
+    .map((hook) => hook.command)
+    .filter((command) => typeof command === 'string')
+    .map((command) => command.replace('${CLAUDE_PLUGIN_ROOT}/', '').split(' ')[0])
+);
+
+assert.ok(hookCommands.size > 0, 'hooks.json declared no hook commands — the derivation above is broken');
+
+for (const relativePath of hookCommands) {
+  assert.ok(
+    fs.existsSync(path.join(packageDir, relativePath)),
+    `Missing packaged hook (declared in hooks/hooks.json): ${relativePath}`
   );
 }
 

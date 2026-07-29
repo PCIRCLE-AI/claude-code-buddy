@@ -4,6 +4,25 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+## [4.2.11] — 2026-07-29
+
+This release exists because the headline benchmark figure was measuring the
+wrong code. `benchmarks/longmemeval/run.mjs` carried its own table creation,
+its own FTS5 query building and its own ranking, so the published **95.40% R@5**
+scored that reimplementation and not the product. Measured through the function
+a real `recall` call actually reaches, the same 500 questions scored **5.20%**,
+with 473 of them returning nothing at all. Four compounding retrieval defects
+were each hiding the others.
+
+Everything below follows from that: the defects are fixed, the benchmark now
+runs through the shipped path, and every published claim that no longer matched
+the code has been corrected against source. The number is now **95.60%**, and it
+is the product's number.
+
+Upgrading rebuilds the full-text index once, on first open, to add CJK
+segmentation. Existing memories are re-indexed from the entity and observation
+rows, which are never touched — nothing is deleted and nothing needs re-entering.
+
 ### Performance
 
 - **A query term present in most of the corpus no longer drags the whole index into the scan** (`src/knowledge-graph.ts`, `src/db.ts`, `scripts/hooks/_shared.js`) — query terms are OR-ed, so the cost of a search is the union of their postings and one ubiquitous word dominates it. `dropUbiquitousTerms()` removes terms appearing in more than half the indexed rows, using a new `fts_vocab` (`fts5vocab`) view that stores nothing of its own. Measured with a 12-term query, 200 iterations, including the lookup's own cost: **0.071 → 0.039 ms at 50 rows (−45%), 0.411 → 0.079 ms at 500 (−81%), 4.147 → 0.481 ms at 5 000 (−88%), 80.15 → 8.57 ms at 100 000 (−89%)**.
@@ -22,7 +41,13 @@ All notable changes to MeMesh are documented here.
 
 - **The `recall` MCP tool now tells the model how its query will be read** (`src/transports/mcp/handlers.ts`) — the description said only "uses FTS5 full-text search", while the query is OR-ed, ranked by BM25, capped at 32 terms, and has ubiquitous words removed. An agent choosing between a keyword and a sentence had nothing to go on.
 
-- **The packaged-artifact smoke test says so when it passes** (`scripts/smoke-packed-artifact.mjs`) — it printed nothing on success, which is indistinguishable from not having run. That is the exact failure mode this release has spent several changes removing from the product.
+- **The packaged-artifact smoke test says so when it passes, and checks every hook** (`scripts/smoke-packed-artifact.mjs`) — it printed nothing on success, which is indistinguishable from not having run. That is the exact failure mode this release has spent several changes removing from the product.
+
+  Its required-files list also stopped at five hooks while the project ships seven, so `pre-bash-orchestration-nudge.js` and `user-prompt-intent.js` were packaged but never verified — a narrowed `files` glob would have produced a tarball this test called good. The list is not corrected to seven; the hooks are now **derived from `hooks/hooks.json`**, so a hook that the plugin manifest can invoke cannot go unchecked no matter how many there are. `_shared.js` and the two build-generated files under `scripts/hooks/_generated/` are asserted too — hooks cannot import from `dist/`, so those three are the whole of their dependency surface, and without them every hook throws on first require.
+
+- **Published benchmark results no longer record the absolute path of the machine that produced them** (`benchmarks/longmemeval/run.mjs`) — `run_info.dataset` held the full path to the dataset file, which in a public repository means publishing a local home directory. It records the basename now; `dataset_sha256`, which is what actually identifies the dataset, is unchanged. The two result files already committed with a path had that one field edited and the edit is stated in `benchmarks/longmemeval/results/README.md`; every measurement in them is byte-identical. Note that the earlier path remains in git history, in the commit that first added those files.
+
+- **`package-lock.json` carried the version from four releases ago** — its two self-version fields read `4.2.6` through v4.2.7, v4.2.8, v4.2.9 and v4.2.10, because the lockfile was missing from the version-anchor checklist. Only those two fields changed; all 520 dependency entries are byte-identical.
 
 - **The vector half of "hybrid search" was doing nothing, and now does what it says** (`src/core/embedder.ts`, `src/core/operations.ts`) — two constants encoded the same wrong assumption about what `entities_vec` returns. The table is declared `vec0(embedding float[N])` with no `distance_metric`, so sqlite-vec measures **L2**; over unit vectors that is a 0…2 range, and related text lands at 1.0–1.44. Both constants assumed a 0…1 cosine-distance scale:
   - `MAX_VECTOR_DISTANCE = 1` discarded essentially every hit. Measured over 50 LongMemEval questions: **5 of 1000 vector hits survived it (0.5%)**, while the correct session sat at a median distance of 1.187 — above the cut. Embeddings were being generated, stored and searched, and the results thrown away before anything could use them.
@@ -32,11 +57,13 @@ All notable changes to MeMesh are documented here.
 
   **What this does not do is raise the benchmark score**, and that is worth stating plainly rather than implying otherwise: R@5 is unchanged. What changes is that the feature is no longer inert, a query matching nothing lexically can now be answered semantically, and a nonsense query still honestly returns nothing.
 
+  Re-measured on the release tree, with the full 500 questions run in both modes: **14 of 500 result lists now differ** between embeddings-off and embeddings-on, where before the fix they were identical to sixteen decimal places. Only two questions move the correct session — one from "not found" to rank 14, one from rank 14 to 16 — so R@5 and R@10 are unchanged and MRR moves 0.8929348706848708 → 0.8930598706848707, a gain of 0.000125 for 89× the wall-clock (807.7s against 9.1s). This **refutes a prediction the benchmark docs used to make**, that the remaining failures were "dominated by vocabulary mismatch — exactly what a working vector supplement would cover". The supplement works now and covers one of the 22, at a rank no one would ever scroll to. MiniLM-L6 at 384 dimensions is not the cure for that class, and the docs say so instead of quietly dropping the claim. Recall stays LLM-free and embeddings stay opt-in.
+
 - **Recorded, not fixed: a vector hit cannot outrank the best keyword hit, however certain it is** (`src/core/operations.ts` docstring) — the two relevance values are not on the same scale. FTS relevance is *positional* (the top row gets 1.0 no matter how weak the match); a vector hit's is *absolute*, and a genuinely good semantic match sits near 0.4. Measured over 100 LongMemEval questions: of the 5 the keyword search missed, the vector index ranked the correct session **#1 in three of them**, and none surfaced in the top 5 at any distance threshold. The fix is rank fusion (score both sides by position, e.g. RRF); it was implemented and measured and **not adopted** — on this corpus it recovered 4 of the 5 misses and cost more elsewhere, R@5 95% → 92%. LongMemEval's haystack is padded with generic public Q&A that scores high on semantic similarity while being nobody's memory (`METHODOLOGY.md` §4.1), so it is the wrong corpus to tune fusion on. Revisiting it needs a corpus of personal notes where the question's vocabulary differs from the note's.
 
 - **Chinese, Japanese and Korean memories are searchable by part of a phrase, not only by their exact stored text** (`src/storage/fts-index.ts`, `src/knowledge-graph.ts`, `src/db.ts`) — FTS5's `unicode61` tokenizer classifies every CJK character as a letter and puts no boundary between them, so an unbroken run indexed as **one token**. A memory holding 「資料庫遷移前一定要先備份」 could be found by searching that exact string and by nothing else: 「資料庫遷移」 matched nothing, 「備份」 matched nothing. Measured on a mixed corpus, Chinese recall was **2/9** while English was 4/4 — which is why it stayed invisible. For anyone whose notes are in one of these scripts, keyword recall was effectively broken.
 
-  Text now passes through `segmentUnspacedScripts()` on the way into the index and on the way into a query, cutting unspaced-script runs into overlapping character bigrams (「資料庫遷移」 → 「資料 料庫 庫遷 遷移」). Latin text is returned byte-for-byte unchanged, so English behaviour is untouched — the 500-question LongMemEval-S run is identical before and after (R@5 95.60%, R@10 97.80%, MRR 0.8931). Chinese recall on the same mixed corpus goes **2/9 → 9/9**.
+  Text now passes through `segmentUnspacedScripts()` on the way into the index and on the way into a query, cutting unspaced-script runs into overlapping character bigrams (「資料庫遷移」 → 「資料 料庫 庫遷 遷移」). Latin text is returned byte-for-byte unchanged, so English behaviour is untouched — the 500-question LongMemEval-S run is identical before and after (R@5 95.60%, R@10 97.80%, MRR 0.8931 at the commit where this was measured; the release figure is 0.8929 after the later vector-threshold and document-frequency changes — see `benchmarks/longmemeval/RESULTS.md`). Chinese recall on the same mixed corpus goes **2/9 → 9/9**.
 
   Chosen over migrating `entities_fts` to FTS5's `trigram` tokenizer, which measured **3/9** on the same corpus for **4×** the index size, against 9/9 and 1.6× here — and which would have meant recreating the virtual table rather than only its contents. Because the segmentation lives in `fts-index.ts`, the hooks' always-on capture path picks it up through the build-generated mirror (`scripts/hooks/_generated/fts-index.js`) with no hook change at all.
 
@@ -73,9 +100,9 @@ All notable changes to MeMesh are documented here.
   3. **The relevance signal was flattened.** Every FTS hit entered `rankEntities()` with a hard-coded relevance of `1.0`, tying them all on the 0.30 relevance weight and letting the scorer re-sort purely on recency/frequency/confidence — undoing the ordering the search had just computed. Relevance is now graded by BM25 position. This one is invisible in a fresh database (equal factors, ties preserve order) and decisive in an aged one, which is why it ships with the others rather than after them.
   4. **Punctuation inside a word turned it into a phrase requirement.** Tokens were split on whitespace and then quoted whole, so `kitchen's` became the FTS5 phrase `kitchen s` and `gardening-related` became `gardening related` — matching only a memory containing those words adjacent and in that order. A memory that said "kitchen", or "gardening", was missed outright. Queries are now split on the boundaries FTS5's `unicode61` tokenizer uses: `[^\p{L}\p{N}\p{M}]+` over an NFC-normalised query. `\p{L}\p{N}` keeps non-Latin scripts alive — a plain `[^a-zA-Z0-9]` strip would reduce a CJK query to the empty string, which silently falls through to the recent-list path and looks like a successful search. `\p{M}` and the NFC normalisation both address decomposed text, where splitting on a combining mark cut the word in half: NFD `naïve` became the two OR-ed terms `nai` and `ve`, neither of which is a token in the index (unicode61 folds the mark, so the indexed token is `naive`). For Latin either mechanism alone is sufficient; both are kept because they fail differently, and for scripts where unicode61 treats marks as separators rather than folding them, keeping the mark makes the query a phrase of adjacent fragments instead of a bag of OR-ed letters — same recall, better precision.
 
-  Measured end to end on the same 500 LongMemEval-S questions the published benchmark uses, through `recallEnhanced()` — the code path a real `recall` call takes: **R@5 5.20% → 95.60%, R@10 5.20% → 97.80%, MRR 0.0520 → 0.8931, and questions returning zero results 473/500 → 0/500.**
+  Measured end to end on the same 500 LongMemEval-S questions the published benchmark uses, through `recallEnhanced()` — the code path a real `recall` call takes: **R@5 5.20% → 95.60%, R@10 5.20% → 97.80%, MRR 0.0520 → 0.8929, and questions returning zero results 473/500 → 0/500.**
 
-  Known limit, unchanged by this work and called out by a test: `unicode61` treats an unbroken run of CJK characters as a single token, so a substring of it cannot match. Lifting that means migrating `entities_fts` to a trigram tokenizer — an index change, not a query change.
+  Limit at the time of this fix, and the reason the CJK entry above exists: `unicode61` treats an unbroken run of CJK characters as a single token, so a substring of it could not match. That was left standing here and lifted later in this same release — by bigram segmentation rather than the trigram tokenizer this note originally proposed, which measured worse on both recall and index size.
 
   Behaviour note: OR raises recall and lowers precision. A query now returns weaker partial matches below the strong ones instead of returning nothing, and result lists are longer. Ranking, not exclusion, is what keeps the top of the list clean. The hooks are unaffected — `pre-edit-recall` searches a single file basename and `session-start` issues no query.
 

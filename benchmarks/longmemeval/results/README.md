@@ -10,11 +10,34 @@ change.
 `run_info.retrieval_entrypoint` names the function that produced them
 (`dist/core/operations.js::recallEnhanced`). These are measurements of MeMesh.
 
-- `mode-A-2026-07-28T21-36-54.json` — no embeddings. R@5 95.60%.
-- `mode-B-2026-07-28T21-54-01.json` — embeddings populated. R@5 95.60%, byte-for-byte
-  the same metrics as Mode A: the vector supplement contributes nothing while
-  `MAX_VECTOR_DISTANCE = 1` discards hits that sqlite-vec returns at L2 distances
-  of 1.2–1.4.
+### 2026-07-29 — the v4.2.11 release measurement
+
+Quote these. They were produced on the released tree, after the vector
+threshold, document-frequency guard and `recall_hits` ownership changes.
+
+- `mode-A-2026-07-29T08-15-09.json` — no embeddings. R@5 95.60%, R@10 97.80%,
+  MRR 0.8929348706848708, 9.1s.
+- `mode-B-2026-07-29T08-14-48.json` — embeddings populated. R@5 95.60%,
+  R@10 97.80%, MRR 0.8930598706848707, 807.7s. 14 of 500 result lists differ
+  from Mode A; two questions move the correct session, both outside the top 10.
+
+### 2026-07-28 — superseded, kept as history
+
+- `mode-A-2026-07-28T21-36-54.json`, `mode-B-2026-07-28T21-54-01.json`.
+
+Same R@5 and R@10 as the pair above, different MRR (0.8931166888666888), because
+they predate the vector-threshold change, the document-frequency guard and the
+`recall_hits` ownership fix. At the time they were taken `MAX_VECTOR_DISTANCE`
+was 1, which discarded hits sqlite-vec returns at L2 distances of 1.2–1.4 —
+which is why Mode B came out byte-for-byte identical to Mode A. That is a
+correct record of the code as it stood, not a claim about the release.
+
+One field in these two was edited after publication: `run_info.dataset` held the
+absolute path of the machine that ran them, which leaked a local home directory
+into a public repository. It now holds the basename. `dataset_sha256` is what
+identifies the dataset and is unchanged, as is every measurement — the rest of
+both files is byte-identical. `run.mjs` records the basename from now on, so
+this cannot recur.
 
 ## Files from 2026-05 — an adapter reimplementation
 
