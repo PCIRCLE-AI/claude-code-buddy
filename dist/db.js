@@ -6,6 +6,7 @@ import { runAutoDecay } from './core/lifecycle.js';
 import { getEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
+import { insertFtsRow } from './storage/fts-index.js';
 let db = null;
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entities (
@@ -125,10 +126,41 @@ export function openDatabase(dbPath) {
     ensureDreamProposalsTable(db);
     ensureLlmTelemetryTable(db);
     runAutoTelemetryPrune(db);
+    ensureFtsSegmentation(db);
     sqliteVec.load(db);
     const targetDim = getEmbeddingDimension();
     ensureVecTable(db, targetDim);
     return db;
+}
+const FTS_SEGMENTATION_VERSION = 1;
+function ensureFtsSegmentation(db) {
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS memesh_metadata (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+    const stored = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'fts_segmentation_version'").get();
+    if (stored && parseInt(stored.value, 10) >= FTS_SEGMENTATION_VERSION)
+        return;
+    const rows = db.prepare(`SELECT e.id, e.name, COALESCE(group_concat(o.content, ' '), '') AS obs
+       FROM entities e
+       LEFT JOIN observations o ON o.entity_id = e.id
+      WHERE e.status = 'active'
+      GROUP BY e.id`).all();
+    const rebuild = db.transaction(() => {
+        db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
+        for (const row of rows)
+            insertFtsRow(db, row.id, row.name, row.obs);
+        db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('fts_segmentation_version', ?)").run(String(FTS_SEGMENTATION_VERSION));
+    });
+    try {
+        rebuild();
+    }
+    catch (err) {
+        process.stderr.write(`MeMesh: search index rebuild failed (${err instanceof Error ? err.message : String(err)}). ` +
+            `Non-Latin search may be incomplete until it succeeds; it will retry on next start.\n`);
+    }
 }
 function ensureVecTable(db, targetDim) {
     db.exec(`

@@ -1,6 +1,17 @@
+const UNSPACED_SCRIPT = /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]+/gu;
+export function segmentUnspacedScripts(text) {
+    return text.replace(UNSPACED_SCRIPT, (run) => {
+        if (run.length === 1)
+            return run;
+        const grams = [];
+        for (let i = 0; i < run.length - 1; i++)
+            grams.push(run.slice(i, i + 2));
+        return ` ${grams.join(' ')} `;
+    });
+}
 export function removeFromFts(db, entityId, name, prevObsText) {
     try {
-        db.prepare("INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)").run(entityId, name, prevObsText);
+        db.prepare("INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)").run(entityId, segmentUnspacedScripts(name), segmentUnspacedScripts(prevObsText));
     }
     catch (err) {
         if (isBenignFtsDeleteError(err))
@@ -13,6 +24,6 @@ function isBenignFtsDeleteError(err) {
     return /no such rowid|values do not match|no such row\b/i.test(msg);
 }
 export function insertFtsRow(db, entityId, name, observationsText) {
-    db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(entityId, name, observationsText);
+    db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(entityId, segmentUnspacedScripts(name), segmentUnspacedScripts(observationsText));
 }
 //# sourceMappingURL=fts-index.js.map

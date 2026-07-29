@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
 import type { Entity, Relation, CreateEntityInput, SearchOptions, EntityRow } from './core/types.js';
 import { findConflicts, trackAccess, type TrackAccessOptions } from './storage/conflicts.js';
-import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
+import { insertFtsRow, removeFromFts, segmentUnspacedScripts } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 
 /**
@@ -13,11 +13,17 @@ import { computeSignalScore } from './core/signal-scorer.js';
 const MAX_QUERY_TERMS = 32;
 
 /**
- * Split a user query into the terms that go into an FTS5 MATCH expression.
+ * Turn a user query into an FTS5 MATCH expression, or null when there is
+ * nothing searchable in it.
  *
- * The token class mirrors what `unicode61` itself treats as part of a word —
- * letters, digits, and the combining marks that belong to them — so the query
- * is cut the same way the index was. Two properties depend on it:
+ * The query is segmented by `segmentUnspacedScripts()` — the same function the
+ * indexer applies — before being split, so a Chinese, Japanese or Korean query
+ * produces the character bigrams the index actually holds. **The two sides must
+ * stay identical**; `tests/cjk-recall.test.ts` pins that.
+ *
+ * The token class mirrors what `unicode61` treats as part of a word — letters,
+ * digits, and the combining marks that belong to them — so the query is cut the
+ * way the index was. Two properties depend on it:
  *
  *   - `\p{L}\p{N}` keeps non-Latin scripts alive. A plain `[^a-zA-Z0-9]` strip
  *     would reduce a CJK query to nothing, and an empty query falls through to
@@ -28,15 +34,25 @@ const MAX_QUERY_TERMS = 32;
  *     neither of which is a token in the index, because unicode61 folds the
  *     mark and stores `naive`.
  *
- * Every token is alphanumeric by construction, so callers can quote them
- * without escaping and no FTS5 operator (`OR`, `NEAR`, `*`, `^`, `:`) can
- * survive as syntax.
+ * Every token is alphanumeric by construction, so quoting needs no escaping and
+ * no FTS5 operator (`OR`, `NEAR`, `*`, `^`, `:`) can survive as syntax.
  *
- * See the CHANGELOG entry for the measured effect and for why both the mark
- * class and the normalisation are kept when either alone would do.
+ * A lone unspaced-script character is the one case segmentation cannot serve —
+ * the index holds bigrams, so 「資」 matches no token. Those become a prefix
+ * query (`"資"*`), which reaches every bigram STARTING with that character.
+ * Known bound: it will not find 「融資」, where the character sits second.
+ * Indexing unigrams as well would fix that at the cost of index size and noise
+ * for a rare query shape; pinned as a limit rather than chased.
  */
-function buildQueryTerms(query: string): string[] {
-  return (query.normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? []).slice(0, MAX_QUERY_TERMS);
+function buildMatchExpression(query: string): string | null {
+  const terms = (segmentUnspacedScripts(query).normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
+    .slice(0, MAX_QUERY_TERMS);
+  if (terms.length === 0) return null;
+  return terms.map((term) => (isLoneUnspacedChar(term) ? `"${term}"*` : `"${term}"`)).join(' OR ');
+}
+
+function isLoneUnspacedChar(term: string): boolean {
+  return [...term].length === 1 && /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]/u.test(term);
 }
 
 export class KnowledgeGraph {
@@ -425,9 +441,8 @@ export class KnowledgeGraph {
     // appear in one memory, so a question asked in the user's own words matched
     // nothing. The invariant to preserve: terms are OR-ed and BM25 decides the
     // order. See the CHANGELOG entry for the measured effect.
-    const tokens = buildQueryTerms(query);
-    if (tokens.length === 0) return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
-    const ftsQuery = tokens.map((token) => `"${token}"`).join(' OR ');
+    const ftsQuery = buildMatchExpression(query);
+    if (ftsQuery === null) return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
 
     // Contentless FTS5: columns return null, so join via rowid → entities.id
     // Archived entities are removed from FTS5 by archiveEntity(), so status filter is a safety net.

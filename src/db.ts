@@ -6,6 +6,7 @@ import { runAutoDecay } from './core/lifecycle.js';
 import { getEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
+import { insertFtsRow } from './storage/fts-index.js';
 import type { PragmaColumnRow } from './core/types.js';
 
 let db: Database.Database | null = null;
@@ -182,6 +183,12 @@ export function openDatabase(dbPath?: string): Database.Database {
   // even at 100k rows.
   runAutoTelemetryPrune(db);
 
+  // Rebuild entities_fts once when the way text is segmented changes.
+  // Databases written before CJK segmentation hold whole-run tokens that no
+  // segmented query can match, so without this the change would take Chinese
+  // recall from bad to zero while English kept working — a silent regression.
+  ensureFtsSegmentation(db);
+
   // Load sqlite-vec extension for vector similarity search
   sqliteVec.load(db);
 
@@ -191,6 +198,74 @@ export function openDatabase(dbPath?: string): Database.Database {
   ensureVecTable(db, targetDim);
 
   return db;
+}
+
+/**
+ * Version of the text segmentation applied to `entities_fts`. Bump this and the
+ * index is rebuilt once, on the next open, for every existing database.
+ *
+ *   1 — CJK / kana / hangul runs split into overlapping character bigrams
+ *       (`segmentUnspacedScripts` in src/storage/fts-index.ts). Before this,
+ *       `unicode61` indexed an unbroken run as a single token, so a Chinese
+ *       memory was reachable only by searching the exact stored string.
+ */
+const FTS_SEGMENTATION_VERSION = 1;
+
+/**
+ * Rebuild `entities_fts` when the segmentation rules have changed.
+ *
+ * Follows the `embedding_dimension` idiom above: a marker in `memesh_metadata`,
+ * compared on open, migrating in place. The difference is that this one can
+ * always finish its work — the source text lives in `entities` + `observations`,
+ * so nothing is lost and there is no `pending_reindex` flag to raise. Measured
+ * at 19ms for 5,000 entities, so it runs inline rather than being deferred.
+ *
+ * Archived entities are deliberately not reindexed: `archiveEntity()` removes
+ * them from FTS5 by design, and `search()` reaches them through a separate LIKE
+ * scan.
+ */
+function ensureFtsSegmentation(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS memesh_metadata (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
+  const stored = db.prepare(
+    "SELECT value FROM memesh_metadata WHERE key = 'fts_segmentation_version'"
+  ).get() as { value: string } | undefined;
+
+  if (stored && parseInt(stored.value, 10) >= FTS_SEGMENTATION_VERSION) return;
+
+  const rows = db.prepare(
+    `SELECT e.id, e.name, COALESCE(group_concat(o.content, ' '), '') AS obs
+       FROM entities e
+       LEFT JOIN observations o ON o.entity_id = e.id
+      WHERE e.status = 'active'
+      GROUP BY e.id`
+  ).all() as Array<{ id: number; name: string; obs: string }>;
+
+  const rebuild = db.transaction(() => {
+    db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
+    for (const row of rows) insertFtsRow(db, row.id, row.name, row.obs);
+    db.prepare(
+      "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('fts_segmentation_version', ?)"
+    ).run(String(FTS_SEGMENTATION_VERSION));
+  });
+
+  try {
+    rebuild();
+  } catch (err) {
+    // A failed rebuild must not stop the database from opening — the entities
+    // themselves are intact and the old index still answers Latin queries. Say
+    // so loudly instead of degrading in silence, and leave the marker unset so
+    // the next open retries.
+    process.stderr.write(
+      `MeMesh: search index rebuild failed (${err instanceof Error ? err.message : String(err)}). ` +
+      `Non-Latin search may be incomplete until it succeeds; it will retry on next start.\n`
+    );
+  }
 }
 
 /**

@@ -195,16 +195,17 @@ describe('Feature: recall relevance', () => {
       expect(names).not.toContain('other-note');
     });
 
-    it('documents the CJK segmentation limit (pre-existing, tokenizer-level)', () => {
-      // FTS5's unicode61 tokenizer treats an unbroken run of CJK characters as
-      // ONE token, so a substring of it cannot match. This is unchanged by the
-      // OR/tokenising work — whitespace splitting produced the identical token.
-      // Lifting it means switching entities_fts to a trigram tokenizer, which
-      // is an index migration, not a query change.
+    it('finds part of an unbroken CJK run', () => {
+      // This case used to assert the opposite, as a documented limitation:
+      // unicode61 indexes an unbroken CJK run as ONE token, so only the exact
+      // stored string matched. `segmentUnspacedScripts()` now cuts those runs
+      // into overlapping bigrams on both the index and the query side.
+      // Full coverage lives in tests/cjk-recall.test.ts.
       kg.createEntity('cjk-run', 'note', { observations: ['資料庫遷移前一定要先備份'] });
 
       expect(kg.search('資料庫遷移前一定要先備份').map((e) => e.name)).toContain('cjk-run');
-      expect(kg.search('資料庫遷移').map((e) => e.name)).not.toContain('cjk-run');
+      expect(kg.search('資料庫遷移').map((e) => e.name)).toContain('cjk-run');
+      expect(kg.search('備份').map((e) => e.name)).toContain('cjk-run');
     });
 
     it('treats FTS5 operator words as plain search terms', () => {
