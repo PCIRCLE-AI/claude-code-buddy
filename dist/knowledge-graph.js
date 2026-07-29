@@ -2,15 +2,42 @@ import { findConflicts, trackAccess } from './storage/conflicts.js';
 import { insertFtsRow, removeFromFts, segmentUnspacedScripts } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 const MAX_QUERY_TERMS = 32;
-function buildMatchExpression(query) {
+function buildMatchExpression(db, query) {
     const terms = (segmentUnspacedScripts(query).normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
         .slice(0, MAX_QUERY_TERMS);
     if (terms.length === 0)
         return null;
-    return terms.map((term) => (isLoneUnspacedChar(term) ? `"${term}"*` : `"${term}"`)).join(' OR ');
+    const kept = dropUbiquitousTerms(db, terms);
+    return kept.map((term) => (isLoneUnspacedChar(term) ? `"${term}"*` : `"${term}"`)).join(' OR ');
 }
 function isLoneUnspacedChar(term) {
     return [...term].length === 1 && /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]/u.test(term);
+}
+const UBIQUITOUS_TERM_FRACTION = 0.5;
+const MIN_ROWS_FOR_DF_GUARD = 25;
+function dropUbiquitousTerms(db, terms) {
+    if (terms.length < 2)
+        return terms;
+    try {
+        const total = db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get().c;
+        if (total < MIN_ROWS_FOR_DF_GUARD)
+            return terms;
+        const lowered = terms.map((t) => t.toLowerCase());
+        const rows = db
+            .prepare(`SELECT term, doc FROM fts_vocab WHERE term IN (${lowered.map(() => '?').join(',')})`)
+            .all(...lowered);
+        if (rows.length === 0)
+            return terms;
+        const docFreq = new Map(rows.map((r) => [r.term, r.doc]));
+        const ceiling = UBIQUITOUS_TERM_FRACTION * total;
+        const kept = terms.filter((t) => (docFreq.get(t.toLowerCase()) ?? 0) <= ceiling);
+        if (kept.length > 0)
+            return kept;
+        return [terms.reduce((rarest, t) => (docFreq.get(t.toLowerCase()) ?? 0) < (docFreq.get(rarest.toLowerCase()) ?? 0) ? t : rarest)];
+    }
+    catch {
+        return terms;
+    }
 }
 export class KnowledgeGraph {
     db;
@@ -254,7 +281,7 @@ export class KnowledgeGraph {
             }
             return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
         }
-        const ftsQuery = buildMatchExpression(query);
+        const ftsQuery = buildMatchExpression(this.db, query);
         if (ftsQuery === null)
             return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
         const statusFilter = opts?.includeArchived ? '' : "AND e.status = 'active'";
