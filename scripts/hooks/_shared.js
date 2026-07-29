@@ -265,6 +265,11 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
   name, observations, content='',
   tokenize='unicode61 remove_diacritics 1'
 );
+
+-- Term -> document-count view over the index above. Stores nothing of its own;
+-- it exists so search() can drop query terms that appear in most of the corpus,
+-- which are the ones BM25 already scores near zero. See dropUbiquitousTerms().
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_vocab USING fts5vocab(entities_fts, 'row');
 `;
 
 /**

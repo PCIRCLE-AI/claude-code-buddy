@@ -44,15 +44,90 @@ const MAX_QUERY_TERMS = 32;
  * Indexing unigrams as well would fix that at the cost of index size and noise
  * for a rare query shape; pinned as a limit rather than chased.
  */
-function buildMatchExpression(query: string): string | null {
+function buildMatchExpression(db: Database.Database, query: string): string | null {
   const terms = (segmentUnspacedScripts(query).normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
     .slice(0, MAX_QUERY_TERMS);
   if (terms.length === 0) return null;
-  return terms.map((term) => (isLoneUnspacedChar(term) ? `"${term}"*` : `"${term}"`)).join(' OR ');
+  const kept = dropUbiquitousTerms(db, terms);
+  return kept.map((term) => (isLoneUnspacedChar(term) ? `"${term}"*` : `"${term}"`)).join(' OR ');
 }
 
 function isLoneUnspacedChar(term: string): boolean {
   return [...term].length === 1 && /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]/u.test(term);
+}
+
+/**
+ * A term present in more than this fraction of indexed rows is dropped from the
+ * MATCH expression. Measured on LongMemEval haystacks: R@5 is unchanged at 90%,
+ * 70% and 50%, and starts to fall at 30% (94.0% → 93.0%), so 50% takes the
+ * available speed with margin against the cliff.
+ */
+const UBIQUITOUS_TERM_FRACTION = 0.5;
+
+/**
+ * Below this many indexed rows the guard does not apply.
+ *
+ * This is a correctness floor, not a performance one — the guard is measurably
+ * faster at every corpus size tested, including 50 rows. Document frequency
+ * simply has no meaning on a handful of rows: in a four-memory database a term
+ * in three of them is the subject, not a stopword, and dropping it would delete
+ * the query.
+ */
+const MIN_ROWS_FOR_DF_GUARD = 25;
+
+/**
+ * Drop query terms that appear in most of the index.
+ *
+ * Terms are OR-ed, so search cost is the size of the union of their postings,
+ * and one ubiquitous word dominates it. Measured on a synthetic corpus with a
+ * 12-term query, 200 iterations, including the cost of the lookup itself:
+ *
+ *         50 rows    0.071 ms  ->  0.039 ms   -45%
+ *        500 rows    0.411 ms  ->  0.079 ms   -81%
+ *      5 000 rows    4.147 ms  ->  0.481 ms   -88%
+ *    100 000 rows   80.15  ms  ->  8.57  ms   -89%
+ *
+ * It wins at every size tested — the lookup is one indexed probe while the
+ * saving scales with the corpus.
+ *
+ * The dropped terms are the ones BM25 already scores near zero — a word in
+ * every row has no inverse document frequency — so this removes work rather
+ * than signal. Measured on LongMemEval, R@5 is unchanged.
+ *
+ * `fts_vocab` is an `fts5vocab` view over `entities_fts`; it stores nothing of
+ * its own, so this costs one indexed lookup and no disk.
+ *
+ * Never returns an empty list. A query made entirely of common words — "what
+ * did we do" — keeps its rarest term, because returning nothing would be worse
+ * than returning a broad match.
+ */
+function dropUbiquitousTerms(db: Database.Database, terms: string[]): string[] {
+  if (terms.length < 2) return terms;
+  try {
+    const total = (db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get() as { c: number }).c;
+    if (total < MIN_ROWS_FOR_DF_GUARD) return terms;
+
+    const lowered = terms.map((t) => t.toLowerCase());
+    const rows = db
+      .prepare(`SELECT term, doc FROM fts_vocab WHERE term IN (${lowered.map(() => '?').join(',')})`)
+      .all(...lowered) as Array<{ term: string; doc: number }>;
+    if (rows.length === 0) return terms;
+
+    const docFreq = new Map(rows.map((r) => [r.term, r.doc]));
+    const ceiling = UBIQUITOUS_TERM_FRACTION * total;
+    const kept = terms.filter((t) => (docFreq.get(t.toLowerCase()) ?? 0) <= ceiling);
+    if (kept.length > 0) return kept;
+
+    // Everything is common. Keep the single rarest rather than matching nothing.
+    return [terms.reduce((rarest, t) =>
+      (docFreq.get(t.toLowerCase()) ?? 0) < (docFreq.get(rarest.toLowerCase()) ?? 0) ? t : rarest
+    )];
+  } catch {
+    // fts_vocab missing (a database opened by an older version, or a caller
+    // that built the schema by hand) — the guard is an optimisation, so fall
+    // back to searching every term rather than failing the query.
+    return terms;
+  }
 }
 
 export class KnowledgeGraph {
@@ -441,7 +516,7 @@ export class KnowledgeGraph {
     // appear in one memory, so a question asked in the user's own words matched
     // nothing. The invariant to preserve: terms are OR-ed and BM25 decides the
     // order. See the CHANGELOG entry for the measured effect.
-    const ftsQuery = buildMatchExpression(query);
+    const ftsQuery = buildMatchExpression(this.db, query);
     if (ftsQuery === null) return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
 
     // Contentless FTS5: columns return null, so join via rowid → entities.id
