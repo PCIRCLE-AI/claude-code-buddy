@@ -18,17 +18,18 @@ export interface VerifyAgentWorkInput {
         summary?: string;
     };
 }
+export type Verdict = 'pass' | 'fail' | 'unverified';
 export interface RealityCheckResult {
     files_changed: number;
     expected_files: number | null;
     match: boolean | null;
     base: string | null;
-    pass: boolean;
+    verdict: Verdict;
     summary: string;
 }
 export interface VerifyAgentWorkResult {
     entity_name: string;
-    pass: boolean;
+    verdict: Verdict;
     reality_check: RealityCheckResult;
     external_report: VerifyAgentWorkInput['report'] | null;
     timestamp: string;

@@ -343,11 +343,13 @@ program
             console.log(JSON.stringify(result, null, 2));
         }
         else {
-            const status = result.pass ? 'PASS' : 'FAIL';
-            console.log(`${status}  agent=${opts.agentId}  entity=${result.entity_name}`);
+            console.log(`${result.verdict.toUpperCase()}  agent=${opts.agentId}  entity=${result.entity_name}`);
             console.log(`  reality: ${result.reality_check.summary}`);
+            if (result.verdict === 'unverified') {
+                console.log('  nothing was checked — pass --expected-files <n> and/or --report <file> to verify something.');
+            }
         }
-        process.exit(result.pass ? 0 : 1);
+        process.exit(result.verdict === 'pass' ? 0 : result.verdict === 'fail' ? 1 : 2);
     });
 });
 const configCmd = program.command('config').description('Manage configuration');

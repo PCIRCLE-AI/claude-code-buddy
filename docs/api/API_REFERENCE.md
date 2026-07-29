@@ -372,7 +372,22 @@ Analyze user work patterns from existing memory. Returns work schedule (peak hou
 
 ### verify_agent_work
 
-Persist a verification report for work done by a background agent. Runs a deterministic git reality-check (diff `<base>..HEAD`, count files changed, optionally cross-check against a claimed file count) and stores the report as a `verification_record` entity tagged `verification` + `verification:pass|fail`. Heavier checks (typecheck/tests/lint/build) are expected to be pre-computed by an upstream hook and passed in via `report.*.pass` — this tool focuses on persistence + cross-checking, not running test suites.
+Persist a verification report for work done by a background agent. Runs a deterministic git reality-check (diff `<base>..HEAD`, count files changed, optionally cross-check against a claimed file count) and stores the result as a `verification_record` entity tagged `verification` + `verification:pass|fail|unverified`. Heavier checks (typecheck/tests/lint/build) are expected to be pre-computed by an upstream hook and passed in via `report.*.pass` — this tool focuses on persistence + cross-checking, not running test suites.
+
+**`verdict` is three-valued.** Both `claim` and `report` are optional, and with neither supplied there is nothing to check against — counting changed files is not a verification. That case returns `unverified`:
+
+| `claim` | `report` | verdict |
+|---|---|---|
+| matches | absent | `pass` |
+| mismatches | absent | `fail` |
+| absent | `pass: true` | `pass` |
+| absent | `pass: false` | `fail` |
+| matches | `pass: false` | `fail` — any failure wins |
+| **absent** | **absent** | **`unverified`** |
+
+`unverified` is also returned when the check could not run at all: no git base discoverable, or `git diff` failed. That is distinct from `fail`, which means something was checked and did not hold.
+
+This field replaces the previous `pass: boolean`, which returned `true` for the no-claim-no-report case. A caller still reading `result.pass` now gets `undefined`, which is falsy — the safe direction.
 
 **Parameters:**
 - `agent_id` (string, required) — Identifier for the agent whose work is being verified.
@@ -389,16 +404,35 @@ Persist a verification report for work done by a background agent. Runs a determ
 ```json
 {
   "entity_name": "verification:agent-1:2026-05-03T22-00-00-000Z",
-  "pass": true,
+  "verdict": "pass",
   "reality_check": {
     "files_changed": 5,
     "expected_files": 5,
     "match": true,
     "base": "97cc25e9...",
-    "pass": true,
+    "verdict": "pass",
     "summary": "reality OK: 5/5 files"
   },
   "external_report": { "...": "echo of input report or null" },
+  "timestamp": "2026-05-03T22:00:00.000Z"
+}
+```
+
+With neither `claim` nor `report`:
+
+```json
+{
+  "entity_name": "verification:agent-1:2026-05-03T22-00-00-000Z",
+  "verdict": "unverified",
+  "reality_check": {
+    "files_changed": 5,
+    "expected_files": null,
+    "match": null,
+    "base": "97cc25e9...",
+    "verdict": "unverified",
+    "summary": "5 files changed (no claim to check against)"
+  },
+  "external_report": null,
   "timestamp": "2026-05-03T22:00:00.000Z"
 }
 ```
