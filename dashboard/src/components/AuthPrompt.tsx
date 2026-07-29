@@ -19,6 +19,20 @@ interface Props {
  * it survives page reload on the same origin. Cleared by entering an
  * empty value or by the operator rotating the token (the next 401
  * will reopen this prompt).
+ *
+ * Translation lookups here are bare, with no `|| 'English literal'` fallback
+ * after them, deliberately. Such a fallback reads as a safety net and is not
+ * one: the lookup returns the key string itself on a miss, which is truthy, so
+ * the right-hand branch can never execute. When these five keys were genuinely
+ * absent this file rendered `auth.title` at an operator and the fallback did
+ * nothing to stop it. English is already the fallback inside the lookup
+ * (locale -> en -> key), and `tests/dashboard-i18n.test.ts` fails the build if
+ * a key used here is missing from the English catalogue. A second, unsynced
+ * copy of the English string in JSX buys drift risk and no protection.
+ *
+ * That test scans source text rather than parsing it, so writing an example
+ * lookup call in a comment makes it demand a key of that name. Describe, don't
+ * demonstrate — hence the prose above.
  */
 export function AuthPrompt({ currentToken, onSubmit }: Props) {
   const [value, setValue] = useState(currentToken ?? '');
@@ -34,27 +48,24 @@ export function AuthPrompt({ currentToken, onSubmit }: Props) {
   return (
     <div class="auth-prompt-shell" data-testid="auth-prompt">
       <form class="auth-prompt-card" onSubmit={submit}>
-        <h1>{t('auth.title') || 'Authentication required'}</h1>
-        <p>
-          {t('auth.intro') ||
-            'This dashboard is protected by a bearer token. Paste the value of MEMESH_REMOTE_TOKEN (or the contents of <memeshDir>/remote-token) below.'}
-        </p>
+        <h1>{t('auth.title')}</h1>
+        <p>{t('auth.intro')}</p>
         <label>
-          <span>{t('auth.tokenLabel') || 'Token'}</span>
+          <span>{t('auth.tokenLabel')}</span>
           <input
             type="password"
             autocomplete="off"
             value={value}
             onInput={(e) => setValue((e.target as HTMLInputElement).value)}
-            placeholder="paste token here"
+            placeholder={t('auth.tokenPlaceholder')}
             required
           />
         </label>
         {touched && !value.trim() && (
-          <p class="auth-prompt-error">{t('auth.empty') || 'Token cannot be empty.'}</p>
+          <p class="auth-prompt-error">{t('auth.empty')}</p>
         )}
         <button type="submit" class="auth-prompt-submit">
-          {t('auth.submit') || 'Unlock dashboard'}
+          {t('auth.submit')}
         </button>
       </form>
     </div>

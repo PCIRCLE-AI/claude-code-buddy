@@ -6,6 +6,10 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **The auth screen's translation fallbacks were dead code** (`dashboard/src/components/AuthPrompt.tsx`, `dashboard/src/lib/i18n.ts`) — five lookups were written as `t('auth.x') || 'English literal'`, which reads as a safety net and cannot be one: `t()` returns the key string itself on a miss, and a non-empty string is truthy, so the right-hand branch is unreachable. When those keys were genuinely missing from every locale, this screen rendered `auth.title` at a remote operator and the fallback did nothing. The keys and a guard test both landed earlier; the dead branches did not, leaving five unsynced copies of the English strings that no build step compares against the catalogue. They are removed — English is already the fallback inside `t()` (locale → en → key), and `tests/dashboard-i18n.test.ts` fails the build if a key used in a component is absent from the English catalogue.
+
+  Found while auditing that file: the token input's `placeholder` was a hardcoded `"paste token here"`, the one string on this screen that never went through translation. Now `auth.tokenPlaceholder`, added to all 11 locales.
+
 - **`verify_agent_work` no longer reports a pass when it verified nothing** (`src/core/verifier.ts`, `src/transports/cli/cli.ts`, `src/transports/mcp/handlers.ts`, `src/core/schema-export.ts`) — both `claim` and `report` are optional. With neither supplied the tool counted changed files, which is not a check against anything, and then said so with `pass: true`.
 
   Measured before changing anything, calling it with only a workdir:
