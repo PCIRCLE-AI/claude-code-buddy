@@ -17,14 +17,11 @@ export function findConflicts(db, entityNames) {
     }
     return conflicts;
 }
-export function trackAccess(db, entityIds, opts = {}) {
+export function trackAccess(db, entityIds) {
     if (entityIds.length === 0)
         return;
     const now = new Date().toISOString();
-    const sql = opts.incrementHits
-        ? 'UPDATE entities SET access_count = access_count + 1, recall_hits = recall_hits + 1, last_accessed_at = ? WHERE id = ?'
-        : 'UPDATE entities SET access_count = access_count + 1, last_accessed_at = ? WHERE id = ?';
-    const stmt = db.prepare(sql);
+    const stmt = db.prepare('UPDATE entities SET access_count = access_count + 1, last_accessed_at = ? WHERE id = ?');
     const txn = db.transaction(() => {
         for (const id of entityIds) {
             stmt.run(now, id);

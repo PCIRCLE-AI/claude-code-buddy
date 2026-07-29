@@ -87,16 +87,22 @@ export function remember(args) {
     };
 }
 export function recall(args) {
-    const db = getDatabase();
-    const kg = new KnowledgeGraph(db);
+    const { entities, relevanceMap } = searchAndScore(args);
+    return rankEntities(entities, relevanceMap).slice(0, args.limit ?? 20);
+}
+function searchAndScore(args) {
+    const kg = new KnowledgeGraph(getDatabase());
     const entities = kg.search(args.query, {
         tag: recallTagFilter(args),
         limit: args.limit,
         includeArchived: args.include_archived,
         namespace: args.namespace,
     });
-    const relevanceMap = args.query ? buildRelevanceMap(entities) : new Map();
-    return rankEntities(entities, relevanceMap).slice(0, args.limit ?? 20);
+    return {
+        kg,
+        entities,
+        relevanceMap: args.query ? buildRelevanceMap(entities) : new Map(),
+    };
 }
 async function supplementWithVectors(query, args, kg, merged, relevanceMap) {
     if (!isEmbeddingAvailable())
@@ -127,15 +133,7 @@ async function supplementWithVectors(query, args, kg, merged, relevanceMap) {
     }
 }
 export async function recallEnhanced(args) {
-    const db = getDatabase();
-    const kg = new KnowledgeGraph(db);
-    const entities = kg.search(args.query, {
-        tag: recallTagFilter(args),
-        limit: args.limit,
-        includeArchived: args.include_archived,
-        namespace: args.namespace,
-    });
-    const relevanceMap = args.query ? buildRelevanceMap(entities) : new Map();
+    const { kg, entities, relevanceMap } = searchAndScore(args);
     const mergedEntities = [...entities];
     if (args.query) {
         await supplementWithVectors(args.query, args, kg, mergedEntities, relevanceMap);

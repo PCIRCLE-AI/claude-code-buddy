@@ -165,9 +165,20 @@ export function remember(args: RememberInput): RememberResult {
  * Empty query returns recent entities.
  */
 export function recall(args: RecallInput): Entity[] {
-  const db = getDatabase();
-  const kg = new KnowledgeGraph(db);
+  const { entities, relevanceMap } = searchAndScore(args);
+  return rankEntities(entities, relevanceMap).slice(0, args.limit ?? 20);
+}
 
+/**
+ * The half of recall that both entry points share: run the search, and turn its
+ * output into the relevance input for `rankEntities`.
+ *
+ * `recall()` and `recallEnhanced()` differ only by the vector supplement, and
+ * they had drifted apart before — the same one-line relevance change had to be
+ * made twice, which is the signature of a copy waiting to diverge.
+ */
+function searchAndScore(args: RecallInput): { kg: KnowledgeGraph; entities: Entity[]; relevanceMap: Map<string, number> } {
+  const kg = new KnowledgeGraph(getDatabase());
   // cross_project=true means don't filter by project tag — pass no tag to search all projects
   const entities = kg.search(args.query, {
     tag: recallTagFilter(args),
@@ -175,10 +186,11 @@ export function recall(args: RecallInput): Entity[] {
     includeArchived: args.include_archived,
     namespace: args.namespace,
   });
-
-  const relevanceMap = args.query ? buildRelevanceMap(entities) : new Map<string, number>();
-
-  return rankEntities(entities, relevanceMap).slice(0, args.limit ?? 20);
+  return {
+    kg,
+    entities,
+    relevanceMap: args.query ? buildRelevanceMap(entities) : new Map<string, number>(),
+  };
 }
 
 /**
@@ -261,18 +273,7 @@ async function supplementWithVectors(
  * are unaffected.
  */
 export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
-  const db = getDatabase();
-  const kg = new KnowledgeGraph(db);
-
-  // cross_project=true means don't filter by project tag
-  const entities = kg.search(args.query, {
-    tag: recallTagFilter(args),
-    limit: args.limit,
-    includeArchived: args.include_archived,
-    namespace: args.namespace,
-  });
-
-  const relevanceMap = args.query ? buildRelevanceMap(entities) : new Map<string, number>();
+  const { kg, entities, relevanceMap } = searchAndScore(args);
 
   const mergedEntities = [...entities];
   if (args.query) {

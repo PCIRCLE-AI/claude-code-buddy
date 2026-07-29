@@ -10,6 +10,15 @@ function buildMatchExpression(db, query) {
     const kept = dropUbiquitousTerms(db, terms);
     return kept.map((term) => (isLoneUnspacedChar(term) ? `"${term}"*` : `"${term}"`)).join(' OR ');
 }
+function archivedLikeTerms(db, query) {
+    const escapeLike = (v) => v.replace(/[\\%_]/g, '\\$&');
+    const terms = (segmentUnspacedScripts(query).normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
+        .slice(0, MAX_QUERY_TERMS);
+    const kept = terms.length > 1 ? dropUbiquitousTerms(db, terms) : terms;
+    if (kept.length === 0)
+        return [`%${escapeLike(query)}%`];
+    return kept.map((t) => `%${escapeLike(t)}%`);
+}
 function isLoneUnspacedChar(term) {
     return [...term].length === 1 && /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]/u.test(term);
 }
@@ -323,7 +332,11 @@ export class KnowledgeGraph {
             const tagJoin = opts?.tag ? 'JOIN tags t ON t.entity_id = e.id' : '';
             const tagFilter = opts?.tag ? 'AND t.tag = ?' : '';
             const archivedNamespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
-            const archivedParams = [`%${query}%`, `%${query}%`];
+            const likeTerms = archivedLikeTerms(this.db, query);
+            const termClause = likeTerms
+                .map(() => "(e.name LIKE ? ESCAPE '\\' OR o.content LIKE ? ESCAPE '\\')")
+                .join(' OR ');
+            const archivedParams = likeTerms.flatMap((t) => [t, t]);
             if (opts?.tag)
                 archivedParams.push(opts.tag);
             if (opts?.namespace)
@@ -334,7 +347,7 @@ export class KnowledgeGraph {
            LEFT JOIN observations o ON o.entity_id = e.id
            ${tagJoin}
            WHERE e.status = 'archived'
-             AND (e.name LIKE ? OR o.content LIKE ?)
+             AND (${termClause})
              ${tagFilter}
              ${archivedNamespaceFilter}
            ORDER BY e.id DESC
@@ -348,11 +361,11 @@ export class KnowledgeGraph {
             results.push(...archivedEntities);
         }
         const entityIds = results.map((e) => e.id);
-        this.trackAccess(entityIds, { incrementHits: true });
+        this.trackAccess(entityIds);
         return results;
     }
-    trackAccess(entityIds, opts = {}) {
-        trackAccess(this.db, entityIds, opts);
+    trackAccess(entityIds) {
+        trackAccess(this.db, entityIds);
     }
     findConflicts(entityNames) {
         return findConflicts(this.db, entityNames);
@@ -401,7 +414,7 @@ export class KnowledgeGraph {
          LIMIT ?`)
             .all(...params);
         const results = this.getEntitiesByIds(rows.map((r) => r.id), { includeArchived, namespace });
-        this.trackAccess(results.map((e) => e.id), { incrementHits: true });
+        this.trackAccess(results.map((e) => e.id));
         return results;
     }
     clearEntityData(name) {

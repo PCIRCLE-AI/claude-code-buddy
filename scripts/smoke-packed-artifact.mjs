@@ -130,3 +130,8 @@ if (typeof pkg.KnowledgeGraph !== 'function') {
 );
 
 fs.rmSync(smokeDir, { recursive: true, force: true });
+
+// Say something on success. A check that prints nothing when it passes is
+// indistinguishable from one that did not run — the exact failure mode this
+// repo has spent several releases removing from its own code.
+console.log('✅ Packaged artifact smoke test passed — tarball packs, installs, and exports openDatabase + KnowledgeGraph');

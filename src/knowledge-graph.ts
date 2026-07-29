@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
 import type { Entity, Relation, CreateEntityInput, SearchOptions, EntityRow } from './core/types.js';
-import { findConflicts, trackAccess, type TrackAccessOptions } from './storage/conflicts.js';
+import { findConflicts, trackAccess } from './storage/conflicts.js';
 import { insertFtsRow, removeFromFts, segmentUnspacedScripts } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 
@@ -50,6 +50,27 @@ function buildMatchExpression(db: Database.Database, query: string): string | nu
   if (terms.length === 0) return null;
   const kept = dropUbiquitousTerms(db, terms);
   return kept.map((term) => (isLoneUnspacedChar(term) ? `"${term}"*` : `"${term}"`)).join(' OR ');
+}
+
+/**
+ * The archived-supplement branch's equivalent of `buildMatchExpression()`.
+ *
+ * Archived rows live outside FTS5, so they are matched with LIKE. Same terms,
+ * same segmentation — otherwise "include archived" quietly answers a different
+ * question than the search it is supplementing. Each term is wrapped in `%…%`
+ * and its LIKE metacharacters escaped with a backslash, paired with an
+ * `ESCAPE '\\'` clause at the call site.
+ *
+ * Falls back to the whole (escaped) query when tokenising yields nothing, so a
+ * punctuation-only query still behaves as before rather than matching everything.
+ */
+function archivedLikeTerms(db: Database.Database, query: string): string[] {
+  const escapeLike = (v: string) => v.replace(/[\\%_]/g, '\\$&');
+  const terms = (segmentUnspacedScripts(query).normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
+    .slice(0, MAX_QUERY_TERMS);
+  const kept = terms.length > 1 ? dropUbiquitousTerms(db, terms) : terms;
+  if (kept.length === 0) return [`%${escapeLike(query)}%`];
+  return kept.map((t) => `%${escapeLike(t)}%`);
 }
 
 function isLoneUnspacedChar(term: string): boolean {
@@ -572,12 +593,29 @@ export class KnowledgeGraph {
     const seenIds = new Set(ftsIds);
 
     // When includeArchived is true, archived entities are not in FTS5 (removed by archiveEntity).
-    // Supplement with a direct SQL search over archived entities' observations and names.
+    // Supplement with a direct SQL search over archived entities' observations
+    // and names. Archived rows are removed from FTS5 by archiveEntity(), so
+    // this branch cannot use the index — but it must agree with the FTS branch
+    // about what the user asked for. It therefore matches the SAME terms
+    // buildMatchExpression() produced, OR-ed, rather than the raw query string:
+    // interpolating the whole question meant an archived memory could only be
+    // found by a literal substring of it, so a scattered-word question found
+    // the active copy and missed the archived one, and a CJK query missed
+    // entirely because it was never segmented.
+    //
+    // LIKE metacharacters in those terms are escaped. `%` and `_` are wildcards
+    // here (unlike in the FTS branch, where the tokeniser has already discarded
+    // them), so an unescaped query of `a%` would enumerate archived rows far
+    // beyond what the user asked for.
     if (opts?.includeArchived) {
       const tagJoin = opts?.tag ? 'JOIN tags t ON t.entity_id = e.id' : '';
       const tagFilter = opts?.tag ? 'AND t.tag = ?' : '';
       const archivedNamespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
-      const archivedParams: (string | number)[] = [`%${query}%`, `%${query}%`];
+      const likeTerms = archivedLikeTerms(this.db, query);
+      const termClause = likeTerms
+        .map(() => "(e.name LIKE ? ESCAPE '\\' OR o.content LIKE ? ESCAPE '\\')")
+        .join(' OR ');
+      const archivedParams: (string | number)[] = likeTerms.flatMap((t) => [t, t]);
       if (opts?.tag) archivedParams.push(opts.tag);
       if (opts?.namespace) archivedParams.push(opts.namespace);
 
@@ -588,7 +626,7 @@ export class KnowledgeGraph {
            LEFT JOIN observations o ON o.entity_id = e.id
            ${tagJoin}
            WHERE e.status = 'archived'
-             AND (e.name LIKE ? OR o.content LIKE ?)
+             AND (${termClause})
              ${tagFilter}
              ${archivedNamespaceFilter}
            ORDER BY e.id DESC
@@ -605,9 +643,10 @@ export class KnowledgeGraph {
     }
 
     const entityIds = results.map((e) => e.id);
-    // search() is an intentional retrieval — bump recall_hits so
-    // analytics can show which memories the user actually pulled.
-    this.trackAccess(entityIds, { incrementHits: true });
+    // Access only. `recall_hits` belongs to the Stop hook, which is the one
+    // place that can tell whether an injected memory was USED — see
+    // storage/conflicts.ts::trackAccess.
+    this.trackAccess(entityIds);
     return results;
   }
 
@@ -616,8 +655,8 @@ export class KnowledgeGraph {
    * Called after search/recall returns results.
    * Delegates to storage/conflicts.ts::trackAccess for shared use.
    */
-  trackAccess(entityIds: number[], opts: TrackAccessOptions = {}): void {
-    trackAccess(this.db, entityIds, opts);
+  trackAccess(entityIds: number[]): void {
+    trackAccess(this.db, entityIds);
   }
 
   /**
@@ -697,8 +736,7 @@ export class KnowledgeGraph {
       { includeArchived, namespace }
     );
 
-    // listRecentByTag() is an intentional tag-filtered query — count it.
-    this.trackAccess(results.map((e) => e.id), { incrementHits: true });
+    this.trackAccess(results.map((e) => e.id));
     return results;
   }
 
