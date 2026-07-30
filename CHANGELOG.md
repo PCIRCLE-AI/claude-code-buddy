@@ -4,6 +4,43 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+## [4.2.11] — 2026-07-29
+
+This release exists because the headline benchmark figure was measuring the
+wrong code. `benchmarks/longmemeval/run.mjs` carried its own table creation,
+its own FTS5 query building and its own ranking, so the published **95.40% R@5**
+scored that reimplementation and not the product. Measured through the function
+a real `recall` call actually reaches, the same 500 questions scored **5.20%**,
+with 473 of them returning nothing at all. Four compounding retrieval defects
+were each hiding the others.
+
+Everything below follows from that: the defects are fixed, the benchmark now
+runs through the shipped path, and every published claim that no longer matched
+the code has been corrected against source. The number is now **95.60%**, and it
+is the product's number.
+
+Auditing for the same shape turned up two more places reporting success without
+doing the work, and both are fixed here. `verify_agent_work` returned
+`pass: true` when given nothing to check against — so `memesh verify … && deploy`
+deployed on a check that never ran — and the dashboard's auth screen carried
+translation fallbacks that could never execute. The common root cause is an
+optimistic default: `?? true` and `|| 'fallback'` turn a missing input into a
+reported success, when the honest answer is "not checked".
+
+Upgrading rebuilds the full-text index once, on first open, to add CJK
+segmentation. Existing memories are re-indexed from the entity and observation
+rows, which are never touched — nothing is deleted and nothing needs re-entering.
+
+### Performance
+
+- **A query term present in most of the corpus no longer drags the whole index into the scan** (`src/knowledge-graph.ts`, `src/db.ts`, `scripts/hooks/_shared.js`) — query terms are OR-ed, so the cost of a search is the union of their postings and one ubiquitous word dominates it. `dropUbiquitousTerms()` removes terms appearing in more than half the indexed rows, using a new `fts_vocab` (`fts5vocab`) view that stores nothing of its own. Measured with a 12-term query, 200 iterations, including the lookup's own cost: **0.071 → 0.039 ms at 50 rows (−45%), 0.411 → 0.079 ms at 500 (−81%), 4.147 → 0.481 ms at 5 000 (−88%), 80.15 → 8.57 ms at 100 000 (−89%)**.
+
+  The dropped terms are the ones BM25 already scores near zero — a word in every row has no inverse document frequency — so this removes work rather than signal. R@5 on LongMemEval is unchanged at cut-offs of 90%, 70% and 50%, and falls at 30% (94.0% → 93.0%); 50% takes the speed with margin against that cliff. The full 500-question run holds at R@5 95.60% / R@10 97.80%.
+
+  Two edges are pinned by tests, because they are where a frequency filter goes wrong: a query made entirely of common words keeps its rarest term rather than filtering to nothing, and the guard does not apply below 25 rows, where a term in most of the corpus is the subject rather than a stopword. A missing `fts_vocab` falls back to searching every term.
+
+  Preventive rather than remedial — no one is at a scale where this bites today, which is why it had to be free at every size to justify shipping.
+
 ### Fixed
 
 - **The auth screen's translation fallbacks were dead code** (`dashboard/src/components/AuthPrompt.tsx`, `dashboard/src/lib/i18n.ts`) — five lookups were written as `t('auth.x') || 'English literal'`, which reads as a safety net and cannot be one: `t()` returns the key string itself on a miss, and a non-empty string is truthy, so the right-hand branch is unreachable. When those keys were genuinely missing from every locale, this screen rendered `auth.title` at a remote operator and the fallback did nothing. The keys and a guard test both landed earlier; the dead branches did not, leaving five unsynced copies of the English strings that no build step compares against the catalogue. They are removed — English is already the fallback inside `t()` (locale → en → key), and `tests/dashboard-i18n.test.ts` fails the build if a key used in a component is absent from the English catalogue.
@@ -37,37 +74,6 @@ All notable changes to MeMesh are documented here.
   Surfaces updated so none of them can round the third state back to two: the entity tag is `verification:unverified`, the stored observation reads `UNVERIFIED`, the MCP and OpenAI-function tool descriptions tell the model that calling with neither argument checks nothing, and `memesh verify` prints `UNVERIFIED`, says what to pass to actually verify something, and **exits 2** — distinct from 0 (pass) and 1 (fail) so a shell gate cannot confuse "checked nothing" with success. A caller still reading `result.pass` gets `undefined`, which is falsy: the safe direction.
 
   Pinned by seven cases in `tests/core/verifier.test.ts` covering each cell of the claim × report matrix plus the stored tags and observation text. Proven non-vacuous by restoring the old combining rule: **3 of 19 tests fail**, and pass again once reverted.
-
-## [4.2.11] — 2026-07-29
-
-This release exists because the headline benchmark figure was measuring the
-wrong code. `benchmarks/longmemeval/run.mjs` carried its own table creation,
-its own FTS5 query building and its own ranking, so the published **95.40% R@5**
-scored that reimplementation and not the product. Measured through the function
-a real `recall` call actually reaches, the same 500 questions scored **5.20%**,
-with 473 of them returning nothing at all. Four compounding retrieval defects
-were each hiding the others.
-
-Everything below follows from that: the defects are fixed, the benchmark now
-runs through the shipped path, and every published claim that no longer matched
-the code has been corrected against source. The number is now **95.60%**, and it
-is the product's number.
-
-Upgrading rebuilds the full-text index once, on first open, to add CJK
-segmentation. Existing memories are re-indexed from the entity and observation
-rows, which are never touched — nothing is deleted and nothing needs re-entering.
-
-### Performance
-
-- **A query term present in most of the corpus no longer drags the whole index into the scan** (`src/knowledge-graph.ts`, `src/db.ts`, `scripts/hooks/_shared.js`) — query terms are OR-ed, so the cost of a search is the union of their postings and one ubiquitous word dominates it. `dropUbiquitousTerms()` removes terms appearing in more than half the indexed rows, using a new `fts_vocab` (`fts5vocab`) view that stores nothing of its own. Measured with a 12-term query, 200 iterations, including the lookup's own cost: **0.071 → 0.039 ms at 50 rows (−45%), 0.411 → 0.079 ms at 500 (−81%), 4.147 → 0.481 ms at 5 000 (−88%), 80.15 → 8.57 ms at 100 000 (−89%)**.
-
-  The dropped terms are the ones BM25 already scores near zero — a word in every row has no inverse document frequency — so this removes work rather than signal. R@5 on LongMemEval is unchanged at cut-offs of 90%, 70% and 50%, and falls at 30% (94.0% → 93.0%); 50% takes the speed with margin against that cliff. The full 500-question run holds at R@5 95.60% / R@10 97.80%.
-
-  Two edges are pinned by tests, because they are where a frequency filter goes wrong: a query made entirely of common words keeps its rarest term rather than filtering to nothing, and the guard does not apply below 25 rows, where a term in most of the corpus is the subject rather than a stopword. A missing `fts_vocab` falls back to searching every term.
-
-  Preventive rather than remedial — no one is at a scale where this bites today, which is why it had to be free at every size to justify shipping.
-
-### Fixed
 
 - **`recall_hits` has one owner again** (`src/storage/conflicts.ts`, `src/knowledge-graph.ts`) — the column was written by two code paths with incompatible definitions. The Stop hook writes it to mean "a memory we injected was actually used", checking the transcript and recording a hit *or* a miss; `search()` also wrote it to mean "this memory was returned", which can only ever add to the hit side. `scoring.ts::impactScore` reads the pair as `(hits+1)/(hits+misses+2)`, a ratio that is only meaningful if both sides answer the same question. Retrieval paths now track access only — "was returned" is already recorded by `access_count`, in the same statement. Measured on a real 91-entity database the two definitions had not yet collided (29 hits against 365 misses; the impact factor's median sat exactly at the neutral 0.5), but OR-joined query terms return far more rows per search than the old AND semantics did, which is when a one-sided writer starts to matter. The `incrementHits` option is gone with its last caller.
 
