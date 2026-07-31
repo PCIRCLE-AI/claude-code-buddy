@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
@@ -185,5 +185,67 @@ describe('Feature: Pre-Edit Recall Hook', () => {
     createTestDb().close();
     const result = runHook({ tool_input: { command: 'ls' } });
     expect(result).toBe('');
+  });
+
+  it('stays silent on a database that has entities but no FTS index', () => {
+    // This hook opens the database READ-ONLY and does not go through
+    // openHookDb, so it never creates `entities_fts` — a database written only
+    // by an older build, or by a process that never opened it for writing, has
+    // the entities table and no index.
+    //
+    // The pre-flight used to check `entities` alone. The FTS query then reached
+    // a table that does not exist and threw, and since the swallowed catch was
+    // replaced with a real report, that printed on EVERY Edit and Write.
+    // Suppressing the report would hide genuine index faults; not running a
+    // query against a structurally-absent table is the actual fix.
+    const Database = require('better-sqlite3');
+    const db = new Database(dbPath);
+    db.pragma('journal_mode = WAL');
+    db.exec(`
+      CREATE TABLE entities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL,
+        metadata JSON,
+        status TEXT NOT NULL DEFAULT 'active'
+      );
+      CREATE TABLE observations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_id INTEGER NOT NULL,
+        content TEXT NOT NULL
+      );
+      CREATE TABLE tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_id INTEGER NOT NULL,
+        tag TEXT NOT NULL
+      );
+    `);
+    // One tagged match, so the hook gets past strategy 1 with fewer than
+    // MAX_RESULTS and goes on to attempt the FTS query.
+    db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run('auth-decision', 'decision');
+    const row = db.prepare('SELECT id FROM entities WHERE name = ?').get('auth-decision') as {
+      id: number;
+    };
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(
+      row.id,
+      'Use OAuth 2.0'
+    );
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(row.id, 'file:auth.ts');
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(row.id, projectTag());
+    db.close();
+
+    const hookPath = path.resolve('scripts/hooks/pre-edit-recall.js');
+    const proc = spawnSync('node', [hookPath], {
+      input: JSON.stringify({ cwd: testDir, tool_input: { file_path: '/some/auth.ts' } }),
+      env: { ...process.env, MEMESH_DB_PATH: dbPath },
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+
+    // The memory it CAN find is still injected — a missing index degrades the
+    // hook, it does not disable it.
+    expect(proc.stdout).toContain('OAuth 2.0');
+    expect(proc.stderr).not.toContain('filename search failed');
+    expect(proc.stderr).not.toContain('entities_fts');
   });
 });

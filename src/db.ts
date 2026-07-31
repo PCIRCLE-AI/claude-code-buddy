@@ -518,10 +518,14 @@ function rebuildFtsIndex(db: Database.Database, fromVersion = 0): void {
  */
 export function reindexFts(): { entities: number } {
   const database = getDatabase();
-  // Rebuild and marker in ONE immediate transaction. Splitting them re-opens
-  // exactly the window runOnceMigration closes: a crash between the two leaves
-  // a rebuilt index with a stale marker, or a stamped marker over a
-  // half-written index.
+  // Rebuild and marker in ONE immediate transaction, so a crash between them
+  // cannot leave a rebuilt index under a stale marker.
+  //
+  // Honest limit: this is the only property in this file that no test pins.
+  // Observing it requires killing the process between the two writes, and both
+  // the split-transaction and DEFERRED variants pass the whole suite —
+  // confirmed by mutation, not assumed. It is kept because it is correct and
+  // free, not because anything would catch its removal.
   database.transaction(() => {
     rebuildFtsIndex(database);
     database

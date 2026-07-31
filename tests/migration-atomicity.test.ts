@@ -186,6 +186,121 @@ describe('Feature: index migration atomicity', () => {
     expect(Number(attempt!.value)).toBeGreaterThan(0);
   });
 
+  it('honours the backoff it recorded, instead of retrying on the next open', () => {
+    // The other half of the case above, and the half that carries the value.
+    // Asserting only that a timestamp gets WRITTEN passes even if nothing ever
+    // reads it — verified by mutation: disabling the backoff check left the
+    // previous test green. What stops the re-scan is the check, so the check is
+    // what has to be pinned.
+    makeLegacy();
+    breakFtsIndex();
+
+    openDatabase(dbPath);
+    closeDatabase();
+
+    // Rewind to a minute ago: unambiguously inside the 24h window, and
+    // unambiguously different from a fresh `Date.now()` if the migration runs
+    // again and overwrites it.
+    const rewound = String(Date.now() - 60_000);
+    const direct = new Database(dbPath);
+    direct
+      .prepare(
+        "UPDATE memesh_metadata SET value = ? WHERE key = 'fts_segmentation_version_last_attempt'"
+      )
+      .run(rewound);
+    direct.close();
+
+    openDatabase(dbPath);
+    const attempt = getDatabase()
+      .prepare("SELECT value FROM memesh_metadata WHERE key = 'fts_segmentation_version_last_attempt'")
+      .get() as { value: string };
+
+    // Untouched means the migration returned before doing anything. A rewritten
+    // timestamp would mean it re-scanned the whole corpus and failed again —
+    // on every CLI call and every one of the seven hooks.
+    expect(attempt.value).toBe(rewound);
+  });
+
+  it('defers to a peer holding the lock rather than backing off for a day', () => {
+    // A lock held by another process is not a broken migration, and the two
+    // must not share a code path. Backing off 24h for a moment of contention
+    // leaves the database on the OLD index while write paths use the NEW
+    // segmentation rules — and on a contentless FTS5 table that mismatch makes
+    // every delete fail with "database disk image is malformed".
+    const db = openDatabase(dbPath);
+    db.pragma('busy_timeout = 1'); // fail fast; the default 5s would only make the test slow
+
+    const holder = new Database(dbPath);
+    holder.exec('BEGIN IMMEDIATE');
+
+    let ran = false;
+    const migrate = () => {
+      ran = true;
+    };
+    const opts = { key: 'test_transient', version: 1, describe: 'transient probe', migrate };
+
+    expect(runOnceMigration(db, opts)).toBe(false);
+    expect(ran).toBe(false);
+
+    // No attempt marker — that is the whole distinction. Recording one here
+    // would start the 24h clock over a lock that lasted milliseconds.
+    expect(
+      db.prepare("SELECT value FROM memesh_metadata WHERE key = 'test_transient_last_attempt'").get()
+    ).toBeUndefined();
+
+    holder.exec('ROLLBACK');
+    holder.close();
+
+    // And it runs on the very next attempt, with no waiting.
+    expect(runOnceMigration(db, opts)).toBe(true);
+    expect(ran).toBe(true);
+  });
+
+  it('classifies a lock error as transient, so no 24h clock starts', () => {
+    // The case above cannot distinguish the two branches on its own: while a
+    // peer holds the write lock, the catch block's own attempt-marker INSERT is
+    // blocked too, so "no marker" is true whichever branch ran. Verified by
+    // mutation — disabling `isTransientDbError` left it green.
+    //
+    // Throwing the lock error directly, with nothing actually locked, separates
+    // them: the marker write now CAN succeed, so it is written if and only if
+    // the error was misclassified as permanent.
+    const db = openDatabase(dbPath);
+
+    const opts = {
+      key: 'test_classify',
+      version: 1,
+      describe: 'classification probe',
+      migrate: () => {
+        const err = new Error('database is locked') as Error & { code?: string };
+        err.code = 'SQLITE_BUSY';
+        throw err;
+      },
+    };
+
+    expect(runOnceMigration(db, opts)).toBe(false);
+    expect(
+      db.prepare("SELECT value FROM memesh_metadata WHERE key = 'test_classify_last_attempt'").get()
+    ).toBeUndefined();
+
+    // The contrast that gives the assertion above its meaning: a failure that
+    // WILL still be a failure tomorrow does start the clock.
+    const permanent = {
+      ...opts,
+      key: 'test_classify_permanent',
+      migrate: () => {
+        throw new Error('table entities_fts has no column named observations');
+      },
+    };
+
+    expect(runOnceMigration(db, permanent)).toBe(false);
+    expect(
+      db
+        .prepare("SELECT value FROM memesh_metadata WHERE key = 'test_classify_permanent_last_attempt'")
+        .get()
+    ).toBeDefined();
+  });
+
   it('reindexFts rebuilds even when the marker says there is nothing to do', () => {
     // The marker only moves forward, so it cannot describe "migrated, then
     // written to by an older build". This is the escape hatch from that state,

@@ -240,23 +240,38 @@ describe('Feature: recall relevance', () => {
   });
 
   describe('determinism', () => {
-    it('returns the same memories in the same order for the same query', () => {
-      // BM25 ties are common: every row matching only the same single term
-      // scores identically. LIMIT then decides which of them reach the
-      // multi-factor scorer, so without a tiebreaker the surviving set — and
-      // therefore the final answer — is whatever order SQLite happened to
-      // produce. Recall that changes run to run is not debuggable.
+    it('breaks BM25 ties towards the newest memory, so LIMIT picks a defined set', () => {
+      // BM25 ties are the common case: every row matching only the same single
+      // term scores identically. LIMIT then decides which of them reach the
+      // multi-factor scorer, so the tiebreaker does not merely reorder the
+      // answer — it decides WHICH MEMORIES ARE IN IT.
+      //
+      // An earlier version of this test ran the same query five times and
+      // asserted the results matched. That passes with or without the
+      // tiebreaker: SQLite is deterministic for the same query against the same
+      // unchanged data, so the test asserted a property SQLite already had.
+      // Verified by mutation — dropping `, e.id DESC` left it green. Measured
+      // on this exact fixture:
+      //
+      //   ORDER BY f.rank, e.id DESC  ->  tied-29, tied-28, tied-27, tied-26, tied-25
+      //   ORDER BY f.rank             ->  tied-00, tied-01, tied-02, tied-03, tied-04
+      //
+      // Naming the expected set is what pins it. This is also a product
+      // commitment, not an implementation detail: at equal relevance, the more
+      // recent memory wins.
       for (let i = 0; i < 30; i++) {
         kg.createEntity(`tied-${String(i).padStart(2, '0')}`, 'note', {
           observations: ['deployment notes for the service'],
         });
       }
 
-      const first = kg.search('deployment').map((e) => e.name);
-      for (let run = 0; run < 5; run++) {
-        expect(kg.search('deployment').map((e) => e.name)).toEqual(first);
-      }
-      expect(first.length).toBeGreaterThan(0);
+      expect(kg.search('deployment', { limit: 5 }).map((e) => e.name)).toEqual([
+        'tied-29',
+        'tied-28',
+        'tied-27',
+        'tied-26',
+        'tied-25',
+      ]);
     });
   });
 
