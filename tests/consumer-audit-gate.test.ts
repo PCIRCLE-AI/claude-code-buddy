@@ -42,20 +42,42 @@ describe('Feature: the consumer audit cannot pass on an empty tree', () => {
    */
   beforeEach(() => {
     binDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-fake-npm-'));
-    const shim = path.join(binDir, 'npm');
+
+    // Both spellings. The script resolves `npm.cmd` on Windows and `npm`
+    // elsewhere (scripts/lib/npm-bin.mjs), so the stub has to exist under
+    // whichever name it will actually ask for.
+    const sh = path.join(binDir, 'npm');
     fs.writeFileSync(
-      shim,
+      sh,
       [
         '#!/bin/sh',
         'case "$1" in',
-        '  pack) echo "fake-package-0.0.0.tgz" > /dev/null; : > "fake-package-0.0.0.tgz"; echo "fake-package-0.0.0.tgz"; exit 0;;',
+        '  pack) : > "fake-package-0.0.0.tgz"; echo "fake-package-0.0.0.tgz"; exit 0;;',
         '  audit) echo "found 0 vulnerabilities"; exit 0;;',
         '  *) exit 0;;',
         'esac',
         '',
       ].join('\n')
     );
-    fs.chmodSync(shim, 0o755);
+    fs.chmodSync(sh, 0o755);
+
+    fs.writeFileSync(
+      path.join(binDir, 'npm.cmd'),
+      [
+        '@echo off',
+        'if "%~1"=="pack" (',
+        '  type nul > fake-package-0.0.0.tgz',
+        '  echo fake-package-0.0.0.tgz',
+        '  exit /b 0',
+        ')',
+        'if "%~1"=="audit" (',
+        '  echo found 0 vulnerabilities',
+        '  exit /b 0',
+        ')',
+        'exit /b 0',
+        '',
+      ].join('\r\n')
+    );
   });
 
   afterEach(() => {

@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { NPM } from './lib/npm-bin.mjs';
 
 /**
  * Audit the dependency tree a CONSUMER resolves, not the one this repo has.
@@ -30,7 +31,7 @@ const repoRoot = process.cwd();
 
 let workDir;
 try {
-  const packOut = execFileSync('npm', ['pack', '--silent'], {
+  const packOut = execFileSync(NPM, ['pack', '--silent'], {
     cwd: repoRoot,
     encoding: 'utf8',
   }).trim();
@@ -46,8 +47,8 @@ try {
   fs.copyFileSync(tarballPath, path.join(workDir, tarball));
   fs.unlinkSync(tarballPath);
 
-  execFileSync('npm', ['init', '-y'], { cwd: workDir, stdio: 'ignore' });
-  execFileSync('npm', ['install', '--omit=dev', '--ignore-scripts', `./${tarball}`], {
+  execFileSync(NPM, ['init', '-y'], { cwd: workDir, stdio: 'ignore' });
+  execFileSync(NPM, ['install', '--omit=dev', '--ignore-scripts', `./${tarball}`], {
     cwd: workDir,
     stdio: 'ignore',
   });
@@ -64,7 +65,7 @@ try {
   let auditOut = '';
   let clean = true;
   try {
-    auditOut = execFileSync('npm', ['audit', '--omit=dev', `--audit-level=${AUDIT_LEVEL}`], {
+    auditOut = execFileSync(NPM, ['audit', '--omit=dev', `--audit-level=${AUDIT_LEVEL}`], {
       cwd: workDir,
       encoding: 'utf8',
     });
