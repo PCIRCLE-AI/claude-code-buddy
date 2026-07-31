@@ -82,7 +82,6 @@ process.stdin.on('end', () => {
       }
     }
 
-    const insightCount = editedFiles.size + (toolCallCount > 0 ? 1 : 0);
     const entityName = `pre-compact-${sessionId}`;
 
     // Build observation content
