@@ -1,6 +1,6 @@
 {
   "schema": "memesh.skills-manifest/v1",
-  "generated_at": "2026-07-31T06:46:17.376Z",
+  "generated_at": "2026-07-31T09:48:26.277Z",
   "entries": [
     {
       "path": ".claude-plugin/plugin.json",
@@ -24,13 +24,13 @@
     },
     {
       "path": "scripts/hooks/_generated/fts-index.js",
-      "sha256": "89449501f27999932c7f35a8b6064d581ba7c10c9b4c4ad4e696b07d3fbfe1f7",
-      "bytes": 1966
+      "sha256": "c3d8b6ea52c4e8b9be37845f9250c771394b1cba09c316bb5eff93705cf95a6b",
+      "bytes": 2545
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "9ba77dbe4170f4c584c647ad047c0f8b300aa694c8371f974a54c96347262a6a",
-      "bytes": 44546
+      "sha256": "59e29b4eda54f851030cd90e2756d23d4ba76b629532c8448f33a9ca483a4d87",
+      "bytes": 44425
     },
     {
       "path": "scripts/hooks/post-commit.js",
@@ -49,8 +49,8 @@
     },
     {
       "path": "scripts/hooks/pre-edit-recall.js",
-      "sha256": "707b80655b0ae30123531c16f9b7547e36b5070e5a6e741f63a76beba3aa8cd9",
-      "bytes": 7504
+      "sha256": "3bfcde36b641b2d5085dc9f7867606fb54cf8d8e6ea3129ebf33069204f5c554",
+      "bytes": 9431
     },
     {
       "path": "scripts/hooks/session-start.js",

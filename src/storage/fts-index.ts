@@ -96,6 +96,54 @@ export function toIndexForm(text: string): string {
 }
 
 /**
+ * Split text into the terms the FTS5 index actually holds.
+ *
+ * Same split FTS5's `unicode61` tokenizer uses — runs of letters, numbers and
+ * combining marks — applied to `toIndexForm()` output so the terms are in the
+ * stored form.
+ */
+export function tokenizeQuery(text: string): string[] {
+  return toIndexForm(String(text ?? '')).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [];
+}
+
+/**
+ * Render terms into an FTS5 MATCH expression.
+ *
+ * **One implementation, because there used to be two.** `knowledge-graph.ts`
+ * and `scripts/hooks/_shared.js` each rendered their own, and they had already
+ * diverged: the hook copy omitted the lone-unspaced-character prefix branch, so
+ * a single CJK character in a filename was emitted as an exact token and
+ * matched nothing against a bigram index — the exact failure the hook change
+ * was written to fix. This module is mirrored to the hook side at build time,
+ * so sharing it here makes that drift structurally impossible rather than
+ * something review has to keep catching.
+ *
+ * Terms are OR-ed: a question phrased in the user's own words should find the
+ * memory rather than require every word to appear in it.
+ *
+ * A lone unspaced-script character becomes a PREFIX query. The index holds
+ * overlapping bigrams and no unigrams, so an exact match on one character can
+ * never hit; `"資"*` reaches any bigram starting with it.
+ */
+export function renderMatchExpression(terms: string[]): string | null {
+  if (terms.length === 0) return null;
+  return terms
+    .map((term) =>
+      isLoneUnspacedChar(term)
+        ? `"${term.replace(/"/g, '""')}"*`
+        : `"${term.replace(/"/g, '""')}"`
+    )
+    .join(' OR ');
+}
+
+const LONE_UNSPACED_CHAR = new RegExp(`[${UNSPACED_SCRIPT_CLASS}]`, 'u');
+
+/** A single character from a script written without spaces between words. */
+export function isLoneUnspacedChar(term: string): boolean {
+  return [...term].length === 1 && LONE_UNSPACED_CHAR.test(term);
+}
+
+/**
  * Remove a row from the contentless FTS5 index. Caller must supply the
  * previously-indexed name + observation text — that's what FTS5
  * requires to find the row in `content=''` mode.

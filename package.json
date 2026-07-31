@@ -32,12 +32,13 @@
     "test:packaged": "node scripts/smoke-packed-artifact.mjs",
     "audit:prod": "node scripts/check-consumer-audit.mjs",
     "verify:release": "node scripts/check-version-coherence.mjs && node scripts/check-generated-mirror.mjs && npm run audit:prod",
-    "prepublishOnly": "npm run build && npm run verify:release && npm test -- --run && npm run test:packaged",
+    "prepublishOnly": "npm run build && npm run verify:release && npm run test:isolated && npm run test:packaged",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/ scripts/ --max-warnings 0",
     "lint:fix": "eslint src/ scripts/ --fix",
     "start": "node dist/mcp/launcher.js",
-    "bench:longmemeval": "node benchmarks/longmemeval/run.mjs --mode A --dataset /tmp/longmemeval_s.json"
+    "bench:longmemeval": "node benchmarks/longmemeval/run.mjs --mode A --dataset /tmp/longmemeval_s.json",
+    "test:isolated": "node scripts/run-tests-isolated.mjs"
   },
   "author": "PCIRCLE-AI",
   "license": "MIT",

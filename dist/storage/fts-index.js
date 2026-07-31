@@ -13,6 +13,22 @@ export function segmentUnspacedScripts(text) {
 export function toIndexForm(text) {
     return segmentUnspacedScripts(text.normalize('NFC'));
 }
+export function tokenizeQuery(text) {
+    return toIndexForm(String(text ?? '')).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [];
+}
+export function renderMatchExpression(terms) {
+    if (terms.length === 0)
+        return null;
+    return terms
+        .map((term) => isLoneUnspacedChar(term)
+        ? `"${term.replace(/"/g, '""')}"*`
+        : `"${term.replace(/"/g, '""')}"`)
+        .join(' OR ');
+}
+const LONE_UNSPACED_CHAR = new RegExp(`[${UNSPACED_SCRIPT_CLASS}]`, 'u');
+export function isLoneUnspacedChar(term) {
+    return [...term].length === 1 && LONE_UNSPACED_CHAR.test(term);
+}
 export function removeFromFts(db, entityId, name, prevObsText) {
     try {
         db.prepare("INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)").run(entityId, toIndexForm(name), toIndexForm(prevObsText));

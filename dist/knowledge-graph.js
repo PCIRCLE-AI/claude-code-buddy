@@ -1,40 +1,25 @@
 import { findConflicts, trackAccess } from './storage/conflicts.js';
-import { insertFtsRow, removeFromFts, toIndexForm, UNSPACED_SCRIPT_CLASS } from './storage/fts-index.js';
+import { insertFtsRow, removeFromFts, tokenizeQuery, renderMatchExpression, } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 const MAX_QUERY_TERMS = 32;
 function buildMatchExpression(db, query) {
-    const terms = toIndexForm(query).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [];
+    const terms = tokenizeQuery(query);
     if (terms.length === 0)
         return null;
-    const kept = dropUbiquitousTerms(db, terms).slice(0, MAX_QUERY_TERMS);
-    return kept.map((term) => (isLoneUnspacedChar(term) ? `"${term}"*` : `"${term}"`)).join(' OR ');
+    return renderMatchExpression(dropUbiquitousTerms(db, terms).slice(0, MAX_QUERY_TERMS));
 }
 function archivedLikeTerms(db, query) {
     const escapeLike = (v) => v.replace(/[\\%_]/g, '\\$&');
-    const terms = (toIndexForm(query).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
-        .slice(0, MAX_QUERY_TERMS);
+    const terms = tokenizeQuery(query).slice(0, MAX_QUERY_TERMS);
     const kept = terms.length > 1 ? dropUbiquitousTerms(db, terms) : terms;
     if (kept.length === 0)
         return [`%${escapeLike(query)}%`];
     return kept.map((t) => `%${escapeLike(t)}%`);
 }
-const LONE_UNSPACED_CHAR = new RegExp(`[${UNSPACED_SCRIPT_CLASS}]`, 'u');
-function isLoneUnspacedChar(term) {
-    return [...term].length === 1 && LONE_UNSPACED_CHAR.test(term);
-}
 const UBIQUITOUS_TERM_FRACTION = 0.5;
 const MIN_ROWS_FOR_DF_GUARD = 25;
-const activeCountCache = new WeakMap();
 function activeEntityCount(db) {
-    const dataVersion = db.pragma('data_version', { simple: true }) ?? 0;
-    const totalChanges = db.prepare('SELECT total_changes() AS c').get().c;
-    const stamp = `${dataVersion}:${totalChanges}`;
-    const cached = activeCountCache.get(db);
-    if (cached && cached.stamp === stamp)
-        return cached.count;
-    const count = db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get().c;
-    activeCountCache.set(db, { stamp, count });
-    return count;
+    return db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get().c;
 }
 function dropUbiquitousTerms(db, terms) {
     if (terms.length < 2)

@@ -32,7 +32,12 @@ import {
   getProjectName,
   slugFromRemoteUrl,
 } from './_generated/core-paths.js';
-import { removeFromFts, insertFtsRow, toIndexForm } from './_generated/fts-index.js';
+import {
+  removeFromFts,
+  insertFtsRow,
+  tokenizeQuery,
+  renderMatchExpression,
+} from './_generated/fts-index.js';
 
 export { memeshDir, getDbPath, getMemeshDirFromDbPath, getProjectName, slugFromRemoteUrl };
 
@@ -579,12 +584,7 @@ const HOOK_MAX_QUERY_TERMS = 32;
  * @returns the MATCH expression, or null if there is nothing searchable
  */
 export function hookMatchExpression(text) {
-  const terms = (toIndexForm(String(text ?? '')).match(/[\p{L}\p{N}\p{M}]+/gu) ?? []).slice(
-    0,
-    HOOK_MAX_QUERY_TERMS
-  );
-  if (terms.length === 0) return null;
-  return terms.map((t) => `"${t.replace(/"/g, '""')}"`).join(' OR ');
+  return renderMatchExpression(tokenizeQuery(text).slice(0, HOOK_MAX_QUERY_TERMS));
 }
 
 /** How long a failed rebuild waits before trying again. Mirrors src/db.ts. */

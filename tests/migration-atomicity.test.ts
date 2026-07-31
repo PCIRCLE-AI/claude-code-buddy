@@ -21,7 +21,14 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import Database from 'better-sqlite3';
-import { openDatabase, closeDatabase, getDatabase, reindexFts, runOnceMigration } from '../src/db.js';
+import {
+  openDatabase,
+  closeDatabase,
+  getDatabase,
+  reindexFts,
+  runOnceMigration,
+  FTS_SEGMENTATION_VERSION,
+} from '../src/db.js';
 import { KnowledgeGraph } from '../src/knowledge-graph.js';
 
 describe('Feature: index migration atomicity', () => {
@@ -202,5 +209,61 @@ describe('Feature: index migration atomicity', () => {
     const { entities } = reindexFts();
     expect(entities).toBe(1);
     expect(kg.search('資料庫遷移').map((e) => e.name)).toContain('stale-note');
+  });
+
+  it('a v1 database with no decomposed text keeps its index instead of rewriting it', () => {
+    // v2 differs from v1 only by NFC-normalising before segmenting, so for an
+    // all-composed corpus the rebuild would reproduce the index it already has
+    // — under a write lock every hook contends for. Measured at 20k entities:
+    // 140ms with the rebuild, 13ms without.
+    //
+    // Observed the same way idempotency is: hand-write an index row the rebuild
+    // would not produce, and check it survives.
+    const db = openDatabase(dbPath);
+    const id = new KnowledgeGraph(db).createEntity('ascii-note', 'note', {
+      observations: ['Postgres over MySQL for window functions'],
+    });
+    db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
+    db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(
+      id,
+      'ascii-note',
+      'sentinel-token-the-rebuild-would-not-produce'
+    );
+    db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('fts_segmentation_version', '1')").run();
+    closeDatabase();
+
+    openDatabase(dbPath);
+    const kg = new KnowledgeGraph(getDatabase());
+    // Untouched: the sentinel survives, so no rewrite happened.
+    expect(kg.search('sentinel').map((e) => e.name)).toContain('ascii-note');
+    // But the marker still advances, or every future open would re-check.
+    expect(
+      getDatabase()
+        .prepare("SELECT value FROM memesh_metadata WHERE key = 'fts_segmentation_version'")
+        .get()
+    ).toEqual({ value: String(FTS_SEGMENTATION_VERSION) });
+  });
+
+  it('a v1 database that DOES hold decomposed text is rebuilt', () => {
+    // The other half: skipping must be driven by evidence, not by the version
+    // alone. Without this case the guard above could be "always skip at v1".
+    const db = openDatabase(dbPath);
+    const id = new KnowledgeGraph(db).createEntity('nfd-note', 'note', {
+      observations: ['데이터베이스 백업'.normalize('NFD')],
+    });
+    db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
+    db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(
+      id,
+      'nfd-note',
+      'sentinel-token-the-rebuild-would-not-produce'
+    );
+    db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('fts_segmentation_version', '1')").run();
+    closeDatabase();
+
+    openDatabase(dbPath);
+    const kg = new KnowledgeGraph(getDatabase());
+    // Rebuilt: the sentinel is gone and the real text is reachable.
+    expect(kg.search('sentinel')).toEqual([]);
+    expect(kg.search('데이터베이스').map((e) => e.name)).toContain('nfd-note');
   });
 });

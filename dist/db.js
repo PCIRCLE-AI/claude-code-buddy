@@ -153,6 +153,12 @@ export function openDatabase(dbPath) {
 }
 export const FTS_SEGMENTATION_VERSION = 2;
 const MIGRATION_RETRY_BACKOFF_MS = 24 * 60 * 60 * 1000;
+function isTransientDbError(err) {
+    const code = err?.code ?? '';
+    const msg = err?.message ?? '';
+    return (/SQLITE_BUSY|SQLITE_LOCKED|SQLITE_PROTOCOL/.test(code) ||
+        /database is locked|database table is locked|locking protocol/i.test(msg));
+}
 export function runOnceMigration(db, opts) {
     const { key, version, describe, migrate } = opts;
     const attemptKey = `${key}_last_attempt`;
@@ -169,13 +175,18 @@ export function runOnceMigration(db, opts) {
             const current = readMarker(key);
             if (current && parseInt(current, 10) >= version)
                 return;
-            migrate(db);
+            migrate(db, current ? parseInt(current, 10) : 0);
             db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(key, String(version));
             db.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(attemptKey);
         }).immediate();
         return true;
     }
     catch (err) {
+        if (isTransientDbError(err)) {
+            process.stderr.write(`MeMesh: ${describe} deferred (${err instanceof Error ? err.message : String(err)}). ` +
+                `Another process holds the database; it will run on the next start.\n`);
+            return false;
+        }
         try {
             db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(attemptKey, String(Date.now()));
         }
@@ -195,7 +206,33 @@ function ensureFtsSegmentation(db) {
     });
 }
 const FTS_REBUILD_PAGE_SIZE = 500;
-function rebuildFtsIndex(db) {
+function hasDecomposedText(db) {
+    const page = db.prepare(`SELECT e.id, e.name, COALESCE(group_concat(o.content, ' '), '') AS obs
+       FROM entities e
+       LEFT JOIN observations o ON o.entity_id = e.id
+      WHERE e.status = 'active' AND e.id > ?
+      GROUP BY e.id
+      ORDER BY e.id
+      LIMIT ?`);
+    let afterId = 0;
+    for (;;) {
+        const rows = page.all(afterId, FTS_REBUILD_PAGE_SIZE);
+        if (rows.length === 0)
+            return false;
+        for (const row of rows) {
+            if (row.name !== row.name.normalize('NFC'))
+                return true;
+            if (row.obs !== row.obs.normalize('NFC'))
+                return true;
+        }
+        afterId = rows[rows.length - 1].id;
+        if (rows.length < FTS_REBUILD_PAGE_SIZE)
+            return false;
+    }
+}
+function rebuildFtsIndex(db, fromVersion = 0) {
+    if (fromVersion === 1 && !hasDecomposedText(db))
+        return;
     db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
     const page = db.prepare(`SELECT e.id, e.name, COALESCE(group_concat(o.content, ' '), '') AS obs
        FROM entities e
@@ -218,11 +255,13 @@ function rebuildFtsIndex(db) {
 }
 export function reindexFts() {
     const database = getDatabase();
-    database.transaction(() => rebuildFtsIndex(database)).immediate();
-    database
-        .prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)')
-        .run('fts_segmentation_version', String(FTS_SEGMENTATION_VERSION));
-    database.prepare('DELETE FROM memesh_metadata WHERE key = ?').run('fts_segmentation_version_last_attempt');
+    database.transaction(() => {
+        rebuildFtsIndex(database);
+        database
+            .prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)')
+            .run('fts_segmentation_version', String(FTS_SEGMENTATION_VERSION));
+        database.prepare('DELETE FROM memesh_metadata WHERE key = ?').run('fts_segmentation_version_last_attempt');
+    }).immediate();
     const { c } = database
         .prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'")
         .get();

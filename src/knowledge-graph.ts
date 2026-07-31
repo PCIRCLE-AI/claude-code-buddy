@@ -2,7 +2,12 @@ import Database from 'better-sqlite3';
 export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
 import type { Entity, Relation, CreateEntityInput, SearchOptions, EntityRow } from './core/types.js';
 import { findConflicts, trackAccess } from './storage/conflicts.js';
-import { insertFtsRow, removeFromFts, toIndexForm, UNSPACED_SCRIPT_CLASS } from './storage/fts-index.js';
+import {
+  insertFtsRow,
+  removeFromFts,
+  tokenizeQuery,
+  renderMatchExpression,
+} from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 
 /**
@@ -52,10 +57,9 @@ function buildMatchExpression(db: Database.Database, query: string): string | nu
   // question of the same length keeps all ~13 of its words. Dropping the
   // ubiquitous ones first means the terms that survive are the ones that
   // actually narrow the search.
-  const terms = toIndexForm(query).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [];
+  const terms = tokenizeQuery(query);
   if (terms.length === 0) return null;
-  const kept = dropUbiquitousTerms(db, terms).slice(0, MAX_QUERY_TERMS);
-  return kept.map((term) => (isLoneUnspacedChar(term) ? `"${term}"*` : `"${term}"`)).join(' OR ');
+  return renderMatchExpression(dropUbiquitousTerms(db, terms).slice(0, MAX_QUERY_TERMS));
 }
 
 /**
@@ -72,17 +76,10 @@ function buildMatchExpression(db: Database.Database, query: string): string | nu
  */
 function archivedLikeTerms(db: Database.Database, query: string): string[] {
   const escapeLike = (v: string) => v.replace(/[\\%_]/g, '\\$&');
-  const terms = (toIndexForm(query).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
-    .slice(0, MAX_QUERY_TERMS);
+  const terms = tokenizeQuery(query).slice(0, MAX_QUERY_TERMS);
   const kept = terms.length > 1 ? dropUbiquitousTerms(db, terms) : terms;
   if (kept.length === 0) return [`%${escapeLike(query)}%`];
   return kept.map((t) => `%${escapeLike(t)}%`);
-}
-
-const LONE_UNSPACED_CHAR = new RegExp(`[${UNSPACED_SCRIPT_CLASS}]`, 'u');
-
-function isLoneUnspacedChar(term: string): boolean {
-  return [...term].length === 1 && LONE_UNSPACED_CHAR.test(term);
 }
 
 /**
@@ -131,37 +128,23 @@ const MIN_ROWS_FOR_DF_GUARD = 25;
  * than returning a broad match.
  */
 /**
- * Active-entity count, cached until something in the database changes.
+ * Number of active entities, for the document-frequency guard's ceiling.
  *
- * The frequency guard needs a corpus size to compare document counts against,
- * and it ran `SELECT count(*) FROM entities WHERE status = 'active'` on every
- * keyword recall — a covering-index scan, measured at 1.79ms with 100k rows,
- * paid on the hot path that every hook fires.
+ * This was briefly cached, keyed on `(PRAGMA data_version, total_changes())`.
+ * The invalidation was correct but the cache could never pay: every non-empty
+ * search calls `trackAccess`, whose UPDATE moves `total_changes()` and
+ * invalidates the entry before the next recall — and hook processes are
+ * short-lived, so they start cold and exit before a second search. Measured on
+ * a 20k-entity database: the count is 376us, the stamp check 5.9us, and on the
+ * hot path the stamp check was pure addition.
  *
- * Invalidated exactly, not on a timer. `PRAGMA data_version` changes when
- * another connection commits; `total_changes()` counts rows this connection
- * has changed since it opened. Together they cover every write that could move
- * the count, and both are O(1) — so this replaces a table scan with two
- * constant-time reads rather than trading correctness for speed.
- *
- * Keyed by connection, so a test that opens a fresh database never sees
- * another test's count.
+ * A cache that cannot hit is complexity plus a claim that is not true, so it
+ * is gone. This is the honest cost.
  */
-const activeCountCache = new WeakMap<Database.Database, { stamp: string; count: number }>();
-
 function activeEntityCount(db: Database.Database): number {
-  const dataVersion = (db.pragma('data_version', { simple: true }) as number) ?? 0;
-  const totalChanges = (db.prepare('SELECT total_changes() AS c').get() as { c: number }).c;
-  const stamp = `${dataVersion}:${totalChanges}`;
-
-  const cached = activeCountCache.get(db);
-  if (cached && cached.stamp === stamp) return cached.count;
-
-  const count = (
+  return (
     db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get() as { c: number }
   ).c;
-  activeCountCache.set(db, { stamp, count });
-  return count;
 }
 
 function dropUbiquitousTerms(db: Database.Database, terms: string[]): string[] {

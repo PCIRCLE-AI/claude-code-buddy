@@ -5,7 +5,7 @@ export declare function runOnceMigration(db: Database.Database, opts: {
     key: string;
     version: number;
     describe: string;
-    migrate: (db: Database.Database) => void;
+    migrate: (db: Database.Database, fromVersion: number) => void;
 }): boolean;
 export declare function reindexFts(): {
     entities: number;

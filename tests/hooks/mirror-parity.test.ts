@@ -202,4 +202,42 @@ describe('F5 mirror parity: scripts/hooks/_shared.js vs src/core', () => {
       }
     });
   });
+
+  describe('query-side parity', () => {
+    /**
+     * The comments in _shared.js claimed the segmentation version and the hook
+     * match builder were "pinned by tests/hooks/mirror-parity.test.ts". They
+     * were not — this file never mentioned them, and the two implementations
+     * had already drifted: the hook copy omitted the lone-unspaced-character
+     * prefix branch, so a single CJK character in a filename was emitted as an
+     * exact token and matched nothing against a bigram index.
+     *
+     * A claimed gate that does not exist is worse than no gate, so these are
+     * the assertions the comment was describing.
+     */
+    it('the hook knows the same segmentation version core writes', async () => {
+      const core = await import('../../src/db.js');
+      expect(shared.FTS_SEGMENTATION_VERSION).toBe(core.FTS_SEGMENTATION_VERSION);
+    });
+
+    it('the hook builds the same MATCH expression core does', async () => {
+      const fts = await import('../../src/storage/fts-index.js');
+
+      // Every shape that has bitten: ASCII, an unbroken CJK run, a LONE CJK
+      // character (the drift), mixed script, and an empty result.
+      for (const query of ['SkillOpt codex', '資料庫遷移', 'v2-图-final', '用 Preact 做儀表板', '???']) {
+        const coreTerms = fts.tokenizeQuery(query).slice(0, 32);
+        const expected = fts.renderMatchExpression(coreTerms);
+        expect(shared.hookMatchExpression(query)).toBe(expected);
+      }
+    });
+
+    it('a lone CJK character becomes a prefix query on the hook side too', async () => {
+      // Named separately because this is the case that was broken, and an
+      // equality test against core would silently start passing if BOTH sides
+      // regressed together.
+      expect(shared.hookMatchExpression('v2-图-final')).toContain('"图"*');
+    });
+  });
+
 });
