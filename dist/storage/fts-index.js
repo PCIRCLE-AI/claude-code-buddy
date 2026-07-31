@@ -1,4 +1,5 @@
-const UNSPACED_SCRIPT = /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]+/gu;
+export const UNSPACED_SCRIPT_CLASS = '㐀-䶿一-鿿豈-﫿぀-ヿ가-힯';
+const UNSPACED_SCRIPT = new RegExp(`[${UNSPACED_SCRIPT_CLASS}]+`, 'gu');
 export function segmentUnspacedScripts(text) {
     return text.replace(UNSPACED_SCRIPT, (run) => {
         if (run.length === 1)
@@ -9,9 +10,12 @@ export function segmentUnspacedScripts(text) {
         return ` ${grams.join(' ')} `;
     });
 }
+export function toIndexForm(text) {
+    return segmentUnspacedScripts(text.normalize('NFC'));
+}
 export function removeFromFts(db, entityId, name, prevObsText) {
     try {
-        db.prepare("INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)").run(entityId, segmentUnspacedScripts(name), segmentUnspacedScripts(prevObsText));
+        db.prepare("INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)").run(entityId, toIndexForm(name), toIndexForm(prevObsText));
     }
     catch (err) {
         if (isBenignFtsDeleteError(err))
@@ -24,6 +28,6 @@ function isBenignFtsDeleteError(err) {
     return /no such rowid|values do not match|no such row\b/i.test(msg);
 }
 export function insertFtsRow(db, entityId, name, observationsText) {
-    db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(entityId, segmentUnspacedScripts(name), segmentUnspacedScripts(observationsText));
+    db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(entityId, toIndexForm(name), toIndexForm(observationsText));
 }
 //# sourceMappingURL=fts-index.js.map

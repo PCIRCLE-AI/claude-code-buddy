@@ -1,9 +1,9 @@
 import { findConflicts, trackAccess } from './storage/conflicts.js';
-import { insertFtsRow, removeFromFts, segmentUnspacedScripts } from './storage/fts-index.js';
+import { insertFtsRow, removeFromFts, toIndexForm, UNSPACED_SCRIPT_CLASS } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 const MAX_QUERY_TERMS = 32;
 function buildMatchExpression(db, query) {
-    const terms = (segmentUnspacedScripts(query).normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
+    const terms = (toIndexForm(query).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
         .slice(0, MAX_QUERY_TERMS);
     if (terms.length === 0)
         return null;
@@ -12,15 +12,16 @@ function buildMatchExpression(db, query) {
 }
 function archivedLikeTerms(db, query) {
     const escapeLike = (v) => v.replace(/[\\%_]/g, '\\$&');
-    const terms = (segmentUnspacedScripts(query).normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
+    const terms = (toIndexForm(query).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
         .slice(0, MAX_QUERY_TERMS);
     const kept = terms.length > 1 ? dropUbiquitousTerms(db, terms) : terms;
     if (kept.length === 0)
         return [`%${escapeLike(query)}%`];
     return kept.map((t) => `%${escapeLike(t)}%`);
 }
+const LONE_UNSPACED_CHAR = new RegExp(`[${UNSPACED_SCRIPT_CLASS}]`, 'u');
 function isLoneUnspacedChar(term) {
-    return [...term].length === 1 && /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]/u.test(term);
+    return [...term].length === 1 && LONE_UNSPACED_CHAR.test(term);
 }
 const UBIQUITOUS_TERM_FRACTION = 0.5;
 const MIN_ROWS_FOR_DF_GUARD = 25;
@@ -31,7 +32,8 @@ function dropUbiquitousTerms(db, terms) {
         const total = db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get().c;
         if (total < MIN_ROWS_FOR_DF_GUARD)
             return terms;
-        const lowered = terms.map((t) => t.toLowerCase());
+        const fold = (t) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+        const lowered = terms.map(fold);
         const rows = db
             .prepare(`SELECT term, doc FROM fts_vocab WHERE term IN (${lowered.map(() => '?').join(',')})`)
             .all(...lowered);
@@ -39,10 +41,10 @@ function dropUbiquitousTerms(db, terms) {
             return terms;
         const docFreq = new Map(rows.map((r) => [r.term, r.doc]));
         const ceiling = UBIQUITOUS_TERM_FRACTION * total;
-        const kept = terms.filter((t) => (docFreq.get(t.toLowerCase()) ?? 0) <= ceiling);
+        const kept = terms.filter((t) => (docFreq.get(fold(t)) ?? 0) <= ceiling);
         if (kept.length > 0)
             return kept;
-        return [terms.reduce((rarest, t) => (docFreq.get(t.toLowerCase()) ?? 0) < (docFreq.get(rarest.toLowerCase()) ?? 0) ? t : rarest)];
+        return [terms.reduce((rarest, t) => (docFreq.get(fold(t)) ?? 0) < (docFreq.get(fold(rarest)) ?? 0) ? t : rarest)];
     }
     catch {
         return terms;

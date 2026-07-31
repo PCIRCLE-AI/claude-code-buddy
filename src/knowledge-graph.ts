@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
 import type { Entity, Relation, CreateEntityInput, SearchOptions, EntityRow } from './core/types.js';
 import { findConflicts, trackAccess } from './storage/conflicts.js';
-import { insertFtsRow, removeFromFts, segmentUnspacedScripts } from './storage/fts-index.js';
+import { insertFtsRow, removeFromFts, toIndexForm, UNSPACED_SCRIPT_CLASS } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 
 /**
@@ -45,7 +45,7 @@ const MAX_QUERY_TERMS = 32;
  * for a rare query shape; pinned as a limit rather than chased.
  */
 function buildMatchExpression(db: Database.Database, query: string): string | null {
-  const terms = (segmentUnspacedScripts(query).normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
+  const terms = (toIndexForm(query).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
     .slice(0, MAX_QUERY_TERMS);
   if (terms.length === 0) return null;
   const kept = dropUbiquitousTerms(db, terms);
@@ -66,15 +66,17 @@ function buildMatchExpression(db: Database.Database, query: string): string | nu
  */
 function archivedLikeTerms(db: Database.Database, query: string): string[] {
   const escapeLike = (v: string) => v.replace(/[\\%_]/g, '\\$&');
-  const terms = (segmentUnspacedScripts(query).normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
+  const terms = (toIndexForm(query).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
     .slice(0, MAX_QUERY_TERMS);
   const kept = terms.length > 1 ? dropUbiquitousTerms(db, terms) : terms;
   if (kept.length === 0) return [`%${escapeLike(query)}%`];
   return kept.map((t) => `%${escapeLike(t)}%`);
 }
 
+const LONE_UNSPACED_CHAR = new RegExp(`[${UNSPACED_SCRIPT_CLASS}]`, 'u');
+
 function isLoneUnspacedChar(term: string): boolean {
-  return [...term].length === 1 && /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]/u.test(term);
+  return [...term].length === 1 && LONE_UNSPACED_CHAR.test(term);
 }
 
 /**
@@ -128,7 +130,15 @@ function dropUbiquitousTerms(db: Database.Database, terms: string[]): string[] {
     const total = (db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get() as { c: number }).c;
     if (total < MIN_ROWS_FOR_DF_GUARD) return terms;
 
-    const lowered = terms.map((t) => t.toLowerCase());
+    // Fold the way the index folds, or the lookup silently never matches.
+    // entities_fts is declared `remove_diacritics 1`, so unicode61 strips
+    // combining marks before storing: `café` is stored as `cafe`. Looking it up
+    // as `café` returned no row, the term got document frequency 0, and it was
+    // always kept — the guard quietly did not apply to any accented or
+    // decomposed term. Recall was unaffected (FTS5 folds again at MATCH time);
+    // the optimisation just never ran.
+    const fold = (t: string) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+    const lowered = terms.map(fold);
     const rows = db
       .prepare(`SELECT term, doc FROM fts_vocab WHERE term IN (${lowered.map(() => '?').join(',')})`)
       .all(...lowered) as Array<{ term: string; doc: number }>;
@@ -136,12 +146,12 @@ function dropUbiquitousTerms(db: Database.Database, terms: string[]): string[] {
 
     const docFreq = new Map(rows.map((r) => [r.term, r.doc]));
     const ceiling = UBIQUITOUS_TERM_FRACTION * total;
-    const kept = terms.filter((t) => (docFreq.get(t.toLowerCase()) ?? 0) <= ceiling);
+    const kept = terms.filter((t) => (docFreq.get(fold(t)) ?? 0) <= ceiling);
     if (kept.length > 0) return kept;
 
     // Everything is common. Keep the single rarest rather than matching nothing.
     return [terms.reduce((rarest, t) =>
-      (docFreq.get(t.toLowerCase()) ?? 0) < (docFreq.get(rarest.toLowerCase()) ?? 0) ? t : rarest
+      (docFreq.get(fold(t)) ?? 0) < (docFreq.get(fold(rarest)) ?? 0) ? t : rarest
     )];
   } catch {
     // fts_vocab missing (a database opened by an older version, or a caller

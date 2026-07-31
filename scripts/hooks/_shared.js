@@ -32,7 +32,7 @@ import {
   getProjectName,
   slugFromRemoteUrl,
 } from './_generated/core-paths.js';
-import { removeFromFts, insertFtsRow } from './_generated/fts-index.js';
+import { removeFromFts, insertFtsRow, toIndexForm } from './_generated/fts-index.js';
 
 export { memeshDir, getDbPath, getMemeshDirFromDbPath, getProjectName, slugFromRemoteUrl };
 
@@ -558,7 +558,34 @@ export function openHookDb(env = process.env, opts = {}) {
  * MUST match `FTS_SEGMENTATION_VERSION` in src/db.ts — pinned by
  * `tests/hooks/mirror-parity.test.ts`.
  */
-export const FTS_SEGMENTATION_VERSION = 1;
+export const FTS_SEGMENTATION_VERSION = 2;
+
+/** Same cap core uses, so a pathological filename cannot build a huge query. */
+const HOOK_MAX_QUERY_TERMS = 32;
+
+/**
+ * Build an FTS5 MATCH expression the way core's `buildMatchExpression()` does.
+ *
+ * Hooks write to the index through the generated primitives, which segment and
+ * normalise — but `pre-edit-recall.js` built its own MATCH by quoting a raw
+ * filename. Against a segmented index a CJK basename therefore matched
+ * nothing, and the surrounding `catch {}` meant neither the user nor an
+ * operator ever saw it: the hook simply injected no memories.
+ *
+ * The document-frequency guard core applies is deliberately not mirrored here.
+ * It is an optimisation, it needs a corpus-wide count, and this query is
+ * already bounded by a tag filter and a LIMIT.
+ *
+ * @returns the MATCH expression, or null if there is nothing searchable
+ */
+export function hookMatchExpression(text) {
+  const terms = (toIndexForm(String(text ?? '')).match(/[\p{L}\p{N}\p{M}]+/gu) ?? []).slice(
+    0,
+    HOOK_MAX_QUERY_TERMS
+  );
+  if (terms.length === 0) return null;
+  return terms.map((t) => `"${t.replace(/"/g, '""')}"`).join(' OR ');
+}
 
 /** How long a failed rebuild waits before trying again. Mirrors src/db.ts. */
 const MIGRATION_RETRY_BACKOFF_MS = 24 * 60 * 60 * 1000;

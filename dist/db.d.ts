@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 export declare function openDatabase(dbPath?: string): Database.Database;
+export declare const FTS_SEGMENTATION_VERSION = 2;
 export declare function runOnceMigration(db: Database.Database, opts: {
     key: string;
     version: number;

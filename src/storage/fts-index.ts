@@ -27,8 +27,15 @@ import type Database from 'better-sqlite3';
  * nothing. Measured on a mixed corpus, Chinese recall was 2/9.
  *
  * CJK ideographs + compatibility ideographs, kana, and hangul syllables.
+ *
+ * Exported because `knowledge-graph.ts` needs the same set to decide whether a
+ * single-character term should become a prefix query. It carried a verbatim
+ * copy; adding a range to one and not the other silently desynchronises what
+ * the index stores from what a query asks for.
  */
-const UNSPACED_SCRIPT = /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]+/gu;
+export const UNSPACED_SCRIPT_CLASS = '㐀-䶿一-鿿豈-﫿぀-ヿ가-힯';
+
+const UNSPACED_SCRIPT = new RegExp(`[${UNSPACED_SCRIPT_CLASS}]+`, 'gu');
 
 /**
  * Split unspaced-script runs into overlapping character bigrams so FTS5 has
@@ -63,6 +70,32 @@ export function segmentUnspacedScripts(text: string): string {
 }
 
 /**
+ * Turn arbitrary text into the exact form the FTS5 index stores and searches.
+ *
+ * **This is the single owner of that answer.** Both halves of the pair — the
+ * write path in this file and `buildMatchExpression()` in knowledge-graph.ts —
+ * call it, so the index and the query cannot disagree about normalisation or
+ * segmentation. They previously agreed about only one of the two:
+ *
+ *   - The write path did not normalise at all. Text stored decomposed (NFD)
+ *     was indexed under different code points than the same text composed, and
+ *     was unreachable by any query.
+ *   - The query path normalised AFTER segmenting. Decomposed Hangul is a run
+ *     of conjoining jamo (U+1100–U+11FF), which fall outside
+ *     `UNSPACED_SCRIPT_CLASS`, so it was never split into bigrams; composing it
+ *     afterwards produced one whole-run token the index does not contain, and
+ *     the query returned nothing even against correctly-indexed content.
+ *
+ * NFD is not exotic input. macOS filesystem APIs and Finder emit it, several
+ * Korean and Vietnamese IMEs emit it, and the hooks capture file paths.
+ *
+ * Order matters: normalise first, so segmentation sees composed syllables.
+ */
+export function toIndexForm(text: string): string {
+  return segmentUnspacedScripts(text.normalize('NFC'));
+}
+
+/**
  * Remove a row from the contentless FTS5 index. Caller must supply the
  * previously-indexed name + observation text — that's what FTS5
  * requires to find the row in `content=''` mode.
@@ -94,7 +127,7 @@ export function removeFromFts(
     // every rebuild.
     db.prepare(
       "INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)",
-    ).run(entityId, segmentUnspacedScripts(name), segmentUnspacedScripts(prevObsText));
+    ).run(entityId, toIndexForm(name), toIndexForm(prevObsText));
   } catch (err) {
     if (isBenignFtsDeleteError(err)) return;
     // Real failure — log so an operator sees the index drift signal
@@ -142,5 +175,5 @@ export function insertFtsRow(
 ): void {
   db.prepare(
     'INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)',
-  ).run(entityId, segmentUnspacedScripts(name), segmentUnspacedScripts(observationsText));
+  ).run(entityId, toIndexForm(name), toIndexForm(observationsText));
 }

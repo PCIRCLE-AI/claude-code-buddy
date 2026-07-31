@@ -227,12 +227,18 @@ export function openDatabase(dbPath?: string): Database.Database {
  * Version of the text segmentation applied to `entities_fts`. Bump this and the
  * index is rebuilt once, on the next open, for every existing database.
  *
+ *   2 — text is NFC-normalised BEFORE segmentation, on both the index and the
+ *       query side, via `toIndexForm`. Version 1 normalised on the query side
+ *       only, and after segmenting: decomposed text was indexed under
+ *       different code points than the same text composed, and a decomposed
+ *       query was never split into bigrams at all.
+ *
  *   1 — CJK / kana / hangul runs split into overlapping character bigrams
  *       (`segmentUnspacedScripts` in src/storage/fts-index.ts). Before this,
  *       `unicode61` indexed an unbroken run as a single token, so a Chinese
  *       memory was reachable only by searching the exact stored string.
  */
-const FTS_SEGMENTATION_VERSION = 1;
+export const FTS_SEGMENTATION_VERSION = 2;
 
 /**
  * Rebuild `entities_fts` when the segmentation rules have changed.

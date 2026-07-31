@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { openDatabase, closeDatabase, getDatabase } from '../src/db.js';
+import { openDatabase, closeDatabase, getDatabase, FTS_SEGMENTATION_VERSION } from '../src/db.js';
 import { KnowledgeGraph } from '../src/knowledge-graph.js';
 import { segmentUnspacedScripts } from '../src/storage/fts-index.js';
 import { useTestDatabase } from './helpers/db-fixture.js';
@@ -120,6 +120,30 @@ describe('Feature: CJK recall', () => {
       expect(kg.search('收').map((e) => e.name)).not.toContain('zh-final');
     });
 
+    it('round-trips text that arrives decomposed, in both directions', () => {
+      // 한글 and Vietnamese have two byte-level spellings that look identical:
+      // composed (NFC) and decomposed (NFD). macOS filesystem APIs, Finder
+      // copy and several Korean IMEs emit NFD, and the hooks capture file
+      // paths, so both reach the index as ordinary input.
+      //
+      // The index side and the query side must agree on WHICH spelling they
+      // store and search, or the two never meet. This is the same pairing
+      // invariant as segmentation, one layer down.
+      kg.createEntity('ko-nfd', 'note', {
+        observations: ['데이터베이스 백업 정책'.normalize('NFD')],
+      });
+      kg.createEntity('vi-nfd', 'note', {
+        observations: ['sao lưu dữ liệu trước khi chuyển đổi'.normalize('NFD')],
+      });
+
+      // Stored decomposed, asked composed.
+      expect(kg.search('데이터베이스'.normalize('NFC')).map((e) => e.name)).toContain('ko-nfd');
+      expect(kg.search('dữ liệu'.normalize('NFC')).map((e) => e.name)).toContain('vi-nfd');
+
+      // Stored composed, asked decomposed — 'ko-backup' above is composed.
+      expect(kg.search('데이터베이스'.normalize('NFD')).map((e) => e.name)).toContain('ko-backup');
+    });
+
     it('keeps deletes working — the index side and delete side must agree', () => {
       // Contentless FTS5 finds the row to delete by the values that were
       // INDEXED. If insertFtsRow segmented but removeFromFts did not, archiving
@@ -162,11 +186,57 @@ describe('Feature: CJK recall', () => {
         openDatabase(dbPath);
         const kg2 = new KnowledgeGraph(getDatabase());
         expect(kg2.search('資料庫遷移').map((e) => e.name)).toContain('legacy-note');
+        // Compared against the constant, not a literal. A hardcoded '1' here
+        // turned every future bump of the segmentation rules into a spurious
+        // test failure, which trains people to edit the expectation rather
+        // than ask whether the migration still works.
         expect(
           getDatabase()
             .prepare("SELECT value FROM memesh_metadata WHERE key = 'fts_segmentation_version'")
             .get()
-        ).toEqual({ value: '1' });
+        ).toEqual({ value: String(FTS_SEGMENTATION_VERSION) });
+      } finally {
+        try {
+          closeDatabase();
+        } catch {
+          /* already closed */
+        }
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('leaves a database that is already at the current version alone', () => {
+      // The rebuild is a delete-all over the whole index. It has to be a
+      // once-per-database event: if the version check stops working, every
+      // openDatabase() call — and every hook fires one — pays a full reindex.
+      //
+      // The observable consequence of a rebuild is that hand-written index
+      // state is overwritten, so writing a row the rebuild would not produce
+      // and checking it survives is what distinguishes "skipped" from "ran".
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cjk-idem-'));
+      const dbPath = path.join(dir, 'current.db');
+      try {
+        closeDatabase();
+        const db = openDatabase(dbPath);
+        const id = new KnowledgeGraph(db).createEntity('sentinel', 'note', {
+          observations: ['資料庫遷移前一定要先備份'],
+        });
+
+        // Replace the segmented row with an unsegmented one, but leave the
+        // marker at the current version. A correct guard does not touch it.
+        db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
+        db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(
+          id,
+          'sentinel',
+          '資料庫遷移前一定要先備份'
+        );
+        closeDatabase();
+
+        openDatabase(dbPath);
+        const kg2 = new KnowledgeGraph(getDatabase());
+        // Still unsegmented, so a partial-phrase query cannot reach it. If the
+        // rebuild ran anyway, it was repaired and this finds the row.
+        expect(kg2.search('資料庫遷移').map((e) => e.name)).not.toContain('sentinel');
       } finally {
         try {
           closeDatabase();

@@ -15,6 +15,7 @@ import {
   isTrustedForAutoContext,
   tryRequireBetterSqlite,
   writePrivateJson,
+  hookMatchExpression,
 } from './_shared.js';
 
 const dbPath = getDbPath();
@@ -109,8 +110,13 @@ process.stdin.on('end', () => {
       // Strategy 2: FTS5 search on file name (if not enough results)
       // CRITICAL: Filter by project to prevent cross-project memory injection
       if (results.length < MAX_RESULTS && fileNameNoExt.length >= 4) {
+        // Built by the same function core uses, so this query asks for the
+        // tokens the index actually holds. Quoting the raw basename here meant
+        // a CJK or decomposed-Unicode filename matched nothing at all against
+        // the segmented index — and the catch below made that invisible.
+        const matchExpr = hookMatchExpression(fileNameNoExt);
         try {
-          const ftsResults = db.prepare(`
+          const ftsResults = matchExpr === null ? [] : db.prepare(`
             SELECT DISTINCT e.id, e.name, e.type, e.metadata
             FROM entities e
             JOIN entities_fts fts ON fts.rowid = e.id
@@ -119,7 +125,7 @@ process.stdin.on('end', () => {
               AND t.tag = ?
             ${statusFilter}
             LIMIT ?
-          `).all('"' + fileNameNoExt.replace(/"/g, '""') + '"', projectTag, (MAX_RESULTS - results.length) * 3);
+          `).all(matchExpr, projectTag, (MAX_RESULTS - results.length) * 3);
           // Deduplicate
           for (const r of ftsResults) {
             if (!isTrustedForAutoContext(r.metadata)) continue;
@@ -127,8 +133,15 @@ process.stdin.on('end', () => {
               results.push(r);
             }
           }
-        } catch {
-          // FTS query failed — skip silently
+        } catch (err) {
+          // Never fail the user's edit over a recall miss, but do not pretend
+          // nothing happened either: a silently-skipped FTS query is how this
+          // hook injected zero memories for months without anyone noticing.
+          try {
+            process.stderr.write(
+              `[memesh pre-edit-recall] filename search failed: ${err?.message || err}\n`
+            );
+          } catch { /* stderr must never throw */ }
         }
       }
 
