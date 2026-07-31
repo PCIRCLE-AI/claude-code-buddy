@@ -11,6 +11,7 @@ import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
 import { getDbPath, memeshDir } from './paths.js';
+import { UNSPACED_SCRIPT_GLOB_PREFIX } from '../storage/fts-index.js';
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 const LOCALE_README_FILES = [
@@ -573,7 +574,7 @@ export async function runDoctor(options) {
     const dbChecks = [];
     try {
         const db = openDatabaseImpl(databasePath);
-        const count = db.prepare('SELECT COUNT(*) as c FROM entities').get().c ?? 0;
+        const count = db.prepare('SELECT COUNT(*) as c FROM entities').get()?.c ?? 0;
         dbChecks.push(createCheck('database', 'Database', 'pass', `Database opened successfully at ${databasePath} (${count} entities).`));
         const hasVocab = db
             .prepare(`SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'fts_vocab'`)
@@ -582,9 +583,9 @@ export async function runDoctor(options) {
             const unsegmented = db
                 .prepare(`SELECT term FROM fts_vocab
             WHERE length(term) > 2
-              AND term GLOB '[' || char(13312) || '-' || char(40959) || ']*'
+              AND term GLOB ?
             LIMIT 1`)
-                .get();
+                .get(UNSPACED_SCRIPT_GLOB_PREFIX);
             if (unsegmented?.term) {
                 dbChecks.push(createCheck('fts_segmentation', 'Keyword index segmentation', 'warn', `The keyword index holds unsegmented terms (e.g. "${unsegmented.term}"), so some memories ` +
                     `are only findable by their exact full text. This happens when an older build wrote to a ` +

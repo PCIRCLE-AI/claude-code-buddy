@@ -11,6 +11,7 @@ import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
 import { getDbPath, memeshDir } from './paths.js';
+import { UNSPACED_SCRIPT_GLOB_PREFIX } from '../storage/fts-index.js';
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
 export type DoctorOverallStatus = 'PASS' | 'PASS_WITH_CONCERNS' | 'FAIL';
@@ -53,8 +54,17 @@ interface JsonObject {
   [key: string]: unknown;
 }
 
+/**
+ * The slice of better-sqlite3 doctor uses, so tests can substitute a stub.
+ *
+ * `get` returns `unknown` and takes bind parameters. It used to be typed
+ * `() => { c?: number }` — the shape of the one query that existed when it was
+ * written — which forced every later caller to cast its result to something
+ * else, and a cast is not a check. Returning `unknown` makes each call site
+ * state what it expects at the point it reads it.
+ */
 interface DatabaseLike {
-  prepare: (sql: string) => { get: () => { c?: number } };
+  prepare: (sql: string) => { get: (...params: unknown[]) => unknown };
 }
 
 interface DoctorOptions {
@@ -1452,7 +1462,8 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   const dbChecks: DoctorCheck[] = [];
   try {
     const db = openDatabaseImpl(databasePath) as unknown as DatabaseLike;
-    const count = db.prepare('SELECT COUNT(*) as c FROM entities').get().c ?? 0;
+    const count =
+      (db.prepare('SELECT COUNT(*) as c FROM entities').get() as { c?: number } | undefined)?.c ?? 0;
     dbChecks.push(
       createCheck(
         'database',
@@ -1475,7 +1486,10 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     // side, or a downgrade to recover from a bad release.
     //
     // Detected by looking for what the old rules leave behind: an indexed term
-    // longer than a bigram made entirely of unspaced-script characters. The
+    // longer than a bigram that STARTS with an unspaced-script character. The
+    // range set is imported from `fts-index.ts` rather than repeated here — it
+    // grew from CJK-only to ten ranges, and a hand-written copy would have gone
+    // on reporting a healthy index over an unsegmented Thai one. The
     // segmenting build cannot produce one, so its presence means some rows were
     // written by a build that was not segmenting.
     //
@@ -1494,10 +1508,10 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
         .prepare(
           `SELECT term FROM fts_vocab
             WHERE length(term) > 2
-              AND term GLOB '[' || char(13312) || '-' || char(40959) || ']*'
+              AND term GLOB ?
             LIMIT 1`
         )
-        .get() as { term?: string } | undefined;
+        .get(UNSPACED_SCRIPT_GLOB_PREFIX) as { term?: string } | undefined;
       if (unsegmented?.term) {
         dbChecks.push(
           createCheck(

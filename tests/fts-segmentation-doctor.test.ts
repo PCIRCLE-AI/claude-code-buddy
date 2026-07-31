@@ -28,6 +28,7 @@ import path from 'path';
 import { openDatabase, closeDatabase } from '../src/db.js';
 import { KnowledgeGraph } from '../src/knowledge-graph.js';
 import { runDoctor } from '../src/core/doctor.js';
+import { UNSPACED_SCRIPT_GLOB_PREFIX } from '../src/storage/fts-index.js';
 
 /**
  * The check, lifted verbatim from `runDoctor`.
@@ -42,7 +43,7 @@ import { runDoctor } from '../src/core/doctor.js';
  */
 const SEGMENTATION_SQL = `SELECT term FROM fts_vocab
             WHERE length(term) > 2
-              AND term GLOB '[' || char(13312) || '-' || char(40959) || ']*'
+              AND term GLOB ?
             LIMIT 1`;
 
 describe('Feature: doctor detects a stale (unsegmented) keyword index', () => {
@@ -62,7 +63,12 @@ describe('Feature: doctor detects a stale (unsegmented) keyword index', () => {
 
   function probe(): { term?: string } | undefined {
     const db = openDatabase(dbPath);
-    return db.prepare(SEGMENTATION_SQL).get() as { term?: string } | undefined;
+    // The pattern comes from the same export doctor binds, so the ranges cannot
+    // drift between the check and the test that claims to cover it — which is
+    // the whole reason it is an export and not a literal in either place.
+    return db.prepare(SEGMENTATION_SQL).get(UNSPACED_SCRIPT_GLOB_PREFIX) as
+      | { term?: string }
+      | undefined;
   }
 
   it('finds the whole-run token an older build leaves behind', () => {
@@ -97,6 +103,38 @@ describe('Feature: doctor detects a stale (unsegmented) keyword index', () => {
     // ...and the memory is genuinely reachable by a fragment, which is the
     // user-visible property the whole check is a proxy for.
     expect(kg.search('備份').map((e) => e.name)).toContain('備份紀律');
+  });
+
+  it('detects an unsegmented run in EVERY spaceless script, not just CJK', () => {
+    // The reason the range set is a shared export. The first version of this
+    // check hard-coded `char(13312)`–`char(40959)` — CJK only — which was the
+    // whole class at the time. The class then grew to ten ranges, and a
+    // hand-written copy here would have gone on reporting a healthy index over
+    // a database full of unsegmented Thai: the exact "reports success without
+    // checking" shape this release is about, reintroduced by the fix for it.
+    const db = openDatabase(dbPath);
+    const kg = new KnowledgeGraph(db);
+    const samples = [
+      ['thai', 'สำรองข้อมูลก่อนย้ายฐานข้อมูล'],
+      ['lao', 'ສຳຮອງຂໍ້ມູນກ່ອນຍ້າຍຖານຂໍ້ມູນ'],
+      ['halfwidth', 'ﾃﾞｰﾀﾍﾞｰｽｲｺｳﾏｴﾆﾊﾞｯｸｱｯﾌﾟ'],
+      ['extb', '\u{20BB7}\u{20089}\u{210C1}\u{20BB7}\u{20089}'],
+    ];
+    for (const [label, text] of samples) {
+      const id = kg.createEntity(`row-${label}`, 'note', { observations: [] });
+      // As an older build would have written it: the run, whole.
+      db.prepare(`INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, '')`)
+        .run(id, text);
+      const term = probe()?.term;
+      // Not `toBe(text)`. `unicode61` splits Thai, Lao and Khmer at their
+      // combining marks, so what lands in the index is a long FRAGMENT of the
+      // run rather than the whole of it — still far longer than a bigram, which
+      // is what makes it detectable and what makes the memory unfindable.
+      expect(term, `${label} run went undetected`).toBeDefined();
+      expect([...term!].length, `${label} term is not longer than a bigram`).toBeGreaterThan(2);
+      expect(text, `${label} term is not from the stored text`).toContain(term!);
+      db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
+    }
   });
 
   it('does not fire on Latin text, however long the word', () => {
@@ -141,7 +179,7 @@ describe('Feature: doctor detects a stale (unsegmented) keyword index', () => {
     const db = openDatabase(dbPath);
     new KnowledgeGraph(db).createEntity('a-memory', 'note', { observations: ['hello'] });
     db.exec('DROP TABLE fts_vocab');
-    expect(() => db.prepare(SEGMENTATION_SQL).get()).toThrow(/no such table/);
+    expect(() => db.prepare(SEGMENTATION_SQL).get(UNSPACED_SCRIPT_GLOB_PREFIX)).toThrow(/no such table/);
 
     const result = await runDoctor({
       packageRoot: dir,

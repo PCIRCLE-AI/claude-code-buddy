@@ -26,14 +26,68 @@ import type Database from 'better-sqlite3';
  * was reachable only by searching that exact string, and 「資料庫」 matched
  * nothing. Measured on a mixed corpus, Chinese recall was 2/9.
  *
- * CJK ideographs + compatibility ideographs, kana, and hangul syllables.
+ * The list is derived from the writing system, not from which languages came
+ * up first. Version 2 covered CJK ideographs, kana and hangul — which fixed
+ * Chinese, Japanese and Korean and left every OTHER spaceless script with the
+ * identical defect, undetected because no test used one. Measured on a fresh
+ * database at version 2: Thai, Lao, half-width kana and CJK Extension B all
+ * stored fine and were unfindable by any fragment of themselves.
+ *
+ *   U+0E01-U+0E5B    Thai
+ *   U+0E81-U+0EDF    Lao
+ *   U+1780-U+17FF    Khmer
+ *   U+3400-U+4DBF    CJK Extension A
+ *   U+4E00-U+9FFF    CJK Unified
+ *   U+F900-U+FAFF    CJK compatibility ideographs
+ *   U+3040-U+30FF    kana
+ *   U+AC00-U+D7AF    hangul syllables
+ *   U+FF66-U+FF9D    half-width katakana
+ *   U+20000-U+3FFFF  CJK Extension B and beyond (non-BMP)
+ *
+ * Written as escapes rather than literals: several of these boundaries are
+ * unassigned or non-printing code points, and a character-class range whose
+ * endpoint got mangled by an editor or a terminal fails silently — it just
+ * stops segmenting part of a script.
  *
  * Exported because `knowledge-graph.ts` needs the same set to decide whether a
  * single-character term should become a prefix query. It carried a verbatim
  * copy; adding a range to one and not the other silently desynchronises what
  * the index stores from what a query asks for.
  */
-export const UNSPACED_SCRIPT_CLASS = '㐀-䶿一-鿿豈-﫿぀-ヿ가-힯';
+export const UNSPACED_SCRIPT_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x0e01, 0x0e5b], // Thai
+  [0x0e81, 0x0edf], // Lao
+  [0x1780, 0x17ff], // Khmer
+  [0x3400, 0x4dbf], // CJK Extension A
+  [0x4e00, 0x9fff], // CJK Unified
+  [0xf900, 0xfaff], // CJK compatibility ideographs
+  [0x3040, 0x30ff], // kana
+  [0xac00, 0xd7af], // hangul syllables
+  [0xff66, 0xff9d], // half-width katakana
+  [0x20000, 0x3ffff], // CJK Extension B and beyond
+];
+
+/**
+ * The ranges as a regular-expression character class.
+ *
+ * Derived rather than written out a second time. `doctor.ts` needs the same set
+ * as a SQL `GLOB` pattern to find terms an older build left unsegmented, and a
+ * hand-maintained copy there would have silently gone on checking only CJK
+ * after this list grew \u2014 reporting a healthy index over an unsegmented Thai one,
+ * which is the failure mode that check exists to catch.
+ */
+export const UNSPACED_SCRIPT_CLASS = UNSPACED_SCRIPT_RANGES.map(
+  ([lo, hi]) => `${String.fromCodePoint(lo)}-${String.fromCodePoint(hi)}`
+).join('');
+
+/**
+ * The same set as a SQLite `GLOB` character class, matching a term that STARTS
+ * with an unspaced-script character.
+ *
+ * SQLite's GLOB compares code points, not bytes, so the ranges carry over
+ * directly. Passed as a bound parameter rather than concatenated into the SQL.
+ */
+export const UNSPACED_SCRIPT_GLOB_PREFIX = `[${UNSPACED_SCRIPT_CLASS}]*`;
 
 const UNSPACED_SCRIPT = new RegExp(`[${UNSPACED_SCRIPT_CLASS}]+`, 'gu');
 
@@ -62,9 +116,15 @@ const UNSPACED_SCRIPT = new RegExp(`[${UNSPACED_SCRIPT_CLASS}]+`, 'gu');
  */
 export function segmentUnspacedScripts(text: string): string {
   return text.replace(UNSPACED_SCRIPT, (run) => {
-    if (run.length === 1) return run;
+    // Code POINTS, not UTF-16 code units. CJK Extension B lives above the BMP,
+    // so `run.slice(i, i + 2)` would cut a surrogate pair in half and index
+    // lone surrogates — terms no query can ever produce. While the class held
+    // only BMP ranges the two spellings were identical, which is why the
+    // simpler form was correct right up until the class grew.
+    const chars = [...run];
+    if (chars.length === 1) return run;
     const grams: string[] = [];
-    for (let i = 0; i < run.length - 1; i++) grams.push(run.slice(i, i + 2));
+    for (let i = 0; i < chars.length - 1; i++) grams.push(chars[i] + chars[i + 1]);
     return ` ${grams.join(' ')} `;
   });
 }

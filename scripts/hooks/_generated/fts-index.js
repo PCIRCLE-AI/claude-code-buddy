@@ -6,15 +6,29 @@
 // always-on capture path survives a missing or stale dist/ while staying
 // byte-locked to core — eliminating the hand-mirror drift behind the P0 FTS bug.
 // ============================================================================
-export const UNSPACED_SCRIPT_CLASS = '㐀-䶿一-鿿豈-﫿぀-ヿ가-힯';
+export const UNSPACED_SCRIPT_RANGES = [
+    [0x0e01, 0x0e5b],
+    [0x0e81, 0x0edf],
+    [0x1780, 0x17ff],
+    [0x3400, 0x4dbf],
+    [0x4e00, 0x9fff],
+    [0xf900, 0xfaff],
+    [0x3040, 0x30ff],
+    [0xac00, 0xd7af],
+    [0xff66, 0xff9d],
+    [0x20000, 0x3ffff],
+];
+export const UNSPACED_SCRIPT_CLASS = UNSPACED_SCRIPT_RANGES.map(([lo, hi]) => `${String.fromCodePoint(lo)}-${String.fromCodePoint(hi)}`).join('');
+export const UNSPACED_SCRIPT_GLOB_PREFIX = `[${UNSPACED_SCRIPT_CLASS}]*`;
 const UNSPACED_SCRIPT = new RegExp(`[${UNSPACED_SCRIPT_CLASS}]+`, 'gu');
 export function segmentUnspacedScripts(text) {
     return text.replace(UNSPACED_SCRIPT, (run) => {
-        if (run.length === 1)
+        const chars = [...run];
+        if (chars.length === 1)
             return run;
         const grams = [];
-        for (let i = 0; i < run.length - 1; i++)
-            grams.push(run.slice(i, i + 2));
+        for (let i = 0; i < chars.length - 1; i++)
+            grams.push(chars[i] + chars[i + 1]);
         return ` ${grams.join(' ')} `;
     });
 }

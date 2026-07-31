@@ -96,6 +96,27 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(code(script)).toMatch(/env -u MEMESH_DIR -u MEMESH_DB_PATH/);
   });
 
+  it('the build-output gate builds before it diffs', () => {
+    // Without this the gate has an unenforced precondition, and an unenforced
+    // precondition is how it reports the exact defect it exists to catch as a
+    // pass: `npm run verify:release` on its own printed "✓ committed build
+    // output is current" having built nothing, which is true of ANY tree whose
+    // dist/ matches HEAD — including one whose source was edited and never
+    // rebuilt. Confirmed by hand: with a one-line edit to
+    // `src/core/version-check.ts` and no build, `git diff -- dist` was empty
+    // (old gate: green tick) and the current script exits 1 naming the two
+    // stale files.
+    const text = read('scripts/check-generated-mirror.mjs');
+    const buildAt = text.search(/npmSync\(\s*\['run',\s*'build'\]/);
+    const diffAt = text.search(/'diff',\s*'--stat'/);
+    expect(buildAt, 'the gate does not run the build').toBeGreaterThan(-1);
+    expect(diffAt, 'the gate does not diff the build outputs').toBeGreaterThan(-1);
+    expect(buildAt, 'the gate diffs before it builds').toBeLessThan(diffAt);
+    // A failed build must fail the gate. Reporting "output is current" because
+    // the compiler crashed is the same class of lie one level up.
+    expect(text).toMatch(/catch[\s\S]{0,200}process\.exit\(1\)/);
+  });
+
   it('the test runner it shares with prepublishOnly also isolates HOME', () => {
     // Same guarantee, other entry point. `prepublishOnly` reaches the suite
     // through run-tests-isolated.mjs rather than this script, and it had the

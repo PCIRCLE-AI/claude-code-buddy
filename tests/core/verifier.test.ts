@@ -60,6 +60,10 @@ describe('verifyAgentWork — reality check', () => {
     expect(result.reality_check.match).toBe(true);
     expect(result.reality_check.files_changed).toBe(2);
     expect(result.entity_name).toMatch(/^verification:agent-1:/);
+    // Both aliases track `verdict`, so a 4.2.10 caller reading either keeps
+    // getting the right answer on the path that always worked.
+    expect(result.pass).toBe(true);
+    expect(result.reality_check.pass).toBe(true);
   });
 
   it('fails when claim says fewer files than actual', () => {
@@ -99,6 +103,14 @@ describe('verifyAgentWork — reality check', () => {
     expect(result.reality_check.match).toBeNull();
     expect(result.reality_check.files_changed).toBe(1);
     expect(result.reality_check.summary).toContain('no claim to check against');
+
+    // The deprecated booleans, at BOTH levels, and specifically for the case
+    // the old encoding got wrong. 4.2.10 shipped `pass` on the result AND on
+    // `reality_check`; keeping one as an alias while deleting the other broke a
+    // caller for exactly the reason given for not breaking the first. Present,
+    // and `false` here — an unverified run is not a pass.
+    expect(result.pass).toBe(false);
+    expect(result.reality_check.pass).toBe(false);
   });
 
   it('a claim alone is enough to earn a pass', () => {

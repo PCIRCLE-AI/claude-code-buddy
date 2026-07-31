@@ -563,7 +563,7 @@ export function openHookDb(env = process.env, opts = {}) {
  * MUST match `FTS_SEGMENTATION_VERSION` in src/db.ts — pinned by
  * `tests/hooks/mirror-parity.test.ts`.
  */
-export const FTS_SEGMENTATION_VERSION = 2;
+export const FTS_SEGMENTATION_VERSION = 3;
 
 /** Same cap core uses, so a pathological filename cannot build a huge query. */
 const HOOK_MAX_QUERY_TERMS = 32;

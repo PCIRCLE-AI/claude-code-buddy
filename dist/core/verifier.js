@@ -74,7 +74,13 @@ function resolveBase(workdir, explicit) {
         return null;
     }
 }
+function withPassAlias(rc) {
+    return { ...rc, pass: rc.verdict === 'pass' };
+}
 function realityCheck(workdir, base, expectedFiles) {
+    return withPassAlias(computeRealityCheck(workdir, base, expectedFiles));
+}
+function computeRealityCheck(workdir, base, expectedFiles) {
     if (!base) {
         return {
             files_changed: 0,

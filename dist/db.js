@@ -151,7 +151,7 @@ export function openDatabase(dbPath) {
     ensureVecTable(db, targetDim, dimensionKnown, configPresent);
     return db;
 }
-export const FTS_SEGMENTATION_VERSION = 2;
+export const FTS_SEGMENTATION_VERSION = 3;
 const MIGRATION_RETRY_BACKOFF_MS = 24 * 60 * 60 * 1000;
 function isTransientDbError(err) {
     const code = err?.code ?? '';

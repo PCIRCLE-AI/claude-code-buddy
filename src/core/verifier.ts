@@ -88,6 +88,19 @@ export interface RealityCheckResult {
   match: boolean | null;  // null when no claim to check against
   base: string | null;
   verdict: Verdict;
+  /**
+   * @deprecated Use `verdict`. Same alias, same reason, same removal cycle as
+   * `VerifyAgentWorkResult.pass` above.
+   *
+   * 4.2.10 shipped BOTH booleans. The top-level one was kept as an alias
+   * precisely so a patch release would not break a consumer reading it — and
+   * this one was dropped outright in the same release, which breaks a consumer
+   * reading it for exactly the reason given for not breaking the other. The
+   * asymmetry was not a decision; it was an omission. `undefined` is falsy, so
+   * `if (rc.pass)` quietly became "never passing" and `if (!rc.pass)` became
+   * "always failing", and neither reports why.
+   */
+  pass: boolean;
   summary: string;
 }
 
@@ -197,7 +210,26 @@ function resolveBase(workdir: string, explicit?: string): string | null {
   }
 }
 
+/**
+ * Attach the deprecated `pass` alias.
+ *
+ * One place, not four. Setting it at each `return` is how the two booleans
+ * drifted apart to begin with: it is only correct if every author of every
+ * future early return remembers, and the reality-check has four of them.
+ */
+function withPassAlias(rc: Omit<RealityCheckResult, 'pass'>): RealityCheckResult {
+  return { ...rc, pass: rc.verdict === 'pass' };
+}
+
 function realityCheck(workdir: string, base: string | null, expectedFiles?: number): RealityCheckResult {
+  return withPassAlias(computeRealityCheck(workdir, base, expectedFiles));
+}
+
+function computeRealityCheck(
+  workdir: string,
+  base: string | null,
+  expectedFiles?: number,
+): Omit<RealityCheckResult, 'pass'> {
   // Could not check, as opposed to checked and found wrong. These used to
   // return `pass: false`, which reads as "the agent's work failed" when what
   // actually happened is that this tool could not run.

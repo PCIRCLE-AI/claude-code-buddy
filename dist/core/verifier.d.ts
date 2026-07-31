@@ -25,6 +25,7 @@ export interface RealityCheckResult {
     match: boolean | null;
     base: string | null;
     verdict: Verdict;
+    pass: boolean;
     summary: string;
 }
 export interface VerifyAgentWorkResult {

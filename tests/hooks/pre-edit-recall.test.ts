@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync, spawnSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
@@ -27,19 +27,38 @@ describe('Feature: Pre-Edit Recall Hook', () => {
   // basename fallback — deterministic and independent of the checkout's git
   // remote / clone directory name. Tests that assert project-tag matching then
   // use path.basename(testDir), which the hook and the test agree on exactly.
+  /**
+   * Runs the hook and INSISTS it exited cleanly.
+   *
+   * This used to be `catch { return ''; }`, which made a crashed hook
+   * indistinguishable from a hook that correctly found nothing to inject — so
+   * "should return empty when no database exists" and "should return empty for
+   * a non-file tool" passed on a hook with a syntax error, a missing module or
+   * an unhandled throw. Those two cases are the graceful-degradation
+   * guarantee, and swallowing the exception is precisely what stopped them
+   * asserting it.
+   *
+   * A PreToolUse hook that exits non-zero is not a silent no-op in production
+   * either: Claude Code surfaces it, on every single Edit and Write.
+   */
   function runHook(input: object): string {
     const hookPath = path.resolve('scripts/hooks/pre-edit-recall.js');
     const jsonInput = JSON.stringify({ cwd: testDir, ...input });
-    try {
-      return execFileSync('node', [hookPath], {
-        input: jsonInput,
-        env: { ...process.env, MEMESH_DB_PATH: dbPath },
-        encoding: 'utf8',
-        timeout: 10000,
-      }).trim();
-    } catch {
-      return '';
-    }
+    const result = spawnSync('node', [hookPath], {
+      input: jsonInput,
+      env: { ...process.env, MEMESH_DB_PATH: dbPath },
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    if (result.error) throw result.error;
+    expect(
+      result.status,
+      `hook exited ${result.status}\nstderr:\n${result.stderr}`,
+    ).toBe(0);
+    // Nothing to say is said by saying nothing — a warning on stderr before
+    // every edit is as much a defect as a crash.
+    expect(result.stderr.trim(), 'hook wrote to stderr').toBe('');
+    return result.stdout.trim();
   }
 
   // The project name the hook will derive for these tests (basename of the

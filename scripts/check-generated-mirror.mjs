@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { npmSync } from './lib/npm-bin.mjs';
 
 /**
  * Fail if any COMMITTED BUILD OUTPUT is stale.
@@ -28,7 +29,15 @@ import { execFileSync } from 'node:child_process';
  * else), so it is gone, and the build is now reproducible — verified by
  * building twice and comparing bytes.
  *
- * MUST run after `npm run build`.
+ * This script BUILDS, then diffs. It used to only diff, with a comment saying
+ * "MUST run after `npm run build`" and nothing enforcing it — so
+ * `npm run verify:release` on its own printed "✓ committed build output is
+ * current" having built nothing, which is true of any tree whose `dist/`
+ * matches `HEAD`, including one whose source was edited and never rebuilt.
+ * That is the precise defect the gate exists to catch, reported as a pass. A
+ * precondition stated in a comment is not a precondition; running the build
+ * here costs ~4s and removes the ordering requirement instead of documenting
+ * it.
  *
  * Extracted from an inline block in ci.yml because the publish workflow needs
  * the same gate and did not have it. Two hand-maintained copies of "what must
@@ -37,6 +46,19 @@ import { execFileSync } from 'node:child_process';
  * scripts/lib/executable-targets.mjs.
  */
 const BUILD_OUTPUTS = ['scripts/hooks/_generated', 'dist', 'dashboard/dist'];
+
+// `npm run build` does not invoke this script, so there is no recursion. CI and
+// `prepublishOnly` build before calling it and therefore build twice; 4s of
+// duplicated work is the price of the gate being sound when invoked alone.
+try {
+  npmSync(['run', 'build'], { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
+} catch (err) {
+  console.error(
+    `✗ build failed, so the committed output cannot be checked against source.\n` +
+      `${err.stderr ?? err.message}`
+  );
+  process.exit(1);
+}
 
 let diff;
 try {

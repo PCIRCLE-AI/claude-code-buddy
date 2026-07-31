@@ -241,8 +241,16 @@ export function openDatabase(dbPath?: string): Database.Database {
  *       (`segmentUnspacedScripts` in src/storage/fts-index.ts). Before this,
  *       `unicode61` indexed an unbroken run as a single token, so a Chinese
  *       memory was reachable only by searching the exact stored string.
+ *
+ *   3 — the same treatment for every OTHER spaceless script. Version 2 listed
+ *       the scripts that had come up rather than the property that matters, so
+ *       Thai, Lao, half-width katakana and CJK Extension B kept the exact
+ *       defect version 1 fixed — measured on a fresh database, each stored
+ *       fine and was unfindable by any fragment of itself. Segmentation is
+ *       also code-point aware now; Extension B is above the BMP, and building
+ *       bigrams over UTF-16 code units would have indexed half-surrogates.
  */
-export const FTS_SEGMENTATION_VERSION = 2;
+export const FTS_SEGMENTATION_VERSION = 3;
 
 /**
  * Rebuild `entities_fts` when the segmentation rules have changed.

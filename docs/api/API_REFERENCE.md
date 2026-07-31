@@ -389,7 +389,7 @@ Persist a verification report for work done by a background agent. Runs a determ
 
 `unverified` is also returned when the check could not run at all: no git base discoverable, or `git diff` failed. That is distinct from `fail`, which means something was checked and did not hold.
 
-This field replaces the previous `pass: boolean`, which returned `true` for the no-claim-no-report case. `pass` is **kept as a deprecated alias** for `verdict === 'pass'`, so upgrading from 4.2.10 does not break a caller that reads it — but it now reads `false` for an unverified run, where the old boolean read `true`. Read `verdict`: it is the only one of the two that can tell "checked and wrong" from "nothing was checked". The nested `reality_check.pass` is **removed** rather than aliased; use `reality_check.verdict`.
+This field replaces the previous `pass: boolean`, which returned `true` for the no-claim-no-report case. `pass` is **kept as a deprecated alias** for `verdict === 'pass'`, so upgrading from 4.2.10 does not break a caller that reads it — but it now reads `false` for an unverified run, where the old boolean read `true`. Read `verdict`: it is the only one of the two that can tell "checked and wrong" from "nothing was checked". The nested `reality_check.pass` is a deprecated alias on the same terms — 4.2.10 shipped both booleans, and dropping one while aliasing the other would break a caller for exactly the reason given for not breaking the other. Both are removed together in a later minor.
 
 **Parameters:**
 - `agent_id` (string, required) — Identifier for the agent whose work is being verified.
@@ -413,6 +413,7 @@ This field replaces the previous `pass: boolean`, which returned `true` for the 
     "match": true,
     "base": "97cc25e9...",
     "verdict": "pass",
+    "pass": true,
     "summary": "reality OK: 5/5 files"
   },
   "external_report": { "...": "echo of input report or null" },
@@ -432,6 +433,7 @@ With neither `claim` nor `report`:
     "match": null,
     "base": "97cc25e9...",
     "verdict": "unverified",
+    "pass": false,
     "summary": "5 files changed (no claim to check against)"
   },
   "external_report": null,
@@ -826,6 +828,15 @@ report, then persists a `verification_record` entity.
 `2` is deliberately non-zero so `memesh verify … && deploy` does not deploy on
 a check that never ran. A boolean could not express this: `true` used to mean
 both "verified and correct" and "had nothing to verify".
+
+**Migrating from 4.2.10 or earlier.** This is a behaviour change, and the
+direction matters: a call with no `--expected-files` and no `--report` used to
+print `PASS` and exit `0`, and now prints `UNVERIFIED` and exits `2`. Any gate
+written as `memesh verify … && <next step>` that was passing on nothing will
+now stop — which is the point, but it will look like a new failure. The fix is
+to give it something to check (`--expected-files <n>`, `--report <file>`, or
+both), not to ignore the exit code. If you genuinely want a recorded snapshot
+with no gate, call it and discard the status explicitly: `memesh verify … || true`.
 
 **Usage**:
 

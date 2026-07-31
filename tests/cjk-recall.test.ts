@@ -32,6 +32,100 @@ describe('Feature: CJK recall', () => {
     kg = new KnowledgeGraph(getDatabase());
   });
 
+  /**
+   * Every spaceless script, not only the three that came up first.
+   *
+   * Version 2 of the segmentation rules listed CJK ideographs, kana and hangul
+   * — the scripts a Chinese, Japanese or Korean user would have reported — and
+   * so fixed those three and left every other spaceless writing system with the
+   * identical, invisible defect. Measured on a fresh database at version 2:
+   * Thai, Lao, Khmer, half-width katakana and CJK Extension B each stored
+   * correctly and were unfindable by any fragment of themselves. Nothing failed;
+   * the memory was simply not there when searched for.
+   *
+   * These run through the real index and the real query builder, because the
+   * bug is in the AGREEMENT between the two halves and a unit test of either
+   * half alone would have passed at version 2 as well.
+   */
+  describe('every spaceless script, not only CJK', () => {
+    it.each([
+      // script,          stored text,                          a fragment a user would type
+      ['Thai',            'สำรองข้อมูลก่อนย้ายฐานข้อมูล',              'สำรอง'],
+      ['Lao',             'ສຳຮອງຂໍ້ມູນກ່ອນຍ້າຍຖານຂໍ້ມູນ',                'ສຳຮອງ'],
+      ['Khmer',           'បម្រុងទុកមុនពេលផ្លាស់ទីមូលដ្ឋានទិន្នន័យ',       'បម្រុង'],
+      ['half-width kana', 'ﾃﾞｰﾀﾍﾞｰｽｲｺｳﾏｴﾆﾊﾞｯｸｱｯﾌﾟ',                'ﾊﾞｯｸ'],
+      // Above the BMP: each character is a surrogate PAIR, so bigrams built
+      // over UTF-16 code units would index half-surrogates and this fragment
+      // could never match anything.
+      ['CJK Extension B', '\u{20BB7}\u{20089}\u{210C1}\u{20BB7}\u{20089}',  '\u{20089}'],
+    ])('finds a %s memory by a fragment of it', (script, stored, fragment) => {
+      kg.createEntity(`note-${script}`, 'note', { observations: [stored] });
+      expect(kg.search(fragment).map((e) => e.name)).toContain(`note-${script}`);
+    });
+
+    it('indexes no term longer than a bigram for any of them', () => {
+      // The property underneath all of the above, and the one doctor's
+      // `fts_segmentation` check looks for. A surviving long term means some
+      // run was not segmented — the state in which a memory is stored, intact,
+      // and reachable only by its exact full text.
+      for (const text of [
+        'สำรองข้อมูลก่อนย้ายฐานข้อมูล',
+        'ສຳຮອງຂໍ້ມູນກ່ອນຍ້າຍຖານຂໍ້ມູນ',
+        'ﾃﾞｰﾀﾍﾞｰｽｲｺｳﾏｴﾆﾊﾞｯｸｱｯﾌﾟ',
+        '\u{20BB7}\u{20089}\u{210C1}\u{20BB7}\u{20089}',
+      ]) {
+        kg.createEntity(`len-${text.slice(0, 4)}`, 'note', { observations: [text] });
+      }
+      const long = (
+        getDatabase().prepare('SELECT term FROM fts_vocab').all() as { term: string }[]
+      )
+        .map((r) => r.term)
+        .filter((t) => [...t].length > 2 && !/^[\p{Script=Latin}\p{N}-]+$/u.test(t));
+      expect(long).toEqual([]);
+    });
+
+    it('builds bigrams across a BMP / non-BMP boundary', () => {
+      // The case that makes segmentation code-point aware rather than
+      // code-unit aware, and the one a run of ONLY Extension B characters
+      // cannot expose: with `run.slice(i, i + 2)` over UTF-16 code units, a run
+      // of pure surrogate pairs still yields every real character at the even
+      // offsets, so it matches by accident. Put ONE BMP character next to one
+      // above the BMP and the alignment breaks — the slice straddling them is
+      // [low surrogate] + 「資」, so the legitimate bigram is never produced at
+      // all and no query can reach it.
+      const mixed = '\u{20BB7}\u8CC7';
+      expect(segmentUnspacedScripts(mixed).trim()).toBe(mixed);
+
+      kg.createEntity('boundary', 'note', { observations: [`${mixed}\u6599\u5EAB`] });
+      expect(kg.search(mixed).map((e) => e.name)).toContain('boundary');
+    });
+
+    it('never indexes half of a surrogate pair', () => {
+      // A lone surrogate is not a character. It cannot be typed, so no query
+      // produces it — it is pure index weight, and it is what code-unit slicing
+      // emits at every odd offset of a non-BMP run.
+      const out = segmentUnspacedScripts('\u{20BB7}\u{20089}\u{210C1}');
+      expect(out).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/); // unpaired high
+      expect(out).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/); // unpaired low
+    });
+
+    it('leaves a single non-BMP character untouched', () => {
+      // `chars.length === 1` has to count characters. Counting code units makes
+      // one Extension B character look like two, so it takes the bigram branch
+      // and comes back wrapped in spaces instead of unchanged.
+      expect(segmentUnspacedScripts('\u{20BB7}')).toBe('\u{20BB7}');
+    });
+
+    it('still leaves spaced scripts completely alone', () => {
+      // Widening the class is exactly how you accidentally start bigramming a
+      // script that uses spaces, which would wreck recall for it. Cyrillic and
+      // Greek are the near neighbours most at risk from a sloppy range.
+      for (const text of ['резервная копия базы данных', 'αντίγραφο ασφαλείας', 'नियमित बैकअप']) {
+        expect(segmentUnspacedScripts(text)).toBe(text);
+      }
+    });
+  });
+
   describe('segmentUnspacedScripts', () => {
     it('splits an unbroken run into overlapping bigrams', () => {
       expect(segmentUnspacedScripts('資料庫遷移').trim()).toBe('資料 料庫 庫遷 遷移');

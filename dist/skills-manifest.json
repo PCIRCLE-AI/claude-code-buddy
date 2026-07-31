@@ -23,12 +23,12 @@
     },
     {
       "path": "scripts/hooks/_generated/fts-index.js",
-      "sha256": "32bb3f9c1620fa3b9eb9692618f980cfa931ed265a7380d1ec2fe188046c16b5",
-      "bytes": 2633
+      "sha256": "2ab273942523ff3c135e69feb93d526972c9fb247da289b86407d1edcb06851f",
+      "bytes": 3083
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "a1635cb80aab389701395c6b4415e36187d955abf47ea55c61547ae93e155225",
+      "sha256": "8e2bc8082997e1da4eabc1c9cb9adb15bf24fad1ff00cc60a98f3bf4fbc86e70",
       "bytes": 46487
     },
     {
