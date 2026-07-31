@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import { execFileSync } from 'child_process';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+// Plain JS build helper with no type declarations — the same derivation the
+// build's chmod step and the packaged-artifact smoke test use.
+const { hookCommands, binTargets } = require('../scripts/lib/executable-targets.mjs') as {
+  hookCommands: (packageDir: string) => string[];
+  binTargets: (packageDir: string) => string[];
+};
 
 describe('Installation Verification', () => {
   describe('Prerequisites', () => {
@@ -55,7 +64,13 @@ describe('Installation Verification', () => {
       //    on disk under scripts/hooks/. This catches the inverse drift
       //    (hooks.json grows but the script never lands in the package).
       const declaredScripts = new Set<string>();
-      for (const arr of Object.values(hooks.hooks) as Array<{ hooks?: Array<{ command?: string }> }>) {
+      // Each value in hooks.hooks is an ARRAY of matcher objects, so the cast
+      // needs both levels — the previous one-level version described the
+      // element type and made `for (const entry of arr)` a type error.
+      const matcherGroups = Object.values(hooks.hooks) as Array<
+        Array<{ hooks?: Array<{ command?: string }> }>
+      >;
+      for (const arr of matcherGroups) {
         for (const entry of arr ?? []) {
           for (const h of entry.hooks ?? []) {
             if (typeof h.command === 'string') {
@@ -83,18 +98,41 @@ describe('Installation Verification', () => {
   });
 
   describe('Hook Scripts', () => {
-    const hookFiles = [
-      'scripts/hooks/session-start.js',
-      'scripts/hooks/post-commit.js',
-      'scripts/hooks/session-summary.js',
-      'scripts/hooks/pre-compact.js',
-      'scripts/hooks/pre-edit-recall.js',
-    ];
+    // Derived from hooks/hooks.json, not written out here. The hand-written
+    // version of this list said five while the project shipped seven, and
+    // ci.yml documents that exact drift as a past incident that "went
+    // unnoticed for a full release cycle". A list that has to be updated by
+    // hand when a hook is added is a list that will be wrong.
+    const hookFiles = hookCommands(process.cwd());
+
+    it('covers every hook the plugin manifest declares', () => {
+      // Guards the derivation itself: if the shape of hooks.json changes and
+      // the parse silently yields nothing, every case below would vacuously
+      // pass by iterating an empty list.
+      expect(hookFiles.length).toBeGreaterThanOrEqual(7);
+    });
 
     it.each(hookFiles)('%s should exist and be executable', (hookPath) => {
       expect(fs.existsSync(hookPath)).toBe(true);
       if (process.platform !== 'win32') {
         const stat = fs.statSync(hookPath);
+        expect(stat.mode & 0o111).toBeTruthy();
+      }
+    });
+  });
+
+  describe('Declared commands', () => {
+    // package.json `bin` is the other manifest the executable-bit list is
+    // derived from. `dist/transports/cli/cli.js` — the `memesh` command — and
+    // `dist/transports/http/server.js` were both committed at mode 100644
+    // because the hand-written chmod list had drifted from `bin` in both
+    // directions.
+    const commands = binTargets(process.cwd());
+
+    it.each(commands)('%s should exist and be executable', (binPath) => {
+      expect(fs.existsSync(binPath)).toBe(true);
+      if (process.platform !== 'win32') {
+        const stat = fs.statSync(binPath);
         expect(stat.mode & 0o111).toBeTruthy();
       }
     });

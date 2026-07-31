@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { binTargets, hookCommands } from './lib/executable-targets.mjs';
 
 const repoRoot = process.cwd();
 const smokeDir = path.join(repoRoot, 'tmp', 'pack-smoke');
@@ -104,30 +105,30 @@ for (const relativePath of requiredFiles) {
   );
 }
 
-// Every hook the plugin manifest can invoke has to be in the tarball. Deriving
-// the list from hooks.json rather than repeating it here is the point: a
-// hand-written list drifted to five entries while the project shipped seven,
-// so two hooks were packaged but never checked, and a narrowed `files` glob
-// would have produced a tarball this test called good.
-const hooksManifest = JSON.parse(
-  fs.readFileSync(path.join(packageDir, 'hooks', 'hooks.json'), 'utf8')
-);
-const hookCommands = new Set(
-  Object.values(hooksManifest.hooks ?? {})
-    .flat()
-    .flatMap((matcher) => matcher.hooks ?? [])
-    .map((hook) => hook.command)
-    .filter((command) => typeof command === 'string')
-    .map((command) => command.replace('${CLAUDE_PLUGIN_ROOT}/', '').split(' ')[0])
-);
+// Every hook the plugin manifest can invoke, and every command package.json
+// declares, has to be in the tarball AND be runnable. Both lists are derived
+// from their manifests (see scripts/lib/executable-targets.mjs) because both
+// hand-written copies had drifted.
+//
+// Present-but-not-executable is the failure this checks for beyond existence:
+// Claude Code exec()s hook commands directly, so a hook packed without its +x
+// bit is a silent total dropout — the tarball looks complete and the hook
+// never runs.
+const declaredExecutables = [
+  ...binTargets(packageDir).map((p) => ({ relativePath: p, kind: 'bin (package.json)' })),
+  ...hookCommands(packageDir).map((p) => ({ relativePath: p, kind: 'hook (hooks/hooks.json)' })),
+];
 
-assert.ok(hookCommands.size > 0, 'hooks.json declared no hook commands — the derivation above is broken');
+for (const { relativePath, kind } of declaredExecutables) {
+  const full = path.join(packageDir, relativePath);
+  assert.ok(fs.existsSync(full), `Missing packaged ${kind}: ${relativePath}`);
 
-for (const relativePath of hookCommands) {
-  assert.ok(
-    fs.existsSync(path.join(packageDir, relativePath)),
-    `Missing packaged hook (declared in hooks/hooks.json): ${relativePath}`
-  );
+  if (process.platform !== 'win32') {
+    assert.ok(
+      fs.statSync(full).mode & 0o111,
+      `Packaged ${kind} is not executable: ${relativePath} — it would be present but unrunnable`
+    );
+  }
 }
 
 const packagedJson = JSON.parse(
