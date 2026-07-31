@@ -41,6 +41,14 @@ rows, which are never touched — nothing is deleted and nothing needs re-enteri
 
   Preventive rather than remedial — no one is at a scale where this bites today, which is why it had to be free at every size to justify shipping.
 
+### Security
+
+- **The local embedding runtime is no longer installed by default** (`package.json`) — `@huggingface/transformers` is an optional peer dependency now, so a plain `npm i @pcircle/memesh` no longer pulls `onnxruntime-node` (→ `adm-zip`) and `sharp`, which between them carried five high-severity advisories with no fix available upstream. Recall does not need it: the published 95.60% R@5 is Mode A, measured with **no embeddings at all**, and Mode B with embeddings scores identically. The code already degraded gracefully when the package was absent. Users who want local ONNX embeddings install it alongside; BYOK OpenAI/Ollama embeddings are unaffected.
+
+  Measured on a real consumer install of the packed tarball: before, `sharp@0.34.5` + `adm-zip@0.5.18` and 5 high advisories; after, neither package present, no advisories, and English and Chinese recall both still work.
+
+- **The dependency gate now measures what ships, not what this repo has** (`scripts/check-consumer-audit.mjs`) — `npm audit --omit=dev` run in the repo audits the repo's own tree, and npm applies `overrides` only at the install root, so the overrides added here changed what this project tests and changed nothing for a consumer. A gate reporting success against a tree nobody installs is the same defect as the benchmark that scored a reimplementation. `npm run audit:prod` now packs the tarball, installs it the way a user does, and audits there — and refuses to pass if the install produced no tree.
+
 ### Fixed
 
 - **A memory written while the index rebuilt could vanish from search, permanently** (`src/db.ts`, `scripts/hooks/_shared.js`) — the rebuild read its source rows *before* opening its transaction, and better-sqlite3's default transaction is `BEGIN DEFERRED`, so no write lock existed until the first statement inside it. Seven hooks, the MCP server, the HTTP server and the CLI all open this database, so an entity committed in that window was erased by `delete-all` and never reinserted; the version marker then committed, so it never retried. The entity row survived, which is why nothing noticed. Migrations now run through one helper that takes `BEGIN IMMEDIATE`, re-checks the version under the lock, and backs off 24h after a failure instead of re-scanning the whole corpus on every process start. Hooks run the same migration — they previously did not, leaving hook-only users with a permanently half-segmented index and a "database disk image is malformed" message on stderr.
