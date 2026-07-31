@@ -1,6 +1,6 @@
 {
   "schema": "memesh.skills-manifest/v1",
-  "generated_at": "2026-07-31T02:49:34.817Z",
+  "generated_at": "2026-07-31T02:55:43.231Z",
   "entries": [
     {
       "path": ".claude-plugin/plugin.json",

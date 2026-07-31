@@ -430,7 +430,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
                 fontSize: 12,
                 background: testResult.valid ? 'rgba(0, 214, 180, 0.08)' : 'rgba(255, 107, 107, 0.08)',
                 border: `1px solid ${testResult.valid ? 'rgba(0, 214, 180, 0.4)' : 'rgba(255, 107, 107, 0.4)'}`,
-                color: testResult.valid ? '#00D6B4' : '#ff6b6b',
+                color: testResult.valid ? 'var(--accent)' : 'var(--danger)',
               }}
             >
               {testResult.valid
@@ -528,7 +528,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             }}
             data-testid="settings-deprecation-warning"
           >
-            <strong style={{ color: '#ff6b6b' }}>
+            <strong style={{ color: 'var(--danger)' }}>
               {t('settings.updateDeprecatedTitle', { version: updateStatus.currentVersion })}
             </strong>
             <div style={{ marginTop: 4, opacity: 0.9 }}>{updateStatus.deprecationMessage}</div>

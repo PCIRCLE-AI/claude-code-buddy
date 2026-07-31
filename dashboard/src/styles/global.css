@@ -431,11 +431,11 @@ mark { background: rgba(0, 214, 180, 0.15); color: inherit; padding: 1px 2px; bo
   border-radius: 4px;
   padding: 10px 12px;
   color: inherit;
-  font-family: var(--font-mono, monospace);
+  font-family: var(--mono);
   font-size: 13px;
 }
 .auth-prompt-card input:focus { outline: none; border-color: var(--border-focus); }
-.auth-prompt-error { color: #ff6b6b; font-size: 12px; margin: 0; }
+.auth-prompt-error { color: var(--danger); font-size: 12px; margin: 0; }
 .auth-prompt-submit {
   background: var(--border-focus);
   color: var(--bg-0);
