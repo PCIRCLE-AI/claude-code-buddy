@@ -1,8 +1,7 @@
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { NPM } from './lib/npm-bin.mjs';
+import { npmSync, assertSafeShellArg } from './lib/npm-bin.mjs';
 
 /**
  * Audit the dependency tree a CONSUMER resolves, not the one this repo has.
@@ -31,11 +30,21 @@ const repoRoot = process.cwd();
 
 let workDir;
 try {
-  const packOut = execFileSync(NPM, ['pack', '--silent'], {
+  const packOut = npmSync(['pack', '--silent'], {
     cwd: repoRoot,
     encoding: 'utf8',
   }).trim();
-  const tarball = packOut.split('\n').filter(Boolean).pop();
+  // Split on CRLF too — npm's stdout on Windows ends lines with \r\n, and a
+  // trailing \r would corrupt both the path join and the validation below.
+  //
+  // The one argument below that is not a literal from this file. On Windows the
+  // install runs through a command interpreter, so it is validated rather than
+  // trusted — npm derives the name from package name + version, but "derived
+  // from a file we control" is not the same as "checked".
+  const tarball = assertSafeShellArg(
+    packOut.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).pop(),
+    'the tarball name npm pack reported'
+  );
   const tarballPath = path.join(repoRoot, tarball);
 
   if (!fs.existsSync(tarballPath)) {
@@ -47,8 +56,8 @@ try {
   fs.copyFileSync(tarballPath, path.join(workDir, tarball));
   fs.unlinkSync(tarballPath);
 
-  execFileSync(NPM, ['init', '-y'], { cwd: workDir, stdio: 'ignore' });
-  execFileSync(NPM, ['install', '--omit=dev', '--ignore-scripts', `./${tarball}`], {
+  npmSync(['init', '-y'], { cwd: workDir, stdio: 'ignore' });
+  npmSync(['install', '--omit=dev', '--ignore-scripts', `./${tarball}`], {
     cwd: workDir,
     stdio: 'ignore',
   });
@@ -65,7 +74,7 @@ try {
   let auditOut = '';
   let clean = true;
   try {
-    auditOut = execFileSync(NPM, ['audit', '--omit=dev', `--audit-level=${AUDIT_LEVEL}`], {
+    auditOut = npmSync(['audit', '--omit=dev', `--audit-level=${AUDIT_LEVEL}`], {
       cwd: workDir,
       encoding: 'utf8',
     });

@@ -99,3 +99,36 @@ describe('Feature: the consumer audit cannot pass on an empty tree', () => {
     expect(`${res.stdout}${res.stderr}`).toMatch(/did not install|nothing was audited/i);
   });
 });
+
+describe('Feature: the only non-literal argument is checked, not trusted', () => {
+  // On Windows npm can only be spawned through a command interpreter — Node
+  // refuses to exec a `.cmd` without `shell: true` since CVE-2024-27980 — so
+  // the tarball name `npm pack` prints is re-parsed by cmd.exe. It comes from
+  // package name + version in a file we control, which is a reason to expect it
+  // to be safe and not a reason to skip checking.
+  it('accepts real tarball names and rejects interpreter syntax', async () => {
+    const { assertSafeShellArg } = await import('../scripts/lib/npm-bin.mjs');
+
+    expect(assertSafeShellArg('pcircle-memesh-4.2.11.tgz', 'x')).toBe(
+      'pcircle-memesh-4.2.11.tgz'
+    );
+    expect(assertSafeShellArg('@pcircle/memesh-4.2.11.tgz', 'x')).toBeTruthy();
+
+    // Allow-list, not deny-list: `%` and `^` are cmd.exe syntax that a
+    // POSIX-shaped deny-list would let through.
+    for (const bad of [
+      'a.tgz & calc',
+      'a.tgz && whoami',
+      'a.tgz | more',
+      'a.tgz%PATH%',
+      'a^.tgz',
+      'a.tgz;id',
+      '$(id).tgz',
+      '`id`.tgz',
+      'a b.tgz',
+      '',
+    ]) {
+      expect(() => assertSafeShellArg(bad, 'x')).toThrow();
+    }
+  });
+});
