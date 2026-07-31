@@ -64,8 +64,12 @@ jobs:
         # again for ~3s, which is the cost of having one authoritative list.
         run: npm run verify:release
 
-      - name: Build dashboard
-        run: cd dashboard && npm ci && npx vite build
+      # No separate "Build dashboard" step: `npm run build` above already
+      # builds it, via scripts/build-dashboard.mjs. Having both meant the
+      # dashboard was built TWICE with different installs — `npm install`
+      # inside the Build step (node_modules absent on a clean runner) and
+      # `npm ci` here — and this one ran AFTER the release gates, so the
+      # mirror gate diffed the artifact produced by the unpinned install.
 
       - name: Run tests
         run: npm test -- --run
@@ -116,9 +120,6 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Build dashboard
-        run: cd dashboard && npm ci && npx vite build
-
       - name: Verify packaged artifact
         run: npm run test:packaged
 
@@ -146,9 +147,6 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      - name: Build dashboard
-        run: cd dashboard && npm ci && npx vite build
 
       - name: Run packaged dashboard e2e smoke
         run: npm run test:e2e-dashboard

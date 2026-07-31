@@ -1,4 +1,4 @@
-# Force LF line endings on checkout for source files. Git on Windows
+# Force LF line endings on checkout for EVERY text file. Git on Windows
 # defaults to autocrlf=true and converts LF→CRLF on checkout, which
 # corrupts shebangs (`#!/usr/bin/env node\r\n`) and breaks regex
 # literals containing CJK characters when the parser is confused by
@@ -8,21 +8,39 @@
 #     was checked out with CRLF endings.
 #   - All hooks scripts (which start with #!/usr/bin/env node) become
 #     unrunnable when invoked directly.
-# This file standardizes line endings across all platforms.
-*.js text eol=lf
-*.mjs text eol=lf
-*.cjs text eol=lf
-*.ts text eol=lf
-*.tsx text eol=lf
-*.json text eol=lf
-*.md text eol=lf
-*.sh text eol=lf
-*.yml text eol=lf
-*.yaml text eol=lf
+#
+# `* text=auto eol=lf` rather than a list of extensions.
+#
+# The list version covered the ten extensions whose breakage had been
+# noticed, and left `.css`, `.html`, `.svg`, `.py`, `.toml`, `.map`,
+# `LICENSE`, `CODEOWNERS` and every future extension uncovered. That is
+# how the Windows CI legs failed on this branch: `dashboard/index.html`
+# and `dashboard/src/styles/global.css` were checked out with CRLF, vite
+# INLINED them into `dashboard/dist/index.html`, and the carriage returns
+# landed mid-line inside the bundle — a real content difference that
+# line-ending normalisation cannot undo, so the committed artifact could
+# never be reproduced on Windows. Line endings are a property of text,
+# not of a list of suffixes somebody remembered to extend.
+#
+# Binaries below are exempted explicitly; `text=auto` also leaves any file
+# Git detects as binary alone, so an unlisted binary format is safe by
+# default rather than corrupted by default.
+* text=auto eol=lf
 
 # Binaries — never auto-modify.
 *.png binary
 *.jpg binary
+*.jpeg binary
 *.gif binary
 *.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
 *.db binary
+*.sqlite binary
+*.sqlite3 binary
+*.gz binary
+*.zip binary
+*.node binary

@@ -117,6 +117,42 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(text).toMatch(/catch[\s\S]{0,200}process\.exit\(1\)/);
   });
 
+  it('installs dashboard deps from the lockfile, not the ranges', () => {
+    // `dashboard/dist/index.html` is committed and shipped, and the one moment
+    // node_modules is absent — the only moment this branch runs — is a clean CI
+    // checkout, i.e. exactly where the dependency set must be pinned. The
+    // script used to run `npm install` unconditionally, so the convenience
+    // applied where it was never needed and the pinning was missing where it
+    // always is.
+    const text = read('scripts/build-dashboard.mjs');
+    expect(text).toMatch(/package-lock\.json/);
+    expect(text).toMatch(/\['ci',/);
+  });
+
+  it('the line-ending rule covers every text file, not a list of suffixes', () => {
+    // Both Windows CI legs failed on this branch because `.gitattributes`
+    // enumerated ten extensions and missed `.css` and `.html`. Windows checked
+    // `dashboard/index.html` and `dashboard/src/styles/global.css` out with
+    // CRLF, vite INLINED them into the bundle, and the carriage returns landed
+    // mid-line inside a committed artifact — a real content difference that
+    // line-ending normalisation cannot undo, so `dashboard/dist/index.html`
+    // could never be reproduced there.
+    const attrs = read('.gitattributes');
+    expect(attrs).toMatch(/^\*\s+text=auto\s+eol=lf\s*$/m);
+    // ...and binaries stay exempt, or the default corrupts them instead.
+    expect(attrs).toMatch(/^\*\.png\s+binary\s*$/m);
+  });
+
+  it('the docs gate counts hooks, not build output that lives beside them', () => {
+    // `find scripts/hooks -name '*.js' ! -name '_shared.js'` recursed into
+    // `scripts/hooks/_generated/`, so when the build mirror landed there the
+    // count went 7 -> 9 and the gate reported FAIL on a correct tree. A gate
+    // that fails on a healthy repo gets ignored, and then it is not a gate.
+    const text = read('scripts/verify-docs-sync.sh');
+    expect(text).toMatch(/find scripts\/hooks -maxdepth 1/);
+    expect(text).toMatch(/! -name "_\*"/);
+  });
+
   it('the test runner it shares with prepublishOnly also isolates HOME', () => {
     // Same guarantee, other entry point. `prepublishOnly` reaches the suite
     // through run-tests-isolated.mjs rather than this script, and it had the

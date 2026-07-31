@@ -291,6 +291,8 @@ Khi npm gắn cờ phiên bản đã cài là deprecated (thường là security
 
 **🧠 Smart Search** — Tìm "login security" và tìm thấy memories về "OAuth PKCE". MeMesh dùng FTS5 + sqlite-vec trên hot path, không dùng LLM; phần bổ sung vector vẫn tiếp cận được các cách diễn đạt liên quan.
 
+**🌏 Tìm kiếm trong các hệ chữ không dùng khoảng trắng** — Tiếng Trung, Nhật, Hàn, Thái, Lào, Khmer và katakana nửa chiều rộng được lập chỉ mục theo từng cặp ký tự liền nhau, nên một ghi nhớ viết là 「資料庫遷移前一定要先備份」 sẽ tìm thấy bằng 「備份」 — không cần gõ lại đúng nguyên văn. Văn bản được chuẩn hóa (NFC) ở cả phía ghi lẫn phía truy vấn, nên ghi nhớ gõ trên macOS hoặc bằng IME tiếng Hàn, tiếng Việt đều tìm được ở cả hai cách viết.
+
 **📊 Scored Ranking** — Kết quả được xếp hạng theo relevance (30%) + recency (25%) + frequency (18%) + confidence (17%) + recall impact (10%).
 
 **🔄 Knowledge Evolution** — Quyết định thay đổi. `forget` archives old memories (không bao giờ xóa). `supersedes` relations liên kết old → new. AI của bạn luôn thấy phiên bản mới nhất.

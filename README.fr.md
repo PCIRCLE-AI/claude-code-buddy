@@ -291,6 +291,8 @@ Lorsque npm signale une version installée comme dépréciée (typiquement une a
 
 **🧠 Recherche Intelligente** — Cherchez « sécurité login » et trouvez des mémoires sur « OAuth PKCE ». MeMesh combine FTS5 et la similarité vectorielle sqlite-vec pour trouver des mémoires sémantiquement liées sans LLM sur le chemin chaud.
 
+**🌏 Recherche dans les écritures sans espaces entre les mots** — Le chinois, le japonais, le coréen, le thaï, le lao, le khmer et les katakana demi-chasse sont indexés par paires de caractères qui se chevauchent. Un souvenir écrit 「資料庫遷移前一定要先備份」 se retrouve donc en cherchant 「備份」, et pas seulement par son texte intégral exact. Le texte est normalisé (NFC) à l'écriture comme à la recherche : un souvenir saisi sur macOS ou avec une méthode de saisie coréenne ou vietnamienne se retrouve dans les deux graphies.
+
 **📊 Classement Avec Score** — Les résultats sont classés par pertinence (30 %) + récence (25 %) + fréquence (18 %) + confiance (17 %) + impact de rappel (10 %).
 
 **🔄 Évolution Des Connaissances** — Les décisions changent. `forget` archive les anciennes mémoires (jamais supprimer). Les relations `supersedes` relient ancien → nouveau. Votre IA voit toujours la version la plus récente.

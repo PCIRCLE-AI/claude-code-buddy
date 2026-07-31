@@ -291,6 +291,8 @@ Quando o npm sinaliza uma versão instalada como depreciada (tipicamente um advi
 
 **🧠 Busca Inteligente** — Busque "login security" e encontre memórias sobre "OAuth PKCE". MeMesh usa FTS5 + sqlite-vec no caminho quente, sem LLM; o complemento vetorial ainda alcança termos relacionados.
 
+**🌏 Busca em escritas que não separam palavras por espaços** — Chinês, japonês, coreano, tailandês, laosiano, khmer e katakana de meia largura são indexados como pares de caracteres sobrepostos. Assim, uma memória escrita como 「資料庫遷移前一定要先備份」 é encontrada buscando 「備份」, e não apenas pelo texto completo exato. O texto é normalizado (NFC) tanto na escrita quanto na consulta, então uma memória digitada no macOS ou com um IME coreano ou vietnamita é encontrada em qualquer das duas grafias.
+
 **📊 Ranking Pontuado** — Resultados ranqueados por relevância (30%) + recência (25%) + frequência (18%) + confiança (17%) + impacto de recall (10%).
 
 **🔄 Evolução de Conhecimento** — Decisões mudam. `forget` arquiva memórias antigas (nunca deleta). Relações `supersedes` vinculam antigas → novas. Sua IA sempre vê a versão mais recente.
