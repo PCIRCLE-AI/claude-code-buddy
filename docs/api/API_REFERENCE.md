@@ -86,7 +86,9 @@ If a relation target does not exist, the entity is still stored and `relationErr
 
 Search and retrieve stored knowledge. Uses FTS5 full-text search + sqlite-vec vector supplement, with optional tag filtering and multi-factor scoring. The hot path is LLM-free. Results are ranked by a weighted combination of search relevance, recency, access frequency, confidence, and recall-effectiveness impact. Call with no query to list recent memories.
 
-Query terms are OR-ed and the matches are ordered by relevance (BM25) before scoring, so a question phrased in your own words finds the memory instead of requiring every word to appear in it. A memory matching more of your terms ranks higher; adding words narrows the ranking, not the result set. Terms beyond the first 32 are ignored, and punctuation inside a word splits it (`kitchen's` searches for `kitchen` and `s`, not for the exact phrase).
+Query terms are OR-ed and the matches are ordered by relevance (BM25) before scoring, so a question phrased in your own words finds the memory instead of requiring every word to appear in it. A memory matching more of your terms ranks higher; adding words narrows the ranking, not the result set. Terms appearing in more than half the indexed rows are dropped as noise — they are the ones BM25 already scores near zero — except that a query made entirely of common words keeps its rarest term rather than matching nothing, and the guard does not apply below 25 indexed rows, where a frequent word is the subject rather than a stopword. Of what survives, the 32 most selective terms are used. Punctuation inside a word splits it (`kitchen's` searches for `kitchen` and `s`, not for the exact phrase). Results are deterministic: BM25 ties break by recency, so the same query over the same memories returns the same list.
+
+A query that is not empty but contains nothing searchable — `???`, `@#$%` — returns no results rather than falling back to the recent list, so "nothing matched" is never dressed up as "here is what matched". Call with no query at all to list recent memories.
 
 **Input Schema**:
 
@@ -548,6 +550,7 @@ The limit protects the server from accidentally parsing large payloads (e.g. an 
 | GET | /v1/graph | Signal entities (all non-noise types) + up to 200 recent noise entities + all relations |
 | GET | /v1/analytics | Health score, memory-loop metric, 30-day timeline, ageMatrix, knowledgeRadar |
 | GET | /v1/patterns | User work patterns: schedule, tools, focus areas, workflow, strengths, learning |
+| POST | /v1/verify | Record a verification report for background-agent work; returns `verdict: pass \| fail \| unverified` |
 | GET | /dashboard | Interactive web dashboard (HTML) |
 
 All responses: `{ success: true, data: ... }` or `{ success: false, error: "..." }`
@@ -804,6 +807,51 @@ curl -s http://localhost:3737/v1/health
 ---
 
 ## CLI Commands
+
+### memesh verify
+
+Reality-check work an agent claims to have done, and record the result.
+
+Compares the actual `git diff` against the caller's claim and/or an external
+report, then persists a `verification_record` entity.
+
+**Exit codes** — these are the contract a shell gate depends on:
+
+| Code | Verdict | Meaning |
+|------|---------|---------|
+| 0 | `pass` | Something was checked and it held |
+| 1 | `fail` | Something was checked and it did not hold |
+| 2 | `unverified` | Nothing was checked — no claim, no report, or a claim that could not be evaluated |
+
+`2` is deliberately non-zero so `memesh verify … && deploy` does not deploy on
+a check that never ran. A boolean could not express this: `true` used to mean
+both "verified and correct" and "had nothing to verify".
+
+**Usage**:
+
+```bash
+memesh verify --agent-id build-bot --workdir /path/to/repo --base main \
+  --expected-files 3 --report ./test-report.json
+```
+
+If `--expected-files` is supplied but no git base can be discovered, the claim
+cannot be evaluated and the verdict is `unverified` — not `pass` — even when an
+external report says everything passed.
+
+### memesh reindex
+
+Regenerate vector embeddings for all entities.
+
+`--fts` rebuilds the full-text keyword index instead. The keyword index
+normally rebuilds itself once, on the first open after an upgrade, guarded by a
+version marker. That marker only moves forward, so it cannot describe a
+database migrated by a newer build and then written to by an older one — which
+happens with a downgrade, or with an npm-global and a plugin-marketplace
+install side by side. `--fts` is the way out of that state.
+
+```bash
+memesh reindex --fts
+```
 
 ### memesh pin / memesh unpin
 

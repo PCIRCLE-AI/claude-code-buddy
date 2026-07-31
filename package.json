@@ -30,6 +30,8 @@
     "test": "vitest",
     "test:e2e-dashboard": "node scripts/dashboard-e2e-smoke.mjs",
     "test:packaged": "node scripts/smoke-packed-artifact.mjs",
+    "verify:release": "node scripts/check-version-coherence.mjs && node scripts/check-generated-mirror.mjs",
+    "prepublishOnly": "npm run build && npm run verify:release && npm test -- --run && npm run test:packaged",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/ scripts/ --max-warnings 0",
     "lint:fix": "eslint src/ scripts/ --fix",

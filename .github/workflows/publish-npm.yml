@@ -22,6 +22,12 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Release tag matches package.json
+        # Cheapest possible first gate. Without it a tag/version mismatch either
+        # publishes the wrong number under the right release notes, or fails at
+        # the very last step after the whole build and both smoke suites.
+        run: node scripts/check-tag-matches-version.mjs "${{ github.event.release.tag_name }}"
+
       - name: Install dependencies
         run: npm ci
 
@@ -42,6 +48,20 @@ jobs:
 
       - name: Smoke test packaged dashboard
         run: npm run test:e2e-dashboard
+
+      - name: Release gates (version coherence + F5 mirror drift)
+        # The same gates ci.yml runs on every PR. This workflow had neither, so
+        # the publish path enforced strictly less than the review path — and
+        # .claude-plugin/plugin.json and marketplace.json ship INSIDE the
+        # tarball, so a partial version bump reached plugin-marketplace users
+        # with a mismatched stamp and nothing to catch it.
+        run: npm run verify:release
+
+      - name: Doctor (manifest + hooks integrity gate)
+        # Must run after `npm run build` so dist/skills-manifest.json is current.
+        # Catches the "version bumped but manifest stale" pattern that surfaces
+        # post-install as `Skills + hooks integrity FAIL` for users.
+        run: node dist/transports/cli/cli.js doctor
 
       - name: Verify package contents
         run: npm pack --dry-run

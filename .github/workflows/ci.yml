@@ -51,19 +51,10 @@ jobs:
         run: npm run build
 
       - name: Generated hook-core is committed (F5 mirror drift gate)
-        # `npm run build` regenerates scripts/hooks/_generated/ from the compiled
-        # leaf modules. If a maintainer edited src/core/paths.ts or
-        # src/storage/fts-index.ts but didn't regenerate + commit the hook copy,
-        # the build above rewrote it and this diff is non-empty. Fail loudly so
-        # the mirror can never silently drift (the class of bug behind the P0 FTS
-        # omission). See scripts/generate-hook-core.mjs.
-        shell: bash
-        run: |
-          if ! git diff --quiet -- scripts/hooks/_generated; then
-            echo "::error::scripts/hooks/_generated is stale — run 'npm run build' and commit the regenerated files."
-            git --no-pager diff -- scripts/hooks/_generated
-            exit 1
-          fi
+        # Extracted to a script so publish-npm.yml runs the identical gate.
+        # It was inline here and absent there, which is how the publish path
+        # came to enforce less than the review path.
+        run: node scripts/check-generated-mirror.mjs
 
       - name: Build dashboard
         run: cd dashboard && npm ci && npx vite build

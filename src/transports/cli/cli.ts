@@ -378,7 +378,10 @@ program
 // --- verify ---
 program
   .command('verify <workdir>')
-  .description('Record a verification report for agent work in <workdir>')
+  .description(
+    'Record a verification report for agent work in <workdir>. ' +
+      'Exit codes: 0 pass, 1 fail, 2 unverified (nothing was checked).'
+  )
   .requiredOption('--agent-id <id>', 'Identifier for the agent being verified')
   .option('--base <ref>', 'Git ref to diff against (default: merge-base with origin/main)')
   .option('--expected-files <n>', 'Number of files the agent claimed to change', (v) => parseInt(v, 10))
