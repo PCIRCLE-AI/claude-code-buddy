@@ -1,8 +1,7 @@
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { NPX } from './lib/npm-bin.mjs';
+import { npxSync } from './lib/npm-bin.mjs';
 
 /**
  * Run the test suite against a throwaway HOME.
@@ -20,7 +19,7 @@ import { NPX } from './lib/npm-bin.mjs';
  */
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-test-home-'));
 try {
-  execFileSync(NPX, ['vitest', 'run', ...process.argv.slice(2)], {
+  npxSync(['vitest', 'run', ...process.argv.slice(2)], {
     stdio: 'inherit',
     env: { ...process.env, HOME: home, USERPROFILE: home },
   });
