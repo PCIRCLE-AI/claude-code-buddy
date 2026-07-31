@@ -41,8 +41,11 @@ jobs:
         # `eslint-disable` comments require explicit justification.
         run: npm run lint
 
-      - name: Build
-        run: npm run build
+      # No separate Build step: the release gate below builds, because a gate
+      # that only diffs committed output against an unbuilt tree reports "up to
+      # date" for a tree whose source was edited and never rebuilt. Keeping both
+      # meant every leg of this matrix compiled twice — visible as Windows going
+      # from ~1m20 to ~5m20. The steps after this one still get a current dist/.
 
       - name: Release gates (the same ones the publish path runs)
         # `npm run verify:release`, not a hand-listed copy of what it contains.
@@ -64,18 +67,20 @@ jobs:
         # again for ~3s, which is the cost of having one authoritative list.
         run: npm run verify:release
 
-      # No separate "Build dashboard" step: `npm run build` above already
-      # builds it, via scripts/build-dashboard.mjs. Having both meant the
-      # dashboard was built TWICE with different installs — `npm install`
-      # inside the Build step (node_modules absent on a clean runner) and
-      # `npm ci` here — and this one ran AFTER the release gates, so the
-      # mirror gate diffed the artifact produced by the unpinned install.
+      # No separate "Build dashboard" step either: the build the gate runs
+      # produces it, via scripts/build-dashboard.mjs. Having both meant the
+      # dashboard was built TWICE with different installs — an unpinned
+      # `npm install` (node_modules absent on a clean runner) and an `npm ci`
+      # here — and this one ran AFTER the release gates, so the mirror gate
+      # diffed the artifact the unpinned install produced. That is how the
+      # committed bundle could differ on Windows with every gate green.
 
       - name: Run tests
         run: npm test -- --run
 
       - name: Doctor (manifest + hooks integrity gate)
-        # Must run AFTER `npm run build` so dist/skills-manifest.json
+        # Must run AFTER the build (which the release gate performs) so
+        # dist/skills-manifest.json
         # is present + current. Catches the "version bumped but
         # manifest stale" failure pattern that surfaces post-install
         # as `Skills + hooks integrity FAIL` for users.

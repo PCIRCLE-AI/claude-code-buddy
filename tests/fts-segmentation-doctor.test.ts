@@ -25,10 +25,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase } from '../src/db.js';
 import { KnowledgeGraph } from '../src/knowledge-graph.js';
 import { runDoctor } from '../src/core/doctor.js';
 import { UNSPACED_SCRIPT_GLOB_PREFIX } from '../src/storage/fts-index.js';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
  * The check, lifted verbatim from `runDoctor`.
@@ -153,8 +156,14 @@ describe('Feature: doctor detects a stale (unsegmented) keyword index', () => {
     // does not, they go on passing while the shipped check does whatever it now
     // does — the copy would be pinning nothing, which is the failure mode this
     // whole file was written to correct.
+    // `fileURLToPath`, not `new URL(...).pathname`. On Windows the latter
+    // returns a leading-slash drive path ("/D:/..."), which `path.join` then
+    // concatenates with the cwd drive into "D:\D:\..." — this test failed on
+    // both Windows legs with exactly that. The trap is already written down in
+    // `scripts/check-version-coherence.mjs`; `tests/release-scripts-safety.test.ts`
+    // now forbids the form outright so reading the note is not the only defence.
     const doctorSrc = fs.readFileSync(
-      path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'src', 'core', 'doctor.ts'),
+      path.join(repoRoot, 'src', 'core', 'doctor.ts'),
       'utf8',
     );
     expect(doctorSrc).toContain(SEGMENTATION_SQL);

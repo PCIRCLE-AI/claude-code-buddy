@@ -153,6 +153,41 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(text).toMatch(/! -name "_\*"/);
   });
 
+  // Title deliberately avoids spelling the forbidden form — the scan below
+  // reads this file too, and a test that fails on its own name is noise.
+  it('resolves module paths with fileURLToPath, never the URL pathname property', () => {
+    // On Windows that returns a leading-slash drive path ("/D:/repo/..."), and
+    // `path.join`/`path.resolve` then concatenate it with the cwd drive into
+    // "D:\D:\repo\..." — a path that cannot exist. `fileURLToPath` does the
+    // OS-correct conversion.
+    //
+    // This is a structural gate rather than a note because the note already
+    // existed: `scripts/check-version-coherence.mjs` carries a paragraph
+    // explaining the exact failure, and a test written later in the same
+    // release reintroduced it and took both Windows CI legs down. A trap that
+    // has bitten twice needs something that fails, not something that explains.
+    const roots = ['src', 'scripts', 'tests'];
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(path.join(repoRoot, dir), { withFileTypes: true })) {
+        const rel = path.posix.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (entry.name === 'node_modules' || entry.name === '_generated') continue;
+          walk(rel);
+        } else if (/\.(ts|tsx|mjs|js|cjs)$/.test(entry.name)) {
+          const text = read(rel);
+          // Skip the line that documents the hazard rather than commits it.
+          for (const [i, line] of text.split('\n').entries()) {
+            if (line.trim().startsWith('//') || line.trim().startsWith('*')) continue;
+            if (/new URL\([^)]*\)\s*\.pathname/.test(line)) offenders.push(`${rel}:${i + 1}`);
+          }
+        }
+      }
+    };
+    roots.forEach(walk);
+    expect(offenders).toEqual([]);
+  });
+
   it('the test runner it shares with prepublishOnly also isolates HOME', () => {
     // Same guarantee, other entry point. `prepublishOnly` reaches the suite
     // through run-tests-isolated.mjs rather than this script, and it had the
