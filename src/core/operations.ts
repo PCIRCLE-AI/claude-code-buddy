@@ -236,13 +236,26 @@ async function supplementWithVectors(
     const vectorHits = vectorSearch(queryEmb, args.limit ?? 20);
     if (vectorHits.length === 0) return;
 
-    const hitIds = vectorHits.map(h => h.id);
+    // Drop the overlap BEFORE hydrating. getEntitiesByIds issues four batched
+    // queries per call (entities, observations, tags, relations), and FTS and
+    // the vector index are searching the same query, so the overlap is the
+    // common case — this used to fully hydrate up to `limit` rows complete
+    // with observations and relations only for the next line to discard them.
+    // Raising MAX_VECTOR_DISTANCE made it worse: the old threshold discarded
+    // almost every hit before this loop, so it received nearly nothing and now
+    // receives the full k.
+    const alreadyMerged = new Set(merged.map(e => e.id));
+    const hitIds = vectorHits.map(h => h.id).filter(id => !alreadyMerged.has(id));
+    if (hitIds.length === 0) return;
+
     const hitEntities = kg.getEntitiesByIds(hitIds, {
       includeArchived: args.include_archived === true,
       namespace: args.namespace,
       tag: recallTagFilter(args),
     });
 
+    // Still checked by name: two ids can carry the same entity name, and the
+    // name is what relevanceMap is keyed on.
     const existingNames = new Set(merged.map(e => e.name));
     for (const entity of hitEntities) {
       if (existingNames.has(entity.name)) continue;

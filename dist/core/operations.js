@@ -114,7 +114,10 @@ async function supplementWithVectors(query, args, kg, merged, relevanceMap) {
         const vectorHits = vectorSearch(queryEmb, args.limit ?? 20);
         if (vectorHits.length === 0)
             return;
-        const hitIds = vectorHits.map(h => h.id);
+        const alreadyMerged = new Set(merged.map(e => e.id));
+        const hitIds = vectorHits.map(h => h.id).filter(id => !alreadyMerged.has(id));
+        if (hitIds.length === 0)
+            return;
         const hitEntities = kg.getEntitiesByIds(hitIds, {
             includeArchived: args.include_archived === true,
             namespace: args.namespace,

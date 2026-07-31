@@ -3,11 +3,10 @@ import { insertFtsRow, removeFromFts, toIndexForm, UNSPACED_SCRIPT_CLASS } from 
 import { computeSignalScore } from './core/signal-scorer.js';
 const MAX_QUERY_TERMS = 32;
 function buildMatchExpression(db, query) {
-    const terms = (toIndexForm(query).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
-        .slice(0, MAX_QUERY_TERMS);
+    const terms = toIndexForm(query).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [];
     if (terms.length === 0)
         return null;
-    const kept = dropUbiquitousTerms(db, terms);
+    const kept = dropUbiquitousTerms(db, terms).slice(0, MAX_QUERY_TERMS);
     return kept.map((term) => (isLoneUnspacedChar(term) ? `"${term}"*` : `"${term}"`)).join(' OR ');
 }
 function archivedLikeTerms(db, query) {
@@ -25,11 +24,23 @@ function isLoneUnspacedChar(term) {
 }
 const UBIQUITOUS_TERM_FRACTION = 0.5;
 const MIN_ROWS_FOR_DF_GUARD = 25;
+const activeCountCache = new WeakMap();
+function activeEntityCount(db) {
+    const dataVersion = db.pragma('data_version', { simple: true }) ?? 0;
+    const totalChanges = db.prepare('SELECT total_changes() AS c').get().c;
+    const stamp = `${dataVersion}:${totalChanges}`;
+    const cached = activeCountCache.get(db);
+    if (cached && cached.stamp === stamp)
+        return cached.count;
+    const count = db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get().c;
+    activeCountCache.set(db, { stamp, count });
+    return count;
+}
 function dropUbiquitousTerms(db, terms) {
     if (terms.length < 2)
         return terms;
     try {
-        const total = db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get().c;
+        const total = activeEntityCount(db);
         if (total < MIN_ROWS_FOR_DF_GUARD)
             return terms;
         const fold = (t) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
@@ -316,7 +327,13 @@ export class KnowledgeGraph {
              ${tagFilter}
              ${statusFilter}
              ${namespaceFilter}
-           ORDER BY f.rank
+           -- e.id breaks BM25 ties. Ties are common — every row matching only
+           -- the same single term scores identically — and LIMIT decides which
+           -- of them survive to the multi-factor scorer, so without a
+           -- tiebreaker the same query over the same corpus can return
+           -- different memories run to run. Newest-first among equals is the
+           -- same preference the rest of the scorer expresses.
+           ORDER BY f.rank, e.id DESC
            LIMIT ?`)
                 .all(...params);
         }

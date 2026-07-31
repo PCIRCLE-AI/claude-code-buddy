@@ -239,6 +239,27 @@ describe('Feature: recall relevance', () => {
     });
   });
 
+  describe('determinism', () => {
+    it('returns the same memories in the same order for the same query', () => {
+      // BM25 ties are common: every row matching only the same single term
+      // scores identically. LIMIT then decides which of them reach the
+      // multi-factor scorer, so without a tiebreaker the surviving set — and
+      // therefore the final answer — is whatever order SQLite happened to
+      // produce. Recall that changes run to run is not debuggable.
+      for (let i = 0; i < 30; i++) {
+        kg.createEntity(`tied-${String(i).padStart(2, '0')}`, 'note', {
+          observations: ['deployment notes for the service'],
+        });
+      }
+
+      const first = kg.search('deployment').map((e) => e.name);
+      for (let run = 0; run < 5; run++) {
+        expect(kg.search('deployment').map((e) => e.name)).toEqual(first);
+      }
+      expect(first.length).toBeGreaterThan(0);
+    });
+  });
+
   describe('documented limits', () => {
     it('uses only the first MAX_QUERY_TERMS (32) terms, head-first', () => {
       kg.createEntity('tail-match', 'note', { observations: ['a note about zebras'] });

@@ -45,10 +45,16 @@ const MAX_QUERY_TERMS = 32;
  * for a rare query shape; pinned as a limit rather than chased.
  */
 function buildMatchExpression(db: Database.Database, query: string): string | null {
-  const terms = (toIndexForm(query).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
-    .slice(0, MAX_QUERY_TERMS);
+  // The cap is applied AFTER the frequency guard, not before. Bigram
+  // segmentation turns a 40-character Chinese question into ~39 terms, so a
+  // positional cap discarded everything past roughly the 33rd character —
+  // which may hold the query's rarest, most selective terms — while an English
+  // question of the same length keeps all ~13 of its words. Dropping the
+  // ubiquitous ones first means the terms that survive are the ones that
+  // actually narrow the search.
+  const terms = toIndexForm(query).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [];
   if (terms.length === 0) return null;
-  const kept = dropUbiquitousTerms(db, terms);
+  const kept = dropUbiquitousTerms(db, terms).slice(0, MAX_QUERY_TERMS);
   return kept.map((term) => (isLoneUnspacedChar(term) ? `"${term}"*` : `"${term}"`)).join(' OR ');
 }
 
@@ -124,10 +130,44 @@ const MIN_ROWS_FOR_DF_GUARD = 25;
  * did we do" — keeps its rarest term, because returning nothing would be worse
  * than returning a broad match.
  */
+/**
+ * Active-entity count, cached until something in the database changes.
+ *
+ * The frequency guard needs a corpus size to compare document counts against,
+ * and it ran `SELECT count(*) FROM entities WHERE status = 'active'` on every
+ * keyword recall — a covering-index scan, measured at 1.79ms with 100k rows,
+ * paid on the hot path that every hook fires.
+ *
+ * Invalidated exactly, not on a timer. `PRAGMA data_version` changes when
+ * another connection commits; `total_changes()` counts rows this connection
+ * has changed since it opened. Together they cover every write that could move
+ * the count, and both are O(1) — so this replaces a table scan with two
+ * constant-time reads rather than trading correctness for speed.
+ *
+ * Keyed by connection, so a test that opens a fresh database never sees
+ * another test's count.
+ */
+const activeCountCache = new WeakMap<Database.Database, { stamp: string; count: number }>();
+
+function activeEntityCount(db: Database.Database): number {
+  const dataVersion = (db.pragma('data_version', { simple: true }) as number) ?? 0;
+  const totalChanges = (db.prepare('SELECT total_changes() AS c').get() as { c: number }).c;
+  const stamp = `${dataVersion}:${totalChanges}`;
+
+  const cached = activeCountCache.get(db);
+  if (cached && cached.stamp === stamp) return cached.count;
+
+  const count = (
+    db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get() as { c: number }
+  ).c;
+  activeCountCache.set(db, { stamp, count });
+  return count;
+}
+
 function dropUbiquitousTerms(db: Database.Database, terms: string[]): string[] {
   if (terms.length < 2) return terms;
   try {
-    const total = (db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get() as { c: number }).c;
+    const total = activeEntityCount(db);
     if (total < MIN_ROWS_FOR_DF_GUARD) return terms;
 
     // Fold the way the index folds, or the lookup silently never matches.
@@ -592,7 +632,13 @@ export class KnowledgeGraph {
              ${tagFilter}
              ${statusFilter}
              ${namespaceFilter}
-           ORDER BY f.rank
+           -- e.id breaks BM25 ties. Ties are common — every row matching only
+           -- the same single term scores identically — and LIMIT decides which
+           -- of them survive to the multi-factor scorer, so without a
+           -- tiebreaker the same query over the same corpus can return
+           -- different memories run to run. Newest-first among equals is the
+           -- same preference the rest of the scorer expresses.
+           ORDER BY f.rank, e.id DESC
            LIMIT ?`
         )
         .all(...params) as Array<{ id: number }>;
