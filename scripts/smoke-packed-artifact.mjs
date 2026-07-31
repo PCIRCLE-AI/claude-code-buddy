@@ -4,27 +4,35 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { binTargets, hookCommands } from './lib/executable-targets.mjs';
+import { npmSync } from './lib/npm-bin.mjs';
 
 const repoRoot = process.cwd();
-const smokeDir = path.join(repoRoot, 'tmp', 'pack-smoke');
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+
+// OUTSIDE the repository, deliberately.
+//
+// This used to extract into `<repoRoot>/tmp/pack-smoke`, so when the import
+// check below loaded the packaged `dist/index.js`, every bare specifier
+// resolved by walking UP into the repo's own `node_modules` — devDependencies
+// included. Verified: `better-sqlite3` and `@huggingface/transformers` both
+// resolved to the repo tree. The gate therefore could not see a missing runtime
+// dependency, which is precisely the class of change this release made when it
+// moved `@huggingface/transformers` to an optional peer. It also printed
+// "installs" for an install that never happened.
+//
+// In os.tmpdir() nothing resolves upward, so the install below is the only
+// thing that can satisfy the import — which is what makes the check mean
+// something.
+const smokeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-pack-smoke-'));
 const npmCacheDir = process.env.MEMESH_NPM_CACHE ?? path.join(os.tmpdir(), 'memesh-npm-cache');
 
-fs.rmSync(smokeDir, { recursive: true, force: true });
-fs.mkdirSync(smokeDir, { recursive: true });
-
-const packJson = execFileSync(
-  npmCommand,
-  ['pack', '--json', '--pack-destination', smokeDir],
-  {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      npm_config_cache: npmCacheDir,
-    },
-  }
-);
+const packJson = npmSync(['pack', '--json', '--pack-destination', smokeDir], {
+  cwd: repoRoot,
+  encoding: 'utf8',
+  env: {
+    ...process.env,
+    npm_config_cache: npmCacheDir,
+  },
+});
 
 const [{ filename }] = JSON.parse(packJson);
 const tarballPath = path.join(smokeDir, filename);
@@ -137,22 +145,47 @@ const packagedJson = JSON.parse(
 assert.equal(packagedJson.name, '@pcircle/memesh');
 assert.equal(packagedJson.version, JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).version);
 
+// Install the way a consumer does — production deps only, scripts ON so the
+// native bindings actually build — into a project that has no relationship to
+// this repo's node_modules. Without this the import below has nothing to
+// resolve against, which is the point: it now proves the declared runtime
+// dependencies are sufficient, rather than proving the dev tree exists.
+const consumerDir = path.join(smokeDir, 'consumer');
+fs.mkdirSync(consumerDir, { recursive: true });
+npmSync(['init', '-y'], { cwd: consumerDir, stdio: 'ignore' });
+npmSync(['install', '--omit=dev', tarballPath], {
+  cwd: consumerDir,
+  stdio: 'inherit',
+  env: { ...process.env, npm_config_cache: npmCacheDir },
+});
+
+const installedRoot = path.join(consumerDir, 'node_modules', '@pcircle', 'memesh');
+assert.ok(
+  fs.existsSync(path.join(installedRoot, 'package.json')),
+  'the packed tarball did not install — nothing was imported'
+);
+
 execFileSync(
   process.execPath,
   [
     '--input-type=module',
     '-e',
-    `import * as pkg from ${JSON.stringify(path.join(packageDir, 'dist', 'index.js'))};
+    `import * as pkg from ${JSON.stringify(path.join(installedRoot, 'dist', 'index.js'))};
 if (typeof pkg.openDatabase !== 'function') {
   throw new Error('Packaged module missing openDatabase export');
 }
 if (typeof pkg.KnowledgeGraph !== 'function') {
   throw new Error('Packaged module missing KnowledgeGraph export');
 }
+// Exercise the runtime path, not just the export shape: opening a database
+// loads better-sqlite3 and sqlite-vec, which is where a dependency that was
+// moved out of \`dependencies\` actually bites.
+const db = pkg.openDatabase(${JSON.stringify(path.join(smokeDir, 'smoke.db'))});
+if (!db) throw new Error('openDatabase returned nothing');
 `,
   ],
   {
-    cwd: repoRoot,
+    cwd: consumerDir,
     stdio: 'inherit',
   }
 );
@@ -162,4 +195,4 @@ fs.rmSync(smokeDir, { recursive: true, force: true });
 // Say something on success. A check that prints nothing when it passes is
 // indistinguishable from one that did not run — the exact failure mode this
 // repo has spent several releases removing from its own code.
-console.log('✅ Packaged artifact smoke test passed — tarball packs, installs, and exports openDatabase + KnowledgeGraph');
+console.log('✅ Packaged artifact smoke test passed — tarball packs, installs outside the repo with production deps only, and opens a database');

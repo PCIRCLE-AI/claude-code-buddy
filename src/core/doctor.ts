@@ -1439,10 +1439,21 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   );
 
   const databasePath = resolveDatabasePath();
+  // Staged, not pushed directly.
+  //
+  // The `pass` row used to go into `checks` the moment the entity count came
+  // back, before the rest of this block ran. Anything that threw afterwards was
+  // caught below and pushed a SECOND row with the same `database` id and status
+  // `fail` — so a failing database reported both, and `checks.find(c => c.id
+  // === 'database')` returned the passing one. The overall verdict was right
+  // and the row a reader looks at was wrong, which is worse than either alone.
+  // Staging here means the block emits exactly one `database` row, whichever
+  // way it ends.
+  const dbChecks: DoctorCheck[] = [];
   try {
     const db = openDatabaseImpl(databasePath) as unknown as DatabaseLike;
     const count = db.prepare('SELECT COUNT(*) as c FROM entities').get().c ?? 0;
-    checks.push(
+    dbChecks.push(
       createCheck(
         'database',
         'Database',
@@ -1451,9 +1462,61 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
       ),
     );
 
+    // The stale-keyword-index state, which two comments claimed doctor detected
+    // and nothing checked.
+    //
+    // The segmentation marker only moves FORWARD, which leaves one state it
+    // cannot describe: a database migrated by a segmentation-aware build and
+    // then written to by an older one. The old build does not know the marker
+    // exists, so it indexes new memories with the old rules and leaves the
+    // marker alone; re-upgrading short-circuits and those memories stay
+    // unreachable by any partial-phrase query, permanently. Users reach it
+    // legitimately — an npm-global and a plugin-marketplace install side by
+    // side, or a downgrade to recover from a bad release.
+    //
+    // Detected by looking for what the old rules leave behind: an indexed term
+    // longer than a bigram made entirely of unspaced-script characters. The
+    // segmenting build cannot produce one, so its presence means some rows were
+    // written by a build that was not segmenting.
+    //
+    // Deliberately NOT wrapped in `try/catch`. `fts_vocab` is absent only on a
+    // database built by a schema older than the view, which `sqlite_master`
+    // answers exactly; anything else that makes this query throw is a real
+    // fault and belongs in the database check below, loudly. A blanket catch
+    // here would also have swallowed the doctor-test stub's own assertion,
+    // leaving this check permanently unexercised with the suite green — the
+    // failure mode this whole branch exists to remove.
+    const hasVocab = db
+      .prepare(`SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'fts_vocab'`)
+      .get() as { present?: number } | undefined;
+    if (hasVocab?.present) {
+      const unsegmented = db
+        .prepare(
+          `SELECT term FROM fts_vocab
+            WHERE length(term) > 2
+              AND term GLOB '[' || char(13312) || '-' || char(40959) || ']*'
+            LIMIT 1`
+        )
+        .get() as { term?: string } | undefined;
+      if (unsegmented?.term) {
+        dbChecks.push(
+          createCheck(
+            'fts_segmentation',
+            'Keyword index segmentation',
+            'warn',
+            `The keyword index holds unsegmented terms (e.g. "${unsegmented.term}"), so some memories ` +
+              `are only findable by their exact full text. This happens when an older build wrote to a ` +
+              `database that a newer one had already migrated — the version marker only moves forward, ` +
+              `so the automatic rebuild cannot notice.`,
+            `Run 'memesh reindex --fts' to rebuild the keyword index.`,
+          ),
+        );
+      }
+    }
+
     const pendingReindex = getPendingReindexInfo();
     if (pendingReindex) {
-      checks.push(
+      dbChecks.push(
         createCheck(
           'vector_index',
           'Vector Index',
@@ -1515,7 +1578,10 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
       }
     }
 
-    checks.push(
+    // Replaces, not appends: whatever was staged before the throw describes a
+    // database this function has just concluded it cannot use.
+    dbChecks.length = 0;
+    dbChecks.push(
       createCheck(
         'database',
         'Database',
@@ -1525,6 +1591,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
       ),
     );
   } finally {
+    checks.push(...dbChecks);
     try {
       safeCloseDatabaseImpl();
     } catch {

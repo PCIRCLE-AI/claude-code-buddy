@@ -29,6 +29,26 @@ const AUDIT_LEVEL = 'high';
 const repoRoot = process.cwd();
 
 let workDir;
+
+/**
+ * `process.exit()` does NOT run a pending `finally`. Every exit path below is a
+ * `process.exit`, so the cleanup that lived there never executed once — each
+ * run left a temp directory holding a full production `node_modules` behind,
+ * on all six CI legs of every push and on every local `verify:release`.
+ */
+function cleanup() {
+  if (workDir) {
+    fs.rmSync(workDir, { recursive: true, force: true });
+    workDir = undefined;
+  }
+}
+
+/** Exit, having actually cleaned up. */
+function exitWith(code) {
+  cleanup();
+  process.exit(code);
+}
+
 try {
   const packOut = npmSync(['pack', '--silent'], {
     cwd: repoRoot,
@@ -49,7 +69,7 @@ try {
 
   if (!fs.existsSync(tarballPath)) {
     console.error(`✗ npm pack reported "${tarball}" but no such file exists — cannot audit what ships`);
-    process.exit(1);
+    exitWith(1);
   }
 
   workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-consumer-audit-'));
@@ -68,7 +88,7 @@ try {
   const installedPkg = path.join(workDir, 'node_modules', '@pcircle', 'memesh', 'package.json');
   if (!fs.existsSync(installedPkg)) {
     console.error('✗ the packed tarball did not install — nothing was audited');
-    process.exit(1);
+    exitWith(1);
   }
 
   let auditOut = '';
@@ -85,7 +105,7 @@ try {
 
   if (clean) {
     console.log(`✓ consumer install has no ${AUDIT_LEVEL}-or-worse advisories`);
-    process.exit(0);
+    exitWith(0);
   }
 
   console.error(
@@ -94,7 +114,7 @@ try {
       `  \`overrides\` only at the install root, so they do not reach consumers.\n`
   );
   console.error(auditOut);
-  process.exit(1);
+  exitWith(1);
 } finally {
-  if (workDir) fs.rmSync(workDir, { recursive: true, force: true });
+  cleanup();
 }

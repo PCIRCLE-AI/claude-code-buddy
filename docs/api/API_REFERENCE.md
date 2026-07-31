@@ -86,9 +86,9 @@ If a relation target does not exist, the entity is still stored and `relationErr
 
 Search and retrieve stored knowledge. Uses FTS5 full-text search + sqlite-vec vector supplement, with optional tag filtering and multi-factor scoring. The hot path is LLM-free. Results are ranked by a weighted combination of search relevance, recency, access frequency, confidence, and recall-effectiveness impact. Call with no query to list recent memories.
 
-Query terms are OR-ed and the matches are ordered by relevance (BM25) before scoring, so a question phrased in your own words finds the memory instead of requiring every word to appear in it. A memory matching more of your terms ranks higher; adding words narrows the ranking, not the result set. Terms appearing in more than half the indexed rows are dropped as noise — they are the ones BM25 already scores near zero — except that a query made entirely of common words keeps its rarest term rather than matching nothing, and the guard does not apply below 25 indexed rows, where a frequent word is the subject rather than a stopword. Of what survives, the 32 most selective terms are used. Punctuation inside a word splits it (`kitchen's` searches for `kitchen` and `s`, not for the exact phrase). Results are deterministic: BM25 ties break by recency, so the same query over the same memories returns the same list.
+Query terms are OR-ed and the matches are ordered by relevance (BM25) before scoring, so a question phrased in your own words finds the memory instead of requiring every word to appear in it. A memory matching more of your terms ranks higher; adding words narrows the ranking, not the result set. Terms appearing in more than half the indexed rows are dropped as noise — they are the ones BM25 already scores near zero — except that a query made entirely of common words keeps its rarest term rather than matching nothing, and the guard does not apply below 25 indexed rows, where a frequent word is the subject rather than a stopword. Of what survives, the first 32 in query order are used — dropping the ubiquitous terms *before* the cap means a bigram-segmented CJK question no longer loses its whole tail to terms that would have been discarded anyway, but the cap itself is still positional, so a query with more than 32 surviving terms does lose its tail. Punctuation inside a word splits it (`kitchen's` searches for `kitchen` and `s`, not for the exact phrase). Results are deterministic: BM25 ties break by recency, so the same query over the same memories returns the same list.
 
-A query that is not empty but contains nothing searchable — `???`, `@#$%` — returns no results rather than falling back to the recent list, so "nothing matched" is never dressed up as "here is what matched". Call with no query at all to list recent memories.
+A query that is not empty but contains nothing searchable — `???`, `@#$%` — returns no results rather than falling back to the recent list, so "nothing matched" is never dressed up as "here is what matched". This holds with embeddings enabled too: the vector supplement is skipped for such a query rather than returning its semantically-nearest memories. Call with no query at all to list recent memories.
 
 **Input Schema**:
 
@@ -389,7 +389,7 @@ Persist a verification report for work done by a background agent. Runs a determ
 
 `unverified` is also returned when the check could not run at all: no git base discoverable, or `git diff` failed. That is distinct from `fail`, which means something was checked and did not hold.
 
-This field replaces the previous `pass: boolean`, which returned `true` for the no-claim-no-report case. A caller still reading `result.pass` now gets `undefined`, which is falsy — the safe direction.
+This field replaces the previous `pass: boolean`, which returned `true` for the no-claim-no-report case. `pass` is **kept as a deprecated alias** for `verdict === 'pass'`, so upgrading from 4.2.10 does not break a caller that reads it — but it now reads `false` for an unverified run, where the old boolean read `true`. Read `verdict`: it is the only one of the two that can tell "checked and wrong" from "nothing was checked". The nested `reality_check.pass` is **removed** rather than aliased; use `reality_check.verdict`.
 
 **Parameters:**
 - `agent_id` (string, required) — Identifier for the agent whose work is being verified.
@@ -830,7 +830,7 @@ both "verified and correct" and "had nothing to verify".
 **Usage**:
 
 ```bash
-memesh verify --agent-id build-bot --workdir /path/to/repo --base main \
+memesh verify /path/to/repo --agent-id build-bot --base main \
   --expected-files 3 --report ./test-report.json
 ```
 

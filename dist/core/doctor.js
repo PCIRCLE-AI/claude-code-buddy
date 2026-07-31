@@ -570,13 +570,31 @@ export async function runDoctor(options) {
         ? 'If this is a source checkout, run MeMesh from the repo root. If this is a packaged install, reinstall with `npm install -g @pcircle/memesh`.'
         : undefined));
     const databasePath = resolveDatabasePath();
+    const dbChecks = [];
     try {
         const db = openDatabaseImpl(databasePath);
         const count = db.prepare('SELECT COUNT(*) as c FROM entities').get().c ?? 0;
-        checks.push(createCheck('database', 'Database', 'pass', `Database opened successfully at ${databasePath} (${count} entities).`));
+        dbChecks.push(createCheck('database', 'Database', 'pass', `Database opened successfully at ${databasePath} (${count} entities).`));
+        const hasVocab = db
+            .prepare(`SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'fts_vocab'`)
+            .get();
+        if (hasVocab?.present) {
+            const unsegmented = db
+                .prepare(`SELECT term FROM fts_vocab
+            WHERE length(term) > 2
+              AND term GLOB '[' || char(13312) || '-' || char(40959) || ']*'
+            LIMIT 1`)
+                .get();
+            if (unsegmented?.term) {
+                dbChecks.push(createCheck('fts_segmentation', 'Keyword index segmentation', 'warn', `The keyword index holds unsegmented terms (e.g. "${unsegmented.term}"), so some memories ` +
+                    `are only findable by their exact full text. This happens when an older build wrote to a ` +
+                    `database that a newer one had already migrated — the version marker only moves forward, ` +
+                    `so the automatic rebuild cannot notice.`, `Run 'memesh reindex --fts' to rebuild the keyword index.`));
+            }
+        }
         const pendingReindex = getPendingReindexInfo();
         if (pendingReindex) {
-            checks.push(createCheck('vector_index', 'Vector Index', 'warn', `Search index needs rebuilding (embedding configuration changed)`, `Run 'memesh reindex' to fix. This will restore full search functionality.`));
+            dbChecks.push(createCheck('vector_index', 'Vector Index', 'warn', `Search index needs rebuilding (embedding configuration changed)`, `Run 'memesh reindex' to fix. This will restore full search functionality.`));
         }
     }
     catch (err) {
@@ -631,9 +649,11 @@ export async function runDoctor(options) {
                 }
             }
         }
-        checks.push(createCheck('database', 'Database', 'fail', diagnosis, fix));
+        dbChecks.length = 0;
+        dbChecks.push(createCheck('database', 'Database', 'fail', diagnosis, fix));
     }
     finally {
+        checks.push(...dbChecks);
         try {
             safeCloseDatabaseImpl();
         }
