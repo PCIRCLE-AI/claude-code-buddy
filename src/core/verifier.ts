@@ -94,6 +94,21 @@ export interface RealityCheckResult {
 export interface VerifyAgentWorkResult {
   entity_name: string;
   verdict: Verdict;
+  /**
+   * @deprecated Use `verdict`. Kept for one minor cycle so upgrading from
+   * 4.2.10 is not a breaking change.
+   *
+   * `verdict` exists because a boolean cannot say "nothing was checked", which
+   * is the whole point of the fix — `true` meant both "verified and correct"
+   * and "had nothing to verify". This alias is `verdict === 'pass'`, so an
+   * existing `result.pass` caller keeps working AND stops seeing `true` for an
+   * unverified run: the old bug does not come back with the field.
+   *
+   * Removing it outright would have made a patch release break every consumer
+   * reading `result.pass`. Read `verdict` in new code — it is the only one of
+   * the two that can tell you which kind of not-a-pass you have.
+   */
+  pass: boolean;
   reality_check: RealityCheckResult;
   external_report: VerifyAgentWorkInput['report'] | null;
   timestamp: string;
@@ -293,8 +308,25 @@ function buildObservations(
  * to `true` and combined it with a reality-check that also returned `true`
  * when there was no claim — so two absences multiplied into a pass.
  */
-function combineVerdict(realityVerdict: Verdict, reportPass: boolean | undefined): Verdict {
+function combineVerdict(
+  realityVerdict: Verdict,
+  reportPass: boolean | undefined,
+  claimWentUnevaluated: boolean
+): Verdict {
   if (realityVerdict === 'fail' || reportPass === false) return 'fail';
+
+  // A claim the caller supplied but that could not be evaluated is not
+  // something the other half can vouch for. `realityCheck` returns early when
+  // no git base is discoverable, before `expected_files` is ever compared, so
+  // `memesh verify … --expected-files 5 --report tests.json` used to report an
+  // unqualified pass on the strength of the report alone — while the file
+  // claim silently went unchecked. Same shape as the bug this whole release is
+  // about: one absence plus one presence read as success.
+  //
+  // Measured before the fix: expected_files 99 against a repo with one commit
+  // and no discoverable base gave match: null, base: null, verdict: "pass".
+  if (claimWentUnevaluated) return 'unverified';
+
   if (realityVerdict === 'pass' || reportPass === true) return 'pass';
   return 'unverified';
 }
@@ -313,7 +345,10 @@ export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkRes
   const base = resolveBase(canonicalWorkdir, input.base);
   const rc = realityCheck(canonicalWorkdir, base, input.claim?.expected_files);
 
-  const verdict = combineVerdict(rc.verdict, input.report?.pass);
+  // The caller asked for a file claim to be checked and it was not: `match`
+  // is null only when the comparison never ran.
+  const claimWentUnevaluated = input.claim?.expected_files != null && rc.match === null;
+  const verdict = combineVerdict(rc.verdict, input.report?.pass, claimWentUnevaluated);
   const timestamp = new Date().toISOString();
   const safeAgentId = input.agent_id.replace(/[^a-zA-Z0-9_-]/g, '-');
   // 6-char random suffix prevents same-millisecond collisions (two parallel
@@ -351,6 +386,9 @@ export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkRes
   return {
     entity_name: entityName,
     verdict,
+    // Deprecated alias — see VerifyAgentWorkResult. Derived, never stored, so
+    // it cannot drift from the verdict it mirrors.
+    pass: verdict === 'pass',
     reality_check: rc,
     external_report: input.report ?? null,
     timestamp,

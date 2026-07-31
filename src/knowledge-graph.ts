@@ -548,7 +548,15 @@ export class KnowledgeGraph {
     // nothing. The invariant to preserve: terms are OR-ed and BM25 decides the
     // order. See the CHANGELOG entry for the measured effect.
     const ftsQuery = buildMatchExpression(this.db, query);
-    if (ftsQuery === null) return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
+    if (ftsQuery === null) {
+      // Nothing searchable in a query that was not itself empty — "???",
+      // "@#$%", a lone emoji. Returning recent memories here answers a
+      // question nobody asked and dresses it as a search result: the caller
+      // cannot tell "here is what matched" from "I found no terms, have these
+      // instead". The genuinely empty query is handled above and still lists
+      // recent, which is its documented behaviour.
+      return [];
+    }
 
     // Contentless FTS5: columns return null, so join via rowid → entities.id
     // Archived entities are removed from FTS5 by archiveEntity(), so status filter is a safety net.

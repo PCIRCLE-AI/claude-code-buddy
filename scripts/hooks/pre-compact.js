@@ -98,10 +98,11 @@ process.stdin.on('end', () => {
     const handle = openHookDb(process.env, { fts: true });
     if (!handle) return;
     const { db } = handle;
+    let written = null;
     try {
       // Shared write dance — upsert entity + observations + tags AND reindex FTS
       // so the pre-compact memory is recallable via the FTS keyword path.
-      captureEntity(db, {
+      written = captureEntity(db, {
         name: entityName,
         type: 'session-summary',
         observations: obsLines,
@@ -122,8 +123,15 @@ process.stdin.on('end', () => {
     // `systemMessage` is a valid top-level field for any event and carries
     // the same information to the user. The contract is asserted in
     // tests/helpers/hook-output-contract.ts; do not hand-roll a shape here.
+    // Report what was WRITTEN, not what was counted. `insightCount` is derived
+    // from the transcript and `captureEntity` returns null when the entity row
+    // cannot be resolved, so the old message announced a save that may not have
+    // happened — and announced a count that never matched the one entity and
+    // handful of observations actually written.
     const hookOutput = {
-      systemMessage: `Saved ${insightCount} insights to MeMesh before compaction`,
+      systemMessage: written
+        ? `Saved ${obsLines.length} observations to MeMesh before compaction`
+        : 'MeMesh: could not save pre-compaction insights (see stderr)',
     };
     console.log(JSON.stringify(hookOutput));
   } catch (err) {

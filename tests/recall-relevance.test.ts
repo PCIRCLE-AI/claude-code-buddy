@@ -216,9 +216,26 @@ describe('Feature: recall relevance', () => {
       expect(kg.search('redis or postgres').map((e) => e.name)).toContain('or-note');
     });
 
-    it('falls back to the recent list when the query is only punctuation', () => {
+    it('returns nothing when a non-empty query has no searchable terms', () => {
+      // BEHAVIOUR CHANGE. This used to fall back to the recent list, which
+      // handed back memories that matched nothing and labelled them results.
+      // A caller — especially an LLM consuming `recall` output — cannot tell
+      // "here is what matched" from "I found no terms in your query, have
+      // these instead", so unrelated memories get treated as relevant.
+      //
+      // Empty is the honest answer. The genuinely empty query still lists
+      // recent, which is its documented behaviour and is checked below.
       kg.createEntity('anything', 'note', { observations: ['some content'] });
-      expect(kg.search('?!...').map((e) => e.name)).toContain('anything');
+      expect(kg.search('?!...')).toEqual([]);
+      expect(kg.search('@#$%^&*()')).toEqual([]);
+    });
+
+    it('still lists recent memories for a genuinely empty query', () => {
+      // The distinction the change above depends on: "" means "show me what
+      // you have", "?!..." means "search for this". They must not collapse.
+      kg.createEntity('anything', 'note', { observations: ['some content'] });
+      expect(kg.search('').map((e) => e.name)).toContain('anything');
+      expect(kg.search('   ').map((e) => e.name)).toContain('anything');
     });
   });
 

@@ -293,8 +293,9 @@ export class KnowledgeGraph {
             return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
         }
         const ftsQuery = buildMatchExpression(this.db, query);
-        if (ftsQuery === null)
-            return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
+        if (ftsQuery === null) {
+            return [];
+        }
         const statusFilter = opts?.includeArchived ? '' : "AND e.status = 'active'";
         const namespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
         const tagFilter = opts?.tag

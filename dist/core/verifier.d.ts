@@ -30,6 +30,7 @@ export interface RealityCheckResult {
 export interface VerifyAgentWorkResult {
     entity_name: string;
     verdict: Verdict;
+    pass: boolean;
     reality_check: RealityCheckResult;
     external_report: VerifyAgentWorkInput['report'] | null;
     timestamp: string;
