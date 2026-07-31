@@ -55,48 +55,28 @@ run_gate() {
   fi
 }
 
-CONFIG_PATH="$HOME/.memesh/config.json"
-LLM_BACKUP_PATH="/tmp/memesh-release-verify-llm-backup.json"
-
-strip_llm_for_test() {
-  if [ -f "$CONFIG_PATH" ]; then
-    CONFIG_PATH="$CONFIG_PATH" LLM_BACKUP_PATH="$LLM_BACKUP_PATH" python3 - <<'PY'
-import json, os
-p = os.environ['CONFIG_PATH']
-with open(p) as f: d = json.load(f)
-saved = d.pop('llm', None)
-with open(p, 'w') as f: json.dump(d, f, indent=2)
-with open(os.environ['LLM_BACKUP_PATH'], 'w') as f:
-    json.dump(saved or {}, f)
-PY
-  fi
-}
-
-restore_llm() {
-  if [ -f "$LLM_BACKUP_PATH" ] && [ -f "$CONFIG_PATH" ]; then
-    CONFIG_PATH="$CONFIG_PATH" LLM_BACKUP_PATH="$LLM_BACKUP_PATH" python3 - <<'PY'
-import json, os
-backup_p = os.environ['LLM_BACKUP_PATH']
-config_p = os.environ['CONFIG_PATH']
-with open(backup_p) as f: saved = json.load(f)
-with open(config_p) as f: d = json.load(f)
-if saved: d['llm'] = saved
-with open(config_p, 'w') as f: json.dump(d, f, indent=2)
-os.unlink(backup_p)
-PY
-  fi
-}
-
-trap restore_llm EXIT
-
 gate_typecheck() { npm run typecheck >/dev/null 2>&1; }
 gate_build() { npm run build >/dev/null 2>&1; }
 
 gate_full_test_suite() {
-  strip_llm_for_test
-  npx vitest run >/dev/null 2>&1
+  # Run against a throwaway HOME instead of editing the maintainer's real
+  # ~/.memesh/config.json and putting it back with an EXIT trap.
+  #
+  # What the suite needs is an environment with no LLM credentials — not this
+  # machine's environment minus its credentials. Stripping the `llm` block out
+  # of the live config meant the only copy of real API keys sat in a
+  # world-readable /tmp file for the duration of the run, and a SIGKILL, a
+  # crash between the two writes, or a /tmp sweep lost them. A throwaway HOME
+  # has no config to strip, so there is nothing to restore and nothing to lose.
+  #
+  # MEMESH_DB_PATH is deliberately NOT set: pointing it at an existing file
+  # makes tests/hooks/session-start-telemetry.test.ts fail, because its
+  # "short-circuits on missing DB" case then cannot short-circuit.
+  local throwaway_home
+  throwaway_home="$(mktemp -d)"
+  HOME="$throwaway_home" npx vitest run >/dev/null 2>&1
   local rc=$?
-  restore_llm
+  rm -rf "$throwaway_home"
   return $rc
 }
 
