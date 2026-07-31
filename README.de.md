@@ -288,7 +288,7 @@ Wenn npm eine installierte Version als veraltet kennzeichnet (typischerweise ein
 
 ## Intelligente Features
 
-**🧠 Intelligente Suche** — Suche nach „Login Security" und finde Memories über „OAuth PKCE". MeMesh erweitert Anfragen mit verwandten Begriffen unter Verwendung Ihres konfigurierten LLM.
+**🧠 Intelligente Suche** — Suche nach „Login Security" und finde Memories über „OAuth PKCE". MeMesh nutzt auf dem heißen Pfad FTS5 + sqlite-vec, ohne LLM; die Vektor-Ergänzung erreicht dennoch verwandte Formulierungen.
 
 **📊 Bewertetes Ranking** — Ergebnisse geordnet nach Relevanz (30%) + Aktualität (25%) + Häufigkeit (18%) + Konfidenz (17%) + Abruf-Auswirkung (10%).
 

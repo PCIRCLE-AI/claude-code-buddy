@@ -1,4 +1,4 @@
-# LongMemEval Benchmark Methodology — MeMesh v4.0.4
+# LongMemEval Benchmark Methodology — MeMesh v4.2.11
 
 ## Overview
 
@@ -103,7 +103,8 @@ behaviour for it to measure. Its historical result file is retained.
 
 Fusion is whatever `recallEnhanced()` does; the adapter does not compute scores.
 As shipped, that is: FTS5 hits ordered by BM25 and graded by position, vector
-hits appended with `max(0, 1 - distance)`, then the whole set ranked by the
+hits appended with `vectorSimilarity(distance)` = `max(0, 1 - distance / 2)`,
+cut off at `MAX_VECTOR_DISTANCE = 1.30`, then the whole set ranked by the
 five-factor scorer (relevance 0.30, recency 0.25, frequency 0.18, confidence
 0.17, recall-impact 0.10).
 
@@ -176,7 +177,7 @@ fresh corpus, under a keyword-retrieval task.
 All raw per-question results are committed in `benchmarks/longmemeval/results/`. The aggregation logic is in `benchmarks/longmemeval/run.mjs`. To verify the aggregate numbers, recompute from the raw JSON:
 
 ```javascript
-const data = require('./results/mode-A-2026-05-03T12-31-26.json');
+const data = require('./results/mode-A-2026-07-29T08-15-09.json');
 const r5 = data.results.filter(r => r.r_at_5).length / data.results.length;
 console.log('R@5:', (r5 * 100).toFixed(2) + '%');
 ```
@@ -210,5 +211,5 @@ The divergence this file used to hide is now covered two ways:
    through `recallEnhanced()` on every CI leg and fails below a fixed R@5 floor.
    It is deliberately not the LongMemEval dataset: a 278 MB download per CI run
    is unworkable and committing a slice is dataset redistribution. Its job is to
-   catch collapse — each of the four defects fixed in PR #78 breaches the floor —
+   catch collapse — two of the four defects fixed in PR #78 breach the floor (AND-joined terms, and ordering by id before LIMIT); flat relevance and whitespace tokenising do not, and are pinned by tests/recall-relevance.test.ts instead —
    not to reproduce the published figure.

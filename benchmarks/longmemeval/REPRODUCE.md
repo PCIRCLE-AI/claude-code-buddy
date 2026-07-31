@@ -59,7 +59,7 @@ Time: ~10s
 The raw per-question results are in `benchmarks/longmemeval/results/`. You can recompute the aggregate from any result file:
 
 ```javascript
-const data = require('./benchmarks/longmemeval/results/mode-A-2026-05-03T12-31-26.json');
+const data = require('./benchmarks/longmemeval/results/mode-A-2026-07-29T08-15-09.json');
 const n = data.results.length;
 const r5 = data.results.filter(r => r.r_at_5).length / n;
 const r10 = data.results.filter(r => r.r_at_10).length / n;
@@ -73,7 +73,7 @@ Each result JSON includes `run_info.environment` with:
 - Node.js version
 - OS platform and version
 - CPU model and core count
-- MeMesh version (4.0.4)
+- MeMesh version (recorded in the result JSON's `run_info`)
 - Git SHA
 - Dataset SHA256
 

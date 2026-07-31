@@ -289,7 +289,7 @@ Quando o npm sinaliza uma versão instalada como depreciada (tipicamente um advi
 
 ## Funcionalidades Inteligentes
 
-**🧠 Busca Inteligente** — Busque "login security" e encontre memórias sobre "OAuth PKCE". MeMesh expande queries com termos relacionados usando seu LLM configurado.
+**🧠 Busca Inteligente** — Busque "login security" e encontre memórias sobre "OAuth PKCE". MeMesh usa FTS5 + sqlite-vec no caminho quente, sem LLM; o complemento vetorial ainda alcança termos relacionados.
 
 **📊 Ranking Pontuado** — Resultados ranqueados por relevância (30%) + recência (25%) + frequência (18%) + confiança (17%) + impacto de recall (10%).
 

@@ -316,7 +316,7 @@ Cuando npm marca una versión instalada como deprecada (típicamente un aviso de
 
 ## Características Inteligentes
 
-**🧠 Búsqueda Inteligente** — Busca "login security" y encuentra memorias sobre "OAuth PKCE". MeMesh expande consultas con términos relacionados usando tu LLM configurado.
+**🧠 Búsqueda Inteligente** — Busca "login security" y encuentra memorias sobre "OAuth PKCE". MeMesh usa FTS5 + sqlite-vec en la ruta caliente, sin LLM; el complemento vectorial aún alcanza términos relacionados.
 
 **📊 Ranking Puntuado** — Los resultados se clasifican por relevancia (30%) + recencia (25%) + frecuencia (18%) + confianza (17%) + impacto de recuperación (10%).
 

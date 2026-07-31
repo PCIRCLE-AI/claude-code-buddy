@@ -289,7 +289,7 @@ Khi npm gắn cờ phiên bản đã cài là deprecated (thường là security
 
 ## Tính năng thông minh
 
-**🧠 Smart Search** — Tìm "login security" và tìm thấy memories về "OAuth PKCE". MeMesh mở rộng queries với các terms liên quan bằng LLM được cấu hình của bạn.
+**🧠 Smart Search** — Tìm "login security" và tìm thấy memories về "OAuth PKCE". MeMesh dùng FTS5 + sqlite-vec trên hot path, không dùng LLM; phần bổ sung vector vẫn tiếp cận được các cách diễn đạt liên quan.
 
 **📊 Scored Ranking** — Kết quả được xếp hạng theo relevance (30%) + recency (25%) + frequency (18%) + confidence (17%) + recall impact (10%).
 
