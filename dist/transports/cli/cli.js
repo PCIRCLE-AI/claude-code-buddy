@@ -4,7 +4,7 @@ import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
+import { openDatabase, closeDatabase, getDatabase, reindexFts } from '../../db.js';
 import { remember, recallWithConflicts, forget, consolidate, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { verifyAgentWork } from '../../core/verifier.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
@@ -1140,11 +1140,24 @@ program
 });
 program
     .command('reindex')
-    .description('Regenerate vector embeddings for all entities')
+    .description('Regenerate vector embeddings for all entities (--fts rebuilds the keyword index instead)')
     .option('--namespace <namespace>', 'Reindex only entities in this namespace')
+    .option('--fts', 'Rebuild the full-text keyword index instead of the vector index')
     .option('--json', 'Output as JSON')
     .action(async (opts) => {
     try {
+        if (opts.fts) {
+            await withDatabase(async () => {
+                const { entities } = reindexFts();
+                if (opts.json) {
+                    console.log(JSON.stringify({ rebuilt: 'fts', entities }));
+                }
+                else {
+                    console.log(`✅ Keyword index rebuilt from ${entities} active memories.`);
+                }
+            });
+            return;
+        }
         await withDatabase(async () => {
             const result = await reindex({ namespace: opts.namespace });
             if (opts.json) {

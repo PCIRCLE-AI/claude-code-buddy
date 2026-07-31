@@ -3,7 +3,7 @@ import * as sqliteVec from 'sqlite-vec';
 import path from 'path';
 import fs from 'fs';
 import { runAutoDecay } from './core/lifecycle.js';
-import { getEmbeddingDimension } from './core/config.js';
+import { resolveEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
 import { insertFtsRow } from './storage/fts-index.js';
@@ -57,6 +57,20 @@ CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);
 CREATE INDEX IF NOT EXISTS idx_entities_type_created ON entities(type, created_at);
+
+-- Migration markers and small bits of persistent state (index segmentation
+-- version, embedding dimension, pending-reindex flags, backfill markers).
+--
+-- This used to be created ad hoc by each helper that needed it — four inline
+-- CREATE TABLE IF NOT EXISTS copies in src/db.ts, none of them visible to
+-- scripts/check-schema-drift.mjs, which only extracts SCHEMA_SQL and FTS_SQL.
+-- A column added to one copy would not have been caught. It also meant the
+-- hook-side schema had no metadata table at all, so hooks could not
+-- participate in migrations even in principle.
+CREATE TABLE IF NOT EXISTS memesh_metadata (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 `;
 const FTS_SQL = `
 CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
@@ -133,66 +147,115 @@ export function openDatabase(dbPath) {
     runAutoTelemetryPrune(db);
     ensureFtsSegmentation(db);
     sqliteVec.load(db);
-    const targetDim = getEmbeddingDimension();
-    ensureVecTable(db, targetDim);
+    const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
+    ensureVecTable(db, targetDim, dimensionKnown);
     return db;
 }
 const FTS_SEGMENTATION_VERSION = 1;
-function ensureFtsSegmentation(db) {
-    db.exec(`
-    CREATE TABLE IF NOT EXISTS memesh_metadata (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
-    const stored = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'fts_segmentation_version'").get();
-    if (stored && parseInt(stored.value, 10) >= FTS_SEGMENTATION_VERSION)
-        return;
-    const rows = db.prepare(`SELECT e.id, e.name, COALESCE(group_concat(o.content, ' '), '') AS obs
-       FROM entities e
-       LEFT JOIN observations o ON o.entity_id = e.id
-      WHERE e.status = 'active'
-      GROUP BY e.id`).all();
-    const rebuild = db.transaction(() => {
-        db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
-        for (const row of rows)
-            insertFtsRow(db, row.id, row.name, row.obs);
-        db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('fts_segmentation_version', ?)").run(String(FTS_SEGMENTATION_VERSION));
-    });
+const MIGRATION_RETRY_BACKOFF_MS = 24 * 60 * 60 * 1000;
+export function runOnceMigration(db, opts) {
+    const { key, version, describe, migrate } = opts;
+    const attemptKey = `${key}_last_attempt`;
+    const readMarker = (k) => db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(k)?.value;
+    const stored = readMarker(key);
+    if (stored && parseInt(stored, 10) >= version)
+        return false;
+    const lastAttempt = readMarker(attemptKey);
+    if (lastAttempt && Date.now() - parseInt(lastAttempt, 10) < MIGRATION_RETRY_BACKOFF_MS) {
+        return false;
+    }
     try {
-        rebuild();
+        db.transaction(() => {
+            const current = readMarker(key);
+            if (current && parseInt(current, 10) >= version)
+                return;
+            migrate(db);
+            db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(key, String(version));
+            db.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(attemptKey);
+        }).immediate();
+        return true;
     }
     catch (err) {
-        process.stderr.write(`MeMesh: search index rebuild failed (${err instanceof Error ? err.message : String(err)}). ` +
-            `Non-Latin search may be incomplete until it succeeds; it will retry on next start.\n`);
+        try {
+            db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(attemptKey, String(Date.now()));
+        }
+        catch { }
+        process.stderr.write(`MeMesh: ${describe} failed (${err instanceof Error ? err.message : String(err)}). ` +
+            `Your memories are unaffected — this rebuilds a derived index. ` +
+            `It will retry in 24h, or run 'memesh reindex --fts' to retry now.\n`);
+        return false;
     }
 }
-function ensureVecTable(db, targetDim) {
-    db.exec(`
-    CREATE TABLE IF NOT EXISTS memesh_metadata (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
+function ensureFtsSegmentation(db) {
+    runOnceMigration(db, {
+        key: 'fts_segmentation_version',
+        version: FTS_SEGMENTATION_VERSION,
+        describe: 'search index rebuild',
+        migrate: rebuildFtsIndex,
+    });
+}
+const FTS_REBUILD_PAGE_SIZE = 500;
+function rebuildFtsIndex(db) {
+    db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
+    const page = db.prepare(`SELECT e.id, e.name, COALESCE(group_concat(o.content, ' '), '') AS obs
+       FROM entities e
+       LEFT JOIN observations o ON o.entity_id = e.id
+      WHERE e.status = 'active' AND e.id > ?
+      GROUP BY e.id
+      ORDER BY e.id
+      LIMIT ?`);
+    let afterId = 0;
+    for (;;) {
+        const rows = page.all(afterId, FTS_REBUILD_PAGE_SIZE);
+        if (rows.length === 0)
+            break;
+        for (const row of rows)
+            insertFtsRow(db, row.id, row.name, row.obs);
+        afterId = rows[rows.length - 1].id;
+        if (rows.length < FTS_REBUILD_PAGE_SIZE)
+            break;
+    }
+}
+export function reindexFts() {
+    const database = getDatabase();
+    database.transaction(() => rebuildFtsIndex(database)).immediate();
+    database
+        .prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)')
+        .run('fts_segmentation_version', String(FTS_SEGMENTATION_VERSION));
+    database.prepare('DELETE FROM memesh_metadata WHERE key = ?').run('fts_segmentation_version_last_attempt');
+    const { c } = database
+        .prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'")
+        .get();
+    return { entities: c };
+}
+function ensureVecTable(db, targetDim, dimensionKnown = true) {
     const storedDim = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get();
     const currentDim = storedDim ? parseInt(storedDim.value, 10) : 0;
     const vecExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='entities_vec'").get();
     if (vecExists && currentDim === targetDim) {
         return;
     }
-    if (vecExists && currentDim !== targetDim) {
-        process.stderr.write(`MeMesh: Embedding dimension changed (${currentDim} → ${targetDim}). Rebuilding vector index.\n` +
-            `MeMesh: Old embeddings deleted. Run 'memesh reindex' to regenerate vectors for all entities.\n` +
-            `MeMesh: Without reindex, only newly accessed entities will be embedded.\n`);
-        db.exec('DROP TABLE entities_vec');
-        db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)").run(JSON.stringify({ from: currentDim, to: targetDim, droppedAt: new Date().toISOString() }));
+    if (vecExists && !dimensionKnown) {
+        process.stderr.write(`MeMesh: embedding dimension could not be determined (config unreadable), so the ` +
+            `existing ${currentDim}-dim vector index was left untouched rather than rebuilt. ` +
+            `Fix ~/.memesh/config.json to change embedders.\n`);
+        return;
     }
-    db.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS entities_vec USING vec0(
-      embedding float[${targetDim}]
-    );
-  `);
-    db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('embedding_dimension', ?)").run(String(targetDim));
+    db.transaction(() => {
+        if (vecExists) {
+            process.stderr.write(`MeMesh: Embedding dimension changed (${currentDim} → ${targetDim}). Rebuilding vector index.\n` +
+                `MeMesh: Old embeddings deleted. Run 'memesh reindex' to regenerate vectors for all entities.\n` +
+                `MeMesh: Without reindex, only newly accessed entities will be embedded.\n`);
+            db.exec('DROP TABLE entities_vec');
+            db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)").run(JSON.stringify({ from: currentDim, to: targetDim, droppedAt: new Date().toISOString() }));
+        }
+        db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS entities_vec USING vec0(
+        embedding float[${targetDim}]
+      );
+    `);
+        db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('embedding_dimension', ?)").run(String(targetDim));
+    }).immediate();
 }
 export function getPendingReindexInfo() {
     if (!db)
@@ -254,12 +317,6 @@ const TELEMETRY_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const TELEMETRY_PRUNE_DEFAULT_DAYS = 180;
 const TELEMETRY_PRUNE_MARKER = 'last_telemetry_prune_at';
 function runAutoTelemetryPrune(db) {
-    db.exec(`
-    CREATE TABLE IF NOT EXISTS memesh_metadata (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
     const last = db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(TELEMETRY_PRUNE_MARKER);
     if (last) {
         const elapsed = Date.now() - new Date(last.value).getTime();
@@ -276,12 +333,6 @@ function runAutoTelemetryPrune(db) {
     db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(TELEMETRY_PRUNE_MARKER, new Date().toISOString());
 }
 function backfillSignalScores(db) {
-    db.exec(`
-    CREATE TABLE IF NOT EXISTS memesh_metadata (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
     const MARKER = 'signal_score_backfill_v1';
     const done = db.prepare("SELECT value FROM memesh_metadata WHERE key = ?").get(MARKER);
     if (done)

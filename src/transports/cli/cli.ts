@@ -5,7 +5,7 @@ import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
+import { openDatabase, closeDatabase, getDatabase, reindexFts } from '../../db.js';
 import { remember, recallWithConflicts, forget, consolidate, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { verifyAgentWork } from '../../core/verifier.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
@@ -1312,11 +1312,36 @@ program
 // --- reindex ---
 program
   .command('reindex')
-  .description('Regenerate vector embeddings for all entities')
+  .description('Regenerate vector embeddings for all entities (--fts rebuilds the keyword index instead)')
   .option('--namespace <namespace>', 'Reindex only entities in this namespace')
+  .option('--fts', 'Rebuild the full-text keyword index instead of the vector index')
   .option('--json', 'Output as JSON')
   .action(async (opts) => {
     try {
+      // The keyword index normally rebuilds itself once, on the first open
+      // after an upgrade, guarded by a version marker in memesh_metadata. That
+      // marker only moves forward, which leaves one state it cannot describe:
+      // a database migrated by this version, then written to by an older one
+      // that does not know the marker exists. Those memories are indexed with
+      // the old rules and re-upgrading short-circuits past them, so a
+      // partial-phrase query never finds them.
+      //
+      // Users reach that state legitimately — an npm-global and a
+      // plugin-marketplace install side by side, or a downgrade to recover
+      // from a bad release. This is the way out, and `memesh doctor` points
+      // here when it detects it.
+      if (opts.fts) {
+        await withDatabase(async () => {
+          const { entities } = reindexFts();
+          if (opts.json) {
+            console.log(JSON.stringify({ rebuilt: 'fts', entities }));
+          } else {
+            console.log(`✅ Keyword index rebuilt from ${entities} active memories.`);
+          }
+        });
+        return;
+      }
+
       await withDatabase(async () => {
         const result = await reindex({ namespace: opts.namespace });
 

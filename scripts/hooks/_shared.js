@@ -257,6 +257,20 @@ CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);
 CREATE INDEX IF NOT EXISTS idx_entities_type_created ON entities(type, created_at);
+
+-- Migration markers and small bits of persistent state (index segmentation
+-- version, embedding dimension, pending-reindex flags, backfill markers).
+--
+-- This used to be created ad hoc by each helper that needed it — four inline
+-- CREATE TABLE IF NOT EXISTS copies in src/db.ts, none of them visible to
+-- scripts/check-schema-drift.mjs, which only extracts SCHEMA_SQL and FTS_SQL.
+-- A column added to one copy would not have been caught. It also meant the
+-- hook-side schema had no metadata table at all, so hooks could not
+-- participate in migrations even in principle.
+CREATE TABLE IF NOT EXISTS memesh_metadata (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 `;
 
 // FTS5 virtual table — separate so hooks that don't need it stay lean.
@@ -519,7 +533,113 @@ export function openHookDb(env = process.env, opts = {}) {
     safeAlter("ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
   }
 
+  // v4.2.11: rebuild entities_fts when the segmentation rules change.
+  //
+  // Hooks write to the index through the same generated primitives core uses
+  // (`insertFtsRow` / `removeFromFts` segment CJK runs into bigrams), but this
+  // migration lived only in src/db.ts::openDatabase. A user whose memesh
+  // activity is entirely hook-driven — auto-capture on Stop and PreCompact,
+  // recall on SessionStart — therefore kept a permanently half-segmented
+  // index: rows written after the upgrade segmented, rows written before it
+  // not, until some core process happened to open the database.
+  //
+  // Worse than incomplete: on a contentless FTS5 table a delete matches on the
+  // values that were INDEXED, so re-capturing a pre-upgrade CJK entity handed
+  // the segmented form to a delete whose stored tokens were unsegmented. The
+  // delete failed, the stale row survived alongside the new one, and the user
+  // saw "database disk image is malformed" on hook stderr.
+  if (opts.fts) ensureHookFtsSegmentation(db);
+
   return { db, dbPath };
+}
+
+/**
+ * The segmentation version the hook side knows how to produce.
+ * MUST match `FTS_SEGMENTATION_VERSION` in src/db.ts — pinned by
+ * `tests/hooks/mirror-parity.test.ts`.
+ */
+export const FTS_SEGMENTATION_VERSION = 1;
+
+/** How long a failed rebuild waits before trying again. Mirrors src/db.ts. */
+const MIGRATION_RETRY_BACKOFF_MS = 24 * 60 * 60 * 1000;
+
+/** Rows re-indexed per page. Mirrors FTS_REBUILD_PAGE_SIZE in src/db.ts. */
+const FTS_REBUILD_PAGE_SIZE = 500;
+
+/**
+ * Hook-side twin of `ensureFtsSegmentation` in src/db.ts.
+ *
+ * Same invariants, and for the same reasons: the version check and the rebuild
+ * happen together inside a BEGIN IMMEDIATE transaction so a concurrent writer
+ * cannot have its row erased by `delete-all` and left out of the reinsert, and
+ * a failure records an attempt timestamp so a persistently broken index does
+ * not re-scan the whole corpus on every hook invocation.
+ *
+ * This cannot import from src/ (the F5 boundary: hooks must work without
+ * dist/), so it is a deliberate second implementation rather than a shared
+ * one. It is small, and both halves are pinned by tests.
+ */
+function ensureHookFtsSegmentation(db) {
+  const KEY = 'fts_segmentation_version';
+  const ATTEMPT_KEY = `${KEY}_last_attempt`;
+
+  const read = (k) => db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(k)?.value;
+
+  const stored = read(KEY);
+  if (stored && parseInt(stored, 10) >= FTS_SEGMENTATION_VERSION) return;
+
+  const lastAttempt = read(ATTEMPT_KEY);
+  if (lastAttempt && Date.now() - parseInt(lastAttempt, 10) < MIGRATION_RETRY_BACKOFF_MS) return;
+
+  try {
+    db.transaction(() => {
+      const current = read(KEY);
+      if (current && parseInt(current, 10) >= FTS_SEGMENTATION_VERSION) return;
+
+      db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
+
+      // Paged, not `.iterate()`: better-sqlite3 refuses to run a write while
+      // an iterator is open on the same connection, and writing as we read is
+      // the point. Keyset pagination on e.id bounds memory to one page.
+      const page = db.prepare(
+        `SELECT e.id, e.name, COALESCE(group_concat(o.content, ' '), '') AS obs
+           FROM entities e
+           LEFT JOIN observations o ON o.entity_id = e.id
+          WHERE e.status = 'active' AND e.id > ?
+          GROUP BY e.id
+          ORDER BY e.id
+          LIMIT ?`
+      );
+      let afterId = 0;
+      for (;;) {
+        const rows = page.all(afterId, FTS_REBUILD_PAGE_SIZE);
+        if (rows.length === 0) break;
+        for (const row of rows) insertFtsRow(db, row.id, row.name, row.obs);
+        afterId = rows[rows.length - 1].id;
+        if (rows.length < FTS_REBUILD_PAGE_SIZE) break;
+      }
+
+      db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(
+        KEY,
+        String(FTS_SEGMENTATION_VERSION)
+      );
+      db.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(ATTEMPT_KEY);
+    }).immediate();
+  } catch (err) {
+    try {
+      db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(
+        ATTEMPT_KEY,
+        String(Date.now())
+      );
+    } catch { /* nothing useful to do */ }
+    // Hooks must never break the user's session over a derived index.
+    try {
+      process.stderr.write(
+        `[memesh] search index rebuild failed (${err?.message || err}). ` +
+          `Your memories are unaffected. Run 'memesh reindex --fts' to retry.\n`
+      );
+    } catch { /* stderr must never throw */ }
+  }
 }
 
 /**

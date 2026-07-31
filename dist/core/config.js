@@ -11,12 +11,12 @@ function configFilePath() {
     return path.join(configDir(), 'config.json');
 }
 let lastConfigReadWarning = null;
-export function readConfig() {
+export function readConfigResult() {
     const p = configFilePath();
     if (!fs.existsSync(p))
-        return {};
+        return { config: {}, state: 'absent' };
     try {
-        return JSON.parse(fs.readFileSync(p, 'utf8'));
+        return { config: JSON.parse(fs.readFileSync(p, 'utf8')), state: 'ok' };
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -30,8 +30,11 @@ export function readConfig() {
             }
             catch { }
         }
-        return {};
+        return { config: {}, state: 'unreadable' };
     }
+}
+export function readConfig() {
+    return readConfigResult().config;
 }
 export function writeConfig(config) {
     const dir = configDir();
@@ -131,6 +134,13 @@ export function getEmbeddingDimension(config) {
     const cfg = config ?? readConfig();
     const source = detectEmbeddingSource(cfg.llm ?? null, cfg.embedder);
     return EMBEDDING_DIMENSIONS[source] ?? 384;
+}
+export function resolveEmbeddingDimension() {
+    const { config, state } = readConfigResult();
+    return {
+        dimension: getEmbeddingDimension(config),
+        confident: state !== 'unreadable',
+    };
 }
 export function logCapabilities(config) {
     const caps = detectCapabilities(config);
