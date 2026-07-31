@@ -163,6 +163,14 @@ rows, which are never touched — nothing is deleted and nothing needs re-enteri
 
   Two published claims were corrected rather than quietly dropped. `RESULTS.md` said the figure was "measured using FTS5 full-text search — the same retrieval engine MeMesh uses in production"; it was not. `METHODOLOGY.md` §3 concluded that the benchmark was "a conservative lower bound on MeMesh's production retrieval quality — the full system would score at least as well, likely better", which the 5.20% measurement disproved in the most direct way available. §4.2 had listed OR-joining as an adapter *limitation* while the product AND-joined — the divergence was written down next to the number and read as a caveat about the harness.
 
+### Fixed
+
+- **Committed build output could drift from source, and only the install channel that cannot notice was affected** (`scripts/generate-skills-manifest.mjs`, `scripts/check-generated-mirror.mjs`) — `dist/` is tracked in git because plugin-marketplace installs run it directly: they install with `--ignore-scripts` and never build. Nothing verified it matched `src/`. Found during review of this branch — a source-only commit had left `dist/db.js.map` stale, and every gate reported green.
+
+  `npm publish` was never exposed, because `prepublishOnly` rebuilds first. That is precisely why it could persist: the one channel that ships committed output is the one no gate covered.
+
+  The reason no gate existed is worth naming. `dist/skills-manifest.json` carried a `generated_at` timestamp, so **every build produced a different file** and "is the committed output current?" had no answer a diff could give. The field was written and never read — `doctor.ts` verifies `entries[].sha256` and nothing else — so it is gone, and the build is now reproducible (verified by building twice and comparing bytes). `check-generated-mirror.mjs` then extends from the hook mirror alone to all three committed build outputs, and counts untracked files too, since a new compiled file that was never committed is exactly as stale as a modified one. Break-tested: changing `FTS_SEGMENTATION_VERSION` and rebuilding without committing exits 1.
+
 ### Tests
 
 - **A mutation sweep over this release's fixes, and the five gaps it found** (`tests/vector-index-safety.test.ts`, `tests/gitignore-scope.test.ts`, `tests/migration-atomicity.test.ts`, `tests/recall-relevance.test.ts`, `tests/hooks/pre-edit-recall.test.ts`) — every fix above was re-broken one line at a time in a throwaway worktree to see whether any test noticed. Eleven of nineteen died as intended; the rest exposed fixes shipping unwatched, and one test of ours that was watching nothing:

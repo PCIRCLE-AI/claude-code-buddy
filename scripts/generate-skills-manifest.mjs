@@ -77,9 +77,15 @@ const entries = targets
   .sort((a, b) => a.path.localeCompare(b.path));
 
 mkdirSync(distDir, { recursive: true });
+// No timestamp. It was written and never read — `doctor.ts` verifies
+// `entries[].sha256` and nothing else — and it made every build produce a
+// different file, which is why nothing could gate "is the committed build
+// output current?". `dist/` is what plugin-marketplace installs run: they
+// install with --ignore-scripts and never build, so committed-vs-source drift
+// there ships code the repository does not describe. Determinism is what makes
+// that checkable; scripts/check-generated-mirror.mjs does the checking.
 const manifest = {
   schema: 'memesh.skills-manifest/v1',
-  generated_at: new Date().toISOString(),
   entries,
 };
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
