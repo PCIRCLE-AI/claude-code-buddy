@@ -326,6 +326,56 @@ describe('Feature: index migration atomicity', () => {
     expect(kg.search('資料庫遷移').map((e) => e.name)).toContain('stale-note');
   });
 
+  it('reindexFts leaves the index and its marker agreeing, even when the marker write fails', () => {
+    // The rebuild and the marker are one transaction. Split, a failure between
+    // them leaves a rebuilt index under a stale marker — and the marker only
+    // moves forward, so nothing ever reconciles them.
+    //
+    // This was written off as untestable ("needs the process killed between the
+    // two writes") after mutation showed both weakened variants passing the
+    // suite. That was a failure to design the test, not a property that cannot
+    // be observed: a BEFORE INSERT trigger makes the marker write fail exactly
+    // where a crash would, deterministically and in-process.
+    const db = openDatabase(dbPath);
+    const id = new KnowledgeGraph(db).createEntity('stale-note', 'note', {
+      observations: ['資料庫遷移前一定要先備份'],
+    });
+
+    // An old build's write: unsegmented row, so the index is stale and a
+    // partial-phrase query cannot reach it.
+    db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
+    db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(
+      id,
+      'stale-note',
+      '資料庫遷移前一定要先備份'
+    );
+
+    const kg = new KnowledgeGraph(db);
+    expect(kg.search('資料庫遷移').map((e) => e.name)).not.toContain('stale-note');
+
+    // Fail the marker write, and only the marker write. Added after
+    // openDatabase(), which writes this same key on the way in.
+    db.exec(`
+      CREATE TRIGGER test_block_marker BEFORE INSERT ON memesh_metadata
+      WHEN NEW.key = 'fts_segmentation_version'
+      BEGIN SELECT RAISE(ABORT, 'simulated crash at the marker write'); END;
+    `);
+
+    expect(() => reindexFts()).toThrow(/simulated crash/);
+
+    // The whole point. Under one transaction the rebuild rolls back with the
+    // marker, so the index is exactly as stale as the marker says it is.
+    // Split, the rebuild would have committed and this search would SUCCEED
+    // while the marker still read v1 — the inconsistent state that never heals.
+    expect(kg.search('資料庫遷移').map((e) => e.name)).not.toContain('stale-note');
+
+    db.exec('DROP TRIGGER test_block_marker');
+
+    // And once the fault is gone it completes, so the rollback did not wedge it.
+    expect(reindexFts().entities).toBe(1);
+    expect(kg.search('資料庫遷移').map((e) => e.name)).toContain('stale-note');
+  });
+
   it('a v1 database with no decomposed text keeps its index instead of rewriting it', () => {
     // v2 differs from v1 only by NFC-normalising before segmenting, so for an
     // all-composed corpus the rebuild would reproduce the index it already has

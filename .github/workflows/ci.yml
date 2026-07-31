@@ -41,20 +41,28 @@ jobs:
         # `eslint-disable` comments require explicit justification.
         run: npm run lint
 
-      - name: TypeScript check
-        run: npm run typecheck
-
-      - name: Version coherence (catches partial bumps)
-        run: node scripts/check-version-coherence.mjs
-
       - name: Build
         run: npm run build
 
-      - name: Generated hook-core is committed (F5 mirror drift gate)
-        # Extracted to a script so publish-npm.yml runs the identical gate.
-        # It was inline here and absent there, which is how the publish path
-        # came to enforce less than the review path.
-        run: node scripts/check-generated-mirror.mjs
+      - name: Release gates (the same ones the publish path runs)
+        # `npm run verify:release`, not a hand-listed copy of what it contains.
+        #
+        # This used to enumerate typecheck + version coherence + mirror drift as
+        # separate steps here, while `verify:release` — which publish-npm.yml
+        # and `prepublishOnly` both call — held those PLUS the consumer-tree
+        # dependency audit. The two lists drifted, and the missing one was the
+        # audit, so `npm pack` -> install -> `npm audit` never ran on Windows at
+        # all. That is where `execFileSync('npm')` failing with ENOENT (and then
+        # `npm.cmd` with EINVAL) hid: the script could not run on Windows and
+        # nothing on Windows ran the script.
+        #
+        # One name, so the matrix cannot enforce something different from the
+        # publish path again. Must come after Build — the mirror gate diffs what
+        # the build regenerates.
+        #
+        # Lint stays as its own step above for fail-fast; verify:release runs it
+        # again for ~3s, which is the cost of having one authoritative list.
+        run: npm run verify:release
 
       - name: Build dashboard
         run: cd dashboard && npm ci && npx vite build

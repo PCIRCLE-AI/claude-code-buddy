@@ -518,14 +518,24 @@ function rebuildFtsIndex(db: Database.Database, fromVersion = 0): void {
  */
 export function reindexFts(): { entities: number } {
   const database = getDatabase();
-  // Rebuild and marker in ONE immediate transaction, so a crash between them
-  // cannot leave a rebuilt index under a stale marker.
+  // Rebuild and marker in ONE immediate transaction, so a failure between them
+  // cannot leave a rebuilt index under a stale marker. The marker only moves
+  // forward, so that state never reconciles itself.
   //
-  // Honest limit: this is the only property in this file that no test pins.
-  // Observing it requires killing the process between the two writes, and both
-  // the split-transaction and DEFERRED variants pass the whole suite —
-  // confirmed by mutation, not assumed. It is kept because it is correct and
-  // free, not because anything would catch its removal.
+  // Pinned by `tests/migration-atomicity.test.ts`, which fails the marker write
+  // exactly where a crash would — a BEFORE INSERT trigger on `memesh_metadata`
+  // — and asserts the rebuild rolled back with it. This was first written off
+  // as untestable, on the grounds that observing it needs the process killed
+  // mid-transaction. That was a failure to design the test: the fault can be
+  // injected in-process, deterministically. Splitting the transaction fails it.
+  //
+  // `.immediate()` specifically is NOT load-bearing here, and the test does not
+  // claim it is: `rebuildFtsIndex` is called with the default `fromVersion = 0`,
+  // so its first executed statement is the `delete-all` write and a DEFERRED
+  // transaction takes the lock at the same instant. Confirmed by mutation —
+  // `.immediate()` -> `()` changes nothing observable. It stays for consistency
+  // with `runOnceMigration`, where the callback reads BEFORE writing and the
+  // distinction is the whole fix.
   database.transaction(() => {
     rebuildFtsIndex(database);
     database
