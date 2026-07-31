@@ -24,6 +24,9 @@ export function toIndexForm(text) {
 export function tokenizeQuery(text) {
     return toIndexForm(String(text ?? '')).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [];
 }
+export function hasSearchableTerms(text) {
+    return tokenizeQuery(text).length > 0;
+}
 export function renderMatchExpression(terms) {
     if (terms.length === 0)
         return null;

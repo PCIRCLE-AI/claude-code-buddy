@@ -19,9 +19,19 @@ import { npxSync } from './lib/npm-bin.mjs';
  */
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-test-home-'));
 try {
+  // HOME alone is not isolation. `src/core/paths.ts` resolves MEMESH_DIR and
+  // MEMESH_DB_PATH BEFORE falling back to HOME, so either one exported in the
+  // maintainer's shell — a normal state while debugging against a copy — sends
+  // the whole suite at the real config and the real database, from the publish
+  // path. The docblock above warned about *setting* MEMESH_DB_PATH and said
+  // nothing about inheriting it.
+  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  delete env.MEMESH_DIR;
+  delete env.MEMESH_DB_PATH;
+
   npxSync(['vitest', 'run', ...process.argv.slice(2)], {
     stdio: 'inherit',
-    env: { ...process.env, HOME: home, USERPROFILE: home },
+    env,
   });
 } finally {
   fs.rmSync(home, { recursive: true, force: true });

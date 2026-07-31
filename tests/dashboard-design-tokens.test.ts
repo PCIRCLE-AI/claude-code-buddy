@@ -28,6 +28,19 @@ import { fileURLToPath } from 'url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const srcDir = path.join(repoRoot, 'dashboard', 'src');
 
+/**
+ * The OTHER dashboard.
+ *
+ * `src/cli/view-live.ts` is a complete standalone renderer — the pre-build
+ * fallback the HTTP server serves when `dashboard/dist/index.html` is absent,
+ * i.e. what every source-checkout user sees. It carries its own palette and
+ * ~200 `var(--…)` sites. Scoping this gate to `dashboard/src` alone left the
+ * identical `--font-mono`-style typo invisible in the file the gate exists to
+ * protect against. Its palette is self-contained, so it is checked as its own
+ * scope rather than against the dashboard's tokens.
+ */
+const viewLive = path.join(repoRoot, 'src', 'cli', 'view-live.ts');
+
 function walk(dir: string, exts: string[]): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
@@ -37,12 +50,17 @@ function walk(dir: string, exts: string[]): string[] {
 }
 
 describe('Feature: the dashboard design system is actually followed', () => {
-  it('every var(--token) names a token the stylesheets define', () => {
-    const files = walk(srcDir, ['.css', '.tsx', '.ts']);
+  it.each([
+    ['dashboard/src', () => walk(srcDir, ['.css', '.tsx', '.ts'])],
+    ['src/cli/view-live.ts', () => [viewLive]],
+  ])('every var(--token) in %s names a token that scope defines', (_scope, collect) => {
+    const files = collect();
 
+    // Definitions are collected from every file in the scope, not only `.css`:
+    // `view-live.ts` embeds its palette in a template literal, so a CSS-only
+    // scan would report all 24 of its tokens as undefined.
     const defined = new Set<string>();
     for (const file of files) {
-      if (path.extname(file) !== '.css') continue;
       for (const m of fs.readFileSync(file, 'utf8').matchAll(/^\s*(--[\w-]+)\s*:/gm)) {
         defined.add(m[1]);
       }

@@ -1,4 +1,5 @@
 import { getDatabase, clearPendingReindexFlag } from '../db.js';
+import { hasSearchableTerms } from '../storage/fts-index.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { rankEntities } from './scoring.js';
 import { getProjectName } from './paths.js';
@@ -138,7 +139,7 @@ async function supplementWithVectors(query, args, kg, merged, relevanceMap) {
 export async function recallEnhanced(args) {
     const { kg, entities, relevanceMap } = searchAndScore(args);
     const mergedEntities = [...entities];
-    if (args.query) {
+    if (args.query && hasSearchableTerms(args.query)) {
         await supplementWithVectors(args.query, args, kg, mergedEntities, relevanceMap);
     }
     return rankEntities(mergedEntities, relevanceMap).slice(0, args.limit ?? 20);

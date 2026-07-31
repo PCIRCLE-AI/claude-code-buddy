@@ -653,12 +653,35 @@ function ensureHookFtsSegmentation(db) {
       db.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(ATTEMPT_KEY);
     }).immediate();
   } catch (err) {
-    try {
-      db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(
-        ATTEMPT_KEY,
-        String(Date.now())
-      );
-    } catch { /* nothing useful to do */ }
+    // A peer holding the write lock is not a broken migration, and the hook
+    // side MUST classify it the same way core does — they share one marker key.
+    //
+    // Without this, the shape is: the HTTP server is mid-import, a SessionStart
+    // hook's BEGIN IMMEDIATE times out with SQLITE_BUSY, the import commits, and
+    // the hook then successfully writes the attempt marker. Every core process
+    // — CLI, MCP, HTTP — now short-circuits on that marker for 24 HOURS, so the
+    // index stays on v1 tokens while the write paths use v2. On a contentless
+    // FTS5 table that mismatch makes each delete fail to match, leaving stale
+    // rows beside new ones: duplicate recall results, and "database disk image
+    // is malformed" on stderr. One hook losing a lock race parks the migration
+    // for the whole machine.
+    //
+    // Mirrors isTransientDbError() in src/db.ts. Kept as a literal rather than
+    // imported because hooks cannot import from dist/ (the F5 boundary).
+    const code = err?.code ?? '';
+    const msg = err?.message ?? '';
+    const transient =
+      /SQLITE_BUSY|SQLITE_LOCKED|SQLITE_PROTOCOL/.test(code) ||
+      /database is locked|database table is locked|locking protocol/i.test(msg);
+
+    if (!transient) {
+      try {
+        db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(
+          ATTEMPT_KEY,
+          String(Date.now())
+        );
+      } catch { /* nothing useful to do */ }
+    }
     // Hooks must never break the user's session over a derived index.
     try {
       process.stderr.write(
@@ -803,7 +826,12 @@ export function isTrustedForAutoContext(rawMetadata) {
  * Two things make that impossible, and both are needed:
  *
  *   1. Whitespace inside a line is collapsed, so no memory can introduce a
- *      new line, and a closing fence has to start a line.
+ *      new line, and a closing fence has to start a line. `\s` alone is NOT
+ *      enough for that claim: it does not match U+0085 (NEL), U+001C, U+001D
+ *      or U+001E, all of which other text processors DO treat as line breaks
+ *      (Python's str.splitlines() splits on every one). Measured — of LF, CR,
+ *      VT, FF, U+2028, U+2029, NEL, FS, GS and RS, `\s` misses exactly those
+ *      four. They are collapsed explicitly.
  *   2. The fence is one backtick longer than the longest backtick run in the
  *      content, so a line that IS a fence is too short to close ours.
  *
@@ -814,7 +842,16 @@ export function isTrustedForAutoContext(rawMetadata) {
  * either half is removed.
  */
 export function buildReferenceContext(memoryLines) {
-  const safeLines = memoryLines.map((line) => String(line ?? '').replace(/\s+/g, ' ').trim());
+  // The control characters below ARE the point: U+001C-U+001E and U+0085 are
+  // line separators that `\s` does not match, and this is the trust boundary
+  // that has to guarantee no memory can introduce a line break. Matching them
+  // is the fix, not an oversight — hence the disable on the next line.
+  const safeLines = memoryLines.map((line) =>
+    String(line ?? '')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\s\u0085\u001c-\u001e]+/g, ' ')
+      .trim()
+  );
 
   let longestRun = 0;
   for (const line of safeLines) {

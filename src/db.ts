@@ -217,8 +217,12 @@ export function openDatabase(dbPath?: string): Database.Database {
   // read. ensureVecTable DROPs on a dimension mismatch, so acting on a
   // fallback dimension derived from an unreadable config would delete a BYOK
   // user's entire vector index because of a truncated write.
-  const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
-  ensureVecTable(db, targetDim, dimensionKnown);
+  const {
+    dimension: targetDim,
+    confident: dimensionKnown,
+    configured: configPresent,
+  } = resolveEmbeddingDimension();
+  ensureVecTable(db, targetDim, dimensionKnown, configPresent);
 
   return db;
 }
@@ -557,7 +561,12 @@ export function reindexFts(): { entities: number } {
  * If dimension changed (provider switch), drops and recreates the table.
  * Old embeddings are lost — new ones regenerated as entities are accessed.
  */
-function ensureVecTable(db: Database.Database, targetDim: number, dimensionKnown = true): void {
+function ensureVecTable(
+  db: Database.Database,
+  targetDim: number,
+  dimensionKnown = true,
+  configPresent = true
+): void {
   const storedDim = db.prepare(
     "SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'"
   ).get() as { value: string } | undefined;
@@ -590,6 +599,34 @@ function ensureVecTable(db: Database.Database, targetDim: number, dimensionKnown
       `MeMesh: embedding dimension could not be determined (config unreadable), so the ` +
         `existing ${currentDim}-dim vector index was left untouched rather than rebuilt. ` +
         `Fix ~/.memesh/config.json to change embedders.\n`
+    );
+    return;
+  }
+
+  // The same refusal for a config that is ABSENT rather than unreadable, when
+  // the database itself records a different dimension.
+  //
+  // An absent config normally IS a real answer — Core Mode, 384. But the config
+  // and the database are located by independent environment variables:
+  // `configDir()` follows MEMESH_DIR/HOME, `getDbPath()` follows
+  // MEMESH_DB_PATH. A process that opens this database under a different HOME
+  // — an HTTP server started from launchd/systemd, `sudo memesh doctor`, a
+  // script using an isolated HOME with MEMESH_DB_PATH pointed at the real file
+  // — sees no config at all and would read that as "the user configured
+  // nothing", then drop a BYOK user's 1536-dim index.
+  //
+  // Where the two disagree, the stored dimension is the better evidence: it was
+  // written by a process that had this database AND its config together.
+  // Refusing degrades to "embeddings keep working as before" — `embedAndStore`
+  // already reports a dimension mismatch rather than writing junk — while
+  // dropping is unrecoverable and, on an API embedder, has to be paid for twice.
+  // A genuine embedder change from a readable config still rebuilds, and
+  // `memesh reindex` is the explicit path for the deliberate case.
+  if (vecExists && !configPresent && currentDim !== 0 && currentDim !== targetDim) {
+    process.stderr.write(
+      `MeMesh: no config file was found, but this database records ${currentDim}-dim ` +
+        `embeddings. Keeping the existing vector index rather than rebuilding it at ` +
+        `${targetDim}. If you meant to switch embedders, run 'memesh reindex'.\n`
     );
     return;
   }

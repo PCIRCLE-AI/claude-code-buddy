@@ -23,13 +23,13 @@
     },
     {
       "path": "scripts/hooks/_generated/fts-index.js",
-      "sha256": "c3d8b6ea52c4e8b9be37845f9250c771394b1cba09c316bb5eff93705cf95a6b",
-      "bytes": 2545
+      "sha256": "32bb3f9c1620fa3b9eb9692618f980cfa931ed265a7380d1ec2fe188046c16b5",
+      "bytes": 2633
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "59e29b4eda54f851030cd90e2756d23d4ba76b629532c8448f33a9ca483a4d87",
-      "bytes": 44425
+      "sha256": "a1635cb80aab389701395c6b4415e36187d955abf47ea55c61547ae93e155225",
+      "bytes": 46487
     },
     {
       "path": "scripts/hooks/post-commit.js",
@@ -48,8 +48,8 @@
     },
     {
       "path": "scripts/hooks/pre-edit-recall.js",
-      "sha256": "3bfcde36b641b2d5085dc9f7867606fb54cf8d8e6ea3129ebf33069204f5c554",
-      "bytes": 9431
+      "sha256": "4c79ccabae3ef7d388f3cdf04247c8fe4df49679824fe51b77fa4f308aa0ea5a",
+      "bytes": 10345
     },
     {
       "path": "scripts/hooks/session-start.js",

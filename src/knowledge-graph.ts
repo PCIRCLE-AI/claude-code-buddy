@@ -76,8 +76,19 @@ function buildMatchExpression(db: Database.Database, query: string): string | nu
  */
 function archivedLikeTerms(db: Database.Database, query: string): string[] {
   const escapeLike = (v: string) => v.replace(/[\\%_]/g, '\\$&');
-  const terms = tokenizeQuery(query).slice(0, MAX_QUERY_TERMS);
-  const kept = terms.length > 1 ? dropUbiquitousTerms(db, terms) : terms;
+  // Same ORDER as the FTS branch: drop the ubiquitous terms FIRST, then cap.
+  // These two had silently diverged — the FTS side moved the cap after the
+  // guard and this one did not — so a 37-character Chinese question gave the
+  // two branches different term sets, and the archived supplement quietly
+  // answered a different question from the search it supplements. That bites
+  // hardest exactly where it is used: an archived row is usually a superseded
+  // version of an active one, sharing the head of the text and differing in the
+  // tail, which is the part a positional cap discards.
+  const terms = tokenizeQuery(query);
+  const kept = (terms.length > 1 ? dropUbiquitousTerms(db, terms) : terms).slice(
+    0,
+    MAX_QUERY_TERMS
+  );
   if (kept.length === 0) return [`%${escapeLike(query)}%`];
   return kept.map((t) => `%${escapeLike(t)}%`);
 }
@@ -147,6 +158,60 @@ function activeEntityCount(db: Database.Database): number {
   ).c;
 }
 
+/**
+ * Largest number of terms sent to the `fts_vocab` lookup in one statement.
+ *
+ * The cap on query terms is applied AFTER this guard (so the surviving terms
+ * are the selective ones, not merely the first 32), which means the `IN (...)`
+ * clause takes one bound parameter per token of the RAW query. A pasted stack
+ * trace or a pasted CJK document blows past SQLITE_MAX_VARIABLE_NUMBER (32766)
+ * and the prepare throws `too many SQL variables` — swallowed by the catch
+ * below under a comment blaming a missing `fts_vocab`, silently disabling the
+ * optimisation for exactly the queries that need it most. Measured on a 20k-row
+ * vocab: 12 terms 0.18ms, 500 terms 1.9ms, 3000 terms 11.5ms, 20000 terms 77ms.
+ *
+ * 256 is 8x the term cap — far more than enough for the guard to choose from,
+ * and it keeps the lookup in the sub-millisecond range.
+ */
+const MAX_DF_LOOKUP_TERMS = 256;
+
+/**
+ * Lowercase a term the way `entities_fts` does — and ONLY where we know how.
+ *
+ * `entities_fts` is declared `unicode61 remove_diacritics 1`, which strips
+ * combining marks from LATIN characters. For other scripts unicode61 treats a
+ * combining mark as a SEPARATOR, so the stored tokens are not the mark-stripped
+ * word at all. Measured against a real FTS5 table:
+ *
+ *     "café"     -> stored as  "cafe"          (diacritic removed)
+ *     "काम"      -> stored as  "क", "म"        (SPLIT on the matra)
+ *     "कम"       -> stored as  "कम"
+ *     "مُحَمَّد"     -> stored as  "م","ح","م","د"  (split on harakat)
+ *     "한국"      -> stored as  "한국"
+ *
+ * An earlier version stripped every `\p{M}` unconditionally. That maps a large
+ * word space onto a small skeleton space, so `fold("काम")` produced `"कम"` — a
+ * REAL, DIFFERENT, and commonly frequent word. If `कम` cleared the ubiquity
+ * ceiling, the query term `काम` was dropped, and since terms are OR-ed the
+ * disjunction lost the only member that could match: the search returned
+ * nothing. That regressed Devanagari, Bengali, Tamil, Telugu, Arabic, Hebrew
+ * and Thai — every script whose marks are not Latin diacritics.
+ *
+ * So folding is restricted to terms that are Latin-with-marks. Everything else
+ * is looked up as written: correct for CJK and Hangul bigrams, which carry no
+ * marks, and for the mark-bearing scripts it simply finds no vocab row, giving
+ * document frequency 0 and KEEPING the term. That is the safe direction and is
+ * what `main` did for every accented term — the guard silently not applying
+ * costs a little speed, whereas deleting a query term costs the answer.
+ */
+const LATIN_FOLDABLE = /^[\p{Script=Latin}\p{M}\p{N}]+$/u;
+
+function fold(term: string): string {
+  const lower = term.toLowerCase();
+  if (!LATIN_FOLDABLE.test(lower)) return lower;
+  return lower.normalize('NFD').replace(/\p{M}/gu, '');
+}
+
 function dropUbiquitousTerms(db: Database.Database, terms: string[]): string[] {
   if (terms.length < 2) return terms;
   try {
@@ -160,8 +225,7 @@ function dropUbiquitousTerms(db: Database.Database, terms: string[]): string[] {
     // always kept — the guard quietly did not apply to any accented or
     // decomposed term. Recall was unaffected (FTS5 folds again at MATCH time);
     // the optimisation just never ran.
-    const fold = (t: string) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-    const lowered = terms.map(fold);
+    const lowered = terms.slice(0, MAX_DF_LOOKUP_TERMS).map(fold);
     const rows = db
       .prepare(`SELECT term, doc FROM fts_vocab WHERE term IN (${lowered.map(() => '?').join(',')})`)
       .all(...lowered) as Array<{ term: string; doc: number }>;

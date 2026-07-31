@@ -10,6 +10,7 @@
 // =============================================================================
 
 import { getDatabase, clearPendingReindexFlag } from '../db.js';
+import { hasSearchableTerms } from '../storage/fts-index.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { rankEntities } from './scoring.js';
 import { getProjectName } from './paths.js';
@@ -289,7 +290,14 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
   const { kg, entities, relevanceMap } = searchAndScore(args);
 
   const mergedEntities = [...entities];
-  if (args.query) {
+  // `hasSearchableTerms`, not merely a truthy string. A query like "???" is
+  // truthy, so the vector supplement used to run for it and return up to
+  // `limit` semantically-nearest memories even though the keyword side had
+  // correctly found nothing — dressing "nothing matched" as "here is what
+  // matched" on the one path the fix did not cover. An EMPTY query still means
+  // "show me what you have" and is handled by search()'s recent-list branch,
+  // which is why the check is on searchable terms rather than on emptiness.
+  if (args.query && hasSearchableTerms(args.query)) {
     await supplementWithVectors(args.query, args, kg, mergedEntities, relevanceMap);
   }
   return rankEntities(mergedEntities, relevanceMap).slice(0, args.limit ?? 20);

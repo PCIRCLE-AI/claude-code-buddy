@@ -64,6 +64,24 @@ describe('AuthPrompt', () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
+  it('submits the trimmed token', () => {
+    // The happy path, and the reason it is here: every other case in this file
+    // asserts something did NOT happen. Delete the `onSubmit(value.trim())`
+    // call from the component and all of them stay green — the dashboard would
+    // be permanently unable to authenticate against a remote-bound server with
+    // the whole suite passing. No other test imports this component.
+    const onSubmit = vi.fn();
+    const { container } = render(<AuthPrompt currentToken="" onSubmit={onSubmit} />);
+
+    const input = container.querySelector('input') as HTMLInputElement;
+    fireEvent.input(input, { target: { value: '  a-real-token  ' } });
+    submitForm(container);
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit).toHaveBeenCalledWith('a-real-token');
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it('does not submit a whitespace-only token', () => {
     // `required` is deliberately absent from the input — with it the browser
     // blocks submission, so submit() never runs and the empty-state message was

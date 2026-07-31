@@ -147,8 +147,8 @@ export function openDatabase(dbPath) {
     runAutoTelemetryPrune(db);
     ensureFtsSegmentation(db);
     sqliteVec.load(db);
-    const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
-    ensureVecTable(db, targetDim, dimensionKnown);
+    const { dimension: targetDim, confident: dimensionKnown, configured: configPresent, } = resolveEmbeddingDimension();
+    ensureVecTable(db, targetDim, dimensionKnown, configPresent);
     return db;
 }
 export const FTS_SEGMENTATION_VERSION = 2;
@@ -267,7 +267,7 @@ export function reindexFts() {
         .get();
     return { entities: c };
 }
-function ensureVecTable(db, targetDim, dimensionKnown = true) {
+function ensureVecTable(db, targetDim, dimensionKnown = true, configPresent = true) {
     const storedDim = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get();
     const currentDim = storedDim ? parseInt(storedDim.value, 10) : 0;
     const vecExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='entities_vec'").get();
@@ -278,6 +278,12 @@ function ensureVecTable(db, targetDim, dimensionKnown = true) {
         process.stderr.write(`MeMesh: embedding dimension could not be determined (config unreadable), so the ` +
             `existing ${currentDim}-dim vector index was left untouched rather than rebuilt. ` +
             `Fix ~/.memesh/config.json to change embedders.\n`);
+        return;
+    }
+    if (vecExists && !configPresent && currentDim !== 0 && currentDim !== targetDim) {
+        process.stderr.write(`MeMesh: no config file was found, but this database records ${currentDim}-dim ` +
+            `embeddings. Keeping the existing vector index rather than rebuilding it at ` +
+            `${targetDim}. If you meant to switch embedders, run 'memesh reindex'.\n`);
         return;
     }
     db.transaction(() => {

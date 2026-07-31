@@ -125,6 +125,18 @@ process.stdin.on('end', () => {
         // the segmented index — and the catch below made that invisible.
         const matchExpr = hookMatchExpression(fileNameNoExt);
         try {
+          // ORDER BY rank is load-bearing now that terms are OR-ed.
+          //
+          // The match expression used to be a single phrase, so `LIMIT` picked
+          // from a handful of rows that all genuinely contained the basename and
+          // arbitrary selection was tolerable. `hookMatchExpression` now emits
+          // `"knowledge" OR "graph"` for `knowledge-graph.ts` — necessary,
+          // because a CJK basename has to be reachable by its bigrams — which
+          // makes the match set large and unranked selection IS the result:
+          // editing that file in a project whose memories merely mention
+          // "graph" injected whatever the scan happened to reach first, where
+          // the old code correctly injected nothing. BM25 is what makes the OR
+          // safe; without it the fix trades a CJK miss for an ASCII false hit.
           const ftsResults = matchExpr === null ? [] : db.prepare(`
             SELECT DISTINCT e.id, e.name, e.type, e.metadata
             FROM entities e
@@ -133,6 +145,7 @@ process.stdin.on('end', () => {
             WHERE entities_fts MATCH ?
               AND t.tag = ?
             ${statusFilter}
+            ORDER BY fts.rank, e.id DESC
             LIMIT ?
           `).all(matchExpr, projectTag, (MAX_RESULTS - results.length) * 3);
           // Deduplicate

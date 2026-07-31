@@ -35,6 +35,9 @@ export interface ConfigReadResult {
 export declare function readConfigResult(): ConfigReadResult;
 export declare function readConfig(): MeMeshConfig;
 export declare function writeConfig(config: MeMeshConfig): void;
+export declare class ConfigUnreadableError extends Error {
+    constructor(p: string);
+}
 export declare function updateConfig(partial: Omit<Partial<MeMeshConfig>, 'llm'> & {
     llm?: LLMConfig | null;
 }): MeMeshConfig;
@@ -44,6 +47,7 @@ export declare function getEmbeddingDimension(config?: MeMeshConfig): number;
 export declare function resolveEmbeddingDimension(): {
     dimension: number;
     confident: boolean;
+    configured: boolean;
 };
 export declare function logCapabilities(config?: MeMeshConfig): void;
 export declare function getConfigDir(): string;

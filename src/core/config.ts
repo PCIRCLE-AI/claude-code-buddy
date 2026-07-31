@@ -192,10 +192,36 @@ export function writeConfig(config: MeMeshConfig): void {
   }
 }
 
+/**
+ * Thrown when a read-modify-write is asked to run on a config that could not be
+ * read. Callers surface it; they must not fall back to `{}`.
+ */
+export class ConfigUnreadableError extends Error {
+  constructor(p: string) {
+    super(
+      `Refusing to modify ${p}: the existing config could not be read, so saving ` +
+        `would silently delete every setting already in it. Fix or remove the file, then retry.`
+    );
+    this.name = 'ConfigUnreadableError';
+  }
+}
+
 export function updateConfig(
   partial: Omit<Partial<MeMeshConfig>, 'llm'> & { llm?: LLMConfig | null },
 ): MeMeshConfig {
-  const existing = readConfig();
+  // Read-modify-write, so it must use the tri-state read. `readConfig()`
+  // collapses "no config" and "config could not be read" into `{}`, and this
+  // function then WRITES that `{}` back merged with one field — silently
+  // deleting every other setting the file held.
+  //
+  // That is not a cosmetic loss. `embedder.provider` is what pins the vector
+  // dimension: drop it and the next `openDatabase()` resolves 384 with
+  // `confident: true`, disagrees with the stored 1536, and DROPs entities_vec.
+  // So a BYOK user with a momentarily corrupt config who runs `memesh config
+  // set` — or clicks Save in the dashboard — loses every embedding, through the
+  // front door, past the guard added to prevent exactly that.
+  const { config: existing, state } = readConfigResult();
+  if (state === 'unreadable') throw new ConfigUnreadableError(configFilePath());
   // F17: explicit null on `llm` removes the provider entirely (Core Mode).
   // Used by the dashboard "Remove provider" action to drop apiKey + provider
   // + model so memesh falls back to either env-var auto-detect or no LLM.
@@ -380,12 +406,29 @@ export function getEmbeddingDimension(config?: MeMeshConfig): number {
  *
  * `confident` is false only for `unreadable`. An absent config is a real
  * answer: it means Core Mode, and 384 is genuinely the right dimension.
+ *
+ * `configured` reports whether a config file was actually found and parsed, and
+ * exists because "absent" is only a real answer when the config we are looking
+ * at is the one that belongs to this database. It is not always:
+ * `configDir()` follows `MEMESH_DIR`/HOME while `getDbPath()` follows
+ * `MEMESH_DB_PATH`, and those resolve independently. A process opening a BYOK
+ * user's database under a different HOME — an HTTP server started from
+ * launchd/systemd, `sudo memesh doctor`, a script using an isolated HOME with
+ * MEMESH_DB_PATH pointed at the real file — reads "no config", concludes a
+ * confident 384, disagrees with the stored 1536, and drops every vector.
+ * `ensureVecTable` uses this to prefer the dimension the DATABASE records over
+ * an absence read from somewhere else on disk.
  */
-export function resolveEmbeddingDimension(): { dimension: number; confident: boolean } {
+export function resolveEmbeddingDimension(): {
+  dimension: number;
+  confident: boolean;
+  configured: boolean;
+} {
   const { config, state } = readConfigResult();
   return {
     dimension: getEmbeddingDimension(config),
     confident: state !== 'unreadable',
+    configured: state === 'ok',
   };
 }
 

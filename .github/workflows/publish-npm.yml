@@ -26,7 +26,20 @@ jobs:
         # Cheapest possible first gate. Without it a tag/version mismatch either
         # publishes the wrong number under the right release notes, or fails at
         # the very last step after the whole build and both smoke suites.
-        run: node scripts/check-tag-matches-version.mjs "${{ github.event.release.tag_name }}"
+        #
+        # The tag goes through `env:`, NOT `${{ }}` inside `run:`. Actions
+        # substitutes an expression into the script text BEFORE bash parses it,
+        # and `git check-ref-format` permits `$`, backtick, `(` and `)` in a tag
+        # name — verified: git accepts `v4.2.12$(id)`. Double quotes do not help,
+        # because command substitution happens inside them. A release cut on such
+        # a tag would run arbitrary code in this job, which is the job that holds
+        # NPM_TOKEN: the injected step runs before `npm ci`, so it could patch a
+        # lifecycle script and have the publish step ship a backdoored tarball to
+        # every consumer. Creating a release needs only `contents: write`, so
+        # that would be a privilege escalation to npm-publish for this package.
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: node scripts/check-tag-matches-version.mjs "$RELEASE_TAG"
 
       - name: Install dependencies
         run: npm ci

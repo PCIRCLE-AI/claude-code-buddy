@@ -31,30 +31,69 @@ function read(rel: string): string {
 describe('Feature: release scripts never edit the real ~/.memesh', () => {
   const script = 'scripts/release-verify.sh';
 
+  /** The script with full-line comments removed — assertions are about what it DOES. */
+  function code(rel: string): string {
+    return read(rel)
+      .split('\n')
+      .filter((l) => !l.trim().startsWith('#'))
+      .join('\n');
+  }
+
   it('runs the suite under a throwaway HOME', () => {
-    const text = read(script);
+    const text = code(script);
     expect(text).toMatch(/mktemp -d/);
-    // The HOME override has to be ON the test command. Creating a temp dir and
-    // then not using it for the run is the shape this replaced.
-    expect(text).toMatch(/HOME="\$\w+"\s+npx vitest run/);
+    // The HOME override has to be ON the command. Creating a temp dir and then
+    // not using it for the run is the shape this replaced.
+    expect(text).toMatch(/HOME="\$\w+"[^\n]*"\$@"/);
+    expect(text).toMatch(/with_throwaway_home npx vitest run/);
   });
 
-  it('does not write to, move, or strip the real config', () => {
-    const text = read(script);
+  it('never names the real config or memesh dir at all', () => {
+    // Keyed on WHAT IS TOUCHED, not on which verb touches it.
+    //
+    // The first version of this test listed the operations it imagined the old
+    // script used — `cp`/`mv`/`rm`, a `jq del(.llm)`, a `>` redirect, a `trap`
+    // on a line mentioning config.json. Checked against `git show
+    // main:scripts/release-verify.sh`, ALL FIVE return false: the real
+    // regression used a python3 heredoc and `open(p,'w')`, and its `trap
+    // restore_llm EXIT` line never mentions config.json. The test forbade five
+    // shapes the bug never had, and would have stayed green if the whole
+    // strip/restore block were pasted back in. It was "mutation-verified"
+    // against a hand-written imitation of the bug that matched its own regexes
+    // — which is not verification.
+    //
+    // A script that never mentions `$HOME/.memesh` or `config.json` cannot
+    // read, write, back up or restore them by any means, in any language it
+    // shells out to. That is the property; the verbs are not.
+    const text = code(script);
+    expect(text).not.toMatch(/\$HOME\/\.memesh/);
+    expect(text).not.toMatch(/~\/\.memesh/);
+    expect(text).not.toMatch(/config\.json/);
+    // `trap` existed only to undo the damage. No damage, no trap.
+    expect(text).not.toMatch(/^\s*trap\s/m);
+  });
 
-    // The specific operations the old version performed. Any of them returning
-    // means the credential-handling regressed, whatever the surrounding code
-    // looks like.
-    const offenders = [
-      /\btrap\b[^\n]*config\.json/,
-      /(cp|mv|rm)\s[^\n]*\$HOME\/\.memesh/,
-      /(cp|mv|rm)\s[^\n]*~\/\.memesh/,
-      /jq[^\n]*\bdel\(\.llm\)/,
-      />\s*"?\$HOME\/\.memesh\/config\.json/,
-    ];
-    for (const pattern of offenders) {
-      expect(text).not.toMatch(pattern);
+  it('runs every gate that opens the database under the throwaway HOME', () => {
+    // `doctor` calls openDatabase(), which runs schema migrations, the FTS
+    // rebuild and the telemetry prune — so an unisolated gate MUTATES the
+    // maintainer's real knowledge-graph.db as a side effect of verifying a
+    // release. The commit that introduced the throwaway HOME isolated the test
+    // suite and stopped one gate short, which is why this asserts the set
+    // rather than a single call.
+    const text = code(script);
+    const mustBeIsolated = ['doctor --json', 'install-hooks --dry-run', 'npx vitest run'];
+    for (const cmd of mustBeIsolated) {
+      const line = text.split('\n').find((l) => l.includes(cmd) && !l.trim().startsWith('#'));
+      expect(line, `no line invokes ${cmd}`).toBeDefined();
+      expect(line, `${cmd} is not wrapped in with_throwaway_home`).toMatch(/with_throwaway_home/);
     }
+  });
+
+  it('clears MEMESH_DIR and MEMESH_DB_PATH, not just HOME', () => {
+    // HOME alone is not isolation: paths.ts resolves both of these FIRST, so
+    // either one exported in the maintainer's shell routes a "throwaway HOME"
+    // run straight back at the real config and the real database.
+    expect(code(script)).toMatch(/env -u MEMESH_DIR -u MEMESH_DB_PATH/);
   });
 
   it('the test runner it shares with prepublishOnly also isolates HOME', () => {
@@ -67,5 +106,9 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     // MEMESH_DB_PATH must stay unset — pointing it at an existing file breaks
     // session-start-telemetry's "short-circuits on missing DB" case.
     expect(text).not.toMatch(/MEMESH_DB_PATH:/);
+    // ...and must be actively REMOVED from the inherited environment, not just
+    // left unset here. Not setting it does nothing if the caller exported it.
+    expect(text).toMatch(/delete env\.MEMESH_DIR/);
+    expect(text).toMatch(/delete env\.MEMESH_DB_PATH/);
   });
 });

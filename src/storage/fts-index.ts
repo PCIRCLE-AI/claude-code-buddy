@@ -107,6 +107,25 @@ export function tokenizeQuery(text: string): string[] {
 }
 
 /**
+ * Does this query contain anything that can be searched for at all?
+ *
+ * `"???"`, `"@#$%"`, a lone emoji: non-empty, but nothing survives tokenising.
+ * Such a query must return no results rather than something that merely looks
+ * like results.
+ *
+ * **One owner, because two places decide this and they disagreed.**
+ * `KnowledgeGraph.search()` returned `[]` correctly, and `recallEnhanced()`
+ * then ran the vector supplement anyway — it only checked that the query string
+ * was truthy. So with embeddings enabled the caller still got up to `limit`
+ * semantically-nearest memories for a query that matched nothing: exactly the
+ * "here is what matched" / "I found no terms, have these instead" confusion the
+ * behaviour change was made to remove, on the path the change did not cover.
+ */
+export function hasSearchableTerms(text: string): boolean {
+  return tokenizeQuery(text).length > 0;
+}
+
+/**
  * Render terms into an FTS5 MATCH expression.
  *
  * **One implementation, because there used to be two.** `knowledge-graph.ts`

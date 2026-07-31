@@ -3,6 +3,7 @@ export declare const UNSPACED_SCRIPT_CLASS = "\u3400-\u4DBF\u4E00-\u9FFF\uF900-\
 export declare function segmentUnspacedScripts(text: string): string;
 export declare function toIndexForm(text: string): string;
 export declare function tokenizeQuery(text: string): string[];
+export declare function hasSearchableTerms(text: string): boolean;
 export declare function renderMatchExpression(terms: string[]): string | null;
 export declare function isLoneUnspacedChar(term: string): boolean;
 export declare function removeFromFts(db: Database.Database, entityId: number, name: string, prevObsText: string): void;

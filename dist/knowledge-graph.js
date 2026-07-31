@@ -10,8 +10,8 @@ function buildMatchExpression(db, query) {
 }
 function archivedLikeTerms(db, query) {
     const escapeLike = (v) => v.replace(/[\\%_]/g, '\\$&');
-    const terms = tokenizeQuery(query).slice(0, MAX_QUERY_TERMS);
-    const kept = terms.length > 1 ? dropUbiquitousTerms(db, terms) : terms;
+    const terms = tokenizeQuery(query);
+    const kept = (terms.length > 1 ? dropUbiquitousTerms(db, terms) : terms).slice(0, MAX_QUERY_TERMS);
     if (kept.length === 0)
         return [`%${escapeLike(query)}%`];
     return kept.map((t) => `%${escapeLike(t)}%`);
@@ -21,6 +21,14 @@ const MIN_ROWS_FOR_DF_GUARD = 25;
 function activeEntityCount(db) {
     return db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get().c;
 }
+const MAX_DF_LOOKUP_TERMS = 256;
+const LATIN_FOLDABLE = /^[\p{Script=Latin}\p{M}\p{N}]+$/u;
+function fold(term) {
+    const lower = term.toLowerCase();
+    if (!LATIN_FOLDABLE.test(lower))
+        return lower;
+    return lower.normalize('NFD').replace(/\p{M}/gu, '');
+}
 function dropUbiquitousTerms(db, terms) {
     if (terms.length < 2)
         return terms;
@@ -28,8 +36,7 @@ function dropUbiquitousTerms(db, terms) {
         const total = activeEntityCount(db);
         if (total < MIN_ROWS_FOR_DF_GUARD)
             return terms;
-        const fold = (t) => t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-        const lowered = terms.map(fold);
+        const lowered = terms.slice(0, MAX_DF_LOOKUP_TERMS).map(fold);
         const rows = db
             .prepare(`SELECT term, doc FROM fts_vocab WHERE term IN (${lowered.map(() => '?').join(',')})`)
             .all(...lowered);
