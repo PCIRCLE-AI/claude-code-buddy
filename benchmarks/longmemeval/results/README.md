@@ -12,17 +12,25 @@ change.
 
 ### 2026-07-31 — post-review confirmation. Different hardware, same numbers.
 
-`mode-A-2026-07-31T04-52-22.json` — re-run after the retrieval changes in
+`mode-A-2026-07-31T04-52-22.json` and `mode-B-2026-07-31T05-09-44.json` — re-run
+after the retrieval changes in
 `fix/root-causes-pre-4.2.11`, on aarch64 (ARM, Node v20.19.6) rather than the
 x64 Mac the release runs were measured on.
 
-R@5 95.60%, R@10 97.80%, MRR 0.8929348706848708 — bit-identical to the 07-29
-release measurement in all three metrics, with 0/500 questions returning
-nothing. The term-cap reorder (dropping ubiquitous terms *before* capping at
+Both are bit-identical to the 07-29 release measurement in all three metrics,
+with 0/500 questions returning nothing:
+
+| | R@5 | R@10 | MRR |
+|---|---|---|---|
+| Mode A | 95.60% | 97.80% | 0.8929348706848708 |
+| Mode B | 95.60% | 97.80% | 0.8930598706848707 |
+
+Mode B matters separately because it is the path the vector-hydration change
+touches; Mode A alone could not have told us about it. The term-cap reorder (dropping ubiquitous terms *before* capping at
 32, rather than after) therefore does not move English retrieval, and the
 quality metrics are hardware-independent.
 
-`elapsed_seconds` is 22.4 against the release run's 9.1. That is the machine,
+`elapsed_seconds` is 22.4 (A) and 1013 (B) against the release runs' 9.1 and 807.7. That is the machine,
 not a regression — this box is ARM. **Do not quote elapsed time from this
 file**; the published timing comes from the 07-29 run.
 
