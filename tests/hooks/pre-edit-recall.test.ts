@@ -61,6 +61,35 @@ describe('Feature: Pre-Edit Recall Hook', () => {
     return result.stdout.trim();
   }
 
+  /**
+   * Index a row the way the product does — through `toIndexForm`.
+   *
+   * Writing the raw text here instead would make these tests pass against a
+   * hook that also queries with raw text, i.e. it would pin the bug.
+   */
+  function indexFts(db: any, id: number, name: string, obs: string): void {
+    const { toIndexForm } = require('../../scripts/hooks/_generated/fts-index.js');
+    db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(
+      id,
+      toIndexForm(name),
+      toIndexForm(obs)
+    );
+  }
+
+  function addEntity(
+    db: any,
+    name: string,
+    obs: string,
+    opts: { fts?: boolean } = {}
+  ): number {
+    db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run(name, 'note');
+    const id = (db.prepare('SELECT id FROM entities WHERE name = ?').get(name) as any).id;
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(id, obs);
+    db.prepare('INSERT INTO tags (entity_id, tag) VALUES (?, ?)').run(id, projectTag());
+    if (opts.fts !== false) indexFts(db, id, name, obs);
+    return id;
+  }
+
   // The project name the hook will derive for these tests (basename of the
   // non-git testDir).
   function projectTag(): string {
@@ -100,6 +129,49 @@ describe('Feature: Pre-Edit Recall Hook', () => {
     `);
     return db;
   }
+
+  it('reaches a CJK filename through the shared match expression', () => {
+    // Strategy 2 builds its MATCH with `hookMatchExpression`, which segments.
+    // Quoting the raw basename instead emits one exact token, and the index
+    // holds bigrams — so a CJK filename matched nothing at all, and the `catch`
+    // around the query made that invisible. Nothing pinned the CALL: the
+    // function itself is covered by tests/hooks/mirror-parity.test.ts, but
+    // reverting this call site to the raw form left the whole suite green.
+    //
+    // No `file:` tag here on purpose. Strategy 1 would find it by tag and hide
+    // whether strategy 2 works at all.
+    const db = createTestDb();
+    addEntity(db, '認證模組', 'OAuth 2.0 with PKCE');
+    db.close();
+
+    const result = runHook({ tool_input: { file_path: '/src/認證模組.ts' } });
+    expect(result).toContain('認證模組');
+    expect(result).toContain('OAuth 2.0 with PKCE');
+  });
+
+  it('injects the best-ranked match, not whatever the scan reaches first', () => {
+    // `hookMatchExpression` OR-s its terms, so `knowledge-graph` asks for
+    // "knowledge" OR "graph" and the match set is everything mentioning either.
+    // `ORDER BY fts.rank` is what makes that safe — without it, editing a file
+    // in a project whose memories merely mention "graph" injects whichever row
+    // the scan happened to reach first.
+    //
+    // The decoys are given LOWER ids than the real match deliberately: with the
+    // ORDER BY removed, SQLite returns them in rowid order, so the decoys fill
+    // all three slots and the real match is sliced off. Give the real match the
+    // lowest id instead and the test would pass with the bug present.
+    const db = createTestDb();
+    for (let i = 0; i < 4; i++) {
+      addEntity(db, `decoy-${i}`, 'this note mentions a graph of dependencies');
+    }
+    addEntity(db, 'the-real-one', 'knowledge graph schema and its migrations');
+    db.close();
+
+    const result = runHook({ tool_input: { file_path: '/src/knowledge-graph.ts' } });
+    expect(result).toContain('the-real-one');
+    // MAX_RESULTS is 3, so a correctly-ranked run cannot show all four decoys.
+    expect(result.match(/decoy-/g)?.length ?? 0).toBeLessThanOrEqual(2);
+  });
 
   it('should return empty when no database exists', () => {
     const result = runHook({ tool_input: { file_path: '/some/file.ts' } });
