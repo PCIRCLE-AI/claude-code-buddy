@@ -199,6 +199,15 @@ export function setPinned(name, pinned) {
     });
     return { name, pinned, found: true };
 }
+function countMissingVectors(db) {
+    const row = db.prepare(`
+    SELECT COUNT(*) AS n FROM entities e
+    WHERE e.status = 'active'
+      AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND TRIM(o.content) <> '')
+      AND NOT EXISTS (SELECT 1 FROM entities_vec v WHERE v.rowid = e.id)
+  `).get();
+    return row.n;
+}
 export async function reindex(opts) {
     if (!isEmbeddingAvailable()) {
         throw new Error('No embedding provider available. Configure OpenAI API key, Ollama, or install @huggingface/transformers.');
@@ -208,32 +217,54 @@ export async function reindex(opts) {
     const namespaceFilter = opts?.namespace ? 'AND namespace = ?' : '';
     const params = opts?.namespace ? [opts.namespace] : [];
     const entities = db.prepare(`SELECT id, name FROM entities WHERE status = 'active' ${namespaceFilter} ORDER BY id`).all(...params);
+    const outcomes = {
+        stored: 0,
+        removed: 0,
+        no_embedding: 0,
+        dimension_mismatch: 0,
+        write_failed: 0,
+        database_closed: 0,
+        entity_missing: 0,
+    };
     let processed = 0;
-    let embedded = 0;
-    let skipped = 0;
     process.stderr.write(`MeMesh: Reindexing ${entities.length} entities...\n`);
     for (const entity of entities) {
         processed++;
         const fullEntity = kg.getEntity(entity.name);
         if (!fullEntity) {
-            skipped++;
+            outcomes.entity_missing++;
             continue;
         }
         const text = fullEntity.observations.join(' ');
         try {
-            await embedAndStore(entity.id, text);
-            embedded++;
+            outcomes[await embedAndStore(entity.id, text)]++;
             if (processed % 10 === 0) {
-                process.stderr.write(`MeMesh: Processed ${processed}/${entities.length} (${embedded} embedded, ${skipped} skipped)\n`);
+                process.stderr.write(`MeMesh: Processed ${processed}/${entities.length} ` +
+                    `(${outcomes.stored} embedded, ${processed - outcomes.stored} skipped)\n`);
             }
         }
         catch (err) {
-            skipped++;
+            outcomes.write_failed++;
             process.stderr.write(`MeMesh: Failed to embed entity ${entity.name}: ${err}\n`);
         }
     }
+    const embedded = outcomes.stored;
+    const skipped = processed - embedded;
+    const missingVectors = countMissingVectors(db);
     process.stderr.write(`MeMesh: Reindex complete. ${embedded}/${processed} entities embedded.\n`);
-    clearPendingReindexFlag();
-    return { processed, embedded, skipped };
+    if (outcomes.dimension_mismatch > 0) {
+        process.stderr.write(`MeMesh: ${outcomes.dimension_mismatch} entities were skipped because the provider's ` +
+            `embedding dimension does not match this database's vector index. Rebuild it with ` +
+            `'memesh reindex --vectors'.\n`);
+    }
+    const pendingReindexCleared = missingVectors === 0;
+    if (pendingReindexCleared) {
+        clearPendingReindexFlag();
+    }
+    else {
+        process.stderr.write(`MeMesh: ${missingVectors} active memories still have no vector, so the ` +
+            `reindex-needed flag was left set.\n`);
+    }
+    return { processed, embedded, skipped, outcomes, missingVectors, pendingReindexCleared };
 }
 //# sourceMappingURL=operations.js.map

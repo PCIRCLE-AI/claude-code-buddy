@@ -855,6 +855,15 @@ external report says everything passed.
 
 Regenerate vector embeddings for all entities.
 
+**Options**:
+
+| Option | Description |
+|--------|-------------|
+| `--namespace <namespace>` | Reindex only entities in this namespace. |
+| `--fts` | Rebuild the full-text keyword index instead of the vector index. |
+| `--vectors` | Rebuild the vector index at the configured dimension first. **Destructive** — see below. |
+| `--json` | Output the result as JSON. |
+
 `--fts` rebuilds the full-text keyword index instead. The keyword index
 normally rebuilds itself once, on the first open after an upgrade, guarded by a
 version marker. That marker only moves forward, so it cannot describe a
@@ -865,6 +874,34 @@ install side by side. `--fts` is the way out of that state.
 ```bash
 memesh reindex --fts
 ```
+
+`--vectors` is for switching embedding providers, and only that. Each provider
+emits vectors of a different width — 384 for the local ONNX model, 768 for
+Ollama, 1536 for OpenAI — and a `vec0` table is fixed at one width, so changing
+provider means dropping the table and recreating it. **Every stored embedding is
+deleted.** MeMesh will not do that on its own: when the database and the config
+disagree about the dimension, it keeps the existing index and says so, because a
+stale index still works and a deleted one cannot be recovered — on a paid API
+embedder it has to be bought a second time. `--vectors` is how you say yes.
+
+```bash
+memesh reindex --vectors
+```
+
+It refuses if no embedding provider is available, rather than dropping the index
+and having nothing to refill it with.
+
+**Exit codes**:
+
+| Code | Meaning |
+|------|---------|
+| `0` | Every memory that can have a vector has one. |
+| `1` | The command failed, or finished with memories still missing a vector. |
+
+An incomplete run prints `⚠️  Reindex incomplete` with a per-reason breakdown and
+leaves the reindex-needed flag set, so `memesh doctor` still reports the work as
+outstanding. Earlier versions printed `✅ Reindex complete` and exited `0` in every case,
+including runs that wrote no vectors at all.
 
 ### memesh pin / memesh unpin
 

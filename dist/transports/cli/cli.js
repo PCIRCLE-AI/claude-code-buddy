@@ -4,12 +4,12 @@ import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { openDatabase, closeDatabase, getDatabase, reindexFts } from '../../db.js';
+import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexRebuild } from '../../db.js';
 import { remember, recallWithConflicts, forget, consolidate, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { verifyAgentWork } from '../../core/verifier.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { getDbPath } from '../../core/paths.js';
-import { flushPendingEmbeddings } from '../../core/embedder.js';
+import { flushPendingEmbeddings, isEmbeddingAvailable } from '../../core/embedder.js';
 async function withDatabase(fn) {
     openDatabase();
     try {
@@ -1144,10 +1144,16 @@ program
     .description('Regenerate vector embeddings for all entities (--fts rebuilds the keyword index instead)')
     .option('--namespace <namespace>', 'Reindex only entities in this namespace')
     .option('--fts', 'Rebuild the full-text keyword index instead of the vector index')
+    .option('--vectors', 'Also rebuild the vector index at the configured dimension. DESTRUCTIVE: drops every ' +
+    'stored embedding first. Needed only when switching embedding providers.')
     .option('--json', 'Output as JSON')
     .action(async (opts) => {
     try {
         if (opts.fts) {
+            if (opts.vectors) {
+                console.error('❌ --fts and --vectors rebuild different indexes. Run them separately.');
+                process.exit(1);
+            }
             await withDatabase(async () => {
                 const { entities } = reindexFts();
                 if (opts.json) {
@@ -1159,10 +1165,30 @@ program
             });
             return;
         }
+        if (opts.vectors) {
+            if (!allowVectorIndexRebuild(isEmbeddingAvailable)) {
+                console.error('❌ No embedding provider available, so the vector index was left untouched.\n' +
+                    '   Rebuilding it deletes every stored embedding, and nothing here could\n' +
+                    '   regenerate them. Configure an OpenAI API key or Ollama, or install\n' +
+                    '   @huggingface/transformers, then run this again.');
+                process.exit(1);
+            }
+        }
         await withDatabase(async () => {
             const result = await reindex({ namespace: opts.namespace });
             if (opts.json) {
                 console.log(JSON.stringify(result));
+            }
+            else if (result.missingVectors > 0) {
+                console.log(`⚠️  Reindex incomplete:`);
+                console.log(`   Processed: ${result.processed}`);
+                console.log(`   Embedded:  ${result.embedded}`);
+                console.log(`   Skipped:   ${result.skipped}`);
+                console.log(`   Still without a vector: ${result.missingVectors}`);
+                for (const [outcome, count] of Object.entries(result.outcomes)) {
+                    if (outcome !== 'stored' && count > 0)
+                        console.log(`     ${outcome}: ${count}`);
+                }
             }
             else {
                 console.log(`✅ Reindex complete:`);
@@ -1170,6 +1196,8 @@ program
                 console.log(`   Embedded:  ${result.embedded}`);
                 console.log(`   Skipped:   ${result.skipped}`);
             }
+            if (result.missingVectors > 0)
+                process.exitCode = 1;
         });
     }
     catch (err) {

@@ -161,8 +161,8 @@ function initialiseDatabase(db, resolvedPath) {
     runAutoTelemetryPrune(db);
     ensureFtsSegmentation(db);
     sqliteVec.load(db);
-    const { dimension: targetDim, confident: dimensionKnown, configured: configPresent, } = resolveEmbeddingDimension();
-    ensureVecTable(db, targetDim, dimensionKnown, configPresent);
+    const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
+    ensureVecTable(db, targetDim, dimensionKnown);
     return db;
 }
 export const FTS_SEGMENTATION_VERSION = 3;
@@ -255,7 +255,20 @@ export function reindexFts() {
         .get();
     return { entities: c };
 }
-function ensureVecTable(db, targetDim, dimensionKnown = true, configPresent = true) {
+let vectorRebuildConsent = false;
+export function allowVectorIndexRebuild(canRefill) {
+    if (!canRefill())
+        return false;
+    vectorRebuildConsent = true;
+    return true;
+}
+function consumeVectorRebuildConsent() {
+    const granted = vectorRebuildConsent;
+    vectorRebuildConsent = false;
+    return granted;
+}
+function ensureVecTable(db, targetDim, dimensionKnown = true) {
+    const rebuildConsented = consumeVectorRebuildConsent();
     const storedDim = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get();
     const currentDim = storedDim ? parseInt(storedDim.value, 10) : 0;
     const vecExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='entities_vec'").get();
@@ -268,10 +281,15 @@ function ensureVecTable(db, targetDim, dimensionKnown = true, configPresent = tr
             `Fix ~/.memesh/config.json to change embedders.\n`);
         return;
     }
-    if (vecExists && !configPresent && currentDim !== 0 && currentDim !== targetDim) {
-        process.stderr.write(`MeMesh: no config file was found, but this database records ${currentDim}-dim ` +
-            `embeddings. Keeping the existing vector index rather than rebuilding it at ` +
-            `${targetDim}. If you meant to switch embedders, run 'memesh reindex'.\n`);
+    if (vecExists &&
+        currentDim !== 0 &&
+        currentDim !== targetDim &&
+        !rebuildConsented) {
+        process.stderr.write(`MeMesh: this database records ${currentDim}-dim embeddings but the current ` +
+            `configuration asks for ${targetDim}. Keeping the existing vector index rather ` +
+            `than rebuilding it, because rebuilding deletes every stored vector. ` +
+            `If the configuration is wrong, fix it. If you meant to switch embedders, run ` +
+            `'memesh reindex --vectors' to rebuild the index at ${targetDim} and regenerate.\n`);
         return;
     }
     db.transaction(() => {

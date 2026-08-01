@@ -16,6 +16,7 @@ import { rankEntities } from './scoring.js';
 import { getProjectName } from './paths.js';
 import { createExplicitLesson } from './lesson-engine.js';
 import { embedAndStore, isEmbeddingAvailable, embedText, scheduleEmbedAndStore, vectorSearch, vectorSimilarity, MAX_VECTOR_DISTANCE } from './embedder.js';
+import type { EmbedOutcome } from './embedder.js';
 import { autoTagAndApply } from './auto-tagger.js';
 import { detectCapabilities } from './config.js';
 import type {
@@ -410,16 +411,59 @@ export function setPinned(name: string, pinned: boolean): { name: string; pinned
   return { name, pinned, found: true };
 }
 
+export interface ReindexResult {
+  processed: number;
+  /** Entities that now have a vector because this run wrote one. */
+  embedded: number;
+  /** Every processed entity that did not get a vector written. */
+  skipped: number;
+  /** Why each one was skipped. The counts sum to `processed`. */
+  outcomes: Record<EmbedOutcome | 'entity_missing', number>;
+  /**
+   * Active entities that HAVE observation text but have NO row in
+   * entities_vec, counted from the database after the run. This is the end
+   * state, not a tally of what the loop believes it did — the whole point of
+   * the fix is that the loop's belief was the thing that was wrong.
+   */
+  missingVectors: number;
+  /** Whether `pending_reindex` was cleared. False means work remains. */
+  pendingReindexCleared: boolean;
+}
+
+/**
+ * Count active entities that ought to have a vector and do not.
+ *
+ * "Ought to" excludes entities whose observations are all blank: they can
+ * never produce an embedding, so requiring one would keep `pending_reindex`
+ * set forever and make `memesh doctor` nag about work that cannot be done.
+ *
+ * Deliberately unscoped by namespace even when the run was scoped, because
+ * `pending_reindex` describes the whole database. Reindexing one namespace
+ * must not clear a flag the other namespaces still justify.
+ */
+function countMissingVectors(db: ReturnType<typeof getDatabase>): number {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS n FROM entities e
+    WHERE e.status = 'active'
+      AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND TRIM(o.content) <> '')
+      AND NOT EXISTS (SELECT 1 FROM entities_vec v WHERE v.rowid = e.id)
+  `).get() as { n: number };
+  return row.n;
+}
+
 /**
  * Regenerate embeddings for all active entities.
  * Use after changing embedding provider or when vectors were lost during dimension migration.
  * Progress is logged to stderr.
+ *
+ * Note for callers: a returned `embedded` count is a count of vectors actually
+ * written. It used to be a count of calls that did not throw, which is not the
+ * same thing — `embedAndStore` returns normally when the provider gives back
+ * nothing and when the dimension does not match, so a run that wrote zero
+ * vectors reported every entity as embedded, cleared the flag, and printed a
+ * tick. See {@link EmbedOutcome}.
  */
-export async function reindex(opts?: { namespace?: string }): Promise<{
-  processed: number;
-  embedded: number;
-  skipped: number;
-}> {
+export async function reindex(opts?: { namespace?: string }): Promise<ReindexResult> {
   if (!isEmbeddingAvailable()) {
     throw new Error('No embedding provider available. Configure OpenAI API key, Ollama, or install @huggingface/transformers.');
   }
@@ -435,9 +479,16 @@ export async function reindex(opts?: { namespace?: string }): Promise<{
     `SELECT id, name FROM entities WHERE status = 'active' ${namespaceFilter} ORDER BY id`
   ).all(...params) as Array<{ id: number; name: string }>;
 
+  const outcomes: ReindexResult['outcomes'] = {
+    stored: 0,
+    removed: 0,
+    no_embedding: 0,
+    dimension_mismatch: 0,
+    write_failed: 0,
+    database_closed: 0,
+    entity_missing: 0,
+  };
   let processed = 0;
-  let embedded = 0;
-  let skipped = 0;
 
   process.stderr.write(`MeMesh: Reindexing ${entities.length} entities...\n`);
 
@@ -447,7 +498,7 @@ export async function reindex(opts?: { namespace?: string }): Promise<{
     // Get full entity with observations
     const fullEntity = kg.getEntity(entity.name);
     if (!fullEntity) {
-      skipped++;
+      outcomes.entity_missing++;
       continue;
     }
 
@@ -455,23 +506,49 @@ export async function reindex(opts?: { namespace?: string }): Promise<{
     const text = fullEntity.observations.join(' ');
 
     try {
-      await embedAndStore(entity.id, text);
-      embedded++;
+      outcomes[await embedAndStore(entity.id, text)]++;
 
       // Progress logging every 10 entities
       if (processed % 10 === 0) {
-        process.stderr.write(`MeMesh: Processed ${processed}/${entities.length} (${embedded} embedded, ${skipped} skipped)\n`);
+        process.stderr.write(
+          `MeMesh: Processed ${processed}/${entities.length} ` +
+          `(${outcomes.stored} embedded, ${processed - outcomes.stored} skipped)\n`
+        );
       }
     } catch (err) {
-      skipped++;
+      outcomes.write_failed++;
       process.stderr.write(`MeMesh: Failed to embed entity ${entity.name}: ${err}\n`);
     }
   }
 
+  const embedded = outcomes.stored;
+  const skipped = processed - embedded;
+
+  // The database has the final say. If a vector is missing here, it is missing
+  // regardless of what the loop counted.
+  const missingVectors = countMissingVectors(db);
+
   process.stderr.write(`MeMesh: Reindex complete. ${embedded}/${processed} entities embedded.\n`);
+  if (outcomes.dimension_mismatch > 0) {
+    process.stderr.write(
+      `MeMesh: ${outcomes.dimension_mismatch} entities were skipped because the provider's ` +
+      `embedding dimension does not match this database's vector index. Rebuild it with ` +
+      `'memesh reindex --vectors'.\n`
+    );
+  }
 
-  // Clear the dimension-change flag now that vectors are regenerated.
-  clearPendingReindexFlag();
+  // Clear the dimension-change flag only once every entity that can have a
+  // vector has one. Clearing it after a run that wrote nothing is what let a
+  // silently emptied index look healthy to `memesh doctor`.
+  const pendingReindexCleared = missingVectors === 0;
+  if (pendingReindexCleared) {
+    clearPendingReindexFlag();
+  } else {
+    process.stderr.write(
+      `MeMesh: ${missingVectors} active memories still have no vector, so the ` +
+      `reindex-needed flag was left set.\n`
+    );
+  }
 
-  return { processed, embedded, skipped };
+  return { processed, embedded, skipped, outcomes, missingVectors, pendingReindexCleared };
 }

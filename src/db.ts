@@ -251,12 +251,8 @@ function initialiseDatabase(db: Database.Database, resolvedPath: string): Databa
   // read. ensureVecTable DROPs on a dimension mismatch, so acting on a
   // fallback dimension derived from an unreadable config would delete a BYOK
   // user's entire vector index because of a truncated write.
-  const {
-    dimension: targetDim,
-    confident: dimensionKnown,
-    configured: configPresent,
-  } = resolveEmbeddingDimension();
-  ensureVecTable(db, targetDim, dimensionKnown, configPresent);
+  const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
+  ensureVecTable(db, targetDim, dimensionKnown);
 
   return db;
 }
@@ -568,16 +564,63 @@ export function reindexFts(): { entities: number } {
 }
 
 /**
+ * One-shot permission to destroy the vector index.
+ *
+ * `ensureVecTable` runs inside `openDatabase`, long before any command-line
+ * flag can be consulted, so the consent has to be recorded before the database
+ * is opened and read once when the decision is made. `memesh reindex --vectors`
+ * is the only thing that grants it, and only after confirming an embedding
+ * provider is actually available — granting it without one would drop the
+ * index and then have nothing to refill it with.
+ *
+ * One-shot on purpose: a long-lived process (the HTTP server) that opened the
+ * database once with consent must not carry it to a later reopen.
+ */
+let vectorRebuildConsent = false;
+
+/**
+ * Grant it. Returns whether the grant took.
+ *
+ * `canRefill` is a required argument rather than a check the caller is trusted
+ * to have already made, because the ordering is the whole safety property:
+ * dropping the index without a working embedding provider destroys every vector
+ * and leaves nothing able to regenerate them — the exact unrecoverable loss the
+ * refusal exists to prevent, caused by the command offered as the safe way
+ * through it. Two adjacent statements in the CLI would enforce that ordering
+ * only until someone moved one of them. Passed in rather than imported because
+ * `embedder.ts` imports this module.
+ */
+export function allowVectorIndexRebuild(canRefill: () => boolean): boolean {
+  if (!canRefill()) return false;
+  vectorRebuildConsent = true;
+  return true;
+}
+
+function consumeVectorRebuildConsent(): boolean {
+  const granted = vectorRebuildConsent;
+  vectorRebuildConsent = false;
+  return granted;
+}
+
+/**
  * Ensure entities_vec table exists with the correct dimension.
- * If dimension changed (provider switch), drops and recreates the table.
- * Old embeddings are lost — new ones regenerated as entities are accessed.
+ *
+ * A dimension change drops and recreates the table, destroying every stored
+ * vector, so it happens only with explicit consent — see
+ * {@link allowVectorIndexRebuild}. Without it the existing table is kept and
+ * the mismatch is reported.
  */
 function ensureVecTable(
   db: Database.Database,
   targetDim: number,
-  dimensionKnown = true,
-  configPresent = true
+  dimensionKnown = true
 ): void {
+  // Spend the consent here, before any early return, so it is scoped to ONE
+  // open rather than to one rebuild. Consuming it only on the branch that uses
+  // it would leave it armed whenever the dimensions happened to agree — and
+  // the next open in that process could be a different database.
+  const rebuildConsented = consumeVectorRebuildConsent();
+
   const storedDim = db.prepare(
     "SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'"
   ).get() as { value: string } | undefined;
@@ -614,30 +657,45 @@ function ensureVecTable(
     return;
   }
 
-  // The same refusal for a config that is ABSENT rather than unreadable, when
-  // the database itself records a different dimension.
+  // The same refusal whenever the database and the config disagree about the
+  // dimension, whatever state the config is in.
   //
-  // An absent config normally IS a real answer — Core Mode, 384. But the config
-  // and the database are located by independent environment variables:
-  // `configDir()` follows MEMESH_DIR/HOME, `getDbPath()` follows
-  // MEMESH_DB_PATH. A process that opens this database under a different HOME
-  // — an HTTP server started from launchd/systemd, `sudo memesh doctor`, a
-  // script using an isolated HOME with MEMESH_DB_PATH pointed at the real file
-  // — sees no config at all and would read that as "the user configured
-  // nothing", then drop a BYOK user's 1536-dim index.
+  // This used to be gated on the config being ABSENT (`!configPresent`), on the
+  // argument that an absent config is weak evidence. It is — the config and the
+  // database are located by independent environment variables: `configDir()`
+  // follows MEMESH_DIR/HOME, `getDbPath()` follows MEMESH_DB_PATH. A process
+  // that opens this database under a different HOME (an HTTP server started
+  // from launchd/systemd, `sudo memesh doctor`, a script with an isolated HOME
+  // and MEMESH_DB_PATH pointed at the real file) sees no config and would read
+  // that as "the user configured nothing", then drop a BYOK user's 1536-dim
+  // index.
   //
-  // Where the two disagree, the stored dimension is the better evidence: it was
-  // written by a process that had this database AND its config together.
-  // Refusing degrades to "embeddings keep working as before" — `embedAndStore`
-  // already reports a dimension mismatch rather than writing junk — while
-  // dropping is unrecoverable and, on an API embedder, has to be paid for twice.
-  // A genuine embedder change from a readable config still rebuilds, and
-  // `memesh reindex` is the explicit path for the deliberate case.
-  if (vecExists && !configPresent && currentDim !== 0 && currentDim !== targetDim) {
+  // But *present* is not the same as *authoritative*, and the guard was keyed
+  // to the wrong fact. Every one of those foreign-HOME cases behaves
+  // identically when the foreign HOME happens to contain a config file — a
+  // container image shipping a default config.json, a second machine profile, a
+  // config whose embedder key was lost to an unrelated edit. The guard then
+  // treats it as authoritative for a database it has never seen, and takes the
+  // DROP branch on exactly the evidence the guard exists to distrust.
+  //
+  // So the refusal follows the consequence instead: a stale-but-correct index
+  // degrades to "embeddings keep working as before" and is recoverable by
+  // restoring the config, while a dropped one is gone, and on an API embedder
+  // has to be paid for a second time. Anything unrecoverable needs consent, and
+  // `memesh reindex --vectors` is where that consent is given — it drops and
+  // recreates the table at the new dimension and immediately refills it.
+  if (
+    vecExists &&
+    currentDim !== 0 &&
+    currentDim !== targetDim &&
+    !rebuildConsented
+  ) {
     process.stderr.write(
-      `MeMesh: no config file was found, but this database records ${currentDim}-dim ` +
-        `embeddings. Keeping the existing vector index rather than rebuilding it at ` +
-        `${targetDim}. If you meant to switch embedders, run 'memesh reindex'.\n`
+      `MeMesh: this database records ${currentDim}-dim embeddings but the current ` +
+        `configuration asks for ${targetDim}. Keeping the existing vector index rather ` +
+        `than rebuilding it, because rebuilding deletes every stored vector. ` +
+        `If the configuration is wrong, fix it. If you meant to switch embedders, run ` +
+        `'memesh reindex --vectors' to rebuild the index at ${targetDim} and regenerate.\n`
     );
     return;
   }

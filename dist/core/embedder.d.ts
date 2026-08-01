@@ -7,7 +7,8 @@ export declare function resetEmbeddingState(): void;
 export declare function scheduleEmbedAndStore(entityId: number, text: string): void;
 export declare function flushPendingEmbeddings(): Promise<void>;
 export declare function embedText(text: string): Promise<Float32Array | null>;
-export declare function embedAndStore(entityId: number, text: string): Promise<void>;
+export type EmbedOutcome = 'stored' | 'removed' | 'no_embedding' | 'dimension_mismatch' | 'write_failed' | 'database_closed';
+export declare function embedAndStore(entityId: number, text: string): Promise<EmbedOutcome>;
 export declare function vectorSearch(queryEmbedding: Float32Array, limit?: number): Array<{
     id: number;
     distance: number;

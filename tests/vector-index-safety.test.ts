@@ -25,7 +25,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { openDatabase, closeDatabase } from '../src/db.js';
+import { openDatabase, closeDatabase, allowVectorIndexRebuild } from '../src/db.js';
 
 describe('Feature: an unreadable config does not delete embeddings', () => {
   let dir: string;
@@ -111,19 +111,141 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     expect(written.join('')).toContain('left untouched');
   });
 
-  it('still rebuilds on a genuine, readable dimension change', () => {
-    // The guard must not become "never migrate". An ABSENT config is a real
-    // answer (Core Mode, 384-dim), so switching to it from a readable 1536-dim
-    // config is a change the user made and the rebuild should happen.
+  /** Open at 1536 with one real vector stored, then close. */
+  function seedByokIndex(): number {
     fs.writeFileSync(configPath, BYOK_CONFIG);
+    const db = openDatabase(dbPath);
+    expect(storedDimension()).toBe(1536);
+    db.prepare("INSERT INTO entities (name, type) VALUES ('embedded-note', 'note')").run();
+    const id = (
+      db.prepare("SELECT id FROM entities WHERE name = 'embedded-note'").get() as { id: number }
+    ).id;
+    db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)').run(
+      BigInt(id),
+      Buffer.from(new Float32Array(1536).fill(0.5).buffer)
+    );
+    closeDatabase();
+    return id;
+  }
+
+  it('a READABLE dimension change is refused too, until the user asks for it', () => {
+    // The guard used to be gated on the config being ABSENT, on the argument
+    // that an absent config is weak evidence for destroying data. It is — but
+    // so is a present one. `configDir()` follows MEMESH_DIR/HOME while
+    // `getDbPath()` follows MEMESH_DB_PATH, so a process under a foreign HOME
+    // that HAPPENS to contain a config file (a container image's default
+    // config.json, a second machine profile, an unrelated edit that dropped
+    // the embedder key) was treated as authoritative for a database it had
+    // never seen — and took the DROP branch on exactly the evidence the guard
+    // exists to distrust.
+    //
+    // So the refusal follows the consequence instead of the evidence: keeping
+    // a stale index is recoverable by fixing the config, dropping one is not.
+    seedByokIndex();
+
+    fs.writeFileSync(configPath, JSON.stringify({ embedder: { provider: 'ollama' } }));
+    written.length = 0;
+
+    // The 1536-dim index is still there, still 1536, still holding its vector.
+    expect(storedDimension()).toBe(1536);
+    const after = openDatabase(dbPath);
+    expect(
+      (after.prepare('SELECT count(*) AS c FROM entities_vec').get() as { c: number }).c
+    ).toBe(1);
+    expect(
+      after.prepare("SELECT value FROM memesh_metadata WHERE key = 'pending_reindex'").get()
+    ).toBeUndefined();
+
+    // And the message has to name a command that can actually finish the job.
+    // It used to say `memesh reindex`, which cannot change the table's
+    // dimension — so following the instruction landed the user right back at
+    // this same refusal, for as many times as they were willing to try.
+    expect(written.join('')).toContain('memesh reindex --vectors');
+  });
+
+  it('rebuilds when the rebuild is explicitly consented to', () => {
+    // The guard must not become "never migrate". `memesh reindex --vectors`
+    // grants consent before opening the database, which is the only moment
+    // early enough — the drop happens inside `openDatabase`.
+    seedByokIndex();
+
+    fs.writeFileSync(configPath, JSON.stringify({ embedder: { provider: 'ollama' } }));
+    written.length = 0;
+
+    allowVectorIndexRebuild(() => true);
+    const after = openDatabase(dbPath);
+
+    expect(storedDimension()).toBe(768);
+    expect(
+      (after.prepare('SELECT count(*) AS c FROM entities_vec').get() as { c: number }).c
+    ).toBe(0);
+    expect(written.join('')).toContain('Embedding dimension changed');
+    // The drop is recorded so `memesh doctor` can still see it after the
+    // process that did it has exited.
+    expect(
+      after.prepare("SELECT value FROM memesh_metadata WHERE key = 'pending_reindex'").get()
+    ).toBeDefined();
+  });
+
+  it('consent is spent by the open that uses it', () => {
+    // A long-lived process — the HTTP server — opens the database more than
+    // once. Consent given for one deliberate rebuild must not authorise a
+    // second one later in the same process, when nobody asked.
+    seedByokIndex();
+
+    fs.writeFileSync(configPath, JSON.stringify({ embedder: { provider: 'ollama' } }));
+    allowVectorIndexRebuild(() => true);
     openDatabase(dbPath);
+    expect(storedDimension()).toBe(768);
+    closeDatabase();
+
+    // Config switched again. No new consent.
+    fs.writeFileSync(configPath, BYOK_CONFIG);
+    written.length = 0;
+
+    expect(storedDimension()).toBe(768);
+    expect(written.join('')).toContain('memesh reindex --vectors');
+  });
+
+  it('refuses to record consent when nothing could refill the index', () => {
+    // The command offered as the safe way through a dimension change must not
+    // become the cause of the loss it exists to prevent. Dropping the table
+    // with no embedding provider available destroys every vector AND leaves
+    // nothing able to regenerate them — strictly worse than the refusal.
+    //
+    // `allowVectorIndexRebuild` takes the check as an argument for this
+    // reason: as two adjacent statements in the CLI the ordering would hold
+    // only until someone moved one of them, and this is not a mistake that
+    // shows up in testing — it shows up in somebody's database.
+    seedByokIndex();
+
+    fs.writeFileSync(configPath, JSON.stringify({ embedder: { provider: 'ollama' } }));
+    written.length = 0;
+
+    expect(allowVectorIndexRebuild(() => false)).toBe(false);
+
+    // Consent was not recorded, so the open that follows still refuses.
+    expect(storedDimension()).toBe(1536);
+    expect(
+      (openDatabase(dbPath).prepare('SELECT count(*) AS c FROM entities_vec').get() as { c: number }).c
+    ).toBe(1);
+    expect(written.join('')).toContain('memesh reindex --vectors');
+  });
+
+  it('consent left unused does not leak into an unrelated later open', () => {
+    // Granting consent and then not needing it (the dimensions matched after
+    // all) must not leave the flag armed for the next open, which could be a
+    // different database entirely.
+    fs.writeFileSync(configPath, BYOK_CONFIG);
+    allowVectorIndexRebuild(() => true);
+    openDatabase(dbPath); // dimensions agree — consent is not consumed here
     expect(storedDimension()).toBe(1536);
     closeDatabase();
 
     fs.writeFileSync(configPath, JSON.stringify({ embedder: { provider: 'ollama' } }));
     written.length = 0;
 
-    expect(storedDimension()).toBe(768);
-    expect(written.join('')).toContain('Embedding dimension changed');
+    expect(storedDimension()).toBe(1536);
+    expect(written.join('')).toContain('memesh reindex --vectors');
   });
 });
