@@ -11,7 +11,7 @@ import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
 import { getDbPath, memeshDir } from './paths.js';
-import { UNSPACED_SCRIPT_GLOB_PREFIX } from '../storage/fts-index.js';
+import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
 export type DoctorOverallStatus = 'PASS' | 'PASS_WITH_CONCERNS' | 'FAIL';
@@ -1485,6 +1485,13 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     // legitimately — an npm-global and a plugin-marketplace install side by
     // side, or a downgrade to recover from a bad release.
     //
+    // The message reports a COUNT, never an example term. `memesh feedback` and
+    // the dashboard's feedback widget copy every doctor check summary verbatim
+    // into a pre-filled PUBLIC GitHub issue body, and diagnostics are opt-OUT —
+    // so an example term lifted from `fts_vocab` is a line of the user's own
+    // memories staged for publication. A count is just as actionable: run the
+    // rebuild, re-run doctor, expect 0.
+    //
     // Detected by looking for what the old rules leave behind: an indexed term
     // longer than a bigram that STARTS with an unspaced-script character. The
     // range set is imported from `fts-index.ts` rather than repeated here — it
@@ -1506,22 +1513,21 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     if (hasVocab?.present) {
       const unsegmented = db
         .prepare(
-          `SELECT term FROM fts_vocab
+          `SELECT COUNT(*) AS c FROM fts_vocab
             WHERE length(term) > 2
-              AND term GLOB ?
-            LIMIT 1`
+              AND term GLOB ?`
         )
-        .get(UNSPACED_SCRIPT_GLOB_PREFIX) as { term?: string } | undefined;
-      if (unsegmented?.term) {
+        .get(UNSPACED_SCRIPT_GLOB_RUN3) as { c?: number } | undefined;
+      if (unsegmented?.c) {
         dbChecks.push(
           createCheck(
             'fts_segmentation',
             'Keyword index segmentation',
             'warn',
-            `The keyword index holds unsegmented terms (e.g. "${unsegmented.term}"), so some memories ` +
-              `are only findable by their exact full text. This happens when an older build wrote to a ` +
-              `database that a newer one had already migrated — the version marker only moves forward, ` +
-              `so the automatic rebuild cannot notice.`,
+            `The keyword index holds ${unsegmented.c} unsegmented term(s), so some memories are only ` +
+              `findable by their exact full text. This happens when an older build wrote to a database ` +
+              `that a newer one had already migrated — the version marker only moves forward, so the ` +
+              `automatic rebuild cannot notice. Re-run doctor after the rebuild: this count should be 0.`,
             `Run 'memesh reindex --fts' to rebuild the keyword index.`,
           ),
         );

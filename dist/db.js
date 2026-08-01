@@ -206,33 +206,7 @@ function ensureFtsSegmentation(db) {
     });
 }
 const FTS_REBUILD_PAGE_SIZE = 500;
-function hasDecomposedText(db) {
-    const page = db.prepare(`SELECT e.id, e.name, COALESCE(group_concat(o.content, ' '), '') AS obs
-       FROM entities e
-       LEFT JOIN observations o ON o.entity_id = e.id
-      WHERE e.status = 'active' AND e.id > ?
-      GROUP BY e.id
-      ORDER BY e.id
-      LIMIT ?`);
-    let afterId = 0;
-    for (;;) {
-        const rows = page.all(afterId, FTS_REBUILD_PAGE_SIZE);
-        if (rows.length === 0)
-            return false;
-        for (const row of rows) {
-            if (row.name !== row.name.normalize('NFC'))
-                return true;
-            if (row.obs !== row.obs.normalize('NFC'))
-                return true;
-        }
-        afterId = rows[rows.length - 1].id;
-        if (rows.length < FTS_REBUILD_PAGE_SIZE)
-            return false;
-    }
-}
-function rebuildFtsIndex(db, fromVersion = 0) {
-    if (fromVersion === 1 && !hasDecomposedText(db))
-        return;
+function rebuildFtsIndex(db) {
     db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
     const page = db.prepare(`SELECT e.id, e.name, COALESCE(group_concat(o.content, ' '), '') AS obs
        FROM entities e

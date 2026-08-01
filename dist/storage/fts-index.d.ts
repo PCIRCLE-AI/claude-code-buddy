@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 export declare const UNSPACED_SCRIPT_RANGES: ReadonlyArray<readonly [number, number]>;
 export declare const UNSPACED_SCRIPT_CLASS: string;
-export declare const UNSPACED_SCRIPT_GLOB_PREFIX: string;
+export declare const UNSPACED_SCRIPT_GLOB_RUN3: string;
 export declare function segmentUnspacedScripts(text: string): string;
 export declare function toIndexForm(text: string): string;
 export declare function tokenizeQuery(text: string): string[];

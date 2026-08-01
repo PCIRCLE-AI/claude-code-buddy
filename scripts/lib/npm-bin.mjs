@@ -47,7 +47,18 @@ export const NPX = isWindows ? 'npx.cmd' : 'npx';
  * POSIX-shaped deny-list would miss.
  */
 export function assertSafeShellArg(value, what) {
-  if (typeof value !== 'string' || !/^[A-Za-z0-9._@\-+=/\\]+$/.test(value)) {
+  // `:` and `~` are here for one reason: Windows absolute paths
+  // (`C:\Users\RUNNER~1\AppData\Local\Temp\...` — 8.3 short names carry the `~`,
+  // and that is literally what `os.tmpdir()` returns on a Windows runner).
+  // `smoke-packed-artifact.mjs` passes an absolute `os.tmpdir()` path to
+  // `npm pack --pack-destination` and to `npm install`, so without it
+  // `npm run test:packaged` throws on Windows before packing anything —
+  // fail-closed, but it means the packaged smoke test cannot run there at all.
+  // Neither has meaning to cmd.exe (`~` is a POSIX-shell nicety, and the POSIX
+  // branch never reaches here — it uses execFileSync with no shell at all).
+  // Every character that DOES mean something to cmd.exe (`%^&|<>"'` and
+  // whitespace) stays excluded.
+  if (typeof value !== 'string' || !/^[A-Za-z0-9._@:~\-+=/\\]+$/.test(value)) {
     throw new Error(
       `${what} is not a safe argument to pass through a shell: ${JSON.stringify(value)}`
     );

@@ -376,14 +376,63 @@ describe('Feature: index migration atomicity', () => {
     expect(kg.search('資料庫遷移').map((e) => e.name)).toContain('stale-note');
   });
 
-  it('a v1 database with no decomposed text keeps its index instead of rewriting it', () => {
-    // v2 differs from v1 only by NFC-normalising before segmenting, so for an
-    // all-composed corpus the rebuild would reproduce the index it already has
-    // — under a write lock every hook contends for. Measured at 20k entities:
-    // 140ms with the rebuild, 13ms without.
-    //
-    // Observed the same way idempotency is: hand-write an index row the rebuild
-    // would not produce, and check it survives.
+  /**
+   * A version-behind database is ALWAYS rebuilt, whatever its text looks like.
+   *
+   * These two cases used to pin the opposite: `rebuildFtsIndex` skipped the
+   * write half when `fromVersion === 1 && !hasDecomposedText(db)`, justified by
+   * "v2 differs from v1 ONLY by NFC-normalising before segmenting". That held
+   * while the target was 2. Version 3 also WIDENS the script class (Thai, Lao,
+   * Khmer, half-width katakana, CJK Ext B), and none of those scripts has a
+   * canonical decomposition — so the skip fired for exactly the corpora the
+   * widening exists to fix, stamped the marker 3, and left them permanently
+   * unsegmented. The old ASCII case passed throughout, because ASCII is not
+   * what the delta touched.
+   *
+   * The lesson the replacement encodes: a skip keyed on a version number is
+   * only sound while someone re-derives its premise at every bump, and nobody
+   * does. So the cases below assert the rebuild HAPPENS, and one of them uses
+   * the scripts the old guard was blind to.
+   */
+  it('rebuilds a v1 database holding scripts the old skip was blind to', () => {
+    // The regression case. Thai and half-width katakana are NFC-stable, so the
+    // old `hasDecomposedText` probe returned false and the rebuild was skipped.
+    const db = openDatabase(dbPath);
+    const kg0 = new KnowledgeGraph(db);
+    const thaiId = kg0.createEntity('thai-note', 'note', {
+      observations: ['สำรองข้อมูลก่อนย้ายฐานข้อมูล'],
+    });
+    const kanaId = kg0.createEntity('kana-note', 'note', {
+      observations: ['ﾃﾞｰﾀﾍﾞｰｽｲｺｳﾏｴﾆﾊﾞｯｸｱｯﾌﾟ'],
+    });
+
+    // Re-index the way a v1 build did: those ranges were not in the class, so
+    // each run went in whole.
+    db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
+    const ins = db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)');
+    ins.run(thaiId, 'thai-note', 'สำรองข้อมูลก่อนย้ายฐานข้อมูล');
+    ins.run(kanaId, 'kana-note', 'ﾃﾞｰﾀﾍﾞｰｽｲｺｳﾏｴﾆﾊﾞｯｸｱｯﾌﾟ');
+    db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('fts_segmentation_version', '1')").run();
+    closeDatabase();
+
+    openDatabase(dbPath);
+    const kg = new KnowledgeGraph(getDatabase());
+    // The whole point of the version bump: findable by a fragment.
+    expect(kg.search('สำรอง').map((e) => e.name)).toContain('thai-note');
+    expect(kg.search('ﾊﾞｯｸ').map((e) => e.name)).toContain('kana-note');
+    // ...and the marker advanced, so this does not re-run on every open.
+    expect(
+      getDatabase()
+        .prepare("SELECT value FROM memesh_metadata WHERE key = 'fts_segmentation_version'")
+        .get()
+    ).toEqual({ value: String(FTS_SEGMENTATION_VERSION) });
+  });
+
+  it('rebuilds a v1 database whose text is plain ASCII too', () => {
+    // The case that used to assert a SKIP. It now asserts the opposite, and it
+    // is kept precisely because it is the one the old guard got right — proving
+    // the new behaviour is "always rebuild", not "rebuild when the text looks
+    // interesting", which is the distinction that failed.
     const db = openDatabase(dbPath);
     const id = new KnowledgeGraph(db).createEntity('ascii-note', 'note', {
       observations: ['Postgres over MySQL for window functions'],
@@ -399,19 +448,12 @@ describe('Feature: index migration atomicity', () => {
 
     openDatabase(dbPath);
     const kg = new KnowledgeGraph(getDatabase());
-    // Untouched: the sentinel survives, so no rewrite happened.
-    expect(kg.search('sentinel').map((e) => e.name)).toContain('ascii-note');
-    // But the marker still advances, or every future open would re-check.
-    expect(
-      getDatabase()
-        .prepare("SELECT value FROM memesh_metadata WHERE key = 'fts_segmentation_version'")
-        .get()
-    ).toEqual({ value: String(FTS_SEGMENTATION_VERSION) });
+    // Rebuilt: the hand-written sentinel is gone and the real text is reachable.
+    expect(kg.search('sentinel')).toEqual([]);
+    expect(kg.search('Postgres').map((e) => e.name)).toContain('ascii-note');
   });
 
-  it('a v1 database that DOES hold decomposed text is rebuilt', () => {
-    // The other half: skipping must be driven by evidence, not by the version
-    // alone. Without this case the guard above could be "always skip at v1".
+  it('rebuilds a v1 database that holds decomposed text', () => {
     const db = openDatabase(dbPath);
     const id = new KnowledgeGraph(db).createEntity('nfd-note', 'note', {
       observations: ['데이터베이스 백업'.normalize('NFD')],
@@ -427,8 +469,37 @@ describe('Feature: index migration atomicity', () => {
 
     openDatabase(dbPath);
     const kg = new KnowledgeGraph(getDatabase());
-    // Rebuilt: the sentinel is gone and the real text is reachable.
     expect(kg.search('sentinel')).toEqual([]);
     expect(kg.search('데이터베이스').map((e) => e.name)).toContain('nfd-note');
+  });
+
+  it('leaves core and the hook side in the SAME index state', () => {
+    // The divergence the skip created: core skipped, the hook-side twin in
+    // scripts/hooks/_shared.js never had a skip and always rebuilt. Both write
+    // the same marker key, so the resulting index depended on which process
+    // opened the database first — and doctor's stale-index check called one of
+    // the two outcomes damaged. With no skip, the two agree by construction.
+    const db = openDatabase(dbPath);
+    const id = new KnowledgeGraph(db).createEntity('thai-note', 'note', {
+      observations: ['สำรองข้อมูลก่อนย้ายฐานข้อมูล'],
+    });
+    db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
+    db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(
+      id,
+      'thai-note',
+      'สำรองข้อมูลก่อนย้ายฐานข้อมูล'
+    );
+    db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('fts_segmentation_version', '1')").run();
+    closeDatabase();
+
+    openDatabase(dbPath);
+    const coreTerms = (getDatabase().prepare('SELECT term FROM fts_vocab').all() as { term: string }[])
+      .map((r) => r.term)
+      .sort();
+    closeDatabase();
+
+    // No term longer than a bigram survives, which is the property the hook
+    // side produces unconditionally and the property doctor checks for.
+    expect(coreTerms.filter((t) => [...t].length > 2 && !/^[\x00-\x7F]+$/.test(t))).toEqual([]);
   });
 });

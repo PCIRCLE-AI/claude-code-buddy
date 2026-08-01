@@ -11,7 +11,7 @@ import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
 import { getDbPath, memeshDir } from './paths.js';
-import { UNSPACED_SCRIPT_GLOB_PREFIX } from '../storage/fts-index.js';
+import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 const LOCALE_README_FILES = [
@@ -581,16 +581,15 @@ export async function runDoctor(options) {
             .get();
         if (hasVocab?.present) {
             const unsegmented = db
-                .prepare(`SELECT term FROM fts_vocab
+                .prepare(`SELECT COUNT(*) AS c FROM fts_vocab
             WHERE length(term) > 2
-              AND term GLOB ?
-            LIMIT 1`)
-                .get(UNSPACED_SCRIPT_GLOB_PREFIX);
-            if (unsegmented?.term) {
-                dbChecks.push(createCheck('fts_segmentation', 'Keyword index segmentation', 'warn', `The keyword index holds unsegmented terms (e.g. "${unsegmented.term}"), so some memories ` +
-                    `are only findable by their exact full text. This happens when an older build wrote to a ` +
-                    `database that a newer one had already migrated — the version marker only moves forward, ` +
-                    `so the automatic rebuild cannot notice.`, `Run 'memesh reindex --fts' to rebuild the keyword index.`));
+              AND term GLOB ?`)
+                .get(UNSPACED_SCRIPT_GLOB_RUN3);
+            if (unsegmented?.c) {
+                dbChecks.push(createCheck('fts_segmentation', 'Keyword index segmentation', 'warn', `The keyword index holds ${unsegmented.c} unsegmented term(s), so some memories are only ` +
+                    `findable by their exact full text. This happens when an older build wrote to a database ` +
+                    `that a newer one had already migrated — the version marker only moves forward, so the ` +
+                    `automatic rebuild cannot notice. Re-run doctor after the rebuild: this count should be 0.`, `Run 'memesh reindex --fts' to rebuild the keyword index.`));
             }
         }
         const pendingReindex = getPendingReindexInfo();

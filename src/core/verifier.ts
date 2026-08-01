@@ -89,16 +89,21 @@ export interface RealityCheckResult {
   base: string | null;
   verdict: Verdict;
   /**
-   * @deprecated Use `verdict`. Same alias, same reason, same removal cycle as
-   * `VerifyAgentWorkResult.pass` above.
+   * @deprecated Use `verdict`. Same alias and same removal cycle as
+   * `VerifyAgentWorkResult.pass`.
    *
-   * 4.2.10 shipped BOTH booleans. The top-level one was kept as an alias
-   * precisely so a patch release would not break a consumer reading it — and
-   * this one was dropped outright in the same release, which breaks a consumer
-   * reading it for exactly the reason given for not breaking the other. The
-   * asymmetry was not a decision; it was an omission. `undefined` is falsy, so
-   * `if (rc.pass)` quietly became "never passing" and `if (!rc.pass)` became
-   * "always failing", and neither reports why.
+   * 4.2.10 shipped BOTH booleans and `c9672791` removed BOTH, in one commit, in
+   * favour of the tri-state. That is a breaking change for any 4.2.10 consumer
+   * reading either one, in a patch release — `undefined` is falsy, so
+   * `if (rc.pass)` quietly becomes "never passing" and `if (!rc.pass)` becomes
+   * "always failing", and neither reports why. So both come back here as
+   * aliases of `verdict === 'pass'`, which keeps those callers working AND does
+   * not reinstate the original defect: an unverified run now reads `false`,
+   * where the pre-4.2.11 boolean read `true`.
+   *
+   * (An earlier version of this comment described an asymmetry in which the
+   * top-level field had been kept and this one dropped. There was none —
+   * `git show c9672791 -- src/core/verifier.ts` deletes `pass: boolean` twice.)
    */
   pass: boolean;
   summary: string;

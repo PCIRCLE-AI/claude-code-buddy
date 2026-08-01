@@ -34,7 +34,7 @@ if (tag !== version) {
       `    tag:          ${rawTag}\n` +
       `    package.json: ${version}\n\n` +
       `  Publishing would ship ${version} under a release advertising ${rawTag}.\n` +
-      `  Fix the version anchors (npm run check:versions) or re-cut the release on the right commit.`
+      `  Fix the version anchors (node scripts/check-version-coherence.mjs) or re-cut the release on the right commit.`
   );
   process.exit(1);
 }

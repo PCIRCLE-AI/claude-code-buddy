@@ -138,7 +138,7 @@ function createPackageRoot(): string {
  * nonsense value and reporting `pass`.
  *
  * The `fts_segmentation` queries default to "healthy index" so every other test
- * sees only the check it is about. `unsegmentedTerm` flips that one row on.
+ * sees only the check it is about. `unsegmentedCount` flips that row on.
  *
  * What a stub can pin here is the MESSAGE. What it cannot pin is the DETECTION:
  * dispatching on `sql.includes(...)` never executes the statement, so mutating
@@ -147,12 +147,12 @@ function createPackageRoot(): string {
  * it is pinned in `tests/fts-segmentation-doctor.test.ts` against a real FTS5
  * index.
  */
-function makeDatabase(count = 3, opts: { unsegmentedTerm?: string } = {}) {
+function makeDatabase(count = 3, opts: { unsegmentedCount?: number } = {}) {
   return {
     prepare(sql: string) {
       if (sql.includes('sqlite_master')) return { get: () => ({ present: 1 }) };
       if (sql.includes('fts_vocab')) {
-        return { get: () => (opts.unsegmentedTerm ? { term: opts.unsegmentedTerm } : undefined) };
+        return { get: () => ({ c: opts.unsegmentedCount ?? 0 }) };
       }
       expect(sql).toContain('COUNT(*)');
       return {
@@ -294,8 +294,8 @@ describe('doctor', () => {
     expect(result.checks.find((check) => check.id === 'update-status')?.status).toBe('warn');
   });
 
-  it('names the offending term when the keyword index is unsegmented', async () => {
-    // Only the MESSAGE. Whether the check FINDS the term is pinned against a
+  it('reports a count for an unsegmented index and leaks no memory text', async () => {
+    // Only the MESSAGE. Whether the check FINDS anything is pinned against a
     // real FTS5 index in `tests/fts-segmentation-doctor.test.ts` — see the
     // note on `makeDatabase` for why a stub cannot do it here.
     const packageRoot = createPackageRoot();
@@ -304,8 +304,7 @@ describe('doctor', () => {
     const result = await runDoctor({
       packageRoot,
       packageVersion: '4.0.3',
-      openDatabaseImpl: () =>
-        makeDatabase(3, { unsegmentedTerm: '資料庫遷移前一定要先備份' }) as never,
+      openDatabaseImpl: () => makeDatabase(3, { unsegmentedCount: 4 }) as never,
       closeDatabaseImpl: () => undefined,
       detectCapabilitiesImpl: () => ({
         searchLevel: 0,
@@ -324,14 +323,20 @@ describe('doctor', () => {
       }),
     });
 
-    expect(result.checks.find((check) => check.id === 'fts_segmentation')).toMatchObject({
+    const row = result.checks.find((check) => check.id === 'fts_segmentation');
+    expect(row).toMatchObject({
       status: 'warn',
-      // The term has to be IN the message. "Some terms are unsegmented" is
-      // unactionable — the user cannot tell which memories are affected, nor
-      // whether the rebuild worked.
-      summary: expect.stringContaining('資料庫遷移前一定要先備份'),
+      summary: expect.stringContaining('4 unsegmented term'),
       fix: expect.stringContaining('reindex --fts'),
     });
+    // The count is the whole payload. `memesh feedback` and the dashboard
+    // widget copy every check summary verbatim into a pre-filled PUBLIC GitHub
+    // issue body, with diagnostics opt-OUT — so an example term lifted from
+    // fts_vocab would be a line of the user's own memories staged for
+    // publication. An earlier version embedded one.
+    expect(row!.summary).not.toMatch(/[\u3400-\u9FFF\u0E01-\u0E5B\uFF66-\uFF9D]/);
+    // ...and it still tells them how to know it worked.
+    expect(row!.summary).toMatch(/should be 0/);
   });
 
   it('fails when the MCP config is invalid JSON', async () => {

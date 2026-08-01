@@ -188,6 +188,31 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('can actually reach its release-only branch', () => {
+    // The `[Unreleased]` anchor is a hard error on a release run and a note on
+    // a feature branch. The first version keyed that on `MEMESH_RELEASE === '1'`
+    // with a comment saying the publish workflow set it. Nothing set it — not
+    // the workflow, not prepublishOnly, not a test — so the branch was dead and
+    // the one anchor the gate cannot cross-check any other way stayed waived on
+    // the publish path. A gate whose trigger never fires is the defect this
+    // whole release is about, one level up.
+    const text = read('scripts/check-version-coherence.mjs');
+    // Inferred from signals npm and GitHub set on their own, not only from an
+    // env var a human has to remember.
+    expect(text).toMatch(/npm_command === 'publish'/);
+    expect(text).toMatch(/GITHUB_EVENT_NAME === 'release'/);
+    // ...and the publish workflow states the intent at the call site.
+    expect(read('.github/workflows/publish-npm.yml')).toMatch(/MEMESH_RELEASE:\s*'1'/);
+  });
+
+  it('the publish path does not build the dashboard twice', () => {
+    // ci.yml removed this step because building it once in `npm run build` and
+    // again afterwards meant the release gate diffed the artifact produced by
+    // the unpinned install. Leaving the copy in the publish workflow is the
+    // same two-hand-maintained-lists problem the gate exists to prevent.
+    expect(read('.github/workflows/publish-npm.yml')).not.toMatch(/cd dashboard && npm ci/);
+  });
+
   it('the test runner it shares with prepublishOnly also isolates HOME', () => {
     // Same guarantee, other entry point. `prepublishOnly` reaches the suite
     // through run-tests-isolated.mjs rather than this script, and it had the

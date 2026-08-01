@@ -29,7 +29,7 @@ import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase } from '../src/db.js';
 import { KnowledgeGraph } from '../src/knowledge-graph.js';
 import { runDoctor } from '../src/core/doctor.js';
-import { UNSPACED_SCRIPT_GLOB_PREFIX } from '../src/storage/fts-index.js';
+import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../src/storage/fts-index.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -44,10 +44,9 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
  * unpinned, is the SQL. Kept byte-identical to `src/core/doctor.ts`; the
  * `pins the exact statement` case below fails if the two drift.
  */
-const SEGMENTATION_SQL = `SELECT term FROM fts_vocab
+const SEGMENTATION_SQL = `SELECT COUNT(*) AS c FROM fts_vocab
             WHERE length(term) > 2
-              AND term GLOB ?
-            LIMIT 1`;
+              AND term GLOB ?`;
 
 describe('Feature: doctor detects a stale (unsegmented) keyword index', () => {
   let dir: string;
@@ -64,14 +63,13 @@ describe('Feature: doctor detects a stale (unsegmented) keyword index', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  function probe(): { term?: string } | undefined {
+  /** How many unsegmented runs doctor would report. 0 means "healthy". */
+  function probe(): number {
     const db = openDatabase(dbPath);
     // The pattern comes from the same export doctor binds, so the ranges cannot
     // drift between the check and the test that claims to cover it — which is
     // the whole reason it is an export and not a literal in either place.
-    return db.prepare(SEGMENTATION_SQL).get(UNSPACED_SCRIPT_GLOB_PREFIX) as
-      | { term?: string }
-      | undefined;
+    return (db.prepare(SEGMENTATION_SQL).get(UNSPACED_SCRIPT_GLOB_RUN3) as { c: number }).c;
   }
 
   it('finds the whole-run token an older build leaves behind', () => {
@@ -84,7 +82,7 @@ describe('Feature: doctor detects a stale (unsegmented) keyword index', () => {
     db.prepare(`INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, '')`)
       .run(id, '資料庫遷移前一定要先備份');
 
-    expect(probe()?.term).toBe('資料庫遷移前一定要先備份');
+    expect(probe()).toBeGreaterThan(0);
   });
 
   it('stays silent on an index the current build wrote', () => {
@@ -102,7 +100,7 @@ describe('Feature: doctor detects a stale (unsegmented) keyword index', () => {
     expect(terms).toContain('備份');
     expect(terms.every((t) => [...t].length <= 2)).toBe(true);
 
-    expect(probe()).toBeUndefined();
+    expect(probe()).toBe(0);
     // ...and the memory is genuinely reachable by a fragment, which is the
     // user-visible property the whole check is a proxy for.
     expect(kg.search('備份').map((e) => e.name)).toContain('備份紀律');
@@ -128,14 +126,7 @@ describe('Feature: doctor detects a stale (unsegmented) keyword index', () => {
       // As an older build would have written it: the run, whole.
       db.prepare(`INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, '')`)
         .run(id, text);
-      const term = probe()?.term;
-      // Not `toBe(text)`. `unicode61` splits Thai, Lao and Khmer at their
-      // combining marks, so what lands in the index is a long FRAGMENT of the
-      // run rather than the whole of it — still far longer than a bigram, which
-      // is what makes it detectable and what makes the memory unfindable.
-      expect(term, `${label} run went undetected`).toBeDefined();
-      expect([...term!].length, `${label} term is not longer than a bigram`).toBeGreaterThan(2);
-      expect(text, `${label} term is not from the stored text`).toContain(term!);
+      expect(probe(), `${label} run went undetected`).toBeGreaterThan(0);
       db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
     }
   });
@@ -148,7 +139,28 @@ describe('Feature: doctor detects a stale (unsegmented) keyword index', () => {
       observations: ['supercalifragilisticexpialidocious'],
     });
 
-    expect(probe()).toBeUndefined();
+    expect(probe()).toBe(0);
+  });
+
+  it('does NOT fire on a healthy database that mixes one CJK char with ASCII', () => {
+    // The false positive that made the first version of this check worse than
+    // nothing: it told users with perfectly good databases to rebuild.
+    //
+    // `segmentUnspacedScripts` only splits runs of TWO OR MORE, so a lone
+    // unspaced character passes through untouched — and `unicode61` then joins
+    // it to adjacent ASCII letters/digits into one token. `第1章` and `語abc`
+    // are what a healthy index legitimately holds. The original predicate was
+    // "longer than a bigram AND starts with an unspaced-script character",
+    // which both satisfy.
+    const kg = new KnowledgeGraph(openDatabase(dbPath));
+    kg.createEntity('ch1', 'note', { observations: ['第1章 acme-corp merger notes'] });
+    kg.createEntity('mix', 'note', { observations: ['語ABC and API v2 用 OAuth2'] });
+
+    expect(probe()).toBe(0);
+    // ...and they really are findable, which is why "damaged" was the wrong
+    // verdict rather than merely a noisy one.
+    expect(kg.search('第1章').map((e) => e.name)).toContain('ch1');
+    expect(kg.search('語').map((e) => e.name)).toContain('mix');
   });
 
   it('pins the exact statement doctor runs', () => {
@@ -188,7 +200,7 @@ describe('Feature: doctor detects a stale (unsegmented) keyword index', () => {
     const db = openDatabase(dbPath);
     new KnowledgeGraph(db).createEntity('a-memory', 'note', { observations: ['hello'] });
     db.exec('DROP TABLE fts_vocab');
-    expect(() => db.prepare(SEGMENTATION_SQL).get(UNSPACED_SCRIPT_GLOB_PREFIX)).toThrow(/no such table/);
+    expect(() => db.prepare(SEGMENTATION_SQL).get(UNSPACED_SCRIPT_GLOB_RUN3)).toThrow(/no such table/);
 
     const result = await runDoctor({
       packageRoot: dir,

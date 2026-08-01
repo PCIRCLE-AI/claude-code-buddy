@@ -114,6 +114,15 @@ describe('Feature: the only non-literal argument is checked, not trusted', () =>
     );
     expect(assertSafeShellArg('@pcircle/memesh-4.2.11.tgz', 'x')).toBeTruthy();
 
+    // A Windows absolute path. This file asserted only REJECTIONS, so when the
+    // allow-list turned out to have no `:`, nothing caught that
+    // `smoke-packed-artifact.mjs` — which passes an absolute `os.tmpdir()` path
+    // to `npm pack --pack-destination` and `npm install` — could not run on
+    // Windows at all. An allow-list needs its accept side pinned too, or it
+    // silently narrows until the thing it guards stops working.
+    expect(assertSafeShellArg('C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\m\\p.tgz', 'x')).toBeTruthy();
+    expect(assertSafeShellArg('/tmp/memesh-pack-smoke-a1/pcircle-memesh-4.2.11.tgz', 'x')).toBeTruthy();
+
     // Allow-list, not deny-list: `%` and `^` are cmd.exe syntax that a
     // POSIX-shaped deny-list would let through.
     for (const bad of [
@@ -130,5 +139,16 @@ describe('Feature: the only non-literal argument is checked, not trusted', () =>
     ]) {
       expect(() => assertSafeShellArg(bad, 'x')).toThrow();
     }
+  });
+
+  it('the drive-letter colon did not open a hole', () => {
+    // `:` was added for `C:\...`. cmd.exe gives it no meaning outside a drive
+    // prefix, but the point of an allow-list is that widening it is deliberate
+    // and bounded, so the metacharacters stay pinned next to the widening.
+    return import('../scripts/lib/npm-bin.mjs').then(({ assertSafeShellArg }) => {
+      for (const bad of ['a:b>c', 'a:b<c', 'a:b|c', 'a:b&c', 'a:b^c', 'a:b%PATH%', 'a: b']) {
+        expect(() => assertSafeShellArg(bad, 'x'), bad).toThrow();
+      }
+    });
   });
 });

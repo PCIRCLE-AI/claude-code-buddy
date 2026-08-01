@@ -49,10 +49,13 @@ import type Database from 'better-sqlite3';
  * endpoint got mangled by an editor or a terminal fails silently — it just
  * stops segmenting part of a script.
  *
- * Exported because `knowledge-graph.ts` needs the same set to decide whether a
- * single-character term should become a prefix query. It carried a verbatim
- * copy; adding a range to one and not the other silently desynchronises what
- * the index stores from what a query asks for.
+ * The ranges are the single source for two derived forms below — the regex
+ * character class used for segmentation, and the SQL GLOB pattern
+ * `src/core/doctor.ts` binds to find runs an older build left unsegmented.
+ * Deriving both is the point: doctor's copy was originally a hand-written
+ * CJK-only pair, and this list has since grown to ten ranges, so a hand-written
+ * copy would have gone on reporting a healthy index over an unsegmented Thai
+ * one.
  */
 export const UNSPACED_SCRIPT_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0x0e01, 0x0e5b], // Thai
@@ -81,13 +84,33 @@ export const UNSPACED_SCRIPT_CLASS = UNSPACED_SCRIPT_RANGES.map(
 ).join('');
 
 /**
- * The same set as a SQLite `GLOB` character class, matching a term that STARTS
- * with an unspaced-script character.
+ * A SQLite `GLOB` pattern matching a term that contains THREE OR MORE
+ * consecutive unspaced-script characters — the fingerprint of a run this
+ * build's segmenter never wrote.
+ *
+ * Three, not one, and this is the whole correctness of the check.
+ * `segmentUnspacedScripts` only splits runs of two or more, so a LONE unspaced
+ * character is passed through untouched — and `unicode61` then treats it and
+ * any adjacent ASCII letters/digits as one token. So a perfectly healthy index
+ * routinely holds terms like `第1章` or `語abc`: longer than a bigram, starting
+ * with an unspaced-script character, and entirely correct.
+ *
+ * An earlier version of this pattern was `[class]*` ("starts with one"), which
+ * reported those healthy databases as damaged and told the user to rebuild an
+ * index that was fine. Measured on a clean database written entirely through
+ * the normal path: `第1章` and `語abc` were both flagged while both memories
+ * were findable.
+ *
+ * After segmentation the longest possible unspaced run inside a single token is
+ * two (a bigram), so three consecutive is unambiguous evidence that some rows
+ * were written by a build that was not segmenting.
  *
  * SQLite's GLOB compares code points, not bytes, so the ranges carry over
- * directly. Passed as a bound parameter rather than concatenated into the SQL.
+ * directly — including the astral Extension B range. Passed as a bound
+ * parameter rather than concatenated into the SQL.
  */
-export const UNSPACED_SCRIPT_GLOB_PREFIX = `[${UNSPACED_SCRIPT_CLASS}]*`;
+export const UNSPACED_SCRIPT_GLOB_RUN3 =
+  `*[${UNSPACED_SCRIPT_CLASS}][${UNSPACED_SCRIPT_CLASS}][${UNSPACED_SCRIPT_CLASS}]*`;
 
 const UNSPACED_SCRIPT = new RegExp(`[${UNSPACED_SCRIPT_CLASS}]+`, 'gu');
 

@@ -51,11 +51,17 @@ const BUILD_OUTPUTS = ['scripts/hooks/_generated', 'dist', 'dashboard/dist'];
 // `prepublishOnly` build before calling it and therefore build twice; 4s of
 // duplicated work is the price of the gate being sound when invoked alone.
 try {
-  npmSync(['run', 'build'], { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
+  npmSync(['run', 'build'], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
 } catch (err) {
+  // stdout AND stderr, and `||` rather than `??`: tsc writes its errors to
+  // STDOUT, and a failing npm run leaves `err.stderr` as an EMPTY STRING, which
+  // `??` does not fall back on. The first version of this piped only stderr and
+  // used `??`, so a real build failure printed the headline and then nothing at
+  // all — a gate that fails correctly but tells you nothing is barely better
+  // than one that passes wrongly.
+  const detail = `${err.stdout ?? ''}${err.stderr ?? ''}`.trim() || err.message;
   console.error(
-    `✗ build failed, so the committed output cannot be checked against source.\n` +
-      `${err.stderr ?? err.message}`
+    `✗ build failed, so the committed output cannot be checked against source.\n${detail}`
   );
   process.exit(1);
 }

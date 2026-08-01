@@ -407,6 +407,7 @@ This field replaces the previous `pass: boolean`, which returned `true` for the 
 {
   "entity_name": "verification:agent-1:2026-05-03T22-00-00-000Z",
   "verdict": "pass",
+  "pass": true,
   "reality_check": {
     "files_changed": 5,
     "expected_files": 5,
@@ -427,6 +428,7 @@ With neither `claim` nor `report`:
 {
   "entity_name": "verification:agent-1:2026-05-03T22-00-00-000Z",
   "verdict": "unverified",
+  "pass": false,
   "reality_check": {
     "files_changed": 5,
     "expected_files": null,

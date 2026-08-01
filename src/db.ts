@@ -426,64 +426,33 @@ function ensureFtsSegmentation(db: Database.Database): void {
  */
 const FTS_REBUILD_PAGE_SIZE = 500;
 
-/**
- * Does any active entity hold text that is not already NFC-normalised?
- *
- * Paged the same way the rebuild is, so a large corpus is never materialised.
- * Returns on the first hit — a single decomposed memory is enough to need the
- * rebuild.
- */
-function hasDecomposedText(db: Database.Database): boolean {
-  const page = db.prepare(
-    `SELECT e.id, e.name, COALESCE(group_concat(o.content, ' '), '') AS obs
-       FROM entities e
-       LEFT JOIN observations o ON o.entity_id = e.id
-      WHERE e.status = 'active' AND e.id > ?
-      GROUP BY e.id
-      ORDER BY e.id
-      LIMIT ?`
-  );
-
-  let afterId = 0;
-  for (;;) {
-    const rows = page.all(afterId, FTS_REBUILD_PAGE_SIZE) as Array<{
-      id: number;
-      name: string;
-      obs: string;
-    }>;
-    if (rows.length === 0) return false;
-
-    for (const row of rows) {
-      if (row.name !== row.name.normalize('NFC')) return true;
-      if (row.obs !== row.obs.normalize('NFC')) return true;
-    }
-
-    afterId = rows[rows.length - 1].id;
-    if (rows.length < FTS_REBUILD_PAGE_SIZE) return false;
-  }
-}
-
-function rebuildFtsIndex(db: Database.Database, fromVersion = 0): void {
-  // Skip the write half when there is provably nothing to change.
+function rebuildFtsIndex(db: Database.Database): void {
+  // This ALWAYS rebuilds. There used to be a skip here, and removing it is a
+  // bug fix, not a performance regression accepted for simplicity.
   //
-  // v2 differs from v1 ONLY by NFC-normalising before segmenting, so for a
-  // database already at v1 whose text is all composed — every ASCII corpus,
-  // and every pre-composed accented one, which is nearly all of them — the
-  // rebuilt index would be byte-identical to the one already there. Measured
-  // on a 20k-entity database: 140ms with the rebuild against 13ms without, all
-  // of it reproducing what existed, under a write lock shared by seven hooks,
-  // the MCP server, the HTTP server and the CLI.
+  // The skip read `if (fromVersion === 1 && !hasDecomposedText(db)) return;`,
+  // justified by "v2 differs from v1 ONLY by NFC-normalising before
+  // segmenting". That was true when the target was 2. Version 3 also WIDENS
+  // `UNSPACED_SCRIPT_RANGES` (Thai, Lao, Khmer, half-width katakana, CJK Ext
+  // B), and none of those scripts has a canonical decomposition — so
+  // `hasDecomposedText` is false for exactly the corpora the widening exists
+  // to fix. Measured: a v1 database holding Thai and half-width katakana came
+  // out of the upgrade with its marker stamped 3, its index still holding v1
+  // whole-run tokens, and every fragment query returning nothing. The marker
+  // only moves forward, so it never self-heals. Worse, the query side DOES
+  // segment, so half-width katakana and Ext B lost the exact-full-string
+  // query that worked before the upgrade.
   //
-  // The `fromVersion === 1` guard is load-bearing and was learned from a
-  // failing test: this function also runs for databases with NO marker at all,
-  // whose index predates segmentation entirely. Those need the full rebuild no
-  // matter how their text is normalised, and skipping on decomposition alone
-  // left them permanently unsegmented.
+  // A version-keyed skip is only sound while the sole delta is normalisation,
+  // and nothing forces the next author to re-derive that. `_shared.js`'s
+  // hook-side twin never had the skip, so the two also disagreed: the same
+  // database ended up in one of two index states depending on which process
+  // opened it first, and doctor's own stale-index check called one of them
+  // damaged. Rebuilding unconditionally is what makes the two halves agree.
   //
-  // The read half still happens — we have to look to know — but a read-only
-  // scan is not a corpus-wide FTS5 rewrite.
-  if (fromVersion === 1 && !hasDecomposedText(db)) return;
-
+  // The cost it bought back was 140ms against 13ms on a 20k-entity database,
+  // once per database per version bump. That is not worth a class of bug that
+  // silently makes memories unreachable.
   db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
 
   const page = db.prepare(
@@ -542,11 +511,11 @@ export function reindexFts(): { entities: number } {
   // injected in-process, deterministically. Splitting the transaction fails it.
   //
   // `.immediate()` specifically is NOT load-bearing here, and the test does not
-  // claim it is: `rebuildFtsIndex` is called with the default `fromVersion = 0`,
-  // so its first executed statement is the `delete-all` write and a DEFERRED
-  // transaction takes the lock at the same instant. Confirmed by mutation —
-  // `.immediate()` -> `()` changes nothing observable. It stays for consistency
-  // with `runOnceMigration`, where the callback reads BEFORE writing and the
+  // claim it is: `rebuildFtsIndex` now has no read half, so its first executed
+  // statement is the `delete-all` write and a DEFERRED transaction takes the
+  // lock at the same instant. Confirmed by mutation — `.immediate()` -> `()`
+  // changes nothing observable. It stays for consistency with
+  // `runOnceMigration`, where the callback reads BEFORE writing and the
   // distinction is the whole fix.
   database.transaction(() => {
     rebuildFtsIndex(database);

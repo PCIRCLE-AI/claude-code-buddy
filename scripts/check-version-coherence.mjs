@@ -118,10 +118,28 @@ if (!changelogMatch) {
   // prints "All version sources agree". The one source it is least able to
   // verify by other means was the one it silently waived.
   //
-  // MEMESH_RELEASE=1 is set by the publish workflow. Absent, this is a feature
-  // branch and [Unreleased] stands in.
+  // Release-ness is INFERRED from three independent signals, not read from one
+  // env var somebody has to remember to set.
+  //
+  // The first version of this branch tested `MEMESH_RELEASE === '1'` alone,
+  // with a comment asserting "MEMESH_RELEASE=1 is set by the publish workflow".
+  // Nothing set it — not the workflow, not `prepublishOnly`, not a test. So the
+  // branch was unreachable and the anchor stayed silently waived on the publish
+  // path, which is the exact defect it was added to close: a gate that reports
+  // success because its own trigger never fires.
+  //
+  //   npm_command === 'publish'      — npm sets this for the whole `npm publish`
+  //                                    run, so `prepublishOnly` is covered on any
+  //                                    platform without shell env-var syntax.
+  //   GITHUB_EVENT_NAME === 'release' — a release-triggered workflow run.
+  //   MEMESH_RELEASE === '1'          — explicit override, and what the publish
+  //                                    workflow now sets so the intent is legible
+  //                                    at the call site too.
   const unreleasedRe = /^## \[Unreleased\]/m;
-  const isReleaseRun = process.env.MEMESH_RELEASE === '1';
+  const isReleaseRun =
+    process.env.MEMESH_RELEASE === '1' ||
+    process.env.npm_command === 'publish' ||
+    process.env.GITHUB_EVENT_NAME === 'release';
   if (unreleasedRe.test(changelog) && !isReleaseRun) {
     findings.push(`  (CHANGELOG.md has [Unreleased] section — acceptable for feature branches; bump before release)`);
   } else if (unreleasedRe.test(changelog) && isReleaseRun) {

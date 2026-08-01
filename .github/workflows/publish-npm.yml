@@ -47,8 +47,11 @@ jobs:
       - name: Build project
         run: npm run build
 
-      - name: Build dashboard
-        run: cd dashboard && npm ci && npx vite build
+      # No separate "Build dashboard" step: `npm run build` above already
+      # produces it via scripts/build-dashboard.mjs, with a locked install.
+      # ci.yml removed the identical step; leaving it here is the same
+      # "two hand-maintained copies of what must be true before this ships"
+      # the release gate exists to prevent.
 
       - name: Run tests
         run: npm test -- --run
@@ -68,6 +71,11 @@ jobs:
         # .claude-plugin/plugin.json and marketplace.json ship INSIDE the
         # tarball, so a partial version bump reached plugin-marketplace users
         # with a mismatched stamp and nothing to catch it.
+        env:
+          # Makes the CHANGELOG `[Unreleased]` anchor a hard error here. The
+          # script also infers this from npm_command/GITHUB_EVENT_NAME, but
+          # stating it at the call site is what makes the intent readable.
+          MEMESH_RELEASE: '1'
         run: npm run verify:release
 
       - name: Doctor (manifest + hooks integrity gate)

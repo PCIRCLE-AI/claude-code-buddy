@@ -11,7 +11,7 @@ export const UNSPACED_SCRIPT_RANGES = [
     [0x20000, 0x3ffff],
 ];
 export const UNSPACED_SCRIPT_CLASS = UNSPACED_SCRIPT_RANGES.map(([lo, hi]) => `${String.fromCodePoint(lo)}-${String.fromCodePoint(hi)}`).join('');
-export const UNSPACED_SCRIPT_GLOB_PREFIX = `[${UNSPACED_SCRIPT_CLASS}]*`;
+export const UNSPACED_SCRIPT_GLOB_RUN3 = `*[${UNSPACED_SCRIPT_CLASS}][${UNSPACED_SCRIPT_CLASS}][${UNSPACED_SCRIPT_CLASS}]*`;
 const UNSPACED_SCRIPT = new RegExp(`[${UNSPACED_SCRIPT_CLASS}]+`, 'gu');
 export function segmentUnspacedScripts(text) {
     return text.replace(UNSPACED_SCRIPT, (run) => {
