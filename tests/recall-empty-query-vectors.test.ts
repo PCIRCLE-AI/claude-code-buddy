@@ -79,6 +79,54 @@ describe('Feature: an unsearchable query reaches no vector supplement', () => {
     }
   );
 
+  it.each([
+    ['Thai sara-am (U+0E4D)', '\u0E4D'],
+    ['combining acute (U+0301)', '\u0301'],
+    ['Devanagari udatta (U+0951)', '\u0951'],
+    ['Arabic damma (U+064F)', '\u064F'],
+    ['kana voiced mark (U+3099)', '\u3099'],
+  ])('treats a %s-only query as unsearchable', async (_label, query) => {
+    // A term of combining marks alone is not a word. `unicode61
+    // remove_diacritics 1` treats those marks as SEPARATORS for non-Latin
+    // scripts, so the MATCH phrase built from one tokenises to nothing and can
+    // never hit a row — but `tokenizeQuery` used to accept `[\p{L}\p{N}\p{M}]+`,
+    // which matches a mark-only run. So `hasSearchableTerms` answered true,
+    // `search()` returned 0, and the vector supplement ran anyway: the caller
+    // got semantically-nearest memories for a query the keyword side had
+    // correctly found nothing for.
+    //
+    // Measured before the fix, all five: hasSearchableTerms=true, search()->0.
+    const out = await recallEnhanced({ query });
+    expect(out).toEqual([]);
+    expect(embedText).not.toHaveBeenCalled();
+  });
+
+  it('still keeps marks that belong to a word', async () => {
+    // The other half. Requiring a leading letter or number must not drop the
+    // marks that FOLLOW one — Thai tone marks, Devanagari matras, Arabic
+    // harakat all live mid-word, and dropping them would break those languages
+    // rather than fix them.
+    const { tokenizeQuery } = await import('../src/storage/fts-index.js');
+
+    // Spaced scripts keep their mark-bearing word whole.
+    expect(tokenizeQuery('काम')).toEqual(['काम']); // Devanagari matra
+    expect(tokenizeQuery('مُحَمَّد')).toEqual(['مُحَمَّد']); // Arabic harakat
+    expect(tokenizeQuery('שָׁלוֹם')).toEqual(['שָׁלוֹם']); // Hebrew niqqud
+    expect(tokenizeQuery('café'.normalize('NFD'))).toEqual(['café'.normalize('NFC')]);
+
+    // Thai is a spaceless script, so it bigrams — and the tone mark rides along
+    // on its base character rather than being dropped or split off alone.
+    expect(tokenizeQuery('ก่อน')).toEqual(['ก่', 'อ', 'อน']);
+    expect(tokenizeQuery('สำรอง')).toEqual(['สำ', 'ำร', 'รอ', 'อง']);
+
+    // And nothing anywhere produces a term that is only marks.
+    for (const word of ['ก่อน', 'สำรอง', 'काम', 'مُحَمَّد', 'שָׁלוֹם']) {
+      for (const term of tokenizeQuery(word)) {
+        expect(term, `${word} produced a mark-only term`).toMatch(/^[\p{L}\p{N}]/u);
+      }
+    }
+  });
+
   it('DOES embed a query that has real terms', async () => {
     // The contrast that gives the cases above their meaning. Without it, a gate
     // hard-wired to `false` would satisfy every assertion here.

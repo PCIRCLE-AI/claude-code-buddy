@@ -181,12 +181,69 @@ export function toIndexForm(text: string): string {
 /**
  * Split text into the terms the FTS5 index actually holds.
  *
- * Same split FTS5's `unicode61` tokenizer uses — runs of letters, numbers and
- * combining marks — applied to `toIndexForm()` output so the terms are in the
- * stored form.
+ * Applied to `toIndexForm()` output so the terms are in the stored form.
+ *
+ * **A term must START with a letter or a number.** Marks may only follow one.
+ *
+ * The previous pattern was `[\p{L}\p{N}\p{M}]+`, which accepts a term made of
+ * combining marks alone. FTS5's `unicode61 remove_diacritics 1` does not: for
+ * non-Latin scripts it treats those marks as SEPARATORS, so a mark-only term
+ * tokenises to nothing and the `MATCH` phrase built from it can never hit a
+ * row. That gap was observable — `hasSearchableTerms('ํ')` answered true
+ * while `search()` returned 0 for it, and the same for U+0301, U+0951, U+064F,
+ * U+17B6 and U+3099 — and it mattered beyond a wasted query: `recallEnhanced`
+ * gates the vector supplement on `hasSearchableTerms`, so those queries skipped
+ * the keyword result and got semantically-nearest memories instead. That is the
+ * "nothing matched dressed as here is what matched" shape the gate exists to
+ * prevent, on the one input class it did not cover.
+ *
+ * Requiring a leading letter or number does not drop marks that belong to a
+ * word: `toIndexForm` NFC-normalises first, and in every script where a mark
+ * survives composition it follows its base character — Thai tone marks,
+ * Devanagari matras, Arabic harakat, Hebrew niqqud, combining kana marks. Those
+ * still tokenise as one term, and `tests/recall-relevance.test.ts` plus
+ * `tests/cjk-recall.test.ts` cover them.
  */
 export function tokenizeQuery(text: string): string[] {
-  return toIndexForm(String(text ?? '')).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [];
+  return toIndexForm(String(text ?? '')).match(/[\p{L}\p{N}][\p{L}\p{N}\p{M}]*/gu) ?? [];
+}
+
+/**
+ * The SQL name of the NFC-normalising function registered below.
+ *
+ * The archived-supplement branch in `knowledge-graph.ts` matches with `LIKE`
+ * against the RAW `entities.name` / `observations.content` columns, because
+ * archived rows are removed from FTS5. Its terms come from `tokenizeQuery`,
+ * which NFC-normalises — so it was comparing normalised terms against
+ * un-normalised storage, and text stored decomposed was findable while active
+ * and unfindable the moment it was archived. Measured: a Vietnamese memory
+ * stored NFD was returned by `search('dữ liệu')` and then, after
+ * `archiveEntity`, was absent from `search('dữ liệu', {includeArchived:true})`
+ * while its NFC twin was returned.
+ *
+ * Normalising the stored side in SQL keeps both halves of one `search()` call
+ * answering the same question. It is a full scan either way — archived rows
+ * have no index to lose.
+ */
+export const SQL_NFC_FUNCTION = 'memesh_nfc';
+
+/** Handles this process has already registered the function on. */
+const nfcRegistered = new WeakSet<object>();
+
+/**
+ * Register `memesh_nfc(text)` on a connection, once.
+ *
+ * Idempotent by WeakSet rather than by relying on better-sqlite3's behaviour on
+ * re-registration (verified to be silent replacement, but not something to
+ * depend on). `deterministic` is correct — NFC of a given string never changes
+ * — and lets SQLite cache and reorder freely.
+ */
+export function registerNfcFunction(db: Database.Database): void {
+  if (nfcRegistered.has(db)) return;
+  db.function(SQL_NFC_FUNCTION, { deterministic: true }, (value: unknown) =>
+    typeof value === 'string' ? value.normalize('NFC') : value
+  );
+  nfcRegistered.add(db);
 }
 
 /**

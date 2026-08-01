@@ -5,6 +5,8 @@ export declare const UNSPACED_SCRIPT_GLOB_RUN3: string;
 export declare function segmentUnspacedScripts(text: string): string;
 export declare function toIndexForm(text: string): string;
 export declare function tokenizeQuery(text: string): string[];
+export declare const SQL_NFC_FUNCTION = "memesh_nfc";
+export declare function registerNfcFunction(db: Database.Database): void;
 export declare function hasSearchableTerms(text: string): boolean;
 export declare function renderMatchExpression(terms: string[]): string | null;
 export declare function isLoneUnspacedChar(term: string): boolean;

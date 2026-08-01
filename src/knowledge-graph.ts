@@ -7,6 +7,8 @@ import {
   removeFromFts,
   tokenizeQuery,
   renderMatchExpression,
+  registerNfcFunction,
+  SQL_NFC_FUNCTION,
 } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 
@@ -723,8 +725,17 @@ export class KnowledgeGraph {
       const tagFilter = opts?.tag ? 'AND t.tag = ?' : '';
       const archivedNamespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
       const likeTerms = archivedLikeTerms(this.db, query);
+      // `memesh_nfc(...)` on the STORED side. The terms are already NFC —
+      // `tokenizeQuery` normalises — so without it this compared normalised
+      // terms against raw storage, and a memory stored decomposed was findable
+      // while active and unfindable once archived.
+      registerNfcFunction(this.db);
       const termClause = likeTerms
-        .map(() => "(e.name LIKE ? ESCAPE '\\' OR o.content LIKE ? ESCAPE '\\')")
+        .map(
+          () =>
+            `(${SQL_NFC_FUNCTION}(e.name) LIKE ? ESCAPE '\\' ` +
+            `OR ${SQL_NFC_FUNCTION}(o.content) LIKE ? ESCAPE '\\')`
+        )
         .join(' OR ');
       const archivedParams: (string | number)[] = likeTerms.flatMap((t) => [t, t]);
       if (opts?.tag) archivedParams.push(opts.tag);

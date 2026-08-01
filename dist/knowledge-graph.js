@@ -1,5 +1,5 @@
 import { findConflicts, trackAccess } from './storage/conflicts.js';
-import { insertFtsRow, removeFromFts, tokenizeQuery, renderMatchExpression, } from './storage/fts-index.js';
+import { insertFtsRow, removeFromFts, tokenizeQuery, renderMatchExpression, registerNfcFunction, SQL_NFC_FUNCTION, } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 const MAX_QUERY_TERMS = 32;
 function buildMatchExpression(db, query) {
@@ -345,8 +345,10 @@ export class KnowledgeGraph {
             const tagFilter = opts?.tag ? 'AND t.tag = ?' : '';
             const archivedNamespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
             const likeTerms = archivedLikeTerms(this.db, query);
+            registerNfcFunction(this.db);
             const termClause = likeTerms
-                .map(() => "(e.name LIKE ? ESCAPE '\\' OR o.content LIKE ? ESCAPE '\\')")
+                .map(() => `(${SQL_NFC_FUNCTION}(e.name) LIKE ? ESCAPE '\\' ` +
+                `OR ${SQL_NFC_FUNCTION}(o.content) LIKE ? ESCAPE '\\')`)
                 .join(' OR ');
             const archivedParams = likeTerms.flatMap((t) => [t, t]);
             if (opts?.tag)

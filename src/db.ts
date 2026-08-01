@@ -97,7 +97,41 @@ export function openDatabase(dbPath?: string): Database.Database {
   fs.mkdirSync(dir, { recursive: true });
   try { fs.chmodSync(dir, 0o700); } catch { /* non-POSIX */ }
 
-  db = new Database(resolvedPath);
+  // The module singleton is published only once initialisation SUCCEEDS.
+  //
+  // This used to assign `db` first and initialise through it, so any throw
+  // after `new Database()` — a peer holding the write lock during SCHEMA_SQL, a
+  // read-only file, a failed extension load — left the singleton pointing at a
+  // handle with no schema, no migrations and no sqlite-vec. `if (db) return db`
+  // then handed that handle to every later caller in the process, forever.
+  // Reproduced: with a peer holding BEGIN EXCLUSIVE the first call threw
+  // "database is locked", and the next call returned the poisoned handle and
+  // threw "no such table: memesh_metadata" — while `runOnceMigration`'s
+  // careful transient-error backoff, which exists precisely so a held lock is
+  // retried later, never got the chance to run.
+  //
+  // Failing closed matters more than usual here: writes would still go through
+  // `insertFtsRow`'s current segmentation rules into an index that was never
+  // migrated, which is the contentless-FTS delete mismatch the rest of this
+  // release exists to eliminate.
+  const opening = new Database(resolvedPath);
+  try {
+    initialiseDatabase(opening, resolvedPath);
+  } catch (err) {
+    try { opening.close(); } catch { /* already closing down */ }
+    throw err;
+  }
+  db = opening;
+  return db;
+}
+
+/**
+ * Everything `openDatabase` does to a freshly-opened handle before it is safe
+ * to publish. Extracted so the failure path has something to unwind: while this
+ * was inline, "assign the singleton" and "finish initialising it" could not be
+ * separated.
+ */
+function initialiseDatabase(db: Database.Database, resolvedPath: string): Database.Database {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
@@ -135,7 +169,7 @@ export function openDatabase(dbPath?: string): Database.Database {
   // core side was untreated until a reviewer flagged the asymmetry.
   const safeAlter = (sql: string): void => {
     try {
-      db!.exec(sql);
+      db.exec(sql);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (!/duplicate column name/i.test(msg)) throw e;

@@ -36,7 +36,15 @@ export function toIndexForm(text) {
     return segmentUnspacedScripts(text.normalize('NFC'));
 }
 export function tokenizeQuery(text) {
-    return toIndexForm(String(text ?? '')).match(/[\p{L}\p{N}\p{M}]+/gu) ?? [];
+    return toIndexForm(String(text ?? '')).match(/[\p{L}\p{N}][\p{L}\p{N}\p{M}]*/gu) ?? [];
+}
+export const SQL_NFC_FUNCTION = 'memesh_nfc';
+const nfcRegistered = new WeakSet();
+export function registerNfcFunction(db) {
+    if (nfcRegistered.has(db))
+        return;
+    db.function(SQL_NFC_FUNCTION, { deterministic: true }, (value) => typeof value === 'string' ? value.normalize('NFC') : value);
+    nfcRegistered.add(db);
 }
 export function hasSearchableTerms(text) {
     return tokenizeQuery(text).length > 0;

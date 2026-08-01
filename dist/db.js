@@ -93,7 +93,21 @@ export function openDatabase(dbPath) {
         fs.chmodSync(dir, 0o700);
     }
     catch { }
-    db = new Database(resolvedPath);
+    const opening = new Database(resolvedPath);
+    try {
+        initialiseDatabase(opening, resolvedPath);
+    }
+    catch (err) {
+        try {
+            opening.close();
+        }
+        catch { }
+        throw err;
+    }
+    db = opening;
+    return db;
+}
+function initialiseDatabase(db, resolvedPath) {
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
     db.exec(SCHEMA_SQL);
