@@ -199,13 +199,14 @@ export function setPinned(name, pinned) {
     });
     return { name, pinned, found: true };
 }
-function countMissingVectors(db) {
+function countMissingVectors(db, namespace) {
     const row = db.prepare(`
     SELECT COUNT(*) AS n FROM entities e
     WHERE e.status = 'active'
+      ${namespace ? 'AND e.namespace = ?' : ''}
       AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND TRIM(o.content) <> '')
       AND NOT EXISTS (SELECT 1 FROM entities_vec v WHERE v.rowid = e.id)
-  `).get();
+  `).get(...(namespace ? [namespace] : []));
     return row.n;
 }
 export async function reindex(opts) {
@@ -250,21 +251,33 @@ export async function reindex(opts) {
     }
     const embedded = outcomes.stored;
     const skipped = processed - embedded;
-    const missingVectors = countMissingVectors(db);
+    const missingVectors = countMissingVectors(db, opts?.namespace);
+    const missingVectorsDatabaseWide = opts?.namespace
+        ? countMissingVectors(db)
+        : missingVectors;
     process.stderr.write(`MeMesh: Reindex complete. ${embedded}/${processed} entities embedded.\n`);
     if (outcomes.dimension_mismatch > 0) {
         process.stderr.write(`MeMesh: ${outcomes.dimension_mismatch} entities were skipped because the provider's ` +
             `embedding dimension does not match this database's vector index. Rebuild it with ` +
             `'memesh reindex --vectors'.\n`);
     }
-    const pendingReindexCleared = missingVectors === 0;
+    const pendingReindexCleared = missingVectorsDatabaseWide === 0;
     if (pendingReindexCleared) {
         clearPendingReindexFlag();
     }
     else {
-        process.stderr.write(`MeMesh: ${missingVectors} active memories still have no vector, so the ` +
+        process.stderr.write(`MeMesh: ${missingVectorsDatabaseWide} active memories still have no vector` +
+            `${opts?.namespace ? ' (across all namespaces)' : ''}, so the ` +
             `reindex-needed flag was left set.\n`);
     }
-    return { processed, embedded, skipped, outcomes, missingVectors, pendingReindexCleared };
+    return {
+        processed,
+        embedded,
+        skipped,
+        outcomes,
+        missingVectors,
+        missingVectorsDatabaseWide,
+        pendingReindexCleared,
+    };
 }
 //# sourceMappingURL=operations.js.map

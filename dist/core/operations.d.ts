@@ -22,6 +22,7 @@ export interface ReindexResult {
     skipped: number;
     outcomes: Record<EmbedOutcome | 'entity_missing', number>;
     missingVectors: number;
+    missingVectorsDatabaseWide: number;
     pendingReindexCleared: boolean;
 }
 export declare function reindex(opts?: {

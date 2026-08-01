@@ -861,7 +861,7 @@ Regenerate vector embeddings for all entities.
 |--------|-------------|
 | `--namespace <namespace>` | Reindex only entities in this namespace. |
 | `--fts` | Rebuild the full-text keyword index instead of the vector index. |
-| `--vectors` | Rebuild the vector index at the configured dimension first. **Destructive** — see below. |
+| `--vectors` | Rebuild the vector index at the configured dimension first. **Destructive**, and cannot be combined with `--namespace` or `--fts` — see below. |
 | `--json` | Output the result as JSON. |
 
 `--fts` rebuilds the full-text keyword index instead. The keyword index
@@ -888,19 +888,30 @@ embedder it has to be bought a second time. `--vectors` is how you say yes.
 memesh reindex --vectors
 ```
 
-It refuses if no embedding provider is available, rather than dropping the index
-and having nothing to refill it with.
+It refuses in three cases, all of which would destroy more than was asked for:
+
+| Refused | Why |
+|---------|-----|
+| No embedding provider available | Dropping the index would leave nothing able to refill it. |
+| `--vectors --namespace X` | `entities_vec` is one table for the whole database, so the rebuild drops *every* namespace's vectors while `--namespace` would refill only `X`. |
+| `--vectors --fts` | Two different indexes; one flag each. |
 
 **Exit codes**:
 
 | Code | Meaning |
 |------|---------|
-| `0` | Every memory that can have a vector has one. |
-| `1` | The command failed, or finished with memories still missing a vector. |
+| `0` | Every memory this run was responsible for has a vector. |
+| `1` | The command failed, was refused, or finished with memories still missing a vector. |
 
-An incomplete run prints `⚠️  Reindex incomplete` with a per-reason breakdown and
-leaves the reindex-needed flag set, so `memesh doctor` still reports the work as
-outstanding. Earlier versions printed `✅ Reindex complete` and exited `0` in every case,
+The verdict is scoped to what was asked: `--namespace personal` exits `0` when
+that namespace is complete, even if another namespace is behind. The
+reindex-needed flag is *not* scoped — it describes the whole database, so it
+stays set until every namespace is complete, and the run says so rather than
+printing a bare tick next to a `memesh doctor` that still reports work
+outstanding.
+
+An incomplete run prints `⚠️  Reindex incomplete` with a per-reason breakdown.
+Earlier versions printed `✅ Reindex complete` and exited `0` in every case,
 including runs that wrote no vectors at all.
 
 ### memesh pin / memesh unpin

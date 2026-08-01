@@ -1355,6 +1355,22 @@ program
       }
 
       if (opts.vectors) {
+        if (opts.namespace) {
+          // `entities_vec` is one table for the whole database, so the rebuild
+          // drops EVERY namespace's vectors — while `--namespace` would refill
+          // only one. The other namespaces would lose their embeddings
+          // permanently and silently, outside anything the user asked for.
+          // Same family as dropping without a way to refill: the destruction
+          // is wider than the repair.
+          console.error(
+            '❌ --vectors rebuilds the whole vector index, which is shared by every\n' +
+            '   namespace, so it cannot be limited to one. Combining it with\n' +
+            '   --namespace would delete the other namespaces\' embeddings and never\n' +
+            '   regenerate them. Run `memesh reindex --vectors` on its own, or drop\n' +
+            '   --vectors to reindex just this namespace at the current dimension.'
+          );
+          process.exit(1);
+        }
         // The drop happens inside openDatabase, so consent has to be recorded
         // before the database is opened. `allowVectorIndexRebuild` refuses to
         // record it unless something can refill the index afterwards — see
@@ -1386,6 +1402,18 @@ program
           for (const [outcome, count] of Object.entries(result.outcomes)) {
             if (outcome !== 'stored' && count > 0) console.log(`     ${outcome}: ${count}`);
           }
+        } else if (!result.pendingReindexCleared) {
+          // Everything asked for succeeded, but another namespace is behind, so
+          // the database-wide flag stays set. Saying so beats a bare tick next
+          // to a `memesh doctor` that still reports a reindex as outstanding.
+          console.log(`✅ Reindex complete:`);
+          console.log(`   Processed: ${result.processed}`);
+          console.log(`   Embedded:  ${result.embedded}`);
+          console.log(`   Skipped:   ${result.skipped}`);
+          console.log(
+            `   Note: ${result.missingVectorsDatabaseWide} memories in other namespaces still ` +
+            `have no vector, so the reindex-needed flag stays set.`
+          );
         } else {
           console.log(`✅ Reindex complete:`);
           console.log(`   Processed: ${result.processed}`);

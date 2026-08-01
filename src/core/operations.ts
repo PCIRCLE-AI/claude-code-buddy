@@ -420,12 +420,24 @@ export interface ReindexResult {
   /** Why each one was skipped. The counts sum to `processed`. */
   outcomes: Record<EmbedOutcome | 'entity_missing', number>;
   /**
-   * Active entities that HAVE observation text but have NO row in
-   * entities_vec, counted from the database after the run. This is the end
-   * state, not a tally of what the loop believes it did — the whole point of
-   * the fix is that the loop's belief was the thing that was wrong.
+   * Entities THIS RUN was responsible for that have observation text but no
+   * row in entities_vec, counted from the database after the run. The end
+   * state, not a tally of what the loop believes it did — the loop's belief
+   * being wrong is the whole reason this field exists.
+   *
+   * Scoped to the run's namespace, because it is what the caller is told about
+   * and what the CLI's exit code is built on. A run that did everything it was
+   * asked must not report failure because some OTHER namespace is unrelatedly
+   * behind.
    */
   missingVectors: number;
+  /**
+   * The same count across the whole database, whatever namespace was asked
+   * for. This is what decides the flag, and it is reported so that "I asked
+   * for one namespace, it succeeded, and the flag is still set" has a visible
+   * explanation instead of looking like a bug.
+   */
+  missingVectorsDatabaseWide: number;
   /** Whether `pending_reindex` was cleared. False means work remains. */
   pendingReindexCleared: boolean;
 }
@@ -437,17 +449,22 @@ export interface ReindexResult {
  * never produce an embedding, so requiring one would keep `pending_reindex`
  * set forever and make `memesh doctor` nag about work that cannot be done.
  *
- * Deliberately unscoped by namespace even when the run was scoped, because
- * `pending_reindex` describes the whole database. Reindexing one namespace
- * must not clear a flag the other namespaces still justify.
+ * Called twice per run, and the two answers do different jobs. Scoped by
+ * namespace, it is the verdict on what the caller actually asked for.
+ * Unscoped, it decides `pending_reindex`, which describes the whole database —
+ * reindexing one namespace must not clear a flag the others still justify.
  */
-function countMissingVectors(db: ReturnType<typeof getDatabase>): number {
+function countMissingVectors(
+  db: ReturnType<typeof getDatabase>,
+  namespace?: string
+): number {
   const row = db.prepare(`
     SELECT COUNT(*) AS n FROM entities e
     WHERE e.status = 'active'
+      ${namespace ? 'AND e.namespace = ?' : ''}
       AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND TRIM(o.content) <> '')
       AND NOT EXISTS (SELECT 1 FROM entities_vec v WHERE v.rowid = e.id)
-  `).get() as { n: number };
+  `).get(...(namespace ? [namespace] : [])) as { n: number };
   return row.n;
 }
 
@@ -526,7 +543,10 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
 
   // The database has the final say. If a vector is missing here, it is missing
   // regardless of what the loop counted.
-  const missingVectors = countMissingVectors(db);
+  const missingVectors = countMissingVectors(db, opts?.namespace);
+  const missingVectorsDatabaseWide = opts?.namespace
+    ? countMissingVectors(db)
+    : missingVectors;
 
   process.stderr.write(`MeMesh: Reindex complete. ${embedded}/${processed} entities embedded.\n`);
   if (outcomes.dimension_mismatch > 0) {
@@ -538,17 +558,27 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
   }
 
   // Clear the dimension-change flag only once every entity that can have a
-  // vector has one. Clearing it after a run that wrote nothing is what let a
-  // silently emptied index look healthy to `memesh doctor`.
-  const pendingReindexCleared = missingVectors === 0;
+  // vector has one — database-wide, since that is what the flag describes.
+  // Clearing it after a run that wrote nothing is what let a silently emptied
+  // index look healthy to `memesh doctor`.
+  const pendingReindexCleared = missingVectorsDatabaseWide === 0;
   if (pendingReindexCleared) {
     clearPendingReindexFlag();
   } else {
     process.stderr.write(
-      `MeMesh: ${missingVectors} active memories still have no vector, so the ` +
+      `MeMesh: ${missingVectorsDatabaseWide} active memories still have no vector` +
+      `${opts?.namespace ? ' (across all namespaces)' : ''}, so the ` +
       `reindex-needed flag was left set.\n`
     );
   }
 
-  return { processed, embedded, skipped, outcomes, missingVectors, pendingReindexCleared };
+  return {
+    processed,
+    embedded,
+    skipped,
+    outcomes,
+    missingVectors,
+    missingVectorsDatabaseWide,
+    pendingReindexCleared,
+  };
 }

@@ -1166,6 +1166,14 @@ program
             return;
         }
         if (opts.vectors) {
+            if (opts.namespace) {
+                console.error('❌ --vectors rebuilds the whole vector index, which is shared by every\n' +
+                    '   namespace, so it cannot be limited to one. Combining it with\n' +
+                    '   --namespace would delete the other namespaces\' embeddings and never\n' +
+                    '   regenerate them. Run `memesh reindex --vectors` on its own, or drop\n' +
+                    '   --vectors to reindex just this namespace at the current dimension.');
+                process.exit(1);
+            }
             if (!allowVectorIndexRebuild(isEmbeddingAvailable)) {
                 console.error('❌ No embedding provider available, so the vector index was left untouched.\n' +
                     '   Rebuilding it deletes every stored embedding, and nothing here could\n' +
@@ -1189,6 +1197,14 @@ program
                     if (outcome !== 'stored' && count > 0)
                         console.log(`     ${outcome}: ${count}`);
                 }
+            }
+            else if (!result.pendingReindexCleared) {
+                console.log(`✅ Reindex complete:`);
+                console.log(`   Processed: ${result.processed}`);
+                console.log(`   Embedded:  ${result.embedded}`);
+                console.log(`   Skipped:   ${result.skipped}`);
+                console.log(`   Note: ${result.missingVectorsDatabaseWide} memories in other namespaces still ` +
+                    `have no vector, so the reindex-needed flag stays set.`);
             }
             else {
                 console.log(`✅ Reindex complete:`);

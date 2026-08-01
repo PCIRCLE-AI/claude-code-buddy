@@ -57,9 +57,10 @@ describe('Feature: reindex reports what it actually wrote', () => {
   }
 
   /** An active entity with one observation. Raw SQL so no write path embeds it for us. */
-  function seedEntity(name: string, observation: string): void {
+  function seedEntity(name: string, observation: string, namespace = 'personal'): void {
     const db = getDatabase();
-    db.prepare("INSERT INTO entities (name, type) VALUES (?, 'note')").run(name);
+    db.prepare("INSERT INTO entities (name, type, namespace) VALUES (?, 'note', ?)")
+      .run(name, namespace);
     const id = (db.prepare('SELECT id FROM entities WHERE name = ?').get(name) as { id: number }).id;
     db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(id, observation);
   }
@@ -197,6 +198,46 @@ describe('Feature: reindex reports what it actually wrote', () => {
     expect(result.missingVectors, 'a blank entity was counted as missing').toBe(0);
     expect(result.pendingReindexCleared).toBe(true);
     expect(pendingReindexRow()).toBeUndefined();
+  });
+
+  it('a namespace run that succeeds is not reported as a failure', async () => {
+    // The mirror of the defect this file exists for, and the one a fix like it
+    // invites: `pending_reindex` describes the whole database, so the count
+    // that decides it must be unscoped — but the verdict the CALLER is given,
+    // and the exit code built on it, must be about what the caller asked for.
+    // Sharing one number makes `memesh reindex --namespace personal` report
+    // failure for a run in which everything it was asked to do worked.
+    seedEntity('mine', 'first memory', 'personal');
+    seedEntity('theirs', 'someone else', 'team');
+    markReindexPending();
+    serveEmbeddings(() => OPENAI_DIM);
+
+    const result = await reindex({ namespace: 'personal' });
+
+    expect(result.processed, 'the other namespace was reindexed too').toBe(1);
+    expect(result.embedded).toBe(1);
+    // Scoped: this run did everything it was asked.
+    expect(result.missingVectors, 'a complete run reported as incomplete').toBe(0);
+    // Unscoped: `team` still has none, so the database-wide flag must stay.
+    expect(result.missingVectorsDatabaseWide).toBe(1);
+    expect(result.pendingReindexCleared).toBe(false);
+    expect(pendingReindexRow()).toBeDefined();
+  });
+
+  it('an unscoped run still answers for the whole database', async () => {
+    // The guard must not become "always report success". With no namespace
+    // asked for, the two counts are the same number and a genuine shortfall
+    // still shows.
+    seedEntity('mine', 'first memory', 'personal');
+    seedEntity('theirs', 'someone else', 'team');
+    markReindexPending();
+    serveEmbeddings((input) => (input.includes('first') ? OPENAI_DIM : 8));
+
+    const result = await reindex();
+
+    expect(result.missingVectors).toBe(1);
+    expect(result.missingVectorsDatabaseWide).toBe(1);
+    expect(result.pendingReindexCleared).toBe(false);
   });
 
   it('counts a vanished entity separately from a failed embed', async () => {
