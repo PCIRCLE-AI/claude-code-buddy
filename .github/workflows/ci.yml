@@ -3,8 +3,19 @@ name: CI
 on:
   push:
     branches: [main, develop]
+  # Every pull request, not only the ones landing on main/develop.
+  #
+  # The filter used to be `branches: [main, develop]`, which reads as "test
+  # what reaches the trunk" and behaves as "skip anything stacked". A PR whose
+  # base is another feature branch got NO Build & Test at all — the review
+  # showed four green checks and none of them had compiled the code. That is
+  # the same defect as a gate that passes on nothing, one level up: work most
+  # likely to need testing (a branch built on unmerged work) was the work
+  # guaranteed not to get it.
+  #
+  # This was found the honest way: by stacking a PR that changed this very
+  # matrix and watching the matrix not run on it.
   pull_request:
-    branches: [main, develop]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
