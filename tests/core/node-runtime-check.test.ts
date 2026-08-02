@@ -23,6 +23,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { pathToFileURL } from 'url';
 import {
   satisfiesMinimumNodeRange,
   inspectNodeRuntime,
@@ -206,11 +207,15 @@ describe('the node:sqlite probe stays silent', () => {
     // Honest about coverage: on Node 24 and 26 this assertion is vacuous
     // (nothing warns there either way). It bites on the Node 22 leg of the CI
     // matrix, which is why that leg exists.
+    // `pathToFileURL`, not the bare path: on Windows a dynamic `import()` of
+    // `D:\a\...` throws ERR_UNSUPPORTED_ESM_URL_SCHEME ("Received protocol
+    // 'd:'"), because the loader reads the drive letter as a URL scheme.
+    const moduleUrl = pathToFileURL(path.resolve('dist/core/doctor.js')).href;
     const stderr = execFileSync(
       'node',
       [
         '-e',
-        `import(${JSON.stringify(path.resolve('dist/core/doctor.js'))})` +
+        `import(${JSON.stringify(moduleUrl)})` +
           `.then(m => { if (typeof m.hasBuiltInSqlite() !== 'boolean') process.exit(3); })`,
       ],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
@@ -219,9 +224,15 @@ describe('the node:sqlite probe stays silent', () => {
     expect(stderr).toBe('');
   });
 
-  it('answers true on this runtime, which has node:sqlite', () => {
-    // Guards against the probe degrading into a constant `false` that would
-    // make the silence assertion above pass for the wrong reason.
-    expect(hasBuiltInSqlite()).toBe(true);
+  it('agrees with what this runtime actually is', () => {
+    // Guards against the probe degrading into a constant, which would make the
+    // silence assertion above pass for the wrong reason.
+    //
+    // Asserted against the runtime rather than as a universal truth: this used
+    // to be `toBe(true)`, which is false on Node 20 — `node:sqlite` arrived in
+    // 22.5.0 — and it turned every Node 20 CI leg red the first time those
+    // legs ran on a stacked PR. Written this way the assertion is meaningful
+    // on BOTH sides of the boundary: false below 22.5, true at or above it.
+    expect(hasBuiltInSqlite()).toBe(satisfiesMinimumNodeRange(process.version, '>=22.5.0'));
   });
 });

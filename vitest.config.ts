@@ -28,6 +28,12 @@ export default defineConfig({
     // Environment configuration
     environment: 'node',
 
+    // Node 26 ships the Web Storage API, which shadows happy-dom's
+    // localStorage with an undefined one. See the file for the measurement
+    // and for why the tidier `--no-experimental-webstorage` route does not
+    // work here.
+    setupFiles: ['./tests/setup/webstorage.ts'],
+
     // Coverage configuration (if needed)
     coverage: {
       provider: 'v8',
