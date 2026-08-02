@@ -200,6 +200,38 @@ describe('Feature: memory_20250818 over the knowledge graph', () => {
 
   // --- 3. The six commands ---------------------------------------------------
 
+  describe('a view is a read', () => {
+    it('does not touch access_count or last_accessed_at', () => {
+      // The API injects "ALWAYS VIEW YOUR MEMORY DIRECTORY BEFORE DOING
+      // ANYTHING ELSE" into the system prompt, so a directory view is the
+      // FIRST call of EVERY conversation. The obvious implementation went
+      // through `KnowledgeGraph.listRecent()`, which calls `trackAccess()` and
+      // runs `UPDATE entities SET access_count = access_count + 1,
+      // last_accessed_at = ?` over every row — so every conversation bumped
+      // every memory in the database. Measured before the fix: five untouched
+      // memories reached access_count 4 apiece after three root views and one
+      // namespace view.
+      //
+      // That is not just a write on a read. `frequency` is 0.18 of the ranking
+      // score and `last_accessed_at` feeds `recency` at 0.25, so it flattened
+      // both signals uniformly and defeated auto-decay: nothing can look stale
+      // if everything is touched every session.
+      for (let i = 0; i < 3; i++) seed(`note-${i}`, [`memory ${i}`]);
+
+      const snapshot = () =>
+        getDatabase()
+          .prepare('SELECT name, access_count, last_accessed_at FROM entities ORDER BY name')
+          .all();
+      const before = snapshot();
+
+      handleMemoryCommand({ command: 'view', path: MEMORY_ROOT });
+      handleMemoryCommand({ command: 'view', path: `${MEMORY_ROOT}/personal` });
+      handleMemoryCommand({ command: 'view', path: file('note-1') });
+
+      expect(snapshot(), 'a read-only view mutated ranking state').toEqual(before);
+    });
+  });
+
   describe('view', () => {
     it('lists namespaces at the root', () => {
       seed('a', ['x'], 'personal');
@@ -288,6 +320,25 @@ describe('Feature: memory_20250818 over the knowledge graph', () => {
       expect(observationsOf('notes')).toEqual(['new']);
       expect(new KnowledgeGraph(getDatabase()).getEntity('notes')?.tags)
         .toContain('project:memesh');
+    });
+
+    it('refuses a write past the size cap, and writes nothing', () => {
+      // The contract puts a size cap on the implementer. Without one a model
+      // in a loop grows a single memory without bound — and because every
+      // `insert` rewrites the whole entity, the cost is quadratic in the
+      // number of appends, with the FTS index and the embedding pipeline
+      // behind it.
+      seed('bounded', ['a small memory']);
+      const huge = 'x'.repeat(300 * 1024);
+
+      const result = handleMemoryCommand({
+        command: 'create', path: file('bounded'), file_text: huge,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain('limit for one memory');
+      expect(observationsOf('bounded'), 'the oversize write landed anyway')
+        .toEqual(['a small memory']);
     });
 
     it('refuses to write to a directory', () => {
@@ -401,18 +452,39 @@ describe('Feature: memory_20250818 over the knowledge graph', () => {
       expect(new KnowledgeGraph(getDatabase()).getEntity('draft')).toBeNull();
     });
 
-    it('the renamed memory is findable under its new name', () => {
-      // The name is indexed in FTS5, so a rename that only touched `entities`
-      // would leave search answering for a name nobody can see any more.
-      seed('oldname', ['a distinctive phrase about kangaroos']);
+    it('the renamed memory is findable under its new name, and NOT the old one', () => {
+      // The old-name assertion here used to be
+      //   expect(kg.search('oldname').map(e => e.name)).not.toContain('oldname')
+      // which asserts the wrong thing: after the rename no entity is CALLED
+      // 'oldname', so it is true whether or not the index still matches the
+      // old term. It passed while `MATCH kangaroo` still returned the row.
+      //
+      // `entities_fts` is contentless, so a delete must use the text that was
+      // indexed. Renaming the row first and rebuilding after deleted with the
+      // NEW name, matched nothing, and layered the new tokens on top of the
+      // old ones. A user renaming a memory to get a wrong label off it kept
+      // the label. Asserting on the SEARCH RESULT, not on the names in it.
+      seed('kangaroo-notes', ['a distinctive phrase about marsupials']);
       handleMemoryCommand({
-        command: 'rename', old_path: file('oldname'), new_path: file('newname'),
+        command: 'rename',
+        old_path: file('kangaroo-notes'),
+        new_path: file('wallaby-notes'),
       });
 
       const kg = new KnowledgeGraph(getDatabase());
-      expect(kg.search('newname').map((e) => e.name)).toContain('newname');
-      expect(kg.search('kangaroos').map((e) => e.name)).toContain('newname');
-      expect(kg.search('oldname').map((e) => e.name)).not.toContain('oldname');
+      expect(kg.search('wallaby').map((e) => e.name)).toContain('wallaby-notes');
+      expect(kg.search('marsupials').map((e) => e.name)).toContain('wallaby-notes');
+      expect(
+        kg.search('kangaroo').length,
+        'the old name is still searchable after the rename'
+      ).toBe(0);
+
+      // Contentless FTS5 punishes a delete issued with the wrong text by
+      // leaving the index inconsistent, and that damage is invisible until a
+      // later query returns nothing. Ask the table directly.
+      expect(() =>
+        getDatabase().exec("INSERT INTO entities_fts(entities_fts) VALUES('integrity-check')")
+      ).not.toThrow();
     });
 
     it('refuses a destination that exists, in any namespace', () => {

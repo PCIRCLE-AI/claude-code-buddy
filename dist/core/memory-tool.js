@@ -1,8 +1,11 @@
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
+import { removeFromFts, insertFtsRow } from '../storage/fts-index.js';
 export const MEMORY_ROOT = '/memories';
 const NAMESPACES = ['personal', 'team', 'global'];
 const FILE_SUFFIX = '.md';
+const MAX_FILE_BYTES = 256 * 1024;
+const MAX_VIEW_CHARS = 16_000;
 const ok = (content) => ({ content, isError: false });
 const err = (content) => ({ content, isError: true });
 function encodeName(name) {
@@ -89,6 +92,28 @@ function humanSize(bytes) {
 function graph() {
     return new KnowledgeGraph(getDatabase());
 }
+function listNamespace(namespace) {
+    return getDatabase()
+        .prepare(`SELECT e.name AS name,
+              e.type AS type,
+              COALESCE(SUM(LENGTH(o.content)) + MAX(COUNT(o.id) - 1, 0), 0) AS bytes
+         FROM entities e
+         LEFT JOIN observations o ON o.entity_id = e.id
+        WHERE e.status = 'active' AND e.namespace = ?
+        GROUP BY e.id
+        ORDER BY e.id DESC`)
+        .all(namespace);
+}
+function countNamespace(namespace) {
+    return getDatabase()
+        .prepare("SELECT COUNT(*) AS n FROM entities WHERE status = 'active' AND namespace = ?")
+        .get(namespace).n;
+}
+function tagsOf(name) {
+    return getDatabase()
+        .prepare('SELECT tag FROM tags WHERE entity_id = (SELECT id FROM entities WHERE name = ?)')
+        .all(name).map((t) => t.tag);
+}
 function findEntity(kg, namespace, name) {
     const entity = kg.getEntity(name);
     if (!entity || entity.namespace !== namespace)
@@ -96,30 +121,35 @@ function findEntity(kg, namespace, name) {
     return entity;
 }
 function rewriteObservations(kg, entity, observations) {
-    kg.clearEntityData(entity.name);
-    kg.createEntity(entity.name, entity.type, {
-        observations,
-        tags: entity.tags,
-        namespace: entity.namespace,
-    });
+    getDatabase().transaction(() => {
+        kg.clearEntityData(entity.name);
+        kg.createEntity(entity.name, entity.type, {
+            observations,
+            tags: entity.tags,
+            namespace: entity.namespace,
+        });
+    })();
+}
+function tooLarge(body, path) {
+    const bytes = Buffer.byteLength(body, 'utf8');
+    if (bytes <= MAX_FILE_BYTES)
+        return null;
+    return err(`Error: ${path} would be ${humanSize(bytes)}, over the ${humanSize(MAX_FILE_BYTES)} ` +
+        `limit for one memory. Split it across several memories.`);
 }
 function viewRoot() {
-    const kg = graph();
     const lines = [`${MEMORY_ROOT}`];
     for (const namespace of NAMESPACES) {
-        const count = kg.listRecent(10_000, false, namespace).length;
-        lines.push(`${MEMORY_ROOT}/${namespace}\t${count} memories`);
+        lines.push(`${MEMORY_ROOT}/${namespace}\t${countNamespace(namespace)} memories`);
     }
     return ok(`Here're the files and directories up to 2 levels deep in ${MEMORY_ROOT}, ` +
         `excluding hidden items and node_modules:\n${lines.join('\n')}`);
 }
 function viewNamespace(namespace) {
-    const kg = graph();
-    const entities = kg.listRecent(10_000, false, namespace);
-    const lines = entities.map((entity) => {
-        const size = humanSize(Buffer.byteLength(renderBody(entity), 'utf8'));
-        const tags = entity.tags.length > 0 ? `  tags: ${entity.tags.join(', ')}` : '';
-        return `${size}\t${entityPath(namespace, entity.name)}\t(${entity.type})${tags}`;
+    const lines = listNamespace(namespace).map((row) => {
+        const tags = tagsOf(row.name);
+        const suffix = tags.length > 0 ? `  tags: ${tags.join(', ')}` : '';
+        return `${humanSize(row.bytes)}\t${entityPath(namespace, row.name)}\t(${row.type})${suffix}`;
     });
     return ok(`Here're the files and directories up to 2 levels deep in ${MEMORY_ROOT}/${namespace}, ` +
         `excluding hidden items and node_modules:\n` +
@@ -133,6 +163,19 @@ function viewEntity(namespace, name, range, path) {
     const body = renderBody(entity);
     const lines = body === '' ? [] : body.split('\n');
     if (range === undefined) {
+        if (body.length > MAX_VIEW_CHARS) {
+            const kept = [];
+            let used = 0;
+            for (const line of lines) {
+                if (used + line.length + 1 > MAX_VIEW_CHARS)
+                    break;
+                kept.push(line);
+                used += line.length + 1;
+            }
+            return ok(`Here's the content of ${path} with line numbers:\n${withLineNumbers(kept.join('\n'))}\n` +
+                `\n[truncated at ${kept.length} of ${lines.length} lines — ` +
+                `use view_range to read from line ${kept.length + 1}]`);
+        }
         return ok(`Here's the content of ${path} with line numbers:\n${withLineNumbers(body)}`);
     }
     if (!Array.isArray(range) || range.length !== 2 || !range.every((n) => Number.isInteger(n))) {
@@ -153,6 +196,9 @@ function createEntityFile(namespace, name, fileText, path) {
     }
     const kg = graph();
     const existing = findEntity(kg, namespace, name);
+    const oversize = tooLarge(fileText, path);
+    if (oversize)
+        return oversize;
     const observations = fileText === '' ? [] : fileText.split('\n');
     if (existing) {
         rewriteObservations(kg, existing, observations);
@@ -189,6 +235,9 @@ function strReplace(namespace, name, oldStr, newStr, path) {
             `in lines: ${lines.join(', ')}. Please ensure it is unique`);
     }
     const replaced = body.slice(0, first) + (newStr ?? '') + body.slice(first + oldStr.length);
+    const oversize = tooLarge(replaced, path);
+    if (oversize)
+        return oversize;
     const observations = replaced === '' ? [] : replaced.split('\n');
     rewriteObservations(kg, entity, observations);
     const at = replaced.slice(0, first).split('\n').length;
@@ -217,6 +266,9 @@ function insertLine(namespace, name, atLine, text, path) {
     const insertAfter = line === 0 ? -1 : owners[line - 1];
     const observations = [...entity.observations];
     observations.splice(insertAfter + 1, 0, text.replace(/\n$/, ''));
+    const oversize = tooLarge(observations.join('\n'), path);
+    if (oversize)
+        return oversize;
     rewriteObservations(kg, entity, observations);
     return ok(`The file ${path} has been edited.`);
 }
@@ -256,12 +308,15 @@ function renamePath(oldRaw, newRaw) {
         return err(`Error: The destination ${String(newRaw)} already exists in another namespace. ` +
             `Memory names are unique across namespaces.`);
     }
-    getDatabase()
-        .prepare('UPDATE entities SET name = ?, namespace = ? WHERE id = ?')
-        .run(to.name, to.namespace, source.id);
-    const renamed = kg.getEntity(to.name);
-    if (renamed)
-        rewriteObservations(kg, renamed, source.observations);
+    const db = getDatabase();
+    const entityId = source.id;
+    const obsText = source.observations.join(' ');
+    db.transaction(() => {
+        removeFromFts(db, entityId, source.name, obsText);
+        db.prepare('UPDATE entities SET name = ?, namespace = ? WHERE id = ?')
+            .run(to.name, to.namespace, entityId);
+        insertFtsRow(db, entityId, to.name, obsText);
+    })();
     return ok(`Successfully renamed ${String(oldRaw)} to ${String(newRaw)}`);
 }
 export function handleMemoryCommand(input) {

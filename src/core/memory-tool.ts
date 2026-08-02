@@ -23,16 +23,37 @@
 
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
-import type { Entity } from './types.js';
+import { removeFromFts, insertFtsRow } from '../storage/fts-index.js';
+import type { Entity, Namespace } from './types.js';
 
 /** The one prefix every path must sit under. Anything else is refused. */
 export const MEMORY_ROOT = '/memories';
 
-/** Namespaces are the directory level. These are the only ones MeMesh has. */
-const NAMESPACES = ['personal', 'team', 'global'] as const;
-type Namespace = (typeof NAMESPACES)[number];
+/**
+ * Namespaces are the directory level.
+ *
+ * Typed as `readonly Namespace[]` rather than declaring its own union, so that
+ * adding a namespace to `core/types.ts` and forgetting this list is a compile
+ * error instead of a directory that silently cannot be reached. A second
+ * hand-written copy of an enum is the shape that drifts.
+ */
+const NAMESPACES: readonly Namespace[] = ['personal', 'team', 'global'];
 
 const FILE_SUFFIX = '.md';
+
+/**
+ * Caps, both required by the contract's security section ("track memory file
+ * sizes and cap how large a file can grow", "consider capping how many
+ * characters the view command returns").
+ *
+ * Without them a model in a loop can grow one memory without bound — every
+ * `insert` re-reads and rewrites the whole entity, so the cost is quadratic in
+ * the number of appends, and the row lands in the FTS index and the embedding
+ * pipeline behind it.
+ */
+const MAX_FILE_BYTES = 256 * 1024;
+/** Matches the 16 000 characters the tool description tells Claude to expect. */
+const MAX_VIEW_CHARS = 16_000;
 
 export type MemoryCommand =
   | { command: 'view'; path: string; view_range?: [number, number] }
@@ -227,6 +248,67 @@ function graph(): KnowledgeGraph {
   return new KnowledgeGraph(getDatabase());
 }
 
+/** One row of a directory listing. Deliberately not an `Entity`. */
+interface Listing {
+  name: string;
+  type: string;
+  bytes: number;
+}
+
+/**
+ * List a namespace WITHOUT touching it.
+ *
+ * `KnowledgeGraph.listRecent()` was the obvious call and is the wrong one here,
+ * for two reasons that both bite hardest on this exact code path.
+ *
+ * It calls `trackAccess()`, which runs
+ * `UPDATE entities SET access_count = access_count + 1, last_accessed_at = ?`
+ * over every row it returns. The API injects "ALWAYS VIEW YOUR MEMORY DIRECTORY
+ * BEFORE DOING ANYTHING ELSE" into the system prompt, so a directory view is
+ * the FIRST call of EVERY conversation — which meant every conversation
+ * incremented the access count of every memory in the database. Measured: five
+ * untouched memories went from 0 to 4 apiece after three root views and one
+ * namespace view. `frequency` carries 0.18 of the ranking score and
+ * `last_accessed_at` feeds `recency` at 0.25, so a read was quietly flattening
+ * both signals and defeating auto-decay at the same time. A listing is a
+ * catalogue read; nobody looked at those memories.
+ *
+ * It also hydrates: observations, tags and relations for every row, to produce
+ * a name and a size. This asks SQLite for the two facts a listing needs.
+ */
+function listNamespace(namespace: Namespace): Listing[] {
+  return getDatabase()
+    .prepare(
+      `SELECT e.name AS name,
+              e.type AS type,
+              COALESCE(SUM(LENGTH(o.content)) + MAX(COUNT(o.id) - 1, 0), 0) AS bytes
+         FROM entities e
+         LEFT JOIN observations o ON o.entity_id = e.id
+        WHERE e.status = 'active' AND e.namespace = ?
+        GROUP BY e.id
+        ORDER BY e.id DESC`
+    )
+    .all(namespace) as Listing[];
+}
+
+function countNamespace(namespace: Namespace): number {
+  return (
+    getDatabase()
+      .prepare(
+        "SELECT COUNT(*) AS n FROM entities WHERE status = 'active' AND namespace = ?"
+      )
+      .get(namespace) as { n: number }
+  ).n;
+}
+
+function tagsOf(name: string): string[] {
+  return (
+    getDatabase()
+      .prepare('SELECT tag FROM tags WHERE entity_id = (SELECT id FROM entities WHERE name = ?)')
+      .all(name) as Array<{ tag: string }>
+  ).map((t) => t.tag);
+}
+
 function findEntity(kg: KnowledgeGraph, namespace: string, name: string): Entity | null {
   const entity = kg.getEntity(name);
   // Entity names are unique database-wide, so a name that exists in another
@@ -250,22 +332,38 @@ function rewriteObservations(
   entity: Entity,
   observations: string[]
 ): void {
-  kg.clearEntityData(entity.name);
-  kg.createEntity(entity.name, entity.type, {
-    observations,
-    tags: entity.tags,
-    namespace: entity.namespace,
-  });
+  // One transaction, because the two halves are a delete and a restore. On its
+  // own, `clearEntityData` removes every observation AND every tag; if
+  // `createEntity` then threw — a disk-full, a lock lost to one of the seven
+  // hooks, a constraint — the memory would be left empty and untagged, with
+  // the tool having reported nothing. Losing the content while editing it is
+  // worse than refusing the edit.
+  getDatabase().transaction(() => {
+    kg.clearEntityData(entity.name);
+    kg.createEntity(entity.name, entity.type, {
+      observations,
+      tags: entity.tags,
+      namespace: entity.namespace,
+    });
+  })();
+}
+
+/** Reject a write that would push the memory past the size cap. */
+function tooLarge(body: string, path: string): MemoryToolResult | null {
+  const bytes = Buffer.byteLength(body, 'utf8');
+  if (bytes <= MAX_FILE_BYTES) return null;
+  return err(
+    `Error: ${path} would be ${humanSize(bytes)}, over the ${humanSize(MAX_FILE_BYTES)} ` +
+      `limit for one memory. Split it across several memories.`
+  );
 }
 
 // --- Commands ----------------------------------------------------------------
 
 function viewRoot(): MemoryToolResult {
-  const kg = graph();
   const lines = [`${MEMORY_ROOT}`];
   for (const namespace of NAMESPACES) {
-    const count = kg.listRecent(10_000, false, namespace).length;
-    lines.push(`${MEMORY_ROOT}/${namespace}\t${count} memories`);
+    lines.push(`${MEMORY_ROOT}/${namespace}\t${countNamespace(namespace)} memories`);
   }
   return ok(
     `Here're the files and directories up to 2 levels deep in ${MEMORY_ROOT}, ` +
@@ -274,12 +372,10 @@ function viewRoot(): MemoryToolResult {
 }
 
 function viewNamespace(namespace: Namespace): MemoryToolResult {
-  const kg = graph();
-  const entities = kg.listRecent(10_000, false, namespace);
-  const lines = entities.map((entity) => {
-    const size = humanSize(Buffer.byteLength(renderBody(entity), 'utf8'));
-    const tags = entity.tags.length > 0 ? `  tags: ${entity.tags.join(', ')}` : '';
-    return `${size}\t${entityPath(namespace, entity.name)}\t(${entity.type})${tags}`;
+  const lines = listNamespace(namespace).map((row) => {
+    const tags = tagsOf(row.name);
+    const suffix = tags.length > 0 ? `  tags: ${tags.join(', ')}` : '';
+    return `${humanSize(row.bytes)}\t${entityPath(namespace, row.name)}\t(${row.type})${suffix}`;
   });
   return ok(
     `Here're the files and directories up to 2 levels deep in ${MEMORY_ROOT}/${namespace}, ` +
@@ -303,6 +399,25 @@ function viewEntity(
   const lines = body === '' ? [] : body.split('\n');
 
   if (range === undefined) {
+    if (body.length > MAX_VIEW_CHARS) {
+      // Truncate at a line boundary and say so, rather than returning a
+      // memory's worth of text in one tool result. The tool description
+      // already tells Claude that long files are truncated and that
+      // `view_range` pages through the rest, so this is the behaviour it
+      // expects — and it is the cap the contract asks the implementer for.
+      const kept: string[] = [];
+      let used = 0;
+      for (const line of lines) {
+        if (used + line.length + 1 > MAX_VIEW_CHARS) break;
+        kept.push(line);
+        used += line.length + 1;
+      }
+      return ok(
+        `Here's the content of ${path} with line numbers:\n${withLineNumbers(kept.join('\n'))}\n` +
+          `\n[truncated at ${kept.length} of ${lines.length} lines — ` +
+          `use view_range to read from line ${kept.length + 1}]`
+      );
+    }
     return ok(`Here's the content of ${path} with line numbers:\n${withLineNumbers(body)}`);
   }
 
@@ -338,6 +453,8 @@ function createEntityFile(
   // already-exists error as the reference behaviour. Overwriting is chosen
   // here: the model is told it may overwrite, and refusing would leave it
   // unable to rewrite a memory it has just decided is wrong.
+  const oversize = tooLarge(fileText, path);
+  if (oversize) return oversize;
   const observations = fileText === '' ? [] : fileText.split('\n');
 
   if (existing) {
@@ -392,6 +509,8 @@ function strReplace(
   }
 
   const replaced = body.slice(0, first) + (newStr ?? '') + body.slice(first + oldStr.length);
+  const oversize = tooLarge(replaced, path);
+  if (oversize) return oversize;
   const observations = replaced === '' ? [] : replaced.split('\n');
   rewriteObservations(kg, entity, observations);
 
@@ -437,6 +556,8 @@ function insertLine(
   const insertAfter = line === 0 ? -1 : owners[line - 1];
   const observations = [...entity.observations];
   observations.splice(insertAfter + 1, 0, text.replace(/\n$/, ''));
+  const oversize = tooLarge(observations.join('\n'), path);
+  if (oversize) return oversize;
   rewriteObservations(kg, entity, observations);
 
   return ok(`The file ${path} has been edited.`);
@@ -494,14 +615,33 @@ function renamePath(oldRaw: unknown, newRaw: unknown): MemoryToolResult {
     );
   }
 
-  getDatabase()
-    .prepare('UPDATE entities SET name = ?, namespace = ? WHERE id = ?')
-    .run(to.name, to.namespace, source.id);
-  // The name is indexed in FTS5, so the row has to be rewritten under the new
-  // one. Going through clearEntityData + createEntity keeps the contentless
-  // delete-then-insert with the code that owns it.
-  const renamed = kg.getEntity(to.name);
-  if (renamed) rewriteObservations(kg, renamed, source.observations);
+  const db = getDatabase();
+  const entityId = source.id as number;
+  const obsText = source.observations.join(' ');
+
+  // A rename changes the NAME. Observations and tags are untouched, so nothing
+  // here rewrites them — the only thing that has to move is the FTS row, whose
+  // indexed text includes the name.
+  //
+  // Order matters, and getting it wrong is silent. `entities_fts` is
+  // CONTENTLESS: a delete must be issued with the exact text that was indexed,
+  // because the table stores none of it. This used to rename the row first and
+  // then rebuild the index via `clearEntityData`, which deletes using the
+  // CURRENT name — by then the NEW one, never indexed. The delete matched
+  // nothing, the insert layered the new name's tokens on top, and the old name
+  // stayed searchable. Measured before the fix: after renaming
+  // `kangaroo-notes` to `wallaby-notes`, `MATCH kangaroo` still returned the
+  // row. Rename a memory to get a wrong label off it, and the label stays.
+  //
+  // Remove under the OLD name, rename, insert under the NEW one — one
+  // transaction, so no reader sees the row half-renamed and a failure anywhere
+  // leaves both the table and the index as they were.
+  db.transaction(() => {
+    removeFromFts(db, entityId, source.name, obsText);
+    db.prepare('UPDATE entities SET name = ?, namespace = ? WHERE id = ?')
+      .run(to.name, to.namespace, entityId);
+    insertFtsRow(db, entityId, to.name, obsText);
+  })();
 
   return ok(`Successfully renamed ${String(oldRaw)} to ${String(newRaw)}`);
 }
