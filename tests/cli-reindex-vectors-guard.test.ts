@@ -40,9 +40,18 @@ describe('memesh reindex --vectors refuses to destroy more than asked', () => {
   });
 
   function run(args: string[]): { status: number; stderr: string; stdout: string } {
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      HOME: home,
+      MEMESH_DIR: path.join(home, '.memesh'),
+      MEMESH_DB_PATH: dbPath,
+    };
+    // A real key in the developer's shell would send these test entities to
+    // OpenAI and make the offline cases below depend on the network.
+    delete env.OPENAI_API_KEY;
     try {
       const stdout = execFileSync('node', [path.resolve('dist/transports/cli/cli.js'), ...args], {
-        env: { ...process.env, HOME: home, MEMESH_DIR: path.join(home, '.memesh'), MEMESH_DB_PATH: dbPath },
+        env,
         encoding: 'utf8',
       });
       return { status: 0, stdout, stderr: '' };
@@ -62,6 +71,37 @@ describe('memesh reindex --vectors refuses to destroy more than asked', () => {
     db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)').run(
       BigInt(1),
       Buffer.from(new Float32Array(384).fill(0.25).buffer)
+    );
+    db.close();
+  }
+
+  /**
+   * One active entity, one observation, and a vector already on disk for it —
+   * the state a working install is in before the embedding provider breaks.
+   *
+   * The entity is written through the CLI so the schema, the FTS rows and the
+   * vector table's declared width all come from the real code path rather than
+   * a copy of the DDL that could drift from it. The vector is then inserted
+   * directly, at whatever width the database says it uses, so the row is
+   * genuinely stale: present, and not written by the run under test.
+   */
+  function seedEntityWithStaleVector(): void {
+    const seeded = run(['remember', '--name', 'stale-note', '--type', 'note', '--obs', 'a memory worth keeping']);
+    expect(seeded.status, `setup: remember failed — ${seeded.stderr}`).toBe(0);
+
+    const Database = require('better-sqlite3');
+    const sqliteVec = require('sqlite-vec');
+    const db = new Database(dbPath);
+    sqliteVec.load(db);
+    const id = (db.prepare("SELECT id FROM entities WHERE name = 'stale-note'").get() as { id: number }).id;
+    const dim = parseInt(
+      (db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'")
+        .get() as { value: string }).value,
+      10
+    );
+    db.prepare('INSERT OR REPLACE INTO entities_vec (rowid, embedding) VALUES (?, ?)').run(
+      BigInt(id),
+      Buffer.from(new Float32Array(dim).fill(0.25).buffer)
     );
     db.close();
   }
@@ -94,6 +134,49 @@ describe('memesh reindex --vectors refuses to destroy more than asked', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('separately');
+    expect(vectorCount()).toBe(1);
+  });
+
+  it('does not print a tick and exit 0 when it regenerated nothing', () => {
+    // The verdict, at the layer the user and their shell scripts actually see.
+    //
+    // Every assertion elsewhere about this checks `ReindexResult`. This one
+    // spawns the CLI, because `process.exitCode = 1` and the `✅` are the
+    // contract — `memesh reindex && deploy` is built on the exit code, not on
+    // a field of a TypeScript interface.
+    //
+    // The setup is the real failure and it needs no network: the config NAMES
+    // openai, so `isEmbeddingAvailable()` says yes and the run proceeds, but
+    // with no API key `embedWithOpenAI` returns null before it fetches
+    // anything. What happens next depends on the machine, and BOTH outcomes are
+    // the bug:
+    //
+    //   - no local ONNX model cached (a CI runner)  -> `no_embedding`
+    //   - a cached ONNX model (a developer's box)   -> 384-dim vector against a
+    //     1536-dim index -> `dimension_mismatch`, which is the "the configured
+    //     provider failed and a fallback was used" case `embedAndStore` warns
+    //     about by name
+    //
+    // Either way every embed fails while the entity keeps the vector seeded
+    // below — which is precisely what made the old code report success: the
+    // end-state check found a vector for every entity and never asked whether
+    // THIS run wrote any of them. Asserting on the verdict rather than on the
+    // outcome keeps the test true on both kinds of machine.
+    fs.writeFileSync(
+      path.join(home, '.memesh', 'config.json'),
+      JSON.stringify({ embedder: { provider: 'openai' } })
+    );
+    seedEntityWithStaleVector();
+
+    const result = run(['reindex']);
+
+    expect(result.status, 'a run that regenerated nothing exited 0').toBe(1);
+    expect(result.stdout).toContain('Reindex incomplete');
+    expect(result.stdout, 'a tick over a run that wrote nothing').not.toContain('✅');
+    // The line that tells the user what actually happened, rather than
+    // "0 memories still have no vector" — true, and completely misleading.
+    expect(result.stdout).toContain('Could not be regenerated');
+    // And the stale vector is still there. The run failed; it did not destroy.
     expect(vectorCount()).toBe(1);
   });
 
