@@ -4,6 +4,16 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`memesh reindex --vectors` no longer deletes every embedding on the word of a config file** (`src/core/embedder.ts`, `src/db.ts`, `src/transports/cli/cli.ts`) — the consent gate refused to authorise the drop unless something could refill the index afterwards, and asked `isEmbeddingAvailable()`. That function reports which provider the config *names*: for `openai` and `ollama` it returns `true` without checking a key, reaching an endpoint, or comparing a dimension. An expired key, a key typed after the provider name, or a stopped Ollama therefore authorised dropping every vector in the database, and the refill then wrote nothing back. The precondition is now `canRefillVectorIndex()`, which embeds one string and measures the result against the width the table is about to be declared with — a proof rather than a claim. `allowVectorIndexRebuild` is async as a result, and the refusal message now names what to check.
+
+- **Consent to rebuild the vector index is bound to the database it was granted for** (`src/db.ts`) — it was a module-level boolean, so in the HTTP server, or any process that opens more than one database, a grant recorded for A could be spent by an unrelated `openDatabase(B)` that ran first. B's vectors, never consented to and never asked about, would be the ones dropped. The grant now records a resolved path and is refused for any other.
+
+- **A reindex that regenerated nothing no longer reports success** (`src/core/operations.ts`, `src/transports/cli/cli.ts`) — the end-state check asked "does every entity have a vector", which a full index satisfies with the *stale* vectors the run was asked to replace. So when a provider switch made every write fail, `countMissingVectors` returned 0, the reindex-needed flag was cleared, `✅ Reindex complete` printed, and the command exited `0` — in exactly the situation it exists for. `ReindexResult` now carries `failed`, and the verdict, the exit code and the flag all require both halves: every memory holds a vector *and* every attempted write landed. Entities whose observations are all whitespace are counted separately (`nothing_to_embed`) so they cannot hold the flag open forever, matching the exclusion `countMissingVectors` already made.
+
+- **The dashboard's auth field reports itself invalid for a rejected token, not only an empty one** (`dashboard/src/components/AuthPrompt.tsx`) — the rejected branch rendered a `role="alert"` message but left `aria-invalid="false"` and no `aria-describedby`, so a screen-reader user heard the announcement and then found a control that disagreed with it. Both messages now own one stable id and both reach the field.
+
 ## [4.2.11] — 2026-07-29
 
 This release exists because the headline benchmark figure was measuring the

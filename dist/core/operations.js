@@ -226,6 +226,7 @@ export async function reindex(opts) {
         write_failed: 0,
         database_closed: 0,
         entity_missing: 0,
+        nothing_to_embed: 0,
     };
     let processed = 0;
     process.stderr.write(`MeMesh: Reindexing ${entities.length} entities...\n`);
@@ -237,6 +238,10 @@ export async function reindex(opts) {
             continue;
         }
         const text = fullEntity.observations.join(' ');
+        if (text.trim() === '') {
+            outcomes.nothing_to_embed++;
+            continue;
+        }
         try {
             outcomes[await embedAndStore(entity.id, text)]++;
             if (processed % 10 === 0) {
@@ -251,6 +256,10 @@ export async function reindex(opts) {
     }
     const embedded = outcomes.stored;
     const skipped = processed - embedded;
+    const failed = outcomes.no_embedding +
+        outcomes.dimension_mismatch +
+        outcomes.write_failed +
+        outcomes.database_closed;
     const missingVectors = countMissingVectors(db, opts?.namespace);
     const missingVectorsDatabaseWide = opts?.namespace
         ? countMissingVectors(db)
@@ -261,20 +270,26 @@ export async function reindex(opts) {
             `embedding dimension does not match this database's vector index. Rebuild it with ` +
             `'memesh reindex --vectors'.\n`);
     }
-    const pendingReindexCleared = missingVectorsDatabaseWide === 0;
+    const pendingReindexCleared = missingVectorsDatabaseWide === 0 && failed === 0;
     if (pendingReindexCleared) {
         clearPendingReindexFlag();
     }
-    else {
+    else if (missingVectorsDatabaseWide > 0) {
         process.stderr.write(`MeMesh: ${missingVectorsDatabaseWide} active memories still have no vector` +
             `${opts?.namespace ? ' (across all namespaces)' : ''}, so the ` +
             `reindex-needed flag was left set.\n`);
+    }
+    else {
+        process.stderr.write(`MeMesh: every memory has a vector, but ${failed} could not be regenerated, ` +
+            `so those still hold their previous embedding and the reindex-needed flag ` +
+            `was left set.\n`);
     }
     return {
         processed,
         embedded,
         skipped,
         outcomes,
+        failed,
         missingVectors,
         missingVectorsDatabaseWide,
         pendingReindexCleared,

@@ -54,6 +54,16 @@ describe('AuthPrompt', () => {
     const alert = container.querySelector('[role="alert"]');
     expect(alert).not.toBeNull();
     expect(alert!.textContent?.trim()).toBeTruthy();
+
+    // Same standard as the empty case above, and it was not being met: the
+    // rejected branch rendered the alert but left the field reporting itself
+    // valid and describing nothing. Asserting only "an alert exists" is what
+    // let the two paths diverge — a screen reader hears the announcement, then
+    // lands on a control that disagrees with it.
+    const input = container.querySelector('input') as HTMLInputElement;
+    expect(input.getAttribute('aria-invalid'), 'the rejected field reports itself valid').toBe('true');
+    expect(input.getAttribute('aria-describedby')).toBe(alert!.id);
+    expect(alert!.id).toBeTruthy();
   });
 
   it('says nothing before the operator has tried anything', () => {

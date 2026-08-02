@@ -892,7 +892,7 @@ It refuses in three cases, all of which would destroy more than was asked for:
 
 | Refused | Why |
 |---------|-----|
-| No embedding provider available | Dropping the index would leave nothing able to refill it. |
+| A test embedding could not be produced at the configured width | Dropping the index would leave nothing able to refill it. The check embeds one string and measures the result, rather than trusting the provider name in the config: `openai` and `ollama` are "available" the moment they are named, so an expired key, a typo'd key, or a stopped Ollama would otherwise authorise deleting every vector in the database. |
 | `--vectors --namespace X` | `entities_vec` is one table for the whole database, so the rebuild drops *every* namespace's vectors while `--namespace` would refill only `X`. |
 | `--vectors --fts` | Two different indexes; one flag each. |
 
@@ -900,8 +900,15 @@ It refuses in three cases, all of which would destroy more than was asked for:
 
 | Code | Meaning |
 |------|---------|
-| `0` | Every memory this run was responsible for has a vector. |
-| `1` | The command failed, was refused, or finished with memories still missing a vector. |
+| `0` | Every memory this run was responsible for has a vector, and every embedding this run attempted was written. |
+| `1` | The command failed, was refused, finished with memories still missing a vector, or could not regenerate an embedding it tried to. |
+
+Both halves are needed, because either alone can be satisfied by a run that did
+nothing. "Every memory has a vector" is true of a full index whose vectors are
+the *stale* ones a provider switch was meant to replace — so a run that refused
+every write would report itself complete and exit `0`, in exactly the situation
+the command exists for. When that happens the run now reports
+`Could not be regenerated: N` and leaves the reindex-needed flag set.
 
 The verdict is scoped to what was asked: `--namespace personal` exits `0` when
 that namespace is complete, even if another namespace is behind. The

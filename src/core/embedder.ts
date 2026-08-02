@@ -12,7 +12,7 @@ import { join } from 'path';
 
 // Opaque type for the @huggingface/transformers pipeline — no published types
 type OnnxPipeline = (text: string, opts: { pooling: string; normalize: boolean }) => Promise<{ data: ArrayLike<number> }>;
-import { detectCapabilities, type LLMConfig } from './config.js';
+import { detectCapabilities, getEmbeddingDimension, type LLMConfig } from './config.js';
 import { memeshDir } from './paths.js';
 
 let onnxPipelineInstance: OnnxPipeline | null = null;
@@ -113,6 +113,43 @@ export function isEmbeddingAvailable(): boolean {
   if (caps.embeddings === 'ollama') return true;
   if (caps.embeddings === 'onnx') return isOnnxAvailable();
   return false;
+}
+
+/**
+ * Prove that this machine can produce a vector of the width the index will be
+ * rebuilt to — by producing one.
+ *
+ * {@link isEmbeddingAvailable} is not enough to authorise a rebuild, and the
+ * difference is the difference between a claim and a proof. It answers "which
+ * provider did the config select", and for `openai` and `ollama` it answers
+ * `true` unconditionally: no key is checked, no endpoint is reached, no
+ * dimension is compared. A user whose key has expired, or who typed the
+ * provider name before pasting the key, or whose Ollama is not running, gets
+ * `true` — and `memesh reindex --vectors` then drops every embedding in the
+ * database and finds it cannot write a single one back. That is the
+ * unrecoverable loss the refusal exists to prevent, caused by the command
+ * offered as the safe way through it.
+ *
+ * One real embedding call answers both halves that matter: whether anything
+ * responds, and whether what it returns is the width `entities_vec` is about to
+ * be declared with. A provider that answers at the wrong width would leave the
+ * rebuilt index just as empty as no provider at all.
+ *
+ * Deliberately not cached: it is called once, immediately before a destructive
+ * step, and a stale yes is exactly what must not happen here.
+ */
+export async function canRefillVectorIndex(): Promise<boolean> {
+  const target = getEmbeddingDimension();
+  if (!Number.isInteger(target) || target <= 0) return false;
+  try {
+    const probe = await embedText('memesh vector index rebuild probe');
+    return probe !== null && probe.length === target;
+  } catch {
+    // A thrown provider error is a "no" like any other. Letting it propagate
+    // would abort the command with a stack trace instead of the refusal
+    // message that tells the user what to fix.
+    return false;
+  }
 }
 
 // getEmbeddingDimension() is in config.ts to avoid circular dependency with db.ts

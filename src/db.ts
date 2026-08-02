@@ -252,7 +252,7 @@ function initialiseDatabase(db: Database.Database, resolvedPath: string): Databa
   // fallback dimension derived from an unreadable config would delete a BYOK
   // user's entire vector index because of a truncated write.
   const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
-  ensureVecTable(db, targetDim, dimensionKnown);
+  ensureVecTable(db, resolvedPath, targetDim, dimensionKnown);
 
   return db;
 }
@@ -576,10 +576,10 @@ export function reindexFts(): { entities: number } {
  * One-shot on purpose: a long-lived process (the HTTP server) that opened the
  * database once with consent must not carry it to a later reopen.
  */
-let vectorRebuildConsent = false;
+let vectorRebuildConsentFor: string | null = null;
 
 /**
- * Grant it. Returns whether the grant took.
+ * Grant it, for ONE database. Returns whether the grant took.
  *
  * `canRefill` is a required argument rather than a check the caller is trusted
  * to have already made, because the ordering is the whole safety property:
@@ -588,18 +588,34 @@ let vectorRebuildConsent = false;
  * refusal exists to prevent, caused by the command offered as the safe way
  * through it. Two adjacent statements in the CLI would enforce that ordering
  * only until someone moved one of them. Passed in rather than imported because
- * `embedder.ts` imports this module.
+ * `embedder.ts` imports this module. It is async because the only honest form
+ * of the check is to produce an embedding and measure it — see
+ * `canRefillVectorIndex`.
+ *
+ * `dbPath` narrows the grant to the database the caller meant. Without it the
+ * consent was a bare module-level boolean: in the HTTP server, or any process
+ * that opens more than one database, a grant recorded for A could be spent by
+ * an unrelated `openDatabase(B)` that happened to run first, and B's vectors —
+ * never consented to, never asked about — would be the ones dropped.
+ * Authorisation as wide as the process, for an action as narrow as one file.
  */
-export function allowVectorIndexRebuild(canRefill: () => boolean): boolean {
-  if (!canRefill()) return false;
-  vectorRebuildConsent = true;
+export async function allowVectorIndexRebuild(
+  dbPath: string,
+  canRefill: () => Promise<boolean>
+): Promise<boolean> {
+  if (!(await canRefill())) return false;
+  vectorRebuildConsentFor = path.resolve(dbPath);
   return true;
 }
 
-function consumeVectorRebuildConsent(): boolean {
-  const granted = vectorRebuildConsent;
-  vectorRebuildConsent = false;
-  return granted;
+/**
+ * Spend it. True only for the database it was granted for; cleared either way,
+ * so a grant never survives the open it was meant for.
+ */
+function consumeVectorRebuildConsent(resolvedPath: string): boolean {
+  const granted = vectorRebuildConsentFor;
+  vectorRebuildConsentFor = null;
+  return granted !== null && granted === path.resolve(resolvedPath);
 }
 
 /**
@@ -612,6 +628,7 @@ function consumeVectorRebuildConsent(): boolean {
  */
 function ensureVecTable(
   db: Database.Database,
+  resolvedPath: string,
   targetDim: number,
   dimensionKnown = true
 ): void {
@@ -619,7 +636,7 @@ function ensureVecTable(
   // open rather than to one rebuild. Consuming it only on the branch that uses
   // it would leave it armed whenever the dimensions happened to agree — and
   // the next open in that process could be a different database.
-  const rebuildConsented = consumeVectorRebuildConsent();
+  const rebuildConsented = consumeVectorRebuildConsent(resolvedPath);
 
   const storedDim = db.prepare(
     "SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'"

@@ -53,6 +53,15 @@ export function AuthPrompt({ currentToken, onSubmit, rejected = false }: Props) 
   }
 
   const showEmptyError = touched && !value.trim();
+  // The rejected message is mutually exclusive with the empty one below, so
+  // there is at most one error on screen and it can own a single stable id.
+  const showRejectedError = rejected && !showEmptyError;
+  // Both messages are errors about THIS field, so both must reach it. Wiring
+  // only the empty case left a screen-reader user who pasted a wrong token
+  // hearing the alert once and then finding a field that reports itself valid
+  // and describes nothing — the announcement and the control disagreeing about
+  // whether anything is wrong.
+  const errorId = showEmptyError || showRejectedError ? 'auth-prompt-error' : undefined;
 
   return (
     <div class="auth-prompt-shell" data-testid="auth-prompt">
@@ -73,8 +82,8 @@ export function AuthPrompt({ currentToken, onSubmit, rejected = false }: Props) 
             // for whitespace — never for the empty case its own text names.
             // That is the same dead-branch shape this file was fixed for.
             // The component's own check handles both.
-            aria-invalid={showEmptyError}
-            aria-describedby={showEmptyError ? 'auth-prompt-error' : undefined}
+            aria-invalid={errorId !== undefined}
+            aria-describedby={errorId}
             // The only field on a screen the user arrives at involuntarily, via
             // a 401. Not focusing it makes them hunt for it before pasting.
             autofocus
@@ -84,17 +93,17 @@ export function AuthPrompt({ currentToken, onSubmit, rejected = false }: Props) 
           // role="alert" so a screen reader announces it. Without a live
           // region the text is inserted silently, focus stays on the button,
           // and a non-sighted operator gets no signal that anything happened.
-          <p class="auth-prompt-error" id="auth-prompt-error" role="alert">
+          <p class="auth-prompt-error" id={errorId} role="alert">
             {t('auth.empty')}
           </p>
         )}
-        {rejected && !showEmptyError && (
+        {showRejectedError && (
           // Pasting a WRONG token used to produce no feedback at all: the
           // shell flashed, the 401 flipped back, and AuthPrompt remounted with
           // the rejected token pre-filled and an unchanged title. On a
           // remote-bound deployment the operator could not tell a bad token
           // from a broken page.
-          <p class="auth-prompt-error" role="alert">
+          <p class="auth-prompt-error" id={errorId} role="alert">
             {t('auth.invalid')}
           </p>
         )}

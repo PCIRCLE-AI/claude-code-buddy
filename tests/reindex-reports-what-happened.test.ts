@@ -240,6 +240,40 @@ describe('Feature: reindex reports what it actually wrote', () => {
     expect(result.pendingReindexCleared).toBe(false);
   });
 
+  it('a run that regenerated nothing is not complete just because the old vectors survive', async () => {
+    // The end-state check answers "does every entity have A vector". The user
+    // asked "regenerate the vectors". Those are different questions, and when
+    // the index is already full the first one hides the answer to the second:
+    // every `embedAndStore` refuses the write, the pre-existing rows stay put,
+    // `countMissingVectors` returns 0, and a run that changed nothing reports
+    // itself complete and exits 0. Stale vectors are exactly the case a user
+    // runs this command to fix — a provider switch — so the masking happens
+    // precisely when the command matters.
+    seedEntity('alpha', 'first memory');
+    seedEntity('beta', 'second memory');
+    serveEmbeddings(() => OPENAI_DIM);
+    await reindex();
+    expect(vectorCount(), 'setup: the index should start full').toBe(2);
+
+    // Now the provider answers at the wrong width — a fallback firing, a model
+    // swapped under the same provider name.
+    fetchSpy.mockRestore();
+    serveEmbeddings(() => 8);
+    markReindexPending();
+
+    const result = await reindex();
+
+    expect(result.embedded).toBe(0);
+    expect(result.outcomes.dimension_mismatch).toBe(2);
+    // The old rows are still there, so the end-state check is satisfied...
+    expect(vectorCount()).toBe(2);
+    expect(result.missingVectors).toBe(0);
+    // ...and the verdict must therefore come from the outcomes as well.
+    expect(result.failed, 'a run that wrote nothing reported no failures').toBe(2);
+    expect(result.pendingReindexCleared).toBe(false);
+    expect(pendingReindexRow(), 'the reindex-needed flag was erased').toBeDefined();
+  });
+
   it('counts a vanished entity separately from a failed embed', async () => {
     // `reindex` selects ids, then re-reads each entity by name. An entity
     // deleted in between is not an embedding failure, and lumping the two

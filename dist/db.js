@@ -162,7 +162,7 @@ function initialiseDatabase(db, resolvedPath) {
     ensureFtsSegmentation(db);
     sqliteVec.load(db);
     const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
-    ensureVecTable(db, targetDim, dimensionKnown);
+    ensureVecTable(db, resolvedPath, targetDim, dimensionKnown);
     return db;
 }
 export const FTS_SEGMENTATION_VERSION = 3;
@@ -255,20 +255,20 @@ export function reindexFts() {
         .get();
     return { entities: c };
 }
-let vectorRebuildConsent = false;
-export function allowVectorIndexRebuild(canRefill) {
-    if (!canRefill())
+let vectorRebuildConsentFor = null;
+export async function allowVectorIndexRebuild(dbPath, canRefill) {
+    if (!(await canRefill()))
         return false;
-    vectorRebuildConsent = true;
+    vectorRebuildConsentFor = path.resolve(dbPath);
     return true;
 }
-function consumeVectorRebuildConsent() {
-    const granted = vectorRebuildConsent;
-    vectorRebuildConsent = false;
-    return granted;
+function consumeVectorRebuildConsent(resolvedPath) {
+    const granted = vectorRebuildConsentFor;
+    vectorRebuildConsentFor = null;
+    return granted !== null && granted === path.resolve(resolvedPath);
 }
-function ensureVecTable(db, targetDim, dimensionKnown = true) {
-    const rebuildConsented = consumeVectorRebuildConsent();
+function ensureVecTable(db, resolvedPath, targetDim, dimensionKnown = true) {
+    const rebuildConsented = consumeVectorRebuildConsent(resolvedPath);
     const storedDim = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get();
     const currentDim = storedDim ? parseInt(storedDim.value, 10) : 0;
     const vecExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='entities_vec'").get();

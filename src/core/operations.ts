@@ -418,7 +418,23 @@ export interface ReindexResult {
   /** Every processed entity that did not get a vector written. */
   skipped: number;
   /** Why each one was skipped. The counts sum to `processed`. */
-  outcomes: Record<EmbedOutcome | 'entity_missing', number>;
+  outcomes: Record<EmbedOutcome | 'entity_missing' | 'nothing_to_embed', number>;
+  /**
+   * Entities this run tried to embed and could not: the provider produced no
+   * vector, produced one of the wrong width, or the write failed.
+   *
+   * Separate from {@link missingVectors} because the two answer different
+   * questions and only together answer the user's. `missingVectors` asks
+   * "does every entity have A vector" — which a full index satisfies with the
+   * OLD rows, so a run whose every write was refused reported itself complete
+   * and exited 0. That is the case a provider switch produces, which is the
+   * case the command exists for.
+   *
+   * Excludes `entity_missing` (deleted mid-run, owed nothing) and
+   * `nothing_to_embed` (no text to embed, so no vector is owed — counting
+   * those would hold `pending_reindex` open for the life of the database).
+   */
+  failed: number;
   /**
    * Entities THIS RUN was responsible for that have observation text but no
    * row in entities_vec, counted from the database after the run. The end
@@ -504,6 +520,7 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     write_failed: 0,
     database_closed: 0,
     entity_missing: 0,
+    nothing_to_embed: 0,
   };
   let processed = 0;
 
@@ -521,6 +538,17 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
 
     // Concatenate all observations as embedding text
     const text = fullEntity.observations.join(' ');
+
+    // An entity with nothing but whitespace can never produce a vector, and
+    // `countMissingVectors` already excludes it from what the database is owed.
+    // Recognising it HERE too is what keeps the two halves of the verdict
+    // asking the same question: without this the entity comes back as a
+    // provider failure, and once failures block the flag that would leave
+    // `pending_reindex` set forever for work nobody can do.
+    if (text.trim() === '') {
+      outcomes.nothing_to_embed++;
+      continue;
+    }
 
     try {
       outcomes[await embedAndStore(entity.id, text)]++;
@@ -541,6 +569,17 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
   const embedded = outcomes.stored;
   const skipped = processed - embedded;
 
+  // Every outcome that means "this entity was owed a vector and did not get
+  // one". Named one by one rather than derived as `processed - stored -
+  // benign`: a subtraction would sweep any future outcome into "failed"
+  // whether or not it is one, and this number decides whether the user is told
+  // the run worked.
+  const failed =
+    outcomes.no_embedding +
+    outcomes.dimension_mismatch +
+    outcomes.write_failed +
+    outcomes.database_closed;
+
   // The database has the final say. If a vector is missing here, it is missing
   // regardless of what the loop counted.
   const missingVectors = countMissingVectors(db, opts?.namespace);
@@ -558,17 +597,28 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
   }
 
   // Clear the dimension-change flag only once every entity that can have a
-  // vector has one — database-wide, since that is what the flag describes.
-  // Clearing it after a run that wrote nothing is what let a silently emptied
-  // index look healthy to `memesh doctor`.
-  const pendingReindexCleared = missingVectorsDatabaseWide === 0;
+  // vector has one — database-wide, since that is what the flag describes —
+  // AND nothing failed on the way. Clearing it after a run that wrote nothing
+  // is what let a silently emptied index look healthy to `memesh doctor`, and
+  // the row check alone cannot see that case when the index is already full:
+  // the vectors it counts are the stale ones the run was meant to replace.
+  const pendingReindexCleared = missingVectorsDatabaseWide === 0 && failed === 0;
   if (pendingReindexCleared) {
     clearPendingReindexFlag();
-  } else {
+  } else if (missingVectorsDatabaseWide > 0) {
     process.stderr.write(
       `MeMesh: ${missingVectorsDatabaseWide} active memories still have no vector` +
       `${opts?.namespace ? ' (across all namespaces)' : ''}, so the ` +
       `reindex-needed flag was left set.\n`
+    );
+  } else {
+    // Every entity holds a vector, yet embeds failed — so the ones on disk are
+    // the stale vectors this run was asked to replace. Say that, rather than
+    // "0 memories still have no vector", which reads as success.
+    process.stderr.write(
+      `MeMesh: every memory has a vector, but ${failed} could not be regenerated, ` +
+      `so those still hold their previous embedding and the reindex-needed flag ` +
+      `was left set.\n`
     );
   }
 
@@ -577,6 +627,7 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     embedded,
     skipped,
     outcomes,
+    failed,
     missingVectors,
     missingVectorsDatabaseWide,
     pendingReindexCleared,

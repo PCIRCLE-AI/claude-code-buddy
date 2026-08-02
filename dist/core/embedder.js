@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { existsSync } from 'fs';
 import { getDatabase } from '../db.js';
 import { join } from 'path';
-import { detectCapabilities } from './config.js';
+import { detectCapabilities, getEmbeddingDimension } from './config.js';
 import { memeshDir } from './paths.js';
 let onnxPipelineInstance = null;
 let onnxPipelineLoading = null;
@@ -34,6 +34,18 @@ export function isEmbeddingAvailable() {
     if (caps.embeddings === 'onnx')
         return isOnnxAvailable();
     return false;
+}
+export async function canRefillVectorIndex() {
+    const target = getEmbeddingDimension();
+    if (!Number.isInteger(target) || target <= 0)
+        return false;
+    try {
+        const probe = await embedText('memesh vector index rebuild probe');
+        return probe !== null && probe.length === target;
+    }
+    catch {
+        return false;
+    }
 }
 export { getEmbeddingDimension } from './config.js';
 export function resetEmbeddingState() {

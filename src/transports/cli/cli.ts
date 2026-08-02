@@ -10,7 +10,7 @@ import { remember, recallWithConflicts, forget, consolidate, exportMemories, imp
 import { verifyAgentWork } from '../../core/verifier.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { getDbPath } from '../../core/paths.js';
-import { flushPendingEmbeddings, isEmbeddingAvailable } from '../../core/embedder.js';
+import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/types.js';
 
 // DX: every CLI command that touches the DB used to repeat
@@ -1375,12 +1375,24 @@ program
         // before the database is opened. `allowVectorIndexRebuild` refuses to
         // record it unless something can refill the index afterwards — see
         // there for why that check is its argument rather than ours.
-        if (!allowVectorIndexRebuild(isEmbeddingAvailable)) {
+        //
+        // `canRefillVectorIndex`, not `isEmbeddingAvailable`: the latter
+        // reports which provider the config NAMES, and says yes for openai and
+        // ollama without checking a key, reaching an endpoint, or comparing a
+        // dimension. Authorising a drop on that answer is how an expired key
+        // turns this command into permanent data loss. The probe embeds one
+        // string and measures it.
+        //
+        // `getDbPath()` is the same path `withDatabase` below opens with; the
+        // consent is refused inside `openDatabase` if they ever disagree.
+        if (!(await allowVectorIndexRebuild(getDbPath(), canRefillVectorIndex))) {
           console.error(
-            '❌ No embedding provider available, so the vector index was left untouched.\n' +
-            '   Rebuilding it deletes every stored embedding, and nothing here could\n' +
-            '   regenerate them. Configure an OpenAI API key or Ollama, or install\n' +
-            '   @huggingface/transformers, then run this again.'
+            '❌ Could not produce a test embedding at this database\'s vector width, so\n' +
+            '   the index was left untouched. Rebuilding it deletes every stored\n' +
+            '   embedding, and nothing here could regenerate them.\n' +
+            '   Check that your OpenAI API key is valid, or that Ollama is running, or\n' +
+            '   install @huggingface/transformers for local embeddings — then run this\n' +
+            '   again. `memesh doctor` reports which provider is configured.'
           );
           process.exit(1);
         }
@@ -1389,16 +1401,32 @@ program
       await withDatabase(async () => {
         const result = await reindex({ namespace: opts.namespace });
 
+        // Two questions, and the tick requires both answered yes: is every
+        // memory holding a vector, and did everything this run tried to write
+        // actually get written. The row count alone answers only the first,
+        // and when the index is already full it answers it with the STALE
+        // vectors — so a provider switch that refused every write reported
+        // itself complete and exited 0. That is the case the command is for.
+        const incomplete = result.missingVectors > 0 || result.failed > 0;
+
         if (opts.json) {
           console.log(JSON.stringify(result));
-        } else if (result.missingVectors > 0) {
+        } else if (incomplete) {
           // Not a tick. A run that could not embed everything is not complete,
           // and saying so is the whole point of counting outcomes.
           console.log(`⚠️  Reindex incomplete:`);
           console.log(`   Processed: ${result.processed}`);
           console.log(`   Embedded:  ${result.embedded}`);
           console.log(`   Skipped:   ${result.skipped}`);
-          console.log(`   Still without a vector: ${result.missingVectors}`);
+          if (result.missingVectors > 0) {
+            console.log(`   Still without a vector: ${result.missingVectors}`);
+          }
+          if (result.failed > 0 && result.missingVectors === 0) {
+            console.log(
+              `   Could not be regenerated: ${result.failed} ` +
+              `(these still hold their previous embedding)`
+            );
+          }
           for (const [outcome, count] of Object.entries(result.outcomes)) {
             if (outcome !== 'stored' && count > 0) console.log(`     ${outcome}: ${count}`);
           }
@@ -1424,7 +1452,7 @@ program
         // Exit non-zero so a script that shells out to this can tell an
         // incomplete run from a complete one. `✅` on stdout was the only
         // signal before, and it was printed either way.
-        if (result.missingVectors > 0) process.exitCode = 1;
+        if (incomplete) process.exitCode = 1;
       });
     } catch (err) {
       if (err instanceof Error) {

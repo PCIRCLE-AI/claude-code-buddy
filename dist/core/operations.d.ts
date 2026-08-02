@@ -20,7 +20,8 @@ export interface ReindexResult {
     processed: number;
     embedded: number;
     skipped: number;
-    outcomes: Record<EmbedOutcome | 'entity_missing', number>;
+    outcomes: Record<EmbedOutcome | 'entity_missing' | 'nothing_to_embed', number>;
+    failed: number;
     missingVectors: number;
     missingVectorsDatabaseWide: number;
     pendingReindexCleared: boolean;

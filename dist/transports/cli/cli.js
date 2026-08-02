@@ -9,7 +9,7 @@ import { remember, recallWithConflicts, forget, consolidate, exportMemories, imp
 import { verifyAgentWork } from '../../core/verifier.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { getDbPath } from '../../core/paths.js';
-import { flushPendingEmbeddings, isEmbeddingAvailable } from '../../core/embedder.js';
+import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 async function withDatabase(fn) {
     openDatabase();
     try {
@@ -1174,25 +1174,34 @@ program
                     '   --vectors to reindex just this namespace at the current dimension.');
                 process.exit(1);
             }
-            if (!allowVectorIndexRebuild(isEmbeddingAvailable)) {
-                console.error('❌ No embedding provider available, so the vector index was left untouched.\n' +
-                    '   Rebuilding it deletes every stored embedding, and nothing here could\n' +
-                    '   regenerate them. Configure an OpenAI API key or Ollama, or install\n' +
-                    '   @huggingface/transformers, then run this again.');
+            if (!(await allowVectorIndexRebuild(getDbPath(), canRefillVectorIndex))) {
+                console.error('❌ Could not produce a test embedding at this database\'s vector width, so\n' +
+                    '   the index was left untouched. Rebuilding it deletes every stored\n' +
+                    '   embedding, and nothing here could regenerate them.\n' +
+                    '   Check that your OpenAI API key is valid, or that Ollama is running, or\n' +
+                    '   install @huggingface/transformers for local embeddings — then run this\n' +
+                    '   again. `memesh doctor` reports which provider is configured.');
                 process.exit(1);
             }
         }
         await withDatabase(async () => {
             const result = await reindex({ namespace: opts.namespace });
+            const incomplete = result.missingVectors > 0 || result.failed > 0;
             if (opts.json) {
                 console.log(JSON.stringify(result));
             }
-            else if (result.missingVectors > 0) {
+            else if (incomplete) {
                 console.log(`⚠️  Reindex incomplete:`);
                 console.log(`   Processed: ${result.processed}`);
                 console.log(`   Embedded:  ${result.embedded}`);
                 console.log(`   Skipped:   ${result.skipped}`);
-                console.log(`   Still without a vector: ${result.missingVectors}`);
+                if (result.missingVectors > 0) {
+                    console.log(`   Still without a vector: ${result.missingVectors}`);
+                }
+                if (result.failed > 0 && result.missingVectors === 0) {
+                    console.log(`   Could not be regenerated: ${result.failed} ` +
+                        `(these still hold their previous embedding)`);
+                }
                 for (const [outcome, count] of Object.entries(result.outcomes)) {
                     if (outcome !== 'stored' && count > 0)
                         console.log(`     ${outcome}: ${count}`);
@@ -1212,7 +1221,7 @@ program
                 console.log(`   Embedded:  ${result.embedded}`);
                 console.log(`   Skipped:   ${result.skipped}`);
             }
-            if (result.missingVectors > 0)
+            if (incomplete)
                 process.exitCode = 1;
         });
     }

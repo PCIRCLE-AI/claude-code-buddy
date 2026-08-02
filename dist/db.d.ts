@@ -10,7 +10,7 @@ export declare function runOnceMigration(db: Database.Database, opts: {
 export declare function reindexFts(): {
     entities: number;
 };
-export declare function allowVectorIndexRebuild(canRefill: () => boolean): boolean;
+export declare function allowVectorIndexRebuild(dbPath: string, canRefill: () => Promise<boolean>): Promise<boolean>;
 export declare function getPendingReindexInfo(): {
     from: number;
     to: number;

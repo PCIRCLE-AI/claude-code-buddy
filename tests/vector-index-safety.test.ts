@@ -26,6 +26,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { openDatabase, closeDatabase, allowVectorIndexRebuild } from '../src/db.js';
+import { isEmbeddingAvailable, canRefillVectorIndex, resetEmbeddingState } from '../src/core/embedder.js';
 
 describe('Feature: an unreadable config does not delete embeddings', () => {
   let dir: string;
@@ -163,7 +164,7 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     expect(written.join('')).toContain('memesh reindex --vectors');
   });
 
-  it('rebuilds when the rebuild is explicitly consented to', () => {
+  it('rebuilds when the rebuild is explicitly consented to', async () => {
     // The guard must not become "never migrate". `memesh reindex --vectors`
     // grants consent before opening the database, which is the only moment
     // early enough — the drop happens inside `openDatabase`.
@@ -172,7 +173,7 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     fs.writeFileSync(configPath, JSON.stringify({ embedder: { provider: 'ollama' } }));
     written.length = 0;
 
-    allowVectorIndexRebuild(() => true);
+    await allowVectorIndexRebuild(dbPath, async () => true);
     const after = openDatabase(dbPath);
 
     expect(storedDimension()).toBe(768);
@@ -187,14 +188,14 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     ).toBeDefined();
   });
 
-  it('consent is spent by the open that uses it', () => {
+  it('consent is spent by the open that uses it', async () => {
     // A long-lived process — the HTTP server — opens the database more than
     // once. Consent given for one deliberate rebuild must not authorise a
     // second one later in the same process, when nobody asked.
     seedByokIndex();
 
     fs.writeFileSync(configPath, JSON.stringify({ embedder: { provider: 'ollama' } }));
-    allowVectorIndexRebuild(() => true);
+    await allowVectorIndexRebuild(dbPath, async () => true);
     openDatabase(dbPath);
     expect(storedDimension()).toBe(768);
     closeDatabase();
@@ -207,7 +208,7 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     expect(written.join('')).toContain('memesh reindex --vectors');
   });
 
-  it('refuses to record consent when nothing could refill the index', () => {
+  it('refuses to record consent when nothing could refill the index', async () => {
     // The command offered as the safe way through a dimension change must not
     // become the cause of the loss it exists to prevent. Dropping the table
     // with no embedding provider available destroys every vector AND leaves
@@ -222,7 +223,7 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     fs.writeFileSync(configPath, JSON.stringify({ embedder: { provider: 'ollama' } }));
     written.length = 0;
 
-    expect(allowVectorIndexRebuild(() => false)).toBe(false);
+    expect(await allowVectorIndexRebuild(dbPath, async () => false)).toBe(false);
 
     // Consent was not recorded, so the open that follows still refuses.
     expect(storedDimension()).toBe(1536);
@@ -232,12 +233,98 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     expect(written.join('')).toContain('memesh reindex --vectors');
   });
 
-  it('consent left unused does not leak into an unrelated later open', () => {
+  it('a configured provider that cannot actually embed does not authorise the drop', async () => {
+    // The precondition has to be a proof, not a claim.
+    //
+    // `isEmbeddingAvailable()` answers "which provider does the config name",
+    // and for openai and ollama it answers yes without checking a key,
+    // reaching an endpoint, or comparing a dimension. Passing THAT as the
+    // consent precondition means an expired key, a typo'd key, or a stopped
+    // Ollama all authorise dropping every embedding in the database — and then
+    // nothing can write one back. The refusal exists to prevent exactly that
+    // loss, and the claim-based check hands it to the user through the command
+    // documented as the safe way through.
+    fs.writeFileSync(configPath, BYOK_CONFIG); // openai, 1536-dim
+    resetEmbeddingState();
+
+    // No OPENAI_API_KEY, and the network is refused outright. The claim still
+    // says yes.
+    const savedKey = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('getaddrinfo ENOTFOUND api.openai.com'));
+    try {
+      expect(isEmbeddingAvailable(), 'setup: the claim-based check should say yes').toBe(true);
+
+      // The proof says no, so the grant is refused...
+      expect(await canRefillVectorIndex()).toBe(false);
+      expect(await allowVectorIndexRebuild(dbPath, canRefillVectorIndex)).toBe(false);
+    } finally {
+      fetchSpy.mockRestore();
+      if (savedKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = savedKey;
+      resetEmbeddingState();
+    }
+
+    // ...and the index the config would have rebuilt is still there, vector
+    // and all. Reading the end state, not the return value: the return value
+    // being wrong is the whole reason this test exists.
+    seedByokIndex();
+    fs.writeFileSync(configPath, JSON.stringify({ embedder: { provider: 'ollama' } }));
+    written.length = 0;
+    expect(storedDimension()).toBe(1536);
+    expect(
+      (openDatabase(dbPath).prepare('SELECT count(*) AS c FROM entities_vec').get() as { c: number }).c
+    ).toBe(1);
+  });
+
+  it('consent granted for one database does not authorise dropping another', async () => {
+    // The consent used to be a bare module-level boolean. In any process that
+    // opens more than one database — the HTTP server, a library embedding
+    // this — a grant recorded for A could be spent by an `openDatabase(B)`
+    // that ran first, and B's vectors, never consented to and never asked
+    // about, would be the ones dropped. Authorisation as wide as the process
+    // for an action as narrow as one file.
+    const otherPath = path.join(dir, 'other.db');
+
+    // B is a real BYOK database with a real vector in it.
+    fs.writeFileSync(configPath, BYOK_CONFIG);
+    const other = openDatabase(otherPath);
+    other.prepare("INSERT INTO entities (name, type) VALUES ('other-note', 'note')").run();
+    const id = (
+      other.prepare("SELECT id FROM entities WHERE name = 'other-note'").get() as { id: number }
+    ).id;
+    other.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)').run(
+      BigInt(id),
+      Buffer.from(new Float32Array(1536).fill(0.5).buffer)
+    );
+    closeDatabase();
+
+    // Consent is granted for A. Nobody said anything about B.
+    fs.writeFileSync(configPath, JSON.stringify({ embedder: { provider: 'ollama' } }));
+    expect(await allowVectorIndexRebuild(dbPath, async () => true)).toBe(true);
+    written.length = 0;
+
+    // B opens first.
+    const reopened = openDatabase(otherPath);
+
+    expect(
+      (reopened.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get() as { value: string }).value
+    ).toBe('1536');
+    expect(
+      (reopened.prepare('SELECT count(*) AS c FROM entities_vec').get() as { c: number }).c,
+      "another database's vectors were dropped on A's consent"
+    ).toBe(1);
+    expect(written.join('')).toContain('memesh reindex --vectors');
+  });
+
+  it('consent left unused does not leak into an unrelated later open', async () => {
     // Granting consent and then not needing it (the dimensions matched after
     // all) must not leave the flag armed for the next open, which could be a
     // different database entirely.
     fs.writeFileSync(configPath, BYOK_CONFIG);
-    allowVectorIndexRebuild(() => true);
+    await allowVectorIndexRebuild(dbPath, async () => true);
     openDatabase(dbPath); // dimensions agree — consent is not consumed here
     expect(storedDimension()).toBe(1536);
     closeDatabase();
