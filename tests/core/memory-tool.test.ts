@@ -63,23 +63,43 @@ describe('Feature: memory_20250818 over the knowledge graph', () => {
   // --- 1. Path validation ---------------------------------------------------
 
   describe('refuses paths outside the memory root', () => {
-    // Every one of these is a real shape from the contract's own warning, plus
-    // the ones a naive `startsWith` check lets through.
-    const refused = [
-      '/etc/passwd',
-      '/memories/../../secrets.env',
-      '/memories/personal/../team/theirs.md',
-      '/memories/./personal/note.md',
-      '/memories-of-you/note.md',          // startsWith('/memories') is TRUE here
-      '/memories/personal/%2e%2e/note.md', // URL-encoded traversal
-      '/memories/personal/sub/deep/note.md',
-      '',
+    // Each case names the check that must refuse it, not just "an error".
+    //
+    // This started as `expect(isError).toBe(true)` and a mutation sweep showed
+    // why that is not enough: with the traversal branch deleted outright, every
+    // one of these still came back an error — the depth check or the namespace
+    // check caught it instead — and all eight assertions stayed green. A
+    // security test that passes with the security check removed is the same
+    // defect as the code it is guarding against. Three mutants survived; they
+    // die against the reason.
+    const refused: Array<[path: string, becauseOf: string]> = [
+      ['/etc/passwd', 'outside it'],
+      ['/memories/../../secrets.env', 'traversal or empty segment'],
+      ['/memories/personal/../team/theirs.md', 'traversal or empty segment'],
+      ['/memories/./personal/note.md', 'traversal or empty segment'],
+      ['/memories//x.md', 'traversal or empty segment'],
+      // startsWith('/memories') is TRUE for this one — the check has to be
+      // "the root exactly, or the root followed by a separator".
+      ['/memories-of-you/note.md', 'outside it'],
+      ['/memories/personal/%2e%2e/note.md', 'traversal sequence'],
+      // These two are the isolating cases: two segments, a valid namespace, a
+      // .md suffix. Nothing else in the parser objects to them, so only the
+      // encoded-traversal branch can refuse them — which is what makes them
+      // able to notice its absence.
+      ['/memories/personal/a%2e%2eb.md', 'traversal sequence'],
+      ['/memories/personal/a\\b.md', 'traversal sequence'],
+      ['/memories/personal/sub/deep/note.md', 'two levels deep'],
+      ['', 'must be a non-empty string'],
     ];
 
-    for (const p of refused) {
-      it(`refuses ${JSON.stringify(p)}`, () => {
+    for (const [p, becauseOf] of refused) {
+      it(`refuses ${JSON.stringify(p)} — ${becauseOf}`, () => {
         const result = handleMemoryCommand({ command: 'view', path: p });
         expect(result.isError, `${p} was accepted`).toBe(true);
+        expect(
+          result.content,
+          `${p} was refused, but by a different check than the one under test`
+        ).toContain(becauseOf);
       });
     }
 
