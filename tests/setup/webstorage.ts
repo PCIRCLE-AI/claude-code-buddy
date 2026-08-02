@@ -32,8 +32,17 @@
  * vitest replaces `poolOptions.forks.execArgv` with its own list, so the flag
  * never reaches the worker (verified by printing `process.execArgv` inside a
  * test). Node 20 also rejects the flag outright.
+ *
+ * `happy-dom` is imported dynamically, inside the branch that needs it. A
+ * static import runs in every worker — and this file is `setupFiles`, so that
+ * is all ~90 node-environment test files, none of which have a DOM or want
+ * one. They would pay to load a browser implementation they never touch, and
+ * worse, a resolution failure or a changed export in `happy-dom` would take
+ * down the node suite before the `window` guard below could rule it out.
  */
-import { Window } from 'happy-dom';
+// Marks the file as a module so the top-level `await` below is legal. There is
+// nothing to export — the whole effect is the side effect.
+export {};
 
 const g = globalThis as Record<string, unknown>;
 
@@ -53,6 +62,7 @@ if (typeof g.window !== 'undefined') {
   );
 
   if (needed.length > 0) {
+    const { Window } = await import('happy-dom');
     const donor = new Window() as unknown as Record<string, unknown>;
     for (const key of needed) {
       const storage = donor[key];

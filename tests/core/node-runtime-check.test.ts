@@ -17,9 +17,15 @@
  *      22 when it is IMPORTED, and seven hooks parse process output. A
  *      diagnostic that caused the breakage it exists to diagnose would be its
  *      own kind of joke, so the probe resolves rather than imports.
+ *
+ *      That second test was itself fake for one commit: it used
+ *      `execFileSync`, which returns STDOUT, so it asserted the wrong stream
+ *      was empty and would have stayed green through the exact regression it
+ *      names. Found by an outside review, confirmed by measurement, fixed with
+ *      `spawnSync`.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -210,18 +216,29 @@ describe('the node:sqlite probe stays silent', () => {
     // `pathToFileURL`, not the bare path: on Windows a dynamic `import()` of
     // `D:\a\...` throws ERR_UNSUPPORTED_ESM_URL_SCHEME ("Received protocol
     // 'd:'"), because the loader reads the drive letter as a URL scheme.
+    // `spawnSync`, not `execFileSync`. execFileSync RETURNS STDOUT — piping
+    // stderr captures it but throws it away on success — so the previous form
+    // of this test named a variable `stderr`, assigned it the child's stdout,
+    // and asserted that was empty. Measured: a child that writes loudly to
+    // stderr and exits 0 leaves that assertion green. A test for silence that
+    // never looked at the noisy stream.
     const moduleUrl = pathToFileURL(path.resolve('dist/core/doctor.js')).href;
-    const stderr = execFileSync(
+    const probe = spawnSync(
       'node',
       [
         '-e',
         `import(${JSON.stringify(moduleUrl)})` +
           `.then(m => { if (typeof m.hasBuiltInSqlite() !== 'boolean') process.exit(3); })`,
       ],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
+      { encoding: 'utf8' }
     );
 
-    expect(stderr).toBe('');
+    // Both, and in this order. spawnSync does not throw, so without the status
+    // check a child that died before reaching the probe — a bad path, a syntax
+    // error in dist — would produce empty stderr for the wrong reason and pass.
+    expect(probe.error, 'the probe process could not be started').toBeUndefined();
+    expect(probe.status, `probe exited ${probe.status}: ${probe.stderr}`).toBe(0);
+    expect(probe.stderr).toBe('');
   });
 
   it('agrees with what this runtime actually is', () => {

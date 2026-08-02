@@ -17,6 +17,20 @@ on:
   # matrix and watching the matrix not run on it.
   pull_request:
 
+# Least privilege, stated here rather than inherited.
+#
+# Every other workflow in this directory declares its own; this one did not,
+# so it ran on whatever the repository default happened to be. That default is
+# currently `read`, which is why nothing was wrong — but it is a repository
+# SETTING, changeable in the web UI by anyone with admin rights, with no diff
+# and no review. The workflow that runs untrusted PR code is the last place to
+# depend on a value that can move without a commit.
+#
+# Nothing here needs to write: the jobs install, lint, build, test, and run
+# doctor. Publishing has its own workflow with its own scoped token.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
