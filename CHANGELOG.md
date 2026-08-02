@@ -6,6 +6,16 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **Anthropic memory tool (`memory_20250818`) backed by the knowledge graph** (`src/core/memory-tool.ts`, exported from the package root) — for applications that call the **Messages API directly** rather than through MCP. Claude gets a memory tool whose storage is MeMesh instead of a folder of text files, so it also gets FTS5 search, multi-factor ranking, auto-decay, relations and namespaces without knowing they are there. Anthropic's contract states that `/memories` is "a prefix that your handler maps onto real storage, such as a per-user directory or keys in a database", so this is the documented shape of the integration rather than a workaround.
+
+  Not a tenth MCP tool, and not on the HTTP or CLI surface. The nine MCP tools serve an agent that already speaks MeMesh; this serves an application that speaks only the Messages API. Folding them together would make one surface answer to two contracts.
+
+  Each entity renders as one file whose lines are its observations, **ordered by observation id — insertion order, never score.** That is the load-bearing decision: `view` and the edit that follows it are separate turns, and between them one of the seven hooks can write a new observation. If the order the model saw came from a ranking, the line numbers it read would address different content by the time it sent them back — a silent wrong write rather than an error. An observation may itself contain newlines, so the line-to-memory map is computed from the rendered text rather than assumed one-to-one.
+
+  Two behaviours differ from a filesystem on purpose. `delete` **archives**: the person whose memory it is did not ask for the deletion, a model did, so it disappears from the model's view and stays restorable from theirs. `str_replace` **refuses an ambiguous `old_str`** and returns the line numbers of every occurrence rather than editing the first match — it is a write, and the wrong one is silent.
+
+  Path-traversal validation is on the implementer per Anthropic's own warning, and is enforced here even though nothing touches a filesystem: `..` cannot reach `secrets.env`, but it can resolve to a different namespace or memory than the one named. Refused: anything outside `/memories` (including `/memories-of-you/...`, which passes a naive `startsWith`), `.`/`..`/empty segments, `%2e%2e`, backslashes, NUL bytes, paths deeper than `namespace/memory`, unknown namespaces, writes to a directory, and deleting or renaming the root or a namespace.
+
 - **`memesh doctor` now reports the runtime it is running on** (`src/core/doctor.ts`) — Node version, ABI, platform/arch, whether that version satisfies `package.json` `engines.node`, and whether the built-in `node:sqlite` module is present. A user below the supported floor previously saw hooks misbehaving and a red native-binding row with nothing anywhere naming the one fact that explains both. Below the floor the row FAILS with an upgrade instruction.
 
   The version comparison understands `>=X.Y.Z` and nothing else, on purpose: this row is allowed to fail, so a parser that guessed at `^`, `||` or `<` ranges would sometimes tell a healthy install it is broken. Anything it cannot parse is reported as "not checked", which is the true statement, and reported informationally so it cannot move `Overall`.

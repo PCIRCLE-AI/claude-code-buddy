@@ -91,6 +91,7 @@ src/
 │   ├── patterns.ts        # User work patterns computation (shared by MCP + HTTP)
 │   ├── doctor.ts          # `memesh doctor` health check (runtime / install / hooks / DB / capabilities)
 │   ├── demo.ts            # `memesh demo` 30-entity onboarding seed
+│   ├── memory-tool.ts     # Anthropic memory_20250818 adapter over the knowledge graph
 │   └── version-check.ts   # npm registry version check
 ├── db.ts                  # SQLite + FTS5 + sqlite-vec + migrations
 ├── knowledge-graph.ts     # Entity CRUD, relations, FTS5 search, findConflicts
@@ -137,6 +138,8 @@ Session-start hook ranking is a SQL-only subset (no FTS query, no impact pass) t
 **lesson-engine.ts** — Structured lesson management. `createLesson()` stores a `StructuredLesson` as a `lesson_learned` entity with upsert-safe naming (`lesson-{project}-{errorPattern}`). Same error pattern in different sessions updates the existing lesson. `createExplicitLesson()` supports the `learn` MCP tool. `findProjectLessons()` queries lessons for proactive warnings.
 
 **patterns.ts** — User work patterns computation (shared by MCP `user_patterns` tool and HTTP `GET /v1/patterns`). `computePatterns()` queries the database for work schedule (hour/day distribution), tool preferences, focus areas, workflow metrics, strengths, and learning areas. Accepts optional `categories` filter array.
+
+**memory-tool.ts** — Executes Anthropic's `memory_20250818` tool against the knowledge graph. The tool is client-side: Claude requests file operations and the application performs them, and Anthropic's contract states that `/memories` is "a prefix that your handler maps onto real storage, such as a per-user directory or keys in a database". Here that storage is MeMesh, so a model using the plain Messages API gets search, ranking, decay, relations and namespaces underneath a file-shaped view. Each entity renders as one file whose lines are its observations, **ordered by observation id** — insertion order, never score, because `view` and the edit that follows it are separate turns and a hook writing in between would otherwise move the lines the model just read. Deliberately not a tenth MCP tool: the MCP surface serves an agent that already speaks MeMesh, this serves an application that speaks only the Messages API.
 
 **version-check.ts** — Queries the npm registry for the latest `@pcircle/memesh` version and emits an update notification if the installed version is behind.
 
