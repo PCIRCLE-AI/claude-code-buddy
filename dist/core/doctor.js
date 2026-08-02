@@ -311,6 +311,58 @@ function defaultNativeBindingProbe(packageRoot) {
         return { ok: false, message: err instanceof Error ? err.message : String(err) };
     }
 }
+export function satisfiesMinimumNodeRange(version, range) {
+    const min = /^>=\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?\s*$/.exec(range.trim());
+    const running = /^v?(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
+    if (!min || !running)
+        return null;
+    const wanted = [Number(min[1]), Number(min[2] ?? 0), Number(min[3] ?? 0)];
+    const have = [Number(running[1]), Number(running[2]), Number(running[3])];
+    for (let i = 0; i < 3; i++) {
+        if (have[i] > wanted[i])
+            return true;
+        if (have[i] < wanted[i])
+            return false;
+    }
+    return true;
+}
+export function inspectNodeRuntime(packageRoot, existsSyncImpl, readFileSyncImpl, nodeVersion = process.version, moduleAbi = process.versions.modules, hasNodeSqliteImpl = hasBuiltInSqlite) {
+    const facts = `Node ${nodeVersion} (ABI ${moduleAbi}, ${process.platform}/${process.arch}). ` +
+        `Built-in node:sqlite: ${hasNodeSqliteImpl() ? 'available' : 'not available'}.`;
+    let declared;
+    try {
+        const pkgPath = path.join(packageRoot, 'package.json');
+        if (existsSyncImpl(pkgPath)) {
+            const parsed = JSON.parse(String(readFileSyncImpl(pkgPath, 'utf8')));
+            if (typeof parsed.engines?.node === 'string')
+                declared = parsed.engines.node;
+        }
+    }
+    catch {
+    }
+    if (!declared) {
+        return createInfo('node-runtime', 'Node runtime', `${facts} Supported range not checked: package.json declared no engines.node.`);
+    }
+    const ok = satisfiesMinimumNodeRange(nodeVersion, declared);
+    if (ok === null) {
+        return createInfo('node-runtime', 'Node runtime', `${facts} Supported range not checked: engines.node is "${declared}", which this ` +
+            `check does not parse (it understands ">=X.Y.Z" only).`);
+    }
+    if (!ok) {
+        return createCheck('node-runtime', 'Node runtime', 'fail', `${facts} This package requires Node ${declared}, so this runtime is BELOW the ` +
+            `supported floor. Native modules and hooks may fail in ways that look unrelated.`, `Upgrade Node to ${declared.replace(/^>=\s*/, '')} or newer, then run \`memesh doctor\` again.`);
+    }
+    return createCheck('node-runtime', 'Node runtime', 'pass', `${facts} Meets the required range ${declared}.`);
+}
+export function hasBuiltInSqlite() {
+    try {
+        createRequire(import.meta.url).resolve('node:sqlite');
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
 function inspectNativeBinding(packageRoot, _existsSyncImpl, probeImpl = defaultNativeBindingProbe) {
     const result = probeImpl(packageRoot);
     if (result.ok) {
@@ -666,6 +718,7 @@ export async function runDoctor(options) {
     checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), packageRoot));
     checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl));
     checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
+    checks.push(inspectNodeRuntime(packageRoot, existsSyncImpl, readFileSyncImpl));
     checks.push(inspectNativeBinding(packageRoot, existsSyncImpl, nativeBindingProbeImpl));
     checks.push(inspectShellCli(install, packageRoot, resolveShellMemeshImpl));
     checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));

@@ -3,8 +3,33 @@ name: CI
 on:
   push:
     branches: [main, develop]
+  # Every pull request, not only the ones landing on main/develop.
+  #
+  # The filter used to be `branches: [main, develop]`, which reads as "test
+  # what reaches the trunk" and behaves as "skip anything stacked". A PR whose
+  # base is another feature branch got NO Build & Test at all — the review
+  # showed four green checks and none of them had compiled the code. That is
+  # the same defect as a gate that passes on nothing, one level up: work most
+  # likely to need testing (a branch built on unmerged work) was the work
+  # guaranteed not to get it.
+  #
+  # This was found the honest way: by stacking a PR that changed this very
+  # matrix and watching the matrix not run on it.
   pull_request:
-    branches: [main, develop]
+
+# Least privilege, stated here rather than inherited.
+#
+# Every other workflow in this directory declares its own; this one did not,
+# so it ran on whatever the repository default happened to be. That default is
+# currently `read`, which is why nothing was wrong — but it is a repository
+# SETTING, changeable in the web UI by anyone with admin rights, with no diff
+# and no review. The workflow that runs untrusted PR code is the last place to
+# depend on a value that can move without a commit.
+#
+# Nothing here needs to write: the jobs install, lint, build, test, and run
+# doctor. Publishing has its own workflow with its own scoped token.
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -14,12 +39,33 @@ jobs:
   build-and-test:
     name: Build & Test (${{ matrix.os }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
+      # Which runtimes this matrix covers, and why each is here.
+      #
+      #   20 — END OF LIFE since 2026-03-24, and still tested, because
+      #        `package.json` engines says `>=20`. Testing what we claim to
+      #        support is the point; the leg goes when the claim goes, not
+      #        before.
+      #   22 — LTS (Jod).
+      #   24 — LTS (Krypton). Was untested entirely, which is the gap this
+      #        matrix change exists to close: the LTS line most users are
+      #        actually on had no coverage at all.
+      #   26 — Current, ubuntu only. Deliberately not on macOS or Windows:
+      #        `better-sqlite3@12.9.0` publishes NO prebuilt binary for Node
+      #        26's ABI (147). Measured: `prebuild-install warn install No
+      #        prebuilt binaries found (target=26.5.1 ... platform=darwin)`
+      #        followed by a `node-gyp rebuild`, which took 18s on
+      #        macOS/arm64 and needs a full toolchain — MSVC on Windows. One
+      #        Linux leg gives early warning that Node 26 works at all
+      #        without paying for a source build on three runners.
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: ['20', '22']
+        node: ['20', '22', '24']
+        include:
+          - os: ubuntu-latest
+            node: '26'
 
     steps:
       - name: Checkout
@@ -103,9 +149,21 @@ jobs:
             exit 1
           fi
 
+  # The three jobs below used to carry `needs: build-and-test`, which made each
+  # of them wait for ALL eleven matrix legs before starting. Measured on run
+  # 30735734852: the matrix finished at 06:28:38, these started at 06:28:40, and
+  # the run ended at 06:30:46 — a 2m06s serial tail on a 10m15s run, 20% of every
+  # green PR, spent waiting rather than testing.
+  #
+  # The dependency bought nothing. Each of them checks out, runs its own
+  # `npm ci` and its own build; none consumes an artifact the matrix produces.
+  # What it did buy was "don't spend runners when the build is already broken",
+  # and on a public repo that trade is backwards: GitHub reports
+  # `billable.duration_ms = 0` for every leg of this workflow, so the currency is
+  # wall-clock feedback time, and this was paying 2 minutes of it on every
+  # PASSING run to save three ubuntu jobs on the rarer failing one.
   package-smoke:
     name: Packaged Artifact Smoke Test
-    needs: build-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -130,7 +188,6 @@ jobs:
 
   dashboard-e2e-smoke:
     name: Packaged Dashboard E2E Smoke
-    needs: build-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -163,7 +220,6 @@ jobs:
   # is caught at PR-time, not at publish-time.
   release-verify:
     name: Release Verification Gate
-    needs: build-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
