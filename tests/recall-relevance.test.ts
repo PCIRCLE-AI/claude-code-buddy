@@ -216,9 +216,62 @@ describe('Feature: recall relevance', () => {
       expect(kg.search('redis or postgres').map((e) => e.name)).toContain('or-note');
     });
 
-    it('falls back to the recent list when the query is only punctuation', () => {
+    it('returns nothing when a non-empty query has no searchable terms', () => {
+      // BEHAVIOUR CHANGE. This used to fall back to the recent list, which
+      // handed back memories that matched nothing and labelled them results.
+      // A caller — especially an LLM consuming `recall` output — cannot tell
+      // "here is what matched" from "I found no terms in your query, have
+      // these instead", so unrelated memories get treated as relevant.
+      //
+      // Empty is the honest answer. The genuinely empty query still lists
+      // recent, which is its documented behaviour and is checked below.
       kg.createEntity('anything', 'note', { observations: ['some content'] });
-      expect(kg.search('?!...').map((e) => e.name)).toContain('anything');
+      expect(kg.search('?!...')).toEqual([]);
+      expect(kg.search('@#$%^&*()')).toEqual([]);
+    });
+
+    it('still lists recent memories for a genuinely empty query', () => {
+      // The distinction the change above depends on: "" means "show me what
+      // you have", "?!..." means "search for this". They must not collapse.
+      kg.createEntity('anything', 'note', { observations: ['some content'] });
+      expect(kg.search('').map((e) => e.name)).toContain('anything');
+      expect(kg.search('   ').map((e) => e.name)).toContain('anything');
+    });
+  });
+
+  describe('determinism', () => {
+    it('breaks BM25 ties towards the newest memory, so LIMIT picks a defined set', () => {
+      // BM25 ties are the common case: every row matching only the same single
+      // term scores identically. LIMIT then decides which of them reach the
+      // multi-factor scorer, so the tiebreaker does not merely reorder the
+      // answer — it decides WHICH MEMORIES ARE IN IT.
+      //
+      // An earlier version of this test ran the same query five times and
+      // asserted the results matched. That passes with or without the
+      // tiebreaker: SQLite is deterministic for the same query against the same
+      // unchanged data, so the test asserted a property SQLite already had.
+      // Verified by mutation — dropping `, e.id DESC` left it green. Measured
+      // on this exact fixture:
+      //
+      //   ORDER BY f.rank, e.id DESC  ->  tied-29, tied-28, tied-27, tied-26, tied-25
+      //   ORDER BY f.rank             ->  tied-00, tied-01, tied-02, tied-03, tied-04
+      //
+      // Naming the expected set is what pins it. This is also a product
+      // commitment, not an implementation detail: at equal relevance, the more
+      // recent memory wins.
+      for (let i = 0; i < 30; i++) {
+        kg.createEntity(`tied-${String(i).padStart(2, '0')}`, 'note', {
+          observations: ['deployment notes for the service'],
+        });
+      }
+
+      expect(kg.search('deployment', { limit: 5 }).map((e) => e.name)).toEqual([
+        'tied-29',
+        'tied-28',
+        'tied-27',
+        'tied-26',
+        'tied-25',
+      ]);
     });
   });
 

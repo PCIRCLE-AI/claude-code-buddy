@@ -1,5 +1,16 @@
 import Database from 'better-sqlite3';
 export declare function openDatabase(dbPath?: string): Database.Database;
+export declare const FTS_SEGMENTATION_VERSION = 3;
+export declare function runOnceMigration(db: Database.Database, opts: {
+    key: string;
+    version: number;
+    describe: string;
+    migrate: (db: Database.Database, fromVersion: number) => void;
+}): boolean;
+export declare function reindexFts(): {
+    entities: number;
+};
+export declare function allowVectorIndexRebuild(dbPath: string, canRefill: () => Promise<boolean>): Promise<boolean>;
 export declare function getPendingReindexInfo(): {
     from: number;
     to: number;

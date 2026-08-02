@@ -88,12 +88,45 @@ export interface RealityCheckResult {
   match: boolean | null;  // null when no claim to check against
   base: string | null;
   verdict: Verdict;
+  /**
+   * @deprecated Use `verdict`. Same alias and same removal cycle as
+   * `VerifyAgentWorkResult.pass`.
+   *
+   * 4.2.10 shipped BOTH booleans and `c9672791` removed BOTH, in one commit, in
+   * favour of the tri-state. That is a breaking change for any 4.2.10 consumer
+   * reading either one, in a patch release — `undefined` is falsy, so
+   * `if (rc.pass)` quietly becomes "never passing" and `if (!rc.pass)` becomes
+   * "always failing", and neither reports why. So both come back here as
+   * aliases of `verdict === 'pass'`, which keeps those callers working AND does
+   * not reinstate the original defect: an unverified run now reads `false`,
+   * where the pre-4.2.11 boolean read `true`.
+   *
+   * (An earlier version of this comment described an asymmetry in which the
+   * top-level field had been kept and this one dropped. There was none —
+   * `git show c9672791 -- src/core/verifier.ts` deletes `pass: boolean` twice.)
+   */
+  pass: boolean;
   summary: string;
 }
 
 export interface VerifyAgentWorkResult {
   entity_name: string;
   verdict: Verdict;
+  /**
+   * @deprecated Use `verdict`. Kept for one minor cycle so upgrading from
+   * 4.2.10 is not a breaking change.
+   *
+   * `verdict` exists because a boolean cannot say "nothing was checked", which
+   * is the whole point of the fix — `true` meant both "verified and correct"
+   * and "had nothing to verify". This alias is `verdict === 'pass'`, so an
+   * existing `result.pass` caller keeps working AND stops seeing `true` for an
+   * unverified run: the old bug does not come back with the field.
+   *
+   * Removing it outright would have made a patch release break every consumer
+   * reading `result.pass`. Read `verdict` in new code — it is the only one of
+   * the two that can tell you which kind of not-a-pass you have.
+   */
+  pass: boolean;
   reality_check: RealityCheckResult;
   external_report: VerifyAgentWorkInput['report'] | null;
   timestamp: string;
@@ -182,7 +215,26 @@ function resolveBase(workdir: string, explicit?: string): string | null {
   }
 }
 
+/**
+ * Attach the deprecated `pass` alias.
+ *
+ * One place, not four. Setting it at each `return` is how the two booleans
+ * drifted apart to begin with: it is only correct if every author of every
+ * future early return remembers, and the reality-check has four of them.
+ */
+function withPassAlias(rc: Omit<RealityCheckResult, 'pass'>): RealityCheckResult {
+  return { ...rc, pass: rc.verdict === 'pass' };
+}
+
 function realityCheck(workdir: string, base: string | null, expectedFiles?: number): RealityCheckResult {
+  return withPassAlias(computeRealityCheck(workdir, base, expectedFiles));
+}
+
+function computeRealityCheck(
+  workdir: string,
+  base: string | null,
+  expectedFiles?: number,
+): Omit<RealityCheckResult, 'pass'> {
   // Could not check, as opposed to checked and found wrong. These used to
   // return `pass: false`, which reads as "the agent's work failed" when what
   // actually happened is that this tool could not run.
@@ -293,8 +345,25 @@ function buildObservations(
  * to `true` and combined it with a reality-check that also returned `true`
  * when there was no claim — so two absences multiplied into a pass.
  */
-function combineVerdict(realityVerdict: Verdict, reportPass: boolean | undefined): Verdict {
+function combineVerdict(
+  realityVerdict: Verdict,
+  reportPass: boolean | undefined,
+  claimWentUnevaluated: boolean
+): Verdict {
   if (realityVerdict === 'fail' || reportPass === false) return 'fail';
+
+  // A claim the caller supplied but that could not be evaluated is not
+  // something the other half can vouch for. `realityCheck` returns early when
+  // no git base is discoverable, before `expected_files` is ever compared, so
+  // `memesh verify … --expected-files 5 --report tests.json` used to report an
+  // unqualified pass on the strength of the report alone — while the file
+  // claim silently went unchecked. Same shape as the bug this whole release is
+  // about: one absence plus one presence read as success.
+  //
+  // Measured before the fix: expected_files 99 against a repo with one commit
+  // and no discoverable base gave match: null, base: null, verdict: "pass".
+  if (claimWentUnevaluated) return 'unverified';
+
   if (realityVerdict === 'pass' || reportPass === true) return 'pass';
   return 'unverified';
 }
@@ -313,7 +382,10 @@ export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkRes
   const base = resolveBase(canonicalWorkdir, input.base);
   const rc = realityCheck(canonicalWorkdir, base, input.claim?.expected_files);
 
-  const verdict = combineVerdict(rc.verdict, input.report?.pass);
+  // The caller asked for a file claim to be checked and it was not: `match`
+  // is null only when the comparison never ran.
+  const claimWentUnevaluated = input.claim?.expected_files != null && rc.match === null;
+  const verdict = combineVerdict(rc.verdict, input.report?.pass, claimWentUnevaluated);
   const timestamp = new Date().toISOString();
   const safeAgentId = input.agent_id.replace(/[^a-zA-Z0-9_-]/g, '-');
   // 6-char random suffix prevents same-millisecond collisions (two parallel
@@ -351,6 +423,9 @@ export function verifyAgentWork(input: VerifyAgentWorkInput): VerifyAgentWorkRes
   return {
     entity_name: entityName,
     verdict,
+    // Deprecated alias — see VerifyAgentWorkResult. Derived, never stored, so
+    // it cannot drift from the verdict it mirrors.
+    pass: verdict === 'pass',
     reality_check: rc,
     external_report: input.report ?? null,
     timestamp,

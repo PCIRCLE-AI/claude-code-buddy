@@ -347,7 +347,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
           style={{
             padding: '10px 12px',
             marginBottom: 14,
-            background: 'var(--bg-elevated)',
+            background: 'var(--bg-2)',
             border: '1px solid var(--border-subtle)',
             borderRadius: 6,
             fontSize: 12,
@@ -430,7 +430,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
                 fontSize: 12,
                 background: testResult.valid ? 'rgba(0, 214, 180, 0.08)' : 'rgba(255, 107, 107, 0.08)',
                 border: `1px solid ${testResult.valid ? 'rgba(0, 214, 180, 0.4)' : 'rgba(255, 107, 107, 0.4)'}`,
-                color: testResult.valid ? '#00D6B4' : '#ff6b6b',
+                color: testResult.valid ? 'var(--accent)' : 'var(--danger)',
               }}
             >
               {testResult.valid
@@ -528,7 +528,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             }}
             data-testid="settings-deprecation-warning"
           >
-            <strong style={{ color: '#ff6b6b' }}>
+            <strong style={{ color: 'var(--danger)' }}>
               {t('settings.updateDeprecatedTitle', { version: updateStatus.currentVersion })}
             </strong>
             <div style={{ marginTop: 4, opacity: 0.9 }}>{updateStatus.deprecationMessage}</div>
@@ -630,7 +630,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
               const next = (e.target as HTMLSelectElement).value as 'off' | 'patch' | 'minor' | 'major';
               await saveField({ autoUpdate: next }, (cur) => ({ ...cur, config: { ...cur.config, autoUpdate: next } }));
             }}
-            style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-1)', cursor: 'pointer' }}
+            style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-1)', cursor: 'pointer' }}
           >
             <option value="off">{t('settings.autoUpdateOff')}</option>
             <option value="patch">{t('settings.autoUpdatePatch')}</option>
@@ -675,7 +675,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             setLocale(nextLocale);
             onLocaleChange(nextLocale);
           }}
-          style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-1)', cursor: 'pointer' }}
+          style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-1)', cursor: 'pointer' }}
         >
           {getLocales().map((l) => (
             <option key={l.code} value={l.code}>{l.name}</option>

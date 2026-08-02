@@ -247,7 +247,8 @@ All per-question results are in `results/`. **Read
 produced by two different things, and the difference is larger than any
 version-to-version change.
 
-- `results/mode-A-2026-07-28T21-36-54.json` — the shipped path (500 questions).
+- `results/mode-A-2026-07-29T08-15-09.json` and `results/mode-B-2026-07-29T08-14-48.json` — **the v4.2.11 release measurement. Quote these.** Every number in the table above comes from them.
+- `results/mode-A-2026-07-28T21-36-54.json` — superseded, kept as history (v4.2.10, 9.5s).
   `run_info.measures` is `"shipped_recall_path"`.
 - `results/mode-A-2026-05-03T12-31-26.json`, `mode-B-…`, `mode-C-…` — the adapter
   reimplementation, kept unmodified for history. No `measures` field. These do
@@ -259,7 +260,7 @@ Each JSON includes `run_info` (versions, SHA256, timestamp), `overall_metrics`, 
 
 ## Manual Verification
 
-5 randomly-sampled questions were manually verified (seeded RNG, seed=20260503). All 5 confirmed correct. See [MANUAL-VERIFICATION.md](MANUAL-VERIFICATION.md).
+5 randomly-sampled questions were manually verified (seeded RNG, seed=20260503) against the **2026-05-03 adapter run**, not against the figures in this document. All 5 were confirmed correct at the time. See [MANUAL-VERIFICATION.md](MANUAL-VERIFICATION.md), which is labelled historical for that reason — re-running the sample against the 2026-07-29 release measurement is open work.
 
 ---
 

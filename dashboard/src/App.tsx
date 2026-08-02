@@ -82,6 +82,7 @@ export function App() {
   // returns 401 (no token, wrong token, or rotated token), surface a
   // modal so the user can paste theirs without leaving the page.
   const [needsAuth, setNeedsAuth] = useState(false);
+  const [authRejected, setAuthRejected] = useState(false);
 
   const refetchHealth = useCallback(() => {
     api<HealthData>('GET', '/v1/health')
@@ -92,6 +93,9 @@ export function App() {
       })
       .catch((e) => {
         if (e instanceof AuthRequiredError) {
+          // A 401 while a token is already stored means that token was
+          // rejected, not that none was supplied.
+          setAuthRejected(getApiToken() !== null);
           setNeedsAuth(true);
           setError('');
           return;
@@ -120,8 +124,13 @@ export function App() {
     return (
       <AuthPrompt
         currentToken={getApiToken()}
+        rejected={authRejected}
         onSubmit={(token) => {
           setApiToken(token);
+          // Any token we are about to try is not yet rejected. If it comes
+          // back 401, the catch in refetchHealth sets the flag again — which
+          // is what turns a silent flash-and-return into visible feedback.
+          setAuthRejected(false);
           setNeedsAuth(false);
           refetchHealth();
         }}

@@ -10,7 +10,12 @@ interface KnowledgeRadarProps {
  *  `axis` value (e.g. "patterns") if the i18n key is missing — the
  *  i18n.ts catalogue defines a key per known axis. */
 function axisLabel(axis: string): string {
-  return t(`radar.axis.${axis}`) || axis;
+  // No `|| axis` fallback: t() already falls back locale -> en -> key, so
+  // the right-hand branch of `||` was unreachable (a non-empty string is
+  // truthy). It read as a safety net and was not one — the same dead-branch
+  // shape removed from AuthPrompt. tests/dashboard-i18n.test.ts fails the
+  // build if a key is missing from the English catalogue.
+  return t(`radar.axis.${axis}`);
 }
 
 const SIZE = 220;

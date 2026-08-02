@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { openDatabase, closeDatabase, getDatabase } from '../src/db.js';
+import { openDatabase, closeDatabase, getDatabase, FTS_SEGMENTATION_VERSION } from '../src/db.js';
 import { KnowledgeGraph } from '../src/knowledge-graph.js';
 import { segmentUnspacedScripts } from '../src/storage/fts-index.js';
 import { useTestDatabase } from './helpers/db-fixture.js';
@@ -30,6 +30,100 @@ describe('Feature: CJK recall', () => {
 
   beforeEach(() => {
     kg = new KnowledgeGraph(getDatabase());
+  });
+
+  /**
+   * Every spaceless script, not only the three that came up first.
+   *
+   * Version 2 of the segmentation rules listed CJK ideographs, kana and hangul
+   * — the scripts a Chinese, Japanese or Korean user would have reported — and
+   * so fixed those three and left every other spaceless writing system with the
+   * identical, invisible defect. Measured on a fresh database at version 2:
+   * Thai, Lao, Khmer, half-width katakana and CJK Extension B each stored
+   * correctly and were unfindable by any fragment of themselves. Nothing failed;
+   * the memory was simply not there when searched for.
+   *
+   * These run through the real index and the real query builder, because the
+   * bug is in the AGREEMENT between the two halves and a unit test of either
+   * half alone would have passed at version 2 as well.
+   */
+  describe('every spaceless script, not only CJK', () => {
+    it.each([
+      // script,          stored text,                          a fragment a user would type
+      ['Thai',            'สำรองข้อมูลก่อนย้ายฐานข้อมูล',              'สำรอง'],
+      ['Lao',             'ສຳຮອງຂໍ້ມູນກ່ອນຍ້າຍຖານຂໍ້ມູນ',                'ສຳຮອງ'],
+      ['Khmer',           'បម្រុងទុកមុនពេលផ្លាស់ទីមូលដ្ឋានទិន្នន័យ',       'បម្រុង'],
+      ['half-width kana', 'ﾃﾞｰﾀﾍﾞｰｽｲｺｳﾏｴﾆﾊﾞｯｸｱｯﾌﾟ',                'ﾊﾞｯｸ'],
+      // Above the BMP: each character is a surrogate PAIR, so bigrams built
+      // over UTF-16 code units would index half-surrogates and this fragment
+      // could never match anything.
+      ['CJK Extension B', '\u{20BB7}\u{20089}\u{210C1}\u{20BB7}\u{20089}',  '\u{20089}'],
+    ])('finds a %s memory by a fragment of it', (script, stored, fragment) => {
+      kg.createEntity(`note-${script}`, 'note', { observations: [stored] });
+      expect(kg.search(fragment).map((e) => e.name)).toContain(`note-${script}`);
+    });
+
+    it('indexes no term longer than a bigram for any of them', () => {
+      // The property underneath all of the above, and the one doctor's
+      // `fts_segmentation` check looks for. A surviving long term means some
+      // run was not segmented — the state in which a memory is stored, intact,
+      // and reachable only by its exact full text.
+      for (const text of [
+        'สำรองข้อมูลก่อนย้ายฐานข้อมูล',
+        'ສຳຮອງຂໍ້ມູນກ່ອນຍ້າຍຖານຂໍ້ມູນ',
+        'ﾃﾞｰﾀﾍﾞｰｽｲｺｳﾏｴﾆﾊﾞｯｸｱｯﾌﾟ',
+        '\u{20BB7}\u{20089}\u{210C1}\u{20BB7}\u{20089}',
+      ]) {
+        kg.createEntity(`len-${text.slice(0, 4)}`, 'note', { observations: [text] });
+      }
+      const long = (
+        getDatabase().prepare('SELECT term FROM fts_vocab').all() as { term: string }[]
+      )
+        .map((r) => r.term)
+        .filter((t) => [...t].length > 2 && !/^[\p{Script=Latin}\p{N}-]+$/u.test(t));
+      expect(long).toEqual([]);
+    });
+
+    it('builds bigrams across a BMP / non-BMP boundary', () => {
+      // The case that makes segmentation code-point aware rather than
+      // code-unit aware, and the one a run of ONLY Extension B characters
+      // cannot expose: with `run.slice(i, i + 2)` over UTF-16 code units, a run
+      // of pure surrogate pairs still yields every real character at the even
+      // offsets, so it matches by accident. Put ONE BMP character next to one
+      // above the BMP and the alignment breaks — the slice straddling them is
+      // [low surrogate] + 「資」, so the legitimate bigram is never produced at
+      // all and no query can reach it.
+      const mixed = '\u{20BB7}\u8CC7';
+      expect(segmentUnspacedScripts(mixed).trim()).toBe(mixed);
+
+      kg.createEntity('boundary', 'note', { observations: [`${mixed}\u6599\u5EAB`] });
+      expect(kg.search(mixed).map((e) => e.name)).toContain('boundary');
+    });
+
+    it('never indexes half of a surrogate pair', () => {
+      // A lone surrogate is not a character. It cannot be typed, so no query
+      // produces it — it is pure index weight, and it is what code-unit slicing
+      // emits at every odd offset of a non-BMP run.
+      const out = segmentUnspacedScripts('\u{20BB7}\u{20089}\u{210C1}');
+      expect(out).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/); // unpaired high
+      expect(out).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/); // unpaired low
+    });
+
+    it('leaves a single non-BMP character untouched', () => {
+      // `chars.length === 1` has to count characters. Counting code units makes
+      // one Extension B character look like two, so it takes the bigram branch
+      // and comes back wrapped in spaces instead of unchanged.
+      expect(segmentUnspacedScripts('\u{20BB7}')).toBe('\u{20BB7}');
+    });
+
+    it('still leaves spaced scripts completely alone', () => {
+      // Widening the class is exactly how you accidentally start bigramming a
+      // script that uses spaces, which would wreck recall for it. Cyrillic and
+      // Greek are the near neighbours most at risk from a sloppy range.
+      for (const text of ['резервная копия базы данных', 'αντίγραφο ασφαλείας', 'नियमित बैकअप']) {
+        expect(segmentUnspacedScripts(text)).toBe(text);
+      }
+    });
   });
 
   describe('segmentUnspacedScripts', () => {
@@ -120,6 +214,30 @@ describe('Feature: CJK recall', () => {
       expect(kg.search('收').map((e) => e.name)).not.toContain('zh-final');
     });
 
+    it('round-trips text that arrives decomposed, in both directions', () => {
+      // 한글 and Vietnamese have two byte-level spellings that look identical:
+      // composed (NFC) and decomposed (NFD). macOS filesystem APIs, Finder
+      // copy and several Korean IMEs emit NFD, and the hooks capture file
+      // paths, so both reach the index as ordinary input.
+      //
+      // The index side and the query side must agree on WHICH spelling they
+      // store and search, or the two never meet. This is the same pairing
+      // invariant as segmentation, one layer down.
+      kg.createEntity('ko-nfd', 'note', {
+        observations: ['데이터베이스 백업 정책'.normalize('NFD')],
+      });
+      kg.createEntity('vi-nfd', 'note', {
+        observations: ['sao lưu dữ liệu trước khi chuyển đổi'.normalize('NFD')],
+      });
+
+      // Stored decomposed, asked composed.
+      expect(kg.search('데이터베이스'.normalize('NFC')).map((e) => e.name)).toContain('ko-nfd');
+      expect(kg.search('dữ liệu'.normalize('NFC')).map((e) => e.name)).toContain('vi-nfd');
+
+      // Stored composed, asked decomposed — 'ko-backup' above is composed.
+      expect(kg.search('데이터베이스'.normalize('NFD')).map((e) => e.name)).toContain('ko-backup');
+    });
+
     it('keeps deletes working — the index side and delete side must agree', () => {
       // Contentless FTS5 finds the row to delete by the values that were
       // INDEXED. If insertFtsRow segmented but removeFromFts did not, archiving
@@ -162,11 +280,57 @@ describe('Feature: CJK recall', () => {
         openDatabase(dbPath);
         const kg2 = new KnowledgeGraph(getDatabase());
         expect(kg2.search('資料庫遷移').map((e) => e.name)).toContain('legacy-note');
+        // Compared against the constant, not a literal. A hardcoded '1' here
+        // turned every future bump of the segmentation rules into a spurious
+        // test failure, which trains people to edit the expectation rather
+        // than ask whether the migration still works.
         expect(
           getDatabase()
             .prepare("SELECT value FROM memesh_metadata WHERE key = 'fts_segmentation_version'")
             .get()
-        ).toEqual({ value: '1' });
+        ).toEqual({ value: String(FTS_SEGMENTATION_VERSION) });
+      } finally {
+        try {
+          closeDatabase();
+        } catch {
+          /* already closed */
+        }
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('leaves a database that is already at the current version alone', () => {
+      // The rebuild is a delete-all over the whole index. It has to be a
+      // once-per-database event: if the version check stops working, every
+      // openDatabase() call — and every hook fires one — pays a full reindex.
+      //
+      // The observable consequence of a rebuild is that hand-written index
+      // state is overwritten, so writing a row the rebuild would not produce
+      // and checking it survives is what distinguishes "skipped" from "ran".
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cjk-idem-'));
+      const dbPath = path.join(dir, 'current.db');
+      try {
+        closeDatabase();
+        const db = openDatabase(dbPath);
+        const id = new KnowledgeGraph(db).createEntity('sentinel', 'note', {
+          observations: ['資料庫遷移前一定要先備份'],
+        });
+
+        // Replace the segmented row with an unsegmented one, but leave the
+        // marker at the current version. A correct guard does not touch it.
+        db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
+        db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(
+          id,
+          'sentinel',
+          '資料庫遷移前一定要先備份'
+        );
+        closeDatabase();
+
+        openDatabase(dbPath);
+        const kg2 = new KnowledgeGraph(getDatabase());
+        // Still unsegmented, so a partial-phrase query cannot reach it. If the
+        // rebuild ran anyway, it was repaired and this finds the row.
+        expect(kg2.search('資料庫遷移').map((e) => e.name)).not.toContain('sentinel');
       } finally {
         try {
           closeDatabase();

@@ -12,7 +12,7 @@ import { join } from 'path';
 
 // Opaque type for the @huggingface/transformers pipeline — no published types
 type OnnxPipeline = (text: string, opts: { pooling: string; normalize: boolean }) => Promise<{ data: ArrayLike<number> }>;
-import { detectCapabilities, type LLMConfig } from './config.js';
+import { detectCapabilities, getEmbeddingDimension, type LLMConfig } from './config.js';
 import { memeshDir } from './paths.js';
 
 let onnxPipelineInstance: OnnxPipeline | null = null;
@@ -79,7 +79,7 @@ const ONNX_TRANSFORMERS_PACKAGE = '@huggingface/transformers';
 // reconstruct the path and can't drift from what the embedder actually loads.
 const ONNX_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 const ONNX_CACHE_SUBDIR = 'models';
-const pendingEmbeddingWrites = new Set<Promise<void>>();
+const pendingEmbeddingWrites = new Set<Promise<unknown>>();
 
 /**
  * Is the local ONNX model already downloaded (so an embed call would NOT
@@ -113,6 +113,43 @@ export function isEmbeddingAvailable(): boolean {
   if (caps.embeddings === 'ollama') return true;
   if (caps.embeddings === 'onnx') return isOnnxAvailable();
   return false;
+}
+
+/**
+ * Prove that this machine can produce a vector of the width the index will be
+ * rebuilt to — by producing one.
+ *
+ * {@link isEmbeddingAvailable} is not enough to authorise a rebuild, and the
+ * difference is the difference between a claim and a proof. It answers "which
+ * provider did the config select", and for `openai` and `ollama` it answers
+ * `true` unconditionally: no key is checked, no endpoint is reached, no
+ * dimension is compared. A user whose key has expired, or who typed the
+ * provider name before pasting the key, or whose Ollama is not running, gets
+ * `true` — and `memesh reindex --vectors` then drops every embedding in the
+ * database and finds it cannot write a single one back. That is the
+ * unrecoverable loss the refusal exists to prevent, caused by the command
+ * offered as the safe way through it.
+ *
+ * One real embedding call answers both halves that matter: whether anything
+ * responds, and whether what it returns is the width `entities_vec` is about to
+ * be declared with. A provider that answers at the wrong width would leave the
+ * rebuilt index just as empty as no provider at all.
+ *
+ * Deliberately not cached: it is called once, immediately before a destructive
+ * step, and a stale yes is exactly what must not happen here.
+ */
+export async function canRefillVectorIndex(): Promise<boolean> {
+  const target = getEmbeddingDimension();
+  if (!Number.isInteger(target) || target <= 0) return false;
+  try {
+    const probe = await embedText('memesh vector index rebuild probe');
+    return probe !== null && probe.length === target;
+  } catch {
+    // A thrown provider error is a "no" like any other. Letting it propagate
+    // would abort the command with a stack trace instead of the refusal
+    // message that tells the user what to fix.
+    return false;
+  }
 }
 
 // getEmbeddingDimension() is in config.ts to avoid circular dependency with db.ts
@@ -188,14 +225,41 @@ export async function embedText(text: string): Promise<Float32Array | null> {
 }
 
 /**
- * Generate embedding and store in entities_vec.
- * Silently skips if embedding generation fails.
- * Validates dimension matches before writing to prevent silent failures.
+ * What `embedAndStore` actually did.
+ *
+ * The function has six exits and exactly one of them leaves a vector in the
+ * table, but it used to return `void` from all six — so the only signal a
+ * caller got was "it didn't throw". `reindex` read that as success and counted
+ * every one of them as embedded, then cleared `pending_reindex` and printed
+ * `✅ Reindex complete` over an index it had written nothing to. Naming the
+ * outcome is the fix; counting it is the caller's job.
  */
-export async function embedAndStore(entityId: number, text: string): Promise<void> {
+export type EmbedOutcome =
+  /** A vector for this entity is now in entities_vec. */
+  | 'stored'
+  /** Entity archived or gone — its stale vector was deleted. Correct end state. */
+  | 'removed'
+  /** The provider returned nothing (empty text, provider down, ONNX absent). */
+  | 'no_embedding'
+  /** Provider dimension ≠ the table's. Nothing written, on purpose. */
+  | 'dimension_mismatch'
+  /** The database write threw. */
+  | 'write_failed'
+  /** The database is closing. Nothing written, and nothing wrong. */
+  | 'database_closed';
+
+/**
+ * Generate an embedding and store it in entities_vec.
+ * Validates dimension matches before writing to prevent silent failures.
+ *
+ * Returns what happened — see {@link EmbedOutcome}. Callers that report
+ * progress MUST branch on it; treating a non-throw as a write is the defect
+ * this return value exists to remove.
+ */
+export async function embedAndStore(entityId: number, text: string): Promise<EmbedOutcome> {
   try {
     const embedding = await embedText(text);
-    if (!embedding) return;
+    if (!embedding) return 'no_embedding';
 
     const db = getDatabase();
 
@@ -210,13 +274,20 @@ export async function embedAndStore(entityId: number, text: string): Promise<voi
     const actualDim = embedding.length;
 
     if (expectedDim > 0 && actualDim !== expectedDim) {
+      // Two different causes land here and they need different instructions.
+      // A transient provider fallback (Ollama down → ONNX) is fixed by
+      // repairing the provider and re-running `memesh reindex`. A deliberate
+      // embedder switch is NOT: plain `reindex` cannot change the table's
+      // dimension, so it would keep hitting this same branch forever. That is
+      // what `--vectors` is for.
       process.stderr.write(
         `MeMesh: Embedding dimension mismatch (got ${actualDim}, expected ${expectedDim}). ` +
-        `This usually means the configured provider failed and fallback was used. ` +
         `Skipping vector write for entity ${entityId}. ` +
-        `Run 'memesh reindex' after fixing provider configuration.\n`
+        `If the configured provider failed and a fallback was used, fix the provider and run ` +
+        `'memesh reindex'. If you meant to switch embedders, the vector index has to be ` +
+        `rebuilt at the new dimension: 'memesh reindex --vectors'.\n`
       );
-      return;
+      return 'dimension_mismatch';
     }
 
     const rowId = toVectorRowId(entityId);
@@ -226,7 +297,7 @@ export async function embedAndStore(entityId: number, text: string): Promise<voi
 
     if (!entity || entity.status === 'archived') {
       db.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(rowId);
-      return;
+      return 'removed';
     }
 
     const writeVector = db.transaction(() => {
@@ -238,13 +309,15 @@ export async function embedAndStore(entityId: number, text: string): Promise<voi
       );
     });
     writeVector();
+    return 'stored';
   } catch (err) {
-    if (isDatabaseLifecycleError(err)) return;
+    if (isDatabaseLifecycleError(err)) return 'database_closed';
 
     // DB write failed — log and skip
     if (err && typeof err === 'object' && 'message' in err) {
       process.stderr.write(`MeMesh: Vector write failed for entity ${entityId}: ${err.message}\n`);
     }
+    return 'write_failed';
   }
 }
 

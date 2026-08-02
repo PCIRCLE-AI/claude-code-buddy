@@ -62,10 +62,27 @@ targets.push(...await walk(join(repoRoot, 'skills')));
 // Hooks — every .js under scripts/hooks
 targets.push(...(await walk(join(repoRoot, 'scripts', 'hooks'))).filter(p => p.endsWith('.js')));
 
-// Single-file artefacts (declarative wiring read by Claude Code itself)
+// Single-file artefacts (declarative wiring read by Claude Code itself).
+//
+// A missing one is a BUILD FAILURE, not something to skip. These three are the
+// files that tell Claude Code how to load the plugin; silently omitting one
+// from the manifest means `memesh doctor` verifies what remains, reports
+// "Skills + hooks integrity PASS", and says nothing about the package having
+// shipped without its wiring — absence read as success, which is the defect
+// class this release exists to remove.
 for (const f of ['hooks/hooks.json', '.mcp.json', '.claude-plugin/plugin.json']) {
   const full = join(repoRoot, f);
-  try { statSync(full); targets.push(full); } catch { /* missing — skip */ }
+  try {
+    statSync(full);
+  } catch {
+    process.stderr.write(
+      `[skills-manifest] required file missing: ${f}\n` +
+        `  It is part of the plugin's declarative wiring. Generating a manifest without it\n` +
+        `  would make 'memesh doctor' report integrity PASS for a package that lacks it.\n`
+    );
+    process.exit(1);
+  }
+  targets.push(full);
 }
 
 const entries = targets
@@ -77,9 +94,15 @@ const entries = targets
   .sort((a, b) => a.path.localeCompare(b.path));
 
 mkdirSync(distDir, { recursive: true });
+// No timestamp. It was written and never read — `doctor.ts` verifies
+// `entries[].sha256` and nothing else — and it made every build produce a
+// different file, which is why nothing could gate "is the committed build
+// output current?". `dist/` is what plugin-marketplace installs run: they
+// install with --ignore-scripts and never build, so committed-vs-source drift
+// there ships code the repository does not describe. Determinism is what makes
+// that checkable; scripts/check-generated-mirror.mjs does the checking.
 const manifest = {
   schema: 'memesh.skills-manifest/v1',
-  generated_at: new Date().toISOString(),
   entries,
 };
 writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');

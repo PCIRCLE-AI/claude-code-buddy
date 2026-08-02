@@ -30,11 +30,15 @@
     "test": "vitest",
     "test:e2e-dashboard": "node scripts/dashboard-e2e-smoke.mjs",
     "test:packaged": "node scripts/smoke-packed-artifact.mjs",
+    "audit:prod": "node scripts/check-consumer-audit.mjs",
+    "verify:release": "npm run lint && npm run typecheck && node scripts/check-version-coherence.mjs && node scripts/check-generated-mirror.mjs && npm run audit:prod",
+    "prepublishOnly": "npm run build && npm run verify:release && npm run test:isolated && npm run test:packaged",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/ scripts/ --max-warnings 0",
     "lint:fix": "eslint src/ scripts/ --fix",
     "start": "node dist/mcp/launcher.js",
-    "bench:longmemeval": "node benchmarks/longmemeval/run.mjs --mode A --dataset /tmp/longmemeval_s.json"
+    "bench:longmemeval": "node benchmarks/longmemeval/run.mjs --mode A --dataset /tmp/longmemeval_s.json",
+    "test:isolated": "node scripts/run-tests-isolated.mjs"
   },
   "author": "PCIRCLE-AI",
   "license": "MIT",
@@ -55,8 +59,7 @@
     "url": "git+https://github.com/PCIRCLE-AI/memesh-llm-memory.git"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.2.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "better-sqlite3": "^12.9.0",
     "commander": "^14.0.3",
     "express": "^5.2.1",
@@ -64,8 +67,31 @@
     "sqlite-vec": "^0.1.9",
     "zod": "4.4.3"
   },
+  "peerDependencies": {
+    "@huggingface/transformers": "^4.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@huggingface/transformers": {
+      "optional": true
+    }
+  },
+  "overrides": {
+    "@hono/node-server": "^2.0.12",
+    "@protobufjs/utf8": "^1.1.2",
+    "adm-zip": "^0.6.0",
+    "body-parser": "^2.3.0",
+    "brace-expansion": "^5.0.9",
+    "fast-uri": "^3.1.4",
+    "hono": "^4.12.32",
+    "postcss": "^8.5.25",
+    "protobufjs": "^7.6.5",
+    "qs": "^6.15.3",
+    "sharp": "^0.35.3",
+    "ws": "^8.21.1"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@huggingface/transformers": "^4.2.0",
     "@preact/preset-vite": "^2.10.5",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/preact": "^3.2.4",

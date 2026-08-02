@@ -316,7 +316,9 @@ Cuando npm marca una versión instalada como deprecada (típicamente un aviso de
 
 ## Características Inteligentes
 
-**🧠 Búsqueda Inteligente** — Busca "login security" y encuentra memorias sobre "OAuth PKCE". MeMesh expande consultas con términos relacionados usando tu LLM configurado.
+**🧠 Búsqueda Inteligente** — Busca "login security" y encuentra memorias sobre "OAuth PKCE". MeMesh usa FTS5 + sqlite-vec en la ruta caliente, sin LLM; el complemento vectorial aún alcanza términos relacionados.
+
+**🌏 Búsqueda en escrituras que no separan las palabras con espacios** — El chino, el japonés, el coreano, el tailandés, el lao, el jemer y el katakana de media anchura se indexan como pares de caracteres solapados. Así, un recuerdo escrito como 「資料庫遷移前一定要先備份」 se encuentra buscando 「備份」, no solo con su texto completo exacto. El texto se normaliza (NFC) tanto al escribir como al consultar, de modo que un recuerdo tecleado en macOS o con un IME coreano o vietnamita se encuentra en cualquiera de las dos grafías.
 
 **📊 Ranking Puntuado** — Los resultados se clasifican por relevancia (30%) + recencia (25%) + frecuencia (18%) + confianza (17%) + impacto de recuperación (10%).
 

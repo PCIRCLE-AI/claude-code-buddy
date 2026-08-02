@@ -261,4 +261,41 @@ describe('Feature: PreCompact Hook', () => {
     expect(parsed).not.toHaveProperty('hookSpecificOutput');
     expect(HOOK_SPECIFIC_OUTPUT_EVENTS).not.toHaveProperty('PreCompact');
   });
+
+  it('Scenario: says it could not save, rather than announcing a save that failed', () => {
+    // `captureEntity` returns null when the entity row cannot be resolved after
+    // its INSERT. The message used to print "Saved N insights" regardless, with
+    // N derived from the transcript instead of from what was written — a
+    // success-shaped report for a save that did not happen, which is the exact
+    // class this release exists to remove.
+    //
+    // Forced with a CHECK constraint: `INSERT OR IGNORE` skips a row that
+    // violates one, so the insert is silently dropped and the follow-up SELECT
+    // finds nothing — captureEntity's null path, reached without stubbing it.
+    const Database = require('better-sqlite3');
+    const seed = new Database(dbPath);
+    seed.exec(`
+      CREATE TABLE entities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL CHECK (type <> 'session-summary'),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        metadata JSON,
+        status TEXT NOT NULL DEFAULT 'active'
+      );
+    `);
+    seed.close();
+
+    const result = runHook({
+      session_id: 'sess-cannot-save',
+      transcript_path: '',
+      cwd: '/tmp/myproject',
+      hook_event_name: 'PreCompact',
+      reason: 'auto',
+    });
+
+    const parsed = JSON.parse(result.trim());
+    expect(parsed.systemMessage).toContain('could not save');
+    expect(parsed.systemMessage).not.toMatch(/^Saved /);
+  });
 });

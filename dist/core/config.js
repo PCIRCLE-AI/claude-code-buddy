@@ -11,12 +11,12 @@ function configFilePath() {
     return path.join(configDir(), 'config.json');
 }
 let lastConfigReadWarning = null;
-export function readConfig() {
+export function readConfigResult() {
     const p = configFilePath();
     if (!fs.existsSync(p))
-        return {};
+        return { config: {}, state: 'absent' };
     try {
-        return JSON.parse(fs.readFileSync(p, 'utf8'));
+        return { config: JSON.parse(fs.readFileSync(p, 'utf8')), state: 'ok' };
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -30,8 +30,11 @@ export function readConfig() {
             }
             catch { }
         }
-        return {};
+        return { config: {}, state: 'unreadable' };
     }
+}
+export function readConfig() {
+    return readConfigResult().config;
 }
 export function writeConfig(config) {
     const dir = configDir();
@@ -49,8 +52,17 @@ export function writeConfig(config) {
     catch {
     }
 }
+export class ConfigUnreadableError extends Error {
+    constructor(p) {
+        super(`Refusing to modify ${p}: the existing config could not be read, so saving ` +
+            `would silently delete every setting already in it. Fix or remove the file, then retry.`);
+        this.name = 'ConfigUnreadableError';
+    }
+}
 export function updateConfig(partial) {
-    const existing = readConfig();
+    const { config: existing, state } = readConfigResult();
+    if (state === 'unreadable')
+        throw new ConfigUnreadableError(configFilePath());
     const { llm: partialLlm, ...partialRest } = partial;
     const config = { ...existing, ...partialRest };
     if (partialLlm === null) {
@@ -131,6 +143,14 @@ export function getEmbeddingDimension(config) {
     const cfg = config ?? readConfig();
     const source = detectEmbeddingSource(cfg.llm ?? null, cfg.embedder);
     return EMBEDDING_DIMENSIONS[source] ?? 384;
+}
+export function resolveEmbeddingDimension() {
+    const { config, state } = readConfigResult();
+    return {
+        dimension: getEmbeddingDimension(config),
+        confident: state !== 'unreadable',
+        configured: state === 'ok',
+    };
 }
 export function logCapabilities(config) {
     const caps = detectCapabilities(config);

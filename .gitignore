@@ -79,9 +79,15 @@ landing-page/
 # benchmarks/* not benchmarks/ — git does not descend into an excluded
 # directory, so a `!` exception under `benchmarks/` never takes effect and new
 # files in the published evidence pack cannot be added without -f.
+#
+# Un-ignoring the DIRECTORY is enough: `benchmarks/*` only matches its direct
+# children, so everything below `benchmarks/longmemeval/` is trackable once git
+# descends into it. Do not add a recursive `!benchmarks/longmemeval/**` — a
+# later negation wins, so it would override the global `.env` and `data/` rules
+# above for this whole subtree, in a public repo, in the one directory
+# REPRODUCE.md tells people to download a dataset into.
 benchmarks/*
 !benchmarks/longmemeval/
-!benchmarks/longmemeval/**
 experiments/
 .archive/
 MIGRATION.md

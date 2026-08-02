@@ -22,14 +22,36 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Release tag matches package.json
+        # Cheapest possible first gate. Without it a tag/version mismatch either
+        # publishes the wrong number under the right release notes, or fails at
+        # the very last step after the whole build and both smoke suites.
+        #
+        # The tag goes through `env:`, NOT `${{ }}` inside `run:`. Actions
+        # substitutes an expression into the script text BEFORE bash parses it,
+        # and `git check-ref-format` permits `$`, backtick, `(` and `)` in a tag
+        # name — verified: git accepts `v4.2.12$(id)`. Double quotes do not help,
+        # because command substitution happens inside them. A release cut on such
+        # a tag would run arbitrary code in this job, which is the job that holds
+        # NPM_TOKEN: the injected step runs before `npm ci`, so it could patch a
+        # lifecycle script and have the publish step ship a backdoored tarball to
+        # every consumer. Creating a release needs only `contents: write`, so
+        # that would be a privilege escalation to npm-publish for this package.
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: node scripts/check-tag-matches-version.mjs "$RELEASE_TAG"
+
       - name: Install dependencies
         run: npm ci
 
       - name: Build project
         run: npm run build
 
-      - name: Build dashboard
-        run: cd dashboard && npm ci && npx vite build
+      # No separate "Build dashboard" step: `npm run build` above already
+      # produces it via scripts/build-dashboard.mjs, with a locked install.
+      # ci.yml removed the identical step; leaving it here is the same
+      # "two hand-maintained copies of what must be true before this ships"
+      # the release gate exists to prevent.
 
       - name: Run tests
         run: npm test -- --run
@@ -42,6 +64,25 @@ jobs:
 
       - name: Smoke test packaged dashboard
         run: npm run test:e2e-dashboard
+
+      - name: Release gates (version coherence + F5 mirror drift)
+        # The same gates ci.yml runs on every PR. This workflow had neither, so
+        # the publish path enforced strictly less than the review path — and
+        # .claude-plugin/plugin.json and marketplace.json ship INSIDE the
+        # tarball, so a partial version bump reached plugin-marketplace users
+        # with a mismatched stamp and nothing to catch it.
+        env:
+          # Makes the CHANGELOG `[Unreleased]` anchor a hard error here. The
+          # script also infers this from npm_command/GITHUB_EVENT_NAME, but
+          # stating it at the call site is what makes the intent readable.
+          MEMESH_RELEASE: '1'
+        run: npm run verify:release
+
+      - name: Doctor (manifest + hooks integrity gate)
+        # Must run after `npm run build` so dist/skills-manifest.json is current.
+        # Catches the "version bumped but manifest stale" pattern that surfaces
+        # post-install as `Skills + hooks integrity FAIL` for users.
+        run: node dist/transports/cli/cli.js doctor
 
       - name: Verify package contents
         run: npm pack --dry-run

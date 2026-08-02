@@ -43,7 +43,22 @@ function run(label, cmd, args, opts = {}) {
 
 const nodeModules = join(DASHBOARD_DIR, 'node_modules');
 if (!existsSync(nodeModules)) {
-  run('install dashboard deps', 'npm', ['install', '--silent', '--no-audit', '--no-fund']);
+  // `npm ci` when there is a lockfile, `npm install` only when there is not.
+  //
+  // This unconditionally ran `npm install`, justified as tolerating lockfile
+  // drift during development. But `dashboard/dist/index.html` is a COMMITTED,
+  // SHIPPED artifact, and the one situation where node_modules is absent is a
+  // clean CI checkout — exactly where the dependency set must be pinned. So the
+  // convenience applied where it was never needed and the pinning was missing
+  // where it always is.
+  const hasLockfile = existsSync(join(DASHBOARD_DIR, 'package-lock.json'));
+  run(
+    hasLockfile ? 'install dashboard deps (locked)' : 'install dashboard deps',
+    'npm',
+    hasLockfile
+      ? ['ci', '--silent', '--no-audit', '--no-fund']
+      : ['install', '--silent', '--no-audit', '--no-fund']
+  );
 } else {
   console.log('[build:dashboard] dashboard/node_modules present; skipping install.');
 }

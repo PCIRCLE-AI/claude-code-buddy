@@ -60,6 +60,10 @@ describe('verifyAgentWork — reality check', () => {
     expect(result.reality_check.match).toBe(true);
     expect(result.reality_check.files_changed).toBe(2);
     expect(result.entity_name).toMatch(/^verification:agent-1:/);
+    // Both aliases track `verdict`, so a 4.2.10 caller reading either keeps
+    // getting the right answer on the path that always worked.
+    expect(result.pass).toBe(true);
+    expect(result.reality_check.pass).toBe(true);
   });
 
   it('fails when claim says fewer files than actual', () => {
@@ -99,6 +103,14 @@ describe('verifyAgentWork — reality check', () => {
     expect(result.reality_check.match).toBeNull();
     expect(result.reality_check.files_changed).toBe(1);
     expect(result.reality_check.summary).toContain('no claim to check against');
+
+    // The deprecated booleans, at BOTH levels, and specifically for the case
+    // the old encoding got wrong. 4.2.10 shipped `pass` on the result AND on
+    // `reality_check`; keeping one as an alias while deleting the other broke a
+    // caller for exactly the reason given for not breaking the first. Present,
+    // and `false` here — an unverified run is not a pass.
+    expect(result.pass).toBe(false);
+    expect(result.reality_check.pass).toBe(false);
   });
 
   it('a claim alone is enough to earn a pass', () => {
@@ -370,5 +382,111 @@ describe('verifyAgentWork — workdir handling (subdir + symlink, codex 2026-05-
       try { fs.unlinkSync(linkPath); } catch { /* ignore */ }
       fs.rmSync(linkParent, { recursive: true, force: true });
     }
+  });
+});
+
+describe('a claim that could not be evaluated is not a pass', () => {
+  /**
+   * `realityCheck` returns early when no git base is discoverable — BEFORE
+   * `expected_files` is ever compared. The caller asked for two checks, one
+   * silently did not run, and the tool reported an unqualified pass on the
+   * strength of the other. That is the same "absence read as evidence" shape
+   * the rest of this release removes, in the tool whose entire job is to say
+   * whether something was actually checked.
+   *
+   * Measured before the fix: expected_files 99 against a single-commit repo on
+   * a branch with no discoverable base returned match: null, base: null,
+   * verdict: "pass".
+   */
+  function repoWithNoDiscoverableBase(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'verifier-lonely-'));
+    // Not main, not develop, no remote, and only one commit — so every
+    // candidate in resolveBase fails, including HEAD~1.
+    git(dir, ['init', '-b', 'detached-work']);
+    git(dir, ['config', 'user.email', 'test@test.local']);
+    git(dir, ['config', 'user.name', 'Test']);
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'one\n');
+    git(dir, ['add', '.']);
+    git(dir, ['commit', '-m', 'only commit']);
+    return dir;
+  }
+
+  it('does not report pass when the file claim never ran', () => {
+    const repo = repoWithNoDiscoverableBase();
+    try {
+      const result = verifyAgentWork({
+        agent_id: 'probe',
+        workdir: repo,
+        claim: { expected_files: 99 },
+        report: { pass: true },
+      });
+
+      // The claim was supplied and demonstrably not evaluated.
+      expect(result.reality_check.match).toBeNull();
+      expect(result.reality_check.base).toBeNull();
+      // So the answer is "I could not check that", not "it passed".
+      expect(result.verdict).toBe('unverified');
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it('still passes when the caller supplied no file claim at all', () => {
+    // No claim means nothing went unchecked — the report alone is a real,
+    // sufficient answer. Without this case the fix above could be "return
+    // unverified whenever there is no base", which would be too broad.
+    const repo = repoWithNoDiscoverableBase();
+    try {
+      const result = verifyAgentWork({
+        agent_id: 'probe',
+        workdir: repo,
+        report: { pass: true },
+      });
+      expect(result.verdict).toBe('pass');
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('the deprecated `pass` alias', () => {
+  /**
+   * `pass: boolean` was removed outright in favour of `verdict`, which made a
+   * patch release break every consumer reading `result.pass` on the MCP tool
+   * result, the HTTP /v1/verify body and `memesh verify --json`. It is back as
+   * a derived alias for one minor cycle.
+   *
+   * The point of the alias is that it does NOT reintroduce the bug: it mirrors
+   * `verdict === 'pass'`, so an unverified run reads as false rather than
+   * true, which is what the old boolean got wrong.
+   */
+  it('mirrors verdict for a genuine pass', () => {
+    commitFiles(tmpRepo, { 'a.ts': 'export const a = 1;\n' }, 'add a');
+    const result = verifyAgentWork({
+      agent_id: 'agent-1',
+      workdir: tmpRepo,
+      base: 'main',
+      claim: { expected_files: 1 },
+    });
+    expect(result.verdict).toBe('pass');
+    expect(result.pass).toBe(true);
+  });
+
+  it('is false — not true — when nothing was checked', () => {
+    const result = verifyAgentWork({ agent_id: 'agent-1', workdir: tmpRepo, base: 'main' });
+    expect(result.verdict).toBe('unverified');
+    expect(result.pass).toBe(false);
+  });
+
+  it('is false when the claim did not hold', () => {
+    commitFiles(tmpRepo, { 'a.ts': 'export const a = 1;\n' }, 'add a');
+    const result = verifyAgentWork({
+      agent_id: 'agent-1',
+      workdir: tmpRepo,
+      base: 'main',
+      claim: { expected_files: 9 },
+    });
+    expect(result.verdict).toBe('fail');
+    expect(result.pass).toBe(false);
   });
 });

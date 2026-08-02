@@ -12,7 +12,8 @@ const BUCKETS: AgeBucket[] = ['week', 'month', 'quarter', 'older'];
 /** Look up a localised header for an age bucket. Falls back to the
  *  raw bucket key if the i18n catalogue is missing the entry. */
 function bucketLabel(bucket: AgeBucket): string {
-  return t(`ageMatrix.bucket.${bucket}`) || bucket;
+  // See KnowledgeRadar.axisLabel — `|| bucket` was unreachable.
+  return t(`ageMatrix.bucket.${bucket}`);
 }
 
 // Types displayed in order (most diagnostic ones first)
@@ -27,7 +28,8 @@ const TYPE_ORDER = [
 
 /** Look up a localised label for an entity type column. */
 function typeLabel(type: string): string {
-  return t(`ageMatrix.type.${type}`) || type;
+  // See KnowledgeRadar.axisLabel — `|| type` was unreachable.
+  return t(`ageMatrix.type.${type}`);
 }
 
 // Intensity color: 0 = no data, higher = more vivid cyan

@@ -82,7 +82,6 @@ process.stdin.on('end', () => {
       }
     }
 
-    const insightCount = editedFiles.size + (toolCallCount > 0 ? 1 : 0);
     const entityName = `pre-compact-${sessionId}`;
 
     // Build observation content
@@ -98,10 +97,11 @@ process.stdin.on('end', () => {
     const handle = openHookDb(process.env, { fts: true });
     if (!handle) return;
     const { db } = handle;
+    let written = null;
     try {
       // Shared write dance — upsert entity + observations + tags AND reindex FTS
       // so the pre-compact memory is recallable via the FTS keyword path.
-      captureEntity(db, {
+      written = captureEntity(db, {
         name: entityName,
         type: 'session-summary',
         observations: obsLines,
@@ -122,8 +122,19 @@ process.stdin.on('end', () => {
     // `systemMessage` is a valid top-level field for any event and carries
     // the same information to the user. The contract is asserted in
     // tests/helpers/hook-output-contract.ts; do not hand-roll a shape here.
+    // Report what was WRITTEN, not what was counted. The old message printed a
+    // count derived from the transcript, unconditionally, and discarded
+    // `captureEntity`'s null return — the entity row could not be resolved — so
+    // it announced a save that may not have happened, with a number that never
+    // matched the one entity and handful of observations actually written.
+    //
+    // `obsLines.length` is the honest count on the success branch:
+    // `captureEntity` inserts every observation or throws, so a non-null return
+    // means all of them landed.
     const hookOutput = {
-      systemMessage: `Saved ${insightCount} insights to MeMesh before compaction`,
+      systemMessage: written
+        ? `Saved ${obsLines.length} observations to MeMesh before compaction`
+        : 'MeMesh: could not save pre-compaction insights (see stderr)',
     };
     console.log(JSON.stringify(hookOutput));
   } catch (err) {

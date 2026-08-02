@@ -41,38 +41,46 @@ jobs:
         # `eslint-disable` comments require explicit justification.
         run: npm run lint
 
-      - name: TypeScript check
-        run: npm run typecheck
+      # No separate Build step: the release gate below builds, because a gate
+      # that only diffs committed output against an unbuilt tree reports "up to
+      # date" for a tree whose source was edited and never rebuilt. Keeping both
+      # meant every leg of this matrix compiled twice — visible as Windows going
+      # from ~1m20 to ~5m20. The steps after this one still get a current dist/.
 
-      - name: Version coherence (catches partial bumps)
-        run: node scripts/check-version-coherence.mjs
+      - name: Release gates (the same ones the publish path runs)
+        # `npm run verify:release`, not a hand-listed copy of what it contains.
+        #
+        # This used to enumerate typecheck + version coherence + mirror drift as
+        # separate steps here, while `verify:release` — which publish-npm.yml
+        # and `prepublishOnly` both call — held those PLUS the consumer-tree
+        # dependency audit. The two lists drifted, and the missing one was the
+        # audit, so `npm pack` -> install -> `npm audit` never ran on Windows at
+        # all. That is where `execFileSync('npm')` failing with ENOENT (and then
+        # `npm.cmd` with EINVAL) hid: the script could not run on Windows and
+        # nothing on Windows ran the script.
+        #
+        # One name, so the matrix cannot enforce something different from the
+        # publish path again. Must come after Build — the mirror gate diffs what
+        # the build regenerates.
+        #
+        # Lint stays as its own step above for fail-fast; verify:release runs it
+        # again for ~3s, which is the cost of having one authoritative list.
+        run: npm run verify:release
 
-      - name: Build
-        run: npm run build
-
-      - name: Generated hook-core is committed (F5 mirror drift gate)
-        # `npm run build` regenerates scripts/hooks/_generated/ from the compiled
-        # leaf modules. If a maintainer edited src/core/paths.ts or
-        # src/storage/fts-index.ts but didn't regenerate + commit the hook copy,
-        # the build above rewrote it and this diff is non-empty. Fail loudly so
-        # the mirror can never silently drift (the class of bug behind the P0 FTS
-        # omission). See scripts/generate-hook-core.mjs.
-        shell: bash
-        run: |
-          if ! git diff --quiet -- scripts/hooks/_generated; then
-            echo "::error::scripts/hooks/_generated is stale — run 'npm run build' and commit the regenerated files."
-            git --no-pager diff -- scripts/hooks/_generated
-            exit 1
-          fi
-
-      - name: Build dashboard
-        run: cd dashboard && npm ci && npx vite build
+      # No separate "Build dashboard" step either: the build the gate runs
+      # produces it, via scripts/build-dashboard.mjs. Having both meant the
+      # dashboard was built TWICE with different installs — an unpinned
+      # `npm install` (node_modules absent on a clean runner) and an `npm ci`
+      # here — and this one ran AFTER the release gates, so the mirror gate
+      # diffed the artifact the unpinned install produced. That is how the
+      # committed bundle could differ on Windows with every gate green.
 
       - name: Run tests
         run: npm test -- --run
 
       - name: Doctor (manifest + hooks integrity gate)
-        # Must run AFTER `npm run build` so dist/skills-manifest.json
+        # Must run AFTER the build (which the release gate performs) so
+        # dist/skills-manifest.json
         # is present + current. Catches the "version bumped but
         # manifest stale" failure pattern that surfaces post-install
         # as `Skills + hooks integrity FAIL` for users.
@@ -117,9 +125,6 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Build dashboard
-        run: cd dashboard && npm ci && npx vite build
-
       - name: Verify packaged artifact
         run: npm run test:packaged
 
@@ -147,9 +152,6 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      - name: Build dashboard
-        run: cd dashboard && npm ci && npx vite build
 
       - name: Run packaged dashboard e2e smoke
         run: npm run test:e2e-dashboard

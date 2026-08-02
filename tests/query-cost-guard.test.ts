@@ -44,6 +44,18 @@ describe('Feature: query cost guard', () => {
     });
   }
 
+  it('actually drops the ubiquitous term instead of OR-ing it in', () => {
+    seedCorpus();
+    // Every case below this one is one-sided: it checks the guard does not
+    // over-filter, which is equally true when the guard does not run at all.
+    // This is the case that fails when it stops running. "the" is in all 41
+    // rows and is dropped, leaving `"kubernetes"` alone as the MATCH
+    // expression; without the guard the query is `"the" OR "kubernetes"` and
+    // every row in the corpus comes back.
+    const names = kg.search('the kubernetes').map((e) => e.name);
+    expect(names).toEqual(['kubernetes-decision']);
+  });
+
   it('still finds the memory when the query mixes a rare word with ubiquitous ones', () => {
     seedCorpus();
     // "the" and "service" are in every row and carry no signal; "kubernetes" is

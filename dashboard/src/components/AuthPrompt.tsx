@@ -4,6 +4,13 @@ import { t } from '../lib/i18n';
 interface Props {
   currentToken: string | null;
   onSubmit: (token: string) => void;
+  /**
+   * True when a token was submitted and the server rejected it. Without this
+   * the screen cannot distinguish "you have not entered a token yet" from
+   * "the one you entered is wrong" — and it showed the same unchanged title
+   * for both.
+   */
+  rejected?: boolean;
 }
 
 /**
@@ -34,7 +41,7 @@ interface Props {
  * lookup call in a comment makes it demand a key of that name. Describe, don't
  * demonstrate — hence the prose above.
  */
-export function AuthPrompt({ currentToken, onSubmit }: Props) {
+export function AuthPrompt({ currentToken, onSubmit, rejected = false }: Props) {
   const [value, setValue] = useState(currentToken ?? '');
   const [touched, setTouched] = useState(false);
 
@@ -44,6 +51,17 @@ export function AuthPrompt({ currentToken, onSubmit }: Props) {
     if (!value.trim()) return;
     onSubmit(value.trim());
   }
+
+  const showEmptyError = touched && !value.trim();
+  // The rejected message is mutually exclusive with the empty one below, so
+  // there is at most one error on screen and it can own a single stable id.
+  const showRejectedError = rejected && !showEmptyError;
+  // Both messages are errors about THIS field, so both must reach it. Wiring
+  // only the empty case left a screen-reader user who pasted a wrong token
+  // hearing the alert once and then finding a field that reports itself valid
+  // and describes nothing — the announcement and the control disagreeing about
+  // whether anything is wrong.
+  const errorId = showEmptyError || showRejectedError ? 'auth-prompt-error' : undefined;
 
   return (
     <div class="auth-prompt-shell" data-testid="auth-prompt">
@@ -58,11 +76,36 @@ export function AuthPrompt({ currentToken, onSubmit }: Props) {
             value={value}
             onInput={(e) => setValue((e.target as HTMLInputElement).value)}
             placeholder={t('auth.tokenPlaceholder')}
-            required
+            // `required` is deliberately absent. With it, the browser blocks
+            // submission on an empty field, so submit() never runs, setTouched
+            // never fires, and the auth.empty message below was reachable only
+            // for whitespace — never for the empty case its own text names.
+            // That is the same dead-branch shape this file was fixed for.
+            // The component's own check handles both.
+            aria-invalid={errorId !== undefined}
+            aria-describedby={errorId}
+            // The only field on a screen the user arrives at involuntarily, via
+            // a 401. Not focusing it makes them hunt for it before pasting.
+            autofocus
           />
         </label>
-        {touched && !value.trim() && (
-          <p class="auth-prompt-error">{t('auth.empty')}</p>
+        {showEmptyError && (
+          // role="alert" so a screen reader announces it. Without a live
+          // region the text is inserted silently, focus stays on the button,
+          // and a non-sighted operator gets no signal that anything happened.
+          <p class="auth-prompt-error" id={errorId} role="alert">
+            {t('auth.empty')}
+          </p>
+        )}
+        {showRejectedError && (
+          // Pasting a WRONG token used to produce no feedback at all: the
+          // shell flashed, the 401 flipped back, and AuthPrompt remounted with
+          // the rejected token pre-filled and an unchanged title. On a
+          // remote-bound deployment the operator could not tell a bad token
+          // from a broken page.
+          <p class="auth-prompt-error" id={errorId} role="alert">
+            {t('auth.invalid')}
+          </p>
         )}
         <button type="submit" class="auth-prompt-submit">
           {t('auth.submit')}

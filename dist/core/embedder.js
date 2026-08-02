@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { existsSync } from 'fs';
 import { getDatabase } from '../db.js';
 import { join } from 'path';
-import { detectCapabilities } from './config.js';
+import { detectCapabilities, getEmbeddingDimension } from './config.js';
 import { memeshDir } from './paths.js';
 let onnxPipelineInstance = null;
 let onnxPipelineLoading = null;
@@ -34,6 +34,18 @@ export function isEmbeddingAvailable() {
     if (caps.embeddings === 'onnx')
         return isOnnxAvailable();
     return false;
+}
+export async function canRefillVectorIndex() {
+    const target = getEmbeddingDimension();
+    if (!Number.isInteger(target) || target <= 0)
+        return false;
+    try {
+        const probe = await embedText('memesh vector index rebuild probe');
+        return probe !== null && probe.length === target;
+    }
+    catch {
+        return false;
+    }
 }
 export { getEmbeddingDimension } from './config.js';
 export function resetEmbeddingState() {
@@ -84,36 +96,39 @@ export async function embedAndStore(entityId, text) {
     try {
         const embedding = await embedText(text);
         if (!embedding)
-            return;
+            return 'no_embedding';
         const db = getDatabase();
         const storedDim = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get();
         const expectedDim = storedDim ? parseInt(storedDim.value, 10) : 0;
         const actualDim = embedding.length;
         if (expectedDim > 0 && actualDim !== expectedDim) {
             process.stderr.write(`MeMesh: Embedding dimension mismatch (got ${actualDim}, expected ${expectedDim}). ` +
-                `This usually means the configured provider failed and fallback was used. ` +
                 `Skipping vector write for entity ${entityId}. ` +
-                `Run 'memesh reindex' after fixing provider configuration.\n`);
-            return;
+                `If the configured provider failed and a fallback was used, fix the provider and run ` +
+                `'memesh reindex'. If you meant to switch embedders, the vector index has to be ` +
+                `rebuilt at the new dimension: 'memesh reindex --vectors'.\n`);
+            return 'dimension_mismatch';
         }
         const rowId = toVectorRowId(entityId);
         const entity = db.prepare('SELECT status FROM entities WHERE id = ?').get(entityId);
         if (!entity || entity.status === 'archived') {
             db.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(rowId);
-            return;
+            return 'removed';
         }
         const writeVector = db.transaction(() => {
             db.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(rowId);
             db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)').run(rowId, toVectorBlob(embedding));
         });
         writeVector();
+        return 'stored';
     }
     catch (err) {
         if (isDatabaseLifecycleError(err))
-            return;
+            return 'database_closed';
         if (err && typeof err === 'object' && 'message' in err) {
             process.stderr.write(`MeMesh: Vector write failed for entity ${entityId}: ${err.message}\n`);
         }
+        return 'write_failed';
     }
 }
 export function vectorSearch(queryEmbedding, limit = 20) {

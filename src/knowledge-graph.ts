@@ -2,7 +2,14 @@ import Database from 'better-sqlite3';
 export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
 import type { Entity, Relation, CreateEntityInput, SearchOptions, EntityRow } from './core/types.js';
 import { findConflicts, trackAccess } from './storage/conflicts.js';
-import { insertFtsRow, removeFromFts, segmentUnspacedScripts } from './storage/fts-index.js';
+import {
+  insertFtsRow,
+  removeFromFts,
+  tokenizeQuery,
+  renderMatchExpression,
+  registerNfcFunction,
+  SQL_NFC_FUNCTION,
+} from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 
 /**
@@ -45,11 +52,16 @@ const MAX_QUERY_TERMS = 32;
  * for a rare query shape; pinned as a limit rather than chased.
  */
 function buildMatchExpression(db: Database.Database, query: string): string | null {
-  const terms = (segmentUnspacedScripts(query).normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
-    .slice(0, MAX_QUERY_TERMS);
+  // The cap is applied AFTER the frequency guard, not before. Bigram
+  // segmentation turns a 40-character Chinese question into ~39 terms, so a
+  // positional cap discarded everything past roughly the 33rd character —
+  // which may hold the query's rarest, most selective terms — while an English
+  // question of the same length keeps all ~13 of its words. Dropping the
+  // ubiquitous ones first means the terms that survive are the ones that
+  // actually narrow the search.
+  const terms = tokenizeQuery(query);
   if (terms.length === 0) return null;
-  const kept = dropUbiquitousTerms(db, terms);
-  return kept.map((term) => (isLoneUnspacedChar(term) ? `"${term}"*` : `"${term}"`)).join(' OR ');
+  return renderMatchExpression(dropUbiquitousTerms(db, terms).slice(0, MAX_QUERY_TERMS));
 }
 
 /**
@@ -66,15 +78,21 @@ function buildMatchExpression(db: Database.Database, query: string): string | nu
  */
 function archivedLikeTerms(db: Database.Database, query: string): string[] {
   const escapeLike = (v: string) => v.replace(/[\\%_]/g, '\\$&');
-  const terms = (segmentUnspacedScripts(query).normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
-    .slice(0, MAX_QUERY_TERMS);
-  const kept = terms.length > 1 ? dropUbiquitousTerms(db, terms) : terms;
+  // Same ORDER as the FTS branch: drop the ubiquitous terms FIRST, then cap.
+  // These two had silently diverged — the FTS side moved the cap after the
+  // guard and this one did not — so a 37-character Chinese question gave the
+  // two branches different term sets, and the archived supplement quietly
+  // answered a different question from the search it supplements. That bites
+  // hardest exactly where it is used: an archived row is usually a superseded
+  // version of an active one, sharing the head of the text and differing in the
+  // tail, which is the part a positional cap discards.
+  const terms = tokenizeQuery(query);
+  const kept = (terms.length > 1 ? dropUbiquitousTerms(db, terms) : terms).slice(
+    0,
+    MAX_QUERY_TERMS
+  );
   if (kept.length === 0) return [`%${escapeLike(query)}%`];
   return kept.map((t) => `%${escapeLike(t)}%`);
-}
-
-function isLoneUnspacedChar(term: string): boolean {
-  return [...term].length === 1 && /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]/u.test(term);
 }
 
 /**
@@ -122,13 +140,94 @@ const MIN_ROWS_FOR_DF_GUARD = 25;
  * did we do" — keeps its rarest term, because returning nothing would be worse
  * than returning a broad match.
  */
+/**
+ * Number of active entities, for the document-frequency guard's ceiling.
+ *
+ * This was briefly cached, keyed on `(PRAGMA data_version, total_changes())`.
+ * The invalidation was correct but the cache could never pay: every non-empty
+ * search calls `trackAccess`, whose UPDATE moves `total_changes()` and
+ * invalidates the entry before the next recall — and hook processes are
+ * short-lived, so they start cold and exit before a second search. Measured on
+ * a 20k-entity database: the count is 376us, the stamp check 5.9us, and on the
+ * hot path the stamp check was pure addition.
+ *
+ * A cache that cannot hit is complexity plus a claim that is not true, so it
+ * is gone. This is the honest cost.
+ */
+function activeEntityCount(db: Database.Database): number {
+  return (
+    db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get() as { c: number }
+  ).c;
+}
+
+/**
+ * Largest number of terms sent to the `fts_vocab` lookup in one statement.
+ *
+ * The cap on query terms is applied AFTER this guard (so the surviving terms
+ * are the selective ones, not merely the first 32), which means the `IN (...)`
+ * clause takes one bound parameter per token of the RAW query. A pasted stack
+ * trace or a pasted CJK document blows past SQLITE_MAX_VARIABLE_NUMBER (32766)
+ * and the prepare throws `too many SQL variables` — swallowed by the catch
+ * below under a comment blaming a missing `fts_vocab`, silently disabling the
+ * optimisation for exactly the queries that need it most. Measured on a 20k-row
+ * vocab: 12 terms 0.18ms, 500 terms 1.9ms, 3000 terms 11.5ms, 20000 terms 77ms.
+ *
+ * 256 is 8x the term cap — far more than enough for the guard to choose from,
+ * and it keeps the lookup in the sub-millisecond range.
+ */
+const MAX_DF_LOOKUP_TERMS = 256;
+
+/**
+ * Lowercase a term the way `entities_fts` does — and ONLY where we know how.
+ *
+ * `entities_fts` is declared `unicode61 remove_diacritics 1`, which strips
+ * combining marks from LATIN characters. For other scripts unicode61 treats a
+ * combining mark as a SEPARATOR, so the stored tokens are not the mark-stripped
+ * word at all. Measured against a real FTS5 table:
+ *
+ *     "café"     -> stored as  "cafe"          (diacritic removed)
+ *     "काम"      -> stored as  "क", "म"        (SPLIT on the matra)
+ *     "कम"       -> stored as  "कम"
+ *     "مُحَمَّد"     -> stored as  "م","ح","م","د"  (split on harakat)
+ *     "한국"      -> stored as  "한국"
+ *
+ * An earlier version stripped every `\p{M}` unconditionally. That maps a large
+ * word space onto a small skeleton space, so `fold("काम")` produced `"कम"` — a
+ * REAL, DIFFERENT, and commonly frequent word. If `कम` cleared the ubiquity
+ * ceiling, the query term `काम` was dropped, and since terms are OR-ed the
+ * disjunction lost the only member that could match: the search returned
+ * nothing. That regressed Devanagari, Bengali, Tamil, Telugu, Arabic, Hebrew
+ * and Thai — every script whose marks are not Latin diacritics.
+ *
+ * So folding is restricted to terms that are Latin-with-marks. Everything else
+ * is looked up as written: correct for CJK and Hangul bigrams, which carry no
+ * marks, and for the mark-bearing scripts it simply finds no vocab row, giving
+ * document frequency 0 and KEEPING the term. That is the safe direction and is
+ * what `main` did for every accented term — the guard silently not applying
+ * costs a little speed, whereas deleting a query term costs the answer.
+ */
+const LATIN_FOLDABLE = /^[\p{Script=Latin}\p{M}\p{N}]+$/u;
+
+function fold(term: string): string {
+  const lower = term.toLowerCase();
+  if (!LATIN_FOLDABLE.test(lower)) return lower;
+  return lower.normalize('NFD').replace(/\p{M}/gu, '');
+}
+
 function dropUbiquitousTerms(db: Database.Database, terms: string[]): string[] {
   if (terms.length < 2) return terms;
   try {
-    const total = (db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get() as { c: number }).c;
+    const total = activeEntityCount(db);
     if (total < MIN_ROWS_FOR_DF_GUARD) return terms;
 
-    const lowered = terms.map((t) => t.toLowerCase());
+    // Fold the way the index folds, or the lookup silently never matches.
+    // entities_fts is declared `remove_diacritics 1`, so unicode61 strips
+    // combining marks before storing: `café` is stored as `cafe`. Looking it up
+    // as `café` returned no row, the term got document frequency 0, and it was
+    // always kept — the guard quietly did not apply to any accented or
+    // decomposed term. Recall was unaffected (FTS5 folds again at MATCH time);
+    // the optimisation just never ran.
+    const lowered = terms.slice(0, MAX_DF_LOOKUP_TERMS).map(fold);
     const rows = db
       .prepare(`SELECT term, doc FROM fts_vocab WHERE term IN (${lowered.map(() => '?').join(',')})`)
       .all(...lowered) as Array<{ term: string; doc: number }>;
@@ -136,12 +235,12 @@ function dropUbiquitousTerms(db: Database.Database, terms: string[]): string[] {
 
     const docFreq = new Map(rows.map((r) => [r.term, r.doc]));
     const ceiling = UBIQUITOUS_TERM_FRACTION * total;
-    const kept = terms.filter((t) => (docFreq.get(t.toLowerCase()) ?? 0) <= ceiling);
+    const kept = terms.filter((t) => (docFreq.get(fold(t)) ?? 0) <= ceiling);
     if (kept.length > 0) return kept;
 
     // Everything is common. Keep the single rarest rather than matching nothing.
     return [terms.reduce((rarest, t) =>
-      (docFreq.get(t.toLowerCase()) ?? 0) < (docFreq.get(rarest.toLowerCase()) ?? 0) ? t : rarest
+      (docFreq.get(fold(t)) ?? 0) < (docFreq.get(fold(rarest)) ?? 0) ? t : rarest
     )];
   } catch {
     // fts_vocab missing (a database opened by an older version, or a caller
@@ -538,7 +637,15 @@ export class KnowledgeGraph {
     // nothing. The invariant to preserve: terms are OR-ed and BM25 decides the
     // order. See the CHANGELOG entry for the measured effect.
     const ftsQuery = buildMatchExpression(this.db, query);
-    if (ftsQuery === null) return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
+    if (ftsQuery === null) {
+      // Nothing searchable in a query that was not itself empty — "???",
+      // "@#$%", a lone emoji. Returning recent memories here answers a
+      // question nobody asked and dresses it as a search result: the caller
+      // cannot tell "here is what matched" from "I found no terms, have these
+      // instead". The genuinely empty query is handled above and still lists
+      // recent, which is its documented behaviour.
+      return [];
+    }
 
     // Contentless FTS5: columns return null, so join via rowid → entities.id
     // Archived entities are removed from FTS5 by archiveEntity(), so status filter is a safety net.
@@ -574,7 +681,13 @@ export class KnowledgeGraph {
              ${tagFilter}
              ${statusFilter}
              ${namespaceFilter}
-           ORDER BY f.rank
+           -- e.id breaks BM25 ties. Ties are common — every row matching only
+           -- the same single term scores identically — and LIMIT decides which
+           -- of them survive to the multi-factor scorer, so without a
+           -- tiebreaker the same query over the same corpus can return
+           -- different memories run to run. Newest-first among equals is the
+           -- same preference the rest of the scorer expresses.
+           ORDER BY f.rank, e.id DESC
            LIMIT ?`
         )
         .all(...params) as Array<{ id: number }>;
@@ -612,8 +725,17 @@ export class KnowledgeGraph {
       const tagFilter = opts?.tag ? 'AND t.tag = ?' : '';
       const archivedNamespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
       const likeTerms = archivedLikeTerms(this.db, query);
+      // `memesh_nfc(...)` on the STORED side. The terms are already NFC —
+      // `tokenizeQuery` normalises — so without it this compared normalised
+      // terms against raw storage, and a memory stored decomposed was findable
+      // while active and unfindable once archived.
+      registerNfcFunction(this.db);
       const termClause = likeTerms
-        .map(() => "(e.name LIKE ? ESCAPE '\\' OR o.content LIKE ? ESCAPE '\\')")
+        .map(
+          () =>
+            `(${SQL_NFC_FUNCTION}(e.name) LIKE ? ESCAPE '\\' ` +
+            `OR ${SQL_NFC_FUNCTION}(o.content) LIKE ? ESCAPE '\\')`
+        )
         .join(' OR ');
       const archivedParams: (string | number)[] = likeTerms.flatMap((t) => [t, t]);
       if (opts?.tag) archivedParams.push(opts.tag);

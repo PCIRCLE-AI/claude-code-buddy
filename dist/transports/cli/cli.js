@@ -4,12 +4,12 @@ import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
+import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexRebuild } from '../../db.js';
 import { remember, recallWithConflicts, forget, consolidate, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { verifyAgentWork } from '../../core/verifier.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { getDbPath } from '../../core/paths.js';
-import { flushPendingEmbeddings } from '../../core/embedder.js';
+import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 async function withDatabase(fn) {
     openDatabase();
     try {
@@ -319,7 +319,8 @@ program
 });
 program
     .command('verify <workdir>')
-    .description('Record a verification report for agent work in <workdir>')
+    .description('Record a verification report for agent work in <workdir>. ' +
+    'Exit codes: 0 pass, 1 fail, 2 unverified (nothing was checked).')
     .requiredOption('--agent-id <id>', 'Identifier for the agent being verified')
     .option('--base <ref>', 'Git ref to diff against (default: merge-base with origin/main)')
     .option('--expected-files <n>', 'Number of files the agent claimed to change', (v) => parseInt(v, 10))
@@ -1140,15 +1141,79 @@ program
 });
 program
     .command('reindex')
-    .description('Regenerate vector embeddings for all entities')
+    .description('Regenerate vector embeddings for all entities (--fts rebuilds the keyword index instead)')
     .option('--namespace <namespace>', 'Reindex only entities in this namespace')
+    .option('--fts', 'Rebuild the full-text keyword index instead of the vector index')
+    .option('--vectors', 'Also rebuild the vector index at the configured dimension. DESTRUCTIVE: drops every ' +
+    'stored embedding first. Needed only when switching embedding providers.')
     .option('--json', 'Output as JSON')
     .action(async (opts) => {
     try {
+        if (opts.fts) {
+            if (opts.vectors) {
+                console.error('❌ --fts and --vectors rebuild different indexes. Run them separately.');
+                process.exit(1);
+            }
+            await withDatabase(async () => {
+                const { entities } = reindexFts();
+                if (opts.json) {
+                    console.log(JSON.stringify({ rebuilt: 'fts', entities }));
+                }
+                else {
+                    console.log(`✅ Keyword index rebuilt from ${entities} active memories.`);
+                }
+            });
+            return;
+        }
+        if (opts.vectors) {
+            if (opts.namespace) {
+                console.error('❌ --vectors rebuilds the whole vector index, which is shared by every\n' +
+                    '   namespace, so it cannot be limited to one. Combining it with\n' +
+                    '   --namespace would delete the other namespaces\' embeddings and never\n' +
+                    '   regenerate them. Run `memesh reindex --vectors` on its own, or drop\n' +
+                    '   --vectors to reindex just this namespace at the current dimension.');
+                process.exit(1);
+            }
+            if (!(await allowVectorIndexRebuild(getDbPath(), canRefillVectorIndex))) {
+                console.error('❌ Could not produce a test embedding at this database\'s vector width, so\n' +
+                    '   the index was left untouched. Rebuilding it deletes every stored\n' +
+                    '   embedding, and nothing here could regenerate them.\n' +
+                    '   Check that your OpenAI API key is valid, or that Ollama is running, or\n' +
+                    '   install @huggingface/transformers for local embeddings — then run this\n' +
+                    '   again. `memesh doctor` reports which provider is configured.');
+                process.exit(1);
+            }
+        }
         await withDatabase(async () => {
             const result = await reindex({ namespace: opts.namespace });
+            const incomplete = result.missingVectors > 0 || result.failed > 0;
             if (opts.json) {
                 console.log(JSON.stringify(result));
+            }
+            else if (incomplete) {
+                console.log(`⚠️  Reindex incomplete:`);
+                console.log(`   Processed: ${result.processed}`);
+                console.log(`   Embedded:  ${result.embedded}`);
+                console.log(`   Skipped:   ${result.skipped}`);
+                if (result.missingVectors > 0) {
+                    console.log(`   Still without a vector: ${result.missingVectors}`);
+                }
+                if (result.failed > 0 && result.missingVectors === 0) {
+                    console.log(`   Could not be regenerated: ${result.failed} ` +
+                        `(these still hold their previous embedding)`);
+                }
+                for (const [outcome, count] of Object.entries(result.outcomes)) {
+                    if (outcome !== 'stored' && count > 0)
+                        console.log(`     ${outcome}: ${count}`);
+                }
+            }
+            else if (!result.pendingReindexCleared) {
+                console.log(`✅ Reindex complete:`);
+                console.log(`   Processed: ${result.processed}`);
+                console.log(`   Embedded:  ${result.embedded}`);
+                console.log(`   Skipped:   ${result.skipped}`);
+                console.log(`   Note: ${result.missingVectorsDatabaseWide} memories in other namespaces still ` +
+                    `have no vector, so the reindex-needed flag stays set.`);
             }
             else {
                 console.log(`✅ Reindex complete:`);
@@ -1156,6 +1221,8 @@ program
                 console.log(`   Embedded:  ${result.embedded}`);
                 console.log(`   Skipped:   ${result.skipped}`);
             }
+            if (incomplete)
+                process.exitCode = 1;
         });
     }
     catch (err) {

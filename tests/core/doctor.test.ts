@@ -126,9 +126,34 @@ function createPackageRoot(): string {
   return root;
 }
 
-function makeDatabase(count = 3) {
+/**
+ * Stand-in for the knowledge-graph database.
+ *
+ * This dispatches on the statement instead of asserting one shape, because it
+ * has to answer more than one question now and an unrecognised statement must
+ * be LOUD. The previous version asserted `sql` contained `COUNT(*)` and
+ * returned `{ c: count }` for literally anything — so the moment doctor started
+ * issuing a second query, the stub answered it with an entity count. That is
+ * the failure this file is meant to catch, not cause: a check reading a
+ * nonsense value and reporting `pass`.
+ *
+ * The `fts_segmentation` queries default to "healthy index" so every other test
+ * sees only the check it is about. `unsegmentedCount` flips that row on.
+ *
+ * What a stub can pin here is the MESSAGE. What it cannot pin is the DETECTION:
+ * dispatching on `sql.includes(...)` never executes the statement, so mutating
+ * `length(term) > 2` to `length(term) > 200`, or the `sqlite_master` guard to
+ * `if (true)`, both left all 45 tests green. The SQL predicate is the fix, and
+ * it is pinned in `tests/fts-segmentation-doctor.test.ts` against a real FTS5
+ * index.
+ */
+function makeDatabase(count = 3, opts: { unsegmentedCount?: number } = {}) {
   return {
     prepare(sql: string) {
+      if (sql.includes('sqlite_master')) return { get: () => ({ present: 1 }) };
+      if (sql.includes('fts_vocab')) {
+        return { get: () => ({ c: opts.unsegmentedCount ?? 0 }) };
+      }
       expect(sql).toContain('COUNT(*)');
       return {
         get: () => ({ c: count }),
@@ -267,6 +292,51 @@ describe('doctor', () => {
     expect(result.status).toBe('PASS_WITH_CONCERNS');
     expect(result.checks.find((check) => check.id === 'config')?.status).toBe('pass');
     expect(result.checks.find((check) => check.id === 'update-status')?.status).toBe('warn');
+  });
+
+  it('reports a count for an unsegmented index and leaks no memory text', async () => {
+    // Only the MESSAGE. Whether the check FINDS anything is pinned against a
+    // real FTS5 index in `tests/fts-segmentation-doctor.test.ts` — see the
+    // note on `makeDatabase` for why a stub cannot do it here.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.0.3',
+      openDatabaseImpl: () => makeDatabase(3, { unsegmentedCount: 4 }) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => ({
+        searchLevel: 0,
+        llm: null,
+        embeddings: 'disabled',
+      }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global',
+        label: 'npm global',
+        canSelfUpdate: true,
+        recommendedCommand: 'memesh update',
+        guidance: 'This installation can be updated directly from MeMesh.',
+      }),
+    });
+
+    const row = result.checks.find((check) => check.id === 'fts_segmentation');
+    expect(row).toMatchObject({
+      status: 'warn',
+      summary: expect.stringContaining('4 unsegmented term'),
+      fix: expect.stringContaining('reindex --fts'),
+    });
+    // The count is the whole payload. `memesh feedback` and the dashboard
+    // widget copy every check summary verbatim into a pre-filled PUBLIC GitHub
+    // issue body, with diagnostics opt-OUT — so an example term lifted from
+    // fts_vocab would be a line of the user's own memories staged for
+    // publication. An earlier version embedded one.
+    expect(row!.summary).not.toMatch(/[\u3400-\u9FFF\u0E01-\u0E5B\uFF66-\uFF9D]/);
+    // ...and it still tells them how to know it worked.
+    expect(row!.summary).toMatch(/should be 0/);
   });
 
   it('fails when the MCP config is invalid JSON', async () => {

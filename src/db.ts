@@ -3,7 +3,7 @@ import * as sqliteVec from 'sqlite-vec';
 import path from 'path';
 import fs from 'fs';
 import { runAutoDecay } from './core/lifecycle.js';
-import { getEmbeddingDimension } from './core/config.js';
+import { resolveEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
 import { insertFtsRow } from './storage/fts-index.js';
@@ -60,6 +60,20 @@ CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);
 CREATE INDEX IF NOT EXISTS idx_entities_type_created ON entities(type, created_at);
+
+-- Migration markers and small bits of persistent state (index segmentation
+-- version, embedding dimension, pending-reindex flags, backfill markers).
+--
+-- This used to be created ad hoc by each helper that needed it — four inline
+-- CREATE TABLE IF NOT EXISTS copies in src/db.ts, none of them visible to
+-- scripts/check-schema-drift.mjs, which only extracts SCHEMA_SQL and FTS_SQL.
+-- A column added to one copy would not have been caught. It also meant the
+-- hook-side schema had no metadata table at all, so hooks could not
+-- participate in migrations even in principle.
+CREATE TABLE IF NOT EXISTS memesh_metadata (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 `;
 
 const FTS_SQL = `
@@ -83,7 +97,41 @@ export function openDatabase(dbPath?: string): Database.Database {
   fs.mkdirSync(dir, { recursive: true });
   try { fs.chmodSync(dir, 0o700); } catch { /* non-POSIX */ }
 
-  db = new Database(resolvedPath);
+  // The module singleton is published only once initialisation SUCCEEDS.
+  //
+  // This used to assign `db` first and initialise through it, so any throw
+  // after `new Database()` — a peer holding the write lock during SCHEMA_SQL, a
+  // read-only file, a failed extension load — left the singleton pointing at a
+  // handle with no schema, no migrations and no sqlite-vec. `if (db) return db`
+  // then handed that handle to every later caller in the process, forever.
+  // Reproduced: with a peer holding BEGIN EXCLUSIVE the first call threw
+  // "database is locked", and the next call returned the poisoned handle and
+  // threw "no such table: memesh_metadata" — while `runOnceMigration`'s
+  // careful transient-error backoff, which exists precisely so a held lock is
+  // retried later, never got the chance to run.
+  //
+  // Failing closed matters more than usual here: writes would still go through
+  // `insertFtsRow`'s current segmentation rules into an index that was never
+  // migrated, which is the contentless-FTS delete mismatch the rest of this
+  // release exists to eliminate.
+  const opening = new Database(resolvedPath);
+  try {
+    initialiseDatabase(opening, resolvedPath);
+  } catch (err) {
+    try { opening.close(); } catch { /* already closing down */ }
+    throw err;
+  }
+  db = opening;
+  return db;
+}
+
+/**
+ * Everything `openDatabase` does to a freshly-opened handle before it is safe
+ * to publish. Extracted so the failure path has something to unwind: while this
+ * was inline, "assign the singleton" and "finish initialising it" could not be
+ * separated.
+ */
+function initialiseDatabase(db: Database.Database, resolvedPath: string): Database.Database {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
@@ -121,7 +169,7 @@ export function openDatabase(dbPath?: string): Database.Database {
   // core side was untreated until a reviewer flagged the asymmetry.
   const safeAlter = (sql: string): void => {
     try {
-      db!.exec(sql);
+      db.exec(sql);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (!/duplicate column name/i.test(msg)) throw e;
@@ -199,8 +247,12 @@ export function openDatabase(dbPath?: string): Database.Database {
 
   // Create/migrate vector table for entity embeddings
   // Dimension depends on embedding provider (384=ONNX, 1536=OpenAI, 768=Ollama)
-  const targetDim = getEmbeddingDimension();
-  ensureVecTable(db, targetDim);
+  // `confident` is false only when the config file exists but could not be
+  // read. ensureVecTable DROPs on a dimension mismatch, so acting on a
+  // fallback dimension derived from an unreadable config would delete a BYOK
+  // user's entire vector index because of a truncated write.
+  const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
+  ensureVecTable(db, resolvedPath, targetDim, dimensionKnown);
 
   return db;
 }
@@ -209,12 +261,26 @@ export function openDatabase(dbPath?: string): Database.Database {
  * Version of the text segmentation applied to `entities_fts`. Bump this and the
  * index is rebuilt once, on the next open, for every existing database.
  *
+ *   2 — text is NFC-normalised BEFORE segmentation, on both the index and the
+ *       query side, via `toIndexForm`. Version 1 normalised on the query side
+ *       only, and after segmenting: decomposed text was indexed under
+ *       different code points than the same text composed, and a decomposed
+ *       query was never split into bigrams at all.
+ *
  *   1 — CJK / kana / hangul runs split into overlapping character bigrams
  *       (`segmentUnspacedScripts` in src/storage/fts-index.ts). Before this,
  *       `unicode61` indexed an unbroken run as a single token, so a Chinese
  *       memory was reachable only by searching the exact stored string.
+ *
+ *   3 — the same treatment for every OTHER spaceless script. Version 2 listed
+ *       the scripts that had come up rather than the property that matters, so
+ *       Thai, Lao, half-width katakana and CJK Extension B kept the exact
+ *       defect version 1 fixed — measured on a fresh database, each stored
+ *       fine and was unfindable by any fragment of itself. Segmentation is
+ *       also code-point aware now; Extension B is above the BMP, and building
+ *       bigrams over UTF-16 code units would have indexed half-surrogates.
  */
-const FTS_SEGMENTATION_VERSION = 1;
+export const FTS_SEGMENTATION_VERSION = 3;
 
 /**
  * Rebuild `entities_fts` when the segmentation rules have changed.
@@ -229,63 +295,348 @@ const FTS_SEGMENTATION_VERSION = 1;
  * them from FTS5 by design, and `search()` reaches them through a separate LIKE
  * scan.
  */
+/** How long a failed migration waits before trying again. */
+const MIGRATION_RETRY_BACKOFF_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Run a versioned migration at most once, atomically, with a retry backoff.
+ *
+ * Three properties, each of which was missing and each of which cost
+ * something:
+ *
+ * **The version check happens inside the write transaction.** The FTS rebuild
+ * used to read its source rows before `db.transaction()` opened, and
+ * better-sqlite3's default transaction is BEGIN DEFERRED, so no write lock
+ * existed until the first statement inside it. Seven hooks, the MCP server,
+ * the HTTP server and the CLI all open this database; an entity committed by
+ * any of them between the read and the `delete-all` was wiped from the index
+ * and never reinserted, because the in-memory row list predated it. The marker
+ * then committed, so it never retried. Measured: the entity row survives, the
+ * index has no trace of it, and the marker reads 1.
+ *
+ * `.immediate()` takes the write lock at BEGIN, so a concurrent writer either
+ * finishes before the migration reads or waits until after it commits.
+ *
+ * **Failure backs off.** The old catch deliberately left the marker unset so
+ * the next open would retry — but with no throttle, a persistently failing
+ * rebuild re-paid a full corpus scan on every single process start, forever.
+ * Its two neighbours in `openDatabase`, `runAutoDecay` and
+ * `runAutoTelemetryPrune`, are both throttled to once per 24h; this now
+ * matches them.
+ *
+ * **A failure is never fatal.** The database still opens. Entities and
+ * observations are the source of truth and are untouched by an index rebuild,
+ * so a failed migration degrades retrieval rather than losing anything.
+ *
+ * @returns true if the migration ran and committed
+ */
+/**
+ * Is this a "someone else is using the database right now" error?
+ *
+ * These resolve on their own; treating them as permanent would park a
+ * migration for 24h over a moment of contention.
+ */
+function isTransientDbError(err: unknown): boolean {
+  const code = (err as { code?: string })?.code ?? '';
+  const msg = (err as { message?: string })?.message ?? '';
+  return (
+    /SQLITE_BUSY|SQLITE_LOCKED|SQLITE_PROTOCOL/.test(code) ||
+    /database is locked|database table is locked|locking protocol/i.test(msg)
+  );
+}
+
+export function runOnceMigration(
+  db: Database.Database,
+  opts: {
+    key: string;
+    version: number;
+    describe: string;
+    migrate: (db: Database.Database, fromVersion: number) => void;
+  }
+): boolean {
+  const { key, version, describe, migrate } = opts;
+  const attemptKey = `${key}_last_attempt`;
+
+  const readMarker = (k: string): string | undefined =>
+    (db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(k) as
+      | { value: string }
+      | undefined)?.value;
+
+  // Cheap pre-check outside the lock: the overwhelmingly common case is
+  // "already migrated", and taking a write lock on every open to discover
+  // that would serialise every process that touches the database.
+  const stored = readMarker(key);
+  if (stored && parseInt(stored, 10) >= version) return false;
+
+  const lastAttempt = readMarker(attemptKey);
+  if (lastAttempt && Date.now() - parseInt(lastAttempt, 10) < MIGRATION_RETRY_BACKOFF_MS) {
+    return false;
+  }
+
+  try {
+    db.transaction(() => {
+      // Re-read under the write lock. Another process may have completed this
+      // same migration between the pre-check and BEGIN IMMEDIATE.
+      const current = readMarker(key);
+      if (current && parseInt(current, 10) >= version) return;
+
+      migrate(db, current ? parseInt(current, 10) : 0);
+
+      db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(
+        key,
+        String(version)
+      );
+      db.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(attemptKey);
+    }).immediate();
+    return true;
+  } catch (err) {
+    // A lock held by a peer is not a broken migration. Backing off 24h for one
+    // would leave the database on the old index for a day while write paths use
+    // the new rules — and on a contentless FTS5 table that mismatch makes every
+    // delete fail with "database disk image is malformed". Retry those on the
+    // next open instead; reserve the backoff for failures that will still be
+    // failures tomorrow.
+    if (isTransientDbError(err)) {
+      process.stderr.write(
+        `MeMesh: ${describe} deferred (${err instanceof Error ? err.message : String(err)}). ` +
+          `Another process holds the database; it will run on the next start.\n`
+      );
+      return false;
+    }
+
+    // Record the attempt so a permanently failing migration does not re-run on
+    // every process start. Best-effort: if even this write fails the database
+    // is in no state to be helped by another try.
+    try {
+      db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(
+        attemptKey,
+        String(Date.now())
+      );
+    } catch { /* nothing useful to do */ }
+
+    process.stderr.write(
+      `MeMesh: ${describe} failed (${err instanceof Error ? err.message : String(err)}). ` +
+        `Your memories are unaffected — this rebuilds a derived index. ` +
+        `It will retry in 24h, or run 'memesh reindex --fts' to retry now.\n`
+    );
+    return false;
+  }
+}
+
 function ensureFtsSegmentation(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS memesh_metadata (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
+  runOnceMigration(db, {
+    key: 'fts_segmentation_version',
+    version: FTS_SEGMENTATION_VERSION,
+    describe: 'search index rebuild',
+    migrate: rebuildFtsIndex,
+  });
+}
 
-  const stored = db.prepare(
-    "SELECT value FROM memesh_metadata WHERE key = 'fts_segmentation_version'"
-  ).get() as { value: string } | undefined;
+/**
+ * Delete and re-derive every active row in `entities_fts` from its source.
+ *
+ * Rows are read a page at a time rather than all at once. The previous
+ * `.all()` built the entire corpus — every name plus all of its concatenated
+ * observations — as a JS array before writing anything, which is roughly
+ * 80 MB of Node heap at 100k entities, inside processes as short-lived as a
+ * hook invocation.
+ *
+ * Paging rather than `.iterate()`: better-sqlite3 refuses to run a write while
+ * an iterator is open on the same connection ("This database connection is
+ * busy executing a query"), and the whole point here is to write as we read.
+ * Keyset pagination on `e.id` keeps memory bounded to one page, keeps the
+ * order deterministic, and leaves the connection free between pages.
+ *
+ * Archived entities are deliberately not reindexed: `archiveEntity()` removes
+ * them from FTS5 by design, and `search()` reaches them through a separate
+ * LIKE scan.
+ *
+ * MUST be called inside a write transaction — `delete-all` empties the index,
+ * so an interrupted rebuild that is not rolled back leaves search blank.
+ */
+const FTS_REBUILD_PAGE_SIZE = 500;
 
-  if (stored && parseInt(stored.value, 10) >= FTS_SEGMENTATION_VERSION) return;
+function rebuildFtsIndex(db: Database.Database): void {
+  // This ALWAYS rebuilds. There used to be a skip here, and removing it is a
+  // bug fix, not a performance regression accepted for simplicity.
+  //
+  // The skip read `if (fromVersion === 1 && !hasDecomposedText(db)) return;`,
+  // justified by "v2 differs from v1 ONLY by NFC-normalising before
+  // segmenting". That was true when the target was 2. Version 3 also WIDENS
+  // `UNSPACED_SCRIPT_RANGES` (Thai, Lao, Khmer, half-width katakana, CJK Ext
+  // B), and none of those scripts has a canonical decomposition — so
+  // `hasDecomposedText` is false for exactly the corpora the widening exists
+  // to fix. Measured: a v1 database holding Thai and half-width katakana came
+  // out of the upgrade with its marker stamped 3, its index still holding v1
+  // whole-run tokens, and every fragment query returning nothing. The marker
+  // only moves forward, so it never self-heals. Worse, the query side DOES
+  // segment, so half-width katakana and Ext B lost the exact-full-string
+  // query that worked before the upgrade.
+  //
+  // A version-keyed skip is only sound while the sole delta is normalisation,
+  // and nothing forces the next author to re-derive that. `_shared.js`'s
+  // hook-side twin never had the skip, so the two also disagreed: the same
+  // database ended up in one of two index states depending on which process
+  // opened it first, and doctor's own stale-index check called one of them
+  // damaged. Rebuilding unconditionally is what makes the two halves agree.
+  //
+  // The cost it bought back was 140ms against 13ms on a 20k-entity database,
+  // once per database per version bump. That is not worth a class of bug that
+  // silently makes memories unreachable.
+  db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
 
-  const rows = db.prepare(
+  const page = db.prepare(
     `SELECT e.id, e.name, COALESCE(group_concat(o.content, ' '), '') AS obs
        FROM entities e
        LEFT JOIN observations o ON o.entity_id = e.id
-      WHERE e.status = 'active'
-      GROUP BY e.id`
-  ).all() as Array<{ id: number; name: string; obs: string }>;
+      WHERE e.status = 'active' AND e.id > ?
+      GROUP BY e.id
+      ORDER BY e.id
+      LIMIT ?`
+  );
 
-  const rebuild = db.transaction(() => {
-    db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
+  let afterId = 0;
+  for (;;) {
+    const rows = page.all(afterId, FTS_REBUILD_PAGE_SIZE) as Array<{
+      id: number;
+      name: string;
+      obs: string;
+    }>;
+    if (rows.length === 0) break;
+
     for (const row of rows) insertFtsRow(db, row.id, row.name, row.obs);
-    db.prepare(
-      "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('fts_segmentation_version', ?)"
-    ).run(String(FTS_SEGMENTATION_VERSION));
-  });
+    afterId = rows[rows.length - 1].id;
 
-  try {
-    rebuild();
-  } catch (err) {
-    // A failed rebuild must not stop the database from opening — the entities
-    // themselves are intact and the old index still answers Latin queries. Say
-    // so loudly instead of degrading in silence, and leave the marker unset so
-    // the next open retries.
-    process.stderr.write(
-      `MeMesh: search index rebuild failed (${err instanceof Error ? err.message : String(err)}). ` +
-      `Non-Latin search may be incomplete until it succeeds; it will retry on next start.\n`
-    );
+    if (rows.length < FTS_REBUILD_PAGE_SIZE) break;
   }
 }
 
 /**
- * Ensure entities_vec table exists with the correct dimension.
- * If dimension changed (provider switch), drops and recreates the table.
- * Old embeddings are lost — new ones regenerated as entities are accessed.
+ * Rebuild the full-text index on demand, regardless of the version marker.
+ *
+ * The marker is monotonic, which leaves one state it cannot describe: a
+ * database migrated by a segmentation-aware build, then written to by an older
+ * one. The older build does not know the marker exists, so it indexes new
+ * memories with the old rules and leaves the marker alone; re-upgrading then
+ * short-circuits and those memories stay unreachable by any partial-phrase
+ * query. Users legitimately end up in that state — an npm-global and a
+ * plugin-marketplace install side by side, or a deliberate downgrade to
+ * recover from a bad release.
+ *
+ * Rather than guess at version archaeology the older build left no trace of,
+ * this is the escape hatch: an explicit, always-runs rebuild. `memesh doctor`
+ * detects the condition directly and points here.
  */
-function ensureVecTable(db: Database.Database, targetDim: number): void {
-  // Ensure metadata table exists
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS memesh_metadata (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
+export function reindexFts(): { entities: number } {
+  const database = getDatabase();
+  // Rebuild and marker in ONE immediate transaction, so a failure between them
+  // cannot leave a rebuilt index under a stale marker. The marker only moves
+  // forward, so that state never reconciles itself.
+  //
+  // Pinned by `tests/migration-atomicity.test.ts`, which fails the marker write
+  // exactly where a crash would — a BEFORE INSERT trigger on `memesh_metadata`
+  // — and asserts the rebuild rolled back with it. This was first written off
+  // as untestable, on the grounds that observing it needs the process killed
+  // mid-transaction. That was a failure to design the test: the fault can be
+  // injected in-process, deterministically. Splitting the transaction fails it.
+  //
+  // `.immediate()` specifically is NOT load-bearing here, and the test does not
+  // claim it is: `rebuildFtsIndex` now has no read half, so its first executed
+  // statement is the `delete-all` write and a DEFERRED transaction takes the
+  // lock at the same instant. Confirmed by mutation — `.immediate()` -> `()`
+  // changes nothing observable. It stays for consistency with
+  // `runOnceMigration`, where the callback reads BEFORE writing and the
+  // distinction is the whole fix.
+  database.transaction(() => {
+    rebuildFtsIndex(database);
+    database
+      .prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)')
+      .run('fts_segmentation_version', String(FTS_SEGMENTATION_VERSION));
+    database.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(
+      'fts_segmentation_version_last_attempt'
+    );
+  }).immediate();
+
+  const { c } = database
+    .prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'")
+    .get() as { c: number };
+  return { entities: c };
+}
+
+/**
+ * One-shot permission to destroy the vector index.
+ *
+ * `ensureVecTable` runs inside `openDatabase`, long before any command-line
+ * flag can be consulted, so the consent has to be recorded before the database
+ * is opened and read once when the decision is made. `memesh reindex --vectors`
+ * is the only thing that grants it, and only after confirming an embedding
+ * provider is actually available — granting it without one would drop the
+ * index and then have nothing to refill it with.
+ *
+ * One-shot on purpose: a long-lived process (the HTTP server) that opened the
+ * database once with consent must not carry it to a later reopen.
+ */
+let vectorRebuildConsentFor: string | null = null;
+
+/**
+ * Grant it, for ONE database. Returns whether the grant took.
+ *
+ * `canRefill` is a required argument rather than a check the caller is trusted
+ * to have already made, because the ordering is the whole safety property:
+ * dropping the index without a working embedding provider destroys every vector
+ * and leaves nothing able to regenerate them — the exact unrecoverable loss the
+ * refusal exists to prevent, caused by the command offered as the safe way
+ * through it. Two adjacent statements in the CLI would enforce that ordering
+ * only until someone moved one of them. Passed in rather than imported because
+ * `embedder.ts` imports this module. It is async because the only honest form
+ * of the check is to produce an embedding and measure it — see
+ * `canRefillVectorIndex`.
+ *
+ * `dbPath` narrows the grant to the database the caller meant. Without it the
+ * consent was a bare module-level boolean: in the HTTP server, or any process
+ * that opens more than one database, a grant recorded for A could be spent by
+ * an unrelated `openDatabase(B)` that happened to run first, and B's vectors —
+ * never consented to, never asked about — would be the ones dropped.
+ * Authorisation as wide as the process, for an action as narrow as one file.
+ */
+export async function allowVectorIndexRebuild(
+  dbPath: string,
+  canRefill: () => Promise<boolean>
+): Promise<boolean> {
+  if (!(await canRefill())) return false;
+  vectorRebuildConsentFor = path.resolve(dbPath);
+  return true;
+}
+
+/**
+ * Spend it. True only for the database it was granted for; cleared either way,
+ * so a grant never survives the open it was meant for.
+ */
+function consumeVectorRebuildConsent(resolvedPath: string): boolean {
+  const granted = vectorRebuildConsentFor;
+  vectorRebuildConsentFor = null;
+  return granted !== null && granted === path.resolve(resolvedPath);
+}
+
+/**
+ * Ensure entities_vec table exists with the correct dimension.
+ *
+ * A dimension change drops and recreates the table, destroying every stored
+ * vector, so it happens only with explicit consent — see
+ * {@link allowVectorIndexRebuild}. Without it the existing table is kept and
+ * the mismatch is reported.
+ */
+function ensureVecTable(
+  db: Database.Database,
+  resolvedPath: string,
+  targetDim: number,
+  dimensionKnown = true
+): void {
+  // Spend the consent here, before any early return, so it is scoped to ONE
+  // open rather than to one rebuild. Consuming it only on the branch that uses
+  // it would leave it armed whenever the dimensions happened to agree — and
+  // the next open in that process could be a different database.
+  const rebuildConsented = consumeVectorRebuildConsent(resolvedPath);
 
   const storedDim = db.prepare(
     "SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'"
@@ -293,7 +644,6 @@ function ensureVecTable(db: Database.Database, targetDim: number): void {
 
   const currentDim = storedDim ? parseInt(storedDim.value, 10) : 0;
 
-  // Check if vec table exists
   const vecExists = db.prepare(
     "SELECT name FROM sqlite_master WHERE type='table' AND name='entities_vec'"
   ).get();
@@ -302,32 +652,102 @@ function ensureVecTable(db: Database.Database, targetDim: number): void {
     return; // table exists with correct dimension
   }
 
-  // Drop old table if dimension changed — embeddings will be regenerated
-  if (vecExists && currentDim !== targetDim) {
+  // Refuse to destroy vectors on a dimension we are not sure of.
+  //
+  // `targetDim` comes from the config, and an unreadable config yields the
+  // 384-dim default — indistinguishable, before this guard, from a user who
+  // genuinely configured nothing. For a BYOK user on OpenAI's 1536-dim
+  // embeddings that meant a momentarily corrupt or unreadable config file
+  // deleted every vector in the database: no backup, no confirmation, and
+  // regenerating them means re-running the whole embedding pipeline and
+  // paying an API provider for it a second time.
+  //
+  // Keeping the existing table is the safe direction. A stale-but-correct
+  // index degrades to "embeddings still work as before"; a dropped one is
+  // unrecoverable.
+  if (vecExists && !dimensionKnown) {
     process.stderr.write(
-      `MeMesh: Embedding dimension changed (${currentDim} → ${targetDim}). Rebuilding vector index.\n` +
-      `MeMesh: Old embeddings deleted. Run 'memesh reindex' to regenerate vectors for all entities.\n` +
-      `MeMesh: Without reindex, only newly accessed entities will be embedded.\n`
+      `MeMesh: embedding dimension could not be determined (config unreadable), so the ` +
+        `existing ${currentDim}-dim vector index was left untouched rather than rebuilt. ` +
+        `Fix ~/.memesh/config.json to change embedders.\n`
     );
-    db.exec('DROP TABLE entities_vec');
-    // Persist the reindex-needed state so `memesh doctor` can surface it
-    // even after the process that dropped the table has exited.
-    db.prepare(
-      "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)"
-    ).run(JSON.stringify({ from: currentDim, to: targetDim, droppedAt: new Date().toISOString() }));
+    return;
   }
 
-  // Create with target dimension
-  db.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS entities_vec USING vec0(
-      embedding float[${targetDim}]
+  // The same refusal whenever the database and the config disagree about the
+  // dimension, whatever state the config is in.
+  //
+  // This used to be gated on the config being ABSENT (`!configPresent`), on the
+  // argument that an absent config is weak evidence. It is — the config and the
+  // database are located by independent environment variables: `configDir()`
+  // follows MEMESH_DIR/HOME, `getDbPath()` follows MEMESH_DB_PATH. A process
+  // that opens this database under a different HOME (an HTTP server started
+  // from launchd/systemd, `sudo memesh doctor`, a script with an isolated HOME
+  // and MEMESH_DB_PATH pointed at the real file) sees no config and would read
+  // that as "the user configured nothing", then drop a BYOK user's 1536-dim
+  // index.
+  //
+  // But *present* is not the same as *authoritative*, and the guard was keyed
+  // to the wrong fact. Every one of those foreign-HOME cases behaves
+  // identically when the foreign HOME happens to contain a config file — a
+  // container image shipping a default config.json, a second machine profile, a
+  // config whose embedder key was lost to an unrelated edit. The guard then
+  // treats it as authoritative for a database it has never seen, and takes the
+  // DROP branch on exactly the evidence the guard exists to distrust.
+  //
+  // So the refusal follows the consequence instead: a stale-but-correct index
+  // degrades to "embeddings keep working as before" and is recoverable by
+  // restoring the config, while a dropped one is gone, and on an API embedder
+  // has to be paid for a second time. Anything unrecoverable needs consent, and
+  // `memesh reindex --vectors` is where that consent is given — it drops and
+  // recreates the table at the new dimension and immediately refills it.
+  if (
+    vecExists &&
+    currentDim !== 0 &&
+    currentDim !== targetDim &&
+    !rebuildConsented
+  ) {
+    process.stderr.write(
+      `MeMesh: this database records ${currentDim}-dim embeddings but the current ` +
+        `configuration asks for ${targetDim}. Keeping the existing vector index rather ` +
+        `than rebuilding it, because rebuilding deletes every stored vector. ` +
+        `If the configuration is wrong, fix it. If you meant to switch embedders, run ` +
+        `'memesh reindex --vectors' to rebuild the index at ${targetDim} and regenerate.\n`
     );
-  `);
+    return;
+  }
 
-  // Store current dimension
-  db.prepare(
-    "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('embedding_dimension', ?)"
-  ).run(String(targetDim));
+  // DROP + marker + CREATE + dimension stamp must be one unit. Unwrapped, a
+  // kill between the DROP and the marker write destroyed every vector while
+  // leaving no `pending_reindex` row — so the next open saw no table at all,
+  // skipped this branch entirely, created an empty one and stamped the new
+  // dimension. `memesh doctor` then reported a healthy install over a silently
+  // emptied index.
+  db.transaction(() => {
+    if (vecExists) {
+      process.stderr.write(
+        `MeMesh: Embedding dimension changed (${currentDim} → ${targetDim}). Rebuilding vector index.\n` +
+        `MeMesh: Old embeddings deleted. Run 'memesh reindex' to regenerate vectors for all entities.\n` +
+        `MeMesh: Without reindex, only newly accessed entities will be embedded.\n`
+      );
+      db.exec('DROP TABLE entities_vec');
+      // Persist the reindex-needed state so `memesh doctor` can surface it
+      // even after the process that dropped the table has exited.
+      db.prepare(
+        "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)"
+      ).run(JSON.stringify({ from: currentDim, to: targetDim, droppedAt: new Date().toISOString() }));
+    }
+
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS entities_vec USING vec0(
+        embedding float[${targetDim}]
+      );
+    `);
+
+    db.prepare(
+      "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('embedding_dimension', ?)"
+    ).run(String(targetDim));
+  }).immediate();
 }
 
 export function getPendingReindexInfo(): { from: number; to: number; droppedAt: string } | null {
@@ -441,14 +861,6 @@ const TELEMETRY_PRUNE_MARKER = 'last_telemetry_prune_at';
  * any time — this is the no-touch background sweep.
  */
 function runAutoTelemetryPrune(db: Database.Database): void {
-  // memesh_metadata is created by ensureVecTable / backfillSignalScores
-  // earlier in openDatabase, but be defensive.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS memesh_metadata (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
 
   const last = db.prepare(
     'SELECT value FROM memesh_metadata WHERE key = ?'
@@ -487,14 +899,6 @@ function runAutoTelemetryPrune(db: Database.Database): void {
  * entity to feed the scorer the same inputs createEntity uses.
  */
 function backfillSignalScores(db: Database.Database): void {
-  // Ensure memesh_metadata exists — same migration the vec table
-  // does, hoisted up so this runs even before ensureVecTable.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS memesh_metadata (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
 
   const MARKER = 'signal_score_backfill_v1';
   const done = db.prepare(

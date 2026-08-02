@@ -74,7 +74,13 @@ function resolveBase(workdir, explicit) {
         return null;
     }
 }
+function withPassAlias(rc) {
+    return { ...rc, pass: rc.verdict === 'pass' };
+}
 function realityCheck(workdir, base, expectedFiles) {
+    return withPassAlias(computeRealityCheck(workdir, base, expectedFiles));
+}
+function computeRealityCheck(workdir, base, expectedFiles) {
     if (!base) {
         return {
             files_changed: 0,
@@ -155,9 +161,11 @@ function buildObservations(input, rc, verdict, canonicalWorkdir) {
     }
     return obs;
 }
-function combineVerdict(realityVerdict, reportPass) {
+function combineVerdict(realityVerdict, reportPass, claimWentUnevaluated) {
     if (realityVerdict === 'fail' || reportPass === false)
         return 'fail';
+    if (claimWentUnevaluated)
+        return 'unverified';
     if (realityVerdict === 'pass' || reportPass === true)
         return 'pass';
     return 'unverified';
@@ -166,7 +174,8 @@ export function verifyAgentWork(input) {
     const canonicalWorkdir = validateWorkdir(input.workdir);
     const base = resolveBase(canonicalWorkdir, input.base);
     const rc = realityCheck(canonicalWorkdir, base, input.claim?.expected_files);
-    const verdict = combineVerdict(rc.verdict, input.report?.pass);
+    const claimWentUnevaluated = input.claim?.expected_files != null && rc.match === null;
+    const verdict = combineVerdict(rc.verdict, input.report?.pass, claimWentUnevaluated);
     const timestamp = new Date().toISOString();
     const safeAgentId = input.agent_id.replace(/[^a-zA-Z0-9_-]/g, '-');
     const suffix = randomBytes(3).toString('hex');
@@ -188,6 +197,7 @@ export function verifyAgentWork(input) {
     return {
         entity_name: entityName,
         verdict,
+        pass: verdict === 'pass',
         reality_check: rc,
         external_report: input.report ?? null,
         timestamp,

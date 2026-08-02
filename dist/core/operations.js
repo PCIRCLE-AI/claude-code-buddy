@@ -1,4 +1,5 @@
 import { getDatabase, clearPendingReindexFlag } from '../db.js';
+import { hasSearchableTerms } from '../storage/fts-index.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { rankEntities } from './scoring.js';
 import { getProjectName } from './paths.js';
@@ -114,7 +115,10 @@ async function supplementWithVectors(query, args, kg, merged, relevanceMap) {
         const vectorHits = vectorSearch(queryEmb, args.limit ?? 20);
         if (vectorHits.length === 0)
             return;
-        const hitIds = vectorHits.map(h => h.id);
+        const alreadyMerged = new Set(merged.map(e => e.id));
+        const hitIds = vectorHits.map(h => h.id).filter(id => !alreadyMerged.has(id));
+        if (hitIds.length === 0)
+            return;
         const hitEntities = kg.getEntitiesByIds(hitIds, {
             includeArchived: args.include_archived === true,
             namespace: args.namespace,
@@ -135,7 +139,7 @@ async function supplementWithVectors(query, args, kg, merged, relevanceMap) {
 export async function recallEnhanced(args) {
     const { kg, entities, relevanceMap } = searchAndScore(args);
     const mergedEntities = [...entities];
-    if (args.query) {
+    if (args.query && hasSearchableTerms(args.query)) {
         await supplementWithVectors(args.query, args, kg, mergedEntities, relevanceMap);
     }
     return rankEntities(mergedEntities, relevanceMap).slice(0, args.limit ?? 20);
@@ -195,6 +199,16 @@ export function setPinned(name, pinned) {
     });
     return { name, pinned, found: true };
 }
+function countMissingVectors(db, namespace) {
+    const row = db.prepare(`
+    SELECT COUNT(*) AS n FROM entities e
+    WHERE e.status = 'active'
+      ${namespace ? 'AND e.namespace = ?' : ''}
+      AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND TRIM(o.content) <> '')
+      AND NOT EXISTS (SELECT 1 FROM entities_vec v WHERE v.rowid = e.id)
+  `).get(...(namespace ? [namespace] : []));
+    return row.n;
+}
 export async function reindex(opts) {
     if (!isEmbeddingAvailable()) {
         throw new Error('No embedding provider available. Configure OpenAI API key, Ollama, or install @huggingface/transformers.');
@@ -204,32 +218,81 @@ export async function reindex(opts) {
     const namespaceFilter = opts?.namespace ? 'AND namespace = ?' : '';
     const params = opts?.namespace ? [opts.namespace] : [];
     const entities = db.prepare(`SELECT id, name FROM entities WHERE status = 'active' ${namespaceFilter} ORDER BY id`).all(...params);
+    const outcomes = {
+        stored: 0,
+        removed: 0,
+        no_embedding: 0,
+        dimension_mismatch: 0,
+        write_failed: 0,
+        database_closed: 0,
+        entity_missing: 0,
+        nothing_to_embed: 0,
+    };
     let processed = 0;
-    let embedded = 0;
-    let skipped = 0;
     process.stderr.write(`MeMesh: Reindexing ${entities.length} entities...\n`);
     for (const entity of entities) {
         processed++;
         const fullEntity = kg.getEntity(entity.name);
         if (!fullEntity) {
-            skipped++;
+            outcomes.entity_missing++;
             continue;
         }
         const text = fullEntity.observations.join(' ');
+        if (text.trim() === '') {
+            outcomes.nothing_to_embed++;
+            continue;
+        }
         try {
-            await embedAndStore(entity.id, text);
-            embedded++;
+            outcomes[await embedAndStore(entity.id, text)]++;
             if (processed % 10 === 0) {
-                process.stderr.write(`MeMesh: Processed ${processed}/${entities.length} (${embedded} embedded, ${skipped} skipped)\n`);
+                process.stderr.write(`MeMesh: Processed ${processed}/${entities.length} ` +
+                    `(${outcomes.stored} embedded, ${processed - outcomes.stored} skipped)\n`);
             }
         }
         catch (err) {
-            skipped++;
+            outcomes.write_failed++;
             process.stderr.write(`MeMesh: Failed to embed entity ${entity.name}: ${err}\n`);
         }
     }
+    const embedded = outcomes.stored;
+    const skipped = processed - embedded;
+    const failed = outcomes.no_embedding +
+        outcomes.dimension_mismatch +
+        outcomes.write_failed +
+        outcomes.database_closed;
+    const missingVectors = countMissingVectors(db, opts?.namespace);
+    const missingVectorsDatabaseWide = opts?.namespace
+        ? countMissingVectors(db)
+        : missingVectors;
     process.stderr.write(`MeMesh: Reindex complete. ${embedded}/${processed} entities embedded.\n`);
-    clearPendingReindexFlag();
-    return { processed, embedded, skipped };
+    if (outcomes.dimension_mismatch > 0) {
+        process.stderr.write(`MeMesh: ${outcomes.dimension_mismatch} entities were skipped because the provider's ` +
+            `embedding dimension does not match this database's vector index. Rebuild it with ` +
+            `'memesh reindex --vectors'.\n`);
+    }
+    const pendingReindexCleared = missingVectorsDatabaseWide === 0 && failed === 0;
+    if (pendingReindexCleared) {
+        clearPendingReindexFlag();
+    }
+    else if (missingVectorsDatabaseWide > 0) {
+        process.stderr.write(`MeMesh: ${missingVectorsDatabaseWide} active memories still have no vector` +
+            `${opts?.namespace ? ' (across all namespaces)' : ''}, so the ` +
+            `reindex-needed flag was left set.\n`);
+    }
+    else {
+        process.stderr.write(`MeMesh: every memory has a vector, but ${failed} could not be regenerated, ` +
+            `so those still hold their previous embedding and the reindex-needed flag ` +
+            `was left set.\n`);
+    }
+    return {
+        processed,
+        embedded,
+        skipped,
+        outcomes,
+        failed,
+        missingVectors,
+        missingVectorsDatabaseWide,
+        pendingReindexCleared,
+    };
 }
 //# sourceMappingURL=operations.js.map

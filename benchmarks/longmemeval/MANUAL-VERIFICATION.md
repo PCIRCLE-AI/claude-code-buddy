@@ -1,3 +1,15 @@
+> **Historical — not evidence for the current figure.**
+>
+> This audit was run on 2026-05-03 against `mode-A-2026-05-03T12-31-26.json`,
+> which was produced when `run.mjs` carried its own table creation, its own
+> FTS5 query building and its own ranking. That result describes the adapter
+> reimplementation, not MeMesh at any version — it is the 95.40% this release
+> exists to retract. See `results/README.md`.
+>
+> Everything below is kept because the sampling method is still the right one;
+> the numbers and file references in it are not current. Re-running it against
+> `mode-A-2026-07-29T08-15-09.json` is open work.
+
 # Manual Verification Audit — LongMemEval-S Benchmark
 
 ## Purpose
@@ -130,7 +142,7 @@ The inspection confirms:
 
 ## Limitations Noted
 
-- All 5 sampled questions happened to be successes (hit at rank 1). A separate failure analysis covering all 23 failures (4.6%) is documented in INTERNAL-RESULTS.md.
+- All 5 sampled questions happened to be successes (hit at rank 1). A separate failure analysis covering all 23 failures (4.6%) was recorded in an internal document that is not part of this repository.
 - The 5-sample audit is a qualitative check, not a comprehensive coverage test.
 - Session content inspection limited to the first 600 chars of the answer session.
 

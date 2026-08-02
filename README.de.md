@@ -288,7 +288,9 @@ Wenn npm eine installierte Version als veraltet kennzeichnet (typischerweise ein
 
 ## Intelligente Features
 
-**🧠 Intelligente Suche** — Suche nach „Login Security" und finde Memories über „OAuth PKCE". MeMesh erweitert Anfragen mit verwandten Begriffen unter Verwendung Ihres konfigurierten LLM.
+**🧠 Intelligente Suche** — Suche nach „Login Security" und finde Memories über „OAuth PKCE". MeMesh nutzt auf dem heißen Pfad FTS5 + sqlite-vec, ohne LLM; die Vektor-Ergänzung erreicht dennoch verwandte Formulierungen.
+
+**🌏 Suche in Schriften ohne Wortzwischenräume** — Chinesisch, Japanisch, Koreanisch, Thai, Laotisch, Khmer und halbbreites Katakana werden als überlappende Zeichenpaare indiziert. Eine als 「資料庫遷移前一定要先備份」 gespeicherte Erinnerung findet man deshalb mit 「備份」 — und nicht nur über den exakten Volltext. Der Text wird beim Schreiben wie beim Suchen normalisiert (NFC), sodass unter macOS oder mit einer koreanischen bzw. vietnamesischen Eingabemethode getippte Erinnerungen in beiden Schreibweisen gefunden werden.
 
 **📊 Bewertetes Ranking** — Ergebnisse geordnet nach Relevanz (30%) + Aktualität (25%) + Häufigkeit (18%) + Konfidenz (17%) + Abruf-Auswirkung (10%).
 

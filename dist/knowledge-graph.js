@@ -1,37 +1,42 @@
 import { findConflicts, trackAccess } from './storage/conflicts.js';
-import { insertFtsRow, removeFromFts, segmentUnspacedScripts } from './storage/fts-index.js';
+import { insertFtsRow, removeFromFts, tokenizeQuery, renderMatchExpression, registerNfcFunction, SQL_NFC_FUNCTION, } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 const MAX_QUERY_TERMS = 32;
 function buildMatchExpression(db, query) {
-    const terms = (segmentUnspacedScripts(query).normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
-        .slice(0, MAX_QUERY_TERMS);
+    const terms = tokenizeQuery(query);
     if (terms.length === 0)
         return null;
-    const kept = dropUbiquitousTerms(db, terms);
-    return kept.map((term) => (isLoneUnspacedChar(term) ? `"${term}"*` : `"${term}"`)).join(' OR ');
+    return renderMatchExpression(dropUbiquitousTerms(db, terms).slice(0, MAX_QUERY_TERMS));
 }
 function archivedLikeTerms(db, query) {
     const escapeLike = (v) => v.replace(/[\\%_]/g, '\\$&');
-    const terms = (segmentUnspacedScripts(query).normalize('NFC').match(/[\p{L}\p{N}\p{M}]+/gu) ?? [])
-        .slice(0, MAX_QUERY_TERMS);
-    const kept = terms.length > 1 ? dropUbiquitousTerms(db, terms) : terms;
+    const terms = tokenizeQuery(query);
+    const kept = (terms.length > 1 ? dropUbiquitousTerms(db, terms) : terms).slice(0, MAX_QUERY_TERMS);
     if (kept.length === 0)
         return [`%${escapeLike(query)}%`];
     return kept.map((t) => `%${escapeLike(t)}%`);
 }
-function isLoneUnspacedChar(term) {
-    return [...term].length === 1 && /[㐀-䶿一-鿿豈-﫿぀-ヿ가-힯]/u.test(term);
-}
 const UBIQUITOUS_TERM_FRACTION = 0.5;
 const MIN_ROWS_FOR_DF_GUARD = 25;
+function activeEntityCount(db) {
+    return db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get().c;
+}
+const MAX_DF_LOOKUP_TERMS = 256;
+const LATIN_FOLDABLE = /^[\p{Script=Latin}\p{M}\p{N}]+$/u;
+function fold(term) {
+    const lower = term.toLowerCase();
+    if (!LATIN_FOLDABLE.test(lower))
+        return lower;
+    return lower.normalize('NFD').replace(/\p{M}/gu, '');
+}
 function dropUbiquitousTerms(db, terms) {
     if (terms.length < 2)
         return terms;
     try {
-        const total = db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get().c;
+        const total = activeEntityCount(db);
         if (total < MIN_ROWS_FOR_DF_GUARD)
             return terms;
-        const lowered = terms.map((t) => t.toLowerCase());
+        const lowered = terms.slice(0, MAX_DF_LOOKUP_TERMS).map(fold);
         const rows = db
             .prepare(`SELECT term, doc FROM fts_vocab WHERE term IN (${lowered.map(() => '?').join(',')})`)
             .all(...lowered);
@@ -39,10 +44,10 @@ function dropUbiquitousTerms(db, terms) {
             return terms;
         const docFreq = new Map(rows.map((r) => [r.term, r.doc]));
         const ceiling = UBIQUITOUS_TERM_FRACTION * total;
-        const kept = terms.filter((t) => (docFreq.get(t.toLowerCase()) ?? 0) <= ceiling);
+        const kept = terms.filter((t) => (docFreq.get(fold(t)) ?? 0) <= ceiling);
         if (kept.length > 0)
             return kept;
-        return [terms.reduce((rarest, t) => (docFreq.get(t.toLowerCase()) ?? 0) < (docFreq.get(rarest.toLowerCase()) ?? 0) ? t : rarest)];
+        return [terms.reduce((rarest, t) => (docFreq.get(fold(t)) ?? 0) < (docFreq.get(fold(rarest)) ?? 0) ? t : rarest)];
     }
     catch {
         return terms;
@@ -291,8 +296,9 @@ export class KnowledgeGraph {
             return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
         }
         const ftsQuery = buildMatchExpression(this.db, query);
-        if (ftsQuery === null)
-            return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
+        if (ftsQuery === null) {
+            return [];
+        }
         const statusFilter = opts?.includeArchived ? '' : "AND e.status = 'active'";
         const namespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
         const tagFilter = opts?.tag
@@ -313,7 +319,13 @@ export class KnowledgeGraph {
              ${tagFilter}
              ${statusFilter}
              ${namespaceFilter}
-           ORDER BY f.rank
+           -- e.id breaks BM25 ties. Ties are common — every row matching only
+           -- the same single term scores identically — and LIMIT decides which
+           -- of them survive to the multi-factor scorer, so without a
+           -- tiebreaker the same query over the same corpus can return
+           -- different memories run to run. Newest-first among equals is the
+           -- same preference the rest of the scorer expresses.
+           ORDER BY f.rank, e.id DESC
            LIMIT ?`)
                 .all(...params);
         }
@@ -333,8 +345,10 @@ export class KnowledgeGraph {
             const tagFilter = opts?.tag ? 'AND t.tag = ?' : '';
             const archivedNamespaceFilter = opts?.namespace ? 'AND e.namespace = ?' : '';
             const likeTerms = archivedLikeTerms(this.db, query);
+            registerNfcFunction(this.db);
             const termClause = likeTerms
-                .map(() => "(e.name LIKE ? ESCAPE '\\' OR o.content LIKE ? ESCAPE '\\')")
+                .map(() => `(${SQL_NFC_FUNCTION}(e.name) LIKE ? ESCAPE '\\' ` +
+                `OR ${SQL_NFC_FUNCTION}(o.content) LIKE ? ESCAPE '\\')`)
                 .join(' OR ');
             const archivedParams = likeTerms.flatMap((t) => [t, t]);
             if (opts?.tag)

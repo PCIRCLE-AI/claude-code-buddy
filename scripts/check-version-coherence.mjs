@@ -55,9 +55,47 @@ if (pluginVersion !== pkgVersion) {
   errors.push(`.claude-plugin/plugin.json (${pluginVersion}) !== package.json (${pkgVersion})`);
 }
 
+// package-lock.json carries the version TWICE and both must agree.
+//
+// `CLAUDE.md` names these as required anchors and records that they "silently
+// drifted from 4.2.6 through 4.2.10" — five releases — which is exactly what a
+// coherence gate exists to stop, and this gate did not read the file. `npm ci`
+// does not compensate: measured with package.json at 2.0.0 against a lockfile
+// self-describing 1.0.0, `npm ci` reported "up to date" and exited 0.
+//
+// The lockfile is not in `files`, so no consumer sees it. This is repo and
+// provenance integrity: the tagged commit should not self-describe a version it
+// is not.
+const lock = readJson('package-lock.json');
+const lockVersions = [
+  ['package-lock.json version', lock.version],
+  ['package-lock.json packages[""].version', lock.packages?.['']?.version],
+];
+for (const [label, value] of lockVersions) {
+  findings.push(`${label}: ${value ?? '(absent)'}`);
+  if (value === undefined) {
+    errors.push(`${label} is missing — the lockfile is malformed`);
+  } else if (value !== pkgVersion) {
+    errors.push(`${label} (${value}) !== package.json (${pkgVersion})`);
+  }
+}
+
 const marketplace = readJson('.claude-plugin/marketplace.json');
 const marketplaceVersions = (marketplace.plugins ?? []).map(p => p.version).filter(Boolean);
 findings.push(`.claude-plugin/marketplace.json plugins[].version: [${marketplaceVersions.join(', ')}]`);
+// An empty list must FAIL, not pass by iterating nothing. `filter(Boolean)`
+// turns both "no plugins array" and "a plugin entry lost its version" into [],
+// and `for (const v of [])` never runs — so a bad merge that drops the version
+// key reports "All version sources agree" while the unversioned
+// marketplace.json ships inside the tarball to plugin-marketplace users.
+// Same guard shape as scripts/lib/executable-targets.mjs, which throws on an
+// empty derivation rather than checking nothing.
+if (marketplaceVersions.length === 0) {
+  errors.push(
+    '.claude-plugin/marketplace.json yielded no plugins[].version at all — ' +
+      'the file is malformed or an entry lost its version key'
+  );
+}
 for (const v of marketplaceVersions) {
   if (v !== pkgVersion) {
     errors.push(`.claude-plugin/marketplace.json plugins[].version (${v}) !== package.json (${pkgVersion})`);
@@ -70,10 +108,44 @@ const headerRe = new RegExp(`^## \\[${escapeRegex(pkgVersion)}\\][\\s—-]`, 'm'
 const changelogMatch = headerRe.test(changelog);
 findings.push(`CHANGELOG.md has [${pkgVersion}] section: ${changelogMatch ? 'YES' : 'NO'}`);
 if (!changelogMatch) {
-  // Allow [Unreleased] for in-flight feature branches; reject only on main / release branches
+  // Allow [Unreleased] for in-flight feature branches; reject on a release run.
+  //
+  // The comment always said "reject only on main / release branches" and the
+  // code never looked at anything — no branch, no tag, no env. CHANGELOG.md
+  // carries a permanent `## [Unreleased]` header, so this branch of the gate
+  // could never fail: bump every version anchor, forget the `## [X.Y.Z]`
+  // header, and the release publishes with no changelog entry while the gate
+  // prints "All version sources agree". The one source it is least able to
+  // verify by other means was the one it silently waived.
+  //
+  // Release-ness is INFERRED from three independent signals, not read from one
+  // env var somebody has to remember to set.
+  //
+  // The first version of this branch tested `MEMESH_RELEASE === '1'` alone,
+  // with a comment asserting "MEMESH_RELEASE=1 is set by the publish workflow".
+  // Nothing set it — not the workflow, not `prepublishOnly`, not a test. So the
+  // branch was unreachable and the anchor stayed silently waived on the publish
+  // path, which is the exact defect it was added to close: a gate that reports
+  // success because its own trigger never fires.
+  //
+  //   npm_command === 'publish'      — npm sets this for the whole `npm publish`
+  //                                    run, so `prepublishOnly` is covered on any
+  //                                    platform without shell env-var syntax.
+  //   GITHUB_EVENT_NAME === 'release' — a release-triggered workflow run.
+  //   MEMESH_RELEASE === '1'          — explicit override, and what the publish
+  //                                    workflow now sets so the intent is legible
+  //                                    at the call site too.
   const unreleasedRe = /^## \[Unreleased\]/m;
-  if (unreleasedRe.test(changelog)) {
+  const isReleaseRun =
+    process.env.MEMESH_RELEASE === '1' ||
+    process.env.npm_command === 'publish' ||
+    process.env.GITHUB_EVENT_NAME === 'release';
+  if (unreleasedRe.test(changelog) && !isReleaseRun) {
     findings.push(`  (CHANGELOG.md has [Unreleased] section — acceptable for feature branches; bump before release)`);
+  } else if (unreleasedRe.test(changelog) && isReleaseRun) {
+    errors.push(
+      `CHANGELOG.md has no [${pkgVersion}] section — [Unreleased] is not acceptable on a release run`
+    );
   } else {
     errors.push(`CHANGELOG.md has neither [${pkgVersion}] nor [Unreleased] section header`);
   }

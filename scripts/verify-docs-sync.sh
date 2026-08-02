@@ -35,7 +35,16 @@ echo ""
 
 # 2. Hook count consistency
 echo "📌 Checking hook count..."
-HOOK_FILES=$(find scripts/hooks -name "*.js" ! -name "_shared.js" | wc -l | tr -d ' ')
+# `-maxdepth 1` and the `_` prefix, not a list of exceptions.
+#
+# This counted every .js under scripts/hooks/ except one named file, so when
+# `scripts/hooks/_generated/` arrived — the build-generated mirror of
+# `src/core/paths.ts` and `src/storage/fts-index.ts`, which are not hooks — the
+# count went to 9 and this gate reported FAIL on a completely correct tree. A
+# gate that fails on a healthy repo gets ignored, and then it is not a gate.
+# The underscore prefix is already the convention for "in this directory but
+# not a hook"; keying on it means the next such file needs no edit here.
+HOOK_FILES=$(find scripts/hooks -maxdepth 1 -name "*.js" ! -name "_*" | wc -l | tr -d ' ')
 ARCH_HOOKS=$(grep -c "\.js.*UserPromptSubmit\|PreToolUse\|SessionStart\|PostToolUse\|Stop\|PreCompact" docs/ARCHITECTURE.md || echo "0")
 
 echo "  Hook files in scripts/hooks/: $HOOK_FILES"
