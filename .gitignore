@@ -25,7 +25,11 @@ secrets/
 *.key
 
 # === Claude Code local config ===
-CLAUDE.md
+# CLAUDE.md is TRACKED: it is a short pointer to CONTRIBUTING.md / ARCHITECTURE.md
+# and carries only the handful of facts that live nowhere else. Untracking it was
+# what let it drift — it duplicated public docs and no reviewer saw it change.
+# Personal, machine-specific or client-specific notes belong in the user-level
+# ~/.claude/CLAUDE.md, never here.
 .claude/
 # Note: .claude-plugin/plugin.json AND .claude-plugin/marketplace.json
 # ARE Claude Code plugin/marketplace manifests for memesh itself — both

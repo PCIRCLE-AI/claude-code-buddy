@@ -57,7 +57,7 @@ if (pluginVersion !== pkgVersion) {
 
 // package-lock.json carries the version TWICE and both must agree.
 //
-// `CLAUDE.md` names these as required anchors and records that they "silently
+// `CONTRIBUTING.md` names these as required anchors and records that they "silently
 // drifted from 4.2.6 through 4.2.10" — five releases — which is exactly what a
 // coherence gate exists to stop, and this gate did not read the file. `npm ci`
 // does not compensate: measured with package.json at 2.0.0 against a lockfile
