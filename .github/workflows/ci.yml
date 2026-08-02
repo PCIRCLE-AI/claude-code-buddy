@@ -149,9 +149,21 @@ jobs:
             exit 1
           fi
 
+  # The three jobs below used to carry `needs: build-and-test`, which made each
+  # of them wait for ALL eleven matrix legs before starting. Measured on run
+  # 30735734852: the matrix finished at 06:28:38, these started at 06:28:40, and
+  # the run ended at 06:30:46 — a 2m06s serial tail on a 10m15s run, 20% of every
+  # green PR, spent waiting rather than testing.
+  #
+  # The dependency bought nothing. Each of them checks out, runs its own
+  # `npm ci` and its own build; none consumes an artifact the matrix produces.
+  # What it did buy was "don't spend runners when the build is already broken",
+  # and on a public repo that trade is backwards: GitHub reports
+  # `billable.duration_ms = 0` for every leg of this workflow, so the currency is
+  # wall-clock feedback time, and this was paying 2 minutes of it on every
+  # PASSING run to save three ubuntu jobs on the rarer failing one.
   package-smoke:
     name: Packaged Artifact Smoke Test
-    needs: build-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -176,7 +188,6 @@ jobs:
 
   dashboard-e2e-smoke:
     name: Packaged Dashboard E2E Smoke
-    needs: build-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -209,7 +220,6 @@ jobs:
   # is caught at PR-time, not at publish-time.
   release-verify:
     name: Release Verification Gate
-    needs: build-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
