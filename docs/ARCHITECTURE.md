@@ -89,7 +89,7 @@ src/
 │   ├── digest-validator.ts # Opt-in second-pass LLM cross-check on dreamer digests
 │   ├── kg-backfill.ts     # Heuristic relation backfill (tag co-occurrence + project clustering)
 │   ├── patterns.ts        # User work patterns computation (shared by MCP + HTTP)
-│   ├── doctor.ts          # `memesh doctor` health check (install / hooks / DB / capabilities)
+│   ├── doctor.ts          # `memesh doctor` health check (runtime / install / hooks / DB / capabilities)
 │   ├── demo.ts            # `memesh demo` 30-entity onboarding seed
 │   └── version-check.ts   # npm registry version check
 ├── db.ts                  # SQLite + FTS5 + sqlite-vec + migrations

@@ -47,6 +47,9 @@ interface DoctorOptions {
     };
     resolveShellMemeshImpl?: () => string | null;
 }
+export declare function satisfiesMinimumNodeRange(version: string, range: string): boolean | null;
+export declare function inspectNodeRuntime(packageRoot: string, existsSyncImpl: typeof fs.existsSync, readFileSyncImpl: typeof fs.readFileSync, nodeVersion?: string, moduleAbi?: string, hasNodeSqliteImpl?: () => boolean): DoctorCheck;
+export declare function hasBuiltInSqlite(): boolean;
 export declare function runDoctor(options: DoctorOptions): Promise<DoctorResult>;
 export declare function formatDoctorReport(result: DoctorResult, packageVersion: string): string[];
 export {};

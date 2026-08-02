@@ -756,6 +756,132 @@ function defaultNativeBindingProbe(packageRoot: string): { ok: true } | { ok: fa
   }
 }
 
+/**
+ * Compare a running Node version against a `>=X.Y.Z` engines range.
+ *
+ * Deliberately narrow: it understands exactly the one form this package
+ * publishes, and says so when it meets anything else. A looser parser that
+ * guessed at `^`, `||` or `<` ranges would answer confidently and sometimes
+ * wrongly, and the row it feeds is allowed to FAIL — a wrong answer there
+ * tells a healthy install it is broken. Returning `null` makes the caller
+ * report "not checked", which is the true statement.
+ */
+export function satisfiesMinimumNodeRange(
+  version: string,
+  range: string
+): boolean | null {
+  const min = /^>=\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?\s*$/.exec(range.trim());
+  const running = /^v?(\d+)\.(\d+)\.(\d+)/.exec(version.trim());
+  if (!min || !running) return null;
+
+  const wanted = [Number(min[1]), Number(min[2] ?? 0), Number(min[3] ?? 0)];
+  const have = [Number(running[1]), Number(running[2]), Number(running[3])];
+  for (let i = 0; i < 3; i++) {
+    if (have[i] > wanted[i]) return true;
+    if (have[i] < wanted[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * Report the runtime MeMesh is actually running on.
+ *
+ * This is a diagnostic, not a survey. Doctor output reaches the maintainers
+ * only when a user files a feedback issue, which samples people already
+ * having trouble — so nothing here can tell you what the installed base runs,
+ * and no `engines` decision should be taken from it. What it does do is close
+ * a real gap: a user below the supported floor currently sees hooks
+ * misbehaving with no row anywhere connecting that to their Node version.
+ *
+ * The `node:sqlite` line is attached because this is the one place that
+ * already prints runtime facts, and because the native-binding row two
+ * positions down fails for exactly the reason `node:sqlite` would not: it
+ * needs no compilation. When that row is red, knowing a compile-free SQLite
+ * is sitting in the same runtime is the useful next sentence.
+ *
+ * Everything reported is a property of the machine — version, ABI, platform,
+ * arch — and none of it is personal. That matters because `memesh feedback`
+ * copies this summary verbatim into a PUBLIC GitHub issue body.
+ */
+export function inspectNodeRuntime(
+  packageRoot: string,
+  existsSyncImpl: typeof fs.existsSync,
+  readFileSyncImpl: typeof fs.readFileSync,
+  nodeVersion: string = process.version,
+  moduleAbi: string = process.versions.modules,
+  hasNodeSqliteImpl: () => boolean = hasBuiltInSqlite,
+): DoctorCheck {
+  const facts =
+    `Node ${nodeVersion} (ABI ${moduleAbi}, ${process.platform}/${process.arch}). ` +
+    `Built-in node:sqlite: ${hasNodeSqliteImpl() ? 'available' : 'not available'}.`;
+
+  let declared: string | undefined;
+  try {
+    const pkgPath = path.join(packageRoot, 'package.json');
+    if (existsSyncImpl(pkgPath)) {
+      const parsed = JSON.parse(String(readFileSyncImpl(pkgPath, 'utf8'))) as {
+        engines?: { node?: unknown };
+      };
+      if (typeof parsed.engines?.node === 'string') declared = parsed.engines.node;
+    }
+  } catch {
+    // Unreadable or unparseable package.json — handled as "not checked"
+    // below. The manifest row is where a broken package.json belongs.
+  }
+
+  if (!declared) {
+    return createInfo(
+      'node-runtime',
+      'Node runtime',
+      `${facts} Supported range not checked: package.json declared no engines.node.`,
+    );
+  }
+
+  const ok = satisfiesMinimumNodeRange(nodeVersion, declared);
+  if (ok === null) {
+    return createInfo(
+      'node-runtime',
+      'Node runtime',
+      `${facts} Supported range not checked: engines.node is "${declared}", which this ` +
+        `check does not parse (it understands ">=X.Y.Z" only).`,
+    );
+  }
+  if (!ok) {
+    return createCheck(
+      'node-runtime',
+      'Node runtime',
+      'fail',
+      `${facts} This package requires Node ${declared}, so this runtime is BELOW the ` +
+        `supported floor. Native modules and hooks may fail in ways that look unrelated.`,
+      `Upgrade Node to ${declared.replace(/^>=\s*/, '')} or newer, then run \`memesh doctor\` again.`,
+    );
+  }
+  return createCheck(
+    'node-runtime',
+    'Node runtime',
+    'pass',
+    `${facts} Meets the required range ${declared}.`,
+  );
+}
+
+/**
+ * Is `node:sqlite` importable in this runtime?
+ *
+ * Added in Node 22.5. Resolved rather than imported, so the check costs
+ * nothing and — importantly — does not trigger the `ExperimentalWarning`
+ * that Node 22 prints to stderr on first use. Seven hooks parse process
+ * output; a warning emitted by a diagnostic would be a regression caused by
+ * the diagnostic.
+ */
+export function hasBuiltInSqlite(): boolean {
+  try {
+    createRequire(import.meta.url).resolve('node:sqlite');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function inspectNativeBinding(
   packageRoot: string,
   _existsSyncImpl: typeof fs.existsSync,
@@ -1628,6 +1754,9 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), packageRoot));
   checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl));
   checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
+  // Before the native-binding row, because when that one is red this one is
+  // the context that explains it.
+  checks.push(inspectNodeRuntime(packageRoot, existsSyncImpl, readFileSyncImpl));
   checks.push(inspectNativeBinding(packageRoot, existsSyncImpl, nativeBindingProbeImpl));
   checks.push(inspectShellCli(install, packageRoot, resolveShellMemeshImpl));
   checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));

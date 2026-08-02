@@ -14,12 +14,33 @@ jobs:
   build-and-test:
     name: Build & Test (${{ matrix.os }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
+      # Which runtimes this matrix covers, and why each is here.
+      #
+      #   20 — END OF LIFE since 2026-03-24, and still tested, because
+      #        `package.json` engines says `>=20`. Testing what we claim to
+      #        support is the point; the leg goes when the claim goes, not
+      #        before.
+      #   22 — LTS (Jod).
+      #   24 — LTS (Krypton). Was untested entirely, which is the gap this
+      #        matrix change exists to close: the LTS line most users are
+      #        actually on had no coverage at all.
+      #   26 — Current, ubuntu only. Deliberately not on macOS or Windows:
+      #        `better-sqlite3@12.9.0` publishes NO prebuilt binary for Node
+      #        26's ABI (147). Measured: `prebuild-install warn install No
+      #        prebuilt binaries found (target=26.5.1 ... platform=darwin)`
+      #        followed by a `node-gyp rebuild`, which took 18s on
+      #        macOS/arm64 and needs a full toolchain — MSVC on Windows. One
+      #        Linux leg gives early warning that Node 26 works at all
+      #        without paying for a source build on three runners.
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: ['20', '22']
+        node: ['20', '22', '24']
+        include:
+          - os: ubuntu-latest
+            node: '26'
 
     steps:
       - name: Checkout

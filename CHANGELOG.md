@@ -4,6 +4,20 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **`memesh doctor` now reports the runtime it is running on** (`src/core/doctor.ts`) — Node version, ABI, platform/arch, whether that version satisfies `package.json` `engines.node`, and whether the built-in `node:sqlite` module is present. A user below the supported floor previously saw hooks misbehaving and a red native-binding row with nothing anywhere naming the one fact that explains both. Below the floor the row FAILS with an upgrade instruction.
+
+  The version comparison understands `>=X.Y.Z` and nothing else, on purpose: this row is allowed to fail, so a parser that guessed at `^`, `||` or `<` ranges would sometimes tell a healthy install it is broken. Anything it cannot parse is reported as "not checked", which is the true statement, and reported informationally so it cannot move `Overall`.
+
+  The `node:sqlite` probe **resolves** the module rather than importing it. Measured on v22.23.2: `await import('node:sqlite')` prints `ExperimentalWarning: SQLite is an experimental feature` to stderr, and seven hooks parse process output — a diagnostic that caused the class of breakage it exists to diagnose. Everything the row prints is a machine fact, which matters because `memesh feedback` copies doctor summaries verbatim into a **public** GitHub issue body.
+
+### Changed
+
+- **CI tests Node 24, and Node 26 on Linux** (`.github/workflows/ci.yml`) — the matrix was `[20, 22]`, so Krypton, the LTS line released over a year ago, had no coverage at all. Node 20 reached end of life on 2026-03-24 and is still tested, because `engines` still says `>=20`; the leg goes when the claim goes, not before.
+
+  Node 26 is Linux-only, and the reason is worth recording: **`better-sqlite3@12.9.0` publishes no prebuilt binary for Node 26's ABI (147)**. Measured — `prebuild-install warn install No prebuilt binaries found (target=26.5.1 runtime=node arch=arm64 platform=darwin)`, followed by a `node-gyp rebuild` that succeeded in 18s on macOS/arm64. It works, but it needs a full toolchain (MSVC on Windows), so one Linux leg buys early warning without paying for a source build on three runners. The same gap has a user-facing edge: a plugin-marketplace install runs with `--ignore-scripts`, so on Node 26 there is neither a prebuild to download nor a build step to run.
+
 ### Fixed
 
 - **`memesh reindex --vectors` no longer deletes every embedding on the word of a config file** (`src/core/embedder.ts`, `src/db.ts`, `src/transports/cli/cli.ts`) — the consent gate refused to authorise the drop unless something could refill the index afterwards, and asked `isEmbeddingAvailable()`. That function reports which provider the config *names*: for `openai` and `ollama` it returns `true` without checking a key, reaching an endpoint, or comparing a dimension. An expired key, a key typed after the provider name, or a stopped Ollama therefore authorised dropping every vector in the database, and the refill then wrote nothing back. The precondition is now `canRefillVectorIndex()`, which embeds one string and measures the result against the width the table is about to be declared with — a proof rather than a claim. `allowVectorIndexRebuild` is async as a result, and the refusal message now names what to check.
