@@ -81,7 +81,7 @@ describe('Feature: the consumer audit cannot pass on an empty tree', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(binDir, { recursive: true, force: true });
+    fs.rmSync(binDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     fs.rmSync(path.join(repoRoot, 'fake-package-0.0.0.tgz'), { force: true });
   });
 

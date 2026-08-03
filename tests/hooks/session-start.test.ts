@@ -20,7 +20,7 @@ describe('Feature: Session Start Hook', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(testDir, { recursive: true, force: true });
+    fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   function runHook(input: object, env: Record<string, string> = {}): Record<string, unknown> {

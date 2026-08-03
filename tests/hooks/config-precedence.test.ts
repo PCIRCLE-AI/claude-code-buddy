@@ -52,7 +52,7 @@ afterEach(() => {
   else process.env.HOME = savedHome;
   if (savedUserProfile === undefined) delete process.env.USERPROFILE;
   else process.env.USERPROFILE = savedUserProfile;
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe('isAgenticOrchestrationEnabled — env > config > default(false)', () => {

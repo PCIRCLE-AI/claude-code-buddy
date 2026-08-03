@@ -286,7 +286,7 @@ describe('Config: a corrupt config file is traced, not silently ignored', () => 
     stderrSpy.mockRestore();
     if (savedMemeshDir === undefined) delete process.env.MEMESH_DIR;
     else process.env.MEMESH_DIR = savedMemeshDir;
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it('returns {} AND writes a stderr trace naming the file when JSON is corrupt', () => {

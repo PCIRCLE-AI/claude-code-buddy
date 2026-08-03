@@ -22,7 +22,7 @@ describe('memesh config list', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   function runList(config: object): string {

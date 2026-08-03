@@ -23,7 +23,7 @@ describe('seedDemo', () => {
     const { closeDatabase } = await import('../../src/db.js');
     try { closeDatabase(); } catch { /* already closed */ }
     delete process.env.MEMESH_DB_PATH;
-    rmSync(tmpHome, { recursive: true, force: true });
+    rmSync(tmpHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it('seeds 30 entities all flagged metadata.demo = true', async () => {

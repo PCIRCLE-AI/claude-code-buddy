@@ -74,7 +74,7 @@ describe('F5 mirror parity: scripts/hooks/_shared.js vs src/core', () => {
         process.env.HOME = tmpHome;
         expect(shared.memeshDir()).toBe(coreMemeshDir());
       } finally {
-        fs.rmSync(tmpHome, { recursive: true, force: true });
+        fs.rmSync(tmpHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       }
     });
 
@@ -91,7 +91,7 @@ describe('F5 mirror parity: scripts/hooks/_shared.js vs src/core', () => {
         process.env.MEMESH_DB_PATH = override;
         expect(shared.getDbPath()).toBe(coreGetDbPath());
       } finally {
-        fs.rmSync(tmpHome, { recursive: true, force: true });
+        fs.rmSync(tmpHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       }
     });
 
@@ -106,7 +106,7 @@ describe('F5 mirror parity: scripts/hooks/_shared.js vs src/core', () => {
         delete process.env.MEMESH_DB_PATH;
         expect(shared.getMemeshDirFromDbPath()).toBe(coreGetMemeshDirFromDbPath());
       } finally {
-        fs.rmSync(tmpHome, { recursive: true, force: true });
+        fs.rmSync(tmpHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       }
     });
 
@@ -125,7 +125,7 @@ describe('F5 mirror parity: scripts/hooks/_shared.js vs src/core', () => {
       tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-parity-fts-'));
     });
     afterEach(() => {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     });
 
     /** Open a fresh hook DB (creates entities/observations/tags/entities_fts). */

@@ -58,7 +58,7 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     stderrSpy.mockRestore();
     if (savedMemeshDir === undefined) delete process.env.MEMESH_DIR;
     else process.env.MEMESH_DIR = savedMemeshDir;
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   function storedDimension(): number | undefined {

@@ -23,7 +23,7 @@ beforeEach(() => {
 afterEach(() => {
   closeDatabase();
   delete process.env.MEMESH_DB_PATH;
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 // ── remember → recall → verify observations ────────────────────────────────
@@ -192,7 +192,7 @@ describe('Integration: export → import round-trip', () => {
 
     // Clean up import dir
     closeDatabase();
-    fs.rmSync(importDir, { recursive: true, force: true });
+    fs.rmSync(importDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 
     // Re-open original DB for afterEach cleanup
     process.env.MEMESH_DB_PATH = path.join(tmpDir, 'test.db');

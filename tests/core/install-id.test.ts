@@ -28,7 +28,7 @@ describe('install-id', () => {
   afterEach(() => {
     if (originalEnv === undefined) delete process.env.MEMESH_DIR;
     else process.env.MEMESH_DIR = originalEnv;
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   async function freshModule() {

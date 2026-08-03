@@ -32,7 +32,7 @@ describe('computePmAnalytics', () => {
     try { closeDatabase(); } catch { /* already closed */ }
     if (prevDbPath === undefined) delete process.env.MEMESH_DB_PATH;
     else process.env.MEMESH_DB_PATH = prevDbPath;
-    fs.rmSync(testDir, { recursive: true, force: true });
+    fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   const insertEntity = (name: string, type: string, daysAgo = 0, lastAccessedDaysAgo?: number): number => {

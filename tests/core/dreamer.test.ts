@@ -27,7 +27,7 @@ describe('dreamer', () => {
     try { closeDatabase(); } catch { /* already closed */ }
     delete process.env.MEMESH_DB_PATH;
     delete process.env.MEMESH_DIR;
-    rmSync(tmpHome, { recursive: true, force: true });
+    rmSync(tmpHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   function seedCommits(count: number, project = 'memesh'): number[] {

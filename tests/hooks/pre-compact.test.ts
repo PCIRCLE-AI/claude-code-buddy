@@ -18,7 +18,7 @@ describe('Feature: PreCompact Hook', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(testDir, { recursive: true, force: true });
+    fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   function runHook(input: object, env: Record<string, string> = {}): string {

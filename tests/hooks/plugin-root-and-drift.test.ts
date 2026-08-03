@@ -127,8 +127,8 @@ describe('readHookConfig — homedir is canonical, MEMESH_DB_PATH does not redir
     else process.env.HOME = savedHome;
     if (savedUserProfile === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = savedUserProfile;
-    fs.rmSync(homeDir, { recursive: true, force: true });
-    fs.rmSync(dbDir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    fs.rmSync(dbDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   function writeHomeConfig(obj: Record<string, unknown>) {

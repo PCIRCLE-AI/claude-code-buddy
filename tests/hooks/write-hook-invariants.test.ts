@@ -28,7 +28,7 @@ describe('write-hook invariants (fake-working gates)', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it('captureEntity keeps entities_fts in sync, so hook-written memories are FTS-recallable', () => {

@@ -113,7 +113,7 @@ describe('version check', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(testDir, { recursive: true, force: true });
+    fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it('writes successful fresh checks to cache', async () => {

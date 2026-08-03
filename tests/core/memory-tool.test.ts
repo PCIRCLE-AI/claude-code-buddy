@@ -47,7 +47,7 @@ describe('Feature: memory_20250818 over the knowledge graph', () => {
     try { closeDatabase(); } catch { /* already closed */ }
     if (savedMemeshDir === undefined) delete process.env.MEMESH_DIR;
     else process.env.MEMESH_DIR = savedMemeshDir;
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   function seed(name: string, observations: string[], namespace = 'personal'): void {

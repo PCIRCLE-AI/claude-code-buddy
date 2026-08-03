@@ -4,6 +4,13 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Tests
+
+- **A docs-only pull request went red on Windows because a temp directory was slow to delete** (`vitest.config.ts`, `tests/**`) — `hookTimeout` was 10 seconds, which fits POSIX and does not fit Windows: every DB test's `afterEach` closes SQLite and recursively removes a temp directory, SQLite leaves `-wal`/`-shm` beside the database, and the OS (plus whatever scans files on a CI runner) can hold a handle open for a moment after close. Measured — `tests/core/export-import.test.ts` hit `Hook timed out in 10000ms` on `windows-latest` / Node 24, in a pull request that changed only `CHANGELOG.md`.
+
+  Two halves, because there are two causes. The budget is now 30 seconds, for removals that succeed but are slow. And every recursive `rmSync` in `tests/` (74 of them; exactly one already had it) now passes `maxRetries: 5, retryDelay: 100` — the documented Windows mitigation for the `EBUSY`/`EPERM` a still-open handle produces. The shared DB fixture additionally treats a failed removal as non-fatal: a directory under `os.tmpdir()` that will not delete is the operating system's problem and gets swept by the platform, and failing a test over it turns a machine-local file lock into a red build on an unrelated change.
+
+
 ### Removed
 
 - **`consolidate` is retired — MCP tool, HTTP endpoint and CLI command** (`src/core/consolidator.ts` deleted; `handlers.ts`, `server.ts`, `cli.ts`, `schema-export.ts`, `types.ts`, `schemas.ts`) — **this is a breaking change.** MeMesh now exposes **8** MCP tools.

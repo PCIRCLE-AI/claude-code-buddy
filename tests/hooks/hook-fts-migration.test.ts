@@ -40,7 +40,7 @@ describe('Feature: hooks migrate the keyword index too', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   /** Open the way a hook does. */

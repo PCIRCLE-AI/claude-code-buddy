@@ -23,7 +23,18 @@ export default defineConfig({
 
     // Force test timeout to prevent hanging
     testTimeout: 30000, // 30 seconds max per test
-    hookTimeout: 10000, // 10 seconds for hooks
+    // 30s, not 10s. Every DB test's afterEach closes SQLite and recursively
+    // removes a temp directory, and on Windows that is routinely slower than
+    // on POSIX — SQLite leaves -wal/-shm beside the database, and the OS (plus
+    // whatever scans files on a CI runner) can hold a handle open for a moment
+    // after close. Measured: `tests/core/export-import.test.ts` hit
+    // "Hook timed out in 10000ms" on windows-latest / Node 24 in CI, in a
+    // docs-only pull request. The removal was not failing, it was slow; a
+    // budget that only fits the fastest platform turns that into a red build
+    // on an unrelated change. The retries added alongside this (maxRetries /
+    // retryDelay on every recursive rmSync in tests/) handle the other half —
+    // a handle that is briefly still open.
+    hookTimeout: 30000,
 
     // Environment configuration
     environment: 'node',

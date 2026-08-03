@@ -41,8 +41,8 @@ beforeEach(() => {
 
 afterEach(() => {
   closeDatabase();
-  fs.rmSync(tmpDbDir, { recursive: true, force: true });
-  fs.rmSync(tmpRepo, { recursive: true, force: true });
+  fs.rmSync(tmpDbDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  fs.rmSync(tmpRepo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 describe('verifyAgentWork — reality check', () => {
@@ -280,7 +280,7 @@ describe('verifyAgentWork — error paths', () => {
         workdir: nonGit,
       })).toThrow(/not a git working tree/);
     } finally {
-      fs.rmSync(nonGit, { recursive: true, force: true });
+      fs.rmSync(nonGit, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -309,7 +309,7 @@ describe('verifyAgentWork — error paths', () => {
         workdir: filePath,
       })).toThrow(/not a directory/);
     } finally {
-      fs.rmSync(tmp, { recursive: true, force: true });
+      fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -380,7 +380,7 @@ describe('verifyAgentWork — workdir handling (subdir + symlink, codex 2026-05-
       expect(result.entity_name).toMatch(/^verification:symlink:/);
     } finally {
       try { fs.unlinkSync(linkPath); } catch { /* ignore */ }
-      fs.rmSync(linkParent, { recursive: true, force: true });
+      fs.rmSync(linkParent, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 });
@@ -427,7 +427,7 @@ describe('a claim that could not be evaluated is not a pass', () => {
       // So the answer is "I could not check that", not "it passed".
       expect(result.verdict).toBe('unverified');
     } finally {
-      fs.rmSync(repo, { recursive: true, force: true });
+      fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -444,7 +444,7 @@ describe('a claim that could not be evaluated is not a pass', () => {
       });
       expect(result.verdict).toBe('pass');
     } finally {
-      fs.rmSync(repo, { recursive: true, force: true });
+      fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 });

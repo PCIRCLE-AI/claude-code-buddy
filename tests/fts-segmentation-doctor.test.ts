@@ -60,7 +60,7 @@ describe('Feature: doctor detects a stale (unsegmented) keyword index', () => {
 
   afterEach(() => {
     try { closeDatabase(); } catch { /* already closed */ }
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   /** How many unsegmented runs doctor would report. 0 means "healthy". */
