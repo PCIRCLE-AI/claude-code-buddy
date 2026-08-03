@@ -4,7 +4,7 @@ MeMesh is intentionally small. Changes should preserve that shape: a minimal MCP
 
 ## Prerequisites
 
-- Node.js 20 or newer
+- Node.js 22.5 or newer (`package.json` `engines.node`; Node 20 reached end of life on 2026-03-24)
 - npm
 
 ## Local Setup
