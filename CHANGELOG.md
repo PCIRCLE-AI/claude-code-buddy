@@ -4,6 +4,13 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **`develop` is gone, and CI no longer re-runs the whole matrix on it** (`.github/workflows/ci.yml`, `CLAUDE.md`) — the branch was fast-forwarded from `main` after every merge and never merged into, so every sync re-tested a byte-for-byte identical tree: **10 jobs**, on a matrix whose slowest leg has taken over 13 minutes. Free on a public repo — GitHub reports `billable.duration_ms = 0` for every leg — which is exactly why it went unnoticed; the currency is wall-clock feedback time and queue slots, not money.
+
+  Keeping it as a passive mirror was the first answer and deleting it is the better one: a branch that only ever receives a copy of `main` answers no question that a git tag or `CHANGELOG.md`'s `[Unreleased]` section does not already answer. `main` is now the only long-lived branch. Pull requests are unaffected — the `pull_request` trigger has no branch filter, deliberately, so a PR based on another feature branch is still built and tested.
+
+
 ### Performance
 
 - **The test suite went from 253s to 40s, because every isolated HOME was re-downloading a 98 MB model** (`src/core/embedder.ts`, `scripts/run-tests-isolated.mjs`, `.github/workflows/ci.yml`) — the local embedding model `all-MiniLM-L6-v2` caches at `~/.memesh/models`, which is right for a real install and wrong for anything that isolates `HOME`. Six test files spawn the CLI or a hook under a per-test `HOME`, so each of those tests fetched the whole model from HuggingFace again.

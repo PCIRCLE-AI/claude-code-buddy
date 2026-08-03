@@ -2,7 +2,19 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    # `main` is the only long-lived branch. `develop` used to be listed here
+    # and was deleted along with this line: it had been fast-forwarded from
+    # `main` after every merge and never merged into, so every sync re-tested a
+    # byte-for-byte identical tree — 10 jobs, on a matrix whose slowest leg has
+    # taken over 13 minutes. Free on a public repo (GitHub reports
+    # `billable.duration_ms = 0` for every leg), which is exactly why it went
+    # unnoticed: the currency here is wall-clock feedback time and queue slots,
+    # not money.
+    #
+    # Pull requests are unaffected — the `pull_request` trigger below has no
+    # branch filter, deliberately, so a PR based on another feature branch is
+    # still built and tested.
+    branches: [main]
   # Every pull request, not only the ones landing on main/develop.
   #
   # The filter used to be `branches: [main, develop]`, which reads as "test
