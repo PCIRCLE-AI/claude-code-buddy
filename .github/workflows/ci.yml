@@ -44,11 +44,16 @@ jobs:
       fail-fast: false
       # Which runtimes this matrix covers, and why each is here.
       #
-      #   20 — END OF LIFE since 2026-03-24, and still tested, because
-      #        `package.json` engines says `>=20`. Testing what we claim to
-      #        support is the point; the leg goes when the claim goes, not
-      #        before.
-      #   22 — LTS (Jod).
+      #   20 — GONE. It was kept while `engines` still said `>=20` on the
+      #        rule written here: "the leg goes when the claim goes, not
+      #        before." The claim went (`>=22.5.0`), so the leg went. Node 20
+      #        was passing on all three OSes when it was removed — this was a
+      #        support-policy change, not a fix.
+      #   22 — LTS (Jod), and the floor. `engines` names 22.5.0 specifically
+      #        because that is where `node:sqlite` landed; the matrix cannot
+      #        pin a patch, so this leg runs whatever 22.x is current and
+      #        `tests/ci-matrix-covers-engines.test.ts` is what actually holds
+      #        the two together.
       #   24 — LTS (Krypton). Was untested entirely, which is the gap this
       #        matrix change exists to close: the LTS line most users are
       #        actually on had no coverage at all.
@@ -62,7 +67,7 @@ jobs:
       #        without paying for a source build on three runners.
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: ['20', '22', '24']
+        node: ['22', '24']
         include:
           - os: ubuntu-latest
             node: '26'
@@ -174,7 +179,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -198,7 +203,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
@@ -230,7 +235,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
