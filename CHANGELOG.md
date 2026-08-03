@@ -4,6 +4,49 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+## [4.2.11] — 2026-08-03
+
+This release exists because the headline benchmark figure was measuring the
+wrong code. `benchmarks/longmemeval/run.mjs` carried its own table creation,
+its own FTS5 query building and its own ranking, so the published **95.40% R@5**
+scored that reimplementation and not the product. Measured through the function
+a real `recall` call actually reaches, the same 500 questions scored **5.20%**,
+with 473 of them returning nothing at all. Four compounding retrieval defects
+were each hiding the others.
+
+Everything below follows from that: the defects are fixed, the benchmark now
+runs through the shipped path, and every published claim that no longer matched
+the code has been corrected against source. The number is now **95.60%**, and it
+is the product's number.
+
+Auditing for the same shape turned up two more places reporting success without
+doing the work, and both are fixed here. `verify_agent_work` returned
+`pass: true` when given nothing to check against — so `memesh verify … && deploy`
+deployed on a check that never ran — and the dashboard's auth screen carried
+translation fallbacks that could never execute. The common root cause is an
+optimistic default: `?? true` and `|| 'fallback'` turn a missing input into a
+reported success, when the honest answer is "not checked".
+
+Upgrading rebuilds the full-text index once, on first open, to add CJK
+segmentation. Existing memories are re-indexed from the entity and observation
+rows, which are never touched — nothing is deleted and nothing needs re-entering.
+
+**4.2.11 was never published.** The version was bumped and this section written
+on 2026-07-29, but no `v4.2.11` tag was ever pushed and npm's `latest` stayed at
+4.2.10 — so everything below shipped to nobody. Rather than burn a version
+number on that, the work done since has been folded into the same release. The
+part written on 2026-07-29 is further down, under its own marker.
+
+**Upgrading from 4.2.10, the two things that will change under you:**
+
+- **`consolidate` is gone** — the MCP tool, `POST /v1/consolidate` and
+  `memesh consolidate`. The endpoint answers `410 Gone` and the CLI prints where
+  to go; the MCP surface is 8 tools now. See **Removed** below for why.
+- **Node 20 is no longer supported.** `engines.node` is `>=22.5.0`.
+
+---
+
+**Written on 2026-08-03.**
 ### Security
 
 - **Every `actions/checkout` now sets `persist-credentials: false`** (all five workflows, 9 steps) — by default `checkout` writes the job's `GITHUB_TOKEN` into `.git/config`, where every later step can read it. That includes `npm ci`, which in this repository **runs install scripts** (`better-sqlite3` builds a native binding) on pull-request code. A compromised dependency's postinstall could have read the token straight out of the working copy. No step here pushes with the token, so nothing needed it.
@@ -12,19 +55,13 @@ All notable changes to MeMesh are documented here.
 
 - **Workflow hardening: job timeouts and concurrency where they were missing** (`.github/workflows/*.yml`) — `ci.yml` had `timeout-minutes` on all four jobs and the other four workflows had none, so a hung CodeQL analysis or a stuck review job held a runner for GitHub's six-hour default. Every job now has a budget. `codeql.yml` and `multi-model-review.yml` gained a `concurrency` group so a new commit supersedes an in-flight run instead of racing it; `publish-npm.yml` and `deprecate-npm.yml` deliberately did **not** — cancelling a publish half-way is worse than letting it finish.
 
-### Performance
-
-- **CI caches the embedding model between runs** (`.github/workflows/ci.yml`) — the shared-cache change above removed the *per-test* re-download; this removes the first one too, and with it the last hard dependency on `huggingface.co` being reachable. A HuggingFace outage would otherwise turn the entire matrix red with nothing wrong in the code, and nothing in the failure output would say so. `actions/cache` is first-party GitHub, pinned by commit SHA like the actions already in use, and a cache miss simply downloads as before.
-
-
-### Changed
-
 - **`develop` is gone, and CI no longer re-runs the whole matrix on it** (`.github/workflows/ci.yml`, `CLAUDE.md`) — the branch was fast-forwarded from `main` after every merge and never merged into, so every sync re-tested a byte-for-byte identical tree: **10 jobs**, on a matrix whose slowest leg has taken over 13 minutes. Free on a public repo — GitHub reports `billable.duration_ms = 0` for every leg — which is exactly why it went unnoticed; the currency is wall-clock feedback time and queue slots, not money.
 
   Keeping it as a passive mirror was the first answer and deleting it is the better one: a branch that only ever receives a copy of `main` answers no question that a git tag or `CHANGELOG.md`'s `[Unreleased]` section does not already answer. `main` is now the only long-lived branch. Pull requests are unaffected — the `pull_request` trigger has no branch filter, deliberately, so a PR based on another feature branch is still built and tested.
 
-
 ### Performance
+
+- **CI caches the embedding model between runs** (`.github/workflows/ci.yml`) — the shared-cache change above removed the *per-test* re-download; this removes the first one too, and with it the last hard dependency on `huggingface.co` being reachable. A HuggingFace outage would otherwise turn the entire matrix red with nothing wrong in the code, and nothing in the failure output would say so. `actions/cache` is first-party GitHub, pinned by commit SHA like the actions already in use, and a cache miss simply downloads as before.
 
 - **The test suite went from 253s to 40s, because every isolated HOME was re-downloading a 98 MB model** (`src/core/embedder.ts`, `scripts/run-tests-isolated.mjs`, `.github/workflows/ci.yml`) — the local embedding model `all-MiniLM-L6-v2` caches at `~/.memesh/models`, which is right for a real install and wrong for anything that isolates `HOME`. Six test files spawn the CLI or a hook under a per-test `HOME`, so each of those tests fetched the whole model from HuggingFace again.
 
@@ -159,32 +196,9 @@ All notable changes to MeMesh are documented here.
 
 - **The dashboard's auth field reports itself invalid for a rejected token, not only an empty one** (`dashboard/src/components/AuthPrompt.tsx`) — the rejected branch rendered a `role="alert"` message but left `aria-invalid="false"` and no `aria-describedby`, so a screen-reader user heard the announcement and then found a control that disagreed with it. Both messages now own one stable id and both reach the field.
 
-## [4.2.11] — 2026-07-29
+---
 
-This release exists because the headline benchmark figure was measuring the
-wrong code. `benchmarks/longmemeval/run.mjs` carried its own table creation,
-its own FTS5 query building and its own ranking, so the published **95.40% R@5**
-scored that reimplementation and not the product. Measured through the function
-a real `recall` call actually reaches, the same 500 questions scored **5.20%**,
-with 473 of them returning nothing at all. Four compounding retrieval defects
-were each hiding the others.
-
-Everything below follows from that: the defects are fixed, the benchmark now
-runs through the shipped path, and every published claim that no longer matched
-the code has been corrected against source. The number is now **95.60%**, and it
-is the product's number.
-
-Auditing for the same shape turned up two more places reporting success without
-doing the work, and both are fixed here. `verify_agent_work` returned
-`pass: true` when given nothing to check against — so `memesh verify … && deploy`
-deployed on a check that never ran — and the dashboard's auth screen carried
-translation fallbacks that could never execute. The common root cause is an
-optimistic default: `?? true` and `|| 'fallback'` turn a missing input into a
-reported success, when the honest answer is "not checked".
-
-Upgrading rebuilds the full-text index once, on first open, to add CJK
-segmentation. Existing memories are re-indexed from the entity and observation
-rows, which are never touched — nothing is deleted and nothing needs re-entering.
+**Written on 2026-07-29, when this section was first opened.**
 
 ### Performance
 
