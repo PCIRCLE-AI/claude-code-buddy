@@ -112,7 +112,7 @@ describe('Feature: reindex reports what it actually wrote', () => {
     else process.env.MEMESH_DIR = savedMemeshDir;
     if (savedKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = savedKey;
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it('a run that writes nothing is not reported as a run that embedded everything', async () => {

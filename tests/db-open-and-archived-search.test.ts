@@ -35,7 +35,7 @@ describe('Feature: a failed open does not poison the process', () => {
 
   afterEach(() => {
     try { closeDatabase(); } catch { /* already closed */ }
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it('a failed open leaves nothing behind, and the retry is fully initialised', () => {
@@ -111,7 +111,7 @@ describe('Feature: archived search answers the same question as active search', 
 
   afterEach(() => {
     try { closeDatabase(); } catch { /* already closed */ }
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it('finds a decomposed memory after it is archived', () => {

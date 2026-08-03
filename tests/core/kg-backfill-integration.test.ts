@@ -34,7 +34,7 @@ describe('KG backfill — integration: orphan rate reduction', () => {
     try { closeDatabase(); } catch { /* already closed */ }
     if (prevDbPath === undefined) delete process.env.MEMESH_DB_PATH;
     else process.env.MEMESH_DB_PATH = prevDbPath;
-    fs.rmSync(testDir, { recursive: true, force: true });
+    fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it('reduces orphan rate below 50% on a mixed 50-entity seed', () => {

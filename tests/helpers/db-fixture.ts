@@ -9,7 +9,7 @@
 //   });
 //   afterEach(() => {
 //     closeDatabase();
-//     fs.rmSync(tmpDir, { recursive: true, force: true });
+//     fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 //   });
 //
 // This helper folds that into one call per file. The closure also
@@ -55,7 +55,18 @@ export function useTestDatabase(prefix = 'memesh-test-'): TestDbHandle {
   afterEach(() => {
     try { closeDatabase(); } catch { /* already closed */ }
     if (_tmpDir) {
-      fs.rmSync(_tmpDir, { recursive: true, force: true });
+      try {
+        // `maxRetries` is the documented Windows mitigation: SQLite leaves
+        // -wal/-shm beside the database and a handle can still be open for a
+        // moment after close, which surfaces as EBUSY/EPERM.
+        fs.rmSync(_tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      } catch {
+        // A temp directory that will not delete is the operating system's
+        // problem, not the test's. It sits under os.tmpdir() and gets swept by
+        // the platform; failing the test over it turns a machine-local file
+        // lock into a red build on an unrelated change, which is exactly what
+        // happened on windows-latest in a docs-only pull request.
+      }
       _tmpDir = null;
     }
   });

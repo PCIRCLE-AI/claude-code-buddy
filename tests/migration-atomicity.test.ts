@@ -43,7 +43,7 @@ describe('Feature: index migration atomicity', () => {
 
   afterEach(() => {
     try { closeDatabase(); } catch { /* already closed */ }
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   /** Put the database back into the pre-segmentation state. */

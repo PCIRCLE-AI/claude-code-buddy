@@ -32,7 +32,7 @@ afterAll(async () => {
   });
   closeDatabase();
   delete process.env.MEMESH_UPDATE_CHECK_PATH;
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 // ── Helper ───────────────────────────────────────────────────────────────────
@@ -522,7 +522,7 @@ describe('HTTP Transport: startServer host guard', () => {
       else process.env.MEMESH_DB_PATH = previousDbPath;
       if (previousToken === undefined) delete process.env.MEMESH_REMOTE_TOKEN;
       else process.env.MEMESH_REMOTE_TOKEN = previousToken;
-      fs.rmSync(remoteTmpDir, { recursive: true, force: true });
+      fs.rmSync(remoteTmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -578,7 +578,7 @@ describe('HTTP Transport: startServer host guard', () => {
       else process.env.MEMESH_DB_PATH = previousDbPath;
       if (previousToken === undefined) delete process.env.MEMESH_REMOTE_TOKEN;
       else process.env.MEMESH_REMOTE_TOKEN = previousToken;
-      fs.rmSync(remoteTmpDir, { recursive: true, force: true });
+      fs.rmSync(remoteTmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 });
@@ -626,7 +626,7 @@ describe('HTTP Transport: Startup validation', () => {
     } finally {
       if (previousDbPath === undefined) delete process.env.MEMESH_DB_PATH;
       else process.env.MEMESH_DB_PATH = previousDbPath;
-      fs.rmSync(badTmpDir, { recursive: true, force: true });
+      fs.rmSync(badTmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
       // Reopen the original db so subsequent tests in afterAll can closeDatabase
       // and so other concurrent tests are not affected.
       openDatabase(path.join(tmpDir, 'test.db'));
@@ -656,7 +656,7 @@ describe('HTTP Transport: Startup validation', () => {
       closeDatabase();
       if (previousDbPath === undefined) delete process.env.MEMESH_DB_PATH;
       else process.env.MEMESH_DB_PATH = previousDbPath;
-      fs.rmSync(portTmpDir, { recursive: true, force: true });
+      fs.rmSync(portTmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 });

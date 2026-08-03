@@ -38,7 +38,7 @@ describe('memesh remember CLI: quick-capture form', () => {
   });
 
   afterEach(() => {
-    if (fs.existsSync(tmpHome)) fs.rmSync(tmpHome, { recursive: true, force: true });
+    if (fs.existsSync(tmpHome)) fs.rmSync(tmpHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it('accepts a single positional text argument and stores it as a note', () => {

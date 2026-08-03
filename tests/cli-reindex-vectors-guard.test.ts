@@ -36,7 +36,7 @@ describe('memesh reindex --vectors refuses to destroy more than asked', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   function run(args: string[]): { status: number; stderr: string; stdout: string } {

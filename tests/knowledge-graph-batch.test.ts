@@ -19,7 +19,7 @@ describe('KnowledgeGraph batch hydration', () => {
   afterEach(() => {
     closeDatabase();
     delete process.env.MEMESH_DB_PATH;
-    fs.rmSync(testDir, { recursive: true, force: true });
+    fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it('returns empty array for empty ids', () => {

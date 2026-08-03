@@ -29,7 +29,7 @@ describe('Feature: Knowledge Graph', () => {
     try {
       closeDatabase();
     } catch {}
-    fs.rmSync(testDir, { recursive: true, force: true });
+    fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   describe('Remember (Create)', () => {

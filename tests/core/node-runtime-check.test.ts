@@ -81,7 +81,7 @@ describe('doctor: Node runtime row', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   /** A real package.json on disk — the row reads a file, so give it one. */
@@ -197,7 +197,7 @@ describe('the row reaches the report a user actually sees', () => {
       expect(out).toContain(`Node ${process.version}`);
       expect(out).toContain('node:sqlite');
     } finally {
-      fs.rmSync(home, { recursive: true, force: true });
+      fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 });

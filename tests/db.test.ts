@@ -17,7 +17,7 @@ describe('Feature: Database Management', () => {
 
   afterEach(() => {
     try { closeDatabase(); } catch {}
-    fs.rmSync(testDir, { recursive: true, force: true });
+    fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   describe('Scenario: Open database for first time', () => {

@@ -66,7 +66,7 @@ describe('Feature: an unsearchable query reaches no vector supplement', () => {
 
   afterEach(() => {
     try { closeDatabase(); } catch { /* already closed */ }
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it.each([['???'], ['@#$%'], ['🎉'], ['...']])(

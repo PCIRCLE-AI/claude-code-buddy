@@ -20,7 +20,7 @@ describe('Feature: Pre-Edit Recall Hook', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(testDir, { recursive: true, force: true });
+    fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   // Pass cwd: testDir (a non-git tmp dir) so getProjectName resolves via the

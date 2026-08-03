@@ -64,7 +64,7 @@ describe('getProjectName — layered git identity', () => {
   const created: string[] = [];
   beforeEach(() => _clearProjectNameCache());
   afterEach(() => {
-    for (const d of created.splice(0)) fs.rmSync(d, { recursive: true, force: true });
+    for (const d of created.splice(0)) fs.rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   it('uses the git remote slug, not the directory name (location-independent)', () => {

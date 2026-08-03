@@ -37,7 +37,7 @@ describe('G1 — confidence bump paths', () => {
     const { closeDatabase } = await import('../src/db.js');
     try { closeDatabase(); } catch { /* already closed */ }
     delete process.env.MEMESH_DB_PATH;
-    rmSync(tmpHome, { recursive: true, force: true });
+    rmSync(tmpHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   function getConfidence(name: string): number {

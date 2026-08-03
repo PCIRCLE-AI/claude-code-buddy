@@ -49,7 +49,7 @@ describe('recall_hits ownership', () => {
   afterEach(() => {
     try { db?.close(); } catch { /* already closed */ }
     delete process.env.MEMESH_DB_PATH;
-    rmSync(tmpHome, { recursive: true, force: true });
+    rmSync(tmpHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   function getHits(name: string): number {

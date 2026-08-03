@@ -69,7 +69,7 @@ describe('RuleBasedExtractor: memory extraction', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   function writeTranscript(entries: object[]): void {
@@ -258,7 +258,7 @@ describe('parseTranscript', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   function writeLine(filePath: string, entries: object[]): void {

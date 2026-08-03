@@ -36,7 +36,7 @@ afterAll(async () => {
   });
   closeDatabase();
   delete process.env.MEMESH_UPDATE_CHECK_PATH;
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 async function req(method: string, urlPath: string, body?: unknown): Promise<{ status: number; body: any }> {

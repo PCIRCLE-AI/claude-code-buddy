@@ -156,7 +156,7 @@ describe('Feature: Claude Code hook-output contract', () => {
   });
 
   afterEach(() => {
-    fs.rmSync(testDir, { recursive: true, force: true });
+    fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
   // Seed memories into the test DB via the real CLI so the schema matches

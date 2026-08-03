@@ -282,7 +282,7 @@ describe('Feature: User Prompt Intent Hook', () => {
     });
 
     afterEach(() => {
-      rmSync(tmpHome, { recursive: true, force: true });
+      rmSync(tmpHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     });
 
     function runHook(input: object | string, extraEnv: NodeJS.ProcessEnv = {}) {
