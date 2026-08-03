@@ -320,7 +320,7 @@ Importierte Bundles bleiben durchsuchbar, aber MeMesh injiziert importierte Memo
 
 ## Smart Mode freischalten (optional)
 
-MeMesh funktioniert standardmäßig offline — Recall bleibt strikt LLM-frei (95,60 % R@5 auf LongMemEval-S, ohne LLM). Fügen Sie einen LLM API-Schlüssel nur hinzu, wenn Sie LLM-augmentierte Analyseflüsse zusätzlich nutzen möchten: intelligentere Session-Extraktion, Auto-Tagging neuer Memories, Lektionen aus Fehlern und `consolidate` / `dream` Kompression:
+MeMesh funktioniert standardmäßig offline — Recall bleibt strikt LLM-frei (95,60 % R@5 auf LongMemEval-S, ohne LLM). Fügen Sie einen LLM API-Schlüssel nur hinzu, wenn Sie LLM-augmentierte Analyseflüsse zusätzlich nutzen möchten: intelligentere Session-Extraktion, Auto-Tagging neuer Memories, Lektionen aus Fehlern und `dream` Kompression:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -350,7 +350,7 @@ Der Embedder wird **unabhängig vom Chat-LLM** konfiguriert — `llm.provider` z
 | **Auto-Capture** | Regelbasierte Muster | + LLM extrahiert Entscheidungen & Lektionen |
 | **Auto-Tagging** | Nur manuelle Tags | + LLM generiert Tags für neue Memories |
 | **Fehleranalyse** | Nicht verfügbar | + LLM wandelt Session-Fehler in strukturierte Lektionen um |
-| **Kompression** | Nicht verfügbar | `consolidate` + `dream` komprimieren ausschweifende Memories |
+| **Kompression** | Nicht verfügbar | `dream` komprimieren ausschweifende Memories |
 | **Kosten** | Kostenlos, kein API-Schlüssel | ~$0,0001 pro Analyseanfrage (Haiku) |
 
 ---
@@ -362,7 +362,6 @@ Der Embedder wird **unabhängig vom Chat-LLM** konfiguriert — `llm.provider` z
 | `remember` | Wissen mit Beobachtungen, Relationen und Tags speichern |
 | `recall` | FTS5 + sqlite-vec Suche mit Multi-Faktor-Bewertung (Relevanz, Aktualität, Häufigkeit, Konfidenz, Abruf-Auswirkung) — kein LLM auf dem Hot Path |
 | `forget` | Soft-Archivierung (löscht nie) oder entfernt spezifische Beobachtungen |
-| `consolidate` | LLM-gestützte Kompression ausschweifender Memories |
 | `export` | Memories als JSON zwischen Projekten oder Teamkollegen teilen |
 | `import` | Memories mit Merge-Strategien importieren (Skip / Overwrite / Append) |
 | `learn` | Strukturierte Lektionen aus Fehlern erfassen (Fehler, Grundursache, Behebung, Prävention) |

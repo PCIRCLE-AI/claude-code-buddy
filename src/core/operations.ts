@@ -284,7 +284,7 @@ async function supplementWithVectors(
  * for an estimated 1-2pp ceiling lift, which lost decisively on the
  * UX axis given recall is the hot path for hooks (pre-edit-recall,
  * session-start) and MCP agent calls. Async/analysis LLM flows
- * (dreamer, consolidator, failure-analyzer, auto-tagger, llm-validator)
+ * (dreamer, failure-analyzer, auto-tagger, llm-validator)
  * are unaffected.
  */
 export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
@@ -317,9 +317,6 @@ export async function recallWithConflicts(args: RecallInput) {
   const conflicts = kg.findConflicts(entities.map((e) => e.name));
   return { entities, conflicts };
 }
-
-// --- Consolidation (extracted to consolidator.ts) ---
-export { consolidate } from './consolidator.js';
 
 // --- Serialization (extracted to serializer.ts) ---
 export { exportMemories, importMemories } from './serializer.js';

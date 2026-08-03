@@ -8,7 +8,7 @@
 
 ## Overview
 
-MeMesh Plugin is the local memory layer for Claude Code and other MCP-compatible coding agents. It provides 9 operations (`remember`, `recall`, `forget`, `consolidate`, `export`, `import`, `learn`, `user_patterns`, `verify_agent_work`) through three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
+MeMesh Plugin is the local memory layer for Claude Code and other MCP-compatible coding agents. It provides 8 operations (`remember`, `recall`, `forget`, `export`, `import`, `learn`, `user_patterns`, `verify_agent_work`) through three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
 
 The package is intentionally local-first and inspectable:
 - one SQLite database under the user's control
@@ -50,14 +50,14 @@ MeMesh separates concerns into two layers:
 - `kg-backfill.ts` — non-LLM heuristic relation backfill: 4 rules (tag co-occurrence, project clustering, session co-occurrence, name-token similarity)
 - `project-tags.ts` — list / merge / rename `project:<name>` tags (heals tags mis-homed before git-based project identity); backs `memesh kg rename-project`
 - `prompt-safety.ts` — F7 prompt-injection hardening (delimiter escaping for 3 LLM call sites)
-- `failure-analyzer.ts` / `auto-tagger.ts` / `consolidator.ts` — Smart-Mode LLM flows (all use `callLLM` failover + telemetry)
+- `failure-analyzer.ts` / `auto-tagger.ts` / `digest-validator.ts` — Smart-Mode LLM flows (all use `callLLM` failover + telemetry)
 - `verifier.ts` — `verify_agent_work` core: git reality-check + persistence of verification reports as `verification_record` entities
 - `version-check.ts` — npm registry version check for update notifications
 
 **Transports** (`src/transports/`) — thin adapters that expose core operations:
 - `cli/cli.ts` — Commander CLI (`memesh` command, 24 top-level commands; `config`, `kg`, and `dream` have subcommands)
 - `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, ~32 endpoints, bearer-auth gate when bound non-loopback)
-- `src/mcp/server.ts` + `src/transports/mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 9 tools); `src/mcp/tools.ts` is a re-export shim
+- `src/mcp/server.ts` + `src/transports/mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 8 tools); `src/mcp/tools.ts` is a re-export shim
 
 This separation means the same `remember`/`recall`/`forget` logic runs identically whether invoked from a terminal, an HTTP request, or an MCP tool call.
 
@@ -69,14 +69,13 @@ This separation means the same `remember`/`recall`/`forget` logic runs identical
 src/
 ├── core/
 │   ├── types.ts           # Shared types (zero external deps)
-│   ├── operations.ts      # remember/recall/forget/learn + re-exports consolidate/export/import
-│   ├── consolidator.ts    # LLM-powered observation compression (extracted from operations)
+│   ├── operations.ts      # remember/recall/forget/learn + re-exports export/import
 │   ├── serializer.ts      # Export/import memory snapshots (extracted from operations)
 │   ├── config.ts          # Config management + capability detection + logCapabilities()
 │   ├── paths.ts           # Centralised path helpers (homeDir, memeshDir, getDbPath, getProjectName)
 │   ├── scoring.ts         # Multi-factor scoring engine (rankEntities) + SESSION_START_WEIGHT_RATIO
 │   ├── extractor.ts       # Session knowledge extraction (rule-based + LLM)
-│   ├── lifecycle.ts       # Auto-decay + consolidation orchestration
+│   ├── lifecycle.ts       # Auto-decay + weekly noise compression
 │   ├── failure-analyzer.ts # LLM-powered failure analysis → StructuredLesson
 │   ├── lesson-engine.ts   # Structured lesson creation, upsert, project query
 │   ├── embedder.ts        # Neural embeddings (@huggingface/transformers + all-MiniLM-L6-v2, 384-dim)
@@ -131,7 +130,7 @@ src/
 
 Session-start hook ranking is a SQL-only subset (no FTS query, no impact pass) that uses three of the five factors. `SESSION_START_WEIGHT_RATIO` exports the renormalised weights so the hook's hard-coded SQL stays in sync; a drift-guard test in `tests/core/scoring.test.ts` asserts the magic numbers in `scripts/hooks/session-start.js` match. The hook SQL uses SQLite's `exp()`/`log()` (available in better-sqlite3 v8+) to match the core math exactly, with a runtime probe + linear/rational fallback for stripped-down builds without `-DSQLITE_ENABLE_MATH_FUNCTIONS`.
 
-**(retired) query-expander.ts** — LLM-powered query expansion was removed in 2026-05 after LongMemEval-S Mode A (FTS5 + sqlite-vec, no LLM) measured well above the LLM-augmented alternative's expected ceiling. The figure quoted at the time (95.40%) came from the benchmark's own reimplementation of retrieval rather than from this code; measured through `recallEnhanced()` the same 500 questions now score 95.60% R@5 in 9.1s, within 1.0pp of vendor reranker stacks. The expander cost ~500-10000ms per recall for an estimated 1-2pp ceiling lift, decisively losing the UX axis given that recall is the hot path for hooks (`pre-edit-recall`, `session-start`) and MCP agent calls. Recall is now strictly LLM-free; LLM augmentation is reserved for the async/analysis flows below (failure-analyzer, auto-tagger, consolidator, dreamer, llm-validator).
+**(retired) query-expander.ts** — LLM-powered query expansion was removed in 2026-05 after LongMemEval-S Mode A (FTS5 + sqlite-vec, no LLM) measured well above the LLM-augmented alternative's expected ceiling. The figure quoted at the time (95.40%) came from the benchmark's own reimplementation of retrieval rather than from this code; measured through `recallEnhanced()` the same 500 questions now score 95.60% R@5 in 9.1s, within 1.0pp of vendor reranker stacks. The expander cost ~500-10000ms per recall for an estimated 1-2pp ceiling lift, decisively losing the UX axis given that recall is the hot path for hooks (`pre-edit-recall`, `session-start`) and MCP agent calls. Recall is now strictly LLM-free; LLM augmentation is reserved for the async/analysis flows below (failure-analyzer, auto-tagger, dreamer, digest-validator, llm-validator).
 
 **failure-analyzer.ts** — LLM-powered failure analysis (Level 1). `analyzeFailure()` takes session errors and files edited, sends them to the configured LLM, and returns a `StructuredLesson` with error, root cause, fix, prevention, error/fix patterns, and severity. Used by the Stop hook to automatically create lessons from session failures.
 
@@ -193,7 +192,6 @@ Thin adapter: imports shared Zod schemas from `transports/schemas.ts`, validates
 | `remember` | RememberSchema | Delegates to `operations.remember()` |
 | `recall` | RecallSchema | Delegates to `operations.recallEnhanced()` |
 | `forget` | ForgetSchema | Delegates to `operations.forget()` |
-| `consolidate` | ConsolidateSchema | Delegates to `operations.consolidate()` |
 | `export` | ExportSchema | Delegates to `operations.exportMemories()` |
 | `import` | ImportSchema | Delegates to `operations.importMemories()` |
 | `learn` | LearnSchema | Delegates to `operations.learn()` |
@@ -425,11 +423,17 @@ For release safety, `npm run test:packaged` creates a real npm tarball, extracts
 - Floor: confidence never below 0.01
 - Never deletes — only affects search ranking
 
-### Consolidation
-- `consolidate` tool compresses N observations → K dense observations via LLM
-- Requires Smart Mode (LLM provider configured)
-- Original observations are replaced by compressed versions
-- If LLM fails, entity is left unchanged
+### Consolidation — retired
+- The `consolidate` tool was removed. It deleted an entity's observations and
+  wrote an LLM summary in their place with no proposal and no review, ignored
+  pins, reset confidence to 1.0, and could leave an entity permanently empty
+  while reporting that nothing had happened
+- `dreamer` is the surviving compression path and the reviewed form of the same
+  idea: propose → accept/reject, sources archived not deleted, `source_ids`
+  kept, semantic types and pinned entities refused
+- Not a like-for-like replacement: `dreamer` merges *clusters* of episodic
+  entities into a digest. Compressing the observations *within* one named entity
+  has no reviewed equivalent today
 
 ### Smart Session-Start
 - Session-start hook loads top-N entities by weighted score

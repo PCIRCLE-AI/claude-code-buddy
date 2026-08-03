@@ -30,8 +30,10 @@ for entity in results:
 # Archive old knowledge
 m.forget("old-design")
 
-# Compress verbose entities
-m.consolidate(tag="project:myapp")
+# (`m.consolidate()` was retired along with the underlying tool — it rewrote
+#  memories with an LLM summary and deleted the originals with no review.
+#  The reviewed replacement is the dream flow: POST /v1/dream/run, then accept
+#  or reject the proposals it stages.)
 ```
 
 ## Features

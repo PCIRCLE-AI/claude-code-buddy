@@ -345,7 +345,8 @@ export class KnowledgeGraph {
     //      importer, tight loop) would inflate confidence with no
     //      truth value added.
     //   2. Second take: never bump from createEntity, only from
-    //      explicit `learn` and successful consolidate. Codex caught
+    //      explicit `learn`. (A successful `consolidate` also reached
+    //      here until that tool was retired.) Codex caught
     //      THAT as a one-way decay regression for LLM-free installs.
     //   3. Third take: bump on new observations only. Codex caught
     //      THAT as still permitting untrusted sources (importer,

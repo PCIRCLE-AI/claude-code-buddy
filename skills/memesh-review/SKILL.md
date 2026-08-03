@@ -57,8 +57,10 @@ From the recalled data, compute and present:
 **Stale (not accessed 30+ days, low confidence)**
 - "entity-name" — confidence: N% — Suggest: archive?
 
-**Verbose (5+ observations, needs consolidation)**
-- "entity-name" (N observations) — Suggest: `memesh consolidate --name "entity-name"`
+**Verbose (5+ observations)**
+- "entity-name" (N observations) — note it; there is no one-entity compression
+  command any more. If the noise is spread across many episodic entries,
+  suggest `memesh dream run` instead.
 
 **Potential conflicts**
 - "entity-A" vs "entity-B" — contradicting decisions
@@ -69,7 +71,7 @@ From the recalled data, compute and present:
 
 ### Recommended Actions
 1. `memesh forget --name "old-design"` (superseded)
-2. `memesh consolidate --name "auth-history"` (12 obs → ~3)
+2. `memesh dream run --project myapp` (propose digests for the noisy clusters, then review)
 3. `memesh remember ...` (knowledge gap in [area])
 ```
 
@@ -79,7 +81,7 @@ Present the report first. Ask which actions to execute. Then run the commands:
 
 ```bash
 memesh forget --name "outdated-entity"
-memesh consolidate --name "verbose-entity"
+memesh dream run                  # then: memesh dream list / accept <id> / reject <id>
 memesh remember --name "missing-knowledge" --type decision --obs "..."
 ```
 

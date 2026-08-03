@@ -4,6 +4,32 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Removed
+
+- **`consolidate` is retired — MCP tool, HTTP endpoint and CLI command** (`src/core/consolidator.ts` deleted; `handlers.ts`, `server.ts`, `cli.ts`, `schema-export.ts`, `types.ts`, `schemas.ts`) — **this is a breaking change.** MeMesh now exposes **8** MCP tools.
+
+  What it did: deleted an entity's observations and wrote an LLM summary in their place, immediately, with no proposal and nothing to restore from. Three defects were measured in it before the decision to retire, and each is one the reviewed path (`dreamer`) was already designed against:
+
+  - **A failure between the delete and the write destroyed the entity and reported that nothing had happened.** The removals were a loop of independently committing statements; a bare `catch` then added the original count to `observations_after` and returned no error. Measured, with the replacement write made to fail: `OBSERVATIONS LEFT ON DISK : 0 []` against `REPORTED observations_after: 6`, no error.
+  - **It ignored pins.** `dreamer` has always refused `metadata.pin === true`; this did not, so `memesh consolidate` with no arguments swept pinned entities in with the rest of `listRecent(100)`.
+  - **It reset `confidence` to 1.0 on success.** Compression removes text and adds no evidence — and since it was an MCP tool the model itself could call, a model could raise its own memories to maximum confidence (0.17 of the ranking score) by asking for a summary.
+
+  Its only acceptance test on the LLM's output was that it returned *fewer strings* than it was given.
+
+  **`dream` is the surviving compression path** and the reviewed form of the same idea: it proposes, applies nothing until a proposal is accepted, keeps `source_ids`, archives sources instead of deleting them, refuses semantic types and pinned entities, and caps compaction depth. It is **not** a like-for-like replacement — it merges *clusters* of episodic memories (commits, session notes) into a digest, so compressing the observations *within* one named entity has no reviewed equivalent today. That is stated plainly in the docs rather than papered over.
+
+  Retired with signposts, not silently:
+
+  | Surface | Before | Now |
+  |---|---|---|
+  | MCP | `consolidate` tool | gone from the registry |
+  | HTTP | `POST /v1/consolidate` | `410 Gone` + what to use instead — **not** 404, which reads as a typo or a bad base URL and invites a retry |
+  | CLI | `memesh consolidate` | prints where to go, exits `1` — deleting it outright makes Commander answer "unknown command", which reads as a broken install |
+
+  Both signposts are verified at runtime, not merely asserted against the source: `curl -i` returns `HTTP/1.1 410 Gone` for the retired route and `HTTP/1.1 404 Not Found` for a genuinely missing one, and `memesh consolidate --name foo` prints the message and exits 1.
+
+- **`cleanup.consolidateHint`, a dead dashboard string in 11 locales** (`dashboard/src/lib/i18n.ts`) — no component has ever read this key. It was advice to use the tool that has now been retired, translated eleven times, rendered zero times.
+
 ### Added
 
 - **Anthropic memory tool (`memory_20250818`) backed by the knowledge graph** (`src/core/memory-tool.ts`, exported from the package root) — for applications that call the **Messages API directly** rather than through MCP. Claude gets a memory tool whose storage is MeMesh instead of a folder of text files, so it also gets FTS5 search, multi-factor ranking, auto-decay, relations and namespaces without knowing they are there. Anthropic's contract states that `/memories` is "a prefix that your handler maps onto real storage, such as a per-user directory or keys in a database", so this is the documented shape of the integration rather than a workaround.
@@ -51,6 +77,12 @@ All notable changes to MeMesh are documented here.
   Node 26 is Linux-only, and the reason is worth recording: **`better-sqlite3@12.9.0` publishes no prebuilt binary for Node 26's ABI (147)**. Measured — `prebuild-install warn install No prebuilt binaries found (target=26.5.1 runtime=node arch=arm64 platform=darwin)`, followed by a `node-gyp rebuild` that succeeded in 18s on macOS/arm64. It works, but it needs a full toolchain (MSVC on Windows), so one Linux leg buys early warning without paying for a source build on three runners. The same gap has a user-facing edge: a plugin-marketplace install runs with `--ignore-scripts`, so on Node 26 there is neither a prebuild to download nor a build step to run.
 
 ### Fixed
+
+- **Two checks that could not fail, found by retiring one tool** (`scripts/verify-docs-sync.sh`, `tests/core/schema-export.test.ts`) — both claimed to compare the MCP registry against something and neither did.
+
+  `verify-docs-sync.sh` compared the code's tool count to the literal `9`, and compared the docs' side by counting **every** `### ` heading in `API_REFERENCE.md` — 43 of them — then checking `-lt 9`, which no version of that document could ever fail. It now reads the number the document actually claims (`MeMesh exposes N tools via MCP`) and fails if the registry disagrees, if the sentence is missing, or if its own pattern stops matching.
+
+  `schema-export.test.ts` asserted a hardcoded `9` and a hardcoded name list under the titles "matches MCP registry" — it matched nothing, it restated. Both are now derived from `TOOL_DEFINITIONS`, which immediately surfaced a real drift the duplicate had hidden: the OpenAI export listed `memesh_learn` third while the MCP registry lists it sixth. `schema-export.ts` now mirrors the registry order, so the two lists are literally comparable.
 
 - **The two relation types that do something were the two nothing told the model about** (`src/transports/mcp/handlers.ts`, `src/core/types.ts`, `docs/api/API_REFERENCE.md`) — a relation type is a free string and most are inert labels, but `supersedes` **archives the target entity** on write and `contradicts` makes both memories surface as a conflict on every recall. The MCP `remember` schema described the field as `Relation type (e.g., "implements", "related-to")` — and that description is the only thing a model ever reads about relation types. Both examples were inert; both behavioural types were unnamed.
 

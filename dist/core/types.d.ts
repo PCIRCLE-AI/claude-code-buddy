@@ -86,18 +86,6 @@ export interface ForgetResult {
     observation?: string;
     remaining_observations?: number;
 }
-export interface ConsolidateInput {
-    name?: string;
-    tag?: string;
-    min_observations?: number;
-}
-export interface ConsolidateResult {
-    consolidated: number;
-    entities_processed: string[];
-    observations_before: number;
-    observations_after: number;
-    error?: string;
-}
 export interface ExportInput {
     tag?: string;
     namespace?: string;

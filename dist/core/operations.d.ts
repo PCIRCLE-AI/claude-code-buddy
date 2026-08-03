@@ -7,7 +7,6 @@ export declare function recallWithConflicts(args: RecallInput): Promise<{
     entities: Entity[];
     conflicts: string[];
 }>;
-export { consolidate } from './consolidator.js';
 export { exportMemories, importMemories } from './serializer.js';
 export declare function learn(args: LearnInput): LearnResult;
 export declare function forget(args: ForgetInput): ForgetResult;

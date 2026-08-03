@@ -585,7 +585,7 @@ async function inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextI
 async function inspectLlmProbe(capabilities, probeCapabilities, probeProviderImpl) {
     const llm = capabilities.llm;
     if (!llm) {
-        return createInfo('llm_probe', 'LLM reachable', 'No LLM configured — Core Mode. Write-side features (consolidate, lessons, auto-tag, dream) are off by design.');
+        return createInfo('llm_probe', 'LLM reachable', 'No LLM configured — Core Mode. Write-side features (lessons, auto-tag, dream) are off by design.');
     }
     if (!probeCapabilities) {
         return createInfo('llm_probe', 'LLM reachable', `NOT VERIFIED. Config names ${llm.provider} (${llm.model ?? 'default'}), but no live call was made — an expired key or an unreachable host would look identical to a healthy setup here.`, 'Run: memesh doctor --probe   (makes one small live call to confirm)');

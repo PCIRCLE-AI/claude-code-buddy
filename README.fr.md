@@ -258,7 +258,7 @@ Toute la configuration passe par des variables d'environnement. Les valeurs par 
 |---|---|---|
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | Remplace l'emplacement de la base SQLite. |
 | `MEMESH_AUTO_CAPTURE` | `true` | Désactive entièrement les hooks d'auto-capture (`Stop`, `PreCompact`). |
-| `MEMESH_AUTO_DETECT_LLM` | non défini (détection auto **activée**) | Mettre à `0` pour empêcher memesh d'utiliser une clé API trouvée dans l'environnement du shell. Par défaut, si `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` est définie et qu'aucun fournisseur n'est configuré dans `~/.memesh/config.json`, memesh l'utilise pour les fonctions LLM d'écriture (consolidation, extraction de leçons, auto-tagging, dream). Les embeddings ne sont pas affectés — ils restent en ONNX local (384-dim) sauf si vous définissez explicitement `embedder.provider`. |
+| `MEMESH_AUTO_DETECT_LLM` | non défini (détection auto **activée**) | Mettre à `0` pour empêcher memesh d'utiliser une clé API trouvée dans l'environnement du shell. Par défaut, si `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` est définie et qu'aucun fournisseur n'est configuré dans `~/.memesh/config.json`, memesh l'utilise pour les fonctions LLM d'écriture (extraction de leçons, auto-tagging, dream). Les embeddings ne sont pas affectés — ils restent en ONNX local (384-dim) sauf si vous définissez explicitement `embedder.provider`. |
 | `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | non défini | Mettre à `1` pour activer un protocole de modèle de travail expérimental (cadre CTO / Orchestrateur / Agents). Ajoute une bannière en début de session, un nudge sur les commandes Bash et la télémétrie `verify_agent_work`. L'efficacité du protocole est instrumentée mais pas encore prouvée — activez-la si vous souhaitez participer. **Désactivé par défaut** : les fonctionnalités de mémoire principales fonctionnent sans ce flag. |
 | `MEMESH_AUTO_UPDATE` | `off` | Politique de mise à jour automatique. `off` (défaut) ne met jamais à jour automatiquement ; `patch` autorise `X.Y.Z → X.Y.Z+N` ; `minor` ajoute `X.Y.Z → X.Y+1.0` ; `major` autorise tout incrément. Quand c'est permis, un `npm install -g` détaché s'exécute en fin de session (hook Stop) pour ne jamais bloquer votre travail — les résultats arrivent dans `~/.memesh/auto-update.log`. Configurable aussi via `autoUpdate` dans `~/.memesh/config.json` (la variable d'environnement l'emporte). Quand la version installée est dépréciée par les mainteneurs (alerte de sécurité), `patch` est forcé même en `off` — les incréments minor / major restent manuels pour éviter une dérive de comportement silencieuse. |
 | `OPENAI_API_KEY` | non défini | Votre clé OpenAI. Utilisée automatiquement pour les fonctions LLM sauf si vous mettez `MEMESH_AUTO_DETECT_LLM=0` ou configurez un fournisseur explicitement. |
@@ -321,7 +321,7 @@ Les bundles importés restent consultables, mais MeMesh n'injecte pas automatiqu
 
 ## Déverrouiller Le Mode Smart (Optionnel)
 
-MeMesh fonctionne hors ligne par défaut — le rappel reste strictement sans LLM (95,60 % R@5 sur LongMemEval-S dès l'installation). Ajoutez une clé API LLM uniquement si vous voulez des flux d'analyse augmentés par LLM par-dessus : extraction de session plus intelligente, auto-tagging des nouvelles mémoires, génération de leçons depuis les défaillances et compression `consolidate` / `dream` :
+MeMesh fonctionne hors ligne par défaut — le rappel reste strictement sans LLM (95,60 % R@5 sur LongMemEval-S dès l'installation). Ajoutez une clé API LLM uniquement si vous voulez des flux d'analyse augmentés par LLM par-dessus : extraction de session plus intelligente, auto-tagging des nouvelles mémoires, génération de leçons depuis les défaillances et compression `dream` :
 
 ```bash
 memesh config set llm.provider anthropic
@@ -351,7 +351,7 @@ L'embedder se configure **indépendamment du LLM de chat** — changer `llm.prov
 | **Auto-capture** | Motifs basés sur les règles | + LLM extrait les décisions & leçons |
 | **Auto-tagging** | Tags manuels uniquement | + LLM génère des tags pour les nouvelles mémoires |
 | **Analyse de défaillance** | Indisponible | + LLM convertit les erreurs de session en leçons structurées |
-| **Compression** | Indisponible | `consolidate` + `dream` compressent les mémoires verbeux |
+| **Compression** | Indisponible | `dream` compressent les mémoires verbeux |
 | **Coût** | Gratuit, aucune clé API | ~$0,0001 par appel d'analyse (Haiku) |
 
 ---
@@ -363,7 +363,6 @@ L'embedder se configure **indépendamment du LLM de chat** — changer `llm.prov
 | `remember` | Stocker les connaissances avec observations, relations et tags |
 | `recall` | Recherche FTS5 + sqlite-vec avec notation multi-facteurs (pertinence, récence, fréquence, confiance, impact de rappel) — pas de LLM sur le chemin chaud |
 | `forget` | Soft-archivage (jamais supprimer) ou suppression d'observations spécifiques |
-| `consolidate` | Compression des mémoires verbeux alimentée par LLM |
 | `export` | Partager les mémoires au format JSON entre projets ou membres d'équipe |
 | `import` | Importer les mémoires avec stratégies de fusion (skip / overwrite / append) |
 | `learn` | Enregistrer les leçons structurées à partir des erreurs (erreur, cause racine, correctif, prévention) |

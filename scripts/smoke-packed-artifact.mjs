@@ -78,7 +78,6 @@ const requiredFiles = [
   'dist/core/scoring.js',
   'dist/core/failure-analyzer.js',
   'dist/core/lesson-engine.js',
-  'dist/core/consolidator.js',
   'dist/core/serializer.js',
   'dist/core/patterns.js',
   'dist/core/embedder.js',

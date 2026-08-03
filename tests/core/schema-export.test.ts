@@ -1,13 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { exportOpenAITools } from '../../src/core/schema-export.js';
 import { RememberSchema, RecallSchema } from '../../src/transports/schemas.js';
+import { TOOL_DEFINITIONS } from '../../src/transports/mcp/handlers.js';
 
 describe('exportOpenAITools', () => {
   const tools = exportOpenAITools();
 
-  it('returns an array of 9 tools (matches MCP registry)', () => {
+  it('exports one tool per MCP tool, counted from the registry itself', () => {
+    // This used to assert the literal 9, next to a name list that was also a
+    // literal, under a title claiming it "matches MCP registry" — it matched
+    // nothing, it restated. Retiring `consolidate` made both wrong at once,
+    // which is what a duplicated list is for. Counted from the registry now.
     expect(Array.isArray(tools)).toBe(true);
-    expect(tools).toHaveLength(9);
+    expect(TOOL_DEFINITIONS.length, 'the MCP registry is empty — this test would pass on nothing').toBeGreaterThan(0);
+    expect(tools).toHaveLength(TOOL_DEFINITIONS.length);
   });
 
   it('each tool has type "function" and a function object with name, description, parameters', () => {
@@ -23,19 +29,9 @@ describe('exportOpenAITools', () => {
     }
   });
 
-  it('contains the correct tool names (matches MCP registry)', () => {
+  it('exports exactly the MCP tool names, prefixed, in registry order', () => {
     const names = tools.map((t: any) => t.function.name);
-    expect(names).toEqual([
-      'memesh_remember',
-      'memesh_recall',
-      'memesh_forget',
-      'memesh_consolidate',
-      'memesh_learn',
-      'memesh_export',
-      'memesh_import',
-      'memesh_user_patterns',
-      'memesh_verify_agent_work',
-    ]);
+    expect(names).toEqual(TOOL_DEFINITIONS.map((t) => `memesh_${t.name}`));
   });
 
   it('memesh_import requires data and merge_strategy', () => {
@@ -61,11 +57,6 @@ describe('exportOpenAITools', () => {
   it('memesh_forget requires name', () => {
     const tool = tools.find((t: any) => t.function.name === 'memesh_forget') as any;
     expect(tool.function.parameters.required).toEqual(['name']);
-  });
-
-  it('memesh_consolidate has no required fields', () => {
-    const tool = tools.find((t: any) => t.function.name === 'memesh_consolidate') as any;
-    expect(tool.function.parameters.required).toBeUndefined();
   });
 
   it('memesh_learn requires error and fix', () => {

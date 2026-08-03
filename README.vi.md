@@ -321,7 +321,7 @@ Các imported bundles vẫn có thể tìm kiếm được, nhưng MeMesh không
 
 ## Mở khóa Smart Mode (Tuỳ chọn)
 
-MeMesh hoạt động offline theo mặc định — recall luôn LLM-free (95.60% R@5 trên LongMemEval-S, không cần LLM). Thêm LLM API key chỉ nếu bạn muốn các luồng phân tích LLM-augmented bổ sung: trích xuất session thông minh hơn, auto-tagging cho memories mới, phân tích lỗi thành lessons có cấu trúc, và compression `consolidate` / `dream`:
+MeMesh hoạt động offline theo mặc định — recall luôn LLM-free (95.60% R@5 trên LongMemEval-S, không cần LLM). Thêm LLM API key chỉ nếu bạn muốn các luồng phân tích LLM-augmented bổ sung: trích xuất session thông minh hơn, auto-tagging cho memories mới, phân tích lỗi thành lessons có cấu trúc, và compression `dream`:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -351,7 +351,7 @@ Embedder được cấu hình **độc lập với LLM chat** — thay đổi `l
 | **Auto-capture** | Rule-based patterns | + LLM extracts decisions & lessons |
 | **Auto-tagging** | Chỉ thẻ thủ công | + LLM tự động gắn nhãn entity mới |
 | **Phân tích lỗi** | Không có sẵn | + LLM chuyển session errors thành structured lessons |
-| **Compression** | Không có sẵn | `consolidate` + `dream` nén verbose memories |
+| **Compression** | Không có sẵn | `dream` nén verbose memories |
 | **Chi phí** | Free, no API key | ~$0.0001 mỗi analysis call (Haiku) |
 
 ---
@@ -363,7 +363,6 @@ Embedder được cấu hình **độc lập với LLM chat** — thay đổi `l
 | `remember` | Lưu trữ kiến thức với observations, relations, và tags |
 | `recall` | Tìm kiếm FTS5 + sqlite-vec với multi-factor scoring (relevance, recency, frequency, confidence, recall impact) — không có LLM trong hot path |
 | `forget` | Soft-archive (không bao giờ xóa) hoặc xóa observations cụ thể |
-| `consolidate` | LLM-powered compression của verbose memories |
 | `export` | Chia sẻ memories dưới dạng JSON giữa các dự án hoặc thành viên team |
 | `import` | Import memories với merge strategies (skip / overwrite / append) |
 | `learn` | Ghi lại structured lessons từ những sai lầm (error, root cause, fix, prevention) |

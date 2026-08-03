@@ -1476,7 +1476,7 @@ async function inspectLlmProbe(
     return createInfo(
       'llm_probe',
       'LLM reachable',
-      'No LLM configured — Core Mode. Write-side features (consolidate, lessons, auto-tag, dream) are off by design.',
+      'No LLM configured — Core Mode. Write-side features (lessons, auto-tag, dream) are off by design.',
     );
   }
   if (!probeCapabilities) {

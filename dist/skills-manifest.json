@@ -73,13 +73,13 @@
     },
     {
       "path": "skills/memesh-review/SKILL.md",
-      "sha256": "ed58c6dc0131ab332ac3c5bb7963476f169d723eee2587621328415402a36f01",
-      "bytes": 3588
+      "sha256": "0a0a38c3193e1648a9aa862f1500b8ed4c3316393aaf8f1315579d04b912aa97",
+      "bytes": 3746
     },
     {
       "path": "skills/memesh/SKILL.md",
-      "sha256": "8270950c5de5954d4223d98ceda29827d480d2e34b8e9303b648242c7989905b",
-      "bytes": 6542
+      "sha256": "cb9c13ae0b8967c3b61e9c5c7004aa1dbf4bfddfe38a86e206e03295bd375a20",
+      "bytes": 6979
     }
   ]
 }

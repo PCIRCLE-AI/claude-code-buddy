@@ -150,7 +150,6 @@ export async function recallWithConflicts(args) {
     const conflicts = kg.findConflicts(entities.map((e) => e.name));
     return { entities, conflicts };
 }
-export { consolidate } from './consolidator.js';
 export { exportMemories, importMemories } from './serializer.js';
 export function learn(args) {
     const projectName = getProjectName();
