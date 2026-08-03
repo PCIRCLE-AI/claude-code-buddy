@@ -36,12 +36,6 @@ export const ForgetSchema = z.object({
   observation: z.string().max(10000).optional(),
 });
 
-export const ConsolidateSchema = z.object({
-  name: z.string().max(255).optional(),
-  tag: z.string().max(255).optional(),
-  min_observations: z.number().int().min(1).optional(),
-});
-
 export const ExportSchema = z.object({
   tag: z.string().max(255).optional(),
   namespace: z.string().max(50).optional(),

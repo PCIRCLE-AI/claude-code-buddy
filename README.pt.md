@@ -321,7 +321,7 @@ Bundles importados permanecem pesquisáveis, mas MeMesh não injeta automaticame
 
 ## Desbloqueie Smart Mode (Opcional)
 
-MeMesh funciona offline por padrão — o recall permanece estritamente LLM-free (95,60% R@5 no LongMemEval-S, sem LLM). Adicione uma chave de API de LLM apenas se quiser fluxos de análise LLM-augmented adicionais: extração de sessão mais inteligente, auto-tagging de novas memórias, geração de lessons a partir de falhas, e compressão `consolidate` / `dream`:
+MeMesh funciona offline por padrão — o recall permanece estritamente LLM-free (95,60% R@5 no LongMemEval-S, sem LLM). Adicione uma chave de API de LLM apenas se quiser fluxos de análise LLM-augmented adicionais: extração de sessão mais inteligente, auto-tagging de novas memórias, geração de lessons a partir de falhas, e compressão `dream`:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -351,7 +351,7 @@ O embedder é configurado **independentemente do LLM de chat** — mudar `llm.pr
 | **Auto-capture** | Padrões baseados em regras | + LLM extrai decisões & lições |
 | **Auto-tagging** | Apenas tags manuais | + LLM gera tags para novas memórias |
 | **Análise de falhas** | Não disponível | + LLM converte erros de sessão em structured lessons |
-| **Compressão** | Não disponível | `consolidate` + `dream` comprimem memórias verbosas |
+| **Compressão** | Não disponível | `dream` comprimem memórias verbosas |
 | **Custo** | Grátis, sem chave de API | ~$0.0001 por analysis call (Haiku) |
 
 ---
@@ -363,7 +363,6 @@ O embedder é configurado **independentemente do LLM de chat** — mudar `llm.pr
 | `remember` | Armazena conhecimento com observações, relações e tags |
 | `recall` | Busca FTS5 + sqlite-vec com scoring multi-fator (relevância, recência, frequência, confiança, impacto de recall) — sem LLM no hot path |
 | `forget` | Soft-archive (nunca deleta) ou remove observações específicas |
-| `consolidate` | Compressão com LLM de memórias verbosas |
 | `export` | Compartilha memórias como JSON entre projetos ou membros da equipe |
 | `import` | Importa memórias com estratégias de merge (skip / overwrite / append) |
 | `learn` | Registra lições estruturadas de erros (erro, causa raiz, fix, prevenção) |

@@ -4,7 +4,7 @@ import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
-import { remember, recallWithConflicts, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
+import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
 import { computePatterns } from '../../core/patterns.js';
@@ -13,7 +13,7 @@ import { computeStats } from '../../core/stats.js';
 import { computeProjects } from '../../core/projects.js';
 import { computeGraph } from '../../core/graph.js';
 import { verifyAgentWork } from '../../core/verifier.js';
-import { RememberSchema as RememberBody, RecallSchema as RecallBody, ForgetSchema as ForgetBody, ConsolidateSchema as ConsolidateBody, ExportSchema as ExportBody, ImportSchema as ImportBody, LearnSchema as LearnBody, VerifyAgentWorkSchema as VerifyBody, } from '../schemas.js';
+import { RememberSchema as RememberBody, RecallSchema as RecallBody, ForgetSchema as ForgetBody, ExportSchema as ExportBody, ImportSchema as ImportBody, LearnSchema as LearnBody, VerifyAgentWorkSchema as VerifyBody, } from '../schemas.js';
 import { getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
 import { getDbPath, getMemeshDirFromDbPath } from '../../core/paths.js';
@@ -238,7 +238,12 @@ app.post('/v1/recall', async (req, res) => {
     }
 });
 app.post('/v1/forget', (req, res) => handlePost(ForgetBody, req, res, forget));
-app.post('/v1/consolidate', (req, res) => handlePost(ConsolidateBody, req, res, consolidate));
+app.post('/v1/consolidate', (_req, res) => {
+    res.status(410).json({
+        success: false,
+        error: 'POST /v1/consolidate is retired. It rewrote memories with an LLM summary and deleted the originals, with no review step. Use the dream flow instead: POST /v1/dream/run proposes digests, and nothing is applied until you accept a proposal.',
+    });
+});
 app.post('/v1/export', (req, res) => handlePost(ExportBody, req, res, exportMemories));
 app.post('/v1/import', (req, res) => handlePost(ImportBody, req, res, importMemories));
 app.post('/v1/learn', (req, res) => handlePost(LearnBody, req, res, learn));

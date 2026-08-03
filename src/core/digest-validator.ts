@@ -32,7 +32,7 @@
 // SAFETY (defense in depth):
 // - Both <digest> and <sources> blocks are wrapped via sanitizeForPrompt
 //   so a closing-tag injection in either side can't hijack the prompt
-//   structure (same pattern as failure-analyzer / consolidator).
+//   structure (same pattern as failure-analyzer / auto-tagger).
 // - Verdict + claims are length-capped before returning so a hostile
 //   LLM response can't blow up the dream_proposals row.
 

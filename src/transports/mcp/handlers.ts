@@ -5,12 +5,12 @@
 // =============================================================================
 
 import { z } from 'zod';
-import { remember, recallWithConflicts, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
+import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { getDatabase } from '../../db.js';
 import { computePatterns } from '../../core/patterns.js';
 import { verifyAgentWork } from '../../core/verifier.js';
 import {
-  RememberSchema, RecallSchema, ForgetSchema, ConsolidateSchema,
+  RememberSchema, RecallSchema, ForgetSchema,
   ExportSchema, ImportSchema, LearnSchema, UserPatternsSchema,
   VerifyAgentWorkSchema,
 } from '../schemas.js';
@@ -137,23 +137,6 @@ export const TOOL_DEFINITIONS = [
         },
       },
       required: ['name'],
-      additionalProperties: false,
-    },
-  },
-  {
-    name: 'consolidate',
-    description:
-      'Compress verbose entity observations using an LLM into 2–3 dense sentences that preserve all key facts. Requires Smart Mode (run: memesh setup). Original observations are replaced by the LLM summary.',
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        name: { type: 'string', description: 'Specific entity name to consolidate' },
-        tag: { type: 'string', description: 'Consolidate all entities with this tag' },
-        min_observations: {
-          type: 'number',
-          description: 'Minimum observations required to trigger consolidation (default: 5)',
-        },
-      },
       additionalProperties: false,
     },
   },
@@ -325,11 +308,6 @@ export async function handleTool(name: string, args: Record<string, unknown> | u
       const r = parseOrFail(ForgetSchema, args);
       if (!r.ok) return r.result;
       return ok(forget(r.data));
-    }
-    if (name === 'consolidate') {
-      const r = parseOrFail(ConsolidateSchema, args);
-      if (!r.ok) return r.result;
-      return ok(await consolidate(r.data));
     }
     if (name === 'export') {
       const r = parseOrFail(ExportSchema, args);

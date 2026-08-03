@@ -103,10 +103,17 @@ Archives (soft-delete). Never permanently removes.
 
 ### Memories are getting verbose
 ```bash
-memesh consolidate --name "entity-with-many-observations"
-memesh consolidate --tag "project:myapp" --min-obs 5
+memesh dream run --project myapp   # propose digests for clusters of noisy memories
+memesh dream list                  # review what it proposed
+memesh dream accept <id>           # apply one, or: memesh dream reject <id>
 ```
-Compresses observations using LLM. Requires Smart Mode configured.
+Nothing changes until a proposal is accepted, and sources are archived rather
+than deleted. Requires Smart Mode configured. Works on episodic memories
+(commits, session notes) — lessons, decisions, architecture notes and pinned
+entities are never touched.
+
+`memesh consolidate` was retired: it rewrote a memory with an LLM summary and
+deleted the originals on the spot, with no review step.
 
 ### Backup or share memories
 ```bash

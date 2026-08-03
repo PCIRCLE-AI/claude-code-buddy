@@ -8,7 +8,7 @@
 
 ## Tools
 
-MeMesh exposes 9 tools via MCP.
+MeMesh exposes 8 tools via MCP.
 
 ---
 
@@ -181,19 +181,15 @@ Archive an entity (soft-delete) or remove a specific observation.
 
 ---
 
-### consolidate
+### consolidate — retired
 
-Compress verbose entity observations using LLM. Requires Smart Mode.
+`consolidate` was removed. It deleted an entity's observations and wrote an LLM summary in their place, immediately: no proposal, no review, and nothing to restore from if the summary was wrong. It also ignored pins, and reset `confidence` to 1.0 on success. A failure between the delete and the write left the entity permanently empty while the result reported that nothing had happened.
 
-**Input Schema**:
+**MCP**: the tool is gone from the registry.
+**HTTP**: `POST /v1/consolidate` answers `410 Gone` with a pointer, rather than 404 — a script author reads the difference.
+**CLI**: `memesh consolidate` prints where to go and exits `1`.
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `name` | string | No | Specific entity to consolidate |
-| `tag` | string | No | Consolidate all entities with this tag |
-| `min_observations` | number | No | Minimum observations to trigger (default: 5) |
-
-**Response**: `{ consolidated, entities_processed, observations_before, observations_after, error? }`
+Use [`dream`](#dream) instead: it proposes digests and applies nothing until a proposal is accepted, keeps `source_ids`, and archives sources rather than deleting them. It is **not** a like-for-like replacement — `dream` merges *clusters* of episodic memories (commits, session notes) into a digest, and never touches lessons, decisions, architecture notes or pinned entities. There is no reviewed equivalent of "compress this one named entity" today.
 
 ---
 
@@ -547,7 +543,7 @@ The limit protects the server from accidentally parsing large payloads (e.g. an 
 | POST | /v1/remember | Store knowledge |
 | POST | /v1/recall | Search knowledge |
 | POST | /v1/forget | Archive or remove observation |
-| POST | /v1/consolidate | Compress entity observations via LLM (Smart Mode required) |
+| POST | /v1/consolidate | **Retired** — answers `410 Gone`. Use `POST /v1/dream/run`. |
 | POST | /v1/export | Export memories as JSON bundle |
 | POST | /v1/import | Import memories from JSON bundle with merge strategy |
 | POST | /v1/learn | Record structured lesson from mistake or discovery |
@@ -1270,7 +1266,7 @@ Per-flow LLM telemetry scorecard for the last `window` days. Backs the dashboard
 |-----------|------|---------|-------------|
 | `window` | number | 30 | Look-back window in days (1–365) |
 
-**Response shape:** `{ window_days, summaries: FlowSummary[] }` where each `FlowSummary` is `{ flow, total_calls, total_attempts, successes, failures, fallback_used, median_latency_ms, by_provider, by_model, by_project, by_error_class, sample_errors, window_days }`. `by_model` and `by_project` are `Record<string, { ok, fail }>` (per-model and per-project ok/fail counts); `sample_errors` is up to 5 recent `{ error_class, message }` failure samples. Flows: `dreamer`, `pattern_detector`, `consolidator`, `auto_tagger`, `failure_analyzer`, `digest_validator`.
+**Response shape:** `{ window_days, summaries: FlowSummary[] }` where each `FlowSummary` is `{ flow, total_calls, total_attempts, successes, failures, fallback_used, median_latency_ms, by_provider, by_model, by_project, by_error_class, sample_errors, window_days }`. `by_model` and `by_project` are `Record<string, { ok, fail }>` (per-model and per-project ok/fail counts); `sample_errors` is up to 5 recent `{ error_class, message }` failure samples. Flows: `dreamer`, `pattern_detector`, `auto_tagger`, `failure_analyzer`, `digest_validator`. (`consolidator` rows may still exist from before that tool was retired.)
 
 ### GET /v1/dream/proposals
 

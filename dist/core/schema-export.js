@@ -66,39 +66,6 @@ export function exportOpenAITools() {
         {
             type: 'function',
             function: {
-                name: 'memesh_consolidate',
-                description: 'Compress verbose entity observations using LLM.',
-                parameters: {
-                    type: 'object',
-                    properties: {
-                        name: { type: 'string', description: 'Entity to consolidate' },
-                        tag: { type: 'string', description: 'Consolidate all entities with this tag' },
-                        min_observations: { type: 'number', description: 'Min observations to trigger (default: 5)' },
-                    },
-                },
-            },
-        },
-        {
-            type: 'function',
-            function: {
-                name: 'memesh_learn',
-                description: 'Record a structured lesson from a mistake or discovery.',
-                parameters: {
-                    type: 'object',
-                    properties: {
-                        error: { type: 'string', description: 'What went wrong' },
-                        fix: { type: 'string', description: 'What fixed it' },
-                        root_cause: { type: 'string', description: 'Why it happened' },
-                        prevention: { type: 'string', description: 'How to prevent it next time' },
-                        severity: { type: 'string', enum: ['critical', 'major', 'minor'], description: 'Severity level' },
-                    },
-                    required: ['error', 'fix'],
-                },
-            },
-        },
-        {
-            type: 'function',
-            function: {
                 name: 'memesh_export',
                 description: 'Export memories as a portable JSON snapshot for sharing or backup. Returns a structured object with entity data.',
                 parameters: {
@@ -131,6 +98,24 @@ export function exportOpenAITools() {
                         },
                     },
                     required: ['data', 'merge_strategy'],
+                },
+            },
+        },
+        {
+            type: 'function',
+            function: {
+                name: 'memesh_learn',
+                description: 'Record a structured lesson from a mistake or discovery.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        error: { type: 'string', description: 'What went wrong' },
+                        fix: { type: 'string', description: 'What fixed it' },
+                        root_cause: { type: 'string', description: 'Why it happened' },
+                        prevention: { type: 'string', description: 'How to prevent it next time' },
+                        severity: { type: 'string', enum: ['critical', 'major', 'minor'], description: 'Severity level' },
+                    },
+                    required: ['error', 'fix'],
                 },
             },
         },

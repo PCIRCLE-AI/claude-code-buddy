@@ -348,7 +348,7 @@ npm이 설치된 버전을 deprecated로 플래그하면(일반적으로 보안 
 
 ## 스마트 모드 언락 (선택)
 
-MeMesh는 기본적으로 오프라인에서 작동합니다 — 회상은 엄격히 LLM-free로 유지됩니다(기본 설치만으로 LongMemEval-S에서 R@5 95.60%). LLM API 키는 그 위에 LLM 증강 분석 흐름을 원할 때만 추가합니다: 더 스마트한 세션 추출, 새 메모리의 자동 태그 부여, 실패로부터의 교훈 생성, `consolidate` / `dream` 압축:
+MeMesh는 기본적으로 오프라인에서 작동합니다 — 회상은 엄격히 LLM-free로 유지됩니다(기본 설치만으로 LongMemEval-S에서 R@5 95.60%). LLM API 키는 그 위에 LLM 증강 분석 흐름을 원할 때만 추가합니다: 더 스마트한 세션 추출, 새 메모리의 자동 태그 부여, 실패로부터의 교훈 생성, `dream` 압축:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -378,7 +378,7 @@ memesh config set embedder.model text-embedding-3-small
 | **자동 캡처** | 규칙 기반 패턴 | + LLM이 결정과 교훈 추출 |
 | **자동 태그 부여** | 수동 태그만 | + LLM이 새 메모리에 태그 생성 |
 | **실패 분석** | 사용 불가 | + LLM이 세션 에러를 구조화된 교훈으로 변환 |
-| **압축** | 사용 불가 | `consolidate` + `dream`이 장황한 메모리 압축 |
+| **압축** | 사용 불가 | `dream`이 장황한 메모리 압축 |
 | **비용** | 무료, API 키 불필요 | ~$0.0001 분석 호출당 (Haiku) |
 
 ---
@@ -390,7 +390,6 @@ memesh config set embedder.model text-embedding-3-small
 | `remember` | 관찰, 관계, 태그를 포함한 지식 저장 |
 | `recall` | 다중 요소 점수 매김(관련성, 최근성, 빈도, 신뢰도, 회상 영향)이 있는 FTS5 + sqlite-vec 검색 — 핫 패스에 LLM 없음 |
 | `forget` | 소프트 보관(절대 삭제 안 함) 또는 특정 관찰 제거 |
-| `consolidate` | LLM 기반 장황한 메모리 압축 |
 | `export` | 프로젝트나 팀 멤버 간 메모리 JSON 공유 |
 | `import` | 병합 전략(스킵/덮어쓰기/추가)이 있는 메모리 임포트 |
 | `learn` | 실수로부터 구조화된 교훈 기록(에러, 근본 원인, 수정, 예방) |

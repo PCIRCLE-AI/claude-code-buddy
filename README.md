@@ -287,7 +287,7 @@ All configuration is via environment variables. Defaults are local-only and zero
 |---|---|---|
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | Override the SQLite database location. |
 | `MEMESH_AUTO_CAPTURE` | `true` | Disable the auto-capture hooks (`Stop`, `PreCompact`) entirely. |
-| `MEMESH_AUTO_DETECT_LLM` | unset (auto-detect **on**) | Set to `0` to stop memesh using an API key it finds in your shell env. By default, if `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` is set and you have not configured a provider in `~/.memesh/config.json`, memesh uses it for write-side LLM features (consolidation, lesson extraction, auto-tagging, dream). Embeddings are unaffected — they stay local ONNX (384-dim) unless you explicitly set `embedder.provider`. |
+| `MEMESH_AUTO_DETECT_LLM` | unset (auto-detect **on**) | Set to `0` to stop memesh using an API key it finds in your shell env. By default, if `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` is set and you have not configured a provider in `~/.memesh/config.json`, memesh uses it for write-side LLM features (lesson extraction, auto-tagging, dream). Embeddings are unaffected — they stay local ONNX (384-dim) unless you explicitly set `embedder.provider`. |
 | `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | unset | Set to `1` to enable an experimental working-model protocol (CTO / Orchestrator / Agents framing). Adds a session-start banner, a Bash command nudge, and `verify_agent_work` telemetry. The protocol's effectiveness is being instrumented, not yet proven — opt in if you want to participate. **Default is OFF**: the core memory features work without this flag. |
 | `MEMESH_AUTO_UPDATE` | `off` | Auto-update policy. `off` (default) never auto-updates; `patch` allows `X.Y.Z → X.Y.Z+N`; `minor` adds `X.Y.Z → X.Y+1.0`; `major` allows any bump. When permitted, a detached `npm install -g` fires at session end (Stop hook) so it never blocks your work — outcomes land in `~/.memesh/auto-update.log`. Also settable as `autoUpdate` in `~/.memesh/config.json` (env wins). When the installed version is deprecated by maintainers (security advisory), `patch` is force-allowed even on `off` — minor / major bumps still stay manual to avoid silent behaviour drift. |
 | `OPENAI_API_KEY` | unset | Your OpenAI key. Used automatically for LLM features unless you set `MEMESH_AUTO_DETECT_LLM=0` or configure a provider explicitly. |
@@ -350,7 +350,7 @@ Imported bundles stay searchable, but MeMesh does not auto-inject imported memor
 
 ## Unlock Smart Mode (Optional)
 
-MeMesh works offline by default — recall stays strictly LLM-free (95.60% R@5 on LongMemEval-S out of the box). Add an LLM API key only if you want LLM-augmented analysis flows on top: smarter session extraction, auto-tagging of new memories, lesson generation from failures, and `consolidate` / `dream` compression:
+MeMesh works offline by default — recall stays strictly LLM-free (95.60% R@5 on LongMemEval-S out of the box). Add an LLM API key only if you want LLM-augmented analysis flows on top: smarter session extraction, auto-tagging of new memories, lesson generation from failures, and `dream` compression:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -380,7 +380,7 @@ The embedder is configured **independently of the chat LLM** — changing `llm.p
 | **Auto-capture** | Rule-based patterns | + LLM extracts decisions & lessons |
 | **Auto-tagging** | Manual tags only | + LLM generates tags for new memories |
 | **Failure analysis** | Not available | + LLM converts session errors into structured lessons |
-| **Compression** | Not available | `consolidate` + `dream` compress verbose memories |
+| **Compression** | Not available | `dream` compress verbose memories |
 | **Cost** | Free, no API key | ~$0.0001 per analysis call (Haiku) |
 
 ---
@@ -392,7 +392,6 @@ The embedder is configured **independently of the chat LLM** — changing `llm.p
 | `remember` | Store knowledge with observations, relations, and tags |
 | `recall` | FTS5 + sqlite-vec search with multi-factor scoring (relevance, recency, frequency, confidence, recall impact) — no LLM in the hot path |
 | `forget` | Soft-archive (never deletes) or remove specific observations |
-| `consolidate` | LLM-powered compression of verbose memories |
 | `export` | Share memories as JSON between projects or team members |
 | `import` | Import memories with merge strategies (skip / overwrite / append) |
 | `learn` | Record structured lessons from mistakes (error, root cause, fix, prevention) |

@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexRebuild } from '../../db.js';
-import { remember, recallWithConflicts, forget, consolidate, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
+import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { verifyAgentWork } from '../../core/verifier.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { getDbPath } from '../../core/paths.js';
@@ -219,47 +219,37 @@ registerPinCommand('pin', 'Protect an entity from the dreamer’s auto-compactio
 registerPinCommand('unpin', 'Allow the dreamer to auto-compact an entity again', false,
   (e) => `📍 Unpinned "${e}"`);
 
-// --- consolidate ---
+// --- consolidate (retired) ---
+// The command is kept only to say it is gone. Deleting it outright makes
+// Commander answer `memesh consolidate` with "unknown command", which reads as
+// a typo or a broken install and tells a user nothing about where their
+// compression went. This block is deletable at the next major.
+//
+// What it used to do: delete an entity's observations and write an LLM summary
+// in their place, immediately, with no proposal and no way back. It also
+// ignored pins, and reset confidence to 1.0 on success. `memesh dream` is the
+// reviewed form of the same idea, so nothing here points at a like-for-like
+// replacement -- see `dream --help`.
 program
   .command('consolidate')
-  .description('Compress verbose entity observations using an LLM (requires Smart Mode)')
-  .option('--name <name>', 'Specific entity to consolidate')
-  .option('--tag <tag>', 'Consolidate all entities with this tag')
-  .option('--min-obs <n>', 'Minimum observations to trigger (default: 5)', '5')
-  .option('--json', 'Output as JSON')
-  .action(async (opts) => {
-    await withDatabase(async () => {
-      const result = await consolidate({
-        name: opts.name,
-        tag: opts.tag,
-        min_observations: parseInt(opts.minObs),
-      });
-      if (opts.json) {
-        console.log(JSON.stringify(result));
-      } else if (result.error) {
-        console.error(`Error: ${result.error}`);
-        process.exitCode = 1;
-      } else if (result.consolidated === 0) {
-        // DX: distinguish "name not found" from "exists but under
-        // threshold" so users know which knob to turn (typo vs --min-obs).
-        if (opts.name) {
-          console.log(`No entity named "${opts.name}" found, or it has fewer than ${opts.minObs} observations (the consolidation threshold).`);
-          console.log(`Try: memesh recall "${opts.name}" to confirm it exists, or memesh consolidate --name "${opts.name}" --min-obs 1`);
-        } else if (opts.tag) {
-          console.log(`No entities tagged "${opts.tag}" met the minimum observation threshold (${opts.minObs}).`);
-          console.log(`Try: memesh recall --tag "${opts.tag}" to see candidates, or lower --min-obs.`);
-        } else {
-          console.log(`No entities met the minimum observation threshold (${opts.minObs}).`);
-          console.log(`Try: memesh consolidate --min-obs 1 to consolidate everything.`);
-        }
-      } else {
-        console.log(`Consolidated ${result.consolidated} entity/entities.`);
-        console.log(`Observations: ${result.observations_before} -> ${result.observations_after}`);
-        if (result.entities_processed.length > 0) {
-          console.log(`Processed: ${result.entities_processed.join(', ')}`);
-        }
-      }
-    });
+  .description('(retired) Use `memesh dream` — see the message this prints')
+  .allowUnknownOption()
+  .action(() => {
+    console.error('`memesh consolidate` has been retired.');
+    console.error('');
+    console.error('It rewrote a memory with an LLM summary and deleted the originals on the spot —');
+    console.error('no proposal, no review, and nothing to restore from if the summary was wrong.');
+    console.error('');
+    console.error('`memesh dream` is the reviewed version of the same idea:');
+    console.error('  memesh dream run       propose digests for clusters of noisy memories');
+    console.error('  memesh dream list      see what it proposed');
+    console.error('  memesh dream accept <id> / reject <id>');
+    console.error('');
+    console.error('Nothing is changed until you accept a proposal, and sources are archived');
+    console.error('rather than deleted. It works on episodic memories (commits, session notes)');
+    console.error('and never touches lessons, decisions, architecture notes, or pinned entities —');
+    console.error('so it is not a like-for-like replacement for compressing one named entity.');
+    process.exitCode = 1;
   });
 
 // --- export ---

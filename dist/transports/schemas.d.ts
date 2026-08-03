@@ -30,11 +30,6 @@ export declare const ForgetSchema: z.ZodObject<{
     name: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
     observation: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
-export declare const ConsolidateSchema: z.ZodObject<{
-    name: z.ZodOptional<z.ZodString>;
-    tag: z.ZodOptional<z.ZodString>;
-    min_observations: z.ZodOptional<z.ZodNumber>;
-}, z.core.$strip>;
 export declare const ExportSchema: z.ZodObject<{
     tag: z.ZodOptional<z.ZodString>;
     namespace: z.ZodOptional<z.ZodString>;

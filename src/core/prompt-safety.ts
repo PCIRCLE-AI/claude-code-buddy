@@ -7,11 +7,14 @@
 //                          transcript (transcript may contain malicious
 //                          dependency output)
 //   - auto-tagger       — entity name/type/observations
-//   - consolidator      — entity observations
+//   - digest-validator  — a dreamer digest and the sources it claims to
+//                          summarise
 //
-// (query-expander was a fourth call site until it was retired from the
-// recall hot path — see src/core/operations.ts:recallEnhanced. This
-// helper is kept for the remaining three.)
+// This list is the set of files importing this module, and it has been wrong
+// before: it named `consolidator` (retired) and omitted `digest-validator`,
+// which has used these helpers since it was written. query-expander was a call
+// site too, until it was retired from the recall hot path — see
+// src/core/operations.ts:recallEnhanced.
 //
 // Even though every output path validates / whitelists / truncates the
 // LLM's response, defense-in-depth says we should also harden the input
@@ -29,10 +32,10 @@
  * Escape sequences that would let an attacker close our delimiter and
  * inject new instructions, regardless of which tag name we wrap with.
  *
- * The three remaining call sites use different tag names:
+ * The three call sites use different tag names:
  *   - failure-analyzer  → `<session_errors>` / `<files_edited>`
  *   - auto-tagger       → `<entity_name>` / `<entity_type>` / `<entity_facts>`
- *   - consolidator      → `<observations>`
+ *   - digest-validator  → `<digest>` / `<sources>`
  *
  * The first version of this sanitiser only stripped `</user_*>` closing
  * tags, which left other prompts exposed to closing-tag injection.
@@ -69,7 +72,7 @@ export function sanitizeForPrompt(value: string): string {
 /**
  * Sanitise an array of user-controlled strings and join them under a
  * shared wrapper. Used by failure-analyzer (errors[] + filesEdited[])
- * and consolidator (observations[]) where the LLM is meant to read
+ * and digest-validator (observations[]) where the LLM is meant to read
  * each line as a fact, not a directive.
  */
 export function sanitizeListForPrompt(items: readonly string[]): string {

@@ -348,7 +348,7 @@ memesh export-schema \
 
 ## 解鎖智慧模式（可選）
 
-MeMesh 預設離線運作 — 回憶嚴格保持 LLM-free（開箱即用就有 LongMemEval-S 上 95.60% R@5）。只有當你想要在上層加入 LLM 增強的分析流程時，才需要加入 LLM API 金鑰：更聰明的 session 擷取、新記憶的自動標籤、從失敗產生教訓，以及 `consolidate` / `dream` 壓縮：
+MeMesh 預設離線運作 — 回憶嚴格保持 LLM-free（開箱即用就有 LongMemEval-S 上 95.60% R@5）。只有當你想要在上層加入 LLM 增強的分析流程時，才需要加入 LLM API 金鑰：更聰明的 session 擷取、新記憶的自動標籤、從失敗產生教訓，以及 `dream` 壓縮：
 
 ```bash
 memesh config set llm.provider anthropic
@@ -378,7 +378,7 @@ memesh config set embedder.model text-embedding-3-small
 | **自動擷取** | 基於規則的模式 | + LLM 擷取決策與教訓 |
 | **自動標籤** | 僅手動標籤 | + LLM 為新記憶產生標籤 |
 | **失敗分析** | 不可用 | + LLM 將 session 錯誤轉為結構化教訓 |
-| **壓縮** | 不可用 | `consolidate` + `dream` 壓縮冗長記憶 |
+| **壓縮** | 不可用 | `dream` 壓縮冗長記憶 |
 | **成本** | 免費，無需 API 金鑰 | 約 $0.0001 / 次分析呼叫（Haiku） |
 
 ---
@@ -390,7 +390,6 @@ memesh config set embedder.model text-embedding-3-small
 | `remember` | 用觀察、關係和標籤儲存知識 |
 | `recall` | FTS5 + sqlite-vec 搜尋，包含多因素評分（相關性、近期性、頻率、信心、回憶影響）— 熱路徑上不使用 LLM |
 | `forget` | 軟歸檔（永不刪除）或移除特定觀察 |
-| `consolidate` | LLM 驅動的冗長記憶壓縮 |
 | `export` | 在專案或團隊成員之間以 JSON 共享記憶 |
 | `import` | 匯入記憶，包含合併策略（跳過 / 覆寫 / 追加） |
 | `learn` | 記錄來自錯誤的結構化教訓（錯誤、根本原因、修復、預防） |

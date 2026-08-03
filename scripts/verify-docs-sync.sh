@@ -78,19 +78,33 @@ fi
 echo ""
 
 # 4. MCP tools count
+#
+# Compares the registry against the number API_REFERENCE.md *claims*, instead of
+# against a constant. Both halves used to be wrong at once: the code count was
+# hard-compared to a literal 9 (stale the moment a tool was added or retired),
+# and the doc side counted EVERY `### ` heading in the file — 43 of them — then
+# checked `-lt 9`, which no version of that document could ever fail. Retiring
+# `consolidate` is what surfaced it.
 echo "📌 Checking MCP tools count..."
-TOOLS_IN_CODE=$(grep -c "name: '" src/transports/mcp/handlers.ts || echo "0")
-TOOLS_IN_API=$(grep -c "^### " docs/api/API_REFERENCE.md || echo "0")
+TOOLS_IN_CODE=$(grep -cE "^    name: '" src/transports/mcp/handlers.ts || echo "0")
+TOOLS_CLAIMED=$(grep -oE "MeMesh exposes [0-9]+ tools via MCP" docs/api/API_REFERENCE.md | grep -oE "[0-9]+" || echo "")
 
 echo "  Tools in handlers.ts: $TOOLS_IN_CODE"
-echo "  Tools in API_REFERENCE.md: $TOOLS_IN_API"
+echo "  Tools claimed by API_REFERENCE.md: ${TOOLS_CLAIMED:-<sentence not found>}"
 
-if [ "$TOOLS_IN_CODE" -ne 9 ]; then
-  echo -e "  ${YELLOW}⚠ WARN${NC}: Expected 9 tools in code, found $TOOLS_IN_CODE"
-fi
-
-if [ "$TOOLS_IN_API" -lt 9 ]; then
-  echo -e "  ${YELLOW}⚠ WARN${NC}: Expected 9+ sections in API docs, found $TOOLS_IN_API"
+if [ "$TOOLS_IN_CODE" -lt 1 ]; then
+  # A pattern that matches nothing must fail, not report agreement with a doc
+  # that also says nothing.
+  echo -e "  ${RED}✗ FAIL${NC}: found no tools in handlers.ts — the pattern stopped matching"
+  ERRORS=$((ERRORS + 1))
+elif [ -z "$TOOLS_CLAIMED" ]; then
+  echo -e "  ${RED}✗ FAIL${NC}: API_REFERENCE.md no longer states how many tools MeMesh exposes"
+  ERRORS=$((ERRORS + 1))
+elif [ "$TOOLS_IN_CODE" -ne "$TOOLS_CLAIMED" ]; then
+  echo -e "  ${RED}✗ FAIL${NC}: handlers.ts registers $TOOLS_IN_CODE tools, API_REFERENCE.md says $TOOLS_CLAIMED"
+  ERRORS=$((ERRORS + 1))
+else
+  echo -e "  ${GREEN}✓ PASS${NC}: registry and API_REFERENCE.md agree on $TOOLS_IN_CODE tools"
 fi
 echo ""
 

@@ -348,7 +348,7 @@ Los bundles importados permanecen buscables, pero MeMesh no inyecta automáticam
 
 ## Desbloquea Modo Inteligente (Opcional)
 
-MeMesh funciona sin conexión por defecto — el recall permanece estrictamente sin LLM (95.60% R@5 en LongMemEval-S de fábrica). Añade una clave API de LLM solo si quieres flujos de análisis aumentados por LLM encima: extracción de sesión más inteligente, auto-etiquetado de nuevas memorias, generación de lecciones a partir de fallos, y compresión `consolidate` / `dream`:
+MeMesh funciona sin conexión por defecto — el recall permanece estrictamente sin LLM (95.60% R@5 en LongMemEval-S de fábrica). Añade una clave API de LLM solo si quieres flujos de análisis aumentados por LLM encima: extracción de sesión más inteligente, auto-etiquetado de nuevas memorias, generación de lecciones a partir de fallos, y compresión `dream`:
 
 ```bash
 memesh config set llm.provider anthropic
@@ -378,7 +378,7 @@ El embedder se configura **independientemente del LLM de chat** — cambiar `llm
 | **Auto-capture** | Patrones basados en reglas | + LLM extrae decisiones y lecciones |
 | **Auto-etiquetado** | Solo etiquetas manuales | + LLM genera etiquetas para nuevas memorias |
 | **Análisis de fallos** | No disponible | + LLM convierte errores de sesión en lecciones estructuradas |
-| **Compresión** | No disponible | `consolidate` + `dream` comprimen memorias verbosas |
+| **Compresión** | No disponible | `dream` comprimen memorias verbosas |
 | **Costo** | Gratis, sin clave API | ~$0.0001 por llamada de análisis (Haiku) |
 
 ---
@@ -390,7 +390,6 @@ El embedder se configura **independientemente del LLM de chat** — cambiar `llm
 | `remember` | Guardar conocimiento con observaciones, relaciones y etiquetas |
 | `recall` | Búsqueda FTS5 + sqlite-vec con scoring multifactor (relevancia, recencia, frecuencia, confianza, impacto de recuperación) — sin LLM en la ruta caliente |
 | `forget` | Archivo suave (nunca borra) o elimina observaciones específicas |
-| `consolidate` | Compresión impulsada por LLM de memorias verbosas |
 | `export` | Compartir memorias como JSON entre proyectos o miembros del equipo |
 | `import` | Importar memorias con estrategias de fusión (skip / overwrite / append) |
 | `learn` | Registrar lecciones estructuradas de errores (error, causa raíz, corrección, prevención) |

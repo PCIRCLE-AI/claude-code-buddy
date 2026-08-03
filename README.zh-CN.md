@@ -348,7 +348,7 @@ memesh export-schema \
 
 ## 解锁智能模式（可选）
 
-MeMesh 默认离线工作 — 回忆始终是严格无 LLM 的（开箱即用 LongMemEval-S R@5 95.60%）。仅当你想要在此之上叠加 LLM 增强分析流程时才添加 LLM API 密钥：更聪慧的会话提取、为新记忆自动打标签、从失败生成经验教训，以及 `consolidate` / `dream` 压缩：
+MeMesh 默认离线工作 — 回忆始终是严格无 LLM 的（开箱即用 LongMemEval-S R@5 95.60%）。仅当你想要在此之上叠加 LLM 增强分析流程时才添加 LLM API 密钥：更聪慧的会话提取、为新记忆自动打标签、从失败生成经验教训，以及 `dream` 压缩：
 
 ```bash
 memesh config set llm.provider anthropic
@@ -378,7 +378,7 @@ memesh config set embedder.model text-embedding-3-small
 | **自动捕获** | 基于规则的模式 | + LLM 提取决策和经验教训 |
 | **自动打标签** | 仅手动标签 | + LLM 为新记忆生成标签 |
 | **失败分析** | 不可用 | + LLM 把会话错误转化为结构化经验教训 |
-| **压缩** | 不可用 | `consolidate` + `dream` 压缩冗长的记忆 |
+| **压缩** | 不可用 | `dream` 压缩冗长的记忆 |
 | **成本** | 免费，无需 API 密钥 | ~$0.0001 每次分析调用（Haiku） |
 
 ---
@@ -390,7 +390,6 @@ memesh config set embedder.model text-embedding-3-small
 | `remember` | 存储知识，附带观察、关系和标签 |
 | `recall` | FTS5 + sqlite-vec 搜索，附带多因素评分（相关性、新近度、频率、置信度、回忆影响）— 热路径上无 LLM |
 | `forget` | 软归档（永不删除）或移除特定观察 |
-| `consolidate` | LLM 驱动的冗长记忆压缩 |
 | `export` | 在项目或团队成员间共享内存，格式为 JSON |
 | `import` | 导入内存，支持合并策略（跳过 / 覆盖 / 追加） |
 | `learn` | 从错误中记录结构化经验教训（错误、根本原因、修复、预防） |

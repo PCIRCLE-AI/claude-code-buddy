@@ -6,7 +6,7 @@ import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
-import { remember, recallWithConflicts, forget, consolidate, exportMemories, importMemories, learn } from '../../core/operations.js';
+import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
 import { computePatterns } from '../../core/patterns.js';
@@ -18,7 +18,7 @@ import { verifyAgentWork } from '../../core/verifier.js';
 import type { CountRow } from '../../core/types.js';
 import {
   RememberSchema as RememberBody, RecallSchema as RecallBody,
-  ForgetSchema as ForgetBody, ConsolidateSchema as ConsolidateBody,
+  ForgetSchema as ForgetBody,
   ExportSchema as ExportBody, ImportSchema as ImportBody,
   LearnSchema as LearnBody, VerifyAgentWorkSchema as VerifyBody,
 } from '../schemas.js';
@@ -380,7 +380,24 @@ app.post('/v1/recall', async (req, res) => {
 // --- Forget / Consolidate / Export / Import / Learn / Verify ---
 // All 6 follow the same shape; handlePost above does the heavy lifting.
 app.post('/v1/forget',      (req, res) => handlePost(ForgetBody, req, res, forget));
-app.post('/v1/consolidate', (req, res) => handlePost(ConsolidateBody, req, res, consolidate));
+// `/v1/consolidate` is retired, and answers 410 rather than 404 because the two
+// mean different things to a script: 404 reads as a typo or a bad base URL and
+// invites a retry, 410 says the resource is gone on purpose and names what to
+// do instead. The tool compressed an entity's observations by deleting them and
+// writing an LLM summary back, with no proposal, no review and no way to
+// recover the originals — see the CHANGELOG entry for what that cost. `dream`
+// does the reviewed version of the same idea.
+//
+// Deletable at the next major, once no caller can plausibly still be pointing
+// here. Until then this line is the only thing standing between a script and a
+// silent 404.
+app.post('/v1/consolidate', (_req, res) => {
+  res.status(410).json({
+    success: false,
+    error:
+      'POST /v1/consolidate is retired. It rewrote memories with an LLM summary and deleted the originals, with no review step. Use the dream flow instead: POST /v1/dream/run proposes digests, and nothing is applied until you accept a proposal.',
+  });
+});
 app.post('/v1/export',      (req, res) => handlePost(ExportBody, req, res, exportMemories));
 app.post('/v1/import',      (req, res) => handlePost(ImportBody, req, res, importMemories));
 app.post('/v1/learn',       (req, res) => handlePost(LearnBody, req, res, learn));

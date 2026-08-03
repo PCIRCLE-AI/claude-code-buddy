@@ -107,27 +107,6 @@ export declare const TOOL_DEFINITIONS: readonly [{
         readonly additionalProperties: false;
     };
 }, {
-    readonly name: "consolidate";
-    readonly description: "Compress verbose entity observations using an LLM into 2–3 dense sentences that preserve all key facts. Requires Smart Mode (run: memesh setup). Original observations are replaced by the LLM summary.";
-    readonly inputSchema: {
-        readonly type: "object";
-        readonly properties: {
-            readonly name: {
-                readonly type: "string";
-                readonly description: "Specific entity name to consolidate";
-            };
-            readonly tag: {
-                readonly type: "string";
-                readonly description: "Consolidate all entities with this tag";
-            };
-            readonly min_observations: {
-                readonly type: "number";
-                readonly description: "Minimum observations required to trigger consolidation (default: 5)";
-            };
-        };
-        readonly additionalProperties: false;
-    };
-}, {
     readonly name: "export";
     readonly description: "Export memories as JSON for sharing or backup. Returns a portable snapshot of entities and their observations, tags, and relations.";
     readonly inputSchema: {
