@@ -34,7 +34,14 @@ If `remember` is called again with an existing `name`, MeMesh treats it as an ap
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `to` | string | Yes | Target entity name (must already exist) |
-| `type` | string | Yes | Relation type (e.g., `"implements"`, `"related-to"`) |
+| `type` | string | Yes | Relation type. Free-form label (e.g. `"implements"`, `"related-to"`) except for the two below, which change behaviour |
+
+**Relation types that do something.** Every other type is an inert label; these two are the whole list, and the same list is enforced against the MCP schema by `tests/relation-types-documented.test.ts`:
+
+| Type | Effect |
+|------|--------|
+| `supersedes` | **Archives the target entity**, immediately, on write. Use it when this memory replaces an older one. |
+| `contradicts` | Makes both memories surface as a conflict every time either is recalled (see [recall → Conflict detection](#recall)). Use it when two memories cannot both be true. Nothing creates this relation automatically — it is stated by the caller. |
 
 **Response**:
 
@@ -124,7 +131,7 @@ Returns an array of matching entities ranked by multi-factor score — relevance
 ]
 ```
 
-**Conflict detection**: When any pair of returned entities have a `contradicts` relation, the response is wrapped as:
+**Conflict detection**: When any pair of returned entities have a `contradicts` relation, the response is wrapped as shown below. Nothing creates that relation for you — a caller states it via `remember`'s `relations` (see [remember](#remember)), so an empty `conflicts` means "none stated between these results", not "checked and clean":
 
 ```json
 {

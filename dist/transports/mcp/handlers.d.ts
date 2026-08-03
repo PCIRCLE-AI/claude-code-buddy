@@ -37,7 +37,7 @@ export declare const TOOL_DEFINITIONS: readonly [{
                         };
                         readonly type: {
                             readonly type: "string";
-                            readonly description: "Relation type (e.g., \"implements\", \"related-to\")";
+                            readonly description: string;
                         };
                     };
                     readonly required: readonly ["to", "type"];

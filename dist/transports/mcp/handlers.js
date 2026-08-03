@@ -37,7 +37,9 @@ export const TOOL_DEFINITIONS = [
                             to: { type: 'string', description: 'Target entity name' },
                             type: {
                                 type: 'string',
-                                description: 'Relation type (e.g., "implements", "related-to")',
+                                description: 'Relation type. Free-form label (e.g. "implements", "related-to"), except for two that change behaviour: ' +
+                                    '"supersedes" archives the target entity — use it when this memory replaces an older one; ' +
+                                    '"contradicts" flags both memories as a conflict every time either is recalled — use it when two memories cannot both be true.',
                             },
                         },
                         required: ['to', 'type'],

@@ -11,6 +11,39 @@
 // continue to declare their own `z.enum([...])` runtime validators —
 // these TS-only types do not affect Zod validation.
 
+/**
+ * Relation types the code BRANCHES ON, and what each one does.
+ *
+ * A relation type is otherwise a free string: `createRelation()` accepts
+ * anything and most types are inert labels. These two are not. They change what
+ * MeMesh does, and one of them destroys something:
+ *
+ *   - `supersedes` archives the target entity, immediately, on write.
+ *   - `contradicts` makes both entities surface as a conflict on every recall.
+ *
+ * Neither was named anywhere the caller could see. The MCP `remember` schema —
+ * the ONLY description a model reads at run time — offered `"implements"` and
+ * `"related-to"` as its examples, and both of those are inert. So the two types
+ * with consequences were undiscoverable, while the two advertised ones did
+ * nothing: `findConflicts()` ran on every single recall and could only ever
+ * return `[]`, which every transport renders as "no conflicts" — a checked-and-
+ * clean answer to a question nothing could ever answer. And `supersedes`, which
+ * archives an entity, was reachable only by guessing the word.
+ *
+ * This map is the single source of truth. `tests/relation-types-documented.test.ts`
+ * fails if the code branches on a relation type that is not listed here, and if
+ * a type listed here is missing from the schema description the model reads.
+ * Add a behavioural relation type without documenting it and the suite goes red.
+ */
+export const BEHAVIOURAL_RELATION_TYPES = {
+  supersedes:
+    'archives the target entity — use it when this memory replaces an older one',
+  contradicts:
+    'flags both memories as a conflict every time either is recalled — use it when two memories cannot both be true',
+} as const;
+
+export type BehaviouralRelationType = keyof typeof BEHAVIOURAL_RELATION_TYPES;
+
 export type Namespace = 'personal' | 'team' | 'global';
 export type MergeStrategy = 'skip' | 'overwrite' | 'append';
 export type LessonSeverity = 'critical' | 'major' | 'minor';
