@@ -59,7 +59,20 @@ have passed while the thing they guarded was removed.
 
 ### Git
 
-- `main` (production) ← `develop` (development). Never commit directly to `main`.
+- **Short-lived branch → PR → `main`. Never push directly to `main`.** That is
+  the whole flow; branch protection enforces it. `develop` is a passive mirror
+  of `main`, kept for anyone whose tooling expects it — it is not a stage work
+  passes through, and nothing is ever merged *into* it. This used to read
+  "`main` ← `develop`", which described git-flow: a model for software with
+  several release lines under support at once, and one whose own author now
+  warns against using it for continuously delivered projects. Nothing here has
+  release lines, and the branch proved it — `develop` sat 58 commits behind
+  `main` and 0 ahead, through four releases, while every PR went straight to
+  `main`. A rule nobody follows and nothing enforces is worse than no rule: it
+  makes this file lie to whoever reads it next.
+- Releases are tags on `main`. "Merged but not yet published" is answered by
+  `CHANGELOG.md`'s `[Unreleased]` section, which is why a branch does not need
+  to answer it.
 - Commit format: `<type>(<scope>): <subject>`
 - **No AI attribution.** Commit messages and PR descriptions must not contain
   `Co-Authored-By: Claude`, `🤖 Generated with [Claude Code]`, or any text
