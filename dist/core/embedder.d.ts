@@ -14,4 +14,5 @@ export declare function vectorSearch(queryEmbedding: Float32Array, limit?: numbe
     id: number;
     distance: number;
 }>;
+export declare function onnxCacheDir(): string;
 //# sourceMappingURL=embedder.d.ts.map

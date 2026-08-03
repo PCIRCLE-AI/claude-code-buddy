@@ -4,6 +4,24 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Performance
+
+- **The test suite went from 253s to 40s, because every isolated HOME was re-downloading a 98 MB model** (`src/core/embedder.ts`, `scripts/run-tests-isolated.mjs`, `.github/workflows/ci.yml`) — the local embedding model `all-MiniLM-L6-v2` caches at `~/.memesh/models`, which is right for a real install and wrong for anything that isolates `HOME`. Six test files spawn the CLI or a hook under a per-test `HOME`, so each of those tests fetched the whole model from HuggingFace again.
+
+  Measured, first write in a fresh `HOME`: **19.4s wall clock, 1.21s user, 8% CPU** — almost entirely network wait, which is why it looked like slow tests rather than a download.
+
+  | | before | after |
+  |---|---|---|
+  | `tests/hooks/hook-output-contract.test.ts` | 86.4s | **3.1s** |
+  | `tests/cli/remember-quick.test.ts` | 52.5s | **2.2s** |
+  | `tests/transports/http.test.ts` | 18.2s | **1.0s** |
+  | whole suite | 253.6s | **40.0s** |
+
+  `MEMESH_MODEL_CACHE_DIR` points the cache somewhere stable; the default is unchanged. The isolated test runner and CI both set it. On CI this was being paid **on every leg of the matrix**, and it made every leg depend on HuggingFace being reachable — a third-party outage would have turned the whole matrix red with nothing wrong in the code.
+
+  This is also the root cause of the hook-timeout failures fixed above: those tests were not slow, they were downloading.
+
+
 ### Tests
 
 - **A docs-only pull request went red on Windows because a temp directory was slow to delete** (`vitest.config.ts`, `tests/**`) — `hookTimeout` was 10 seconds, which fits POSIX and does not fit Windows: every DB test's `afterEach` closes SQLite and recursively removes a temp directory, SQLite leaves `-wal`/`-shm` beside the database, and the OS (plus whatever scans files on a CI runner) can hold a handle open for a moment after close. Measured — `tests/core/export-import.test.ts` hit `Hook timed out in 10000ms` on `windows-latest` / Node 24, in a pull request that changed only `CHANGELOG.md`.

@@ -35,6 +35,24 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# One ONNX model cache per job, instead of one per isolated HOME.
+#
+# Six test files spawn the CLI or a hook under a per-test HOME, and the local
+# embedding model lives at `~/.memesh/models` — so each of those tests fetched
+# the ~98 MB all-MiniLM-L6-v2 model from HuggingFace again. Measured locally:
+# the first write in a fresh HOME took 19.4s wall clock at 8% CPU, i.e. network
+# wait, and the whole suite went from 253s to 56s once the cache was shared.
+# `hook-output-contract` alone went 86.4s -> 3.1s.
+#
+# On CI that cost was paid on every leg of the matrix, and it made every leg
+# depend on HuggingFace being up and fast — a third-party outage would have
+# turned the entire matrix red with nothing wrong in the code.
+#
+# The cache is read-only model weights, not state a test can contaminate, so
+# sharing it does not weaken the HOME isolation the suite relies on.
+env:
+  MEMESH_MODEL_CACHE_DIR: ${{ github.workspace }}/.memesh-model-cache
+
 jobs:
   build-and-test:
     name: Build & Test (${{ matrix.os }}, Node ${{ matrix.node }})

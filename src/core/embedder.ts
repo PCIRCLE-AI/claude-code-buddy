@@ -419,6 +419,32 @@ function isOnnxAvailable(): boolean {
   return onnxAvailableResult;
 }
 
+/**
+ * Where the local ONNX model is cached.
+ *
+ * Defaults to `~/.memesh/models`, which is right for a real install: one copy
+ * per user, next to their database, removed when they remove memesh.
+ *
+ * It is wrong for anything that isolates HOME. The model is ~98 MB and is
+ * fetched from HuggingFace on first use, so a test that runs the CLI under a
+ * throwaway HOME downloads all of it again — measured at 19.4s wall clock for
+ * the first write in a fresh HOME, at 8% CPU, i.e. almost entirely network
+ * wait. Six test files spawn the CLI or a hook with a per-test HOME, which is
+ * what put `hook-output-contract` at 86s and `remember-quick` at 52s, and is
+ * the reason those files kept brushing their timeouts. On CI it also made every
+ * leg depend on HuggingFace being up and fast.
+ *
+ * `MEMESH_MODEL_CACHE_DIR` points the cache somewhere stable so that isolation
+ * of HOME does not imply re-downloading a model. It is deliberately a separate
+ * variable from MEMESH_DIR: the point is to share exactly this one thing across
+ * otherwise-isolated environments, and nothing else.
+ */
+export function onnxCacheDir(): string {
+  const override = process.env.MEMESH_MODEL_CACHE_DIR;
+  if (override && override.trim() !== '') return override;
+  return join(memeshDir(), ONNX_CACHE_SUBDIR);
+}
+
 async function getOnnxPipeline(): Promise<OnnxPipeline> {
   if (onnxPipelineInstance) return onnxPipelineInstance;
   if (onnxPipelineLoading) return onnxPipelineLoading;
@@ -429,7 +455,7 @@ async function getOnnxPipeline(): Promise<OnnxPipeline> {
       const createPipeline = mod.pipeline;
       const env = mod.env;
       if (env) {
-        env.cacheDir = join(memeshDir(), ONNX_CACHE_SUBDIR);
+        env.cacheDir = onnxCacheDir();
         env.allowLocalModels = true;
       }
       onnxPipelineInstance = await createPipeline(
