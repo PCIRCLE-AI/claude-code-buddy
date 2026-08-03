@@ -430,16 +430,21 @@ export function applyProposal(db, proposalId, kg) {
     const digest = JSON.parse(row.proposed_digest);
     const sourceIds = JSON.parse(row.source_ids);
     const isPattern = digest.type === 'pattern_emergent';
+    const tags = [
+        ...digest.tags.filter((tag) => !tag.startsWith('project:')),
+        `project:${row.project}`,
+    ];
     const tx = db.transaction(() => {
         const digestId = kg.createEntity(digest.name, digest.type, {
             observations: digest.observations,
-            tags: digest.tags,
+            tags,
             metadata: {
                 source_ids: sourceIds,
                 ...(isPattern ? {} : { consolidation_depth: 1 }),
                 proposal_id: row.id,
                 cluster_key: row.cluster_key,
                 project: row.project,
+                trust: 'untrusted',
                 signal_score: isPattern ? 0.9 : 0.85,
                 dreamed_at: new Date().toISOString(),
                 kind: isPattern ? 'pattern_emergent' : 'compaction_digest',
