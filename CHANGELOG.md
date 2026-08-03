@@ -47,6 +47,37 @@ part written on 2026-07-29 is further down, under its own marker.
 ---
 
 **Written on 2026-08-03.**
+### Security
+
+- **Every `actions/checkout` now sets `persist-credentials: false`** (all five workflows, 9 steps) — by default `checkout` writes the job's `GITHUB_TOKEN` into `.git/config`, where every later step can read it. That includes `npm ci`, which in this repository **runs install scripts** (`better-sqlite3` builds a native binding) on pull-request code. A compromised dependency's postinstall could have read the token straight out of the working copy. No step here pushes with the token, so nothing needed it.
+
+### Changed
+
+- **Workflow hardening: job timeouts and concurrency where they were missing** (`.github/workflows/*.yml`) — `ci.yml` had `timeout-minutes` on all four jobs and the other four workflows had none, so a hung CodeQL analysis or a stuck review job held a runner for GitHub's six-hour default. Every job now has a budget. `codeql.yml` and `multi-model-review.yml` gained a `concurrency` group so a new commit supersedes an in-flight run instead of racing it; `publish-npm.yml` and `deprecate-npm.yml` deliberately did **not** — cancelling a publish half-way is worse than letting it finish.
+
+- **`develop` is gone, and CI no longer re-runs the whole matrix on it** (`.github/workflows/ci.yml`, `CLAUDE.md`) — the branch was fast-forwarded from `main` after every merge and never merged into, so every sync re-tested a byte-for-byte identical tree: **10 jobs**, on a matrix whose slowest leg has taken over 13 minutes. Free on a public repo — GitHub reports `billable.duration_ms = 0` for every leg — which is exactly why it went unnoticed; the currency is wall-clock feedback time and queue slots, not money.
+
+  Keeping it as a passive mirror was the first answer and deleting it is the better one: a branch that only ever receives a copy of `main` answers no question that a git tag or `CHANGELOG.md`'s `[Unreleased]` section does not already answer. `main` is now the only long-lived branch. Pull requests are unaffected — the `pull_request` trigger has no branch filter, deliberately, so a PR based on another feature branch is still built and tested.
+
+### Performance
+
+- **CI caches the embedding model between runs** (`.github/workflows/ci.yml`) — the shared-cache change above removed the *per-test* re-download; this removes the first one too, and with it the last hard dependency on `huggingface.co` being reachable. A HuggingFace outage would otherwise turn the entire matrix red with nothing wrong in the code, and nothing in the failure output would say so. `actions/cache` is first-party GitHub, pinned by commit SHA like the actions already in use, and a cache miss simply downloads as before.
+
+- **The test suite went from 253s to 40s, because every isolated HOME was re-downloading a 98 MB model** (`src/core/embedder.ts`, `scripts/run-tests-isolated.mjs`, `.github/workflows/ci.yml`) — the local embedding model `all-MiniLM-L6-v2` caches at `~/.memesh/models`, which is right for a real install and wrong for anything that isolates `HOME`. Six test files spawn the CLI or a hook under a per-test `HOME`, so each of those tests fetched the whole model from HuggingFace again.
+
+  Measured, first write in a fresh `HOME`: **19.4s wall clock, 1.21s user, 8% CPU** — almost entirely network wait, which is why it looked like slow tests rather than a download.
+
+  | | before | after |
+  |---|---|---|
+  | `tests/hooks/hook-output-contract.test.ts` | 86.4s | **3.1s** |
+  | `tests/cli/remember-quick.test.ts` | 52.5s | **2.2s** |
+  | `tests/transports/http.test.ts` | 18.2s | **1.0s** |
+  | whole suite | 253.6s | **40.0s** |
+
+  `MEMESH_MODEL_CACHE_DIR` points the cache somewhere stable; the default is unchanged. The isolated test runner and CI both set it. On CI this was being paid **on every leg of the matrix**, and it made every leg depend on HuggingFace being reachable — a third-party outage would have turned the whole matrix red with nothing wrong in the code.
+
+  This is also the root cause of the hook-timeout failures fixed above: those tests were not slow, they were downloading.
+
 
 ### Tests
 

@@ -205,6 +205,12 @@ function isOnnxAvailable() {
     }
     return onnxAvailableResult;
 }
+export function onnxCacheDir() {
+    const override = process.env.MEMESH_MODEL_CACHE_DIR;
+    if (override && override.trim() !== '')
+        return override;
+    return join(memeshDir(), ONNX_CACHE_SUBDIR);
+}
 async function getOnnxPipeline() {
     if (onnxPipelineInstance)
         return onnxPipelineInstance;
@@ -216,7 +222,7 @@ async function getOnnxPipeline() {
             const createPipeline = mod.pipeline;
             const env = mod.env;
             if (env) {
-                env.cacheDir = join(memeshDir(), ONNX_CACHE_SUBDIR);
+                env.cacheDir = onnxCacheDir();
                 env.allowLocalModels = true;
             }
             onnxPipelineInstance = await createPipeline('feature-extraction', ONNX_MODEL_ID);
