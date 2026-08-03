@@ -56,8 +56,19 @@ export const TOOL_DEFINITIONS = [
               to: { type: 'string', description: 'Target entity name' },
               type: {
                 type: 'string',
+                // Any string is accepted and most are inert labels, but two
+                // types make MeMesh DO something and one of them archives an
+                // entity. They are named here because this description is the
+                // only thing a model ever reads about relation types — the
+                // previous examples ("implements", "related-to") were both
+                // inert, so the behavioural pair was undiscoverable and
+                // conflict detection ran on every recall with nothing it could
+                // ever find. Kept in step with the code by
+                // tests/relation-types-documented.test.ts.
                 description:
-                  'Relation type (e.g., "implements", "related-to")',
+                  'Relation type. Free-form label (e.g. "implements", "related-to"), except for two that change behaviour: ' +
+                  '"supersedes" archives the target entity — use it when this memory replaces an older one; ' +
+                  '"contradicts" flags both memories as a conflict every time either is recalled — use it when two memories cannot both be true.',
               },
             },
             required: ['to', 'type'],

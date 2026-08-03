@@ -1,3 +1,8 @@
+export declare const BEHAVIOURAL_RELATION_TYPES: {
+    readonly supersedes: "archives the target entity — use it when this memory replaces an older one";
+    readonly contradicts: "flags both memories as a conflict every time either is recalled — use it when two memories cannot both be true";
+};
+export type BehaviouralRelationType = keyof typeof BEHAVIOURAL_RELATION_TYPES;
 export type Namespace = 'personal' | 'team' | 'global';
 export type MergeStrategy = 'skip' | 'overwrite' | 'append';
 export type LessonSeverity = 'critical' | 'major' | 'minor';
