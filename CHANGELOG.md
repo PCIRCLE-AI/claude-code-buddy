@@ -4,6 +4,50 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+## [4.2.11] — 2026-08-03
+
+This release exists because the headline benchmark figure was measuring the
+wrong code. `benchmarks/longmemeval/run.mjs` carried its own table creation,
+its own FTS5 query building and its own ranking, so the published **95.40% R@5**
+scored that reimplementation and not the product. Measured through the function
+a real `recall` call actually reaches, the same 500 questions scored **5.20%**,
+with 473 of them returning nothing at all. Four compounding retrieval defects
+were each hiding the others.
+
+Everything below follows from that: the defects are fixed, the benchmark now
+runs through the shipped path, and every published claim that no longer matched
+the code has been corrected against source. The number is now **95.60%**, and it
+is the product's number.
+
+Auditing for the same shape turned up two more places reporting success without
+doing the work, and both are fixed here. `verify_agent_work` returned
+`pass: true` when given nothing to check against — so `memesh verify … && deploy`
+deployed on a check that never ran — and the dashboard's auth screen carried
+translation fallbacks that could never execute. The common root cause is an
+optimistic default: `?? true` and `|| 'fallback'` turn a missing input into a
+reported success, when the honest answer is "not checked".
+
+Upgrading rebuilds the full-text index once, on first open, to add CJK
+segmentation. Existing memories are re-indexed from the entity and observation
+rows, which are never touched — nothing is deleted and nothing needs re-entering.
+
+**4.2.11 was never published.** The version was bumped and this section written
+on 2026-07-29, but no `v4.2.11` tag was ever pushed and npm's `latest` stayed at
+4.2.10 — so everything below shipped to nobody. Rather than burn a version
+number on that, the work done since has been folded into the same release. The
+part written on 2026-07-29 is further down, under its own marker.
+
+**Upgrading from 4.2.10, the two things that will change under you:**
+
+- **`consolidate` is gone** — the MCP tool, `POST /v1/consolidate` and
+  `memesh consolidate`. The endpoint answers `410 Gone` and the CLI prints where
+  to go; the MCP surface is 8 tools now. See **Removed** below for why.
+- **Node 20 is no longer supported.** `engines.node` is `>=22.5.0`.
+
+---
+
+**Written on 2026-08-03.**
+
 ### Tests
 
 - **A docs-only pull request went red on Windows because a temp directory was slow to delete** (`vitest.config.ts`, `tests/**`) — `hookTimeout` was 10 seconds, which fits POSIX and does not fit Windows: every DB test's `afterEach` closes SQLite and recursively removes a temp directory, SQLite leaves `-wal`/`-shm` beside the database, and the OS (plus whatever scans files on a CI runner) can hold a handle open for a moment after close. Measured — `tests/core/export-import.test.ts` hit `Hook timed out in 10000ms` on `windows-latest` / Node 24, in a pull request that changed only `CHANGELOG.md`.
@@ -121,32 +165,9 @@ All notable changes to MeMesh are documented here.
 
 - **The dashboard's auth field reports itself invalid for a rejected token, not only an empty one** (`dashboard/src/components/AuthPrompt.tsx`) — the rejected branch rendered a `role="alert"` message but left `aria-invalid="false"` and no `aria-describedby`, so a screen-reader user heard the announcement and then found a control that disagreed with it. Both messages now own one stable id and both reach the field.
 
-## [4.2.11] — 2026-07-29
+---
 
-This release exists because the headline benchmark figure was measuring the
-wrong code. `benchmarks/longmemeval/run.mjs` carried its own table creation,
-its own FTS5 query building and its own ranking, so the published **95.40% R@5**
-scored that reimplementation and not the product. Measured through the function
-a real `recall` call actually reaches, the same 500 questions scored **5.20%**,
-with 473 of them returning nothing at all. Four compounding retrieval defects
-were each hiding the others.
-
-Everything below follows from that: the defects are fixed, the benchmark now
-runs through the shipped path, and every published claim that no longer matched
-the code has been corrected against source. The number is now **95.60%**, and it
-is the product's number.
-
-Auditing for the same shape turned up two more places reporting success without
-doing the work, and both are fixed here. `verify_agent_work` returned
-`pass: true` when given nothing to check against — so `memesh verify … && deploy`
-deployed on a check that never ran — and the dashboard's auth screen carried
-translation fallbacks that could never execute. The common root cause is an
-optimistic default: `?? true` and `|| 'fallback'` turn a missing input into a
-reported success, when the honest answer is "not checked".
-
-Upgrading rebuilds the full-text index once, on first open, to add CJK
-segmentation. Existing memories are re-indexed from the entity and observation
-rows, which are never touched — nothing is deleted and nothing needs re-entering.
+**Written on 2026-07-29, when this section was first opened.**
 
 ### Performance
 
