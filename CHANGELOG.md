@@ -52,6 +52,24 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **`consolidate` could destroy every observation on an entity and report that nothing had happened** (`src/core/consolidator.ts`, `src/core/types.ts`, `src/transports/cli/cli.ts`) — it removed the originals in a loop of `removeObservation()` calls that each committed on their own, then wrote the replacement, with a bare `catch` around the pair. Anything that made the replacement throw — a closed database, a full disk, a `SIGINT` between the two — left the entity permanently empty. Measured, with `createEntity` made to fail the way any of those would:
+
+  ```
+  OBSERVATIONS LEFT ON DISK : 0 []
+  REPORTED observations_after: 6
+  REPORTED error             : (none)
+  ```
+
+  Six observations gone, and a result whose numbers say the entity was untouched, because the `catch` added the original count to `observations_after` and returned no error. The doc comment on the function promised "if the LLM fails or produces no shorter result, the entity is left unchanged"; that promise held for the LLM failure it anticipated and not for the write failure it did not.
+
+  The swap is now one transaction, so an entity has either its new observations or its old ones. `ConsolidateResult` carries `failed`, because "0 consolidated" and "0 consolidated, 3 failed" are different answers and only one of them means there is nothing to do — the same shape `reindex` gained above. The CLI checks `failed` **before** printing the "nothing met the threshold" advice, which until now was shown for every zero, sending the user to lower `--min-obs` when the cause was a failed write.
+
+- **`consolidate` ignored pins, and promoted anything it summarised to full confidence** (`src/core/consolidator.ts`, `src/transports/cli/cli.ts`) — two ways it acted on memories nobody had asked it to touch. A pin is the user saying *do not touch this*; `dreamer` has always honoured it (`metadata.pin === true`) and this path did not, so `memesh consolidate` with no arguments compressed pinned entities along with everything else in `listRecent(100)`. Pinned entities are now skipped and named back in `skipped_pinned`, so "nothing to do" cannot be read as "refused to touch what you pinned". The `pin`/`unpin` command descriptions said "the dreamer" and now say what is true of both.
+
+  Separately, a successful compression ran `UPDATE entities SET confidence = 1.0`. Compression removes text; it adds no evidence. Everywhere else confidence moves in small increments for real re-confirmation and decays with age, so the reset erased that entire history — and since `consolidate` is an MCP tool the model itself can call, a model could raise its own memories to maximum confidence (0.17 of the ranking score) by asking for them to be summarised. Deleting the reset was not sufficient on its own: `createEntity()` treats a write to an existing entity as re-confirmation and applies `+0.05` (measured: 0.4 became 0.45). Consolidation is now held confidence-neutral inside the transaction.
+
+  Still true, and recorded rather than guessed at: the only acceptance test on the LLM's output is that it returned *fewer strings* than it was given. Any character-ratio threshold to replace that would be a number with no evidence behind it. `consolidate` also remains the unguarded sibling of `dreamer`, which stages the same kind of destructive rewrite in `dream_proposals` for human review — whether that gap closes by adopting the proposal flow or by retiring the tool is a product decision, not a defect fix.
+
 - **`memesh reindex --vectors` no longer deletes every embedding on the word of a config file** (`src/core/embedder.ts`, `src/db.ts`, `src/transports/cli/cli.ts`) — the consent gate refused to authorise the drop unless something could refill the index afterwards, and asked `isEmbeddingAvailable()`. That function reports which provider the config *names*: for `openai` and `ollama` it returns `true` without checking a key, reaching an endpoint, or comparing a dimension. An expired key, a key typed after the provider name, or a stopped Ollama therefore authorised dropping every vector in the database, and the refill then wrote nothing back. The precondition is now `canRefillVectorIndex()`, which embeds one string and measures the result against the width the table is about to be declared with — a proof rather than a claim. `allowVectorIndexRebuild` is async as a result, and the refusal message now names what to check.
 
 - **Consent to rebuild the vector index is bound to the database it was granted for** (`src/db.ts`) — it was a module-level boolean, so in the HTTP server, or any process that opens more than one database, a grant recorded for A could be spent by an unrelated `openDatabase(B)` that ran first. B's vectors, never consented to and never asked about, would be the ones dropped. The grant now records a resolved path and is refused for any other.

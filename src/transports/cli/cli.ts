@@ -214,9 +214,9 @@ function registerPinCommand(name: string, description: string, pinned: boolean, 
     });
 }
 
-registerPinCommand('pin', 'Protect an entity from the dreamer’s auto-compaction', true,
-  (e) => `📌 Pinned "${e}" — the dreamer will not compact it`);
-registerPinCommand('unpin', 'Allow the dreamer to auto-compact an entity again', false,
+registerPinCommand('pin', 'Protect an entity from automatic compression (dreamer and consolidate)', true,
+  (e) => `📌 Pinned "${e}" — neither the dreamer nor consolidate will compress it`);
+registerPinCommand('unpin', 'Allow automatic compression of an entity again', false,
   (e) => `📍 Unpinned "${e}"`);
 
 // --- consolidate ---
@@ -240,9 +240,20 @@ program
         console.error(`Error: ${result.error}`);
         process.exitCode = 1;
       } else if (result.consolidated === 0) {
-        // DX: distinguish "name not found" from "exists but under
-        // threshold" so users know which knob to turn (typo vs --min-obs).
-        if (opts.name) {
+        // Order matters. "Nothing met the threshold" used to be printed for
+        // every zero, including zeros caused by a failed write or by a pin —
+        // sending the user to lower --min-obs when the knob they needed was a
+        // different one entirely. The two real causes are checked first.
+        if (result.failed > 0) {
+          console.error(`Consolidation failed on ${result.failed} entity/entities; each was rolled back and still has its original observations.`);
+          console.error(`Nothing was lost. Re-run to retry, or use --name to narrow it down.`);
+          process.exitCode = 1;
+        } else if (result.skipped_pinned && result.skipped_pinned.length > 0) {
+          console.log(`Skipped ${result.skipped_pinned.length} pinned entity/entities: ${result.skipped_pinned.join(', ')}`);
+          console.log(`A pin means "do not touch". Unpin first if you want these compressed: memesh unpin --name "<name>"`);
+        } else if (opts.name) {
+          // DX: distinguish "name not found" from "exists but under
+          // threshold" so users know which knob to turn (typo vs --min-obs).
           console.log(`No entity named "${opts.name}" found, or it has fewer than ${opts.minObs} observations (the consolidation threshold).`);
           console.log(`Try: memesh recall "${opts.name}" to confirm it exists, or memesh consolidate --name "${opts.name}" --min-obs 1`);
         } else if (opts.tag) {
@@ -257,6 +268,13 @@ program
         console.log(`Observations: ${result.observations_before} -> ${result.observations_after}`);
         if (result.entities_processed.length > 0) {
           console.log(`Processed: ${result.entities_processed.join(', ')}`);
+        }
+        if (result.skipped_pinned && result.skipped_pinned.length > 0) {
+          console.log(`Skipped (pinned): ${result.skipped_pinned.join(', ')}`);
+        }
+        if (result.failed > 0) {
+          console.error(`Failed and rolled back: ${result.failed} entity/entities — they still have their original observations.`);
+          process.exitCode = 1;
         }
       }
     });

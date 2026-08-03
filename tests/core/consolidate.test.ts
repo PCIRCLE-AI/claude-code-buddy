@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { openDatabase, closeDatabase } from '../../src/db.js';
-import { remember, recall, consolidate } from '../../src/core/operations.js';
+import { openDatabase, closeDatabase, getDatabase } from '../../src/db.js';
+import { remember, recall, consolidate, setPinned } from '../../src/core/operations.js';
+import { KnowledgeGraph } from '../../src/knowledge-graph.js';
 import { readConfig, writeConfig } from '../../src/core/config.js';
 
 let tmpDir: string;
@@ -339,5 +340,134 @@ describe('consolidate — totals', () => {
     expect(result.observations_before).toBe(11); // 5 + 6
     expect(result.observations_after).toBe(5);   // 2 + 3
     expect(result.consolidated).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The destructive half: what happens when the replacement write fails, what
+// happens to entities the user pinned, and what happens to confidence.
+//
+// These three cases had no coverage at all, and the first one was live data
+// loss. `consolidate` removed every observation in a loop of independently
+// committing statements and then wrote the replacement; a throw in between —
+// a closed database, a full disk, a SIGINT — left the entity permanently
+// empty, while the bare `catch` added the original count to
+// `observations_after` and returned no error. Measured before the fix:
+//
+//   OBSERVATIONS LEFT ON DISK : 0 []
+//   REPORTED observations_after: 6
+//   REPORTED error             : (none)
+// ---------------------------------------------------------------------------
+
+describe('consolidate — destructive-path guards', () => {
+  beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = 'test-key-fake';
+    process.env.MEMESH_AUTO_DETECT_LLM = '1';
+  });
+
+  /** An LLM that always compresses to one observation. */
+  function mockCompressionTo(text: string): void {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ content: [{ text: JSON.stringify([text]) }] }),
+    } as any);
+  }
+
+  it('keeps every observation when the replacement write fails', async () => {
+    const original = ['fact one', 'fact two', 'fact three', 'fact four', 'fact five', 'fact six'];
+    remember({ name: 'victim', type: 'note', observations: original });
+    mockCompressionTo('Dense summary.');
+
+    // The write that installs the compressed observations fails, after the
+    // originals have already been removed inside the transaction.
+    const createSpy = vi
+      .spyOn(KnowledgeGraph.prototype, 'createEntity')
+      .mockImplementation(() => {
+        throw new Error('disk full');
+      });
+
+    const result = await consolidate({ name: 'victim' });
+    createSpy.mockRestore();
+
+    const survivor = new KnowledgeGraph(getDatabase()).getEntity('victim');
+    expect(
+      survivor?.observations.sort(),
+      'the transaction did not roll back — these observations are gone for good'
+    ).toEqual([...original].sort());
+
+    // ...and the caller is told. Asserting the rollback alone would still pass
+    // on a version that silently swallowed the failure.
+    expect(result.failed, 'a failed entity was not counted').toBe(1);
+    expect(result.consolidated).toBe(0);
+  });
+
+  it('still finds the observations searchable after a rolled-back attempt', async () => {
+    // entities_fts is contentless: a delete must be issued with the text that
+    // was indexed. A rollback that restored the rows but not the index would
+    // leave the entity present and unsearchable, which no assertion on
+    // observations alone can see.
+    remember({ name: 'searchable', type: 'note', observations: ['kangaroo one', 'kangaroo two', 'kangaroo three', 'kangaroo four', 'kangaroo five'] });
+    mockCompressionTo('Dense summary.');
+    const createSpy = vi
+      .spyOn(KnowledgeGraph.prototype, 'createEntity')
+      .mockImplementation(() => { throw new Error('disk full'); });
+
+    await consolidate({ name: 'searchable' });
+    createSpy.mockRestore();
+
+    const hit = getDatabase()
+      .prepare("SELECT COUNT(*) AS c FROM entities_fts WHERE entities_fts MATCH 'kangaroo'")
+      .get() as { c: number };
+    expect(hit.c, 'the FTS index lost the entity the rollback restored').toBe(1);
+  });
+
+  it('refuses to compress an entity the user pinned', async () => {
+    remember({ name: 'precious', type: 'note', observations: ['a', 'b', 'c', 'd', 'e', 'f'] });
+    setPinned('precious', true);
+    mockCompressionTo('Dense summary.');
+
+    const result = await consolidate({ name: 'precious' });
+
+    expect(result.consolidated).toBe(0);
+    expect(result.skipped_pinned, 'the caller was not told why nothing happened').toEqual(['precious']);
+    expect(
+      new KnowledgeGraph(getDatabase()).getEntity('precious')?.observations.length,
+      'a pinned entity was compressed'
+    ).toBe(6);
+  });
+
+  it('skips the pinned entity and consolidates the rest of the sweep', async () => {
+    // The bulk path is the dangerous one: a pin has to survive a sweep that
+    // was not aimed at it. Asserting only the --name case would pass on a
+    // guard that ran solely in the single-entity branch.
+    remember({ name: 'pinned-in-sweep', type: 'note', observations: ['a', 'b', 'c', 'd', 'e'], tags: ['t:batch'] });
+    remember({ name: 'free-in-sweep', type: 'note', observations: ['1', '2', '3', '4', '5'], tags: ['t:batch'] });
+    setPinned('pinned-in-sweep', true);
+    mockCompressionTo('Dense summary.');
+
+    const result = await consolidate({ tag: 't:batch' });
+
+    expect(result.entities_processed).toEqual(['free-in-sweep']);
+    expect(result.skipped_pinned).toEqual(['pinned-in-sweep']);
+    expect(
+      new KnowledgeGraph(getDatabase()).getEntity('pinned-in-sweep')?.observations.length
+    ).toBe(5);
+  });
+
+  it('does not promote an entity to full confidence for being summarised', async () => {
+    // Compression removes text; it adds no evidence. `consolidate` is an MCP
+    // tool the model can call, so a jump to 1.0 let a model raise its own
+    // memories to maximum confidence — 0.17 of the ranking score — by asking
+    // for them to be summarised.
+    remember({ name: 'decayed', type: 'note', observations: ['a', 'b', 'c', 'd', 'e'] });
+    const db = getDatabase();
+    db.prepare('UPDATE entities SET confidence = 0.4 WHERE name = ?').run('decayed');
+    mockCompressionTo('Dense summary.');
+
+    const result = await consolidate({ name: 'decayed' });
+    expect(result.consolidated, 'the entity was not consolidated, so this proves nothing').toBe(1);
+
+    const after = db.prepare('SELECT confidence AS c FROM entities WHERE name = ?').get('decayed') as { c: number };
+    expect(after.c, 'consolidation raised confidence it did not earn').toBeCloseTo(0.4, 5);
   });
 });

@@ -91,6 +91,8 @@ export interface ConsolidateResult {
     entities_processed: string[];
     observations_before: number;
     observations_after: number;
+    failed: number;
+    skipped_pinned?: string[];
     error?: string;
 }
 export interface ExportInput {

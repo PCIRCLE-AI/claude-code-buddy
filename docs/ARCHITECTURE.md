@@ -428,8 +428,18 @@ For release safety, `npm run test:packaged` creates a real npm tarball, extracts
 ### Consolidation
 - `consolidate` tool compresses N observations → K dense observations via LLM
 - Requires Smart Mode (LLM provider configured)
-- Original observations are replaced by compressed versions
-- If LLM fails, entity is left unchanged
+- Original observations are **deleted** and replaced by compressed versions —
+  the swap is one transaction, so an entity always has one set or the other
+- Pinned entities are skipped and named back in `skipped_pinned`; a pin is a
+  standing "do not touch" and applies here as it does to the dreamer
+- Confidence is unchanged by consolidation: compressing text alters the
+  representation, not the evidence, so neither the old jump to 1.0 nor
+  `createEntity`'s `+0.05` re-confirmation bump applies
+- If the LLM fails, the entity is left unchanged; if the replacement write
+  fails it is rolled back and counted in `failed`, never absorbed into
+  "nothing happened"
+- Unlike `dreamer`, this path has no proposal/review stage — it is invoked
+  explicitly by a user or an agent, and it acts immediately
 
 ### Smart Session-Start
 - Session-start hook loads top-N entities by weighted score

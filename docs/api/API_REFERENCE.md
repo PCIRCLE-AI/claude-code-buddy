@@ -178,6 +178,8 @@ Archive an entity (soft-delete) or remove a specific observation.
 
 Compress verbose entity observations using LLM. Requires Smart Mode.
 
+**Destructive.** The original observations are deleted and replaced by the summary. The replacement runs in a single transaction, so an entity either has its new observations or its old ones — never neither. Entities the user has **pinned are skipped**, and confidence is left unchanged (compression alters representation, not evidence).
+
 **Input Schema**:
 
 | Parameter | Type | Required | Description |
@@ -186,7 +188,12 @@ Compress verbose entity observations using LLM. Requires Smart Mode.
 | `tag` | string | No | Consolidate all entities with this tag |
 | `min_observations` | number | No | Minimum observations to trigger (default: 5) |
 
-**Response**: `{ consolidated, entities_processed, observations_before, observations_after, error? }`
+**Response**: `{ consolidated, entities_processed, observations_before, observations_after, failed, skipped_pinned?, error? }`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `failed` | number | Entities whose replacement write failed and was rolled back. They still hold their original observations. A non-zero value here with `consolidated: 0` is a different answer from "nothing met the threshold", which is why it is counted rather than absorbed. |
+| `skipped_pinned` | string[] | Present only when something was skipped. Names the pinned entities that were refused, so "nothing to do" cannot be confused with "refused to touch what you pinned". |
 
 ---
 

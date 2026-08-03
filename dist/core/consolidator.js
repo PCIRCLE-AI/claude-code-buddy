@@ -13,6 +13,7 @@ export async function consolidate(args) {
             entities_processed: [],
             observations_before: 0,
             observations_after: 0,
+            failed: 0,
             error: 'Consolidation requires an LLM provider. Run: memesh setup',
         };
     }
@@ -32,24 +33,47 @@ export async function consolidate(args) {
         entities = kg.listRecent(100);
     }
     entities = entities.filter((e) => e.observations.length >= minObs);
+    const skippedPinned = [];
+    entities = entities.filter((e) => {
+        if (e.metadata?.pin === true) {
+            skippedPinned.push(e.name);
+            return false;
+        }
+        return true;
+    });
     if (entities.length === 0) {
-        return { consolidated: 0, entities_processed: [], observations_before: 0, observations_after: 0 };
+        return {
+            consolidated: 0,
+            entities_processed: [],
+            observations_before: 0,
+            observations_after: 0,
+            failed: 0,
+            ...(skippedPinned.length > 0 ? { skipped_pinned: skippedPinned } : {}),
+        };
     }
     let totalBefore = 0;
     let totalAfter = 0;
+    let failed = 0;
     const processed = [];
     for (const entity of entities) {
         totalBefore += entity.observations.length;
         try {
             const compressed = await compressObservations(entity.observations, caps.llm, fallbacks);
             if (compressed.length < entity.observations.length) {
-                for (const obs of entity.observations) {
-                    kg.removeObservation(entity.name, obs);
-                }
-                kg.createEntity(entity.name, entity.type, {
-                    observations: compressed,
-                });
-                db.prepare('UPDATE entities SET confidence = 1.0 WHERE name = ?').run(entity.name);
+                db.transaction(() => {
+                    const prior = db
+                        .prepare('SELECT confidence AS c FROM entities WHERE name = ?')
+                        .get(entity.name);
+                    for (const obs of entity.observations) {
+                        kg.removeObservation(entity.name, obs);
+                    }
+                    kg.createEntity(entity.name, entity.type, {
+                        observations: compressed,
+                    });
+                    if (prior) {
+                        db.prepare('UPDATE entities SET confidence = ? WHERE name = ?').run(prior.c, entity.name);
+                    }
+                })();
                 totalAfter += compressed.length;
                 processed.push(entity.name);
             }
@@ -58,6 +82,7 @@ export async function consolidate(args) {
             }
         }
         catch {
+            failed++;
             totalAfter += entity.observations.length;
         }
     }
@@ -66,6 +91,8 @@ export async function consolidate(args) {
         entities_processed: processed,
         observations_before: totalBefore,
         observations_after: totalAfter,
+        failed,
+        ...(skippedPinned.length > 0 ? { skipped_pinned: skippedPinned } : {}),
     };
 }
 async function compressObservations(observations, llmConfig, fallbacks, onAttempt) {

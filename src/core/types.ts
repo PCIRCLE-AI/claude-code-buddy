@@ -136,6 +136,19 @@ export interface ConsolidateResult {
   entities_processed: string[];
   observations_before: number;
   observations_after: number;
+  /**
+   * Entities whose replacement write failed and was rolled back. Without this
+   * a failure was indistinguishable from "nothing needed doing": the catch
+   * added the entity's original observation count to `observations_after` and
+   * returned no error. See the note on `consolidate()`.
+   */
+  failed: number;
+  /**
+   * Entities skipped because the user pinned them. Present only when something
+   * was skipped, so "nothing to do" and "refused to touch what you pinned"
+   * cannot be read as the same answer.
+   */
+  skipped_pinned?: string[];
   error?: string;
 }
 
