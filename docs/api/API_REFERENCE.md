@@ -1154,6 +1154,84 @@ No arguments or options required. The dashboard is a static HTML file that can b
 
 ---
 
+## Anthropic memory tool (`memory_20250818`)
+
+For applications that call the **Messages API directly** rather than through MCP. Claude gets a memory tool whose storage is MeMesh instead of a folder of text files, so it also gets search, ranking, decay, relations and namespaces without knowing they are there.
+
+This is **not** one of the nine MCP tools and is not exposed over HTTP or the CLI. The MCP surface serves an agent that already speaks MeMesh; this serves an application that speaks only the Messages API.
+
+### Wiring it up
+
+The tool is client-side: Claude only *requests* file operations, and your loop performs them.
+
+```ts
+import { handleMemoryCommand, MEMORY_TOOL_DEFINITION } from '@pcircle/memesh';
+
+const message = await anthropic.messages.create({
+  model: 'claude-opus-5',
+  max_tokens: 2048,
+  messages,
+  tools: [MEMORY_TOOL_DEFINITION],   // { type: 'memory_20250818', name: 'memory' }
+});
+
+for (const block of message.content) {
+  if (block.type === 'tool_use' && block.name === 'memory') {
+    const { content, isError } = handleMemoryCommand(block.input);
+    toolResults.push({ type: 'tool_result', tool_use_id: block.id, content, is_error: isError });
+  }
+}
+```
+
+`handleMemoryCommand` takes `unknown` and validates every field itself. The input comes from a model over the wire, so the declared schema describes what should arrive, not what does.
+
+### The path space
+
+| Path | Is |
+|------|----|
+| `/memories` | The root. Lists the three namespaces. |
+| `/memories/<namespace>` | `personal`, `team` or `global`. Lists that namespace's memories with type and tags. |
+| `/memories/<namespace>/<name>.md` | One entity. Its lines are its observations. |
+
+Entity names may contain `/`, so `/`, `\` and `%` are percent-encoded in the filename and nothing else is — `Project Apollo.md`, not `Project%20Apollo.md`.
+
+### How lines map to memories
+
+A file's content is the entity's observations joined by newlines, with no header — every line the model can count has to be a line it can also address, and a header would put an offset between "line 3" and "the third thing I remember".
+
+**Observations are ordered by observation id: insertion order, never score.** This is the load-bearing choice. `view` and the edit that follows it are two separate turns, and between them a hook can write a new observation or access tracking can change a ranking. If the order the model saw came from a score, the line numbers it read would address different content by the time it sent them back — a silent wrong write, not an error.
+
+An observation may itself contain newlines, so the line → memory map is computed from the rendered text rather than assumed one-to-one. `insert_line: 2` pointing at the second line of a three-line memory inserts *after that whole memory*, not into the middle of it.
+
+### Commands
+
+| Command | Parameters | Against the knowledge graph |
+|---------|-----------|------------------------------|
+| `view` | `path`, `view_range?` | Root → namespaces. Namespace → its active entities. File → observations with line numbers. |
+| `create` | `path`, `file_text` | Creates the entity, or **overwrites** its observations (tags are preserved). |
+| `str_replace` | `path`, `old_str`, `new_str?` | Content-addressed edit. Omitting `new_str` deletes the text. |
+| `insert` | `path`, `insert_line`, `insert_text` | New observation after the memory owning that line. `0` prepends. |
+| `delete` | `path` | **Archives** the entity — never destroys it. |
+| `rename` | `old_path`, `new_path` | Renames the entity and reindexes it under the new name. |
+
+Two behaviours worth stating because they differ from a filesystem:
+
+- **`delete` archives.** The person whose memory it is did not ask for the deletion — a model did. From the model's side the file is gone (`view` lists only active entities); from the user's side it is restorable.
+- **`str_replace` refuses an ambiguous `old_str`** rather than editing the first match, and returns the line numbers of every occurrence so the model can widen it. This is a write, and the wrong one is silent.
+
+### Refusals
+
+| Refused | Why |
+|---------|-----|
+| Any path not under `/memories` | Including `/memories-of-you/…`, which passes a naive `startsWith` check. |
+| `..`, `.`, empty segments, `%2e%2e`, `\`, NUL | Nothing here touches a filesystem, so traversal cannot reach `secrets.env` — but it *can* resolve to a different namespace or memory than the one named, which is a silent wrong write. |
+| More than two levels deep | The path space is exactly `namespace/memory`. |
+| A namespace that is not `personal`, `team` or `global` | |
+| Writing to `/memories` or a namespace | Those are directories. |
+| Deleting or renaming `/memories` or a namespace | The contract tells Claude it cannot; this enforces it. |
+| A rename onto a name taken in **any** namespace | Entity names are unique database-wide, so checking only the destination namespace would fail later on a UNIQUE constraint instead of returning the specified message. |
+
+---
+
 ## Connection
 
 MeMesh runs as a stdio MCP server. Claude Code manages the connection automatically via the plugin's `.mcp.json` configuration.
