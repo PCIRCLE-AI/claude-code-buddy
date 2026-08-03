@@ -4,6 +4,19 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Security
+
+- **Every `actions/checkout` now sets `persist-credentials: false`** (all five workflows, 9 steps) — by default `checkout` writes the job's `GITHUB_TOKEN` into `.git/config`, where every later step can read it. That includes `npm ci`, which in this repository **runs install scripts** (`better-sqlite3` builds a native binding) on pull-request code. A compromised dependency's postinstall could have read the token straight out of the working copy. No step here pushes with the token, so nothing needed it.
+
+### Changed
+
+- **Workflow hardening: job timeouts and concurrency where they were missing** (`.github/workflows/*.yml`) — `ci.yml` had `timeout-minutes` on all four jobs and the other four workflows had none, so a hung CodeQL analysis or a stuck review job held a runner for GitHub's six-hour default. Every job now has a budget. `codeql.yml` and `multi-model-review.yml` gained a `concurrency` group so a new commit supersedes an in-flight run instead of racing it; `publish-npm.yml` and `deprecate-npm.yml` deliberately did **not** — cancelling a publish half-way is worse than letting it finish.
+
+### Performance
+
+- **CI caches the embedding model between runs** (`.github/workflows/ci.yml`) — the shared-cache change above removed the *per-test* re-download; this removes the first one too, and with it the last hard dependency on `huggingface.co` being reachable. A HuggingFace outage would otherwise turn the entire matrix red with nothing wrong in the code, and nothing in the failure output would say so. `actions/cache` is first-party GitHub, pinned by commit SHA like the actions already in use, and a cache miss simply downloads as before.
+
+
 ### Changed
 
 - **`develop` is gone, and CI no longer re-runs the whole matrix on it** (`.github/workflows/ci.yml`, `CLAUDE.md`) — the branch was fast-forwarded from `main` after every merge and never merged into, so every sync re-tested a byte-for-byte identical tree: **10 jobs**, on a matrix whose slowest leg has taken over 13 minutes. Free on a public repo — GitHub reports `billable.duration_ms = 0` for every leg — which is exactly why it went unnoticed; the currency is wall-clock feedback time and queue slots, not money.

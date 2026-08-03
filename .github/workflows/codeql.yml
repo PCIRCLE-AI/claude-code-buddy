@@ -12,10 +12,18 @@ on:
   schedule:
     - cron: '0 0 * * 1'
 
+# Supersede an in-flight run when a new commit arrives on the same ref.
+# Without this, pushing three times in a minute leaves three full runs
+# competing for runners and only the last one's result matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     name: Analyze
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       actions: read
       contents: read
@@ -32,6 +40,8 @@ jobs:
       # resolved 2026-05-04 from refs/tags/v4. Bump together when upgrading.
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@ed410739ba306e4ebe5e123421a6bd694e494a2b # v4

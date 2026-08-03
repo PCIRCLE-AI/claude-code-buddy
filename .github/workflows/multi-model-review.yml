@@ -14,9 +14,17 @@ permissions:
   contents: read
   pull-requests: write
 
+# Supersede an in-flight run when a new commit arrives on the same ref.
+# Without this, pushing three times in a minute leaves three full runs
+# competing for runners and only the last one's result matters.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   changed-files:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       diff_size: ${{ steps.size.outputs.diff_size }}
     env:
@@ -24,6 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Compute diff size
         id: size
@@ -36,6 +45,7 @@ jobs:
     needs: changed-files
     if: needs.changed-files.outputs.diff_size != '0'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -45,6 +55,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Generate diff
         run: |
@@ -87,6 +98,7 @@ jobs:
     needs: changed-files
     if: needs.changed-files.outputs.diff_size != '0'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
       PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -96,6 +108,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Generate diff
         run: |
@@ -136,6 +149,7 @@ jobs:
     needs: [claude-review, codex-review]
     if: always() && needs.changed-files.outputs.diff_size != '0'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       REPO: ${{ github.repository }}
