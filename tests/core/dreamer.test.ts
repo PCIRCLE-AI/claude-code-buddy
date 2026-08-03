@@ -567,4 +567,117 @@ describe('dreamer', () => {
 
     expect(result.proposalsCreated).toBe(0);
   });
+
+  // -------------------------------------------------------------------------
+  // Provenance: a dreamer entity is LLM-generated text
+  //
+  // `createLesson` marks the identical threat model `untrusted` and its header
+  // says why: an LLM paraphrase of a session transcript, which may carry text
+  // a dependency or a PR title printed. The dreamer is the same class and was
+  // the only generation path that never set the marker — and BOTH consumers of
+  // that marker default to allow when it is absent, so both are checked here.
+  //
+  // Not a break-out: the auto-context fence collapses whitespace and cannot be
+  // closed from inside. This is about what gets pushed into context unprompted.
+  // -------------------------------------------------------------------------
+
+  it('marks an applied digest untrusted, so auto-context injection skips it', async () => {
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const { isTrustedForAutoContext } = await import('../../scripts/hooks/_shared.js');
+    const sourceIds = seedCommits(4);
+
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run('memesh', 'memesh::wk-19', JSON.stringify(sourceIds),
+      JSON.stringify({ name: 'wk-19-digest', type: 'digest', observations: ['Summary of the week'], tags: ['digest'] }),
+      'ollama/fake', 'v1');
+    const proposal = db.prepare("SELECT id FROM dream_proposals WHERE status='pending'").get() as { id: number };
+
+    applyProposal(db, proposal.id, kg);
+
+    const row = db.prepare('SELECT metadata FROM entities WHERE name = ?').get('wk-19-digest') as { metadata: string };
+    const metadata = JSON.parse(row.metadata);
+    expect(metadata.trust, 'the digest carries no provenance marker').toBe('untrusted');
+
+    // The consumer, not just the field. isTrustedForAutoContext defaults to
+    // ALLOW for metadata with no `trust` key, so asserting the field alone
+    // would not prove the hook actually skips it.
+    expect(
+      isTrustedForAutoContext(row.metadata),
+      'session-start / pre-edit would still inject this digest'
+    ).toBe(false);
+  });
+
+  it('marks an applied pattern untrusted too', async () => {
+    // Patterns are staged by the Stop hook automatically and land at
+    // signal_score 0.9 — the highest in the codebase.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const { isTrustedForAutoContext } = await import('../../scripts/hooks/_shared.js');
+    const sourceIds = seedCommits(4);
+
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run('memesh', 'pattern:2026-08-03', JSON.stringify(sourceIds),
+      JSON.stringify({ name: 'pattern-thing', type: 'pattern_emergent', observations: ['A pattern'], tags: ['pattern_emergent'] }),
+      'ollama/fake', 'v1');
+    const proposal = db.prepare("SELECT id FROM dream_proposals WHERE status='pending'").get() as { id: number };
+
+    applyProposal(db, proposal.id, kg);
+
+    const row = db.prepare('SELECT metadata FROM entities WHERE name = ?').get('pattern-thing') as { metadata: string };
+    expect(isTrustedForAutoContext(row.metadata)).toBe(false);
+  });
+
+  it('does not let the model lift a digest\'s confidence on re-apply', async () => {
+    // The second consumer of the marker: knowledge-graph's confidence bump
+    // reads `metadata.trust` and treats a missing value as trusted.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(4);
+
+    function stage(observations: string[]): number {
+      db.prepare(`
+        INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run('memesh', 'memesh::wk-20', JSON.stringify(sourceIds),
+        JSON.stringify({ name: 'repeat-digest', type: 'digest', observations, tags: ['digest'] }),
+        'ollama/fake', 'v1');
+      return (db.prepare("SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC").get() as { id: number }).id;
+    }
+
+    applyProposal(db, stage(['first summary']), kg);
+    db.prepare('UPDATE entities SET confidence = 0.5 WHERE name = ?').run('repeat-digest');
+    applyProposal(db, stage(['a brand new summary line']), kg);
+
+    const after = db.prepare('SELECT confidence AS c FROM entities WHERE name = ?').get('repeat-digest') as { c: number };
+    expect(after.c, 'LLM-generated text lifted its own confidence').toBeCloseTo(0.5, 5);
+  });
+
+  it('files a digest under the cluster\'s project, not one the model named', async () => {
+    // `digest.tags` comes back from the LLM and `project:` is what tag-filtered
+    // recall routes on, so a tag lifted out of injected source text could file
+    // the digest under someone else's project.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(4);
+
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run('memesh', 'memesh::wk-21', JSON.stringify(sourceIds),
+      JSON.stringify({
+        name: 'misfiled-digest', type: 'digest', observations: ['x'],
+        tags: ['digest', 'project:someone-elses-project', 'topic:auth'],
+      }),
+      'ollama/fake', 'v1');
+    const proposal = db.prepare("SELECT id FROM dream_proposals WHERE status='pending'").get() as { id: number };
+
+    applyProposal(db, proposal.id, kg);
+
+    const entity = db.prepare('SELECT id FROM entities WHERE name = ?').get('misfiled-digest') as { id: number };
+    const tags = (db.prepare('SELECT tag FROM tags WHERE entity_id = ?').all(entity.id) as Array<{ tag: string }>).map(r => r.tag);
+    expect(tags, 'the model routed the digest into another project').not.toContain('project:someone-elses-project');
+    expect(tags).toContain('project:memesh');
+    expect(tags, 'descriptive tags were thrown away along with the routing one').toContain('topic:auth');
+  });
 });

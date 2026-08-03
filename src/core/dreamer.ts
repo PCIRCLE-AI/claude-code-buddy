@@ -737,16 +737,46 @@ export function applyProposal(
   // proposed entity is the discriminator.
   const isPattern = digest.type === 'pattern_emergent';
 
+  // Which project this belongs to is decided by the cluster, not by the model.
+  // `digest.tags` comes back from the LLM, and a `project:` tag is what
+  // tag-filtered recall routes on — so a tag lifted out of injected source text
+  // could file the digest under someone else's project. Descriptive tags are
+  // kept; the routing one is replaced with the cluster's own. (`metadata.project`
+  // was already derived from the cluster and is unaffected either way.)
+  const tags = [
+    ...digest.tags.filter((tag) => !tag.startsWith('project:')),
+    `project:${row.project}`,
+  ];
+
   const tx = db.transaction(() => {
     const digestId = kg.createEntity(digest.name, digest.type, {
       observations: digest.observations,
-      tags: digest.tags,
+      tags,
       metadata: {
         source_ids: sourceIds,
         ...(isPattern ? {} : { consolidation_depth: 1 }),
         proposal_id: row.id,
         cluster_key: row.cluster_key,
         project: row.project,
+        // LLM-generated text, paraphrased from episodic memories — commit
+        // messages and session transcripts, which carry whatever a dependency
+        // or a PR title printed. `createLesson` marks exactly this threat model
+        // `untrusted` and says why in its header; the dreamer is the same class
+        // and was the only generation path that never set the marker.
+        //
+        // What it changes: `isTrustedForAutoContext` (scripts/hooks/_shared.js)
+        // DEFAULTS TO ALLOW for metadata with no `trust` key, so digests were
+        // eligible for session-start and pre-edit auto-injection — at
+        // signal_score 0.85/0.9, i.e. near the top of the list. They stay fully
+        // searchable by explicit `recall`; they just stop being pushed into
+        // context unprompted. The knowledge-graph confidence-bump gate reads the
+        // same marker (via `metadata.trust`) and will no longer lift confidence
+        // on a re-apply.
+        //
+        // This is a policy inconsistency, not a break-out: the auto-context
+        // fence collapses whitespace and cannot be closed from inside, so
+        // nothing here could ever have escaped its data block.
+        trust: 'untrusted',
         signal_score: isPattern ? 0.9 : 0.85,
         dreamed_at: new Date().toISOString(),
         kind: isPattern ? 'pattern_emergent' : 'compaction_digest',
