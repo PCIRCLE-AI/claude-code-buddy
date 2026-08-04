@@ -6,6 +6,47 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **Recall stops presenting geometry's best guess as a match**
+  (`src/core/operations.ts`, `Entity.match`, the CLI). A nonsense query
+  against a populated database used to return an unrelated entity dressed
+  exactly like a hit — and the cutoff cannot fix it: measured on this
+  repository's own calibration data, junk queries land at distance
+  1.205–1.288 against real stored entities while genuine matches reach p75
+  1.269. The distributions overlap; no constant separates them. So recall
+  results now carry provenance — `match: { source: 'keyword' | 'semantic',
+  relevance }` — and the CLI says **"No keyword matches. Closest memories by
+  meaning — may be unrelated:"** with a per-row `~N% semantic` badge when
+  the keyword index found nothing. Ranking is untouched: Mode A benchmark
+  re-run on the changed tree, R@5 **0.956** and MRR **0.8929**, identical to
+  the published figures. Oversized observations are also capped on display
+  (500 chars + a count; storage and `--json` untouched) — a 324KB note used
+  to flood the terminal on every hit.
+
+- **`memesh remember "text" --name x --type y` silently discarded the
+  text** — it reported `Stored (0 observations)`: success, with the user's
+  content gone. Positional text now becomes an observation in the flag form
+  too, which is the only thing that invocation can mean.
+
+- **The model-download notice fired on a warm cache** when
+  `MEMESH_MODEL_CACHE_DIR` was set: the cached-check read a different root
+  than the pipeline it speaks for. Both now ask `onnxCacheDir()`. A one-time
+  message that shows up every time is how it stops being read.
+
+- **The demo knowledge graph now contains a graph** (`src/core/demo.ts`):
+  the tour seeded 30 entities and zero relations, so the Graph tab's guided
+  tour showed thirty floating dots — a knowledge-graph demo with no edges —
+  and the PM panel's orphan rate read 100%. Fifteen typed relations now
+  connect the tour's five clusters (auth, storage/recall, billing, API,
+  dashboard); orphans drop to nine deliberate ones.
+
+- **Every `pcircle.ai` reference is now `pcircle.com`** — the dashboard
+  brand line (11 locales, both view surfaces) shipped earlier today; this
+  completes the sweep: README Made-by links in 11 languages, the `homepage`
+  fields in package.json / plugin.json / marketplace.json, and the
+  security/conduct contact addresses in SECURITY.md, CODE_OF_CONDUCT.md and
+  the issue template.
+
+
 - **The first-use audit: four agents executed every shipped surface of
   v4.3.0** — all 32 CLI leaf commands, all 30 HTTP routes plus the dashboard,
   all 7 hooks, all 8 MCP tools; 152 scenarios, each asked the same three

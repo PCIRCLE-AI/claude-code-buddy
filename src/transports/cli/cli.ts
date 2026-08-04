@@ -84,6 +84,13 @@ program
       opts.name = `quick-${date}-${slug || 'note'}-${suffix}`;
       opts.type = 'note';
       if (!opts.obs || opts.obs.length === 0) opts.obs = [String(text)];
+    } else if (text) {
+      // Positional text ALONGSIDE flags used to be dropped on the floor:
+      // `memesh remember "the content" --name x --type note` reported
+      // "Stored (0 observations)" — success, with the user's content gone.
+      // The intent is unambiguous: the text is the observation.
+      if (!opts.obs || opts.obs.length === 0) opts.obs = [String(text)];
+      else opts.obs = [...opts.obs, String(text)];
     }
     if (!opts.name || !opts.type) {
       console.error(
@@ -144,11 +151,27 @@ program
       } else if (entities.length === 0) {
         console.log('No results found.');
       } else {
+        // Semantic-only result sets get an honest header instead of being
+        // dressed as matches: the junk-vs-genuine distance distributions
+        // overlap (see Entity.match), so when the keyword index found
+        // NOTHING, "closest by meaning" is the most this output can claim.
+        const allSemantic = query && entities.every((e) => e.match?.source === 'semantic');
+        if (allSemantic) {
+          console.log('No keyword matches. Closest memories by meaning — may be unrelated:');
+        }
         for (const e of entities) {
           const badge = e.archived ? ' [archived]' : '';
-          console.log(`  ${e.name}${badge} (${e.type})`);
+          const semantic = e.match?.source === 'semantic'
+            ? ` (~${Math.round((e.match.relevance ?? 0) * 100)}% semantic)`
+            : '';
+          console.log(`  ${e.name}${badge} (${e.type})${semantic}`);
           for (const obs of e.observations.slice(0, 3)) {
-            console.log(`    - ${obs}`);
+            // Display cap only — storage is untouched. A single 324KB
+            // observation used to flood the terminal on every hit.
+            const shown = obs.length > 500
+              ? `${obs.slice(0, 500)} … (+${obs.length - 500} more chars)`
+              : obs;
+            console.log(`    - ${shown}`);
           }
           if (e.observations.length > 3) {
             console.log(`    ... +${e.observations.length - 3} more`);

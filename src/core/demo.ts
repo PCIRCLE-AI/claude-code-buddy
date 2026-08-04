@@ -101,6 +101,37 @@ function isoForDaysAgo(days: number): string {
  * no-op for entities that already exist (createEntity uses INSERT OR
  * IGNORE), so the tour never duplicates.
  */
+/**
+ * The edges of the demo graph. Without these the Graph tab's guided tour
+ * showed thirty floating dots and zero lines — a "knowledge graph" with no
+ * graph in it — and the PM panel's orphan rate read 100%. Each triple names
+ * entities from DEMO_DATA above; seeding asserts every name resolves, so a
+ * renamed entity breaks loudly here instead of silently shrinking the tour.
+ */
+const DEMO_RELATIONS: Array<[from: string, type: string, to: string]> = [
+  // The auth slice: decision -> implementation -> hardening -> lesson.
+  ['feature-auth-flow', 'implements', 'auth-decision'],
+  ['bugfix-race-on-double-submit', 'relates_to', 'feature-auth-flow'],
+  // Storage and recall architecture hang together.
+  ['arch-recall-pipeline', 'depends_on', 'arch-storage-layer'],
+  ['db-choice', 'relates_to', 'arch-storage-layer'],
+  ['pattern-noise-filter', 'relates_to', 'arch-recall-pipeline'],
+  // Billing slice: plan -> lesson learned while executing it.
+  ['lesson-billing-config-error', 'learned_from', 'plan-billing-rollout'],
+  ['bugfix-confidence-pump', 'relates_to', 'arch-recall-pipeline'],
+  // API surface: pattern governs the feature endpoints.
+  ['feature-projects-view', 'follows', 'api-design'],
+  ['rate-limiting', 'relates_to', 'api-design'],
+  // Dashboard slice.
+  ['plan-v3-dashboard', 'relates_to', 'decision-precision-engineer-design'],
+  ['bugfix-stale-cache-banner', 'relates_to', 'plan-v3-dashboard'],
+  ['lesson-bug_fix-canvas-blank', 'learned_from', 'plan-v3-dashboard'],
+  ['arch-roadmap-derivation', 'depends_on', 'feature-projects-view'],
+  // Testing culture connects the flake lesson to the strategy.
+  ['lesson-test-failure-flake', 'relates_to', 'testing-strategy'],
+  ['decision-graceful-degradation', 'relates_to', 'arch-recall-pipeline'],
+];
+
 export function seedDemo(
   db: Database.Database,
   opts: { reset?: boolean } = {},
@@ -158,6 +189,14 @@ export function seedDemo(
       entry.name,
     );
     inserted++;
+  }
+
+  // Edges only when this run actually inserted the tour (idempotent re-runs
+  // skip; INSERT OR IGNORE in createRelation makes the edges idempotent too).
+  if (inserted > 0) {
+    for (const [from, type, to] of DEMO_RELATIONS) {
+      kg.createRelation(from, to, type);
+    }
   }
   return { inserted, removed: 0 };
 }

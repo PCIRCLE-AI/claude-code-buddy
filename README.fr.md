@@ -435,5 +435,5 @@ Tableau de bord : `cd dashboard && npm install && npm run dev`
 ---
 
 <p align="center">
-  <strong>MIT</strong> — Créé par <a href="https://pcircle.ai">PCIRCLE AI</a>
+  <strong>MIT</strong> — Créé par <a href="https://pcircle.com">PCIRCLE AI</a>
 </p>

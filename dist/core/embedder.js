@@ -19,7 +19,7 @@ const pendingEmbeddingWrites = new Set();
 export function isOnnxModelCached() {
     try {
         const [org, name] = ONNX_MODEL_ID.split('/');
-        return existsSync(join(memeshDir(), ONNX_CACHE_SUBDIR, org, name, 'onnx', 'model.onnx'));
+        return existsSync(join(onnxCacheDir(), org, name, 'onnx', 'model.onnx'));
     }
     catch {
         return false;

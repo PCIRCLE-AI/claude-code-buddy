@@ -92,7 +92,11 @@ const pendingEmbeddingWrites = new Set<Promise<unknown>>();
 export function isOnnxModelCached(): boolean {
   try {
     const [org, name] = ONNX_MODEL_ID.split('/');
-    return existsSync(join(memeshDir(), ONNX_CACHE_SUBDIR, org, name, 'onnx', 'model.onnx'));
+    // onnxCacheDir(), not memeshDir()+subdir: the pipeline honours
+    // MEMESH_MODEL_CACHE_DIR through onnxCacheDir(), and this check reading
+    // a different root made the download notice fire on a warm cache — the
+    // one-time message showing up every time is how it stops being read.
+    return existsSync(join(onnxCacheDir(), org, name, 'onnx', 'model.onnx'));
   } catch {
     return false;
   }

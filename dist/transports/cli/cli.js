@@ -53,6 +53,12 @@ program
         if (!opts.obs || opts.obs.length === 0)
             opts.obs = [String(text)];
     }
+    else if (text) {
+        if (!opts.obs || opts.obs.length === 0)
+            opts.obs = [String(text)];
+        else
+            opts.obs = [...opts.obs, String(text)];
+    }
     if (!opts.name || !opts.type) {
         console.error('Error: provide --name and --type, OR pass quick-capture text as a positional arg.\n' +
             '  memesh remember --name "auth" --type "decision" --obs "Use OAuth 2.0"\n' +
@@ -108,11 +114,21 @@ program
             console.log('No results found.');
         }
         else {
+            const allSemantic = query && entities.every((e) => e.match?.source === 'semantic');
+            if (allSemantic) {
+                console.log('No keyword matches. Closest memories by meaning — may be unrelated:');
+            }
             for (const e of entities) {
                 const badge = e.archived ? ' [archived]' : '';
-                console.log(`  ${e.name}${badge} (${e.type})`);
+                const semantic = e.match?.source === 'semantic'
+                    ? ` (~${Math.round((e.match.relevance ?? 0) * 100)}% semantic)`
+                    : '';
+                console.log(`  ${e.name}${badge} (${e.type})${semantic}`);
                 for (const obs of e.observations.slice(0, 3)) {
-                    console.log(`    - ${obs}`);
+                    const shown = obs.length > 500
+                        ? `${obs.slice(0, 500)} … (+${obs.length - 500} more chars)`
+                        : obs;
+                    console.log(`    - ${shown}`);
                 }
                 if (e.observations.length > 3) {
                     console.log(`    ... +${e.observations.length - 3} more`);

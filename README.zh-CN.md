@@ -461,5 +461,5 @@ npm run test:e2e-dashboard
 ---
 
 <p align="center">
-  <strong>MIT</strong> — 由 <a href="https://pcircle.ai">PCIRCLE AI</a> 开发
+  <strong>MIT</strong> — 由 <a href="https://pcircle.com">PCIRCLE AI</a> 开发
 </p>

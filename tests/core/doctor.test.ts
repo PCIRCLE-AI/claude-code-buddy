@@ -1524,15 +1524,26 @@ describe('doctor: embeddings probe', () => {
     tempRoots.push(dir);
     memeshDirOverrides.push(process.env.MEMESH_DIR);
     process.env.MEMESH_DIR = dir;
+    // A "cold cache" is only cold if BOTH roots are cold: isOnnxModelCached
+    // follows onnxCacheDir(), which prefers MEMESH_MODEL_CACHE_DIR — and the
+    // test runner sets that globally to a WARM shared cache. Point it inside
+    // this test's own empty dir; the afterEach env restore puts it back.
+    modelCacheOverrides.push(process.env.MEMESH_MODEL_CACHE_DIR);
+    process.env.MEMESH_MODEL_CACHE_DIR = path.join(dir, 'models');
     return dir;
   }
 
   const memeshDirOverrides: (string | undefined)[] = [];
+  const modelCacheOverrides: (string | undefined)[] = [];
 
   afterEach(() => {
     for (const prev of memeshDirOverrides.splice(0)) {
       if (prev === undefined) delete process.env.MEMESH_DIR;
       else process.env.MEMESH_DIR = prev;
+    }
+    for (const prev of modelCacheOverrides.splice(0)) {
+      if (prev === undefined) delete process.env.MEMESH_MODEL_CACHE_DIR;
+      else process.env.MEMESH_MODEL_CACHE_DIR = prev;
     }
   });
 
