@@ -108,7 +108,7 @@ function isoForDaysAgo(days: number): string {
  * entities from DEMO_DATA above; seeding asserts every name resolves, so a
  * renamed entity breaks loudly here instead of silently shrinking the tour.
  */
-const DEMO_RELATIONS: Array<[from: string, type: string, to: string]> = [
+export const DEMO_RELATIONS: Array<[from: string, type: string, to: string]> = [
   // The auth slice: decision -> implementation -> hardening -> lesson.
   ['feature-auth-flow', 'implements', 'auth-decision'],
   ['bugfix-race-on-double-submit', 'relates_to', 'feature-auth-flow'],

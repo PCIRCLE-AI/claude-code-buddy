@@ -42,7 +42,7 @@ function demoMetadata() {
 function isoForDaysAgo(days) {
     return new Date(Date.now() - days * 86400000).toISOString();
 }
-const DEMO_RELATIONS = [
+export const DEMO_RELATIONS = [
     ['feature-auth-flow', 'implements', 'auth-decision'],
     ['bugfix-race-on-double-submit', 'relates_to', 'feature-auth-flow'],
     ['arch-recall-pipeline', 'depends_on', 'arch-storage-layer'],

@@ -88,6 +88,26 @@ describe('seedDemo', () => {
     expect(real).toBeDefined();
   });
 
+  it('seeds typed relations so the Graph tab shows a graph, not 30 orphans', async () => {
+    const { seedDemo, DEMO_RELATIONS } = await import('../../src/core/demo.js');
+    seedDemo(db);
+    const edges = (db.prepare('SELECT COUNT(*) as c FROM relations').get() as { c: number }).c;
+    expect(edges).toBe(DEMO_RELATIONS.length);
+    expect(edges).toBeGreaterThanOrEqual(15);
+    // Every relation endpoint must be a seeded entity — a typo'd name in
+    // the fixture would silently drop the edge and re-orphan the cluster.
+    const dangling = (db.prepare(`
+      SELECT COUNT(*) as c FROM relations r
+      WHERE NOT EXISTS (SELECT 1 FROM entities e WHERE e.id = r.from_entity_id)
+         OR NOT EXISTS (SELECT 1 FROM entities e WHERE e.id = r.to_entity_id)
+    `).get() as { c: number }).c;
+    expect(dangling).toBe(0);
+    // Idempotent re-run must not double the edges.
+    seedDemo(db);
+    const after = (db.prepare('SELECT COUNT(*) as c FROM relations').get() as { c: number }).c;
+    expect(after).toBe(edges);
+  });
+
   it('seeds at least one entity of every key type cluster (lessons, decisions, patterns, bug_fix, releases, plans)', async () => {
     const { seedDemo } = await import('../../src/core/demo.js');
     seedDemo(db);
