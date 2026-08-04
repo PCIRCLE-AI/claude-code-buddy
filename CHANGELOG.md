@@ -29,8 +29,8 @@ All notable changes to MeMesh are documented here.
 - **The coverage floor is a gate with a caller** (`vitest.config.ts`,
   `.github/workflows/ci.yml`). `npm run test:coverage` had zero automated
   callers and no thresholds — an installed provider that nothing would ever
-  fail. It now enforces floors (statements 47, branches 44, functions 48,
-  lines 48; measured 48.83 / 45.9 / 50 / 50.09 on the day they were set) and
+  fail. It now enforces floors (statements 52, branches 48, functions 55,
+  lines 54; measured 54.59 / 50.2 / 57.89 / 56.09 on the day they were set) and
   runs as its own CI leg. The ratchet turns one way: raise a floor when the
   suite clears it, never lower one to make a run green.
 

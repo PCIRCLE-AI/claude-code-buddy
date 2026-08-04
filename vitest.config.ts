@@ -81,15 +81,17 @@ export default defineConfig({
       // Floors, not goals, and the ratchet only turns one way: raise a number
       // when the suite clears it comfortably, never lower one to make a red
       // run green. Measured 2026-08-04 via `npm run test:coverage` on macOS:
-      // statements 48.83, branches 45.9, functions 50, lines 50.09 — floors
-      // sit 1-2 points under that for platform variance. Before these
+      // statements 54.59, branches 50.2, functions 57.89, lines 56.09 —
+      // floors sit ~2 points under that for platform variance. Before these
       // existed, `test:coverage` had zero automated callers and no threshold:
       // a coverage run that nothing runs and nothing fails is not a gate.
+      // Break-tested: lines raised to 99 fails the run with "Coverage for
+      // lines (56.09%) does not meet global threshold" while all tests pass.
       thresholds: {
-        statements: 47,
-        branches: 44,
-        functions: 48,
-        lines: 48,
+        statements: 52,
+        branches: 48,
+        functions: 55,
+        lines: 54,
       },
       include: ['src/**/*.ts', 'scripts/hooks/*.js', 'dashboard/src/**/*.{ts,tsx}'],
       reporter: ['text', 'json', 'json-summary', 'html'],
