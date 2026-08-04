@@ -4,6 +4,8 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+## [4.4.0] — 2026-08-04
+
 ### Changed
 
 - **Bare `memesh` prints help instead of starting a server.** Running the
@@ -33,10 +35,13 @@ All notable changes to MeMesh are documented here.
   (500 chars + a count; storage and `--json` untouched) — a 324KB note used
   to flood the terminal on every hit.
 
-- **`memesh remember "text" --name x --type y` silently discarded the
-  text** — it reported `Stored (0 observations)`: success, with the user's
-  content gone. Positional text now becomes an observation in the flag form
-  too, which is the only thing that invocation can mean.
+- **`memesh remember` dropped positional text in BOTH mixed forms** — the
+  flag form (`remember "text" --name x --type y`) reported
+  `Stored (0 observations)`: success, with the user's content gone; and the
+  quick-capture form (`remember "text" --obs "note"`, no `--name`/`--type`)
+  discarded the text while *naming the entity after it*, so the entity
+  claimed content it never stored. Positional text is now always an
+  observation, which is the only thing those invocations can mean.
 
 - **The model-download notice fired on a warm cache** when
   `MEMESH_MODEL_CACHE_DIR` was set: the cached-check read a different root
