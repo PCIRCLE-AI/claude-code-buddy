@@ -173,7 +173,7 @@ memesh
 | **Claude Code verwenden** | Projektentscheidungen, dateispezifische Erkenntnisse und vergangene Fehler während der Arbeit automatisch abrufen |
 | **Power-User von Coding-Agenten** | Eine lokale Speicherschicht über MCP-kompatible Tools verteilen |
 | **ein Team mit KI-Coding-Workflows experimentiert** | Projektwissen ohne gehostete Infrastruktur aus- und importieren |
-| **Agent-Entwickler** | Lokalen Speicher via MCP, HTTP, CLI oder Python-SDK hinzufügen |
+| **Agent-Entwickler** | Lokalen Speicher via MCP, HTTP oder CLI hinzufügen |
 
 ---
 

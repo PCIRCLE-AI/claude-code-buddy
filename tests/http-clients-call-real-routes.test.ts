@@ -19,6 +19,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { RETIRED_ROUTES } from '../src/transports/http/retired-routes.js';
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p: string) => fs.readFileSync(path.join(repoRoot, p), 'utf8');
 
@@ -44,24 +46,59 @@ function walk(dir: string, out: string[] = []): string[] {
 
 const server = read('src/transports/http/server.ts');
 
-/** Routes the Express app registers, normalised. */
+/** Routes the Express app registers, normalised. Either quote style counts. */
 const registered = new Set(
-  [...server.matchAll(/^app\.(?:get|post|put|delete|patch)\('([^']+)'/gm)].map(m => normalise(m[1]))
+  [...server.matchAll(/^app\.(?:get|post|put|delete|patch)\((['"`])([^'"`]+)\1/gm)].map(m => normalise(m[2]))
 );
 
 /**
  * Routes that exist only to answer `410 Gone`. Reaching one is worse than a 404
  * from the caller's side: the call compiles, the request succeeds in the sense
  * that it gets a response, and only the body says the feature is gone.
+ *
+ * Imported from the same module the server registers them from — this used to
+ * be re-derived by regexing server.ts through a 400-character window between
+ * the path literal and `status(410)`, an input set pinned to nothing but the
+ * file's current formatting.
  */
-const retired = new Set(
-  [...server.matchAll(/^app\.(?:get|post|put|delete|patch)\('([^']+)'[\s\S]{0,400}?res\s*\n?\s*\.?\s*status\(410\)/gm)].map(
-    m => normalise(m[1])
-  )
-);
+const retired = new Set(Object.keys(RETIRED_ROUTES).map(normalise));
 
-/** Directories that hold a client of the HTTP API. Add one when a client is added. */
-const CLIENT_ROOTS = ['dashboard/src'];
+/**
+ * Directories that hold a client of the HTTP API. Add one when a client is
+ * added — and add its entry to KNOWN_CALLS below, or the addition is
+ * decorative: a root that contributes zero matches is indistinguishable from
+ * a root the walker silently skipped.
+ */
+const CLIENT_ROOTS = ['dashboard/src', 'src/cli', 'scripts'];
+
+/**
+ * One known call per root, as an existence pin. If the dashboard stops
+ * mentioning /v1/stats or view-live stops mentioning /v1/graph, that is a
+ * product change worth a failing test; if the extraction regex rots, all
+ * three vanish at once and this is what says so.
+ */
+const KNOWN_CALLS: Record<string, string> = {
+  'dashboard/src': '/v1/stats',
+  'src/cli': '/v1/graph',
+  'scripts': '/v1/health',
+};
+
+
+/**
+ * Every `/v1/...` path a file mentions, normalised. The opener class includes
+ * `}` as well as the quotes: `\`http://127.0.0.1:${port}/v1/health\`` is a
+ * real call whose path begins right after a template interpolation, and the
+ * quote-only version of this regex silently skipped every such call — one of
+ * the two files this test was widened to cover matched nothing at all.
+ */
+function v1Mentions(file: string): string[] {
+  // `+`, not `*`: a bare '/v1/' is a prefix someone is configuring or
+  // filtering on (this repo's own doc gate holds one), never a request path.
+  return [...read(file).matchAll(/['"`}](\/v1\/[^'"`\s]+)['"`]/g)]
+    .map(m => m[1].split('?')[0])
+    .filter(raw => !raw.includes('*'))
+    .map(normalise);
+}
 
 describe('in-repo HTTP clients call routes that exist', () => {
   it('the route list was actually extracted', () => {
@@ -78,41 +115,35 @@ describe('in-repo HTTP clients call routes that exist', () => {
     expect(retired.has('/v1/consolidate')).toBe(true);
   });
 
+  it('every retired route still has a registration to answer 410', () => {
+    // An entry in RETIRED_ROUTES whose app.post line was deleted is a silent
+    // 404 — exactly the failure the 410 exists to prevent.
+    for (const r of retired) {
+      expect(registered.has(r), `${r} is retired but no longer registered`).toBe(true);
+    }
+  });
+
   const clientFiles = CLIENT_ROOTS.filter(r => fs.existsSync(path.join(repoRoot, r))).flatMap(r => walk(r));
 
   it('finds client files to check', () => {
     expect(clientFiles.length).toBeGreaterThan(0);
   });
 
-  it('no client calls a path the server does not register', () => {
-    const unknown: string[] = [];
-    for (const f of clientFiles) {
-      for (const m of read(f).matchAll(/['"`](\/v1\/[^'"`\s]*)['"`]/g)) {
-        const raw = m[1].split('?')[0];
-        // `/v1/*` appears in prose describing the bearer-auth middleware
-        // (`app.use('/v1/', bearerAuth)`), not as a call. A wildcard is never a
-        // request path.
-        if (raw.includes('*')) continue;
-        const p = normalise(raw);
-        if (!registered.has(p)) unknown.push(`${f} → ${m[1]}`);
-      }
+  it('every client root actually contributes call sites', () => {
+    for (const [root, knownPath] of Object.entries(KNOWN_CALLS)) {
+      const mentions = walk(root).flatMap(v1Mentions);
+      expect(mentions.length, `${root} contributed no /v1 call sites — root drifted or regex rotted`).toBeGreaterThan(0);
+      expect(mentions, `${root} should mention ${knownPath}`).toContain(knownPath);
     }
+  });
+
+  it('no client calls a path the server does not register', () => {
+    const unknown = clientFiles.flatMap(f => v1Mentions(f).filter(p => !registered.has(p)).map(p => `${f} → ${p}`));
     expect(unknown).toEqual([]);
   });
 
   it('no client calls a route that answers 410 Gone', () => {
-    const dead: string[] = [];
-    for (const f of clientFiles) {
-      for (const m of read(f).matchAll(/['"`](\/v1\/[^'"`\s]*)['"`]/g)) {
-        const raw = m[1].split('?')[0];
-        // `/v1/*` appears in prose describing the bearer-auth middleware
-        // (`app.use('/v1/', bearerAuth)`), not as a call. A wildcard is never a
-        // request path.
-        if (raw.includes('*')) continue;
-        const p = normalise(raw);
-        if (retired.has(p)) dead.push(`${f} → ${m[1]}`);
-      }
-    }
+    const dead = clientFiles.flatMap(f => v1Mentions(f).filter(p => retired.has(p)).map(p => `${f} → ${p}`));
     expect(dead).toEqual([]);
   });
 });

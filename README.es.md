@@ -200,7 +200,7 @@ memesh
 | **Un desarrollador usando Claude Code** | Recuperar automáticamente decisiones del proyecto, lecciones específicas de archivos y fracasos anteriores mientras trabajas |
 | **Un usuario avanzado de agentes de codificación** | Compartir una capa de memoria local entre herramientas compatibles con MCP |
 | **Un equipo experimentando con flujos de trabajo de IA para codificación** | Exportar/importar conocimiento del proyecto sin introducir infraestructura alojada |
-| **Un desarrollador de agentes** | Añadir memoria local mediante MCP, HTTP, CLI o el SDK de Python |
+| **Un desarrollador de agentes** | Añadir memoria local mediante MCP, HTTP o la CLI |
 
 ---
 

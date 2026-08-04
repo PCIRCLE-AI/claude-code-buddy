@@ -540,6 +540,7 @@ The limit protects the server from accidentally parsing large payloads (e.g. an 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | /v1/health | Health check + version + entity count |
+| GET | /v1/doctor | Run the full doctor check suite; secrets in the result are redacted before the response leaves the server |
 | POST | /v1/remember | Store knowledge |
 | POST | /v1/recall | Search knowledge |
 | POST | /v1/forget | Archive or remove observation |
@@ -558,6 +559,9 @@ The limit protects the server from accidentally parsing large payloads (e.g. an 
 | GET | /v1/analytics | Health score, memory-loop metric, 30-day timeline, ageMatrix, knowledgeRadar |
 | GET | /v1/patterns | User work patterns: schedule, tools, focus areas, workflow, strengths, learning |
 | POST | /v1/verify | Record a verification report for background-agent work; returns `verdict: pass \| fail \| unverified` |
+| POST | /v1/demo/seed | Insert the demo tour dataset (entities tagged `metadata.demo = true`) |
+| POST | /v1/demo/reset | Remove every demo entity; all-or-nothing transaction |
+| GET | /v1/projects | Distinct projects from `project:*` tags and name-prefix heuristics, with per-project counts |
 | GET | /dashboard | Interactive web dashboard (HTML) |
 
 All responses: `{ success: true, data: ... }` or `{ success: false, error: "..." }`
@@ -710,6 +714,35 @@ Returns computed analytics insights for the memory database.
 - Quality (30%): percentage of active entities with confidence > 0.7
 - Freshness (20%): new entities this week relative to 5% of total (capped at 100%)
 - Lessons (20%): lesson_learned entity count, 5+ gives full score
+
+### GET /v1/doctor
+
+Runs the same check suite as `memesh doctor` and returns the structured result. Any secret-shaped substring (API keys, bearer tokens) is redacted before the response leaves the server — defence in depth on top of the config masking.
+
+**Response:** `{ "success": true, "data": { ...doctor result... } }`, or `500` with `{ "success": false, "error": "..." }` if the suite itself failed to run.
+
+### GET /v1/projects
+
+Lists distinct projects extracted from entity tags (`project:*`) and entity name prefixes. The dashboard Browse and Lessons tabs use it to populate per-project filter chips.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": [
+    { "name": "memesh", "count": 421, "types": ["decision", "lesson_learned"], "source": "mixed" }
+  ]
+}
+```
+
+`source` says how the assignment was made: an explicit `project:` tag, the name-prefix heuristic, or both.
+
+### POST /v1/demo/seed / POST /v1/demo/reset
+
+Back the dashboard onboarding banner: `seed` inserts the demo tour dataset (every entity carries `metadata.demo = true`), `reset` removes exactly those entities in one all-or-nothing transaction, routed through the knowledge-graph delete so the FTS and vector indexes stay consistent. The CLI equivalent is `memesh demo`.
+
+**Response:** `{ "success": true, "data": { "inserted": 12, "removed": 0 } }` — counts of demo entities written or removed.
 
 ### GET /v1/analytics/pm
 

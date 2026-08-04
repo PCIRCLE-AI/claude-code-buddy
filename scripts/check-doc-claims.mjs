@@ -39,6 +39,7 @@ import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { listHookFiles } from './lib/hook-files.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = p => fs.readFileSync(path.join(repoRoot, p), 'utf8');
@@ -87,13 +88,9 @@ for (const matchers of Object.values(hookManifest.hooks ?? {})) {
 if (manifestHooks.size === 0) {
   fail('hooks/hooks.json yielded no hook commands — the manifest is malformed or the shape changed');
 } else {
-  // `_`-prefixed files are the existing convention for "lives here but is not a
-  // hook"; `_generated/` is a directory and is skipped by `withFileTypes`.
-  const onDisk = fs
-    .readdirSync(path.join(repoRoot, 'scripts/hooks'), { withFileTypes: true })
-    .filter(e => e.isFile() && e.name.endsWith('.js') && !e.name.startsWith('_'))
-    .map(e => e.name)
-    .sort();
+  // Files only, nothing `_`-prefixed — the rule lives in scripts/lib/
+  // hook-files.mjs where a test can feed it a fixture directory.
+  const onDisk = listHookFiles(path.join(repoRoot, 'scripts/hooks'));
   const missing = [...manifestHooks].filter(h => !onDisk.includes(h));
   const extra = onDisk.filter(h => !manifestHooks.has(h));
   if (missing.length) fail(`hooks/hooks.json invokes ${missing.join(', ')}, which is not in scripts/hooks/`);
@@ -161,6 +158,29 @@ const withCounts = readmes.filter(f => /\b\d[\d,]*\s*(tests|test cases)\b/i.test
 if (withCounts.length) fail(`README(s) state a hardcoded test count: ${withCounts.join(', ')}`);
 else ok(`${readmes.length} READMEs state no hardcoded test count`);
 
+// --- 4b. Every registered HTTP route is documented ---------------------------
+//
+// Four registered routes (/v1/doctor, /v1/projects, /v1/demo/seed,
+// /v1/demo/reset) went completely undocumented while the dashboard called
+// three of them on every load. A count (check 4) cannot see that — it says how
+// many routes exist, not which ones the reference forgot. This walks the
+// registrations and requires each path to appear in API_REFERENCE.md.
+// Line-anchored on purpose and by limitation: a registration whose path sits
+// on its own line (app.post followed by a newline before the path literal)
+// would be invisible here. The floor below (< 20 fails) catches wholesale
+// extraction rot but not one such route; if a multi-line registration ever
+// appears, widen this rather than trusting it.
+const routePaths = [...read('src/transports/http/server.ts').matchAll(/^app\.(?:get|post|put|delete|patch)\((['"`])([^'"`]+)\1/gm)]
+  .map(m => m[2])
+  .filter(p => p.startsWith('/v1/'));
+if (routePaths.length < 20) fail(`route extraction found only ${routePaths.length} /v1 paths — the pattern stopped matching`);
+else {
+  const apiRef = read('docs/api/API_REFERENCE.md');
+  const undocumented = routePaths.filter(p => !apiRef.includes(p));
+  if (undocumented.length) fail(`registered but absent from API_REFERENCE.md: ${[...new Set(undocumented)].join(', ')}`);
+  else ok(`all ${new Set(routePaths).size} registered /v1 routes appear in API_REFERENCE.md`);
+}
+
 // --- 6. Deprecated terms -----------------------------------------------------
 const searched = ['docs/ARCHITECTURE.md', 'docs/api/API_REFERENCE.md', 'skills/memesh/SKILL.md', ...readmes];
 for (const term of ['dual-write', 'bidirectional pointer']) {
@@ -168,6 +188,20 @@ for (const term of ['dual-write', 'bidirectional pointer']) {
   if (hits.length) fail(`deprecated term "${term}" in ${hits.join(', ')}`);
 }
 ok('no deprecated terms');
+
+// --- 6b. No README may sell a surface that does not exist --------------------
+//
+// Four translations still offered "the Python SDK" months after the SDK was
+// deleted and its PyPI name proved never published — each in different words,
+// which is why this is a per-README term scan and not one exact phrase. The
+// product has no Python surface at all, so in a README the bare word is
+// already wrong. Scoped to READMEs on purpose: API_REFERENCE.md legitimately
+// says "Python" in the note explaining the SDK's retirement.
+for (const term of ['Python', 'python', 'pip install']) {
+  const hits = readmes.filter(f => read(f).includes(term));
+  if (hits.length) fail(`"${term}" in ${hits.join(', ')} — there is no Python surface; the SDK was removed and was never on PyPI`);
+}
+ok('no phantom Python surface in READMEs');
 
 // --- 7. No living document may point at a path that does not exist -----------
 //

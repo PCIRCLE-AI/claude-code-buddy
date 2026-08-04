@@ -25,6 +25,7 @@ import {
 import { getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
 import { getDbPath, getMemeshDirFromDbPath } from '../../core/paths.js';
+import { RETIRED_ROUTES } from './retired-routes.js';
 
 import fs from 'fs';
 import path from 'path';
@@ -392,11 +393,7 @@ app.post('/v1/forget',      (req, res) => handlePost(ForgetBody, req, res, forge
 // here. Until then this line is the only thing standing between a script and a
 // silent 404.
 app.post('/v1/consolidate', (_req, res) => {
-  res.status(410).json({
-    success: false,
-    error:
-      'POST /v1/consolidate is retired. It rewrote memories with an LLM summary and deleted the originals, with no review step. Use the dream flow instead: POST /v1/dream/run proposes digests, and nothing is applied until you accept a proposal.',
-  });
+  res.status(410).json({ success: false, error: RETIRED_ROUTES['/v1/consolidate'] });
 });
 app.post('/v1/export',      (req, res) => handlePost(ExportBody, req, res, exportMemories));
 app.post('/v1/import',      (req, res) => handlePost(ImportBody, req, res, importMemories));

@@ -18,6 +18,7 @@
  * Recorded as unpinned during the mutation sweep of this release, then pinned.
  */
 import { describe, it, expect } from 'vitest';
+import os from 'node:os';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -143,21 +144,35 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     expect(attrs).toMatch(/^\*\.png\s+binary\s*$/m);
   });
 
-  it('the docs gate counts hooks, not build output that lives beside them', () => {
+  it('the docs gate counts hooks, not build output that lives beside them', async () => {
     // `find scripts/hooks -name '*.js' ! -name '_shared.js'` recursed into
     // `scripts/hooks/_generated/`, so when the build mirror landed there the
     // count went 7 -> 9 and the gate reported FAIL on a correct tree. A gate
     // that fails on a healthy repo gets ignored, and then it is not a gate.
     //
-    // The gate moved from `scripts/verify-docs-sync.sh` to
-    // `scripts/check-doc-claims.mjs` — the shell version had no caller at all,
-    // and `verify:release` runs on windows-latest. The property is unchanged:
-    // enumerate the hooks directory itself, and skip the `_` prefix that already
-    // means "lives here but is not a hook".
-    const text = read('scripts/check-doc-claims.mjs');
-    expect(text).toMatch(/readdirSync\(path\.join\(repoRoot, 'scripts\/hooks'\), \{ withFileTypes: true \}\)/);
-    expect(text).toMatch(/e\.isFile\(\)/);
-    expect(text).toMatch(/!e\.name\.startsWith\('_'\)/);
+    // Tested by RUNNING the rule against a fixture shaped like the incident,
+    // not by regexing the gate's source for three implementation substrings —
+    // that pinned the text, and text that is present proves nothing about
+    // what executes. The rule lives in scripts/lib/hook-files.mjs and
+    // check-doc-claims.mjs imports it (asserted below), so this fixture
+    // exercises the code the gate runs.
+    const { listHookFiles } = await import('../scripts/lib/hook-files.mjs');
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'hooks-fixture-'));
+    try {
+      fs.writeFileSync(path.join(fixture, 'session-start.js'), '');
+      fs.writeFileSync(path.join(fixture, 'session-summary.js'), '');
+      fs.writeFileSync(path.join(fixture, '_shared.js'), '');
+      fs.writeFileSync(path.join(fixture, 'notes.md'), '');
+      fs.mkdirSync(path.join(fixture, '_generated'));
+      fs.writeFileSync(path.join(fixture, '_generated', 'session-start.js'), '');
+      fs.writeFileSync(path.join(fixture, '_generated', 'extra-mirror.js'), '');
+      expect(listHookFiles(fixture)).toEqual(['session-start.js', 'session-summary.js']);
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+    // The one source-level fact still worth pinning: the gate uses this rule,
+    // rather than a private copy that could drift back to `find`.
+    expect(read('scripts/check-doc-claims.mjs')).toContain("import { listHookFiles } from './lib/hook-files.mjs'");
   });
 
   it('the docs gate is actually wired into the list both CI and publish run', () => {
