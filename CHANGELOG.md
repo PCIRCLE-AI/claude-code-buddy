@@ -26,8 +26,47 @@ All notable changes to MeMesh are documented here.
   The dashboard now translates every known code in all 11 languages
   (falling back to the server prose for codes it does not know yet).
   The prose stays; nothing existing is removed.
+- **An empty database now explains itself — everywhere, durably.** The
+  onboarding banner can be dismissed permanently, after which the one-click
+  demo was undiscoverable: Browse said "try a different filter" over a
+  database with nothing behind any filter, and the Graph tab rendered a
+  bare black canvas. Whenever the database is empty, Browse, Graph and
+  Lessons now render an instructive empty state with the same one-click
+  demo seed the banner offers — independent of the banner's dismissal.
+  An empty *filter result* keeps its own message; the two are no longer
+  conflated. A Lessons tab in a populated database now says how lessons
+  come to exist instead of showing a blank category.
+- **The Knowledge Graph no longer freezes on large libraries.** The force
+  simulation is O(n²) per frame and the server sends every signal entity
+  uncapped — a few thousand memories hard-froze the tab. The graph now
+  keeps the 1,500 most-recalled (then most-recent) nodes and says
+  "showing top N of X" in place of silently dropping or freezing; the
+  stats row still reports the real library size.
+- **Truncated lists now say they are truncated.** Browse fetches at most
+  2,000 rows while the header shows the real count from `/v1/health`; when
+  they disagreed the two numbers silently contradicted each other. At the
+  fetch limit Browse now shows "showing the first 2,000 of X", and the
+  Lessons tab notes its 100-row window next to its stats.
+- **Settings shows the configured model, and Test works without
+  re-pasting the key.** The Test button required a key in the field even
+  though the server already falls back to the stored key when the field is
+  omitted — re-testing a saved provider meant fetching the key again from
+  a password manager. Test is now enabled with an empty field whenever a
+  key is stored for the selected provider. The Capabilities card also
+  shows which model is configured, next to the provider.
 
 ### Fixed
+
+- **No raw exceptions in the dashboard's error surfaces.** A stopped
+  server used to surface as the browser's literal "Failed to fetch" in
+  Search, Lessons, Insights (expand/accept/reject/dream-run), Settings
+  (save/test/behaviour toggles) and the onboarding seed — a string that
+  names neither the process nor the fix. Every catch now routes through
+  one classifier that says what happened and what to do, in all 11
+  languages. And the dashboard now reads the server's error envelope on
+  non-2xx responses — the status codes the server actually sends — so the
+  stable `errorCode` translations introduced above fire on real errors
+  instead of collapsing to "HTTP 500".
 
 - **A non-English dashboard no longer shows hardcoded English.** Every
   server-supplied identifier the dashboard used to print raw is now

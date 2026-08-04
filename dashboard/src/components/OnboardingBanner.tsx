@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { api, type HealthData } from '../lib/api';
 import { t } from '../lib/i18n';
+import { actionFailureMessage } from '../lib/failure';
 
 const DISMISS_KEY = 'memesh.onboardingDismissed';
 
@@ -62,8 +63,10 @@ export function OnboardingBanner({ health }: Props) {
       // Tell App + every other tab to refetch — `/v1/health`
       // entity_count will now be 30 and the banner auto-retires.
       window.dispatchEvent(new Event('memesh:data-changed'));
-    } catch (e: any) {
-      setError(e?.message ?? String(e));
+    } catch (e) {
+      // Localized sentence with a next step — never the browser's raw
+      // "Failed to fetch" for a server that simply is not running.
+      setError(actionFailureMessage(e));
     } finally {
       // Clear regardless of outcome. On success the banner unmounts
       // a moment later when health refetch lands; if that refetch
@@ -80,8 +83,8 @@ export function OnboardingBanner({ health }: Props) {
     try {
       await api<SeedResult>('POST', '/v1/demo/reset');
       window.dispatchEvent(new Event('memesh:data-changed'));
-    } catch (e: any) {
-      setError(e?.message ?? String(e));
+    } catch (e) {
+      setError(actionFailureMessage(e));
     } finally {
       setPending(null);
     }

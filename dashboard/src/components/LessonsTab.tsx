@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'preact/hooks';
-import { fetchLessons, fetchProjects, type Entity, type ProjectInfo } from '../lib/api';
+import { fetchLessons, fetchProjects, type Entity, type HealthData, type ProjectInfo } from '../lib/api';
 import { t } from '../lib/i18n';
+import { classifyLoadError, failureMessage } from '../lib/failure';
+import { EmptyLibraryState } from './EmptyLibraryState';
 import {
   classifyLesson,
   extractProject,
@@ -248,7 +250,11 @@ function FreeformCard({ entity }: { entity: Entity }) {
 
 /* ---------- main component ---------- */
 
-export function LessonsTab() {
+/** fetchLessons() asks for this many; at exactly this count the stats are a
+ *  window, not the whole story, and must say so. */
+const LESSONS_FETCH_LIMIT = 100;
+
+export function LessonsTab({ health }: { health?: HealthData | null }) {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -260,7 +266,9 @@ export function LessonsTab() {
   useEffect(() => {
     Promise.all([fetchLessons(), fetchProjects().catch(() => [])])
       .then(([es, ps]) => { setEntities(es); setProjects(ps); })
-      .catch((e) => setError(e.message))
+      // The classified sentence, not e.message: a dead server otherwise
+      // reads as the browser's raw "Failed to fetch".
+      .catch((e) => setError(failureMessage(classifyLoadError(e))))
       .finally(() => setLoading(false));
   }, []);
 
@@ -292,7 +300,8 @@ export function LessonsTab() {
   }, [categorized, tab, search, project]);
 
   if (loading) return <div class="empty"><div class="loading" /></div>;
-  if (error) return <div class="error-box" role="alert">{t('common.error')}: {error}</div>;
+  // `error` is already a full sentence with a next step — no prefix.
+  if (error) return <div class="error-box" role="alert">{error}</div>;
 
   const totalAccess = entities.reduce((sum, e) => sum + (e.access_count ?? 0), 0);
   const criticalCount = categorized.failure.filter((e) => severityOf(e) === 'critical').length;
@@ -383,12 +392,36 @@ export function LessonsTab() {
         </div>
         <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-3)' }}>
           {t('lessons.showing', { visible: visible.length, total: categorized[tab].length })}
+          {/* At exactly the fetch limit the set is (almost certainly)
+              truncated — the stats above then describe a window, and
+              saying nothing would let them silently contradict reality. */}
+          {entities.length >= LESSONS_FETCH_LIMIT && (
+            <span> · {t('lessons.capNote', { limit: LESSONS_FETCH_LIMIT })}</span>
+          )}
         </div>
       </div>
 
-      {/* Card list */}
+      {/* Card list. Empty renders one of FOUR states, and the order matters —
+          the first two both apply when there are zero lessons and the tie is
+          broken by whether the whole database is empty, which only /v1/health
+          can answer:
+          - lessons empty AND health not yet loaded → a neutral placeholder.
+            `health` arrives from App's own async /v1/health, independent of
+            this tab's entities fetch; deciding before it lands would render
+            "here's how lessons form" over a genuinely empty database (a false
+            claim on the first-run path) because `null?.entity_count === 0` is
+            false. Tri-state, not a truthiness guess.
+          - the whole DATABASE is empty → the durable demo entry point
+            (OnboardingBanner may be dismissed forever; this may not);
+          - the database has data but zero lessons → say how lessons come
+            to exist, not "try another filter";
+          - lessons exist but the filter matched none → the filter message. */}
       <div style={{ marginTop: 14 }}>
-        {visible.length === 0 ? (
+        {entities.length === 0 && health == null ? (
+          <div class="empty"><div class="loading" /></div>
+        ) : entities.length === 0 && health?.entity_count === 0 ? (
+          <EmptyLibraryState />
+        ) : visible.length === 0 ? (
           <div class="empty">
             <span class="empty-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)' }}>
               <EntityIcon
@@ -396,7 +429,11 @@ export function LessonsTab() {
                 size={28}
               />
             </span>
-            {search ? t('lessons.noMatch', { query: search }) : t('lessons.emptyCategory')}
+            {entities.length === 0
+              ? t('lessons.emptyGuide')
+              : search
+                ? t('lessons.noMatch', { query: search })
+                : t('lessons.emptyCategory')}
           </div>
         ) : (
           visible.map((e) => {

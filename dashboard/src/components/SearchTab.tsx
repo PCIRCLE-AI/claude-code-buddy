@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks';
 import { api, type Entity } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
 import { t } from '../lib/i18n';
+import { actionFailureMessage } from '../lib/failure';
 
 export function SearchTab() {
   const [query, setQuery] = useState('');
@@ -17,8 +18,10 @@ export function SearchTab() {
       const data = await api('POST', '/v1/recall', { query: query.trim(), limit: 30 });
       const entities = Array.isArray(data) ? data : data.entities || [];
       setResults(entities);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e) {
+      // Never the raw exception: a dead server surfaces as the browser's
+      // "Failed to fetch", which names neither the process nor the fix.
+      setError(actionFailureMessage(e));
     } finally {
       setLoading(false);
     }
@@ -54,7 +57,9 @@ export function SearchTab() {
         {loading && <div class="empty"><div class="loading" /></div>}
 
         {!loading && results !== null && results.length === 0 && (
-          <div class="empty">
+          // role="status": screen-reader users hear "no results" arrive
+          // instead of a silent repaint after pressing Search.
+          <div class="empty" role="status">
             <span class="empty-icon">🔍</span>
             {t('search.noResults')} "{query}"
           </div>
@@ -62,7 +67,7 @@ export function SearchTab() {
 
         {!loading && results && results.length > 0 && (
           <div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>
+            <div role="status" style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>
               {results.length} {results.length !== 1 ? t('search.results') : t('search.result')}
             </div>
             {results.map((e) => (

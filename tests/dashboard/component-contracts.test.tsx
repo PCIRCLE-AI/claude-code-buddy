@@ -66,6 +66,7 @@ import { isGraphRenderable } from '../../dashboard/src/components/GraphTab';
 import { isPmAnalyticsRenderable } from '../../dashboard/src/components/PmAnalyticsPanel';
 import { BrowseTab } from '../../dashboard/src/components/BrowseTab';
 import { DoctorBanner } from '../../dashboard/src/components/DoctorBanner';
+import { EmptyLibraryState } from '../../dashboard/src/components/EmptyLibraryState';
 import { FeedbackWidget } from '../../dashboard/src/components/FeedbackWidget';
 import { GraphTab } from '../../dashboard/src/components/GraphTab';
 import { Header } from '../../dashboard/src/components/Header';
@@ -344,6 +345,7 @@ const CASES: Array<{ name: string; node: () => ComponentChildren }> = [
   { name: 'AnalyticsTab', node: () => <AnalyticsTab /> },
   { name: 'BrowseTab', node: () => <BrowseTab /> },
   { name: 'DoctorBanner', node: () => <DoctorBanner /> },
+  { name: 'EmptyLibraryState', node: () => <EmptyLibraryState /> },
   { name: 'FeedbackWidget', node: () => <FeedbackWidget health={null} /> },
   { name: 'GraphTab', node: () => <GraphTab /> },
   { name: 'Header', node: () => <Header health={null} error="" /> },
@@ -473,6 +475,9 @@ const MUST_RENDER: Record<string, { keys?: string[]; literals?: string[]; nothin
   AnalyticsTab: { keys: ['analytics.totalMemories', 'health.title', 'timeline.title', 'patterns.title'] },
   BrowseTab: { keys: ['browse.title', 'browse.filterCategory'] },
   DoctorBanner: { nothing: 'renders only when a doctor check has failed; every stub sends an empty checks list' },
+  // Fetches nothing on mount (the seed POST fires only on click), so it must
+  // render the same guidance whatever the API stub does.
+  EmptyLibraryState: { keys: ['emptyLibrary.title', 'onboarding.seedButton'] },
   FeedbackWidget: { keys: ['feedback.button'] },
   GraphTab: { keys: ['tab.graph', 'graph.entities'] },
   Header: { literals: ['MeMesh LLM Memory'] },

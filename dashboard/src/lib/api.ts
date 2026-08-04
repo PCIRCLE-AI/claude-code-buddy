@@ -69,6 +69,24 @@ export class NetworkError extends Error {
   }
 }
 
+/**
+ * The Error a `success: false` envelope becomes. Server envelopes carry a
+ * stable machine `errorCode` next to the English `error` prose (see
+ * API_REFERENCE → "Stable error codes"). Prefer the translated message for a
+ * KNOWN code; fall back to the raw server prose for unknown codes.
+ * Miss-detection is the sanctioned `translated === key` check — t() returns
+ * the key itself for uncatalogued keys, and `|| fallback` would hide a real
+ * (but empty) translation the same way it hides absence.
+ */
+function envelopeError(json: { errorCode?: unknown; error?: unknown }): Error {
+  if (typeof json.errorCode === 'string' && json.errorCode) {
+    const key = `httpError.${json.errorCode}`;
+    const translated = t(key);
+    if (translated !== key) return new Error(translated);
+  }
+  return new Error(typeof json.error === 'string' && json.error ? json.error : t('errors.unknown'));
+}
+
 export async function api<T = any>(method: string, path: string, body?: any): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT);
@@ -90,23 +108,26 @@ export async function api<T = any>(method: string, path: string, body?: any): Pr
       window.dispatchEvent(new Event('memesh:auth-required'));
       throw new AuthRequiredError();
     }
-    if (!res.ok) throw new HttpError(res.status);
-    const json = await res.json();
-    if (!json.success) {
-      // Server error envelopes carry a stable machine `errorCode` next to
-      // the English `error` prose (see API_REFERENCE → "Stable error
-      // codes"). Prefer the translated message for a KNOWN code; fall back
-      // to the raw server prose for unknown codes. Miss-detection is the
-      // sanctioned `translated === key` check — t() returns the key itself
-      // for uncatalogued keys, and `|| fallback` would hide a real (but
-      // empty) translation the same way it hides absence.
-      if (typeof json.errorCode === 'string' && json.errorCode) {
-        const key = `httpError.${json.errorCode}`;
-        const translated = t(key);
-        if (translated !== key) throw new Error(translated);
+    if (!res.ok) {
+      // The server sends its `success: false` envelopes WITH the matching
+      // HTTP status (400/500), not wrapped in a 200 — so throwing HttpError
+      // straight off `!res.ok` discarded the `errorCode` the envelope
+      // carried and every real server error surfaced as "HTTP 500". Read
+      // the body first; HttpError is only for a non-2xx that carried no
+      // envelope (a proxy page, an empty body).
+      let json: unknown = null;
+      try {
+        json = await res.json();
+      } catch {
+        /* non-JSON body — fall through to the bare status */
       }
-      throw new Error(json.error || t('errors.unknown'));
+      if (json && typeof json === 'object' && (json as { success?: unknown }).success === false) {
+        throw envelopeError(json as { errorCode?: unknown; error?: unknown });
+      }
+      throw new HttpError(res.status);
     }
+    const json = await res.json();
+    if (!json.success) throw envelopeError(json);
     return json.data as T;
   } catch (err: any) {
     if (err.name === 'AbortError') throw new NetworkError(t('errors.timeout'));

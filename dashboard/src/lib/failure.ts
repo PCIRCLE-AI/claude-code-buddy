@@ -1,5 +1,5 @@
 import { t } from './i18n';
-import { NetworkError } from './api';
+import { AuthRequiredError, HttpError, NetworkError } from './api';
 
 /**
  * The two ways a data load fails, kept apart because they carry different
@@ -34,4 +34,30 @@ export function failureMessage(kind: LoadFailure): string {
   return kind === 'unreachable'
     ? `${t('common.serverUnreachable')} ${t('common.serverUnreachableAction')}`
     : `${t('common.responseUnreadable')} ${t('common.responseUnreadableAction')}`;
+}
+
+/**
+ * The user-facing sentence for a failed ACTION (save, seed, accept, run…), as
+ * opposed to a failed data load. Loads route through failureMessage() because
+ * "reload" is a sane next step there; for an action the errors split four ways:
+ *
+ *   - NetworkError      → the browser's "Failed to fetch" / "NetworkError when
+ *                         attempting…" prose, which names neither the process
+ *                         nor the fix. Replaced with the unreachable sentence.
+ *   - AuthRequiredError → api() already announced the 401 and the app is
+ *                         swapping in the auth prompt; the inline text only
+ *                         flashes, so name the state rather than the exception.
+ *   - HttpError         → the server answered non-2xx with a body api() could
+ *                         not read as an envelope. Status + "try again /
+ *                         memesh doctor" is everything that is known.
+ *   - other Error       → api()'s envelope path: already the httpError.<code>
+ *                         translation for a KNOWN code, the server's own prose
+ *                         otherwise. Both are sentences meant for humans.
+ */
+export function actionFailureMessage(err: unknown): string {
+  if (err instanceof NetworkError) return failureMessage('unreachable');
+  if (err instanceof AuthRequiredError) return t('auth.title');
+  if (err instanceof HttpError) return t('common.serverError', { status: err.status });
+  if (err instanceof Error && err.message) return err.message;
+  return t('errors.unknown');
 }

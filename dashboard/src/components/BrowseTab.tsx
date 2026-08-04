@@ -1,15 +1,21 @@
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
-import { api, fetchProjects, type Entity, type ProjectInfo } from '../lib/api';
+import { api, fetchProjects, type Entity, type HealthData, type ProjectInfo } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
 import { ProjectRoadmap } from './ProjectRoadmap';
+import { EmptyLibraryState } from './EmptyLibraryState';
 import { t, getLocale } from '../lib/i18n';
-import { classifyLoadError, failureMessage } from '../lib/failure';
+import { actionFailureMessage, classifyLoadError, failureMessage } from '../lib/failure';
 import { clusterOf, timeBucket, extractProject, type TypeCluster, type TimeBucket } from '../lib/entity-display';
 import { useSignalMode } from '../lib/signalMode';
 
 const ROADMAP_PREF_KEY = 'memesh.browse.viewMode';
 
 const PAGE_SIZE = 30;
+
+/** What load() asks /v1/entities for. At exactly this count the list is
+ *  (almost certainly) truncated and the header must say so instead of
+ *  letting "N active" silently contradict the header's entity_count. */
+const FETCH_LIMIT = 2000;
 
 type ClusterKey = TypeCluster | 'all';
 type TimeKey = TimeBucket | 'all';
@@ -50,7 +56,7 @@ function Chip({ label, active, onClick, count }: ChipProps) {
   );
 }
 
-export function BrowseTab({ manage }: { manage?: boolean }) {
+export function BrowseTab({ manage, health }: { manage?: boolean; health?: HealthData | null }) {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [filter, setFilter] = useState('');
@@ -96,7 +102,7 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
     setError('');
     try {
       const [data, projs] = await Promise.all([
-        api<Entity[]>('GET', '/v1/entities?limit=2000&status=all'),
+        api<Entity[]>('GET', `/v1/entities?limit=${FETCH_LIMIT}&status=all`),
         fetchProjects().catch(() => []),
       ]);
       // `data || []` let a shape-less `{}` through — `for (const e of entities)`
@@ -192,8 +198,8 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
     try {
       await api('POST', '/v1/forget', { name });
       load();
-    } catch (e: any) {
-      setError(t('browse.archiveFailed', { message: e.message }));
+    } catch (e) {
+      setError(t('browse.archiveFailed', { message: actionFailureMessage(e) }));
     }
   }
 
@@ -201,8 +207,8 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
     try {
       await api('POST', '/v1/remember', { name, type: 'restored' });
       load();
-    } catch (e: any) {
-      setError(t('browse.restoreFailed', { message: e.message }));
+    } catch (e) {
+      setError(t('browse.restoreFailed', { message: actionFailureMessage(e) }));
     }
   }
 
@@ -218,6 +224,17 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
               <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
                 {active.length.toLocaleString(getLocale())} {t('browse.active')}
                 {archived.length > 0 ? ` · ${archived.length} ${t('browse.archived')}` : ''}
+                {/* The header (via /v1/health) shows the true count; this tab
+                    holds at most FETCH_LIMIT rows. When the two disagree, say
+                    so — two contradicting numbers with no explanation read as
+                    data loss. */}
+                {entities.length >= FETCH_LIMIT
+                  && (health?.entity_count ?? 0) > entities.length && (
+                  <span> · {t('browse.truncated', {
+                    shown: entities.length.toLocaleString(getLocale()),
+                    total: (health!.entity_count).toLocaleString(getLocale()),
+                  })}</span>
+                )}
               </div>
             )}
           </div>
@@ -307,7 +324,17 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
 
         {/* List view: shown when no project filter, or when user opted out
             of roadmap, or in manage mode. */}
-        {!loading && (project === 'all' || viewMode === 'list' || manage) && active.length === 0 && (
+        {/* Two different empties, two different truths. An empty DATABASE
+            must not say "try a different filter" — there is nothing behind
+            any filter, and the OnboardingBanner (dismissable, permanently)
+            may be long gone: this is the demo's durable second entry point.
+            Gated on !error so an unreadable payload's forced-empty entities
+            never masquerades as a fresh install. */}
+        {!loading && !error && (project === 'all' || viewMode === 'list' || manage) && entities.length === 0 && (
+          <EmptyLibraryState />
+        )}
+
+        {!loading && (project === 'all' || viewMode === 'list' || manage) && entities.length > 0 && active.length === 0 && (
           <div class="empty">
             <span class="empty-icon" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-3)' }}>
               {/* Inbox / empty mailbox glyph */}
