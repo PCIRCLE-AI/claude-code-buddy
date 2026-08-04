@@ -6,6 +6,25 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **A non-English dashboard no longer shows hardcoded English.** Every
+  server-supplied identifier the dashboard used to print raw is now
+  translated in all 11 languages: entity-type badges and graph filters,
+  graph edge relation labels, weekday names in Work Patterns (the server
+  now sends only the day number — the English day-name column is gone
+  from the `/v1/patterns` payload), LLM-telemetry flow and error-class
+  labels, lesson severity badges, roadmap phase/entry/view strings, icon
+  screen-reader names, tooltips on memory rows, and the Insights tab's
+  hand-rolled "3h ago" formatter (replaced by the shared localised one).
+  Dates and number grouping follow the chosen dashboard language instead
+  of the browser's. New build-failing tests pin every dynamic
+  `t(...)`-key family (types, relations, weekdays, flows, error classes,
+  severities, radar axes) to the catalogue so none of these can regress
+  silently. zh-TW/zh-CN strings that mixed English gratuitously
+  (「等你 review」, an untranslated telemetry panel) are now fully
+  Chinese. Two screen-reader defects fixed along the way: the onboarding
+  error alert no longer contradicts itself (`role="alert"` +
+  `aria-live="polite"`), and the pending-insights banner is announced as
+  the button it behaves as, not a region.
 - **The dashboard's doctor banner now speaks the user's language — and only
   speaks when something is wrong.** Two reported defects: with the language
   set to Chinese the banner printed raw server English ("No memesh-attributed
