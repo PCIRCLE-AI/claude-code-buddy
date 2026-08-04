@@ -69,6 +69,22 @@ describe('HTTP Transport: body-parsing failures', () => {
     expect(parsed.error).toContain('not valid JSON');
   });
 
+  it('a non-JSON Content-Type names the header on the hand-rolled routes too', async () => {
+    // The review of the first fix found the guard only inside handlePost,
+    // while /v1/recall (the single most-used endpoint), /v1/config and
+    // /v1/config/test hand-roll their parsing and still emitted Zod's
+    // "expected object, received undefined". One owner now; this pins the
+    // busiest of the three.
+    const res = await fetch(`http://127.0.0.1:${port}/v1/recall`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ query: 'anything' }),
+    });
+    expect(res.status).toBe(400);
+    const parsed = await res.json();
+    expect(String(parsed.hint ?? parsed.error)).toContain('Content-Type');
+  });
+
   it('a non-JSON Content-Type names the header as the problem', async () => {
     // express.json() skips other content types, req.body stays undefined,
     // and the old Zod message ("expected object, received undefined") sent

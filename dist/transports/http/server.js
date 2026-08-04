@@ -212,15 +212,19 @@ app.get('/v1/doctor', async (_req, res) => {
         res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
     }
 });
+function requireJsonBody(req, res) {
+    if (req.body !== undefined)
+        return true;
+    res.status(400).json({
+        success: false,
+        error: 'No JSON body was parsed from this request.',
+        hint: 'Send the payload with Content-Type: application/json.',
+    });
+    return false;
+}
 function handlePost(schema, req, res, handler) {
-    if (req.body === undefined) {
-        res.status(400).json({
-            success: false,
-            error: 'No JSON body was parsed from this request.',
-            hint: 'Send the payload with Content-Type: application/json.',
-        });
+    if (!requireJsonBody(req, res))
         return;
-    }
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({
@@ -241,6 +245,8 @@ function handleGet(res, produce) {
 }
 app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, remember));
 app.post('/v1/recall', async (req, res) => {
+    if (!requireJsonBody(req, res))
+        return;
     const parsed = RecallBody.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
@@ -303,6 +309,8 @@ const ConfigBody = z.object({
     setupCompleted: z.boolean().optional(),
 }).strip();
 app.post('/v1/config', async (req, res) => {
+    if (!requireJsonBody(req, res))
+        return;
     const parsed = ConfigBody.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
@@ -330,6 +338,8 @@ const ConfigTestBody = z.object({
     host: z.string().max(500).optional(),
 });
 app.post('/v1/config/test', async (req, res) => {
+    if (!requireJsonBody(req, res))
+        return;
     const parsed = ConfigTestBody.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({

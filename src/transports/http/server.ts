@@ -339,24 +339,31 @@ app.get('/v1/doctor', async (_req, res) => {
 // error mapping + try/catch + 200/400 block. handlePost factors that
 // into one place. Async handlers are fine — Promise.resolve unifies
 // sync (remember/forget) and async (consolidate) code paths.
+/**
+ * express.json() only parses Content-Type: application/json; anything else
+ * leaves req.body undefined, and the Zod message for that ("expected object,
+ * received undefined") sent users off to fix their BODY when the problem was
+ * the header. One owner: the review of the first version found the guard in
+ * handlePost while the three hand-rolled POST routes (recall, config,
+ * config/test) still emitted the confusing message.
+ */
+function requireJsonBody(req: Request, res: Response): boolean {
+  if (req.body !== undefined) return true;
+  res.status(400).json({
+    success: false,
+    error: 'No JSON body was parsed from this request.',
+    hint: 'Send the payload with Content-Type: application/json.',
+  });
+  return false;
+}
+
 function handlePost<T>(
   schema: z.ZodType<T>,
   req: Request,
   res: Response,
   handler: (data: T) => unknown | Promise<unknown>,
 ): void {
-  // express.json() only parses Content-Type: application/json; anything else
-  // leaves req.body undefined, and the Zod message for that ("expected
-  // object, received undefined") sent users off to fix their BODY when the
-  // problem was the header.
-  if (req.body === undefined) {
-    res.status(400).json({
-      success: false,
-      error: 'No JSON body was parsed from this request.',
-      hint: 'Send the payload with Content-Type: application/json.',
-    });
-    return;
-  }
+  if (!requireJsonBody(req, res)) return;
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({
@@ -387,6 +394,7 @@ app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, rememb
 
 // --- Recall ---
 app.post('/v1/recall', async (req, res) => {
+  if (!requireJsonBody(req, res)) return;
   const parsed = RecallBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
@@ -501,6 +509,7 @@ const ConfigBody = z.object({
 }).strip();
 
 app.post('/v1/config', async (req, res) => {
+  if (!requireJsonBody(req, res)) return;
   const parsed = ConfigBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
@@ -551,6 +560,7 @@ const ConfigTestBody = z.object({
 });
 
 app.post('/v1/config/test', async (req, res) => {
+  if (!requireJsonBody(req, res)) return;
   const parsed = ConfigTestBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({

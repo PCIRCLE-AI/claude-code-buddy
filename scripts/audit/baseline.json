@@ -421,15 +421,15 @@
       "reason": "set -uo pipefail at file top preserves the left commands verdict",
       "triaged": "2026-08-04 (re-keyed: the mktemp-orphan fix shifted lines by five)"
     },
-    "C5 src/transports/http/server.ts:796": {
+    "C5 src/transports/http/server.ts:806": {
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-04 (re-keyed: the P7 body-error handlers shifted lines)"
+      "triaged": "2026-08-04 (re-keyed again: requireJsonBody extraction shifted lines)"
     },
-    "C5 src/transports/http/server.ts:859": {
+    "C5 src/transports/http/server.ts:869": {
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-04 (re-keyed: the P7 body-error handlers shifted lines)"
+      "triaged": "2026-08-04 (re-keyed again: requireJsonBody extraction shifted lines)"
     }
   }
 }
