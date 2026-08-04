@@ -35,8 +35,18 @@ export function AnalyticsTab() {
       // server both produce. Every render below reads a required field off
       // these — `stats.totalEntities.toLocaleString()` and friends — so a
       // payload without them has to read as "did not load", not as "loaded".
-      setStats(typeof s?.totalEntities === 'number' ? s : null);
-      setAnalytics(a?.healthScore !== undefined ? a : null);
+      // Each guard has to cover every field the render below dereferences, not
+      // just the first one. `stats.tagDistribution.filter()` and the three
+      // children fed `analytics.loopMetric` / `.healthFactors` / `.timeline`
+      // are all unconditional reads behind a bare `{stats && …}` /
+      // `{analytics && …}`, so a partial payload passed the setter and threw
+      // in the renderer instead.
+      setStats(
+        typeof s?.totalEntities === 'number' && Array.isArray(s.tagDistribution) ? s : null
+      );
+      setAnalytics(
+        a?.healthScore !== undefined && a.healthFactors && a.loopMetric && a.timeline ? a : null
+      );
       setPatterns(p?.workSchedule ? p : null);
     }).finally(() => setLoading(false));
   }, []);

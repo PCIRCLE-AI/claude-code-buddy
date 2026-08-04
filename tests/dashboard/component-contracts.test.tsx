@@ -79,6 +79,40 @@ function stubFailingApi(): void {
   });
 }
 
+/**
+ * An API that answers with SOME of the payload — the version-skew shape.
+ *
+ * This case was missing from the first version of this file, and the gap was
+ * real: guards written against `{}` alone passed while
+ * `PmAnalyticsPanel` still read `data.velocity.decisionsPerWeek` off a payload
+ * that only carried `connectedness`, and `AnalyticsTab` still read
+ * `stats.tagDistribution.filter()` off one that only carried `totalEntities`.
+ *
+ * An empty payload is the easy case and the rarer one. A server that
+ * implements half of a response — because it is a version behind, or because
+ * one of three parallel queries failed — is what actually reaches users, and it
+ * is the case a `!data` guard is least likely to catch.
+ *
+ * The scalars below are deliberately populated and every array/object group is
+ * deliberately absent: that is the combination that survives a truthiness
+ * check and then throws on the first `.filter` / `.map` / nested read.
+ */
+function stubPartialApi(): void {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+    jsonResponse({
+      success: true,
+      data: {
+        totalEntities: 3,
+        totalObservations: 7,
+        totalRelations: 1,
+        totalTags: 2,
+        healthScore: 42,
+        connectedness: { orphanRate: 0.1, totalRelations: 1 },
+      },
+    })
+  );
+}
+
 /** The assertion. Visible text must not expose the machinery behind it. */
 function assertNoLeakedInternals(name: string, text: string): void {
   for (const leak of ['undefined', 'NaN', '[object Object]']) {
@@ -203,6 +237,13 @@ describe('dashboard components on degenerate data', () => {
 
     it(`${c.name} exposes no internals when the API is down`, async () => {
       stubFailingApi();
+      const { container } = c.render();
+      await waitFor(() => expect(container).toBeTruthy());
+      assertNoLeakedInternals(c.name, container.textContent ?? '');
+    });
+
+    it(`${c.name} exposes no internals when the API answers with half a payload`, async () => {
+      stubPartialApi();
       const { container } = c.render();
       await waitFor(() => expect(container).toBeTruthy());
       assertNoLeakedInternals(c.name, container.textContent ?? '');

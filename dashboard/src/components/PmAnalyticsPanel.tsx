@@ -30,7 +30,12 @@ export function PmAnalyticsPanel() {
   // `!data` is false for `{}`, and the next line reads
   // `data.connectedness.orphanRate`. Guard the shape this component actually
   // destructures, not the object's existence.
-  if (!data?.connectedness) return null;
+  // Guard EVERY group this component dereferences, not just the first one.
+  // Lines below read `data.velocity.decisionsPerWeek.toFixed()` and
+  // `data.staleness.openDecisionCount` too, so a payload carrying only
+  // `connectedness` — which is what a version-skewed server sends when it
+  // implements one metric group and not the others — still threw.
+  if (!data?.connectedness || !data.velocity || !data.staleness) return null;
 
   const orphanPct = (data.connectedness.orphanRate * 100).toFixed(1);
   const orphanColor =
