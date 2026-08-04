@@ -81,11 +81,24 @@ const COMPONENT_DIR = 'dashboard/src/components';
  * Every key in the English catalogue. A rendered key is a missed translation:
  * `t()` returns its argument on a miss, so the key IS the failure mode.
  */
-const I18N_KEYS: string[] = (() => {
+const EN: Map<string, string> = (() => {
   const src = fs.readFileSync(path.join(repoRoot, 'dashboard/src/lib/i18n.ts'), 'utf8');
   const en = src.slice(src.indexOf('\n  en: {'), src.indexOf("\n  'zh-TW': {"));
-  return [...en.matchAll(/^\s+'([a-z][a-zA-Z0-9]*\.[a-zA-Z0-9.]+)':/gm)].map(m => m[1]);
+  const out = new Map<string, string>();
+  for (const m of en.matchAll(/^\s+'([a-z][a-zA-Z0-9]*\.[a-zA-Z0-9.]+)':\s*'((?:[^'\\]|\\.)*)'/gm)) {
+    out.set(m[1], m[2]);
+  }
+  return out;
 })();
+
+const I18N_KEYS: string[] = [...EN.keys()];
+
+/** The English text a key renders as, or a loud failure if the key is gone. */
+function en(key: string): string {
+  const value = EN.get(key);
+  if (!value) throw new Error(`expected i18n key ${key} is not in the English catalogue`);
+  return value;
+}
 
 /* ------------------------------------------------------------------ *
  * Detectors                                                           *
@@ -267,12 +280,14 @@ function stubOptionalExtrasHollowApi(): void {
   }));
 }
 
-const STUBS: Array<{ label: string; install: () => void }> = [
+const STUBS: Array<{ label: string; install: () => void; positive?: true }> = [
   { label: 'answers empty', install: stubEmptyApi },
   { label: 'is down', install: stubFailingApi },
   { label: 'answers with half a payload', install: stubPartialApi },
   { label: 'answers with every group present but hollow', install: stubHollowApi },
-  { label: 'answers with the core valid and the optional extras hollow', install: stubOptionalExtrasHollowApi },
+  // The only stub where every component is supposed to render for real, so the
+  // only one the positive half of the contract can be asserted against.
+  { label: 'answers with the core valid and the optional extras hollow', install: stubOptionalExtrasHollowApi, positive: true },
 ];
 
 /* ------------------------------------------------------------------ *
@@ -392,6 +407,62 @@ const INTENTIONALLY_EXCLUDED: Record<string, string> = {
 };
 
 /* ------------------------------------------------------------------ *
+ * The positive half of the contract                                   *
+ * ------------------------------------------------------------------ */
+
+/**
+ * What each component must actually RENDER when the API answers with a payload
+ * the server can really produce (`stubOptionalExtrasHollowApi`).
+ *
+ * Everything above this line is a prohibition — no leaked text, no rejection,
+ * no render error. **A component that renders nothing satisfies all three.**
+ * Measured: forcing all four new leaf guards to reject every payload left this
+ * file at 100 passed / exit 0 while `PmAnalyticsPanel` rendered 0 characters
+ * and `AnalyticsTab` dropped from 594 to 216 — the stats row survived and the
+ * health, timeline and patterns panels vanished. A guard checked against leaves
+ * fails in exactly that direction, and nothing here could see it.
+ *
+ * So this is the missing clause. Expectations are i18n **keys**, resolved to
+ * their English text at run time, so they follow the catalogue instead of
+ * becoming a second hand-maintained copy of it; `en()` throws if a key is
+ * retired. `literals` is for the one component with no `t()` calls at all.
+ *
+ * `nothing` is for components that legitimately render empty under their
+ * degenerate props — a decision written down, not an omission. The meta-test
+ * below requires every case to declare one or the other.
+ *
+ * Note a length check is not enough: 216 characters passed while four panels
+ * were missing.
+ */
+const MUST_RENDER: Record<string, { keys?: string[]; literals?: string[]; nothing?: string }> = {
+  // One marker per row this tab is made of, because each row has its own guard
+  // and a marker from a different row will not notice that row disappearing:
+  // stats / health / timeline / patterns.
+  AnalyticsTab: { keys: ['analytics.totalMemories', 'health.title', 'timeline.title', 'patterns.title'] },
+  BrowseTab: { keys: ['browse.title', 'browse.filterCategory'] },
+  DoctorBanner: { nothing: 'renders only when a doctor check has failed; every stub sends an empty checks list' },
+  FeedbackWidget: { keys: ['feedback.button'] },
+  GraphTab: { keys: ['tab.graph', 'graph.entities'] },
+  Header: { literals: ['MeMesh LLM Memory'] },
+  HealthScore: { keys: ['health.title'] },
+  InsightsBanner: { nothing: 'renders only when there are unreviewed insights to point at from the current tab' },
+  InsightsTab: { keys: ['insights.title'] },
+  KnowledgeRadar: { nothing: 'takes `data={[]}`; an empty radar has no axes to draw' },
+  LessonsTab: { keys: ['lessons.tabFailure'] },
+  LlmTelemetryPanel: { keys: ['telemetry.title'] },
+  MemoryAgeMatrix: { nothing: 'takes `data={[]}`; an empty matrix has no buckets to draw' },
+  MemoryTimeline: { keys: ['timeline.title'] },
+  PatternCard: { literals: ['pattern-1'] },
+  // The one component with zero `t()` calls — every string in it is an English
+  // literal, which is its own defect and is tracked separately. Until it is
+  // translated there is no key to point at.
+  PmAnalyticsPanel: { literals: ['decisions/week', 'KG orphan rate'] },
+  SearchTab: { keys: ['search.title'] },
+  TabNav: { nothing: 'takes `tabs={[]}`; there are no tabs to render' },
+  UserPatterns: { keys: ['patterns.title'] },
+};
+
+/* ------------------------------------------------------------------ *
  * Canaries — one per detector, asserting the harness can still fail   *
  * ------------------------------------------------------------------ */
 
@@ -484,6 +555,31 @@ describe('dashboard components on degenerate data', () => {
     expect(I18N_KEYS).toContain('auth.title');
   });
 
+  it('every covered component declares what it must render, or why it renders nothing', () => {
+    // Without this, adding a case and forgetting its expectation leaves that
+    // component back where the whole file started: three prohibitions and no
+    // requirement, satisfied by rendering nothing at all.
+    const missing: string[] = [];
+    const both: string[] = [];
+    for (const c of CASES) {
+      const want = MUST_RENDER[c.name];
+      const positive = (want?.keys?.length ?? 0) + (want?.literals?.length ?? 0);
+      if (!want || (positive === 0 && !want.nothing)) missing.push(c.name);
+      else if (positive > 0 && want.nothing) both.push(c.name);
+    }
+    expect(missing).toEqual([]);
+    expect(both).toEqual([]);
+
+    // And nothing stale: an entry for a component no longer under test would
+    // silently stop being enforced.
+    const covered = new Set(CASES.map(c => c.name));
+    expect(Object.keys(MUST_RENDER).filter(n => !covered.has(n))).toEqual([]);
+
+    // Every key named above must still exist, or `en()` would throw inside a
+    // case and read as that component's failure rather than a retired key.
+    for (const want of Object.values(MUST_RENDER)) for (const k of want.keys ?? []) expect(() => en(k)).not.toThrow();
+  });
+
   it('every component on disk is either covered or explicitly excluded', () => {
     // Derived from the directory, not from a sentence in a comment. A component
     // added tomorrow fails here until somebody decides which side it is on.
@@ -547,7 +643,27 @@ describe('dashboard components on degenerate data', () => {
         await settle();
         expect(caught.map(String)).toEqual([]);
         expect(unhandled.map(String)).toEqual([]);
-        assertNoLeakedInternals(c.name, container.textContent ?? '');
+        const text = container.textContent ?? '';
+        assertNoLeakedInternals(c.name, text);
+
+        // The positive half. Only against the stub where the component is
+        // supposed to have real content, because that is the only payload for
+        // which "renders nothing" is unambiguously wrong.
+        if (stub.positive) {
+          const want = MUST_RENDER[c.name];
+          // `expect(text, message)`, NOT `expect(\`…${text}\`).toContain(needle)`.
+          // The first version of this built the needle into the message and then
+          // searched the message — an assertion that could not fail, written
+          // inside the change whose whole point is removing those. The
+          // break-test caught it; nothing else would have.
+          for (const key of want.keys ?? []) {
+            expect(text, `${c.name} should render ${key} (${JSON.stringify(en(key))})`).toContain(en(key));
+          }
+          for (const literal of want.literals ?? []) {
+            expect(text, `${c.name} should render ${JSON.stringify(literal)}`).toContain(literal);
+          }
+          if (want.nothing) expect(text, `${c.name} should render nothing: ${want.nothing}`).toBe('');
+        }
       });
     }
   }
