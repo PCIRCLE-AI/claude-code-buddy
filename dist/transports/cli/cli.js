@@ -52,6 +52,14 @@ program
         opts.type = 'note';
         if (!opts.obs || opts.obs.length === 0)
             opts.obs = [String(text)];
+        else
+            opts.obs = [...opts.obs, String(text)];
+    }
+    else if (text) {
+        if (!opts.obs || opts.obs.length === 0)
+            opts.obs = [String(text)];
+        else
+            opts.obs = [...opts.obs, String(text)];
     }
     if (!opts.name || !opts.type) {
         console.error('Error: provide --name and --type, OR pass quick-capture text as a positional arg.\n' +
@@ -108,11 +116,25 @@ program
             console.log('No results found.');
         }
         else {
+            const allSemantic = query && entities.every((e) => e.match?.source === 'semantic');
+            if (allSemantic) {
+                console.log('No keyword matches. Closest memories by meaning — may be unrelated:');
+            }
             for (const e of entities) {
                 const badge = e.archived ? ' [archived]' : '';
-                console.log(`  ${e.name}${badge} (${e.type})`);
+                const semantic = e.match?.source === 'semantic'
+                    ? ` (~${Math.round((e.match.relevance ?? 0) * 100)}% semantic)`
+                    : '';
+                console.log(`  ${e.name}${badge} (${e.type})${semantic}`);
                 for (const obs of e.observations.slice(0, 3)) {
-                    console.log(`    - ${obs}`);
+                    let shown = obs;
+                    if (obs.length > 500) {
+                        let head = obs.slice(0, 500);
+                        if (/[\uD800-\uDBFF]$/.test(head))
+                            head = head.slice(0, -1);
+                        shown = `${head} … (+${obs.length - head.length} more chars)`;
+                    }
+                    console.log(`    - ${shown}`);
                 }
                 if (e.observations.length > 3) {
                     console.log(`    ... +${e.observations.length - 3} more`);

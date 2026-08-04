@@ -126,11 +126,6 @@
       "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/demo.ts:149": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "spreads an in-repo literal",
-      "triaged": "2026-08-04"
-    },
     "C5 src/core/doctor.ts:370": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
@@ -430,6 +425,16 @@
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
       "triaged": "2026-08-04 (re-keyed again: requireJsonBody extraction shifted lines)"
+    },
+    "C1 tests/cli/recall-presentation.test.ts": {
+      "class": "SAFE",
+      "reason": "the .toBe(0)/exit-code assertions are paired with positive stdout content checks in the same tests (needle text, headers)",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/demo.ts:180": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "spreads an in-repo literal DEMO_DATA entry (line shifted by the DEMO_RELATIONS insert; same code as the prior demo.ts entry)",
+      "triaged": "2026-08-04"
     }
   }
 }

@@ -18,6 +18,10 @@ export interface Entity {
     tags: string[];
     relations?: Relation[];
     archived?: boolean;
+    match?: {
+        source: 'keyword' | 'semantic';
+        relevance: number;
+    };
     access_count?: number;
     last_accessed_at?: string;
     confidence?: number;

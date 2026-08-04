@@ -88,6 +88,23 @@ describe('seedDemo', () => {
     expect(real).toBeDefined();
   });
 
+  it('seeds typed relations so the Graph tab shows a graph, not 30 orphans', async () => {
+    const { seedDemo, DEMO_RELATIONS } = await import('../../src/core/demo.js');
+    seedDemo(db);
+    const edges = (db.prepare('SELECT COUNT(*) as c FROM relations').get() as { c: number }).c;
+    // A typo'd endpoint name in the fixture makes createRelation THROW (it
+    // resolves both names up front), so seedDemo itself fails loudly and the
+    // count assertion above never sees a short table. No dangling-row check
+    // here — the insert path makes that state unreachable, and a query for
+    // an unreachable state is a gate that cannot fail.
+    expect(edges).toBe(DEMO_RELATIONS.length);
+    expect(edges).toBeGreaterThanOrEqual(15);
+    // Idempotent re-run must not double the edges.
+    seedDemo(db);
+    const after = (db.prepare('SELECT COUNT(*) as c FROM relations').get() as { c: number }).c;
+    expect(after).toBe(edges);
+  });
+
   it('seeds at least one entity of every key type cluster (lessons, decisions, patterns, bug_fix, releases, plans)', async () => {
     const { seedDemo } = await import('../../src/core/demo.js');
     seedDemo(db);

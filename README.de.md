@@ -434,5 +434,5 @@ Dashboard: `cd dashboard && npm install && npm run dev`
 ---
 
 <p align="center">
-  <strong>MIT</strong> — Erstellt von <a href="https://pcircle.ai">PCIRCLE AI</a>
+  <strong>MIT</strong> — Erstellt von <a href="https://pcircle.com">PCIRCLE AI</a>
 </p>

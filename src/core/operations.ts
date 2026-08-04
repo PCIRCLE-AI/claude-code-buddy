@@ -261,9 +261,15 @@ async function supplementWithVectors(
     const existingNames = new Set(merged.map(e => e.name));
     for (const entity of hitEntities) {
       if (existingNames.has(entity.name)) continue;
-      merged.push(entity);
       const dist = vectorHits.find(h => h.id === entity.id)?.distance ?? MAX_VECTOR_DISTANCE;
-      relevanceMap.set(entity.name, vectorSimilarity(dist));
+      const relevance = vectorSimilarity(dist);
+      // Provenance travels with the entity: a semantic-only hit cannot be
+      // certified relevant (the junk/genuine distance distributions overlap
+      // — see Entity.match), so every consumer gets to say HOW this row was
+      // found instead of presenting geometry's best guess as a match.
+      entity.match = { source: 'semantic', relevance };
+      merged.push(entity);
+      relevanceMap.set(entity.name, relevance);
     }
   } catch {
     // Vector search failed — FTS5 results still valid.
@@ -289,6 +295,15 @@ async function supplementWithVectors(
  */
 export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
   const { kg, entities, relevanceMap } = searchAndScore(args);
+
+  // Keyword provenance for the FTS side; the vector supplement below tags
+  // its own additions as `semantic`. Only meaningful when there was a query
+  // — the empty-query recent-list is a listing, not a match.
+  if (args.query) {
+    for (const e of entities) {
+      e.match = { source: 'keyword', relevance: relevanceMap.get(e.name) ?? 0 };
+    }
+  }
 
   const mergedEntities = [...entities];
   // `hasSearchableTerms`, not merely a truthy string. A query like "???" is

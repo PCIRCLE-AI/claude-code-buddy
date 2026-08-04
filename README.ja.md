@@ -462,5 +462,5 @@ npm run test:e2e-dashboard
 ---
 
 <p align="center">
-  <strong>MIT</strong> — Made by <a href="https://pcircle.ai">PCIRCLE AI</a>
+  <strong>MIT</strong> — Made by <a href="https://pcircle.com">PCIRCLE AI</a>
 </p>

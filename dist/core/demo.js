@@ -42,6 +42,23 @@ function demoMetadata() {
 function isoForDaysAgo(days) {
     return new Date(Date.now() - days * 86400000).toISOString();
 }
+export const DEMO_RELATIONS = [
+    ['feature-auth-flow', 'implements', 'auth-decision'],
+    ['bugfix-race-on-double-submit', 'relates_to', 'feature-auth-flow'],
+    ['arch-recall-pipeline', 'depends_on', 'arch-storage-layer'],
+    ['db-choice', 'relates_to', 'arch-storage-layer'],
+    ['pattern-noise-filter', 'relates_to', 'arch-recall-pipeline'],
+    ['lesson-billing-config-error', 'learned_from', 'plan-billing-rollout'],
+    ['bugfix-confidence-pump', 'relates_to', 'arch-recall-pipeline'],
+    ['feature-projects-view', 'follows', 'api-design'],
+    ['rate-limiting', 'relates_to', 'api-design'],
+    ['plan-v3-dashboard', 'relates_to', 'decision-precision-engineer-design'],
+    ['bugfix-stale-cache-banner', 'relates_to', 'plan-v3-dashboard'],
+    ['lesson-bug_fix-canvas-blank', 'learned_from', 'plan-v3-dashboard'],
+    ['arch-roadmap-derivation', 'depends_on', 'feature-projects-view'],
+    ['lesson-test-failure-flake', 'relates_to', 'testing-strategy'],
+    ['decision-graceful-degradation', 'relates_to', 'arch-recall-pipeline'],
+];
 export function seedDemo(db, opts = {}) {
     if (opts.reset) {
         const kgInner = new KnowledgeGraph(db);
@@ -73,6 +90,13 @@ export function seedDemo(db, opts = {}) {
         });
         stampStmt.run(isoForDaysAgo(entry.daysAgo), JSON.stringify(demoMetadata()), entry.name);
         inserted++;
+    }
+    if (inserted > 0) {
+        db.transaction(() => {
+            for (const [from, type, to] of DEMO_RELATIONS) {
+                kg.createRelation(from, to, type);
+            }
+        })();
     }
     return { inserted, removed: 0 };
 }

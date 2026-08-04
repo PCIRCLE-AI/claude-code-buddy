@@ -126,10 +126,27 @@ Returns an array of matching entities ranked by multi-factor score — relevance
     "tags": ["project:myapp", "topic:auth"],
     "relations": [
       {"from": "auth-decision", "to": "api-design", "type": "related-to"}
-    ]
+    ],
+    "match": {"source": "keyword", "relevance": 0.42}
   }
 ]
 ```
+
+**Provenance (`match`)**: when the call has a query, every result says how it
+was found. `"source": "keyword"` means the full-text index matched your words;
+`"source": "semantic"` means the keyword index found nothing for this entity
+and it was surfaced by vector similarity alone. The distinction is disclosed
+because similarity cannot certify relevance — measured on this project's own
+calibration data, the distance ranges of unrelated and genuinely related
+memories overlap, so a semantic-only result may be unrelated. `relevance` is
+the 0–1 similarity for semantic results and the normalized keyword score for
+keyword results. The CLI renders this honestly: a result set that is entirely
+semantic is prefixed with `No keyword matches. Closest memories by meaning —
+may be unrelated:` and each such row carries a `~N% semantic` badge. The
+empty-query listing (recent memories) carries no `match` field — a listing is
+not a match. In CLI (non-`--json`) output, observations longer than 500
+characters are capped on display with `… (+N more chars)`; storage and
+`--json` always carry the full text.
 
 **Conflict detection**: When any pair of returned entities have a `contradicts` relation, the response is wrapped as shown below. Nothing creates that relation for you — a caller states it via `remember`'s `relations` (see [remember](#remember)), so an empty `conflicts` means "none stated between these results", not "checked and clean":
 

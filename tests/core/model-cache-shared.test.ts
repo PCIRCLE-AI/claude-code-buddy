@@ -23,9 +23,10 @@
  */
 import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { onnxCacheDir } from '../../src/core/embedder.js';
+import { isOnnxModelCached, onnxCacheDir } from '../../src/core/embedder.js';
 import { memeshDir } from '../../src/core/paths.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -53,6 +54,50 @@ describe('the ONNX model cache can be shared across isolated HOMEs', () => {
     for (const blank of ['', '   ']) {
       process.env.MEMESH_MODEL_CACHE_DIR = blank;
       expect(onnxCacheDir(), `"${blank}" was used as a cache path`).toBe(path.join(memeshDir(), 'models'));
+    }
+  });
+
+  it('isOnnxModelCached reads the SAME root as the pipeline (onnxCacheDir), not memeshDir', () => {
+    // P7 defect: this check read memeshDir()+'models' while the pipeline
+    // honoured MEMESH_MODEL_CACHE_DIR — so the "downloading ~90 MB, one time"
+    // notice fired on every warm-cache run. A one-time message that shows up
+    // every time is how it stops being read. Both directions are pinned with
+    // HOME controlled, so the verdict cannot depend on this machine's real
+    // ~/.memesh.
+    const prevHome = process.env.HOME;
+    const prevProfile = process.env.USERPROFILE;
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cachehome-'));
+    const tmpCache = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-cacheroot-'));
+    try {
+      process.env.HOME = tmpHome;
+      process.env.USERPROFILE = tmpHome;
+      const modelLeaf = ['Xenova', 'all-MiniLM-L6-v2', 'onnx'];
+
+      // Warm override root, cold HOME -> cached. (The old memeshDir-reading
+      // code returns false here: HOME has no model.)
+      fs.mkdirSync(path.join(tmpCache, ...modelLeaf), { recursive: true });
+      fs.writeFileSync(path.join(tmpCache, ...modelLeaf, 'model.onnx'), 'fake-weights');
+      process.env.MEMESH_MODEL_CACHE_DIR = tmpCache;
+      expect(isOnnxModelCached(), 'warm MEMESH_MODEL_CACHE_DIR must read as cached').toBe(true);
+
+      // Warm HOME, cold override root -> NOT cached: the pipeline will look
+      // in the override root and download there, so claiming "cached" off
+      // memeshDir would be the same lie in the other direction.
+      fs.mkdirSync(path.join(tmpHome, '.memesh', 'models', ...modelLeaf), { recursive: true });
+      fs.writeFileSync(path.join(tmpHome, '.memesh', 'models', ...modelLeaf, 'model.onnx'), 'fake-weights');
+      const coldCache = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-coldroot-'));
+      process.env.MEMESH_MODEL_CACHE_DIR = coldCache;
+      expect(isOnnxModelCached(), 'a cold override root must read as NOT cached even with a warm ~/.memesh').toBe(false);
+
+      // Half-finished download (dirs present, weights absent) -> NOT cached.
+      fs.mkdirSync(path.join(coldCache, ...modelLeaf), { recursive: true });
+      expect(isOnnxModelCached(), 'directories without model.onnx are not a cache').toBe(false);
+      fs.rmSync(coldCache, { recursive: true, force: true });
+    } finally {
+      process.env.HOME = prevHome;
+      process.env.USERPROFILE = prevProfile;
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+      fs.rmSync(tmpCache, { recursive: true, force: true });
     }
   });
 

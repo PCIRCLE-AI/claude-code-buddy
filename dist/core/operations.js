@@ -128,9 +128,11 @@ async function supplementWithVectors(query, args, kg, merged, relevanceMap) {
         for (const entity of hitEntities) {
             if (existingNames.has(entity.name))
                 continue;
-            merged.push(entity);
             const dist = vectorHits.find(h => h.id === entity.id)?.distance ?? MAX_VECTOR_DISTANCE;
-            relevanceMap.set(entity.name, vectorSimilarity(dist));
+            const relevance = vectorSimilarity(dist);
+            entity.match = { source: 'semantic', relevance };
+            merged.push(entity);
+            relevanceMap.set(entity.name, relevance);
         }
     }
     catch {
@@ -138,6 +140,11 @@ async function supplementWithVectors(query, args, kg, merged, relevanceMap) {
 }
 export async function recallEnhanced(args) {
     const { kg, entities, relevanceMap } = searchAndScore(args);
+    if (args.query) {
+        for (const e of entities) {
+            e.match = { source: 'keyword', relevance: relevanceMap.get(e.name) ?? 0 };
+        }
+    }
     const mergedEntities = [...entities];
     if (args.query && hasSearchableTerms(args.query)) {
         await supplementWithVectors(args.query, args, kg, mergedEntities, relevanceMap);
