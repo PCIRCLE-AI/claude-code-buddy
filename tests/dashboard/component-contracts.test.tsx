@@ -395,9 +395,24 @@ const INTENTIONALLY_EXCLUDED: Record<string, string> = {
  * Canaries — one per detector, asserting the harness can still fail   *
  * ------------------------------------------------------------------ */
 
+/**
+ * A payload with a field missing, obtained the way the real ones are.
+ *
+ * `JSON.parse` rather than an object literal on purpose. Writing
+ * `undefined as unknown as T` makes the defect statically provable — CodeQL
+ * raised `js/property-access-on-non-object`, "the base expression of this
+ * property access is always undefined", and it was right. A canary has to be a
+ * runtime failure, not a typo a static analyser can fold away, or it stops
+ * standing in for the thing it represents: a response that parsed fine and did
+ * not contain the field.
+ */
+function parsedWithout<T>(json: string): T {
+  return JSON.parse(json) as T;
+}
+
 /** Leaks `undefined` into text, never rejects, never throws. Detector 1 only. */
 function LeakyCanary() {
-  const partial = {} as { missing?: string };
+  const partial = parsedWithout<{ missing?: string }>('{}');
   return <div>{`value: ${partial.missing}`}</div>;
 }
 
@@ -405,8 +420,8 @@ function LeakyCanary() {
 function RejectingCanary() {
   useEffect(() => {
     void Promise.resolve().then(() => {
-      const nothing = undefined as unknown as { boom: () => void };
-      nothing.boom();
+      const payload = parsedWithout<{ group: { boom: () => void } }>('{}');
+      payload.group.boom();
     });
   }, []);
   return <div>fine</div>;
@@ -430,8 +445,8 @@ function CrashingCanary() {
   // flush, and that throw escapes the boundary the same way a mount-time throw
   // does — which would make this canary test a path no component takes.
   useEffect(() => { void Promise.resolve().then(() => setLoaded(true)); }, []);
-  const hollow = {} as { rows?: number[] };
-  return <div>{loaded ? (hollow.rows as number[]).map(n => <span>{n}</span>) : 'loading'}</div>;
+  const hollow = parsedWithout<{ rows: number[] }>('{}');
+  return <div>{loaded ? hollow.rows.map(n => <span>{n}</span>) : 'loading'}</div>;
 }
 
 /* ------------------------------------------------------------------ *

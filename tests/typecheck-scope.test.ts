@@ -29,7 +29,11 @@ const PROJECTS = ['tsconfig.check.json', 'tsconfig.check-dashboard.json'];
 const COLLECTED = ['.test.ts', '.test.tsx', '.spec.ts'];
 
 function norm(p: string): string {
-  return path.resolve(p).split(path.sep).join('/');
+  const abs = path.resolve(p).split(path.sep).join('/');
+  // tsc prints `C:/…` while `path.resolve` yields `C:\…`, and the drive letter's
+  // case is not stable between the two on Windows. Compare case-insensitively
+  // there, where the filesystem is anyway.
+  return process.platform === 'win32' ? abs.toLowerCase() : abs;
 }
 
 function walk(dir: string): string[] {
@@ -40,8 +44,24 @@ function walk(dir: string): string[] {
   });
 }
 
+/**
+ * `node node_modules/typescript/bin/tsc`, not `npx tsc`.
+ *
+ * `execFileSync('npx', …)` is the Windows trap this repository has already paid
+ * for twice: npx is `npx.cmd` there, `execFile` does not consult `PATHEXT`, and
+ * naming the `.cmd` explicitly then fails `EINVAL` because Node refuses to spawn
+ * one without a shell (CVE-2024-27980). `scripts/lib/npm-bin.mjs` exists to own
+ * that, and its own comment says "one owner, so a third caller cannot get it
+ * wrong a third way" — this file was the third caller, and CI went red on
+ * windows-latest for exactly that reason.
+ *
+ * Running the compiler's entry point through `process.execPath` sidesteps it
+ * entirely: one real executable, an argument array, no shell on any platform.
+ */
+const TSC = path.join(repoRoot, 'node_modules', 'typescript', 'bin', 'tsc');
+
 function filesSeenBy(project: string): string[] {
-  const out = execFileSync('npx', ['tsc', '-p', project, '--listFilesOnly'], {
+  const out = execFileSync(process.execPath, [TSC, '-p', project, '--listFilesOnly'], {
     cwd: repoRoot,
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
