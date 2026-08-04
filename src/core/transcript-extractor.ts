@@ -272,6 +272,13 @@ export interface ExtractResult {
   llmCalls: number;
   /** Candidates dropped because a field carried a detected secret. */
   secretsDropped: number;
+  /**
+   * Chunks whose LLM call threw. Kept SEPARATE from `memories.length === 0`
+   * so the orchestrator can tell "the model was asked and found nothing" from
+   * "the model was unreachable" — reporting an outage as "no durable memories"
+   * is the absence-is-not-evidence trap this feature exists to guard against.
+   */
+  llmFailures: number;
 }
 
 function parseMemories(text: string): ExtractedMemory[] {
@@ -280,16 +287,32 @@ function parseMemories(text: string): ExtractedMemory[] {
     if (!block) return [];
     const arr = JSON.parse(block) as Array<Partial<ExtractedMemory>>;
     if (!Array.isArray(arr)) return [];
-    return arr
-      .filter((m) => m && typeof m.name === 'string' && m.name.trim() && Array.isArray(m.observations) && m.observations.length > 0)
-      .map((m) => ({
-        // Sanitise every string BEFORE it can reach a proposal (task item 4).
+    // Explicit guards, not a filter-then-optimistic-default: each field is
+    // validated up front and only the validated value is used, so there is no
+    // `?? []` turning a missing array into a benign empty one (the
+    // absence-is-not-evidence trap). A candidate with no usable name or no
+    // observation is dropped, not defaulted.
+    const out: ExtractedMemory[] = [];
+    for (const m of arr) {
+      if (!m || typeof m.name !== 'string' || !m.name.trim()) continue;
+      if (!Array.isArray(m.observations) || m.observations.length === 0) continue;
+      // Sanitise every string BEFORE it can reach a proposal (task item 4).
+      const observations = m.observations
+        .map((o) => sanitizeForPrompt(String(o)).slice(0, 1000))
+        .filter((o) => o.trim())
+        .slice(0, 10);
+      if (observations.length === 0) continue;
+      const tags = Array.isArray(m.tags)
+        ? m.tags.map((tg) => sanitizeForPrompt(String(tg)).slice(0, 80)).filter((tg) => tg.trim()).slice(0, 20)
+        : [];
+      out.push({
         name: sanitizeForPrompt(String(m.name)).slice(0, 100),
-        type: sanitizeForPrompt(String(m.type ?? 'fact')).slice(0, 60) || 'fact',
-        observations: (m.observations ?? []).map((o) => sanitizeForPrompt(String(o)).slice(0, 1000)).filter((o) => o.trim()).slice(0, 10),
-        tags: Array.isArray(m.tags) ? m.tags.map((t) => sanitizeForPrompt(String(t)).slice(0, 80)).filter((t) => t.trim()).slice(0, 20) : [],
-      }))
-      .filter((m) => m.observations.length > 0);
+        type: sanitizeForPrompt(m.type ? String(m.type) : 'fact').slice(0, 60) || 'fact',
+        observations,
+        tags,
+      });
+    }
+    return out;
   } catch {
     return [];
   }
@@ -310,7 +333,7 @@ export async function extractMemoriesFromTranscript(
   llm: LLMConfig,
   opts: ExtractOptions = {},
 ): Promise<ExtractResult> {
-  const result: ExtractResult = { memories: [], llmCalls: 0, secretsDropped: 0 };
+  const result: ExtractResult = { memories: [], llmCalls: 0, secretsDropped: 0, llmFailures: 0 };
   const turns = parseConversation(transcriptPath);
   if (turns.length < 2) return result; // nothing conversational to mine
 
@@ -333,8 +356,10 @@ export async function extractMemoriesFromTranscript(
       });
     } catch {
       // A failed chunk must not abandon the whole session — count the call
-      // (it consumed budget) and move on.
+      // (it consumed budget) AND record it as a failure so a session that only
+      // failed is never reported as "nothing worth remembering".
       result.llmCalls++;
+      result.llmFailures++;
       continue;
     }
     result.llmCalls++;
@@ -425,6 +450,8 @@ export interface TranscriptSourceResult {
   proposalsCreated: number;
   duplicatesSkipped: number;
   secretsDropped: number;
+  /** Chunks whose LLM call threw — an outage, not an empty session. */
+  llmFailures: number;
   llmCalls: number;
   skipped: Array<{ reason: string; sessionId?: string }>;
   durationMs: number;
@@ -442,6 +469,7 @@ export async function runTranscriptSource(
     proposalsCreated: 0,
     duplicatesSkipped: 0,
     secretsDropped: 0,
+    llmFailures: 0,
     llmCalls: 0,
     skipped: [],
     durationMs: 0,
@@ -473,9 +501,15 @@ export async function runTranscriptSource(
     result.llmCalls += extract.llmCalls;
     result.candidatesExtracted += extract.memories.length;
     result.secretsDropped += extract.secretsDropped;
+    result.llmFailures += extract.llmFailures;
 
     if (extract.memories.length === 0) {
-      result.skipped.push({ reason: 'no durable memories extracted', sessionId: session.sessionId });
+      // Distinguish "the model was asked and found nothing" from "the model
+      // was unreachable" — never report an outage as an empty session.
+      const reason = extract.llmFailures > 0
+        ? 'LLM call(s) failed for this session — not mined (retry when the provider is reachable)'
+        : 'no durable memories extracted';
+      result.skipped.push({ reason, sessionId: session.sessionId });
       continue;
     }
     const staged = stageTranscriptProposals(db, session, extract.memories, llm, projectLabel);

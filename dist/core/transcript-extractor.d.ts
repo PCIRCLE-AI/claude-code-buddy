@@ -23,6 +23,7 @@ export interface ExtractResult {
     memories: ExtractedMemory[];
     llmCalls: number;
     secretsDropped: number;
+    llmFailures: number;
 }
 export declare function extractMemoriesFromTranscript(transcriptPath: string, llm: LLMConfig, opts?: ExtractOptions): Promise<ExtractResult>;
 export interface StageResult {
@@ -47,6 +48,7 @@ export interface TranscriptSourceResult {
     proposalsCreated: number;
     duplicatesSkipped: number;
     secretsDropped: number;
+    llmFailures: number;
     llmCalls: number;
     skipped: Array<{
         reason: string;

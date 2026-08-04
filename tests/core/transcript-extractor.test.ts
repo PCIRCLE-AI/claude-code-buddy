@@ -271,6 +271,18 @@ describe('transcript-extractor: orchestrator end-to-end', () => {
     expect(res2.duplicatesSkipped).toBe(1);
   });
 
+  it('reports an LLM outage distinctly, NOT as "no durable memories" (absence != evidence)', async () => {
+    seedSessionFile();
+    // Every call fails (network down). The session must be reported as an
+    // outage, never as "nothing worth remembering".
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => { throw new Error('network down'); });
+    const res = await runTranscriptSource(db, FAKE_LLM, { cwd, windowDays: 3 });
+    expect(res.proposalsCreated).toBe(0);
+    expect(res.llmFailures).toBeGreaterThan(0);
+    expect(res.skipped.some((s) => s.reason.includes('LLM call(s) failed'))).toBe(true);
+    expect(res.skipped.some((s) => s.reason === 'no durable memories extracted')).toBe(false);
+  });
+
   it('respects --max-llm-calls (0 budget → no LLM call, no proposal)', async () => {
     seedSessionFile();
     const spy = vi.spyOn(globalThis, 'fetch');

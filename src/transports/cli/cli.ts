@@ -1124,6 +1124,7 @@ dreamCmd
         console.log(`  proposals created:   ${result.proposalsCreated}`);
         if (result.duplicatesSkipped > 0) console.log(`  duplicates skipped:  ${result.duplicatesSkipped}`);
         if (result.secretsDropped > 0) console.log(`  secret-bearing candidates dropped: ${result.secretsDropped}`);
+        if (result.llmFailures > 0) console.log(`  LLM call failures:   ${result.llmFailures} (sessions not mined — retry when the provider is reachable)`);
         if (result.skipped.length > 0) {
           const reasonCounts = new Map<string, number>();
           for (const s of result.skipped) reasonCounts.set(s.reason, (reasonCounts.get(s.reason) ?? 0) + 1);
