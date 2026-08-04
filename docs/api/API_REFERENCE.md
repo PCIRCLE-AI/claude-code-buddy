@@ -712,7 +712,7 @@ Returns computed analytics insights for the memory database.
 **Health Score Algorithm:**
 - Activity (30%): percentage of active entities accessed in last 30 days
 - Quality (30%): percentage of active entities with confidence > 0.7
-- Freshness (20%): new entities this week relative to 5% of total (capped at 100%)
+- Freshness (20%): new entities this week as a fraction of all active entities, capped at 100% (`min(newThisWeek / totalActive, 1)` in `src/core/analytics.ts`; this line previously said "relative to 5% of total", a formula the code never used)
 - Lessons (20%): lesson_learned entity count, 5+ gives full score
 
 ### GET /v1/doctor

@@ -299,7 +299,7 @@ Khi npm gắn cờ phiên bản đã cài là deprecated (thường là security
 
 **⚠️ Conflict Detection** — Nếu bạn có hai memories mâu thuẫn với nhau, MeMesh cảnh báo bạn.
 
-**🕸️ Kết nối đồ thị tri thức** — `memesh kg backfill-relations --all-rules` liên kết các thực thể cô lập bằng cách sử dụng đồng xuất hiện thẻ, phân cụm dự án, ngữ cảnh phiên và độ tương đồng tên — không cần LLM. Giảm tỷ lệ cô lập từ 89% xuống dưới 12% trên cơ sở tri thức đại diện.
+**🕸️ Kết nối đồ thị tri thức** — `memesh kg backfill-relations --all-rules` liên kết các thực thể cô lập bằng cách sử dụng đồng xuất hiện thẻ, phân cụm dự án, ngữ cảnh phiên và độ tương đồng tên — không cần LLM.
 
 **📦 Team Sharing** — `memesh export > team-knowledge.json` → chia sẻ với team → `memesh import team-knowledge.json`
 Các imported bundles vẫn có thể tìm kiếm được, nhưng MeMesh không auto-inject imported memories vào Claude hooks cho đến khi bạn review hoặc re-store chúng locally.
@@ -347,7 +347,7 @@ Embedder được cấu hình **độc lập với LLM chat** — thay đổi `l
 
 | | Level 0 (default) | Level 1 (Smart Mode) |
 |---|---|---|
-| **Search** | FTS5 + sqlite-vec, 95.60% R@5 (~4ms mỗi recall) | giữ nguyên — recall luôn LLM-free ở mọi level |
+| **Search** | FTS5 + sqlite-vec, 95.60% R@5 | giữ nguyên — recall luôn LLM-free ở mọi level |
 | **Auto-capture** | Rule-based patterns | + LLM extracts decisions & lessons |
 | **Auto-tagging** | Chỉ thẻ thủ công | + LLM tự động gắn nhãn entity mới |
 | **Phân tích lỗi** | Không có sẵn | + LLM chuyển session errors thành structured lessons |

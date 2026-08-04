@@ -175,6 +175,12 @@ function inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncI
         ? createCheck('hooks-config', 'Hooks config', 'fail', `hooks/hooks.json is missing expected hook types: ${missingTypes.join(', ')}.`, 'Restore the shipped hook configuration or reinstall MeMesh.')
         : createCheck('hooks-config', 'Hooks config', 'pass', `hooks/hooks.json is present with ${hookTypes.length} hook types configured.`);
     const scriptPaths = extractHookScriptPaths(parsed.value, packageRoot);
+    if (scriptPaths.length === 0) {
+        return [
+            configCheck,
+            createCheck('hook-scripts', 'Hook scripts', 'fail', 'hooks/hooks.json parsed, but yields zero hook script commands — hooks can never fire.', 'Restore the shipped hook configuration or reinstall MeMesh.'),
+        ];
+    }
     const missingScripts = scriptPaths.filter((scriptPath) => !existsSyncImpl(scriptPath));
     if (missingScripts.length > 0) {
         return [

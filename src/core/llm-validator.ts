@@ -148,6 +148,15 @@ export async function probeAnthropic(apiKey: string): Promise<ValidationResult> 
       id: m.id,
       created: m.created_at,
     }));
+    // A 200 whose body carries no models is NOT a verified LLM — it is what a
+    // corporate proxy, an auth-portal interstitial, or a truncated body looks
+    // like. The Ollama probe below has always rejected the empty list; these
+    // two probes defaulted it to `[]` and answered `valid: true`, which made
+    // "answered with nothing" indistinguishable from "verified working" in
+    // both `memesh doctor --probe` and the dashboard connection test.
+    if (models.length === 0) {
+      return { valid: false, error: 'Anthropic answered, but returned no models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.' };
+    }
     return { valid: true, models, suggested: pickSuggestedModel(models) };
   } catch (err) {
     return { valid: false, error: err instanceof Error ? err.message : String(err) };
@@ -174,6 +183,11 @@ export async function probeOpenAI(apiKey: string): Promise<ValidationResult> {
         id: m.id,
         created: m.created ? new Date(m.created * 1000).toISOString() : undefined,
       }));
+    // Same rule as the Anthropic and Ollama probes: zero models back is not a
+    // verified provider, whatever the status code said.
+    if (models.length === 0) {
+      return { valid: false, error: 'OpenAI answered, but returned no chat-capable models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.' };
+    }
     return { valid: true, models, suggested: pickSuggestedModel(models) };
   } catch (err) {
     return { valid: false, error: err instanceof Error ? err.message : String(err) };

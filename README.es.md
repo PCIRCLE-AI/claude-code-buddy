@@ -326,7 +326,7 @@ Cuando npm marca una versión instalada como deprecada (típicamente un aviso de
 
 **⚠️ Detección de Conflictos** — Si tienes dos memorias que se contradicen, MeMesh te advierte.
 
-**🕸️ Conectividad del grafo de conocimiento** — `memesh kg backfill-relations --all-rules` vincula entidades huérfanas mediante co-ocurrencia de etiquetas, agrupación de proyectos, contexto de sesión y similitud de nombres — sin LLM. Reduce la tasa de huérfanos del 89% a menos del 12% en una base de conocimiento representativa.
+**🕸️ Conectividad del grafo de conocimiento** — `memesh kg backfill-relations --all-rules` vincula entidades huérfanas mediante co-ocurrencia de etiquetas, agrupación de proyectos, contexto de sesión y similitud de nombres — sin LLM.
 
 **📦 Compartir en Equipo** — `memesh export > team-knowledge.json` → comparte con tu equipo → `memesh import team-knowledge.json`
 Los bundles importados permanecen buscables, pero MeMesh no inyecta automáticamente memorias importadas en hooks de Claude hasta que las revises o las guardes localmente de nuevo.
@@ -374,7 +374,7 @@ El embedder se configura **independientemente del LLM de chat** — cambiar `llm
 
 | | Nivel 0 (por defecto) | Nivel 1 (Modo Inteligente) |
 |---|---|---|
-| **Búsqueda** | FTS5 + sqlite-vec, 95.60% R@5 (~4ms por recall) | sin cambios — el recall es sin LLM en cada nivel |
+| **Búsqueda** | FTS5 + sqlite-vec, 95.60% R@5 | sin cambios — el recall es sin LLM en cada nivel |
 | **Auto-capture** | Patrones basados en reglas | + LLM extrae decisiones y lecciones |
 | **Auto-etiquetado** | Solo etiquetas manuales | + LLM genera etiquetas para nuevas memorias |
 | **Análisis de fallos** | No disponible | + LLM convierte errores de sesión en lecciones estructuradas |

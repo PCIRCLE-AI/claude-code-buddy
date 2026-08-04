@@ -326,7 +326,7 @@ npm이 설치된 버전을 deprecated로 플래그하면(일반적으로 보안 
 
 **⚠️ 충돌 감지** — 서로 모순되는 메모리 두 개가 있으면 MeMesh가 경고합니다.
 
-**🕸️ 지식 그래프 연결성** — `memesh kg backfill-relations --all-rules`는 태그 공동 발생, 프로젝트 클러스터링, 세션 컨텍스트, 이름 유사성을 사용해 고아 엔티티를 연결 — LLM 불필요. 대표적인 지식 베이스에서 고아 비율을 89%에서 12% 미만으로 감소.
+**🕸️ 지식 그래프 연결성** — `memesh kg backfill-relations --all-rules`는 태그 공동 발생, 프로젝트 클러스터링, 세션 컨텍스트, 이름 유사성을 사용해 고아 엔티티를 연결 — LLM 불필요.
 
 **📦 팀 공유** — `memesh export > team-knowledge.json` → 팀과 공유 → `memesh import team-knowledge.json`
 임포트된 번들은 계속 검색 가능하지만, MeMesh는 검토하거나 로컬에 다시 저장할 때까지 Claude 훅에 임포트된 메모리를 자동 주입하지 않습니다.
@@ -374,7 +374,7 @@ memesh config set embedder.model text-embedding-3-small
 
 | | Level 0 (기본) | Level 1 (스마트 모드) |
 |---|---|---|
-| **검색** | FTS5 + sqlite-vec, R@5 95.60% (회상 1회당 ~4ms) | 변경 없음 — 회상은 모든 레벨에서 LLM-free |
+| **검색** | FTS5 + sqlite-vec, R@5 95.60% | 변경 없음 — 회상은 모든 레벨에서 LLM-free |
 | **자동 캡처** | 규칙 기반 패턴 | + LLM이 결정과 교훈 추출 |
 | **자동 태그 부여** | 수동 태그만 | + LLM이 새 메모리에 태그 생성 |
 | **실패 분석** | 사용 불가 | + LLM이 세션 에러를 구조화된 교훈으로 변환 |
