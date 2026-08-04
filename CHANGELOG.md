@@ -35,7 +35,79 @@ next carries the corrected copy.
   and break-tested: making the empty-tag-list branch return success kills 2 of
   the 7 cases, and making the missing-tag branch return success kills 1.
 
+- **The documentation gate now runs, and its checks can now fail**
+  (`scripts/check-doc-claims.mjs`, replacing `scripts/verify-docs-sync.sh`) —
+  the shell version had six checks, 150 lines, and **no caller**: not CI, not
+  `verify:release`, not `release-verify.sh`, not a `package.json` script. Its
+  only references were a line in `CLAUDE.md` telling an assistant to run it by
+  hand and a manual review skill. A gate that never runs cannot fail, which is
+  the same defect as a gate that cannot fail when it runs — and this is the
+  fifth of those found since 4.2.11. It is wired into `verify:release`, the one
+  list both CI and the publish path execute, and ported to Node because that
+  list runs on `windows-latest`.
+
+  Three of the six could not fail and were rebuilt rather than carried over.
+  The hook check compared a file count to the literal `7` while separately
+  counting hook mentions in `ARCHITECTURE.md` and comparing that to **nothing**;
+  both halves now derive from `hooks/hooks.json`, the manifest that invokes
+  them. The skills check counted every four-column table row in `SKILL.md` and
+  required "7 or more" — it reported 9 against a table whose rows are not all
+  hooks; it now counts the rows of the hook table and compares them to the
+  manifest. The lint check printed `WARN` without incrementing the error count,
+  so a failing lint passed the gate; `verify:release` hard-gates lint two steps
+  earlier and the weaker copy is gone.
+
+  Three checks are new, one per drift this release found: the **HTTP endpoint
+  count** — `ARCHITECTURE.md` said "~32 endpoints" in one paragraph and "17" in
+  another, fifteen apart, in the same file; **no README may state a hardcoded
+  test count** — all eleven said "630 tests" against a suite past 1,400, and the
+  fix is to stop writing the number down rather than to check eleven copies of
+  it; and **no living document may point at a path that is not in the
+  repository**, which is what catches a deletion leaving a dangling pointer
+  behind.
+
+  Every check is break-tested, and two of them found bugs in the gate itself
+  that way. The path check measured `fs.existsSync`, so a deleted directory that
+  still held untracked `__pycache__` answered "exists" and the mutation passed —
+  it reads `git ls-files` now, because the question is whether a path survives a
+  clone. And the gate read one file that is not in the repository at all, which
+  is an `ENOENT` crash on every CI leg and is invisible in any working tree that
+  has ever had the file; it now reads only what git tracks. Both were found by
+  running the gate against a fresh clone rather than against this one.
+
+- **In-repo clients of the HTTP API are checked against the real route list**
+  (`tests/http-clients-call-real-routes.test.ts`) — every `/v1/...` path a
+  client calls must be a route the server registers, and must not be one that
+  answers `410 Gone`. Reaching a retired route is worse than a 404 from the
+  caller's side: the call compiles and the request succeeds, and only the body
+  says the feature is gone. Break-tested against both cases.
+
+### Removed
+
+- **The Python SDK** (`packages/python-sdk/`, and the section of
+  `docs/api/API_REFERENCE.md` that told you to `pip install memesh`) — that
+  package does not exist. PyPI answers **404** for the name, no workflow ever
+  built it, and no CI job ever ran its 31 lines of tests. It covered 7 of the 32
+  HTTP endpoints, its version read `3.0.0b1`, and `client.py` still posted to
+  `POST /v1/consolidate`, which has answered `410 Gone` since 4.2.11 — while its
+  own README already said that method was retired. A published install
+  instruction for an unpublished package is a promise this project was not
+  keeping, and repairing it would have meant committing to maintain a second
+  client of a surface nobody could install. The HTTP API is documented; call it
+  with what your language already has.
+
 ### Fixed
+
+- **Three advisories the repository's own tree was carrying**
+  (`package-lock.json`) — `npm audit --omit=dev` reported 2 high and 1 moderate
+  while `npm run audit:prod`, the gate that decides shippability, reported
+  clean. Both were right: the tarball does not ship the lockfile, so a consumer
+  resolves the `^` ranges to patched versions while the repo and every CI leg
+  run what the lockfile pins. Users were never exposed; contributors and CI
+  were, and `ip-address` sits under the HTTP rate limiter — the one place in
+  this tree that makes a trust decision about an address. `ip-address` 10.2.0 →
+  10.4.0, `fast-uri` 3.1.4 → 3.1.5, `hono` 4.12.32 → 4.13.0, all inside the
+  existing ranges, so `package.json` is untouched.
 
 - **The 4.2.11 notes opened by denying their own release.** They said "4.2.11
   was never published", which was true when the sentence was written — the

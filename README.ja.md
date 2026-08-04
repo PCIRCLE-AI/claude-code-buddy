@@ -200,7 +200,7 @@ memesh
 | **Claude Code を使う開発者** | プロジェクト判断、ファイル固有の知見、過去の失敗が自動で呼び出される |
 | **コーディングエージェントのパワーユーザー** | 1 つのローカルメモリレイヤーを MCP 互換ツール全体で共有 |
 | **AI コーディングワークフローを実験中のチーム** | ホステッドインフラを導入せず、プロジェクト知識をエクスポート・インポート |
-| **エージェント開発者** | MCP、HTTP、CLI、Python SDK 経由でローカルメモリを追加 |
+| **エージェント開発者** | MCP、HTTP、CLI 経由でローカルメモリを追加 |
 
 ---
 
@@ -453,7 +453,7 @@ bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.s
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test             # 630 tests
+npm test
 npm run test:e2e-dashboard
 ```
 

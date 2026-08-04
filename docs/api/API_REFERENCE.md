@@ -1009,30 +1009,18 @@ tools = json.load(sys.stdin)
 
 ---
 
-### Python SDK
+### Calling the HTTP API from another language
 
-MeMesh includes a Python SDK that connects to a running `memesh serve` instance.
+There is no first-party client library. The HTTP surface documented above is the
+integration point: start `memesh serve` and call it with whatever your language
+already has.
 
-**Installation**:
-
-```bash
-pip install memesh
-```
-
-**Requires**: `memesh serve` running (default: `localhost:3737`).
-
-**Usage**:
-
-```python
-from memesh import MeMesh
-
-m = MeMesh()  # connects to localhost:3737
-m.remember("auth", "decision", observations=["Use OAuth"])
-results = m.recall("auth")
-m.forget("old-design")
-```
-
-See `packages/python-sdk/` for full SDK source and documentation.
+A Python SDK used to ship in this repository, and this page told you to
+`pip install memesh`. It was never published — PyPI answers 404 for that name —
+no workflow built it, no CI ran its tests, and it still called
+`POST /v1/consolidate`, which has answered `410 Gone` since 4.2.11. It is
+removed rather than repaired: an unpublished client covering 7 of 32 endpoints
+is a promise this project was not keeping.
 
 ---
 

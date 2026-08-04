@@ -56,7 +56,7 @@ MeMesh separates concerns into two layers:
 
 **Transports** (`src/transports/`) — thin adapters that expose core operations:
 - `cli/cli.ts` — Commander CLI (`memesh` command, 24 top-level commands; `config`, `kg`, and `dream` have subcommands)
-- `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, ~32 endpoints, bearer-auth gate when bound non-loopback)
+- `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, 32 endpoints, bearer-auth gate when bound non-loopback)
 - `src/mcp/server.ts` + `src/transports/mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 8 tools); `src/mcp/tools.ts` is a re-export shim
 
 This separation means the same `remember`/`recall`/`forget` logic runs identically whether invoked from a terminal, an HTTP request, or an MCP tool call.
@@ -200,7 +200,7 @@ Thin adapter: imports shared Zod schemas from `transports/schemas.ts`, validates
 
 ### transports/http/server.ts -- HTTP REST API Server
 
-Express server exposed via `memesh serve` (default port 3737, 17 endpoints). Delegates all operations to `core/operations`. Includes `GET /v1/analytics` for computed health score, 30-day timeline, value metrics, and cleanup suggestions. See [HTTP REST API](#http-rest-api) in the API Reference.
+Express server exposed via `memesh serve` (default port 3737; the endpoint count is stated once, in the module list above, and checked against `server.ts` by `scripts/check-doc-claims.mjs`). Delegates all operations to `core/operations`. Includes `GET /v1/analytics` for computed health score, 30-day timeline, value metrics, and cleanup suggestions. See [HTTP REST API](#http-rest-api) in the API Reference.
 
 ### transports/cli/cli.ts -- CLI
 

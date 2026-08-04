@@ -173,7 +173,7 @@ memesh
 | **Nhà phát triển sử dụng Claude Code** | Tự động gọi lại các quyết định dự án, bài học cụ thể theo file, và những lỗi trong quá khứ khi bạn làm việc |
 | **Power user của coding agent** | Chia sẻ một tầng bộ nhớ cục bộ qua các công cụ tương thích MCP |
 | **Nhóm thử nghiệm workflow AI coding** | Export/import kiến thức dự án mà không cần hạ tầng được quản lý |
-| **Nhà phát triển agent** | Thêm bộ nhớ cục bộ thông qua MCP, HTTP, CLI, hoặc Python SDK |
+| **Nhà phát triển agent** | Thêm bộ nhớ cục bộ thông qua MCP, HTTP, hoặc CLI |
 
 ---
 
@@ -426,7 +426,7 @@ Khi bắt đầu session, banner một dòng (throttle mỗi 24h mỗi version) 
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test             # 630 tests
+npm test
 npm run test:e2e-dashboard
 ```
 

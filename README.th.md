@@ -188,7 +188,7 @@ memesh
 | **นักพัฒนาที่ใช้ Claude Code** | เรียกคืนการตัดสินใจโครงการ บทเรียนเฉพาะไฟล์ และความล้มเหลวที่ผ่านมาโดยอัตโนมัติขณะทำงาน |
 | **ผู้ใช้เอเจนต์คิดโค้ดขั้นสูง** | ใช้ชั้นหน่วยความจำภายในตัวเดียวร่วมกันบนเครื่องมือที่รองรับ MCP |
 | **ทีมทดลองเวิร์กโฟลว์คิดโค้ด AI** | ส่งออก/นำเข้าความรู้โครงการโดยไม่ต้องสถาปัตยกรรมบนคลาวด์ |
-| **นักพัฒนาเอเจนต์** | เพิ่มหน่วยความจำภายในผ่าน MCP HTTP CLI หรือ Python SDK |
+| **นักพัฒนาเอเจนต์** | เพิ่มหน่วยความจำภายในผ่าน MCP HTTP หรือ CLI |
 
 ---
 
@@ -440,7 +440,7 @@ bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.s
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test             # 630 tests
+npm test
 npm run test:e2e-dashboard
 ```
 
