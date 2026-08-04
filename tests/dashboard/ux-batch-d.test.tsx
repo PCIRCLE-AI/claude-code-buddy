@@ -7,9 +7,14 @@
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/preact';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { TabNav } from '../../dashboard/src/components/TabNav';
 import { FeedbackWidget } from '../../dashboard/src/components/FeedbackWidget';
 import { resolveTokens } from '../../dashboard/src/lib/tokens';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -80,6 +85,30 @@ describe('FeedbackWidget is a dialog that closes on Escape', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(container.querySelector('.fb-panel')).toBeNull();
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  });
+});
+
+describe('GraphTab canvas is driven by pointer events, not mouse events', () => {
+  // Source-level on purpose: rendering GraphTab needs a fetch mock, RAF and a
+  // 2d canvas context happy-dom does not provide, so a behavioural test would
+  // prove little. Touch support IS the swap from onMouse* to onPointer* plus
+  // touch-action:none; typecheck can't see the difference (both are valid
+  // props), so this pins it at the only place it is visible: the canvas JSX.
+  const graphSrc = fs.readFileSync(
+    path.join(repoRoot, 'dashboard/src/components/GraphTab.tsx'),
+    'utf8',
+  );
+  const canvasJsx = graphSrc.slice(graphSrc.indexOf('<canvas'), graphSrc.indexOf('/>', graphSrc.indexOf('<canvas')));
+
+  it('binds pointer handlers and never mouse handlers on the canvas', () => {
+    expect(canvasJsx).toContain('onPointerDown={onPointerDown}');
+    expect(canvasJsx).toContain('onPointerMove={onPointerMove}');
+    expect(canvasJsx).toContain('onPointerUp={onPointerUp}');
+    expect(canvasJsx).not.toMatch(/onMouse(Down|Move|Up)=/);
+  });
+
+  it('sets touch-action:none so the browser does not scroll the page instead', () => {
+    expect(canvasJsx).toContain("touchAction: 'none'");
   });
 });
 

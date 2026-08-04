@@ -37,10 +37,11 @@ ornament — flatten it to `--accent-soft`. Three banners shipped decorative
 and were flattened.
 
 **Canvas cannot read a token.** `ctx.fillStyle = 'var(--accent)'` is invalid and
-silently draws black. The two `<canvas>` renderers (`GraphTab`, `MemoryTimeline`)
-resolve the tokens they need once, via `getComputedStyle`, when the canvas
-mounts, and draw with the resolved values — so a palette change still reaches the
-canvas. Never hardcode a palette hex into a canvas draw call; if
+silently draws black. The two `<canvas>` renderers resolve the tokens they need
+from the live stylesheet via `getComputedStyle` and draw with the resolved
+values — `GraphTab` once at mount, `MemoryTimeline` per draw (its
+`ResizeObserver` redraws on resize and tab-reveal) — so a palette change still
+reaches the canvas. Never hardcode a palette hex into a canvas draw call; if
 `getComputedStyle` returns empty (no stylesheet, e.g. a test), that is a visible
 signal, not a value to paper over with a literal fallback.
 

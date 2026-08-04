@@ -128,8 +128,10 @@ describe('Feature: the dashboard design system is actually followed', () => {
     ];
 
     const exempt = new Set(['lib/type-palette.ts', 'lib/tokens.ts']);
+    // A `//` not preceded by `:` — so a `https://…` URL keeps the rest of its
+    // line, and a banned literal after a URL cannot hide from the scan.
     const stripComments = (s: string) =>
-      s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+      s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
     const offenders: string[] = [];
     for (const file of walk(srcDir, ['.tsx', '.ts'])) {
