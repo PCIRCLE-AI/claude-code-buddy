@@ -83,7 +83,7 @@ flowchart TB
 | Claude Code の会話で `/memesh` skill を使う | Path A（プラグイン）|
 | Claude Code で自動キャプチャ（session → 学習 → 次回リコール） | Path A（プラグイン）|
 | ターミナルで `memesh remember` / `memesh recall` / `memesh doctor` を実行 | Path B（npm-global）|
-| `memesh` でダッシュボードを直接起動（`npx` 起動遅延なし） | Path B（npm-global）|
+| `memesh serve` でダッシュボードを直接起動（`npx` 起動遅延なし） | Path B（npm-global）|
 | `memesh-mcp` を Cursor、Cline、その他の MCP クライアントに接続 | Path B（npm-global）|
 | すべて | **両方インストール** — 競合しません |
 
@@ -358,7 +358,7 @@ memesh config set llm.api-key sk-ant-...
 またはダッシュボード Settings タブで視覚的にセットアップ:
 
 ```bash
-memesh  # ダッシュボード → Settings タブを開く
+memesh serve  # ダッシュボード → Settings タブを開く
 ```
 
 ### 独自のエンベディングを使う(任意)

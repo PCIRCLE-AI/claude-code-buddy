@@ -1322,10 +1322,11 @@ program.action(async () => {
     if (stray.length > 0) {
         console.error(`Error: unknown command '${stray[0]}'.`);
         console.error(`       Run 'memesh --help' to see available commands.`);
-        process.exit(1);
+        process.exitCode = 1;
+        return;
     }
     program.outputHelp();
-    process.exit(0);
+    process.exitCode = 0;
 });
 program.parse();
 //# sourceMappingURL=cli.js.map

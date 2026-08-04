@@ -83,7 +83,7 @@ flowchart TB
 | ใช้ skill `/memesh` ในการสนทนา Claude Code | Path A (plugin) |
 | Auto-capture ใน Claude Code (session → บทเรียน → recall ครั้งถัดไป) | Path A (plugin) |
 | รัน `memesh remember` / `memesh recall` / `memesh doctor` ใน terminal | Path B (npm-global) |
-| เปิด dashboard ผ่าน `memesh` (ไม่มีดีเลย์ของ `npx`) | Path B (npm-global) |
+| เปิด dashboard ผ่าน `memesh serve` (ไม่มีดีเลย์ของ `npx`) | Path B (npm-global) |
 | เสียบ `memesh-mcp` เข้ากับ Cursor, Cline หรือ MCP client อื่น | Path B (npm-global) |
 | ทั้งหมดข้างต้น | **ติดตั้งทั้งสอง** — ไม่ขัดแย้งกัน |
 
@@ -346,7 +346,7 @@ memesh config set llm.api-key sk-ant-...
 หรือใช้แท็บ Settings แดชบอร์ด (การตั้งค่าสายตา):
 
 ```bash
-memesh  # opens dashboard → Settings tab
+memesh serve  # opens dashboard → Settings tab
 ```
 
 ### ใช้ embeddings ของคุณเอง (ไม่บังคับ)

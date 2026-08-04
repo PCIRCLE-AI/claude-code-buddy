@@ -83,7 +83,7 @@ flowchart TB
 | Usar o skill `/memesh` numa conversa do Claude Code | Path A (plugin) |
 | Auto-captura no Claude Code (sessão → lições → recall seguinte) | Path A (plugin) |
 | Rodar `memesh remember` / `memesh recall` / `memesh doctor` em qualquer terminal | Path B (npm-global) |
-| Abrir o dashboard via `memesh` (sem atraso de inicialização do `npx`) | Path B (npm-global) |
+| Abrir o dashboard via `memesh serve` (sem atraso de inicialização do `npx`) | Path B (npm-global) |
 | Conectar `memesh-mcp` ao Cursor, Cline ou outro cliente MCP | Path B (npm-global) |
 | Tudo acima | **Instale ambos** — não conflitam |
 
@@ -331,7 +331,7 @@ memesh config set llm.api-key sk-ant-...
 Ou use a aba Settings do dashboard (setup visual):
 
 ```bash
-memesh  # abre dashboard → aba Settings
+memesh serve  # abre dashboard → aba Settings
 ```
 
 ### Use seus próprios embeddings (opcional)

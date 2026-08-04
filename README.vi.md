@@ -83,7 +83,7 @@ flowchart TB
 | Dùng skill `/memesh` trong cuộc trò chuyện Claude Code | Path A (plugin) |
 | Tự động capture trong Claude Code (session → bài học → recall lần sau) | Path A (plugin) |
 | Chạy `memesh remember` / `memesh recall` / `memesh doctor` ở bất kỳ terminal nào | Path B (npm-global) |
-| Mở dashboard qua `memesh` (không bị trễ khởi động `npx`) | Path B (npm-global) |
+| Mở dashboard qua `memesh serve` (không bị trễ khởi động `npx`) | Path B (npm-global) |
 | Cắm `memesh-mcp` vào Cursor, Cline hoặc client MCP khác | Path B (npm-global) |
 | Tất cả các mục trên | **Cài cả hai** — không xung đột |
 
@@ -331,7 +331,7 @@ memesh config set llm.api-key sk-ant-...
 Hoặc dùng dashboard Settings tab (visual setup):
 
 ```bash
-memesh  # mở dashboard → Settings tab
+memesh serve  # mở dashboard → Settings tab
 ```
 
 ### Dùng embeddings của riêng bạn (tùy chọn)
