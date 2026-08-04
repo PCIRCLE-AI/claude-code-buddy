@@ -67,7 +67,7 @@ describe('OnboardingBanner', () => {
     expect(fetchSpy).toHaveBeenCalledWith('/v1/demo/seed', expect.objectContaining({ method: 'POST' }));
   });
 
-  it('surfaces seed failures in an aria-live region for screen readers', async () => {
+  it('surfaces seed failures in a live alert for screen readers', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ success: false, error: 'boom' }), {
         status: 500,
@@ -82,7 +82,11 @@ describe('OnboardingBanner', () => {
     await waitFor(() => {
       const alert = container.querySelector('[role="alert"]');
       expect(alert).not.toBeNull();
-      expect(alert!.getAttribute('aria-live')).toBe('polite');
+      // role="alert" already implies aria-live="assertive"; the explicit
+      // aria-live="polite" it once carried CONTRADICTED that implicit
+      // level, so screen readers got two different politeness answers.
+      // The role alone is the contract now.
+      expect(alert!.hasAttribute('aria-live')).toBe(false);
       expect((alert!.textContent ?? '').length).toBeGreaterThan(0);
     });
   });

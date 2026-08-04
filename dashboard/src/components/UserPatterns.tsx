@@ -1,5 +1,6 @@
 import type { PatternsData } from '../lib/api';
 import { t } from '../lib/i18n';
+import { typeLabel } from '../lib/entity-display';
 
 interface Props {
   data: PatternsData;
@@ -19,11 +20,13 @@ export function UserPatterns({ data }: Props) {
     .slice(0, 3)
     .map((h) => `${h.hour.toString().padStart(2, '0')}:00`);
 
-  // Find busiest days (top 2)
+  // Find busiest days (top 2). The server sends only dayNum (SQLite
+  // strftime %w, 0 = Sunday); the weekday NAME is presentation and is
+  // resolved here through the catalogue so it follows the UI language.
   const busiestDays = [...workSchedule.dayDistribution]
     .sort((a, b) => b.count - a.count)
     .slice(0, 2)
-    .map((d) => d.day);
+    .map((d) => t(`patterns.day.${d.dayNum}`));
 
   return (
     <div class="card">
@@ -153,7 +156,7 @@ export function UserPatterns({ data }: Props) {
                 class="tag"
                 style={{ fontSize: 11, padding: '2px 8px' }}
               >
-                {fa.type} <span style={{ opacity: 0.5 }}>({fa.count})</span>
+                {typeLabel(fa.type)} <span style={{ opacity: 0.5 }}>({fa.count})</span>
               </span>
             ))}
           </div>
@@ -178,7 +181,7 @@ export function UserPatterns({ data }: Props) {
             {strengths.slice(0, 5).map((s) => (
               <div key={s.type} style={{ marginBottom: 6 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-1)' }}>{s.type}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-1)' }}>{typeLabel(s.type)}</span>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--accent)' }}>
                     {Math.round(s.avgConfidence * 100)}%
                   </span>

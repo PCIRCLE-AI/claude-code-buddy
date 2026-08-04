@@ -1,5 +1,5 @@
 import type { HealthData } from '../lib/api';
-import { t } from '../lib/i18n';
+import { t, getLocale } from '../lib/i18n';
 import { useSignalMode } from '../lib/signalMode';
 
 export function Header({ health, error }: { health: HealthData | null; error: string }) {
@@ -41,7 +41,7 @@ export function Header({ health, error }: { health: HealthData | null; error: st
           {health ? (
             <>
               <span><span class="dot dot-ok" />{t('header.connected')}</span>
-              <span class="badge-version">v{health.version} · {health.entity_count.toLocaleString()} {t('header.memories')}</span>
+              <span class="badge-version">v{health.version} · {health.entity_count.toLocaleString(getLocale())} {t('header.memories')}</span>
             </>
           ) : error ? (
             <span><span class="dot dot-err" />{t('header.disconnected')}</span>

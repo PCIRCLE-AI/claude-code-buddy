@@ -6,7 +6,7 @@
 // so that a single Entity renders consistently regardless of where it shows up.
 
 import type { Entity } from './api';
-import { t } from './i18n';
+import { t, getLocale } from './i18n';
 
 /* ---------- type clustering ---------- */
 
@@ -57,6 +57,30 @@ export function iconFor(type: string): string {
   return TYPE_ICON[type] ?? '·';
 }
 
+/* ---------- localised type / relation labels ---------- */
+
+/** Localised label for an entity type. Entity types are open-ended server
+ *  data (any string can arrive), so this cannot be a closed switch: the
+ *  catalogue covers every type this codebase produces (`type.*` keys, all
+ *  11 locales, enforced by tests/dashboard-i18n.test.ts), and anything
+ *  outside it falls back to the raw slug via the sanctioned
+ *  `translated === key` miss detection — t() returns the key itself on a
+ *  miss, never undefined, so `|| type` would be dead code. */
+export function typeLabel(type: string): string {
+  const key = `type.${type}`;
+  const translated = t(key);
+  return translated === key ? type : translated;
+}
+
+/** Localised label for a relation type (graph edge labels). Same open-set
+ *  contract and miss detection as typeLabel — relations are free-form
+ *  labels; only the ones this codebase emits are in the catalogue. */
+export function relationLabel(type: string): string {
+  const key = `relation.${type}`;
+  const translated = t(key);
+  return translated === key ? type : translated;
+}
+
 /* ---------- relative time ---------- */
 
 /** Human-friendly relative date, localised via i18n. Falls back to a locale
@@ -67,7 +91,7 @@ export function relativeDate(iso: string | null | undefined, now: Date = new Dat
   if (Number.isNaN(then.getTime())) return '—';
   const ms = now.getTime() - then.getTime();
   const days = Math.floor(ms / 86400000);
-  if (days < 0) return then.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  if (days < 0) return then.toLocaleDateString(getLocale(), { month: 'short', day: 'numeric' });
   if (days === 0) {
     const hours = Math.floor(ms / 3600000);
     if (hours < 1) return t('time.justNow');
@@ -80,7 +104,7 @@ export function relativeDate(iso: string | null | undefined, now: Date = new Dat
   if (days < 30) return t('time.weeksAgo', { count: Math.floor(days / 7) });
   if (days < 60) return t('time.lastMonth');
   if (days < 365) return t('time.monthsAgo', { count: Math.floor(days / 30) });
-  return then.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return then.toLocaleDateString(getLocale(), { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
 /* ---------- time bucket ---------- */

@@ -11,6 +11,8 @@
 // caller controls hue (severity tinting on Lessons; per-cluster on
 // Browse), and includes an accessible <title> derived from the type.
 
+import { typeLabel } from '../../lib/entity-display';
+
 interface IconProps {
   /** Entity type — determines which glyph renders. Unknown types fall
    *  back to a small dot so the row layout stays stable. */
@@ -153,24 +155,14 @@ const GLYPHS = {
   ),
 };
 
-const TITLES: Record<keyof typeof GLYPHS, string> = {
-  lesson: 'Lesson',
-  decision: 'Decision',
-  pattern: 'Pattern',
-  bug: 'Bug fix',
-  architecture: 'Architecture',
-  feature: 'Feature',
-  commit: 'Commit',
-  session: 'Session',
-  milestone: 'Milestone',
-  calendar: 'Weekly summary',
-  note: 'Note',
-  dot: 'Memory',
-};
-
 export function EntityIcon({ type, size = 16, color, ariaLabel }: IconProps) {
   const key = glyph(type);
-  const title = ariaLabel ?? TITLES[key];
+  // The accessible name is the localised label of the ACTUAL type, not the
+  // glyph cluster it maps to — a zh-TW screen-reader user must not hear
+  // hardcoded English. typeLabel falls back to the raw slug for types the
+  // catalogue does not know, which is still more truthful than a generic
+  // English cluster name was.
+  const title = ariaLabel ?? typeLabel(type);
   return (
     <svg
       width={size}

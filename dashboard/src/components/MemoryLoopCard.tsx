@@ -1,4 +1,4 @@
-import { t } from '../lib/i18n';
+import { t, getLocale } from '../lib/i18n';
 
 interface LoopMetric {
   reusedThisWeek: number;
@@ -114,7 +114,7 @@ export function MemoryLoopCard({ metric }: Props) {
               letterSpacing: '-0.03em',
             }}
           >
-            {reusedThisWeek > 0 ? reusedThisWeek.toLocaleString() : '—'}
+            {reusedThisWeek > 0 ? reusedThisWeek.toLocaleString(getLocale()) : '—'}
           </div>
           {delta !== null && delta !== 0 && (
             <span

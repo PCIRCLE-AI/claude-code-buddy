@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
 import { fetchGraph, type GraphData, type Entity } from '../lib/api';
-import { t } from '../lib/i18n';
+import { t, getLocale } from '../lib/i18n';
+import { typeLabel, relationLabel } from '../lib/entity-display';
 import { classifyLoadError, failureMessage, type LoadFailure } from '../lib/failure';
 import { useSignalMode } from '../lib/signalMode';
 
@@ -506,7 +507,7 @@ export function GraphTab() {
           const my = (a.y + b.y) / 2;
           ctx.font = '9px Satoshi, system-ui, sans-serif';
           ctx.fillStyle = '#7A828E';
-          ctx.fillText(edge.type, mx + 2, my - 2);
+          ctx.fillText(relationLabel(edge.type), mx + 2, my - 2);
         }
       }
 
@@ -589,7 +590,7 @@ export function GraphTab() {
         const tx = tip.x + 12;
         const ty = tip.y - 10;
         const name = tip.node.id;
-        const typeTxt = tip.node.type;
+        const typeTxt = typeLabel(tip.node.type);
         const ageTxt = formatAge(tip.node.lastDate);
         const line1 = name;
         const line2 = `${typeTxt}  |  ${ageTxt}`;
@@ -918,15 +919,15 @@ export function GraphTab() {
       {/* Stats row: 3 cards */}
       <div class="stats-row">
         <div class="stat">
-          <div class="stat-val">{data.entities.length.toLocaleString()}</div>
+          <div class="stat-val">{data.entities.length.toLocaleString(getLocale())}</div>
           <div class="stat-lbl">{t('graph.entities')}</div>
         </div>
         <div class="stat">
-          <div class="stat-val">{data.relations.length.toLocaleString()}</div>
+          <div class="stat-val">{data.relations.length.toLocaleString(getLocale())}</div>
           <div class="stat-lbl">{t('graph.relations')}</div>
         </div>
         <div class="stat">
-          <div class="stat-val">{orphanCount.toLocaleString()}</div>
+          <div class="stat-val">{orphanCount.toLocaleString(getLocale())}</div>
           <div class="stat-lbl">{t('graph.orphans')}</div>
         </div>
       </div>
@@ -993,7 +994,7 @@ export function GraphTab() {
                     flexShrink: 0,
                   }}
                 />
-                {type} ({count})
+                {typeLabel(type)} ({count})
               </label>
             );
           })}
@@ -1055,6 +1056,8 @@ export function GraphTab() {
           </button>
           <button
             onClick={() => setDriftMode((v) => !v)}
+            title={t('graph.driftHint')}
+            aria-pressed={driftMode}
             style={{
               padding: '3px 10px',
               background: driftMode ? 'rgba(0,214,180,0.15)' : 'rgba(255,255,255,0.04)',
@@ -1076,7 +1079,7 @@ export function GraphTab() {
               borderRadius: 3,
               background: 'linear-gradient(to right, #F87171, #00D6B4)',
             }} />
-            Drift
+            {t('graph.drift')}
           </button>
         </div>
 

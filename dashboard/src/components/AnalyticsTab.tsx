@@ -8,7 +8,7 @@ import { KnowledgeRadar } from './KnowledgeRadar';
 import { UserPatterns } from './UserPatterns';
 import { LlmTelemetryPanel } from './LlmTelemetryPanel';
 import { PmAnalyticsPanel } from './PmAnalyticsPanel';
-import { t } from '../lib/i18n';
+import { t, getLocale } from '../lib/i18n';
 import { classifyLoadError, failureMessage, type LoadFailure } from '../lib/failure';
 
 /** The four bars `HealthScore` renders, each read as `factors[key].score`. */
@@ -17,7 +17,7 @@ const FACTOR_KEYS = ['activity', 'quality', 'freshness', 'lessons'] as const;
 /**
  * Every field the stats row and the topics cloud dereference. The first
  * version of this check covered `totalEntities` and `tagDistribution` and
- * stopped, while the row right below it also calls `.toLocaleString()` on
+ * stopped, while the row right below it also calls `.toLocaleString(getLocale())` on
  * `totalObservations`, `totalRelations` and `totalTags` — the same
  * one-level-short shape `PmAnalyticsPanel`'s guard went through twice.
  */
@@ -118,7 +118,7 @@ export function AnalyticsTab() {
       api<PatternsData>('GET', '/v1/patterns').catch(guard('/v1/patterns')),
     ]).then(([s, a, p]) => {
       // Every render below reads a required field off these —
-      // `stats.totalEntities.toLocaleString()` and friends — so a payload
+      // `stats.totalEntities.toLocaleString(getLocale())` and friends — so a payload
       // without them has to read as "did not load", not as "loaded".
       //
       // A guard has to reach the LEAF each child dereferences, not the group
@@ -159,10 +159,10 @@ export function AnalyticsTab() {
       {/* Row 1: Stats overview */}
       {stats && (
         <div class="stats-row">
-          <div class="stat"><div class="stat-val">{stats.totalEntities.toLocaleString()}</div><div class="stat-lbl">{t('analytics.totalMemories')}</div></div>
-          <div class="stat"><div class="stat-val">{stats.totalObservations.toLocaleString()}</div><div class="stat-lbl">{t('analytics.knowledgeFacts')}</div></div>
-          <div class="stat"><div class="stat-val">{stats.totalRelations.toLocaleString()}</div><div class="stat-lbl">{t('analytics.connections')}</div></div>
-          <div class="stat"><div class="stat-val">{stats.totalTags.toLocaleString()}</div><div class="stat-lbl">{t('analytics.topics')}</div></div>
+          <div class="stat"><div class="stat-val">{stats.totalEntities.toLocaleString(getLocale())}</div><div class="stat-lbl">{t('analytics.totalMemories')}</div></div>
+          <div class="stat"><div class="stat-val">{stats.totalObservations.toLocaleString(getLocale())}</div><div class="stat-lbl">{t('analytics.knowledgeFacts')}</div></div>
+          <div class="stat"><div class="stat-val">{stats.totalRelations.toLocaleString(getLocale())}</div><div class="stat-lbl">{t('analytics.connections')}</div></div>
+          <div class="stat"><div class="stat-val">{stats.totalTags.toLocaleString(getLocale())}</div><div class="stat-lbl">{t('analytics.topics')}</div></div>
         </div>
       )}
 

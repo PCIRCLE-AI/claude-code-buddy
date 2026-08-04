@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import { api, fetchProjects, type Entity, type ProjectInfo } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
 import { ProjectRoadmap } from './ProjectRoadmap';
-import { t } from '../lib/i18n';
+import { t, getLocale } from '../lib/i18n';
 import { classifyLoadError, failureMessage } from '../lib/failure';
 import { clusterOf, timeBucket, extractProject, type TypeCluster, type TimeBucket } from '../lib/entity-display';
 import { useSignalMode } from '../lib/signalMode';
@@ -216,7 +216,7 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
             </div>
             {!loading && (
               <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
-                {active.length.toLocaleString()} {t('browse.active')}
+                {active.length.toLocaleString(getLocale())} {t('browse.active')}
                 {archived.length > 0 ? ` · ${archived.length} ${t('browse.archived')}` : ''}
               </div>
             )}

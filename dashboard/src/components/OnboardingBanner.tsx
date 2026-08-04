@@ -199,9 +199,11 @@ export function OnboardingBanner({ health }: Props) {
       </details>
 
       {error && (
+        // role="alert" alone: it already implies aria-live="assertive",
+        // and pairing it with an explicit aria-live="polite" told screen
+        // readers two contradictory politeness levels for one region.
         <div
           role="alert"
-          aria-live="polite"
           style={{ marginTop: 10, fontSize: 12, color: 'var(--danger)' }}
         >
           {error}

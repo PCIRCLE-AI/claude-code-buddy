@@ -166,7 +166,7 @@ export function PatternCard(props: PatternCardProps) {
       {detail && detail.proposed_digest && (
         <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-1)', borderRadius: 4, fontSize: 13 }}>
           <div style={{ marginBottom: 8, color: 'var(--text-3)', fontSize: 11 }}>
-            {t('insights.generatedBy')}: <code>{detail.llm_model ?? 'unknown'}</code> {' '} {t('insights.promptVersion')}: <code>{detail.prompt_version}</code>
+            {t('insights.generatedBy')}: <code>{detail.llm_model ?? t('common.unknown')}</code> {' '} {t('insights.promptVersion')}: <code>{detail.prompt_version}</code>
           </div>
           {/* Flagged claims — surfaced ABOVE the pattern description
               so reviewers see validator caveats first. Same channel and

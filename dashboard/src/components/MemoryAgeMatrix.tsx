@@ -1,4 +1,5 @@
 import { t } from '../lib/i18n';
+import { typeLabel } from '../lib/entity-display';
 
 type AgeBucket = 'week' | 'month' | 'quarter' | 'older';
 interface AgeMatrixEntry { type: string; bucket: AgeBucket; count: number }
@@ -26,11 +27,9 @@ const TYPE_ORDER = [
   'architecture', 'feature',
 ];
 
-/** Look up a localised label for an entity type column. */
-function typeLabel(type: string): string {
-  // See KnowledgeRadar.axisLabel — `|| type` was unreachable.
-  return t(`ageMatrix.type.${type}`);
-}
+// Type-column labels come from the shared typeLabel (type.* catalogue keys);
+// the panel-private ageMatrix.type.* copies were retired — two catalogues for
+// the same 13 nouns is exactly the duplicated-list drift this repo hunts.
 
 // Intensity color: 0 = no data, higher = more vivid cyan
 function cellStyle(count: number, max: number): string {
