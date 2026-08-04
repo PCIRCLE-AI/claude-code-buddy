@@ -6,6 +6,23 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **`memesh dream run --from-transcripts` now mines the conversation, not
+  just the mechanics.** The capture hook and the old transcript parser only
+  ever extracted mechanical signals — files edited, bash commands, errors.
+  The actually-valuable memory — the decision made, the lesson learned, the
+  *why* — lives in the conversational text (your messages + the assistant's
+  reasoning) and was mined by nothing. This flag reads a session's JSONL
+  directly (no dependence on a capture hook having fired), asks the LLM for
+  the durable, high-value memories, and stages them as proposals for
+  `memesh dream accept` — nothing enters the knowledge graph automatically.
+  It is time-ordered on purpose: a claim stated then reversed later in the
+  same session is not recorded as a live fact. Every candidate is
+  sanitised, and any candidate carrying a detected secret is dropped, not
+  stored. Scoped to the current project only. `--dry-run` lists the
+  sessions and their conversation-turn counts without calling an LLM;
+  `dream list` labels transcript-sourced proposals distinctly. (Vector
+  dedup against already-accepted entities is a later slice; a re-run today
+  dedups only against still-pending proposals.)
 - **Generated memories can now be written in your language.** Every LLM
   prompt in MeMesh is English, so digests, emergent patterns, lessons and
   validator notes came back in English no matter what language the dashboard

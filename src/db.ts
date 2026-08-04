@@ -805,6 +805,24 @@ function ensureDreamProposalsTable(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_dream_proposals_status ON dream_proposals(status);
     CREATE INDEX IF NOT EXISTS idx_dream_proposals_project ON dream_proposals(project);
   `);
+
+  // source_kind distinguishes where a proposal's raw material came from:
+  // 'entities' (the original path — clusters of already-captured KG rows) or
+  // 'transcript' (mined directly from a Claude Code session JSONL, which does
+  // not depend on any capture hook having fired). Additive with a default so
+  // every pre-existing proposal reads as 'entities' — no backfill, no
+  // reclassification. Idempotent via the PRAGMA guard, matching the entities
+  // ALTER blocks above.
+  const dpCols = db.prepare("PRAGMA table_info(dream_proposals)").all() as PragmaColumnRow[];
+  if (!dpCols.some((c) => c.name === 'source_kind')) {
+    try {
+      db.exec("ALTER TABLE dream_proposals ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'entities'");
+    } catch (err) {
+      // Concurrent opener won the race and added it first — the only
+      // tolerable error here is the duplicate-column one.
+      if (!String((err as Error).message).includes('duplicate column name')) throw err;
+    }
+  }
 }
 
 /**

@@ -424,10 +424,54 @@ function writePatternProposal(db, project, pattern, llm) {
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(project, `pattern:${new Date().toISOString().slice(0, 10)}`, JSON.stringify(sourceIds), JSON.stringify({ name: pattern.name, type: pattern.type, observations: pattern.observations, tags: pattern.tags }), `${llm.provider}/${llm.model ?? 'default'}`, PATTERN_PROMPT_VERSION);
 }
+function applyTranscriptProposal(db, row, kg) {
+    const digest = JSON.parse(row.proposed_digest);
+    let source = null;
+    try {
+        source = JSON.parse(row.source_ids);
+    }
+    catch { }
+    const tags = [
+        ...digest.tags.filter((tag) => !tag.startsWith('project:')),
+        `project:${row.project}`,
+    ];
+    const nameTaken = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(digest.name) !== undefined;
+    const entityName = nameTaken ? `${digest.name} (transcript #${row.id})` : digest.name;
+    const tx = db.transaction(() => {
+        const digestId = kg.createEntity(entityName, digest.type, {
+            observations: digest.observations,
+            tags,
+            trustOverride: 'untrusted',
+            metadata: {
+                source_kind: 'transcript',
+                source,
+                proposal_id: row.id,
+                cluster_key: row.cluster_key,
+                project: row.project,
+                trust: 'untrusted',
+                dreamed_at: new Date().toISOString(),
+                kind: 'transcript_memory',
+            },
+        });
+        db.prepare("UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ?").run(row.id);
+        return digestId;
+    });
+    tx();
+    return {
+        proposalId: row.id,
+        digestEntityName: entityName,
+        sourcesArchived: 0,
+        sourcesLinked: 0,
+        kind: 'digest',
+    };
+}
 export function applyProposal(db, proposalId, kg) {
-    const row = db.prepare("SELECT id, project, cluster_key, source_ids, proposed_digest FROM dream_proposals WHERE id = ? AND status = 'pending'").get(proposalId);
+    const row = db.prepare("SELECT id, project, cluster_key, source_ids, proposed_digest, source_kind FROM dream_proposals WHERE id = ? AND status = 'pending'").get(proposalId);
     if (!row)
         throw new Error(`proposal #${proposalId} not found or not pending`);
+    if (row.source_kind === 'transcript') {
+        return applyTranscriptProposal(db, row, kg);
+    }
     const digest = JSON.parse(row.proposed_digest);
     const sourceIds = JSON.parse(row.source_ids);
     const isPattern = digest.type === 'pattern_emergent';
@@ -514,7 +558,7 @@ export function rejectProposal(db, proposalId, reason) {
         throw new Error(`proposal #${proposalId} not found or not pending`);
 }
 export function listProposals(db, status = 'pending') {
-    const rows = db.prepare("SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at FROM dream_proposals WHERE status = ? ORDER BY created_at DESC").all(status);
+    const rows = db.prepare("SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC").all(status);
     return rows.map(r => {
         let digest;
         try {
@@ -523,22 +567,51 @@ export function listProposals(db, status = 'pending') {
         catch {
             digest = { name: '(corrupt)', type: 'digest', observations: [], tags: [] };
         }
-        let sourceIds = [];
+        let sourceCount = 0;
         try {
-            sourceIds = JSON.parse(r.source_ids);
+            const parsed = JSON.parse(r.source_ids);
+            sourceCount = Array.isArray(parsed) ? parsed.length : (parsed && typeof parsed === 'object' ? 1 : 0);
         }
         catch { }
         return {
             id: r.id,
             project: r.project,
             cluster_key: r.cluster_key,
-            source_count: sourceIds.length,
+            source_count: sourceCount,
             digest_name: digest.name,
             digest_observations_preview: digest.observations[0]?.slice(0, 120) ?? null,
             status: r.status,
             created_at: r.created_at,
             kind: digest.type === 'pattern_emergent' ? 'pattern_emergent' : 'digest',
+            source_kind: r.source_kind ?? 'entities',
         };
     });
+}
+export function getProposalDetail(db, id) {
+    const row = db.prepare('SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE id = ?').get(id);
+    if (!row)
+        return null;
+    let digest;
+    try {
+        digest = JSON.parse(row.proposed_digest);
+    }
+    catch {
+        digest = { name: '(corrupt)', type: 'digest', observations: [], tags: [] };
+    }
+    let source = null;
+    try {
+        source = JSON.parse(row.source_ids);
+    }
+    catch { }
+    return {
+        id: row.id,
+        project: row.project,
+        cluster_key: row.cluster_key,
+        source_kind: row.source_kind ?? 'entities',
+        status: row.status,
+        created_at: row.created_at,
+        source,
+        digest,
+    };
 }
 //# sourceMappingURL=dreamer.js.map

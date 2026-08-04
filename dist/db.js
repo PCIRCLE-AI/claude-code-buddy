@@ -342,6 +342,16 @@ function ensureDreamProposalsTable(db) {
     CREATE INDEX IF NOT EXISTS idx_dream_proposals_status ON dream_proposals(status);
     CREATE INDEX IF NOT EXISTS idx_dream_proposals_project ON dream_proposals(project);
   `);
+    const dpCols = db.prepare("PRAGMA table_info(dream_proposals)").all();
+    if (!dpCols.some((c) => c.name === 'source_kind')) {
+        try {
+            db.exec("ALTER TABLE dream_proposals ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'entities'");
+        }
+        catch (err) {
+            if (!String(err.message).includes('duplicate column name'))
+                throw err;
+        }
+    }
 }
 function ensureLlmTelemetryTable(db) {
     db.exec(`

@@ -1068,7 +1068,85 @@ dreamCmd
   .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 100)', (v) => parseInt(v, 10))
   .option('--window-days <n>', 'Look-back window in days (default 56 = 8 weeks)', (v) => parseInt(v, 10))
   .option('--validate', 'Run a second LLM pass to cross-check each digest against its sources (doubles LLM calls per proposal; surfaces under flow=digest_validator in `memesh telemetry`)')
+  .option('--from-transcripts', 'EXPERIMENTAL: mine Claude Code session transcripts for this project (decisions/lessons/facts hidden in the conversation) and STAGE them as proposals for `dream accept`, instead of clustering existing entities. Scoped to the current project only — --project does not apply here. With --dry-run, lists sessions and conversation-turn counts without calling an LLM.')
   .action(async (opts) => {
+    // --from-transcripts is the transcript-source path (Task #18). B1 shipped
+    // discovery; B2 adds extraction + staging (still REVERSIBLE — proposals sit
+    // in dream_proposals for a human `dream accept`; nothing enters the KG).
+    if (opts.fromTranscripts) {
+      const windowDays = typeof opts.windowDays === 'number' && !Number.isNaN(opts.windowDays) ? opts.windowDays : 3;
+
+      // --dry-run: discovery + a real, cheap conversation-turn count. No LLM,
+      // no DB writes. (A "how many candidates" number would need an LLM pass or
+      // a new unpinned classifier — deliberately not shown, to avoid fake
+      // precision reading as "how many memories you'd get".)
+      if (opts.dryRun) {
+        const { scanTranscripts } = await import('../../core/transcript-source.js');
+        const { countConversationTurns } = await import('../../core/transcript-extractor.js');
+        const sessions = scanTranscripts({ windowDays });
+        console.log(`[dry-run] transcript sessions for this project in the last ${windowDays} day(s): ${sessions.length}`);
+        let totalTurns = 0;
+        for (const s of sessions) {
+          const turns = countConversationTurns(s.path);
+          totalTurns += turns;
+          console.log(`  ${s.sessionId}  ${turns} conversation turns  ${s.lineCount} lines  ${(s.sizeBytes / 1024).toFixed(0)}KB  ${s.modifiedAt}`);
+        }
+        console.log(`  total: ${totalTurns} conversation turns across ${sessions.length} session(s)`);
+        console.log('');
+        console.log('Run without --dry-run to extract high-value memories and stage them as proposals.');
+        return;
+      }
+
+      // Real run: extract + stage. Requires an LLM (semantic extraction is not
+      // a rule). Same detectCapabilities + fallback wiring as `dream run`.
+      if (opts.project) {
+        console.log('note: --project does not scope --from-transcripts — the transcript source is always the current project. Ignoring --project.');
+      }
+      await withDatabase(async () => {
+        const { runTranscriptSource } = await import('../../core/transcript-extractor.js');
+        const { getDatabase } = await import('../../db.js');
+        const cfg = readConfig();
+        const llm = detectCapabilities().llm;
+        if (!llm) {
+          console.error('No LLM configured. Run `memesh config set llm.provider <anthropic|openai|ollama>` first (or set ANTHROPIC_API_KEY / OPENAI_API_KEY).');
+          console.error('LLM is required for `--from-transcripts` because extracting durable memory from prose is a semantic decision, not a rule.');
+          process.exit(1);
+        }
+        const result = await runTranscriptSource(getDatabase(), llm, {
+          windowDays,
+          maxLlmCalls: opts.maxLlmCalls,
+          fallbacks: cfg.llmFallbacks,
+        });
+        console.log(`Transcript mining complete in ${result.durationMs}ms`);
+        console.log(`  sessions scanned:    ${result.sessionsScanned}`);
+        console.log(`  LLM calls:           ${result.llmCalls}`);
+        console.log(`  candidates extracted: ${result.candidatesExtracted}`);
+        console.log(`  proposals created:   ${result.proposalsCreated}`);
+        if (result.duplicatesSkipped > 0) console.log(`  duplicates skipped:  ${result.duplicatesSkipped}`);
+        if (result.secretsDropped > 0) console.log(`  secret-bearing candidates dropped: ${result.secretsDropped}`);
+        if (result.llmFailures > 0) console.log(`  LLM call failures:   ${result.llmFailures} (sessions not mined — retry when the provider is reachable)`);
+        // Never let a size-cap truncation be a silent 0: name each session that
+        // lost tail turns (the newest content, likeliest to hold a reversal).
+        if (result.truncatedTurns > 0) {
+          console.log(`  size-cap truncation: ${result.truncatedTurns} conversation turn(s) beyond the cap were NOT analysed`);
+          for (const t of result.truncatedSessions) {
+            console.log(`    - session ${t.sessionId}: ${t.truncatedTurns} tail turn(s) not analysed`);
+          }
+        }
+        if (result.skipped.length > 0) {
+          const reasonCounts = new Map<string, number>();
+          for (const s of result.skipped) reasonCounts.set(s.reason, (reasonCounts.get(s.reason) ?? 0) + 1);
+          console.log(`  skipped:             ${result.skipped.length}`);
+          for (const [reason, n] of reasonCounts) console.log(`    - ${reason}${n > 1 ? ` (×${n})` : ''}`);
+        }
+        if (result.proposalsCreated > 0) {
+          console.log('');
+          console.log('Review with: memesh dream list');
+          console.log('Accept:      memesh dream accept <id>');
+        }
+      });
+      return;
+    }
     await withDatabase(async () => {
       const { runDreamer } = await import('../../core/dreamer.js');
       const { getDatabase } = await import('../../db.js');
@@ -1185,7 +1263,11 @@ dreamCmd
       console.log(`${proposals.length} ${opts.status} proposal(s):`);
       console.log('');
       for (const p of proposals) {
-        console.log(`  #${p.id}  [${p.project}/${p.cluster_key}]  ${p.source_count} sources → "${p.digest_name}"`);
+        // Label transcript-sourced proposals distinctly so a reviewer knows a
+        // digest was mined from a session's conversation, not clustered from
+        // existing entities.
+        const srcLabel = p.source_kind === 'transcript' ? ' (transcript)' : '';
+        console.log(`  #${p.id}  [${p.project}/${p.cluster_key}]${srcLabel}  ${p.source_count} source(s) → "${p.digest_name}"`);
         // preview is null (not the old '(empty)' sentinel) when the digest
         // has no observations — print nothing rather than a fake value.
         if (p.digest_observations_preview !== null) {
@@ -1194,7 +1276,38 @@ dreamCmd
         console.log(`         created: ${p.created_at}`);
         console.log('');
       }
-      console.log(`Apply: memesh dream accept <id>   |   Reject: memesh dream reject <id>`);
+      console.log(`Inspect: memesh dream show <id>   |   Apply: memesh dream accept <id>   |   Reject: memesh dream reject <id>`);
+    });
+  });
+
+dreamCmd
+  .command('show <id>')
+  .description('Show a proposal in full — name, type, ALL observations, tags, source — so you can review the whole thing before accepting')
+  .option('--json', 'Output JSON')
+  .action(async (id, opts) => {
+    await withDatabase(async () => {
+      const { getProposalDetail } = await import('../../core/dreamer.js');
+      const { getDatabase } = await import('../../db.js');
+      const detail = getProposalDetail(getDatabase(), parseInt(id, 10));
+      if (!detail) {
+        console.error(`proposal #${id} not found`);
+        console.error('See ids with: memesh dream list');
+        process.exit(1);
+      }
+      if (opts.json) { console.log(JSON.stringify(detail, null, 2)); return; }
+      console.log(`Proposal #${detail.id}  [${detail.project}/${detail.cluster_key}]  source: ${detail.source_kind}  status: ${detail.status}`);
+      console.log(`created: ${detail.created_at}`);
+      console.log('');
+      console.log(`name: ${detail.digest.name}`);
+      console.log(`type: ${detail.digest.type}`);
+      // ALL observations, in full — this is the point of `show`: nothing is
+      // truncated, so a secret in observation 2+ or past char 120 is visible.
+      console.log(`observations (${detail.digest.observations.length}):`);
+      for (const o of detail.digest.observations) console.log(`  - ${o}`);
+      if (detail.digest.tags.length > 0) console.log(`tags: ${detail.digest.tags.join(', ')}`);
+      console.log(`source: ${JSON.stringify(detail.source)}`);
+      console.log('');
+      console.log(`Accept: memesh dream accept ${detail.id}   |   Reject: memesh dream reject ${detail.id}`);
     });
   });
 
