@@ -78,6 +78,11 @@ import { MemoryTimeline } from '../../dashboard/src/components/MemoryTimeline';
 import { PatternCard } from '../../dashboard/src/components/PatternCard';
 import { PmAnalyticsPanel } from '../../dashboard/src/components/PmAnalyticsPanel';
 import { SearchTab } from '../../dashboard/src/components/SearchTab';
+import {
+  SettingsTab,
+  isConfigRenderable,
+  isUpdateStatusRenderable,
+} from '../../dashboard/src/components/SettingsTab';
 import { TabNav } from '../../dashboard/src/components/TabNav';
 import { UserPatterns } from '../../dashboard/src/components/UserPatterns';
 
@@ -356,6 +361,7 @@ const CASES: Array<{ name: string; node: () => ComponentChildren }> = [
   { name: 'MemoryTimeline', node: () => <MemoryTimeline data={[]} /> },
   { name: 'PmAnalyticsPanel', node: () => <PmAnalyticsPanel /> },
   { name: 'SearchTab', node: () => <SearchTab /> },
+  { name: 'SettingsTab', node: () => <SettingsTab locale="en" onLocaleChange={() => {}} /> },
   { name: 'TabNav', node: () => <TabNav tabs={[]} active="" onSelect={() => {}} /> },
   {
     name: 'UserPatterns',
@@ -414,7 +420,6 @@ const INTENTIONALLY_EXCLUDED: Record<string, string> = {
   MemoryRow: 'tests/dashboard/MemoryRow.test.tsx covers its degenerate inputs directly',
   OnboardingBanner: 'tests/dashboard/OnboardingBanner.test.tsx covers its degenerate inputs directly',
   ProjectRoadmap: 'tests/dashboard/ProjectRoadmap.test.tsx covers its degenerate inputs directly',
-  SettingsTab: 'has unguarded reads of `data.config` and `config.config`; adding it here is blocked on fixing those, not on writing the case',
 };
 
 /* ------------------------------------------------------------------ *
@@ -469,6 +474,25 @@ const MUST_RENDER: Record<string, { keys?: string[]; literals?: string[]; nothin
   // translated there is no key to point at.
   PmAnalyticsPanel: { literals: ['decisions/week', 'KG orphan rate'] },
   SearchTab: { keys: ['search.title'] },
+  // One marker per card: capabilities / LLM provider / updates / behaviour /
+  // language. The card titles are static, so they must survive every payload
+  // this suite sends — a SettingsTab that lost a card lost a control surface.
+  //
+  // `settings.updateUnavailable` pins the CALL SITE of the update-status
+  // guard, which the leaf tests cannot see: this stub's payload carries none
+  // of the fields the summary branches on, and without the guard it falls
+  // through every branch and lands on "Up to date" — a false green. The
+  // correct answer to a payload that said nothing is "can't check", visibly.
+  SettingsTab: {
+    keys: [
+      'settings.capabilities',
+      'settings.llmProvider',
+      'settings.updates',
+      'settings.behaviourTitle',
+      'settings.language',
+      'settings.updateUnavailable',
+    ],
+  },
   TabNav: { nothing: 'takes `tabs={[]}`; there are no tabs to render' },
   UserPatterns: { keys: ['patterns.title'] },
 };
@@ -658,6 +682,18 @@ const GUARD_LEAVES: Array<{
     valid: () => ({ entities: [], relations: [] }),
     leaves: ['entities', 'relations'],
   },
+  {
+    name: 'isConfigRenderable',
+    guard: isConfigRenderable as (v: unknown) => boolean,
+    valid: () => ({ config: {}, capabilities: { searchLevel: 0, embeddings: 'tfidf' } }),
+    leaves: ['config'],
+  },
+  {
+    name: 'isUpdateStatusRenderable',
+    guard: isUpdateStatusRenderable as (v: unknown) => boolean,
+    valid: () => ({ checkSucceeded: true, freshness: 'fresh', updateAvailable: false }),
+    leaves: ['checkSucceeded', 'freshness', 'updateAvailable'],
+  },
 ];
 
 /* ------------------------------------------------------------------ *
@@ -782,6 +818,26 @@ describe('dashboard components on degenerate data', () => {
       expect(text, 'the chained fetch never completed — settle() is not settling').toContain('value:');
       expect(() => assertNoLeakedInternals('ChainedFetchCanary', text)).toThrow();
     });
+  });
+
+  it('SettingsTab names version skew, not an outage, when /v1/config answers with the wrong shape', async () => {
+    // The two failures need two diagnoses: "failed to load" sends a user to
+    // their server, "cannot render" sends them to `memesh doctor` / a reload.
+    // Without this, bypassing the shape guard is invisible — the read throws,
+    // the network .catch absorbs it, and the tab degrades identically while
+    // the console blames an outage that never happened. Measured: that exact
+    // mutation survived every other test in this file.
+    const warns: string[] = [];
+    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warns.push(args.map(String).join(' '));
+    });
+    stubEmptyApi();
+    render(<Recorder><SettingsTab locale="en" onLocaleChange={() => {}} /></Recorder>);
+    await settle();
+    const skew = warns.filter(w => w.includes('/v1/config') && w.includes('cannot render'));
+    const outage = warns.filter(w => w.includes('/v1/config failed to load'));
+    expect(skew, 'the shape rejection should be diagnosed as version skew').toHaveLength(1);
+    expect(outage, 'an empty-but-successful response is not an outage').toEqual([]);
   });
 
   describe('shape guards, leaf by leaf', () => {
