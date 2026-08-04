@@ -16,7 +16,12 @@ import { render, fireEvent } from '@testing-library/preact';
 import { AuthPrompt } from '../../dashboard/src/components/AuthPrompt';
 
 describe('AuthPrompt', () => {
-  function submitForm(container: HTMLElement) {
+  // `Element`, not `HTMLElement`: that is what @testing-library/preact's
+  // `container` is typed as, and `querySelector` is on `Element` anyway. The
+  // narrower annotation only compiled because nothing type-checked this file —
+  // `tsconfig.check.json` covers `tests/**/*.ts`, and `tests/dashboard/*.tsx`
+  // needs bundler module resolution, so it now has its own check project.
+  function submitForm(container: Element) {
     const form = container.querySelector('form');
     expect(form).not.toBeNull();
     fireEvent.submit(form!);

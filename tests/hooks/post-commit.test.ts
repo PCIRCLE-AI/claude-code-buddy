@@ -7,6 +7,22 @@ import os from 'os';
 
 const require = createRequire(import.meta.url);
 
+/**
+ * The columns these assertions read off a `SELECT`. better-sqlite3 types
+ * `.get()` and `.all()` as `unknown` — correctly, since it cannot know the
+ * shape of an arbitrary query — so a test that reads columns has to say which
+ * ones it is reading. Stating it here is the test declaring its own contract
+ * with the schema; before this file was type-checked, it declared nothing and
+ * `entity.typo` would have compiled.
+ */
+type Row = {
+  id: number;
+  name: string;
+  type: string;
+  content: string;
+  tag: string;
+};
+
 describe('Feature: Post-Commit Hook', () => {
   let testDir: string;
   let dbPath: string;
@@ -48,21 +64,21 @@ describe('Feature: Post-Commit Hook', () => {
 
     // Verify entity was created
     const db = openDb();
-    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-abc1234');
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-abc1234') as Row;
     expect(entity).toBeTruthy();
     expect(entity.type).toBe('commit');
 
     // Verify observation
-    const obs = db.prepare('SELECT * FROM observations WHERE entity_id = ?').get(entity.id);
+    const obs = db.prepare('SELECT * FROM observations WHERE entity_id = ?').get(entity.id) as Row;
     expect(obs).toBeTruthy();
     expect(obs.content).toBe('fix: resolve login bug');
 
     // Verify tag
-    const tag = db.prepare('SELECT * FROM tags WHERE entity_id = ? AND tag = ?').get(entity.id, 'project:myproject');
+    const tag = db.prepare('SELECT * FROM tags WHERE entity_id = ? AND tag = ?').get(entity.id, 'project:myproject') as Row;
     expect(tag).toBeTruthy();
 
     // Verify FTS
-    const fts = db.prepare("SELECT * FROM entities_fts WHERE entities_fts MATCH 'login'").all();
+    const fts = db.prepare("SELECT * FROM entities_fts WHERE entities_fts MATCH 'login'").all() as Row[];
     expect(fts.length).toBeGreaterThan(0);
 
     db.close();
@@ -108,7 +124,7 @@ describe('Feature: Post-Commit Hook', () => {
 
     expect(fs.existsSync(dbPath)).toBe(true);
     const db = openDb();
-    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-def5678');
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-def5678') as Row;
     expect(entity).toBeTruthy();
     expect(entity.type).toBe('commit');
     db.close();
@@ -125,9 +141,9 @@ describe('Feature: Post-Commit Hook', () => {
     runHook(input);
 
     const db = openDb();
-    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-9a8b7c6');
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-9a8b7c6') as Row;
     expect(entity).toBeTruthy();
-    const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ?').get(entity.id);
+    const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ?').get(entity.id) as Row;
     expect(obs.content).toBe('feat: add feature');
     db.close();
   });
@@ -144,12 +160,12 @@ describe('Feature: Post-Commit Hook', () => {
     runHook(input);
 
     const db = openDb();
-    const entities = db.prepare('SELECT * FROM entities WHERE name = ?').all('commit-aaa1111');
+    const entities = db.prepare('SELECT * FROM entities WHERE name = ?').all('commit-aaa1111') as Row[];
     expect(entities).toHaveLength(1);
-    const tags = db.prepare('SELECT * FROM tags WHERE entity_id = ?').all(entities[0].id);
+    const tags = db.prepare('SELECT * FROM tags WHERE entity_id = ?').all(entities[0].id) as Row[];
     expect(tags).toHaveLength(1);
     // But observations may be duplicated (each hook run adds one)
-    const obs = db.prepare('SELECT * FROM observations WHERE entity_id = ?').all(entities[0].id);
+    const obs = db.prepare('SELECT * FROM observations WHERE entity_id = ?').all(entities[0].id) as Row[];
     expect(obs.length).toBeGreaterThanOrEqual(1);
     db.close();
   });
@@ -165,12 +181,12 @@ describe('Feature: Post-Commit Hook', () => {
     runHook(input);
 
     const db = openDb();
-    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-a1b2c3d');
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-a1b2c3d') as Row;
     expect(entity).toBeTruthy();
-    const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id').all(entity.id);
+    const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id').all(entity.id) as Row[];
     const branchObs = obs.find((o: { content: string }) => o.content.startsWith('Branch:'));
     expect(branchObs).toBeTruthy();
-    expect(branchObs.content).toBe('Branch: feature/my-branch');
+    expect(branchObs!.content).toBe('Branch: feature/my-branch');
     db.close();
   });
 
@@ -225,10 +241,10 @@ describe('Feature: Post-Commit Hook', () => {
     runHook(input);
 
     const db = openDb();
-    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-c0ffee1');
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-c0ffee1') as Row;
     expect(entity).toBeTruthy();
     expect(entity.type).toBe('commit');
-    const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id').all(entity.id);
+    const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id').all(entity.id) as Row[];
     const msgObs = obs.find((o: { content: string }) => o.content === 'feat: tool_response shape');
     expect(msgObs).toBeTruthy();
     db.close();

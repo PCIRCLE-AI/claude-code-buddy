@@ -8,6 +8,22 @@ import { expectValidHookOutput, HOOK_SPECIFIC_OUTPUT_EVENTS } from '../helpers/h
 
 const require = createRequire(import.meta.url);
 
+/**
+ * The columns these assertions read off a `SELECT`. better-sqlite3 types
+ * `.get()` and `.all()` as `unknown` — correctly, since it cannot know the
+ * shape of an arbitrary query — so a test that reads columns has to say which
+ * ones it is reading. Stating it here is the test declaring its own contract
+ * with the schema; before this file was type-checked, it declared nothing and
+ * `entity.typo` would have compiled.
+ */
+type Row = {
+  id: number;
+  name: string;
+  type: string;
+  content: string;
+  tag: string;
+};
+
 describe('Feature: PreCompact Hook', () => {
   let testDir: string;
   let dbPath: string;
@@ -83,12 +99,12 @@ describe('Feature: PreCompact Hook', () => {
 
     // Entity created in DB
     const db = openDb();
-    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('pre-compact-sess-abc123');
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('pre-compact-sess-abc123') as Row;
     expect(entity).toBeTruthy();
     expect(entity.type).toBe('session-summary');
 
     // Tags present
-    const tags = db.prepare('SELECT tag FROM tags WHERE entity_id = ?').all(entity.id).map((r: { tag: string }) => r.tag);
+    const tags = (db.prepare('SELECT tag FROM tags WHERE entity_id = ?').all(entity.id) as Row[]).map((r) => r.tag);
     expect(tags).toContain('source:auto-capture');
     expect(tags).toContain('urgency:pre-compact');
     expect(tags).toContain('project:myproject');
@@ -112,7 +128,7 @@ describe('Feature: PreCompact Hook', () => {
     runHook(input);
 
     const db = openDb();
-    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('pre-compact-sess-manual1');
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('pre-compact-sess-manual1') as Row;
     expect(entity).toBeTruthy();
     const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id').all(entity.id) as { content: string }[];
     const reasonObs = obs.find(o => o.content.startsWith('Compaction reason:'));
@@ -146,7 +162,7 @@ describe('Feature: PreCompact Hook', () => {
     runHook(input);
 
     const db = openDb();
-    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('pre-compact-sess-transcript1');
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('pre-compact-sess-transcript1') as Row;
     expect(entity).toBeTruthy();
     const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id').all(entity.id) as { content: string }[];
 
@@ -189,7 +205,7 @@ describe('Feature: PreCompact Hook', () => {
     runHook(input);
 
     const db = openDb();
-    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('pre-compact-sess-notranscript');
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('pre-compact-sess-notranscript') as Row;
     expect(entity).toBeTruthy();
     db.close();
   });
@@ -220,7 +236,7 @@ describe('Feature: PreCompact Hook', () => {
     runHook(input);
 
     const db = openDb();
-    const entities = db.prepare('SELECT * FROM entities WHERE name = ?').all('pre-compact-sess-dup');
+    const entities = db.prepare('SELECT * FROM entities WHERE name = ?').all('pre-compact-sess-dup') as Row[];
     expect(entities).toHaveLength(1);
     db.close();
   });

@@ -1,0 +1,37 @@
+{
+  // Type-checking scope for the dashboard and its tests.
+  //
+  // A second project, not a wider `include` on `tsconfig.check.json`, because
+  // the two halves of this repository resolve modules differently and cannot
+  // share one compiler pass. The package is `node16`/`nodenext`, where a
+  // relative import must carry a `.js` extension. The dashboard is bundled by
+  // vite and imports `./components/Header`, which `bundler` resolution allows
+  // and `node16` rejects — measured, that single disagreement produces 93
+  // TS2835 errors before any real type is examined.
+  //
+  // What this covers that nothing covered before:
+  //   - `dashboard/src/**` — `dashboard/tsconfig.json` describes it, but nothing
+  //     ran tsc against it. `npm run build:dashboard` is vite, which transpiles
+  //     without type-checking.
+  //   - `tests/dashboard/**/*.tsx` — outside `tsconfig.check.json`'s scope for
+  //     the resolution reason above. `AuthPrompt.test.tsx` had carried a
+  //     `container: HTMLElement` annotation against a value typed `Element`ry
+  //     since it was written.
+  //
+  // Deliberately mirrors `dashboard/tsconfig.json`'s compiler options rather
+  // than extending it: that file's `include` is `src`, and extending it would
+  // inherit an include the tests are not in.
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["vitest/globals", "node"]
+  },
+  "include": ["dashboard/src/**/*.ts", "dashboard/src/**/*.tsx", "tests/dashboard/**/*.ts", "tests/dashboard/**/*.tsx"]
+}

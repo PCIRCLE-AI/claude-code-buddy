@@ -37,7 +37,7 @@ function succeedWith(version: string, opts: { deprecated?: string } = {}) {
       throw new Error(`Unexpected npm command: ${cmd.join(' ')}`);
     }
     return {} as never;
-  }) as typeof import('child_process').execFile;
+  }) as unknown as typeof import('child_process').execFile;
 }
 
 function failLookup(message = 'npm unavailable') {
@@ -49,7 +49,7 @@ function failLookup(message = 'npm unavailable') {
     expect(typeof callback).toBe('function');
     (callback as (err: Error) => void)(new Error(message));
     return {} as never;
-  }) as typeof import('child_process').execFile;
+  }) as unknown as typeof import('child_process').execFile;
 }
 
 /**
@@ -73,7 +73,7 @@ function partialFailDeprecationOnly(version: string) {
       throw new Error(`Unexpected npm command: ${cmd.join(' ')}`);
     }
     return {} as never;
-  }) as typeof import('child_process').execFile;
+  }) as unknown as typeof import('child_process').execFile;
 }
 
 /**
@@ -100,7 +100,7 @@ function partialFailLatestOnly(deprecationMessage: string) {
       throw new Error(`Unexpected npm command: ${cmd.join(' ')}`);
     }
     return {} as never;
-  }) as typeof import('child_process').execFile;
+  }) as unknown as typeof import('child_process').execFile;
 }
 
 describe('version check', () => {

@@ -5,6 +5,7 @@ import { createHash } from 'crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { formatDoctorReport, runDoctor as runDoctorImpl } from '../../src/core/doctor.js';
 import type { UpdateCheck } from '../../src/core/version-check.js';
+import type { Capabilities } from '../../src/core/config.js';
 
 /**
  * Stand-in for the real embedder. 384 dims = all-MiniLM-L6-v2's output.
@@ -170,6 +171,26 @@ afterEach(() => {
   }
 });
 
+// The doctor's capability stubs used to be object literals missing four of
+// `Capabilities`' required fields. They compiled only because nothing type
+// -checked this file: `tsconfig.json`'s exclude carries `**/*.test.ts`, so
+// `npm run typecheck` skipped every test in the repository. A stub narrower
+// than the interface it stands in for is a stub that stops standing in for it
+// the moment doctor reads one of the missing fields.
+function caps(overrides: Partial<Capabilities> = {}): Capabilities {
+  return {
+    fts5: true,
+    vectorSearch: true,
+    scoring: true,
+    knowledgeEvolution: true,
+    embeddings: 'onnx',
+    llm: null,
+    llmFallbacks: [],
+    searchLevel: 0,
+    ...overrides,
+  };
+}
+
 describe('doctor', () => {
   it('reports PASS when local install checks all succeed', async () => {
     const packageRoot = createPackageRoot();
@@ -210,7 +231,7 @@ describe('doctor', () => {
       httpBaseUrl: 'http://127.0.0.1:3737',
       openDatabaseImpl: () => makeDatabase(7) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({
+      detectCapabilitiesImpl: () => caps({
         searchLevel: 1,
         llm: { provider: 'anthropic', model: 'claude-3-5-haiku-latest' },
         embeddings: 'openai',
@@ -260,10 +281,10 @@ describe('doctor', () => {
       packageVersion: '4.0.3',
       openDatabaseImpl: () => makeDatabase() as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({
+      detectCapabilitiesImpl: () => caps({
         searchLevel: 0,
         llm: null,
-        embeddings: 'disabled',
+        embeddings: 'tfidf',
       }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck({
@@ -306,10 +327,10 @@ describe('doctor', () => {
       packageVersion: '4.0.3',
       openDatabaseImpl: () => makeDatabase(3, { unsegmentedCount: 4 }) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({
+      detectCapabilitiesImpl: () => caps({
         searchLevel: 0,
         llm: null,
-        embeddings: 'disabled',
+        embeddings: 'tfidf',
       }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
@@ -349,10 +370,10 @@ describe('doctor', () => {
       packageVersion: '4.0.3',
       openDatabaseImpl: () => makeDatabase() as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({
+      detectCapabilitiesImpl: () => caps({
         searchLevel: 0,
         llm: null,
-        embeddings: 'disabled',
+        embeddings: 'tfidf',
       }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
@@ -383,10 +404,10 @@ describe('doctor', () => {
       packageVersion: '4.0.3',
       openDatabaseImpl: () => makeDatabase() as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({
+      detectCapabilitiesImpl: () => caps({
         searchLevel: 0,
         llm: null,
-        embeddings: 'disabled',
+        embeddings: 'tfidf',
       }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
@@ -422,7 +443,7 @@ describe('doctor', () => {
       packageVersion: '4.0.3',
       openDatabaseImpl: () => makeDatabase() as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -448,7 +469,7 @@ describe('doctor', () => {
       packageVersion: '4.0.3',
       openDatabaseImpl: () => makeDatabase() as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -478,7 +499,7 @@ describe('doctor', () => {
       packageVersion: '4.1.1',
       openDatabaseImpl: () => makeDatabase() as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck({
         currentVersion: '4.1.1',
@@ -522,7 +543,7 @@ describe('doctor', () => {
       packageVersion: '4.1.1',
       openDatabaseImpl: () => makeDatabase() as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck({
         currentVersion: '4.1.1',
@@ -570,7 +591,7 @@ describe('doctor', () => {
       packageVersion: '4.1.2',
       openDatabaseImpl: () => makeDatabase() as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck({
         currentVersion: '4.1.2',
@@ -614,7 +635,7 @@ describe('doctor', () => {
       packageVersion: '4.1.2',
       openDatabaseImpl: () => makeDatabase() as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck({
         currentVersion: '4.1.2',
@@ -687,7 +708,7 @@ describe('doctor', () => {
       packageVersion: '4.1.4',
       openDatabaseImpl: () => makeDatabase(0) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -737,7 +758,7 @@ describe('doctor', () => {
       packageVersion: '4.1.4',
       openDatabaseImpl: () => makeDatabase(5) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -781,7 +802,7 @@ describe('doctor', () => {
       packageVersion: '4.1.4',
       openDatabaseImpl: () => makeDatabase(0) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -808,7 +829,7 @@ describe('doctor', () => {
       packageVersion: '4.1.4',
       openDatabaseImpl: () => makeDatabase(0) as never, // ← key: 0 entities
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -839,7 +860,7 @@ describe('doctor', () => {
       packageVersion: '4.1.4',
       openDatabaseImpl: () => makeDatabase(0) as never, // 0 entities
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -875,7 +896,7 @@ describe('doctor', () => {
       packageVersion: '4.1.4',
       openDatabaseImpl: () => makeDatabase(0) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -923,7 +944,7 @@ describe('README locale parity (doctor sub-check)', () => {
       packageVersion: '4.2.3',
       openDatabaseImpl: () => makeDatabase(3) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'onnx' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'source-checkout',
@@ -1017,7 +1038,7 @@ describe('database failure diagnostics (F15)', () => {
         packageVersion: '4.1.4',
         openDatabaseImpl: () => { throw new Error('SQLITE_CANTOPEN'); },
         closeDatabaseImpl: () => undefined,
-        detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+        detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
         getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
         getUpdateCheckImpl: async () => makeUpdateCheck(),
         getCurrentInstallChannelImpl: () => 'npm-global',
@@ -1025,12 +1046,15 @@ describe('database failure diagnostics (F15)', () => {
           channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
           recommendedCommand: 'memesh update', guidance: '',
         }),
-        existsSyncImpl: (p: string) => p === dbPath || p === dbDir,
-        statSyncImpl: (p: string) => {
+        existsSyncImpl: (p: fs.PathLike) => p === dbPath || p === dbDir,
+        // `statSync` is overloaded (it can return BigIntStats), so a
+        // single-signature stub needs the two-step assertion TypeScript names
+        // in the error rather than a direct one.
+        statSyncImpl: ((p: fs.PathLike) => {
           if (p === dbPath) return { mode: 0o000, size: 1024 } as fs.Stats; // No permissions
           if (p === dbDir) return { mode: 0o700, size: 4096 } as fs.Stats;
           throw new Error('ENOENT');
-        },
+        }) as unknown as typeof fs.statSync,
       });
 
       const dbCheck = result.checks.find(c => c.id === 'database');
@@ -1058,7 +1082,7 @@ describe('database failure diagnostics (F15)', () => {
         packageVersion: '4.1.4',
         openDatabaseImpl: () => { throw new Error('SQLITE_NOTADB'); },
         closeDatabaseImpl: () => undefined,
-        detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+        detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
         getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
         getUpdateCheckImpl: async () => makeUpdateCheck(),
         getCurrentInstallChannelImpl: () => 'npm-global',
@@ -1066,12 +1090,12 @@ describe('database failure diagnostics (F15)', () => {
           channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
           recommendedCommand: 'memesh update', guidance: '',
         }),
-        existsSyncImpl: (p: string) => p === dbPath || p === dbDir,
-        statSyncImpl: (p: string) => {
+        existsSyncImpl: (p: fs.PathLike) => p === dbPath || p === dbDir,
+        statSyncImpl: ((p: fs.PathLike) => {
           if (p === dbPath) return { mode: 0o600, size: 0 } as fs.Stats; // Empty file
           if (p === dbDir) return { mode: 0o700, size: 4096 } as fs.Stats;
           throw new Error('ENOENT');
-        },
+        }) as unknown as typeof fs.statSync,
       });
 
       const dbCheck = result.checks.find(c => c.id === 'database');
@@ -1098,7 +1122,7 @@ describe('database failure diagnostics (F15)', () => {
         packageVersion: '4.1.4',
         openDatabaseImpl: () => { throw new Error('SQLITE_CANTOPEN'); },
         closeDatabaseImpl: () => undefined,
-        detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+        detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
         getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
         getUpdateCheckImpl: async () => makeUpdateCheck(),
         getCurrentInstallChannelImpl: () => 'npm-global',
@@ -1139,7 +1163,7 @@ describe('database failure diagnostics (F15)', () => {
         packageVersion: '4.1.4',
         openDatabaseImpl: () => { throw new Error('SQLITE_CORRUPT'); },
         closeDatabaseImpl: () => undefined,
-        detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+        detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
         getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
         getUpdateCheckImpl: async () => makeUpdateCheck(),
         getCurrentInstallChannelImpl: () => 'npm-global',
@@ -1183,7 +1207,7 @@ describe('database lifecycle preservation (F16 — regression)', () => {
       openDatabaseImpl: () => makeDatabase() as never,
       closeDatabaseImpl: () => { closeCallCount++; },
       isDatabaseOpenImpl: () => true, // ← simulates server-mode: db already open
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -1211,7 +1235,7 @@ describe('database lifecycle preservation (F16 — regression)', () => {
       openDatabaseImpl: () => makeDatabase() as never,
       closeDatabaseImpl: () => { closeCallCount++; },
       isDatabaseOpenImpl: () => false, // ← simulates CLI mode: doctor opens db itself
-      detectCapabilitiesImpl: () => ({ searchLevel: 0, llm: null, embeddings: 'disabled' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -1237,7 +1261,7 @@ describe('native binding probe (plugin-marketplace silent-dropout guard)', () =>
       packageVersion: '4.2.5',
       openDatabaseImpl: () => makeDatabase(1) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 1, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'onnx' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'plugin-marketplace',
@@ -1268,7 +1292,7 @@ describe('native binding probe (plugin-marketplace silent-dropout guard)', () =>
       packageVersion: '4.2.5',
       openDatabaseImpl: () => makeDatabase(1) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 1, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'onnx' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -1297,7 +1321,7 @@ describe('native binding probe (plugin-marketplace silent-dropout guard)', () =>
       packageVersion: '4.2.5',
       openDatabaseImpl: () => makeDatabase(1) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 1, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'onnx' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -1323,7 +1347,7 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       packageVersion: '4.2.6',
       openDatabaseImpl: () => makeDatabase(1) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 1, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'onnx' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'plugin-marketplace',
@@ -1350,7 +1374,7 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       packageVersion: '4.2.6',
       openDatabaseImpl: () => makeDatabase(1) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 1, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'onnx' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'plugin-marketplace',
@@ -1376,7 +1400,7 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       packageVersion: '4.2.6',
       openDatabaseImpl: () => makeDatabase(1) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 1, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'onnx' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -1401,7 +1425,7 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       packageVersion: '4.2.6',
       openDatabaseImpl: () => makeDatabase(1) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 1, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'onnx' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'source-checkout',
@@ -1429,13 +1453,13 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
  * the user a download or a billed API call.
  */
 describe('doctor: embeddings probe', () => {
-  function baseOptions(packageRoot: string, embeddings: string) {
+  function baseOptions(packageRoot: string, embeddings: Capabilities['embeddings']) {
     return {
       packageRoot,
       packageVersion: '4.2.7',
       openDatabaseImpl: () => makeDatabase(3) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => ({ searchLevel: 1, llm: null, embeddings }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, llm: null, embeddings }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'source-checkout',

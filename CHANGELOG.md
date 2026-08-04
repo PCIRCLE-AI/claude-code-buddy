@@ -6,6 +6,69 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **Every dashboard component is now held to one contract**
+  (`tests/dashboard/component-contracts.test.tsx`) — 25 components had 6 test
+  files between them. This is deliberately not nineteen "renders without
+  throwing" tests, which cannot fail for any reason a user would notice. It
+  asserts the class of bug that actually reaches a dashboard user: **on
+  degenerate data a component may render an empty state, but it may not render
+  the machinery.** No `undefined`, `NaN` or `[object Object]` in visible text —
+  the shape an unguarded `toFixed()`, a missing field or a stringified object
+  takes on screen — and no raw i18n **key**, which is not hypothetical: the auth
+  screen shipped `auth.title` to a remote operator, because `t()` returns its
+  argument on a miss.
+
+  Every component is exercised twice, against an API that answers empty and an
+  API that is down. The key list is asserted non-empty first, or the whole check
+  filters an empty array and stops checking.
+
+- **The dashboard and its `.tsx` tests are type-checked, for the first time**
+  (`tsconfig.check-dashboard.json`) — a second project rather than a wider
+  `include`, because the two halves of this repository resolve modules
+  differently and cannot share one pass: the package is `node16`, the dashboard
+  is bundled by vite and imports `./components/Header` without an extension.
+  Measured, that one disagreement produces 93 errors before any real type is
+  looked at. `npm run build:dashboard` is vite, which transpiles without
+  checking, so nothing had ever run `tsc` over `dashboard/src`. It found a test
+  helper annotated `container: HTMLElement` against a value typed `Element`.
+
+### Fixed
+
+- **`npm run typecheck` had never checked a single test file, and 68 real errors
+  were waiting behind that** (`tsconfig.check.json`, 9 test files) —
+  **this corrects a claim made in the previous entry's own release notes.** The
+  commit that added `tsconfig.check.json` reported "exactly one error appeared
+  across `src/` + `tests/` + config". That measurement was wrong: the new config
+  extended `tsconfig.json` without declaring its own `exclude`, and the base
+  carries `**/*.test.ts`. Every test in the repository was still being skipped,
+  so the one error found was in `vitest.config.ts` alone.
+
+  With the exclusion lifted, the errors were not cosmetic:
+
+  - **32 `detectCapabilities` stubs in `doctor.test.ts` returned objects missing
+    four of `Capabilities`' required fields.** They stood in for an interface
+    they did not implement, and would have stopped standing in for it the moment
+    `doctor` read one of the missing fields.
+  - **22 of those stubs claimed `embeddings: 'disabled'` — a value the type does
+    not permit, that appears nowhere in `src/`, and that no code path produces
+    or reads.** The state they meant is `'tfidf'`, which is what a default
+    install actually reports now that the local ONNX runtime is an optional
+    peer. The helper that accepted it was typed `embeddings: string`; it is
+    typed `Capabilities['embeddings']` now, so the next impossible value cannot
+    be passed.
+  - **20 SQLite rows were read as `unknown`** in the hook tests. `better-sqlite3`
+    types `.get()`/`.all()` that way correctly — it cannot know an arbitrary
+    query's shape — so a test reading columns has to declare which ones. Before
+    this, `entity.typo` would have compiled.
+  - Stubs for `existsSync` and `statSync` were typed narrower than the functions
+    they replace, and four `execFile` stubs were asserted onto an overloaded
+    signature in one step.
+
+  All 68 are fixed and `npm run typecheck` now covers `src/`, every test, and
+  the root config files, in two projects.
+
+### Added
+
 - **Coverage can be measured for the first time, and `npm run typecheck` now
   covers the files that configure the build** (`vitest.config.ts`,
   `tsconfig.check.json`, `package.json`) — two settings that looked like

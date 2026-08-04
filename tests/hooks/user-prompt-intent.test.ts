@@ -354,7 +354,7 @@ describe('Feature: User Prompt Intent Hook', () => {
         expect(r.status).toBe(0);
         // Exactly parseable, no trailing content.
         expect(() => JSON.parse(r.stdout)).not.toThrow();
-        expect(r.stdout.split('\n').filter((l) => l.length > 0).length).toBe(1);
+        expect(r.stdout.split('\n').filter((l: string) => l.length > 0).length).toBe(1);
       });
     });
 

@@ -220,7 +220,7 @@ describe('callLLM — cross-provider failover', () => {
     // 'anthropic.com' would also match attacker-controlled hosts like
     // anthropic.com.evil.example, which is exactly the CodeQL
     // "incomplete URL substring sanitization" anti-pattern.
-    globalThis.fetch = vi.fn(async (url: string) => {
+    globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
       let hostname = '';
       try { hostname = typeof url === 'string' ? new URL(url).hostname : ''; } catch { /* not a URL */ }
       if (hostname === 'api.anthropic.com') {
