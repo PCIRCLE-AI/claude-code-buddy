@@ -12,7 +12,8 @@ All notable changes to MeMesh are documented here.
   was set to — the Insights tab was permanently English for a Chinese user.
   A new `language` config key (`memesh config set language zh-TW`, or the
   same field on `POST /v1/config`) adds one shared output-language
-  instruction to all four content-generating prompts. Unset keeps today's
+  instruction to all four content-generating prompts — and changing the
+  dashboard language now sets it automatically. Unset keeps today's
   English behaviour, and machine identifiers (entity types, tags, category
   enums) stay English so nothing downstream breaks on a translated value.
 - **HTTP errors now carry a stable `errorCode` next to the English
@@ -21,8 +22,9 @@ All notable changes to MeMesh are documented here.
   error envelope now includes a documented machine code
   (`auth.missing-bearer`, `validation.bad-body`, `route.retired`,
   `payload.too-large`, `server.internal`, …), and `POST /v1/config/test`
-  failures carry `auth` / `network` / `no_models` / `http_<status>` codes —
-  so the dashboard can translate errors instead of echoing server English.
+  failures carry `auth` / `network` / `no_models` / `http_<status>` codes.
+  The dashboard now translates every known code in all 11 languages
+  (falling back to the server prose for codes it does not know yet).
   The prose stays; nothing existing is removed.
 
 ### Fixed

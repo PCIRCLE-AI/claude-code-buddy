@@ -28,7 +28,8 @@ interface ProposalSummary {
   cluster_key: string;
   source_count: number;
   digest_name: string;
-  digest_observations_preview: string;
+  /** null when the proposal has no observations (was the '(empty)' sentinel). */
+  digest_observations_preview: string | null;
   // Strict union is the truth for today; the badge renderer below
   // falls back to a neutral gray for any future status (e.g.
   // 'expired' / 'superseded') the server may add without coordinated
@@ -372,12 +373,11 @@ export function InsightsTab() {
           );
         }
 
-        // The server-side default for digest_observations_preview is
-        // the literal string '(empty)' when observations[] is empty.
-        // Appending an unconditional `…` produces `(empty)…` which
-        // reads like garbage; only suffix the ellipsis when there's
-        // actual content.
-        const previewSuffix = p.digest_observations_preview === '(empty)' ? '' : '…';
+        // digest_observations_preview is null when the digest has no
+        // observations (the server used to send the literal '(empty)'
+        // sentinel, which every consumer had to string-compare). Render a
+        // localised empty state instead — never a dangling ellipsis.
+        const preview = p.digest_observations_preview;
 
         return (
           <div key={p.id} class="card" style={{ padding: 14 }}>
@@ -394,7 +394,9 @@ export function InsightsTab() {
                   </span>
                 </div>
                 <div style={{ marginTop: 6, color: 'var(--text-2)', fontSize: 13, lineHeight: 1.5 }}>
-                  {p.digest_observations_preview}{previewSuffix}
+                  {preview !== null
+                    ? <>{preview}…</>
+                    : <span style={{ fontStyle: 'italic', color: 'var(--text-3)' }}>{t('insights.noPreview')}</span>}
                 </div>
                 <div style={{ marginTop: 4, color: 'var(--text-3)', fontSize: 11 }}>
                   {formatRelative(p.created_at)}

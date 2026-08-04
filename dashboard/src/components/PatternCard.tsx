@@ -23,7 +23,8 @@ interface PatternProposalSummary {
   cluster_key: string;
   source_count: number;
   digest_name: string;
-  digest_observations_preview: string;
+  /** null when the proposal has no observations (was the '(empty)' sentinel). */
+  digest_observations_preview: string | null;
   status: string;
   created_at: string;
 }
@@ -135,7 +136,12 @@ export function PatternCard(props: PatternCardProps) {
             </span>
           </div>
           <div style={{ marginTop: 6, color: 'var(--text-2)', fontSize: 13, lineHeight: 1.5 }}>
-            {p.digest_observations_preview}{p.digest_observations_preview === '(empty)' ? '' : '…'}
+            {/* null = no observations at all (the server used to send the
+                literal '(empty)' sentinel) — render a localised empty state,
+                never a dangling ellipsis. */}
+            {p.digest_observations_preview !== null
+              ? <>{p.digest_observations_preview}…</>
+              : <span style={{ fontStyle: 'italic', color: 'var(--text-3)' }}>{t('insights.noPreview')}</span>}
           </div>
           <div style={{ marginTop: 4, color: 'var(--text-3)', fontSize: 11 }}>
             {formatRelative(p.created_at)}
