@@ -54,6 +54,7 @@ export declare function applyProposal(db: Database.Database, proposalId: number,
         observations: string[];
         tags: string[];
         metadata: Record<string, unknown>;
+        trustOverride?: 'trusted' | 'untrusted';
     }) => number;
 }): ApplyResult;
 export declare function rejectProposal(db: Database.Database, proposalId: number, reason?: string): void;
@@ -67,6 +68,7 @@ export interface ProposalSummary {
     status: string;
     created_at: string;
     kind: 'digest' | 'pattern_emergent';
+    source_kind: string;
 }
 export declare function listProposals(db: Database.Database, status?: string): ProposalSummary[];
 //# sourceMappingURL=dreamer.d.ts.map

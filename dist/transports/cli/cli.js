@@ -890,21 +890,67 @@ dreamCmd
     .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 100)', (v) => parseInt(v, 10))
     .option('--window-days <n>', 'Look-back window in days (default 56 = 8 weeks)', (v) => parseInt(v, 10))
     .option('--validate', 'Run a second LLM pass to cross-check each digest against its sources (doubles LLM calls per proposal; surfaces under flow=digest_validator in `memesh telemetry`)')
-    .option('--from-transcripts', 'EXPERIMENTAL (discovery only): list the Claude Code session transcripts available to mine for this project, instead of clustering existing entities. Read-only — proposes nothing yet.')
+    .option('--from-transcripts', 'EXPERIMENTAL: mine Claude Code session transcripts for this project (decisions/lessons/facts hidden in the conversation) and STAGE them as proposals for `dream accept`, instead of clustering existing entities. Scoped to the current project only — --project does not apply here. With --dry-run, lists sessions and conversation-turn counts without calling an LLM.')
     .action(async (opts) => {
     if (opts.fromTranscripts) {
-        const { scanTranscripts } = await import('../../core/transcript-source.js');
         const windowDays = typeof opts.windowDays === 'number' && !Number.isNaN(opts.windowDays) ? opts.windowDays : 3;
-        const sessions = scanTranscripts({ windowDays });
-        console.log(`[discovery] transcript sessions for this project in the last ${windowDays} day(s): ${sessions.length}`);
-        let totalLines = 0;
-        for (const s of sessions) {
-            totalLines += s.lineCount;
-            console.log(`  ${s.sessionId}  ${s.lineCount} lines  ${(s.sizeBytes / 1024).toFixed(0)}KB  ${s.modifiedAt}`);
+        if (opts.dryRun) {
+            const { scanTranscripts } = await import('../../core/transcript-source.js');
+            const { countConversationTurns } = await import('../../core/transcript-extractor.js');
+            const sessions = scanTranscripts({ windowDays });
+            console.log(`[dry-run] transcript sessions for this project in the last ${windowDays} day(s): ${sessions.length}`);
+            let totalTurns = 0;
+            for (const s of sessions) {
+                const turns = countConversationTurns(s.path);
+                totalTurns += turns;
+                console.log(`  ${s.sessionId}  ${turns} conversation turns  ${s.lineCount} lines  ${(s.sizeBytes / 1024).toFixed(0)}KB  ${s.modifiedAt}`);
+            }
+            console.log(`  total: ${totalTurns} conversation turns across ${sessions.length} session(s)`);
+            console.log('');
+            console.log('Run without --dry-run to extract high-value memories and stage them as proposals.');
+            return;
         }
-        console.log(`  total: ${totalLines} lines across ${sessions.length} session(s)`);
-        console.log('');
-        console.log('This is discovery only — extraction and proposals are not implemented yet.');
+        if (opts.project) {
+            console.log('note: --project does not scope --from-transcripts — the transcript source is always the current project. Ignoring --project.');
+        }
+        await withDatabase(async () => {
+            const { runTranscriptSource } = await import('../../core/transcript-extractor.js');
+            const { getDatabase } = await import('../../db.js');
+            const cfg = readConfig();
+            const llm = detectCapabilities().llm;
+            if (!llm) {
+                console.error('No LLM configured. Run `memesh config set llm.provider <anthropic|openai|ollama>` first (or set ANTHROPIC_API_KEY / OPENAI_API_KEY).');
+                console.error('LLM is required for `--from-transcripts` because extracting durable memory from prose is a semantic decision, not a rule.');
+                process.exit(1);
+            }
+            const result = await runTranscriptSource(getDatabase(), llm, {
+                windowDays,
+                maxLlmCalls: opts.maxLlmCalls,
+                fallbacks: cfg.llmFallbacks,
+            });
+            console.log(`Transcript mining complete in ${result.durationMs}ms`);
+            console.log(`  sessions scanned:    ${result.sessionsScanned}`);
+            console.log(`  LLM calls:           ${result.llmCalls}`);
+            console.log(`  candidates extracted: ${result.candidatesExtracted}`);
+            console.log(`  proposals created:   ${result.proposalsCreated}`);
+            if (result.duplicatesSkipped > 0)
+                console.log(`  duplicates skipped:  ${result.duplicatesSkipped}`);
+            if (result.secretsDropped > 0)
+                console.log(`  secret-bearing candidates dropped: ${result.secretsDropped}`);
+            if (result.skipped.length > 0) {
+                const reasonCounts = new Map();
+                for (const s of result.skipped)
+                    reasonCounts.set(s.reason, (reasonCounts.get(s.reason) ?? 0) + 1);
+                console.log(`  skipped:             ${result.skipped.length}`);
+                for (const [reason, n] of reasonCounts)
+                    console.log(`    - ${reason}${n > 1 ? ` (×${n})` : ''}`);
+            }
+            if (result.proposalsCreated > 0) {
+                console.log('');
+                console.log('Review with: memesh dream list');
+                console.log('Accept:      memesh dream accept <id>');
+            }
+        });
         return;
     }
     await withDatabase(async () => {
@@ -1010,7 +1056,8 @@ dreamCmd
         console.log(`${proposals.length} ${opts.status} proposal(s):`);
         console.log('');
         for (const p of proposals) {
-            console.log(`  #${p.id}  [${p.project}/${p.cluster_key}]  ${p.source_count} sources → "${p.digest_name}"`);
+            const srcLabel = p.source_kind === 'transcript' ? ' (transcript)' : '';
+            console.log(`  #${p.id}  [${p.project}/${p.cluster_key}]${srcLabel}  ${p.source_count} source(s) → "${p.digest_name}"`);
             if (p.digest_observations_preview !== null) {
                 console.log(`         ${p.digest_observations_preview}`);
             }

@@ -719,15 +719,81 @@ export interface ApplyResult {
   kind: 'digest' | 'pattern_emergent';
 }
 
+/**
+ * Apply a transcript-sourced proposal: create the entity from the digest, mark
+ * the proposal applied. Additive — no sources to archive or link. The content
+ * is LLM-paraphrased from an untrusted transcript, so it is stamped
+ * `trust: 'untrusted'` (and `trustOverride`) exactly like the compaction /
+ * failure-analyzer paths, keeping it out of unprompted auto-context injection
+ * while staying fully searchable by explicit recall.
+ */
+function applyTranscriptProposal(
+  db: Database.Database,
+  row: { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string },
+  kg: { createEntity: (name: string, type: string, opts: { observations: string[]; tags: string[]; metadata: Record<string, unknown>; trustOverride?: 'trusted' | 'untrusted' }) => number },
+): ApplyResult {
+  const digest = JSON.parse(row.proposed_digest) as ProposedDigest;
+  let source: unknown = null;
+  try { source = JSON.parse(row.source_ids); } catch { /* keep null */ }
+  // Routing tag comes from the cluster/proposal, never the model — a
+  // `project:` tag lifted from injected transcript text must not re-file the
+  // memory under another project.
+  const tags = [
+    ...digest.tags.filter((tag) => !tag.startsWith('project:')),
+    `project:${row.project}`,
+  ];
+  const tx = db.transaction(() => {
+    const digestId = kg.createEntity(digest.name, digest.type, {
+      observations: digest.observations,
+      tags,
+      trustOverride: 'untrusted',
+      metadata: {
+        source_kind: 'transcript',
+        source,
+        proposal_id: row.id,
+        cluster_key: row.cluster_key,
+        project: row.project,
+        trust: 'untrusted',
+        dreamed_at: new Date().toISOString(),
+        kind: 'transcript_memory',
+      },
+    });
+    db.prepare("UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ?").run(row.id);
+    return digestId;
+  });
+  tx();
+  return {
+    proposalId: row.id,
+    digestEntityName: digest.name,
+    sourcesArchived: 0,
+    sourcesLinked: 0,
+    kind: 'digest',
+  };
+}
+
 export function applyProposal(
   db: Database.Database,
   proposalId: number,
-  kg: { createEntity: (name: string, type: string, opts: { observations: string[]; tags: string[]; metadata: Record<string, unknown> }) => number },
+  kg: { createEntity: (name: string, type: string, opts: { observations: string[]; tags: string[]; metadata: Record<string, unknown>; trustOverride?: 'trusted' | 'untrusted' }) => number },
 ): ApplyResult {
   const row = db.prepare(
-    "SELECT id, project, cluster_key, source_ids, proposed_digest FROM dream_proposals WHERE id = ? AND status = 'pending'"
-  ).get(proposalId) as { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string } | undefined;
+    "SELECT id, project, cluster_key, source_ids, proposed_digest, source_kind FROM dream_proposals WHERE id = ? AND status = 'pending'"
+  ).get(proposalId) as { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; source_kind: string | null } | undefined;
   if (!row) throw new Error(`proposal #${proposalId} not found or not pending`);
+
+  // Transcript proposals (Task #18) have NO source ENTITIES — their source_ids
+  // is a JSON object {sessionId,...}, not an id array — so there is nothing to
+  // archive or link. Accepting one is purely additive: createEntity from the
+  // digest. This branch is deliberately BEFORE the isPattern discriminator and
+  // before any `JSON.parse(source_ids)` as a number[]: a transcript digest's
+  // type is `decision`/`lesson_learned`/`fact`, which is NOT 'pattern_emergent',
+  // so it would otherwise fall into the compaction branch and try to iterate a
+  // plain object as archivable ids. Short-circuiting here means a future
+  // hardening of that parse can never silently route a transcript proposal into
+  // the archive path.
+  if (row.source_kind === 'transcript') {
+    return applyTranscriptProposal(db, row, kg);
+  }
 
   const digest = JSON.parse(row.proposed_digest) as ProposedDigest;
   const sourceIds: number[] = JSON.parse(row.source_ids);
@@ -878,27 +944,40 @@ export interface ProposalSummary {
    * apply-side check in `applyProposal`.
    */
   kind: 'digest' | 'pattern_emergent';
+  /**
+   * Where the proposal's raw material came from: 'entities' (clusters of
+   * captured KG rows — the original path) or 'transcript' (mined directly from
+   * a session JSONL). Defaults to 'entities' for any pre-source_kind row. The
+   * CLI listing labels transcript proposals distinctly; the dashboard can too.
+   */
+  source_kind: string;
 }
 
 export function listProposals(db: Database.Database, status: string = 'pending'): ProposalSummary[] {
   const rows = db.prepare(
-    "SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at FROM dream_proposals WHERE status = ? ORDER BY created_at DESC"
-  ).all(status) as Array<{ id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; status: string; created_at: string }>;
+    "SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC"
+  ).all(status) as Array<{ id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; status: string; created_at: string; source_kind: string | null }>;
   return rows.map(r => {
     let digest: ProposedDigest;
     try { digest = JSON.parse(r.proposed_digest); } catch { digest = { name: '(corrupt)', type: 'digest', observations: [], tags: [] }; }
-    let sourceIds: number[] = [];
-    try { sourceIds = JSON.parse(r.source_ids); } catch { /* leave empty */ }
+    // source_ids is an id ARRAY for entity clusters but a JSON OBJECT
+    // {sessionId,...} for a transcript proposal (one session = one source).
+    let sourceCount = 0;
+    try {
+      const parsed = JSON.parse(r.source_ids);
+      sourceCount = Array.isArray(parsed) ? parsed.length : (parsed && typeof parsed === 'object' ? 1 : 0);
+    } catch { /* leave 0 */ }
     return {
       id: r.id,
       project: r.project,
       cluster_key: r.cluster_key,
-      source_count: sourceIds.length,
+      source_count: sourceCount,
       digest_name: digest.name,
       digest_observations_preview: digest.observations[0]?.slice(0, 120) ?? null,
       status: r.status,
       created_at: r.created_at,
       kind: digest.type === 'pattern_emergent' ? 'pattern_emergent' : 'digest',
+      source_kind: r.source_kind ?? 'entities',
     };
   });
 }
