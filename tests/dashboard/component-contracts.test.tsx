@@ -464,7 +464,12 @@ const MUST_RENDER: Record<string, { keys?: string[]; literals?: string[]; nothin
   InsightsBanner: { nothing: 'renders only when there are unreviewed insights to point at from the current tab' },
   InsightsTab: { keys: ['insights.title'] },
   KnowledgeRadar: { nothing: 'takes `data={[]}`; an empty radar has no axes to draw' },
-  LessonsTab: { keys: ['lessons.tabFailure'] },
+  // Not `lessons.tabFailure`: it renders in TWO rows (the stats row and a
+  // category header), so either row could vanish while the other kept the
+  // marker green — the same shared-marker hole the SettingsTab LLM card had.
+  // These two each render exactly once and unconditionally, in different
+  // rows: the stats row and the sub-category tab strip.
+  LessonsTab: { keys: ['lessons.totalRecalls', 'lessons.tabFreeform'] },
   LlmTelemetryPanel: { keys: ['telemetry.title'] },
   MemoryAgeMatrix: { nothing: 'takes `data={[]}`; an empty matrix has no buckets to draw' },
   MemoryTimeline: { keys: ['timeline.title'] },
@@ -483,10 +488,15 @@ const MUST_RENDER: Record<string, { keys?: string[]; literals?: string[]; nothin
   // of the fields the summary branches on, and without the guard it falls
   // through every branch and lands on "Up to date" — a false green. The
   // correct answer to a payload that said nothing is "can't check", visibly.
+  // `settings.llmOptional.title`, NOT `settings.llmProvider`, as the LLM
+  // card's marker: `llmProvider` is also the Capabilities card's stat label,
+  // so with it the whole LLM card — provider radios, key entry, Save — could
+  // disappear and the other occurrence would still satisfy `toContain`. A
+  // marker shared between two cards watches neither.
   SettingsTab: {
     keys: [
       'settings.capabilities',
-      'settings.llmProvider',
+      'settings.llmOptional.title',
       'settings.updates',
       'settings.behaviourTitle',
       'settings.language',
