@@ -3,7 +3,7 @@
 // safety guards. The LLM call itself is mocked via the dryRun path.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -566,6 +566,112 @@ describe('dreamer', () => {
     );
 
     expect(result.proposalsCreated).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Output language (config `language` → prompt instruction)
+  //
+  // Both dreamer prompts are English, and a model answering an English
+  // prompt answers in English — so a zh-TW user's Insights tab was
+  // permanently English no matter what the dashboard locale said. The
+  // config key `language` (MEMESH_DIR/config.json, settable via
+  // `memesh config set language ...` and POST /v1/config) appends one
+  // shared instruction via src/core/output-language.ts. MEMESH_DIR points
+  // at tmpHome in this suite, so writing config.json here is isolated.
+  // -------------------------------------------------------------------------
+
+  it('appends the output-language instruction to the dream prompt when config.language is set', async () => {
+    const { runDreamer } = await import('../../src/core/dreamer.js');
+    writeFileSync(join(tmpHome, 'config.json'), JSON.stringify({ language: '繁體中文' }));
+    seedCommits(6);
+
+    let prompt = '';
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url: any, init: any) => {
+      prompt = JSON.parse(init.body).messages?.[0]?.content ?? '';
+      return { ok: true, json: async () => ({ content: [{ text: JSON.stringify({ action: 'NOOP', reason: 'x' }) }] }) } as any;
+    });
+
+    await runDreamer(db, { provider: 'anthropic', apiKey: 'test-key-fake', model: 'claude-haiku-4-5' }, { dryRun: true });
+
+    expect(prompt, 'the LLM was never called — this test proves nothing').not.toBe('');
+    expect(prompt).toContain('Write all human-readable output text');
+    expect(prompt).toContain('in 繁體中文');
+    // Identifiers must stay machine-English — the instruction says so itself.
+    expect(prompt).toContain('entity type slugs and tags in English');
+  });
+
+  it('appends the same instruction to the pattern-detector prompt', async () => {
+    const { runPatternDetector } = await import('../../src/core/dreamer.js');
+    writeFileSync(join(tmpHome, 'config.json'), JSON.stringify({ language: 'zh-TW' }));
+    seedCommits(20);
+
+    let prompt = '';
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url: any, init: any) => {
+      prompt = JSON.parse(init.body).messages?.[0]?.content ?? '';
+      return { ok: true, json: async () => ({ content: [{ text: '[]' }] }) } as any;
+    });
+
+    await runPatternDetector(
+      db,
+      { provider: 'anthropic', apiKey: 'test-key-fake', model: 'claude-haiku-4-5' },
+      { project: 'memesh', dryRun: true },
+    );
+
+    expect(prompt, 'the LLM was never called — this test proves nothing').not.toBe('');
+    expect(prompt).toContain('Write all human-readable output text');
+    expect(prompt).toContain('in zh-TW');
+  });
+
+  it('adds NO language instruction when config.language is unset (prompt unchanged, English default)', async () => {
+    const { runDreamer } = await import('../../src/core/dreamer.js');
+    // No config.json written — tmpHome is fresh per test.
+    seedCommits(6);
+
+    let prompt = '';
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url: any, init: any) => {
+      prompt = JSON.parse(init.body).messages?.[0]?.content ?? '';
+      return { ok: true, json: async () => ({ content: [{ text: JSON.stringify({ action: 'NOOP', reason: 'x' }) }] }) } as any;
+    });
+
+    await runDreamer(db, { provider: 'anthropic', apiKey: 'test-key-fake', model: 'claude-haiku-4-5' }, { dryRun: true });
+
+    expect(prompt, 'the LLM was never called — this test proves nothing').not.toBe('');
+    expect(prompt).not.toContain('Write all human-readable output text');
+  });
+
+  // -------------------------------------------------------------------------
+  // digest_observations_preview: null, not the '(empty)' sentinel
+  // -------------------------------------------------------------------------
+
+  it('listProposals reports a missing first observation as null, not the "(empty)" sentinel', async () => {
+    // '(empty)' was a magic string every consumer had to know about — the
+    // dashboard string-compared it, the CLI printed it as if it were
+    // content, and no locale could translate it. null is the honest value.
+    const { listProposals } = await import('../../src/core/dreamer.js');
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run('memesh', '2026-W30', '[1,2]',
+      JSON.stringify({ name: 'no-observations', type: 'digest', observations: [], tags: [] }),
+      'ollama/fake', 'v1');
+
+    const rows = listProposals(db, 'pending');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].digest_observations_preview).toBeNull();
+    expect(JSON.stringify(rows[0])).not.toContain('(empty)');
+  });
+
+  it('listProposals still returns the truncated first observation when one exists', async () => {
+    const { listProposals } = await import('../../src/core/dreamer.js');
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run('memesh', '2026-W31', '[3,4]',
+      JSON.stringify({ name: 'has-observations', type: 'digest', observations: ['x'.repeat(200)], tags: [] }),
+      'ollama/fake', 'v1');
+
+    const rows = listProposals(db, 'pending');
+    expect(rows[0].digest_observations_preview).toBe('x'.repeat(120));
   });
 
   // -------------------------------------------------------------------------

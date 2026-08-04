@@ -1,6 +1,7 @@
 import { callLLM } from './llm-client.js';
 import { extractJsonBlock } from './json-utils.js';
 import { sanitizeForPrompt, sanitizeListForPrompt } from './prompt-safety.js';
+import { outputLanguageInstruction } from './output-language.js';
 const MAX_CLAIM_LEN = 500;
 const MAX_REASON_LEN = 300;
 const MAX_CLAIMS = 20;
@@ -17,7 +18,8 @@ export async function validateDigest(digestObservations, sourceObservations, llm
         `Verdict rules:\n` +
         `- "pass": every claim is supported; suspicious is [].\n` +
         `- "soften": one or two minor unsupported claims; the digest is salvageable.\n` +
-        `- "reject": major hallucinations (fabricated names, branches, files) — do not ship.\n\n` +
+        `- "reject": major hallucinations (fabricated names, branches, files) — do not ship.\n` +
+        outputLanguageInstruction() + `\n\n` +
         `<digest>\n${safeDigest}\n</digest>\n\n` +
         `<sources>\n${safeSources}\n</sources>`;
     let rawResponse;

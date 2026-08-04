@@ -75,6 +75,23 @@ export interface MeMeshConfig {
    * Env override: MEMESH_AUTO_UPDATE.
    */
   autoUpdate?: 'off' | 'patch' | 'minor' | 'major';
+  /**
+   * Output language for LLM-generated user-visible prose (dreamer digests,
+   * emergent patterns, lessons, digest-validator reasons). Free-form value —
+   * a locale code ('zh-TW') or a language name ('繁體中文') both work, since
+   * it is interpolated into the prompt as an instruction, not parsed.
+   *
+   * Unset = no instruction is added and the model answers in English (the
+   * prompts themselves are English). This is the server-side counterpart of
+   * the dashboard's client-side locale (localStorage): the dashboard setting
+   * translates the UI chrome, this one decides what language the LLM writes
+   * *content* in. They are deliberately separate keys because the server
+   * cannot read a browser's localStorage.
+   *
+   * Machine-facing identifiers (entity type slugs, tags, category enums,
+   * JSON keys) stay English regardless — see output-language.ts.
+   */
+  language?: string;
   setupCompleted?: boolean;
 }
 

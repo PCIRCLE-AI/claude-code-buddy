@@ -5,6 +5,7 @@ export interface ModelInfo {
 export interface ValidationResult {
     valid: boolean;
     error?: string;
+    errorCode?: string;
     models?: ModelInfo[];
     suggested?: string;
 }

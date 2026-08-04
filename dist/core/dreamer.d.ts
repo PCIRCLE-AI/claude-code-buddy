@@ -63,7 +63,7 @@ export interface ProposalSummary {
     cluster_key: string;
     source_count: number;
     digest_name: string;
-    digest_observations_preview: string;
+    digest_observations_preview: string | null;
     status: string;
     created_at: string;
     kind: 'digest' | 'pattern_emergent';

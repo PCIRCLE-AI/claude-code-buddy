@@ -29,6 +29,12 @@ export async function autoTag(
   // F7: name/type/observations are user-supplied (or LLM-paraphrased
   // from session transcripts). Wrap in explicit tags and instruct the
   // model to treat them as data, not directives.
+  //
+  // Deliberately NO outputLanguageInstruction() here (unlike the dreamer /
+  // failure-analyzer / digest-validator prompts): this prompt's entire
+  // output is prefixed identifier tags, which stay machine-English —
+  // parseTags whitelists on English prefixes and tag routing matches
+  // byte-for-byte. See src/core/output-language.ts.
   const safeName = sanitizeForPrompt(name);
   const safeType = sanitizeForPrompt(type);
   const safeFacts = sanitizeListForPrompt(observations.slice(0, 5));

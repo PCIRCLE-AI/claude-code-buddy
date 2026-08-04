@@ -67,6 +67,10 @@ describe('HTTP Transport: body-parsing failures', () => {
     const parsed = JSON.parse(text);
     expect(parsed.success).toBe(false);
     expect(parsed.error).toContain('not valid JSON');
+    // Stable code alongside (never replacing) the prose — the dashboard
+    // translates codes, scripts branch on them. English sentences are
+    // not a machine contract.
+    expect(parsed.errorCode).toBe('validation.bad-body');
   });
 
   it('a non-JSON Content-Type names the header on the hand-rolled routes too', async () => {
@@ -403,9 +407,12 @@ describe('HTTP Transport: 1MB request body limit', () => {
     expect(res.status).toBe(413);
     const contentType = res.headers.get('content-type') ?? '';
     expect(contentType).toMatch(/application\/json/);
-    const body = await res.json() as { success: boolean; code?: string; limit?: string };
+    const body = await res.json() as { success: boolean; code?: string; limit?: string; errorCode?: string };
     expect(body.success).toBe(false);
     expect(body.code).toBe('PAYLOAD_TOO_LARGE');
+    // `code` predates the errorCode contract and is kept for back-compat;
+    // `errorCode` is the field consistent across every error class.
+    expect(body.errorCode).toBe('payload.too-large');
     expect(body.limit).toBe('1mb');
   });
 
@@ -417,6 +424,54 @@ describe('HTTP Transport: 1MB request body limit', () => {
     });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
+  });
+});
+
+// ── Stable errorCode contract ─────────────────────────────────────────────────
+//
+// Every `success: false` envelope carries a machine `errorCode` ALONGSIDE the
+// human `error` string. The prose is English and free to be reworded; the
+// code is what the dashboard translates into the user's locale and what
+// scripts branch on. These tests pin one representative per error class that
+// the auth tests above don't already cover (401s and 413 are pinned in their
+// own sections).
+
+describe('HTTP Transport: stable errorCode on error envelopes', () => {
+  it('a Zod validation failure carries validation.bad-body', async () => {
+    // Empty object — RememberSchema requires name/type at minimum.
+    const res = await req('POST', '/v1/remember', {});
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error, 'the human message must survive next to the code').toBeTruthy();
+    expect(res.body.errorCode).toBe('validation.bad-body');
+  });
+
+  it('the retired /v1/consolidate route carries route.retired on its 410', async () => {
+    const res = await req('POST', '/v1/consolidate', {});
+    expect(res.status).toBe(410);
+    expect(res.body.success).toBe(false);
+    // The prose names the replacement; the code is what a client switches on.
+    expect(res.body.error).toContain('/v1/dream/run');
+    expect(res.body.errorCode).toBe('route.retired');
+  });
+
+  it('an unknown route carries route.not-found (legacy `code` field preserved)', async () => {
+    const res = await req('GET', '/v1/definitely-not-a-route');
+    expect(res.status).toBe(404);
+    expect(res.body.errorCode).toBe('route.not-found');
+    expect(res.body.code, 'pre-existing code field must not be dropped').toBe('NOT_FOUND');
+  });
+
+  it('POST /v1/config/test surfaces the probe errorCode alongside the message', async () => {
+    // anthropic with no apiKey supplied and none saved in the isolated
+    // HOME's config → probeAnthropic('') fails locally (no network call)
+    // with the stable 'auth' code the dashboard translates.
+    const res = await req('POST', '/v1/config/test', { provider: 'anthropic' });
+    expect(res.status).toBe(200); // probe outcome travels inside data
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.valid).toBe(false);
+    expect(res.body.data.error).toBeTruthy();
+    expect(res.body.data.errorCode).toBe('auth');
   });
 });
 
@@ -526,6 +581,10 @@ describe('HTTP Transport: startServer host guard', () => {
       // F3: without bearer token → 401 even on /v1/health.
       const noAuth = await fetch(`http://127.0.0.1:${remotePort}/v1/health`);
       expect(noAuth.status).toBe(401);
+      // Stable code so the dashboard can translate "you need a token"
+      // instead of regex-matching the English sentence.
+      const noAuthBody = await noAuth.json() as { errorCode?: string };
+      expect(noAuthBody.errorCode).toBe('auth.missing-bearer');
 
       // F3: with the right bearer token → 200.
       const withAuth = await fetch(`http://127.0.0.1:${remotePort}/v1/health`, {
@@ -539,6 +598,10 @@ describe('HTTP Transport: startServer host guard', () => {
         headers: { Authorization: 'Bearer wrong-token' },
       });
       expect(wrongAuth.status).toBe(401);
+      // Distinct code from the missing-header case — "typo in the token"
+      // and "no token at all" need different UI guidance.
+      const wrongAuthBody = await wrongAuth.clone().json() as { errorCode?: string };
+      expect(wrongAuthBody.errorCode).toBe('auth.invalid-token');
 
       // F3 ordering regression: auth must run BEFORE the rate limiter.
       // If a 401 also returned RateLimit-* headers, the limiter is

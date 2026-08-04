@@ -40,6 +40,7 @@ import { callLLM, type LLMAttempt } from './llm-client.js';
 import { extractJsonBlock } from './json-utils.js';
 import type { LLMConfig } from './config.js';
 import { sanitizeForPrompt, sanitizeListForPrompt } from './prompt-safety.js';
+import { outputLanguageInstruction } from './output-language.js';
 
 export interface SuspiciousClaim {
   claim: string;
@@ -116,7 +117,11 @@ export async function validateDigest(
     `Verdict rules:\n` +
     `- "pass": every claim is supported; suspicious is [].\n` +
     `- "soften": one or two minor unsupported claims; the digest is salvageable.\n` +
-    `- "reject": major hallucinations (fabricated names, branches, files) — do not ship.\n\n` +
+    `- "reject": major hallucinations (fabricated names, branches, files) — do not ship.\n` +
+    // The `reason` strings surface in the dashboard's "Flagged claims"
+    // section, so they localise; `claim` must stay an exact quote and the
+    // verdict enum stays English (the shared instruction covers both).
+    outputLanguageInstruction() + `\n\n` +
     `<digest>\n${safeDigest}\n</digest>\n\n` +
     `<sources>\n${safeSources}\n</sources>`;
 

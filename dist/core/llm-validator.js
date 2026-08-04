@@ -1,3 +1,24 @@
+class ProbeError extends Error {
+    errorCode;
+    constructor(message, errorCode) {
+        super(message);
+        this.errorCode = errorCode;
+        this.name = 'ProbeError';
+    }
+}
+function codeForStatus(status) {
+    if (status === 401 || status === 403)
+        return 'auth';
+    return `http_${status}`;
+}
+function probeErrorCode(err) {
+    if (err instanceof ProbeError)
+        return err.errorCode;
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/(ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|fetch failed|abort)/i.test(msg))
+        return 'network';
+    return 'unknown';
+}
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_BODY_BYTES = 8192;
 const MAX_ERROR_CHARS = 300;
@@ -63,7 +84,7 @@ async function fetchJson(url, init) {
         const res = await fetch(url, { ...init, signal: ctrl.signal });
         if (!res.ok) {
             const body = await readBodyCapped(res).catch(() => '');
-            throw new Error(extractProviderError(res.status, body));
+            throw new ProbeError(extractProviderError(res.status, body), codeForStatus(res.status));
         }
         return (await res.json());
     }
@@ -86,7 +107,7 @@ export function pickSuggestedModel(models) {
 }
 export async function probeAnthropic(apiKey) {
     if (!apiKey)
-        return { valid: false, error: 'API key is empty' };
+        return { valid: false, error: 'API key is empty', errorCode: 'auth' };
     try {
         const data = await fetchJson('https://api.anthropic.com/v1/models?limit=200', {
             method: 'GET',
@@ -100,17 +121,17 @@ export async function probeAnthropic(apiKey) {
             created: m.created_at,
         }));
         if (models.length === 0) {
-            return { valid: false, error: 'Anthropic answered, but returned no models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.' };
+            return { valid: false, error: 'Anthropic answered, but returned no models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.', errorCode: 'no_models' };
         }
         return { valid: true, models, suggested: pickSuggestedModel(models) };
     }
     catch (err) {
-        return { valid: false, error: err instanceof Error ? err.message : String(err) };
+        return { valid: false, error: err instanceof Error ? err.message : String(err), errorCode: probeErrorCode(err) };
     }
 }
 export async function probeOpenAI(apiKey) {
     if (!apiKey)
-        return { valid: false, error: 'API key is empty' };
+        return { valid: false, error: 'API key is empty', errorCode: 'auth' };
     try {
         const data = await fetchJson('https://api.openai.com/v1/models', {
             method: 'GET',
@@ -124,12 +145,12 @@ export async function probeOpenAI(apiKey) {
             created: m.created ? new Date(m.created * 1000).toISOString() : undefined,
         }));
         if (models.length === 0) {
-            return { valid: false, error: 'OpenAI answered, but returned no chat-capable models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.' };
+            return { valid: false, error: 'OpenAI answered, but returned no chat-capable models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.', errorCode: 'no_models' };
         }
         return { valid: true, models, suggested: pickSuggestedModel(models) };
     }
     catch (err) {
-        return { valid: false, error: err instanceof Error ? err.message : String(err) };
+        return { valid: false, error: err instanceof Error ? err.message : String(err), errorCode: probeErrorCode(err) };
     }
 }
 const OLLAMA_LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]']);
@@ -151,6 +172,7 @@ export async function probeOllama(host) {
         return {
             valid: false,
             error: `Ollama host must be loopback (localhost / 127.0.0.1). For non-local Ollama, set the OLLAMA_HOST environment variable on the server.`,
+            errorCode: 'bad_host',
         };
     }
     const base = requestedBase;
@@ -164,6 +186,7 @@ export async function probeOllama(host) {
             return {
                 valid: false,
                 error: `Ollama is reachable at ${base} but has no models installed. Run \`ollama pull <model>\` first.`,
+                errorCode: 'no_models',
             };
         }
         return { valid: true, models, suggested: pickSuggestedModel(models) };
@@ -171,9 +194,9 @@ export async function probeOllama(host) {
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes('ECONNREFUSED') || msg.includes('fetch failed')) {
-            return { valid: false, error: `Ollama not reachable at ${base}. Is it installed and running?` };
+            return { valid: false, error: `Ollama not reachable at ${base}. Is it installed and running?`, errorCode: 'network' };
         }
-        return { valid: false, error: msg };
+        return { valid: false, error: msg, errorCode: probeErrorCode(err) };
     }
 }
 export async function probeProvider(provider, apiKey, host) {
@@ -183,6 +206,6 @@ export async function probeProvider(provider, apiKey, host) {
         return probeOpenAI(apiKey ?? '');
     if (provider === 'ollama')
         return probeOllama(host);
-    return { valid: false, error: `Unknown provider: ${provider}` };
+    return { valid: false, error: `Unknown provider: ${provider}`, errorCode: 'unknown' };
 }
 //# sourceMappingURL=llm-validator.js.map
