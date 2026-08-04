@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
@@ -54,6 +54,66 @@ describe('Feature: MeMesh View Dashboard', () => {
 
   afterEach(() => {
     fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  describe('Scenario: a core table is missing from the database', () => {
+    it('Given a database with only entities, When I generate the dashboard, Then it warns instead of rendering a false empty', () => {
+      // A missing core table used to render as "entities with no
+      // observations/tags/relations" — a viewer that looks healthy while
+      // silently omitting data. The degrade is allowed; the silence is not.
+      const db = new Database(testDbPath);
+      db.exec(`CREATE TABLE entities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL,
+        created_at TEXT
+      );`);
+      db.close();
+
+      const warns: string[] = [];
+      const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+        warns.push(args.map(String).join(' '));
+      });
+      try {
+        const html = generateDashboardHtml(testDbPath);
+        expect(html).toContain('<!DOCTYPE html>');
+        for (const table of ['observations', 'tags', 'relations']) {
+          expect(
+            warns.some(w => w.includes(`"${table}" is missing from this database`)),
+            `should warn about the missing ${table} table`
+          ).toBe(true);
+        }
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
+  describe('Scenario: the entities table itself is missing', () => {
+    it('Given a database with no tables at all, When I generate the dashboard, Then it says nothing can be shown', () => {
+      // The worst case must be the loudest: the first version of the
+      // missing-table warning covered observations/tags/relations and
+      // early-returned right past an absent entities table — the local
+      // review of this change caught it.
+      const db = new Database(testDbPath);
+      db.exec('CREATE TABLE unrelated (id INTEGER PRIMARY KEY);');
+      db.close();
+
+      const warns: string[] = [];
+      const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+        warns.push(args.map(String).join(' '));
+      });
+      try {
+        const html = generateDashboardHtml(testDbPath);
+        expect(html).toContain('<!DOCTYPE html>');
+        expect(
+          warns.some(w => w.includes('"entities" is missing from this database')),
+          'should warn that the entities table is missing'
+        ).toBe(true);
+      } finally {
+        spy.mockRestore();
+      }
+    });
   });
 
   describe('Scenario: Generate dashboard with empty database', () => {

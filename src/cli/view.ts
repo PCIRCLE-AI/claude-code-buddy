@@ -72,6 +72,10 @@ function queryData(dbPath: string): DashboardData {
       .map(r => r.name);
 
     if (!tables.includes('entities')) {
+      // The single most broken case must be the loudest, not the only silent
+      // one — the first version of this warning covered the three sibling
+      // tables and early-returned right past this branch.
+      console.error('[memesh view] warning: table "entities" is missing from this database — nothing can be shown. Run `memesh doctor`.');
       return emptyData;
     }
 
@@ -84,6 +88,15 @@ function queryData(dbPath: string): DashboardData {
     const entityRows = db
       .prepare(`SELECT id, name, type${statusSelect} FROM entities LIMIT 5000`)
       .all() as Array<{ id: number; name: string; type: string; status: string }>;
+
+    // A core table that is absent is a broken database, and rendering it as
+    // "entities with no observations/tags/relations" is a false empty — the
+    // viewer would look healthy while showing a fraction of the data. Say so.
+    for (const required of ['observations', 'tags', 'relations']) {
+      if (!tables.includes(required)) {
+        console.error(`[memesh view] warning: table "${required}" is missing from this database — the view below omits that data. Run \`memesh doctor\`.`);
+      }
+    }
 
     // Query observations
     const obsRows = tables.includes('observations')

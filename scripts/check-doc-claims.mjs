@@ -133,6 +133,98 @@ else if (Number(claimed[1]) !== toolsInCode)
   fail(`handlers.ts registers ${toolsInCode} tools, API_REFERENCE.md says ${claimed[1]}`);
 else ok(`registry and API_REFERENCE.md agree on ${toolsInCode} MCP tools`);
 
+// --- 3b. Numbers in prose that restate code constants ------------------------
+//
+// C7 rule: a number in living prose either has a gate or gets deleted. These
+// six were stated in README/docs with nothing checking them; each is now
+// DERIVED from the constant it restates, with an anti-vacuity check on the
+// extraction — an extractor that matched nothing is a broken gate, not a
+// clean doc.
+{
+  // (a) ARCHITECTURE.md carries a second copy of the MCP tool count.
+  const archTools = read('docs/ARCHITECTURE.md').match(/handlers\.ts[^\n]*?(\d+) tools/);
+  if (!archTools) fail('docs/ARCHITECTURE.md no longer states the MCP tool count near handlers.ts');
+  else if (Number(archTools[1]) !== toolsInCode)
+    fail(`docs/ARCHITECTURE.md says ${archTools[1]} MCP tools, handlers.ts registers ${toolsInCode}`);
+  else ok(`ARCHITECTURE.md agrees on ${toolsInCode} MCP tools`);
+
+  // (b) README's search-scoring weights vs DEFAULT_WEIGHTS.
+  const scoring = read('src/core/scoring.ts');
+  const w = {};
+  for (const m of scoring.matchAll(/(searchRelevance|recency|frequency|confidence|impact):\s*0\.(\d+)/g)) {
+    w[m[1]] = Number(`0.${m[2]}`);
+  }
+  if (Object.keys(w).length !== 5) {
+    fail(`DEFAULT_WEIGHTS extraction found ${Object.keys(w).length}/5 weights — the pattern stopped matching scoring.ts`);
+  } else {
+    const pct = (k) => `${Math.round(w[k] * 100)}%`;
+    const rankLine = read('README.md').split('\n').find(l => l.includes('Scored Ranking'));
+    const want = `relevance (${pct('searchRelevance')}) + recency (${pct('recency')}) + frequency (${pct('frequency')}) + confidence (${pct('confidence')}) + recall impact (${pct('impact')})`;
+    if (!rankLine) fail('README.md lost its Scored Ranking line');
+    else if (!rankLine.includes(want)) fail(`README Scored Ranking weights drifted from DEFAULT_WEIGHTS: expected "${want}"`);
+    else ok('README scoring weights match DEFAULT_WEIGHTS');
+
+    // (c) ARCHITECTURE's session-start ratios are DERIVED (recency/frequency/
+    // confidence renormalised); the old prose said 40/30/30 with confidence
+    // first and matched no version of the code.
+    const sub = w.recency + w.frequency + w.confidence;
+    const r = Math.round((w.recency / sub) * 100);
+    const fq = Math.round((w.frequency / sub) * 100);
+    const cf = Math.round((w.confidence / sub) * 100);
+    // Several lines mention the constant (module tree, transport notes);
+    // the one under test is the line that states the ratios.
+    const ssLines = read('docs/ARCHITECTURE.md').split('\n').filter(l => l.includes('SESSION_START_WEIGHT_RATIO'));
+    const ssLine = ssLines.find(l => l.includes('Score ='));
+    if (!ssLine) fail('docs/ARCHITECTURE.md no longer states the session-start score ratios next to SESSION_START_WEIGHT_RATIO');
+    else if (!ssLine.includes(`recency (~${r}%)`) || !ssLine.includes(`frequency (${fq}%)`) || !ssLine.includes(`confidence (~${cf}%)`))
+      fail(`ARCHITECTURE session-start ratios drifted: code derives recency ~${r}% / frequency ${fq}% / confidence ~${cf}%`);
+    else ok('ARCHITECTURE session-start ratios match the derived constants');
+  }
+
+  // (d) API_REFERENCE's health-factor weights vs computeAnalytics.
+  const factorWeights = [...read('src/core/analytics.ts').matchAll(/weight: (\d+)/g)].map(m => Number(m[1]));
+  if (factorWeights.length !== 4) {
+    fail(`health-factor weight extraction found ${factorWeights.length}/4 in analytics.ts — pattern rot`);
+  } else {
+    const apiRef = read('docs/api/API_REFERENCE.md');
+    const labels = ['Activity', 'Quality', 'Freshness', 'Lessons'];
+    const wrong = labels.filter((label, i) => !apiRef.includes(`${label} (${factorWeights[i]}%)`));
+    if (wrong.length) fail(`API_REFERENCE health weights drifted for: ${wrong.join(', ')} (code says ${factorWeights.join('/')})`);
+    else ok(`API_REFERENCE health-factor weights match analytics.ts (${factorWeights.join('/')})`);
+  }
+
+  // (e) README's "N tabs, M languages" vs the dashboard's actual registries.
+  const tabsMatch = read('dashboard/src/App.tsx').match(/const TAB_KEYS = \[([^\]]+)\]/);
+  const localeMatch = read('dashboard/src/lib/i18n.ts').match(/^type Locale = (.+);$/m);
+  if (!tabsMatch || !localeMatch) {
+    fail('TAB_KEYS or Locale extraction stopped matching — the tabs/languages gate is blind');
+  } else {
+    const tabs = tabsMatch[1].split(',').filter(t => t.trim()).length;
+    const locales = localeMatch[1].split('|').length;
+    const claim = `${tabs} tabs, ${locales} languages`;
+    if (!read('README.md').includes(claim))
+      fail(`README no longer says "${claim}" — the dashboard registries changed or the prose drifted`);
+    else ok(`README dashboard claim matches: ${claim}`);
+  }
+
+  // (f) The intent hook's language count. The language markers are the
+  // "// <Language>:" group comments inside INTENT_PATTERNS — the only
+  // per-language anchor in the file. A pattern added without its language
+  // comment would not be counted; that limitation is accepted and visible.
+  const intent = read('scripts/hooks/user-prompt-intent.js');
+  const block = intent.slice(intent.indexOf('INTENT_PATTERNS'), intent.indexOf('];'));
+  const langs = new Set([...block.matchAll(/^\s*\/\/ ([A-Z][A-Za-z ]+?):/gm)].map(m => m[1]));
+  if (langs.size === 0) {
+    fail('intent-language extraction found zero language groups — pattern rot');
+  } else {
+    const bad = [];
+    if (!read('README.md').includes(`(${langs.size} languages)`)) bad.push('README.md');
+    if (!read('docs/ARCHITECTURE.md').includes(`(${langs.size} languages:`)) bad.push('docs/ARCHITECTURE.md');
+    if (bad.length) fail(`intent-hook language count drifted (code has ${langs.size} groups): ${bad.join(', ')}`);
+    else ok(`intent-hook language count (${langs.size}) matches README and ARCHITECTURE`);
+  }
+}
+
 // --- 4. HTTP endpoint count --------------------------------------------------
 //
 // ARCHITECTURE.md carried "~32 endpoints" in the module list and "17 endpoints"

@@ -4,6 +4,78 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **The verification audit is a gate with a baseline, not a report nobody
+  reruns** (`scripts/audit/verification-audit.mjs`, wired into
+  `verify:release`). One re-runnable detector per "looks verified but isn't"
+  defect class, each with a denominator; a detector whose candidate set comes
+  out empty **fails** — finding nothing to examine is what a broken detector
+  looks like, not what a clean repository looks like. Every current hit sits
+  in `baseline.json` with a classification and a one-clause reason from the
+  2026-08-04 triage; a NEW hit fails the gate until someone fixes it or
+  triages it. The baseline is recorded judgement, not suppression — entries
+  whose hit disappears are reported for pruning, and line drift resurfaces an
+  entry as new, which re-asks the question rather than silently keeping the
+  old answer.
+
+- **Sampled mutation testing lives in the repository**
+  (`scripts/audit/mutation-sample.mjs`, no absolute paths). `SAMPLE` and
+  `SEED` are parameters and belong next to any reported score, because a
+  score without its seed cannot be reproduced. Two operator sets: `classic`
+  behaviour flips, and `blank` — the blank-out set that answers "does any
+  test notice when this code produces nothing?", which is the detector for
+  negative-only tests. Selection under-picks only; survivors re-run against
+  the whole suite; unapplied mutations report MISS.
+
+- **Six more numbers in prose are derived, not asserted**
+  (`scripts/check-doc-claims.mjs`): README's search-scoring weights against
+  `DEFAULT_WEIGHTS`; ARCHITECTURE's session-start ratios against the
+  renormalised constants (the gate recomputes them, so changing a weight in
+  code fails the doc line); API_REFERENCE's four health-factor weights
+  against `computeAnalytics`; README's "8 tabs, 11 languages" against
+  `TAB_KEYS` and the `Locale` union; the intent hook's language count in two
+  documents against its pattern groups; and ARCHITECTURE's second copy of
+  the MCP tool count, which the existing gate only checked in one place.
+
+### Fixed
+
+- **`memesh view` no longer renders a broken database as a healthy empty
+  one** (`src/cli/view.ts`): a missing core table (observations / tags /
+  relations) used to become "entities with zero observations" with no
+  signal. The degrade stays; the silence does not — each missing table is
+  named on stderr with a pointer at `memesh doctor`.
+
+- **Two race guards from the failure-display work are now pinned by tests**:
+  the telemetry window switch proves a stale response cannot overwrite the
+  current window's data (resolve-out-of-order test), and the app-level 401
+  listener proves an expired token swaps in the auth prompt no matter which
+  tab's request tripped it. Removing either guard fails exactly its own
+  test. `BrowseTab`'s reload ticket shares the telemetry guard's mechanism
+  and stays read-verified — deterministically interleaving its three
+  trigger paths was judged not worth the harness.
+
+- **The local review of this change caught the mutation harness grading its
+  own absence** — the deepest cut of the whole hunt: a test runner that
+  never ran (timeout kill, missing `npx`) left `status` null/undefined, and
+  `?? 1` folded both into "the tests failed", which the callers read as
+  KILLED. A misconfigured environment would have reported a perfect 100%
+  score. A non-numeric exit status now crashes the run with "the test runner
+  produced no verdict"; a non-integer `SAMPLE` or an empty candidate pool
+  exits 2 instead of printing `killed=0 survived=0` with a green exit. The
+  same review found the C3 detector excluding `scripts/audit/` — thereby
+  hiding `mutation-sample.mjs`, an uncalled gate, from the detector built to
+  catch uncalled gates. The exclusion is gone, and the harness has a real
+  caller (`.github/workflows/mutation-audit.yml`: monthly schedule with
+  run-number seeds so each run samples fresh mutants, plus manual dispatch
+  defaulting to the published seed). Also from the review: `memesh view`
+  warned about three missing tables but early-returned silently past the
+  worst one (`entities` — now the loudest); two baseline entries carried a
+  reason copy-pasted from different code (re-written); the baseline id
+  scheme's no-content-hash trade-off is documented where it lives; and a
+  malformed `baseline.json` names itself in the failure instead of surfacing
+  as a bare JSON stack trace.
+
 ### Fixed
 
 - **Four places where a missing input read as success** — found by the first

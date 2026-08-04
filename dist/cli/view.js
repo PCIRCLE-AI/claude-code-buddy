@@ -39,6 +39,7 @@ function queryData(dbPath) {
             .all()
             .map(r => r.name);
         if (!tables.includes('entities')) {
+            console.error('[memesh view] warning: table "entities" is missing from this database — nothing can be shown. Run `memesh doctor`.');
             return emptyData;
         }
         const hasStatus = db.prepare('PRAGMA table_info(entities)').all()
@@ -47,6 +48,11 @@ function queryData(dbPath) {
         const entityRows = db
             .prepare(`SELECT id, name, type${statusSelect} FROM entities LIMIT 5000`)
             .all();
+        for (const required of ['observations', 'tags', 'relations']) {
+            if (!tables.includes(required)) {
+                console.error(`[memesh view] warning: table "${required}" is missing from this database — the view below omits that data. Run \`memesh doctor\`.`);
+            }
+        }
         const obsRows = tables.includes('observations')
             ? db
                 .prepare('SELECT entity_id, content FROM observations')

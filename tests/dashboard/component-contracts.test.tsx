@@ -46,7 +46,7 @@
 // detector. If `settle()` ever stops settling, the canaries stop being caught
 // and this file goes red on itself.
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
-import { render, cleanup, act } from '@testing-library/preact';
+import { render, cleanup, act, fireEvent } from '@testing-library/preact';
 import { Component } from 'preact';
 import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
@@ -55,6 +55,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { t, setLocale } from '../../dashboard/src/lib/i18n';
+import { App } from '../../dashboard/src/App';
 import {
   AnalyticsTab,
   isAnalyticsRenderable,
@@ -948,6 +949,61 @@ describe('dashboard components on degenerate data', () => {
     } finally {
       setLocale('en');
     }
+  });
+
+  it('LlmTelemetryPanel ignores a stale response that lands after a window switch', async () => {
+    // The effect re-runs per window switch with no request ordering of its
+    // own — without the cleanup flag, whichever response RESOLVES last wins,
+    // so a lagging 30d reply could overwrite the 7d data on screen, or a
+    // stale failure could blank out fresh good data. Resolve out of order on
+    // purpose: the switched-to window answers first, the abandoned one last.
+    const pending: Array<(r: Response) => void> = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation((() =>
+      new Promise<Response>(res => { pending.push(res); })) as typeof globalThis.fetch);
+    const flush = async () => {
+      await act(async () => {
+        for (let i = 0; i < 6; i++) await Promise.resolve();
+      });
+      await new Promise<void>(r => setImmediate(r));
+    };
+
+    const { container } = render(<Recorder><LlmTelemetryPanel /></Recorder>);
+    await flush();
+    expect(pending.length, 'the mount fetch should be pending').toBe(1);
+
+    const sevenDays = [...container.querySelectorAll('button')]
+      .find(b => (b.textContent ?? '').includes('7'));
+    expect(sevenDays, 'the 7-day window button should exist').toBeTruthy();
+    fireEvent.click(sevenDays as HTMLButtonElement);
+    await flush();
+    expect(pending.length, 'the switch should issue a second fetch').toBe(2);
+
+    // The CURRENT window answers with a clean empty payload...
+    pending[1](jsonResponse({ success: true, data: { window_days: 7, summaries: [] } }));
+    await flush();
+    // ...and the ABANDONED request answers later, with garbage.
+    pending[0](jsonResponse({ success: true, data: {} }));
+    await flush();
+
+    const text = container.textContent ?? '';
+    expect(text, 'the fresh window data should be on screen').toContain(en('telemetry.empty'));
+    expect(text, 'the stale failure must not overwrite it').not.toContain(en('common.responseUnreadable'));
+  });
+
+  it('the app swaps in the auth prompt when any request announces a 401', async () => {
+    // PR #111 pinned the announcing side (api() fires the event); this pins
+    // the LISTENING side — remove App's listener and only this fails.
+    stubEmptyApi();
+    const { container } = render(<Recorder><App /></Recorder>);
+    await settle();
+    expect((container.textContent ?? '')).not.toContain(en('auth.title'));
+
+    await act(async () => {
+      window.dispatchEvent(new Event('memesh:auth-required'));
+    });
+    await settle();
+    expect(container.textContent ?? '', 'the auth prompt should have taken over')
+      .toContain(en('auth.title'));
   });
 
   describe('shape guards, leaf by leaf', () => {
