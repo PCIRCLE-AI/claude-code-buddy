@@ -1125,6 +1125,14 @@ dreamCmd
         if (result.duplicatesSkipped > 0) console.log(`  duplicates skipped:  ${result.duplicatesSkipped}`);
         if (result.secretsDropped > 0) console.log(`  secret-bearing candidates dropped: ${result.secretsDropped}`);
         if (result.llmFailures > 0) console.log(`  LLM call failures:   ${result.llmFailures} (sessions not mined — retry when the provider is reachable)`);
+        // Never let a size-cap truncation be a silent 0: name each session that
+        // lost tail turns (the newest content, likeliest to hold a reversal).
+        if (result.truncatedTurns > 0) {
+          console.log(`  size-cap truncation: ${result.truncatedTurns} conversation turn(s) beyond the cap were NOT analysed`);
+          for (const t of result.truncatedSessions) {
+            console.log(`    - session ${t.sessionId}: ${t.truncatedTurns} tail turn(s) not analysed`);
+          }
+        }
         if (result.skipped.length > 0) {
           const reasonCounts = new Map<string, number>();
           for (const s of result.skipped) reasonCounts.set(s.reason, (reasonCounts.get(s.reason) ?? 0) + 1);

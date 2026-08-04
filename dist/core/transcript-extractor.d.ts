@@ -25,6 +25,7 @@ export interface ExtractResult {
     llmCalls: number;
     secretsDropped: number;
     llmFailures: number;
+    truncatedTurns: number;
 }
 export declare function extractMemoriesFromTranscript(transcriptPath: string, llm: LLMConfig, opts?: ExtractOptions): Promise<ExtractResult>;
 export interface StageResult {
@@ -42,6 +43,7 @@ export interface TranscriptSourceOptions {
     maxLlmCalls?: number;
     fallbacks?: LLMConfig[];
     onAttempt?: (attempts: LLMAttempt[]) => void;
+    chunkCharBudget?: number;
 }
 export interface TranscriptSourceResult {
     sessionsScanned: number;
@@ -54,6 +56,11 @@ export interface TranscriptSourceResult {
     skipped: Array<{
         reason: string;
         sessionId?: string;
+    }>;
+    truncatedTurns: number;
+    truncatedSessions: Array<{
+        sessionId: string;
+        truncatedTurns: number;
     }>;
     durationMs: number;
 }

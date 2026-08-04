@@ -25,6 +25,12 @@ import { projectTranscriptSlug } from '../../src/core/transcript-source.js';
 
 const FAKE_LLM = { provider: 'anthropic' as const, apiKey: 'test-key-fake', model: 'claude-haiku-4-5' };
 
+// A credential-SHAPED but non-real value for the secret-detection tests,
+// ASSEMBLED from fragments so no contiguous `sk-ant-…` literal sits in the
+// source (T1: no credential-shaped literals in fixtures; GitHub push protection
+// blocks them). The runtime value still trips containsSecret's `sk-ant-` shape.
+const FAKE_ANTHROPIC_KEY = ['sk', 'ant', 'api03', 'ABCDEFGHIJKLMNOP1234567890'].join('-');
+
 /** Anthropic-shaped success response carrying `text` as the model output. */
 function stubLLM(text: string): void {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
@@ -129,7 +135,7 @@ describe('transcript-extractor: extraction pipeline', () => {
   it('drops a candidate whose observation carries a detected secret', async () => {
     const path = writeTranscript(tmp, 'sess', CONTRADICTION_ENTRIES);
     stubLLM(JSON.stringify([
-      { name: 'leaky', type: 'fact', observations: ['The deploy key is sk-ant-api03-ABCDEFGHIJKLMNOP1234567890'], tags: [] },
+      { name: 'leaky', type: 'fact', observations: [`The deploy key is ${FAKE_ANTHROPIC_KEY}`], tags: [] },
       { name: 'clean', type: 'fact', observations: ['The parser lives in src/core.'], tags: [] },
     ]));
     const res = await extractMemoriesFromTranscript(path, FAKE_LLM);
@@ -141,7 +147,7 @@ describe('transcript-extractor: extraction pipeline', () => {
   });
 
   it('scrubSecrets redacts on the way out; containsSecret detects on the way in', () => {
-    const raw = 'token is sk-ant-api03-ABCDEFGHIJKLMNOP1234567890 here';
+    const raw = `token is ${FAKE_ANTHROPIC_KEY} here`;
     expect(containsSecret(raw)).toBe(true);
     const scrubbed = scrubSecrets(raw);
     expect(scrubbed).toContain('[REDACTED-SECRET]');
@@ -199,6 +205,39 @@ describe('transcript-extractor: extraction pipeline', () => {
     expect(res.memories).toHaveLength(1);
     expect(res.memories[0].name).toBe('clean');
     expect(res.secretsDropped).toBe(SECRET_SAMPLES.length);
+  });
+
+  it('scrubs a TRUNCATED PEM (BEGIN with no END) — redacts the body, not just the marker (finding #3)', () => {
+    // Assembled from fragments so no credential-shaped literal is on disk.
+    const body1 = 'MIIEvQIBADANBgkqFAKEbodyLineOne';
+    const body2 = 'MoreFAKEbodyLineTwoABCDEF0123456789';
+    const truncatedPem = ['-----BEGIN RSA PRIVATE KEY', '-----\n', body1, '\n', body2, '\n'].join('');
+    expect(containsSecret(truncatedPem)).toBe(true);
+    const scrubbed = scrubSecrets(`context before\n${truncatedPem}`);
+    // The break-test target for finding #3: revert the truncated-PEM pattern to
+    // the lone BEGIN-line fallback and the base64 body survives — this goes red.
+    expect(scrubbed).not.toContain(body1);
+    expect(scrubbed).not.toContain(body2);
+    expect(scrubbed).toContain('[REDACTED-SECRET]');
+    expect(containsSecret(scrubbed)).toBe(false);
+  });
+
+  it('counts tail turns dropped by the size cap so a partial mine is never a silent 0 (finding #1)', async () => {
+    // 20 turns; a tiny chunk budget forces one turn per chunk, so only the
+    // first MAX_CHUNKS_PER_SESSION (4) are analysed and 16 tail turns are cut.
+    const entries = Array.from({ length: 20 }, (_, i) => ({
+      type: i % 2 === 0 ? 'user' : 'assistant',
+      content: i % 2 === 0
+        ? `Turn ${i}: a sentence about the parser decision worth some length.`
+        : [{ type: 'text', text: `Turn ${i}: reasoning about the parser decision, some length.` }],
+    }));
+    const path = writeTranscript(tmp, 'big', entries);
+    stubLLM(JSON.stringify([]));
+    const res = await extractMemoriesFromTranscript(path, FAKE_LLM, { chunkCharBudget: 80 });
+    // The break-test target for finding #1: make chunkTurns return
+    // truncatedTurns:0 (drop the counter) and this goes red.
+    expect(res.truncatedTurns).toBeGreaterThan(0);
+    expect(res.truncatedTurns).toBe(20 - res.llmCalls); // turns analysed == chunks == llmCalls
   });
 });
 
@@ -429,6 +468,22 @@ describe('transcript-extractor: orchestrator end-to-end', () => {
     const res2 = await runTranscriptSource(db, FAKE_LLM, { cwd, windowDays: 3 });
     expect(res2.proposalsCreated).toBe(0);
     expect(res2.duplicatesSkipped).toBe(1);
+  });
+
+  it('surfaces per-session size-cap truncation up to the orchestrator result (finding #1)', async () => {
+    const dir = join(projectsDir, projectTranscriptSlug(cwd));
+    mkdirSync(dir, { recursive: true });
+    const entries = Array.from({ length: 20 }, (_, i) => ({
+      type: i % 2 === 0 ? 'user' : 'assistant',
+      content: i % 2 === 0
+        ? `Turn ${i}: a sentence about the parser decision worth some length.`
+        : [{ type: 'text', text: `Turn ${i}: reasoning about the parser decision, some length.` }],
+    }));
+    writeTranscript(dir, 'sess-big', entries);
+    stubLLM(JSON.stringify([]));
+    const res = await runTranscriptSource(db, FAKE_LLM, { cwd, windowDays: 3, chunkCharBudget: 80 });
+    expect(res.truncatedTurns).toBeGreaterThan(0);
+    expect(res.truncatedSessions.map((t) => t.sessionId)).toContain('sess-big');
   });
 
   it('reports an LLM outage distinctly, NOT as "no durable memories" (absence != evidence)', async () => {

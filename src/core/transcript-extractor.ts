@@ -40,6 +40,20 @@
 // typical sessions to one chunk is the real protection; the rolling summary is
 // the fallback for the rare multi-chunk case.
 //
+// KNOWN RESIDUALS (surfaced, never silent)
+// ────────────────────────────────────────
+//  - Size cap: a session longer than MAX_CHUNKS_PER_SESSION × CHUNK_CHAR_BUDGET
+//    has its TAIL turns dropped before extraction. The tail is usually the
+//    newest content and the likeliest place a reversal lives, so this is not
+//    silent: `chunkTurns` counts the dropped turns, `extractMemoriesFromTranscript`
+//    returns them as `truncatedTurns`, and `dream run --from-transcripts` prints
+//    "M turns beyond the size cap not analysed" per session. Never a silent 0.
+//  - Secret scrubbing is PREFIX-based: it redacts credentials with a known
+//    shape (PEM blocks incl. truncated ones, provider key prefixes, DB URLs,
+//    JWTs). A bare high-entropy hex/base64 blob with NO recognisable prefix is
+//    NOT caught — accepted for a prefix scanner. The drop gate (containsSecret)
+//    shares the same patterns, so this is a detection limit, not a scrub bug.
+//
 // TYPES IT EMITS vs the compaction dreamer
 // ────────────────────────────────────────
 // The extractor emits `decision` / `lesson_learned` / `fact`. Those first two
@@ -103,10 +117,14 @@ const MAX_CHUNKS_PER_SESSION = 4;
 // is false — guards any ordering surprise.
 const SECRET_SOURCES: readonly string[] = [
   // PEM private key — whole BEGIN..END block first (so the base64 body is
-  // redacted with the markers), then the lone BEGIN line as a fallback for a
-  // truncated paste that has no END.
+  // redacted with the markers)...
   '-----BEGIN[A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END[A-Z ]*PRIVATE KEY-----',
-  '-----BEGIN[A-Z ]*PRIVATE KEY-----',
+  // ...then a TRUNCATED paste (a BEGIN with no END): redact from the BEGIN
+  // marker through the base64 body to the next blank line or EOF. The earlier
+  // fallback matched only the marker LINE, so scrubSecrets left the body raw on
+  // the way to the LLM. (containsSecret trips on the BEGIN either way, so the
+  // drop path was already safe; this closes the scrub-to-LLM leak.)
+  '-----BEGIN[A-Z ]*PRIVATE KEY-----[\\s\\S]*?(?=\\n[ \\t]*\\n|$)',
   // DB / message-broker connection string with embedded credentials. Scheme
   // anchored so it cannot fire on ordinary `word:word@word` prose.
   '(?:postgres|postgresql|mysql|mariadb|mongodb(?:\\+srv)?|redis|rediss|amqp|amqps)://[^\\s:@/]+:[^\\s:@/]+@',
@@ -247,7 +265,17 @@ export function countConversationTurns(transcriptPath: string): number {
 // -----------------------------------------------------------------------------
 // Prompt building
 // -----------------------------------------------------------------------------
-function chunkTurns(turns: ConversationTurn[], budget: number = CHUNK_CHAR_BUDGET): ConversationTurn[][] {
+/**
+ * Split turns into size-bounded chunks. Returns the chunks AND the number of
+ * tail turns dropped by the MAX_CHUNKS_PER_SESSION × budget cap — a session
+ * bigger than the cap loses its newest turns, which is exactly where a reversal
+ * is likeliest, so the drop must never be silent. `truncatedTurns` is computed
+ * as (total turns − turns actually placed in a chunk); the caller surfaces it.
+ */
+function chunkTurns(
+  turns: ConversationTurn[],
+  budget: number = CHUNK_CHAR_BUDGET,
+): { chunks: ConversationTurn[][]; truncatedTurns: number } {
   const chunks: ConversationTurn[][] = [];
   let current: ConversationTurn[] = [];
   let size = 0;
@@ -263,7 +291,8 @@ function chunkTurns(turns: ConversationTurn[], budget: number = CHUNK_CHAR_BUDGE
     size += cost;
   }
   if (current.length > 0 && chunks.length < MAX_CHUNKS_PER_SESSION) chunks.push(current);
-  return chunks;
+  const included = chunks.reduce((n, c) => n + c.length, 0);
+  return { chunks, truncatedTurns: turns.length - included };
 }
 
 /**
@@ -346,6 +375,13 @@ export interface ExtractResult {
    * is the absence-is-not-evidence trap this feature exists to guard against.
    */
   llmFailures: number;
+  /**
+   * Tail turns dropped by the size cap (MAX_CHUNKS_PER_SESSION × budget) before
+   * any LLM call — never analysed. Surfaced by the CLI per session so a huge
+   * session that was only partially mined is never reported as a silent 0. The
+   * dropped tail is the newest content, the likeliest place a reversal lives.
+   */
+  truncatedTurns: number;
 }
 
 function parseMemories(text: string): ExtractedMemory[] {
@@ -400,13 +436,14 @@ export async function extractMemoriesFromTranscript(
   llm: LLMConfig,
   opts: ExtractOptions = {},
 ): Promise<ExtractResult> {
-  const result: ExtractResult = { memories: [], llmCalls: 0, secretsDropped: 0, llmFailures: 0 };
+  const result: ExtractResult = { memories: [], llmCalls: 0, secretsDropped: 0, llmFailures: 0, truncatedTurns: 0 };
   const turns = parseConversation(transcriptPath);
   if (turns.length < 2) return result; // nothing conversational to mine
 
   const projectLabel = opts.project ?? getProjectName(process.cwd());
   const budget = opts.maxLlmCalls ?? MAX_CHUNKS_PER_SESSION;
-  const chunks = chunkTurns(turns, opts.chunkCharBudget);
+  const { chunks, truncatedTurns } = chunkTurns(turns, opts.chunkCharBudget);
+  result.truncatedTurns = truncatedTurns;
 
   // Rolling summary of decisions/facts extracted from EARLIER chunks of THIS
   // session, carried into each later chunk's prompt so the contradiction guard
@@ -521,6 +558,8 @@ export interface TranscriptSourceOptions {
   maxLlmCalls?: number;
   fallbacks?: LLMConfig[];
   onAttempt?: (attempts: LLMAttempt[]) => void;
+  /** Test seam forwarded to extraction — see ExtractOptions.chunkCharBudget. */
+  chunkCharBudget?: number;
 }
 
 export interface TranscriptSourceResult {
@@ -533,6 +572,14 @@ export interface TranscriptSourceResult {
   llmFailures: number;
   llmCalls: number;
   skipped: Array<{ reason: string; sessionId?: string }>;
+  /** Total tail turns dropped by the size cap across all sessions. */
+  truncatedTurns: number;
+  /**
+   * Per-session breakdown of the size-cap drop, so the CLI can name each
+   * partially-mined session instead of reporting a silent 0. A session appears
+   * here only when it lost turns to the cap.
+   */
+  truncatedSessions: Array<{ sessionId: string; truncatedTurns: number }>;
   durationMs: number;
 }
 
@@ -551,6 +598,8 @@ export async function runTranscriptSource(
     llmFailures: 0,
     llmCalls: 0,
     skipped: [],
+    truncatedTurns: 0,
+    truncatedSessions: [],
     durationMs: 0,
   };
 
@@ -576,11 +625,16 @@ export async function runTranscriptSource(
       fallbacks: opts.fallbacks,
       onAttempt: opts.onAttempt,
       project: projectLabel,
+      chunkCharBudget: opts.chunkCharBudget,
     });
     result.llmCalls += extract.llmCalls;
     result.candidatesExtracted += extract.memories.length;
     result.secretsDropped += extract.secretsDropped;
     result.llmFailures += extract.llmFailures;
+    if (extract.truncatedTurns > 0) {
+      result.truncatedTurns += extract.truncatedTurns;
+      result.truncatedSessions.push({ sessionId: session.sessionId, truncatedTurns: extract.truncatedTurns });
+    }
 
     if (extract.memories.length === 0) {
       // Distinguish "the model was asked and found nothing" from "the model

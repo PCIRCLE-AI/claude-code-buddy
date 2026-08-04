@@ -15,7 +15,7 @@ const CHUNK_CHAR_BUDGET = 48000;
 const MAX_CHUNKS_PER_SESSION = 4;
 const SECRET_SOURCES = [
     '-----BEGIN[A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END[A-Z ]*PRIVATE KEY-----',
-    '-----BEGIN[A-Z ]*PRIVATE KEY-----',
+    '-----BEGIN[A-Z ]*PRIVATE KEY-----[\\s\\S]*?(?=\\n[ \\t]*\\n|$)',
     '(?:postgres|postgresql|mysql|mariadb|mongodb(?:\\+srv)?|redis|rediss|amqp|amqps)://[^\\s:@/]+:[^\\s:@/]+@',
     'eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}',
     'SG\\.[A-Za-z0-9_-]{16,}\\.[A-Za-z0-9_-]{16,}',
@@ -133,7 +133,8 @@ function chunkTurns(turns, budget = CHUNK_CHAR_BUDGET) {
     }
     if (current.length > 0 && chunks.length < MAX_CHUNKS_PER_SESSION)
         chunks.push(current);
-    return chunks;
+    const included = chunks.reduce((n, c) => n + c.length, 0);
+    return { chunks, truncatedTurns: turns.length - included };
 }
 export function buildExtractionPrompt(turns, projectLabel, priorDecisions = []) {
     const body = turns
@@ -206,13 +207,14 @@ function memoryHasSecret(m) {
     return containsSecret(m.name) || m.observations.some(containsSecret) || m.tags.some(containsSecret);
 }
 export async function extractMemoriesFromTranscript(transcriptPath, llm, opts = {}) {
-    const result = { memories: [], llmCalls: 0, secretsDropped: 0, llmFailures: 0 };
+    const result = { memories: [], llmCalls: 0, secretsDropped: 0, llmFailures: 0, truncatedTurns: 0 };
     const turns = parseConversation(transcriptPath);
     if (turns.length < 2)
         return result;
     const projectLabel = opts.project ?? getProjectName(process.cwd());
     const budget = opts.maxLlmCalls ?? MAX_CHUNKS_PER_SESSION;
-    const chunks = chunkTurns(turns, opts.chunkCharBudget);
+    const { chunks, truncatedTurns } = chunkTurns(turns, opts.chunkCharBudget);
+    result.truncatedTurns = truncatedTurns;
     const priorDecisions = [];
     for (const chunk of chunks) {
         if (result.llmCalls >= budget)
@@ -288,6 +290,8 @@ export async function runTranscriptSource(db, llm, opts = {}) {
         llmFailures: 0,
         llmCalls: 0,
         skipped: [],
+        truncatedTurns: 0,
+        truncatedSessions: [],
         durationMs: 0,
     };
     if (!llm) {
@@ -310,11 +314,16 @@ export async function runTranscriptSource(db, llm, opts = {}) {
             fallbacks: opts.fallbacks,
             onAttempt: opts.onAttempt,
             project: projectLabel,
+            chunkCharBudget: opts.chunkCharBudget,
         });
         result.llmCalls += extract.llmCalls;
         result.candidatesExtracted += extract.memories.length;
         result.secretsDropped += extract.secretsDropped;
         result.llmFailures += extract.llmFailures;
+        if (extract.truncatedTurns > 0) {
+            result.truncatedTurns += extract.truncatedTurns;
+            result.truncatedSessions.push({ sessionId: session.sessionId, truncatedTurns: extract.truncatedTurns });
+        }
         if (extract.memories.length === 0) {
             const reason = extract.llmFailures > 0
                 ? 'LLM call(s) failed for this session — not mined (retry when the provider is reachable)'
