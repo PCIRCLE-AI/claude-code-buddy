@@ -598,8 +598,8 @@ Use `?cached=1` to read the cached state only. Without it, MeMesh prefers a fres
 {
   "success": true,
   "data": {
-    "currentVersion": "4.2.8",
-    "latestVersion": "4.2.9",
+    "currentVersion": "4.2.10",
+    "latestVersion": "4.2.11",
     "checkedAt": "2026-04-24T10:15:00.000Z",
     "lastAttemptAt": "2026-04-24T10:15:00.000Z",
     "lastSuccessfulCheckAt": "2026-04-24T10:00:00.000Z",

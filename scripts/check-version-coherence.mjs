@@ -23,7 +23,9 @@
 
 import fs from 'fs';
 import path from 'path';
+import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { checkMainDeclaresPublishedVersion } from './lib/published-version.mjs';
 
 // Windows note: `new URL(import.meta.url).pathname` returns a leading-slash
 // drive path on Windows (e.g. "/D:/..."), which `path.resolve` then
@@ -164,6 +166,38 @@ for (const docPath of ['docs/ARCHITECTURE.md', 'docs/api/API_REFERENCE.md']) {
       errors.push(`${docPath} (${m[1]}) !== package.json (${pkgVersion})`);
     }
   }
+}
+
+// --- `main` must not declare a version nobody can install ---
+//
+// Every check above asks "do these seven files agree with each other?", which
+// they did throughout the five days `main` claimed a 4.2.11 that npm did not
+// have. Agreement among the anchors says nothing about whether the version they
+// agree on was ever released. See scripts/lib/published-version.mjs.
+function gitLines(args) {
+  try {
+    return execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8' })
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
+// GITHUB_REF_NAME is `main` on a push to main and `<n>/merge` on a pull
+// request, so a release PR — which legitimately carries the bump before the tag
+// exists — is skipped by the same rule that catches a merged one.
+const branch =
+  process.env.GITHUB_REF_NAME ?? (gitLines(['rev-parse', '--abbrev-ref', 'HEAD']) ?? [null])[0];
+const publishedTag = checkMainDeclaresPublishedVersion({
+  branch,
+  pkgVersion,
+  tags: gitLines(['tag', '--list', 'v*']) ?? [],
+});
+findings.push(`main-declares-published-version: ${publishedTag.status} — ${publishedTag.message}`);
+if (publishedTag.status === 'error') {
+  errors.push(publishedTag.message);
 }
 
 console.log('Version coherence audit:');
