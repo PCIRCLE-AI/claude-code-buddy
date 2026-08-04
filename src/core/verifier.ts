@@ -292,7 +292,7 @@ function computeRealityCheck(
     verdict: match ? 'pass' : 'fail',
     summary: match
       ? `reality OK: ${filesChanged}/${expectedFiles} files`
-      : `reality MISMATCH: agent claimed ${expectedFiles}, actual ${filesChanged}`,
+      : `reality MISMATCH: agent claimed ${expectedFiles}, actual ${filesChanged} (only committed changes count — uncommitted work reads as 0; commit before verifying)`,
   };
 }
 

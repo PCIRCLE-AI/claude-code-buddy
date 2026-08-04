@@ -232,7 +232,7 @@ export const TOOL_DEFINITIONS = [
         claim: {
           type: 'object',
           properties: {
-            expected_files: { type: 'number', description: 'Files the agent claimed to change.' },
+            expected_files: { type: 'number', description: 'How MANY files the agent claimed to change — a count, not a list. Only committed changes are counted.' },
           },
           additionalProperties: false,
         },

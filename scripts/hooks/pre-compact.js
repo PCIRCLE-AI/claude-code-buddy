@@ -25,6 +25,15 @@ process.stdin.on('end', () => {
     const data = JSON.parse(input);
     const sessionId = data.session_id || 'unknown';
     const transcriptPath = data.transcript_path || '';
+    // A payload with NEITHER a session id NOR a transcript is not a
+    // PreCompact event — it used to fall through anyway, write a junk entity
+    // whose only content was "Compaction reason: auto", report "Saved 2
+    // observations", and that junk then surfaced in the next session's
+    // context as a recent memory. A real session_id without a transcript
+    // still records (that contract is pinned by the basic-scenario test).
+    if (!data.session_id && !transcriptPath) {
+      process.exit(0);
+    }
     const cwd = data.cwd || process.cwd();
     // Claude Code's PreCompact payload names this field `trigger` ('manual' |
     // 'auto'), not `reason` — verified against the shipped cli.js bundle

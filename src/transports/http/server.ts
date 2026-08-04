@@ -223,6 +223,18 @@ app.use('/v1/', express.json({ limit: '1mb' }));
 function payloadTooLargeHandler(err: unknown, _req: Request, res: Response, next: NextFunction): void {
   if (!err || typeof err !== 'object') return next(err);
   const e = err as { type?: string; status?: number; statusCode?: number; message?: string };
+  // A body that is not valid JSON used to fall through to Express's default
+  // error handler: an HTML page with a full stack trace and this machine's
+  // absolute paths — served to remote callers under --allow-remote. Every
+  // /v1 error is JSON; this one is no exception.
+  if (e.type === 'entity.parse.failed' || (err instanceof SyntaxError && (e.status === 400 || e.statusCode === 400))) {
+    res.status(400).json({
+      success: false,
+      error: 'Request body is not valid JSON.',
+      hint: 'Send a JSON object with Content-Type: application/json.',
+    });
+    return;
+  }
   const isTooLarge = e.type === 'entity.too.large' || e.status === 413 || e.statusCode === 413;
   if (!isTooLarge) return next(err);
   res.status(413).json({
@@ -327,12 +339,31 @@ app.get('/v1/doctor', async (_req, res) => {
 // error mapping + try/catch + 200/400 block. handlePost factors that
 // into one place. Async handlers are fine — Promise.resolve unifies
 // sync (remember/forget) and async (consolidate) code paths.
+/**
+ * express.json() only parses Content-Type: application/json; anything else
+ * leaves req.body undefined, and the Zod message for that ("expected object,
+ * received undefined") sent users off to fix their BODY when the problem was
+ * the header. One owner: the review of the first version found the guard in
+ * handlePost while the three hand-rolled POST routes (recall, config,
+ * config/test) still emitted the confusing message.
+ */
+function requireJsonBody(req: Request, res: Response): boolean {
+  if (req.body !== undefined) return true;
+  res.status(400).json({
+    success: false,
+    error: 'No JSON body was parsed from this request.',
+    hint: 'Send the payload with Content-Type: application/json.',
+  });
+  return false;
+}
+
 function handlePost<T>(
   schema: z.ZodType<T>,
   req: Request,
   res: Response,
   handler: (data: T) => unknown | Promise<unknown>,
 ): void {
+  if (!requireJsonBody(req, res)) return;
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({
@@ -363,6 +394,7 @@ app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, rememb
 
 // --- Recall ---
 app.post('/v1/recall', async (req, res) => {
+  if (!requireJsonBody(req, res)) return;
   const parsed = RecallBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
@@ -477,6 +509,7 @@ const ConfigBody = z.object({
 }).strip();
 
 app.post('/v1/config', async (req, res) => {
+  if (!requireJsonBody(req, res)) return;
   const parsed = ConfigBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
@@ -527,6 +560,7 @@ const ConfigTestBody = z.object({
 });
 
 app.post('/v1/config/test', async (req, res) => {
+  if (!requireJsonBody(req, res)) return;
   const parsed = ConfigTestBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({
@@ -1008,8 +1042,10 @@ export function startServer(
     const addr = server.address();
     if (addr && typeof addr === 'object') {
       console.log(`MeMesh HTTP server running at http://${addr.address}:${addr.port}`);
+      console.log(`MeMesh dashboard: http://${addr.address}:${addr.port}/dashboard`);
     } else {
       console.log(`MeMesh HTTP server running at http://${host}:${port}`);
+      console.log(`MeMesh dashboard: http://${host}:${port}/dashboard`);
     }
   });
   // Tag this listener as auth-required-or-not. bearerAuth reads this

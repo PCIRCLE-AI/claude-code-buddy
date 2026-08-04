@@ -127,6 +127,14 @@ function payloadTooLargeHandler(err, _req, res, next) {
     if (!err || typeof err !== 'object')
         return next(err);
     const e = err;
+    if (e.type === 'entity.parse.failed' || (err instanceof SyntaxError && (e.status === 400 || e.statusCode === 400))) {
+        res.status(400).json({
+            success: false,
+            error: 'Request body is not valid JSON.',
+            hint: 'Send a JSON object with Content-Type: application/json.',
+        });
+        return;
+    }
     const isTooLarge = e.type === 'entity.too.large' || e.status === 413 || e.statusCode === 413;
     if (!isTooLarge)
         return next(err);
@@ -204,7 +212,19 @@ app.get('/v1/doctor', async (_req, res) => {
         res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
     }
 });
+function requireJsonBody(req, res) {
+    if (req.body !== undefined)
+        return true;
+    res.status(400).json({
+        success: false,
+        error: 'No JSON body was parsed from this request.',
+        hint: 'Send the payload with Content-Type: application/json.',
+    });
+    return false;
+}
 function handlePost(schema, req, res, handler) {
+    if (!requireJsonBody(req, res))
+        return;
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({
@@ -225,6 +245,8 @@ function handleGet(res, produce) {
 }
 app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, remember));
 app.post('/v1/recall', async (req, res) => {
+    if (!requireJsonBody(req, res))
+        return;
     const parsed = RecallBody.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
@@ -287,6 +309,8 @@ const ConfigBody = z.object({
     setupCompleted: z.boolean().optional(),
 }).strip();
 app.post('/v1/config', async (req, res) => {
+    if (!requireJsonBody(req, res))
+        return;
     const parsed = ConfigBody.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
@@ -314,6 +338,8 @@ const ConfigTestBody = z.object({
     host: z.string().max(500).optional(),
 });
 app.post('/v1/config/test', async (req, res) => {
+    if (!requireJsonBody(req, res))
+        return;
     const parsed = ConfigTestBody.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({
@@ -672,9 +698,11 @@ export function startServer(host = HOST, port = PORT, opts) {
         const addr = server.address();
         if (addr && typeof addr === 'object') {
             console.log(`MeMesh HTTP server running at http://${addr.address}:${addr.port}`);
+            console.log(`MeMesh dashboard: http://${addr.address}:${addr.port}/dashboard`);
         }
         else {
             console.log(`MeMesh HTTP server running at http://${host}:${port}`);
+            console.log(`MeMesh dashboard: http://${host}:${port}/dashboard`);
         }
     });
     serverAuthRequired.set(server, isRemote);

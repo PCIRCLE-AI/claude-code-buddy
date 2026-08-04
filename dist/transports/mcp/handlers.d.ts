@@ -221,7 +221,7 @@ export declare const TOOL_DEFINITIONS: readonly [{
                 readonly properties: {
                     readonly expected_files: {
                         readonly type: "number";
-                        readonly description: "Files the agent claimed to change.";
+                        readonly description: "How MANY files the agent claimed to change — a count, not a list. Only committed changes are counted.";
                     };
                 };
                 readonly additionalProperties: false;

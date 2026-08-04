@@ -2068,7 +2068,7 @@ ${bundledD3}
 <div class="header">
   <div>
     <h1 style="margin:0;line-height:1.2">MeMesh LLM Memory</h1>
-    <span class="subtitle">powered by pcircle.ai</span>
+    <span class="subtitle">powered by pcircle.com</span>
   </div>
   <div class="header-right">
     <div class="meta">

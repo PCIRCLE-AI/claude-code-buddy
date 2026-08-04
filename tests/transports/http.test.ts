@@ -48,6 +48,59 @@ async function req(method: string, urlPath: string, body?: unknown) {
   return { status: res.status, body: await res.json() };
 }
 
+// ── Body-parsing failures answer JSON, never Express's HTML error page ──────
+
+describe('HTTP Transport: body-parsing failures', () => {
+  it('malformed JSON answers 400 JSON, not an HTML stack trace', async () => {
+    // The P7 audit sent `{not json` and got Express's default error page:
+    // HTML, a full stack trace, and this machine's absolute paths — served
+    // to remote callers under --allow-remote. Every /v1 error is JSON.
+    const res = await fetch(`http://127.0.0.1:${port}/v1/remember`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{definitely not json',
+    });
+    expect(res.status).toBe(400);
+    const text = await res.text();
+    expect(text, 'the body must be JSON, not an HTML error page').not.toContain('<');
+    expect(text).not.toContain('at ');
+    const parsed = JSON.parse(text);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error).toContain('not valid JSON');
+  });
+
+  it('a non-JSON Content-Type names the header on the hand-rolled routes too', async () => {
+    // The review of the first fix found the guard only inside handlePost,
+    // while /v1/recall (the single most-used endpoint), /v1/config and
+    // /v1/config/test hand-roll their parsing and still emitted Zod's
+    // "expected object, received undefined". One owner now; this pins the
+    // busiest of the three.
+    const res = await fetch(`http://127.0.0.1:${port}/v1/recall`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ query: 'anything' }),
+    });
+    expect(res.status).toBe(400);
+    const parsed = await res.json();
+    expect(String(parsed.hint ?? parsed.error)).toContain('Content-Type');
+  });
+
+  it('a non-JSON Content-Type names the header as the problem', async () => {
+    // express.json() skips other content types, req.body stays undefined,
+    // and the old Zod message ("expected object, received undefined") sent
+    // users off to fix their body when the problem was the header.
+    const res = await fetch(`http://127.0.0.1:${port}/v1/remember`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ name: 'x', type: 'test' }),
+    });
+    expect(res.status).toBe(400);
+    const parsed = await res.json();
+    expect(parsed.success).toBe(false);
+    expect(String(parsed.hint ?? parsed.error), 'the message must point at Content-Type').toContain('Content-Type');
+  });
+});
+
 // ── Health ───────────────────────────────────────────────────────────────────
 
 describe('HTTP Transport: GET /v1/health', () => {
