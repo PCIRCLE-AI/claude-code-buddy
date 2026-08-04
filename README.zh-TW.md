@@ -83,7 +83,7 @@ flowchart TB
 | 在 Claude Code 對話裡用 `/memesh` skill | Path A（plugin）|
 | 在 Claude Code 自動 capture（session → 教訓 → 下次 recall）| Path A（plugin）|
 | 在任何 terminal 跑 `memesh remember` / `memesh recall` / `memesh doctor` | Path B（npm-global）|
-| 用 `memesh` 直接開 dashboard（沒有 `npx` 啟動延遲）| Path B（npm-global）|
+| 用 `memesh serve` 直接開 dashboard（沒有 `npx` 啟動延遲）| Path B（npm-global）|
 | 把 `memesh-mcp` 接到 Cursor、Cline 或其他 MCP client | Path B（npm-global）|
 | 以上都要 | **兩條都裝** — 不會衝突 |
 
@@ -176,7 +176,7 @@ memesh doctor
 開啟儀表板來探索你的記憶：
 
 ```bash
-memesh
+memesh serve
 ```
 
 <p align="center">
@@ -358,7 +358,7 @@ memesh config set llm.api-key sk-ant-...
 或使用儀表板 Settings 分頁（視覺化設定）：
 
 ```bash
-memesh  # 開啟儀表板 → Settings 分頁
+memesh serve  # 開啟儀表板 → Settings 分頁
 ```
 
 ### 自帶嵌入(可選)

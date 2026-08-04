@@ -83,7 +83,7 @@ flowchart TB
 | Utiliser le skill `/memesh` dans une conversation Claude Code | Path A (plugin) |
 | Auto-capture dans Claude Code (session → leçons → recall suivant) | Path A (plugin) |
 | Exécuter `memesh remember` / `memesh recall` / `memesh doctor` dans n'importe quel terminal | Path B (npm-global) |
-| Ouvrir le dashboard via `memesh` (sans délai de démarrage `npx`) | Path B (npm-global) |
+| Ouvrir le dashboard via `memesh serve` (sans délai de démarrage `npx`) | Path B (npm-global) |
 | Brancher `memesh-mcp` à Cursor, Cline ou un autre client MCP | Path B (npm-global) |
 | Tout ce qui précède | **Installez les deux** — ils ne sont pas en conflit |
 
@@ -149,7 +149,7 @@ memesh doctor
 Ouvrez le tableau de bord pour explorer votre mémoire :
 
 ```bash
-memesh
+memesh serve
 ```
 
 <p align="center">
@@ -331,7 +331,7 @@ memesh config set llm.api-key sk-ant-...
 Ou utilisez l'onglet Settings du tableau de bord (configuration visuelle) :
 
 ```bash
-memesh  # ouvre le tableau de bord → onglet Settings
+memesh serve  # ouvre le tableau de bord → onglet Settings
 ```
 
 ### Utilisez vos propres embeddings (optionnel)

@@ -83,7 +83,7 @@ flowchart TB
 | Use the `/memesh` skill inside a Claude Code conversation | Path A (plugin) |
 | Get auto-capture (sessions → lessons → recall) in Claude Code | Path A (plugin) |
 | Run `memesh remember` / `memesh recall` / `memesh doctor` in any terminal | Path B (npm-global) |
-| Open the local dashboard via `memesh` (no `npx` lookup delay) | Path B (npm-global) |
+| Open the local dashboard via `memesh serve` (no `npx` lookup delay) | Path B (npm-global) |
 | Plug `memesh-mcp` into Cursor, Cline, or another MCP client | Path B (npm-global) |
 | All of the above | **Install both** — they don't conflict |
 
@@ -178,7 +178,7 @@ memesh doctor
 Open the dashboard to explore your memory:
 
 ```bash
-memesh
+memesh serve
 ```
 
 <p align="center">
@@ -360,7 +360,7 @@ memesh config set llm.api-key sk-ant-...
 Or use the dashboard Settings tab (visual setup):
 
 ```bash
-memesh  # opens dashboard → Settings tab
+memesh serve  # opens dashboard → Settings tab
 ```
 
 ### Bring-your-own embeddings (optional)

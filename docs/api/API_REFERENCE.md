@@ -837,7 +837,7 @@ The `suggested` model picks the first entry whose id contains a small-tier hint 
 
 Returns the full interactive MeMesh Dashboard as a self-contained HTML page. Served by the HTTP server — no separate build step needed.
 
-**Usage**: Open `http://localhost:3737/dashboard` in a browser, or run `memesh` (no args) to auto-open it.
+**Usage**: Run `memesh serve` (prints the dashboard URL), then open `http://localhost:3737/dashboard` in a browser. Bare `memesh` with no subcommand prints the command list.
 
 Request/response bodies for `POST /v1/remember`, `/v1/recall`, and `/v1/forget` mirror the MCP tool schemas above (same field names, same types).
 

@@ -83,7 +83,7 @@ flowchart TB
 | `/memesh` skill im Claude-Code-Chat verwenden | Path A (Plugin) |
 | Auto-Capture in Claude Code (Session → Lessons → nächste Recall) | Path A (Plugin) |
 | `memesh remember` / `memesh recall` / `memesh doctor` im Terminal | Path B (npm-global) |
-| `memesh` direkt zum Öffnen des Dashboards (ohne `npx`-Startverzögerung) | Path B (npm-global) |
+| `memesh serve` direkt zum Öffnen des Dashboards (ohne `npx`-Startverzögerung) | Path B (npm-global) |
 | `memesh-mcp` an Cursor, Cline oder andere MCP-Clients anbinden | Path B (npm-global) |
 | Alles oben | **Beide installieren** — kein Konflikt |
 
@@ -149,7 +149,7 @@ memesh doctor
 Dashboard öffnen, um den Speicher zu erkunden:
 
 ```bash
-memesh
+memesh serve
 ```
 
 <p align="center">
@@ -330,7 +330,7 @@ memesh config set llm.api-key sk-ant-...
 Oder nutzen Sie den Dashboard-Settings-Reiter (visuelles Setup):
 
 ```bash
-memesh  # öffnet Dashboard → Settings-Reiter
+memesh serve  # öffnet Dashboard → Settings-Reiter
 ```
 
 ### Eigene Embeddings verwenden (optional)

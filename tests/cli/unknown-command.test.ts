@@ -38,6 +38,30 @@ describe('CLI: unknown subcommand', () => {
     expect(result.stderr).not.toContain('too many arguments');
   });
 
+  it('bare `memesh` prints help and exits 0 — it must NOT start a server', () => {
+    // P7's worst first-run moment: `memesh` with no args used to start the
+    // dashboard on a RANDOM port and hang the terminal. A first-time user
+    // typing the bare command to see what the tool does got a stuck prompt.
+    // If this regresses to a server, execFileSync hangs until the timeout
+    // and the test fails on it.
+    const bare = (() => {
+      try {
+        const stdout = execFileSync('node', [CLI_PATH], {
+          encoding: 'utf8',
+          env: { ...process.env, USERPROFILE: process.env.HOME ?? process.env.USERPROFILE ?? '' },
+          timeout: 30_000,
+        });
+        return { stdout, exitCode: 0 };
+      } catch (err: any) {
+        return { stdout: err.stdout?.toString() ?? '', exitCode: err.status ?? -1 };
+      }
+    })();
+    expect(bare.exitCode).toBe(0);
+    expect(bare.stdout).toContain('Usage:');
+    expect(bare.stdout).toContain('serve');
+    expect(bare.stdout).not.toContain('MeMesh dashboard: http');
+  }, 60_000);
+
   it('--version still works (allowExcessArguments did not break flag parsing)', () => {
     const result = runCli(['--version']);
     expect(result.exitCode).toBe(0);

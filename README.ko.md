@@ -83,7 +83,7 @@ flowchart TB
 | Claude Code 대화에서 `/memesh` skill 사용 | Path A(플러그인) |
 | Claude Code에서 자동 캡처(session → 교훈 → 다음 recall) | Path A(플러그인) |
 | 터미널에서 `memesh remember` / `memesh recall` / `memesh doctor` 실행 | Path B(npm-global) |
-| `memesh`로 대시보드 바로 열기(`npx` 시작 지연 없음) | Path B(npm-global) |
+| `memesh serve`로 대시보드 바로 열기(`npx` 시작 지연 없음) | Path B(npm-global) |
 | `memesh-mcp`를 Cursor, Cline 또는 기타 MCP 클라이언트에 연결 | Path B(npm-global) |
 | 위 전부 | **둘 다 설치** — 충돌 없음 |
 
@@ -176,7 +176,7 @@ memesh doctor
 대시보드를 열어서 메모리를 탐색합니다:
 
 ```bash
-memesh
+memesh serve
 ```
 
 <p align="center">
@@ -358,7 +358,7 @@ memesh config set llm.api-key sk-ant-...
 또는 대시보드 Settings 탭 사용 (비주얼 설정):
 
 ```bash
-memesh  # 대시보드 열기 → Settings 탭
+memesh serve  # 대시보드 열기 → Settings 탭
 ```
 
 ### 자체 임베딩 사용 (선택)
