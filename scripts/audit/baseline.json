@@ -126,22 +126,22 @@
       "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/doctor.ts:370": {
+    "C5 src/core/doctor.ts:391": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/doctor.ts:371": {
+    "C5 src/core/doctor.ts:392": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/doctor.ts:414": {
+    "C5 src/core/doctor.ts:437": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/doctor.ts:1277": {
+    "C5 src/core/doctor.ts:1333": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-04"
