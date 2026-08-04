@@ -33,12 +33,13 @@
     "audit:prod": "node scripts/check-consumer-audit.mjs",
     "verify:release": "npm run lint && npm run typecheck && node scripts/check-version-coherence.mjs && node scripts/check-generated-mirror.mjs && node scripts/check-doc-claims.mjs && npm run audit:prod",
     "prepublishOnly": "npm run build && npm run verify:release && npm run test:isolated && npm run test:packaged",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p tsconfig.check.json",
     "lint": "eslint src/ scripts/ --max-warnings 0",
     "lint:fix": "eslint src/ scripts/ --fix",
     "start": "node dist/mcp/launcher.js",
     "bench:longmemeval": "node benchmarks/longmemeval/run.mjs --mode A --dataset /tmp/longmemeval_s.json",
-    "test:isolated": "node scripts/run-tests-isolated.mjs"
+    "test:isolated": "node scripts/run-tests-isolated.mjs",
+    "test:coverage": "node scripts/run-tests-isolated.mjs --coverage"
   },
   "author": "PCIRCLE-AI",
   "license": "MIT",
@@ -98,6 +99,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.6",
     "@types/node": "25.6.2",
+    "@vitest/coverage-v8": "4.1.5",
     "eslint": "^10.3.0",
     "happy-dom": "^20.9.0",
     "playwright": "^1.59.1",
