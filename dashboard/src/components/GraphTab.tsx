@@ -931,9 +931,17 @@ export function GraphTab() {
     typeGroups.set(e.type, (typeGroups.get(e.type) || 0) + 1),
   );
 
-  // Orphan count
+  // Orphan count — over the DRAWABLE edge set, not raw data.relations.
+  // The node cap trims entities but the server's relation list is uncapped,
+  // so a node whose only partner was capped out still appears in a raw
+  // relation. Counting that as "connected" while the canvas draws it with
+  // zero edges (edgesRef filters to relations whose BOTH endpoints survive)
+  // is the miscount. Filter the same way the canvas does so the stat matches
+  // what is drawn.
+  const nodeNames = new Set(data.entities.map((e) => e.name));
   const connectedSet = new Set<string>();
   data.relations.forEach((r) => {
+    if (!nodeNames.has(r.from) || !nodeNames.has(r.to)) return;
     connectedSet.add(r.from);
     connectedSet.add(r.to);
   });

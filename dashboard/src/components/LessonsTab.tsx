@@ -401,14 +401,25 @@ export function LessonsTab({ health }: { health?: HealthData | null }) {
         </div>
       </div>
 
-      {/* Card list. Three empty states, three different truths:
+      {/* Card list. Empty renders one of FOUR states, and the order matters —
+          the first two both apply when there are zero lessons and the tie is
+          broken by whether the whole database is empty, which only /v1/health
+          can answer:
+          - lessons empty AND health not yet loaded → a neutral placeholder.
+            `health` arrives from App's own async /v1/health, independent of
+            this tab's entities fetch; deciding before it lands would render
+            "here's how lessons form" over a genuinely empty database (a false
+            claim on the first-run path) because `null?.entity_count === 0` is
+            false. Tri-state, not a truthiness guess.
           - the whole DATABASE is empty → the durable demo entry point
             (OnboardingBanner may be dismissed forever; this may not);
           - the database has data but zero lessons → say how lessons come
             to exist, not "try another filter";
           - lessons exist but the filter matched none → the filter message. */}
       <div style={{ marginTop: 14 }}>
-        {entities.length === 0 && health?.entity_count === 0 ? (
+        {entities.length === 0 && health == null ? (
+          <div class="empty"><div class="loading" /></div>
+        ) : entities.length === 0 && health?.entity_count === 0 ? (
           <EmptyLibraryState />
         ) : visible.length === 0 ? (
           <div class="empty">

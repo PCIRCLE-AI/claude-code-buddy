@@ -23,7 +23,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, fireEvent, waitFor } from '@testing-library/preact';
 import { api, HttpError, NetworkError, type Entity } from '../../dashboard/src/lib/api';
 import { actionFailureMessage } from '../../dashboard/src/lib/failure';
-import { t } from '../../dashboard/src/lib/i18n';
+import { t, getLocale } from '../../dashboard/src/lib/i18n';
 import { SearchTab } from '../../dashboard/src/components/SearchTab';
 import { BrowseTab } from '../../dashboard/src/components/BrowseTab';
 import { GraphTab, capGraphEntities, GRAPH_NODE_CAP } from '../../dashboard/src/components/GraphTab';
@@ -251,6 +251,41 @@ describe('GraphTab scale guard', () => {
     });
     expect(container.querySelector('canvas')).toBeNull();
   });
+
+  it('counts orphans over the DRAWN edge set, not the uncapped relations', async () => {
+    // Above the cap, a relation can point at a node that was capped out. The
+    // canvas draws no edge for it (both endpoints must survive), so the node
+    // is a visible orphan — and the stat must agree with what is drawn.
+    const survivors = Array.from({ length: GRAPH_NODE_CAP - 1 }, (_, i) =>
+      entity(i + 1, { name: `keep-${i + 1}`, access_count: 100 }));
+    const lonely = entity(9000, { name: 'lonely', access_count: 100 });
+    const cappedOut = entity(9001, { name: 'capped-partner', access_count: 0 });
+    // 1499 survivors + lonely + capped-partner = GRAPH_NODE_CAP + 1 → the
+    // access_count-0 partner is exactly the node the cap drops.
+    const all = [...survivors, lonely, cappedOut];
+    const relations = [
+      { from: 'keep-1', to: 'keep-2', type: 'relates-to' },     // both survive → drawn → connected
+      { from: 'lonely', to: 'capped-partner', type: 'relates-to' }, // partner capped → not drawn
+    ];
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ success: true, data: { entities: all, relations, noiseTypes: [] } }),
+    );
+    const { container } = render(<GraphTab />);
+    await waitFor(() => {
+      expect(container.textContent).toContain(t('graph.cappedNote', {
+        shown: GRAPH_NODE_CAP.toLocaleString(getLocale()),
+        total: (GRAPH_NODE_CAP + 1).toLocaleString(getLocale()),
+      }));
+    });
+    // Stats row: [entities(total), relations, orphans]. Only keep-1 and
+    // keep-2 have a DRAWN edge, so orphans = GRAPH_NODE_CAP - 2. The buggy
+    // version counted `lonely` as connected off the raw relation → one fewer.
+    const statVals = [...container.querySelectorAll('.stat-val')].map((n) => n.textContent);
+    const expectedOrphans = (GRAPH_NODE_CAP - 2).toLocaleString(getLocale());
+    const buggyOrphans = (GRAPH_NODE_CAP - 3).toLocaleString(getLocale());
+    expect(statVals[2]).toBe(expectedOrphans);
+    expect(statVals[2]).not.toBe(buggyOrphans);
+  });
 });
 
 /* ── LessonsTab: empty guidance + cap note ───────────────────────────────── */
@@ -270,6 +305,24 @@ describe('LessonsTab empty states', () => {
     await waitFor(() => {
       expect(container.textContent).toContain(t('emptyLibrary.title'));
     });
+  });
+
+  it('renders neither empty-state while health is still loading (no false-flash)', async () => {
+    // health arrives async from App's /v1/health, independent of this tab's
+    // own lessons fetch. Before it lands, `null?.entity_count === 0` is false —
+    // deciding then would flash lessons.emptyGuide ("your DB has memories,
+    // here's how lessons form") over a genuinely EMPTY database. The tri-state
+    // shows a neutral placeholder until health !== null.
+    stubLessons([]);
+    const { container } = render(<LessonsTab health={null} />);
+    await waitFor(() => {
+      // Past the top-level loading spinner: the stats row has rendered.
+      expect(container.textContent).toContain(t('lessons.totalRecalls'));
+    });
+    expect(container.textContent).not.toContain(t('emptyLibrary.title'));
+    expect(container.textContent).not.toContain(t('lessons.emptyGuide'));
+    // A placeholder spinner sits in the card-list area instead.
+    expect(container.querySelector('.loading')).not.toBeNull();
   });
 
   it('a populated database with zero lessons explains where lessons come from', async () => {
