@@ -57,16 +57,20 @@ describe('computePatterns', () => {
     expect(total).toBeGreaterThan(0);
   });
 
-  it('includes dayNum in day distribution', () => {
+  it('emits numeric dayNum (0-6) and no baked-in day name', () => {
     remember({ name: 'e1', type: 'concept', observations: ['test'] });
     const db = getDatabase();
     const result = computePatterns(db);
     expect(result.workSchedule.dayDistribution.length).toBeGreaterThan(0);
     for (const entry of result.workSchedule.dayDistribution) {
-      expect(entry).toHaveProperty('day');
       expect(entry).toHaveProperty('dayNum');
       expect(entry).toHaveProperty('count');
       expect(typeof entry.dayNum).toBe('number');
+      expect(entry.dayNum).toBeGreaterThanOrEqual(0);
+      expect(entry.dayNum).toBeLessThanOrEqual(6);
+      // The English day-name column was removed on purpose (i18n): the
+      // wire carries the number, each surface localises it.
+      expect(entry).not.toHaveProperty('day');
     }
   });
 });

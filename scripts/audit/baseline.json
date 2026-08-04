@@ -281,7 +281,7 @@
       "reason": "client-side search haystack only",
       "triaged": "2026-08-04"
     },
-    "C5 dashboard/src/components/GraphTab.tsx:179": {
+    "C5 dashboard/src/components/GraphTab.tsx:180": {
       "class": "SAFE-GUARDED",
       "reason": "computeGraph always returns noiseTypes; same-origin fetch",
       "triaged": "2026-08-04"
@@ -316,12 +316,12 @@
       "reason": "display fallbacks; empty renders an explicit notice",
       "triaged": "2026-08-04"
     },
-    "C5 dashboard/src/lib/entity-display.ts:152": {
+    "C5 dashboard/src/lib/entity-display.ts:176": {
       "class": "SAFE-DISPLAY",
       "reason": "classification falls through to the freeform bucket",
       "triaged": "2026-08-04"
     },
-    "C5 dashboard/src/lib/entity-display.ts:154": {
+    "C5 dashboard/src/lib/entity-display.ts:178": {
       "class": "SAFE-DISPLAY",
       "reason": "classification falls through to the freeform bucket",
       "triaged": "2026-08-04"

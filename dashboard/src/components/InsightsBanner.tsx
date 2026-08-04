@@ -91,8 +91,11 @@ export function InsightsBanner({ currentTab, onNavigateToInsights }: Props) {
   const message = t('banner.pendingInsights', { n: pendingCount, s: pendingCount === 1 ? '' : 's' });
 
   return (
+    // The whole banner is one click target that navigates — that is a
+    // button, not a named region. role="region" told assistive tech
+    // "landmark you can skip" while click/Enter/Space all navigated.
     <div
-      role="region"
+      role="button"
       aria-label={t('banner.viewAll')}
       onClick={onNavigateToInsights}
       onKeyDown={(e) => {

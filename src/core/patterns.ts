@@ -12,7 +12,11 @@ import type Database from 'better-sqlite3';
 export interface PatternsResult {
   workSchedule: {
     hourDistribution: Array<{ hour: number; count: number }>;
-    dayDistribution: Array<{ day: string; dayNum: number; count: number }>;
+    // dayNum is SQLite strftime('%w'): 0 = Sunday … 6 = Saturday. The row
+    // used to also carry an English day NAME baked in by a SQL CASE WHEN;
+    // that made every consumer render English regardless of UI language.
+    // Names are presentation — each transport localises dayNum itself.
+    dayDistribution: Array<{ dayNum: number; count: number }>;
   };
   toolPreferences: Array<{ tool: string; sessions: number }>;
   focusAreas: Array<{ type: string; count: number }>;
@@ -42,7 +46,7 @@ export function computePatterns(db: Database.Database, categories?: string[]): P
 
   // --- Work Schedule ---
   let hourDistribution: Array<{ hour: number; count: number }> = [];
-  let dayDistribution: Array<{ day: string; dayNum: number; count: number }> = [];
+  let dayDistribution: Array<{ dayNum: number; count: number }> = [];
 
   if (allCategories || categories!.includes('workSchedule')) {
     hourDistribution = db.prepare(`
@@ -52,14 +56,10 @@ export function computePatterns(db: Database.Database, categories?: string[]): P
     `).all() as Array<{ hour: number; count: number }>;
 
     dayDistribution = db.prepare(`
-      SELECT CASE CAST(strftime('%w', created_at, 'localtime') AS INTEGER)
-        WHEN 0 THEN 'Sunday' WHEN 1 THEN 'Monday' WHEN 2 THEN 'Tuesday'
-        WHEN 3 THEN 'Wednesday' WHEN 4 THEN 'Thursday' WHEN 5 THEN 'Friday'
-        WHEN 6 THEN 'Saturday' END as day,
-        CAST(strftime('%w', created_at, 'localtime') AS INTEGER) as dayNum,
+      SELECT CAST(strftime('%w', created_at, 'localtime') AS INTEGER) as dayNum,
         COUNT(*) as count
       FROM entities GROUP BY dayNum ORDER BY dayNum
-    `).all() as Array<{ day: string; dayNum: number; count: number }>;
+    `).all() as Array<{ dayNum: number; count: number }>;
   }
 
   // --- Tool Preferences ---

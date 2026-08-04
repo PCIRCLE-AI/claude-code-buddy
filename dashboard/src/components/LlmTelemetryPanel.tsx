@@ -32,13 +32,24 @@ interface TelemetryResponse {
   summaries: FlowSummary[];
 }
 
-const FLOW_LABELS: Record<string, string> = {
-  dreamer: 'Weekly recap (dreamer)',
-  pattern_detector: 'Pattern detector',
-  consolidator: 'Consolidator',
-  auto_tagger: 'Auto-tagger',
-  failure_analyzer: 'Failure analyzer',
-};
+// Flow and error-class names arrive as raw identifiers from the telemetry
+// table; both sets are open on the wire (an old dashboard can meet a newer
+// server), so the catalogue lookup uses the sanctioned `translated === key`
+// miss detection and shows the raw identifier for anything unknown. The
+// known sets (telemetry.flow.* / telemetry.errorClass.*, ×11 locales) are
+// pinned against the recordTelemetry call sites and the LLMErrorClass union
+// by tests/dashboard-i18n.test.ts.
+function flowLabel(flow: string): string {
+  const key = `telemetry.flow.${flow}`;
+  const translated = t(key);
+  return translated === key ? flow : translated;
+}
+
+function errorClassLabel(cls: string): string {
+  const key = `telemetry.errorClass.${cls}`;
+  const translated = t(key);
+  return translated === key ? cls : translated;
+}
 
 function fmtPct(n: number): string {
   return `${Math.round(n * 100)}%`;
@@ -132,7 +143,6 @@ export function LlmTelemetryPanel() {
           {data.summaries.map(s => {
             const successRate = s.total_attempts > 0 ? s.successes / s.total_attempts : 0;
             const fallbackPct = s.total_calls > 0 ? s.fallback_used / s.total_calls : 0;
-            const flowLabel = FLOW_LABELS[s.flow] ?? s.flow;
             const providerEntries = Object.entries(s.by_provider);
             const modelEntries = Object.entries(s.by_model);
             const projectEntries = Object.entries(s.by_project);
@@ -146,7 +156,7 @@ export function LlmTelemetryPanel() {
                 borderLeft: `2px solid ${successRate >= 0.9 ? 'var(--accent)' : successRate >= 0.5 ? '#FFC800' : '#FF5050'}`,
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-                  <span style={{ fontWeight: 600 }}>{flowLabel}</span>
+                  <span style={{ fontWeight: 600 }}>{flowLabel(s.flow)}</span>
                   <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
                     {t('telemetry.callsCount', { n: s.total_calls })} · {t('telemetry.attemptsCount', { n: s.total_attempts })}
                   </span>
@@ -208,7 +218,7 @@ export function LlmTelemetryPanel() {
                         background: cls === 'auth' ? 'rgba(255,80,80,0.12)' : 'rgba(255,200,0,0.10)',
                         color: cls === 'auth' ? '#FF5050' : '#FFC800',
                       }}>
-                        {cls} ×{n}
+                        {errorClassLabel(cls)} ×{n}
                       </span>
                     ))}
                   </div>

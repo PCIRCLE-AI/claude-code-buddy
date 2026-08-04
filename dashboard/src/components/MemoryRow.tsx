@@ -5,6 +5,7 @@ import {
   pickBestObservation,
   accessSignal,
   extractProject,
+  typeLabel,
 } from '../lib/entity-display';
 import { EntityIcon } from './icons/EntityIcon';
 
@@ -61,13 +62,13 @@ export function MemoryRow({ entity: e, actions, highlight }: Props) {
           {highlight ? <Highlight text={truncate(preview, 160)} term={highlight} /> : truncate(preview, 160)}
         </div>
         <div class="mem-meta" style={{ flexWrap: 'wrap', gap: 6 }}>
-          <span class="badge badge-type">{e.type}</span>
+          <span class="badge badge-type">{typeLabel(e.type)}</span>
           {isArchived && <span class="badge badge-archived">{translate('memory.archivedBadge')}</span>}
           {project && (
             <span
               class="tag"
               style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-              title="project"
+              title={translate('memory.tooltip.project')}
             >
               <svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style={{ flexShrink: 0 }}>
                 <path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
@@ -83,13 +84,13 @@ export function MemoryRow({ entity: e, actions, highlight }: Props) {
                 color: accessTone.fg,
                 fontWeight: access.tone === 'high' ? 600 : 400,
               }}
-              title={`Recalled ${access.count} times`}
+              title={translate('memory.tooltip.recalled', { count: access.count })}
             >
               ✓ {access.label}
             </span>
           )}
           {hasRelations && (
-            <span class="tag" style={{ opacity: 0.7 }} title="has relations">
+            <span class="tag" style={{ opacity: 0.7 }} title={translate('memory.tooltip.hasRelations', { count: e.relations!.length })}>
               → {e.relations!.length}
             </span>
           )}
@@ -101,7 +102,7 @@ export function MemoryRow({ entity: e, actions, highlight }: Props) {
               fontFamily: 'var(--mono)',
               opacity: 0.85,
             }}
-            title={`created ${e.created_at}`}
+            title={translate('memory.tooltip.createdAt', { date: e.created_at })}
           >
             · {formatCreatedAt(e.created_at)}
           </span>

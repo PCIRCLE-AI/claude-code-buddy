@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'preact/hooks';
 import { api } from '../lib/api';
 import { t } from '../lib/i18n';
 import { classifyLoadError, failureMessage } from '../lib/failure';
+import { relativeDate } from '../lib/entity-display';
 import { PatternCard } from './PatternCard';
 import type { JSX } from 'preact';
 
@@ -72,15 +73,13 @@ interface ProposalDetail {
   reviewed_at: string | null;
 }
 
+// Proposal timestamps arrive in SQLite's 'YYYY-MM-DD HH:MM:SS' UTC form,
+// which Date() refuses without the T/Z normalisation. The relative-time
+// wording itself is entity-display's relativeDate — the shared, localised
+// formatter — not a hand-rolled English 's/m/h/d ago' ladder.
 function formatRelative(iso: string): string {
   if (!iso) return '';
-  const ts = new Date(iso.replace(' ', 'T') + 'Z').getTime();
-  if (Number.isNaN(ts)) return iso;
-  const diffSec = (Date.now() - ts) / 1000;
-  if (diffSec < 60) return `${Math.floor(diffSec)}s ago`;
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-  return `${Math.floor(diffSec / 86400)}d ago`;
+  return relativeDate(iso.includes(' ') ? iso.replace(' ', 'T') + 'Z' : iso);
 }
 
 // Defensive status -> badge color mapping. The server side
@@ -426,7 +425,7 @@ export function InsightsTab() {
             {detail && detail.proposed_digest && (
               <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-1)', borderRadius: 4, fontSize: 13 }}>
                 <div style={{ marginBottom: 8, color: 'var(--text-3)', fontSize: 11 }}>
-                  {t('insights.generatedBy')}: <code>{detail.llm_model ?? 'unknown'}</code> · {t('insights.promptVersion')}: <code>{detail.prompt_version}</code>
+                  {t('insights.generatedBy')}: <code>{detail.llm_model ?? t('common.unknown')}</code> · {t('insights.promptVersion')}: <code>{detail.prompt_version}</code>
                 </div>
                 {/* Flagged claims — only present when the dreamer was run
                     with --validate AND the validator returned 'soften'.
@@ -479,7 +478,7 @@ export function InsightsTab() {
                   ))}
                 </div>
                 <div style={{ color: 'var(--text-3)', fontSize: 11, marginTop: 6 }}>
-                  {t('insights.sourceIds')}: {detail.source_ids.length} entities ({detail.source_ids.slice(0, 8).join(', ')}{detail.source_ids.length > 8 ? '…' : ''})
+                  {t('insights.sourceIds')}: {t('insights.entitiesCount', { n: detail.source_ids.length })} ({detail.source_ids.slice(0, 8).join(', ')}{detail.source_ids.length > 8 ? '…' : ''})
                 </div>
               </div>
             )}

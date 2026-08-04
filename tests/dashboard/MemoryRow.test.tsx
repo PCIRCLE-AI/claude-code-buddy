@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/preact';
 import { MemoryRow } from '../../dashboard/src/components/MemoryRow';
+import { setLocale } from '../../dashboard/src/lib/i18n';
 import type { Entity } from '../../dashboard/src/lib/api';
 
 function makeEntity(overrides: Partial<Entity> = {}): Entity {
@@ -46,6 +47,24 @@ describe('MemoryRow', () => {
     expect(container.textContent).toMatch(/42/);
   });
 
+  it('localises the type badge through the type.* catalogue', () => {
+    // The badge used to print the raw slug (`decision`) — hardcoded English
+    // for every non-English user. It must go through typeLabel(): localised
+    // for known types, raw slug only as the sanctioned fallback.
+    setLocale('zh-TW');
+    try {
+      const zh = render(<MemoryRow entity={makeEntity({ type: 'decision' })} />);
+      expect(zh.container.querySelector('.badge-type')?.textContent).toBe('決策');
+    } finally {
+      setLocale('en');
+    }
+    const en = render(<MemoryRow entity={makeEntity({ type: 'decision' })} />);
+    expect(en.container.querySelector('.badge-type')?.textContent).toBe('Decision');
+    // Unknown type: raw slug, not a dotted i18n key.
+    const unknown = render(<MemoryRow entity={makeEntity({ type: 'custom_thing' })} />);
+    expect(unknown.container.querySelector('.badge-type')?.textContent).toBe('custom_thing');
+  });
+
   it('does not surface internal date or project: tags in the tag row', () => {
     const e = makeEntity({ tags: ['project:memesh', '2026-04-15', 'topic:auth'] });
     const { container } = render(<MemoryRow entity={e} />);
@@ -57,8 +76,10 @@ describe('MemoryRow', () => {
   });
 
   it('uses the dedicated SVG icon (not emoji) for known types', () => {
-    // After SPEC-5 the icon column renders an SVG with an aria-label
-    // matching its glyph cluster — Lesson / Bug fix / Feature etc.
+    // After SPEC-5 the icon column renders an SVG. The accessible name is
+    // the localised label of the ACTUAL type (type.* catalogue keys) — a
+    // release is announced as "Release", not as its glyph cluster
+    // ("Feature") the way the retired English TITLES map did.
     const lesson = render(<MemoryRow entity={makeEntity({ type: 'lesson_learned' })} />);
     const lessonSvg = lesson.container.querySelector('svg[aria-label="Lesson"]');
     expect(lessonSvg).not.toBeNull();
@@ -67,7 +88,7 @@ describe('MemoryRow', () => {
     expect(bug.container.querySelector('svg[aria-label="Bug fix"]')).not.toBeNull();
 
     const release = render(<MemoryRow entity={makeEntity({ type: 'release' })} />);
-    expect(release.container.querySelector('svg[aria-label="Feature"]')).not.toBeNull();
+    expect(release.container.querySelector('svg[aria-label="Release"]')).not.toBeNull();
   });
 
   it('does not render any emoji as a UI affordance (DESIGN.md mandate)', () => {

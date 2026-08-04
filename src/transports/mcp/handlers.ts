@@ -344,10 +344,13 @@ export async function handleTool(name: string, args: Record<string, unknown> | u
           .map(h => `${String(h.hour).padStart(2, '0')}:00 (${h.count})`)
           .join(', ');
         lines.push(`Peak hours: ${peakHours || 'No data'}`);
+        // MCP output is agent-facing English text; dayNum (0 = Sunday) is
+        // resolved here because computePatterns no longer bakes names in.
+        const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         const busiestDays = [...data.workSchedule.dayDistribution]
           .sort((a, b) => b.count - a.count)
           .slice(0, 3)
-          .map(d => `${d.day} (${d.count})`)
+          .map(d => `${DAY_NAMES[d.dayNum] ?? d.dayNum} (${d.count})`)
           .join(', ');
         lines.push(`Busiest days: ${busiestDays || 'No data'}`);
       }

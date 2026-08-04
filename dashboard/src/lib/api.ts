@@ -216,7 +216,9 @@ export interface AnalyticsData {
 export interface PatternsData {
   workSchedule: {
     hourDistribution: Array<{ hour: number; count: number }>;
-    dayDistribution: Array<{ day: string; dayNum: number; count: number }>;
+    // dayNum: SQLite strftime %w — 0 = Sunday … 6 = Saturday. Weekday
+    // names are rendered client-side via the patterns.day.<n> catalogue keys.
+    dayDistribution: Array<{ dayNum: number; count: number }>;
   };
   toolPreferences: Array<{ tool: string; sessions: number }>;
   focusAreas: Array<{ type: string; count: number }>;

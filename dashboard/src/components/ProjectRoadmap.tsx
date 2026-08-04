@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Entity } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
-import { t } from '../lib/i18n';
-import { relativeDate, timeBucket, accessSignal } from '../lib/entity-display';
+import { t, getLocale } from '../lib/i18n';
+import { relativeDate, timeBucket, accessSignal, typeLabel } from '../lib/entity-display';
 import { EntityIcon } from './icons/EntityIcon';
 
 /** Type set that qualifies as a milestone for the rail. Releases are the
@@ -218,7 +218,7 @@ function groupByDate(entities: Entity[], now: Date = new Date()): DateGroup[] {
       const month = ts.slice(0, 7); // YYYY-MM
       key = `older:${month}`;
       const d = new Date(month + '-01');
-      label = d.toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
+      label = d.toLocaleDateString(getLocale(), { year: 'numeric', month: 'long' });
       sort = d.getTime();
     }
 
@@ -363,7 +363,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
             {/* Tree / mindmap toggle */}
             <div
               role="tablist"
-              aria-label="Roadmap view"
+              aria-label={t('roadmap.viewToggle')}
               style={{
                 display: 'inline-flex',
                 background: 'rgba(255,255,255,0.04)',
@@ -392,7 +392,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                       fontWeight: active ? 600 : 400,
                     }}
                   >
-                    {v === 'tree' ? '🌲 Tree' : '🧠 Mindmap'}
+                    {v === 'tree' ? `🌲 ${t('roadmap.viewTree')}` : `🧠 ${t('roadmap.viewMindmap')}`}
                   </button>
                 );
               })}
@@ -414,7 +414,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                 class="tag"
                 style={{ fontSize: 11, background: 'rgba(255,255,255,0.04)' }}
               >
-                {type} <span style={{ opacity: 0.6, fontFamily: 'var(--mono)' }}>{count}</span>
+                {typeLabel(type)} <span style={{ opacity: 0.6, fontFamily: 'var(--mono)' }}>{count}</span>
               </span>
             ))}
             {stats.types.length > 8 && (
@@ -506,7 +506,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
       )}
       {view === 'mindmap' && phases.length === 0 && (
         <div class="empty" style={{ padding: 24 }}>
-          {t('roadmap.emptyProject')} — mindmap requires ≥3 entities within a 7-day window.
+          {t('roadmap.emptyProject')} — {t('roadmap.mindmapNeedsPhases')}
         </div>
       )}
 
@@ -631,7 +631,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                                     fontWeight: 500,
                                   }}
                                 >
-                                  active
+                                  {t('roadmap.activePhase')}
                                 </span>
                               )}
                             </span>
@@ -642,7 +642,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                                 fontFamily: 'var(--mono)',
                               }}
                             >
-                              {phase.startIso.slice(0, 10)} → {phase.endIso.slice(0, 10)} · {phEntries.length} {phEntries.length === 1 ? 'entry' : 'entries'}
+                              {phase.startIso.slice(0, 10)} → {phase.endIso.slice(0, 10)} · {phEntries.length === 1 ? t('roadmap.entryCount', { count: 1 }) : t('roadmap.entriesCount', { count: phEntries.length })}
                             </span>
                           </button>
                           {/* Branched entity leaves */}
@@ -715,7 +715,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                             marginBottom: 8,
                           }}
                         >
-                          Other ({orphans.length})
+                          {t('roadmap.otherGroup', { count: orphans.length })}
                         </div>
                         {orphans.map((e, i) => {
                           const isLast = i === orphans.length - 1;
@@ -809,7 +809,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                 {t('roadmap.milestones')}
                 {filteredMilestoneCount > 0 && (
                   <span style={{ fontSize: '0.7rem', fontWeight: 400, opacity: 0.55, textTransform: 'none', letterSpacing: 0 }}>
-                    ({filteredMilestoneCount} low-signal hidden)
+                    {t('roadmap.lowSignalHidden', { count: filteredMilestoneCount })}
                   </span>
                 )}
               </div>
@@ -1079,7 +1079,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
       {/* Reset button — top-right overlay */}
       <button
         onClick={resetView}
-        title="Reset view (also: double-click background)"
+        title={t('roadmap.resetHint')}
         style={{
           position: 'absolute',
           top: 8,
@@ -1095,7 +1095,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
           cursor: 'pointer',
         }}
       >
-        Reset view
+        {t('graph.resetView')}
       </button>
       {/* Hint */}
       <div
@@ -1110,7 +1110,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
           pointerEvents: 'none',
         }}
       >
-        scroll to zoom · drag to pan · {Math.round(scale * 100)}%
+        {t('roadmap.zoomHint', { pct: Math.round(scale * 100) })}
       </div>
       <svg
         ref={svgRef}
@@ -1278,7 +1278,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
                     fill="var(--text-3)"
                     fontStyle="italic"
                   >
-                    +{extra} more
+                    {t('roadmap.moreEntities', { count: extra })}
                   </text>
                 );
               })()}

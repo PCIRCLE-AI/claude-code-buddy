@@ -11,11 +11,7 @@ export function computePatterns(db, categories) {
       GROUP BY hour ORDER BY hour
     `).all();
         dayDistribution = db.prepare(`
-      SELECT CASE CAST(strftime('%w', created_at, 'localtime') AS INTEGER)
-        WHEN 0 THEN 'Sunday' WHEN 1 THEN 'Monday' WHEN 2 THEN 'Tuesday'
-        WHEN 3 THEN 'Wednesday' WHEN 4 THEN 'Thursday' WHEN 5 THEN 'Friday'
-        WHEN 6 THEN 'Saturday' END as day,
-        CAST(strftime('%w', created_at, 'localtime') AS INTEGER) as dayNum,
+      SELECT CAST(strftime('%w', created_at, 'localtime') AS INTEGER) as dayNum,
         COUNT(*) as count
       FROM entities GROUP BY dayNum ORDER BY dayNum
     `).all();

@@ -116,7 +116,7 @@ function FailureCard({ entity }: { entity: Entity }) {
           {project && <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style={{ flexShrink: 0 }}><path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>{project}</span>}
           {severity && (
             <span class="badge" style={{ background: `${SEVERITY_COLORS[severity]}18`, color: SEVERITY_COLORS[severity] }}>
-              {severity}
+              {t(`lessons.severity.${severity}`)}
             </span>
           )}
           {access.tone !== 'none' && (
@@ -309,7 +309,7 @@ export function LessonsTab() {
           <div class="stat-val" style={{ color: criticalCount > 0 ? '#FF6B6B' : undefined }}>
             {criticalCount}
           </div>
-          <div class="stat-lbl">Critical</div>
+          <div class="stat-lbl">{t('lessons.severity.critical')}</div>
         </div>
         <div class="stat">
           <div class="stat-val">{categorized['plan-completion'].length}</div>
