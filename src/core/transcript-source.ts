@@ -36,9 +36,41 @@ export function claudeProjectsDir(): string {
  * `-Users-kt-Dev-memesh`. This mirrors that scheme so a project can find its
  * own transcripts. It is a best-effort convention — if Claude Code changes
  * it, `scanTranscripts` degrades to "no sessions found", never throws.
+ *
+ * The scheme is LOSSY: every non-alphanumeric char collapses to '-', so
+ * `/p/my-project` and `/p/my_project` map to the SAME slug directory. That
+ * would let a "current project only" scan pull in a sibling project's
+ * sessions and stamp them with the current project's tag. `recordedCwd` +
+ * the per-session check in `scanTranscripts` closes that hole: Claude Code
+ * writes the real absolute `cwd` on each conversation entry, so a session
+ * whose recorded cwd does not match the scanned project is skipped.
  */
 export function projectTranscriptSlug(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9]/g, '-');
+}
+
+/**
+ * The first absolute `cwd` Claude Code recorded in a transcript, or null if
+ * none is present in the scanned prefix. The opening lines of a transcript are
+ * session metadata (leafUuid / mode / permissionMode) with no `cwd`; it first
+ * appears on the first real conversation entry, so scanning only line 1 would
+ * find nothing on essentially every real file and the collision guard would
+ * silently never fire. We scan a bounded prefix (the caller passes the first
+ * chunk of the file it already holds) and stop at the first `cwd`.
+ */
+export function recordedCwd(text: string): string | null {
+  let seen = 0;
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    if (++seen > 40) break; // bounded: metadata preamble is only a few lines
+    try {
+      const entry = JSON.parse(line) as { cwd?: unknown };
+      if (typeof entry.cwd === 'string' && entry.cwd.length > 0) return entry.cwd;
+    } catch {
+      // A malformed line in the preamble must not abort the scan.
+    }
+  }
+  return null;
 }
 
 export interface TranscriptSession {
@@ -110,6 +142,15 @@ export function scanTranscripts(opts: ScanOptions = {}): TranscriptSession[] {
       const buf = fs.readFileSync(fd);
       let lineCount = 0;
       for (let i = 0; i < buf.length; i++) if (buf[i] === 0x0a) lineCount++;
+
+      // Slug-collision guard (see projectTranscriptSlug): if this session
+      // recorded a cwd and it is NOT the project we are scanning, it belongs
+      // to a sibling project that collapsed to the same slug dir — skip it so
+      // the "current project only" promise holds. Decode only a bounded prefix
+      // of the buffer we already read (no new I/O, no new path resolution).
+      const prefix = buf.subarray(0, Math.min(buf.length, 65536)).toString('utf8');
+      const sessionCwd = recordedCwd(prefix);
+      if (sessionCwd !== null && sessionCwd !== cwd) continue;
 
       sessions.push({
         sessionId: name.replace(/\.jsonl$/, ''),

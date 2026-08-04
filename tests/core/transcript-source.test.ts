@@ -6,6 +6,7 @@ import {
   projectTranscriptSlug,
   scanTranscripts,
   claudeProjectsDir,
+  recordedCwd,
 } from '../../src/core/transcript-source.js';
 
 // Discovery half of the transcript source (Task #18, B1). Every test points
@@ -110,5 +111,57 @@ describe('transcript-source discovery', () => {
     const found = scanTranscripts({ cwd, windowDays: 3 });
     expect(found.map((s) => s.sessionId)).toEqual(['real']);
     expect(found[0].lineCount).toBe(7);
+  });
+});
+
+describe('transcript-source slug-collision guard', () => {
+  // projectTranscriptSlug is lossy: '/p/my-project' and '/p/my_project' both
+  // map to '-p-my-project'. Without a per-session cwd check, scanning one would
+  // pull in the other's sessions and stamp them with the wrong project tag.
+
+  // Write a transcript whose entries record `recordCwd`. The first two lines are
+  // metadata WITHOUT a cwd (mirrors real Claude Code files), so a guard that
+  // only peeked line 1 would find nothing and never fire.
+  function seedWithCwd(slugCwd: string, sessionId: string, recordCwd: string | null): void {
+    const dir = path.join(root, projectTranscriptSlug(slugCwd));
+    fs.mkdirSync(dir, { recursive: true });
+    const lines = [
+      JSON.stringify({ type: 'summary', leafUuid: 'x' }),
+      JSON.stringify({ type: 'x', mode: 'default' }),
+      JSON.stringify(recordCwd === null ? { type: 'user', text: 'hi' } : { type: 'user', cwd: recordCwd, text: 'hi' }),
+    ];
+    const file = path.join(dir, `${sessionId}.jsonl`);
+    fs.writeFileSync(file, lines.join('\n') + '\n');
+    fs.utimesSync(file, new Date(), new Date());
+  }
+
+  it('recordedCwd finds the cwd past the metadata preamble, not just line 1', () => {
+    const text = [
+      JSON.stringify({ type: 'summary', leafUuid: 'x' }),
+      JSON.stringify({ type: 'x', permissionMode: 'default' }),
+      JSON.stringify({ type: 'user', cwd: '/p/my-project', text: 'hi' }),
+    ].join('\n');
+    expect(recordedCwd(text)).toBe('/p/my-project');
+    // No cwd anywhere → null (best-effort; can't verify, so scan includes it).
+    expect(recordedCwd(JSON.stringify({ type: 'user', text: 'hi' }))).toBe(null);
+  });
+
+  it('two slug-colliding projects each see only their OWN sessions', () => {
+    // '/p/my-project' and '/p/my_project' collapse to the same slug dir.
+    expect(projectTranscriptSlug('/p/my-project')).toBe(projectTranscriptSlug('/p/my_project'));
+    seedWithCwd('/p/my-project', 'hyphen-sess', '/p/my-project');
+    seedWithCwd('/p/my_project', 'underscore-sess', '/p/my_project');
+
+    const hyphen = scanTranscripts({ cwd: '/p/my-project', windowDays: 3 });
+    expect(hyphen.map((s) => s.sessionId)).toEqual(['hyphen-sess']);
+
+    const underscore = scanTranscripts({ cwd: '/p/my_project', windowDays: 3 });
+    expect(underscore.map((s) => s.sessionId)).toEqual(['underscore-sess']);
+  });
+
+  it('a session with NO recorded cwd is still included (best-effort, cannot verify)', () => {
+    seedWithCwd('/p/solo', 'no-cwd-sess', null);
+    const found = scanTranscripts({ cwd: '/p/solo', windowDays: 3 });
+    expect(found.map((s) => s.sessionId)).toEqual(['no-cwd-sess']);
   });
 });

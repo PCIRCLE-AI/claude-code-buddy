@@ -10,6 +10,23 @@ export function claudeProjectsDir() {
 export function projectTranscriptSlug(cwd) {
     return cwd.replace(/[^a-zA-Z0-9]/g, '-');
 }
+export function recordedCwd(text) {
+    let seen = 0;
+    for (const line of text.split('\n')) {
+        if (!line.trim())
+            continue;
+        if (++seen > 40)
+            break;
+        try {
+            const entry = JSON.parse(line);
+            if (typeof entry.cwd === 'string' && entry.cwd.length > 0)
+                return entry.cwd;
+        }
+        catch {
+        }
+    }
+    return null;
+}
 export function scanTranscripts(opts = {}) {
     const cwd = opts.cwd && opts.cwd.length > 0 ? opts.cwd : process.cwd();
     const windowDays = opts.windowDays ?? 3;
@@ -46,6 +63,10 @@ export function scanTranscripts(opts = {}) {
             for (let i = 0; i < buf.length; i++)
                 if (buf[i] === 0x0a)
                     lineCount++;
+            const prefix = buf.subarray(0, Math.min(buf.length, 65536)).toString('utf8');
+            const sessionCwd = recordedCwd(prefix);
+            if (sessionCwd !== null && sessionCwd !== cwd)
+                continue;
             sessions.push({
                 sessionId: name.replace(/\.jsonl$/, ''),
                 path: full,
