@@ -416,20 +416,20 @@
       "reason": "group-by identity or truthful zero-rows display",
       "triaged": "2026-08-04 (re-keyed twice: two warning inserts shifted lines)"
     },
-    "C4 scripts/release-verify.sh:146": {
-      "class": "SAFE",
-      "reason": "set -uo pipefail at file top preserves the left commands verdict",
-      "triaged": "2026-08-04 (re-keyed: the suite-gate evidence fix shifted lines)"
-    },
-    "C4 scripts/release-verify.sh:189": {
-      "class": "SAFE",
-      "reason": "set -uo pipefail at file top preserves the left commands verdict",
-      "triaged": "2026-08-04 (re-keyed: the suite-gate evidence fix shifted lines)"
-    },
-    "C4 scripts/release-verify.sh:104": {
+    "C4 scripts/release-verify.sh:109": {
       "class": "SAFE",
       "reason": "display-only pipe: tail|sed formats the failure log AFTER the gate already returned 1 explicitly; no verdict flows through it",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04 (re-keyed: the mktemp-orphan fix shifted lines by five)"
+    },
+    "C4 scripts/release-verify.sh:151": {
+      "class": "SAFE",
+      "reason": "set -uo pipefail at file top preserves the left commands verdict",
+      "triaged": "2026-08-04 (re-keyed: the mktemp-orphan fix shifted lines by five)"
+    },
+    "C4 scripts/release-verify.sh:194": {
+      "class": "SAFE",
+      "reason": "set -uo pipefail at file top preserves the left commands verdict",
+      "triaged": "2026-08-04 (re-keyed: the mktemp-orphan fix shifted lines by five)"
     }
   }
 }
