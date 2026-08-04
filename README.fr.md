@@ -173,7 +173,7 @@ memesh
 | **Un développeur utilisant Claude Code** | Rappeler automatiquement les décisions du projet, les leçons spécifiques aux fichiers et les échecs passés au fur et à mesure du travail |
 | **Un utilisateur avancé d'agent de codage** | Partager une couche de mémoire locale unique sur les outils compatibles MCP |
 | **Une équipe expérimentant les workflows de codage IA** | Exporter/importer les connaissances du projet sans infrastructure hébergée |
-| **Un développeur d'agent** | Ajouter la mémoire locale via MCP, HTTP, CLI ou le SDK Python |
+| **Un développeur d'agent** | Ajouter la mémoire locale via MCP, HTTP ou la CLI |
 
 ---
 

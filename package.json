@@ -1,7 +1,7 @@
 {
   "name": "@pcircle/memesh",
   "version": "4.2.11",
-  "description": "MeMesh — Local memory for Claude Code and MCP coding agents. One SQLite file, zero cloud required.",
+  "description": "MeMesh \u2014 Local memory for Claude Code and MCP coding agents. One SQLite file, zero cloud required.",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
@@ -88,7 +88,8 @@
     "protobufjs": "^7.6.5",
     "qs": "^6.15.3",
     "sharp": "^0.35.3",
-    "ws": "^8.21.1"
+    "ws": "^8.21.1",
+    "vite": "7.3.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

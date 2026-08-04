@@ -20,6 +20,7 @@ import { fileURLToPath } from 'url';
 import { TOOL_DEFINITIONS } from '../src/transports/mcp/handlers.js';
 import { exportOpenAITools } from '../src/core/schema-export.js';
 import * as operations from '../src/core/operations.js';
+import { RETIRED_ROUTES } from '../src/transports/http/retired-routes.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -60,6 +61,10 @@ describe('consolidate is retired', () => {
     const server = fs.readFileSync(path.join(repoRoot, 'src/transports/http/server.ts'), 'utf8');
     const route = server.slice(server.indexOf("app.post('/v1/consolidate'"));
     expect(route.slice(0, 600), 'the retired endpoint no longer answers 410').toContain('status(410)');
-    expect(route.slice(0, 600), 'the 410 body does not name the alternative').toContain('/v1/dream/run');
+    // The message lives in RETIRED_ROUTES (one module feeds both the server
+    // and the route test); assert the data says where to go, and that the
+    // registration actually sends that data.
+    expect(RETIRED_ROUTES['/v1/consolidate'], 'the 410 body does not name the alternative').toContain('/v1/dream/run');
+    expect(route.slice(0, 600), 'the registration no longer sends the RETIRED_ROUTES message').toContain("RETIRED_ROUTES['/v1/consolidate']");
   });
 });

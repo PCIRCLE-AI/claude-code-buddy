@@ -66,6 +66,47 @@ env:
   MEMESH_MODEL_CACHE_DIR: ${{ github.workspace }}/.memesh-model-cache
 
 jobs:
+  # One leg, ubuntu/24, alongside the matrix rather than inside it: coverage
+  # instruments every worker and roughly doubles a run, and the numbers do not
+  # differ by OS enough to buy three more instrumented legs. Before this job,
+  # `npm run test:coverage` had ZERO automated callers — installed provider,
+  # measured include globs, and nothing anywhere that would ever go red.
+  coverage:
+    name: Coverage floor
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          fetch-tags: true
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Cache the local embedding model
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ github.workspace }}/.memesh-model-cache
+          key: onnx-Xenova-all-MiniLM-L6-v2-${{ runner.os }}-v1
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The suite spawns the built CLI, hooks and packaged binaries; without
+      # dist/ those tests fail for a reason that has nothing to do with
+      # coverage.
+      - name: Build
+        run: npm run build
+
+      - name: Run tests with the coverage floor
+        run: npm run test:coverage
+
   build-and-test:
     name: Build & Test (${{ matrix.os }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
@@ -208,9 +249,22 @@ jobs:
         # expected on feature branches).
         shell: bash
         run: |
+          # Capture the exit code BEFORE anything can eat it. The previous
+          # form was OUTPUT=$(... || true): the || true was needed so set -e
+          # would not kill the step before the echo, but it also discarded
+          # doctor's verdict, leaving the greps below as the only gate — and
+          # a grep only matches the failure formats it was written against.
+          # The CLI sets exit 1 exactly when overall status is FAIL;
+          # PASS_WITH_CONCERNS exits 0, which is the accepted state here.
+          set +e
+          OUTPUT=$(node dist/transports/cli/cli.js doctor 2>&1)
+          DOCTOR_EXIT=$?
           set -e
-          OUTPUT=$(node dist/transports/cli/cli.js doctor 2>&1 || true)
           echo "$OUTPUT"
+          if [ "$DOCTOR_EXIT" -ne 0 ]; then
+            echo "::error::memesh doctor exited $DOCTOR_EXIT — see lines above"
+            exit 1
+          fi
           if echo "$OUTPUT" | grep -qE '^\[FAIL\]'; then
             echo "::error::memesh doctor reported FAIL — see lines above"
             exit 1

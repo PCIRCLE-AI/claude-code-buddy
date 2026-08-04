@@ -757,7 +757,7 @@ program
       }
       if (summaries.length === 0) {
         console.log(`No LLM telemetry recorded in the last ${opts.window} days.`);
-        console.log(`(Smart-Mode flows write rows automatically — run \`memesh dream run\`, \`memesh consolidate\`, or trigger a session with errors to populate.)`);
+        console.log(`(Smart-Mode flows write rows automatically — run \`memesh dream run\`, \`memesh dream patterns\`, or trigger a session with errors to populate.)`);
         return;
       }
       console.log(`LLM telemetry — last ${opts.window} days`);

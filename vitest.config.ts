@@ -78,6 +78,19 @@ export default defineConfig({
     // file: the denominator stays at 8,593 statements either way.
     coverage: {
       provider: 'v8',
+      // Floors, not goals, and the ratchet only turns one way: raise a number
+      // when the suite clears it comfortably, never lower one to make a red
+      // run green. Measured 2026-08-04 via `npm run test:coverage` on macOS:
+      // statements 48.83, branches 45.9, functions 50, lines 50.09 — floors
+      // sit 1-2 points under that for platform variance. Before these
+      // existed, `test:coverage` had zero automated callers and no threshold:
+      // a coverage run that nothing runs and nothing fails is not a gate.
+      thresholds: {
+        statements: 47,
+        branches: 44,
+        functions: 48,
+        lines: 48,
+      },
       include: ['src/**/*.ts', 'scripts/hooks/*.js', 'dashboard/src/**/*.{ts,tsx}'],
       reporter: ['text', 'json', 'json-summary', 'html'],
       exclude: [

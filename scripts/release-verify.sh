@@ -181,7 +181,7 @@ gate_llm_probe_optional() {
 echo "release-verify @ $(date)"
 echo "repo: $REPO_ROOT"
 
-run_gate "typecheck (tsc --noEmit)" gate_typecheck
+run_gate "typecheck (tsc -p tsconfig.check.json)" gate_typecheck
 run_gate "build (tsc + dashboard)" gate_build
 
 if [ "$QUICK" = 0 ]; then

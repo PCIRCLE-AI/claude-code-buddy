@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { openDatabase, closeDatabase } from '../../src/db.js';
+import { getProjectName } from '../../src/core/paths.js';
 import {
   remember,
   recall,
@@ -81,8 +82,14 @@ describe('Integration: learn → recall lesson', () => {
       severity: 'major',
     });
 
-    // The learn function uses path.basename(process.cwd()) as project name
-    const projectName = path.basename(process.cwd());
+    // Ask the SAME function learn() asks. The old line here re-derived the
+    // name as path.basename(process.cwd()) — true once, then project identity
+    // moved to git-remote-first (paths.ts resolveProjectIdentity), and the
+    // test kept passing only because every checkout happened to sit in a
+    // directory named like the remote. Running the suite from a git worktree
+    // named anything else turned it red — the expectation and the code were
+    // never actually the same source.
+    const projectName = getProjectName();
     const results = recall({ tag: `project:${projectName}` });
     const lessons = results.filter(e => e.type === 'lesson_learned');
     expect(lessons.length).toBeGreaterThanOrEqual(1);
