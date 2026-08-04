@@ -152,8 +152,8 @@ export function LlmTelemetryPanel() {
               <div key={s.flow} style={{
                 padding: 12,
                 background: 'var(--bg-1)',
-                borderRadius: 4,
-                borderLeft: `2px solid ${successRate >= 0.9 ? 'var(--accent)' : successRate >= 0.5 ? '#FFC800' : '#FF5050'}`,
+                borderRadius: 'var(--radius-xs)',
+                borderLeft: `2px solid ${successRate >= 0.9 ? 'var(--accent)' : successRate >= 0.5 ? 'var(--warning)' : 'var(--danger)'}`,
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
                   <span style={{ fontWeight: 600 }}>{flowLabel(s.flow)}</span>
@@ -164,7 +164,7 @@ export function LlmTelemetryPanel() {
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, marginBottom: 6 }}>
                   <span>
                     <span style={{ color: 'var(--text-3)' }}>{t('telemetry.successRate')}: </span>
-                    <strong style={{ color: successRate >= 0.9 ? 'var(--accent)' : successRate >= 0.5 ? '#FFC800' : '#FF5050' }}>
+                    <strong style={{ color: successRate >= 0.9 ? 'var(--accent)' : successRate >= 0.5 ? 'var(--warning)' : 'var(--danger)' }}>
                       {fmtPct(successRate)}
                     </strong>
                   </span>
@@ -173,7 +173,7 @@ export function LlmTelemetryPanel() {
                     <strong>{fmtLatency(s.median_latency_ms)}</strong>
                   </span>
                   {s.fallback_used > 0 && (
-                    <span style={{ color: '#FFC800' }}>
+                    <span style={{ color: 'var(--warning)' }}>
                       ⚠️ {t('telemetry.fallbackUsed', { n: s.fallback_used, pct: fmtPct(fallbackPct) })}
                     </span>
                   )}
@@ -215,8 +215,8 @@ export function LlmTelemetryPanel() {
                       <span key={cls} class="tag" style={{
                         marginRight: 6,
                         fontSize: 11,
-                        background: cls === 'auth' ? 'rgba(255,80,80,0.12)' : 'rgba(255,200,0,0.10)',
-                        color: cls === 'auth' ? '#FF5050' : '#FFC800',
+                        background: cls === 'auth' ? 'var(--danger-soft)' : 'var(--warning-soft)',
+                        color: cls === 'auth' ? 'var(--danger)' : 'var(--warning)',
                       }}>
                         {errorClassLabel(cls)} ×{n}
                       </span>

@@ -92,13 +92,13 @@ function formatRelative(iso: string): string {
 function statusBadgeStyle(status: string): JSX.CSSProperties {
   switch (status) {
     case 'pending':
-      return { background: 'rgba(255,200,0,0.12)', color: '#FFC800' };
+      return { background: 'var(--warning-soft)', color: 'var(--warning)' };
     case 'applied':
       return { background: 'rgba(0,214,180,0.12)', color: 'var(--accent)' };
     case 'rejected':
-      return { background: 'rgba(255,80,80,0.12)', color: '#FF5050' };
+      return { background: 'var(--danger-soft)', color: 'var(--danger)' };
     default:
-      return { background: 'rgba(160,160,160,0.10)', color: 'var(--text-3)' };
+      return { background: 'var(--neutral-soft)', color: 'var(--text-3)' };
   }
 }
 
@@ -319,7 +319,7 @@ export function InsightsTab() {
               aria-pressed={active}
               style={{
                 padding: '4px 10px',
-                borderRadius: 4,
+                borderRadius: 'var(--radius-xs)',
                 cursor: 'pointer',
                 border: '1px solid ' + (active ? 'var(--accent)' : 'var(--border)'),
                 background: active ? 'rgba(0,214,180,0.12)' : 'transparent',
@@ -416,7 +416,7 @@ export function InsightsTab() {
                     <button class="btn btn-primary" onClick={() => accept(p.id)} disabled={isBusy}>
                       {isBusy ? t('insights.applying') : t('insights.accept')}
                     </button>
-                    <button class="btn btn-ghost" onClick={() => reject(p.id)} disabled={isBusy} style={{ color: '#FF5050' }}>
+                    <button class="btn btn-ghost" onClick={() => reject(p.id)} disabled={isBusy} style={{ color: 'var(--danger)' }}>
                       {t('insights.reject')}
                     </button>
                   </>
@@ -425,7 +425,7 @@ export function InsightsTab() {
             </div>
 
             {detail && detail.proposed_digest && (
-              <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-1)', borderRadius: 4, fontSize: 13 }}>
+              <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-1)', borderRadius: 'var(--radius-xs)', fontSize: 13 }}>
                 <div style={{ marginBottom: 8, color: 'var(--text-3)', fontSize: 11 }}>
                   {t('insights.generatedBy')}: <code>{detail.llm_model ?? t('common.unknown')}</code> · {t('insights.promptVersion')}: <code>{detail.prompt_version}</code>
                 </div>
@@ -441,12 +441,12 @@ export function InsightsTab() {
                     style={{
                       marginBottom: 10,
                       padding: 10,
-                      borderRadius: 4,
-                      borderLeft: '3px solid var(--warning, #FFC800)',
-                      background: 'rgba(255,200,0,0.08)',
+                      borderRadius: 'var(--radius-xs)',
+                      borderLeft: '3px solid var(--warning)',
+                      background: 'var(--warning-soft)',
                     }}
                   >
-                    <div style={{ fontWeight: 600, color: 'var(--warning, #FFC800)', marginBottom: 6 }}>
+                    <div style={{ fontWeight: 600, color: 'var(--warning)', marginBottom: 6 }}>
                       ⚠ {t('insights.validationWarnings')}
                     </div>
                     <ul style={{ margin: 0, paddingLeft: 18 }}>

@@ -108,7 +108,7 @@ export function MemoryAgeMatrix({ data }: MemoryAgeMatrixProps) {
                         textAlign: 'center',
                         padding: '5px 6px',
                         background: cellStyle(count, maxCount),
-                        borderRadius: 4,
+                        borderRadius: 'var(--radius-xs)',
                         color: count > 0 ? 'var(--accent)' : 'var(--text-3)',
                         fontFamily: 'var(--mono)',
                         fontWeight: count > 0 ? 600 : 400,
@@ -139,7 +139,7 @@ export function MemoryAgeMatrix({ data }: MemoryAgeMatrixProps) {
             display: 'inline-block',
             width: 14,
             height: 10,
-            borderRadius: 2,
+            borderRadius: 'var(--radius-hairline)',
             background: `rgba(0,214,180,${a})`,
           }} />
         ))}

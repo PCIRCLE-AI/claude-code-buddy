@@ -36,7 +36,7 @@ function Sparkline({ trend }: { trend: LoopMetric['trend'] }) {
     return (
       <svg width={SPARK_W} height={SPARK_H} style={{ display: 'block' }}>
         <line x1={SPARK_PAD} y1={SPARK_H - SPARK_PAD} x2={SPARK_W - SPARK_PAD} y2={SPARK_H - SPARK_PAD} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
-        <circle cx={x} cy={y} r={3} fill="#00D6B4" />
+        <circle cx={x} cy={y} r={3} fill="var(--accent)" />
       </svg>
     );
   }
@@ -56,11 +56,11 @@ function Sparkline({ trend }: { trend: LoopMetric['trend'] }) {
   return (
     <svg width={SPARK_W} height={SPARK_H} style={{ display: 'block' }}>
       <path d={areaPath} fill="rgba(0, 214, 180, 0.12)" />
-      <path d={linePath} fill="none" stroke="#00D6B4" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+      <path d={linePath} fill="none" stroke="var(--accent)" strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
       {trend.map((_, i) => {
         const [xs, ys] = points[i].split(',');
         const isLast = i === trend.length - 1;
-        return isLast ? <circle key={i} cx={xs} cy={ys} r={2.5} fill="#00D6B4" /> : null;
+        return isLast ? <circle key={i} cx={xs} cy={ys} r={2.5} fill="var(--accent)" /> : null;
       })}
     </svg>
   );
@@ -86,7 +86,7 @@ export function MemoryLoopCard({ metric }: Props) {
         alignItems: 'center',
         flexWrap: 'wrap',
         padding: '20px 24px',
-        background: 'linear-gradient(135deg, rgba(0, 214, 180, 0.06) 0%, rgba(0, 214, 180, 0.02) 100%)',
+        background: 'var(--accent-soft)', /* flattened: a decorative gradient is ornament (DESIGN.md) */
         border: '1px solid rgba(0, 214, 180, 0.18)',
       }}
     >
@@ -110,7 +110,7 @@ export function MemoryLoopCard({ metric }: Props) {
               fontWeight: 700,
               lineHeight: 1,
               color: reusedThisWeek > 0 ? 'var(--accent)' : 'var(--text-2)',
-              fontFamily: 'Satoshi, system-ui, sans-serif',
+              fontFamily: 'var(--font)',
               letterSpacing: '-0.03em',
             }}
           >
@@ -122,7 +122,7 @@ export function MemoryLoopCard({ metric }: Props) {
                 fontSize: 12,
                 fontWeight: 600,
                 fontFamily: 'var(--mono)',
-                color: delta > 0 ? '#4ADE80' : '#F87171',
+                color: delta > 0 ? 'var(--success)' : 'var(--danger)',
               }}
             >
               {delta > 0 ? '↑' : '↓'} {Math.abs(delta)}%

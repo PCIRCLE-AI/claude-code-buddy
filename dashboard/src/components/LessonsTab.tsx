@@ -86,9 +86,9 @@ function parsePlan(entity: Entity): PlanRecord {
 /* ---------- severity helpers ---------- */
 
 const SEVERITY_COLORS: Record<string, string> = {
-  critical: '#FF6B6B',
-  major: '#FFB84D',
-  minor: '#60A5FA',
+  critical: 'var(--danger)',
+  major: 'var(--warning)',
+  minor: 'var(--info)',
 };
 
 function severityOf(entity: Entity): 'critical' | 'major' | 'minor' | null {
@@ -315,7 +315,7 @@ export function LessonsTab({ health }: { health?: HealthData | null }) {
           <div class="stat-lbl">{t('lessons.tabFailure')}</div>
         </div>
         <div class="stat">
-          <div class="stat-val" style={{ color: criticalCount > 0 ? '#FF6B6B' : undefined }}>
+          <div class="stat-val" style={{ color: criticalCount > 0 ? 'var(--danger)' : undefined }}>
             {criticalCount}
           </div>
           <div class="stat-lbl">{t('lessons.severity.critical')}</div>

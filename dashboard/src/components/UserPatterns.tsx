@@ -60,7 +60,7 @@ export function UserPatterns({ data }: Props) {
                     ? `rgba(0, 214, 180, ${0.1 + intensity * 0.7})`
                     : 'var(--bg-0)',
                   border: '1px solid var(--border-subtle)',
-                  fontSize: 8,
+                  fontSize: 9,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -186,11 +186,11 @@ export function UserPatterns({ data }: Props) {
                     {Math.round(s.avgConfidence * 100)}%
                   </span>
                 </div>
-                <div style={{ height: 3, borderRadius: 2, background: 'var(--bg-0)' }}>
+                <div style={{ height: 3, borderRadius: 'var(--radius-hairline)', background: 'var(--bg-0)' }}>
                   <div style={{
                     height: '100%',
                     width: `${Math.round(s.avgConfidence * 100)}%`,
-                    borderRadius: 2,
+                    borderRadius: 'var(--radius-hairline)',
                     background: 'rgba(0, 214, 180, 0.5)',
                     transition: 'width 600ms ease-out',
                   }} />

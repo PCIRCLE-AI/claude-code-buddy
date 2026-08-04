@@ -27,7 +27,7 @@ export function Header({ health, error }: { health: HealthData | null; error: st
             style={{
               fontSize: 11,
               padding: '4px 10px',
-              borderRadius: 12,
+              borderRadius: 'var(--radius)',
               border: `1px solid ${signalMode ? 'rgba(0, 214, 180, 0.4)' : 'rgba(255, 255, 255, 0.08)'}`,
               background: signalMode ? 'rgba(0, 214, 180, 0.12)' : 'transparent',
               color: signalMode ? 'var(--accent)' : 'var(--text-2)',

@@ -1,5 +1,6 @@
 import { useRef, useEffect } from 'preact/hooks';
 import { t } from '../lib/i18n';
+import { resolveTokens } from '../lib/tokens';
 
 export interface TimelineEntry {
   date: string;
@@ -17,11 +18,12 @@ const PAD_BOTTOM = 20;
 const PAD_LEFT = 8;
 const CANVAS_HEIGHT = 120;
 
+// Accent at 30% — a glow alpha (no 8% token fits), sanctioned by DESIGN.md and
+// shared by the bars and the DOM legend swatch so they stay identical.
 const BAR_FILL = 'rgba(0, 214, 180, 0.3)';
-const LINE_STROKE = '#00D6B4';
 const LINE_WIDTH = 1.5;
-const LABEL_COLOR = '#4A5260';
-const LABEL_FONT = '9px Satoshi, system-ui, sans-serif';
+// The line, label colour and font are palette tokens; canvas cannot read
+// var(), so they are resolved from the live stylesheet inside drawTimeline.
 
 function drawTimeline(
   canvas: HTMLCanvasElement,
@@ -52,6 +54,13 @@ function drawTimeline(
 
   ctx.scale(dpr, dpr);
 
+  // Resolve the tokens this draw needs (empty when no stylesheet, e.g. a test —
+  // a visible signal, never a literal fallback). See lib/tokens.ts.
+  const tk = resolveTokens(canvas, ['--accent', '--text-3', '--font']);
+  const lineStroke = tk['--accent'];
+  const labelColor = tk['--text-3'];
+  const labelFont = `9px ${tk['--font']}`;
+
   const maxCreated = Math.max(1, ...data.map((d) => d.created));
   const maxRecalled = Math.max(1, ...data.map((d) => d.recalled));
   const maxVal = Math.max(maxCreated, maxRecalled);
@@ -72,7 +81,7 @@ function drawTimeline(
 
   // -- Draw line (recalled) --
   ctx.beginPath();
-  ctx.strokeStyle = LINE_STROKE;
+  ctx.strokeStyle = lineStroke;
   ctx.lineWidth = LINE_WIDTH;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
@@ -90,8 +99,8 @@ function drawTimeline(
   ctx.stroke();
 
   // -- X-axis labels every 7 days --
-  ctx.fillStyle = LABEL_COLOR;
-  ctx.font = LABEL_FONT;
+  ctx.fillStyle = labelColor;
+  ctx.font = labelFont;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
 
@@ -148,7 +157,7 @@ export function MemoryTimeline({ data }: MemoryTimelineProps) {
               display: 'inline-block',
               width: 10,
               height: 10,
-              borderRadius: 2,
+              borderRadius: 'var(--radius-hairline)',
               background: BAR_FILL,
             }} />
             {t('timeline.created')}
@@ -165,8 +174,8 @@ export function MemoryTimeline({ data }: MemoryTimelineProps) {
               display: 'inline-block',
               width: 10,
               height: 2,
-              borderRadius: 1,
-              background: LINE_STROKE,
+              borderRadius: 'var(--radius-hairline)',
+              background: 'var(--accent)',
             }} />
             {t('timeline.recalled')}
             <span style={{

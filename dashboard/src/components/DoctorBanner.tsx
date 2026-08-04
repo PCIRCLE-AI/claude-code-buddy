@@ -179,7 +179,7 @@ export function DoctorBanner() {
         maxWidth: 920,
         padding: '12px 16px',
         border: `1px solid ${toneBorder}`,
-        borderRadius: 8,
+        borderRadius: 'var(--radius)',
         background: toneBg,
         color: 'var(--text-1)',
       }}

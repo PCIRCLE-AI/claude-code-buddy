@@ -100,8 +100,8 @@ export function OnboardingBanner({ health }: Props) {
         maxWidth: 920,
         padding: '14px 18px',
         border: '1px solid rgba(0, 214, 180, 0.28)',
-        borderRadius: 8,
-        background: 'linear-gradient(135deg, rgba(0, 214, 180, 0.10) 0%, rgba(0, 214, 180, 0.02) 100%)',
+        borderRadius: 'var(--radius)',
+        background: 'var(--accent-soft)', /* flattened: a decorative gradient is ornament (DESIGN.md) */
         color: 'var(--text-1)',
       }}
     >
@@ -160,7 +160,7 @@ export function OnboardingBanner({ health }: Props) {
               padding: '6px 10px',
               background: 'rgba(0, 0, 0, 0.3)',
               border: '1px solid rgba(0, 214, 180, 0.20)',
-              borderRadius: 4,
+              borderRadius: 'var(--radius-xs)',
               color: 'var(--accent)',
               fontFamily: 'var(--mono)',
               fontSize: 12,
@@ -178,7 +178,7 @@ export function OnboardingBanner({ health }: Props) {
               padding: '6px 10px',
               background: 'rgba(0, 0, 0, 0.3)',
               border: '1px solid var(--border-subtle)',
-              borderRadius: 4,
+              borderRadius: 'var(--radius-xs)',
               color: 'var(--text-2)',
               fontFamily: 'var(--mono)',
               fontSize: 12,

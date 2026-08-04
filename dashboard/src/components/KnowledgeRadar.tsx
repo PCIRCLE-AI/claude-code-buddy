@@ -96,14 +96,14 @@ export function KnowledgeRadar({ data }: KnowledgeRadarProps) {
           <path
             d={dataPath}
             fill="rgba(0,214,180,0.15)"
-            stroke="#00D6B4"
+            stroke="var(--accent)"
             strokeWidth={1.5}
             strokeLinejoin="round"
           />
 
           {/* Data points */}
           {dataPoints.map(([x, y], i) => (
-            <circle key={i} cx={x.toFixed(1)} cy={y.toFixed(1)} r={3} fill="#00D6B4" />
+            <circle key={i} cx={x.toFixed(1)} cy={y.toFixed(1)} r={3} fill="var(--accent)" />
           ))}
 
           {/* Axis labels */}
@@ -120,7 +120,7 @@ export function KnowledgeRadar({ data }: KnowledgeRadarProps) {
                 dominantBaseline="middle"
                 fontSize={9}
                 fill="var(--text-2)"
-                fontFamily="Satoshi, system-ui, sans-serif"
+                fontFamily="var(--font)"
               >
                 {label}
               </text>
@@ -148,14 +148,14 @@ export function KnowledgeRadar({ data }: KnowledgeRadarProps) {
                 <div style={{
                   height: 3,
                   background: 'rgba(255,255,255,0.06)',
-                  borderRadius: 2,
+                  borderRadius: 'var(--radius-hairline)',
                   overflow: 'hidden',
                 }}>
                   <div style={{
                     width: `${(ratio * 100).toFixed(1)}%`,
                     height: '100%',
-                    background: '#00D6B4',
-                    borderRadius: 2,
+                    background: 'var(--accent)',
+                    borderRadius: 'var(--radius-hairline)',
                     transition: 'width 0.3s',
                   }} />
                 </div>
