@@ -5,6 +5,8 @@ import { typeLabel, relationLabel } from '../lib/entity-display';
 import { classifyLoadError, failureMessage, type LoadFailure } from '../lib/failure';
 import { useSignalMode } from '../lib/signalMode';
 import { EmptyLibraryState } from './EmptyLibraryState';
+import { resolveTokens, type ResolvedTokens } from '../lib/tokens';
+import { CATEGORICAL_TYPE_COLORS } from '../lib/type-palette';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -43,29 +45,49 @@ interface GEdge {
 /*  Constants                                                          */
 /* ------------------------------------------------------------------ */
 
-const TYPE_COLORS: Record<string, string> = {
-  decision: '#00D6B4',
-  pattern: '#60A5FA',
-  lesson_learned: '#FFB84D',
-  commit: '#A78BFA',
-  'session-insight': '#7A828E',
-  session_keypoint: '#4ADE80',
-  session_identity: '#F472B6',
-  workflow_checkpoint: '#38BDF8',
-  feature: '#FB923C',
-  bug_fix: '#F87171',
-  concept: '#00D6B4',
-  tool: '#818CF8',
-  person: '#E879F9',
-  note: '#94A3B8',
+/**
+ * The entity types whose colour coincides with a design token. They are NOT
+ * written as literals: DOM reads the token via `var()`, canvas via the value
+ * resolved at mount — so a palette change reaches both. The category-only hues
+ * (which map to no token) live in `type-palette.ts`. See DESIGN.md
+ * "Entity-type colours are a separate categorical palette".
+ */
+const TOKEN_TYPE_VARS: Record<string, string> = {
+  decision: '--accent',
+  concept: '--accent',
+  pattern: '--info',
+  lesson_learned: '--warning',
+  'session-insight': '--text-2',
 };
-const DEFAULT_COLOR = '#B8BEC6';
+const DEFAULT_TYPE_VAR = '--text-1';
 
-function getColor(type: string): string {
-  return TYPE_COLORS[type] || DEFAULT_COLOR;
+/** The tokens the canvas resolves once at mount (canvas cannot read `var()`). */
+const CANVAS_TOKENS = [
+  '--accent', '--accent-hover', '--info', '--warning',
+  '--text-0', '--text-1', '--text-2', '--text-3',
+  '--font', '--mono',
+] as const;
+
+/** DOM swatch/legend colour — a CSS value (`var()` for token types, else the
+ *  categorical literal). */
+function typeColorCss(type: string): string {
+  const v = TOKEN_TYPE_VARS[type];
+  if (v) return `var(${v})`;
+  return CATEGORICAL_TYPE_COLORS[type] ?? `var(${DEFAULT_TYPE_VAR})`;
 }
 
-/** Drift Mode: interpolate stale (#F87171) → fresh (#00D6B4) by recency 0.15–1.0. */
+/** Canvas node colour — token types come from the resolved values, not `var()`.
+ *  An empty resolved value is left empty on purpose (a visible signal the
+ *  palette did not load), never swapped for a literal fallback. */
+function typeColorCanvas(type: string, r: ResolvedTokens): string {
+  const v = TOKEN_TYPE_VARS[type];
+  if (v) return r[v] ?? '';
+  return CATEGORICAL_TYPE_COLORS[type] ?? (r[DEFAULT_TYPE_VAR] ?? '');
+}
+
+/** Drift Mode: interpolate stale (danger-ish red) → fresh (accent) by recency
+ *  0.15–1.0. A fixed semantic ramp, drawn on canvas; the endpoints are the
+ *  drift scale itself, not palette tokens. */
 function getDriftColor(recency: number): string {
   const t = Math.max(0, Math.min(1, (recency - 0.15) / 0.85));
   const r = Math.round(248 + (0 - 248) * t);
@@ -190,6 +212,9 @@ export function GraphTab() {
     node: null,
   });
   const canvasWidthRef = useRef(800);
+  // Palette resolved from the live stylesheet at mount — canvas cannot read a
+  // CSS custom property. See lib/tokens.ts and DESIGN.md.
+  const tokensRef = useRef<ResolvedTokens>({});
 
   // Keep latest state in refs so the animation closure can read them
   const typeFiltersRef = useRef(typeFilters);
@@ -275,6 +300,10 @@ export function GraphTab() {
     if (!data || loading) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    // Resolve the palette once now the canvas is in the DOM; the draw loop
+    // reads tokensRef.current every frame.
+    tokensRef.current = resolveTokens(canvas, CANVAS_TOKENS);
 
     // getBoundingClientRect()/floor catches sub-pixel layout that
     // clientWidth rounds away. Subtract the card's horizontal padding
@@ -368,6 +397,7 @@ export function GraphTab() {
       const edges = edgesRef.current;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
+      const tk = tokensRef.current;
       const curDpr = window.devicePixelRatio || 1;
 
       // Cool down — clamp at exactly 0 so we can short-circuit force
@@ -542,8 +572,8 @@ export function GraphTab() {
         if (showEdgeLabels) {
           const mx = (a.x + b.x) / 2;
           const my = (a.y + b.y) / 2;
-          ctx.font = '9px Satoshi, system-ui, sans-serif';
-          ctx.fillStyle = '#7A828E';
+          ctx.font = `9px ${tk['--font']}`;
+          ctx.fillStyle = tk['--text-2'];
           ctx.fillText(relationLabel(edge.type), mx + 2, my - 2);
         }
       }
@@ -568,13 +598,13 @@ export function GraphTab() {
         // Node fill
         ctx.beginPath();
         ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = driftModeRef.current ? getDriftColor(n.recency) : getColor(n.type);
+        ctx.fillStyle = driftModeRef.current ? getDriftColor(n.recency) : typeColorCanvas(n.type, tk);
         ctx.fill();
 
         // Orphan dashed border
         if (n.isOrphan) {
           ctx.setLineDash([3, 3]);
-          ctx.strokeStyle = '#4A5260';
+          ctx.strokeStyle = tk['--text-3'];
           ctx.lineWidth = 1;
           ctx.stroke();
           ctx.setLineDash([]);
@@ -583,14 +613,15 @@ export function GraphTab() {
         // Search match glow ring
         if (matched) {
           ctx.globalAlpha = 1;
-          ctx.strokeStyle = '#00F0CA';
+          ctx.strokeStyle = tk['--accent-hover'];
           ctx.lineWidth = 2;
           ctx.beginPath();
           ctx.arc(n.x, n.y, r + 3, 0, Math.PI * 2);
           ctx.stroke();
         }
 
-        // Hover ring
+        // Hover ring — pure white on purpose: brighter than any text token, so
+        // the hovered node reads as "live" against the palette.
         if (isHovered && !matched) {
           ctx.globalAlpha = 1;
           ctx.strokeStyle = '#fff';
@@ -604,8 +635,8 @@ export function GraphTab() {
         const showLabel = isHovered || matched || isFocusCenter;
         if (showLabel) {
           ctx.globalAlpha = 1;
-          ctx.fillStyle = '#B8BEC6';
-          ctx.font = '10px Satoshi, system-ui, sans-serif';
+          ctx.fillStyle = tk['--text-1'];
+          ctx.font = `10px ${tk['--font']}`;
           const label =
             matched || isFocusCenter
               ? n.id
@@ -631,11 +662,13 @@ export function GraphTab() {
         const ageTxt = formatAge(tip.node.lastDate);
         const line1 = name;
         const line2 = `${typeTxt}  |  ${ageTxt}`;
-        ctx.font = '11px Satoshi, system-ui, sans-serif';
+        ctx.font = `11px ${tk['--font']}`;
         const w1 = ctx.measureText(line1).width;
         const w2 = ctx.measureText(line2).width;
         const boxW = Math.max(w1, w2) + 12;
         const boxH = 34;
+        // Tooltip panel: translucent panel bg + accent hairline. Semi-transparent
+        // so the graph shows through; not a solid-token fill.
         ctx.fillStyle = 'rgba(13, 16, 20, 0.92)';
         ctx.strokeStyle = 'rgba(0, 214, 180, 0.3)';
         ctx.lineWidth = 1;
@@ -643,10 +676,10 @@ export function GraphTab() {
         ctx.roundRect(tx - 4, ty - 18, boxW, boxH, 4);
         ctx.fill();
         ctx.stroke();
-        ctx.fillStyle = '#F0F2F4';
+        ctx.fillStyle = tk['--text-0'];
         ctx.fillText(line1, tx, ty - 4);
-        ctx.fillStyle = '#7A828E';
-        ctx.font = '10px Geist Mono, JetBrains Mono, monospace';
+        ctx.fillStyle = tk['--text-2'];
+        ctx.font = `10px ${tk['--mono']}`;
         ctx.fillText(line2, tx, ty + 10);
       }
 
@@ -701,15 +734,21 @@ export function GraphTab() {
     };
   }, []);
 
-  /* ---------- mouse handlers ----------
+  /* ---------- pointer handlers ----------
+   * Pointer events, not mouse events, so touch and pen pan/drag/select the
+   * same paths as a mouse — the whole tab was unusable on a touch device with
+   * mouse-only handlers. `touch-action: none` on the canvas (see JSX) stops the
+   * browser scrolling/zooming the page instead, and setPointerCapture keeps a
+   * drag tracking after the pointer leaves the canvas bounds.
    * Conventions:
    *   - getCanvasPos(e) returns SCREEN coords inside the canvas rect.
    *   - screenToWorld(sx, sy) converts to WORLD coords (the space nodes
    *     are authored in). Hit-test + node-drag live in world space.
    *   - Background pan tracks deltas in SCREEN space and writes to
    *     viewportRef.{panX,panY} (also a screen-space offset). */
-  const onMouseDown = useCallback(
-    (e: MouseEvent) => {
+  const onPointerDown = useCallback(
+    (e: PointerEvent) => {
+      canvasRef.current?.setPointerCapture?.(e.pointerId);
       const screen = getCanvasPos(e);
       const world = screenToWorld(screen.x, screen.y);
       const node = findNodeAt(world.x, world.y);
@@ -751,8 +790,8 @@ export function GraphTab() {
     [findNodeAt, getCanvasPos, screenToWorld],
   );
 
-  const onMouseMove = useCallback(
-    (e: MouseEvent) => {
+  const onPointerMove = useCallback(
+    (e: PointerEvent) => {
       const screen = getCanvasPos(e);
       const world = screenToWorld(screen.x, screen.y);
       const drag = dragRef.current;
@@ -802,8 +841,9 @@ export function GraphTab() {
     [findNodeAt, getCanvasPos, screenToWorld],
   );
 
-  const onMouseUp = useCallback(
-    (e: MouseEvent) => {
+  const onPointerUp = useCallback(
+    (e: PointerEvent) => {
+      canvasRef.current?.releasePointerCapture?.(e.pointerId);
       const drag = dragRef.current;
       const pan = panRef.current;
       const screen = getCanvasPos(e);
@@ -840,7 +880,7 @@ export function GraphTab() {
     [findNodeAt, getCanvasPos, screenToWorld],
   );
 
-  const onMouseLeave = useCallback(() => {
+  const onPointerLeave = useCallback(() => {
     dragRef.current = {
       node: null,
       offsetX: 0,
@@ -1040,7 +1080,7 @@ export function GraphTab() {
           </span>
           {Array.from(typeGroups.entries()).map(([type, count]) => {
             const checked = typeFilters[type] !== false;
-            const color = getColor(type);
+            const color = typeColorCss(type);
             return (
               <label
                 key={type}
@@ -1049,7 +1089,7 @@ export function GraphTab() {
                   alignItems: 'center',
                   gap: 4,
                   fontSize: 11,
-                  color: '#B8BEC6',
+                  color: 'var(--text-1)',
                   opacity: checked ? 1 : 0.4,
                   cursor: 'pointer',
                   userSelect: 'none',
@@ -1103,23 +1143,24 @@ export function GraphTab() {
             value={searchQuery}
             onInput={(e) => setSearchQuery((e.target as HTMLInputElement).value)}
             style={{
-              width: 260,
+              flex: '1 1 160px',
+              minWidth: 120,
+              maxWidth: 260,
               padding: '4px 8px',
-              background: '#080A0C',
-              border: '1px solid rgba(0, 214, 180, 0.08)',
-              borderRadius: 4,
-              color: '#F0F2F4',
+              background: 'var(--bg-0)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-xs)',
+              color: 'var(--text-0)',
               fontSize: 12,
-              fontFamily: 'Satoshi, system-ui, sans-serif',
-              outline: 'none',
+              fontFamily: 'var(--font)',
             }}
           />
           {searchQuery && (
             <span
               style={{
                 fontSize: 11,
-                fontFamily: 'Geist Mono, JetBrains Mono, monospace',
-                color: '#7A828E',
+                fontFamily: 'var(--mono)',
+                color: 'var(--text-2)',
               }}
             >
               {matchCount} {t('graph.matches')}
@@ -1133,8 +1174,8 @@ export function GraphTab() {
               padding: '3px 10px',
               background: 'rgba(255,255,255,0.04)',
               border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 4,
-              color: '#7A828E',
+              borderRadius: 'var(--radius-xs)',
+              color: 'var(--text-2)',
               fontSize: 11,
               cursor: 'pointer',
             }}
@@ -1149,8 +1190,8 @@ export function GraphTab() {
               padding: '3px 10px',
               background: driftMode ? 'rgba(0,214,180,0.15)' : 'rgba(255,255,255,0.04)',
               border: `1px solid ${driftMode ? 'rgba(0,214,180,0.4)' : 'rgba(255,255,255,0.08)'}`,
-              borderRadius: 4,
-              color: driftMode ? '#00D6B4' : '#7A828E',
+              borderRadius: 'var(--radius-xs)',
+              color: driftMode ? 'var(--accent)' : 'var(--text-2)',
               fontSize: 11,
               cursor: 'pointer',
               display: 'flex',
@@ -1158,13 +1199,14 @@ export function GraphTab() {
               gap: 6,
             }}
           >
-            {/* Drift legend: stale → fresh ramp */}
+            {/* Drift legend: the gradient IS the stale→fresh scale it explains —
+                an informational gradient, sanctioned in DESIGN.md. */}
             <span style={{
               display: 'inline-block',
               width: 32,
               height: 6,
-              borderRadius: 3,
-              background: 'linear-gradient(to right, #F87171, #00D6B4)',
+              borderRadius: 'var(--radius-hairline)',
+              background: 'linear-gradient(to right, #F87171, var(--accent))',
             }} />
             {t('graph.drift')}
           </button>
@@ -1179,15 +1221,15 @@ export function GraphTab() {
               gap: 8,
               marginBottom: 8,
               padding: '4px 10px',
-              background: 'rgba(0, 214, 180, 0.08)',
-              borderRadius: 4,
+              background: 'var(--accent-soft)',
+              borderRadius: 'var(--radius-xs)',
               fontSize: 12,
             }}
           >
-            <span style={{ color: '#00D6B4', fontWeight: 600 }}>
+            <span style={{ color: 'var(--accent)', fontWeight: 600 }}>
               {t('graph.focusMode')}:
             </span>
-            <span style={{ color: '#F0F2F4' }}>{egoEntity.name}</span>
+            <span style={{ color: 'var(--text-0)' }}>{egoEntity.name}</span>
             <button
               onClick={() => setEgoNodeId(null)}
               style={{
@@ -1195,8 +1237,8 @@ export function GraphTab() {
                 padding: '2px 8px',
                 background: 'rgba(0, 214, 180, 0.12)',
                 border: '1px solid rgba(0, 214, 180, 0.2)',
-                borderRadius: 3,
-                color: '#00D6B4',
+                borderRadius: 'var(--radius-hairline)',
+                color: 'var(--accent)',
                 fontSize: 11,
                 cursor: 'pointer',
               }}
@@ -1211,7 +1253,7 @@ export function GraphTab() {
           <div
             style={{
               fontSize: 11,
-              color: '#4A5260',
+              color: 'var(--text-3)',
               marginBottom: 6,
             }}
           >
@@ -1219,20 +1261,35 @@ export function GraphTab() {
           </div>
         )}
 
-        {/* Canvas */}
+        {/* Canvas. role=img + aria-label give the non-visual equivalent: the
+            counts and, above, the keyboard-reachable type legend (checkboxes)
+            and search. Full keyboard node-to-node traversal is deferred — a
+            large-graph interaction that needs its own design; tabIndex makes
+            the canvas itself focusable so it is at least in the tab order and
+            carries the summary. touch-action:none lets pointer pan/zoom work
+            without the browser scrolling the page. */}
         <canvas
           ref={canvasRef}
+          role="img"
+          tabIndex={0}
+          aria-label={t('graph.canvasA11y', {
+            entities: totalEntities.toLocaleString(getLocale()),
+            relations: data.relations.length.toLocaleString(getLocale()),
+            orphans: orphanCount.toLocaleString(getLocale()),
+          })}
           style={{
             width: '100%',
             height: CANVAS_HEIGHT,
             borderRadius: 'var(--radius-sm)',
-            background: '#080A0C',
+            background: 'var(--bg-0)',
             cursor: 'grab',
+            touchAction: 'none',
           }}
-          onMouseDown={onMouseDown}
-          onMouseMove={onMouseMove}
-          onMouseUp={onMouseUp}
-          onMouseLeave={onMouseLeave}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerLeave}
+          onPointerLeave={onPointerLeave}
         />
       </div>
     </div>

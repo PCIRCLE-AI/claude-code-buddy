@@ -424,7 +424,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             marginBottom: 14,
             background: 'var(--bg-2)',
             border: '1px solid var(--border-subtle)',
-            borderRadius: 6,
+            borderRadius: 'var(--radius-sm)',
             fontSize: 12,
             lineHeight: 1.55,
             color: 'var(--text-2)',
@@ -443,7 +443,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             void save();
           }}
         >
-          <div style={{ display: 'flex', gap: 16, marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 16, marginBottom: 14, flexWrap: 'wrap' }}>
             {([['anthropic', 'Anthropic (Claude)'], ['openai', 'OpenAI'], ['ollama', 'Ollama (Local)']] as const).map(([val, label]) => (
               <label key={val} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 13 }}>
                 <input
@@ -511,9 +511,9 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
               style={{
                 marginBottom: 12,
                 padding: '8px 10px',
-                borderRadius: 4,
+                borderRadius: 'var(--radius-xs)',
                 fontSize: 12,
-                background: testResult.valid ? 'rgba(0, 214, 180, 0.08)' : 'rgba(255, 107, 107, 0.08)',
+                background: testResult.valid ? 'var(--accent-soft)' : 'var(--danger-soft)',
                 border: `1px solid ${testResult.valid ? 'rgba(0, 214, 180, 0.4)' : 'rgba(255, 107, 107, 0.4)'}`,
                 color: testResult.valid ? 'var(--accent)' : 'var(--danger)',
               }}
@@ -612,9 +612,9 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         {updateStatus?.currentVersionDeprecated && updateStatus.deprecationMessage && (
           <div
             style={{
-              background: 'rgba(255, 107, 107, 0.08)',
+              background: 'var(--danger-soft)',
               border: '1px solid rgba(255, 107, 107, 0.4)',
-              borderRadius: 4,
+              borderRadius: 'var(--radius-xs)',
               padding: '10px 12px',
               marginBottom: 12,
               fontSize: 12,
@@ -632,9 +632,9 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         {updateStatus && updateStatus.checkSucceeded && updateStatus.lastError && (
           <div
             style={{
-              background: 'rgba(255, 200, 87, 0.08)',
-              border: '1px solid rgba(255, 200, 87, 0.4)',
-              borderRadius: 4,
+              background: 'var(--warning-soft)',
+              border: '1px solid rgba(255, 184, 77, 0.4)',
+              borderRadius: 'var(--radius-xs)',
               padding: '10px 12px',
               marginBottom: 12,
               fontSize: 12,
@@ -681,12 +681,12 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12 }}>
             <span style={{ color: 'var(--text-2)' }}>{t('settings.lastAttempted')}</span>
-            <span style={{ color: 'var(--text-0)' }}>{lastAttemptLabel}</span>
+            <span style={{ color: 'var(--text-0)', fontFamily: 'var(--mono)' }}>{lastAttemptLabel}</span>
           </div>
           {showLastSuccessful && (
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12 }}>
               <span style={{ color: 'var(--text-2)' }}>{t('settings.lastSuccessful')}</span>
-              <span style={{ color: 'var(--text-0)' }}>{lastSuccessfulLabel}</span>
+              <span style={{ color: 'var(--text-0)', fontFamily: 'var(--mono)' }}>{lastSuccessfulLabel}</span>
             </div>
           )}
           {!updateLoading && (
@@ -700,7 +700,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
           {updateStatus?.recommendedCommand && (
             <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>
               <span style={{ color: 'var(--text-2)', fontSize: 12 }}>{t('settings.updateCommand')}</span>
-              <code style={{ color: 'var(--text-0)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 10px', fontSize: 12, fontFamily: 'var(--mono)' }}>
+              <code style={{ color: 'var(--text-0)', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', fontSize: 12, fontFamily: 'var(--mono)' }}>
                 {updateStatus.recommendedCommand}
               </code>
             </div>
@@ -716,16 +716,17 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         <div class="card-title">{t('settings.behaviourTitle')}</div>
 
         <div style={{ marginTop: 8 }}>
-          <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>
+          <label id="settings-autoupdate-label" style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>
             {t('settings.autoUpdateLabel')}
           </label>
           <select
+            aria-labelledby="settings-autoupdate-label"
             value={config?.config.autoUpdate ?? 'off'}
             onChange={async (e) => {
               const next = (e.target as HTMLSelectElement).value as 'off' | 'patch' | 'minor' | 'major';
               await saveField({ autoUpdate: next }, (cur) => ({ ...cur, config: { ...cur.config, autoUpdate: next } }));
             }}
-            style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-1)', cursor: 'pointer' }}
+            style={{ fontSize: 13, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-1)', cursor: 'pointer' }}
           >
             <option value="off">{t('settings.autoUpdateOff')}</option>
             <option value="patch">{t('settings.autoUpdatePatch')}</option>
@@ -764,6 +765,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       <div class="card">
         <div class="card-title">{t('settings.language')}</div>
         <select
+          aria-label={t('settings.language')}
           value={locale}
           onChange={(e) => {
             const nextLocale = (e.target as HTMLSelectElement).value as Locale;
@@ -784,7 +786,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
               });
             }
           }}
-          style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-1)', cursor: 'pointer' }}
+          style={{ fontSize: 13, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-1)', cursor: 'pointer' }}
         >
           {getLocales().map((l) => (
             <option key={l.code} value={l.code}>{l.name}</option>

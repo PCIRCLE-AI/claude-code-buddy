@@ -309,7 +309,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     el.style.transition = 'background 0.2s';
-    el.style.background = 'rgba(0, 214, 180, 0.08)';
+    el.style.background = 'var(--accent-soft)';
     window.setTimeout(() => { el.style.background = ''; }, 1400);
   };
 
@@ -334,9 +334,9 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
       <div
         style={{
           padding: '14px 16px',
-          background: 'rgba(0, 214, 180, 0.04)',
+          background: 'var(--border-subtle)',
           border: '1px solid rgba(0, 214, 180, 0.12)',
-          borderRadius: 6,
+          borderRadius: 'var(--radius-sm)',
           marginBottom: 14,
         }}
       >
@@ -367,7 +367,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
               style={{
                 display: 'inline-flex',
                 background: 'rgba(255,255,255,0.04)',
-                borderRadius: 4,
+                borderRadius: 'var(--radius-xs)',
                 padding: 2,
                 border: '1px solid var(--border-subtle)',
               }}
@@ -385,7 +385,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                       background: active ? 'rgba(0,214,180,0.15)' : 'transparent',
                       color: active ? 'var(--accent)' : 'var(--text-2)',
                       border: 'none',
-                      borderRadius: 3,
+                      borderRadius: 'var(--radius-hairline)',
                       fontSize: 11,
                       fontFamily: 'inherit',
                       cursor: 'pointer',
@@ -439,7 +439,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
             marginBottom: 14,
             padding: '12px 14px',
             border: '1px solid rgba(255, 255, 255, 0.04)',
-            borderRadius: 6,
+            borderRadius: 'var(--radius-sm)',
             background: 'rgba(255, 255, 255, 0.02)',
             overflowX: 'auto',
           }}
@@ -468,10 +468,10 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                 alignItems: 'flex-start',
                 gap: 2,
                 padding: '6px 10px',
-                background: i === phases.length - 1 ? 'rgba(0, 214, 180, 0.08)' : 'transparent',
+                background: i === phases.length - 1 ? 'var(--accent-soft)' : 'transparent',
                 border: '1px solid',
                 borderColor: i === phases.length - 1 ? 'rgba(0, 214, 180, 0.3)' : 'var(--border-subtle)',
-                borderRadius: 4,
+                borderRadius: 'var(--radius-xs)',
                 color: 'var(--text-1)',
                 cursor: phase.anchorId !== undefined ? 'pointer' : 'default',
                 fontFamily: 'inherit',
@@ -808,7 +808,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
               <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--text-2)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
                 {t('roadmap.milestones')}
                 {filteredMilestoneCount > 0 && (
-                  <span style={{ fontSize: '0.7rem', fontWeight: 400, opacity: 0.55, textTransform: 'none', letterSpacing: 0 }}>
+                  <span style={{ fontSize: 10, fontWeight: 400, opacity: 0.55, textTransform: 'none', letterSpacing: 0 }}>
                     {t('roadmap.lowSignalHidden', { count: filteredMilestoneCount })}
                   </span>
                 )}
@@ -1070,7 +1070,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
       style={{
         position: 'relative',
         border: '1px solid var(--border-subtle)',
-        borderRadius: 6,
+        borderRadius: 'var(--radius-sm)',
         background: 'rgba(255,255,255,0.02)',
         overflow: 'hidden',
         marginBottom: 14,
@@ -1091,7 +1091,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
           background: 'rgba(0,0,0,0.4)',
           color: 'var(--text-1)',
           border: '1px solid var(--border-subtle)',
-          borderRadius: 4,
+          borderRadius: 'var(--radius-xs)',
           cursor: 'pointer',
         }}
       >
@@ -1195,8 +1195,17 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
           return (
             <g
               key={`phase-${i}`}
+              role={phase.anchorId !== undefined ? 'button' : undefined}
+              tabIndex={phase.anchorId !== undefined ? 0 : undefined}
+              aria-label={phase.anchorId !== undefined ? phase.label : undefined}
               style={{ cursor: phase.anchorId !== undefined ? 'pointer' : 'default' }}
               onClick={() => phase.anchorId !== undefined && onNodeClick(phase.anchorId)}
+              onKeyDown={(ev: KeyboardEvent) => {
+                if (phase.anchorId !== undefined && (ev.key === 'Enter' || ev.key === ' ')) {
+                  ev.preventDefault();
+                  onNodeClick(phase.anchorId);
+                }
+              }}
             >
               <circle
                 cx={px}
@@ -1216,7 +1225,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
                 style={{ pointerEvents: 'none' }}
               >
                 <tspan x={px} dy={0}>{labelTrunc}</tspan>
-                <tspan x={px} dy={12} fontSize={9} fill="var(--text-3)" fontWeight={400}>
+                <tspan x={px} dy={12} fontSize={9} fill="var(--text-3)" fontWeight={400} fontFamily="var(--mono)">
                   {phase.entityCount} · {phase.startIso.slice(5, 10)}
                 </tspan>
               </text>
@@ -1241,8 +1250,17 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
                 return (
                   <g
                     key={e.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${e.name} (${typeLabel(e.type)})`}
                     style={{ cursor: 'pointer' }}
                     onClick={() => onNodeClick(e.id)}
+                    onKeyDown={(ev: KeyboardEvent) => {
+                      if (ev.key === 'Enter' || ev.key === ' ') {
+                        ev.preventDefault();
+                        onNodeClick(e.id);
+                      }
+                    }}
                   >
                     <title>{`${e.name} (${e.type})`}</title>
                     <circle
