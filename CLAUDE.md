@@ -60,15 +60,18 @@ npm run test:coverage        # whole suite + v8 coverage, throwaway HOME
 ```
 
 Read the report with one caveat, or it will mislead you. Coverage is measured
-**in-process**, and this project spawns a lot of what it tests: the CLI, all
-seven hooks, the MCP server and the packaged binaries are exercised through
-`spawnSync`, so they report **0% while being well tested**. `src/transports/cli/cli.ts`
-is the clearest case — 750 statements, a whole directory of tests, 0% in the
-report.
+**in-process**, and this project spawns a lot of what it tests: the CLI, the
+hooks, the MCP server and the packaged binaries are exercised through
+`spawnSync`, so they report **0% while being well tested**.
+`src/transports/cli/cli.ts` is the clearest case — a whole directory of tests
+against it, 0% in the report.
 
 What the number is good for is the opposite direction: a file at 0% that is
-*not* spawned anywhere is genuinely unexercised. That is where the dashboard
-sits — 25 components, 6 test files.
+*not* spawned anywhere is genuinely unexercised. That is where most of the
+dashboard sits. Do not write the count down here — this file has already been
+wrong about it once, and `tests/dashboard/component-contracts.test.tsx` derives
+the real list from the directory and fails when a component belongs to neither
+side of it.
 
 ### Verifying a change before claiming it works
 

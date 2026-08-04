@@ -10,6 +10,53 @@ import { LlmTelemetryPanel } from './LlmTelemetryPanel';
 import { PmAnalyticsPanel } from './PmAnalyticsPanel';
 import { t } from '../lib/i18n';
 
+/** The four bars `HealthScore` renders, each read as `factors[key].score`. */
+const FACTOR_KEYS = ['activity', 'quality', 'freshness', 'lessons'] as const;
+
+/**
+ * Whether every field the analytics rows dereference is actually present.
+ *
+ * Checked against the leaves rather than the groups, because the group is the
+ * level at which `{}` passes: `MemoryLoopCard` destructures `metric.trend` and
+ * calls `.slice`, `MemoryTimeline` calls `data.reduce`, and `HealthScore`
+ * reads `factors.activity.score`. `ageMatrix` / `knowledgeRadar` are not
+ * checked here — the render coerces them, because a server that omits them
+ * entirely is not a reason to blank the whole tab.
+ */
+function isRenderable(a: AnalyticsData | null): a is AnalyticsData {
+  if (typeof a?.healthScore !== 'number') return false;
+  const factors = a.healthFactors as
+    | Record<string, { score?: unknown; weight?: unknown } | undefined>
+    | undefined;
+  if (!factors) return false;
+  for (const key of FACTOR_KEYS) {
+    if (typeof factors[key]?.score !== 'number' || typeof factors[key]?.weight !== 'number') {
+      return false;
+    }
+  }
+  return Array.isArray(a.loopMetric?.trend) && Array.isArray(a.timeline);
+}
+
+/**
+ * Same rule for the patterns payload. `UserPatterns` iterates
+ * `workSchedule.hourDistribution` with `for…of` and spreads
+ * `workSchedule.dayDistribution`, so `workSchedule` merely existing is not
+ * enough — `{}` passes that and then throws `hourDistribution is not iterable`.
+ */
+function isPatternsRenderable(p: PatternsData | null): p is PatternsData {
+  return (
+    Array.isArray(p?.workSchedule?.hourDistribution) &&
+    Array.isArray(p.workSchedule?.dayDistribution) &&
+    Array.isArray(p.toolPreferences) &&
+    Array.isArray(p.focusAreas) &&
+    Array.isArray(p.strengths) &&
+    Array.isArray(p.learningAreas) &&
+    typeof p.workflow?.avgSessionMinutes === 'number' &&
+    typeof p.workflow?.totalSessions === 'number' &&
+    typeof p.workflow?.commitsPerSession === 'number'
+  );
+}
+
 export function AnalyticsTab() {
   const [stats, setStats] = useState<StatsData | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
@@ -31,23 +78,22 @@ export function AnalyticsTab() {
       api<AnalyticsData>('GET', '/v1/analytics').catch(guard('/v1/analytics')),
       api<PatternsData>('GET', '/v1/patterns').catch(guard('/v1/patterns')),
     ]).then(([s, a, p]) => {
-      // `{success:true, data:{}}` is what a fresh install and a version-skewed
-      // server both produce. Every render below reads a required field off
-      // these — `stats.totalEntities.toLocaleString()` and friends — so a
-      // payload without them has to read as "did not load", not as "loaded".
-      // Each guard has to cover every field the render below dereferences, not
-      // just the first one. `stats.tagDistribution.filter()` and the three
-      // children fed `analytics.loopMetric` / `.healthFactors` / `.timeline`
-      // are all unconditional reads behind a bare `{stats && …}` /
-      // `{analytics && …}`, so a partial payload passed the setter and threw
-      // in the renderer instead.
+      // Every render below reads a required field off these —
+      // `stats.totalEntities.toLocaleString()` and friends — so a payload
+      // without them has to read as "did not load", not as "loaded".
+      //
+      // A guard has to reach the LEAF each child dereferences, not the group
+      // that holds it. `{}` is truthy, so `a.healthFactors && a.loopMetric &&
+      // a.timeline` admits a payload whose groups are all present and all
+      // empty, and then `HealthScore` reads `factors.activity.score` off
+      // `undefined`. That throw lands during the rerender the response
+      // triggers, which produces no unhandled rejection and no visible text:
+      // four panels simply vanish and nothing is reported.
       setStats(
         typeof s?.totalEntities === 'number' && Array.isArray(s.tagDistribution) ? s : null
       );
-      setAnalytics(
-        a?.healthScore !== undefined && a.healthFactors && a.loopMetric && a.timeline ? a : null
-      );
-      setPatterns(p?.workSchedule ? p : null);
+      setAnalytics(isRenderable(a) ? a : null);
+      setPatterns(isPatternsRenderable(p) ? p : null);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -99,8 +145,9 @@ export function AnalyticsTab() {
           gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)',
           gap: 8,
         }}>
-          <MemoryAgeMatrix data={analytics.ageMatrix ?? []} />
-          <KnowledgeRadar data={analytics.knowledgeRadar ?? []} />
+          {/* `?? []` only covers null/undefined, and `{}` is neither. */}
+          <MemoryAgeMatrix data={Array.isArray(analytics.ageMatrix) ? analytics.ageMatrix : []} />
+          <KnowledgeRadar data={Array.isArray(analytics.knowledgeRadar) ? analytics.knowledgeRadar : []} />
         </div>
       )}
 

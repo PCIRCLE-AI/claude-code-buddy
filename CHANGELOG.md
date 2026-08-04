@@ -6,50 +6,99 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
-- **Every dashboard component is now held to one contract**
-  (`tests/dashboard/component-contracts.test.tsx`) — 25 components had 6 test
-  files between them. This is deliberately not nineteen "renders without
-  throwing" tests, which cannot fail for any reason a user would notice. It
-  asserts the class of bug that actually reaches a dashboard user: **on
-  degenerate data a component may render an empty state, but it may not render
-  the machinery.** No `undefined`, `NaN` or `[object Object]` in visible text —
-  the shape an unguarded `toFixed()`, a missing field or a stringified object
-  takes on screen — and no raw i18n **key**, which is not hypothetical: the auth
-  screen shipped `auth.title` to a remote operator, because `t()` returns its
-  argument on a miss.
+- **The dashboard components are held to one contract**
+  (`tests/dashboard/component-contracts.test.tsx`) — most of them had no test of
+  their own. This is deliberately not a set of "renders without throwing" tests,
+  which cannot fail for any reason a user would notice. It asserts the class of
+  bug that actually reaches a dashboard user: **on degenerate data a component
+  may render an empty state, but it may not render the machinery, drop half the
+  page, or reject into nowhere.** No `undefined`, `NaN` or `[object Object]` in
+  visible text — the shape an unguarded `toFixed()`, a missing field or a
+  stringified object takes on screen — and no raw i18n **key**, which is not
+  hypothetical: the auth screen shipped `auth.title` to a remote operator,
+  because `t()` returns its argument on a miss.
 
-  Every component is exercised twice, against an API that answers empty and an
-  API that is down. The key list is asserted non-empty first, or the whole check
-  filters an empty array and stops checking.
+  Each component is exercised against five API shapes: empty-but-successful, a
+  failure, half a payload, every group present but hollow, and the core valid
+  with the optional extras hollow. Which components are covered is **derived
+  from the directory listing**, and one that is neither in the case list nor in
+  a named exclusion list fails the suite — an earlier version of this file
+  stated in its own header that the components with dedicated test files were
+  "covered here too" when they were exactly the ones missing, which is what a
+  hand-maintained list is for.
 
-- **The dashboard and its `.tsx` tests are type-checked, for the first time**
-  (`tsconfig.check-dashboard.json`) — a second project rather than a wider
-  `include`, because the two halves of this repository resolve modules
-  differently and cannot share one pass: the package is `node16`, the dashboard
-  is bundled by vite and imports `./components/Header` without an extension.
-  Measured, that one disagreement produces 93 errors before any real type is
-  looked at. `npm run build:dashboard` is vite, which transpiles without
-  checking, so nothing had ever run `tsc` over `dashboard/src`. It found a test
-  helper annotated `container: HTMLElement` against a value typed `Element`.
+  Three detectors, because one defect shape slips past each of the others: a
+  text leak that never throws (`GraphTab` was a live instance), an unhandled
+  rejection that renders no text, and a render error that does neither — the
+  last produces no rejection and no visible output, so four panels simply
+  vanish. Three canary components assert that each detector still fires; if the
+  harness ever stops settling before it asserts, the canaries stop being caught
+  and the file goes red on itself.
+
+- **The dashboard and every `.tsx` test are type-checked, for the first time**
+  (`tsconfig.check-dashboard.json`, `tests/typecheck-scope.test.ts`) — a second
+  project rather than a wider `include`, because the two halves of this
+  repository resolve modules differently and cannot share one pass: the package
+  is `node16`, the dashboard is bundled by vite and imports
+  `./components/Header` without an extension. Measured, that one disagreement
+  produces 93 errors before any real type is looked at. `npm run build:dashboard`
+  is vite, which transpiles without checking, so nothing had ever run `tsc` over
+  `dashboard/src`. It found a test helper annotated `container: HTMLElement`
+  against a value typed `Element`.
+
+  Two projects means a file can fall between them, and one did: the package
+  project takes `tests/**/*.ts` and excludes `tests/dashboard/**`, the dashboard
+  project took `tests/dashboard/**` — so a `.tsx` test in any third directory
+  was checked by **neither** while vitest ran it. Measured with a deliberate
+  `const broken: number = "string"` planted under `tests/transports/`: both
+  passes exited 0. `tests/typecheck-scope.test.ts` closes it by asking `tsc
+  --listFilesOnly` which files it actually read and comparing that to the files
+  vitest collects — not by comparing one list of globs to another, which is how
+  a check turns into a copy of the thing it checks. It failed on its first run
+  and found a second hole the widening had just opened.
+
+  The dashboard project now `extends` `dashboard/tsconfig.json` instead of
+  copying its nine compiler options. The copy carried a stated reason —
+  "extending would inherit an include the tests are not in" — that is simply not
+  how tsconfig works: a derived `include` replaces the base's. The copy had also
+  already dropped `isolatedModules`.
 
 ### Fixed
 
-- **Six dashboard tabs crashed when the server answered successfully with an
-  empty payload** (`AnalyticsTab`, `BrowseTab`, `DoctorBanner`, `InsightsTab`,
-  `LlmTelemetryPanel`, `PmAnalyticsPanel`) — found by the contract above on its
-  first run, and every one is the same root cause: **the guard asked whether an
-  object arrived, not whether the data did.** `{}` is truthy, so `data || []`,
-  `data ?? []` and `if (!data) return null` all passed a shape-less response
-  straight through to a `for…of`, a `.filter` or a `.length` that then threw —
-  `entities is not iterable`, `allProposals.filter is not a function`,
+- **Eight dashboard tabs crashed on a response whose shape did not match**
+  (`AnalyticsTab`, `BrowseTab`, `DoctorBanner`, `GraphTab`, `InsightsTab`,
+  `LlmTelemetryPanel`, `PmAnalyticsPanel`, and the patterns row) — found by the
+  contract above, and every one is the same root cause: **the guard asked
+  whether an object arrived, not whether the data did.** `{}` is truthy, so
+  `data || []`, `data ?? []` and `if (!data) return null` all passed a
+  shape-less response straight through to a `for…of`, a `.filter` or a `.length`
+  that then threw — `entities is not iterable`,
+  `allProposals.filter is not a function`,
   `Cannot read properties of undefined (reading 'orphanRate')`.
 
-  That is the `?? true` family one more time: absence read as presence. Each
-  guard now asks for the shape the component actually destructures, at the point
-  the payload enters, so a partial response reads as "did not load" and renders
-  the empty state the component already has. `{success: true, data: {}}` is not
-  hypothetical — it is what a fresh install returns, and what a version-skewed
-  server returns for an endpoint it does not implement yet.
+  That is the `?? true` family one more time: absence read as presence. It took
+  three passes to land, because each round tightened the guard by exactly one
+  level and the read was always one level further down: first `!data`, then the
+  groups (`data.velocity && data.staleness`), and only then the leaves the
+  render actually dereferences. A group check is worth nothing here — `{}`
+  satisfies it, and then `HealthScore` reads `factors.activity.score` off
+  `undefined`. Each guard now checks the leaf.
+
+  Two of the eight were invisible to a test that only looks at rendered text.
+  `GraphTab` catches its own TypeError and paints the raw JS message on screen,
+  so it produced no unhandled rejection at all; the analytics rows throw during
+  the rerender the response triggers, which produces no rejection **and** no
+  text — four panels just disappear. Both are covered now.
+
+  What `{success: true, data: {}}` is **not** is what a fresh install returns:
+  `computeAnalytics` and `computePmAnalytics` return every key unconditionally,
+  so a brand-new database yields `healthScore: 0` and `summaries: []`, which
+  pass every guard. The reachable causes are a stale cached bundle, a proxy
+  rewriting the body, and a future partial-failure path. The previous wording
+  here claimed otherwise.
+
+  There is no error boundary anywhere in `dashboard/src`, so before this the
+  user-visible result of each of these was a blank page, not a broken panel.
 
 - **`npm run typecheck` had never checked a single test file, and 68 real errors
   were waiting behind that** (`tsconfig.check.json`, 9 test files) —
@@ -99,20 +148,24 @@ All notable changes to MeMesh are documented here.
 
   Installing it was not enough. With no `coverage.include`, v8 reports only the
   files a test **imported** — a module nothing touches is not 0%, it is absent.
-  The first report read **72.05%** while seven of the fifty-three files under
-  `src/` were missing from it entirely, among them `cli/view-live.ts` (2,199
-  lines) and `mcp/launcher.ts`, the entry point every MCP client executes. With
-  the source globs declared, the same suite measures **48.76%**. A coverage
-  report that cannot show a zero is a gate that cannot fail.
+  Several files under `src/` were missing from the first report entirely, among
+  them `cli/view-live.ts` and `mcp/launcher.ts`, the entry point every MCP
+  client executes, and the headline percentage was correspondingly flattering.
+  A coverage report that cannot show a zero is a gate that cannot fail. With the
+  source globs declared it can.
 
-  Read with one caveat, recorded in `CLAUDE.md` rather than left as a trap:
+  No percentage is quoted here on purpose. The one that used to be was measured
+  before the dashboard tests landed in the same pull request and was already
+  wrong by the time it would have been published — which is the failure this
+  release set out to stop. Run `npm run test:coverage` and read the number the
+  runner prints.
+
+  Read it with one caveat, recorded in `CLAUDE.md` rather than left as a trap:
   coverage is in-process, and this project spawns much of what it tests. The
-  CLI, all seven hooks and the MCP server are exercised through `spawnSync` and
-  therefore report 0% while being well covered — `src/transports/cli/cli.ts` is
-  750 statements with a directory of tests and a 0% line. The number is useful
-  in the other direction: a 0% file that is *not* spawned anywhere is genuinely
-  unexercised, which is where the dashboard sits at 25 components to 6 test
-  files.
+  CLI, the hooks and the MCP server are exercised through `spawnSync` and
+  therefore report 0% while being well covered. The number is useful in the
+  other direction: a 0% file that is *not* spawned anywhere is genuinely
+  unexercised, which is where most of the dashboard sits.
 
 ### Fixed
 

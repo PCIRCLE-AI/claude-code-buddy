@@ -7,6 +7,17 @@ interface PmAnalytics {
   connectedness: { orphanRate: number; totalRelations: number; activeEntities: number };
 }
 
+/** Every number this card renders, checked where it is read rather than where it is grouped. */
+function isRenderable(d: PmAnalytics | null): d is PmAnalytics {
+  return (
+    typeof d?.velocity?.decisionsPerWeek === 'number' &&
+    typeof d.staleness?.openDecisionCount === 'number' &&
+    typeof d.staleness?.stalePlanCount === 'number' &&
+    typeof d.connectedness?.orphanRate === 'number' &&
+    typeof d.connectedness?.totalRelations === 'number'
+  );
+}
+
 export function PmAnalyticsPanel() {
   const [data, setData] = useState<PmAnalytics | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -27,15 +38,13 @@ export function PmAnalyticsPanel() {
     console.warn('[PmAnalyticsPanel]', error);
     return null;
   }
-  // `!data` is false for `{}`, and the next line reads
-  // `data.connectedness.orphanRate`. Guard the shape this component actually
-  // destructures, not the object's existence.
-  // Guard EVERY group this component dereferences, not just the first one.
-  // Lines below read `data.velocity.decisionsPerWeek.toFixed()` and
-  // `data.staleness.openDecisionCount` too, so a payload carrying only
-  // `connectedness` — which is what a version-skewed server sends when it
-  // implements one metric group and not the others — still threw.
-  if (!data?.connectedness || !data.velocity || !data.staleness) return null;
+  // Guard the LEAVES, not the groups. `{}` is truthy, so checking that
+  // `velocity` / `staleness` / `connectedness` merely exist admits a payload
+  // whose groups are all present and all empty — and the next lines call
+  // `data.velocity.decisionsPerWeek.toFixed(1)` on `undefined`. Two earlier
+  // versions of this guard tightened one level at a time (`!data`, then the
+  // three groups) and each was still one level short of the read.
+  if (!isRenderable(data)) return null;
 
   const orphanPct = (data.connectedness.orphanRate * 100).toFixed(1);
   const orphanColor =
