@@ -111,8 +111,8 @@ export function InsightsBanner({ currentTab, onNavigateToInsights }: Props) {
         maxWidth: 920,
         padding: '10px 40px 10px 16px',
         border: '1px solid rgba(0, 214, 180, 0.32)',
-        borderRadius: 8,
-        background: 'linear-gradient(135deg, rgba(0, 214, 180, 0.12) 0%, rgba(0, 214, 180, 0.04) 100%)',
+        borderRadius: 'var(--radius)',
+        background: 'var(--accent-soft)', /* flattened: a decorative gradient is ornament (DESIGN.md) */
         color: 'var(--text-1)',
         cursor: 'pointer',
         fontSize: 13,

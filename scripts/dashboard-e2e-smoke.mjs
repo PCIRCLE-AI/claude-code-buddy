@@ -203,12 +203,14 @@ async function main() {
       await expectVisible(page, 'All Memories');
       await expectVisible(page, 'dashboard-e2e-memory');
 
-      await page.getByRole('navigation').getByRole('button', { name: 'Search' }).click();
+      // The nav is a WAI-ARIA tablist: tabs are role=tab, not plain buttons.
+      // The search SUBMIT (inside .search-bar) is still a real button.
+      await page.getByRole('navigation').getByRole('tab', { name: 'Search' }).click();
       await page.getByPlaceholder(/Search your memories/i).fill('dashboard-e2e-memory');
       await page.locator('.search-bar').getByRole('button', { name: 'Search' }).click();
       await expectVisible(page, 'dashboard-e2e-memory');
 
-      await page.getByRole('navigation').getByRole('button', { name: 'Settings' }).click();
+      await page.getByRole('navigation').getByRole('tab', { name: 'Settings' }).click();
       // Target the language <select> specifically — Settings has multiple
       // <select> elements (model picker, auto-update policy, locale), so
       // a bare `select` selector is ambiguous. Find the one that contains

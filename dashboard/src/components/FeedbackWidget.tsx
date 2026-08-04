@@ -21,16 +21,39 @@ export function FeedbackWidget({ health }: { health: HealthData | null }) {
   const [includeSys, setIncludeSys] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Close and return focus to the toggle — a dialog that traps nothing must at
+  // least not strand the keyboard user's focus on a removed node.
+  const close = () => {
+    setOpen(false);
+    toggleRef.current?.focus();
+  };
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        setOpen(false);
+    // Move focus into the panel on open (the obvious field).
+    textareaRef.current?.focus();
+    const onDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      // The toggle is a SIBLING of the panel, not inside it — without this guard
+      // a click on the toggle counts as "outside", closes on mousedown, and the
+      // click then reopens: the button can never close the panel it opened.
+      if (toggleRef.current?.contains(target)) return;
+      if (panelRef.current && !panelRef.current.contains(target)) {
+        setOpen(false); // click-away: no focus move, the pointer chose elsewhere
       }
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [open]);
 
   // Format a DoctorResult into a markdown block that's easy for a
@@ -86,12 +109,29 @@ export function FeedbackWidget({ health }: { health: HealthData | null }) {
 
   return (
     <>
-      <button class="fb-btn" onClick={() => setOpen(!open)}>
+      <button
+        ref={toggleRef}
+        class="fb-btn"
+        onClick={() => setOpen(!open)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls="fb-panel"
+      >
         {t('feedback.button')}
       </button>
       {open && (
-        <div class="fb-panel" ref={panelRef}>
-          <h3 class="fb-title">{t('feedback.title')}</h3>
+        // role="dialog" WITHOUT aria-modal: the background stays reachable
+        // (this is a corner popover, not a modal), and claiming modality while
+        // the rest of the page is live would mislead a screen reader. Escape
+        // closes it and focus returns to the toggle (see close()).
+        <div
+          class="fb-panel"
+          ref={panelRef}
+          role="dialog"
+          id="fb-panel"
+          aria-labelledby="fb-title"
+        >
+          <h3 class="fb-title" id="fb-title">{t('feedback.title')}</h3>
           <div class="fb-types">
             {TYPES.map((type) => (
               <label key={type} class={`fb-type ${fbType === type ? 'selected' : ''}`}>
@@ -107,7 +147,9 @@ export function FeedbackWidget({ health }: { health: HealthData | null }) {
             ))}
           </div>
           <textarea
+            ref={textareaRef}
             class="fb-desc"
+            aria-label={t('feedback.descLabel')}
             placeholder={t('feedback.placeholder')}
             value={desc}
             onInput={(e) => setDesc((e.target as HTMLTextAreaElement).value)}

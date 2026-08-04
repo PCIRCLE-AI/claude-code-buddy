@@ -33,9 +33,10 @@ function Chip({ label, active, onClick, count }: ChipProps) {
   return (
     <button
       onClick={onClick}
+      aria-pressed={active}
       style={{
         padding: '4px 10px',
-        borderRadius: 14,
+        borderRadius: 'var(--radius)',
         border: '1px solid',
         borderColor: active ? 'rgba(0, 214, 180, 0.5)' : 'rgba(255,255,255,0.08)',
         background: active ? 'rgba(0, 214, 180, 0.15)' : 'transparent',
@@ -222,8 +223,8 @@ export function BrowseTab({ manage, health }: { manage?: boolean; health?: Healt
             </div>
             {!loading && (
               <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
-                {active.length.toLocaleString(getLocale())} {t('browse.active')}
-                {archived.length > 0 ? ` · ${archived.length} ${t('browse.archived')}` : ''}
+                <span style={{ fontFamily: 'var(--mono)' }}>{active.length.toLocaleString(getLocale())}</span> {t('browse.active')}
+                {archived.length > 0 ? <> · <span style={{ fontFamily: 'var(--mono)' }}>{archived.length}</span> {t('browse.archived')}</> : ''}
                 {/* The header (via /v1/health) shows the true count; this tab
                     holds at most FETCH_LIMIT rows. When the two disagree, say
                     so — two contradicting numbers with no explanation read as
@@ -238,13 +239,13 @@ export function BrowseTab({ manage, health }: { manage?: boolean; health?: Healt
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, minWidth: 0, flexShrink: 1 }}>
             <input
               type="search"
               placeholder={t('browse.filter')}
               value={filter}
               onInput={(e) => setFilter((e.target as HTMLInputElement).value)}
-              style={{ width: 240 }}
+              style={{ width: '100%', maxWidth: 240, minWidth: 0 }}
             />
             <button class="btn btn-sm" onClick={load} title={t('browse.refresh')}>↻</button>
           </div>

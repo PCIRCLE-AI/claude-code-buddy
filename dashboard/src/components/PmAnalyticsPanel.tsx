@@ -56,9 +56,9 @@ export function PmAnalyticsPanel() {
 
   const orphanPct = (data.connectedness.orphanRate * 100).toFixed(1);
   const orphanColor =
-    data.connectedness.orphanRate > 0.7 ? '#ef4444'
-    : data.connectedness.orphanRate > 0.4 ? '#f59e0b'
-    : '#22c55e';
+    data.connectedness.orphanRate > 0.7 ? 'var(--danger)'
+    : data.connectedness.orphanRate > 0.4 ? 'var(--warning)'
+    : 'var(--success)';
 
   return (
     <div class="card" style={{ marginTop: 8, padding: 16 }}>
@@ -90,7 +90,7 @@ export function PmAnalyticsPanel() {
         </div>
       </div>
       {data.staleness.stalePlanCount > 0 && (
-        <div style={{ marginTop: 10, fontSize: 12, color: '#f59e0b' }}>
+        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--warning)' }}>
           {t('pm.stalePlans', { count: data.staleness.stalePlanCount })}
         </div>
       )}

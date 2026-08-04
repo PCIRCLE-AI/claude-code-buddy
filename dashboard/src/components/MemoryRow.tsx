@@ -32,8 +32,8 @@ interface Props {
 }
 
 const TONE_COLORS = {
-  high:   { bg: 'rgba(0, 214, 180, 0.18)', fg: '#00D6B4' },
-  medium: { bg: 'rgba(0, 214, 180, 0.10)', fg: '#00D6B4' },
+  high:   { bg: 'rgba(0, 214, 180, 0.18)', fg: 'var(--accent)' },
+  medium: { bg: 'rgba(0, 214, 180, 0.10)', fg: 'var(--accent)' },
   low:    { bg: 'rgba(255, 255, 255, 0.04)', fg: 'var(--text-2)' },
   none:   { bg: 'rgba(255, 255, 255, 0.03)', fg: 'var(--text-3)' },
 } as const;

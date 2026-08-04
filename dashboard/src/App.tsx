@@ -155,15 +155,17 @@ export function App() {
       <InsightsBanner currentTab={tab} onNavigateToInsights={() => setTab('Insights')} />
       <OnboardingBanner health={health} />
       <TabNav tabs={tabLabels} active={tab} onSelect={(k) => setTab(k as Tab)} />
+      {/* Each panel is the tabpanel for its TabNav tab: id + role +
+          aria-labelledby wire the roving-tablist relationship (see TabNav). */}
       <div class="main">
-        <div class={`panel ${tab === 'Insights' ? 'active' : ''}`}>{tab === 'Insights' && <InsightsTab />}</div>
-        <div class={`panel ${tab === 'Search' ? 'active' : ''}`}><SearchTab /></div>
-        <div class={`panel ${tab === 'Browse' ? 'active' : ''}`}><BrowseTab health={health} /></div>
-        <div class={`panel ${tab === 'Analytics' ? 'active' : ''}`}><AnalyticsTab /></div>
-        <div class={`panel ${tab === 'Graph' ? 'active' : ''}`}>{tab === 'Graph' && <GraphTab />}</div>
-        <div class={`panel ${tab === 'Lessons' ? 'active' : ''}`}>{tab === 'Lessons' && <LessonsTab health={health} />}</div>
-        <div class={`panel ${tab === 'Manage' ? 'active' : ''}`}>{tab === 'Manage' && <BrowseTab manage health={health} />}</div>
-        <div class={`panel ${tab === 'Settings' ? 'active' : ''}`}>
+        <div id="panel-Insights" role="tabpanel" aria-labelledby="tab-Insights" class={`panel ${tab === 'Insights' ? 'active' : ''}`}>{tab === 'Insights' && <InsightsTab />}</div>
+        <div id="panel-Search" role="tabpanel" aria-labelledby="tab-Search" class={`panel ${tab === 'Search' ? 'active' : ''}`}><SearchTab /></div>
+        <div id="panel-Browse" role="tabpanel" aria-labelledby="tab-Browse" class={`panel ${tab === 'Browse' ? 'active' : ''}`}><BrowseTab health={health} /></div>
+        <div id="panel-Analytics" role="tabpanel" aria-labelledby="tab-Analytics" class={`panel ${tab === 'Analytics' ? 'active' : ''}`}><AnalyticsTab /></div>
+        <div id="panel-Graph" role="tabpanel" aria-labelledby="tab-Graph" class={`panel ${tab === 'Graph' ? 'active' : ''}`}>{tab === 'Graph' && <GraphTab />}</div>
+        <div id="panel-Lessons" role="tabpanel" aria-labelledby="tab-Lessons" class={`panel ${tab === 'Lessons' ? 'active' : ''}`}>{tab === 'Lessons' && <LessonsTab health={health} />}</div>
+        <div id="panel-Manage" role="tabpanel" aria-labelledby="tab-Manage" class={`panel ${tab === 'Manage' ? 'active' : ''}`}>{tab === 'Manage' && <BrowseTab manage health={health} />}</div>
+        <div id="panel-Settings" role="tabpanel" aria-labelledby="tab-Settings" class={`panel ${tab === 'Settings' ? 'active' : ''}`}>
           {tab === 'Settings' && <SettingsTab locale={locale} onLocaleChange={setLocale} />}
         </div>
       </div>

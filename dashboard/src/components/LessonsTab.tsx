@@ -86,9 +86,9 @@ function parsePlan(entity: Entity): PlanRecord {
 /* ---------- severity helpers ---------- */
 
 const SEVERITY_COLORS: Record<string, string> = {
-  critical: '#FF6B6B',
-  major: '#FFB84D',
-  minor: '#60A5FA',
+  critical: 'var(--danger)',
+  major: 'var(--warning)',
+  minor: 'var(--info)',
 };
 
 function severityOf(entity: Entity): 'critical' | 'major' | 'minor' | null {
@@ -185,7 +185,7 @@ function PlanCard({ entity }: { entity: Entity }) {
             <GlyphLabel type="plan">{plan.planName}</GlyphLabel>
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
-            {plan.stepCount} {t('lessons.stepsLabel')} · {t('lessons.commitsCount', { count: plan.commits.length })}
+            <span style={{ fontFamily: 'var(--mono)' }}>{plan.stepCount}</span> {t('lessons.stepsLabel')} · {t('lessons.commitsCount', { count: plan.commits.length })}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
@@ -315,7 +315,7 @@ export function LessonsTab({ health }: { health?: HealthData | null }) {
           <div class="stat-lbl">{t('lessons.tabFailure')}</div>
         </div>
         <div class="stat">
-          <div class="stat-val" style={{ color: criticalCount > 0 ? '#FF6B6B' : undefined }}>
+          <div class="stat-val" style={{ color: criticalCount > 0 ? 'var(--danger)' : undefined }}>
             {criticalCount}
           </div>
           <div class="stat-lbl">{t('lessons.severity.critical')}</div>

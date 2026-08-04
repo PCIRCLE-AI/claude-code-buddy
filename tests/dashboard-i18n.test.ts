@@ -233,11 +233,23 @@ describe('dashboard i18n', () => {
         .map((m) => m[1] ?? m[2]);
       expect(clusterTypes.length).toBeGreaterThanOrEqual(25);
 
+      // Entity-type colours moved out of one TYPE_COLORS map: the token-backed
+      // types are now in GraphTab's TOKEN_TYPE_VARS (value `'--token'`, resolved
+      // for the canvas — see DESIGN.md), the category-only hues in
+      // lib/type-palette.ts (value `'#hex'`). Both together are the vocabulary.
       const graphSrc = readFileSync('dashboard/src/components/GraphTab.tsx', 'utf8');
-      const colorBlock = graphSrc.match(/const TYPE_COLORS[\s\S]*?\n\};/);
-      expect(colorBlock).not.toBeNull();
-      const colorTypes = [...colorBlock![0].matchAll(/(?:'([^']+)'|([\w-]+)):\s*'#/g)]
+      const tokenBlock = graphSrc.match(/const TOKEN_TYPE_VARS[\s\S]*?\n\};/);
+      expect(tokenBlock).not.toBeNull();
+      const tokenTypes = [...tokenBlock![0].matchAll(/(?:'([^']+)'|([\w-]+)):\s*'--/g)]
         .map((m) => m[1] ?? m[2]);
+
+      const paletteSrc = readFileSync('dashboard/src/lib/type-palette.ts', 'utf8');
+      const paletteBlock = paletteSrc.match(/CATEGORICAL_TYPE_COLORS[\s\S]*?\n\};/);
+      expect(paletteBlock).not.toBeNull();
+      const catTypes = [...paletteBlock![0].matchAll(/(?:'([^']+)'|([\w-]+)):\s*'#/g)]
+        .map((m) => m[1] ?? m[2]);
+
+      const colorTypes = [...tokenTypes, ...catTypes];
       expect(colorTypes.length).toBeGreaterThanOrEqual(10);
 
       expectAllPresent([...new Set([...clusterTypes, ...colorTypes])].map((t) => `type.${t}`));

@@ -68,7 +68,7 @@ export function SearchTab() {
         {!loading && results && results.length > 0 && (
           <div>
             <div role="status" style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>
-              {results.length} {results.length !== 1 ? t('search.results') : t('search.result')}
+              <span style={{ fontFamily: 'var(--mono)' }}>{results.length}</span> {results.length !== 1 ? t('search.results') : t('search.result')}
             </div>
             {results.map((e) => (
               <div key={e.id} class="card" style={{ padding: 14 }}>

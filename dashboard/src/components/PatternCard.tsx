@@ -118,7 +118,7 @@ export function PatternCard(props: PatternCardProps) {
         <div style={{ flex: '1 1 60%', minWidth: 240 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <span class="badge badge-type" style={{ textTransform: 'none' }}>#{p.id}</span>
-            <span class="tag" style={{ fontSize: 11, background: 'var(--warning)', color: '#080A0C', fontWeight: 600 }}>
+            <span class="tag" style={{ fontSize: 11, background: 'var(--warning)', color: 'var(--bg-0)', fontWeight: 600 }}>
               {t('pattern.title')}
             </span>
             <span style={{ fontWeight: 600 }}>{p.digest_name}</span>
@@ -170,7 +170,7 @@ export function PatternCard(props: PatternCardProps) {
       </div>
 
       {detail && detail.proposed_digest && (
-        <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-1)', borderRadius: 4, fontSize: 13 }}>
+        <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-1)', borderRadius: 'var(--radius-xs)', fontSize: 13 }}>
           <div style={{ marginBottom: 8, color: 'var(--text-3)', fontSize: 11 }}>
             {t('insights.generatedBy')}: <code>{detail.llm_model ?? t('common.unknown')}</code> {' '} {t('insights.promptVersion')}: <code>{detail.prompt_version}</code>
           </div>
@@ -184,12 +184,12 @@ export function PatternCard(props: PatternCardProps) {
               style={{
                 marginBottom: 10,
                 padding: 10,
-                borderRadius: 4,
-                borderLeft: '3px solid var(--warning, #FFC800)',
-                background: 'rgba(255,200,0,0.08)',
+                borderRadius: 'var(--radius-xs)',
+                borderLeft: '3px solid var(--warning)',
+                background: 'var(--warning-soft)',
               }}
             >
-              <div style={{ fontWeight: 600, color: 'var(--warning, #FFC800)', marginBottom: 6 }}>
+              <div style={{ fontWeight: 600, color: 'var(--warning)', marginBottom: 6 }}>
                 ⚠ {t('insights.validationWarnings')}
               </div>
               <ul style={{ margin: 0, paddingLeft: 18 }}>

@@ -28,6 +28,23 @@ Practically that means: no decoration that does not carry information, no
 gradients as ornament, no rounded-friendly shapes, no illustration. Dense,
 quiet, and legible.
 
+**Gradients carry information or they do not appear.** A gradient is allowed
+only when the gradient *is* the data: the Graph drift legend (stale red → fresh
+green is the scale it explains) and the nav-overflow fade (the fade *is* the
+"more, scroll right" affordance). A gradient used as a card background is
+ornament — flatten it to `--accent-soft`. Three banners shipped decorative
+`linear-gradient` fills (`MemoryLoopCard`, `InsightsBanner`, `OnboardingBanner`)
+and were flattened.
+
+**Canvas cannot read a token.** `ctx.fillStyle = 'var(--accent)'` is invalid and
+silently draws black. The two `<canvas>` renderers resolve the tokens they need
+from the live stylesheet via `getComputedStyle` and draw with the resolved
+values — `GraphTab` once at mount, `MemoryTimeline` per draw (its
+`ResizeObserver` redraws on resize and tab-reveal) — so a palette change still
+reaches the canvas. Never hardcode a palette hex into a canvas draw call; if
+`getComputedStyle` returns empty (no stylesheet, e.g. a test), that is a visible
+signal, not a value to paper over with a literal fallback.
+
 ---
 
 ## Tokens
@@ -67,9 +84,28 @@ a token rather than a literal.
 | `--danger` | `#FF6B6B` | Errors, destructive actions |
 | `--warning` | `#FFB84D` | Needs attention, not broken |
 | `--info` | `#60A5FA` | Neutral information |
+| `--neutral-soft` | 10% grey | "No signal" / unknown status fill |
 
-Each status colour has a `-soft` variant at 8% for backgrounds. Use the pair,
-never a hand-rolled `rgba()` of the same hue.
+Each status colour has a `-soft` variant at 8% for backgrounds. Use the pair
+for **fills**, never a hand-rolled `rgba()` of the same hue.
+
+`--neutral-soft` is deliberately grey rather than accent-tinted: a "no signal"
+or "unknown" status must not read as the accent.
+
+**Hover glows and elevation shadows** are the one place a hand-rolled accent
+`rgba()` is allowed — `box-shadow`/`border-color` at 15–40% alpha, where no 8%
+`-soft` token fits the intent. The pair rule governs solid fills; a glow is not
+a fill. These already ship in `global.css` (`.card:hover`, `.stat:hover`,
+`.dot-ok`, `mark`) and stay.
+
+**Entity-type colours are a separate categorical palette.** The graph and its
+legend colour nodes by type across ~14 types; a single accent cannot encode a
+category. Those hues live in `dashboard/src/lib/type-palette.ts` as literals on
+purpose — they map to no token, so a token could not express them. The five
+that *do* coincide with a token (`decision`/`concept` = accent, `pattern` =
+info, `lesson_learned` = warning, `session-insight` = text-2) are resolved from
+the tokens at runtime, not written as literals, so a palette change reaches
+them.
 
 ### Borders
 
@@ -96,7 +132,22 @@ Base size is 14px on `html`.
 
 ### Radius
 
-`--radius` 8px, `--radius-sm` 6px, `--radius-xs` 4px. Nothing rounder.
+`--radius` 8px, `--radius-sm` 6px, `--radius-xs` 4px, `--radius-hairline` 2px
+for data-viz bars, tracks and 1–3px decorations (they collapse to 2px — a 1px
+difference is invisible at that scale, and one token beats three magic numbers).
+
+Write the token, never the number: an inline `borderRadius: 6` is invisible to a
+scale change exactly as a colour literal is.
+
+**Two shapes are rounder, on purpose, and are sanctioned:**
+
+- **Pills** (`border-radius: 9999px`) for status badges (`.badge`) and the
+  feedback FAB (`.fb-btn`). The pill shape signals "tag / floating action"; it
+  is established in the shipped UI, and the CSS is the implementation. This
+  overrides "nothing rounder" for these two shapes only — everywhere else uses
+  the scale.
+- **Circles** (`border-radius: 50%`) for genuinely round elements: the status
+  `.dot` and the `.loading` spinner.
 
 ---
 

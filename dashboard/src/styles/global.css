@@ -38,6 +38,9 @@
   --warning-soft: rgba(255, 184, 77, 0.08);
   --info: #60A5FA;
   --info-soft: rgba(96, 165, 250, 0.08);
+  /* Neutral / unknown status fill — deliberately grey, not accent-tinted:
+     "no signal" must not read as the accent. See DESIGN.md. */
+  --neutral-soft: rgba(160, 160, 160, 0.10);
 
   /* Typography */
   --font: 'Satoshi', -apple-system, system-ui, sans-serif;
@@ -47,6 +50,8 @@
   --radius: 8px;
   --radius-sm: 6px;
   --radius-xs: 4px;
+  /* Hairline radius for data-viz bars/tracks and 1–3px decorations. See DESIGN.md. */
+  --radius-hairline: 2px;
 }
 
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -65,7 +70,7 @@ body {
 /* Scrollbar */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--radius-hairline); }
 
 /* ---- Layout ---- */
 .shell { min-height: 100vh; display: flex; flex-direction: column; }
@@ -149,6 +154,18 @@ body {
 }
 .nav-btn:hover { color: var(--text-2); }
 .nav-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+/* Right-edge scroll affordance for the horizontally-scrolling nav. The gradient
+   IS the "more tabs, scroll right" signal (informational, sanctioned in
+   DESIGN.md), shown by TabNav only while the strip is scrollable. */
+.nav-overflow-fade {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 32px;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--bg-0));
+}
 
 /* Content */
 .main { flex: 1; max-width: 1100px; width: 100%; margin: 0 auto; padding: 20px 24px; }
@@ -208,7 +225,7 @@ input::placeholder, textarea::placeholder { color: var(--text-3); }
 }
 .btn:hover { border-color: var(--text-3); background: var(--bg-hover); }
 .btn:disabled { opacity: 0.35; cursor: not-allowed; }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: #080A0C; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--bg-0); }
 .btn-primary:hover { background: var(--accent-hover); }
 .btn-danger { color: var(--danger); border-color: rgba(255, 107, 107, 0.2); background: transparent; }
 .btn-danger:hover { background: var(--danger-soft); }
@@ -243,7 +260,7 @@ tbody tr:last-child td { border-bottom: none; }
 .badge {
   display: inline-block;
   padding: 2px 9px;
-  border-radius: 9999px;
+  border-radius: 9999px; /* pill — sanctioned for status badges, see DESIGN.md */
   font-size: 11px;
   font-weight: 500;
   letter-spacing: .01em;
@@ -324,10 +341,10 @@ tbody tr:last-child td { border-bottom: none; }
   bottom: 20px;
   right: 20px;
   background: var(--accent);
-  color: #080A0C;
+  color: var(--bg-0);
   border: none;
   padding: 9px 16px;
-  border-radius: 9999px;
+  border-radius: 9999px; /* pill — sanctioned for the FAB, see DESIGN.md */
   cursor: pointer;
   font: 600 12px var(--font);
   box-shadow: 0 4px 14px rgba(0, 214, 180, 0.25);
@@ -379,7 +396,7 @@ tbody tr:last-child td { border-bottom: none; }
 .fb-submit { width: 100%; justify-content: center; }
 
 /* Highlight */
-mark { background: rgba(0, 214, 180, 0.15); color: inherit; padding: 1px 2px; border-radius: 3px; }
+mark { background: rgba(0, 214, 180, 0.15); color: inherit; padding: 1px 2px; border-radius: var(--radius-hairline); }
 
 /* Modal overlay */
 .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; z-index: 200; }
