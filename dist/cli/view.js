@@ -47,6 +47,11 @@ function queryData(dbPath) {
         const entityRows = db
             .prepare(`SELECT id, name, type${statusSelect} FROM entities LIMIT 5000`)
             .all();
+        for (const required of ['observations', 'tags', 'relations']) {
+            if (!tables.includes(required)) {
+                console.error(`[memesh view] warning: table "${required}" is missing from this database — the view below omits that data. Run \`memesh doctor\`.`);
+            }
+        }
         const obsRows = tables.includes('observations')
             ? db
                 .prepare('SELECT entity_id, content FROM observations')

@@ -31,7 +31,7 @@
     "test:e2e-dashboard": "node scripts/dashboard-e2e-smoke.mjs",
     "test:packaged": "node scripts/smoke-packed-artifact.mjs",
     "audit:prod": "node scripts/check-consumer-audit.mjs",
-    "verify:release": "npm run lint && npm run typecheck && node scripts/check-version-coherence.mjs && node scripts/check-generated-mirror.mjs && node scripts/check-doc-claims.mjs && npm run audit:prod",
+    "verify:release": "npm run lint && npm run typecheck && node scripts/check-version-coherence.mjs && node scripts/check-generated-mirror.mjs && node scripts/check-doc-claims.mjs && node scripts/audit/verification-audit.mjs && npm run audit:prod",
     "prepublishOnly": "npm run build && npm run verify:release && npm run test:isolated && npm run test:packaged",
     "typecheck": "tsc -p tsconfig.check.json && tsc -p tsconfig.check-dashboard.json",
     "lint": "eslint src/ scripts/ --max-warnings 0",

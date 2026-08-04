@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
@@ -54,6 +54,39 @@ describe('Feature: MeMesh View Dashboard', () => {
 
   afterEach(() => {
     fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  describe('Scenario: a core table is missing from the database', () => {
+    it('Given a database with only entities, When I generate the dashboard, Then it warns instead of rendering a false empty', () => {
+      // A missing core table used to render as "entities with no
+      // observations/tags/relations" — a viewer that looks healthy while
+      // silently omitting data. The degrade is allowed; the silence is not.
+      const db = new Database(testDbPath);
+      db.exec(`CREATE TABLE entities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL,
+        created_at TEXT
+      );`);
+      db.close();
+
+      const warns: string[] = [];
+      const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+        warns.push(args.map(String).join(' '));
+      });
+      try {
+        const html = generateDashboardHtml(testDbPath);
+        expect(html).toContain('<!DOCTYPE html>');
+        for (const table of ['observations', 'tags', 'relations']) {
+          expect(
+            warns.some(w => w.includes(`"${table}" is missing from this database`)),
+            `should warn about the missing ${table} table`
+          ).toBe(true);
+        }
+      } finally {
+        spy.mockRestore();
+      }
+    });
   });
 
   describe('Scenario: Generate dashboard with empty database', () => {

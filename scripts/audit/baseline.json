@@ -1,0 +1,430 @@
+{
+  "comment": "Recorded triage, not suppression: every entry is a hit somebody classified, with the reason. New hits fail the audit until they are fixed or land here with a classification. Full detail: the 2026-08-04 triage (two agent passes, lead-verified).",
+  "hits": {
+    "C1 tests/cjk-recall.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/cli/remember-quick.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/cli/unknown-command.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/cli-reindex-vectors-guard.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/consumer-audit-gate.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/core/auto-tagger.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/core/config.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/core/export-import.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/core/llm-telemetry.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/core/memory-tool.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/core/node-runtime-check.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/core/pm-analytics.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/core/project-tags.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/hooks/pre-edit-recall.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/hooks/session-start-telemetry.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/knowledge-graph-batch.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/recall-empty-query-vectors.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/recall-relevance.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/reindex-reports-what-happened.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C1 tests/vector-index-safety.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
+      "triaged": "2026-08-04"
+    },
+    "C3 npm:lint:fix": {
+      "class": "NOT-A-GATE",
+      "reason": "lint:fix is a developer convenience whose caller is a human",
+      "triaged": "2026-08-04"
+    },
+    "C4 .github/workflows/ci.yml:268": {
+      "class": "SAFE",
+      "reason": "secondary greps run after the exit-code gate has already read DOCTOR_EXIT",
+      "triaged": "2026-08-04"
+    },
+    "C4 .github/workflows/ci.yml:274": {
+      "class": "SAFE",
+      "reason": "secondary greps run after the exit-code gate has already read DOCTOR_EXIT",
+      "triaged": "2026-08-04"
+    },
+    "C4 .github/workflows/deprecate-npm.yml:64": {
+      "class": "SAFE",
+      "reason": "|| true inside an exact-match retry loop — absence retries then fails, never passes",
+      "triaged": "2026-08-04"
+    },
+    "C4 scripts/release-verify.sh:135": {
+      "class": "SAFE",
+      "reason": "set -uo pipefail at file top preserves the left commands verdict",
+      "triaged": "2026-08-04"
+    },
+    "C4 scripts/release-verify.sh:178": {
+      "class": "SAFE",
+      "reason": "set -uo pipefail at file top preserves the left commands verdict",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/config.ts:336": {
+      "class": "SAFE-GUARDED",
+      "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/demo.ts:149": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "spreads an in-repo literal",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/doctor.ts:370": {
+      "class": "SAFE-GUARDED",
+      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/doctor.ts:371": {
+      "class": "SAFE-GUARDED",
+      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/doctor.ts:414": {
+      "class": "SAFE-GUARDED",
+      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/doctor.ts:1277": {
+      "class": "SAFE-GUARDED",
+      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/dreamer.ts:668": {
+      "class": "SAFE-GUARDED",
+      "reason": "upstream filter requires non-empty arrays before these run",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/dreamer.ts:671": {
+      "class": "SAFE-GUARDED",
+      "reason": "upstream filter requires non-empty arrays before these run",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/extractor.ts:118": {
+      "class": "SAFE-GUARDED",
+      "reason": "next line rejects the absent case",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/install-hooks.ts:261": {
+      "class": "SAFE-GUARDED",
+      "reason": "readSettings throws on unparseable input; absent hooks truthfully means none wired",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/install-hooks.ts:352": {
+      "class": "SAFE-GUARDED",
+      "reason": "readSettings throws on unparseable input; absent hooks truthfully means none wired",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/kg-backfill.ts:405": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "index lookups where empty means no peers",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/kg-backfill.ts:550": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "index lookups where empty means no peers",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/kg-backfill.ts:557": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "index lookups where empty means no peers",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/llm-client.ts:122": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "chain identity; all-providers-failed still throws",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/llm-validator.ts:147": {
+      "class": "SAFE-GUARDED",
+      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112)",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/llm-validator.ts:180": {
+      "class": "SAFE-GUARDED",
+      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112)",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/llm-validator.ts:233": {
+      "class": "SAFE-GUARDED",
+      "reason": "models.length === 0 now returns valid:false for all three providers (PR #112)",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/operations.ts:44": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "metadata spread identity; trust is set unconditionally after",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/operations.ts:47": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "metadata spread identity; trust is set unconditionally after",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/operations.ts:50": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "metadata spread identity; trust is set unconditionally after",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/serializer.ts:21": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "provenance spread identity; trust written unconditionally",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/serializer.ts:24": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "provenance spread identity; trust written unconditionally",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/knowledge-graph.ts:304": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/knowledge-graph.ts:305": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/knowledge-graph.ts:365": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/knowledge-graph.ts:582": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/knowledge-graph.ts:583": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/knowledge-graph.ts:584": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/storage/fts-index.ts:208": {
+      "class": "SAFE-GUARDED",
+      "reason": "empty tokens yield null match expression and hasSearchableTerms false",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/transports/http/server.ts:772": {
+      "class": "SAFE-GUARDED",
+      "reason": "Zod safeParse still validates; fields optional-with-default by design",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/transports/http/server.ts:835": {
+      "class": "SAFE-GUARDED",
+      "reason": "Zod safeParse still validates; fields optional-with-default by design",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/transports/mcp/handlers.ts:281": {
+      "class": "SAFE-GUARDED",
+      "reason": "Zod rejects {} for schemas with required fields",
+      "triaged": "2026-08-04"
+    },
+    "C5 dashboard/src/components/AnalyticsTab.tsx:200": {
+      "class": "STALE-OR-SAFE",
+      "reason": "comment line or Array.isArray-coerced optional extras",
+      "triaged": "2026-08-04"
+    },
+    "C5 dashboard/src/components/BrowseTab.tsx:162": {
+      "class": "SAFE-DISPLAY",
+      "reason": "client-side search haystack only",
+      "triaged": "2026-08-04"
+    },
+    "C5 dashboard/src/components/GraphTab.tsx:179": {
+      "class": "SAFE-GUARDED",
+      "reason": "computeGraph always returns noiseTypes; same-origin fetch",
+      "triaged": "2026-08-04"
+    },
+    "C5 dashboard/src/components/InsightsBanner.tsx:65": {
+      "class": "SAFE-DISPLAY",
+      "reason": "zero pending proposals legitimately hides the banner",
+      "triaged": "2026-08-04"
+    },
+    "C5 dashboard/src/components/LessonsTab.tsx:72": {
+      "class": "SAFE-DISPLAY",
+      "reason": "display fallbacks; empty renders an explicit notice",
+      "triaged": "2026-08-04"
+    },
+    "C5 dashboard/src/components/LessonsTab.tsx:93": {
+      "class": "SAFE-DISPLAY",
+      "reason": "display fallbacks; empty renders an explicit notice",
+      "triaged": "2026-08-04"
+    },
+    "C5 dashboard/src/components/LessonsTab.tsx:103": {
+      "class": "SAFE-DISPLAY",
+      "reason": "display fallbacks; empty renders an explicit notice",
+      "triaged": "2026-08-04"
+    },
+    "C5 dashboard/src/components/LessonsTab.tsx:215": {
+      "class": "SAFE-DISPLAY",
+      "reason": "display fallbacks; empty renders an explicit notice",
+      "triaged": "2026-08-04"
+    },
+    "C5 dashboard/src/components/LessonsTab.tsx:289": {
+      "class": "SAFE-DISPLAY",
+      "reason": "display fallbacks; empty renders an explicit notice",
+      "triaged": "2026-08-04"
+    },
+    "C5 dashboard/src/lib/entity-display.ts:152": {
+      "class": "SAFE-DISPLAY",
+      "reason": "classification falls through to the freeform bucket",
+      "triaged": "2026-08-04"
+    },
+    "C5 dashboard/src/lib/entity-display.ts:154": {
+      "class": "SAFE-DISPLAY",
+      "reason": "classification falls through to the freeform bucket",
+      "triaged": "2026-08-04"
+    },
+    "C6 tests/consolidate-retired.test.ts": {
+      "class": "WIRING-PIN",
+      "reason": "retired message lives in RETIRED_ROUTES; remaining source asserts pin the wiring, behavior tested via route test",
+      "triaged": "2026-08-04"
+    },
+    "C6 tests/core/model-cache-shared.test.ts": {
+      "class": "WIRING-PIN",
+      "reason": "asserts runner/CI wire the cache env var; behavior tested alongside",
+      "triaged": "2026-08-04"
+    },
+    "C6 tests/dashboard/component-contracts.test.tsx": {
+      "class": "DATA-EXTRACTION",
+      "reason": "reads i18n.ts to build the key catalogue, not to assert text-as-behavior",
+      "triaged": "2026-08-04"
+    },
+    "C6 tests/dashboard-i18n.test.ts": {
+      "class": "DATA-EXTRACTION",
+      "reason": "cross-checks key usage between components and catalogue",
+      "triaged": "2026-08-04"
+    },
+    "C6 tests/hooks/hook-fts-migration.test.ts": {
+      "class": "WIRING-PIN",
+      "reason": "parity pin that core and hook mirror share the classifier; behavior tested in the same file",
+      "triaged": "2026-08-04"
+    },
+    "C7 README.md:21": {
+      "class": "LINKED-MEASUREMENT",
+      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
+      "triaged": "2026-08-04"
+    },
+    "C7 README.md:27": {
+      "class": "LINKED-MEASUREMENT",
+      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
+      "triaged": "2026-08-04"
+    },
+    "C7 README.md:273": {
+      "class": "LINKED-MEASUREMENT",
+      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
+      "triaged": "2026-08-04"
+    },
+    "C7 README.md:346": {
+      "class": "LINKED-MEASUREMENT",
+      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
+      "triaged": "2026-08-04"
+    },
+    "C7 README.md:353": {
+      "class": "LINKED-MEASUREMENT",
+      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
+      "triaged": "2026-08-04"
+    },
+    "C7 README.md:379": {
+      "class": "LINKED-MEASUREMENT",
+      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/cli/view.ts:134": {
+      "class": "SAFE-ACCUMULATOR/DISPLAY",
+      "reason": "group-by identity or truthful zero-rows display",
+      "triaged": "2026-08-04 (re-keyed after the missing-table warning insert shifted lines)"
+    },
+    "C5 src/cli/view.ts:142": {
+      "class": "SAFE-ACCUMULATOR/DISPLAY",
+      "reason": "group-by identity or truthful zero-rows display",
+      "triaged": "2026-08-04 (re-keyed after the missing-table warning insert shifted lines)"
+    },
+    "C5 src/cli/view.ts:153": {
+      "class": "SAFE-ACCUMULATOR/DISPLAY",
+      "reason": "group-by identity or truthful zero-rows display",
+      "triaged": "2026-08-04 (re-keyed after the missing-table warning insert shifted lines)"
+    },
+    "C5 src/cli/view.ts:154": {
+      "class": "SAFE-ACCUMULATOR/DISPLAY",
+      "reason": "group-by identity or truthful zero-rows display",
+      "triaged": "2026-08-04 (re-keyed after the missing-table warning insert shifted lines)"
+    }
+  }
+}
