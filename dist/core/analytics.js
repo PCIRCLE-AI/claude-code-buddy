@@ -2,6 +2,14 @@ export const NOISE_TYPES = new Set([
     'session_keypoint', 'commit', 'weekly-summary', 'session-insight',
     'session-summary', 'session_identity', 'session-identity',
 ]);
+export const RADAR_AXES = [
+    { axis: 'lessons', types: ['lesson_learned', 'lesson', 'mistake'] },
+    { axis: 'decisions', types: ['decision', 'architecture_decision', 'design_decision'] },
+    { axis: 'patterns', types: ['pattern', 'technical_pattern', 'best_practice'] },
+    { axis: 'bugs', types: ['bug_fix', 'verification_result', 'test_result'] },
+    { axis: 'processes', types: ['process', 'workflow_checkpoint', 'refactoring', 'maintenance'] },
+    { axis: 'architecture', types: ['architecture', 'infrastructure', 'feature', 'release'] },
+];
 export function computeAnalytics(db) {
     const totalActive = db.prepare("SELECT COUNT(*) as c FROM entities WHERE status = 'active'").get().c;
     const recentlyAccessed = db.prepare(`SELECT COUNT(*) as c FROM entities WHERE status = 'active' AND last_accessed_at >= datetime('now', '-30 days')`).get().c;
@@ -78,14 +86,6 @@ export function computeAnalytics(db) {
     ORDER BY type, bucket
   `).all();
     const ageMatrix = ageMatrixRaw.filter(r => !NOISE_TYPES.has(r.type));
-    const RADAR_AXES = [
-        { axis: 'lessons', types: ['lesson_learned', 'lesson', 'mistake'] },
-        { axis: 'decisions', types: ['decision', 'architecture_decision', 'design_decision'] },
-        { axis: 'patterns', types: ['pattern', 'technical_pattern', 'best_practice'] },
-        { axis: 'bugs', types: ['bug_fix', 'verification_result', 'test_result'] },
-        { axis: 'processes', types: ['process', 'workflow_checkpoint', 'refactoring', 'maintenance'] },
-        { axis: 'architecture', types: ['architecture', 'infrastructure', 'feature', 'release'] },
-    ];
     const typeCounts = {};
     for (const row of ageMatrixRaw) {
         typeCounts[row.type] = (typeCounts[row.type] ?? 0) + row.count;

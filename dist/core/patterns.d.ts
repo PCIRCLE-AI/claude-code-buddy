@@ -6,7 +6,6 @@ export interface PatternsResult {
             count: number;
         }>;
         dayDistribution: Array<{
-            day: string;
             dayNum: number;
             count: number;
         }>;

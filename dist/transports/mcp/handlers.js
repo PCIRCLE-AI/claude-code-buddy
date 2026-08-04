@@ -293,10 +293,11 @@ export async function handleTool(name, args) {
                     .map(h => `${String(h.hour).padStart(2, '0')}:00 (${h.count})`)
                     .join(', ');
                 lines.push(`Peak hours: ${peakHours || 'No data'}`);
+                const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
                 const busiestDays = [...data.workSchedule.dayDistribution]
                     .sort((a, b) => b.count - a.count)
                     .slice(0, 3)
-                    .map(d => `${d.day} (${d.count})`)
+                    .map(d => `${DAY_NAMES[d.dayNum] ?? d.dayNum} (${d.count})`)
                     .join(', ');
                 lines.push(`Busiest days: ${busiestDays || 'No data'}`);
             }

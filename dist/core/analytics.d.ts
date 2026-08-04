@@ -16,6 +16,10 @@ export interface KnowledgeRadarEntry {
     count: number;
     types: string[];
 }
+export declare const RADAR_AXES: Array<{
+    axis: string;
+    types: string[];
+}>;
 export interface LoopMetric {
     reusedThisWeek: number;
     trend: Array<{
