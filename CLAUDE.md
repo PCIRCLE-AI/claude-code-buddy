@@ -60,15 +60,18 @@ npm run test:coverage        # whole suite + v8 coverage, throwaway HOME
 ```
 
 Read the report with one caveat, or it will mislead you. Coverage is measured
-**in-process**, and this project spawns a lot of what it tests: the CLI, all
-seven hooks, the MCP server and the packaged binaries are exercised through
-`spawnSync`, so they report **0% while being well tested**. `src/transports/cli/cli.ts`
-is the clearest case — 750 statements, a whole directory of tests, 0% in the
-report.
+**in-process**, and this project spawns a lot of what it tests: the CLI, the
+hooks, the MCP server and the packaged binaries are exercised through
+`spawnSync`, so they report **0% while being well tested**.
+`src/transports/cli/cli.ts` is the clearest case — a whole directory of tests
+against it, 0% in the report.
 
 What the number is good for is the opposite direction: a file at 0% that is
-*not* spawned anywhere is genuinely unexercised. That is where the dashboard
-sits — 25 components, 6 test files.
+*not* spawned anywhere is genuinely unexercised. That is where most of the
+dashboard sits. Do not write the count down here — this file has already been
+wrong about it once, and `tests/dashboard/component-contracts.test.tsx` derives
+the real list from the directory and fails when a component belongs to neither
+side of it.
 
 ### Verifying a change before claiming it works
 
@@ -76,6 +79,17 @@ Do not report a test result, a CI status or a benchmark number you did not
 produce in this session. Paste the runner's actual output. `npm run verify:release` is the same gate the publish path runs, and
 `scripts/check-doc-claims.mjs` — which it calls — checks every claim the public
 documents make about the code.
+
+**Read the exit code, not a grep of the output.** `cmd 2>&1 | grep …` returns
+*grep's* status and hides every line the pattern misses. Vitest prints
+`Errors  N errors` for unhandled rejections *while reporting every test as
+passed*, and exits 1 — a branch was pushed as green that way, and CI went
+eight-red on it. Capture the verdict first, then look at detail:
+
+```bash
+node scripts/run-tests-isolated.mjs > /tmp/t.log 2>&1; echo "exit=$?"
+grep -E 'Test Files|Tests |Errors ' /tmp/t.log
+```
 
 When you fix a bug, **revert the fix and confirm the test goes red.** A green
 suite is not evidence that a fix is protected: three tests in this repository

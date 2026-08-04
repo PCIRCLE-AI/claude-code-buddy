@@ -152,7 +152,9 @@ export function InsightsTab() {
       // proposal array. The earlier `Array.isArray(data) ? data : ...`
       // unwrap was dead code (unreachable) and confused readers.
       const data = await api<ProposalSummary[]>('GET', `/v1/dream/proposals?status=all`);
-      setAllProposals(data ?? []);
+      // `?? []` only replaces null/undefined; `{}` passed through and
+      // `allProposals.filter` threw "filter is not a function".
+      setAllProposals(Array.isArray(data) ? data : []);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

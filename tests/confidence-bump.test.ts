@@ -150,6 +150,7 @@ describe('G1 — confidence bump paths', () => {
     importMemories({
       data: {
         version: '1.0',
+        entity_count: 1,
         exported_at: new Date().toISOString(),
         entities: [
           {

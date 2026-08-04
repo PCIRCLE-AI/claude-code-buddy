@@ -1,0 +1,48 @@
+{
+  // Type-checking scope for the dashboard and for every `.tsx` test.
+  //
+  // A second project, not a wider `include` on `tsconfig.check.json`, because
+  // the two halves of this repository resolve modules differently and cannot
+  // share one compiler pass. The package is `node16`/`nodenext`, where a
+  // relative import must carry a `.js` extension. The dashboard is bundled by
+  // vite and imports `./components/Header`, which `bundler` resolution allows
+  // and `node16` rejects — measured, that single disagreement produces 93
+  // TS2835 errors before any real type is examined.
+  //
+  // What this covers that nothing covered before:
+  //   - `dashboard/src/**` — `dashboard/tsconfig.json` describes it, but nothing
+  //     ran tsc against it. `npm run build:dashboard` is vite, which transpiles
+  //     without type-checking.
+  //   - every `tests/**/*.tsx`, not only `tests/dashboard/**`. The first version
+  //     of this file included the latter, and `tsconfig.check.json` includes
+  //     `tests/**/*.ts` — so a `.tsx` test in any other directory was checked by
+  //     neither project while vitest ran it. Measured with a deliberate
+  //     `const broken: number = "string"` under `tests/transports/`: both tsc
+  //     passes exited 0. `tests/typecheck-scope.test.ts` now pins that hole shut.
+  //
+  // It extends `dashboard/tsconfig.json` rather than copying its options. The
+  // earlier copy carried a stated reason — "extending would inherit an include
+  // the tests are not in" — that is simply not how tsconfig works: a derived
+  // `include` REPLACES the base's, which the sibling `tsconfig.check.json` has
+  // been demonstrating all along. Two consequences, both deliberate:
+  //   - the nine duplicated compiler options are now three additions, so they
+  //     cannot drift from the config vite actually builds with;
+  //   - `isolatedModules: true` comes along from the base. That is the point —
+  //     the copy had silently dropped it. Verified separately that the dashboard
+  //     and the `.tsx` tests already satisfy it.
+  "extends": "./dashboard/tsconfig.json",
+  "compilerOptions": {
+    "types": ["vitest/globals", "node"]
+  },
+  "include": [
+    "dashboard/src/**/*.ts",
+    "dashboard/src/**/*.tsx",
+    "tests/**/*.tsx",
+    // `tsconfig.check.json` excludes `tests/dashboard/**` wholesale, so the
+    // plain `.ts` tests in there — `webstorage-available.test.ts` — belong to
+    // this project or to no project at all. Widening the line above to `.tsx`
+    // dropped them, and `tests/typecheck-scope.test.ts` failed on the very
+    // first run because of it.
+    "tests/dashboard/**/*.ts"
+  ]
+}

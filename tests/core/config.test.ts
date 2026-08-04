@@ -227,7 +227,7 @@ describe('Config: read/write/update (isolated temp dir)', () => {
     try {
       writeConfig(testMarker);
       const read = readConfig();
-      expect(read.__test__).toBe(true);
+      expect((read as Record<string, unknown>).__test__).toBe(true);
       expect(read.sessionLimit).toBe(42);
     } finally {
       // Restore original config

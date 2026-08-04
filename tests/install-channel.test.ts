@@ -1,10 +1,11 @@
 import path from 'path';
+import type fs from 'fs';
 import { describe, expect, it } from 'vitest';
 import { detectInstallChannel, getInstallChannelSupport } from '../src/core/install-channel.js';
 
 function existsFor(paths: string[]) {
   const normalized = new Set(paths.map((entry) => path.resolve(entry)));
-  return (target: string) => normalized.has(path.resolve(target));
+  return (target: fs.PathLike) => normalized.has(path.resolve(String(target)));
 }
 
 describe('install channel detection', () => {
