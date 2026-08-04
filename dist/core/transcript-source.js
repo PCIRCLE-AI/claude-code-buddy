@@ -28,34 +28,41 @@ export function scanTranscripts(opts = {}) {
         if (!name.endsWith('.jsonl'))
             continue;
         const full = path.join(dir, name);
-        let stat;
+        let fd;
         try {
-            stat = fs.statSync(full);
+            fd = fs.openSync(full, 'r');
         }
         catch {
             continue;
         }
-        if (!stat.isFile())
-            continue;
-        if (stat.mtimeMs < cutoffMs)
-            continue;
-        let lineCount = 0;
         try {
-            const buf = fs.readFileSync(full);
+            const stat = fs.fstatSync(fd);
+            if (!stat.isFile())
+                continue;
+            if (stat.mtimeMs < cutoffMs)
+                continue;
+            const buf = fs.readFileSync(fd);
+            let lineCount = 0;
             for (let i = 0; i < buf.length; i++)
                 if (buf[i] === 0x0a)
                     lineCount++;
+            sessions.push({
+                sessionId: name.replace(/\.jsonl$/, ''),
+                path: full,
+                modifiedAt: new Date(stat.mtimeMs).toISOString(),
+                lineCount,
+                sizeBytes: stat.size,
+            });
         }
         catch {
             continue;
         }
-        sessions.push({
-            sessionId: name.replace(/\.jsonl$/, ''),
-            path: full,
-            modifiedAt: new Date(stat.mtimeMs).toISOString(),
-            lineCount,
-            sizeBytes: stat.size,
-        });
+        finally {
+            try {
+                fs.closeSync(fd);
+            }
+            catch { }
+        }
     }
     sessions.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
     return sessions;

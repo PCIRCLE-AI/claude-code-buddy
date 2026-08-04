@@ -86,33 +86,43 @@ export function scanTranscripts(opts: ScanOptions = {}): TranscriptSession[] {
   for (const name of names) {
     if (!name.endsWith('.jsonl')) continue;
     const full = path.join(dir, name);
-    let stat: fs.Stats;
-    try {
-      stat = fs.statSync(full);
-    } catch {
-      continue; // vanished between readdir and stat — skip
-    }
-    if (!stat.isFile()) continue;
-    if (stat.mtimeMs < cutoffMs) continue;
 
-    let lineCount = 0;
+    // Open ONCE, then stat and read through that same descriptor. Doing
+    // statSync(path) to decide and then readFileSync(path) to use is a
+    // time-of-check-to-time-of-use race (CodeQL js/file-system-race): the
+    // path could point at a different inode between the two calls. Binding
+    // both to one fd means the window check and the byte count describe the
+    // exact same open file, and a symlink swap after open cannot redirect us.
+    let fd: number;
     try {
-      // Count newlines without holding the whole (possibly large) file as
-      // one string longer than necessary; readFileSync is acceptable here
-      // because we only run this on the in-window slice, but count by scan.
-      const buf = fs.readFileSync(full);
+      fd = fs.openSync(full, 'r');
+    } catch {
+      continue; // vanished between readdir and open — skip
+    }
+    try {
+      const stat = fs.fstatSync(fd);
+      if (!stat.isFile()) continue;
+      if (stat.mtimeMs < cutoffMs) continue;
+
+      // Count newlines off the same fd. readFileSync(fd) reads the already
+      // open descriptor from its current offset to EOF — no second path
+      // resolution, so nothing to race against.
+      const buf = fs.readFileSync(fd);
+      let lineCount = 0;
       for (let i = 0; i < buf.length; i++) if (buf[i] === 0x0a) lineCount++;
-    } catch {
-      continue; // unreadable — skip, do not fabricate a count
-    }
 
-    sessions.push({
-      sessionId: name.replace(/\.jsonl$/, ''),
-      path: full,
-      modifiedAt: new Date(stat.mtimeMs).toISOString(),
-      lineCount,
-      sizeBytes: stat.size,
-    });
+      sessions.push({
+        sessionId: name.replace(/\.jsonl$/, ''),
+        path: full,
+        modifiedAt: new Date(stat.mtimeMs).toISOString(),
+        lineCount,
+        sizeBytes: stat.size,
+      });
+    } catch {
+      continue; // unreadable after open — skip, do not fabricate a count
+    } finally {
+      try { fs.closeSync(fd); } catch { /* already closed / gone */ }
+    }
   }
 
   // Most-recent first — the window's freshest sessions are the ones a mine

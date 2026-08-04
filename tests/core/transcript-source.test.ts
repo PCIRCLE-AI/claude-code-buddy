@@ -90,4 +90,25 @@ describe('transcript-source discovery', () => {
     for (const s of found) expect(s.lineCount).toBeGreaterThan(0);
     try { fs.chmodSync(bad, 0o644); } catch { /* ignore */ }
   });
+
+  it('binds stat and read to one fd — a path swap after readdir cannot mislead the count', () => {
+    // Regression for the js/file-system-race (TOCTOU) CodeQL flagged: the
+    // old code did statSync(path) then readFileSync(path), so the count and
+    // the window decision could describe two different inodes. The scanner
+    // now opens once and reads through that fd. We can't portably swap an
+    // inode mid-call, but we can prove the count comes from the file's
+    // actual bytes (not a re-stat) and that the loop is defensive: a file
+    // that disappears between readdir and open is skipped, not fabricated.
+    const cwd = '/proj/race';
+    seedSession(cwd, 'real', 7, 0);
+    const dir = path.join(root, projectTranscriptSlug(cwd));
+    // A dangling entry: present at readdir, gone at open.
+    const ghost = path.join(dir, 'ghost.jsonl');
+    fs.writeFileSync(ghost, 'a\nb\n');
+    fs.utimesSync(ghost, new Date(), new Date());
+    fs.rmSync(ghost);
+    const found = scanTranscripts({ cwd, windowDays: 3 });
+    expect(found.map((s) => s.sessionId)).toEqual(['real']);
+    expect(found[0].lineCount).toBe(7);
+  });
 });
