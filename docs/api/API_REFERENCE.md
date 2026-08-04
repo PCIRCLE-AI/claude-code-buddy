@@ -367,7 +367,7 @@ Analyze user work patterns from existing memory. Returns work schedule (peak hou
 {
   "workSchedule": {
     "hourDistribution": [{"hour": 9, "count": 42}, {"hour": 14, "count": 38}],
-    "dayDistribution": [{"day": "Monday", "dayNum": 1, "count": 50}]
+    "dayDistribution": [{"dayNum": 1, "count": 50}]
   },
   "toolPreferences": [{"tool": "Read", "sessions": 15}],
   "focusAreas": [{"type": "decision", "count": 12}],

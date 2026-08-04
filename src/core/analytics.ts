@@ -36,6 +36,20 @@ export interface KnowledgeRadarEntry {
   types: string[];
 }
 
+// The six semantic axes of the Knowledge Radar. Module-level and exported
+// because the axis names are ALSO i18n keys on the dashboard
+// (`radar.axis.<axis>`): tests/dashboard-i18n.test.ts imports this array to
+// prove every axis the server can emit has a catalogue entry, so a new axis
+// cannot ship untranslated.
+export const RADAR_AXES: Array<{ axis: string; types: string[] }> = [
+  { axis: 'lessons',      types: ['lesson_learned', 'lesson', 'mistake'] },
+  { axis: 'decisions',    types: ['decision', 'architecture_decision', 'design_decision'] },
+  { axis: 'patterns',     types: ['pattern', 'technical_pattern', 'best_practice'] },
+  { axis: 'bugs',         types: ['bug_fix', 'verification_result', 'test_result'] },
+  { axis: 'processes',    types: ['process', 'workflow_checkpoint', 'refactoring', 'maintenance'] },
+  { axis: 'architecture', types: ['architecture', 'infrastructure', 'feature', 'release'] },
+];
+
 export interface LoopMetric {
   /** Number of knowledge entities (lesson / decision / pattern / bug_fix /
    *  architecture / etc.) accessed within the last 7 days. */
@@ -176,16 +190,7 @@ export function computeAnalytics(db: Database.Database): AnalyticsResult {
 
   const ageMatrix = ageMatrixRaw.filter(r => !NOISE_TYPES.has(r.type));
 
-  // --- Knowledge Radar (6 semantic axes) ---
-  const RADAR_AXES: Array<{ axis: string; types: string[] }> = [
-    { axis: 'lessons',      types: ['lesson_learned', 'lesson', 'mistake'] },
-    { axis: 'decisions',    types: ['decision', 'architecture_decision', 'design_decision'] },
-    { axis: 'patterns',     types: ['pattern', 'technical_pattern', 'best_practice'] },
-    { axis: 'bugs',         types: ['bug_fix', 'verification_result', 'test_result'] },
-    { axis: 'processes',    types: ['process', 'workflow_checkpoint', 'refactoring', 'maintenance'] },
-    { axis: 'architecture', types: ['architecture', 'infrastructure', 'feature', 'release'] },
-  ];
-
+  // --- Knowledge Radar (6 semantic axes, see module-level RADAR_AXES) ---
   const typeCounts: Record<string, number> = {};
   for (const row of ageMatrixRaw) {
     typeCounts[row.type] = (typeCounts[row.type] ?? 0) + (row.count as number);
