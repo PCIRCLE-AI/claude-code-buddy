@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { api } from '../lib/api';
 import { t } from '../lib/i18n';
-import { failureMessage, type LoadFailure } from '../lib/failure';
+import { classifyLoadError, failureMessage, type LoadFailure } from '../lib/failure';
 
 // Surfaces the llm_telemetry persisted scorecard as a dashboard panel.
 // Backed by GET /v1/telemetry?window=N → { window_days, summaries[] }.
@@ -58,6 +58,11 @@ export function LlmTelemetryPanel() {
   const [window, setWindow] = useState(30);
 
   useEffect(() => {
+    // Stale-response guard: the effect re-runs on every window switch, and
+    // without this the SLOWEST response wins — a lagging 7d reply could
+    // overwrite the 30d data the user is looking at, or a stale failure
+    // could blank out fresh good data.
+    let stale = false;
     setLoading(true);
     setError('');
     api<TelemetryResponse>('GET', `/v1/telemetry?window=${window}`)
@@ -67,6 +72,7 @@ export function LlmTelemetryPanel() {
       // data null, error empty — every render branch false, an empty card
       // with no explanation at all.
       .then(d => {
+        if (stale) return;
         if (!Array.isArray(d?.summaries)) {
           console.warn('[memesh dashboard] /v1/telemetry answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', d);
           setFailure('unreadable');
@@ -76,8 +82,14 @@ export function LlmTelemetryPanel() {
         setFailure(null);
         setData(d);
       })
-      .catch(e => { setFailure('unreachable'); setError(e instanceof Error ? e.message : String(e)); })
-      .finally(() => setLoading(false));
+      .catch(e => {
+        if (stale) return;
+        console.warn('[memesh dashboard] /v1/telemetry failed to load:', e);
+        setFailure(classifyLoadError(e));
+        setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => { if (!stale) setLoading(false); });
+    return () => { stale = true; };
   }, [window]);
 
   return (

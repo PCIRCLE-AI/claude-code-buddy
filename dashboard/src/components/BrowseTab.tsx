@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from 'preact/hooks';
+import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import { api, fetchProjects, type Entity, type ProjectInfo } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
 import { ProjectRoadmap } from './ProjectRoadmap';
 import { t } from '../lib/i18n';
-import { failureMessage } from '../lib/failure';
+import { classifyLoadError, failureMessage } from '../lib/failure';
 import { clusterOf, timeBucket, extractProject, type TypeCluster, type TimeBucket } from '../lib/entity-display';
 import { useSignalMode } from '../lib/signalMode';
 
@@ -84,7 +84,14 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
     }
   });
 
+  // Monotonic ticket per load(): it is called from mount, the refresh
+  // button, and after archive/restore, and two overlapping runs otherwise
+  // race on setEntities/setError — whichever RESOLVES last wins, which is
+  // not necessarily the one the user asked for last.
+  const loadGen = useRef(0);
+
   async function load() {
+    const gen = ++loadGen.current;
     setLoading(true);
     setError('');
     try {
@@ -96,6 +103,7 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
       // then threw "entities is not iterable". Ask for the array — and a
       // payload that is NOT the array must not dress up as an empty library:
       // "0 memories" from a response nobody could read is a false empty.
+      if (gen !== loadGen.current) return;
       if (!Array.isArray(data)) {
         console.warn('[memesh dashboard] /v1/entities answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', data);
         setEntities([]);
@@ -107,10 +115,11 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
       setPage(0);
       window.dispatchEvent(new Event('memesh:data-changed'));
     } catch (e: any) {
+      if (gen !== loadGen.current) return;
       console.warn('[memesh dashboard] /v1/entities failed to load:', e);
-      setError(failureMessage('unreachable'));
+      setError(failureMessage(classifyLoadError(e)));
     } finally {
-      setLoading(false);
+      if (gen === loadGen.current) setLoading(false);
     }
   }
 

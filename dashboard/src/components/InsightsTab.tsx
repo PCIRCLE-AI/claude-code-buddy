@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { api } from '../lib/api';
 import { t } from '../lib/i18n';
-import { failureMessage } from '../lib/failure';
+import { classifyLoadError, failureMessage } from '../lib/failure';
 import { PatternCard } from './PatternCard';
 import type { JSX } from 'preact';
 
@@ -166,7 +166,7 @@ export function InsightsTab() {
       }
     } catch (e) {
       console.warn('[memesh dashboard] /v1/dream/proposals failed to load:', e);
-      setError(failureMessage('unreachable'));
+      setError(failureMessage(classifyLoadError(e)));
     } finally {
       setLoading(false);
     }

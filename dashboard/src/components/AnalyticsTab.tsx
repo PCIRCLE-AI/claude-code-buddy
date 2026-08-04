@@ -9,7 +9,7 @@ import { UserPatterns } from './UserPatterns';
 import { LlmTelemetryPanel } from './LlmTelemetryPanel';
 import { PmAnalyticsPanel } from './PmAnalyticsPanel';
 import { t } from '../lib/i18n';
-import { failureMessage, type LoadFailure } from '../lib/failure';
+import { classifyLoadError, failureMessage, type LoadFailure } from '../lib/failure';
 
 /** The four bars `HealthScore` renders, each read as `factors[key].score`. */
 const FACTOR_KEYS = ['activity', 'quality', 'freshness', 'lessons'] as const;
@@ -106,7 +106,10 @@ export function AnalyticsTab() {
     let sawUnreadable = false;
     const guard = (label: string) => (err: unknown) => {
       console.warn(`[memesh dashboard] ${label} failed to load:`, err);
-      sawUnreachable = true;
+      // An error STATUS is a server that answered — running, reachable, and
+      // not something "check `memesh serve`" would help with.
+      if (classifyLoadError(err) === 'unreachable') sawUnreachable = true;
+      else sawUnreadable = true;
       return null;
     };
     Promise.all([

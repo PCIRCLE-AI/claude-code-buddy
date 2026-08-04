@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
 import { fetchGraph, type GraphData, type Entity } from '../lib/api';
 import { t } from '../lib/i18n';
-import { failureMessage, type LoadFailure } from '../lib/failure';
+import { classifyLoadError, failureMessage, type LoadFailure } from '../lib/failure';
 import { useSignalMode } from '../lib/signalMode';
 
 /* ------------------------------------------------------------------ */
@@ -113,7 +113,6 @@ const CLICK_THRESHOLD = 4; // px — drag vs click detection
 export function GraphTab() {
   const [data, setData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [failure, setFailure] = useState<LoadFailure | null>(null);
 
   // UI state
@@ -226,7 +225,10 @@ export function GraphTab() {
         });
         setTypeFilters(types);
       })
-      .catch((e) => { setFailure('unreachable'); setError(e.message); })
+      .catch((e) => {
+        console.warn('[memesh dashboard] /v1/graph failed to load:', e);
+        setFailure(classifyLoadError(e));
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -877,11 +879,12 @@ export function GraphTab() {
   /* ---------- derived data for render ---------- */
   if (loading) return <div class="empty"><div class="loading" /></div>;
   // The two failures carry different next steps — "check the server" vs
-  // "reload / memesh doctor" — so they get different sentences. The raw
-  // message stays for the residual case where the request failed for a
-  // reason that is not connectivity (the console has the details either way).
+  // "reload / memesh doctor" — so they get different sentences; the console
+  // has the raw details either way. There used to be a third branch showing
+  // a raw error string here, but nothing could reach it: the only place it
+  // was set also set `failure`, which returns first. A branch that reads as
+  // a safety net and cannot run is exactly the shape this repo hunts.
   if (failure) return <div class="error-box" role="alert">{failureMessage(failure)}</div>;
-  if (error) return <div class="error-box" role="alert">{t('common.error')}: {error}</div>;
   if (!data) return <div class="error-box" role="alert">{t('common.error')}: {t('common.noData')}</div>;
 
   // Type counts

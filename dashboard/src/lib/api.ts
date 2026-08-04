@@ -42,6 +42,33 @@ export class AuthRequiredError extends Error {
   }
 }
 
+/**
+ * The server ANSWERED — with an error status. It is running; the user must
+ * not be sent to check `memesh serve`. Kept distinct from transport-level
+ * failures so the dashboard can say which of the two happened.
+ */
+export class HttpError extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(`HTTP ${status}`);
+    this.name = 'HttpError';
+    this.status = status;
+  }
+}
+
+/**
+ * The request itself failed — no response at all. A fetch network failure
+ * surfaces as a TypeError and a timeout as an abort; both mean "could not
+ * reach the server", which is a different user instruction from any error
+ * the server sent back.
+ */
+export class NetworkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NetworkError';
+  }
+}
+
 export async function api<T = any>(method: string, path: string, body?: any): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT);
@@ -55,15 +82,24 @@ export async function api<T = any>(method: string, path: string, body?: any): Pr
     if (res.status === 401) {
       // Distinct error type so the UI can switch into the
       // enter-your-token flow rather than treating this as a generic
-      // failure.
+      // failure — and a window event, because the component whose fetch
+      // hit the 401 catches its own errors: without this, a token that
+      // expires mid-session surfaced as that one tab's "failed to load"
+      // while every other tab kept a stale token. The App listens and
+      // swaps in the auth prompt no matter whose request tripped it.
+      window.dispatchEvent(new Event('memesh:auth-required'));
       throw new AuthRequiredError();
     }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new HttpError(res.status);
     const json = await res.json();
     if (!json.success) throw new Error(json.error || t('errors.unknown'));
     return json.data as T;
   } catch (err: any) {
-    if (err.name === 'AbortError') throw new Error(t('errors.timeout'));
+    if (err.name === 'AbortError') throw new NetworkError(t('errors.timeout'));
+    // fetch signals a network-level failure as a TypeError; rewrap so
+    // callers can tell "no response" from "the server answered badly"
+    // without string-matching messages.
+    if (err instanceof TypeError) throw new NetworkError(err.message);
     throw err;
   } finally {
     clearTimeout(timer);

@@ -23,6 +23,26 @@ All notable changes to MeMesh are documented here.
   payload as an empty library / "no insights yet", which is a false empty
   from a response nobody could parse.
 
+  The local review of this change caught its central classification being
+  wrong for the most common real failure: every component's `.catch` labelled
+  everything "unreachable", but **a 500 comes from a server that answered** —
+  running, reachable, and not something "check `memesh serve`" can help with.
+  `api()` now throws `NetworkError` for transport-level failures (fetch's
+  TypeError, timeouts) and `HttpError` for answered error statuses, and only
+  the former reads as unreachable. A mid-session 401 is announced on a window
+  event the app listens for, so an expired token swaps in the auth prompt no
+  matter which tab's request tripped it — before, it surfaced as one tab's
+  "failed to load" forever. The same review found `GraphTab`'s raw-error
+  branch was unreachable (deleted), and the telemetry window switch and
+  Browse reload had no stale-response ordering guards (added; the guards are
+  read-verified but not exercised by a test — interleaving two in-flight
+  responses deterministically is not worth the harness it would take).
+
+  Housekeeping from the same pass: `doctorBanner.warnTitle` was an orphaned
+  key in all 11 locales (deleted), and in de / vi / es / th the "soft" WARN
+  title was byte-identical to the loud one it was meant to soften — those
+  four locales silently never had the softer wording (differentiated).
+
 ### Fixed
 
 - **`PmAnalyticsPanel` had zero `t()` calls** — every label was an English

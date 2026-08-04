@@ -197,9 +197,23 @@ function stubEmptyApi(): void {
   stubApi(() => jsonResponse({ success: true, data: {} }));
 }
 
-/** An API that is down. Every component must survive its own error path. */
+/**
+ * An API that is down. A real fetch signals a network failure as a
+ * TypeError — and api() classifies on exactly that, so a stub throwing a
+ * plain Error would be a failure shape no browser produces and would land
+ * in the wrong classification branch.
+ */
 function stubFailingApi(): void {
-  stubApi(() => { throw new Error('connection refused'); });
+  stubApi(() => { throw new TypeError('Failed to fetch'); });
+}
+
+/**
+ * A server that is UP and answering 500s. The request "failed", but sending
+ * the user to check `memesh serve` would point at a process that is
+ * demonstrably running — this must classify as unreadable, not unreachable.
+ */
+function stubErroringApi(): void {
+  stubApi(() => new Response('{"success":false,"error":"boom"}', { status: 500 }));
 }
 
 /**
@@ -866,6 +880,12 @@ describe('dashboard components on degenerate data', () => {
       { name: 'InsightsTab', node: () => <InsightsTab />, install: stubEmptyApi, kind: 'skew' },
       { name: 'LlmTelemetryPanel', node: () => <LlmTelemetryPanel />, install: stubFailingApi, kind: 'down' },
       { name: 'LlmTelemetryPanel', node: () => <LlmTelemetryPanel />, install: stubEmptyApi, kind: 'skew' },
+      // A 500 is a server that ANSWERED. The first wiring of this feature
+      // labelled every catch "unreachable", which mislabelled the most
+      // common real failure with the one instruction that cannot help.
+      { name: 'AnalyticsTab', node: () => <AnalyticsTab />, install: stubErroringApi, kind: 'skew' },
+      { name: 'GraphTab', node: () => <GraphTab />, install: stubErroringApi, kind: 'skew' },
+      { name: 'LlmTelemetryPanel', node: () => <LlmTelemetryPanel />, install: stubErroringApi, kind: 'skew' },
     ];
     for (const c of PAIRS) {
       const label = c.kind === 'down' ? 'the server is down' : 'the reply was unreadable (version skew)';
@@ -887,6 +907,25 @@ describe('dashboard components on degenerate data', () => {
         expect(alertText, `${c.name} should name the failure inside a role="alert" element`).toContain(want);
         expect(text, `${c.name} must not blame the other failure`).not.toContain(wrong);
       });
+    }
+  });
+
+  it('a mid-session 401 is announced to the app, not swallowed as a load failure', async () => {
+    // Each tab catches its own errors, so before this event existed a token
+    // that expired mid-session surfaced as one tab's "failed to load" while
+    // the auth prompt never appeared. api() must announce every 401.
+    const announced: number[] = [];
+    const listener = () => { announced.push(1); };
+    window.addEventListener('memesh:auth-required', listener);
+    try {
+      stubApi(() => new Response('unauthorized', { status: 401 }));
+      render(<Recorder><LlmTelemetryPanel /></Recorder>);
+      await settle();
+      expect(unhandled).toEqual([]);
+      expect(caught).toEqual([]);
+      expect(announced.length, 'the 401 should have been announced').toBeGreaterThan(0);
+    } finally {
+      window.removeEventListener('memesh:auth-required', listener);
     }
   });
 
