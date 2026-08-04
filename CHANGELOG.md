@@ -6,6 +6,81 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **Two new documentation gates, because a count cannot say what is missing**
+  (`scripts/check-doc-claims.mjs`). Every registered `/v1` route must now
+  appear in `docs/api/API_REFERENCE.md` — four routes (`/v1/doctor`,
+  `/v1/projects`, `/v1/demo/seed`, `/v1/demo/reset`) were registered, called
+  by the dashboard on every load, and documented nowhere, while the existing
+  endpoint-count check happily agreed that 32 equals 32. And no README may
+  mention Python at all: four translations still offered "the Python SDK"
+  months after the SDK was deleted, each in different words, which is why the
+  gate scans a term and not a phrase. All four routes are documented and all
+  four lines are gone.
+
+- **A CLI hint has to name a command that exists**
+  (`tests/cli-hints-name-real-commands.test.ts`). The telemetry empty-state
+  hint told users to run `memesh consolidate` for a release after that
+  command was retired — its only remaining behaviour is printing that it no
+  longer exists — and the first draft of the fix pointed at `memesh
+  auto-tag`, which has never existed. Every backticked `memesh <cmd>` in CLI
+  output is now cross-checked against the command registry and the retired
+  set, in the same shape as the route test.
+
+- **The coverage floor is a gate with a caller** (`vitest.config.ts`,
+  `.github/workflows/ci.yml`). `npm run test:coverage` had zero automated
+  callers and no thresholds — an installed provider that nothing would ever
+  fail. It now enforces floors (statements 47, branches 44, functions 48,
+  lines 48; measured 48.83 / 45.9 / 50 / 50.09 on the day they were set) and
+  runs as its own CI leg. The ratchet turns one way: raise a floor when the
+  suite clears it, never lower one to make a run green.
+
+### Fixed
+
+- **The retired-route set is data the server registers from, not a regex over
+  its own source** (`src/transports/http/retired-routes.ts`). The route test
+  re-derived "which routes answer 410" by scanning server.ts through a
+  400-character window between the path literal and `status(410)` — an input
+  set pinned to nothing but formatting. Both the server's 410 handler and the
+  test now read one exported constant, and the test additionally requires
+  every retired route to still be registered, because a deleted registration
+  is a silent 404 wearing a documented retirement.
+
+- **The route test now scans every in-repo client, and proves each one
+  contributes** (`tests/http-clients-call-real-routes.test.ts`).
+  `src/cli/view-live.ts` calls nine `/v1` paths and was scanned by nothing;
+  `scripts/dashboard-e2e-smoke.mjs`'s only call begins right after a template
+  interpolation (`${port}/v1/health`), which the quote-anchored extraction
+  regex could not see — the file matched zero call sites while looking
+  covered. Each client root must now contribute a known call, so a root that
+  stops matching is a failure instead of a silently narrower gate.
+
+- **ci.yml's Doctor step reads the exit code, not a grep**
+  (`.github/workflows/ci.yml`). `OUTPUT=$( … || true)` discarded doctor's
+  verdict to survive `set -e`, leaving two greps as the only gate — and a
+  grep matches only the failure formats it was written against. The CLI exits
+  1 exactly on FAIL and 0 on PASS_WITH_CONCERNS, which is precisely the
+  acceptance rule the step's comment described in prose.
+
+- **Three checks re-derived a fact a real module owns, and drifted**: the
+  hook-count rule is now `scripts/lib/hook-files.mjs` and its test runs it
+  against a fixture directory shaped like the `_generated` incident instead
+  of regexing the gate's source; `release-verify.sh` labelled its typecheck
+  gate `tsc --noEmit`, which is not what `npm run typecheck` runs; and the
+  learn→recall integration test computed its expected project name as
+  `basename(cwd)` while the code asks git — it passed only when the checkout
+  directory happened to be named like the remote, and running the suite from
+  a worktree named anything else turned it red.
+
+- **Dev-dependency advisories cleared without changing bundlers**
+  (`package.json`). `npm audit fix` "resolved" the high-severity vite
+  advisory by jumping to vite 8 — a different bundler (rolldown) that broke
+  the suite. vite is pinned to 7.3.6 via overrides instead (the advisory's
+  fix version, 7.3.4, was never published; 7.3.5 is the real floor), and
+  `@babel/core` / `esbuild` moved within semver. `npm audit`: 0
+  vulnerabilities.
+
+### Added
+
 - **The dashboard components are held to one contract**
   (`tests/dashboard/component-contracts.test.tsx`) — most of them had no test of
   their own. This is deliberately not a set of "renders without throwing" tests,
