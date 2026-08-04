@@ -164,4 +164,16 @@ describe('transcript-source slug-collision guard', () => {
     const found = scanTranscripts({ cwd: '/p/solo', windowDays: 3 });
     expect(found.map((s) => s.sessionId)).toEqual(['no-cwd-sess']);
   });
+
+  it('normalises both sides of the cwd compare so a cosmetic difference is not a false skip', () => {
+    // Recorded cwd has a redundant `.` segment and a doubled slash; the scanned
+    // cwd is the plain form. path.normalize collapses those, so the session is
+    // NOT skipped. Without normalisation this exact-string compare would drop
+    // the project's own session. (Trailing-slash and symlink /tmp-vs-/private
+    // differences are NOT collapsed by normalize — the fail-closed edge noted
+    // in scanTranscripts.)
+    seedWithCwd('/p/norm', 'norm-sess', '/p//./norm');
+    const found = scanTranscripts({ cwd: '/p/norm', windowDays: 3 });
+    expect(found.map((s) => s.sessionId)).toEqual(['norm-sess']);
+  });
 });

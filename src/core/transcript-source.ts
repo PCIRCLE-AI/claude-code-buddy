@@ -148,9 +148,17 @@ export function scanTranscripts(opts: ScanOptions = {}): TranscriptSession[] {
       // to a sibling project that collapsed to the same slug dir — skip it so
       // the "current project only" promise holds. Decode only a bounded prefix
       // of the buffer we already read (no new I/O, no new path resolution).
+      //
+      // Compare NORMALISED paths (trailing slash, `.`/`..` segments) so a
+      // cosmetic difference does not cause a false skip. This is FAIL-CLOSED:
+      // when a recorded cwd is present and differs, the session is dropped — so
+      // a symlinked project root (macOS /tmp vs /private/tmp) whose recorded
+      // form differs from the scanned form could skip the project's OWN
+      // sessions. No caller can trigger that today (no --cwd flag; the scan
+      // uses process.cwd()), but normalising removes the most common mismatch.
       const prefix = buf.subarray(0, Math.min(buf.length, 65536)).toString('utf8');
       const sessionCwd = recordedCwd(prefix);
-      if (sessionCwd !== null && sessionCwd !== cwd) continue;
+      if (sessionCwd !== null && path.normalize(sessionCwd) !== path.normalize(cwd)) continue;
 
       sessions.push({
         sessionId: name.replace(/\.jsonl$/, ''),

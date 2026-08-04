@@ -65,7 +65,7 @@ export function scanTranscripts(opts = {}) {
                     lineCount++;
             const prefix = buf.subarray(0, Math.min(buf.length, 65536)).toString('utf8');
             const sessionCwd = recordedCwd(prefix);
-            if (sessionCwd !== null && sessionCwd !== cwd)
+            if (sessionCwd !== null && path.normalize(sessionCwd) !== path.normalize(cwd))
                 continue;
             sessions.push({
                 sessionId: name.replace(/\.jsonl$/, ''),
