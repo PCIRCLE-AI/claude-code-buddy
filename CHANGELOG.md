@@ -4,6 +4,57 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Coverage can be measured for the first time, and `npm run typecheck` now
+  covers the files that configure the build** (`vitest.config.ts`,
+  `tsconfig.check.json`, `package.json`) — two settings that looked like
+  configuration and were not.
+
+  `vitest.config.ts` had a `coverage` block labelled "(if needed)" and
+  `@vitest/coverage-v8` was never installed, so `vitest --coverage` answered
+  `MISSING DEPENDENCY`. Nobody could see which modules a test had ever touched.
+  The provider is installed and pinned exactly, and `npm run test:coverage`
+  runs the suite against a throwaway `HOME` like the normal runner does.
+
+  Installing it was not enough. With no `coverage.include`, v8 reports only the
+  files a test **imported** — a module nothing touches is not 0%, it is absent.
+  The first report read **72.05%** while seven of the fifty-three files under
+  `src/` were missing from it entirely, among them `cli/view-live.ts` (2,199
+  lines) and `mcp/launcher.ts`, the entry point every MCP client executes. With
+  the source globs declared, the same suite measures **48.76%**. A coverage
+  report that cannot show a zero is a gate that cannot fail.
+
+  Read with one caveat, recorded in `CLAUDE.md` rather than left as a trap:
+  coverage is in-process, and this project spawns much of what it tests. The
+  CLI, all seven hooks and the MCP server are exercised through `spawnSync` and
+  therefore report 0% while being well covered — `src/transports/cli/cli.ts` is
+  750 statements with a directory of tests and a 0% line. The number is useful
+  in the other direction: a 0% file that is *not* spawned anywhere is genuinely
+  unexercised, which is where the dashboard sits at 25 components to 6 test
+  files.
+
+### Fixed
+
+- **Three Vitest options that do not exist were silently configuring nothing**
+  (`vitest.config.ts`) — `singleFork: true`, `maxForks: 1` and `minForks: 1` sat
+  at the top level of `test:`. None of the three is part of Vitest 4's config
+  type; `poolOptions` is gone too. Only `fileParallelism: false` was doing any
+  work, and it happens to be the half that matters — several test files share
+  one `HOME` and therefore one SQLite database, and running them concurrently
+  deadlocks on the write lock. So the property held, by luck, through three keys
+  that described it and did nothing. Replaced with `maxWorkers: 1`; suite
+  duration is unchanged at ~38s, which is the measurement confirming the removed
+  keys were inert.
+
+  The root cause is why nothing caught it: **`npm run typecheck` had never read
+  the file.** `tsconfig.json`'s `include` is `src/**/*.ts`, correct for the
+  config that emits `dist/` and wrong for a check, so `vitest.config.ts`,
+  `tests/` and the root config files were outside every type check the project
+  ran. `tsconfig.check.json` widens the scope for checking only, and
+  `npm run typecheck` points at it. Measured when it was added: exactly **one**
+  error appeared across `src/` + `tests/` + config — this one.
+
 A git tag freezes the file it points at, so the 4.2.11 notes cannot be corrected
 where they were published. They are corrected here, and whichever release ships
 next carries the corrected copy.

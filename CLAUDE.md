@@ -42,9 +42,33 @@ existing file makes `tests/hooks/session-start-telemetry.test.ts` fail: its
 "short-circuits on a missing DB" case then has nothing to short-circuit on. An
 isolated `HOME` is the right isolation; a fixed DB path is not.
 
-Pool mode is `forks`, single fork, no file parallelism. That is not a
+Pool mode is `forks`, one worker, no file parallelism. That is not a
 preference — several test files share one HOME and therefore one SQLite
-database, and running them concurrently deadlocks on the write lock.
+database, and running them concurrently deadlocks on the write lock. It is
+expressed as `maxWorkers: 1` + `fileParallelism: false`; the older
+`singleFork`/`maxForks`/`minForks` keys do not exist in Vitest 4 and were being
+silently ignored.
+
+`npm run typecheck` uses `tsconfig.check.json`, which covers `src/`, `tests/`
+and the root config files. `tsconfig.json` is narrower on purpose — it is the
+config that emits `dist/`.
+
+### Coverage, and what a 0% file means
+
+```bash
+npm run test:coverage        # whole suite + v8 coverage, throwaway HOME
+```
+
+Read the report with one caveat, or it will mislead you. Coverage is measured
+**in-process**, and this project spawns a lot of what it tests: the CLI, all
+seven hooks, the MCP server and the packaged binaries are exercised through
+`spawnSync`, so they report **0% while being well tested**. `src/transports/cli/cli.ts`
+is the clearest case — 750 statements, a whole directory of tests, 0% in the
+report.
+
+What the number is good for is the opposite direction: a file at 0% that is
+*not* spawned anywhere is genuinely unexercised. That is where the dashboard
+sits — 25 components, 6 test files.
 
 ### Verifying a change before claiming it works
 

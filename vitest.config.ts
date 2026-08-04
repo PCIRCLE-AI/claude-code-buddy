@@ -14,11 +14,21 @@ export default defineConfig({
     dedupe: ['preact', 'preact/hooks'],
   },
   test: {
-    // Use forks pool to prevent SIGSEGV with better-sqlite3 native module
+    // Use forks pool to prevent SIGSEGV with better-sqlite3 native module.
     pool: 'forks',
-    singleFork: true,
-    maxForks: 1,
-    minForks: 1,
+
+    // One worker, one file at a time. Several test files share one HOME and
+    // therefore one SQLite database, and running them concurrently deadlocks on
+    // the write lock — this is load-bearing, not a preference.
+    //
+    // It used to read `singleFork: true, maxForks: 1, minForks: 1` at this
+    // level. **None of those three exists in Vitest 4's config type.** They were
+    // silently ignored, and only `fileParallelism` was doing any work. Nothing
+    // caught it because `npm run typecheck` pointed at `tsconfig.json`, whose
+    // `include` is `src/**/*.ts` — this file had never been type-checked. It is
+    // now, via `tsconfig.check.json`, and putting the old keys back fails the
+    // check.
+    maxWorkers: 1,
     fileParallelism: false,
 
     // Force test timeout to prevent hanging
@@ -45,10 +55,31 @@ export default defineConfig({
     // work here.
     setupFiles: ['./tests/setup/webstorage.ts'],
 
-    // Coverage configuration (if needed)
+    // Coverage. Two things were wrong with this block for its whole life.
+    //
+    // FIRST, `@vitest/coverage-v8` was never installed, so `vitest --coverage`
+    // answered `MISSING DEPENDENCY` and nobody could run it. The block was
+    // labelled "(if needed)" and had never been needed, which is how a
+    // 2,199-line module reached one assertion without anyone being able to see
+    // it.
+    //
+    // SECOND, and worse once it did run: with no `coverage.include`, v8 reports
+    // only files a test IMPORTED. A module no test touches is not 0% — it is
+    // absent, and the summary then read **72.05%** while seven of the
+    // fifty-three files under `src/` were missing from the report entirely,
+    // among them `cli/view-live.ts` (2,199 lines) and `mcp/launcher.ts`, the
+    // entry point every MCP client executes. With the globs below the same suite
+    // measures **48.86%**. A coverage report that cannot show you a zero is a
+    // gate that cannot fail, which is the defect this repository keeps finding
+    // in other shapes.
+    //
+    // `all: true` is NOT the fix here and is not a valid option in Vitest 4 —
+    // `include` is what widens the denominator. Verified by running one test
+    // file: the denominator stays at 8,593 statements either way.
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      include: ['src/**/*.ts', 'scripts/hooks/*.js', 'dashboard/src/**/*.{ts,tsx}'],
+      reporter: ['text', 'json', 'json-summary', 'html'],
       exclude: [
         'node_modules/',
         'dist/',
@@ -56,6 +87,8 @@ export default defineConfig({
         '**/*.spec.ts',
         '**/types.ts',
         '**/index.ts',
+        // Build-generated mirrors of src/ modules; the originals are measured.
+        'scripts/hooks/_generated/**',
       ],
     },
 
