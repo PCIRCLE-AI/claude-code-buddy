@@ -49,7 +49,7 @@ export function SearchTab() {
           </div>
         )}
 
-        {error && <div class="error-box">{error}</div>}
+        {error && <div class="error-box" role="alert">{error}</div>}
 
         {loading && <div class="empty"><div class="loading" /></div>}
 

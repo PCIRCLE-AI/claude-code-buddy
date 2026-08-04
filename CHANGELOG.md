@@ -6,6 +6,64 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **The dashboard now tells the two load failures apart, in every locale**
+  (`dashboard/src/lib/failure.ts`, five components, all 11 locales). "Could
+  not reach the memesh server — check `memesh serve`, then reload" and "the
+  server answered, but this page could not read the reply — reload, then
+  `memesh doctor`" are different sentences with different next steps, because
+  they are different problems: one collapsed "could not load" message sends
+  half its readers chasing a server that is running fine. Every failure
+  message renders inside a `role="alert"` element, and the contract suite
+  asserts both the wording and the announcement for each component in each
+  failure — and that the WRONG diagnosis never shows.
+
+  Two false states died with this: `LlmTelemetryPanel`'s shape rejection left
+  data null and error empty — all four render branches false, an empty card
+  with no explanation — and `BrowseTab` / `InsightsTab` displayed a rejected
+  payload as an empty library / "no insights yet", which is a false empty
+  from a response nobody could parse.
+
+  The local review of this change caught its central classification being
+  wrong for the most common real failure: every component's `.catch` labelled
+  everything "unreachable", but **a 500 comes from a server that answered** —
+  running, reachable, and not something "check `memesh serve`" can help with.
+  `api()` now throws `NetworkError` for transport-level failures (fetch's
+  TypeError, timeouts) and `HttpError` for answered error statuses, and only
+  the former reads as unreachable. A mid-session 401 is announced on a window
+  event the app listens for, so an expired token swaps in the auth prompt no
+  matter which tab's request tripped it — before, it surfaced as one tab's
+  "failed to load" forever. The same review found `GraphTab`'s raw-error
+  branch was unreachable (deleted), and the telemetry window switch and
+  Browse reload had no stale-response ordering guards (added; the guards are
+  read-verified but not exercised by a test — interleaving two in-flight
+  responses deterministically is not worth the harness it would take).
+
+  Housekeeping from the same pass: `doctorBanner.warnTitle` was an orphaned
+  key in all 11 locales (deleted), and in de / vi / es / th the "soft" WARN
+  title was byte-identical to the loud one it was meant to soften — those
+  four locales silently never had the softer wording (differentiated).
+
+### Fixed
+
+- **`PmAnalyticsPanel` had zero `t()` calls** — every label was an English
+  literal, including a hand-rolled `plan{s}` plural. All six strings moved to
+  the catalogue in all 11 locales. The test for this cannot be a `toContain`
+  in English, because the English catalogue values ARE the old literals: it
+  switches to zh-TW and asserts the translation renders and the English does
+  not — which also fails if the zh-TW key is ever dropped, since `t()` falls
+  back to English on a miss.
+
+- **`telemetry.loading` / `telemetry.empty` were English in both Chinese
+  locales** (`dashboard/src/lib/i18n.ts`) — untranslated copies pasted into
+  the zh-TW and zh-CN blocks, invisible to every check that only counts keys.
+
+- **`DoctorBanner` told screen readers two urgencies at once**
+  (`role="alert"` plus `aria-live="polite"`). `role="alert"` already implies
+  an assertive live region; the polite attribute contradicted it. A failed
+  doctor check is the thing to hear about before interacting — alert wins.
+
+### Added
+
 - **Two new documentation gates, because a count cannot say what is missing**
   (`scripts/check-doc-claims.mjs`). Every registered `/v1` route must now
   appear in `docs/api/API_REFERENCE.md` — four routes (`/v1/doctor`,

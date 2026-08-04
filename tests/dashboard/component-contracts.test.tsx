@@ -54,6 +54,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { t, setLocale } from '../../dashboard/src/lib/i18n';
 import {
   AnalyticsTab,
   isAnalyticsRenderable,
@@ -196,9 +197,23 @@ function stubEmptyApi(): void {
   stubApi(() => jsonResponse({ success: true, data: {} }));
 }
 
-/** An API that is down. Every component must survive its own error path. */
+/**
+ * An API that is down. A real fetch signals a network failure as a
+ * TypeError — and api() classifies on exactly that, so a stub throwing a
+ * plain Error would be a failure shape no browser produces and would land
+ * in the wrong classification branch.
+ */
 function stubFailingApi(): void {
-  stubApi(() => { throw new Error('connection refused'); });
+  stubApi(() => { throw new TypeError('Failed to fetch'); });
+}
+
+/**
+ * A server that is UP and answering 500s. The request "failed", but sending
+ * the user to check `memesh serve` would point at a process that is
+ * demonstrably running — this must classify as unreadable, not unreachable.
+ */
+function stubErroringApi(): void {
+  stubApi(() => new Response('{"success":false,"error":"boom"}', { status: 500 }));
 }
 
 /**
@@ -474,10 +489,7 @@ const MUST_RENDER: Record<string, { keys?: string[]; literals?: string[]; nothin
   MemoryAgeMatrix: { nothing: 'takes `data={[]}`; an empty matrix has no buckets to draw' },
   MemoryTimeline: { keys: ['timeline.title'] },
   PatternCard: { literals: ['pattern-1'] },
-  // The one component with zero `t()` calls — every string in it is an English
-  // literal, which is its own defect and is tracked separately. Until it is
-  // translated there is no key to point at.
-  PmAnalyticsPanel: { literals: ['decisions/week', 'KG orphan rate'] },
+  PmAnalyticsPanel: { keys: ['pm.decisionsPerWeek', 'pm.orphanRate'] },
   SearchTab: { keys: ['search.title'] },
   // One marker per card: capabilities / LLM provider / updates / behaviour /
   // language. The card titles are static, so they must survive every payload
@@ -848,6 +860,94 @@ describe('dashboard components on degenerate data', () => {
     const outage = warns.filter(w => w.includes('/v1/config failed to load'));
     expect(skew, 'the shape rejection should be diagnosed as version skew').toHaveLength(1);
     expect(outage, 'an empty-but-successful response is not an outage').toEqual([]);
+  });
+
+  describe('the two failures are told apart', () => {
+    // KT's failure-display policy: "could not reach the server" and "the
+    // server answered but this bundle could not read it" carry different
+    // next steps (check `memesh serve` vs reload / `memesh doctor`), so a
+    // component in a failed state must name the RIGHT one — and not the
+    // other. One collapsed message sends half the users chasing a server
+    // that is running fine.
+    const PAIRS: Array<{ name: string; node: () => ComponentChildren; install: () => void; kind: 'down' | 'skew' }> = [
+      { name: 'AnalyticsTab', node: () => <AnalyticsTab />, install: stubFailingApi, kind: 'down' },
+      { name: 'AnalyticsTab', node: () => <AnalyticsTab />, install: stubPartialApi, kind: 'skew' },
+      { name: 'GraphTab', node: () => <GraphTab />, install: stubFailingApi, kind: 'down' },
+      { name: 'GraphTab', node: () => <GraphTab />, install: stubEmptyApi, kind: 'skew' },
+      { name: 'BrowseTab', node: () => <BrowseTab />, install: stubFailingApi, kind: 'down' },
+      { name: 'BrowseTab', node: () => <BrowseTab />, install: stubEmptyApi, kind: 'skew' },
+      { name: 'InsightsTab', node: () => <InsightsTab />, install: stubFailingApi, kind: 'down' },
+      { name: 'InsightsTab', node: () => <InsightsTab />, install: stubEmptyApi, kind: 'skew' },
+      { name: 'LlmTelemetryPanel', node: () => <LlmTelemetryPanel />, install: stubFailingApi, kind: 'down' },
+      { name: 'LlmTelemetryPanel', node: () => <LlmTelemetryPanel />, install: stubEmptyApi, kind: 'skew' },
+      // A 500 is a server that ANSWERED. The first wiring of this feature
+      // labelled every catch "unreachable", which mislabelled the most
+      // common real failure with the one instruction that cannot help.
+      { name: 'AnalyticsTab', node: () => <AnalyticsTab />, install: stubErroringApi, kind: 'skew' },
+      { name: 'GraphTab', node: () => <GraphTab />, install: stubErroringApi, kind: 'skew' },
+      { name: 'LlmTelemetryPanel', node: () => <LlmTelemetryPanel />, install: stubErroringApi, kind: 'skew' },
+    ];
+    for (const c of PAIRS) {
+      const label = c.kind === 'down' ? 'the server is down' : 'the reply was unreadable (version skew)';
+      it(`${c.name} says so when ${label}`, async () => {
+        expect(document.body.childElementCount).toBe(0);
+        c.install();
+        const { container } = render(<Recorder>{c.node()}</Recorder>);
+        await settle();
+        const text = container.textContent ?? '';
+        // DESIGN.md: an error state must live in a `role="alert"` element —
+        // it replaces content, and a screen reader hears nothing from a
+        // silent repaint. Asserting the message INSIDE the alert pins both
+        // the wording and the announcement at once.
+        const alertText = [...container.querySelectorAll('[role="alert"]')]
+          .map(nod => nod.textContent ?? '')
+          .join(' ');
+        const want = c.kind === 'down' ? en('common.serverUnreachable') : en('common.responseUnreadable');
+        const wrong = c.kind === 'down' ? en('common.responseUnreadable') : en('common.serverUnreachable');
+        expect(alertText, `${c.name} should name the failure inside a role="alert" element`).toContain(want);
+        expect(text, `${c.name} must not blame the other failure`).not.toContain(wrong);
+      });
+    }
+  });
+
+  it('a mid-session 401 is announced to the app, not swallowed as a load failure', async () => {
+    // Each tab catches its own errors, so before this event existed a token
+    // that expired mid-session surfaced as one tab's "failed to load" while
+    // the auth prompt never appeared. api() must announce every 401.
+    const announced: number[] = [];
+    const listener = () => { announced.push(1); };
+    window.addEventListener('memesh:auth-required', listener);
+    try {
+      stubApi(() => new Response('unauthorized', { status: 401 }));
+      render(<Recorder><LlmTelemetryPanel /></Recorder>);
+      await settle();
+      expect(unhandled).toEqual([]);
+      expect(caught).toEqual([]);
+      expect(announced.length, 'the 401 should have been announced').toBeGreaterThan(0);
+    } finally {
+      window.removeEventListener('memesh:auth-required', listener);
+    }
+  });
+
+  it('PmAnalyticsPanel renders through the catalogue, not through English literals', async () => {
+    // The English catalogue values ARE the old hardcoded literals, so a
+    // positive `toContain` in English passes whether or not `t()` is called.
+    // Switching locale is the only observable difference between "translated"
+    // and "hardcoded" — and if the zh-TW keys were missing, `t()` would fall
+    // back to English and the negative assertion below would catch that too.
+    setLocale('zh-TW');
+    try {
+      const zh = t('pm.decisionsPerWeek');
+      expect(zh, 'zh-TW must actually translate this key').not.toBe(en('pm.decisionsPerWeek'));
+      stubOptionalExtrasHollowApi();
+      const { container } = render(<Recorder><PmAnalyticsPanel /></Recorder>);
+      await settle();
+      const text = container.textContent ?? '';
+      expect(text, 'should render the zh-TW label').toContain(zh);
+      expect(text, 'must not render the English literal').not.toContain(en('pm.decisionsPerWeek'));
+    } finally {
+      setLocale('en');
+    }
   });
 
   describe('shape guards, leaf by leaf', () => {

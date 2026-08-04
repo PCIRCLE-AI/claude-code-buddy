@@ -102,8 +102,12 @@ export function DoctorBanner() {
 
   return (
     <div
+      // `role="alert"` alone: it already implies an assertive live region,
+      // and pairing it with `aria-live="polite"` told every screen reader two
+      // contradictory urgencies for the same node. A failed doctor check is
+      // the thing the user must hear about before interacting — assertive is
+      // the right one of the two.
       role="alert"
-      aria-live="polite"
       style={{
         position: 'relative',
         margin: '12px auto 0',

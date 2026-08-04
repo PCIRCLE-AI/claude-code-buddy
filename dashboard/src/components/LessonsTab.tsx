@@ -292,7 +292,7 @@ export function LessonsTab() {
   }, [categorized, tab, search, project]);
 
   if (loading) return <div class="empty"><div class="loading" /></div>;
-  if (error) return <div class="error-box">{t('common.error')}: {error}</div>;
+  if (error) return <div class="error-box" role="alert">{t('common.error')}: {error}</div>;
 
   const totalAccess = entities.reduce((sum, e) => sum + (e.access_count ?? 0), 0);
   const criticalCount = categorized.failure.filter((e) => severityOf(e) === 'critical').length;

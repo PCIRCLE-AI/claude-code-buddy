@@ -82,6 +82,16 @@ export function App() {
   // returns 401 (no token, wrong token, or rotated token), surface a
   // modal so the user can paste theirs without leaving the page.
   const [needsAuth, setNeedsAuth] = useState(false);
+
+  // A 401 can arrive on ANY tab's own fetch once a token expires or rotates
+  // mid-session — and each tab catches its own errors, so without this the
+  // only symptom was one tab's "failed to load". api() announces every 401
+  // on this event; swap in the auth prompt no matter whose request tripped.
+  useEffect(() => {
+    const onAuthRequired = () => setNeedsAuth(true);
+    window.addEventListener('memesh:auth-required', onAuthRequired);
+    return () => window.removeEventListener('memesh:auth-required', onAuthRequired);
+  }, []);
   const [authRejected, setAuthRejected] = useState(false);
 
   const refetchHealth = useCallback(() => {

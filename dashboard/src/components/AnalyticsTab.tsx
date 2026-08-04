@@ -9,6 +9,7 @@ import { UserPatterns } from './UserPatterns';
 import { LlmTelemetryPanel } from './LlmTelemetryPanel';
 import { PmAnalyticsPanel } from './PmAnalyticsPanel';
 import { t } from '../lib/i18n';
+import { classifyLoadError, failureMessage, type LoadFailure } from '../lib/failure';
 
 /** The four bars `HealthScore` renders, each read as `factors[key].score`. */
 const FACTOR_KEYS = ['activity', 'quality', 'freshness', 'lessons'] as const;
@@ -91,15 +92,24 @@ export function AnalyticsTab() {
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [patterns, setPatterns] = useState<PatternsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [failure, setFailure] = useState<LoadFailure | null>(null);
 
   const loadData = useCallback(() => {
     setLoading(true);
-    // Each endpoint degrades independently. Trace a failure to the console so a
-    // single-endpoint outage (e.g. /v1/patterns) doesn't just make its panel
-    // vanish with no signal — the overall error box only shows when BOTH stats
-    // and analytics are null, so a patterns-only failure was previously silent.
+    // Each endpoint degrades independently, and the KIND of each failure is
+    // recorded, because the two kinds carry different next steps: a request
+    // that failed means "check the server", a payload the guards rejected
+    // means "reload / memesh doctor" — the server is fine. `unreachable`
+    // wins when both happened: no point second-guessing payload shapes
+    // while the server is down.
+    let sawUnreachable = false;
+    let sawUnreadable = false;
     const guard = (label: string) => (err: unknown) => {
       console.warn(`[memesh dashboard] ${label} failed to load:`, err);
+      // An error STATUS is a server that answered — running, reachable, and
+      // not something "check `memesh serve`" would help with.
+      if (classifyLoadError(err) === 'unreachable') sawUnreachable = true;
+      else sawUnreadable = true;
       return null;
     };
     Promise.all([
@@ -118,16 +128,31 @@ export function AnalyticsTab() {
       // `undefined`. That throw lands during the rerender the response
       // triggers, which produces no unhandled rejection and no visible text:
       // four panels simply vanish and nothing is reported.
-      setStats(rejectShape('/v1/stats', s, isStatsRenderable(s)) ? s : null);
-      setAnalytics(rejectShape('/v1/analytics', a, isAnalyticsRenderable(a)) ? a : null);
-      setPatterns(rejectShape('/v1/patterns', p, isPatternsRenderable(p)) ? p : null);
+      const statsOk = rejectShape('/v1/stats', s, isStatsRenderable(s));
+      const analyticsOk = rejectShape('/v1/analytics', a, isAnalyticsRenderable(a));
+      const patternsOk = rejectShape('/v1/patterns', p, isPatternsRenderable(p));
+      if ((s !== null && !statsOk) || (a !== null && !analyticsOk) || (p !== null && !patternsOk)) {
+        sawUnreadable = true;
+      }
+      setStats(statsOk ? s : null);
+      setAnalytics(analyticsOk ? a : null);
+      setPatterns(patternsOk ? p : null);
+      setFailure(sawUnreachable ? 'unreachable' : sawUnreadable ? 'unreadable' : null);
     }).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
   if (loading) return <div class="empty"><div class="loading" /></div>;
-  if (!stats && !analytics) return <div class="error-box">{t('common.error')}: {t('analytics.loadFailed')}</div>;
+  // role="alert" per DESIGN.md: an error box that replaces content must
+  // announce itself to a screen reader, not just repaint silently.
+  if (!stats && !analytics) {
+    return (
+      <div class="error-box" role="alert">
+        {failure ? failureMessage(failure) : `${t('common.error')}: ${t('analytics.loadFailed')}`}
+      </div>
+    );
+  }
 
   return (
     <div>

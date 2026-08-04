@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'preact/hooks';
 import { api } from '../lib/api';
+import { t } from '../lib/i18n';
 
 interface PmAnalytics {
   velocity: { decisionsPerWeek: number; releasesPerMonth: number; windowDays: number };
@@ -61,36 +62,36 @@ export function PmAnalyticsPanel() {
 
   return (
     <div class="card" style={{ marginTop: 8, padding: 16 }}>
-      <div class="card-title" style={{ marginBottom: 12 }}>PM Metrics</div>
+      <div class="card-title" style={{ marginBottom: 12 }}>{t('pm.title')}</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--mono)' }}>
             {data.velocity.decisionsPerWeek.toFixed(1)}
           </div>
-          <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2 }}>decisions/week</div>
+          <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2 }}>{t('pm.decisionsPerWeek')}</div>
         </div>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--mono)' }}>
             {data.staleness.openDecisionCount}
           </div>
-          <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2 }}>open decisions (&gt;14d)</div>
+          <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2 }}>{t('pm.openDecisions')}</div>
         </div>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--mono)', color: orphanColor }}>
             {orphanPct}%
           </div>
-          <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2 }}>KG orphan rate</div>
+          <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2 }}>{t('pm.orphanRate')}</div>
         </div>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: 22, fontWeight: 700, fontFamily: 'var(--mono)' }}>
             {data.connectedness.totalRelations}
           </div>
-          <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2 }}>relations total</div>
+          <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2 }}>{t('pm.relationsTotal')}</div>
         </div>
       </div>
       {data.staleness.stalePlanCount > 0 && (
         <div style={{ marginTop: 10, fontSize: 12, color: '#f59e0b' }}>
-          {data.staleness.stalePlanCount} plan{data.staleness.stalePlanCount > 1 ? 's' : ''} not reviewed in 30+ days
+          {t('pm.stalePlans', { count: data.staleness.stalePlanCount })}
         </div>
       )}
     </div>

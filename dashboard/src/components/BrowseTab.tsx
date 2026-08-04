@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from 'preact/hooks';
+import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import { api, fetchProjects, type Entity, type ProjectInfo } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
 import { ProjectRoadmap } from './ProjectRoadmap';
 import { t } from '../lib/i18n';
+import { classifyLoadError, failureMessage } from '../lib/failure';
 import { clusterOf, timeBucket, extractProject, type TypeCluster, type TimeBucket } from '../lib/entity-display';
 import { useSignalMode } from '../lib/signalMode';
 
@@ -83,7 +84,14 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
     }
   });
 
+  // Monotonic ticket per load(): it is called from mount, the refresh
+  // button, and after archive/restore, and two overlapping runs otherwise
+  // race on setEntities/setError — whichever RESOLVES last wins, which is
+  // not necessarily the one the user asked for last.
+  const loadGen = useRef(0);
+
   async function load() {
+    const gen = ++loadGen.current;
     setLoading(true);
     setError('');
     try {
@@ -92,15 +100,26 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
         fetchProjects().catch(() => []),
       ]);
       // `data || []` let a shape-less `{}` through — `for (const e of entities)`
-      // then threw "entities is not iterable". Ask for the array, not for truthiness.
-      setEntities(Array.isArray(data) ? data : []);
+      // then threw "entities is not iterable". Ask for the array — and a
+      // payload that is NOT the array must not dress up as an empty library:
+      // "0 memories" from a response nobody could read is a false empty.
+      if (gen !== loadGen.current) return;
+      if (!Array.isArray(data)) {
+        console.warn('[memesh dashboard] /v1/entities answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', data);
+        setEntities([]);
+        setError(failureMessage('unreadable'));
+      } else {
+        setEntities(data);
+      }
       setProjects(projs);
       setPage(0);
       window.dispatchEvent(new Event('memesh:data-changed'));
     } catch (e: any) {
-      setError(e.message);
+      if (gen !== loadGen.current) return;
+      console.warn('[memesh dashboard] /v1/entities failed to load:', e);
+      setError(failureMessage(classifyLoadError(e)));
     } finally {
-      setLoading(false);
+      if (gen === loadGen.current) setLoading(false);
     }
   }
 
@@ -269,7 +288,7 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
           </select>
         </div>
 
-        {error && <div class="error-box" style={{ marginBottom: 12 }}>{error}</div>}
+        {error && <div class="error-box" role="alert" style={{ marginBottom: 12 }}>{error}</div>}
         {loading && <div class="empty"><div class="loading" /></div>}
 
         {/* Roadmap view: triggered when a project chip is selected and the
