@@ -4,6 +4,29 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Generated memories can now be written in your language.** Every LLM
+  prompt in MeMesh is English, so digests, emergent patterns, lessons and
+  validator notes came back in English no matter what language the dashboard
+  was set to — the Insights tab was permanently English for a Chinese user.
+  A new `language` config key (`memesh config set language zh-TW`, or the
+  same field on `POST /v1/config`) adds one shared output-language
+  instruction to all four content-generating prompts — and changing the
+  dashboard language now sets it automatically. Unset keeps today's
+  English behaviour, and machine identifiers (entity types, tags, category
+  enums) stay English so nothing downstream breaks on a translated value.
+- **HTTP errors now carry a stable `errorCode` next to the English
+  message.** `{ success: false, error: "<prose>" }` forced clients to
+  regex-match English sentences to tell "bad token" from "bad body". Every
+  error envelope now includes a documented machine code
+  (`auth.missing-bearer`, `validation.bad-body`, `route.retired`,
+  `payload.too-large`, `server.internal`, …), and `POST /v1/config/test`
+  failures carry `auth` / `network` / `no_models` / `http_<status>` codes.
+  The dashboard now translates every known code in all 11 languages
+  (falling back to the server prose for codes it does not know yet).
+  The prose stays; nothing existing is removed.
+
 ### Fixed
 
 - **A non-English dashboard no longer shows hardcoded English.** Every
@@ -25,6 +48,11 @@ All notable changes to MeMesh are documented here.
   error alert no longer contradicts itself (`role="alert"` +
   `aria-live="polite"`), and the pending-insights banner is announced as
   the button it behaves as, not a region.
+- **`dream list` no longer invents "(empty)" content.** A digest proposal
+  with no observations reported the literal string `(empty)` as its preview
+  — untranslatable, and indistinguishable from a digest that genuinely says
+  "(empty)". The API now returns `null` and each surface renders its own
+  empty state.
 - **The dashboard's doctor banner now speaks the user's language — and only
   speaks when something is wrong.** Two reported defects: with the language
   set to Chinese the banner printed raw server English ("No memesh-attributed

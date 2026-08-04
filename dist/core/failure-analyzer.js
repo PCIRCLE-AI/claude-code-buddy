@@ -1,6 +1,7 @@
 import { callLLM } from './llm-client.js';
 import { recordTelemetry } from './llm-telemetry.js';
 import { sanitizeForPrompt, sanitizeListForPrompt } from './prompt-safety.js';
+import { outputLanguageInstruction } from './output-language.js';
 export async function analyzeFailure(errors, filesEdited, llmConfig, opts = {}) {
     const unique = [...new Set(errors)].slice(0, 5);
     if (unique.length === 0)
@@ -29,7 +30,7 @@ Analyze the root cause and return a JSON object (ONLY the JSON, no explanation):
   "errorPattern": "category: null-reference | type-error | import-missing | config-error | test-failure | build-error | runtime-error | logic-error | other",
   "fixPattern": "category: defensive-coding | type-guard | validation | config-fix | dependency-update | refactor | test-fix | other",
   "severity": "critical | major | minor"
-}`;
+}${outputLanguageInstruction()}`;
     try {
         const text = await callLLM(prompt, llmConfig, {
             maxTokens: 300,

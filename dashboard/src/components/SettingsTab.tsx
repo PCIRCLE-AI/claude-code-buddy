@@ -38,6 +38,27 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+/**
+ * Human message for a failed provider probe. The server sends a stable
+ * `errorCode` ('auth' | 'network' | 'no_models' | 'bad_host' |
+ * 'http_<status>' | 'unknown') next to its English `error` prose — translate
+ * the code (settings.testError.*) and keep the raw prose as the detail.
+ * Miss-detection is the sanctioned `translated === key` check: t() returns
+ * the key itself for uncatalogued keys, and `|| fallback` would treat a
+ * legitimate empty translation and a missing one identically.
+ */
+function probeErrorMessage(result: { errorCode?: string; error?: string }): string {
+  if (result.errorCode) {
+    const httpMatch = /^http_(\d+)$/.exec(result.errorCode);
+    const key = httpMatch ? 'settings.testError.http' : `settings.testError.${result.errorCode}`;
+    const translated = httpMatch ? t(key, { status: httpMatch[1] }) : t(key);
+    if (translated !== key) {
+      return result.error ? `${translated} — ${result.error}` : translated;
+    }
+  }
+  return result.error || t('settings.testFailed');
+}
+
 function formatTimestamp(locale: Locale, value: string | null): string {
   if (!value) return '—';
 
@@ -481,7 +502,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             >
               {testResult.valid
                 ? t('settings.testPassed', { count: testResult.models?.length ?? 0 })
-                : `✗ ${testResult.error || t('settings.testFailed')}`}
+                : `✗ ${probeErrorMessage(testResult)}`}
             </div>
           )}
 
@@ -720,6 +741,20 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             const nextLocale = (e.target as HTMLSelectElement).value as Locale;
             setLocale(nextLocale);
             onLocaleChange(nextLocale);
+            // Server-side counterpart: config.language decides what language
+            // the LLM writes generated CONTENT in (dreamer digests, patterns,
+            // lessons), which the client-side locale cannot reach. Post the
+            // locale's display name ('繁體中文', 'Deutsch', …) — it lands
+            // inside a prompt, and a native language name is unambiguous
+            // where a bare code like 'th' is not. Non-blocking: the UI
+            // language changed either way, and the next visit to Settings
+            // shows the truth.
+            const displayName = getLocales().find((l) => l.code === nextLocale)?.name;
+            if (displayName) {
+              void api('POST', '/v1/config', { language: displayName }).catch(() => {
+                /* offline / auth lapse — UI locale still applied; not worth blocking */
+              });
+            }
           }}
           style={{ fontSize: 13, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-1)', cursor: 'pointer' }}
         >

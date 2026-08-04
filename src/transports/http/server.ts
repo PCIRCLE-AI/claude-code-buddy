@@ -9,6 +9,7 @@ import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
+import { languageValueError } from '../../core/output-language.js';
 import { computePatterns } from '../../core/patterns.js';
 import { computeAnalytics, computePmAnalytics } from '../../core/analytics.js';
 import { computeStats } from '../../core/stats.js';
@@ -40,6 +41,33 @@ const packageVersion =
   JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')).version ?? '0.0.0';
 
 const app = express();
+
+// --- Stable error codes -----------------------------------------------------
+//
+// Every `success: false` response carries an `errorCode` ALONGSIDE the human
+// `error` string (never replacing it). The `error` text is English prose and
+// may be reworded at any time; `errorCode` is the machine contract — the
+// dashboard translates known codes into the user's locale, scripts branch on
+// them without regex-matching English sentences. Documented in
+// docs/api/API_REFERENCE.md → "Error Handling"; changing or removing a code
+// is a breaking API change, adding one is not.
+//
+// (The pre-existing `code` fields — 'PAYLOAD_TOO_LARGE' on 413, 'NOT_FOUND'
+// on the catch-all 404 — are kept for back-compat; `errorCode` is the one
+// consistent field across all error classes.)
+type ErrorCode =
+  | 'auth.missing-bearer'   // 401 — no/blank Authorization: Bearer header
+  | 'auth.invalid-token'    // 401 — bearer token did not match
+  | 'auth.not-configured'   // 503 — remote listener up but no token provisioned
+  | 'validation.bad-body'   // 400 — body missing, not JSON, or failed schema validation
+  | 'validation.bad-param'  // 400 — path/query parameter invalid
+  | 'route.retired'         // 410 — endpoint retired on purpose; body names the replacement
+  | 'route.not-found'       // 404 — no such route
+  | 'resource.not-found'    // 404 — route exists, the named entity/proposal does not
+  | 'payload.too-large'     // 413 — body exceeds the 1 MB limit
+  | 'operation.failed'      // 400 — valid request, but the operation itself rejected it
+  | 'llm.not-configured'    // 400 — the endpoint needs Smart Mode and no LLM is configured
+  | 'server.internal';      // 500/503 — unexpected server-side failure
 
 // JSON body parsing is registered LATER, scoped to /v1/* and gated
 // behind bearerAuth + apiLimiter. The earlier global registration was
@@ -155,6 +183,7 @@ function bearerAuth(req: Request, res: Response, next: NextFunction): void {
     // provisioned. Fail closed.
     res.status(503).json({
       success: false,
+      errorCode: 'auth.not-configured' satisfies ErrorCode,
       error: 'remote bearer auth not configured on this server',
     });
     return;
@@ -171,17 +200,17 @@ function bearerAuth(req: Request, res: Response, next: NextFunction): void {
   const trimmed = header.trim();
   const wsIndex = trimmed.search(/\s/);
   if (wsIndex < 0 || trimmed.slice(0, wsIndex).toLowerCase() !== 'bearer') {
-    res.status(401).json({ success: false, error: 'Missing Authorization: Bearer <token>' });
+    res.status(401).json({ success: false, errorCode: 'auth.missing-bearer' satisfies ErrorCode, error: 'Missing Authorization: Bearer <token>' });
     return;
   }
   const tokenPart = trimmed.slice(wsIndex + 1).trim();
   if (!tokenPart) {
-    res.status(401).json({ success: false, error: 'Missing Authorization: Bearer <token>' });
+    res.status(401).json({ success: false, errorCode: 'auth.missing-bearer' satisfies ErrorCode, error: 'Missing Authorization: Bearer <token>' });
     return;
   }
   const presented = Buffer.from(tokenPart, 'utf8');
   if (!constantTimeEquals(presented, remoteToken)) {
-    res.status(401).json({ success: false, error: 'Invalid bearer token' });
+    res.status(401).json({ success: false, errorCode: 'auth.invalid-token' satisfies ErrorCode, error: 'Invalid bearer token' });
     return;
   }
   next();
@@ -230,6 +259,7 @@ function payloadTooLargeHandler(err: unknown, _req: Request, res: Response, next
   if (e.type === 'entity.parse.failed' || (err instanceof SyntaxError && (e.status === 400 || e.statusCode === 400))) {
     res.status(400).json({
       success: false,
+      errorCode: 'validation.bad-body' satisfies ErrorCode,
       error: 'Request body is not valid JSON.',
       hint: 'Send a JSON object with Content-Type: application/json.',
     });
@@ -239,6 +269,7 @@ function payloadTooLargeHandler(err: unknown, _req: Request, res: Response, next
   if (!isTooLarge) return next(err);
   res.status(413).json({
     success: false,
+    errorCode: 'payload.too-large' satisfies ErrorCode,
     error: 'Request body exceeds the 1MB limit',
     code: 'PAYLOAD_TOO_LARGE',
     limit: '1mb',
@@ -287,11 +318,12 @@ app.get('/v1/health', (_req, res) => {
     if (message === 'Database not opened') {
       res.status(503).json({
         success: false,
+        errorCode: 'server.internal' satisfies ErrorCode,
         error: 'Database not initialized',
         details: 'MeMesh database failed to open at startup. Check server logs for details, or run "memesh doctor" to diagnose.',
       });
     } else {
-      res.status(500).json({ success: false, error: message });
+      res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: message });
     }
   }
 });
@@ -331,7 +363,7 @@ app.get('/v1/doctor', async (_req, res) => {
     const safe = JSON.parse(redactSecrets(JSON.stringify(result)));
     res.json({ success: true, data: safe });
   } catch (err) {
-    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -351,6 +383,7 @@ function requireJsonBody(req: Request, res: Response): boolean {
   if (req.body !== undefined) return true;
   res.status(400).json({
     success: false,
+    errorCode: 'validation.bad-body' satisfies ErrorCode,
     error: 'No JSON body was parsed from this request.',
     hint: 'Send the payload with Content-Type: application/json.',
   });
@@ -368,13 +401,14 @@ function handlePost<T>(
   if (!parsed.success) {
     res.status(400).json({
       success: false,
+      errorCode: 'validation.bad-body' satisfies ErrorCode,
       error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
     });
     return;
   }
   Promise.resolve(handler(parsed.data))
     .then((data) => res.json({ success: true, data }))
-    .catch((err: unknown) => res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) }));
+    .catch((err: unknown) => res.status(400).json({ success: false, errorCode: 'operation.failed' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) }));
 }
 
 // DX: read-only GET endpoints that just compute-a-value-and-return used to
@@ -386,7 +420,7 @@ function handleGet<T>(res: Response, produce: () => T | Promise<T>): void {
   Promise.resolve()
     .then(produce)
     .then((data) => res.json({ success: true, data }))
-    .catch((err: unknown) => res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }));
+    .catch((err: unknown) => res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) }));
 }
 
 // --- Remember ---
@@ -397,7 +431,7 @@ app.post('/v1/recall', async (req, res) => {
   if (!requireJsonBody(req, res)) return;
   const parsed = RecallBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+    res.status(400).json({ success: false, errorCode: 'validation.bad-body' satisfies ErrorCode, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
     return;
   }
   try {
@@ -406,7 +440,7 @@ app.post('/v1/recall', async (req, res) => {
     const { entities, conflicts } = await recallWithConflicts(parsed.data);
     res.json({ success: true, data: conflicts.length > 0 ? { entities, conflicts } : entities });
   } catch (err) {
-    res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    res.status(400).json({ success: false, errorCode: 'operation.failed' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -425,7 +459,7 @@ app.post('/v1/forget',      (req, res) => handlePost(ForgetBody, req, res, forge
 // here. Until then this line is the only thing standing between a script and a
 // silent 404.
 app.post('/v1/consolidate', (_req, res) => {
-  res.status(410).json({ success: false, error: RETIRED_ROUTES['/v1/consolidate'] });
+  res.status(410).json({ success: false, errorCode: 'route.retired' satisfies ErrorCode, error: RETIRED_ROUTES['/v1/consolidate'] });
 });
 app.post('/v1/export',      (req, res) => handlePost(ExportBody, req, res, exportMemories));
 app.post('/v1/import',      (req, res) => handlePost(ImportBody, req, res, importMemories));
@@ -468,7 +502,7 @@ app.get('/v1/config', (_req, res) => {
     // the config and the capabilities view before returning them.
     res.json({ success: true, data: { config: maskLlmSecrets(config), capabilities: maskLlmSecrets(caps) } });
   } catch (err) {
-    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -505,6 +539,24 @@ const ConfigBody = z.object({
   // Without this on the write surface, the only way to opt into
   // the new policy was hand-editing ~/.memesh/config.json.
   autoUpdate: z.enum(['off', 'patch', 'minor', 'major']).optional(),
+  // Output language for LLM-generated content (dreamer digests, patterns,
+  // lessons, validator reasons). Free-form — a locale code ('zh-TW') or a
+  // language name ('繁體中文'); it becomes a prompt instruction, not a
+  // parsed locale. The 60-char cap mirrors MAX_LANGUAGE_LENGTH in
+  // src/core/output-language.ts. This is the write surface the dashboard
+  // uses so its locale picker can ALSO localise generated content —
+  // without this entry, ConfigBody.strip() silently drops the field.
+  //
+  // Control characters are rejected outright (mirrors the CLI validator,
+  // both via core/output-language.ts languageValueError): the value lands
+  // inside every content-generating LLM prompt, and a newline would let
+  // it smuggle in a free-standing instruction line. sanitizeForPrompt
+  // deliberately preserves \n, so the gate has to be here.
+  language: z.string().trim().min(1).max(60)
+    .refine((v) => languageValueError(v) === null, {
+      message: 'language must not contain line breaks or other control characters',
+    })
+    .optional(),
   setupCompleted: z.boolean().optional(),
 }).strip();
 
@@ -512,7 +564,7 @@ app.post('/v1/config', async (req, res) => {
   if (!requireJsonBody(req, res)) return;
   const parsed = ConfigBody.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({ success: false, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
+    res.status(400).json({ success: false, errorCode: 'validation.bad-body' satisfies ErrorCode, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
     return;
   }
   try {
@@ -543,7 +595,7 @@ app.post('/v1/config', async (req, res) => {
     // llmFallbacks[].apiKey in plaintext.
     res.json({ success: true, data: maskLlmSecrets(updated) });
   } catch (err) {
-    res.status(400).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    res.status(400).json({ success: false, errorCode: 'operation.failed' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -565,6 +617,7 @@ app.post('/v1/config/test', async (req, res) => {
   if (!parsed.success) {
     res.status(400).json({
       success: false,
+      errorCode: 'validation.bad-body' satisfies ErrorCode,
       error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
     });
     return;
@@ -586,7 +639,7 @@ app.post('/v1/config/test', async (req, res) => {
     const result = await probeProvider(provider, apiKey, host);
     res.json({ success: true, data: result });
   } catch (err) {
-    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -639,7 +692,7 @@ app.get('/v1/update-status', async (req, res) => {
       },
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -669,7 +722,7 @@ app.post('/v1/demo/seed', async (_req, res) => {
     const data = seedDemo(getDatabase());
     res.json({ success: true, data });
   } catch (err) {
-    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }
 });
 app.post('/v1/demo/reset', async (_req, res) => {
@@ -678,7 +731,7 @@ app.post('/v1/demo/reset', async (_req, res) => {
     const data = seedDemo(getDatabase(), { reset: true });
     res.json({ success: true, data });
   } catch (err) {
-    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -705,14 +758,14 @@ app.get('/v1/telemetry', async (req, res) => {
   try {
     const parsed = TelemetryQuerySchema.safeParse(req.query);
     if (!parsed.success) {
-      res.status(400).json({ success: false, error: parsed.error.issues.map(i => i.message).join('; ') });
+      res.status(400).json({ success: false, errorCode: 'validation.bad-param' satisfies ErrorCode, error: parsed.error.issues.map(i => i.message).join('; ') });
       return;
     }
     const { summariseTelemetry } = await import('../../core/llm-telemetry.js');
     const summaries = summariseTelemetry(parsed.data.window);
     res.json({ success: true, data: { window_days: parsed.data.window, summaries } });
   } catch (err) {
-    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -732,7 +785,7 @@ app.get('/v1/dream/proposals', (req, res) => {
   try {
     const parsed = DreamProposalsQuerySchema.safeParse(req.query);
     if (!parsed.success) {
-      res.status(400).json({ success: false, error: parsed.error.issues.map(i => i.message).join('; ') });
+      res.status(400).json({ success: false, errorCode: 'validation.bad-param' satisfies ErrorCode, error: parsed.error.issues.map(i => i.message).join('; ') });
       return;
     }
     const status = parsed.data.status;
@@ -744,8 +797,8 @@ app.get('/v1/dream/proposals', (req, res) => {
         ? [...listProposals(db, 'pending'), ...listProposals(db, 'applied'), ...listProposals(db, 'rejected')]
         : listProposals(db, status);
       res.json({ success: true, data: rows });
-    }).catch((err: unknown) => res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }));
-  } catch (err) { res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) }); }
+    }).catch((err: unknown) => res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) }));
+  } catch (err) { res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) }); }
 });
 
 // Full proposed_digest content (observations, tags, source_ids) for the
@@ -764,7 +817,7 @@ app.get('/v1/dream/proposals', (req, res) => {
 app.get('/v1/dream/proposals/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isInteger(id) || id < 1) {
-    res.status(400).json({ success: false, error: 'invalid id' });
+    res.status(400).json({ success: false, errorCode: 'validation.bad-param' satisfies ErrorCode, error: 'invalid id' });
     return;
   }
   try {
@@ -772,7 +825,7 @@ app.get('/v1/dream/proposals/:id', (req, res) => {
       'SELECT id, project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version, status, reason, created_at, reviewed_at FROM dream_proposals WHERE id = ?'
     ).get(id) as { proposed_digest: string; source_ids: string; [k: string]: unknown } | undefined;
     if (!row) {
-      res.status(404).json({ success: false, error: `proposal #${id} not found` });
+      res.status(404).json({ success: false, errorCode: 'resource.not-found' satisfies ErrorCode, error: `proposal #${id} not found` });
       return;
     }
     let digest: unknown = null;
@@ -781,7 +834,7 @@ app.get('/v1/dream/proposals/:id', (req, res) => {
     try { sourceIds = JSON.parse(row.source_ids); } catch { /* leave empty */ }
     res.json({ success: true, data: { ...row, proposed_digest: digest, source_ids: sourceIds } });
   } catch (err) {
-    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -807,6 +860,7 @@ app.post('/v1/dream/run', async (req, res) => {
   if (!parsed.success) {
     res.status(400).json({
       success: false,
+      errorCode: 'validation.bad-body' satisfies ErrorCode,
       error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
     });
     return;
@@ -817,6 +871,7 @@ app.post('/v1/dream/run', async (req, res) => {
     if (!cfg.llm) {
       res.status(400).json({
         success: false,
+        errorCode: 'llm.not-configured' satisfies ErrorCode,
         error: 'No LLM configured — dream run requires Smart Mode. Configure a provider in Settings.',
       });
       return;
@@ -830,14 +885,14 @@ app.post('/v1/dream/run', async (req, res) => {
     });
     res.json({ success: true, data: result });
   } catch (err) {
-    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
 app.post('/v1/dream/proposals/:id/accept', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isInteger(id) || id < 1) {
-    res.status(400).json({ success: false, error: 'invalid id' });
+    res.status(400).json({ success: false, errorCode: 'validation.bad-param' satisfies ErrorCode, error: 'invalid id' });
     return;
   }
   try {
@@ -850,9 +905,9 @@ app.post('/v1/dream/proposals/:id/accept', async (req, res) => {
     // invalid IDs — surface as 404 rather than a 500.
     const msg = err instanceof Error ? err.message : String(err);
     if (/not found or not pending/.test(msg)) {
-      res.status(404).json({ success: false, error: msg });
+      res.status(404).json({ success: false, errorCode: 'resource.not-found' satisfies ErrorCode, error: msg });
     } else {
-      res.status(500).json({ success: false, error: msg });
+      res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: msg });
     }
   }
 });
@@ -863,12 +918,12 @@ const RejectBodySchema = z.object({
 app.post('/v1/dream/proposals/:id/reject', async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isInteger(id) || id < 1) {
-    res.status(400).json({ success: false, error: 'invalid id' });
+    res.status(400).json({ success: false, errorCode: 'validation.bad-param' satisfies ErrorCode, error: 'invalid id' });
     return;
   }
   const parsed = RejectBodySchema.safeParse(req.body ?? {});
   if (!parsed.success) {
-    res.status(400).json({ success: false, error: parsed.error.issues.map(i => i.message).join('; ') });
+    res.status(400).json({ success: false, errorCode: 'validation.bad-body' satisfies ErrorCode, error: parsed.error.issues.map(i => i.message).join('; ') });
     return;
   }
   try {
@@ -878,9 +933,9 @@ app.post('/v1/dream/proposals/:id/reject', async (req, res) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (/not found or not pending/.test(msg)) {
-      res.status(404).json({ success: false, error: msg });
+      res.status(404).json({ success: false, errorCode: 'resource.not-found' satisfies ErrorCode, error: msg });
     } else {
-      res.status(500).json({ success: false, error: msg });
+      res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: msg });
     }
   }
 });
@@ -898,7 +953,7 @@ app.get('/v1/entities', (req, res) => {
   try {
     const parsed = EntitiesQuerySchema.safeParse(req.query);
     if (!parsed.success) {
-      res.status(400).json({ success: false, error: `Invalid query: ${parsed.error.message}` });
+      res.status(400).json({ success: false, errorCode: 'validation.bad-param' satisfies ErrorCode, error: `Invalid query: ${parsed.error.message}` });
       return;
     }
     const { type: typeFilter, limit, status } = parsed.data;
@@ -912,7 +967,7 @@ app.get('/v1/entities', (req, res) => {
       : kg.listRecent(limit, includeArchived);
     res.json({ success: true, data: entities });
   } catch (err) {
-    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -923,12 +978,12 @@ app.get('/v1/entities/:name', (req, res) => {
     const kg = new KnowledgeGraph(db);
     const entity = kg.getEntity(req.params.name);
     if (!entity) {
-      res.status(404).json({ success: false, error: `Entity "${req.params.name}" not found` });
+      res.status(404).json({ success: false, errorCode: 'resource.not-found' satisfies ErrorCode, error: `Entity "${req.params.name}" not found` });
       return;
     }
     res.json({ success: true, data: entity });
   } catch (err) {
-    res.status(500).json({ success: false, error: err instanceof Error ? err.message : String(err) });
+    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }
 });
 
@@ -959,6 +1014,7 @@ function isLoopbackHost(host: string): boolean {
 app.use((req, res) => {
   res.status(404).json({
     success: false,
+    errorCode: 'route.not-found' satisfies ErrorCode,
     code: 'NOT_FOUND',
     error: `No route for ${req.method} ${req.path}`,
   });

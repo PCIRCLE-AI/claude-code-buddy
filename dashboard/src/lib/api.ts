@@ -92,7 +92,21 @@ export async function api<T = any>(method: string, path: string, body?: any): Pr
     }
     if (!res.ok) throw new HttpError(res.status);
     const json = await res.json();
-    if (!json.success) throw new Error(json.error || t('errors.unknown'));
+    if (!json.success) {
+      // Server error envelopes carry a stable machine `errorCode` next to
+      // the English `error` prose (see API_REFERENCE → "Stable error
+      // codes"). Prefer the translated message for a KNOWN code; fall back
+      // to the raw server prose for unknown codes. Miss-detection is the
+      // sanctioned `translated === key` check — t() returns the key itself
+      // for uncatalogued keys, and `|| fallback` would hide a real (but
+      // empty) translation the same way it hides absence.
+      if (typeof json.errorCode === 'string' && json.errorCode) {
+        const key = `httpError.${json.errorCode}`;
+        const translated = t(key);
+        if (translated !== key) throw new Error(translated);
+      }
+      throw new Error(json.error || t('errors.unknown'));
+    }
     return json.data as T;
   } catch (err: any) {
     if (err.name === 'AbortError') throw new NetworkError(t('errors.timeout'));
@@ -176,6 +190,12 @@ export interface ConfigData {
     autoUpdate?: AutoUpdatePolicy;
     /** Opt-in for the experimental agentic-orchestration protocol. */
     enableAgenticOrchestration?: boolean;
+    /**
+     * Output language for LLM-generated content (dreamer digests, patterns,
+     * lessons). Free-form — the Settings language selector posts the locale's
+     * display name so generated memories follow the UI language.
+     */
+    language?: string;
   };
   capabilities: { searchLevel: number; llm?: LlmConfig; embeddings: string };
 }
@@ -183,6 +203,12 @@ export interface ConfigData {
 export interface ConfigTestResult {
   valid: boolean;
   error?: string;
+  /**
+   * Stable machine code when valid=false: 'auth' | 'network' | 'no_models'
+   * | 'bad_host' | 'http_<status>' | 'unknown'. The dashboard translates
+   * known codes (settings.testError.*) and keeps `error` as the detail.
+   */
+  errorCode?: string;
   models?: Array<{ id: string; created?: string }>;
   suggested?: string;
 }

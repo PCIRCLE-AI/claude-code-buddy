@@ -19,9 +19,48 @@ export interface ModelInfo {
 export interface ValidationResult {
   valid: boolean;
   error?: string;
+  /**
+   * Stable machine code accompanying `error` (present whenever valid=false).
+   * The `error` string is English prose for humans and may be reworded; the
+   * code is what the dashboard translates and scripts branch on:
+   *   'auth'          — key empty / rejected (401/403)
+   *   'network'       — DNS / connection refused / timeout / abort
+   *   'no_models'     — provider answered but returned zero usable models
+   *   'bad_host'      — caller-supplied Ollama host rejected (non-loopback)
+   *   'http_<status>' — any other upstream HTTP status (e.g. 'http_429')
+   *   'unknown'       — unclassified
+   * Documented in docs/api/API_REFERENCE.md → POST /v1/config/test.
+   */
+  errorCode?: string;
   models?: ModelInfo[];
   /** Recommended default — the smallest/cheapest model suitable for short prompts. */
   suggested?: string;
+}
+
+/**
+ * Error carrying the stable probe code from the point where the HTTP status
+ * is still known — by the time the message reaches the probe's catch block
+ * it is prose, and re-deriving the class from prose is the regex-on-English
+ * anti-pattern this field exists to remove.
+ */
+class ProbeError extends Error {
+  constructor(message: string, readonly errorCode: string) {
+    super(message);
+    this.name = 'ProbeError';
+  }
+}
+
+function codeForStatus(status: number): string {
+  if (status === 401 || status === 403) return 'auth';
+  return `http_${status}`;
+}
+
+/** Map a thrown probe failure to its stable code — see ValidationResult.errorCode. */
+function probeErrorCode(err: unknown): string {
+  if (err instanceof ProbeError) return err.errorCode;
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/(ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|fetch failed|abort)/i.test(msg)) return 'network';
+  return 'unknown';
 }
 
 const FETCH_TIMEOUT_MS = 8000;
@@ -102,7 +141,7 @@ async function fetchJson<T>(url: string, init: RequestInit): Promise<T> {
     const res = await fetch(url, { ...init, signal: ctrl.signal });
     if (!res.ok) {
       const body = await readBodyCapped(res).catch(() => '');
-      throw new Error(extractProviderError(res.status, body));
+      throw new ProbeError(extractProviderError(res.status, body), codeForStatus(res.status));
     }
     return (await res.json()) as T;
   } finally {
@@ -132,7 +171,7 @@ export function pickSuggestedModel(models: ModelInfo[]): string | undefined {
 }
 
 export async function probeAnthropic(apiKey: string): Promise<ValidationResult> {
-  if (!apiKey) return { valid: false, error: 'API key is empty' };
+  if (!apiKey) return { valid: false, error: 'API key is empty', errorCode: 'auth' };
   try {
     const data = await fetchJson<{ data: Array<{ id: string; created_at?: string }> }>(
       'https://api.anthropic.com/v1/models?limit=200',
@@ -155,16 +194,16 @@ export async function probeAnthropic(apiKey: string): Promise<ValidationResult> 
     // "answered with nothing" indistinguishable from "verified working" in
     // both `memesh doctor --probe` and the dashboard connection test.
     if (models.length === 0) {
-      return { valid: false, error: 'Anthropic answered, but returned no models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.' };
+      return { valid: false, error: 'Anthropic answered, but returned no models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.', errorCode: 'no_models' };
     }
     return { valid: true, models, suggested: pickSuggestedModel(models) };
   } catch (err) {
-    return { valid: false, error: err instanceof Error ? err.message : String(err) };
+    return { valid: false, error: err instanceof Error ? err.message : String(err), errorCode: probeErrorCode(err) };
   }
 }
 
 export async function probeOpenAI(apiKey: string): Promise<ValidationResult> {
-  if (!apiKey) return { valid: false, error: 'API key is empty' };
+  if (!apiKey) return { valid: false, error: 'API key is empty', errorCode: 'auth' };
   try {
     const data = await fetchJson<{ data: Array<{ id: string; created?: number }> }>(
       'https://api.openai.com/v1/models',
@@ -186,11 +225,11 @@ export async function probeOpenAI(apiKey: string): Promise<ValidationResult> {
     // Same rule as the Anthropic and Ollama probes: zero models back is not a
     // verified provider, whatever the status code said.
     if (models.length === 0) {
-      return { valid: false, error: 'OpenAI answered, but returned no chat-capable models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.' };
+      return { valid: false, error: 'OpenAI answered, but returned no chat-capable models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.', errorCode: 'no_models' };
     }
     return { valid: true, models, suggested: pickSuggestedModel(models) };
   } catch (err) {
-    return { valid: false, error: err instanceof Error ? err.message : String(err) };
+    return { valid: false, error: err instanceof Error ? err.message : String(err), errorCode: probeErrorCode(err) };
   }
 }
 
@@ -222,6 +261,7 @@ export async function probeOllama(host?: string): Promise<ValidationResult> {
     return {
       valid: false,
       error: `Ollama host must be loopback (localhost / 127.0.0.1). For non-local Ollama, set the OLLAMA_HOST environment variable on the server.`,
+      errorCode: 'bad_host',
     };
   }
   const base = requestedBase;
@@ -238,15 +278,16 @@ export async function probeOllama(host?: string): Promise<ValidationResult> {
       return {
         valid: false,
         error: `Ollama is reachable at ${base} but has no models installed. Run \`ollama pull <model>\` first.`,
+        errorCode: 'no_models',
       };
     }
     return { valid: true, models, suggested: pickSuggestedModel(models) };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('ECONNREFUSED') || msg.includes('fetch failed')) {
-      return { valid: false, error: `Ollama not reachable at ${base}. Is it installed and running?` };
+      return { valid: false, error: `Ollama not reachable at ${base}. Is it installed and running?`, errorCode: 'network' };
     }
-    return { valid: false, error: msg };
+    return { valid: false, error: msg, errorCode: probeErrorCode(err) };
   }
 }
 
@@ -258,5 +299,5 @@ export async function probeProvider(
   if (provider === 'anthropic') return probeAnthropic(apiKey ?? '');
   if (provider === 'openai') return probeOpenAI(apiKey ?? '');
   if (provider === 'ollama') return probeOllama(host);
-  return { valid: false, error: `Unknown provider: ${provider}` };
+  return { valid: false, error: `Unknown provider: ${provider}`, errorCode: 'unknown' };
 }

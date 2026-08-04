@@ -316,6 +316,30 @@ describe('dashboard i18n', () => {
     it('covers every age bucket', () => {
       expectAllPresent(['week', 'month', 'quarter', 'older'].map((b) => `ageMatrix.bucket.${b}`));
     });
+
+    // lib/api.ts: t(`httpError.${errorCode}`) — codes come from the server's
+    // ErrorCode union in src/transports/http/server.ts, parsed here so a new
+    // server code fails this test until its translation lands. (api.ts falls
+    // back to the raw English prose for unknown codes, so a miss degrades,
+    // not crashes — but a KNOWN code must never ship untranslated.)
+    it('covers every HTTP errorCode the server can emit', () => {
+      // Strip line comments first — each union member is annotated with one.
+      const serverSrc = readFileSync('src/transports/http/server.ts', 'utf8').replace(/\/\/[^\n]*/g, '');
+      const unionMatch = serverSrc.match(/type ErrorCode =([\s\S]*?);/);
+      expect(unionMatch, 'server.ts stopped declaring the ErrorCode union').not.toBeNull();
+      const codes = [...unionMatch![1].matchAll(/\|\s*'([\w.-]+)'/g)].map((m) => m[1]);
+      expect(codes.length).toBeGreaterThanOrEqual(12);
+      expectAllPresent(codes.map((c) => `httpError.${c}`));
+    });
+
+    // SettingsTab: t(`settings.testError.${code}`) — the probe codes the
+    // llm-validator attaches to POST /v1/config/test failures. `http_<status>`
+    // is a family; it is translated through the single parameterised
+    // settings.testError.http entry.
+    it('covers every config-test probe code', () => {
+      expectAllPresent(['auth', 'network', 'no_models', 'bad_host', 'unknown'].map((c) => `settings.testError.${c}`));
+      expectAllPresent(['settings.testError.http']);
+    });
   });
 
   // Doctor messages reach the dashboard as server data, so the static-key

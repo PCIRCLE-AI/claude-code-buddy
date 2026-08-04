@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // Control what the LLM "returns" so we can drive the two silent paths the
 // fake-working audit flagged: (1) the call throws, (2) the call succeeds but
@@ -100,6 +103,35 @@ describe('Failure Analyzer', () => {
     const mod = await import('../../src/core/failure-analyzer.js');
     expect(mod.analyzeFailure).toBeDefined();
     expect(mod.parseLesson).toBeDefined();
+  });
+
+  it('appends the output-language instruction when config.language is set (lessons localise)', async () => {
+    // Same contract as the dreamer prompts: prose fields (error/rootCause/
+    // fix/prevention) follow config.language; the errorPattern/fixPattern/
+    // severity ENUMS stay English — parseLesson whitelists the English
+    // values and a translated enum silently degrades to 'other'/'minor'.
+    const tmp = mkdtempSync(join(tmpdir(), 'memesh-fa-lang-'));
+    const prevDir = process.env.MEMESH_DIR;
+    process.env.MEMESH_DIR = tmp;
+    writeFileSync(join(tmp, 'config.json'), JSON.stringify({ language: '繁體中文' }));
+    try {
+      const { analyzeFailure } = await import('../../src/core/failure-analyzer.js');
+      callLLMMock.mockReset();
+      let prompt = '';
+      callLLMMock.mockImplementation((p: string) => { prompt = p; return Promise.resolve('not-json'); });
+
+      await analyzeFailure(['Error X'], ['file.ts'], { provider: 'anthropic' });
+
+      expect(prompt, 'the LLM was never called — this test proves nothing').not.toBe('');
+      expect(prompt).toContain('Write all human-readable output text');
+      expect(prompt).toContain('in 繁體中文');
+      expect(prompt, 'enum whitelist must survive next to the language instruction')
+        .toContain('critical | major | minor');
+    } finally {
+      if (prevDir === undefined) delete process.env.MEMESH_DIR;
+      else process.env.MEMESH_DIR = prevDir;
+      rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
   });
 });
 

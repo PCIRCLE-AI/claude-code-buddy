@@ -581,7 +581,28 @@ The limit protects the server from accidentally parsing large payloads (e.g. an 
 | GET | /v1/projects | Distinct projects from `project:*` tags and name-prefix heuristics, with per-project counts |
 | GET | /dashboard | Interactive web dashboard (HTML) |
 
-All responses: `{ success: true, data: ... }` or `{ success: false, error: "..." }`
+All responses: `{ success: true, data: ... }` or `{ success: false, errorCode: "...", error: "..." }`
+
+### Stable error codes
+
+Every `success: false` envelope carries a machine-readable `errorCode` **alongside** the human `error` string. The `error` text is English prose and may be reworded in any release; `errorCode` is the stable contract — clients (the dashboard translates known codes into the UI locale) should branch on it instead of matching English sentences. Removing or renaming a code is a breaking change; adding one is not.
+
+| `errorCode` | HTTP status | Meaning |
+|---|---|---|
+| `auth.missing-bearer` | 401 | No (or blank) `Authorization: Bearer <token>` header on a remote-bound listener |
+| `auth.invalid-token` | 401 | A bearer token was presented but did not match |
+| `auth.not-configured` | 503 | Remote listener is up but no token was provisioned (server misconfiguration) |
+| `validation.bad-body` | 400 | Request body missing, not valid JSON, or failed schema validation |
+| `validation.bad-param` | 400 | A path or query parameter is invalid |
+| `route.retired` | 410 | Endpoint retired on purpose; the `error` text names the replacement |
+| `route.not-found` | 404 | No such route (the legacy `code: "NOT_FOUND"` field is also kept) |
+| `resource.not-found` | 404 | Route exists, but the named entity / proposal does not |
+| `payload.too-large` | 413 | Body exceeds the 1 MB limit (the legacy `code: "PAYLOAD_TOO_LARGE"` field is also kept) |
+| `operation.failed` | 400 | The request was well-formed but the operation itself rejected it |
+| `llm.not-configured` | 400 | The endpoint needs Smart Mode and no LLM provider is configured |
+| `server.internal` | 500/503 | Unexpected server-side failure |
+
+`POST /v1/config/test` is the one surface whose failures travel *inside* a `success: true` envelope (the probe outcome is data, not a transport error); its stable codes are documented with that endpoint below.
 
 ### GET /v1/config
 
@@ -646,7 +667,9 @@ Use `?cached=1` to read the cached state only. Without it, MeMesh prefers a fres
 
 Save a partial config update. Fields not provided are preserved.
 
-**Request body**: Any subset of `MeMeshConfig` fields (`theme`, `autoCapture`, `sessionLimit`, `llm`, etc.)
+**Request body**: Any subset of `MeMeshConfig` fields (`llm`, `llmFallbacks`, `autoCapture`, `sessionLimit`, `enableAgenticOrchestration`, `autoUpdate`, `language`, `setupCompleted`)
+
+`language` sets the output language for LLM-generated *content* — dreamer digests, emergent patterns, lessons, digest-validator reasons. It is free-form (a locale code like `zh-TW` or a language name like `繁體中文`, max 60 chars) because it becomes a prompt instruction, not a parsed locale. Unset means English. It is deliberately separate from the dashboard's own locale (stored client-side in the browser): that setting translates the UI chrome, this one decides what language generated memories are written in. Machine identifiers (entity type slugs, tags, category enums) stay English regardless. CLI equivalent: `memesh config set language zh-TW` / `memesh config unset language`.
 
 **Response**: `{ success: true, data: <updated config> }` (API key masked if present)
 
@@ -829,7 +852,16 @@ Probes the provider's `/v1/models` endpoint with the supplied `apiKey` (or local
 }
 ```
 
-On failure: `{ valid: false, error: "<provider message>" }`. The endpoint always returns HTTP 200 with `success:true` even when `valid:false` — the boolean is the contract, not the HTTP status.
+On failure: `{ valid: false, error: "<provider message>", errorCode: "<stable code>" }`. The endpoint always returns HTTP 200 with `success:true` even when `valid:false` — the boolean is the contract, not the HTTP status. `error` is the human message (English, may be reworded); `errorCode` is the stable machine code:
+
+| `errorCode` | Meaning |
+|---|---|
+| `auth` | API key empty or rejected by the provider (401/403) |
+| `network` | DNS failure, connection refused/reset, timeout, or abort |
+| `no_models` | Provider answered but returned zero usable models (proxy/gateway interception, or a bare Ollama with nothing pulled) |
+| `bad_host` | Caller-supplied Ollama host rejected (must be loopback; use the server-side `OLLAMA_HOST` env for remote Ollama) |
+| `http_<status>` | Any other upstream HTTP status, e.g. `http_429` for rate limiting |
+| `unknown` | Unclassified failure |
 
 The `suggested` model picks the first entry whose id contains a small-tier hint (`mini`, `nano`, `haiku`, `flash`, `lite`, `small`, `8b`, `7b`, `3b`), preferring the most recently `created`. Falls back to the first entry when no hint matches.
 

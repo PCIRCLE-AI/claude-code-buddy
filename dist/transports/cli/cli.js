@@ -8,6 +8,7 @@ import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexR
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { verifyAgentWork } from '../../core/verifier.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
+import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
 import { getDbPath } from '../../core/paths.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 async function withDatabase(fn) {
@@ -394,9 +395,17 @@ const ALLOWED_KEYS = new Set([
     'enableAgenticOrchestration',
     'autoCapture',
     'llmFallbacks',
+    'language',
 ]);
 const KEY_VALIDATORS = {
     'llm.provider': (v) => ['anthropic', 'openai', 'ollama'].includes(v) ? null : `must be one of: anthropic, openai, ollama`,
+    'language': (v) => {
+        if (v.trim().length === 0)
+            return 'must not be blank — use `memesh config unset language` to clear it';
+        if (v.length > MAX_LANGUAGE_LENGTH)
+            return `must be ${MAX_LANGUAGE_LENGTH} characters or fewer (a language name or locale code)`;
+        return languageValueError(v);
+    },
     'embedder.provider': (v) => ['onnx', 'openai', 'ollama'].includes(v) ? null : `must be one of: onnx, openai, ollama`,
     'autoUpdate': (v) => ['off', 'patch', 'minor', 'major'].includes(v) ? null : `must be one of: off, patch, minor, major`,
     'llmFallbacks': (v) => {
@@ -986,7 +995,9 @@ dreamCmd
         console.log('');
         for (const p of proposals) {
             console.log(`  #${p.id}  [${p.project}/${p.cluster_key}]  ${p.source_count} sources → "${p.digest_name}"`);
-            console.log(`         ${p.digest_observations_preview}`);
+            if (p.digest_observations_preview !== null) {
+                console.log(`         ${p.digest_observations_preview}`);
+            }
             console.log(`         created: ${p.created_at}`);
             console.log('');
         }

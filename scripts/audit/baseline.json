@@ -121,7 +121,7 @@
       "reason": "|| true inside an exact-match retry loop — absence retries then fails, never passes",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/config.ts:336": {
+    "C5 src/core/config.ts:353": {
       "class": "SAFE-GUARDED",
       "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
       "triaged": "2026-08-04"
@@ -146,12 +146,12 @@
       "reason": "verifySkillsManifest: entries ?? [] is followed by entries.length === 0 -> fail (skills-manifest.empty); the ?? cannot convert absence into a pass",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/dreamer.ts:668": {
+    "C5 src/core/dreamer.ts:669": {
       "class": "SAFE-GUARDED",
       "reason": "upstream filter requires non-empty arrays before these run",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/dreamer.ts:671": {
+    "C5 src/core/dreamer.ts:672": {
       "class": "SAFE-GUARDED",
       "reason": "upstream filter requires non-empty arrays before these run",
       "triaged": "2026-08-04"
@@ -191,17 +191,17 @@
       "reason": "chain identity; all-providers-failed still throws",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/llm-validator.ts:147": {
+    "C5 src/core/llm-validator.ts:186": {
       "class": "SAFE-GUARDED",
       "reason": "models.length === 0 now returns valid:false for all three providers (PR #112)",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/llm-validator.ts:180": {
+    "C5 src/core/llm-validator.ts:219": {
       "class": "SAFE-GUARDED",
       "reason": "models.length === 0 now returns valid:false for all three providers (PR #112)",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/llm-validator.ts:233": {
+    "C5 src/core/llm-validator.ts:273": {
       "class": "SAFE-GUARDED",
       "reason": "models.length === 0 now returns valid:false for all three providers (PR #112)",
       "triaged": "2026-08-04"
@@ -416,12 +416,12 @@
       "reason": "set -uo pipefail at file top preserves the left commands verdict",
       "triaged": "2026-08-04 (re-keyed: the mktemp-orphan fix shifted lines by five)"
     },
-    "C5 src/transports/http/server.ts:806": {
+    "C5 src/transports/http/server.ts:859": {
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
       "triaged": "2026-08-04 (re-keyed again: requireJsonBody extraction shifted lines)"
     },
-    "C5 src/transports/http/server.ts:869": {
+    "C5 src/transports/http/server.ts:924": {
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
       "triaged": "2026-08-04 (re-keyed again: requireJsonBody extraction shifted lines)"
