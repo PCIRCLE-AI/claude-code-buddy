@@ -121,16 +121,6 @@
       "reason": "|| true inside an exact-match retry loop — absence retries then fails, never passes",
       "triaged": "2026-08-04"
     },
-    "C4 scripts/release-verify.sh:135": {
-      "class": "SAFE",
-      "reason": "set -uo pipefail at file top preserves the left commands verdict",
-      "triaged": "2026-08-04"
-    },
-    "C4 scripts/release-verify.sh:178": {
-      "class": "SAFE",
-      "reason": "set -uo pipefail at file top preserves the left commands verdict",
-      "triaged": "2026-08-04"
-    },
     "C5 src/core/config.ts:336": {
       "class": "SAFE-GUARDED",
       "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
@@ -425,6 +415,21 @@
       "class": "SAFE-ACCUMULATOR/DISPLAY",
       "reason": "group-by identity or truthful zero-rows display",
       "triaged": "2026-08-04 (re-keyed twice: two warning inserts shifted lines)"
+    },
+    "C4 scripts/release-verify.sh:146": {
+      "class": "SAFE",
+      "reason": "set -uo pipefail at file top preserves the left commands verdict",
+      "triaged": "2026-08-04 (re-keyed: the suite-gate evidence fix shifted lines)"
+    },
+    "C4 scripts/release-verify.sh:189": {
+      "class": "SAFE",
+      "reason": "set -uo pipefail at file top preserves the left commands verdict",
+      "triaged": "2026-08-04 (re-keyed: the suite-gate evidence fix shifted lines)"
+    },
+    "C4 scripts/release-verify.sh:104": {
+      "class": "SAFE",
+      "reason": "display-only pipe: tail|sed formats the failure log AFTER the gate already returned 1 explicitly; no verdict flows through it",
+      "triaged": "2026-08-04"
     }
   }
 }
