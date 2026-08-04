@@ -52,6 +52,8 @@ program
         opts.type = 'note';
         if (!opts.obs || opts.obs.length === 0)
             opts.obs = [String(text)];
+        else
+            opts.obs = [...opts.obs, String(text)];
     }
     else if (text) {
         if (!opts.obs || opts.obs.length === 0)
@@ -125,9 +127,13 @@ program
                     : '';
                 console.log(`  ${e.name}${badge} (${e.type})${semantic}`);
                 for (const obs of e.observations.slice(0, 3)) {
-                    const shown = obs.length > 500
-                        ? `${obs.slice(0, 500)} … (+${obs.length - 500} more chars)`
-                        : obs;
+                    let shown = obs;
+                    if (obs.length > 500) {
+                        let head = obs.slice(0, 500);
+                        if (/[\uD800-\uDBFF]$/.test(head))
+                            head = head.slice(0, -1);
+                        shown = `${head} … (+${obs.length - head.length} more chars)`;
+                    }
                     console.log(`    - ${shown}`);
                 }
                 if (e.observations.length > 3) {

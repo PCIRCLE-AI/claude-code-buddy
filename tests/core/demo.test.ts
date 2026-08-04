@@ -92,16 +92,13 @@ describe('seedDemo', () => {
     const { seedDemo, DEMO_RELATIONS } = await import('../../src/core/demo.js');
     seedDemo(db);
     const edges = (db.prepare('SELECT COUNT(*) as c FROM relations').get() as { c: number }).c;
+    // A typo'd endpoint name in the fixture makes createRelation THROW (it
+    // resolves both names up front), so seedDemo itself fails loudly and the
+    // count assertion above never sees a short table. No dangling-row check
+    // here — the insert path makes that state unreachable, and a query for
+    // an unreachable state is a gate that cannot fail.
     expect(edges).toBe(DEMO_RELATIONS.length);
     expect(edges).toBeGreaterThanOrEqual(15);
-    // Every relation endpoint must be a seeded entity — a typo'd name in
-    // the fixture would silently drop the edge and re-orphan the cluster.
-    const dangling = (db.prepare(`
-      SELECT COUNT(*) as c FROM relations r
-      WHERE NOT EXISTS (SELECT 1 FROM entities e WHERE e.id = r.from_entity_id)
-         OR NOT EXISTS (SELECT 1 FROM entities e WHERE e.id = r.to_entity_id)
-    `).get() as { c: number }).c;
-    expect(dangling).toBe(0);
     // Idempotent re-run must not double the edges.
     seedDemo(db);
     const after = (db.prepare('SELECT COUNT(*) as c FROM relations').get() as { c: number }).c;

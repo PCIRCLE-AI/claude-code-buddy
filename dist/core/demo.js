@@ -92,9 +92,11 @@ export function seedDemo(db, opts = {}) {
         inserted++;
     }
     if (inserted > 0) {
-        for (const [from, type, to] of DEMO_RELATIONS) {
-            kg.createRelation(from, to, type);
-        }
+        db.transaction(() => {
+            for (const [from, type, to] of DEMO_RELATIONS) {
+                kg.createRelation(from, to, type);
+            }
+        })();
     }
     return { inserted, removed: 0 };
 }

@@ -83,7 +83,11 @@ program
       const suffix = randomBytes(3).toString('hex'); // 6 hex chars = 16M outcomes
       opts.name = `quick-${date}-${slug || 'note'}-${suffix}`;
       opts.type = 'note';
+      // Same rule as the flag form below: positional text is an observation,
+      // never dropped. Without the else, `remember "content" --obs "note"`
+      // discarded the content while naming the entity after it.
       if (!opts.obs || opts.obs.length === 0) opts.obs = [String(text)];
+      else opts.obs = [...opts.obs, String(text)];
     } else if (text) {
       // Positional text ALONGSIDE flags used to be dropped on the floor:
       // `memesh remember "the content" --name x --type note` reported
@@ -168,9 +172,14 @@ program
           for (const obs of e.observations.slice(0, 3)) {
             // Display cap only — storage is untouched. A single 324KB
             // observation used to flood the terminal on every hit.
-            const shown = obs.length > 500
-              ? `${obs.slice(0, 500)} … (+${obs.length - 500} more chars)`
-              : obs;
+            let shown = obs;
+            if (obs.length > 500) {
+              let head = obs.slice(0, 500);
+              // Don't cut a surrogate pair in half — a trailing lone high
+              // surrogate prints as a broken glyph.
+              if (/[\uD800-\uDBFF]$/.test(head)) head = head.slice(0, -1);
+              shown = `${head} … (+${obs.length - head.length} more chars)`;
+            }
             console.log(`    - ${shown}`);
           }
           if (e.observations.length > 3) {

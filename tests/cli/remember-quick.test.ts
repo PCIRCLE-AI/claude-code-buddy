@@ -53,6 +53,33 @@ describe('memesh remember CLI: quick-capture form', () => {
     expect(stdout).toContain('1 observations');
   }, 60_000);
 
+  it('quick-capture with --obs keeps BOTH the positional text and the flag observations', () => {
+    // Reviewer-caught variant of the P7 text-drop bug: with --obs but no
+    // --name/--type, the quick-capture branch used to discard the positional
+    // text while slugging the entity NAME from it — the entity looked like
+    // it captured the content when it stored only the --obs value.
+    const { stdout, stderr, exitCode } = runCli(
+      ['remember', 'the actual content', '--obs=explicit note'],
+      { HOME: tmpHome },
+    );
+    expect(exitCode, `stderr was: ${stderr}`).toBe(0);
+    expect(stdout).toMatch(/Stored "quick-\d{4}-\d{2}-\d{2}-the-actual-content-/);
+    expect(stdout).toContain('2 observations');
+
+    const recalled = runCli(['recall', 'actual content', '--json'], { HOME: tmpHome });
+    expect(recalled.stdout).toContain('the actual content');
+    expect(recalled.stdout).toContain('explicit note');
+  }, 60_000);
+
+  it('flag form with positional text keeps both too', () => {
+    const { stdout, stderr, exitCode } = runCli(
+      ['remember', 'positional content', '--name=combo-note', '--type=note', '--obs=flagged note'],
+      { HOME: tmpHome },
+    );
+    expect(exitCode, `stderr was: ${stderr}`).toBe(0);
+    expect(stdout).toContain('2 observations');
+  }, 60_000);
+
   it('still accepts the explicit --name/--type form', () => {
     const { exitCode } = runCli(
       ['remember', '--name=auth-decision', '--type=decision', '--obs=Use OAuth 2.0'],

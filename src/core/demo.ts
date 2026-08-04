@@ -193,10 +193,14 @@ export function seedDemo(
 
   // Edges only when this run actually inserted the tour (idempotent re-runs
   // skip; INSERT OR IGNORE in createRelation makes the edges idempotent too).
+  // Transactional like the --reset path: a bad fixture entry should leave
+  // zero edges, not a partial graph.
   if (inserted > 0) {
-    for (const [from, type, to] of DEMO_RELATIONS) {
-      kg.createRelation(from, to, type);
-    }
+    db.transaction(() => {
+      for (const [from, type, to] of DEMO_RELATIONS) {
+        kg.createRelation(from, to, type);
+      }
+    })();
   }
   return { inserted, removed: 0 };
 }
