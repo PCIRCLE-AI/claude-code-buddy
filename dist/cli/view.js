@@ -208,7 +208,7 @@ ${bundledD3}
 <body>
 <div class="container">
   <h1>MeMesh LLM Memory</h1>
-  <p style="font-size:12px;color:#8b949e;margin-bottom:20px;">powered by pcircle.ai</p>
+  <p style="font-size:12px;color:#8b949e;margin-bottom:20px;">powered by pcircle.com</p>
 
   <div class="stats" id="stats"></div>
 

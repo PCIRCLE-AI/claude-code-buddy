@@ -52,6 +52,27 @@ describe('Feature: Post-Commit Hook', () => {
     return new Database(dbPath, { readonly: true });
   }
 
+  it('Scenario: a repo FIRST commit (root-commit note) -> entity created', () => {
+    // git prints `[master (root-commit) 32e98b8] ...` for the first commit of
+    // every repository, and the old pattern required branch-then-hash with
+    // nothing between — so no repo's first commit was ever remembered, with
+    // zero trace. Measured live in the P7 audit.
+    const input = {
+      tool_name: 'Bash',
+      cwd: '/tmp/myproject',
+      tool_input: { command: 'git commit -m "feat(auth): add PKCE flow"' },
+      tool_output: '[master (root-commit) 32e98b8] feat(auth): add PKCE flow\n 2 files changed, 40 insertions(+)',
+    };
+
+    runHook(input);
+
+    const db = openDb();
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-32e98b8') as Row;
+    db.close();
+    expect(entity, 'the first commit of a repository must be remembered like any other').toBeTruthy();
+    expect(entity.type).toBe('commit');
+  });
+
   it('Scenario: Bash output with git commit -> entity created', () => {
     const input = {
       tool_name: 'Bash',

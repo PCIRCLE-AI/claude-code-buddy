@@ -2,6 +2,81 @@
 
 All notable changes to MeMesh are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- **The first-use audit: four agents executed every shipped surface of
+  v4.3.0** — all 32 CLI leaf commands, all 30 HTTP routes plus the dashboard,
+  all 7 hooks, all 8 MCP tools; 152 scenarios, each asked the same three
+  questions (does first use get stuck? what does an error show? can the user
+  fix it from the message alone?). What follows is what failed those
+  questions and how each failure now dies.
+
+- **The 90MB silence**: the first semantic search downloads the local ONNX
+  model in the foreground, and it used to do so in TOTAL silence — measured
+  13-14 seconds of apparent hang on a fast link, minutes on a slow one, with
+  no way to tell a download from a deadlock. One stderr line now says what
+  is happening and that it is one-time.
+
+- **A malformed JSON body answered with Express's HTML error page** — full
+  stack trace, this machine's absolute paths — served to remote callers
+  under `--allow-remote`. Now a 400 JSON like every other /v1 error. A wrong
+  `Content-Type` also now names the HEADER as the problem instead of Zod's
+  "expected object, received undefined", which sent users off to fix a body
+  that was never the issue.
+
+- **`--allow-remote`'s help said "(no auth layer is added)" — the exact
+  opposite of the code**, which generates a bearer token and enforces it on
+  every /v1 request. `memesh serve` also never mentioned `/dashboard`; both
+  startup lines now print it.
+
+- **Three commands let a caller mistake escape as a raw stack trace**:
+  `dream accept`/`reject` with a wrong id (the most common slip in the
+  review flow) and `verify` with a bad workdir. Each now prints the
+  message the throw already carried, plus the next step, with the
+  documented exit code (1 / 1 / 2-unverified). `pin` of a nonexistent
+  entity also now exits 1 — a protection that silently did not happen was
+  invisible to scripts.
+
+- **`dream` was the one surface that ignored environment API keys**:
+  `status` and `doctor` count an env `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`
+  as Smart Mode, but `dream run`/`patterns` read only the config file — the
+  same machine said "Smart Mode" and "No LLM configured" in consecutive
+  commands. Both gates now use `detectCapabilities()` like everything else,
+  and `dream patterns` gained the fix-command hint `dream run` already had.
+
+- **`post-commit` never remembered the first commit of any repository**:
+  git prints `[master (root-commit) abc1234]` for a repo's first commit and
+  the extraction pattern required branch-then-hash with nothing between —
+  a silent, traceless miss. The pattern now tolerates the parenthesised
+  note, and a `git show` failure no longer leaks a raw `fatal: not a git
+  repository` to stderr.
+
+- **`pre-compact` fabricated a memory out of a non-event**: a payload with
+  neither session id nor transcript wrote a junk entity whose only content
+  was "Compaction reason: auto", answered "Saved 2 observations to MeMesh"
+  — and that junk surfaced in the NEXT session's context as a recent
+  memory. Not-an-event now writes nothing and claims nothing. A session
+  with a real id but no transcript still records; that contract is pinned
+  by its own test.
+
+- **`session-start`'s glitch banner read like a catastrophe** ("Session
+  start failed") for what is a skipped context injection; it now says
+  memories were not loaded this session and that everything else works.
+
+- **MCP `verify_agent_work` corrections**: `claim.expected_files` reads as
+  a file list but is a COUNT — its description now says so (the audit's
+  own LLM client tripped on it first try); the mismatch verdict now states
+  that only committed changes are counted, because an agent with real but
+  uncommitted work used to be told "reality MISMATCH: claimed 2, actual 0"
+  with no hint why.
+
+- Re-classified during the audit, recorded so it is not re-flagged:
+  `POST /v1/recall {}` returning entities is the documented list-recent
+  mode (its test pins it), not a silent failure — the API reference now
+  says so where the route is listed.
+
 ## [4.3.0] — 2026-08-04
 
 ### Added

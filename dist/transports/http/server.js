@@ -127,6 +127,14 @@ function payloadTooLargeHandler(err, _req, res, next) {
     if (!err || typeof err !== 'object')
         return next(err);
     const e = err;
+    if (e.type === 'entity.parse.failed' || (err instanceof SyntaxError && (e.status === 400 || e.statusCode === 400))) {
+        res.status(400).json({
+            success: false,
+            error: 'Request body is not valid JSON.',
+            hint: 'Send a JSON object with Content-Type: application/json.',
+        });
+        return;
+    }
     const isTooLarge = e.type === 'entity.too.large' || e.status === 413 || e.statusCode === 413;
     if (!isTooLarge)
         return next(err);
@@ -205,6 +213,14 @@ app.get('/v1/doctor', async (_req, res) => {
     }
 });
 function handlePost(schema, req, res, handler) {
+    if (req.body === undefined) {
+        res.status(400).json({
+            success: false,
+            error: 'No JSON body was parsed from this request.',
+            hint: 'Send the payload with Content-Type: application/json.',
+        });
+        return;
+    }
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({
@@ -672,9 +688,11 @@ export function startServer(host = HOST, port = PORT, opts) {
         const addr = server.address();
         if (addr && typeof addr === 'object') {
             console.log(`MeMesh HTTP server running at http://${addr.address}:${addr.port}`);
+            console.log(`MeMesh dashboard: http://${addr.address}:${addr.port}/dashboard`);
         }
         else {
             console.log(`MeMesh HTTP server running at http://${host}:${port}`);
+            console.log(`MeMesh dashboard: http://${host}:${port}/dashboard`);
         }
     });
     serverAuthRequired.set(server, isRemote);

@@ -43,8 +43,11 @@ process.stdin.on('end', () => {
     }
 
     // Detect git commit in output
-    // Pattern: [branch hash] commit message
-    const commitMatch = toolOutput.match(/\[[\w/.-]+ ([a-f0-9]{7,})\] (.+)/);
+    // Pattern: [branch hash] commit message — with an optional parenthesised
+    // note between branch and hash: git prints `[master (root-commit) 32e98b8]`
+    // for a repo's FIRST commit, and the old pattern silently skipped exactly
+    // that one, so no repository's first commit was ever remembered.
+    const commitMatch = toolOutput.match(/\[[\w/.-]+(?: \([\w -]+\))? ([a-f0-9]{7,})\] (.+)/);
     if (!commitMatch) return exit0();
 
     const branchMatch = commitMatch[0].match(/^\[([^\s]+)\s/);
@@ -85,6 +88,9 @@ process.stdin.on('end', () => {
           cwd: data.cwd || process.cwd(),
           encoding: 'utf8',
           timeout: 5000,
+          // stderr captured, not inherited: outside a repo this used to leak
+          // a raw `fatal: not a git repository` into the hook's own stderr.
+          stdio: ['ignore', 'pipe', 'pipe'],
         }).trim();
         if (stat) {
           // Last non-empty line is the summary, e.g. "3 files changed, 45 insertions(+), 12 deletions(-)"

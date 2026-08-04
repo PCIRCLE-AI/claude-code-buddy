@@ -225,6 +225,9 @@ async function getOnnxPipeline() {
                 env.cacheDir = onnxCacheDir();
                 env.allowLocalModels = true;
             }
+            if (!isOnnxModelCached()) {
+                console.error(`[memesh] downloading the local search model (~90 MB, one time) — first search will take a moment...`);
+            }
             onnxPipelineInstance = await createPipeline('feature-extraction', ONNX_MODEL_ID);
             return onnxPipelineInstance;
         }

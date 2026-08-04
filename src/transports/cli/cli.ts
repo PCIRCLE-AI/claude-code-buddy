@@ -210,6 +210,9 @@ function registerPinCommand(name: string, description: string, pinned: boolean, 
         const result = setPinned(opts.name, pinned);
         if (opts.json) console.log(JSON.stringify(result));
         else console.log(result.found ? onFound(opts.name) : `Entity "${opts.name}" not found`);
+        // A pin that pinned nothing exiting 0 is invisible to scripts — the
+        // protection the user asked for silently does not exist.
+        if (!result.found) process.exitCode = 1;
       });
     });
 }
@@ -379,18 +382,28 @@ program
   .option('--json', 'Output as JSON')
   .action(async (workdir, opts) => {
     await withDatabase(() => {
+      // A bad workdir or unreadable report is a CALLER mistake: nothing was
+      // checked, which is exactly what exit 2 means. It used to escape as a
+      // raw stack trace with an ENOENT cause chain.
       let externalReport;
-      if (opts.report) {
-        const raw = fs.readFileSync(opts.report, 'utf8');
-        externalReport = JSON.parse(raw);
+      let result;
+      try {
+        if (opts.report) {
+          const raw = fs.readFileSync(opts.report, 'utf8');
+          externalReport = JSON.parse(raw);
+        }
+        result = verifyAgentWork({
+          agent_id: opts.agentId,
+          workdir: path.resolve(workdir),
+          base: opts.base,
+          claim: opts.expectedFiles != null ? { expected_files: opts.expectedFiles } : undefined,
+          report: externalReport,
+        });
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        console.error('Nothing was checked (exit 2 = unverified).');
+        process.exit(2);
       }
-      const result = verifyAgentWork({
-        agent_id: opts.agentId,
-        workdir: path.resolve(workdir),
-        base: opts.base,
-        claim: opts.expectedFiles != null ? { expected_files: opts.expectedFiles } : undefined,
-        report: externalReport,
-      });
       if (opts.json) {
         console.log(JSON.stringify(result, null, 2));
       } else {
@@ -676,7 +689,7 @@ program
   .description('Start HTTP API server')
   .option('--port <port>', 'Port number', '3737')
   .option('--host <host>', 'Host to bind', '127.0.0.1')
-  .option('--allow-remote', 'Allow binding to non-loopback hosts (no auth layer is added)')
+  .option('--allow-remote', 'Allow binding to non-loopback hosts. A bearer token is generated and REQUIRED for every /v1 request — the startup output shows where it lives and how to rotate it.')
   .action(async (opts) => {
     const { startServer } = await import('../http/server.js');
     startServer(opts.host, parseInt(opts.port, 10), { allowRemote: opts.allowRemote });
@@ -1010,15 +1023,21 @@ dreamCmd
   .action(async (opts) => {
     await withDatabase(async () => {
       const { runDreamer } = await import('../../core/dreamer.js');
-      const { readConfig } = await import('../../core/config.js');
       const { getDatabase } = await import('../../db.js');
+      // Fallback chain still comes from the config file — there is no env
+      // shape for it; only the PRIMARY provider is env-detectable.
       const cfg = readConfig();
-      if (!cfg.llm) {
-        console.error('No LLM configured. Run `memesh config set llm.provider <anthropic|openai|ollama>` first.');
+      // detectCapabilities, not readConfig: `status` and `doctor` count an
+      // env-var API key as Smart Mode, and this gate reading only the config
+      // file made the same machine say "Smart Mode" and "No LLM configured"
+      // in consecutive commands.
+      const llm = detectCapabilities().llm;
+      if (!llm) {
+        console.error('No LLM configured. Run `memesh config set llm.provider <anthropic|openai|ollama>` first (or set ANTHROPIC_API_KEY / OPENAI_API_KEY).');
         console.error('LLM is required for `memesh dream` because consolidation is a semantic decision, not a rule.');
         process.exit(1);
       }
-      const result = await runDreamer(getDatabase(), cfg.llm, {
+      const result = await runDreamer(getDatabase(), llm, {
         project: opts.project,
         dryRun: !!opts.dryRun,
         maxLlmCalls: opts.maxLlmCalls,
@@ -1064,14 +1083,15 @@ dreamCmd
   .action(async (opts) => {
     await withDatabase(async () => {
       const { runPatternDetector } = await import('../../core/dreamer.js');
-      const { readConfig } = await import('../../core/config.js');
       const { getDatabase } = await import('../../db.js');
       const cfg = readConfig();
-      if (!cfg.llm) {
+      const llm = detectCapabilities().llm;
+      if (!llm) {
         console.error('No LLM configured. Pattern detection requires an LLM.');
+        console.error('Run `memesh config set llm.provider <anthropic|openai|ollama>` first (or set ANTHROPIC_API_KEY / OPENAI_API_KEY).');
         process.exit(1);
       }
-      const result = await runPatternDetector(getDatabase(), cfg.llm, {
+      const result = await runPatternDetector(getDatabase(), llm, {
         project: opts.project,
         dryRun: !!opts.dryRun,
         maxLlmCalls: opts.maxLlmCalls,
@@ -1135,7 +1155,16 @@ dreamCmd
       const { getDatabase } = await import('../../db.js');
       const { KnowledgeGraph } = await import('../../knowledge-graph.js');
       const kg = new KnowledgeGraph(getDatabase());
-      const result = applyProposal(getDatabase(), parseInt(id, 10), kg);
+      // A wrong id is the most common slip in the review flow; it used to
+      // print the throw as a raw stack trace. The message alone is enough.
+      let result;
+      try {
+        result = applyProposal(getDatabase(), parseInt(id, 10), kg);
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        console.error('See pending ids with: memesh dream list');
+        process.exit(1);
+      }
       console.log(`Applied proposal #${result.proposalId}`);
       console.log(`  digest entity: ${result.digestEntityName}`);
       console.log(`  sources archived: ${result.sourcesArchived}`);
@@ -1150,7 +1179,13 @@ dreamCmd
     await withDatabase(async () => {
       const { rejectProposal } = await import('../../core/dreamer.js');
       const { getDatabase } = await import('../../db.js');
-      rejectProposal(getDatabase(), parseInt(id, 10), opts.reason);
+      try {
+        rejectProposal(getDatabase(), parseInt(id, 10), opts.reason);
+      } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        console.error('See pending ids with: memesh dream list');
+        process.exit(1);
+      }
       console.log(`Rejected proposal #${id}`);
     });
   });

@@ -542,7 +542,7 @@ The limit protects the server from accidentally parsing large payloads (e.g. an 
 | GET | /v1/health | Health check + version + entity count |
 | GET | /v1/doctor | Run the full doctor check suite; secrets in the result are redacted before the response leaves the server |
 | POST | /v1/remember | Store knowledge |
-| POST | /v1/recall | Search knowledge |
+| POST | /v1/recall | Search knowledge; with neither `query` nor `tag` it lists recent entities |
 | POST | /v1/forget | Archive or remove observation |
 | POST | /v1/consolidate | **Retired** — answers `410 Gone`. Use `POST /v1/dream/run`. |
 | POST | /v1/export | Export memories as JSON bundle |

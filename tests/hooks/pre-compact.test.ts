@@ -80,6 +80,19 @@ describe('Feature: PreCompact Hook', () => {
     expect(stderr).toContain('unreadable');
   });
 
+  it('Scenario: payload with neither session_id nor transcript -> no entity, no "Saved" claim', () => {
+    // `{"foo":1}` used to write a junk entity whose only content was
+    // "Compaction reason: auto", answer "Saved 2 observations to MeMesh",
+    // and that junk then surfaced in the NEXT session's context as a recent
+    // memory. Not-an-event must mean no write and no claim of one.
+    const result = runHook({ foo: 1 });
+    expect(result.trim(), 'no output — nothing was saved, nothing may claim to be').toBe('');
+
+    // The strongest possible form of "no entity": the database file was
+    // never even created, because the hook skipped before touching it.
+    expect(fs.existsSync(dbPath), 'no database may be created for a non-event').toBe(false);
+  });
+
   it('Scenario: Basic pre-compact event -> entity created with correct type and tags', () => {
     const input = {
       session_id: 'sess-abc123',

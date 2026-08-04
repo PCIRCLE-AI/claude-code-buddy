@@ -30,6 +30,10 @@ export const RecallSchema = z.object({
   namespace: z.enum(['personal', 'team', 'global']).optional(),
   cross_project: z.boolean().optional(),
 });
+// Deliberately NO refine requiring query/tag: `{}` is the documented
+// list-recent mode (tests/transports/http.test.ts pins it). The P7 audit
+// initially read the empty-DB `[]` answer as a silent failure; it is the
+// list mode listing an empty database.
 
 export const ForgetSchema = z.object({
   name: nameField,

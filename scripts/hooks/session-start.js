@@ -921,7 +921,7 @@ process.stdin.on('end', async () => {
       // Hooks must never crash Claude Code — but report honestly.
       // Inner catch so the outer finally can still run the post-
       // banner update tasks even when the recall flow blew up.
-      console.log(JSON.stringify({ systemMessage: `MeMesh: Session start failed (${err?.message || 'unknown error'}). Memories not loaded.` }));
+      console.log(JSON.stringify({ systemMessage: `MeMesh: memories not loaded this session (${err?.message || 'unknown error'}) — everything else works; run \`memesh doctor\` if this repeats.` }));
     }
   } finally {
     // ── Auto-update + cache refresh ──────────────────────────────

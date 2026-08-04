@@ -33,8 +33,8 @@
     },
     {
       "path": "scripts/hooks/post-commit.js",
-      "sha256": "2004a86975086019ca48f614e714717adb40ace5e3bee8870af0b2f6025b6896",
-      "bytes": 5063
+      "sha256": "2c42b76e2ca44342c0be9375717813f910a2ec0a1a59548e5c3c3abab47d19fa",
+      "bytes": 5545
     },
     {
       "path": "scripts/hooks/pre-bash-orchestration-nudge.js",
@@ -43,8 +43,8 @@
     },
     {
       "path": "scripts/hooks/pre-compact.js",
-      "sha256": "fb24d6e95c7d159cd57ab18424db295cb22ee817f5154c8143979d237a7dabe9",
-      "bytes": 6652
+      "sha256": "0ef046aab8de40f862465bd71e4833a3906f9d42fb58f85dc07e5d93e6625ad0",
+      "bytes": 7171
     },
     {
       "path": "scripts/hooks/pre-edit-recall.js",
@@ -53,8 +53,8 @@
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "32f08f9fe8d53a764446a119f7eb9000e5e6abcdaa9f4f5fcfa9e561fe36d7cb",
-      "bytes": 44198
+      "sha256": "96c185001b9ea781e86cc77e1751621008d27ddbc81c8b277ec0ade1b7deb4d7",
+      "bytes": 44254
     },
     {
       "path": "scripts/hooks/session-summary.js",

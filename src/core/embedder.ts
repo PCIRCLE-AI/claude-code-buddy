@@ -458,6 +458,15 @@ async function getOnnxPipeline(): Promise<OnnxPipeline> {
         env.cacheDir = onnxCacheDir();
         env.allowLocalModels = true;
       }
+      // The single worst first-use moment measured in the P7 audit: this
+      // download is ~90MB and used to run in TOTAL silence — the first
+      // semantic recall just hung for 13+ seconds (minutes on a slow link)
+      // with the caller unable to tell a download from a deadlock. stderr,
+      // so it reaches CLI users directly and MCP/host logs without
+      // corrupting any stdout protocol.
+      if (!isOnnxModelCached()) {
+        console.error(`[memesh] downloading the local search model (~90 MB, one time) — first search will take a moment...`);
+      }
       onnxPipelineInstance = await createPipeline(
         'feature-extraction',
         ONNX_MODEL_ID,

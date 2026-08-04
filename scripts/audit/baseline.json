@@ -271,16 +271,6 @@
       "reason": "empty tokens yield null match expression and hasSearchableTerms false",
       "triaged": "2026-08-04"
     },
-    "C5 src/transports/http/server.ts:772": {
-      "class": "SAFE-GUARDED",
-      "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-04"
-    },
-    "C5 src/transports/http/server.ts:835": {
-      "class": "SAFE-GUARDED",
-      "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-04"
-    },
     "C5 src/transports/mcp/handlers.ts:281": {
       "class": "SAFE-GUARDED",
       "reason": "Zod rejects {} for schemas with required fields",
@@ -430,6 +420,16 @@
       "class": "SAFE",
       "reason": "set -uo pipefail at file top preserves the left commands verdict",
       "triaged": "2026-08-04 (re-keyed: the mktemp-orphan fix shifted lines by five)"
+    },
+    "C5 src/transports/http/server.ts:796": {
+      "class": "SAFE-GUARDED",
+      "reason": "Zod safeParse still validates; fields optional-with-default by design",
+      "triaged": "2026-08-04 (re-keyed: the P7 body-error handlers shifted lines)"
+    },
+    "C5 src/transports/http/server.ts:859": {
+      "class": "SAFE-GUARDED",
+      "reason": "Zod safeParse still validates; fields optional-with-default by design",
+      "triaged": "2026-08-04 (re-keyed: the P7 body-error handlers shifted lines)"
     }
   }
 }
