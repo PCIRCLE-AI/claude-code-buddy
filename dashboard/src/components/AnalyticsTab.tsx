@@ -31,9 +31,13 @@ export function AnalyticsTab() {
       api<AnalyticsData>('GET', '/v1/analytics').catch(guard('/v1/analytics')),
       api<PatternsData>('GET', '/v1/patterns').catch(guard('/v1/patterns')),
     ]).then(([s, a, p]) => {
-      setStats(s);
-      setAnalytics(a);
-      setPatterns(p);
+      // `{success:true, data:{}}` is what a fresh install and a version-skewed
+      // server both produce. Every render below reads a required field off
+      // these — `stats.totalEntities.toLocaleString()` and friends — so a
+      // payload without them has to read as "did not load", not as "loaded".
+      setStats(typeof s?.totalEntities === 'number' ? s : null);
+      setAnalytics(a?.healthScore !== undefined ? a : null);
+      setPatterns(p?.workSchedule ? p : null);
     }).finally(() => setLoading(false));
   }, []);
 

@@ -34,6 +34,23 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **Six dashboard tabs crashed when the server answered successfully with an
+  empty payload** (`AnalyticsTab`, `BrowseTab`, `DoctorBanner`, `InsightsTab`,
+  `LlmTelemetryPanel`, `PmAnalyticsPanel`) — found by the contract above on its
+  first run, and every one is the same root cause: **the guard asked whether an
+  object arrived, not whether the data did.** `{}` is truthy, so `data || []`,
+  `data ?? []` and `if (!data) return null` all passed a shape-less response
+  straight through to a `for…of`, a `.filter` or a `.length` that then threw —
+  `entities is not iterable`, `allProposals.filter is not a function`,
+  `Cannot read properties of undefined (reading 'orphanRate')`.
+
+  That is the `?? true` family one more time: absence read as presence. Each
+  guard now asks for the shape the component actually destructures, at the point
+  the payload enters, so a partial response reads as "did not load" and renders
+  the empty state the component already has. `{success: true, data: {}}` is not
+  hypothetical — it is what a fresh install returns, and what a version-skewed
+  server returns for an endpoint it does not implement yet.
+
 - **`npm run typecheck` had never checked a single test file, and 68 real errors
   were waiting behind that** (`tsconfig.check.json`, 9 test files) —
   **this corrects a claim made in the previous entry's own release notes.** The

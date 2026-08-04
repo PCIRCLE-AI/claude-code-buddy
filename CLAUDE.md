@@ -77,6 +77,17 @@ produce in this session. Paste the runner's actual output. `npm run verify:relea
 `scripts/check-doc-claims.mjs` — which it calls — checks every claim the public
 documents make about the code.
 
+**Read the exit code, not a grep of the output.** `cmd 2>&1 | grep …` returns
+*grep's* status and hides every line the pattern misses. Vitest prints
+`Errors  N errors` for unhandled rejections *while reporting every test as
+passed*, and exits 1 — a branch was pushed as green that way, and CI went
+eight-red on it. Capture the verdict first, then look at detail:
+
+```bash
+node scripts/run-tests-isolated.mjs > /tmp/t.log 2>&1; echo "exit=$?"
+grep -E 'Test Files|Tests |Errors ' /tmp/t.log
+```
+
 When you fix a bug, **revert the fix and confirm the test goes red.** A green
 suite is not evidence that a fix is protected: three tests in this repository
 have passed while the thing they guarded was removed.

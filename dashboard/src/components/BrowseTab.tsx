@@ -91,7 +91,9 @@ export function BrowseTab({ manage }: { manage?: boolean }) {
         api<Entity[]>('GET', '/v1/entities?limit=2000&status=all'),
         fetchProjects().catch(() => []),
       ]);
-      setEntities(data || []);
+      // `data || []` let a shape-less `{}` through — `for (const e of entities)`
+      // then threw "entities is not iterable". Ask for the array, not for truthiness.
+      setEntities(Array.isArray(data) ? data : []);
       setProjects(projs);
       setPage(0);
       window.dispatchEvent(new Event('memesh:data-changed'));

@@ -32,7 +32,9 @@ export function DoctorBanner() {
     let mounted = true;
     const fetch = () => {
       api<DoctorResult>('GET', '/v1/doctor')
-        .then((d) => { if (mounted) setDoctor(d); })
+        // A response without `checks` is not a doctor result. Storing it
+        // anyway made `doctor.checks.filter(...)` throw on the next render.
+        .then((d) => { if (mounted) setDoctor(Array.isArray(d?.checks) ? d : null); })
         .catch(() => { /* doctor unavailable — banner stays hidden */ });
     };
     fetch();

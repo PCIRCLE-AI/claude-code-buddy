@@ -59,7 +59,9 @@ export function LlmTelemetryPanel() {
     setLoading(true);
     setError('');
     api<TelemetryResponse>('GET', `/v1/telemetry?window=${window}`)
-      .then(d => setData(d))
+      // Without `summaries` there is nothing to render, and `data.summaries.length`
+      // throws. Treat the partial payload as absent rather than as data.
+      .then(d => setData(Array.isArray(d?.summaries) ? d : null))
       .catch(e => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, [window]);

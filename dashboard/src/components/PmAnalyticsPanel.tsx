@@ -27,7 +27,10 @@ export function PmAnalyticsPanel() {
     console.warn('[PmAnalyticsPanel]', error);
     return null;
   }
-  if (!data) return null;
+  // `!data` is false for `{}`, and the next line reads
+  // `data.connectedness.orphanRate`. Guard the shape this component actually
+  // destructures, not the object's existence.
+  if (!data?.connectedness) return null;
 
   const orphanPct = (data.connectedness.orphanRate * 100).toFixed(1);
   const orphanColor =
