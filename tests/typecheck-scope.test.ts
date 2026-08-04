@@ -21,12 +21,28 @@ import { fileURLToPath } from 'node:url';
  * failure mode where a check degrades into a copy of the thing it checks —
  * `--listFilesOnly` reports what the compiler actually read.
  */
+// `.js` on purpose: this project resolves modules NodeNext-style, where a TS
+// source is imported by its emitted name. Vitest's resolver applies the same
+// mapping at run time, so both the type checker and the runner land on
+// `vitest.config.ts`.
+import vitestConfig from '../vitest.config.js';
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const PROJECTS = ['tsconfig.check.json', 'tsconfig.check-dashboard.json'];
 
-/** Suffixes vitest collects under `tests/` — see `vitest.config.ts`'s `include`. */
-const COLLECTED = ['.test.ts', '.test.tsx', '.spec.ts'];
+/**
+ * Suffixes vitest collects under `tests/`, DERIVED from the config it ships
+ * with rather than copied out of it. The first version of this constant read
+ * `['.test.ts', '.test.tsx', '.spec.ts']` — correct on the day it was written
+ * and a hand-maintained mirror from then on, which is the exact defect class
+ * (an input set nobody pinned) this file exists to catch in tsconfig.
+ */
+const VITEST_INCLUDE: string[] =
+  (vitestConfig as { test?: { include?: string[] } }).test?.include ?? [];
+const COLLECTED = VITEST_INCLUDE
+  .filter(g => g.startsWith('tests/'))
+  .map(g => g.slice(g.lastIndexOf('*') + 1));
 
 function norm(p: string): string {
   const abs = path.resolve(p).split(path.sep).join('/');
@@ -85,6 +101,15 @@ function filesSeenBy(project: string): string[] {
 }
 
 describe('typecheck scope', () => {
+  it('the collected-suffix list was actually derived from the vitest config', () => {
+    // A detector whose input set came out empty is a broken detector, not a
+    // clean result: with zero suffixes `walk()` collects nothing and the main
+    // assertion below becomes "no file was missing from a set of zero".
+    expect(VITEST_INCLUDE.length).toBeGreaterThan(0);
+    expect(COLLECTED.length).toBeGreaterThanOrEqual(2);
+    for (const s of COLLECTED) expect(s).toMatch(/^\.[a-z]+\.[a-z]+$/);
+  });
+
   it('reads the compiler output the same way on CRLF and LF', () => {
     // The Windows failure this pins had no local symptom: macOS and Linux tsc
     // emit LF, so the bug was invisible until a runner produced CRLF. Feeding

@@ -7,6 +7,16 @@ import { useSignalMode } from '../lib/signalMode';
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The two arrays every read in this component iterates. Exported so the
+ * contract suite can test it leaf by leaf — a component-level stub can only
+ * pin the leaves it happens to omit, and this predicate rejecting for the
+ * WRONG missing field is invisible at that level.
+ */
+export function isGraphRenderable(d: GraphData | null | undefined): d is GraphData {
+  return Array.isArray(d?.entities) && Array.isArray(d.relations);
+}
+
 interface GNode {
   id: string;
   type: string;
@@ -194,7 +204,9 @@ export function GraphTab() {
         // 'forEach')" and produced no unhandled rejection for CI to notice.
         // A payload that is not the graph reads as "did not load": `!data`
         // below already renders the no-data box.
-        if (!Array.isArray(d?.entities) || !Array.isArray(d.relations)) {
+        if (!isGraphRenderable(d)) {
+          // Loudly: the request succeeded, so nothing else will ever log this.
+          console.warn('[memesh dashboard] /v1/graph answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', d);
           setData(null);
           return;
         }

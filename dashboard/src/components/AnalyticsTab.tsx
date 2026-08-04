@@ -14,6 +14,35 @@ import { t } from '../lib/i18n';
 const FACTOR_KEYS = ['activity', 'quality', 'freshness', 'lessons'] as const;
 
 /**
+ * Every field the stats row and the topics cloud dereference. The first
+ * version of this check covered `totalEntities` and `tagDistribution` and
+ * stopped, while the row right below it also calls `.toLocaleString()` on
+ * `totalObservations`, `totalRelations` and `totalTags` — the same
+ * one-level-short shape `PmAnalyticsPanel`'s guard went through twice.
+ */
+export function isStatsRenderable(s: StatsData | null): s is StatsData {
+  return (
+    typeof s?.totalEntities === 'number' &&
+    typeof s.totalObservations === 'number' &&
+    typeof s.totalRelations === 'number' &&
+    typeof s.totalTags === 'number' &&
+    Array.isArray(s.tagDistribution)
+  );
+}
+
+/**
+ * A rejected shape is a different event from a failed request, and a silent
+ * one: the fetch succeeded, so nothing else will ever log. Say so — this is
+ * what version skew between a cached bundle and the server looks like.
+ */
+function rejectShape<T>(label: string, value: T | null, ok: boolean): boolean {
+  if (!ok && value !== null) {
+    console.warn(`[memesh dashboard] ${label} answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:`, value);
+  }
+  return ok;
+}
+
+/**
  * Whether every field the analytics rows dereference is actually present.
  *
  * Checked against the leaves rather than the groups, because the group is the
@@ -23,7 +52,7 @@ const FACTOR_KEYS = ['activity', 'quality', 'freshness', 'lessons'] as const;
  * checked here — the render coerces them, because a server that omits them
  * entirely is not a reason to blank the whole tab.
  */
-function isRenderable(a: AnalyticsData | null): a is AnalyticsData {
+export function isAnalyticsRenderable(a: AnalyticsData | null): a is AnalyticsData {
   if (typeof a?.healthScore !== 'number') return false;
   const factors = a.healthFactors as
     | Record<string, { score?: unknown; weight?: unknown } | undefined>
@@ -43,7 +72,7 @@ function isRenderable(a: AnalyticsData | null): a is AnalyticsData {
  * `workSchedule.dayDistribution`, so `workSchedule` merely existing is not
  * enough — `{}` passes that and then throws `hourDistribution is not iterable`.
  */
-function isPatternsRenderable(p: PatternsData | null): p is PatternsData {
+export function isPatternsRenderable(p: PatternsData | null): p is PatternsData {
   return (
     Array.isArray(p?.workSchedule?.hourDistribution) &&
     Array.isArray(p.workSchedule?.dayDistribution) &&
@@ -89,11 +118,9 @@ export function AnalyticsTab() {
       // `undefined`. That throw lands during the rerender the response
       // triggers, which produces no unhandled rejection and no visible text:
       // four panels simply vanish and nothing is reported.
-      setStats(
-        typeof s?.totalEntities === 'number' && Array.isArray(s.tagDistribution) ? s : null
-      );
-      setAnalytics(isRenderable(a) ? a : null);
-      setPatterns(isPatternsRenderable(p) ? p : null);
+      setStats(rejectShape('/v1/stats', s, isStatsRenderable(s)) ? s : null);
+      setAnalytics(rejectShape('/v1/analytics', a, isAnalyticsRenderable(a)) ? a : null);
+      setPatterns(rejectShape('/v1/patterns', p, isPatternsRenderable(p)) ? p : null);
     }).finally(() => setLoading(false));
   }, []);
 

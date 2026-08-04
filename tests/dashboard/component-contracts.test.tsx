@@ -54,7 +54,14 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { AnalyticsTab } from '../../dashboard/src/components/AnalyticsTab';
+import {
+  AnalyticsTab,
+  isAnalyticsRenderable,
+  isPatternsRenderable,
+  isStatsRenderable,
+} from '../../dashboard/src/components/AnalyticsTab';
+import { isGraphRenderable } from '../../dashboard/src/components/GraphTab';
+import { isPmAnalyticsRenderable } from '../../dashboard/src/components/PmAnalyticsPanel';
 import { BrowseTab } from '../../dashboard/src/components/BrowseTab';
 import { DoctorBanner } from '../../dashboard/src/components/DoctorBanner';
 import { FeedbackWidget } from '../../dashboard/src/components/FeedbackWidget';
@@ -199,18 +206,22 @@ function stubFailingApi(): void {
  * causes are a stale cached bundle, a proxy rewriting the body, and a future
  * partial-failure path.
  *
- * The scalars below are deliberately populated and every array/object group is
- * deliberately absent: that is the combination that survives a truthiness check
- * and then throws on the first `.filter` / `.map` / nested read.
+ * The fields below are the ones a guard is TEMPTED to stop at, and nothing
+ * more. `totalEntities` plus `tagDistribution` was the exact extent of
+ * `AnalyticsTab`'s stats guard, and the stats row reads three more scalars —
+ * `totalObservations.toLocaleString()` and friends — so this payload is the
+ * one that survived that guard and threw three reads later. The earlier
+ * version of this stub populated all four scalars, which made a
+ * two-leaf guard and a five-leaf guard indistinguishable: the fix to the
+ * guard was unreachable dead code until this stub stopped handing it the
+ * fields it forgot to check.
  */
 function stubPartialApi(): void {
   stubApi(() => jsonResponse({
     success: true,
     data: {
       totalEntities: 3,
-      totalObservations: 7,
-      totalRelations: 1,
-      totalTags: 2,
+      tagDistribution: [],
       healthScore: 42,
       connectedness: { orphanRate: 0.1, totalRelations: 1 },
     },
@@ -520,6 +531,135 @@ function CrashingCanary() {
   return <div>{loaded ? hollow.rows.map(n => <span>{n}</span>) : 'loading'}</div>;
 }
 
+/**
+ * A leak that arrives the way the real components' data does: through the
+ * stubbed `fetch`, `res.json()`, a state update, and then a SECOND fetch
+ * issued from the effect that state change triggers.
+ *
+ * The three canaries above all fail synchronously or one microtask deep, so
+ * none of them exercises what `settle()` exists for — a component whose
+ * defect is only visible after the response promise chain has fully run.
+ * Measured: with the drain loop gutted to an empty `act()` (the `setImmediate`
+ * left in place), every other test in this file still passes — 143 of 144 —
+ * and this is the single assertion that notices the harness stopped waiting.
+ */
+function ChainedFetchCanary() {
+  const [step, setStep] = useState<unknown>(null);
+  const [text, setText] = useState('loading');
+  useEffect(() => {
+    void fetch('/v1/step-one')
+      .then(r => r.json())
+      .then(d => setStep(d))
+      .catch(() => setText('failed'));
+  }, []);
+  useEffect(() => {
+    if (step === null) return;
+    void fetch('/v1/step-two')
+      .then(r => r.json() as Promise<{ missing?: string }>)
+      .then(d => setText(`value: ${d.missing}`))
+      .catch(() => setText('failed'));
+  }, [step]);
+  return <div>{text}</div>;
+}
+
+/* ------------------------------------------------------------------ *
+ * Shape guards, leaf by leaf                                          *
+ * ------------------------------------------------------------------ */
+
+/** Remove one dotted path from a nested plain-object payload. */
+function deepDelete(obj: Record<string, unknown>, dotted: string): void {
+  const parts = dotted.split('.');
+  let cur: Record<string, unknown> = obj;
+  for (const p of parts.slice(0, -1)) cur = cur[p] as Record<string, unknown>;
+  delete cur[parts[parts.length - 1]];
+}
+
+/**
+ * Each guard, a payload it must accept, and every leaf whose absence it must
+ * reject — one test per leaf, because a component-level stub cannot do this:
+ * a stub missing three fields is rejected by whichever checks remain, so
+ * deleting any single check from the guard still passes. Measured: with only
+ * the stub-level tests, removing `isStatsRenderable`'s `totalObservations`
+ * line left the whole file green while the stats row was one payload away
+ * from calling `.toLocaleString()` on `undefined`.
+ *
+ * The `leaves` lists are maintained by hand and checked by execution: a stale
+ * entry fails its test the day the guard stops requiring it. What this cannot
+ * catch is a NEW dereference added to a render without a matching guard line
+ * — that direction is what the API stubs and `MUST_RENDER` above are for.
+ */
+const GUARD_LEAVES: Array<{
+  name: string;
+  guard: (v: unknown) => boolean;
+  valid: () => Record<string, unknown>;
+  leaves: string[];
+}> = [
+  {
+    name: 'isStatsRenderable',
+    guard: isStatsRenderable as (v: unknown) => boolean,
+    valid: () => ({ totalEntities: 3, totalObservations: 7, totalRelations: 1, totalTags: 2, tagDistribution: [] }),
+    leaves: ['totalEntities', 'totalObservations', 'totalRelations', 'totalTags', 'tagDistribution'],
+  },
+  {
+    name: 'isAnalyticsRenderable',
+    guard: isAnalyticsRenderable as (v: unknown) => boolean,
+    valid: () => ({
+      healthScore: 42,
+      healthFactors: {
+        activity: { score: 1, weight: 30 },
+        quality: { score: 1, weight: 30 },
+        freshness: { score: 1, weight: 20 },
+        lessons: { score: 1, weight: 20 },
+      },
+      loopMetric: { trend: [] },
+      timeline: [],
+    }),
+    leaves: [
+      'healthScore',
+      'healthFactors.activity.score', 'healthFactors.activity.weight',
+      'healthFactors.quality.score', 'healthFactors.quality.weight',
+      'healthFactors.freshness.score', 'healthFactors.freshness.weight',
+      'healthFactors.lessons.score', 'healthFactors.lessons.weight',
+      'loopMetric.trend',
+      'timeline',
+    ],
+  },
+  {
+    name: 'isPatternsRenderable',
+    guard: isPatternsRenderable as (v: unknown) => boolean,
+    valid: () => ({
+      workSchedule: { hourDistribution: [], dayDistribution: [] },
+      toolPreferences: [], focusAreas: [], strengths: [], learningAreas: [],
+      workflow: { avgSessionMinutes: 0, totalSessions: 0, commitsPerSession: 0 },
+    }),
+    leaves: [
+      'workSchedule.hourDistribution', 'workSchedule.dayDistribution',
+      'toolPreferences', 'focusAreas', 'strengths', 'learningAreas',
+      'workflow.avgSessionMinutes', 'workflow.totalSessions', 'workflow.commitsPerSession',
+    ],
+  },
+  {
+    name: 'isPmAnalyticsRenderable',
+    guard: isPmAnalyticsRenderable as (v: unknown) => boolean,
+    valid: () => ({
+      velocity: { decisionsPerWeek: 0 },
+      staleness: { openDecisionCount: 0, stalePlanCount: 0 },
+      connectedness: { orphanRate: 0, totalRelations: 0 },
+    }),
+    leaves: [
+      'velocity.decisionsPerWeek',
+      'staleness.openDecisionCount', 'staleness.stalePlanCount',
+      'connectedness.orphanRate', 'connectedness.totalRelations',
+    ],
+  },
+  {
+    name: 'isGraphRenderable',
+    guard: isGraphRenderable as (v: unknown) => boolean,
+    valid: () => ({ entities: [], relations: [] }),
+    leaves: ['entities', 'relations'],
+  },
+];
+
 /* ------------------------------------------------------------------ *
  * Suite                                                               *
  * ------------------------------------------------------------------ */
@@ -627,6 +767,39 @@ describe('dashboard components on degenerate data', () => {
       assertNoLeakedInternals('CrashingCanary', container.textContent ?? '');
       expect(caught.length).toBeGreaterThan(0);
     });
+
+    it('settle() waits out a leak that arrives through the real fetch path, two responses deep', async () => {
+      stubEmptyApi();
+      const { container } = render(<Recorder><ChainedFetchCanary /></Recorder>);
+      await settle();
+      expect(unhandled).toEqual([]);
+      expect(caught).toEqual([]);
+      const text = container.textContent ?? '';
+      // Split on purpose: `loading` here means the harness stopped waiting and
+      // every per-component assertion below is running against nothing — the
+      // vacuous-wait failure this file's header documents, as opposed to the
+      // leak itself going undetected.
+      expect(text, 'the chained fetch never completed — settle() is not settling').toContain('value:');
+      expect(() => assertNoLeakedInternals('ChainedFetchCanary', text)).toThrow();
+    });
+  });
+
+  describe('shape guards, leaf by leaf', () => {
+    for (const g of GUARD_LEAVES) {
+      it(`${g.name} accepts the payload it exists to admit`, () => {
+        expect(g.guard(g.valid())).toBe(true);
+      });
+      it(`${g.name} rejects null`, () => {
+        expect(g.guard(null)).toBe(false);
+      });
+      for (const leaf of g.leaves) {
+        it(`${g.name} rejects a payload missing only ${leaf}`, () => {
+          const v = g.valid();
+          deepDelete(v, leaf);
+          expect(g.guard(v)).toBe(false);
+        });
+      }
+    }
   });
 
   for (const c of CASES) {

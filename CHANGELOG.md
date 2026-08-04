@@ -31,9 +31,20 @@ All notable changes to MeMesh are documented here.
   text leak that never throws (`GraphTab` was a live instance), an unhandled
   rejection that renders no text, and a render error that does neither — the
   last produces no rejection and no visible output, so four panels simply
-  vanish. Three canary components assert that each detector still fires; if the
-  harness ever stops settling before it asserts, the canaries stop being caught
-  and the file goes red on itself.
+  vanish. Four canary components assert the harness's own ability to fail: one
+  per detector, and a fourth whose leak arrives through the stubbed `fetch` two
+  responses deep — measured, that one is the single assertion in the file that
+  notices when the settling machinery is removed, so the machinery is no longer
+  something only a comment says is needed. If the harness ever stops settling
+  before it asserts, the canaries stop being caught and the file goes red on
+  itself.
+
+  The shape guards themselves are exported and tested **leaf by leaf**: for
+  every field a guard requires, a payload missing only that field must be
+  rejected. A component-level stub cannot do this — a stub missing three fields
+  is rejected by whichever checks remain, so deleting any single check from a
+  guard still left the whole file green, and the stats row's guard was the live
+  instance: it checked two of the five fields the row reads.
 
 - **The dashboard and every `.tsx` test are type-checked, for the first time**
   (`tsconfig.check-dashboard.json`, `tests/typecheck-scope.test.ts`) — a second
@@ -62,6 +73,13 @@ All notable changes to MeMesh are documented here.
   "extending would inherit an include the tests are not in" — that is simply not
   how tsconfig works: a derived `include` replaces the base's. The copy had also
   already dropped `isolatedModules`.
+
+  The list of suffixes the scope test collects test files by was itself a
+  hand-copy of `vitest.config.ts`'s `include` — correct on the day it was
+  written, a mirror from then on, which is the same defect the test exists to
+  catch in tsconfig. It is now derived from the config at run time, and the
+  derivation is asserted non-empty, because a detector whose input set came out
+  empty is a broken detector reporting a clean result.
 
 ### Fixed
 
@@ -99,6 +117,14 @@ All notable changes to MeMesh are documented here.
 
   There is no error boundary anywhere in `dashboard/src`, so before this the
   user-visible result of each of these was a blank page, not a broken panel.
+
+  A rejected shape is also no longer silent. The request **succeeded**, so no
+  error path will ever log it — the panel just never appears. Each guard now
+  says so on the console, and says which of the two failures it is: the server
+  answered, but with a shape this bundle cannot render — a stale bundle or
+  version skew, not an outage. The user-facing half of that distinction (two
+  different messages with two different next steps) is queued behind this
+  change, not part of it.
 
 - **`npm run typecheck` had never checked a single test file, and 68 real errors
   were waiting behind that** (`tsconfig.check.json`, 9 test files) —
