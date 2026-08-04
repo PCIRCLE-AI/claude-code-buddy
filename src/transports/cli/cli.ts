@@ -1268,7 +1268,38 @@ dreamCmd
         console.log(`         created: ${p.created_at}`);
         console.log('');
       }
-      console.log(`Apply: memesh dream accept <id>   |   Reject: memesh dream reject <id>`);
+      console.log(`Inspect: memesh dream show <id>   |   Apply: memesh dream accept <id>   |   Reject: memesh dream reject <id>`);
+    });
+  });
+
+dreamCmd
+  .command('show <id>')
+  .description('Show a proposal in full — name, type, ALL observations, tags, source — so you can review the whole thing before accepting')
+  .option('--json', 'Output JSON')
+  .action(async (id, opts) => {
+    await withDatabase(async () => {
+      const { getProposalDetail } = await import('../../core/dreamer.js');
+      const { getDatabase } = await import('../../db.js');
+      const detail = getProposalDetail(getDatabase(), parseInt(id, 10));
+      if (!detail) {
+        console.error(`proposal #${id} not found`);
+        console.error('See ids with: memesh dream list');
+        process.exit(1);
+      }
+      if (opts.json) { console.log(JSON.stringify(detail, null, 2)); return; }
+      console.log(`Proposal #${detail.id}  [${detail.project}/${detail.cluster_key}]  source: ${detail.source_kind}  status: ${detail.status}`);
+      console.log(`created: ${detail.created_at}`);
+      console.log('');
+      console.log(`name: ${detail.digest.name}`);
+      console.log(`type: ${detail.digest.type}`);
+      // ALL observations, in full — this is the point of `show`: nothing is
+      // truncated, so a secret in observation 2+ or past char 120 is visible.
+      console.log(`observations (${detail.digest.observations.length}):`);
+      for (const o of detail.digest.observations) console.log(`  - ${o}`);
+      if (detail.digest.tags.length > 0) console.log(`tags: ${detail.digest.tags.join(', ')}`);
+      console.log(`source: ${JSON.stringify(detail.source)}`);
+      console.log('');
+      console.log(`Accept: memesh dream accept ${detail.id}   |   Reject: memesh dream reject ${detail.id}`);
     });
   });
 

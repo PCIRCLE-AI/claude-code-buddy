@@ -11,18 +11,25 @@ export const ORDERING_INSTRUCTION = 'The conversation below is in CHRONOLOGICAL 
     'if a decision was reversed, keep ONLY the final state; if an approach was tried and abandoned, ' +
     'record the lesson learned, NOT the abandoned approach. Never record as a live fact any claim ' +
     'that was later contradicted, corrected, or walked back within this same conversation.';
-const CHUNK_CHAR_BUDGET = 12000;
+const CHUNK_CHAR_BUDGET = 48000;
 const MAX_CHUNKS_PER_SESSION = 4;
 const SECRET_SOURCES = [
+    '-----BEGIN[A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END[A-Z ]*PRIVATE KEY-----',
+    '-----BEGIN[A-Z ]*PRIVATE KEY-----',
+    '(?:postgres|postgresql|mysql|mariadb|mongodb(?:\\+srv)?|redis|rediss|amqp|amqps)://[^\\s:@/]+:[^\\s:@/]+@',
+    'eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}',
+    'SG\\.[A-Za-z0-9_-]{16,}\\.[A-Za-z0-9_-]{16,}',
+    '[srp]k_(?:live|test)_[A-Za-z0-9]{16,}',
+    'npm_[A-Za-z0-9]{36}',
     'sk-ant-[A-Za-z0-9_-]{16,}',
     'sk-[A-Za-z0-9_-]{16,}',
+    'sk_[A-Za-z0-9]{16,}',
     'ghp_[A-Za-z0-9]{30,}',
     'gho_[A-Za-z0-9]{30,}',
     'github_pat_[A-Za-z0-9_]{20,}',
     'AKIA[A-Z0-9]{16}',
     'xox[baprs]-[A-Za-z0-9-]{10,}',
     'Bearer\\s+[A-Za-z0-9_.\\-]{16,}',
-    '-----BEGIN[A-Z ]*PRIVATE KEY-----',
 ];
 export function containsSecret(text) {
     if (typeof text !== 'string')
@@ -108,13 +115,13 @@ export function parseConversation(transcriptPath) {
 export function countConversationTurns(transcriptPath) {
     return parseConversation(transcriptPath).length;
 }
-function chunkTurns(turns) {
+function chunkTurns(turns, budget = CHUNK_CHAR_BUDGET) {
     const chunks = [];
     let current = [];
     let size = 0;
     for (const turn of turns) {
         const cost = turn.text.length + 16;
-        if (size + cost > CHUNK_CHAR_BUDGET && current.length > 0) {
+        if (size + cost > budget && current.length > 0) {
             chunks.push(current);
             current = [];
             size = 0;
@@ -128,10 +135,16 @@ function chunkTurns(turns) {
         chunks.push(current);
     return chunks;
 }
-export function buildExtractionPrompt(turns, projectLabel) {
+export function buildExtractionPrompt(turns, projectLabel, priorDecisions = []) {
     const body = turns
         .map((t) => `[${t.role}] ${sanitizeForPrompt(scrubSecrets(t.text)).slice(0, 4000)}`)
         .join('\n');
+    const priorSection = priorDecisions.length > 0
+        ? `\nDecisions/facts already noted EARLIER in this same session (they may be reversed by turns below — if so, record the reversal/lesson and do NOT re-propose the abandoned one; do not re-propose ones still standing):
+<prior_decisions>
+${priorDecisions.map((d) => `- ${sanitizeForPrompt(scrubSecrets(d)).slice(0, 300)}`).join('\n')}
+</prior_decisions>\n`
+        : '';
     return `You are MeMesh's transcript memory extractor. Below is part of a Claude Code coding session for project "${projectLabel}". Extract only the DURABLE, HIGH-VALUE memories worth keeping forever.
 
 Extract:
@@ -142,7 +155,7 @@ Extract:
 Do NOT extract a play-by-play of what happened, mechanical steps, file lists, or one-off chatter — those are captured elsewhere.
 
 ${ORDERING_INSTRUCTION}
-
+${priorSection}
 Rules:
 - Respond with a JSON array only — no prose around it. Empty array [] if nothing is worth keeping.
 - Each element: {"name": "<short slug-style name>", "type": "<decision|lesson_learned|fact>", "observations": ["<1-4 sentences, specific>"], "tags": ["<short topical tags>"]}
@@ -199,11 +212,12 @@ export async function extractMemoriesFromTranscript(transcriptPath, llm, opts = 
         return result;
     const projectLabel = opts.project ?? getProjectName(process.cwd());
     const budget = opts.maxLlmCalls ?? MAX_CHUNKS_PER_SESSION;
-    const chunks = chunkTurns(turns);
+    const chunks = chunkTurns(turns, opts.chunkCharBudget);
+    const priorDecisions = [];
     for (const chunk of chunks) {
         if (result.llmCalls >= budget)
             break;
-        const prompt = buildExtractionPrompt(chunk, projectLabel);
+        const prompt = buildExtractionPrompt(chunk, projectLabel, priorDecisions);
         let text;
         try {
             text = await callLLM(prompt, llm, {
@@ -227,6 +241,9 @@ export async function extractMemoriesFromTranscript(transcriptPath, llm, opts = 
                 continue;
             }
             result.memories.push(m);
+            if (priorDecisions.length < 30) {
+                priorDecisions.push(`${m.name}: ${m.observations[0] ?? ''}`.slice(0, 300));
+            }
         }
     }
     return result;

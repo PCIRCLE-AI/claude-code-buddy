@@ -742,8 +742,21 @@ function applyTranscriptProposal(
     ...digest.tags.filter((tag) => !tag.startsWith('project:')),
     `project:${row.project}`,
   ];
+  // Name-collision guard. createEntity uses INSERT OR IGNORE (see
+  // knowledge-graph.ts): if an entity with this name already exists, the
+  // insert is skipped, the `trust: 'untrusted'` / `source_kind` metadata is
+  // NEVER written, and the new observations merge into the existing row — so
+  // untrusted, LLM-paraphrased transcript text would inherit a TRUSTED
+  // entity's standing and become eligible for unprompted auto-context
+  // injection, defeating the whole trust stamp. The extraction prompt asks for
+  // short slug names, which collide easily. If the name is already taken (any
+  // status — the query has no status filter, so it also catches an archived
+  // row createEntity would reactivate), give this digest a collision-safe name
+  // so createEntity always inserts a FRESH, untrusted row and never merges.
+  const nameTaken = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(digest.name) !== undefined;
+  const entityName = nameTaken ? `${digest.name} (transcript #${row.id})` : digest.name;
   const tx = db.transaction(() => {
-    const digestId = kg.createEntity(digest.name, digest.type, {
+    const digestId = kg.createEntity(entityName, digest.type, {
       observations: digest.observations,
       tags,
       trustOverride: 'untrusted',
@@ -764,7 +777,9 @@ function applyTranscriptProposal(
   tx();
   return {
     proposalId: row.id,
-    digestEntityName: digest.name,
+    // Report the name actually written (possibly collision-suffixed) so the
+    // reviewer sees where the memory landed, not the requested name.
+    digestEntityName: entityName,
     sourcesArchived: 0,
     sourcesLinked: 0,
     kind: 'digest',
@@ -980,4 +995,45 @@ export function listProposals(db: Database.Database, status: string = 'pending')
       source_kind: r.source_kind ?? 'entities',
     };
   });
+}
+
+/**
+ * Full detail for ONE proposal — the whole proposed digest (name, type, ALL
+ * observations, tags) plus its source. `listProposals` only returns a 120-char
+ * preview of the first observation, so a secret past that point, or in a later
+ * observation, is invisible to the only review surface. `memesh dream show`
+ * uses this so a human sees the entire candidate before `dream accept`.
+ * Returns null when the id does not exist.
+ */
+export interface ProposalDetail {
+  id: number;
+  project: string;
+  cluster_key: string;
+  source_kind: string;
+  status: string;
+  created_at: string;
+  /** Parsed source_ids: an id array for entity clusters, an object for transcript. */
+  source: unknown;
+  digest: ProposedDigest;
+}
+
+export function getProposalDetail(db: Database.Database, id: number): ProposalDetail | null {
+  const row = db.prepare(
+    'SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE id = ?'
+  ).get(id) as { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; status: string; created_at: string; source_kind: string | null } | undefined;
+  if (!row) return null;
+  let digest: ProposedDigest;
+  try { digest = JSON.parse(row.proposed_digest); } catch { digest = { name: '(corrupt)', type: 'digest', observations: [], tags: [] }; }
+  let source: unknown = null;
+  try { source = JSON.parse(row.source_ids); } catch { /* leave null */ }
+  return {
+    id: row.id,
+    project: row.project,
+    cluster_key: row.cluster_key,
+    source_kind: row.source_kind ?? 'entities',
+    status: row.status,
+    created_at: row.created_at,
+    source,
+    digest,
+  };
 }

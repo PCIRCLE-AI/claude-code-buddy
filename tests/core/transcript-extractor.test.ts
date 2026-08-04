@@ -149,6 +149,57 @@ describe('transcript-extractor: extraction pipeline', () => {
     // would be dropped for carrying a "secret" that is only a placeholder.
     expect(containsSecret(scrubbed)).toBe(false);
   });
+
+  // Every broadened secret shape (finding #1). Kept as one table so the
+  // invariant — detected on the way in, gone after scrub — is asserted for
+  // ALL of them, not one.
+  //
+  // Each value is ASSEMBLED from fragments at runtime (`j`) so no contiguous
+  // secret-shaped literal sits in the source file. That is deliberate: a
+  // literal `sk_live_…` here is a realistic-looking credential, which the T1
+  // fixture rule forbids and GitHub push-protection blocks (it flagged exactly
+  // this line). The runtime string is identical, so the detector is exercised
+  // the same way — only the on-disk representation changes.
+  const j = (...parts: string[]) => parts.join('');
+  const BODY16 = 'ABCDEFGHIJKLMNOP1234567890';
+  const SECRET_SAMPLES: Array<[string, string]> = [
+    ['PEM block', j('-----BEGIN RSA PRIVATE KEY', '-----\n', 'MIIEpAIBAAKCAQEA', 'FAKEBASE64BODYabcdefghijklmnop0123456789\n', 'Q2hlY2tUaGlzSXNOb3RSZWFsCg==\n', '-----END RSA PRIVATE KEY', '-----')],
+    ['postgres URL creds', j('postgres://admin:', 's3cretPassw0rd', '@db.internal.example.com:5432/app')],
+    ['mongodb+srv URL creds', j('mongodb+srv://svc:', 'hunter2hunter2', '@cluster0.abc.mongodb.net/db')],
+    ['JWT', j('eyJ', 'hbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9', '.', 'eyJzdWIiOiIxMjM0NTY3ODkwIn0', '.', 'dozjgNryP4J3jVmNHl0w5Nqr7xY9zAbCdEf')],
+    ['SendGrid', j('SG', '.', 'ABCDEFGHIJKLMNOPQRSTUV', '.', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ab')],
+    ['Stripe live', j('sk', '_live_', BODY16)],
+    ['generic sk_ underscore', j('sk', '_', BODY16)],
+    ['npm token', j('npm', '_', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')],
+  ];
+
+  it('detects every broadened secret shape and scrubbing removes it (invariant)', () => {
+    for (const [label, sample] of SECRET_SAMPLES) {
+      expect(containsSecret(sample), `${label}: should be detected`).toBe(true);
+      const scrubbed = scrubSecrets(`prefix ${sample} suffix`);
+      // The break-test target for finding #1: narrow SECRET_SOURCES back to the
+      // old 6-pattern list and these go red for the new shapes.
+      expect(containsSecret(scrubbed), `${label}: must be gone after scrub`).toBe(false);
+      expect(scrubbed).toContain('[REDACTED-SECRET]');
+    }
+    // Ordinary "word:word@word" prose must NOT be treated as a DB-URL secret.
+    expect(containsSecret('see foo:bar@baz for details')).toBe(false);
+  });
+
+  it('drops every broadened secret shape from staged candidates, keeping the clean one', async () => {
+    const path = writeTranscript(tmp, 'sess', CONTRADICTION_ENTRIES);
+    const leaky = SECRET_SAMPLES.map(([label, sample], i) => ({
+      name: `leaky-${i}`, type: 'fact', observations: [`${label}: ${sample}`], tags: [],
+    }));
+    stubLLM(JSON.stringify([
+      ...leaky,
+      { name: 'clean', type: 'fact', observations: ['The parser lives in src/core.'], tags: [] },
+    ]));
+    const res = await extractMemoriesFromTranscript(path, FAKE_LLM);
+    expect(res.memories).toHaveLength(1);
+    expect(res.memories[0].name).toBe('clean');
+    expect(res.secretsDropped).toBe(SECRET_SAMPLES.length);
+  });
 });
 
 describe('transcript-extractor: staging + apply', () => {
@@ -215,6 +266,115 @@ describe('transcript-extractor: staging + apply', () => {
     expect(entity.status).toBe('active');
     const applied = db.prepare("SELECT status FROM dream_proposals WHERE id = ?").get(proposalId) as any;
     expect(applied.status).toBe('applied');
+  });
+
+  it('a name collision with a TRUSTED entity does not merge into it or make it auto-context-eligible (finding #2)', async () => {
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const { KnowledgeGraph } = await import('../../src/knowledge-graph.js');
+    const kg = new KnowledgeGraph(db);
+
+    // A pre-existing TRUSTED entity (default trust) with its OWN, unrelated
+    // observation — seed something distinct so any merge is visible.
+    kg.createEntity('parser-choice', 'decision', {
+      observations: ['TRUSTED original note about the parser'],
+      tags: ['project:memesh'],
+    });
+
+    // A transcript proposal whose slug name collides with it, carrying
+    // DIFFERENT (untrusted) text.
+    stageTranscriptProposals(db, session, [
+      { name: 'parser-choice', type: 'decision', observations: ['UNTRUSTED transcript claim about the parser'], tags: [] },
+    ], FAKE_LLM, 'memesh');
+    const proposalId = (db.prepare("SELECT id FROM dream_proposals WHERE status='pending'").get() as { id: number }).id;
+
+    const result = applyProposal(db, proposalId, kg);
+    // The break-test target for finding #2: revert applyTranscriptProposal to
+    // createEntity(digest.name) and the trusted row gains the untrusted obs
+    // (and no separate entity exists) → these assertions go red.
+    expect(result.digestEntityName).not.toBe('parser-choice'); // collision-suffixed
+    expect(result.digestEntityName).toContain('transcript #');
+
+    // The original trusted entity is UNTOUCHED: still exactly one observation,
+    // its own, and no transcript metadata making it auto-context-eligible.
+    const trustedId = (db.prepare("SELECT id FROM entities WHERE name = 'parser-choice'").get() as { id: number }).id;
+    const trustedObs = db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(trustedId) as Array<{ content: string }>;
+    expect(trustedObs.map((o) => o.content)).toEqual(['TRUSTED original note about the parser']);
+    const trustedMeta = JSON.parse((db.prepare('SELECT metadata FROM entities WHERE id = ?').get(trustedId) as { metadata: string }).metadata);
+    expect(trustedMeta.source_kind).toBeUndefined();
+    expect(trustedMeta.trust).not.toBe('untrusted');
+
+    // The transcript memory landed in its OWN, untrusted entity.
+    const newRow = db.prepare('SELECT metadata FROM entities WHERE name = ?').get(result.digestEntityName) as { metadata: string } | undefined;
+    expect(newRow).toBeDefined();
+    const newMeta = JSON.parse(newRow!.metadata);
+    expect(newMeta.trust).toBe('untrusted');
+    expect(newMeta.source_kind).toBe('transcript');
+  });
+
+  it('dream show returns the FULL digest — all observations, not a 120-char preview (finding #1)', async () => {
+    const { getProposalDetail } = await import('../../src/core/dreamer.js');
+    stageTranscriptProposals(db, session, [
+      {
+        name: 'multi-obs',
+        type: 'lesson_learned',
+        observations: [
+          'First observation, long enough to exceed any preview: ' + 'x'.repeat(150),
+          'Second observation — invisible to a first-observation preview.',
+          'Third observation — also invisible to `dream list`.',
+        ],
+        tags: ['a', 'b'],
+      },
+    ], FAKE_LLM, 'memesh');
+    const proposalId = (db.prepare("SELECT id FROM dream_proposals WHERE status='pending'").get() as { id: number }).id;
+
+    const detail = getProposalDetail(db, proposalId);
+    expect(detail).not.toBeNull();
+    expect(detail!.source_kind).toBe('transcript');
+    // ALL observations, in full — the whole point of `dream show`.
+    expect(detail!.digest.observations).toHaveLength(3);
+    expect(detail!.digest.observations[1]).toContain('Second observation');
+    expect(detail!.digest.observations[2]).toContain('Third observation');
+    expect(getProposalDetail(db, 999999)).toBeNull();
+  });
+});
+
+describe('transcript-extractor: session-level contradiction guard across chunks (finding #3)', () => {
+  let tmp: string;
+  beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'memesh-tx-chunk-')); });
+  afterEach(() => { vi.restoreAllMocks(); rmSync(tmp, { recursive: true, force: true }); });
+
+  it('carries prior-chunk decisions into later chunks\' prompts, so a reversal can override', async () => {
+    // Enough turns that a small budget forces multiple chunks.
+    const entries = Array.from({ length: 6 }, (_, i) => ({
+      type: i % 2 === 0 ? 'user' : 'assistant',
+      content: i % 2 === 0
+        ? `Turn ${i}: discussing the parser library decision in detail here.`
+        : [{ type: 'text', text: `Turn ${i}: reasoning about the parser library decision here.` }],
+    }));
+    const path = writeTranscript(tmp, 'sess', entries);
+
+    // Capture every outgoing prompt body; return a decision each call so the
+    // rolling summary gets populated after chunk 1.
+    const bodies: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url: any, init: any) => {
+      bodies.push(String(init?.body ?? ''));
+      return { ok: true, json: async () => ({ content: [{ text: JSON.stringify([
+        { name: 'use-lib-A', type: 'decision', observations: ['Chose library A over library B'], tags: [] },
+      ]) }] }) } as any;
+    });
+
+    // Tiny per-chunk budget forces one turn per chunk (multi-chunk).
+    const res = await extractMemoriesFromTranscript(path, FAKE_LLM, { chunkCharBudget: 80, project: 'memesh' });
+    expect(res.llmCalls).toBeGreaterThanOrEqual(2); // actually chunked
+
+    // First chunk has no prior context; later chunks MUST carry the rolling
+    // summary of what chunk 1 decided. The break-test target for finding #3:
+    // revert to per-chunk (stop threading priorDecisions) and the later prompt
+    // no longer contains the prior decision → this goes red.
+    expect(bodies[0]).not.toContain('<prior_decisions>');
+    expect(bodies[1]).toContain('<prior_decisions>');
+    expect(bodies[1]).toContain('use-lib-A');
+    expect(bodies[1]).toContain('library A over library B');
   });
 });
 

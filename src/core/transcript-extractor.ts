@@ -28,6 +28,18 @@
 // is present and the turns are chronological; they cannot (and do not claim to)
 // prove model compliance against a stubbed LLM.
 //
+// The guard is SESSION-level, not per-chunk. The budget (CHUNK_CHAR_BUDGET) is
+// sized so a typical session is a single chunk, so the model sees the whole
+// conversation and every reversal in it. Only a genuinely huge session chunks;
+// when it does, each later chunk's prompt carries a rolling summary of prior
+// chunks' EXTRACTED decisions (see buildExtractionPrompt's priorDecisions), so
+// a decision made in chunk 1 and reversed in chunk 3 can still be overridden.
+// The honest limit: this only carries decisions the model actually extracted in
+// the earlier chunk — a reversal of something it never surfaced as a standalone
+// memory is not caught. That residual is why the budget is large: keeping
+// typical sessions to one chunk is the real protection; the rolling summary is
+// the fallback for the rare multi-chunk case.
+//
 // TYPES IT EMITS vs the compaction dreamer
 // ────────────────────────────────────────
 // The extractor emits `decision` / `lesson_learned` / `fact`. Those first two
@@ -62,8 +74,16 @@ export const ORDERING_INSTRUCTION =
 
 // Per-chunk character budget for the conversation sent to the LLM, and a hard
 // cap on chunks per session so one enormous transcript cannot exhaust the whole
-// --max-llm-calls budget on its own.
-const CHUNK_CHAR_BUDGET = 12000;
+// --max-llm-calls budget on its own. 48k chars ≈ 12k tokens, so a typical
+// session is ONE chunk and the contradiction guard sees the whole thing in
+// chronological order. Only genuinely huge sessions chunk — and when they do,
+// each later chunk carries a rolling summary of prior chunks' extracted
+// decisions (see buildExtractionPrompt's priorDecisions) so a reversal in a
+// later chunk can still override an earlier decision. (Limit, stated honestly:
+// a reversal of something the model never EXTRACTED as a standalone memory in
+// the earlier chunk is not carried forward and so is not caught — see the
+// module header.)
+const CHUNK_CHAR_BUDGET = 48000;
 const MAX_CHUNKS_PER_SESSION = 4;
 
 // -----------------------------------------------------------------------------
@@ -76,16 +96,39 @@ const MAX_CHUNKS_PER_SESSION = 4;
 // The placeholder scrubSecrets writes ('[REDACTED-SECRET]') deliberately does
 // not match any detect pattern, so a scrubbed turn never trips the drop path.
 // -----------------------------------------------------------------------------
+// Order matters for scrubSecrets (it replaces in list order): put the widest,
+// whole-block patterns FIRST so a full match is redacted as one unit and a
+// later narrower pattern can never leave part of the secret naked. The
+// invariant the tests pin — for EVERY shape here, containsSecret(scrubSecrets(x))
+// is false — guards any ordering surprise.
 const SECRET_SOURCES: readonly string[] = [
-  'sk-ant-[A-Za-z0-9_-]{16,}',        // Anthropic
-  'sk-[A-Za-z0-9_-]{16,}',            // OpenAI-style
+  // PEM private key — whole BEGIN..END block first (so the base64 body is
+  // redacted with the markers), then the lone BEGIN line as a fallback for a
+  // truncated paste that has no END.
+  '-----BEGIN[A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END[A-Z ]*PRIVATE KEY-----',
+  '-----BEGIN[A-Z ]*PRIVATE KEY-----',
+  // DB / message-broker connection string with embedded credentials. Scheme
+  // anchored so it cannot fire on ordinary `word:word@word` prose.
+  '(?:postgres|postgresql|mysql|mariadb|mongodb(?:\\+srv)?|redis|rediss|amqp|amqps)://[^\\s:@/]+:[^\\s:@/]+@',
+  // JWT — three base64url segments; `eyJ` is base64 of `{"`.
+  'eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}',
+  // SendGrid API key.
+  'SG\\.[A-Za-z0-9_-]{16,}\\.[A-Za-z0-9_-]{16,}',
+  // Stripe secret/restricted/publishable live+test keys (underscore-delimited).
+  '[srp]k_(?:live|test)_[A-Za-z0-9]{16,}',
+  // npm automation token.
+  'npm_[A-Za-z0-9]{36}',
+  // Anthropic / OpenAI-style keys — hyphen OR underscore delimited (the old
+  // list required a hyphen, so sk_live_/generic sk_ keys slipped through).
+  'sk-ant-[A-Za-z0-9_-]{16,}',
+  'sk-[A-Za-z0-9_-]{16,}',
+  'sk_[A-Za-z0-9]{16,}',
   'ghp_[A-Za-z0-9]{30,}',             // GitHub PAT (classic)
   'gho_[A-Za-z0-9]{30,}',             // GitHub OAuth
   'github_pat_[A-Za-z0-9_]{20,}',     // GitHub PAT (fine-grained)
   'AKIA[A-Z0-9]{16}',                 // AWS access key id
   'xox[baprs]-[A-Za-z0-9-]{10,}',     // Slack token
   'Bearer\\s+[A-Za-z0-9_.\\-]{16,}',  // bearer token
-  '-----BEGIN[A-Z ]*PRIVATE KEY-----', // PEM private key
 ];
 
 /** True if the text carries something shaped like a known secret. Fresh regex
@@ -204,13 +247,13 @@ export function countConversationTurns(transcriptPath: string): number {
 // -----------------------------------------------------------------------------
 // Prompt building
 // -----------------------------------------------------------------------------
-function chunkTurns(turns: ConversationTurn[]): ConversationTurn[][] {
+function chunkTurns(turns: ConversationTurn[], budget: number = CHUNK_CHAR_BUDGET): ConversationTurn[][] {
   const chunks: ConversationTurn[][] = [];
   let current: ConversationTurn[] = [];
   let size = 0;
   for (const turn of turns) {
     const cost = turn.text.length + 16;
-    if (size + cost > CHUNK_CHAR_BUDGET && current.length > 0) {
+    if (size + cost > budget && current.length > 0) {
       chunks.push(current);
       current = [];
       size = 0;
@@ -228,11 +271,29 @@ function chunkTurns(turns: ConversationTurn[]): ConversationTurn[][] {
  * are scrubbed (secrets redacted) and sanitised (prompt-injection delimiters
  * neutralised) before interpolation. Exported so a test can assert the ordering
  * instruction is present and the turns are in chronological order.
+ *
+ * `priorDecisions` carries a summary of decisions/facts already extracted from
+ * EARLIER chunks of the SAME session (empty for the first / only chunk). It
+ * makes the contradiction guard session-level rather than per-chunk: a decision
+ * made in an earlier chunk is visible here, so a reversal in this chunk can
+ * override it. The lines are treated as data (sanitised) and as reversible —
+ * the prompt says a later turn may overturn any of them.
  */
-export function buildExtractionPrompt(turns: ConversationTurn[], projectLabel: string): string {
+export function buildExtractionPrompt(
+  turns: ConversationTurn[],
+  projectLabel: string,
+  priorDecisions: string[] = [],
+): string {
   const body = turns
     .map((t) => `[${t.role}] ${sanitizeForPrompt(scrubSecrets(t.text)).slice(0, 4000)}`)
     .join('\n');
+
+  const priorSection = priorDecisions.length > 0
+    ? `\nDecisions/facts already noted EARLIER in this same session (they may be reversed by turns below — if so, record the reversal/lesson and do NOT re-propose the abandoned one; do not re-propose ones still standing):
+<prior_decisions>
+${priorDecisions.map((d) => `- ${sanitizeForPrompt(scrubSecrets(d)).slice(0, 300)}`).join('\n')}
+</prior_decisions>\n`
+    : '';
 
   return `You are MeMesh's transcript memory extractor. Below is part of a Claude Code coding session for project "${projectLabel}". Extract only the DURABLE, HIGH-VALUE memories worth keeping forever.
 
@@ -244,7 +305,7 @@ Extract:
 Do NOT extract a play-by-play of what happened, mechanical steps, file lists, or one-off chatter — those are captured elsewhere.
 
 ${ORDERING_INSTRUCTION}
-
+${priorSection}
 Rules:
 - Respond with a JSON array only — no prose around it. Empty array [] if nothing is worth keeping.
 - Each element: {"name": "<short slug-style name>", "type": "<decision|lesson_learned|fact>", "observations": ["<1-4 sentences, specific>"], "tags": ["<short topical tags>"]}
@@ -265,6 +326,12 @@ export interface ExtractOptions {
   fallbacks?: LLMConfig[];
   onAttempt?: (attempts: LLMAttempt[]) => void;
   project?: string;
+  /**
+   * Test seam: override the per-chunk character budget so a small fixture can
+   * exercise the multi-chunk / rolling-summary path without a 48 KB transcript.
+   * Defaults to CHUNK_CHAR_BUDGET.
+   */
+  chunkCharBudget?: number;
 }
 
 export interface ExtractResult {
@@ -339,11 +406,17 @@ export async function extractMemoriesFromTranscript(
 
   const projectLabel = opts.project ?? getProjectName(process.cwd());
   const budget = opts.maxLlmCalls ?? MAX_CHUNKS_PER_SESSION;
-  const chunks = chunkTurns(turns);
+  const chunks = chunkTurns(turns, opts.chunkCharBudget);
+
+  // Rolling summary of decisions/facts extracted from EARLIER chunks of THIS
+  // session, carried into each later chunk's prompt so the contradiction guard
+  // is session-level, not per-chunk (see buildExtractionPrompt's priorDecisions
+  // and the module header). Empty for a single-chunk session.
+  const priorDecisions: string[] = [];
 
   for (const chunk of chunks) {
     if (result.llmCalls >= budget) break;
-    const prompt = buildExtractionPrompt(chunk, projectLabel);
+    const prompt = buildExtractionPrompt(chunk, projectLabel, priorDecisions);
     let text: string;
     try {
       text = await callLLM(prompt, llm, {
@@ -369,6 +442,12 @@ export async function extractMemoriesFromTranscript(
         continue;
       }
       result.memories.push(m);
+      // Feed this chunk's surviving decisions forward so a later chunk can
+      // reverse them. Name + first observation is enough context; cap the
+      // carried list so a huge early chunk cannot bloat later prompts.
+      if (priorDecisions.length < 30) {
+        priorDecisions.push(`${m.name}: ${m.observations[0] ?? ''}`.slice(0, 300));
+      }
     }
   }
   return result;

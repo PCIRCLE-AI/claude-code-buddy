@@ -12,12 +12,13 @@ export interface ConversationTurn {
 }
 export declare function parseConversation(transcriptPath: string): ConversationTurn[];
 export declare function countConversationTurns(transcriptPath: string): number;
-export declare function buildExtractionPrompt(turns: ConversationTurn[], projectLabel: string): string;
+export declare function buildExtractionPrompt(turns: ConversationTurn[], projectLabel: string, priorDecisions?: string[]): string;
 export interface ExtractOptions {
     maxLlmCalls?: number;
     fallbacks?: LLMConfig[];
     onAttempt?: (attempts: LLMAttempt[]) => void;
     project?: string;
+    chunkCharBudget?: number;
 }
 export interface ExtractResult {
     memories: ExtractedMemory[];

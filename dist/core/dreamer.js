@@ -435,8 +435,10 @@ function applyTranscriptProposal(db, row, kg) {
         ...digest.tags.filter((tag) => !tag.startsWith('project:')),
         `project:${row.project}`,
     ];
+    const nameTaken = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(digest.name) !== undefined;
+    const entityName = nameTaken ? `${digest.name} (transcript #${row.id})` : digest.name;
     const tx = db.transaction(() => {
-        const digestId = kg.createEntity(digest.name, digest.type, {
+        const digestId = kg.createEntity(entityName, digest.type, {
             observations: digest.observations,
             tags,
             trustOverride: 'untrusted',
@@ -457,7 +459,7 @@ function applyTranscriptProposal(db, row, kg) {
     tx();
     return {
         proposalId: row.id,
-        digestEntityName: digest.name,
+        digestEntityName: entityName,
         sourcesArchived: 0,
         sourcesLinked: 0,
         kind: 'digest',
@@ -584,5 +586,32 @@ export function listProposals(db, status = 'pending') {
             source_kind: r.source_kind ?? 'entities',
         };
     });
+}
+export function getProposalDetail(db, id) {
+    const row = db.prepare('SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE id = ?').get(id);
+    if (!row)
+        return null;
+    let digest;
+    try {
+        digest = JSON.parse(row.proposed_digest);
+    }
+    catch {
+        digest = { name: '(corrupt)', type: 'digest', observations: [], tags: [] };
+    }
+    let source = null;
+    try {
+        source = JSON.parse(row.source_ids);
+    }
+    catch { }
+    return {
+        id: row.id,
+        project: row.project,
+        cluster_key: row.cluster_key,
+        source_kind: row.source_kind ?? 'entities',
+        status: row.status,
+        created_at: row.created_at,
+        source,
+        digest,
+    };
 }
 //# sourceMappingURL=dreamer.js.map

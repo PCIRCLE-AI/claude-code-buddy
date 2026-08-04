@@ -21,6 +21,12 @@ export interface DreamerResult {
     }>;
     durationMs: number;
 }
+interface ProposedDigest {
+    name: string;
+    type: string;
+    observations: string[];
+    tags: string[];
+}
 export declare function runDreamer(db: Database.Database, llm: LLMConfig | null | undefined, opts?: DreamerOptions): Promise<DreamerResult>;
 export interface PatternDetectorOptions {
     project?: string;
@@ -71,4 +77,16 @@ export interface ProposalSummary {
     source_kind: string;
 }
 export declare function listProposals(db: Database.Database, status?: string): ProposalSummary[];
+export interface ProposalDetail {
+    id: number;
+    project: string;
+    cluster_key: string;
+    source_kind: string;
+    status: string;
+    created_at: string;
+    source: unknown;
+    digest: ProposedDigest;
+}
+export declare function getProposalDetail(db: Database.Database, id: number): ProposalDetail | null;
+export {};
 //# sourceMappingURL=dreamer.d.ts.map
