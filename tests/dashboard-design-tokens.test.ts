@@ -96,4 +96,56 @@ describe('Feature: the dashboard design system is actually followed', () => {
     }
     expect(offenders).toEqual([]);
   });
+
+  /**
+   * 3. **No colour literal where a token holds that exact value, and none of the
+   *    off-palette hues the redesign removed.** A literal equal to a token is
+   *    invisible to a palette change — the whole reason tokens exist — and the
+   *    off-palette set (`#ef4444`, `rgba(255,200,0,…)`, …) was the drift this
+   *    batch cleaned up; without a gate it grows straight back.
+   *
+   *    The ban SET is derived from `global.css`, not hand-listed, so it cannot
+   *    drift from the palette. Two exemptions, each with a reason the code and
+   *    DESIGN.md both state:
+   *      - `lib/type-palette.ts` — the categorical entity-type hues map to no
+   *        token, so a token cannot express them (see DESIGN.md).
+   *      - `styles/global.css` itself — it defines the palette, and its hover
+   *        glows/shadows are sanctioned hand-rolled accent rgba (DESIGN.md);
+   *        the existing var()-resolves test already guards its token usage.
+   */
+  it('has no colour literal equal to a token value, nor an off-palette hue', () => {
+    const css = fs.readFileSync(path.join(srcDir, 'styles', 'global.css'), 'utf8');
+    const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
+    const tokenValues = new Set<string>();
+    for (const m of css.matchAll(/^\s*--[\w-]+:\s*(.+?);/gm)) tokenValues.add(norm(m[1]));
+
+    // Off-palette hues the redesign replaced with tokens. Prefixes so any alpha
+    // of the same hand-rolled hue is caught. NOT here: #4ADE80 / #F87171, which
+    // are sanctioned categorical hues (type-palette + the drift legend).
+    const offPalettePrefixes = [
+      '#ef4444', '#f59e0b', '#22c55e', '#ff5050', '#ffc800',
+      'rgba(255,200,0', 'rgba(255,80,80', 'rgba(255,200,87', 'rgba(160,160,160',
+    ];
+
+    const exempt = new Set(['lib/type-palette.ts', 'lib/tokens.ts']);
+    const stripComments = (s: string) =>
+      s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+
+    const offenders: string[] = [];
+    for (const file of walk(srcDir, ['.tsx', '.ts'])) {
+      const rel = path.relative(srcDir, file).split(path.sep).join('/');
+      if (exempt.has(rel)) continue;
+      const text = stripComments(fs.readFileSync(file, 'utf8'));
+      for (const m of text.matchAll(/#[0-9A-Fa-f]{3,8}\b|rgba?\([^)]*\)/g)) {
+        const value = norm(m[0]);
+        const isTokenEqual = tokenValues.has(value);
+        const isOffPalette = offPalettePrefixes.some((p) => value.startsWith(norm(p)));
+        if (isTokenEqual || isOffPalette) {
+          const line = text.slice(0, m.index).split('\n').length;
+          offenders.push(`${path.relative(repoRoot, file)}:${line} ${m[0]}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });
