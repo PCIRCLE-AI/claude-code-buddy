@@ -1068,7 +1068,27 @@ dreamCmd
   .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 100)', (v) => parseInt(v, 10))
   .option('--window-days <n>', 'Look-back window in days (default 56 = 8 weeks)', (v) => parseInt(v, 10))
   .option('--validate', 'Run a second LLM pass to cross-check each digest against its sources (doubles LLM calls per proposal; surfaces under flow=digest_validator in `memesh telemetry`)')
+  .option('--from-transcripts', 'EXPERIMENTAL (discovery only): list the Claude Code session transcripts available to mine for this project, instead of clustering existing entities. Read-only — proposes nothing yet.')
   .action(async (opts) => {
+    // --from-transcripts is the transcript-source path (Task #18). B1 ships
+    // discovery only: it enumerates what is on disk and writes NOTHING, so it
+    // needs no LLM and never touches the graph. Extraction / dedup / staging
+    // land in later slices behind the same flag.
+    if (opts.fromTranscripts) {
+      const { scanTranscripts } = await import('../../core/transcript-source.js');
+      const windowDays = typeof opts.windowDays === 'number' && !Number.isNaN(opts.windowDays) ? opts.windowDays : 3;
+      const sessions = scanTranscripts({ windowDays });
+      console.log(`[discovery] transcript sessions for this project in the last ${windowDays} day(s): ${sessions.length}`);
+      let totalLines = 0;
+      for (const s of sessions) {
+        totalLines += s.lineCount;
+        console.log(`  ${s.sessionId}  ${s.lineCount} lines  ${(s.sizeBytes / 1024).toFixed(0)}KB  ${s.modifiedAt}`);
+      }
+      console.log(`  total: ${totalLines} lines across ${sessions.length} session(s)`);
+      console.log('');
+      console.log('This is discovery only — extraction and proposals are not implemented yet.');
+      return;
+    }
     await withDatabase(async () => {
       const { runDreamer } = await import('../../core/dreamer.js');
       const { getDatabase } = await import('../../db.js');
