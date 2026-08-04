@@ -5,7 +5,7 @@ import { typeLabel, relationLabel } from '../lib/entity-display';
 import { classifyLoadError, failureMessage, type LoadFailure } from '../lib/failure';
 import { useSignalMode } from '../lib/signalMode';
 import { EmptyLibraryState } from './EmptyLibraryState';
-import { resolveTokens, type ResolvedTokens } from '../lib/tokens';
+import { resolveTokens, rgbaFrom, type ResolvedTokens } from '../lib/tokens';
 import { CATEGORICAL_TYPE_COLORS } from '../lib/type-palette';
 
 /* ------------------------------------------------------------------ */
@@ -65,7 +65,7 @@ const DEFAULT_TYPE_VAR = '--text-1';
 const CANVAS_TOKENS = [
   '--accent', '--accent-hover', '--info', '--warning',
   '--text-0', '--text-1', '--text-2', '--text-3',
-  '--font', '--mono',
+  '--bg-1', '--font', '--mono',
 ] as const;
 
 /** DOM swatch/legend colour — a CSS value (`var()` for token types, else the
@@ -561,7 +561,7 @@ export function GraphTab() {
         if (!a || !b) continue;
         const edgeAlpha = Math.min(a.recency, b.recency) * 0.6;
         ctx.globalAlpha = edgeAlpha;
-        ctx.strokeStyle = 'rgba(0, 214, 180, 0.4)';
+        ctx.strokeStyle = rgbaFrom(tk['--accent'], 0.4);
         ctx.lineWidth = 1;
         ctx.setLineDash([]);
         ctx.beginPath();
@@ -667,10 +667,11 @@ export function GraphTab() {
         const w2 = ctx.measureText(line2).width;
         const boxW = Math.max(w1, w2) + 12;
         const boxH = 34;
-        // Tooltip panel: translucent panel bg + accent hairline. Semi-transparent
-        // so the graph shows through; not a solid-token fill.
-        ctx.fillStyle = 'rgba(13, 16, 20, 0.92)';
-        ctx.strokeStyle = 'rgba(0, 214, 180, 0.3)';
+        // Tooltip panel: translucent panel bg + accent hairline, both built from
+        // the resolved tokens (--bg-1 / --accent) so a palette change reaches the
+        // canvas — semi-transparent so the graph shows through.
+        ctx.fillStyle = rgbaFrom(tk['--bg-1'], 0.92);
+        ctx.strokeStyle = rgbaFrom(tk['--accent'], 0.3);
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.roundRect(tx - 4, ty - 18, boxW, boxH, 4);

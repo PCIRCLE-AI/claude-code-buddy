@@ -90,6 +90,20 @@ describe('FeedbackWidget is a dialog that closes on Escape', () => {
     expect(container.querySelector('.fb-panel')).toBeNull();
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
   });
+
+  it('the toggle button closes the panel it opened (not flicker-and-reopen)', () => {
+    const { container } = render(<FeedbackWidget health={health} />);
+    const toggle = container.querySelector('.fb-btn') as HTMLButtonElement;
+    fireEvent.click(toggle); // open
+    expect(container.querySelector('.fb-panel')).not.toBeNull();
+    // A real click is mousedown THEN click. The document mousedown outside-close
+    // handler must ignore the toggle, or it closes on mousedown and the click
+    // reopens — the button could never close the panel.
+    fireEvent.mouseDown(toggle);
+    fireEvent.click(toggle);
+    expect(container.querySelector('.fb-panel')).toBeNull();
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  });
 });
 
 describe('GraphTab canvas is driven by pointer events, not mouse events', () => {

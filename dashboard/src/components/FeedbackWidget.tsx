@@ -36,7 +36,12 @@ export function FeedbackWidget({ health }: { health: HealthData | null }) {
     // Move focus into the panel on open (the obvious field).
     textareaRef.current?.focus();
     const onDown = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      // The toggle is a SIBLING of the panel, not inside it — without this guard
+      // a click on the toggle counts as "outside", closes on mousedown, and the
+      // click then reopens: the button can never close the panel it opened.
+      if (toggleRef.current?.contains(target)) return;
+      if (panelRef.current && !panelRef.current.contains(target)) {
         setOpen(false); // click-away: no focus move, the pointer chose elsewhere
       }
     };

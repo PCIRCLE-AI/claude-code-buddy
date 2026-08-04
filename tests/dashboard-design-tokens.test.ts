@@ -98,38 +98,74 @@ describe('Feature: the dashboard design system is actually followed', () => {
   });
 
   /**
-   * 3. **No colour literal where a token holds that exact value, and none of the
-   *    off-palette hues the redesign removed.** A literal equal to a token is
-   *    invisible to a palette change — the whole reason tokens exist — and the
-   *    off-palette set (`#ef4444`, `rgba(255,200,0,…)`, …) was the drift this
-   *    batch cleaned up; without a gate it grows straight back.
+   * 3. **No colour literal that resolves to a token's colour, in any syntax,
+   *    and none of the off-palette hues the redesign removed — including inside
+   *    canvas draw calls, where a token hue must be resolved, never hardcoded.**
    *
-   *    The ban SET is derived from `global.css`, not hand-listed, so it cannot
-   *    drift from the palette. Two exemptions, each with a reason the code and
-   *    DESIGN.md both state:
-   *      - `lib/type-palette.ts` — the categorical entity-type hues map to no
-   *        token, so a token cannot express them (see DESIGN.md).
-   *      - `styles/global.css` itself — it defines the palette, and its hover
-   *        glows/shadows are sanctioned hand-rolled accent rgba (DESIGN.md);
-   *        the existing var()-resolves test already guards its token usage.
+   *    Comparison is NUMERIC, not string: every literal and every token value is
+   *    parsed to canonical {r,g,b,a} channels, so `#00D6B4`, `rgb(0,214,180)`
+   *    and `rgba(0,214,180,1)` are all recognised as `--accent`, and
+   *    `rgba(0,214,180,0.08)` as `--accent-soft`. A string compare (the earlier
+   *    version) missed every one of those — same colour, different spelling.
+   *
+   *    Three rules:
+   *      a. literal RGBA == a token's RGBA  → the token, written as a literal.
+   *      b. literal RGB   == an off-palette hue (any alpha) → a removed colour.
+   *      c. literal RGB   == a token's RGB (any alpha) AND the literal sits in a
+   *         `ctx.fillStyle`/`ctx.strokeStyle` assignment → canvas hardcoded a
+   *         palette hue instead of resolving it (DESIGN.md "Canvas cannot read a
+   *         token"). This is what catches accent/bg drawn at a custom alpha,
+   *         which rule (a) can't (the alpha differs from the token's own).
+   *
+   *    Exemptions: `lib/type-palette.ts` (categorical hues map to no token) and
+   *    `lib/tokens.ts` (the resolver). `global.css` is not scanned — it defines
+   *    the palette and its sanctioned hover glows; the var()-resolves test above
+   *    guards its token usage. Sanctioned DOM accent-glows (accent rgb at a
+   *    non-token alpha, not in a ctx call) are left alone by all three rules.
    */
-  it('has no colour literal equal to a token value, nor an off-palette hue', () => {
-    const css = fs.readFileSync(path.join(srcDir, 'styles', 'global.css'), 'utf8');
-    const norm = (s: string) => s.replace(/\s+/g, '').toLowerCase();
-    const tokenValues = new Set<string>();
-    for (const m of css.matchAll(/^\s*--[\w-]+:\s*(.+?);/gm)) tokenValues.add(norm(m[1]));
+  it('has no literal that resolves to a token colour or off-palette hue (numeric, incl. canvas)', () => {
+    type RGBA = { r: number; g: number; b: number; a: number };
+    const parseColor = (raw: string): RGBA | null => {
+      const s = raw.trim().toLowerCase();
+      const hex = /^#([0-9a-f]{3,8})$/.exec(s);
+      if (hex) {
+        let h = hex[1];
+        if (h.length === 3) h = h.split('').map((c) => c + c).join('') + 'ff';
+        else if (h.length === 4) h = h.split('').map((c) => c + c).join('');
+        else if (h.length === 6) h += 'ff';
+        else if (h.length !== 8) return null;
+        return {
+          r: parseInt(h.slice(0, 2), 16), g: parseInt(h.slice(2, 4), 16),
+          b: parseInt(h.slice(4, 6), 16), a: parseInt(h.slice(6, 8), 16) / 255,
+        };
+      }
+      const rgb = /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/.exec(s);
+      if (rgb) {
+        return { r: +rgb[1], g: +rgb[2], b: +rgb[3], a: rgb[4] === undefined ? 1 : +rgb[4] };
+      }
+      return null;
+    };
+    const a3 = (n: number) => Math.round(n * 1000) / 1000;
+    const rgbaKey = (c: RGBA) => `${c.r},${c.g},${c.b},${a3(c.a)}`;
+    const rgbKey = (c: RGBA) => `${c.r},${c.g},${c.b}`;
 
-    // Off-palette hues the redesign replaced with tokens. Prefixes so any alpha
-    // of the same hand-rolled hue is caught. NOT here: #4ADE80 / #F87171, which
-    // are sanctioned categorical hues (type-palette + the drift legend).
-    const offPalettePrefixes = [
-      '#ef4444', '#f59e0b', '#22c55e', '#ff5050', '#ffc800',
-      'rgba(255,200,0', 'rgba(255,80,80', 'rgba(255,200,87', 'rgba(160,160,160',
-    ];
+    const css = fs.readFileSync(path.join(srcDir, 'styles', 'global.css'), 'utf8');
+    const tokenRgba = new Set<string>();
+    const tokenRgb = new Set<string>();
+    for (const m of css.matchAll(/^\s*--[\w-]+:\s*(.+?);/gm)) {
+      const c = parseColor(m[1].trim());
+      if (c) { tokenRgba.add(rgbaKey(c)); tokenRgb.add(rgbKey(c)); }
+    }
+    expect(tokenRgb.size).toBeGreaterThan(5);
+
+    // Off-palette hues the redesign removed — one base colour each (alpha-
+    // agnostic). NOT here: #4ADE80 / #F87171 (sanctioned categorical/drift hues).
+    const offPaletteRgb = new Set(
+      ['#ef4444', '#f59e0b', '#22c55e', '#ff5050', '#ffc800',
+       'rgb(255,200,87)', 'rgb(160,160,160)'].map((h) => rgbKey(parseColor(h)!)),
+    );
 
     const exempt = new Set(['lib/type-palette.ts', 'lib/tokens.ts']);
-    // A `//` not preceded by `:` — so a `https://…` URL keeps the rest of its
-    // line, and a banned literal after a URL cannot hide from the scan.
     const stripComments = (s: string) =>
       s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
@@ -138,14 +174,18 @@ describe('Feature: the dashboard design system is actually followed', () => {
       const rel = path.relative(srcDir, file).split(path.sep).join('/');
       if (exempt.has(rel)) continue;
       const text = stripComments(fs.readFileSync(file, 'utf8'));
+      const lines = text.split('\n');
       for (const m of text.matchAll(/#[0-9A-Fa-f]{3,8}\b|rgba?\([^)]*\)/g)) {
-        const value = norm(m[0]);
-        const isTokenEqual = tokenValues.has(value);
-        const isOffPalette = offPalettePrefixes.some((p) => value.startsWith(norm(p)));
-        if (isTokenEqual || isOffPalette) {
-          const line = text.slice(0, m.index).split('\n').length;
-          offenders.push(`${path.relative(repoRoot, file)}:${line} ${m[0]}`);
-        }
+        const c = parseColor(m[0]);
+        if (!c) continue; // e.g. rgb(${r},${g},${b}) — computed, not a literal
+        const lineNo = text.slice(0, m.index).split('\n').length;
+        const lineText = lines[lineNo - 1] ?? '';
+        const inCanvasDraw = /\bctx\.(fillStyle|strokeStyle)\s*=/.test(lineText);
+        let why = '';
+        if (tokenRgba.has(rgbaKey(c))) why = 'token colour as a literal';
+        else if (offPaletteRgb.has(rgbKey(c))) why = 'off-palette hue';
+        else if (inCanvasDraw && tokenRgb.has(rgbKey(c))) why = 'canvas hardcodes a token hue';
+        if (why) offenders.push(`${path.relative(repoRoot, file)}:${lineNo} ${m[0]} (${why})`);
       }
     }
     expect(offenders).toEqual([]);
