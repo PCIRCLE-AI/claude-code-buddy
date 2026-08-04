@@ -4,6 +4,34 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Removed
+
+- **The multi-model PR review workflow** (`.github/workflows/multi-model-review.yml`)
+  — it had never reviewed anything, and it said so on every pull request in a
+  form that read like the opposite.
+
+  Both reviewer jobs are guarded by `if: env.ANTHROPIC_API_KEY != ''` and
+  `if: env.OPENAI_API_KEY != ''`. Neither secret is set on this repository, so
+  each job ran a `Skip notice` step, finished in about five seconds and reported
+  **pass**. The third job then posted its summary comment under
+  `if: always()`, opening with "Both Claude and Codex reviews above are
+  independent" — above being a pull request with no reviews on it. Six such
+  comments accumulated on one PR before anyone read the job log.
+
+  So the check could not fail, and its output asserted that a review had
+  happened. That is worse than the dead gate this project removed in 4.2.11,
+  which at least stayed quiet. The 4.2.11 notes describe this workflow as
+  no-opping "cleanly if reviewer secrets are unset"; a tag freezes the file it
+  points at, so the correction belongs here rather than there — it did not
+  no-op cleanly, it no-opped loudly and inaccurately.
+
+  Review on this project is done locally, against the working tree, by whoever
+  is landing the change. Keeping a disabled placeholder for a service nobody
+  intends to enable is how the previous one survived. `git revert` restores all
+  170 lines if that changes. `codeql.yml`'s comment, which cited this workflow
+  as the reason it carries no branch filter, keeps the reasoning and drops the
+  reference.
+
 ### Added
 
 - **Coverage can be measured for the first time, and `npm run typecheck` now

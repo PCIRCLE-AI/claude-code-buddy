@@ -4,10 +4,10 @@ on:
   push:
     branches: [main]
   # Every pull request — same reasoning as ci.yml. A PR based on another
-  # feature branch used to get the AI reviewers (multi-model-review.yml has no
-  # branch filter) and neither the build nor this scan: reviewed but never
-  # compiled and never scanned, which is the worst of the three states to be
-  # in and the least obvious from a page of green checks.
+  # feature branch used to run neither the build nor this scan, which is the
+  # least obvious failure to spot from a page of green checks: a branch can
+  # collect approvals while nothing has compiled or been scanned. No branch
+  # filter here, on purpose.
   pull_request:
   schedule:
     - cron: '0 0 * * 1'
