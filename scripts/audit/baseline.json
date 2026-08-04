@@ -141,7 +141,7 @@
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/doctor.ts:1333": {
+    "C5 src/core/doctor.ts:1334": {
       "class": "SAFE-GUARDED",
       "reason": "verifySkillsManifest: entries ?? [] is followed by entries.length === 0 -> fail (skills-manifest.empty); the ?? cannot convert absence into a pass",
       "triaged": "2026-08-04"
@@ -186,7 +186,7 @@
       "reason": "index lookups where empty means no peers",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/llm-client.ts:122": {
+    "C5 src/core/llm-client.ts:124": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "chain identity; all-providers-failed still throws",
       "triaged": "2026-08-04"
