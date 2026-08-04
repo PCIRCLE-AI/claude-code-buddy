@@ -42,16 +42,24 @@ const retiredNames = new Set(
  * (the stub's own message, this class of comment) may name the dead command;
  * any other line is a live recommendation and must point at something real.
  */
-function hintMentions(): Array<{ line: string; tokens: string[] }> {
-  const out: Array<{ line: string; tokens: string[] }> = [];
+function hintMentions(): Array<{ line: string; tokens: string[]; retirementContext: boolean }> {
+  const out: Array<{ line: string; tokens: string[]; retirementContext: boolean }> = [];
   for (const line of cli.split('\n')) {
     // Comments talk to maintainers, not users — and they legitimately name
     // dead or made-up commands ("`memesh nonexistent-cmd`") as examples.
     const t = line.trim();
     if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) continue;
-    if (/retired/i.test(line)) continue;
     for (const m of line.matchAll(/`memesh ([a-z][a-z0-9-]*)(?: ([a-z][a-z0-9-]*))?/g)) {
-      out.push({ line: line.trim(), tokens: [m[1], m[2]].filter((t): t is string => Boolean(t)) });
+      out.push({
+        line: line.trim(),
+        tokens: [m[1], m[2]].filter((tok): tok is string => Boolean(tok)),
+        // A retirement message may name the dead command it is ABOUT — but
+        // only that. The first version skipped the whole line, which also
+        // exempted the replacement the stub recommends ("(retired) Use
+        // `memesh dream`") — the exact place a renamed replacement would
+        // silently rot.
+        retirementContext: /retired/i.test(line),
+      });
     }
   }
   return out;
@@ -78,13 +86,16 @@ describe('CLI hints name real commands', () => {
 
   it('every recommended command exists and is not retired', () => {
     const bad: string[] = [];
-    for (const { line, tokens } of hintMentions()) {
+    for (const { line, tokens, retirementContext } of hintMentions()) {
       // First token must be a registered top-level command; a second token
       // (e.g. `dream run`) may be a registered sub-command name or a plain
       // argument — only flag it when it LOOKS like a command and is known to
-      // be retired.
+      // be retired. A retirement line may name the retired command itself;
+      // every OTHER token on it is a live recommendation like any other.
       const [head, sub] = tokens;
-      if (!registeredNames.has(head) || retiredNames.has(head)) bad.push(line);
+      const headRetiredOk = retirementContext && retiredNames.has(head);
+      if (!registeredNames.has(head)) bad.push(line);
+      else if (retiredNames.has(head) && !headRetiredOk) bad.push(line);
       else if (sub && retiredNames.has(sub)) bad.push(line);
     }
     expect(bad).toEqual([]);

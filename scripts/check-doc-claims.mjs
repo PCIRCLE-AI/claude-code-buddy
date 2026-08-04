@@ -165,6 +165,11 @@ else ok(`${readmes.length} READMEs state no hardcoded test count`);
 // three of them on every load. A count (check 4) cannot see that — it says how
 // many routes exist, not which ones the reference forgot. This walks the
 // registrations and requires each path to appear in API_REFERENCE.md.
+// Line-anchored on purpose and by limitation: a registration whose path sits
+// on its own line (app.post followed by a newline before the path literal)
+// would be invisible here. The floor below (< 20 fails) catches wholesale
+// extraction rot but not one such route; if a multi-line registration ever
+// appears, widen this rather than trusting it.
 const routePaths = [...read('src/transports/http/server.ts').matchAll(/^app\.(?:get|post|put|delete|patch)\((['"`])([^'"`]+)\1/gm)]
   .map(m => m[2])
   .filter(p => p.startsWith('/v1/'));

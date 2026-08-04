@@ -77,7 +77,12 @@ All notable changes to MeMesh are documented here.
   the suite. vite is pinned to 7.3.6 via overrides instead (the advisory's
   fix version, 7.3.4, was never published; 7.3.5 is the real floor), and
   `@babel/core` / `esbuild` moved within semver. `npm audit`: 0
-  vulnerabilities.
+  vulnerabilities. The override covers the ROOT install tree only — npm
+  applies `overrides` at the install root, and the dashboard is a separate
+  install with its own lockfile (`scripts/check-consumer-audit.mjs`'s header
+  documents this same trap). The dashboard's own vite resolves to 6.4.2,
+  which is the patched release of its line, and its declared floor is raised
+  to `^6.4.2` so a regenerated lockfile cannot float below it.
 
 ### Added
 
