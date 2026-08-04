@@ -4,6 +4,45 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Four places where a missing input read as success** — found by the first
+  systematic pass of the verification audit (absence-as-success is the `??
+  true` family this repository keeps hunting; these are the survivors of
+  three earlier hunts):
+  - `memesh doctor` printed **"All 0 hook scripts are present and
+    executable — pass"** for a hooks.json whose entries carry no `hooks`
+    arrays. Every downstream check filters FROM the extracted script set, so
+    an empty set satisfied all of them vacuously, and an install whose hooks
+    can never fire got an overall PASS. Zero extracted scripts is now a fail.
+  - The **Anthropic and OpenAI connection probes answered `valid: true` for a
+    200 with no models in it** — what a corporate proxy or auth-portal
+    interstitial looks like. "Answered with nothing" was indistinguishable
+    from "verified working" in both `memesh doctor --probe` and the
+    dashboard's Test button. The Ollama probe has always rejected the empty
+    list; the asymmetry was the tell. Both now match it.
+  - The Thai FTS-migration test asserted only what the rebuilt index must
+    NOT contain — a rebuild that deleted the Thai row and wrote nothing back
+    passed both assertions. The rebuild's output is now pinned non-empty
+    first.
+
+- **Two documented formulas the code never implemented** (`docs/`): the
+  session-start score was documented as "confidence 40% + frequency 30% +
+  recency 30%" while the code weights recency ~42% / frequency 30% /
+  confidence ~28% (`SESSION_START_WEIGHT_RATIO`, derived from
+  `DEFAULT_WEIGHTS`) — confidence and recency swapped, values wrong; and the
+  health score's freshness factor was documented as "relative to 5% of
+  total" while the code divides by ALL active entities — a 20× difference in
+  what earns full marks. Both now state what the code does and name the
+  constant they derive from.
+
+- **Two numbers with no measurement behind them, in eleven languages**: the
+  READMEs claimed `kg backfill-relations` cuts orphan rate "from 89% to
+  under 12%" — neither number appears in any benchmark, test, or artifact in
+  the repository — and quoted "~4ms per recall", which traces only to an old
+  changelog entry while the benchmark publishes a different metric. A claim
+  that cannot be re-measured is deleted, not kept for flavour.
+
 ### Removed
 
 - **The multi-model PR review workflow** (`.github/workflows/multi-model-review.yml`)

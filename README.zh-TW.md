@@ -326,7 +326,7 @@ memesh export-schema \
 
 **⚠️ 衝突偵測** — 如果你有兩個互相矛盾的記憶，MeMesh 會警告你。
 
-**🕸️ 知識圖連通性** — `memesh kg backfill-relations --all-rules` 使用標籤共現、專案叢集、會話上下文和名稱相似度連結孤立實體 — 無需 LLM。在代表性知識庫上將孤立率從 89% 降至 12% 以下。
+**🕸️ 知識圖連通性** — `memesh kg backfill-relations --all-rules` 使用標籤共現、專案叢集、會話上下文和名稱相似度連結孤立實體 — 無需 LLM。
 
 **📦 團隊共享** — `memesh export > team-knowledge.json` → 與團隊共享 → `memesh import team-knowledge.json`
 匯入的組合保持可搜尋，但 MeMesh 不會自動將匯入的記憶注入 Claude hooks，直到你檢查或在本地重新儲存。

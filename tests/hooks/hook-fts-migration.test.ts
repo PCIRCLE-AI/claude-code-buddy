@@ -104,6 +104,11 @@ describe('Feature: hooks migrate the keyword index too', () => {
     const after = terms(handle.db);
     handle.db.close();
 
+    // BOTH original assertions here are negative, and an empty index
+    // satisfies both: a rebuild that deletes the Thai row and writes nothing
+    // back used to pass this test — the exact failure it exists to catch.
+    // Pin the rebuild's output before asserting what it must not contain.
+    expect(after.length, 'the rebuild wrote nothing back for the Thai row').toBeGreaterThan(0);
     expect(after).not.toContain('สำรองข้อมูลก่อนย้ายฐานข้อมูล');
     // No surviving run longer than a bigram, which is what doctor checks for.
     expect(after.filter((t) => [...t].length > 2 && !/^[\x00-\x7F]+$/.test(t))).toEqual([]);

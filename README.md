@@ -328,7 +328,7 @@ When npm flags an installed version as deprecated (typically a security advisory
 
 **⚠️ Conflict Detection** — If you have two memories that contradict each other, MeMesh warns you.
 
-**🕸️ Knowledge Graph Connectivity** — `memesh kg backfill-relations --all-rules` links orphan entities using tag co-occurrence, project clustering, session context, and name similarity — no LLM required. Reduces orphan rate from 89% to under 12% on a representative knowledge base.
+**🕸️ Knowledge Graph Connectivity** — `memesh kg backfill-relations --all-rules` links orphan entities using tag co-occurrence, project clustering, session context, and name similarity — no LLM required.
 
 **📦 Team Sharing** — `memesh export > team-knowledge.json` → share with your team → `memesh import team-knowledge.json`
 Imported bundles stay searchable, but MeMesh does not auto-inject imported memories into Claude hooks until you review or re-store them locally.
@@ -376,7 +376,7 @@ The embedder is configured **independently of the chat LLM** — changing `llm.p
 
 | | Level 0 (default) | Level 1 (Smart Mode) |
 |---|---|---|
-| **Search** | FTS5 + sqlite-vec, 95.60% R@5 (~4ms per recall) | unchanged — recall is LLM-free at every level |
+| **Search** | FTS5 + sqlite-vec, 95.60% R@5 | unchanged — recall is LLM-free at every level |
 | **Auto-capture** | Rule-based patterns | + LLM extracts decisions & lessons |
 | **Auto-tagging** | Manual tags only | + LLM generates tags for new memories |
 | **Failure analysis** | Not available | + LLM converts session errors into structured lessons |

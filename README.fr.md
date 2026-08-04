@@ -299,7 +299,7 @@ Lorsque npm signale une version installée comme dépréciée (typiquement une a
 
 **⚠️ Détection De Conflits** — Si vous avez deux mémoires qui se contredisent, MeMesh vous avertit.
 
-**🕸️ Connectivité du graphe de connaissances** — `memesh kg backfill-relations --all-rules` relie les entités orphelines par cooccurrence de tags, clustering de projets, contexte de session et similarité de noms — sans LLM. Réduit le taux d'orphelins de 89% à moins de 12% sur une base de connaissances représentative.
+**🕸️ Connectivité du graphe de connaissances** — `memesh kg backfill-relations --all-rules` relie les entités orphelines par cooccurrence de tags, clustering de projets, contexte de session et similarité de noms — sans LLM.
 
 **📦 Partage D'Équipe** — `memesh export > team-knowledge.json` → partagez avec votre équipe → `memesh import team-knowledge.json`
 Les bundles importés restent consultables, mais MeMesh n'injecte pas automatiquement les mémoires importées dans les hooks Claude jusqu'à ce que vous les examiniez ou les rémémorisiez localement.

@@ -99,6 +99,9 @@ export async function probeAnthropic(apiKey) {
             id: m.id,
             created: m.created_at,
         }));
+        if (models.length === 0) {
+            return { valid: false, error: 'Anthropic answered, but returned no models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.' };
+        }
         return { valid: true, models, suggested: pickSuggestedModel(models) };
     }
     catch (err) {
@@ -120,6 +123,9 @@ export async function probeOpenAI(apiKey) {
             id: m.id,
             created: m.created ? new Date(m.created * 1000).toISOString() : undefined,
         }));
+        if (models.length === 0) {
+            return { valid: false, error: 'OpenAI answered, but returned no chat-capable models — a proxy or gateway may be intercepting the request. Check the endpoint and API key.' };
+        }
         return { valid: true, models, suggested: pickSuggestedModel(models) };
     }
     catch (err) {

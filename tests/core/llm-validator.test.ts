@@ -94,6 +94,34 @@ describe('provider probes (mocked fetch)', () => {
     expect(r.error).toContain('authentication_error');
   });
 
+  it('probeAnthropic rejects a 200 whose body has no models', async () => {
+    // What a corporate proxy or auth-portal interstitial looks like: HTTP 200,
+    // parseable JSON, nothing in it. `data.data ?? []` used to turn that into
+    // `valid: true, models: []` — "answered with nothing" reading as
+    // "verified working" in doctor --probe and the dashboard test button.
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+    })) as any;
+
+    const r = await probeAnthropic('sk-ant-fake');
+    expect(r.valid).toBe(false);
+    expect(r.error).toContain('no models');
+  });
+
+  it('probeOpenAI rejects a 200 whose body has no models', async () => {
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+    })) as any;
+
+    const r = await probeOpenAI('sk-fake');
+    expect(r.valid).toBe(false);
+    expect(r.error).toContain('no chat-capable models');
+  });
+
   it('probeAnthropic rejects empty key without calling network', async () => {
     const fetchSpy = vi.fn();
     global.fetch = fetchSpy as any;

@@ -298,7 +298,7 @@ Wenn npm eine installierte Version als veraltet kennzeichnet (typischerweise ein
 
 **⚠️ Konflikterkennung** — Wenn Sie zwei Memories haben, die sich widersprechen, warnt Sie MeMesh.
 
-**🕸️ Wissensgraph-Konnektivität** — `memesh kg backfill-relations --all-rules` verknüpft verwaiste Entitäten über Tag-Kookurrenz, Projekt-Clustering, Sitzungskontext und Namensähnlichkeit — ohne LLM. Reduziert die Waisenrate auf einer repräsentativen Wissensbasis von 89% auf unter 12%.
+**🕸️ Wissensgraph-Konnektivität** — `memesh kg backfill-relations --all-rules` verknüpft verwaiste Entitäten über Tag-Kookurrenz, Projekt-Clustering, Sitzungskontext und Namensähnlichkeit — ohne LLM.
 
 **📦 Team-Freigabe** — `memesh export > team-knowledge.json` → mit Team teilen → `memesh import team-knowledge.json`
 Importierte Bundles bleiben durchsuchbar, aber MeMesh injiziert importierte Memories nicht automatisch in Claude Hooks, bis Sie sie überprüfen oder lokal neu speichern.

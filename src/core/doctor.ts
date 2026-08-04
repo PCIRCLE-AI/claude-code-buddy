@@ -429,6 +429,24 @@ function inspectHooksConfig(
     );
 
   const scriptPaths = extractHookScriptPaths(parsed.value, packageRoot);
+  // Zero extracted scripts must not fall through to the pass branch below —
+  // it used to print "All 0 hook scripts are present and executable" for a
+  // hooks.json whose entries carry no `hooks` arrays (or all-empty ones),
+  // i.e. an install whose hooks can never fire. Every check downstream of
+  // this line filters FROM scriptPaths, so an empty set satisfies all of
+  // them vacuously; the only honest verdict for it is fail.
+  if (scriptPaths.length === 0) {
+    return [
+      configCheck,
+      createCheck(
+        'hook-scripts',
+        'Hook scripts',
+        'fail',
+        'hooks/hooks.json parsed, but yields zero hook script commands — hooks can never fire.',
+        'Restore the shipped hook configuration or reinstall MeMesh.',
+      ),
+    ];
+  }
   const missingScripts = scriptPaths.filter((scriptPath) => !existsSyncImpl(scriptPath));
   if (missingScripts.length > 0) {
     return [

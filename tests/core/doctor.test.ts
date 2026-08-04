@@ -394,6 +394,53 @@ describe('doctor', () => {
     });
   });
 
+  it('fails when hooks.json yields zero hook script commands', async () => {
+    // All five expected hook types present, so the hooks-config check passes —
+    // but no entry carries a `hooks` array, so zero scripts are extracted.
+    // Every downstream check filters FROM that set and passes vacuously; this
+    // used to report "All 0 hook scripts are present and executable" with an
+    // overall PASS for an install whose hooks can never fire.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    writeJson(path.join(packageRoot, 'hooks', 'hooks.json'), {
+      hooks: {
+        PreToolUse: [{ matcher: '*' }],
+        SessionStart: [{ matcher: '*' }],
+        PostToolUse: [{ matcher: '*' }],
+        Stop: [{ matcher: '*' }],
+        PreCompact: [{ matcher: '*' }],
+      },
+    });
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.0.3',
+      openDatabaseImpl: () => makeDatabase() as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({
+        searchLevel: 0,
+        llm: null,
+        embeddings: 'tfidf',
+      }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global',
+        label: 'npm global',
+        canSelfUpdate: true,
+        recommendedCommand: 'memesh update',
+        guidance: 'This installation can be updated directly from MeMesh.',
+      }),
+    });
+
+    expect(result.status).toBe('FAIL');
+    expect(result.checks.find((check) => check.id === 'hook-scripts')).toMatchObject({
+      status: 'fail',
+      summary: expect.stringContaining('zero hook script commands'),
+    });
+  });
+
   it('fails when a required hook script is missing', async () => {
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);

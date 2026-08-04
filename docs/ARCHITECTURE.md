@@ -437,7 +437,7 @@ For release safety, `npm run test:packaged` creates a real npm tarball, extracts
 
 ### Smart Session-Start
 - Session-start hook loads top-N entities by weighted score
-- Score = confidence (40%) + frequency (30%) + recency (30%)
+- Score = recency (~42%) + frequency (30%) + confidence (~28%) — the `SESSION_START_WEIGHT_RATIO` constants in `src/core/scoring.ts`, derived from `DEFAULT_WEIGHTS`; this line previously said 40/30/30 with confidence first, which matched no version of the code
 - Default N=10, configurable via MEMESH_SESSION_LIMIT
 - Concise format: "• name (type): first observation"
 
