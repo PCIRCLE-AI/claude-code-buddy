@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { api } from '../lib/api';
 import { t } from '../lib/i18n';
+import { failureMessage } from '../lib/failure';
 import { PatternCard } from './PatternCard';
 import type { JSX } from 'preact';
 
@@ -153,10 +154,19 @@ export function InsightsTab() {
       // unwrap was dead code (unreachable) and confused readers.
       const data = await api<ProposalSummary[]>('GET', `/v1/dream/proposals?status=all`);
       // `?? []` only replaces null/undefined; `{}` passed through and
-      // `allProposals.filter` threw "filter is not a function".
-      setAllProposals(Array.isArray(data) ? data : []);
+      // `allProposals.filter` threw "filter is not a function". And a
+      // payload that is not the array must not read as "no insights yet" —
+      // that is a false empty from a response nobody could parse.
+      if (!Array.isArray(data)) {
+        console.warn('[memesh dashboard] /v1/dream/proposals answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', data);
+        setAllProposals([]);
+        setError(failureMessage('unreadable'));
+      } else {
+        setAllProposals(data);
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      console.warn('[memesh dashboard] /v1/dream/proposals failed to load:', e);
+      setError(failureMessage('unreachable'));
     } finally {
       setLoading(false);
     }
@@ -324,7 +334,7 @@ export function InsightsTab() {
         <button class="btn btn-ghost" onClick={refresh} style={{ marginLeft: 'auto' }}>{t('insights.refresh')}</button>
       </div>
 
-      {error && <div class="card" style={{ padding: 12, color: 'var(--danger)' }}>{error}</div>}
+      {error && <div class="card" role="alert" style={{ padding: 12, color: 'var(--danger)' }}>{error}</div>}
       {loading && <div style={{ color: 'var(--text-3)', fontSize: 13 }}>{t('insights.loading')}</div>}
       {!loading && proposals.length === 0 && (
         <div class="card" style={{ padding: 16, textAlign: 'center', color: 'var(--text-2)' }}>

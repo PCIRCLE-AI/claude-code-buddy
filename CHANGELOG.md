@@ -6,6 +6,44 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **The dashboard now tells the two load failures apart, in every locale**
+  (`dashboard/src/lib/failure.ts`, five components, all 11 locales). "Could
+  not reach the memesh server — check `memesh serve`, then reload" and "the
+  server answered, but this page could not read the reply — reload, then
+  `memesh doctor`" are different sentences with different next steps, because
+  they are different problems: one collapsed "could not load" message sends
+  half its readers chasing a server that is running fine. Every failure
+  message renders inside a `role="alert"` element, and the contract suite
+  asserts both the wording and the announcement for each component in each
+  failure — and that the WRONG diagnosis never shows.
+
+  Two false states died with this: `LlmTelemetryPanel`'s shape rejection left
+  data null and error empty — all four render branches false, an empty card
+  with no explanation — and `BrowseTab` / `InsightsTab` displayed a rejected
+  payload as an empty library / "no insights yet", which is a false empty
+  from a response nobody could parse.
+
+### Fixed
+
+- **`PmAnalyticsPanel` had zero `t()` calls** — every label was an English
+  literal, including a hand-rolled `plan{s}` plural. All six strings moved to
+  the catalogue in all 11 locales. The test for this cannot be a `toContain`
+  in English, because the English catalogue values ARE the old literals: it
+  switches to zh-TW and asserts the translation renders and the English does
+  not — which also fails if the zh-TW key is ever dropped, since `t()` falls
+  back to English on a miss.
+
+- **`telemetry.loading` / `telemetry.empty` were English in both Chinese
+  locales** (`dashboard/src/lib/i18n.ts`) — untranslated copies pasted into
+  the zh-TW and zh-CN blocks, invisible to every check that only counts keys.
+
+- **`DoctorBanner` told screen readers two urgencies at once**
+  (`role="alert"` plus `aria-live="polite"`). `role="alert"` already implies
+  an assertive live region; the polite attribute contradicted it. A failed
+  doctor check is the thing to hear about before interacting — alert wins.
+
+### Added
+
 - **Two new documentation gates, because a count cannot say what is missing**
   (`scripts/check-doc-claims.mjs`). Every registered `/v1` route must now
   appear in `docs/api/API_REFERENCE.md` — four routes (`/v1/doctor`,

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
 import { fetchGraph, type GraphData, type Entity } from '../lib/api';
 import { t } from '../lib/i18n';
+import { failureMessage, type LoadFailure } from '../lib/failure';
 import { useSignalMode } from '../lib/signalMode';
 
 /* ------------------------------------------------------------------ */
@@ -113,6 +114,7 @@ export function GraphTab() {
   const [data, setData] = useState<GraphData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [failure, setFailure] = useState<LoadFailure | null>(null);
 
   // UI state
   const [typeFilters, setTypeFilters] = useState<Record<string, boolean>>({});
@@ -207,9 +209,11 @@ export function GraphTab() {
         if (!isGraphRenderable(d)) {
           // Loudly: the request succeeded, so nothing else will ever log this.
           console.warn('[memesh dashboard] /v1/graph answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', d);
+          setFailure('unreadable');
           setData(null);
           return;
         }
+        setFailure(null);
         setData(d);
         // Init type filters from the server-supplied noise list. When
         // global Signal Mode is ON we hide noise by default; when it
@@ -222,7 +226,7 @@ export function GraphTab() {
         });
         setTypeFilters(types);
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => { setFailure('unreachable'); setError(e.message); })
       .finally(() => setLoading(false));
   }, []);
 
@@ -872,8 +876,13 @@ export function GraphTab() {
 
   /* ---------- derived data for render ---------- */
   if (loading) return <div class="empty"><div class="loading" /></div>;
-  if (error) return <div class="error-box">{t('common.error')}: {error}</div>;
-  if (!data) return <div class="error-box">{t('common.error')}: {t('common.noData')}</div>;
+  // The two failures carry different next steps — "check the server" vs
+  // "reload / memesh doctor" — so they get different sentences. The raw
+  // message stays for the residual case where the request failed for a
+  // reason that is not connectivity (the console has the details either way).
+  if (failure) return <div class="error-box" role="alert">{failureMessage(failure)}</div>;
+  if (error) return <div class="error-box" role="alert">{t('common.error')}: {error}</div>;
+  if (!data) return <div class="error-box" role="alert">{t('common.error')}: {t('common.noData')}</div>;
 
   // Type counts
   const typeGroups = new Map<string, number>();

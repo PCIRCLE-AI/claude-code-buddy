@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { api } from '../lib/api';
 import { t } from '../lib/i18n';
+import { failureMessage, type LoadFailure } from '../lib/failure';
 
 // Surfaces the llm_telemetry persisted scorecard as a dashboard panel.
 // Backed by GET /v1/telemetry?window=N → { window_days, summaries[] }.
@@ -52,6 +53,7 @@ function fmtLatency(ms: number | null): string {
 export function LlmTelemetryPanel() {
   const [data, setData] = useState<TelemetryResponse | null>(null);
   const [error, setError] = useState('');
+  const [failure, setFailure] = useState<LoadFailure | null>(null);
   const [loading, setLoading] = useState(true);
   const [window, setWindow] = useState(30);
 
@@ -60,9 +62,21 @@ export function LlmTelemetryPanel() {
     setError('');
     api<TelemetryResponse>('GET', `/v1/telemetry?window=${window}`)
       // Without `summaries` there is nothing to render, and `data.summaries.length`
-      // throws. Treat the partial payload as absent rather than as data.
-      .then(d => setData(Array.isArray(d?.summaries) ? d : null))
-      .catch(e => setError(e instanceof Error ? e.message : String(e)))
+      // throws. A payload the guard rejects is a DIFFERENT failure from a
+      // request that failed, and used to be the worst of the four states:
+      // data null, error empty — every render branch false, an empty card
+      // with no explanation at all.
+      .then(d => {
+        if (!Array.isArray(d?.summaries)) {
+          console.warn('[memesh dashboard] /v1/telemetry answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', d);
+          setFailure('unreadable');
+          setData(null);
+          return;
+        }
+        setFailure(null);
+        setData(d);
+      })
+      .catch(e => { setFailure('unreachable'); setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => setLoading(false));
   }, [window]);
 
@@ -91,15 +105,17 @@ export function LlmTelemetryPanel() {
       </div>
 
       {loading && <div style={{ color: 'var(--text-3)', fontSize: 13 }}>{t('telemetry.loading')}</div>}
-      {error && <div style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</div>}
+      {!loading && failure && (
+        <div class="error-box" role="alert" style={{ fontSize: 13 }}>{failureMessage(failure)}</div>
+      )}
 
-      {!loading && !error && data && data.summaries.length === 0 && (
+      {!loading && !failure && data && data.summaries.length === 0 && (
         <div style={{ color: 'var(--text-2)', fontSize: 13, padding: 8 }}>
           {t('telemetry.empty')}
         </div>
       )}
 
-      {!loading && !error && data && data.summaries.length > 0 && (
+      {!loading && !failure && data && data.summaries.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {data.summaries.map(s => {
             const successRate = s.total_attempts > 0 ? s.successes / s.total_attempts : 0;
