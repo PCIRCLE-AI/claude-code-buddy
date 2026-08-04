@@ -55,6 +55,27 @@ All notable changes to MeMesh are documented here.
   and stays read-verified — deterministically interleaving its three
   trigger paths was judged not worth the harness.
 
+- **The local review of this change caught the mutation harness grading its
+  own absence** — the deepest cut of the whole hunt: a test runner that
+  never ran (timeout kill, missing `npx`) left `status` null/undefined, and
+  `?? 1` folded both into "the tests failed", which the callers read as
+  KILLED. A misconfigured environment would have reported a perfect 100%
+  score. A non-numeric exit status now crashes the run with "the test runner
+  produced no verdict"; a non-integer `SAMPLE` or an empty candidate pool
+  exits 2 instead of printing `killed=0 survived=0` with a green exit. The
+  same review found the C3 detector excluding `scripts/audit/` — thereby
+  hiding `mutation-sample.mjs`, an uncalled gate, from the detector built to
+  catch uncalled gates. The exclusion is gone, and the harness has a real
+  caller (`.github/workflows/mutation-audit.yml`: monthly schedule with
+  run-number seeds so each run samples fresh mutants, plus manual dispatch
+  defaulting to the published seed). Also from the review: `memesh view`
+  warned about three missing tables but early-returned silently past the
+  worst one (`entities` — now the loudest); two baseline entries carried a
+  reason copy-pasted from different code (re-written); the baseline id
+  scheme's no-content-hash trade-off is documented where it lives; and a
+  malformed `baseline.json` names itself in the failure instead of surfacing
+  as a bare JSON stack trace.
+
 ### Fixed
 
 - **Four places where a missing input read as success** — found by the first

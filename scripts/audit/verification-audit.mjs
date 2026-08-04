@@ -34,7 +34,13 @@ function walk(dir, exts, out = []) {
   return out;
 }
 
-/** hit id = class + a stable location key (file[:line] + a content hash tail). */
+/**
+ * hit id = class + location key (file, or file:line). Deliberately NO content
+ * hash: a line edit shifts ids, which resurfaces the entry as new+stale and
+ * forces a re-triage — the failure mode of that choice (an id re-used by
+ * different code at the same line, silently inheriting the old triage) is
+ * accepted and this comment is where it is written down.
+ */
 function hitId(cls, key) {
   return `${cls} ${key}`;
 }
@@ -69,8 +75,13 @@ function record(cls, denominator, hits, note) {
   const pkg = JSON.parse(read('package.json'));
   const gateScripts = Object.keys(pkg.scripts).filter(k =>
     /^(test|verify|check|audit|lint|typecheck)/.test(k));
+  // scripts/audit/ is NOT excluded: this file and mutation-sample.mjs are
+  // gate-like scripts and must answer for their own callers like everything
+  // else. The first version excluded the directory and thereby hid
+  // mutation-sample.mjs — an uncalled gate — from the detector built to
+  // catch uncalled gates.
   const scriptFiles = walk('scripts', ['.mjs', '.sh'])
-    .filter(f => !f.includes('/lib/') && !f.includes('/hooks/') && !f.startsWith('scripts/audit/'));
+    .filter(f => !f.includes('/lib/') && !f.includes('/hooks/'));
   const candidates = [...gateScripts.map(k => `npm:${k}`), ...scriptFiles];
   const corpusParts = [
     ...walk('.github/workflows', ['.yml']).map(f => [f, read(f)]),
@@ -163,7 +174,13 @@ function record(cls, denominator, hits, note) {
 /* ---- gate ------------------------------------------------------------------ */
 
 const baselinePath = path.join(REPO, 'scripts/audit/baseline.json');
-const baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
+let baseline;
+try {
+  baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
+} catch (err) {
+  console.error(`scripts/audit/baseline.json is unreadable or not valid JSON: ${err.message}`);
+  process.exit(1);
+}
 const known = new Set(Object.keys(baseline.hits));
 
 let failed = false;

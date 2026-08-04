@@ -39,6 +39,7 @@ function queryData(dbPath) {
             .all()
             .map(r => r.name);
         if (!tables.includes('entities')) {
+            console.error('[memesh view] warning: table "entities" is missing from this database — nothing can be shown. Run `memesh doctor`.');
             return emptyData;
         }
         const hasStatus = db.prepare('PRAGMA table_info(entities)').all()

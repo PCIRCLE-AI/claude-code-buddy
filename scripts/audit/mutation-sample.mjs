@@ -39,6 +39,13 @@ const MODEL_CACHE = process.env.MEMESH_MODEL_CACHE_DIR
   ?? path.join(os.tmpdir(), 'memesh-mutation-model-cache');
 const SAMPLE = Number(process.env.SAMPLE ?? 12);
 const SEED = Number(process.env.SEED ?? 20260804);
+if (!Number.isInteger(SAMPLE) || SAMPLE < 1 || !Number.isInteger(SEED)) {
+  // A NaN here used to make the sampling loop's `< SAMPLE` comparison false
+  // forever: zero mutants, zero survivors, exit 0 — total misconfiguration
+  // reporting as a clean run.
+  console.error(`SAMPLE and SEED must be positive integers (got SAMPLE=${process.env.SAMPLE}, SEED=${process.env.SEED})`);
+  process.exit(2);
+}
 const OPERATOR_SET = process.env.OPERATORS ?? 'classic';
 
 /** Deterministic PRNG so a run can be reproduced and compared. */
@@ -115,7 +122,14 @@ function runVitest(files) {
     });
     return 0;
   } catch (e) {
-    return e.status ?? 1;
+    // `status` is a NUMBER only when the child ran and exited. A timeout kill
+    // leaves status null; a missing npx leaves it undefined — and `?? 1` used
+    // to fold both into "the tests failed", which the callers read as KILLED.
+    // A harness that never ran must crash the run, not grade the mutant.
+    if (typeof e.status !== 'number') {
+      throw new Error(`the test runner produced no verdict (${e.code ?? e.signal ?? 'unknown'}): ${e.message}`, { cause: e });
+    }
+    return e.status;
   }
 }
 
@@ -144,6 +158,12 @@ while (picked.length < SAMPLE && pool.length) {
 
 console.log(`# operators=${OPERATOR_SET} candidates=${candidates.length} across ${srcFiles.length} src files`);
 console.log(`# sampling ${picked.length} (seed ${SEED})\n`);
+if (candidates.length === 0 || picked.length === 0) {
+  // Same rule the verification audit applies to itself: an empty candidate
+  // set is what a broken harness looks like, not what a clean tree looks like.
+  console.error('zero mutation candidates sampled — the operators matched nothing; that is a broken harness, not a perfect suite');
+  process.exit(2);
+}
 
 /* ---------------- run ---------------- */
 

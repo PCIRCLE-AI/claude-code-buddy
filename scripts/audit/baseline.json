@@ -248,13 +248,13 @@
     },
     "C5 src/knowledge-graph.ts:304": {
       "class": "SAFE-ACCUMULATOR",
-      "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-04"
+      "reason": "write-time signal-score inputs; empty means the caller passed no observations/tags, which is the correct identity for scoring",
+      "triaged": "2026-08-04 (re-written: the first reason described the batch-hydrate lines, not these)"
     },
     "C5 src/knowledge-graph.ts:305": {
       "class": "SAFE-ACCUMULATOR",
-      "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-04"
+      "reason": "write-time signal-score inputs; empty means the caller passed no observations/tags, which is the correct identity for scoring",
+      "triaged": "2026-08-04 (re-written: the first reason described the batch-hydrate lines, not these)"
     },
     "C5 src/knowledge-graph.ts:365": {
       "class": "SAFE-ACCUMULATOR",
@@ -406,25 +406,25 @@
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04"
     },
-    "C5 src/cli/view.ts:134": {
+    "C5 src/cli/view.ts:138": {
       "class": "SAFE-ACCUMULATOR/DISPLAY",
       "reason": "group-by identity or truthful zero-rows display",
-      "triaged": "2026-08-04 (re-keyed after the missing-table warning insert shifted lines)"
+      "triaged": "2026-08-04 (re-keyed twice: two warning inserts shifted lines)"
     },
-    "C5 src/cli/view.ts:142": {
+    "C5 src/cli/view.ts:146": {
       "class": "SAFE-ACCUMULATOR/DISPLAY",
       "reason": "group-by identity or truthful zero-rows display",
-      "triaged": "2026-08-04 (re-keyed after the missing-table warning insert shifted lines)"
+      "triaged": "2026-08-04 (re-keyed twice: two warning inserts shifted lines)"
     },
-    "C5 src/cli/view.ts:153": {
+    "C5 src/cli/view.ts:157": {
       "class": "SAFE-ACCUMULATOR/DISPLAY",
       "reason": "group-by identity or truthful zero-rows display",
-      "triaged": "2026-08-04 (re-keyed after the missing-table warning insert shifted lines)"
+      "triaged": "2026-08-04 (re-keyed twice: two warning inserts shifted lines)"
     },
-    "C5 src/cli/view.ts:154": {
+    "C5 src/cli/view.ts:158": {
       "class": "SAFE-ACCUMULATOR/DISPLAY",
       "reason": "group-by identity or truthful zero-rows display",
-      "triaged": "2026-08-04 (re-keyed after the missing-table warning insert shifted lines)"
+      "triaged": "2026-08-04 (re-keyed twice: two warning inserts shifted lines)"
     }
   }
 }

@@ -89,6 +89,33 @@ describe('Feature: MeMesh View Dashboard', () => {
     });
   });
 
+  describe('Scenario: the entities table itself is missing', () => {
+    it('Given a database with no tables at all, When I generate the dashboard, Then it says nothing can be shown', () => {
+      // The worst case must be the loudest: the first version of the
+      // missing-table warning covered observations/tags/relations and
+      // early-returned right past an absent entities table — the local
+      // review of this change caught it.
+      const db = new Database(testDbPath);
+      db.exec('CREATE TABLE unrelated (id INTEGER PRIMARY KEY);');
+      db.close();
+
+      const warns: string[] = [];
+      const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+        warns.push(args.map(String).join(' '));
+      });
+      try {
+        const html = generateDashboardHtml(testDbPath);
+        expect(html).toContain('<!DOCTYPE html>');
+        expect(
+          warns.some(w => w.includes('"entities" is missing from this database')),
+          'should warn that the entities table is missing'
+        ).toBe(true);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
   describe('Scenario: Generate dashboard with empty database', () => {
     it('Given an empty database, When I generate the dashboard, Then it returns valid HTML', () => {
       const db = new Database(testDbPath);

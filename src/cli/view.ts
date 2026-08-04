@@ -72,6 +72,10 @@ function queryData(dbPath: string): DashboardData {
       .map(r => r.name);
 
     if (!tables.includes('entities')) {
+      // The single most broken case must be the loudest, not the only silent
+      // one — the first version of this warning covered the three sibling
+      // tables and early-returned right past this branch.
+      console.error('[memesh view] warning: table "entities" is missing from this database — nothing can be shown. Run `memesh doctor`.');
       return emptyData;
     }
 
