@@ -4,6 +4,7 @@ import { t, getLocale } from '../lib/i18n';
 import { typeLabel, relationLabel } from '../lib/entity-display';
 import { classifyLoadError, failureMessage, type LoadFailure } from '../lib/failure';
 import { useSignalMode } from '../lib/signalMode';
+import { EmptyLibraryState } from './EmptyLibraryState';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -107,12 +108,39 @@ declare global {
 const CANVAS_HEIGHT = 440;
 const CLICK_THRESHOLD = 4; // px — drag vs click detection
 
+/**
+ * Node budget for the simulation. The repulsion pass is O(n²) per animation
+ * frame and the server sends EVERY signal entity uncapped (only noise types
+ * are capped at 200 server-side) — a few thousand entities is not a slow
+ * graph, it is a frozen tab. Above the cap, keep the most-recalled (then
+ * most-recent) nodes and SAY SO in the stats row: a communicated limit,
+ * never a silent drop.
+ *
+ * 1500 nodes ≈ 1.1M pair checks per frame — still interactive on ordinary
+ * hardware; the pre-existing >300px distance skip thins the constant further.
+ */
+export const GRAPH_NODE_CAP = 1500;
+
+/** The nodes that survive the budget: most-recalled first, recency as the
+ *  tiebreak — the same "show me useful things" order BrowseTab defaults to. */
+export function capGraphEntities(entities: Entity[], cap: number = GRAPH_NODE_CAP): Entity[] {
+  if (entities.length <= cap) return entities;
+  return [...entities]
+    .sort((a, b) =>
+      (b.access_count ?? 0) - (a.access_count ?? 0)
+      || (b.last_accessed_at ?? b.created_at).localeCompare(a.last_accessed_at ?? a.created_at))
+    .slice(0, cap);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
 export function GraphTab() {
   const [data, setData] = useState<GraphData | null>(null);
+  // The pre-cap count. `data.entities` holds at most GRAPH_NODE_CAP nodes;
+  // the stats row keeps reporting the real library size next to the cap note.
+  const [totalEntities, setTotalEntities] = useState(0);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<LoadFailure | null>(null);
 
@@ -214,14 +242,23 @@ export function GraphTab() {
           return;
         }
         setFailure(null);
-        setData(d);
+        // The physics budget: everything below (filters, counts, canvas)
+        // works on the capped set; only the stats row knows the real total.
+        const capped = capGraphEntities(d.entities);
+        if (capped.length < d.entities.length) {
+          console.info(
+            `[memesh dashboard] graph capped at ${capped.length} of ${d.entities.length} entities — the O(n²) simulation freezes the tab beyond this; showing the most-recalled nodes.`,
+          );
+        }
+        setTotalEntities(d.entities.length);
+        setData({ ...d, entities: capped });
         // Init type filters from the server-supplied noise list. When
         // global Signal Mode is ON we hide noise by default; when it
         // is OFF the user explicitly opted into "show everything," so
         // every type starts checked.
         const noise = new Set(Array.isArray(d.noiseTypes) ? d.noiseTypes : []);
         const types: Record<string, boolean> = {};
-        d.entities.forEach((e) => {
+        capped.forEach((e) => {
           types[e.type] = types[e.type] ?? (signalMode ? !noise.has(e.type) : true);
         });
         setTypeFilters(types);
@@ -914,12 +951,45 @@ export function GraphTab() {
     ? data.entities.find((e) => e.name === egoNodeId)
     : null;
 
+  // An empty library used to render as a bare black canvas — indistinguishable
+  // from a rendering bug, and mute about what to do next. /v1/graph returns
+  // every signal entity, so zero entities here IS an empty database: show the
+  // instructive empty state (with the demo seed — the durable entry point
+  // that survives the OnboardingBanner's permanent dismissal).
+  if (data.entities.length === 0) {
+    return (
+      <div>
+        <div class="stats-row">
+          <div class="stat">
+            <div class="stat-val">0</div>
+            <div class="stat-lbl">{t('graph.entities')}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-val">0</div>
+            <div class="stat-lbl">{t('graph.relations')}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-val">0</div>
+            <div class="stat-lbl">{t('graph.orphans')}</div>
+          </div>
+        </div>
+        <div class="card" style={{ padding: 12 }}>
+          <span class="card-title" style={{ margin: 0 }}>{t('tab.graph')}</span>
+          <EmptyLibraryState />
+        </div>
+      </div>
+    );
+  }
+
+  const isCapped = totalEntities > data.entities.length;
+
   return (
     <div>
-      {/* Stats row: 3 cards */}
+      {/* Stats row: 3 cards. The entities stat reports the LIBRARY size
+          (pre-cap) — the cap note right below owns the discrepancy. */}
       <div class="stats-row">
         <div class="stat">
-          <div class="stat-val">{data.entities.length.toLocaleString(getLocale())}</div>
+          <div class="stat-val">{totalEntities.toLocaleString(getLocale())}</div>
           <div class="stat-lbl">{t('graph.entities')}</div>
         </div>
         <div class="stat">
@@ -931,6 +1001,15 @@ export function GraphTab() {
           <div class="stat-lbl">{t('graph.orphans')}</div>
         </div>
       </div>
+
+      {isCapped && (
+        <div role="status" style={{ fontSize: 11, color: 'var(--text-2)', margin: '0 0 8px' }}>
+          {t('graph.cappedNote', {
+            shown: data.entities.length.toLocaleString(getLocale()),
+            total: totalEntities.toLocaleString(getLocale()),
+          })}
+        </div>
+      )}
 
       <div class="card" style={{ padding: 12 }}>
         {/* Row 1: Title + type filter checkboxes — horizontally

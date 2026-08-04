@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { api } from '../lib/api';
 import { t } from '../lib/i18n';
-import { classifyLoadError, failureMessage } from '../lib/failure';
+import { actionFailureMessage, classifyLoadError, failureMessage } from '../lib/failure';
 import { relativeDate } from '../lib/entity-display';
 import { PatternCard } from './PatternCard';
 import type { JSX } from 'preact';
@@ -197,7 +197,7 @@ export function InsightsTab() {
       next.set(id, detail);
       setExpanded(next);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(actionFailureMessage(e));
     }
   }, [expanded]);
 
@@ -223,7 +223,7 @@ export function InsightsTab() {
       window.dispatchEvent(new Event('memesh:data-changed'));
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(actionFailureMessage(e));
     } finally {
       clearBusy(id);
     }
@@ -236,7 +236,7 @@ export function InsightsTab() {
       window.dispatchEvent(new Event('memesh:data-changed'));
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(actionFailureMessage(e));
     } finally {
       clearBusy(id);
     }
@@ -258,7 +258,7 @@ export function InsightsTab() {
       window.dispatchEvent(new Event('memesh:data-changed'));
       await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(actionFailureMessage(e));
     } finally {
       setDreamRunning(null);
     }

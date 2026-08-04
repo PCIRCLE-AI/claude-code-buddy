@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { api, type ConfigData, type ConfigTestResult, type UpdateStatusData } from '../lib/api';
 import { t, setLocale, getLocales, type Locale } from '../lib/i18n';
+import { actionFailureMessage } from '../lib/failure';
 
 interface SettingsTabProps {
   locale: Locale;
@@ -201,8 +202,8 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       if (result.valid && !model && result.suggested) {
         setModel(result.suggested);
       }
-    } catch (e: any) {
-      setTestResult({ valid: false, error: e.message });
+    } catch (e) {
+      setTestResult({ valid: false, error: actionFailureMessage(e) });
     } finally {
       setTesting(false);
     }
@@ -237,8 +238,8 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       setTestResult(null);
       setInitialProvider(provider);
       setInitialModel(model);
-    } catch (e: any) {
-      setMsg(t('common.error') + ': ' + e.message);
+    } catch (e) {
+      setMsg(t('common.error') + ': ' + actionFailureMessage(e));
     } finally {
       setSaving(false);
     }
@@ -262,8 +263,8 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       setInitialHasApiKey(false);
       setTestResult(null);
       setMsg(t('settings.providerRemoved'));
-    } catch (e: any) {
-      setMsg(t('common.error') + ': ' + e.message);
+    } catch (e) {
+      setMsg(t('common.error') + ': ' + actionFailureMessage(e));
     } finally {
       setSaving(false);
     }
@@ -280,8 +281,8 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       await api('POST', '/v1/config', patch);
       setConfig((cur) => (cur ? apply(cur) : cur));
       setMsg(t('settings.saved'));
-    } catch (e: any) {
-      setMsg(t('common.error') + ': ' + e.message);
+    } catch (e) {
+      setMsg(t('common.error') + ': ' + actionFailureMessage(e));
     }
   }
 
@@ -396,6 +397,13 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             <div class="stat-val" style={{ fontSize: 14 }}>{capitalize(caps?.llm?.provider || t('settings.none'))}</div>
             <div class="stat-lbl">{t('settings.llmProvider')}</div>
           </div>
+          {/* Which model answers is as much a capability as which provider
+              does — a user comparing digest quality needs it visible without
+              opening ~/.memesh/config.json. Mono: it is an identifier. */}
+          <div class="stat">
+            <div class="stat-val" style={{ fontSize: 14, fontFamily: 'var(--mono)' }}>{caps?.llm?.model || '—'}</div>
+            <div class="stat-lbl">{t('settings.model')}</div>
+          </div>
         </div>
       </div>
 
@@ -462,11 +470,20 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
                   onInput={(e) => onApiKeyChange((e.target as HTMLInputElement).value)}
                   style={{ flex: 1 }}
                 />
+                {/* An empty key field is only a dead end when NOTHING is on
+                    disk: POST /v1/config/test falls back to the stored key
+                    when apiKey is omitted and the provider matches. Gating
+                    the button on `apiKey === ''` alone forced users to
+                    re-paste a key they had already saved just to re-test. */}
                 <button
                   type="button"
                   class="btn"
                   onClick={() => void testConnection()}
-                  disabled={provider === '' || testing || (provider !== 'ollama' && apiKey === '')}
+                  disabled={provider === '' || testing
+                    || (provider !== 'ollama' && apiKey === '' && !(initialHasApiKey && provider === initialProvider))}
+                  title={initialHasApiKey && provider === initialProvider && apiKey === ''
+                    ? t('settings.testStoredKeyHint')
+                    : undefined}
                   style={{ flexShrink: 0 }}
                 >
                   {testing ? t('settings.testing') : t('settings.test')}
@@ -490,6 +507,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
 
           {testResult && (
             <div
+              role={testResult.valid ? 'status' : 'alert'}
               style={{
                 marginBottom: 12,
                 padding: '8px 10px',
@@ -571,7 +589,17 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
                 {needsTest && (
                   <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('settings.testRequired')}</span>
                 )}
-                {msg && <span style={{ fontSize: 12, color: msg.startsWith(t('common.error')) ? 'var(--danger)' : 'var(--success)' }}>{msg}</span>}
+                {/* role: errors interrupt (alert), confirmations wait their
+                    turn (status) — without either, a screen reader hears
+                    nothing when Save succeeds or fails. */}
+                {msg && (
+                  <span
+                    role={msg.startsWith(t('common.error')) ? 'alert' : 'status'}
+                    style={{ fontSize: 12, color: msg.startsWith(t('common.error')) ? 'var(--danger)' : 'var(--success)' }}
+                  >
+                    {msg}
+                  </span>
+                )}
               </div>
             );
           })()}

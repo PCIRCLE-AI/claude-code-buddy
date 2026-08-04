@@ -158,11 +158,11 @@ export function App() {
       <div class="main">
         <div class={`panel ${tab === 'Insights' ? 'active' : ''}`}>{tab === 'Insights' && <InsightsTab />}</div>
         <div class={`panel ${tab === 'Search' ? 'active' : ''}`}><SearchTab /></div>
-        <div class={`panel ${tab === 'Browse' ? 'active' : ''}`}><BrowseTab /></div>
+        <div class={`panel ${tab === 'Browse' ? 'active' : ''}`}><BrowseTab health={health} /></div>
         <div class={`panel ${tab === 'Analytics' ? 'active' : ''}`}><AnalyticsTab /></div>
         <div class={`panel ${tab === 'Graph' ? 'active' : ''}`}>{tab === 'Graph' && <GraphTab />}</div>
-        <div class={`panel ${tab === 'Lessons' ? 'active' : ''}`}>{tab === 'Lessons' && <LessonsTab />}</div>
-        <div class={`panel ${tab === 'Manage' ? 'active' : ''}`}>{tab === 'Manage' && <BrowseTab manage />}</div>
+        <div class={`panel ${tab === 'Lessons' ? 'active' : ''}`}>{tab === 'Lessons' && <LessonsTab health={health} />}</div>
+        <div class={`panel ${tab === 'Manage' ? 'active' : ''}`}>{tab === 'Manage' && <BrowseTab manage health={health} />}</div>
         <div class={`panel ${tab === 'Settings' ? 'active' : ''}`}>
           {tab === 'Settings' && <SettingsTab locale={locale} onLocaleChange={setLocale} />}
         </div>
