@@ -126,6 +126,32 @@ All notable changes to MeMesh are documented here.
   different messages with two different next steps) is queued behind this
   change, not part of it.
 
+- **`SettingsTab` was the ninth tab, and the last one outside the contract**
+  (`dashboard/src/components/SettingsTab.tsx`) — it was excluded with a written
+  reason ("has unguarded reads") rather than silently, which is the one thing
+  that went right; the reads are now guarded and the exclusion is gone. Three
+  defects, two of them the same shapes as the other eight tabs: the
+  `/v1/config` chain had a `.finally` and **no `.catch`**, so a server that was
+  simply down became an unhandled rejection; and the behaviour card read
+  `config?.config.autoUpdate` — the optional chain guards `config`, the read is
+  one level further down, on `.config`, and `{}` lands exactly between them.
+
+  The third was new: a **false green**. The update summary *branches* on
+  `checkSucceeded` / `freshness` / `updateAvailable`, and a hollow
+  `update-status` payload crashes nothing — it falls through every branch and
+  lands on **"Up to date"**, from a response that said nothing at all. The
+  guard for it requires the fields the summary branches on (version strings
+  degrade to '—' harmlessly and are deliberately not required), and the
+  contract pins the call site: on a payload with none of those fields, the tab
+  must say it **can't check**, visibly.
+
+  One more assertion exists because a break-test proved everything else blind
+  to it: bypassing the config shape guard entirely left all 157 other tests
+  green — the read throws, the new network `.catch` absorbs it, and the tab
+  degrades identically while the console blames an outage that never happened.
+  The two failures carry different next steps for the user, so the diagnosis
+  itself is now under test.
+
 - **`npm run typecheck` had never checked a single test file, and 68 real errors
   were waiting behind that** (`tsconfig.check.json`, 9 test files) —
   **this corrects a claim made in the previous entry's own release notes.** The

@@ -7,6 +7,32 @@ interface SettingsTabProps {
   onLocaleChange: (locale: Locale) => void;
 }
 
+/**
+ * The one field this tab reads past a `?.`: the load handler reads
+ * `data.config.llm?.provider` and the behaviour card reads
+ * `config?.config.autoUpdate` — the optional chain guards `config`, and the
+ * read is one level further down, on `.config`. `{success: true, data: {}}`
+ * satisfies every truthiness check and then throws exactly there.
+ */
+export function isConfigRenderable(c: ConfigData | null): c is ConfigData {
+  return typeof c?.config === 'object' && c.config !== null;
+}
+
+/**
+ * The fields the update summary BRANCHES on, not merely renders. A hollow
+ * `{}` here does not crash anything — worse, it falls through every branch
+ * and lands on "Up to date": a false green produced by a payload that said
+ * nothing at all. Version strings and timestamps degrade to '—' harmlessly
+ * and are deliberately not required.
+ */
+export function isUpdateStatusRenderable(u: UpdateStatusData | null): u is UpdateStatusData {
+  return (
+    typeof u?.checkSucceeded === 'boolean' &&
+    typeof u.freshness === 'string' &&
+    typeof u.updateAvailable === 'boolean'
+  );
+}
+
 function capitalize(s: string): string {
   if (!s) return s;
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -77,6 +103,13 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
     try {
       const path = forceFresh ? '/v1/update-status' : '/v1/update-status?cached=1';
       const data = await api<UpdateStatusData>('GET', path);
+      if (!isUpdateStatusRenderable(data)) {
+        // The request SUCCEEDED, so no error path will ever log this — and a
+        // hollow payload here would read as "Up to date", not as a failure.
+        console.warn('[memesh dashboard] /v1/update-status answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', data);
+        if (!keepCurrentState) setUpdateStatus(null);
+        return;
+      }
       setUpdateStatus(data);
     } catch {
       if (!keepCurrentState) {
@@ -96,6 +129,13 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
 
     api<ConfigData>('GET', '/v1/config')
       .then((data) => {
+        if (!isConfigRenderable(data)) {
+          if (data !== null) {
+            console.warn('[memesh dashboard] /v1/config answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', data);
+          }
+          setConfig(null);
+          return;
+        }
         setConfig(data);
         const p = data.config.llm?.provider || '';
         const m = data.config.llm?.model || '';
@@ -106,6 +146,12 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         // Server masks the key as '***' when one is stored. Empty/undefined
         // means no key on disk (e.g. ollama or fresh install).
         setInitialHasApiKey(!!data.config.llm?.apiKey);
+      })
+      .catch((e) => {
+        // This chain had a .finally and no .catch, so a server that was simply
+        // down became an unhandled rejection instead of a degraded tab.
+        console.warn('[memesh dashboard] /v1/config failed to load:', e);
+        setConfig(null);
       })
       .finally(() => setLoading(false));
 
