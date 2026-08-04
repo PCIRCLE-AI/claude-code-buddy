@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { RADAR_AXES } from '../src/core/analytics.js';
 
 const i18nSource = readFileSync('dashboard/src/lib/i18n.ts', 'utf8');
 
@@ -65,6 +66,11 @@ describe('dashboard i18n', () => {
     expect(memoryRowSource).not.toContain('>archived<');
     expect(memoryRowSource).not.toContain(' facts</span>');
     expect(analyticsSource).not.toContain('Failed to load analytics');
+    // InsightsTab once hand-rolled an English-only relative-time ladder
+    // ("5s ago" / "3m ago" / …) instead of the localised shared formatter.
+    const insightsSource = readFileSync('dashboard/src/components/InsightsTab.tsx', 'utf8');
+    expect(insightsSource).not.toMatch(/\}[smhd] ago/);
+    expect(insightsSource).toContain('relativeDate(');
     expect(graphSource).not.toContain(': No data');
     expect(settingsSource).not.toContain('>Level ');
     expect(apiSource).not.toContain('Unknown error');
@@ -176,6 +182,140 @@ describe('dashboard i18n', () => {
     }
 
     expect(missing).toEqual([]);
+  });
+
+  // Template-key call sites — t(`prefix.${value}`) — are invisible to the
+  // static-key scan above, which is exactly how they leak: a value the
+  // catalogue never heard of renders as a raw dotted key (or falls back to
+  // the raw identifier at sites using the sanctioned miss detection). For
+  // every template site the set of possible runtime values IS enumerable
+  // somewhere real — a server constant, a type union, the literals a module
+  // records — so each set is derived from that source and asserted to be a
+  // subset of the English catalogue. Locale parity (test above) then carries
+  // the guarantee to all 11 languages.
+  describe('template-key fixed sets are fully translated', () => {
+    const englishKeys = () => {
+      const keys = parseTranslationKeys().get('en');
+      expect(keys).toBeDefined();
+      return keys!;
+    };
+
+    const expectAllPresent = (keys: string[]) => {
+      const en = englishKeys();
+      expect(keys.filter((k) => !en.has(k))).toEqual([]);
+    };
+
+    // KnowledgeRadar: t(`radar.axis.${axis}`) — axes come from the server's
+    // RADAR_AXES constant, imported here so a new axis fails this test
+    // until its translation lands.
+    it('covers every radar axis', () => {
+      expect(RADAR_AXES.length).toBeGreaterThanOrEqual(6);
+      expectAllPresent(RADAR_AXES.map(({ axis }) => `radar.axis.${axis}`));
+    });
+
+    // InsightsTab: t(`insights.status.${status}`) and t(`insights.filter.${f}`).
+    // The status lifecycle is pending → applied/rejected (dreamer.ts).
+    it('covers every proposal status and filter', () => {
+      expectAllPresent(['pending', 'applied', 'rejected'].map((s) => `insights.status.${s}`));
+      expectAllPresent(['pending', 'applied', 'rejected', 'all'].map((f) => `insights.filter.${f}`));
+    });
+
+    // typeLabel(): t(`type.${slug}`) — entity types are open server data
+    // with a sanctioned raw-slug fallback, so "⊆ catalogue" cannot hold for
+    // arbitrary input. What must hold: every type THIS CODEBASE produces or
+    // styles is translated. Derived from the two real vocabularies —
+    // entity-display's TYPE_CLUSTER map and GraphTab's TYPE_COLORS.
+    it('covers every entity type the dashboard knows about', () => {
+      const entityDisplay = readFileSync('dashboard/src/lib/entity-display.ts', 'utf8');
+      const clusterBlock = entityDisplay.match(/const TYPE_CLUSTER[\s\S]*?\n\};/);
+      expect(clusterBlock).not.toBeNull();
+      const clusterTypes = [...clusterBlock![0].matchAll(/(?:'([^']+)'|([\w-]+)):\s*'(?:knowledge|activity|reference|session)'/g)]
+        .map((m) => m[1] ?? m[2]);
+      expect(clusterTypes.length).toBeGreaterThanOrEqual(25);
+
+      const graphSrc = readFileSync('dashboard/src/components/GraphTab.tsx', 'utf8');
+      const colorBlock = graphSrc.match(/const TYPE_COLORS[\s\S]*?\n\};/);
+      expect(colorBlock).not.toBeNull();
+      const colorTypes = [...colorBlock![0].matchAll(/(?:'([^']+)'|([\w-]+)):\s*'#/g)]
+        .map((m) => m[1] ?? m[2]);
+      expect(colorTypes.length).toBeGreaterThanOrEqual(10);
+
+      expectAllPresent([...new Set([...clusterTypes, ...colorTypes])].map((t) => `type.${t}`));
+    });
+
+    // relationLabel(): t(`relation.${type}`) — the relation vocabulary this
+    // codebase emits lives in three places: the demo seed's relation
+    // triples, kg-backfill's relationType union, and the two
+    // behaviour-changing types documented in core/types.ts.
+    it('covers every relation type the codebase emits', () => {
+      const demoSrc = readFileSync('src/core/demo.ts', 'utf8');
+      const demoRelations = [...demoSrc.matchAll(/\['[^']+', '([a-z_-]+)', '[^']+'\]/g)].map((m) => m[1]);
+      expect(demoRelations.length).toBeGreaterThanOrEqual(5);
+
+      const backfillSrc = readFileSync('src/core/kg-backfill.ts', 'utf8');
+      const unionMatch = backfillSrc.match(/relationType:\s*((?:'[a-z-]+'\s*\|\s*)+'[a-z-]+')/);
+      expect(unionMatch).not.toBeNull();
+      const backfillRelations = [...unionMatch![1].matchAll(/'([a-z-]+)'/g)].map((m) => m[1]);
+      expect(backfillRelations.length).toBeGreaterThanOrEqual(4);
+
+      const all = [...new Set([...demoRelations, ...backfillRelations, 'supersedes', 'contradicts'])];
+      expectAllPresent(all.map((r) => `relation.${r}`));
+    });
+
+    // UserPatterns: t(`patterns.day.${dayNum}`) — SQLite strftime %w is
+    // exactly 0..6.
+    it('covers all seven weekdays', () => {
+      expectAllPresent([0, 1, 2, 3, 4, 5, 6].map((n) => `patterns.day.${n}`));
+    });
+
+    // LlmTelemetryPanel: t(`telemetry.flow.${flow}`) — flows are the
+    // literals passed to recordTelemetry() across src/core.
+    it('covers every telemetry flow recorded in src/core', () => {
+      const { readdirSync } = require('node:fs');
+      const flows = new Set<string>();
+      for (const f of readdirSync('src/core')) {
+        if (!f.endsWith('.ts')) continue;
+        const src = readFileSync(`src/core/${f}`, 'utf8');
+        for (const m of src.matchAll(/recordTelemetry\([^)]*\{\s*flow:\s*'([\w-]+)'/g)) flows.add(m[1]);
+      }
+      expect(flows.size).toBeGreaterThanOrEqual(5);
+      expectAllPresent([...flows].map((f) => `telemetry.flow.${f}`));
+    });
+
+    // LlmTelemetryPanel: t(`telemetry.errorClass.${cls}`) — classes are the
+    // LLMErrorClass union in llm-client.ts.
+    it('covers every LLM error class', () => {
+      // Strip line comments first: the union annotates each member with a
+      // comment that itself contains a `;`, which would end a lazy match
+      // after the first member.
+      const clientSrc = readFileSync('src/core/llm-client.ts', 'utf8').replace(/\/\/[^\n]*/g, '');
+      const unionMatch = clientSrc.match(/export type LLMErrorClass =([\s\S]*?);/);
+      expect(unionMatch).not.toBeNull();
+      const classes = [...unionMatch![1].matchAll(/\|\s*'(\w+)'/g)].map((m) => m[1]);
+      expect(classes.length).toBeGreaterThanOrEqual(7);
+      expectAllPresent(classes.map((c) => `telemetry.errorClass.${c}`));
+    });
+
+    // LessonsTab: t(`lessons.severity.${severity}`) — severities are the
+    // severity:* tags severityOf() recognises.
+    it('covers every lesson severity', () => {
+      const lessonsSrc = readFileSync('dashboard/src/components/LessonsTab.tsx', 'utf8');
+      const severities = [...new Set([...lessonsSrc.matchAll(/severity:(\w+)/g)].map((m) => m[1]))];
+      expect(severities.sort()).toEqual(['critical', 'major', 'minor']);
+      expectAllPresent(severities.map((s) => `lessons.severity.${s}`));
+    });
+
+    // PatternCard: t(`pattern.severity.${severity}`) — high/medium/low from
+    // extractSeverity()'s regex.
+    it('covers every pattern severity', () => {
+      expectAllPresent(['high', 'medium', 'low'].map((s) => `pattern.severity.${s}`));
+    });
+
+    // MemoryAgeMatrix: t(`ageMatrix.bucket.${bucket}`) — the four buckets of
+    // the AgeBucket type.
+    it('covers every age bucket', () => {
+      expectAllPresent(['week', 'month', 'quarter', 'older'].map((b) => `ageMatrix.bucket.${b}`));
+    });
   });
 
   // Doctor messages reach the dashboard as server data, so the static-key
