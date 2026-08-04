@@ -8,6 +8,33 @@ A git tag freezes the file it points at, so the 4.2.11 notes cannot be corrected
 where they were published. They are corrected here, and whichever release ships
 next carries the corrected copy.
 
+### Added
+
+- **`main` can no longer declare a version nobody can install**
+  (`scripts/lib/published-version.mjs`, `scripts/check-version-coherence.mjs`,
+  `.github/workflows/ci.yml`) — the gate above this one asks whether the seven
+  version anchors agree with each other. They agreed with each other throughout
+  the five days `main` said `4.2.11` and npm's `latest` said `4.2.10`; agreement
+  says nothing about whether the version they agree on was ever released.
+
+  On `main`, `package.json`'s version must now have a matching `v<version>` tag.
+  The rule it enforces is that **a version bump never rides in a feature or docs
+  pull request**: `main` carries the last published version, work accumulates
+  under `[Unreleased]`, and a release bumps, tags and publishes in one sitting —
+  so the window this check is red for is minutes rather than days.
+
+  A release branch and a pull-request ref are skipped, since both legitimately
+  carry the bump before the tag exists. **An empty tag list fails rather than
+  passes**: `actions/checkout` fetches no tags by default — measured, `git clone
+  --depth 1` brings down 0 of this repository's 65 `v*` tags — and "found no
+  mismatch among zero tags" would have made the check unable to fail, which is
+  the shape of the two dead gates 4.2.11 removed. The checkout now fetches full
+  history (0.83s, against a 13-minute matrix leg).
+
+  Pinned in both directions by `tests/main-declares-published-version.test.ts`,
+  and break-tested: making the empty-tag-list branch return success kills 2 of
+  the 7 cases, and making the missing-tag branch return success kills 1.
+
 ### Fixed
 
 - **The 4.2.11 notes opened by denying their own release.** They said "4.2.11

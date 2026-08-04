@@ -107,6 +107,18 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
+          # `check-version-coherence.mjs` asks whether the version `main`
+          # declares was ever tagged, and a default checkout fetches no tags at
+          # all. The check refuses to pass on an empty tag list — "not checked"
+          # is not "no problem found" — so without this it would fail every run
+          # on main rather than silently agree with itself.
+          fetch-tags: true
+          # Measured, against this repository: `git clone --depth 1` brings down
+          # 0 of the 65 `v*` tags. Full history is 24 MB / 1667 commits and
+          # clones in 0.83s, so `fetch-depth: 0` buys certainty for a cost that
+          # does not register next to a 13-minute matrix leg — and it is not a
+          # guess about how `fetch-tags` behaves at depth 1.
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
