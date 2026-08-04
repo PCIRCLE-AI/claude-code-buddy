@@ -105,7 +105,7 @@ This skill includes:
 **MeMesh-specific automation**:
 ```bash
 # Quick verification (memesh-specific checks)
-./scripts/verify-docs-sync.sh
+node scripts/check-doc-claims.mjs
 # Exit code 0 = all checks pass
 
 # Lint check

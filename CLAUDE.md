@@ -49,9 +49,9 @@ database, and running them concurrently deadlocks on the write lock.
 ### Verifying a change before claiming it works
 
 Do not report a test result, a CI status or a benchmark number you did not
-produce in this session. Paste the runner's actual output. `npm run
-verify:release` is the same gate the publish path runs; `bash
-scripts/verify-docs-sync.sh` checks the doc contracts.
+produce in this session. Paste the runner's actual output. `npm run verify:release` is the same gate the publish path runs, and
+`scripts/check-doc-claims.mjs` — which it calls — checks every claim the public
+documents make about the code.
 
 When you fix a bug, **revert the fix and confirm the test goes red.** A green
 suite is not evidence that a fix is protected: three tests in this repository

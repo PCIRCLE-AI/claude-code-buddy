@@ -148,9 +148,27 @@ describe('Feature: release scripts never edit the real ~/.memesh', () => {
     // `scripts/hooks/_generated/`, so when the build mirror landed there the
     // count went 7 -> 9 and the gate reported FAIL on a correct tree. A gate
     // that fails on a healthy repo gets ignored, and then it is not a gate.
-    const text = read('scripts/verify-docs-sync.sh');
-    expect(text).toMatch(/find scripts\/hooks -maxdepth 1/);
-    expect(text).toMatch(/! -name "_\*"/);
+    //
+    // The gate moved from `scripts/verify-docs-sync.sh` to
+    // `scripts/check-doc-claims.mjs` — the shell version had no caller at all,
+    // and `verify:release` runs on windows-latest. The property is unchanged:
+    // enumerate the hooks directory itself, and skip the `_` prefix that already
+    // means "lives here but is not a hook".
+    const text = read('scripts/check-doc-claims.mjs');
+    expect(text).toMatch(/readdirSync\(path\.join\(repoRoot, 'scripts\/hooks'\), \{ withFileTypes: true \}\)/);
+    expect(text).toMatch(/e\.isFile\(\)/);
+    expect(text).toMatch(/!e\.name\.startsWith\('_'\)/);
+  });
+
+  it('the docs gate is actually wired into the list both CI and publish run', () => {
+    // The reason it moved. `verify-docs-sync.sh` had SIX checks and ZERO
+    // callers: not CI, not verify:release, not release-verify.sh, not a
+    // package.json script. Its only references were a line in CLAUDE.md telling
+    // an assistant to run it by hand and a manual review skill. A gate that
+    // never runs cannot fail, which is the same defect as a gate that cannot
+    // fail when it runs — and this repository has now found four of those.
+    const pkg = JSON.parse(read('package.json'));
+    expect(pkg.scripts['verify:release']).toContain('node scripts/check-doc-claims.mjs');
   });
 
   // Title deliberately avoids spelling the forbidden form — the scan below
