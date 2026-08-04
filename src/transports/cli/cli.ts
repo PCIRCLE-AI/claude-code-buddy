@@ -9,7 +9,7 @@ import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexR
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { verifyAgentWork } from '../../core/verifier.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
-import { MAX_LANGUAGE_LENGTH } from '../../core/output-language.js';
+import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
 import { getDbPath } from '../../core/paths.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/types.js';
@@ -517,7 +517,10 @@ const KEY_VALIDATORS: Record<string, (value: string) => string | null> = {
   'language': (v) => {
     if (v.trim().length === 0) return 'must not be blank — use `memesh config unset language` to clear it';
     if (v.length > MAX_LANGUAGE_LENGTH) return `must be ${MAX_LANGUAGE_LENGTH} characters or fewer (a language name or locale code)`;
-    return null;
+    // The value lands inside every content-generating LLM prompt; a newline
+    // would let it smuggle in a free-standing instruction line. Shared with
+    // the HTTP write surface via languageValueError.
+    return languageValueError(v);
   },
   'embedder.provider': (v) => ['onnx', 'openai', 'ollama'].includes(v) ? null : `must be one of: onnx, openai, ollama`,
   'autoUpdate': (v) => ['off', 'patch', 'minor', 'major'].includes(v) ? null : `must be one of: off, patch, minor, major`,

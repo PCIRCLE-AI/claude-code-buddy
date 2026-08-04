@@ -7,6 +7,7 @@ import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
+import { languageValueError } from '../../core/output-language.js';
 import { computePatterns } from '../../core/patterns.js';
 import { computeAnalytics, computePmAnalytics } from '../../core/analytics.js';
 import { computeStats } from '../../core/stats.js';
@@ -312,7 +313,11 @@ const ConfigBody = z.object({
     sessionLimit: z.number().int().min(1).max(100).optional(),
     enableAgenticOrchestration: z.boolean().optional(),
     autoUpdate: z.enum(['off', 'patch', 'minor', 'major']).optional(),
-    language: z.string().trim().min(1).max(60).optional(),
+    language: z.string().trim().min(1).max(60)
+        .refine((v) => languageValueError(v) === null, {
+        message: 'language must not contain line breaks or other control characters',
+    })
+        .optional(),
     setupCompleted: z.boolean().optional(),
 }).strip();
 app.post('/v1/config', async (req, res) => {

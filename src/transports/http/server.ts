@@ -9,6 +9,7 @@ import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
 import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
+import { languageValueError } from '../../core/output-language.js';
 import { computePatterns } from '../../core/patterns.js';
 import { computeAnalytics, computePmAnalytics } from '../../core/analytics.js';
 import { computeStats } from '../../core/stats.js';
@@ -545,7 +546,17 @@ const ConfigBody = z.object({
   // src/core/output-language.ts. This is the write surface the dashboard
   // uses so its locale picker can ALSO localise generated content —
   // without this entry, ConfigBody.strip() silently drops the field.
-  language: z.string().trim().min(1).max(60).optional(),
+  //
+  // Control characters are rejected outright (mirrors the CLI validator,
+  // both via core/output-language.ts languageValueError): the value lands
+  // inside every content-generating LLM prompt, and a newline would let
+  // it smuggle in a free-standing instruction line. sanitizeForPrompt
+  // deliberately preserves \n, so the gate has to be here.
+  language: z.string().trim().min(1).max(60)
+    .refine((v) => languageValueError(v) === null, {
+      message: 'language must not contain line breaks or other control characters',
+    })
+    .optional(),
   setupCompleted: z.boolean().optional(),
 }).strip();
 
