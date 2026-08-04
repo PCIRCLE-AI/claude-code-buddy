@@ -66,7 +66,11 @@ export function TabNav({
   };
 
   return (
-    <div style={{ position: 'relative' }}>
+    // A <nav> landmark wrapping the tablist: both semantics at once — the
+    // landmark a screen reader jumps to, and the tablist relationship the tabs
+    // need. The scroll container is the inner tablist div (the overflow fade
+    // positions against this relative <nav>).
+    <nav aria-label={t('nav.ariaLabel')} style={{ position: 'relative' }}>
       <div ref={navRef} class="nav" role="tablist" aria-label={t('nav.ariaLabel')}>
         {tabs.map(({ key, label }, i) => {
           const selected = key === active;
@@ -89,6 +93,6 @@ export function TabNav({
         })}
       </div>
       {overflowRight && <div aria-hidden="true" class="nav-overflow-fade" />}
-    </div>
+    </nav>
   );
 }

@@ -29,6 +29,10 @@ describe('TabNav is a real WAI-ARIA tablist', () => {
     const { container, getByRole } = render(
       <TabNav tabs={TABS} active="Search" onSelect={() => {}} />,
     );
+    // A <nav> landmark wraps the tablist — the landmark a screen reader jumps to
+    // AND the tablist relationship. Both, not one or the other.
+    const nav = getByRole('navigation'); // throws if the landmark is gone
+    expect(nav.querySelector('[role="tablist"]')).not.toBeNull();
     getByRole('tablist'); // throws if absent
     const tabs = [...container.querySelectorAll('[role="tab"]')] as HTMLButtonElement[];
     expect(tabs.map((t) => t.textContent)).toEqual(['Insights', 'Search', 'Graph']);
