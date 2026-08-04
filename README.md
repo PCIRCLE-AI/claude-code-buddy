@@ -202,7 +202,7 @@ memesh
 | **A developer using Claude Code** | Auto-recall project decisions, file-specific lessons, and past failures as you work |
 | **A coding-agent power user** | Share one local memory layer across MCP-compatible tools |
 | **A team experimenting with AI coding workflows** | Export/import project knowledge without introducing hosted infrastructure |
-| **An agent developer** | Add local memory through MCP, HTTP, CLI, or the Python SDK |
+| **An agent developer** | Add local memory through MCP, HTTP, or the CLI |
 
 ---
 
@@ -455,7 +455,7 @@ Session start surfaces a one-line banner (throttled to once per 24h per version)
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test             # 630 tests
+npm test
 npm run test:e2e-dashboard
 ```
 

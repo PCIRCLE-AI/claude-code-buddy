@@ -453,7 +453,7 @@ Al inicio de sesión aparece un banner de una línea (limitado a una vez cada 24
 ```bash
 git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
 cd memesh-llm-memory && npm install && npm run build
-npm test             # 630 tests
+npm test
 npm run test:e2e-dashboard
 ```
 
