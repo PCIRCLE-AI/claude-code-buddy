@@ -91,7 +91,18 @@ with_throwaway_home() {
 }
 
 gate_full_test_suite() {
-  with_throwaway_home npx vitest run >/dev/null 2>&1
+  # Output goes to a log, not /dev/null: this gate failed once during the
+  # v4.3.0 release and left NOTHING to diagnose — a verdict without evidence.
+  # On failure the tail is printed and the log path named.
+  local log
+  log="$(mktemp -t memesh-release-suite.XXXXXX).log"
+  if with_throwaway_home npx vitest run >"$log" 2>&1; then
+    rm -f "$log"
+    return 0
+  fi
+  echo "  suite output tail ($log):"
+  tail -20 "$log" | sed 's/^/    /'
+  return 1
 }
 
 gate_doctor_runs() {
