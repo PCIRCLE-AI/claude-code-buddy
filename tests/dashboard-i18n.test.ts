@@ -177,4 +177,25 @@ describe('dashboard i18n', () => {
 
     expect(missing).toEqual([]);
   });
+
+  // Doctor messages reach the dashboard as server data, so the static-key
+  // scan above cannot see them. Every warn/fail variant in doctor.ts carries
+  // a stable `code:` literal; the banner translates it as
+  // `doctor.msg.<code>.summary` / `.fix`. This scans doctor.ts for those
+  // literals and demands a catalogue entry for each — a new warn/fail
+  // variant cannot ship untranslated (the exact hole that put raw English
+  // jargon in front of a zh-TW user: "agentic-loop guard", "user_interrupt").
+  // Fixes are looked up only when the check ships one, so only the summary
+  // is universally required. Parity across the other 10 locales is then
+  // enforced by the locale-parity test at the top of this file.
+  it('has an English catalogue entry for every doctor message code', () => {
+    const doctorSrc = readFileSync('src/core/doctor.ts', 'utf8');
+    const codes = [...doctorSrc.matchAll(/\bcode:\s*'([a-z0-9.-]+)'/g)].map((m) => m[1]);
+    expect(codes.length, 'doctor.ts stopped declaring message codes — the banner is back to raw English').toBeGreaterThanOrEqual(40);
+
+    const englishKeys = parseTranslationKeys().get('en');
+    expect(englishKeys).toBeDefined();
+    const missing = [...new Set(codes)].filter((code) => !englishKeys!.has(`doctor.msg.${code}.summary`));
+    expect(missing, 'warn/fail variants with no translation catalogue entry').toEqual([]);
+  });
 });

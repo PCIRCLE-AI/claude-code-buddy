@@ -13,6 +13,8 @@ export interface DoctorCheck {
     summary: string;
     fix?: string;
     informational?: boolean;
+    code?: string;
+    params?: Record<string, string | number>;
 }
 export interface DoctorResult {
     status: DoctorOverallStatus;

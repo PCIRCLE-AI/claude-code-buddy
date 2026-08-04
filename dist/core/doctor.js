@@ -53,7 +53,7 @@ function inspectLocaleReadmeParity(packageRoot, existsSyncImpl, readFileSyncImpl
         englishCount = countH2Headings(readFileSyncImpl(englishPath, 'utf8'));
     }
     catch (err) {
-        return createCheck('readme_locale_parity', 'README locale parity', 'warn', `Could not read README.md: ${err instanceof Error ? err.message : String(err)}`);
+        return createCheck('readme_locale_parity', 'README locale parity', 'warn', `Could not read README.md: ${err instanceof Error ? err.message : String(err)}`, undefined, { code: 'readme-parity.unreadable', params: { detail: err instanceof Error ? err.message : String(err) } });
     }
     const missing = [];
     const drift = [];
@@ -86,13 +86,13 @@ function inspectLocaleReadmeParity(packageRoot, existsSyncImpl, readFileSyncImpl
             .join(', ');
         parts.push(`H2 count drift (English=${englishCount}): ${driftDetail}`);
     }
-    return createCheck('readme_locale_parity', 'README locale parity', 'warn', parts.join('; '), `Re-sync the listed READMEs against README.md so section structure matches (±${LOCALE_H2_TOLERANCE} H2 tolerated to absorb translation collapse).`);
+    return createCheck('readme_locale_parity', 'README locale parity', 'warn', parts.join('; '), `Re-sync the listed READMEs against README.md so section structure matches (±${LOCALE_H2_TOLERANCE} H2 tolerated to absorb translation collapse).`, { code: 'readme-parity.drift', params: { detail: parts.join('; '), tolerance: LOCALE_H2_TOLERANCE } });
 }
 function resolveDatabasePath() {
     return getDbPath();
 }
-function createCheck(id, label, status, summary, fix) {
-    return { id, label, status, summary, fix };
+function createCheck(id, label, status, summary, fix, i18n) {
+    return { id, label, status, summary, fix, code: i18n?.code, params: i18n?.params };
 }
 function createInfo(id, label, summary, fix) {
     return { id, label, status: 'pass', summary, fix, informational: true };
@@ -120,22 +120,22 @@ function inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl) 
     }
     const parsed = parseJsonFile(configPath, readFileSyncImpl);
     if (!parsed.ok) {
-        return createCheck('config', 'Config', 'fail', `Config file is invalid JSON at ${configPath}.`, `Fix or remove ${configPath}, then run \`memesh config list\` to confirm it loads cleanly.`);
+        return createCheck('config', 'Config', 'fail', `Config file is invalid JSON at ${configPath}.`, `Fix or remove ${configPath}, then run \`memesh config list\` to confirm it loads cleanly.`, { code: 'config.invalid-json', params: { path: configPath } });
     }
     return createCheck('config', 'Config', 'pass', `Config file is readable at ${configPath}.`);
 }
 function inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl) {
     const mcpPath = path.join(packageRoot, '.mcp.json');
     if (!existsSyncImpl(mcpPath)) {
-        return createCheck('mcp-config', 'MCP config', 'fail', '.mcp.json is missing.', 'Restore `.mcp.json` from the package or reinstall MeMesh.');
+        return createCheck('mcp-config', 'MCP config', 'fail', '.mcp.json is missing.', 'Restore `.mcp.json` from the package or reinstall MeMesh.', { code: 'mcp-config.missing' });
     }
     const parsed = parseJsonFile(mcpPath, readFileSyncImpl);
     if (!parsed.ok) {
-        return createCheck('mcp-config', 'MCP config', 'fail', '.mcp.json is not valid JSON.', `Fix ${mcpPath} so Claude Code can read the MCP server definition.`);
+        return createCheck('mcp-config', 'MCP config', 'fail', '.mcp.json is not valid JSON.', `Fix ${mcpPath} so Claude Code can read the MCP server definition.`, { code: 'mcp-config.invalid-json', params: { path: mcpPath } });
     }
     const server = parsed.value.mcpServers?.memesh;
     if (!server || typeof server.command !== 'string') {
-        return createCheck('mcp-config', 'MCP config', 'fail', '.mcp.json does not define a usable `memesh` MCP server entry.', 'Reinstall MeMesh or restore the `mcpServers.memesh` entry in `.mcp.json`.');
+        return createCheck('mcp-config', 'MCP config', 'fail', '.mcp.json does not define a usable `memesh` MCP server entry.', 'Reinstall MeMesh or restore the `mcpServers.memesh` entry in `.mcp.json`.', { code: 'mcp-config.no-entry' });
     }
     return createCheck('mcp-config', 'MCP config', 'pass', '.mcp.json is present and defines the memesh MCP server.');
 }
@@ -160,13 +160,13 @@ function inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncI
     const hooksPath = path.join(packageRoot, 'hooks', 'hooks.json');
     if (!existsSyncImpl(hooksPath)) {
         return [
-            createCheck('hooks-config', 'Hooks config', 'fail', 'hooks/hooks.json is missing.', 'Restore `hooks/hooks.json` from the package or reinstall MeMesh.'),
+            createCheck('hooks-config', 'Hooks config', 'fail', 'hooks/hooks.json is missing.', 'Restore `hooks/hooks.json` from the package or reinstall MeMesh.', { code: 'hooks-config.missing' }),
         ];
     }
     const parsed = parseJsonFile(hooksPath, readFileSyncImpl);
     if (!parsed.ok) {
         return [
-            createCheck('hooks-config', 'Hooks config', 'fail', 'hooks/hooks.json is not valid JSON.', `Fix ${hooksPath} so Claude Code can load the hook definitions.`),
+            createCheck('hooks-config', 'Hooks config', 'fail', 'hooks/hooks.json is not valid JSON.', `Fix ${hooksPath} so Claude Code can load the hook definitions.`, { code: 'hooks-config.invalid-json', params: { path: hooksPath } }),
         ];
     }
     const hookTypes = Object.keys(parsed.value.hooks ?? {});
@@ -178,14 +178,14 @@ function inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncI
     if (scriptPaths.length === 0) {
         return [
             configCheck,
-            createCheck('hook-scripts', 'Hook scripts', 'fail', 'hooks/hooks.json parsed, but yields zero hook script commands — hooks can never fire.', 'Restore the shipped hook configuration or reinstall MeMesh.'),
+            createCheck('hook-scripts', 'Hook scripts', 'fail', 'hooks/hooks.json parsed, but yields zero hook script commands — hooks can never fire.', 'Restore the shipped hook configuration or reinstall MeMesh.', { code: 'hook-scripts.none' }),
         ];
     }
     const missingScripts = scriptPaths.filter((scriptPath) => !existsSyncImpl(scriptPath));
     if (missingScripts.length > 0) {
         return [
             configCheck,
-            createCheck('hook-scripts', 'Hook scripts', 'fail', `Missing hook scripts: ${missingScripts.map((entry) => path.relative(packageRoot, entry)).join(', ')}.`, 'Restore the missing files from the package or reinstall MeMesh.'),
+            createCheck('hook-scripts', 'Hook scripts', 'fail', `Missing hook scripts: ${missingScripts.map((entry) => path.relative(packageRoot, entry)).join(', ')}.`, 'Restore the missing files from the package or reinstall MeMesh.', { code: 'hook-scripts.missing', params: { files: missingScripts.map((entry) => path.relative(packageRoot, entry)).join(', ') } }),
         ];
     }
     if (platform !== 'win32') {
@@ -196,7 +196,7 @@ function inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncI
         if (nonExecutable.length > 0) {
             return [
                 configCheck,
-                createCheck('hook-scripts', 'Hook scripts', 'fail', `Hook scripts are not executable: ${nonExecutable.map((entry) => path.relative(packageRoot, entry)).join(', ')}.`, 'Run `npm run build` from the repo checkout or `chmod +x scripts/hooks/*.js` for a local repair.'),
+                createCheck('hook-scripts', 'Hook scripts', 'fail', `Hook scripts are not executable: ${nonExecutable.map((entry) => path.relative(packageRoot, entry)).join(', ')}.`, 'Run `npm run build` from the repo checkout or `chmod +x scripts/hooks/*.js` for a local repair.', { code: 'hook-scripts.not-executable', params: { files: nonExecutable.map((entry) => path.relative(packageRoot, entry)).join(', ') } }),
             ];
         }
     }
@@ -214,22 +214,22 @@ function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, packageR
                 return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'pass', 'Wired via Claude Code plugin runtime (.claude-plugin/plugin.json present). The install-hooks marker is not used on this install path.');
             }
         }
-        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'warn', 'No install-hooks marker found. memesh\'s session-summary, pre-edit-recall, and other hooks may not be firing for Claude Code sessions — the auto-capture / lesson-generation flow is silent without them.', 'Run `memesh install-hooks` to wire memesh into ~/.claude/settings.json (one-time setup). Then `memesh doctor` to confirm.');
+        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'warn', 'memesh is not connected to Claude Code yet, so nothing gets remembered automatically from your sessions.', 'Run `memesh install-hooks` once to connect it, then `memesh doctor` to confirm.', { code: 'hook-wiring.no-marker' });
     }
     const parsed = parseJsonFile(markerPath, readFileSyncImpl);
     if (!parsed.ok) {
-        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'warn', `install-hooks marker at ${markerPath} is unreadable.`, 'Re-run `memesh install-hooks` to refresh the marker.');
+        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'warn', `install-hooks marker at ${markerPath} is unreadable.`, 'Re-run `memesh install-hooks` to refresh the marker.', { code: 'hook-wiring.marker-unreadable', params: { path: markerPath } });
     }
     const marker = parsed.value;
     if (typeof marker.settings_path !== 'string') {
-        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'warn', 'install-hooks marker is malformed (missing settings_path).', 'Re-run `memesh install-hooks`.');
+        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'warn', 'install-hooks marker is malformed (missing settings_path).', 'Re-run `memesh install-hooks`.', { code: 'hook-wiring.marker-malformed' });
     }
     if (!existsSyncImpl(marker.settings_path)) {
-        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'fail', `Marker recorded settings at ${marker.settings_path} but the file no longer exists. Hooks are not wired.`, 'Re-run `memesh install-hooks`.');
+        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'fail', `Marker recorded settings at ${marker.settings_path} but the file no longer exists. Hooks are not wired.`, 'Re-run `memesh install-hooks`.', { code: 'hook-wiring.settings-missing', params: { path: String(marker.settings_path) } });
     }
     const settingsParsed = parseJsonFile(marker.settings_path, readFileSyncImpl);
     if (!settingsParsed.ok) {
-        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'fail', `${marker.settings_path} is no longer valid JSON.`, 'Restore from your ~/.claude backups or re-create with `memesh install-hooks`.');
+        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'fail', `${marker.settings_path} is no longer valid JSON.`, 'Restore from your ~/.claude backups or re-create with `memesh install-hooks`.', { code: 'hook-wiring.settings-invalid', params: { path: String(marker.settings_path) } });
     }
     const hooks = settingsParsed.value.hooks;
     let hasMemeshHook = false;
@@ -251,10 +251,10 @@ function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, packageR
         }
     }
     if (!hasMemeshHook) {
-        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'fail', `Marker recorded a memesh install at ${marker.settings_path}, but no _memesh:true hook entries are present anymore. Settings drifted (manual edit?) or memesh was uninstalled out-of-band.`, 'Re-run `memesh install-hooks` to re-wire.');
+        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'fail', `Marker recorded a memesh install at ${marker.settings_path}, but no _memesh:true hook entries are present anymore. Settings drifted (manual edit?) or memesh was uninstalled out-of-band.`, 'Re-run `memesh install-hooks` to re-wire.', { code: 'hook-wiring.entries-removed', params: { path: String(marker.settings_path) } });
     }
     if (typeof marker.plugin_root === 'string' && !existsSyncImpl(marker.plugin_root)) {
-        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'fail', `Hook commands point at ${marker.plugin_root}, which no longer exists (likely after an npm-global path change).`, 'Re-run `memesh install-hooks` to refresh paths.');
+        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'fail', `Hook commands point at ${marker.plugin_root}, which no longer exists (likely after an npm-global path change).`, 'Re-run `memesh install-hooks` to refresh paths.', { code: 'hook-wiring.root-moved', params: { path: String(marker.plugin_root) } });
     }
     return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'pass', `Wired in ${marker.settings_path} (scope: ${marker.scope ?? 'user'}, version: ${marker.version ?? 'unknown'}).`);
 }
@@ -277,12 +277,12 @@ function inspectHookActivity(openDatabaseImpl, closeDatabaseImpl, existsSyncImpl
                 }
                 catch { }
             }
-            return createCheck('hook-activity', 'Hook activity (last 24h)', 'warn', 'No memesh-attributed entities (session-insight, session-summary, commit, lesson_learned) in the past 24 hours. Hooks may be wired but not firing — likely a Claude Code restart is needed, or the agentic-loop guard is filtering all sessions.', 'Open a Claude Code session that uses ≥3 tools and ends naturally (not user_interrupt), or commit something. Then run `memesh doctor` again.');
+            return createCheck('hook-activity', 'Hook activity (last 24h)', 'warn', 'memesh has not saved anything automatically in the last 24 hours. Everything is set up — it just has not seen a work session to remember yet. If you HAVE been working all day, Claude Code may need a restart to pick the connection up.', 'Do a normal Claude Code work session (or make a git commit), then check again with `memesh doctor`.', { code: 'hook-activity.quiet' });
         }
         return createCheck('hook-activity', 'Hook activity (last 24h)', 'pass', `${count} memesh-attributed entit${count === 1 ? 'y' : 'ies'} captured in the past 24h — auto-capture loop is alive.`);
     }
     catch (err) {
-        return createCheck('hook-activity', 'Hook activity (last 24h)', 'warn', `Could not query the database: ${err instanceof Error ? err.message : String(err)}`);
+        return createCheck('hook-activity', 'Hook activity (last 24h)', 'warn', `Could not query the database: ${err instanceof Error ? err.message : String(err)}`, undefined, { code: 'hook-activity.query-failed', params: { detail: err instanceof Error ? err.message : String(err) } });
     }
     finally {
         try {
@@ -356,7 +356,7 @@ export function inspectNodeRuntime(packageRoot, existsSyncImpl, readFileSyncImpl
     }
     if (!ok) {
         return createCheck('node-runtime', 'Node runtime', 'fail', `${facts} This package requires Node ${declared}, so this runtime is BELOW the ` +
-            `supported floor. Native modules and hooks may fail in ways that look unrelated.`, `Upgrade Node to ${declared.replace(/^>=\s*/, '')} or newer, then run \`memesh doctor\` again.`);
+            `supported floor. Native modules and hooks may fail in ways that look unrelated.`, `Upgrade Node to ${declared.replace(/^>=\s*/, '')} or newer, then run \`memesh doctor\` again.`, { code: 'node-runtime.too-old', params: { detail: facts, required: declared.replace(/^>=\s*/, '') } });
     }
     return createCheck('node-runtime', 'Node runtime', 'pass', `${facts} Meets the required range ${declared}.`);
 }
@@ -378,14 +378,14 @@ function inspectNativeBinding(packageRoot, _existsSyncImpl, probeImpl = defaultN
     const isMissingPackage = /MODULE_NOT_FOUND|Cannot find module/i.test(result.message);
     if (isMissingPackage) {
         return createCheck('native-binding', 'Native SQLite binding', 'fail', 'better-sqlite3 is not installed (Node could not resolve the module from any '
-            + 'parent node_modules). Memesh hooks and database operations will not work.', `Run: npm install   (in the directory that depends on @pcircle/memesh)`);
+            + 'parent node_modules). Memesh hooks and database operations will not work.', `Run: npm install   (in the directory that depends on @pcircle/memesh)`, { code: 'native-binding.not-installed' });
     }
     if (isMissingBinding) {
         return createCheck('native-binding', 'Native SQLite binding', 'fail', 'better-sqlite3 is installed but the native binding (.node file) is missing. '
             + 'Hooks will silently skip-and-exit, and auto-capture will NOT write any entities. '
-            + 'This is the plugin-marketplace silent-dropout class of bug.', `Run: cd "${packageRoot}" && npm rebuild better-sqlite3   (or "npm install --omit=dev" for a clean reinstall)`);
+            + 'This is the plugin-marketplace silent-dropout class of bug.', `Run: cd "${packageRoot}" && npm rebuild better-sqlite3   (or "npm install --omit=dev" for a clean reinstall)`, { code: 'native-binding.missing', params: { root: packageRoot } });
     }
-    return createCheck('native-binding', 'Native SQLite binding', 'fail', `better-sqlite3 failed to load: ${result.message}`, `Run: cd "${packageRoot}" && npm rebuild better-sqlite3`);
+    return createCheck('native-binding', 'Native SQLite binding', 'fail', `better-sqlite3 failed to load: ${result.message}`, `Run: cd "${packageRoot}" && npm rebuild better-sqlite3`, { code: 'native-binding.load-failed', params: { detail: result.message, root: packageRoot } });
 }
 function inspectShellCli(installChannel, packageRoot, resolveShellMemeshImpl) {
     const shellPath = resolveShellMemeshImpl();
@@ -401,7 +401,7 @@ function inspectShellCli(installChannel, packageRoot, resolveShellMemeshImpl) {
     }
     if (installChannel === 'plugin-marketplace') {
         return createCheck('shell-cli', 'Shell CLI on PATH', 'warn', 'Plugin is installed but `memesh` is not on the shell PATH. Typing `memesh` in a regular terminal will report `command not found`. '
-            + 'Claude Code MCP / hooks / `/memesh` skill still work — this only affects standalone shell usage and other MCP clients (Cursor, Cline, etc.).', 'Run `npm install -g @pcircle/memesh` to add the shell CLI. Both paths coexist; they share the same `~/.memesh/knowledge-graph.db`.');
+            + 'Claude Code MCP / hooks / `/memesh` skill still work — this only affects standalone shell usage and other MCP clients (Cursor, Cline, etc.).', 'Run `npm install -g @pcircle/memesh` to add the shell CLI. Both paths coexist; they share the same `~/.memesh/knowledge-graph.db`.', { code: 'shell-cli.not-on-path' });
     }
     return createCheck('shell-cli', 'Shell CLI on PATH', 'pass', shellPath
         ? `\`memesh\` resolves to ${shellPath}.`
@@ -410,14 +410,14 @@ function inspectShellCli(installChannel, packageRoot, resolveShellMemeshImpl) {
 function inspectDashboardArtifact(packageRoot, existsSyncImpl) {
     const dashboardPath = path.join(packageRoot, 'dashboard', 'dist', 'index.html');
     if (!existsSyncImpl(dashboardPath)) {
-        return createCheck('dashboard', 'Dashboard artifact', 'fail', 'dashboard/dist/index.html is missing.', 'Build the dashboard with `cd dashboard && npm install && npm run build`, then run `npm run build` at the repo root if needed.');
+        return createCheck('dashboard', 'Dashboard artifact', 'fail', 'dashboard/dist/index.html is missing.', 'Build the dashboard with `cd dashboard && npm install && npm run build`, then run `npm run build` at the repo root if needed.', { code: 'dashboard.missing' });
     }
     return createCheck('dashboard', 'Dashboard artifact', 'pass', 'dashboard/dist/index.html is present.');
 }
 async function inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSupport) {
     const update = await getUpdateCheckImpl(packageVersion, { preferFresh: false });
     if (!update) {
-        return createCheck('update-status', 'Update status', 'warn', 'No successful cached npm update check is available yet.', 'Run `memesh status` once while online to populate update status.');
+        return createCheck('update-status', 'Update status', 'warn', 'memesh has not been able to check for newer versions yet, so it cannot tell you whether an update exists.', 'Run `memesh status` once while connected to the internet — that stores the answer and this notice goes away.', { code: 'update-status.no-cache' });
     }
     if (update.currentVersionDeprecated && update.deprecationMessage) {
         const target = update.latestVersion && update.latestVersion !== packageVersion
@@ -439,10 +439,10 @@ async function inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSu
         else {
             fix = `Upgrade via your install method (see \`memesh status\`).`;
         }
-        return createCheck('update-status', 'Update status', 'fail', `Installed version ${packageVersion} is DEPRECATED by maintainers: ${update.deprecationMessage}`, fix);
+        return createCheck('update-status', 'Update status', 'fail', `Installed version ${packageVersion} is DEPRECATED by maintainers: ${update.deprecationMessage}`, fix, { code: 'update-status.deprecated', params: { version: packageVersion, detail: update.deprecationMessage ?? '' } });
     }
     if (update.freshness === 'unavailable') {
-        return createCheck('update-status', 'Update status', 'warn', 'No successful cached npm update check is available yet.', 'Run `memesh status` once while online to populate update status.');
+        return createCheck('update-status', 'Update status', 'warn', 'memesh has not been able to check for newer versions yet, so it cannot tell you whether an update exists.', 'Run `memesh status` once while connected to the internet — that stores the answer and this notice goes away.', { code: 'update-status.no-cache' });
     }
     if (update.checkSucceeded && update.lastError) {
         const hasUpdate = Boolean(update.updateAvailable && update.latestVersion);
@@ -465,11 +465,14 @@ async function inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSu
             upgradeHint = '';
         }
         const fix = `Run \`memesh status\` while online to retry the deprecation lookup${upgradeHint}.`;
-        return createCheck('update-status', 'Update status', 'warn', summary, fix);
+        return createCheck('update-status', 'Update status', 'warn', summary, fix, {
+            code: 'update-status.deprecation-unknown',
+            params: { version: packageVersion, detail: update.lastError ?? '' },
+        });
     }
     if (update.updateAvailable && update.latestVersion) {
         if (packageVersion < update.latestVersion) {
-            return createCheck('update-status', 'Update status', 'warn', `Update available: ${update.latestVersion} (current: ${packageVersion})`, `Run 'memesh update' to upgrade`);
+            return createCheck('update-status', 'Update status', 'warn', `Update available: ${update.latestVersion} (current: ${packageVersion})`, `Run 'memesh update' to upgrade`, { code: 'update-status.update-available', params: { latest: update.latestVersion, current: packageVersion } });
         }
         else {
             return createCheck('update-status', 'Update status', 'pass', `Running pre-release version (${packageVersion}), npm latest is ${update.latestVersion}`);
@@ -477,35 +480,37 @@ async function inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSu
     }
     return createCheck('update-status', 'Update status', update.freshness === 'stale' ? 'warn' : 'pass', `Version ${packageVersion} is current${update.freshness === 'stale' ? ', but cached update data is stale.' : '.'}`, update.freshness === 'stale'
         ? 'Run `memesh status` while online to refresh cached update metadata.'
+        : undefined, update.freshness === 'stale'
+        ? { code: 'update-status.stale', params: { version: packageVersion } }
         : undefined);
 }
 async function inspectHttpProbe(httpBaseUrl, fetchImpl) {
     try {
         const response = await fetchImpl(`${httpBaseUrl.replace(/\/$/, '')}/v1/health`);
         if (!response.ok) {
-            return createCheck('http-probe', 'HTTP probe', 'warn', `HTTP server responded with ${response.status} at ${httpBaseUrl}.`, 'Run `memesh serve` and check the logs, then retry `memesh doctor --probe-http`.');
+            return createCheck('http-probe', 'HTTP probe', 'warn', `HTTP server responded with ${response.status} at ${httpBaseUrl}.`, 'Run `memesh serve` and check the logs, then retry `memesh doctor --probe-http`.', { code: 'http-probe.bad-status', params: { status: response.status, url: httpBaseUrl } });
         }
         return createCheck('http-probe', 'HTTP probe', 'pass', `HTTP server is reachable at ${httpBaseUrl}.`);
     }
     catch {
-        return createCheck('http-probe', 'HTTP probe', 'warn', `No running HTTP server detected at ${httpBaseUrl}.`, 'Start the local server with `memesh serve` if you want dashboard and HTTP API verification.');
+        return createCheck('http-probe', 'HTTP probe', 'warn', `No running HTTP server detected at ${httpBaseUrl}.`, 'Start the local server with `memesh serve` if you want dashboard and HTTP API verification.', { code: 'http-probe.no-server', params: { url: httpBaseUrl } });
     }
 }
 function verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl) {
     const manifestPath = path.join(packageRoot, 'dist', 'skills-manifest.json');
     if (!existsSyncImpl(manifestPath)) {
-        return createCheck('skills-manifest', 'Skills + hooks integrity', 'warn', 'No skills-manifest.json found. This is normal for source checkouts — packaged installs ship the manifest.', 'Run `npm run build` to regenerate, or reinstall via `npm install -g @pcircle/memesh`.');
+        return createCheck('skills-manifest', 'Skills + hooks integrity', 'warn', 'No skills-manifest.json found. This is normal for source checkouts — packaged installs ship the manifest.', 'Run `npm run build` to regenerate, or reinstall via `npm install -g @pcircle/memesh`.', { code: 'skills-manifest.missing-dev' });
     }
     let manifest;
     try {
         manifest = JSON.parse(readFileSyncImpl(manifestPath, 'utf8'));
     }
     catch (err) {
-        return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', `skills-manifest.json is unreadable (${err instanceof Error ? err.message : 'parse error'}).`, 'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem persists open an issue.');
+        return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', `skills-manifest.json is unreadable (${err instanceof Error ? err.message : 'parse error'}).`, 'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem persists open an issue.', { code: 'skills-manifest.unreadable', params: { detail: err instanceof Error ? err.message : 'parse error' } });
     }
     const entries = manifest.entries ?? [];
     if (entries.length === 0) {
-        return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', 'skills-manifest.json contains zero entries.', 'Reinstall the package: `npm install -g @pcircle/memesh`.');
+        return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', 'skills-manifest.json contains zero entries.', 'Reinstall the package: `npm install -g @pcircle/memesh`.', { code: 'skills-manifest.empty' });
     }
     const mismatches = [];
     const missing = [];
@@ -534,7 +539,7 @@ function verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl) {
         missing.length > 0 ? `${missing.length} missing: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? ` (+${missing.length - 3} more)` : ''}` : null,
         mismatches.length > 0 ? `${mismatches.length} tampered: ${mismatches.slice(0, 3).join(', ')}${mismatches.length > 3 ? ` (+${mismatches.length - 3} more)` : ''}` : null,
     ].filter(Boolean).join('; ');
-    return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', `Manifest verification failed: ${detail}.`, 'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem reproduces on a fresh install, open a security issue at https://github.com/PCIRCLE-AI/memesh-llm-memory/security.');
+    return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', `Manifest verification failed: ${detail}.`, 'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem reproduces on a fresh install, open a security issue at https://github.com/PCIRCLE-AI/memesh-llm-memory/security.', { code: 'skills-manifest.verify-failed', params: { detail } });
 }
 async function inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyncImpl) {
     const configPath = getConfigPathImpl();
@@ -545,13 +550,13 @@ async function inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyn
         const raw = readFileSyncImpl(configPath, 'utf8');
         const parsed = JSON.parse(raw);
         if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-            return createCheck('config_parse', 'Config parses', 'fail', `${configPath} parsed but is not a JSON object — every setting is being ignored.`, `Fix or remove ${configPath}, then re-run memesh doctor.`);
+            return createCheck('config_parse', 'Config parses', 'fail', `${configPath} parsed but is not a JSON object — every setting is being ignored.`, `Fix or remove ${configPath}, then re-run memesh doctor.`, { code: 'config-parse.not-object', params: { path: configPath } });
         }
         return createCheck('config_parse', 'Config parses', 'pass', `${configPath} is valid JSON and its settings are in effect.`);
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return createCheck('config_parse', 'Config parses', 'fail', `${configPath} could not be read or parsed (${msg}). Every setting in it — LLM provider, fallbacks, embedder — is being silently ignored right now.`, `Fix the JSON or remove the file to fall back to defaults: mv ${configPath} ${configPath}.bak`);
+        return createCheck('config_parse', 'Config parses', 'fail', `${configPath} could not be read or parsed (${msg}). Every setting in it — LLM provider, fallbacks, embedder — is being silently ignored right now.`, `Fix the JSON or remove the file to fall back to defaults: mv ${configPath} ${configPath}.bak`, { code: 'config-parse.unreadable', params: { path: configPath, detail: msg } });
     }
 }
 async function inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl) {
@@ -576,13 +581,13 @@ async function inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextI
             }),
         ]);
         if (!vector || vector.length === 0) {
-            return createCheck('embeddings_probe', 'Embeddings work', 'warn', `Config selects "${capabilities.embeddings}" but generating a test embedding returned nothing. Semantic recall is degraded to FTS5-only; keyword search still works.`, 'Run: memesh doctor --probe for detail, or check network access to the embedding provider.');
+            return createCheck('embeddings_probe', 'Embeddings work', 'warn', `Config selects "${capabilities.embeddings}" but generating a test embedding returned nothing. Semantic recall is degraded to FTS5-only; keyword search still works.`, 'Run: memesh doctor --probe for detail, or check network access to the embedding provider.', { code: 'embeddings.empty', params: { provider: String(capabilities.embeddings) } });
         }
         return createCheck('embeddings_probe', 'Embeddings work', 'pass', `Generated a ${vector.length}-dim test embedding via "${capabilities.embeddings}".`);
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return createCheck('embeddings_probe', 'Embeddings work', 'warn', `Config selects "${capabilities.embeddings}" but the embedder threw (${msg}). Semantic recall is degraded to FTS5-only.`, 'Check the embedding provider is reachable, or set: memesh config set embedder.provider onnx');
+        return createCheck('embeddings_probe', 'Embeddings work', 'warn', `Config selects "${capabilities.embeddings}" but the embedder threw (${msg}). Semantic recall is degraded to FTS5-only.`, 'Check the embedding provider is reachable, or set: memesh config set embedder.provider onnx', { code: 'embeddings.threw', params: { provider: String(capabilities.embeddings), detail: msg } });
     }
     finally {
         clearTimeout(timer);
@@ -601,11 +606,11 @@ async function inspectLlmProbe(capabilities, probeCapabilities, probeProviderImp
         if (result.valid) {
             return createCheck('llm_probe', 'LLM reachable', 'pass', `${llm.provider} answered a live probe.`);
         }
-        return createCheck('llm_probe', 'LLM reachable', 'fail', `${llm.provider} is configured but did not answer: ${result.error ?? 'unknown error'}. Every LLM-backed feature is silently doing nothing.`, 'Check the API key / host, then re-run: memesh doctor --probe');
+        return createCheck('llm_probe', 'LLM reachable', 'fail', `${llm.provider} is configured but did not answer: ${result.error ?? 'unknown error'}. Every LLM-backed feature is silently doing nothing.`, 'Check the API key / host, then re-run: memesh doctor --probe', { code: 'llm.unreachable', params: { provider: llm.provider, detail: result.error ?? 'unknown error' } });
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return createCheck('llm_probe', 'LLM reachable', 'fail', `${llm.provider} probe threw: ${msg}. Every LLM-backed feature is silently doing nothing.`, 'Check the API key / host, then re-run: memesh doctor --probe');
+        return createCheck('llm_probe', 'LLM reachable', 'fail', `${llm.provider} probe threw: ${msg}. Every LLM-backed feature is silently doing nothing.`, 'Check the API key / host, then re-run: memesh doctor --probe', { code: 'llm.threw', params: { provider: llm.provider, detail: msg } });
     }
 }
 function summarizeOverallStatus(checks) {
@@ -627,7 +632,7 @@ export async function runDoctor(options) {
     const installSupport = getInstallChannelSupportImpl(install);
     checks.push(createCheck('install-channel', 'Install method', install === 'unknown' ? 'warn' : 'pass', `Install method detected: ${installSupport.label}.`, install === 'unknown'
         ? 'If this is a source checkout, run MeMesh from the repo root. If this is a packaged install, reinstall with `npm install -g @pcircle/memesh`.'
-        : undefined));
+        : undefined, install === 'unknown' ? { code: 'install-channel.unknown' } : undefined));
     const databasePath = resolveDatabasePath();
     const dbChecks = [];
     try {
@@ -647,12 +652,12 @@ export async function runDoctor(options) {
                 dbChecks.push(createCheck('fts_segmentation', 'Keyword index segmentation', 'warn', `The keyword index holds ${unsegmented.c} unsegmented term(s), so some memories are only ` +
                     `findable by their exact full text. This happens when an older build wrote to a database ` +
                     `that a newer one had already migrated — the version marker only moves forward, so the ` +
-                    `automatic rebuild cannot notice. Re-run doctor after the rebuild: this count should be 0.`, `Run 'memesh reindex --fts' to rebuild the keyword index.`));
+                    `automatic rebuild cannot notice. Re-run doctor after the rebuild: this count should be 0.`, `Run 'memesh reindex --fts' to rebuild the keyword index.`, { code: 'fts.unsegmented', params: { count: unsegmented.c } }));
             }
         }
         const pendingReindex = getPendingReindexInfo();
         if (pendingReindex) {
-            dbChecks.push(createCheck('vector_index', 'Vector Index', 'warn', `Search index needs rebuilding (embedding configuration changed)`, `Run 'memesh reindex' to fix. This will restore full search functionality.`));
+            dbChecks.push(createCheck('vector_index', 'Vector Index', 'warn', `Search index needs rebuilding (embedding configuration changed)`, `Run 'memesh reindex' to fix. This will restore full search functionality.`, { code: 'vector-index.stale' }));
         }
     }
     catch (err) {
@@ -708,7 +713,7 @@ export async function runDoctor(options) {
             }
         }
         dbChecks.length = 0;
-        dbChecks.push(createCheck('database', 'Database', 'fail', diagnosis, fix));
+        dbChecks.push(createCheck('database', 'Database', 'fail', diagnosis, fix, { code: 'database.broken', params: { detail: diagnosis } }));
     }
     finally {
         checks.push(...dbChecks);
