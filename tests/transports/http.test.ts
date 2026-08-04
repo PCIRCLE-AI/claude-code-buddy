@@ -474,6 +474,38 @@ describe('HTTP Transport: startServer host guard', () => {
     expect(() => startServer('0.0.0.0', 0)).toThrow(/Refusing to bind MeMesh HTTP server/);
   });
 
+  // 使用者原話：「還沒查過更新」這件事，伺服器自己就能默默做掉（它本來
+  // 就在線上），根本不需要叫使用者打指令。A serving process fills the
+  // npm update cache itself; the old flow told the user to run
+  // `memesh status` for it — the definition of 脫褲子放屁.
+  it('fills the update cache in the background when none exists', async () => {
+    let refreshed = 0;
+    const server = startServer('127.0.0.1', 0, {
+      lastUpdateCheckImpl: (() => null) as never,
+      updateCheckImpl: (async () => { refreshed++; return {} as never; }) as never,
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(refreshed, 'no cache -> the server must populate it itself').toBe(1);
+    } finally {
+      server.close();
+    }
+  });
+
+  it('does not hit the registry when the cache is already fresh', async () => {
+    let refreshed = 0;
+    const server = startServer('127.0.0.1', 0, {
+      lastUpdateCheckImpl: (() => ({ freshness: 'cached' })) as never,
+      updateCheckImpl: (async () => { refreshed++; return {} as never; }) as never,
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(refreshed, 'fresh cache -> no network call').toBe(0);
+    } finally {
+      server.close();
+    }
+  });
+
   it('allows non-loopback binds when explicit opt-in is provided, and demands a bearer token (F3)', async () => {
     const remoteTmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-http-remote-'));
     const previousDbPath = process.env.MEMESH_DB_PATH;

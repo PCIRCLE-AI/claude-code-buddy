@@ -4,8 +4,82 @@ import { t } from '../lib/i18n';
 
 const DISMISS_KEY = 'memesh.doctorBanner.dismissedSig';
 
-interface DoctorCheck { id: string; label: string; status: 'pass' | 'warn' | 'fail'; summary: string; fix?: string }
+interface DoctorCheck {
+  id: string;
+  label: string;
+  status: 'pass' | 'warn' | 'fail';
+  summary: string;
+  fix?: string;
+  code?: string;
+  params?: Record<string, string | number>;
+}
 interface DoctorResult { status: string; checks: DoctorCheck[] }
+
+/**
+ * Translate one doctor field by its stable message code, falling back to the
+ * raw English the server sent. `t()` returns the key itself on a catalogue
+ * miss — that equality IS the miss signal (this is the sanctioned pattern;
+ * an or-fallback is not, because a returned key is truthy). The earlier
+ * per-check-id localization was reverted for erasing state-specific detail;
+ * codes are per-VARIANT and params carry the dynamic parts, so nothing is
+ * erased — an untranslated variant simply shows the server's English.
+ */
+export function trField(key: string, fallback: string, params?: Record<string, string | number>): string {
+  const translated = t(key, params);
+  return translated === key ? fallback : translated;
+}
+export function trSummary(c: DoctorCheck): string {
+  return c.code ? trField(`doctor.msg.${c.code}.summary`, c.summary, c.params) : c.summary;
+}
+export function trFix(c: DoctorCheck): string | undefined {
+  if (!c.fix) return undefined;
+  return c.code ? trField(`doctor.msg.${c.code}.fix`, c.fix, c.params) : c.fix;
+}
+export function trLabel(c: DoctorCheck): string {
+  return trField(`doctor.label.${c.id}`, c.label);
+}
+
+/**
+ * WARN codes that report "nothing is wrong (yet)" rather than a problem —
+ * they never earn a banner. The user's words, verbatim: 「既然沒更新就不要
+ * 出聲，有更新才通知」— a fresh install nagged "no cached update check yet"
+ * on every tab, which reads as *something is wrong* when nothing is.
+ * `memesh doctor` (the CLI) still reports every one of these in full; the
+ * banner interrupts, so it is reserved for broken things (FAIL) and
+ * action-needed things (update available, version withdrawn, search
+ * degraded). FAIL status always banners regardless of this list.
+ */
+export const QUIET_WARN_CODES = new Set([
+  'update-status.no-cache',        // has not checked yet — not a problem
+  'update-status.stale',           // version is current, cache merely old
+  'update-status.deprecation-unknown', // lookup failed; retried silently
+  'hook-activity.quiet',           // configured fine, just no sessions yet
+  'shell-cli.not-on-path',         // plugin-only installs work fully
+  'skills-manifest.missing-dev',   // normal for source checkouts
+  'install-channel.unknown',       // nothing is broken
+  'http-probe.no-server',          // you are LOOKING at the dashboard
+  'readme-parity.unreadable',      // contributor-facing
+  'readme-parity.drift',           // contributor-facing
+]);
+
+/**
+ * Only surface concerns that are actually actionable to a user.
+ * FAIL always counts (broken install — user has to act). WARN counts only
+ * when it is NOT a quiet-by-design code (above) AND doctor attached a real
+ * `fix` hint — without that filter, "PASS_WITH_CONCERNS" produced banners
+ * like `Install method: … — No action needed`: alarmist title,
+ * non-actionable body.
+ */
+export function isBannerWorthy(c: DoctorCheck): boolean {
+  if (c.status === 'fail') return true;
+  if (c.status !== 'warn') return false;
+  if (c.code && QUIET_WARN_CODES.has(c.code)) return false;
+  if (!c.fix) return false;
+  const fix = c.fix.trim().toLowerCase();
+  if (!fix) return false;
+  if (fix === 'no action needed' || fix.startsWith('no action')) return false;
+  return true;
+}
 
 /**
  * Surfaces doctor WARN/FAIL checks above the tab nav so users
@@ -55,16 +129,7 @@ export function DoctorBanner() {
   // — alarmist title + non-actionable body. The CLI / `memesh doctor`
   // still reports every WARN; the dashboard just stops popping a
   // banner for ones the user can't (or shouldn't) act on.
-  const isActionable = (c: DoctorCheck) => {
-    if (c.status === 'fail') return true;
-    if (c.status !== 'warn') return false;
-    if (!c.fix) return false;
-    const fix = c.fix.trim().toLowerCase();
-    if (!fix) return false;
-    if (fix === 'no action needed' || fix.startsWith('no action')) return false;
-    return true;
-  };
-  const concerns = doctor.checks.filter(isActionable);
+  const concerns = doctor.checks.filter(isBannerWorthy);
   if (concerns.length === 0) return null;
 
   // Signature is stable for the same set of failing checks. Sort
@@ -96,9 +161,9 @@ export function DoctorBanner() {
   }
 
   const isFail = doctor.status === 'FAIL';
-  const tone = isFail ? '#ef4444' : '#f59e0b';
-  const toneBg = isFail ? 'rgba(239, 68, 68, 0.08)' : 'rgba(245, 158, 11, 0.08)';
-  const toneBorder = isFail ? 'rgba(239, 68, 68, 0.32)' : 'rgba(245, 158, 11, 0.32)';
+  const tone = isFail ? 'var(--danger)' : 'var(--warning)';
+  const toneBg = isFail ? 'var(--danger-soft)' : 'var(--warning-soft)';
+  const toneBorder = tone;
 
   return (
     <div
@@ -143,23 +208,16 @@ export function DoctorBanner() {
       </div>
       <ul style={{ margin: '6px 0 10px', paddingLeft: 18, fontSize: 12, lineHeight: 1.5, color: 'var(--text-2)' }}>
         {concerns.slice(0, 3).map(c => {
-          // Use the raw doctor summary/fix — they carry the actual
-          // diagnostic detail (e.g. "Install method detected: unknown"
-          // + the specific rebuild command). Earlier this layer
-          // preferred a generic `doctor.<id>.summary` i18n override,
-          // which destroyed FAIL/WARN context: a "binding missing"
-          // FAIL appeared as the generic "Native binding detected"
-          // PASS-state label. The raw text is always more useful
-          // here because the banner only renders WARN/FAIL.
+          const fix = trFix(c);
           return (
             <li key={c.id}>
-              <strong>{c.label}:</strong> {c.summary}
-              {c.fix && <> — <em style={{ color: 'var(--text-3)' }}>{c.fix}</em></>}
+              <strong>{trLabel(c)}:</strong> {trSummary(c)}
+              {fix && <> — <em style={{ color: 'var(--text-3)' }}>{fix}</em></>}
             </li>
           );
         })}
         {concerns.length > 3 && (
-          <li style={{ color: 'var(--text-3)' }}>…and {concerns.length - 3} more (run `memesh doctor` for full list)</li>
+          <li style={{ color: 'var(--text-3)' }}>{t('doctorBanner.moreCount', { n: concerns.length - 3 })}</li>
         )}
       </ul>
       {/* "Get help" pushes a GitHub issue. Only show for FAIL (broken

@@ -9,7 +9,9 @@
 //   - consolidator.ts
 //
 // (query-expander.ts was a fourth caller until it was retired from the
-// recall hot path — Mode A FTS5-only at 95.40% R@5 won the UX axis
+// recall hot path — Mode A FTS5-only (95.60% R@5 measured through
+// recallEnhanced; the 95.40% quoted historically came from the
+// benchmark's own reimplementation) won the UX axis
 // against a ~30× latency penalty. dreamer.ts and llm-validator.ts also
 // call into LLM providers but currently use their own paths.)
 //

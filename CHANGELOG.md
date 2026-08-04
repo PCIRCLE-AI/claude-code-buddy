@@ -4,6 +4,28 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The dashboard's doctor banner now speaks the user's language — and only
+  speaks when something is wrong.** Two reported defects: with the language
+  set to Chinese the banner printed raw server English ("No memesh-attributed
+  entities…", "agentic-loop guard", "user_interrupt" — jargon no user can act
+  on), and a fresh install nagged "no cached npm update check yet" on every
+  tab. Every doctor warn/fail variant now carries a stable message code +
+  params; the dashboard translates them in all 11 languages (raw English only
+  as a fallback for unknown codes, enforced by a build-failing detector), the
+  two worst messages were rewritten in plain language at the source, and ten
+  "nothing is wrong yet" codes never produce a banner — FAIL and
+  action-needed warns still do. `memesh doctor` keeps reporting everything.
+- **`memesh serve` fills the npm update-check cache itself.** The doctor
+  used to tell users to "run `memesh status` once while online" — a command
+  whose only effect a running (hence online) server can produce on its own.
+  It now does, in the background, skipping when the cache is fresh.
+- **Removed a falsified benchmark figure from the dashboard.** Two i18n
+  strings in all 11 locales still claimed "95.40% R@5" — the number release
+  4.2.11 disproved. The claim is gone; two untranslated zh strings were also
+  translated.
+
 ## [4.4.0] — 2026-08-04
 
 ### Changed

@@ -43,6 +43,19 @@ export interface DoctorCheck {
    * probe something — see `probeEmbeddings` / `probeLlm`.
    */
   informational?: boolean;
+  /**
+   * Stable message-variant code + interpolation params, present on every
+   * warn/fail row. The dashboard translates by code (doctor.msg.<code>.*)
+   * and interpolates params — the earlier attempt to localize by check `id`
+   * alone was reverted because one id has many states and a generic label
+   * destroyed the diagnostic detail. `summary`/`fix` remain the English
+   * source of truth (the CLI prints them; the dashboard falls back to them
+   * when a code has no catalogue entry). tests/dashboard-i18n.test.ts scans
+   * this file for `code:` literals and fails when the catalogue misses one,
+   * so a new warn/fail variant cannot ship untranslated.
+   */
+  code?: string;
+  params?: Record<string, string | number>;
 }
 
 export interface DoctorResult {
@@ -184,6 +197,8 @@ function inspectLocaleReadmeParity(
       'README locale parity',
       'warn',
       `Could not read README.md: ${err instanceof Error ? err.message : String(err)}`,
+      undefined,
+      { code: 'readme-parity.unreadable', params: { detail: err instanceof Error ? err.message : String(err) } },
     );
   }
 
@@ -231,6 +246,7 @@ function inspectLocaleReadmeParity(
     'warn',
     parts.join('; '),
     `Re-sync the listed READMEs against README.md so section structure matches (±${LOCALE_H2_TOLERANCE} H2 tolerated to absorb translation collapse).`,
+    { code: 'readme-parity.drift', params: { detail: parts.join('; '), tolerance: LOCALE_H2_TOLERANCE } },
   );
 }
 
@@ -244,8 +260,9 @@ function createCheck(
   status: DoctorCheckStatus,
   summary: string,
   fix?: string,
+  i18n?: { code: string; params?: Record<string, string | number> },
 ): DoctorCheck {
-  return { id, label, status, summary, fix };
+  return { id, label, status, summary, fix, code: i18n?.code, params: i18n?.params };
 }
 
 /**
@@ -304,6 +321,7 @@ function inspectConfigFile(
       'fail',
       `Config file is invalid JSON at ${configPath}.`,
       `Fix or remove ${configPath}, then run \`memesh config list\` to confirm it loads cleanly.`,
+      { code: 'config.invalid-json', params: { path: configPath } },
     );
   }
 
@@ -328,6 +346,7 @@ function inspectMcpConfig(
       'fail',
       '.mcp.json is missing.',
       'Restore `.mcp.json` from the package or reinstall MeMesh.',
+      { code: 'mcp-config.missing' },
     );
   }
 
@@ -339,6 +358,7 @@ function inspectMcpConfig(
       'fail',
       '.mcp.json is not valid JSON.',
       `Fix ${mcpPath} so Claude Code can read the MCP server definition.`,
+      { code: 'mcp-config.invalid-json', params: { path: mcpPath } },
     );
   }
 
@@ -350,6 +370,7 @@ function inspectMcpConfig(
       'fail',
       '.mcp.json does not define a usable `memesh` MCP server entry.',
       'Reinstall MeMesh or restore the `mcpServers.memesh` entry in `.mcp.json`.',
+      { code: 'mcp-config.no-entry' },
     );
   }
 
@@ -394,6 +415,7 @@ function inspectHooksConfig(
         'fail',
         'hooks/hooks.json is missing.',
         'Restore `hooks/hooks.json` from the package or reinstall MeMesh.',
+        { code: 'hooks-config.missing' },
       ),
     ];
   }
@@ -407,6 +429,7 @@ function inspectHooksConfig(
         'fail',
         'hooks/hooks.json is not valid JSON.',
         `Fix ${hooksPath} so Claude Code can load the hook definitions.`,
+        { code: 'hooks-config.invalid-json', params: { path: hooksPath } },
       ),
     ];
   }
@@ -420,6 +443,7 @@ function inspectHooksConfig(
       'fail',
       `hooks/hooks.json is missing expected hook types: ${missingTypes.join(', ')}.`,
       'Restore the shipped hook configuration or reinstall MeMesh.',
+      { code: 'hooks-config.missing-types', params: { types: missingTypes.join(', ') } },
     )
     : createCheck(
       'hooks-config',
@@ -444,6 +468,7 @@ function inspectHooksConfig(
         'fail',
         'hooks/hooks.json parsed, but yields zero hook script commands — hooks can never fire.',
         'Restore the shipped hook configuration or reinstall MeMesh.',
+        { code: 'hook-scripts.none' },
       ),
     ];
   }
@@ -457,6 +482,7 @@ function inspectHooksConfig(
         'fail',
         `Missing hook scripts: ${missingScripts.map((entry) => path.relative(packageRoot, entry)).join(', ')}.`,
         'Restore the missing files from the package or reinstall MeMesh.',
+        { code: 'hook-scripts.missing', params: { files: missingScripts.map((entry) => path.relative(packageRoot, entry)).join(', ') } },
       ),
     ];
   }
@@ -475,6 +501,7 @@ function inspectHooksConfig(
           'fail',
           `Hook scripts are not executable: ${nonExecutable.map((entry) => path.relative(packageRoot, entry)).join(', ')}.`,
           'Run `npm run build` from the repo checkout or `chmod +x scripts/hooks/*.js` for a local repair.',
+          { code: 'hook-scripts.not-executable', params: { files: nonExecutable.map((entry) => path.relative(packageRoot, entry)).join(', ') } },
         ),
       ];
     }
@@ -534,8 +561,9 @@ function inspectHookWiring(
       'hook-wiring',
       'Hooks wired into Claude Code',
       'warn',
-      'No install-hooks marker found. memesh\'s session-summary, pre-edit-recall, and other hooks may not be firing for Claude Code sessions — the auto-capture / lesson-generation flow is silent without them.',
-      'Run `memesh install-hooks` to wire memesh into ~/.claude/settings.json (one-time setup). Then `memesh doctor` to confirm.',
+      'memesh is not connected to Claude Code yet, so nothing gets remembered automatically from your sessions.',
+      'Run `memesh install-hooks` once to connect it, then `memesh doctor` to confirm.',
+      { code: 'hook-wiring.no-marker' },
     );
   }
   const parsed = parseJsonFile(markerPath, readFileSyncImpl);
@@ -546,6 +574,7 @@ function inspectHookWiring(
       'warn',
       `install-hooks marker at ${markerPath} is unreadable.`,
       'Re-run `memesh install-hooks` to refresh the marker.',
+      { code: 'hook-wiring.marker-unreadable', params: { path: markerPath } },
     );
   }
   const marker = parsed.value as {
@@ -561,6 +590,7 @@ function inspectHookWiring(
       'warn',
       'install-hooks marker is malformed (missing settings_path).',
       'Re-run `memesh install-hooks`.',
+      { code: 'hook-wiring.marker-malformed' },
     );
   }
   if (!existsSyncImpl(marker.settings_path)) {
@@ -570,6 +600,7 @@ function inspectHookWiring(
       'fail',
       `Marker recorded settings at ${marker.settings_path} but the file no longer exists. Hooks are not wired.`,
       'Re-run `memesh install-hooks`.',
+      { code: 'hook-wiring.settings-missing', params: { path: String(marker.settings_path) } },
     );
   }
   const settingsParsed = parseJsonFile(marker.settings_path, readFileSyncImpl);
@@ -580,6 +611,7 @@ function inspectHookWiring(
       'fail',
       `${marker.settings_path} is no longer valid JSON.`,
       'Restore from your ~/.claude backups or re-create with `memesh install-hooks`.',
+      { code: 'hook-wiring.settings-invalid', params: { path: String(marker.settings_path) } },
     );
   }
   // Walk hooks looking for any _memesh:true entry. Doesn't need
@@ -607,6 +639,7 @@ function inspectHookWiring(
       'fail',
       `Marker recorded a memesh install at ${marker.settings_path}, but no _memesh:true hook entries are present anymore. Settings drifted (manual edit?) or memesh was uninstalled out-of-band.`,
       'Re-run `memesh install-hooks` to re-wire.',
+      { code: 'hook-wiring.entries-removed', params: { path: String(marker.settings_path) } },
     );
   }
   // Check the recorded plugin_root still exists — npm-global path
@@ -618,6 +651,7 @@ function inspectHookWiring(
       'fail',
       `Hook commands point at ${marker.plugin_root}, which no longer exists (likely after an npm-global path change).`,
       'Re-run `memesh install-hooks` to refresh paths.',
+      { code: 'hook-wiring.root-moved', params: { path: String(marker.plugin_root) } },
     );
   }
   return createCheck(
@@ -694,8 +728,9 @@ function inspectHookActivity(
         'hook-activity',
         'Hook activity (last 24h)',
         'warn',
-        'No memesh-attributed entities (session-insight, session-summary, commit, lesson_learned) in the past 24 hours. Hooks may be wired but not firing — likely a Claude Code restart is needed, or the agentic-loop guard is filtering all sessions.',
-        'Open a Claude Code session that uses ≥3 tools and ends naturally (not user_interrupt), or commit something. Then run `memesh doctor` again.',
+        'memesh has not saved anything automatically in the last 24 hours. Everything is set up — it just has not seen a work session to remember yet. If you HAVE been working all day, Claude Code may need a restart to pick the connection up.',
+        'Do a normal Claude Code work session (or make a git commit), then check again with `memesh doctor`.',
+        { code: 'hook-activity.quiet' },
       );
     }
     return createCheck(
@@ -710,6 +745,8 @@ function inspectHookActivity(
       'Hook activity (last 24h)',
       'warn',
       `Could not query the database: ${err instanceof Error ? err.message : String(err)}`,
+      undefined,
+      { code: 'hook-activity.query-failed', params: { detail: err instanceof Error ? err.message : String(err) } },
     );
   } finally {
     try { if (db) closeDatabaseImpl(); } catch { /* best-effort */ }
@@ -872,6 +909,7 @@ export function inspectNodeRuntime(
       `${facts} This package requires Node ${declared}, so this runtime is BELOW the ` +
         `supported floor. Native modules and hooks may fail in ways that look unrelated.`,
       `Upgrade Node to ${declared.replace(/^>=\s*/, '')} or newer, then run \`memesh doctor\` again.`,
+      { code: 'node-runtime.too-old', params: { detail: facts, required: declared.replace(/^>=\s*/, '') } },
     );
   }
   return createCheck(
@@ -934,6 +972,7 @@ function inspectNativeBinding(
       'better-sqlite3 is not installed (Node could not resolve the module from any '
         + 'parent node_modules). Memesh hooks and database operations will not work.',
       `Run: npm install   (in the directory that depends on @pcircle/memesh)`,
+      { code: 'native-binding.not-installed' },
     );
   }
   if (isMissingBinding) {
@@ -945,6 +984,7 @@ function inspectNativeBinding(
         + 'Hooks will silently skip-and-exit, and auto-capture will NOT write any entities. '
         + 'This is the plugin-marketplace silent-dropout class of bug.',
       `Run: cd "${packageRoot}" && npm rebuild better-sqlite3   (or "npm install --omit=dev" for a clean reinstall)`,
+      { code: 'native-binding.missing', params: { root: packageRoot } },
     );
   }
   return createCheck(
@@ -953,6 +993,7 @@ function inspectNativeBinding(
     'fail',
     `better-sqlite3 failed to load: ${result.message}`,
     `Run: cd "${packageRoot}" && npm rebuild better-sqlite3`,
+    { code: 'native-binding.load-failed', params: { detail: result.message, root: packageRoot } },
   );
 }
 
@@ -1014,6 +1055,7 @@ function inspectShellCli(
       'Plugin is installed but `memesh` is not on the shell PATH. Typing `memesh` in a regular terminal will report `command not found`. '
         + 'Claude Code MCP / hooks / `/memesh` skill still work — this only affects standalone shell usage and other MCP clients (Cursor, Cline, etc.).',
       'Run `npm install -g @pcircle/memesh` to add the shell CLI. Both paths coexist; they share the same `~/.memesh/knowledge-graph.db`.',
+      { code: 'shell-cli.not-on-path' },
     );
   }
 
@@ -1040,6 +1082,7 @@ function inspectDashboardArtifact(
       'fail',
       'dashboard/dist/index.html is missing.',
       'Build the dashboard with `cd dashboard && npm install && npm run build`, then run `npm run build` at the repo root if needed.',
+      { code: 'dashboard.missing' },
     );
   }
 
@@ -1062,8 +1105,9 @@ async function inspectUpdateStatus(
       'update-status',
       'Update status',
       'warn',
-      'No successful cached npm update check is available yet.',
-      'Run `memesh status` once while online to populate update status.',
+      'memesh has not been able to check for newer versions yet, so it cannot tell you whether an update exists.',
+      'Run `memesh status` once while connected to the internet — that stores the answer and this notice goes away.',
+      { code: 'update-status.no-cache' },
     );
   }
 
@@ -1121,6 +1165,7 @@ async function inspectUpdateStatus(
       'fail',
       `Installed version ${packageVersion} is DEPRECATED by maintainers: ${update.deprecationMessage}`,
       fix,
+      { code: 'update-status.deprecated', params: { version: packageVersion, detail: update.deprecationMessage ?? '' } },
     );
   }
 
@@ -1132,8 +1177,9 @@ async function inspectUpdateStatus(
       'update-status',
       'Update status',
       'warn',
-      'No successful cached npm update check is available yet.',
-      'Run `memesh status` once while online to populate update status.',
+      'memesh has not been able to check for newer versions yet, so it cannot tell you whether an update exists.',
+      'Run `memesh status` once while connected to the internet — that stores the answer and this notice goes away.',
+      { code: 'update-status.no-cache' },
     );
   }
 
@@ -1164,7 +1210,10 @@ async function inspectUpdateStatus(
       upgradeHint = '';
     }
     const fix = `Run \`memesh status\` while online to retry the deprecation lookup${upgradeHint}.`;
-    return createCheck('update-status', 'Update status', 'warn', summary, fix);
+    return createCheck('update-status', 'Update status', 'warn', summary, fix, {
+      code: 'update-status.deprecation-unknown',
+      params: { version: packageVersion, detail: update.lastError ?? '' },
+    });
   }
 
   if (update.updateAvailable && update.latestVersion) {
@@ -1179,6 +1228,7 @@ async function inspectUpdateStatus(
         'warn',
         `Update available: ${update.latestVersion} (current: ${packageVersion})`,
         `Run 'memesh update' to upgrade`,
+        { code: 'update-status.update-available', params: { latest: update.latestVersion, current: packageVersion } },
       );
     } else {
       // Local version is ahead (pre-release or release branch) — don't warn
@@ -1199,6 +1249,9 @@ async function inspectUpdateStatus(
     update.freshness === 'stale'
       ? 'Run `memesh status` while online to refresh cached update metadata.'
       : undefined,
+    update.freshness === 'stale'
+      ? { code: 'update-status.stale', params: { version: packageVersion } }
+      : undefined,
   );
 }
 
@@ -1215,6 +1268,7 @@ async function inspectHttpProbe(
         'warn',
         `HTTP server responded with ${response.status} at ${httpBaseUrl}.`,
         'Run `memesh serve` and check the logs, then retry `memesh doctor --probe-http`.',
+        { code: 'http-probe.bad-status', params: { status: response.status, url: httpBaseUrl } },
       );
     }
 
@@ -1231,6 +1285,7 @@ async function inspectHttpProbe(
       'warn',
       `No running HTTP server detected at ${httpBaseUrl}.`,
       'Start the local server with `memesh serve` if you want dashboard and HTTP API verification.',
+      { code: 'http-probe.no-server', params: { url: httpBaseUrl } },
     );
   }
 }
@@ -1260,6 +1315,7 @@ function verifySkillsManifest(
       'warn',
       'No skills-manifest.json found. This is normal for source checkouts — packaged installs ship the manifest.',
       'Run `npm run build` to regenerate, or reinstall via `npm install -g @pcircle/memesh`.',
+      { code: 'skills-manifest.missing-dev' },
     );
   }
   let manifest: { entries?: Array<{ path: string; sha256: string }> };
@@ -1272,6 +1328,7 @@ function verifySkillsManifest(
       'fail',
       `skills-manifest.json is unreadable (${err instanceof Error ? err.message : 'parse error'}).`,
       'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem persists open an issue.',
+      { code: 'skills-manifest.unreadable', params: { detail: err instanceof Error ? err.message : 'parse error' } },
     );
   }
   const entries = manifest.entries ?? [];
@@ -1282,6 +1339,7 @@ function verifySkillsManifest(
       'fail',
       'skills-manifest.json contains zero entries.',
       'Reinstall the package: `npm install -g @pcircle/memesh`.',
+      { code: 'skills-manifest.empty' },
     );
   }
   const mismatches: string[] = [];
@@ -1317,6 +1375,7 @@ function verifySkillsManifest(
     'fail',
     `Manifest verification failed: ${detail}.`,
     'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem reproduces on a fresh install, open a security issue at https://github.com/PCIRCLE-AI/memesh-llm-memory/security.',
+    { code: 'skills-manifest.verify-failed', params: { detail } },
   );
 }
 
@@ -1353,6 +1412,7 @@ async function inspectConfigParse(
         'fail',
         `${configPath} parsed but is not a JSON object — every setting is being ignored.`,
         `Fix or remove ${configPath}, then re-run memesh doctor.`,
+        { code: 'config-parse.not-object', params: { path: configPath } },
       );
     }
     return createCheck('config_parse', 'Config parses', 'pass', `${configPath} is valid JSON and its settings are in effect.`);
@@ -1364,6 +1424,7 @@ async function inspectConfigParse(
       'fail',
       `${configPath} could not be read or parsed (${msg}). Every setting in it — LLM provider, fallbacks, embedder — is being silently ignored right now.`,
       `Fix the JSON or remove the file to fall back to defaults: mv ${configPath} ${configPath}.bak`,
+      { code: 'config-parse.unreadable', params: { path: configPath, detail: msg } },
     );
   }
 }
@@ -1449,6 +1510,7 @@ async function inspectEmbeddingProbe(
         'warn',
         `Config selects "${capabilities.embeddings}" but generating a test embedding returned nothing. Semantic recall is degraded to FTS5-only; keyword search still works.`,
         'Run: memesh doctor --probe for detail, or check network access to the embedding provider.',
+        { code: 'embeddings.empty', params: { provider: String(capabilities.embeddings) } },
       );
     }
     return createCheck(
@@ -1465,6 +1527,7 @@ async function inspectEmbeddingProbe(
       'warn',
       `Config selects "${capabilities.embeddings}" but the embedder threw (${msg}). Semantic recall is degraded to FTS5-only.`,
       'Check the embedding provider is reachable, or set: memesh config set embedder.provider onnx',
+      { code: 'embeddings.threw', params: { provider: String(capabilities.embeddings), detail: msg } },
     );
   } finally {
     // If the embedder answered first, the timeout is still pending — and
@@ -1516,6 +1579,7 @@ async function inspectLlmProbe(
       'fail',
       `${llm.provider} is configured but did not answer: ${result.error ?? 'unknown error'}. Every LLM-backed feature is silently doing nothing.`,
       'Check the API key / host, then re-run: memesh doctor --probe',
+      { code: 'llm.unreachable', params: { provider: llm.provider, detail: result.error ?? 'unknown error' } },
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -1525,6 +1589,7 @@ async function inspectLlmProbe(
       'fail',
       `${llm.provider} probe threw: ${msg}. Every LLM-backed feature is silently doing nothing.`,
       'Check the API key / host, then re-run: memesh doctor --probe',
+      { code: 'llm.threw', params: { provider: llm.provider, detail: msg } },
     );
   }
 }
@@ -1589,6 +1654,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
       install === 'unknown'
         ? 'If this is a source checkout, run MeMesh from the repo root. If this is a packaged install, reinstall with `npm install -g @pcircle/memesh`.'
         : undefined,
+      install === 'unknown' ? { code: 'install-channel.unknown' } : undefined,
     ),
   );
 
@@ -1673,6 +1739,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
               `that a newer one had already migrated — the version marker only moves forward, so the ` +
               `automatic rebuild cannot notice. Re-run doctor after the rebuild: this count should be 0.`,
             `Run 'memesh reindex --fts' to rebuild the keyword index.`,
+            { code: 'fts.unsegmented', params: { count: unsegmented.c } },
           ),
         );
       }
@@ -1687,6 +1754,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
           'warn',
           `Search index needs rebuilding (embedding configuration changed)`,
           `Run 'memesh reindex' to fix. This will restore full search functionality.`,
+          { code: 'vector-index.stale' },
         ),
       );
     }
@@ -1752,6 +1820,9 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
         'fail',
         diagnosis,
         fix,
+        // fix stays untranslated (it is itself diagnosis-specific text);
+        // the dashboard translates the summary frame and shows fix raw.
+        { code: 'database.broken', params: { detail: diagnosis } },
       ),
     );
   } finally {

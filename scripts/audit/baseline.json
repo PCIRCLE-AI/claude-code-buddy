@@ -126,24 +126,24 @@
       "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/doctor.ts:370": {
+    "C5 src/core/doctor.ts:391": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/doctor.ts:371": {
+    "C5 src/core/doctor.ts:392": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/doctor.ts:414": {
+    "C5 src/core/doctor.ts:437": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/doctor.ts:1277": {
+    "C5 src/core/doctor.ts:1334": {
       "class": "SAFE-GUARDED",
-      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
+      "reason": "verifySkillsManifest: entries ?? [] is followed by entries.length === 0 -> fail (skills-manifest.empty); the ?? cannot convert absence into a pass",
       "triaged": "2026-08-04"
     },
     "C5 src/core/dreamer.ts:668": {
@@ -186,7 +186,7 @@
       "reason": "index lookups where empty means no peers",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/llm-client.ts:122": {
+    "C5 src/core/llm-client.ts:124": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "chain identity; all-providers-failed still throws",
       "triaged": "2026-08-04"

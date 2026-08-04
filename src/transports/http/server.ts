@@ -22,7 +22,7 @@ import {
   ExportSchema as ExportBody, ImportSchema as ImportBody,
   LearnSchema as LearnBody, VerifyAgentWorkSchema as VerifyBody,
 } from '../schemas.js';
-import { getUpdateCheck } from '../../core/version-check.js';
+import { checkForUpdate, getLastUpdateCheck, getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
 import { getDbPath, getMemeshDirFromDbPath } from '../../core/paths.js';
 import { RETIRED_ROUTES } from './retired-routes.js';
@@ -967,7 +967,22 @@ app.use((req, res) => {
 export function startServer(
   host = HOST,
   port = PORT,
-  opts?: { allowRemote?: boolean }
+  opts?: {
+    allowRemote?: boolean;
+    /**
+     * Opt-IN to the background update-cache fill. Only the CLI `serve`
+     * command sets this — a user-launched, long-lived, online server.
+     * Inference from VITEST/NODE_ENV was tried first and was wrong twice
+     * over: `npm run build`'s smoke test and the packaged-dashboard e2e
+     * both start real servers outside any test runner, and were making
+     * live npm-registry calls (the local one writing into the
+     * developer's real ~/.memesh) on every build.
+     */
+    autoUpdateCheck?: boolean;
+    /** Test seams for the background update-cache fill. */
+    updateCheckImpl?: typeof checkForUpdate;
+    lastUpdateCheckImpl?: typeof getLastUpdateCheck;
+  }
 ): ReturnType<typeof app.listen> {
   const allowRemote = opts?.allowRemote ?? ALLOW_REMOTE_BY_ENV;
   const isRemote = !isLoopbackHost(host);
@@ -1036,6 +1051,29 @@ export function startServer(
   }
 
   logCapabilities();
+  // A running server IS online, so it fills the npm update-check cache
+  // itself instead of asking the user to. The doctor used to WARN "no
+  // cached npm update check yet — run `memesh status` once while online",
+  // and the dashboard nagged it on every tab; the user's verdict on being
+  // told to run a command whose only effect the server can produce itself:
+  // 「脫褲子放屁」. Fire-and-forget: never delays listen, skips when the
+  // cache is already fresh, and stays silent on failure — doctor and
+  // `memesh status` keep reporting the cache state honestly, so a
+  // swallowed error here hides nothing. Strictly opt-in (see the option
+  // doc above) with an env kill-switch for automation that spawns the
+  // real CLI, e.g. the packaged-dashboard e2e smoke.
+  const injectedUpdateSeam = Boolean(opts?.updateCheckImpl || opts?.lastUpdateCheckImpl);
+  const updateCheckWanted = opts?.autoUpdateCheck === true || injectedUpdateSeam;
+  if (updateCheckWanted && !process.env.MEMESH_SKIP_UPDATE_CHECK) {
+    void (async () => {
+      const readLast = opts?.lastUpdateCheckImpl ?? getLastUpdateCheck;
+      const refresh = opts?.updateCheckImpl ?? checkForUpdate;
+      const cached = readLast(packageVersion);
+      if (cached && (cached.freshness === 'fresh' || cached.freshness === 'cached')) return;
+      await refresh(packageVersion);
+    })().catch(() => { /* offline is fine */ });
+  }
+
   const server = app.listen(port, host, () => {
     // F15: Show actual bound address, not the input parameter. When port=0
     // (random port), the input shows "http://127.0.0.1:0" which is confusing.

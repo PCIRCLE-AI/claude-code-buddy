@@ -770,8 +770,11 @@ describe('doctor', () => {
     const wiring = result.checks.find(c => c.id === 'hook-wiring');
     expect(wiring).toBeDefined();
     expect(wiring!.status).toBe('warn');
-    expect(wiring!.summary).toMatch(/install-hooks marker/i);
+    // Plain-language copy (the old text led with "install-hooks marker" —
+    // an internal implementation detail the user cannot act on).
+    expect(wiring!.summary).toMatch(/not connected to Claude Code/i);
     expect(wiring!.fix).toMatch(/memesh install-hooks/);
+    expect(wiring!.code).toBe('hook-wiring.no-marker');
   });
 
   it('hook-wiring: PASS when marker + settings + memesh hook entry all present', async () => {
@@ -894,8 +897,11 @@ describe('doctor', () => {
 
     const activity = result.checks.find(c => c.id === 'hook-activity');
     expect(activity!.status).toBe('warn');
-    expect(activity!.summary).toMatch(/No memesh-attributed entities/i);
+    // Plain-language copy — the old text named entity-type slugs and the
+    // "agentic-loop guard", none of which a user can act on.
+    expect(activity!.summary).toMatch(/has not saved anything automatically in the last 24 hours/i);
     expect(activity!.fix).toMatch(/Claude Code session|commit/);
+    expect(activity!.code).toBe('hook-activity.quiet');
   });
 
   it('hook-activity: PASS via grace period when install-hooks marker is fresh and 0 entities', async () => {

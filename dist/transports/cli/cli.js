@@ -586,7 +586,7 @@ program
     .option('--allow-remote', 'Allow binding to non-loopback hosts. A bearer token is generated and REQUIRED for every /v1 request — the startup output shows where it lives and how to rotate it.')
     .action(async (opts) => {
     const { startServer } = await import('../http/server.js');
-    startServer(opts.host, parseInt(opts.port, 10), { allowRemote: opts.allowRemote });
+    startServer(opts.host, parseInt(opts.port, 10), { allowRemote: opts.allowRemote, autoUpdateCheck: true });
 });
 program
     .command('update')

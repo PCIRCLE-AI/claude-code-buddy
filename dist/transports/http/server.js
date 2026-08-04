@@ -14,7 +14,7 @@ import { computeProjects } from '../../core/projects.js';
 import { computeGraph } from '../../core/graph.js';
 import { verifyAgentWork } from '../../core/verifier.js';
 import { RememberSchema as RememberBody, RecallSchema as RecallBody, ForgetSchema as ForgetBody, ExportSchema as ExportBody, ImportSchema as ImportBody, LearnSchema as LearnBody, VerifyAgentWorkSchema as VerifyBody, } from '../schemas.js';
-import { getUpdateCheck } from '../../core/version-check.js';
+import { checkForUpdate, getLastUpdateCheck, getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
 import { getDbPath, getMemeshDirFromDbPath } from '../../core/paths.js';
 import { RETIRED_ROUTES } from './retired-routes.js';
@@ -694,6 +694,18 @@ export function startServer(host = HOST, port = PORT, opts) {
         throw new Error(`Database initialization failed: ${message}`, { cause: err });
     }
     logCapabilities();
+    const injectedUpdateSeam = Boolean(opts?.updateCheckImpl || opts?.lastUpdateCheckImpl);
+    const updateCheckWanted = opts?.autoUpdateCheck === true || injectedUpdateSeam;
+    if (updateCheckWanted && !process.env.MEMESH_SKIP_UPDATE_CHECK) {
+        void (async () => {
+            const readLast = opts?.lastUpdateCheckImpl ?? getLastUpdateCheck;
+            const refresh = opts?.updateCheckImpl ?? checkForUpdate;
+            const cached = readLast(packageVersion);
+            if (cached && (cached.freshness === 'fresh' || cached.freshness === 'cached'))
+                return;
+            await refresh(packageVersion);
+        })().catch(() => { });
+    }
     const server = app.listen(port, host, () => {
         const addr = server.address();
         if (addr && typeof addr === 'object') {
