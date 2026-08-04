@@ -178,7 +178,7 @@ memesh doctor
 Open the dashboard to explore your memory:
 
 ```bash
-memesh
+memesh serve
 ```
 
 <p align="center">

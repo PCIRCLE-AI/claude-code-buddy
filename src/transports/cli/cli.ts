@@ -718,7 +718,7 @@ program
 // --- serve (start HTTP server) ---
 program
   .command('serve')
-  .description('Start HTTP API server')
+  .description('Start the HTTP API server and web dashboard')
   .option('--port <port>', 'Port number', '3737')
   .option('--host <host>', 'Host to bind', '127.0.0.1')
   .option('--allow-remote', 'Allow binding to non-loopback hosts. A bearer token is generated and REQUIRED for every /v1 request — the startup output shows where it lives and how to rotate it.')
@@ -1592,7 +1592,12 @@ program
     }
   });
 
-// Default action: open the live dashboard when run with no subcommand.
+// Default action: print help when run with no subcommand — the convention
+// of git/npm/docker, and what a first-time user typing `memesh` to see
+// "what can this do" actually needs. It used to start the dashboard server
+// on a RANDOM port and hang the terminal: the P7 audit's worst first-run
+// moment (no explanation, no way out but Ctrl+C, different URL every time).
+// Dashboard is `memesh serve`, which prints its URL.
 // DX: detect the unknown-subcommand case (`memesh nonexistent-cmd`) by
 // inspecting program.args inside the root action and producing a clear
 // error. We can't use Commander's `.argument()` here without leaking
@@ -1606,40 +1611,8 @@ program.action(async () => {
     console.error(`       Run 'memesh --help' to see available commands.`);
     process.exit(1);
   }
-  const { startServer } = await import('../http/server.js');
-  const server = startServer('127.0.0.1', 0); // 0 = random available port
-
-  // Wait for the server to be listening before reading the port
-  await new Promise<void>((resolve, reject) => {
-    server.once('listening', resolve);
-    server.once('error', reject);
-  });
-
-  const addr = server.address() as { address: string; port: number } | null;
-  if (!addr) {
-    console.error('Failed to start dashboard server');
-    process.exit(1);
-  }
-
-  const url = `http://127.0.0.1:${addr.port}/dashboard`;
-  console.log(`MeMesh dashboard: ${url}`);
-  console.log('Press Ctrl+C to stop.');
-
-  const { execFile } = await import('child_process');
-  if (process.platform === 'darwin') {
-    execFile('open', [url]);
-  } else if (process.platform === 'win32') {
-    execFile('cmd.exe', ['/c', 'start', '', url]);
-  } else {
-    execFile('xdg-open', [url]);
-  }
-
-  // closeDatabase was imported at the top of this file
-  process.on('SIGINT', () => {
-    server.close();
-    try { closeDatabase(); } catch { /* ignore if not open */ }
-    process.exit(0);
-  });
+  program.outputHelp();
+  process.exit(0);
 });
 
 program.parse();

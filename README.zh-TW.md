@@ -176,7 +176,7 @@ memesh doctor
 開啟儀表板來探索你的記憶：
 
 ```bash
-memesh
+memesh serve
 ```
 
 <p align="center">

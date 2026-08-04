@@ -176,7 +176,7 @@ memesh doctor
 打开仪表板浏览你的内存：
 
 ```bash
-memesh
+memesh serve
 ```
 
 <p align="center">

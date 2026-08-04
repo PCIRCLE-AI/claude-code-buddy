@@ -4,6 +4,17 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Bare `memesh` prints help instead of starting a server.** Running the
+  command with no subcommand used to start the dashboard on a *random* port
+  and hang the terminal — the audit's worst first-run moment: a new user
+  typing `memesh` to see what the tool does got a stuck prompt, no
+  explanation, and a different URL every time. It now does what `git`,
+  `npm` and `docker` do: prints the command list and exits. The dashboard
+  is `memesh serve` (which prints its URL); every README's quick-start now
+  says so.
+
 ### Fixed
 
 - **Recall stops presenting geometry's best guess as a match**

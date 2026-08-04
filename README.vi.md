@@ -149,7 +149,7 @@ memesh doctor
 Mở dashboard để khám phá bộ nhớ của bạn:
 
 ```bash
-memesh
+memesh serve
 ```
 
 <p align="center">

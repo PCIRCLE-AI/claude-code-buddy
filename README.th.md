@@ -164,7 +164,7 @@ memesh doctor
 เปิดแดชบอร์ดเพื่อสำรวจหน่วยความจำ:
 
 ```bash
-memesh
+memesh serve
 ```
 
 <p align="center">

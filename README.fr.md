@@ -149,7 +149,7 @@ memesh doctor
 Ouvrez le tableau de bord pour explorer votre mémoire :
 
 ```bash
-memesh
+memesh serve
 ```
 
 <p align="center">

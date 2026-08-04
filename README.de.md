@@ -149,7 +149,7 @@ memesh doctor
 Dashboard öffnen, um den Speicher zu erkunden:
 
 ```bash
-memesh
+memesh serve
 ```
 
 <p align="center">

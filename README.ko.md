@@ -176,7 +176,7 @@ memesh doctor
 대시보드를 열어서 메모리를 탐색합니다:
 
 ```bash
-memesh
+memesh serve
 ```
 
 <p align="center">

@@ -580,7 +580,7 @@ program
 });
 program
     .command('serve')
-    .description('Start HTTP API server')
+    .description('Start the HTTP API server and web dashboard')
     .option('--port <port>', 'Port number', '3737')
     .option('--host <host>', 'Host to bind', '127.0.0.1')
     .option('--allow-remote', 'Allow binding to non-loopback hosts. A bearer token is generated and REQUIRED for every /v1 request — the startup output shows where it lives and how to rotate it.')
@@ -1324,38 +1324,8 @@ program.action(async () => {
         console.error(`       Run 'memesh --help' to see available commands.`);
         process.exit(1);
     }
-    const { startServer } = await import('../http/server.js');
-    const server = startServer('127.0.0.1', 0);
-    await new Promise((resolve, reject) => {
-        server.once('listening', resolve);
-        server.once('error', reject);
-    });
-    const addr = server.address();
-    if (!addr) {
-        console.error('Failed to start dashboard server');
-        process.exit(1);
-    }
-    const url = `http://127.0.0.1:${addr.port}/dashboard`;
-    console.log(`MeMesh dashboard: ${url}`);
-    console.log('Press Ctrl+C to stop.');
-    const { execFile } = await import('child_process');
-    if (process.platform === 'darwin') {
-        execFile('open', [url]);
-    }
-    else if (process.platform === 'win32') {
-        execFile('cmd.exe', ['/c', 'start', '', url]);
-    }
-    else {
-        execFile('xdg-open', [url]);
-    }
-    process.on('SIGINT', () => {
-        server.close();
-        try {
-            closeDatabase();
-        }
-        catch { }
-        process.exit(0);
-    });
+    program.outputHelp();
+    process.exit(0);
 });
 program.parse();
 //# sourceMappingURL=cli.js.map

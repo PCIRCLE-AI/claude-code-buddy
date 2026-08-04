@@ -176,7 +176,7 @@ memesh doctor
 ダッシュボードを開いてメモリを探索します:
 
 ```bash
-memesh
+memesh serve
 ```
 
 <p align="center">
