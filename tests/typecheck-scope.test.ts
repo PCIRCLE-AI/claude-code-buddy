@@ -60,16 +60,42 @@ function walk(dir: string): string[] {
  */
 const TSC = path.join(repoRoot, 'node_modules', 'typescript', 'bin', 'tsc');
 
+/**
+ * Split tsc's `--listFilesOnly` output into normalised absolute paths.
+ *
+ * Its own function so the line-ending handling can be tested on a machine that
+ * does not produce the problem. `\r?\n`, not `\n`: tsc terminates its lines with
+ * CRLF on Windows, and splitting on `\n` alone leaves a trailing `\r` glued to
+ * every path. That does not make the set empty — so a size check still looked
+ * healthy while not one entry compared equal, and CI went red on
+ * windows-latest with all 103 files reported missing at once.
+ */
+function parseListFiles(out: string): string[] {
+  return out.split(/\r?\n/).map(s => s.trim()).filter(Boolean).map(norm);
+}
+
 function filesSeenBy(project: string): string[] {
-  const out = execFileSync(process.execPath, [TSC, '-p', project, '--listFilesOnly'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    maxBuffer: 32 * 1024 * 1024,
-  });
-  return out.split('\n').filter(Boolean).map(norm);
+  return parseListFiles(
+    execFileSync(process.execPath, [TSC, '-p', project, '--listFilesOnly'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      maxBuffer: 32 * 1024 * 1024,
+    })
+  );
 }
 
 describe('typecheck scope', () => {
+  it('reads the compiler output the same way on CRLF and LF', () => {
+    // The Windows failure this pins had no local symptom: macOS and Linux tsc
+    // emit LF, so the bug was invisible until a runner produced CRLF. Feeding
+    // both endings to the parser directly reproduces it anywhere.
+    const paths = ['/a/one.ts', '/a/two.tsx', '/a/three.ts'];
+    const lf = parseListFiles(paths.join('\n') + '\n');
+    const crlf = parseListFiles(paths.join('\r\n') + '\r\n');
+    expect(lf).toEqual(paths.map(norm));
+    expect(crlf).toEqual(lf);
+  });
+
   it('every test file vitest collects is inside a type-check project', () => {
     const collected = walk(path.join(repoRoot, 'tests')).map(norm);
     // Without this the comparison below is "no file was missing from a set of
@@ -77,8 +103,13 @@ describe('typecheck scope', () => {
     expect(collected.length).toBeGreaterThan(50);
     expect(collected.some(f => f.endsWith('.test.tsx'))).toBe(true);
 
-    const seen = new Set(PROJECTS.flatMap(filesSeenBy));
+    const seen = new Set(PROJECTS.flatMap(p => filesSeenBy(p)));
     expect(seen.size).toBeGreaterThan(100);
+    // A size check does not prove the entries are comparable — a line-ending
+    // difference kept every path distinct-but-unequal and `seen.size` stayed
+    // large. This file is inside one of the two projects by construction, so if
+    // it is not in the set the parsing is wrong, not the configuration.
+    expect(seen.has(norm(fileURLToPath(import.meta.url)))).toBe(true);
 
     expect(collected.filter(f => !seen.has(f))).toEqual([]);
   }, 60_000);
