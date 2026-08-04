@@ -142,6 +142,9 @@ async function main() {
   const commonEnv = {
     ...process.env,
     MEMESH_DB_PATH: dbPath,
+    // This spawns the REAL CLI serve, which opts into the background npm
+    // update-check. CI must not depend on the npm registry here.
+    MEMESH_SKIP_UPDATE_CHECK: '1',
   };
 
   // Use a knowledge-cluster type (lesson_learned) instead of 'note'.

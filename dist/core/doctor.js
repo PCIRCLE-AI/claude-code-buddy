@@ -172,7 +172,7 @@ function inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncI
     const hookTypes = Object.keys(parsed.value.hooks ?? {});
     const missingTypes = EXPECTED_HOOK_TYPES.filter((type) => !hookTypes.includes(type));
     const configCheck = missingTypes.length > 0
-        ? createCheck('hooks-config', 'Hooks config', 'fail', `hooks/hooks.json is missing expected hook types: ${missingTypes.join(', ')}.`, 'Restore the shipped hook configuration or reinstall MeMesh.')
+        ? createCheck('hooks-config', 'Hooks config', 'fail', `hooks/hooks.json is missing expected hook types: ${missingTypes.join(', ')}.`, 'Restore the shipped hook configuration or reinstall MeMesh.', { code: 'hooks-config.missing-types', params: { types: missingTypes.join(', ') } })
         : createCheck('hooks-config', 'Hooks config', 'pass', `hooks/hooks.json is present with ${hookTypes.length} hook types configured.`);
     const scriptPaths = extractHookScriptPaths(parsed.value, packageRoot);
     if (scriptPaths.length === 0) {

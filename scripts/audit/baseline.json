@@ -143,7 +143,7 @@
     },
     "C5 src/core/doctor.ts:1333": {
       "class": "SAFE-GUARDED",
-      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
+      "reason": "verifySkillsManifest: entries ?? [] is followed by entries.length === 0 -> fail (skills-manifest.empty); the ?? cannot convert absence into a pass",
       "triaged": "2026-08-04"
     },
     "C5 src/core/dreamer.ts:668": {

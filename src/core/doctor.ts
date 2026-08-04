@@ -443,6 +443,7 @@ function inspectHooksConfig(
       'fail',
       `hooks/hooks.json is missing expected hook types: ${missingTypes.join(', ')}.`,
       'Restore the shipped hook configuration or reinstall MeMesh.',
+      { code: 'hooks-config.missing-types', params: { types: missingTypes.join(', ') } },
     )
     : createCheck(
       'hooks-config',

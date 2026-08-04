@@ -3,6 +3,7 @@ import { checkForUpdate, getLastUpdateCheck } from '../../core/version-check.js'
 declare const app: import("express-serve-static-core").Express;
 export declare function startServer(host?: string, port?: number, opts?: {
     allowRemote?: boolean;
+    autoUpdateCheck?: boolean;
     updateCheckImpl?: typeof checkForUpdate;
     lastUpdateCheckImpl?: typeof getLastUpdateCheck;
 }): ReturnType<typeof app.listen>;

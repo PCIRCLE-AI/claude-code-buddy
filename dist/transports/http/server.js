@@ -695,8 +695,8 @@ export function startServer(host = HOST, port = PORT, opts) {
     }
     logCapabilities();
     const injectedUpdateSeam = Boolean(opts?.updateCheckImpl || opts?.lastUpdateCheckImpl);
-    const underTest = Boolean(process.env.VITEST || process.env.NODE_ENV === 'test');
-    if (injectedUpdateSeam || !underTest) {
+    const updateCheckWanted = opts?.autoUpdateCheck === true || injectedUpdateSeam;
+    if (updateCheckWanted && !process.env.MEMESH_SKIP_UPDATE_CHECK) {
         void (async () => {
             const readLast = opts?.lastUpdateCheckImpl ?? getLastUpdateCheck;
             const refresh = opts?.updateCheckImpl ?? checkForUpdate;

@@ -333,6 +333,31 @@ for (const doc of livingDocs) {
 if (dangling.length) fail(`documents point at paths that do not exist:\n      ${dangling.join('\n      ')}`);
 else ok(`${livingDocs.length} living documents, no dangling repo paths`);
 
+// --- disproven claims must stay dead in user-facing surfaces -----------------
+// Release 4.2.11 proved the published "95.40% R@5" measured the benchmark's
+// own reimplementation, not the product, and removed it from the docs — yet
+// it survived in dashboard i18n copy for another two releases, in FIVE
+// locales, because European locales write it "95,40" and no gate scanned
+// UI strings. User-facing surfaces (dashboard catalogue + every README)
+// may not state it as a current claim in any decimal convention.
+// Historical explanations in docs/ARCHITECTURE.md, docs/plans/ and source
+// comments are exempt: they describe the figure as disproven.
+const BANNED_CLAIMS = [/95[.,]\s?40\s?%?\s?R@5/i, /95[.,]40/];
+const userFacing = [
+  'dashboard/src/lib/i18n.ts',
+  ...[...tracked].filter(f => /^README(\.[a-zA-Z-]+)?\.md$/.test(f)),
+].filter(isTracked);
+const banned = [];
+for (const f of userFacing) {
+  const text = read(f);
+  for (const re of BANNED_CLAIMS) {
+    const m = text.match(re);
+    if (m) { banned.push(`${f} → "${m[0]}"`); break; }
+  }
+}
+if (banned.length) fail(`disproven benchmark claim resurfaced in user-facing copy:\n      ${banned.join('\n      ')}`);
+else ok(`${userFacing.length} user-facing surfaces free of the disproven 95.40% claim`);
+
 // --- report ------------------------------------------------------------------
 console.log('Doc claims audit:');
 for (const n of notes) console.log('  ' + n);

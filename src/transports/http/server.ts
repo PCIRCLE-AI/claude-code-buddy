@@ -969,7 +969,17 @@ export function startServer(
   port = PORT,
   opts?: {
     allowRemote?: boolean;
-    /** Test seam for the background update-cache fill. */
+    /**
+     * Opt-IN to the background update-cache fill. Only the CLI `serve`
+     * command sets this — a user-launched, long-lived, online server.
+     * Inference from VITEST/NODE_ENV was tried first and was wrong twice
+     * over: `npm run build`'s smoke test and the packaged-dashboard e2e
+     * both start real servers outside any test runner, and were making
+     * live npm-registry calls (the local one writing into the
+     * developer's real ~/.memesh) on every build.
+     */
+    autoUpdateCheck?: boolean;
+    /** Test seams for the background update-cache fill. */
     updateCheckImpl?: typeof checkForUpdate;
     lastUpdateCheckImpl?: typeof getLastUpdateCheck;
   }
@@ -1049,13 +1059,12 @@ export function startServer(
   // 「脫褲子放屁」. Fire-and-forget: never delays listen, skips when the
   // cache is already fresh, and stays silent on failure — doctor and
   // `memesh status` keep reporting the cache state honestly, so a
-  // swallowed error here hides nothing. Suppressed under test runners
-  // (VITEST/NODE_ENV=test spread into spawned servers too) so dozens of
-  // test-started servers never hit the npm registry — unless a test
-  // explicitly injects an impl to exercise this very path.
+  // swallowed error here hides nothing. Strictly opt-in (see the option
+  // doc above) with an env kill-switch for automation that spawns the
+  // real CLI, e.g. the packaged-dashboard e2e smoke.
   const injectedUpdateSeam = Boolean(opts?.updateCheckImpl || opts?.lastUpdateCheckImpl);
-  const underTest = Boolean(process.env.VITEST || process.env.NODE_ENV === 'test');
-  if (injectedUpdateSeam || !underTest) {
+  const updateCheckWanted = opts?.autoUpdateCheck === true || injectedUpdateSeam;
+  if (updateCheckWanted && !process.env.MEMESH_SKIP_UPDATE_CHECK) {
     void (async () => {
       const readLast = opts?.lastUpdateCheckImpl ?? getLastUpdateCheck;
       const refresh = opts?.updateCheckImpl ?? checkForUpdate;

@@ -383,8 +383,8 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         <div class="card-title">{t('settings.llmProvider')}</div>
         {/*
           #31 — explain LLM is OPTIONAL up-front. memesh's wedge is
-          "95.40% R@5 with FTS5 alone, no LLM required". README already
-          says this; the Settings UI shouldn't make users feel they
+          "strong recall with FTS5 alone, no LLM required". The Settings
+          UI shouldn't make users feel they
           "must" pick a provider just because it's the most prominent
           card on this tab. Spell out exactly what stays available
           without an LLM, and what an LLM unlocks.
