@@ -276,12 +276,12 @@
       "reason": "comment line or Array.isArray-coerced optional extras",
       "triaged": "2026-08-04"
     },
-    "C5 dashboard/src/components/BrowseTab.tsx:162": {
+    "C5 dashboard/src/components/BrowseTab.tsx:168": {
       "class": "SAFE-DISPLAY",
       "reason": "client-side search haystack only",
       "triaged": "2026-08-04"
     },
-    "C5 dashboard/src/components/GraphTab.tsx:180": {
+    "C5 dashboard/src/components/GraphTab.tsx:208": {
       "class": "SAFE-GUARDED",
       "reason": "computeGraph always returns noiseTypes; same-origin fetch",
       "triaged": "2026-08-04"
@@ -291,27 +291,27 @@
       "reason": "zero pending proposals legitimately hides the banner",
       "triaged": "2026-08-04"
     },
-    "C5 dashboard/src/components/LessonsTab.tsx:72": {
+    "C5 dashboard/src/components/LessonsTab.tsx:74": {
       "class": "SAFE-DISPLAY",
       "reason": "display fallbacks; empty renders an explicit notice",
       "triaged": "2026-08-04"
     },
-    "C5 dashboard/src/components/LessonsTab.tsx:93": {
+    "C5 dashboard/src/components/LessonsTab.tsx:95": {
       "class": "SAFE-DISPLAY",
       "reason": "display fallbacks; empty renders an explicit notice",
       "triaged": "2026-08-04"
     },
-    "C5 dashboard/src/components/LessonsTab.tsx:103": {
+    "C5 dashboard/src/components/LessonsTab.tsx:105": {
       "class": "SAFE-DISPLAY",
       "reason": "display fallbacks; empty renders an explicit notice",
       "triaged": "2026-08-04"
     },
-    "C5 dashboard/src/components/LessonsTab.tsx:215": {
+    "C5 dashboard/src/components/LessonsTab.tsx:217": {
       "class": "SAFE-DISPLAY",
       "reason": "display fallbacks; empty renders an explicit notice",
       "triaged": "2026-08-04"
     },
-    "C5 dashboard/src/components/LessonsTab.tsx:289": {
+    "C5 dashboard/src/components/LessonsTab.tsx:297": {
       "class": "SAFE-DISPLAY",
       "reason": "display fallbacks; empty renders an explicit notice",
       "triaged": "2026-08-04"
