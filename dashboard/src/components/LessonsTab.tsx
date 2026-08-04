@@ -185,7 +185,7 @@ function PlanCard({ entity }: { entity: Entity }) {
             <GlyphLabel type="plan">{plan.planName}</GlyphLabel>
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
-            {plan.stepCount} {t('lessons.stepsLabel')} · {t('lessons.commitsCount', { count: plan.commits.length })}
+            <span style={{ fontFamily: 'var(--mono)' }}>{plan.stepCount}</span> {t('lessons.stepsLabel')} · {t('lessons.commitsCount', { count: plan.commits.length })}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>

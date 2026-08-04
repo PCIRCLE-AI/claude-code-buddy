@@ -277,9 +277,9 @@ export function InsightsTab() {
           <span style={{ color: 'var(--text-2)', fontSize: 13 }}>{t('insights.subtitle')}</span>
         </div>
         <div style={{ marginTop: 10, display: 'flex', gap: 16, flexWrap: 'wrap', color: 'var(--text-2)', fontSize: 13 }}>
-          <span><strong style={{ color: 'var(--accent)' }}>{pendingCount}</strong> {t('insights.statPending')}</span>
-          <span><strong>{appliedCount}</strong> {t('insights.statApplied')}</span>
-          <span><strong>{rejectedCount}</strong> {t('insights.statRejected')}</span>
+          <span><strong style={{ color: 'var(--accent)', fontFamily: 'var(--mono)' }}>{pendingCount}</strong> {t('insights.statPending')}</span>
+          <span><strong style={{ fontFamily: 'var(--mono)' }}>{appliedCount}</strong> {t('insights.statApplied')}</span>
+          <span><strong style={{ fontFamily: 'var(--mono)' }}>{rejectedCount}</strong> {t('insights.statRejected')}</span>
         </div>
         {/* On-demand dream run — closes the v4.2.0 known limitation that
             forced users to drop into a CLI for `memesh dream run --validate`.
@@ -384,7 +384,7 @@ export function InsightsTab() {
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
               <div style={{ flex: '1 1 60%', minWidth: 240 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span class="badge badge-type" style={{ textTransform: 'none' }}>#{p.id}</span>
+                  <span class="badge badge-type" style={{ textTransform: 'none', fontFamily: 'var(--mono)' }}>#{p.id}</span>
                   <span style={{ fontWeight: 600 }}>{p.digest_name}</span>
                   <span class="tag" style={{ fontSize: 11 }}>{p.project}</span>
                   <span class="tag" style={{ fontSize: 11 }}>{p.cluster_key}</span>
