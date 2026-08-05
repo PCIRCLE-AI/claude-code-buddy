@@ -106,6 +106,11 @@
       "reason": "lint:fix is a developer convenience whose caller is a human",
       "triaged": "2026-08-04"
     },
+    "C3 scripts/calibrate-transcript-dedup.mjs": {
+      "class": "NOT-A-GATE",
+      "reason": "manual calibration harness a human runs once to derive TRANSCRIPT_DEDUP_MAX_DISTANCE (its output is cited in the constant's comment); it measures and prints, it is not an automated gate with a CI caller",
+      "triaged": "2026-08-05"
+    },
     "C4 .github/workflows/ci.yml:268": {
       "class": "SAFE",
       "reason": "secondary greps run after the exit-code gate has already read DOCTOR_EXIT",
@@ -146,15 +151,15 @@
       "reason": "verifySkillsManifest: entries ?? [] is followed by entries.length === 0 -> fail (skills-manifest.empty); the ?? cannot convert absence into a pass",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/dreamer.ts:669": {
+    "C5 src/core/dreamer.ts:670": {
       "class": "SAFE-GUARDED",
-      "reason": "upstream filter requires non-empty arrays before these run",
-      "triaged": "2026-08-04"
+      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
+      "triaged": "2026-08-05"
     },
-    "C5 src/core/dreamer.ts:672": {
+    "C5 src/core/dreamer.ts:673": {
       "class": "SAFE-GUARDED",
-      "reason": "upstream filter requires non-empty arrays before these run",
-      "triaged": "2026-08-04"
+      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
+      "triaged": "2026-08-05"
     },
     "C5 src/core/extractor.ts:118": {
       "class": "SAFE-GUARDED",

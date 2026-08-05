@@ -1122,7 +1122,16 @@ dreamCmd
         console.log(`  LLM calls:           ${result.llmCalls}`);
         console.log(`  candidates extracted: ${result.candidatesExtracted}`);
         console.log(`  proposals created:   ${result.proposalsCreated}`);
-        if (result.duplicatesSkipped > 0) console.log(`  duplicates skipped:  ${result.duplicatesSkipped}`);
+        if (result.duplicatesSkipped > 0) console.log(`  duplicates skipped:  ${result.duplicatesSkipped} (already a pending proposal)`);
+        // B3: near-duplicates of an EXISTING entity are never a silent drop —
+        // name each candidate and the memory it matched so the reviewer can
+        // audit the decision (and re-remember it manually if the match was wrong).
+        if (result.nearDuplicatesSkipped > 0) {
+          console.log(`  near-duplicates skipped: ${result.nearDuplicatesSkipped} candidate(s) skipped as near-duplicates of existing memories`);
+          for (const d of result.nearDuplicates) {
+            console.log(`    - "${d.candidateName}" ~= existing "${d.matchedEntityName}" (distance ${d.distance.toFixed(3)})`);
+          }
+        }
         if (result.secretsDropped > 0) console.log(`  secret-bearing candidates dropped: ${result.secretsDropped}`);
         if (result.llmFailures > 0) console.log(`  LLM call failures:   ${result.llmFailures} (sessions not mined — retry when the provider is reachable)`);
         // Never let a size-cap truncation be a silent 0: name each session that
@@ -1330,6 +1339,12 @@ dreamCmd
         console.error('See pending ids with: memesh dream list');
         process.exit(1);
       }
+      // A transcript accept schedules a fire-and-forget embed for the new entity
+      // (so the next transcript run's vector dedup can see it). withDatabase
+      // closes the DB in its finally, so flush BEFORE it does or the write lands
+      // on a closing DB and the dedup gap stays open in the real path. remember
+      // flushes for the same reason (see the remember command).
+      await flushPendingEmbeddings();
       console.log(`Applied proposal #${result.proposalId}`);
       console.log(`  digest entity: ${result.digestEntityName}`);
       console.log(`  sources archived: ${result.sourcesArchived}`);

@@ -28,6 +28,22 @@ export interface ExtractResult {
     truncatedTurns: number;
 }
 export declare function extractMemoriesFromTranscript(transcriptPath: string, llm: LLMConfig, opts?: ExtractOptions): Promise<ExtractResult>;
+export declare const TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.55;
+export declare function entityEmbedText(name: string, observations: string[]): string;
+export interface DuplicateHit {
+    candidateName: string;
+    matchedEntityName: string;
+    distance: number;
+}
+export interface DedupDeps {
+    embed?: (text: string) => Promise<Float32Array | null>;
+    vectorSearch?: (emb: Float32Array, limit: number) => Array<{
+        id: number;
+        distance: number;
+    }>;
+    threshold?: number;
+}
+export declare function findDuplicateEntity(db: Database.Database, candidate: ExtractedMemory, projectLabel: string, deps?: DedupDeps): Promise<DuplicateHit | null>;
 export interface StageResult {
     created: number;
     skippedDuplicate: number;
@@ -44,12 +60,15 @@ export interface TranscriptSourceOptions {
     fallbacks?: LLMConfig[];
     onAttempt?: (attempts: LLMAttempt[]) => void;
     chunkCharBudget?: number;
+    dedup?: DedupDeps;
 }
 export interface TranscriptSourceResult {
     sessionsScanned: number;
     candidatesExtracted: number;
     proposalsCreated: number;
     duplicatesSkipped: number;
+    nearDuplicatesSkipped: number;
+    nearDuplicates: DuplicateHit[];
     secretsDropped: number;
     llmFailures: number;
     llmCalls: number;

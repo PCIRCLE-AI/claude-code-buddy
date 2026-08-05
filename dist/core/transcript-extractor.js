@@ -6,6 +6,8 @@ import { outputLanguageInstruction } from './output-language.js';
 import { getProjectName } from './paths.js';
 import { extractJsonBlock } from './json-utils.js';
 import { scanTranscripts } from './transcript-source.js';
+import { embedText, vectorSearch, isEmbeddingAvailable } from './embedder.js';
+import { KnowledgeGraph } from '../knowledge-graph.js';
 export const TRANSCRIPT_PROMPT_VERSION = 'transcript-v1';
 export const ORDERING_INSTRUCTION = 'The conversation below is in CHRONOLOGICAL order. Later statements override earlier ones: ' +
     'if a decision was reversed, keep ONLY the final state; if an approach was tried and abandoned, ' +
@@ -250,6 +252,51 @@ export async function extractMemoriesFromTranscript(transcriptPath, llm, opts = 
     }
     return result;
 }
+export const TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.55;
+export function entityEmbedText(name, observations) {
+    return `${name} ${observations.join(' ')}`;
+}
+export async function findDuplicateEntity(db, candidate, projectLabel, deps = {}) {
+    const embed = deps.embed ?? embedText;
+    const search = deps.vectorSearch ?? vectorSearch;
+    const threshold = deps.threshold ?? TRANSCRIPT_DEDUP_MAX_DISTANCE;
+    let emb;
+    try {
+        emb = await embed(entityEmbedText(candidate.name, candidate.observations));
+    }
+    catch {
+        return null;
+    }
+    if (!emb)
+        return null;
+    let hits;
+    try {
+        hits = search(emb, 20);
+    }
+    catch {
+        return null;
+    }
+    if (hits.length === 0)
+        return null;
+    const kg = new KnowledgeGraph(db);
+    const scoped = kg.getEntitiesByIds(hits.map((h) => h.id), {
+        includeArchived: false,
+        tag: `project:${projectLabel}`,
+    });
+    if (scoped.length === 0)
+        return null;
+    const scopedById = new Map(scoped.map((e) => [e.id, e]));
+    for (const hit of hits) {
+        const ent = scopedById.get(hit.id);
+        if (!ent)
+            continue;
+        if (hit.distance <= threshold) {
+            return { candidateName: candidate.name, matchedEntityName: ent.name, distance: hit.distance };
+        }
+        return null;
+    }
+    return null;
+}
 function transcriptProposalExists(db, clusterKey, name) {
     const rows = db.prepare("SELECT proposed_digest FROM dream_proposals WHERE cluster_key = ? AND source_kind = 'transcript' AND status = 'pending'").all(clusterKey);
     for (const row of rows) {
@@ -286,6 +333,8 @@ export async function runTranscriptSource(db, llm, opts = {}) {
         candidatesExtracted: 0,
         proposalsCreated: 0,
         duplicatesSkipped: 0,
+        nearDuplicatesSkipped: 0,
+        nearDuplicates: [],
         secretsDropped: 0,
         llmFailures: 0,
         llmCalls: 0,
@@ -331,7 +380,23 @@ export async function runTranscriptSource(db, llm, opts = {}) {
             result.skipped.push({ reason, sessionId: session.sessionId });
             continue;
         }
-        const staged = stageTranscriptProposals(db, session, extract.memories, llm, projectLabel);
+        let toStage = extract.memories;
+        if (isEmbeddingAvailable()) {
+            const kept = [];
+            for (const m of extract.memories) {
+                const dup = await findDuplicateEntity(db, m, projectLabel, opts.dedup);
+                if (dup) {
+                    result.nearDuplicatesSkipped++;
+                    result.nearDuplicates.push(dup);
+                    continue;
+                }
+                kept.push(m);
+            }
+            toStage = kept;
+        }
+        if (toStage.length === 0)
+            continue;
+        const staged = stageTranscriptProposals(db, session, toStage, llm, projectLabel);
         result.proposalsCreated += staged.created;
         result.duplicatesSkipped += staged.skippedDuplicate;
     }

@@ -72,6 +72,8 @@ import { getProjectName } from './paths.js';
 import { extractJsonBlock } from './json-utils.js';
 import type { ExtractedMemory } from './extractor.js';
 import { scanTranscripts } from './transcript-source.js';
+import { embedText, vectorSearch, isEmbeddingAvailable } from './embedder.js';
+import { KnowledgeGraph } from '../knowledge-graph.js';
 
 // Distinct from dreamer.ts's PROMPT_VERSION ('v1'): two different prompts must
 // not share a version stamp, or the stamp is useless for the regression
@@ -491,6 +493,156 @@ export async function extractMemoriesFromTranscript(
 }
 
 // -----------------------------------------------------------------------------
+// Vector dedup against ALREADY-ACCEPTED / manually-remembered entities (B3).
+//
+// B2 dedups a candidate only against PENDING transcript proposals, so re-running
+// after a `dream accept` re-proposes the same memory (the disclosed gap). B3
+// closes it: before staging, embed the candidate and query the SAME vector index
+// recall uses (entities_vec via embedder.vectorSearch), and if the candidate is
+// close enough to an existing entity, skip it (and REPORT the skip — a silent
+// drop is the absence-is-not-evidence trap). Skip, not update/link: skip is the
+// safe, simple B3 choice; staging it as an update/link to the matched entity is
+// future work (B4).
+//
+// This also catches genuine overlap with a manually-remembered entity, not only
+// re-runs — anything embedded in this project's slice of entities_vec.
+// -----------------------------------------------------------------------------
+
+/**
+ * Cut-off in the units `entities_vec` returns — L2 over unit vectors, range
+ * 0…2 (see embedder.ts MAX_VECTOR_DISTANCE for why L2). A candidate whose
+ * nearest same-project entity is within this distance is treated as a
+ * near-duplicate and NOT staged.
+ *
+ * This is a DIFFERENT question from recall's MAX_VECTOR_DISTANCE (1.30 = "is
+ * this related enough to surface"). Dedup asks "is this the SAME memory", which
+ * is a much tighter bar, so it gets its own, tighter number.
+ *
+ * MEASURED, not guessed (scripts/calibrate-transcript-dedup.mjs, MiniLM-L6, the
+ * default embedder; L2 over the exact runtime text `${name} ${obs.join(' ')}`):
+ *
+ *   DUPLICATE pairs (same memory, reworded)   n=10  min 0.401  p50 0.500  p75 0.604  max 0.669
+ *   DISTINCT pairs  (SAME domain, diff fact)  n=10  min 0.668  p50 0.827  p75 0.858  max 0.987
+ *
+ * The two classes essentially TOUCH at the boundary (a loose paraphrase at 0.669
+ * sits right on the hardest distinct pair at 0.668) — there is NO clean gap.
+ * That is deliberate: the distinct pairs are HARD negatives (same topic,
+ * different fact), and their floor (0.668) is the false-positive cliff.
+ *
+ * 0.55 is chosen CONSERVATIVELY, below that floor with a 0.118 margin, because a
+ * false positive (silently dropping a genuinely new memory) is invisible data
+ * loss and strictly worse than a false negative (re-proposing a duplicate, which
+ * a human rejects in one keystroke). At 0.55 the fixture catches 6/10 duplicate
+ * rewordings and 0/10 distinct pairs. The stated gap — re-running the SAME
+ * session — produces IDENTICAL candidate text, distance ~0, caught at any
+ * threshold > 0; everything above ~0 only buys paraphrase-catching, which is
+ * exactly where the false-positive risk lives, so we stay tight.
+ *
+ * CAVEAT (surface to a human before trusting this for paraphrase dedup): the
+ * fixture is synthetic and the classes overlap at the boundary, so this number
+ * reliably catches only near-identical / clear duplicates (and all exact
+ * re-runs). Re-derive it on a REAL knowledge graph before leaning on it for
+ * paraphrase-level dedup. Re-derive it too if the embedding model changes — the
+ * number belongs to MiniLM-L6, not to the algorithm.
+ */
+export const TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.55;
+
+/**
+ * The exact text an entity vector is built from. remember() (operations.ts) and
+ * the transcript-accept path (applyTranscriptProposal) both embed
+ * `${name} ${observations.join(' ')}`, so a candidate must be embedded the same
+ * way or the measured threshold describes a quantity the runtime never computes.
+ * (reindex embeds observations-only — a pre-existing inconsistency in
+ * operations.ts, out of scope here; entities embedded ONLY via reindex may not
+ * dedup cleanly until that is unified.)
+ */
+export function entityEmbedText(name: string, observations: string[]): string {
+  return `${name} ${observations.join(' ')}`;
+}
+
+/** A candidate that was skipped because it near-duplicates an existing entity —
+ * reported (never a silent drop) so a reviewer can audit WHICH memory the dedup
+ * decided they already have. */
+export interface DuplicateHit {
+  candidateName: string;
+  matchedEntityName: string;
+  distance: number;
+}
+
+/** Injection seams so tests can drive dedup deterministically without the real
+ * ONNX model. Defaults are the real recall path. */
+export interface DedupDeps {
+  embed?: (text: string) => Promise<Float32Array | null>;
+  vectorSearch?: (emb: Float32Array, limit: number) => Array<{ id: number; distance: number }>;
+  threshold?: number;
+}
+
+/**
+ * Is this candidate a near-duplicate of an existing entity in THIS project's
+ * slice of the vector index? Returns the matched hit, or null to stage.
+ *
+ * Scoping is load-bearing: entities_vec is ONE table for the whole database
+ * (CLAUDE.md), so a raw vector hit can belong to another project. We hydrate the
+ * hit ids through the recall path (getEntitiesByIds with this project's tag and
+ * archived rows excluded) and only accept a hit that survives — without it, a
+ * candidate mined from project A would be silently dropped as a "duplicate" of a
+ * project-B entity, invisible cross-project data loss undoing B1's per-project
+ * scoping.
+ *
+ * FAIL-OPEN: any embed/search error returns null (stage the candidate). The
+ * worse error is dropping a real memory, so an outage must never look like "you
+ * already have this".
+ */
+export async function findDuplicateEntity(
+  db: Database.Database,
+  candidate: ExtractedMemory,
+  projectLabel: string,
+  deps: DedupDeps = {},
+): Promise<DuplicateHit | null> {
+  const embed = deps.embed ?? embedText;
+  const search = deps.vectorSearch ?? vectorSearch;
+  const threshold = deps.threshold ?? TRANSCRIPT_DEDUP_MAX_DISTANCE;
+
+  let emb: Float32Array | null;
+  try {
+    emb = await embed(entityEmbedText(candidate.name, candidate.observations));
+  } catch {
+    return null; // embed outage → stage, do not drop
+  }
+  if (!emb) return null;
+
+  let hits: Array<{ id: number; distance: number }>;
+  try {
+    hits = search(emb, 20);
+  } catch {
+    return null;
+  }
+  if (hits.length === 0) return null;
+
+  // Scope to this project + non-archived via the recall hydration path.
+  const kg = new KnowledgeGraph(db);
+  const scoped = kg.getEntitiesByIds(hits.map((h) => h.id), {
+    includeArchived: false,
+    tag: `project:${projectLabel}`,
+  });
+  if (scoped.length === 0) return null;
+  const scopedById = new Map(scoped.map((e) => [e.id, e]));
+
+  // hits are distance-ascending (sqlite-vec ORDER BY distance), so the first
+  // surviving hit is the NEAREST same-project entity. If it is within the
+  // threshold it is a duplicate; if not, nothing closer can be, so stage.
+  for (const hit of hits) {
+    const ent = scopedById.get(hit.id);
+    if (!ent) continue;
+    if (hit.distance <= threshold) {
+      return { candidateName: candidate.name, matchedEntityName: ent.name, distance: hit.distance };
+    }
+    return null;
+  }
+  return null;
+}
+
+// -----------------------------------------------------------------------------
 // Staging — write surviving candidates to dream_proposals as source_kind
 // 'transcript'. NEVER touches the knowledge graph; a proposal becomes an entity
 // only through `dream accept` (applyProposal).
@@ -560,6 +712,9 @@ export interface TranscriptSourceOptions {
   onAttempt?: (attempts: LLMAttempt[]) => void;
   /** Test seam forwarded to extraction — see ExtractOptions.chunkCharBudget. */
   chunkCharBudget?: number;
+  /** Test seam forwarded to vector dedup — see DedupDeps. Defaults to the real
+   * ONNX embedder + entities_vec search. */
+  dedup?: DedupDeps;
 }
 
 export interface TranscriptSourceResult {
@@ -567,6 +722,16 @@ export interface TranscriptSourceResult {
   candidatesExtracted: number;
   proposalsCreated: number;
   duplicatesSkipped: number;
+  /**
+   * Candidates skipped because they near-duplicate an EXISTING entity (B3
+   * vector dedup) — distinct from `duplicatesSkipped`, which is the B2 dedup
+   * against still-PENDING proposals. Never a silent drop: the CLI names each
+   * skipped candidate and the entity it matched.
+   */
+  nearDuplicatesSkipped: number;
+  /** The pairs behind `nearDuplicatesSkipped`, so a reviewer can audit exactly
+   * which memory the dedup decided they already have. */
+  nearDuplicates: DuplicateHit[];
   secretsDropped: number;
   /** Chunks whose LLM call threw — an outage, not an empty session. */
   llmFailures: number;
@@ -594,6 +759,8 @@ export async function runTranscriptSource(
     candidatesExtracted: 0,
     proposalsCreated: 0,
     duplicatesSkipped: 0,
+    nearDuplicatesSkipped: 0,
+    nearDuplicates: [],
     secretsDropped: 0,
     llmFailures: 0,
     llmCalls: 0,
@@ -645,7 +812,32 @@ export async function runTranscriptSource(
       result.skipped.push({ reason, sessionId: session.sessionId });
       continue;
     }
-    const staged = stageTranscriptProposals(db, session, extract.memories, llm, projectLabel);
+
+    // B3 vector dedup: drop candidates that near-duplicate an entity already in
+    // the graph (a prior-accepted transcript memory or a manual remember), so a
+    // re-run after `dream accept` stops re-proposing. Skipped ONLY when
+    // embeddings are available — with no vector index we cannot dedup, and the
+    // safe failure is to stage (re-propose) rather than silently drop.
+    let toStage = extract.memories;
+    if (isEmbeddingAvailable()) {
+      const kept: ExtractedMemory[] = [];
+      for (const m of extract.memories) {
+        const dup = await findDuplicateEntity(db, m, projectLabel, opts.dedup);
+        if (dup) {
+          result.nearDuplicatesSkipped++;
+          result.nearDuplicates.push(dup);
+          continue;
+        }
+        kept.push(m);
+      }
+      toStage = kept;
+    }
+    // Every candidate was a near-duplicate of something already stored — nothing
+    // to stage, but NOT an empty/failed session: nearDuplicates already records
+    // it, so do not add a misleading "no durable memories" skip.
+    if (toStage.length === 0) continue;
+
+    const staged = stageTranscriptProposals(db, session, toStage, llm, projectLabel);
     result.proposalsCreated += staged.created;
     result.duplicatesSkipped += staged.skippedDuplicate;
   }
