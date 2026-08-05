@@ -187,7 +187,7 @@ describe('HTTP Transport: POST /v1/recall', () => {
   });
 
   it('returns array (possibly empty) for no-match query', async () => {
-    // Recall supplements FTS5 with sqlite-vec when ONNX embeddings are
+    // Recall supplements FTS5 with sqlite-vec when a neural embedder is
     // available, so a query that misses FTS5 can still surface near-neighbour
     // entities under the MAX_VECTOR_DISTANCE threshold. Asserting toHaveLength(0)
     // is brittle in that path — the API contract here is "always return a

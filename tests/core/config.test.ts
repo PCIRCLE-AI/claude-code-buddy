@@ -10,6 +10,9 @@ import {
   readConfig,
   writeConfig,
   updateConfig,
+  getEmbeddingDimension,
+  logCapabilities,
+  type MeMeshConfig,
 } from '../../src/core/config.js';
 import { expectPrivateDir, expectPrivateFile } from '../helpers/permissions.js';
 
@@ -75,9 +78,9 @@ describe('Config: detectCapabilities', () => {
     expect(caps.llm).toBeNull();
   });
 
-  it('reports local ONNX embeddings when no LLM is configured', () => {
+  it('reports keyword-only (tfidf) embeddings when no LLM is configured', () => {
     const caps = detectCapabilities({});
-    expect(caps.embeddings).toBe('onnx');
+    expect(caps.embeddings).toBe('tfidf');
   });
 
   it('returns Level 1 with LLM config provided directly', () => {
@@ -86,8 +89,8 @@ describe('Config: detectCapabilities', () => {
     });
     expect(caps.searchLevel).toBe(1);
     expect(caps.llm?.provider).toBe('anthropic');
-    // Anthropic has no embedding API — falls back to ONNX if available, otherwise tfidf
-    expect(['onnx', 'tfidf']).toContain(caps.embeddings);
+    // Anthropic has no embedding API and there is no local embedder — keyword-only.
+    expect(caps.embeddings).toBe('tfidf');
   });
 
   it('returns Level 1 with openai LLM config', () => {
@@ -176,21 +179,21 @@ describe('Config: detectCapabilities', () => {
 
   // F17 ship-blocker regression: pre-4.1.0, env-detected OPENAI_API_KEY
   // locked entities_vec table to 1536-dim, then the first remember()
-  // fell back to ONNX (384-dim) and silently dropped the vector write.
+  // fell back to a different dimension and silently dropped the vector write.
   // Now LLM and embedder are detected independently — env-detect only
-  // affects LLM, not embedder.
+  // affects LLM, not embedder, so an env key never selects an embedder.
   it('env-detected OPENAI_API_KEY does NOT lock embedder to 1536-dim', () => {
     process.env.OPENAI_API_KEY = 'sk-openai-env-key';
     const caps = detectCapabilities({});
     expect(caps.llm?.provider).toBe('openai');
-    expect(caps.embeddings).toBe('onnx'); // ← critical: NOT 'openai'
+    expect(caps.embeddings).toBe('tfidf'); // ← critical: NOT 'openai'
   });
 
-  it('env-detected ANTHROPIC_API_KEY uses anthropic LLM but onnx embeddings', () => {
+  it('env-detected ANTHROPIC_API_KEY uses anthropic LLM but keyword-only embeddings', () => {
     process.env.ANTHROPIC_API_KEY = 'sk-ant-env-key';
     const caps = detectCapabilities({});
     expect(caps.llm?.provider).toBe('anthropic');
-    expect(caps.embeddings).toBe('onnx');
+    expect(caps.embeddings).toBe('tfidf');
   });
 
   it('explicit config.llm takes precedence over env vars', () => {
@@ -340,15 +343,17 @@ describe('Config: embedder.provider decoupled from llm.provider (#36)', () => {
     }
   });
 
-  it('explicit embedder.provider=onnx wins even when llm.provider=ollama', () => {
-    // Pre-#36 this combination would have routed embeddings to
-    // ollama (768-dim), invalidating any 384-dim ONNX vectors.
-    // The fix: embedder.provider takes precedence.
+  it('legacy embedder.provider=onnx degrades to keyword-only (tfidf), not ollama', () => {
+    // The local ONNX embedder was removed. An existing config.json that still
+    // pins it must degrade gracefully to keyword-only rather than error or
+    // silently re-route to ollama (768-dim), which would drop the user's
+    // 384-dim table. `as unknown as MeMeshConfig` models a config the current
+    // types no longer allow but which exists on disk from an older install.
     const caps = detectCapabilities({
       llm: { provider: 'ollama', model: 'gemma4:e4b' },
       embedder: { provider: 'onnx' },
-    });
-    expect(caps.embeddings).toBe('onnx');
+    } as unknown as MeMeshConfig);
+    expect(caps.embeddings).toBe('tfidf');
   });
 
   it('explicit embedder.provider=openai works with llm.provider=anthropic', () => {
@@ -369,13 +374,34 @@ describe('Config: embedder.provider decoupled from llm.provider (#36)', () => {
     expect(caps.embeddings).toBe('ollama');
   });
 
-  it('embedder.provider=onnx + no llm = ONNX embeddings, Level 0', () => {
+  it('legacy embedder.provider=onnx + no llm = keyword-only, Level 0', () => {
     const caps = detectCapabilities({
       embedder: { provider: 'onnx' },
-    });
-    expect(caps.embeddings).toBe('onnx');
+    } as unknown as MeMeshConfig);
+    expect(caps.embeddings).toBe('tfidf');
     expect(caps.searchLevel).toBe(0);
     expect(caps.llm).toBeNull();
+  });
+
+  it('a PRESENT but unrecognized embedder.provider never inherits the llm dimension (no drop)', () => {
+    // A hand-edited or typo'd value (`Onnx`, `olama`, a removed provider), or an
+    // empty/whitespace-only string, must resolve to keyword-only (tfidf, 384-dim
+    // default) — NOT fall through to the llm back-compat and pick up ollama's
+    // 768, which would make db.ts drop a 384-dim table. An empty/whitespace
+    // value is an explicit-but-invalid embedder, not "unset". Old code returned
+    // the raw string and was accidentally fail-safe at 384; the resolver keeps
+    // that safety explicitly.
+    for (const bad of ['Onnx', 'onnx ', 'olama', 'transformers', '', '   ']) {
+      const caps = detectCapabilities({
+        llm: { provider: 'ollama', model: 'x' },
+        embedder: { provider: bad },
+      } as unknown as MeMeshConfig);
+      expect(caps.embeddings, `provider="${bad}" must be keyword-only`).toBe('tfidf');
+      expect(getEmbeddingDimension({
+        llm: { provider: 'ollama', model: 'x' },
+        embedder: { provider: bad },
+      } as unknown as MeMeshConfig), `provider="${bad}" must stay 384`).toBe(384);
+    }
   });
 });
 
@@ -385,12 +411,15 @@ describe('Config: getEmbeddingDimension follows embedder.provider (#36)', () => 
   // Re-import to pick up the fresh impl after the test above writes
   // config — these tests are pure (just call with an explicit config).
 
-  it('returns 384 for embedder.provider=onnx regardless of llm.provider', async () => {
+  it('returns 384 for a legacy embedder.provider=onnx table (no drop on upgrade)', async () => {
+    // The 384-dim keyword-only default MUST match the width the old ONNX table
+    // was built at, so upgrading past the ONNX removal does not make db.ts drop
+    // that user's existing vector index.
     const { getEmbeddingDimension } = await import('../../src/core/config.js');
     expect(getEmbeddingDimension({
       llm: { provider: 'ollama', model: 'gemma4:e4b' },
       embedder: { provider: 'onnx' },
-    })).toBe(384);
+    } as unknown as MeMeshConfig)).toBe(384);
   });
 
   it('returns 768 for embedder.provider=ollama', async () => {
@@ -412,5 +441,44 @@ describe('Config: getEmbeddingDimension follows embedder.provider (#36)', () => 
     expect(getEmbeddingDimension({
       llm: { provider: 'ollama', model: 'gemma4:e4b' },
     })).toBe(768);
+  });
+});
+
+// ── logCapabilities states the semantic-search status explicitly ──────────────
+// `searchLevel` is driven by the chat LLM only, so a no-embedder user used to
+// get no signal that meaning-based search was off — a silent capability
+// downgrade. logCapabilities must say so on startup.
+describe('logCapabilities: semantic-search downgrade signal', () => {
+  function captureStderr(config: MeMeshConfig): string {
+    const lines: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      lines.push(String(chunk));
+      return true;
+    });
+    try {
+      logCapabilities(config);
+    } finally {
+      spy.mockRestore();
+    }
+    return lines.join('');
+  }
+
+  it('prints the keyword-only OFF line when no embedder is configured', () => {
+    const out = captureStderr({});
+    expect(out).toContain('Semantic (meaning-based) search: OFF — keyword search only');
+    expect(out).toContain('Configure ollama or an embedder to enable it');
+    expect(out).not.toContain('Semantic (meaning-based) search: ON');
+  });
+
+  it('prints the ON line (and NOT the OFF line) when an embedder is configured', () => {
+    const out = captureStderr({ embedder: { provider: 'ollama' } });
+    expect(out).toContain('Semantic (meaning-based) search: ON (ollama).');
+    expect(out).not.toContain('OFF — keyword search only');
+  });
+
+  it('prints ON for an openai embedder too', () => {
+    const out = captureStderr({ embedder: { provider: 'openai' } });
+    expect(out).toContain('Semantic (meaning-based) search: ON (openai).');
+    expect(out).not.toContain('OFF — keyword search only');
   });
 });

@@ -323,7 +323,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   // F17: Remove the configured LLM provider entirely (drops apiKey + model).
   // After this, memesh falls back to env-var auto-detect (anthropic > openai
   // > ollama). If no env credential is present either, memesh runs in Core
-  // Mode (FTS5 + ONNX embeddings, no LLM-backed features).
+  // Mode (FTS5 keyword search, no LLM-backed features).
   async function removeProvider() {
     if (!confirm(t('settings.removeProviderConfirm'))) return;
     setSaving(true);

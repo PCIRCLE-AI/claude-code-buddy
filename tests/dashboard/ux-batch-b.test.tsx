@@ -375,7 +375,7 @@ describe('SettingsTab stored-key re-test', () => {
           data: {
             // Server masks a stored key as '***'.
             config: { llm: { provider: 'anthropic', model: 'claude-x', apiKey: '***' } },
-            capabilities: { searchLevel: 1, embeddings: 'onnx', llm: { provider: 'anthropic', model: 'claude-x' } },
+            capabilities: { searchLevel: 1, embeddings: 'ollama', llm: { provider: 'anthropic', model: 'claude-x' } },
           },
         });
       }

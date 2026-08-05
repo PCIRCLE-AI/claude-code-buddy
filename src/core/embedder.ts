@@ -1,61 +1,40 @@
 // =============================================================================
 // Embedder — multi-provider embedding generation
-// Supports: OpenAI API, Ollama, ONNX (@huggingface/transformers), none
-// Provider selection: config.llm.provider → API embeddings if available,
-// ONNX fallback, graceful no-op if nothing available
+// Supports: OpenAI API, Ollama, none (FTS5 keyword-only)
+// Provider selection: config.embedder.provider → API/local-server embeddings
+// if configured; graceful no-op (keyword-only recall) if nothing is available.
 // =============================================================================
 
-import { createRequire } from 'node:module';
-import { existsSync } from 'fs';
 import { getDatabase } from '../db.js';
-import { join } from 'path';
-
-// Opaque type for the @huggingface/transformers pipeline — no published types
-type OnnxPipeline = (text: string, opts: { pooling: string; normalize: boolean }) => Promise<{ data: ArrayLike<number> }>;
 import { detectCapabilities, getEmbeddingDimension, type LLMConfig } from './config.js';
-import { memeshDir } from './paths.js';
 
-let onnxPipelineInstance: OnnxPipeline | null = null;
-let onnxPipelineLoading: Promise<OnnxPipeline> | null = null;
-let onnxAvailableChecked = false;
-let onnxAvailableResult = false;
 /**
  * Cut-off for a vector hit, in the units `entities_vec` actually returns.
  *
  * `entities_vec` is declared as `vec0(embedding float[N])` with no
  * `distance_metric`, so sqlite-vec uses **L2**. Embeddings are unit vectors
- * (`normalize: true` in `embedWithOnnx`, and both API providers return
- * normalised vectors), which puts L2 in the range 0…2 and relates it to cosine
- * by `cos = 1 - d²/2`. √2 is therefore exactly cosine 0 — "no relationship" —
- * and everything above it is negatively correlated.
+ * (both supported providers return normalised vectors), which puts L2 in the
+ * range 0…2 and relates it to cosine by `cos = 1 - d²/2`. √2 is therefore
+ * exactly cosine 0 — "no relationship" — and everything above it is
+ * negatively correlated.
  *
  * This used to be `1`, a value that only makes sense if the distance were
  * cosine *distance* on a 0…1 scale. Against real L2 numbers it discarded
- * essentially every hit: measured over 50 LongMemEval questions, 5 of 1000
- * vector hits survived it (0.5%), and the correct session sat at a median
- * distance of 1.187 — above the cut. The vector half of "hybrid search" was
- * doing nothing at all, silently, while the README advertised it.
+ * essentially every hit, so the vector half of "hybrid search" was doing
+ * nothing at all, silently.
  *
- * 1.30 is calibrated against two independent measurements, not derived. The
- * geometric cut — √2, exactly cosine 0 — turned out to sit in the middle of the
- * noise, because MiniLM's space is roughly isotropic and unrelated text lands
- * *at* cosine 0 rather than below it:
+ * 1.30 was calibrated against two independent LongMemEval measurements on the
+ * local ONNX MiniLM-L6 embedder — signal sat below ~1.27, noise above ~1.37,
+ * and R@5 was flat across 1.20…2.00 so the tight end traded no recall for
+ * precision.
  *
- *   LongMemEval, distance of the CORRECT session   min 0.864  p50 1.187  p75 1.269
- *   LongMemEval, distance of ALL returned hits                p50 1.357
- *   nonsense query ("nonexistent-xyz-123")         nearest    1.413
- *   random letters                                 nearest    1.371
- *   unrelated English sentence                     nearest    1.430
- *   genuinely related question                     nearest    0.872 / 1.157
- *
- * Signal sits below ~1.27, noise above ~1.37. A cut at √2 lets every one of
- * those noise cases through, which means a query matching nothing lexically
- * comes back with an unrelated memory instead of an honest "no results".
- *
- * The recall cost is nil: R@5 measured identical (95.0%) at thresholds 1.20,
- * 1.35, 1.50 and 2.00 over 100 questions, so the tight end of that range trades
- * no recall for the precision. Re-derive it if the embedding model changes —
- * the number belongs to MiniLM-L6, not to the algorithm.
+ * IMPORTANT — that embedder has since been removed; memesh now standardises on
+ * ollama (nomic-embed-text, 768-dim). This number has NOT been re-derived for
+ * that space, and it belongs to the model, not the algorithm. A different
+ * model has a different isotropy and a different noise floor, so re-derivation
+ * against nomic-embed-text is open work (re-run scripts/calibrate against a
+ * real graph). Until then 1.30 is a reasonable-but-unverified default; it is
+ * kept rather than guessed a new value nobody measured.
  */
 export const MAX_VECTOR_DISTANCE = 1.30;
 
@@ -72,35 +51,7 @@ export const MAX_VECTOR_DISTANCE = 1.30;
 export function vectorSimilarity(distance: number): number {
   return Math.max(0, 1 - distance / 2);
 }
-const ONNX_TRANSFORMERS_PACKAGE = '@huggingface/transformers';
-// The local ONNX model id + on-disk cache layout. These are the ONE authoritative
-// home for "which model, cached where" — getOnnxPipeline() and isOnnxModelCached()
-// both derive from them, so a caller (e.g. `memesh doctor`) never has to
-// reconstruct the path and can't drift from what the embedder actually loads.
-const ONNX_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
-const ONNX_CACHE_SUBDIR = 'models';
 const pendingEmbeddingWrites = new Set<Promise<unknown>>();
-
-/**
- * Is the local ONNX model already downloaded (so an embed call would NOT
- * trigger a ~90 MB download)? Owned here because this module owns the model id
- * and cache dir. Callers ask the embedder rather than hardcoding its layout.
- *
- * Points at the leaf weights file: a half-finished download (dir present,
- * weights absent) correctly reads as NOT cached.
- */
-export function isOnnxModelCached(): boolean {
-  try {
-    const [org, name] = ONNX_MODEL_ID.split('/');
-    // onnxCacheDir(), not memeshDir()+subdir: the pipeline honours
-    // MEMESH_MODEL_CACHE_DIR through onnxCacheDir(), and this check reading
-    // a different root made the download notice fire on a warm cache — the
-    // one-time message showing up every time is how it stops being read.
-    return existsSync(join(onnxCacheDir(), org, name, 'onnx', 'model.onnx'));
-  } catch {
-    return false;
-  }
-}
 
 // --- Public API ---
 
@@ -115,7 +66,8 @@ export function isEmbeddingAvailable(): boolean {
   const caps = detectCapabilities();
   if (caps.embeddings === 'openai') return true;
   if (caps.embeddings === 'ollama') return true;
-  if (caps.embeddings === 'onnx') return isOnnxAvailable();
+  // 'tfidf' (keyword-only) and 'anthropic' (no embedding API) have no neural
+  // embedder: recall degrades to FTS5. Every vector path checks this first.
   return false;
 }
 
@@ -158,16 +110,6 @@ export async function canRefillVectorIndex(): Promise<boolean> {
 
 // getEmbeddingDimension() is in config.ts to avoid circular dependency with db.ts
 export { getEmbeddingDimension } from './config.js';
-
-/**
- * Reset cached state (for testing).
- */
-export function resetEmbeddingState(): void {
-  onnxAvailableChecked = false;
-  onnxAvailableResult = false;
-  onnxPipelineInstance = null;
-  onnxPipelineLoading = null;
-}
 
 export function scheduleEmbedAndStore(entityId: number, text: string): void {
   const pending = embedAndStore(entityId, text);
@@ -216,16 +158,15 @@ export async function embedText(text: string): Promise<Float32Array | null> {
 
   if (caps.embeddings === 'openai' || caps.embeddings === 'ollama') {
     // Reuse the LLM credential for the same provider, if present.
-    // Otherwise pass a minimal config — the embedder API call will
-    // fail and we fall through to ONNX below.
+    // Otherwise pass a minimal config — a failed provider call returns
+    // null, which callers treat as "no embedding" (recall stays on FTS5).
     const sharedKey = caps.llm?.provider === caps.embeddings ? caps.llm.apiKey : undefined;
     const cfg = { provider: caps.embeddings, model: undefined, apiKey: sharedKey } as LLMConfig;
-    const result = await embedWithProvider(text, cfg);
-    if (result) return result;
+    return embedWithProvider(text, cfg);
   }
 
-  // Fallback to ONNX (default for fresh installs and Anthropic LLM users).
-  return embedWithOnnx(text);
+  // No neural embedder configured (keyword-only / anthropic): FTS5 alone.
+  return null;
 }
 
 /**
@@ -243,7 +184,7 @@ export type EmbedOutcome =
   | 'stored'
   /** Entity archived or gone — its stale vector was deleted. Correct end state. */
   | 'removed'
-  /** The provider returned nothing (empty text, provider down, ONNX absent). */
+  /** No embedder produced a vector (empty text, provider down, or keyword-only). */
   | 'no_embedding'
   /** Provider dimension ≠ the table's. Nothing written, on purpose. */
   | 'dimension_mismatch'
@@ -268,8 +209,9 @@ export async function embedAndStore(entityId: number, text: string): Promise<Emb
     const db = getDatabase();
 
     // CRITICAL: Validate embedding dimension matches DB schema
-    // Prevents silent write failures when provider fallback changes dimension
-    // (e.g., Ollama 768-dim → ONNX 384-dim fallback)
+    // Prevents silent write failures when the configured provider emits a
+    // width the table was not built for (e.g. a table built at 384 for an
+    // older embedder, now fed 768-dim ollama vectors).
     const storedDim = db.prepare(
       "SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'"
     ).get() as { value: string } | undefined;
@@ -278,18 +220,15 @@ export async function embedAndStore(entityId: number, text: string): Promise<Emb
     const actualDim = embedding.length;
 
     if (expectedDim > 0 && actualDim !== expectedDim) {
-      // Two different causes land here and they need different instructions.
-      // A transient provider fallback (Ollama down → ONNX) is fixed by
-      // repairing the provider and re-running `memesh reindex`. A deliberate
-      // embedder switch is NOT: plain `reindex` cannot change the table's
-      // dimension, so it would keep hitting this same branch forever. That is
-      // what `--vectors` is for.
+      // A deliberate embedder switch (e.g. onto ollama at 768-dim against a
+      // table built at 384) lands here: plain `reindex` cannot change the
+      // table's dimension, so it would keep hitting this same branch forever.
+      // That is what `--vectors` is for.
       process.stderr.write(
         `MeMesh: Embedding dimension mismatch (got ${actualDim}, expected ${expectedDim}). ` +
         `Skipping vector write for entity ${entityId}. ` +
-        `If the configured provider failed and a fallback was used, fix the provider and run ` +
-        `'memesh reindex'. If you meant to switch embedders, the vector index has to be ` +
-        `rebuilt at the new dimension: 'memesh reindex --vectors'.\n`
+        `If you switched embedders, the vector index has to be rebuilt at the new ` +
+        `dimension: 'memesh reindex --vectors'.\n`
       );
       return 'dimension_mismatch';
     }
@@ -354,7 +293,7 @@ async function embedWithProvider(text: string, config: LLMConfig): Promise<Float
   try {
     if (config.provider === 'openai') return await embedWithOpenAI(text, config);
     if (config.provider === 'ollama') return await embedWithOllama(text, config);
-    // Anthropic has no embedding API — fall through to ONNX
+    // Anthropic has no embedding API — no vector, recall stays on FTS5.
     return null;
   } catch {
     return null;
@@ -367,7 +306,7 @@ async function embedWithOpenAI(text: string, config: LLMConfig): Promise<Float32
   // is a designed BYOK behaviour, not an information leak: it only fires
   // when the user has explicitly configured `llm.provider = 'openai'` in
   // ~/.memesh/config.json (or set MEMESH_AUTO_DETECT_LLM=1 + OPENAI_API_KEY).
-  // Default fresh-install behaviour is local ONNX embeddings; cloud
+  // Default fresh-install behaviour is keyword-only (FTS5) embeddings; cloud
   // providers are opt-in. The text body is bounded at 8000 chars by the
   // API contract and JSON-encoded with no shell/eval interpolation.
   const apiKey = config.apiKey || process.env.OPENAI_API_KEY;
@@ -406,93 +345,4 @@ async function embedWithOllama(text: string, config: LLMConfig): Promise<Float32
   if (!embedding || !Array.isArray(embedding)) return null;
 
   return new Float32Array(embedding);
-}
-
-// --- ONNX (local, @huggingface/transformers) ---
-
-function isOnnxAvailable(): boolean {
-  if (onnxAvailableChecked) return onnxAvailableResult;
-  onnxAvailableChecked = true;
-  try {
-    const require = createRequire(import.meta.url);
-    require.resolve(ONNX_TRANSFORMERS_PACKAGE);
-    onnxAvailableResult = true;
-  } catch {
-    onnxAvailableResult = false;
-  }
-  return onnxAvailableResult;
-}
-
-/**
- * Where the local ONNX model is cached.
- *
- * Defaults to `~/.memesh/models`, which is right for a real install: one copy
- * per user, next to their database, removed when they remove memesh.
- *
- * It is wrong for anything that isolates HOME. The model is ~98 MB and is
- * fetched from HuggingFace on first use, so a test that runs the CLI under a
- * throwaway HOME downloads all of it again — measured at 19.4s wall clock for
- * the first write in a fresh HOME, at 8% CPU, i.e. almost entirely network
- * wait. Six test files spawn the CLI or a hook with a per-test HOME, which is
- * what put `hook-output-contract` at 86s and `remember-quick` at 52s, and is
- * the reason those files kept brushing their timeouts. On CI it also made every
- * leg depend on HuggingFace being up and fast.
- *
- * `MEMESH_MODEL_CACHE_DIR` points the cache somewhere stable so that isolation
- * of HOME does not imply re-downloading a model. It is deliberately a separate
- * variable from MEMESH_DIR: the point is to share exactly this one thing across
- * otherwise-isolated environments, and nothing else.
- */
-export function onnxCacheDir(): string {
-  const override = process.env.MEMESH_MODEL_CACHE_DIR;
-  if (override && override.trim() !== '') return override;
-  return join(memeshDir(), ONNX_CACHE_SUBDIR);
-}
-
-async function getOnnxPipeline(): Promise<OnnxPipeline> {
-  if (onnxPipelineInstance) return onnxPipelineInstance;
-  if (onnxPipelineLoading) return onnxPipelineLoading;
-
-  onnxPipelineLoading = (async () => {
-    try {
-      const mod = await import(ONNX_TRANSFORMERS_PACKAGE) as { pipeline: (task: string, model: string) => Promise<OnnxPipeline>; env?: { cacheDir?: string; allowLocalModels?: boolean } };
-      const createPipeline = mod.pipeline;
-      const env = mod.env;
-      if (env) {
-        env.cacheDir = onnxCacheDir();
-        env.allowLocalModels = true;
-      }
-      // The single worst first-use moment measured in the P7 audit: this
-      // download is ~90MB and used to run in TOTAL silence — the first
-      // semantic recall just hung for 13+ seconds (minutes on a slow link)
-      // with the caller unable to tell a download from a deadlock. stderr,
-      // so it reaches CLI users directly and MCP/host logs without
-      // corrupting any stdout protocol.
-      if (!isOnnxModelCached()) {
-        console.error(`[memesh] downloading the local search model (~90 MB, one time) — first search will take a moment...`);
-      }
-      onnxPipelineInstance = await createPipeline(
-        'feature-extraction',
-        ONNX_MODEL_ID,
-      );
-      return onnxPipelineInstance;
-    } catch (err) {
-      // Reset so next call retries instead of returning cached rejected promise
-      onnxPipelineLoading = null;
-      throw err;
-    }
-  })();
-
-  return onnxPipelineLoading;
-}
-
-async function embedWithOnnx(text: string): Promise<Float32Array | null> {
-  if (!isOnnxAvailable()) return null;
-  try {
-    const pipe = await getOnnxPipeline();
-    const output = await pipe(text, { pooling: 'mean', normalize: true });
-    return new Float32Array(output.data);
-  } catch {
-    return null;
-  }
 }

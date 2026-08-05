@@ -966,8 +966,9 @@ memesh reindex --fts
 ```
 
 `--vectors` is for switching embedding providers, and only that. Each provider
-emits vectors of a different width — 384 for the local ONNX model, 768 for
-Ollama, 1536 for OpenAI — and a `vec0` table is fixed at one width, so changing
+emits vectors of a different width — 768 for Ollama, 1536 for OpenAI (and 384
+for the legacy local model that older tables were built at) — and a `vec0`
+table is fixed at one width, so changing
 provider means dropping the table and recreating it. **Every stored embedding is
 deleted.** MeMesh will not do that on its own: when the database and the config
 disagree about the dimension, it keeps the existing index and says so, because a

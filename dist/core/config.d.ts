@@ -4,7 +4,7 @@ export interface LLMConfig {
     apiKey?: string;
 }
 export interface EmbedderConfig {
-    provider: 'onnx' | 'openai' | 'ollama';
+    provider: 'openai' | 'ollama';
     model?: string;
 }
 export interface MeMeshConfig {
@@ -23,7 +23,7 @@ export interface Capabilities {
     vectorSearch: true;
     scoring: true;
     knowledgeEvolution: true;
-    embeddings: 'onnx' | 'ollama' | 'anthropic' | 'openai' | 'tfidf';
+    embeddings: 'ollama' | 'anthropic' | 'openai' | 'tfidf';
     llm: LLMConfig | null;
     llmFallbacks: LLMConfig[];
     searchLevel: 0 | 1;

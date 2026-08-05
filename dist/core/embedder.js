@@ -1,38 +1,16 @@
-import { createRequire } from 'node:module';
-import { existsSync } from 'fs';
 import { getDatabase } from '../db.js';
-import { join } from 'path';
 import { detectCapabilities, getEmbeddingDimension } from './config.js';
-import { memeshDir } from './paths.js';
-let onnxPipelineInstance = null;
-let onnxPipelineLoading = null;
-let onnxAvailableChecked = false;
-let onnxAvailableResult = false;
 export const MAX_VECTOR_DISTANCE = 1.30;
 export function vectorSimilarity(distance) {
     return Math.max(0, 1 - distance / 2);
 }
-const ONNX_TRANSFORMERS_PACKAGE = '@huggingface/transformers';
-const ONNX_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
-const ONNX_CACHE_SUBDIR = 'models';
 const pendingEmbeddingWrites = new Set();
-export function isOnnxModelCached() {
-    try {
-        const [org, name] = ONNX_MODEL_ID.split('/');
-        return existsSync(join(onnxCacheDir(), org, name, 'onnx', 'model.onnx'));
-    }
-    catch {
-        return false;
-    }
-}
 export function isEmbeddingAvailable() {
     const caps = detectCapabilities();
     if (caps.embeddings === 'openai')
         return true;
     if (caps.embeddings === 'ollama')
         return true;
-    if (caps.embeddings === 'onnx')
-        return isOnnxAvailable();
     return false;
 }
 export async function canRefillVectorIndex() {
@@ -48,12 +26,6 @@ export async function canRefillVectorIndex() {
     }
 }
 export { getEmbeddingDimension } from './config.js';
-export function resetEmbeddingState() {
-    onnxAvailableChecked = false;
-    onnxAvailableResult = false;
-    onnxPipelineInstance = null;
-    onnxPipelineLoading = null;
-}
 export function scheduleEmbedAndStore(entityId, text) {
     const pending = embedAndStore(entityId, text);
     const tracked = pending.finally(() => {
@@ -86,11 +58,9 @@ export async function embedText(text) {
     if (caps.embeddings === 'openai' || caps.embeddings === 'ollama') {
         const sharedKey = caps.llm?.provider === caps.embeddings ? caps.llm.apiKey : undefined;
         const cfg = { provider: caps.embeddings, model: undefined, apiKey: sharedKey };
-        const result = await embedWithProvider(text, cfg);
-        if (result)
-            return result;
+        return embedWithProvider(text, cfg);
     }
-    return embedWithOnnx(text);
+    return null;
 }
 export async function embedAndStore(entityId, text) {
     try {
@@ -104,9 +74,8 @@ export async function embedAndStore(entityId, text) {
         if (expectedDim > 0 && actualDim !== expectedDim) {
             process.stderr.write(`MeMesh: Embedding dimension mismatch (got ${actualDim}, expected ${expectedDim}). ` +
                 `Skipping vector write for entity ${entityId}. ` +
-                `If the configured provider failed and a fallback was used, fix the provider and run ` +
-                `'memesh reindex'. If you meant to switch embedders, the vector index has to be ` +
-                `rebuilt at the new dimension: 'memesh reindex --vectors'.\n`);
+                `If you switched embedders, the vector index has to be rebuilt at the new ` +
+                `dimension: 'memesh reindex --vectors'.\n`);
             return 'dimension_mismatch';
         }
         const rowId = toVectorRowId(entityId);
@@ -190,64 +159,5 @@ async function embedWithOllama(text, config) {
     if (!embedding || !Array.isArray(embedding))
         return null;
     return new Float32Array(embedding);
-}
-function isOnnxAvailable() {
-    if (onnxAvailableChecked)
-        return onnxAvailableResult;
-    onnxAvailableChecked = true;
-    try {
-        const require = createRequire(import.meta.url);
-        require.resolve(ONNX_TRANSFORMERS_PACKAGE);
-        onnxAvailableResult = true;
-    }
-    catch {
-        onnxAvailableResult = false;
-    }
-    return onnxAvailableResult;
-}
-export function onnxCacheDir() {
-    const override = process.env.MEMESH_MODEL_CACHE_DIR;
-    if (override && override.trim() !== '')
-        return override;
-    return join(memeshDir(), ONNX_CACHE_SUBDIR);
-}
-async function getOnnxPipeline() {
-    if (onnxPipelineInstance)
-        return onnxPipelineInstance;
-    if (onnxPipelineLoading)
-        return onnxPipelineLoading;
-    onnxPipelineLoading = (async () => {
-        try {
-            const mod = await import(ONNX_TRANSFORMERS_PACKAGE);
-            const createPipeline = mod.pipeline;
-            const env = mod.env;
-            if (env) {
-                env.cacheDir = onnxCacheDir();
-                env.allowLocalModels = true;
-            }
-            if (!isOnnxModelCached()) {
-                console.error(`[memesh] downloading the local search model (~90 MB, one time) — first search will take a moment...`);
-            }
-            onnxPipelineInstance = await createPipeline('feature-extraction', ONNX_MODEL_ID);
-            return onnxPipelineInstance;
-        }
-        catch (err) {
-            onnxPipelineLoading = null;
-            throw err;
-        }
-    })();
-    return onnxPipelineLoading;
-}
-async function embedWithOnnx(text) {
-    if (!isOnnxAvailable())
-        return null;
-    try {
-        const pipe = await getOnnxPipeline();
-        const output = await pipe(text, { pooling: 'mean', normalize: true });
-        return new Float32Array(output.data);
-    }
-    catch {
-        return null;
-    }
 }
 //# sourceMappingURL=embedder.js.map

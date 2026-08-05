@@ -406,7 +406,7 @@ const KEY_VALIDATORS = {
             return `must be ${MAX_LANGUAGE_LENGTH} characters or fewer (a language name or locale code)`;
         return languageValueError(v);
     },
-    'embedder.provider': (v) => ['onnx', 'openai', 'ollama'].includes(v) ? null : `must be one of: onnx, openai, ollama`,
+    'embedder.provider': (v) => ['openai', 'ollama'].includes(v) ? null : `must be one of: openai, ollama`,
     'autoUpdate': (v) => ['off', 'patch', 'minor', 'major'].includes(v) ? null : `must be one of: off, patch, minor, major`,
     'llmFallbacks': (v) => {
         let parsed;
@@ -1325,9 +1325,8 @@ program
                 console.error('❌ Could not produce a test embedding at this database\'s vector width, so\n' +
                     '   the index was left untouched. Rebuilding it deletes every stored\n' +
                     '   embedding, and nothing here could regenerate them.\n' +
-                    '   Check that your OpenAI API key is valid, or that Ollama is running, or\n' +
-                    '   install @huggingface/transformers for local embeddings — then run this\n' +
-                    '   again. `memesh doctor` reports which provider is configured.');
+                    '   Check that Ollama is running (or that your OpenAI API key is valid) —\n' +
+                    '   then run this again. `memesh doctor` reports which provider is configured.');
                 process.exit(1);
             }
         }

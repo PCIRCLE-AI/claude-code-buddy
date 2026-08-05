@@ -111,25 +111,25 @@
       "reason": "manual calibration harness a human runs once to derive TRANSCRIPT_DEDUP_MAX_DISTANCE (its output is cited in the constant's comment); it measures and prints, it is not an automated gate with a CI caller",
       "triaged": "2026-08-05"
     },
-    "C4 .github/workflows/ci.yml:268": {
+    "C4 .github/workflows/ci.yml:220": {
       "class": "SAFE",
       "reason": "secondary greps run after the exit-code gate has already read DOCTOR_EXIT",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04 (re-keyed 268->226->220: removing the ONNX model-cache env block + both cache steps shifted the DOCTOR_EXIT-gated `^[FAIL]` grep up; same post-gate grep verified before re-keying)"
     },
-    "C4 .github/workflows/ci.yml:274": {
+    "C4 .github/workflows/ci.yml:226": {
       "class": "SAFE",
       "reason": "secondary greps run after the exit-code gate has already read DOCTOR_EXIT",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04 (re-keyed 274->232->226: removing the ONNX model-cache env block + both cache steps shifted the DOCTOR_EXIT-gated Skills+hooks integrity grep up; same post-gate grep verified before re-keying)"
     },
     "C4 .github/workflows/deprecate-npm.yml:64": {
       "class": "SAFE",
       "reason": "|| true inside an exact-match retry loop — absence retries then fails, never passes",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/config.ts:353": {
+    "C5 src/core/config.ts:359": {
       "class": "SAFE-GUARDED",
       "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04 (re-keyed 353->359: the ONNX-removal edits to detectEmbeddingSource/comments shifted the line down 6; same llmFallbacks ?? [] code verified before re-keying)"
     },
     "C5 src/core/doctor.ts:391": {
       "class": "SAFE-GUARDED",
@@ -336,11 +336,6 @@
       "reason": "retired message lives in RETIRED_ROUTES; remaining source asserts pin the wiring, behavior tested via route test",
       "triaged": "2026-08-04"
     },
-    "C6 tests/core/model-cache-shared.test.ts": {
-      "class": "WIRING-PIN",
-      "reason": "asserts runner/CI wire the cache env var; behavior tested alongside",
-      "triaged": "2026-08-04"
-    },
     "C6 tests/dashboard/component-contracts.test.tsx": {
       "class": "DATA-EXTRACTION",
       "reason": "reads i18n.ts to build the key catalogue, not to assert text-as-behavior",
@@ -381,10 +376,10 @@
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04"
     },
-    "C7 README.md:379": {
+    "C7 README.md:382": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04 (re-keyed 379->382: the ONNX-removal edits to the embeddings section shifted the line down 3; same 95.60% R@5 comparison-table figure verified before re-keying)"
     },
     "C5 src/cli/view.ts:138": {
       "class": "SAFE-ACCUMULATOR/DISPLAY",
@@ -421,15 +416,15 @@
       "reason": "set -uo pipefail at file top preserves the left commands verdict",
       "triaged": "2026-08-04 (re-keyed: the mktemp-orphan fix shifted lines by five)"
     },
-    "C5 src/transports/http/server.ts:927": {
+    "C5 src/transports/http/server.ts:913": {
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-05 (re-keyed again: fallback keepKeyFrom refactor shifted lines)"
+      "triaged": "2026-08-05 (re-keyed 927->913: rebasing the ONNX removal onto #126 removed the resetEmbeddingState-on-config-change block, shifting the file up 14 lines; same DreamRunBody.safeParse code verified before re-keying)"
     },
-    "C5 src/transports/http/server.ts:992": {
+    "C5 src/transports/http/server.ts:978": {
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-05 (re-keyed again: fallback keepKeyFrom refactor shifted lines)"
+      "triaged": "2026-08-05 (re-keyed 992->978: rebasing the ONNX removal onto #126 removed the resetEmbeddingState-on-config-change block, shifting the file up 14 lines; same RejectBodySchema.safeParse code verified before re-keying)"
     },
     "C5 dashboard/src/components/SettingsTab.tsx:237": {
       "class": "SAFE-GUARDED",

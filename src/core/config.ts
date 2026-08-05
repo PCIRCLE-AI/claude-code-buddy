@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { createRequire } from 'module';
 import { memeshDir } from './paths.js';
 
 // --- Config Types ---
@@ -16,11 +15,16 @@ export interface LLMConfig {
  *
  * Earlier memesh tied embedder.provider to llm.provider, so switching
  * LLM (e.g. anthropic → ollama) silently changed the embedder backend
- * (ONNX 384-dim → nomic-embed-text 768-dim). The dimension change
- * triggered db.ts to drop and rebuild entities_vec, invalidating
- * thousands of vectors. #36 split the two concerns: pick whichever
- * LLM you want for chat completion, embeddings stay on whatever
- * backend you chose for them (default: ONNX local 384-dim).
+ * and its dimension, which triggered db.ts to drop and rebuild
+ * entities_vec, invalidating thousands of vectors. #36 split the two
+ * concerns: pick whichever LLM you want for chat completion, and pin
+ * embeddings to whatever backend you chose for them.
+ *
+ * Semantic (meaning-based) recall needs a real embedder — `ollama`
+ * (local, e.g. nomic-embed-text 768-dim) or `openai` (hosted,
+ * text-embedding-3-small 1536-dim). When none is configured, memesh
+ * runs on FTS5 keyword search alone (the `tfidf` capability sentinel);
+ * that is a supported mode, not a fault, and needs no download.
  *
  * `apiKey` is read from the corresponding LLMConfig if provider
  * matches (e.g. embedder.provider='openai' uses llm.apiKey when
@@ -28,7 +32,7 @@ export interface LLMConfig {
  * secrets between two config nodes.
  */
 export interface EmbedderConfig {
-  provider: 'onnx' | 'openai' | 'ollama';
+  provider: 'openai' | 'ollama';
   model?: string;
 }
 
@@ -51,9 +55,10 @@ export interface MeMeshConfig {
    */
   llmFallbacks?: LLMConfig[];
   /**
-   * Defaults to ONNX 384-dim if omitted. Existing installs that have
-   * never set this field stay on whatever provider their entities_vec
-   * was last built with — see db.ts `getEmbeddingDimension`.
+   * When omitted, embeddings are keyword-only (FTS5) unless a legacy
+   * `llm.provider` of openai/ollama implies one (back-compat). Existing
+   * installs stay on whatever provider their entities_vec was last built
+   * with — see db.ts `getEmbeddingDimension`.
    */
   embedder?: EmbedderConfig;
   autoCapture?: boolean;     // default: true. Env override: MEMESH_AUTO_CAPTURE=false disables.
@@ -100,7 +105,7 @@ export interface Capabilities {
   vectorSearch: true;
   scoring: true;
   knowledgeEvolution: true;
-  embeddings: 'onnx' | 'ollama' | 'anthropic' | 'openai' | 'tfidf';
+  embeddings: 'ollama' | 'anthropic' | 'openai' | 'tfidf';
   llm: LLMConfig | null;
   /**
    * Ordered cross-provider fallback chain — empty unless the user has
@@ -278,9 +283,10 @@ export function maskApiKey(key: string): string {
  * Auto-detection is now safe by default (no opt-in env var required). The
  * pre-4.1.0 ship-blocker — fresh-install OPENAI_API_KEY in env locking the
  * entities_vec table to 1536-dim and silently corrupting vector writes — was
- * fixed in #36, which decoupled embedder from LLM provider. The embedder now
- * defaults to ONNX (384-dim, local) regardless of what LLM is detected, so
- * detecting a remote LLM no longer cascades into a dimension lock.
+ * fixed in #36, which decoupled embedder from LLM provider. An env-detected
+ * LLM never selects an embedder: without an explicit `embedder.provider`
+ * (or a legacy `llm.provider` in config.json), embeddings stay keyword-only
+ * (FTS5), so detecting a remote LLM no longer cascades into a dimension lock.
  *
  * Explicit `cfg.llm` in config.json still takes precedence (see
  * `detectCapabilities`) — env auto-detect only fires when the user has not
@@ -335,11 +341,11 @@ export function detectCapabilities(config?: MeMeshConfig): Capabilities {
   // pre-4.1.0 ship-blocker where env-detected OPENAI_API_KEY locked
   // entities_vec to 1536-dim and broke vector writes on fresh installs.
   //   - LLM: cfg.llm > env auto-detect (anthropic > openai > ollama)
-  //   - Embedder: cfg.embedder > legacy back-compat from cfg.llm > onnx
+  //   - Embedder: cfg.embedder > legacy back-compat from cfg.llm > keyword-only (tfidf)
   // Critically, embedder back-compat ONLY consults cfg.llm (explicit user
   // choice), never env-detected LLM. So a user who has OPENAI_API_KEY in
-  // their shell gets openai LLM features but keeps onnx embeddings unless
-  // they explicitly write embedder.provider=openai to their config.
+  // their shell gets openai LLM features but keeps keyword-only embeddings
+  // unless they explicitly write embedder.provider=openai to their config.
   const llm = cfg.llm ?? detectFromEnv() ?? null;
   const embeddings = detectEmbeddingSource(cfg.llm ?? null, cfg.embedder);
 
@@ -363,29 +369,41 @@ export function detectCapabilities(config?: MeMeshConfig): Capabilities {
  *   2. legacy fallback derived from llm.provider — only when embedder
  *      isn't set, preserves backward compat with pre-#36 configs that
  *      had no embedder field.
- *   3. ONNX local fallback when @huggingface/transformers is installed.
- *   4. tfidf last-resort.
+ *   3. keyword-only (tfidf) — no neural embedder; FTS5 alone.
  *
- * #36 changed default from "follow LLM provider" to "pin to ONNX".
- * Reason: switching LLM (e.g. anthropic → ollama) used to silently
- * invalidate every stored vector when the embedder dim changed.
+ * A legacy `embedder.provider: "onnx"` (the local model memesh shipped
+ * before it standardised on ollama) is treated as keyword-only. That
+ * degrades gracefully rather than erroring, and — because keyword-only
+ * resolves to the same 384-dim default an old ONNX table was built at
+ * (see getEmbeddingDimension) — it does NOT drop that user's existing
+ * vector index. The vectors simply stop being read/written until the
+ * user configures ollama or an openai embedder and reindexes.
+ *
  * Existing installs with `llm.provider=ollama` and NO embedder field
  * still resolve to ollama embeddings (back-compat); fresh writes with
  * an explicit `embedder.provider` win unconditionally.
  */
 function detectEmbeddingSource(llm: LLMConfig | null, embedder?: EmbedderConfig): Capabilities['embeddings'] {
-  if (embedder?.provider) return embedder.provider;
-  // Back-compat for pre-#36 configs (no embedder field).
-  if (llm?.provider === 'openai') return 'openai';
-  if (llm?.provider === 'ollama') return 'ollama';
-  // No LLM and Anthropic both use local ONNX when available.
-  try {
-    const require = createRequire(import.meta.url);
-    require.resolve('@huggingface/transformers');
-    return 'onnx';
-  } catch {
+  const provider = embedder?.provider as string | undefined;
+  // An embedder field that is PRESENT decides the answer on its own — it must
+  // NEVER fall through to the llm back-compat below. Falling through is a
+  // data-loss path: a legacy `onnx`, a typo (`Onnx`, `olama`), an empty or
+  // whitespace-only string, or any removed provider would otherwise inherit the
+  // llm's dimension (e.g. 768 for ollama) and disagree with a table built at
+  // another width, which makes db.ts DROP every embedding. Anything not exactly
+  // openai/ollama resolves to keyword-only (tfidf), whose 384-dim default keeps
+  // a legacy 384 table intact. An empty/whitespace value is treated as an
+  // explicit-but-invalid embedder, NOT as "unset" — only a genuinely absent
+  // field (undefined) reaches the llm back-compat.
+  if (provider !== undefined && provider !== null) {
+    if (provider === 'openai' || provider === 'ollama') return provider;
     return 'tfidf';
   }
+  // No embedder field: back-compat for pre-#36 configs derives it from llm.
+  if (llm?.provider === 'openai') return 'openai';
+  if (llm?.provider === 'ollama') return 'ollama';
+  // No embedder and no legacy openai/ollama LLM: keyword-only (FTS5).
+  return 'tfidf';
 }
 
 // --- Embedding Dimensions ---
@@ -393,8 +411,17 @@ function detectEmbeddingSource(llm: LLMConfig | null, embedder?: EmbedderConfig)
 const EMBEDDING_DIMENSIONS: Record<string, number> = {
   openai: 1536,    // text-embedding-3-small
   ollama: 768,     // nomic-embed-text (default)
-  onnx: 384,       // all-MiniLM-L6-v2
 };
+
+/**
+ * The vector width to declare `entities_vec` at when no neural embedder is
+ * selected (keyword-only / tfidf, and the removed local ONNX embedder mapped
+ * onto it). It is deliberately 384 — the width the old default ONNX table was
+ * built at — so a keyword-only resolution does NOT disagree with a legacy
+ * 384-dim table and trigger db.ts to drop it. The table simply sits unused
+ * until a real embedder is configured and the index is rebuilt.
+ */
+const KEYWORD_ONLY_DIMENSION = 384;
 
 /**
  * Get the current embedding vector dimension based on configured provider.
@@ -406,7 +433,7 @@ export function getEmbeddingDimension(config?: MeMeshConfig): number {
   // env-detected LLM. This keeps entities_vec dimension stable across
   // shell envs that have OPENAI_API_KEY set for unrelated tools.
   const source = detectEmbeddingSource(cfg.llm ?? null, cfg.embedder);
-  return EMBEDDING_DIMENSIONS[source] ?? 384;
+  return EMBEDDING_DIMENSIONS[source] ?? KEYWORD_ONLY_DIMENSION;
 }
 
 /**
@@ -460,6 +487,19 @@ export function logCapabilities(config?: MeMeshConfig): void {
   process.stderr.write(`MeMesh: Level ${caps.searchLevel} (${caps.searchLevel === 1 ? 'Smart Mode' : 'Core'})\n`);
   if (caps.llm) {
     process.stderr.write(`MeMesh: LLM: ${caps.llm.provider} (${caps.llm.model ?? 'default'})\n`);
+  }
+  // State the SEMANTIC-search capability explicitly, separately from the chat
+  // LLM. `searchLevel` above is driven by the LLM only, so before this line a
+  // user with no embedder saw nothing telling them meaning-based search was off
+  // — a silent capability downgrade. openai/ollama are the only providers that
+  // yield vectors; every other state (keyword-only tfidf, anthropic) is FTS5.
+  if (caps.embeddings === 'openai' || caps.embeddings === 'ollama') {
+    process.stderr.write(`MeMesh: Semantic (meaning-based) search: ON (${caps.embeddings}).\n`);
+  } else {
+    process.stderr.write(
+      `MeMesh: Semantic (meaning-based) search: OFF — keyword search only. ` +
+      `Configure ollama or an embedder to enable it.\n`
+    );
   }
 }
 

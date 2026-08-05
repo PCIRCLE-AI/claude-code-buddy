@@ -617,11 +617,9 @@ app.post('/v1/config', async (req, res) => {
     return;
   }
   try {
-    // NOTE: read-modify-write across `before`/`updateConfig` is non-atomic.
-    // Concurrent POSTs could interleave such that the embedder cache fails
-    // to reset. This is acceptable for the MeMesh dashboard (single user,
-    // single tab in practice); revisit if the HTTP API ever serves
-    // multi-tenant config writes.
+    // NOTE: the read-modify-write across `before`/`updateConfig` is non-atomic.
+    // Acceptable for the single-user MeMesh dashboard; revisit if the HTTP API
+    // ever serves multi-tenant config writes.
     const before = readConfig();
     // Refill any fallback apiKey the SPA omitted because the user left a
     // stored (masked) key untouched — otherwise the wholesale llmFallbacks
@@ -630,21 +628,9 @@ app.post('/v1/config', async (req, res) => {
       parsed.data.llmFallbacks = preserveFallbackApiKeys(parsed.data.llmFallbacks, before.llmFallbacks);
     }
     const updated = updateConfig(parsed.data);
-    // If the LLM provider/apiKey changed, the embedder may have cached an
-    // ONNX pipeline (or be about to use the now-stale apiKey path). Reset
-    // so the next embed call picks up the new config — eliminates the
-    // "restart server to apply" footgun.
-    // F17: `llm: null` removes the provider, which also counts as a change.
-    // `parsed.data.llm !== undefined` covers both set-to-something and
-    // set-to-null; `=== undefined` would be "user did not touch llm".
-    const llmChanged =
-      parsed.data.llm !== undefined &&
-      (before.llm?.provider !== updated.llm?.provider ||
-        before.llm?.apiKey !== updated.llm?.apiKey);
-    if (llmChanged) {
-      const { resetEmbeddingState } = await import('../../core/embedder.js');
-      resetEmbeddingState();
-    }
+    // The embedder holds no cached provider/pipeline state: every embedText()
+    // reads config fresh, so a config change takes effect on the next call
+    // with no reset needed and no "restart server to apply" footgun.
     // Mask every apiKey (primary + fallback chain) before returning — same
     // helper the GET handler uses, so the response can't leak a saved
     // llmFallbacks[].apiKey in plaintext.

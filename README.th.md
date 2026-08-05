@@ -273,7 +273,7 @@ memesh export-schema \
 |---|---|---|
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | เปลี่ยนตำแหน่งฐานข้อมูล SQLite |
 | `MEMESH_AUTO_CAPTURE` | `true` | ปิดการใช้ hook จับข้อมูลอัตโนมัติทั้งหมด (`Stop`, `PreCompact`) |
-| `MEMESH_AUTO_DETECT_LLM` | ไม่ได้ตั้งค่า (ตรวจจับอัตโนมัติ **เปิด**) | ตั้งเป็น `0` เพื่อไม่ให้ memesh ใช้คีย์ API ที่พบในสภาพแวดล้อมของเชลล์ โดยค่าเริ่มต้น หากตั้ง `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` ไว้ และคุณยังไม่ได้กำหนดผู้ให้บริการใน `~/.memesh/config.json` memesh จะใช้คีย์นั้นสำหรับฟีเจอร์ LLM ฝั่งเขียน (การสกัดบทเรียน, auto-tagging, dream) ส่วน embeddings ไม่ได้รับผลกระทบ — ยังคงเป็น ONNX ในเครื่อง (384 มิติ) เว้นแต่คุณจะตั้ง `embedder.provider` อย่างชัดเจน |
+| `MEMESH_AUTO_DETECT_LLM` | ไม่ได้ตั้งค่า (ตรวจจับอัตโนมัติ **เปิด**) | ตั้งเป็น `0` เพื่อไม่ให้ memesh ใช้คีย์ API ที่พบในสภาพแวดล้อมของเชลล์ โดยค่าเริ่มต้น หากตั้ง `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` ไว้ และคุณยังไม่ได้กำหนดผู้ให้บริการใน `~/.memesh/config.json` memesh จะใช้คีย์นั้นสำหรับฟีเจอร์ LLM ฝั่งเขียน (การสกัดบทเรียน, auto-tagging, dream) ส่วน embeddings ไม่ได้รับผลกระทบ — ยังคงเป็นการค้นหาด้วยคีย์เวิร์ดอย่างเดียว (FTS5) เว้นแต่คุณจะตั้ง `embedder.provider` เป็น `ollama` หรือ `openai` |
 | `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | ไม่ตั้ง | ตั้งเป็น `1` เพื่อเปิดใช้โปรโตคอล working-model เชิงทดลอง (กรอบ CTO / Orchestrator / Agents) เพิ่มแบนเนอร์ตอนเริ่มเซสชัน การเตือนคำสั่ง Bash และเทเลเมตรี `verify_agent_work` ประสิทธิผลของโปรโตคอลกำลังถูกเก็บข้อมูล ยังไม่ได้พิสูจน์ — opt-in ถ้าต้องการเข้าร่วม **ค่าเริ่มต้นปิด**: ฟีเจอร์หน่วยความจำหลักทำงานได้โดยไม่ต้องเปิดธงนี้ |
 | `MEMESH_AUTO_UPDATE` | `off` | นโยบายอัปเดตอัตโนมัติ `off` (ค่าเริ่มต้น) ไม่อัปเดตเลย; `patch` อนุญาต `X.Y.Z → X.Y.Z+N`; `minor` เพิ่ม `X.Y.Z → X.Y+1.0`; `major` อนุญาตทุกการเพิ่มเวอร์ชัน เมื่ออนุญาต `npm install -g` แบบ detached จะทำงานเมื่อจบเซสชัน (Stop hook) เพื่อไม่บล็อกงานของคุณ — ผลลัพธ์ลงใน `~/.memesh/auto-update.log` ตั้งใน `~/.memesh/config.json` ผ่านคีย์ `autoUpdate` ก็ได้ (env ชนะ) เมื่อเวอร์ชันที่ติดตั้งถูก deprecate (security advisory) `patch` จะถูกบังคับเปิดแม้ตั้งเป็น `off` — minor / major ยังต้องทำมือเพื่อหลีกเลี่ยงการเปลี่ยนพฤติกรรมเงียบ ๆ |
 | `OPENAI_API_KEY` | ไม่ได้ตั้งค่า | คีย์ OpenAI ของคุณ ใช้โดยอัตโนมัติสำหรับฟีเจอร์ LLM เว้นแต่คุณจะตั้ง `MEMESH_AUTO_DETECT_LLM=0` หรือกำหนดผู้ให้บริการอย่างชัดเจน |
@@ -351,14 +351,14 @@ memesh serve  # opens dashboard → Settings tab
 
 ### ใช้ embeddings ของคุณเอง (ไม่บังคับ)
 
-โดยค่าเริ่มต้น embeddings ใช้โมเดล ONNX ในเครื่อง (`Xenova/all-MiniLM-L6-v2`, 384 มิติ) — ไม่ต้องใช้คีย์ API ไม่มีข้อมูลออกจากเครื่อง และการ recall แบบ FTS5 เริ่มต้นก็ไม่ต้องใช้เลย หากต้องการใช้ embedder แบบโฮสต์หรือเซิร์ฟเวอร์ในเครื่อง:
+โดยค่าเริ่มต้น MeMesh ทำ recall **ด้วยคีย์เวิร์ดอย่างเดียว** (FTS5) — ไม่ต้องใช้คีย์ API ไม่ต้องดาวน์โหลดโมเดล ไม่มีข้อมูลออกจากเครื่อง การค้นหาเชิงความหมาย (semantic) เป็นตัวเลือกเสริมและต้องใช้ embedder ตั้งค่าอย่างใดอย่างหนึ่ง:
 
 ```bash
 memesh config set embedder.provider openai          # or: ollama
 memesh config set embedder.model text-embedding-3-small
 ```
 
-embedder ถูกตั้งค่า**แยกจาก LLM แชท** — การเปลี่ยน `llm.provider` จะไม่เปลี่ยน embeddings ของคุณอย่างเงียบ ๆ หากเปลี่ยนไปใช้มิติที่ต่างกัน (เช่น 384 → 1536) MeMesh จะสร้างดัชนีเวกเตอร์ใหม่โดยอัตโนมัติในการเขียนครั้งถัดไป ค่า `embedder.provider` ที่รองรับ: `onnx` (ค่าเริ่มต้น ในเครื่อง), `openai`, `ollama`
+embedder ถูกตั้งค่า**แยกจาก LLM แชท** — การเปลี่ยน `llm.provider` จะไม่เปลี่ยน embeddings ของคุณอย่างเงียบ ๆ หากเปลี่ยนไปใช้มิติที่ต่างกัน (เช่น 768 → 1536) MeMesh จะสร้างดัชนีเวกเตอร์ใหม่โดยอัตโนมัติในการเขียนครั้งถัดไป ค่า `embedder.provider` ที่รองรับ: `ollama` (ในเครื่อง), `openai` (โฮสต์) หากไม่ตั้งค่าใดเลย recall จะยังคงเป็นการค้นหาด้วยคีย์เวิร์ด
 
 | | ระดับ 0 (ค่าเริ่มต้น) | ระดับ 1 (Smart Mode) |
 |---|---|---|

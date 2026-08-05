@@ -22,8 +22,10 @@
 // Modes map to real product configurations, not to harness-internal fusion
 // strategies:
 //   A — embeddings absent. FTS5 + BM25 only. ~10s for 500 questions.
-//   B — embeddings populated (local ONNX, 384-dim), so `recallEnhanced()`'s
-//       vector supplement can contribute. ~25min for 500 questions.
+//   B — embeddings populated, so `recallEnhanced()`'s vector supplement can
+//       contribute. Needs a configured embedder (ollama/openai); the published
+//       Mode B/C figures were measured on the local ONNX MiniLM-L6 embedder
+//       that has since been removed, so they are historical for that model.
 // The old mode C (a 60/40 weighted FTS+vector fusion) is gone: it was a
 // harness-only experiment. The product has never implemented weighted fusion,
 // so there was nothing for it to measure.
@@ -80,7 +82,7 @@ const { recallEnhanced } = await import(path.join(repoRoot, 'dist/core/operation
 const { embedAndStore, isEmbeddingAvailable } = await import(path.join(repoRoot, 'dist/core/embedder.js'));
 
 if (mode === 'B' && !isEmbeddingAvailable()) {
-  process.stderr.write('Mode B needs embeddings available (local ONNX via @huggingface/transformers). Run `npm install`.\n');
+  process.stderr.write('Mode B needs a configured embedder. The local ONNX embedder was removed — run `ollama serve` and `memesh config set embedder.provider ollama` (or configure openai), then retry.\n');
   process.exit(1);
 }
 

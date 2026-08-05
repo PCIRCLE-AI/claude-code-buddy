@@ -24,8 +24,8 @@ describe('session-start hook: agentic-orchestration telemetry', () => {
   let tmpHome: string;
 
   // Per-hook 60s timeout: the seed CLI cold-starts the better-sqlite3
-  // native module + ONNX pipeline + sqlite-vec extension on first run,
-  // which can take >10s on cold caches.
+  // native module + sqlite-vec extension on first run, which can take
+  // >10s on cold caches.
   beforeEach(async () => {
     tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-hook-tel-'));
     fs.mkdirSync(path.join(tmpHome, '.memesh'), { recursive: true });

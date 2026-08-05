@@ -1,7 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   isEmbeddingAvailable,
-  resetEmbeddingState,
   getEmbeddingDimension,
   vectorSearch,
   vectorSimilarity,
@@ -14,10 +13,6 @@ import os from 'os';
 
 describe('Embedder', () => {
   let testDir: string | undefined;
-
-  beforeEach(() => {
-    resetEmbeddingState();
-  });
 
   afterEach(() => {
     try { closeDatabase(); } catch {}
@@ -48,19 +43,11 @@ describe('Embedder', () => {
     expect(first).toBe(second);
   });
 
-  it('isEmbeddingAvailable returns true when @huggingface/transformers is installed', () => {
-    // In this test environment, @huggingface/transformers IS installed as a dependency
-    const result = isEmbeddingAvailable();
-    expect(result).toBe(true);
-  });
-
-  it('resetEmbeddingState allows re-checking availability', () => {
-    const first = isEmbeddingAvailable();
-    resetEmbeddingState();
-    const second = isEmbeddingAvailable();
-    // Both should be true (package is installed), but the point is
-    // resetEmbeddingState actually clears the cache
-    expect(first).toBe(second);
+  it('isEmbeddingAvailable is false with no embedder configured (keyword-only)', () => {
+    // The suite runs under an isolated HOME with no config, so no neural
+    // embedder is selected. That MUST resolve to keyword-only (FTS5), not a
+    // crash — the graceful-degradation contract after the ONNX removal.
+    expect(isEmbeddingAvailable()).toBe(false);
   });
 
   it('getEmbeddingDimension returns a positive integer', () => {
@@ -70,7 +57,8 @@ describe('Embedder', () => {
   });
 
   it('getEmbeddingDimension returns known dimension value', () => {
-    // Should be one of: 384 (ONNX), 1536 (OpenAI), 768 (Ollama)
+    // 384 = keyword-only default (also matches legacy tables), 768 = Ollama,
+    // 1536 = OpenAI.
     const dim = getEmbeddingDimension();
     expect([384, 768, 1536]).toContain(dim);
   });

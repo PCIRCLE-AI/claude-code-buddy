@@ -78,7 +78,7 @@ src/
 │   ├── lifecycle.ts       # Auto-decay + weekly noise compression
 │   ├── failure-analyzer.ts # LLM-powered failure analysis → StructuredLesson
 │   ├── lesson-engine.ts   # Structured lesson creation, upsert, project query
-│   ├── embedder.ts        # Neural embeddings (@huggingface/transformers + all-MiniLM-L6-v2, 384-dim)
+│   ├── embedder.ts        # Neural embeddings via Ollama (768-dim) / OpenAI (1536-dim); keyword-only FTS5 fallback when none configured
 │   ├── auto-tagger.ts     # LLM-powered auto-tag generation (fire-and-forget)
 │   ├── llm-client.ts      # Single dispatch for anthropic/openai/ollama + cross-provider failover + secret redaction
 │   ├── llm-telemetry.ts   # llm_telemetry table + recordTelemetry + summariseTelemetry + pruneTelemetry

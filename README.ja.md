@@ -129,7 +129,7 @@ npm install -g @pcircle/memesh
 
 > **初回インストールに関する注意(一度きり):**
 > - **ネイティブモジュール** — `better-sqlite3` と `sqlite-vec` は macOS (arm64/x64)、Linux (x64/arm64)、Windows x64 でビルド済みバイナリ経由でインストールされます。珍しいプラットフォームやビルド済みバイナリが失敗した場合は、動作する C/C++ ツールチェインが必要です。
-> - **エンベディングモデル** — ローカルエンベディングをトリガーする最初の呼び出し(例: セマンティックモードでの `recall`)で `Xenova/all-MiniLM-L6-v2`(~80 MB)が `~/.memesh/models/` にダウンロードされます。以降の呼び出しは即時です。デフォルトの検索パス(FTS5)はこのダウンロードを必要としません。
+> - **セマンティック検索は任意** — デフォルトの検索パスはキーワード検索(FTS5)で、モデルもダウンロードも不要です。意味ベースの検索にはエンベダーが必要です: ローカルで [Ollama](https://ollama.com) を動かすか、クラウドのエンベダーを設定してください(下の「エンベディング」参照)。設定がなければ memesh はキーワード検索のみを使います。
 
 ### ステップ 1.5: MeMesh を Claude Code に接続(npm パスのみ)
 
@@ -285,7 +285,7 @@ memesh export-schema \
 |---|---|---|
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | SQLite データベースの保存場所を上書き。 |
 | `MEMESH_AUTO_CAPTURE` | `true` | 自動キャプチャフック(`Stop`、`PreCompact`)を完全に無効化。 |
-| `MEMESH_AUTO_DETECT_LLM` | 未設定(自動検出**オン**) | `0` に設定すると、シェル環境で見つかった API キーを memesh が使用しなくなります。デフォルトでは、`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` が設定されていて `~/.memesh/config.json` にプロバイダを構成していない場合、memesh は書き込み側の LLM 機能(統合、レッスン抽出、自動タグ付け、dream)にそれを使用します。エンベディングは影響を受けません — `embedder.provider` を明示的に設定しない限りローカル ONNX(384 次元)のままです。 |
+| `MEMESH_AUTO_DETECT_LLM` | 未設定(自動検出**オン**) | `0` に設定すると、シェル環境で見つかった API キーを memesh が使用しなくなります。デフォルトでは、`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` が設定されていて `~/.memesh/config.json` にプロバイダを構成していない場合、memesh は書き込み側の LLM 機能(統合、レッスン抽出、自動タグ付け、dream)にそれを使用します。エンベディングは影響を受けません — `embedder.provider` を `ollama` または `openai` に明示設定しない限りキーワードのみ(FTS5)のままです。 |
 | `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | 未設定 | `1` に設定すると、実験的なワーキングモデルプロトコル(CTO / Orchestrator / Agents のフレーミング)が有効になります。セッション開始バナー、Bash コマンドの促し、`verify_agent_work` テレメトリが追加されます。プロトコルの有効性は計測中であり、まだ証明されていません — 参加したい場合のみオプトイン。**デフォルトは OFF**: コアメモリ機能はこのフラグなしで動作します。 |
 | `MEMESH_AUTO_UPDATE` | `off` | 自動更新ポリシー。`off`(デフォルト)は自動更新を行いません。`patch` は `X.Y.Z → X.Y.Z+N` を許可、`minor` は `X.Y.Z → X.Y+1.0` を追加、`major` は任意のバンプを許可。許可されている場合、デタッチ実行された `npm install -g` がセッション終了時(Stop フック)に発火するため作業をブロックしません — 結果は `~/.memesh/auto-update.log` に記録されます。`~/.memesh/config.json` の `autoUpdate` でも設定可能(env が優先)。インストール済みバージョンがメンテナーによって非推奨化された場合(セキュリティアドバイザリ)、`off` でも `patch` は強制的に許可されます — minor / major バンプはサイレントな挙動変化を避けるため手動のままです。 |
 | `OPENAI_API_KEY` | 未設定 | OpenAI のキー。`MEMESH_AUTO_DETECT_LLM=0` を設定するか、明示的にプロバイダを設定しない限り、LLM 機能で自動的に使用されます。 |
@@ -363,14 +363,14 @@ memesh serve  # ダッシュボード → Settings タブを開く
 
 ### 独自のエンベディングを使う(任意)
 
-エンベディングはデフォルトでローカル ONNX モデル(`Xenova/all-MiniLM-L6-v2`、384 次元)を使用します — API キー不要、データは端末外に出ず、デフォルトの FTS5 リコールはそもそも不要です。ホスト型またはローカルサーバーのエンベダーを使うには:
+デフォルトで MeMesh は**キーワードのみ**のリコール(FTS5)を行います — API キー不要、モデルのダウンロード不要、データは端末外に出ません。セマンティック(意味ベース)検索は任意で、エンベダーが必要です。次のいずれかを設定してください:
 
 ```bash
 memesh config set embedder.provider openai          # or: ollama
 memesh config set embedder.model text-embedding-3-small
 ```
 
-エンベダーは**チャット LLM とは独立して**構成されます — `llm.provider` を変更してもエンベディングが黙って変わることはありません。異なる次元(例: 384 → 1536)に切り替えると、MeMesh は次回の書き込み時にベクトルインデックスを自動的に再構築します。対応する `embedder.provider`: `onnx`(デフォルト、ローカル)、`openai`、`ollama`。
+エンベダーは**チャット LLM とは独立して**構成されます — `llm.provider` を変更してもエンベディングが黙って変わることはありません。異なる次元(例: 768 → 1536)に切り替えると、MeMesh は次回の書き込み時にベクトルインデックスを自動的に再構築します。対応する `embedder.provider`: `ollama`(ローカル)、`openai`(ホスト型)。どちらも未設定ならリコールはキーワード検索のままです。
 
 | | レベル 0 (デフォルト) | レベル 1 (スマートモード) |
 |---|---|---|

@@ -129,7 +129,7 @@ npm install -g @pcircle/memesh
 
 > **첫 설치 안내(일회성):**
 > - **네이티브 모듈** — `better-sqlite3`와 `sqlite-vec`는 macOS(arm64/x64), Linux(x64/arm64), Windows x64에서 사전 빌드 바이너리로 설치됩니다. 흔치 않은 플랫폼이거나 사전 빌드가 실패하는 경우 작동하는 C/C++ 툴체인이 필요합니다.
-> - **임베딩 모델** — 로컬 임베딩을 트리거하는 첫 호출(예: 시맨틱 모드의 `recall`)이 `Xenova/all-MiniLM-L6-v2`(~80 MB)를 `~/.memesh/models/`에 다운로드합니다. 이후 호출은 즉시 실행됩니다. 기본 검색 경로(FTS5)는 이 다운로드가 필요하지 않습니다.
+> - **시맨틱 검색은 선택 사항** — 기본 검색 경로는 키워드 검색(FTS5)으로, 모델도 다운로드도 필요 없습니다. 의미 기반 검색에는 임베더가 필요합니다: 로컬에서 [Ollama](https://ollama.com)를 실행하거나 클라우드 임베더를 구성하세요(아래 "임베딩" 참조). 없으면 memesh는 키워드 검색만 사용합니다.
 
 ### 1.5단계: MeMesh를 Claude Code에 연결 (npm 경로만)
 
@@ -285,7 +285,7 @@ memesh export-schema \
 |---|---|---|
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | SQLite 데이터베이스 위치를 재정의합니다. |
 | `MEMESH_AUTO_CAPTURE` | `true` | 자동 캡처 훅(`Stop`, `PreCompact`)을 완전히 비활성화합니다. |
-| `MEMESH_AUTO_DETECT_LLM` | 미설정(자동 감지 **켜짐**) | `0`으로 설정하면 memesh가 셸 환경에서 발견한 API 키를 사용하지 않습니다. 기본적으로 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST`가 설정되어 있고 `~/.memesh/config.json`에 프로바이더를 구성하지 않았다면, memesh는 쓰기 측 LLM 기능(통합, 교훈 추출, 자동 태깅, dream)에 이를 사용합니다. 임베딩은 영향을 받지 않습니다 — `embedder.provider`를 명시적으로 설정하지 않는 한 로컬 ONNX(384차원)로 유지됩니다. |
+| `MEMESH_AUTO_DETECT_LLM` | 미설정(자동 감지 **켜짐**) | `0`으로 설정하면 memesh가 셸 환경에서 발견한 API 키를 사용하지 않습니다. 기본적으로 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST`가 설정되어 있고 `~/.memesh/config.json`에 프로바이더를 구성하지 않았다면, memesh는 쓰기 측 LLM 기능(통합, 교훈 추출, 자동 태깅, dream)에 이를 사용합니다. 임베딩은 영향을 받지 않습니다 — `embedder.provider`를 `ollama` 또는 `openai`로 명시하지 않는 한 키워드 전용(FTS5)으로 유지됩니다. |
 | `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | unset | `1`로 설정하면 실험적 작업 모델 프로토콜(CTO / Orchestrator / Agents 프레이밍)을 활성화합니다. 세션 시작 배너, Bash 명령 nudge, `verify_agent_work` 텔레메트리를 추가합니다. 이 프로토콜의 효과는 측정 중이며 아직 입증되지 않았습니다 — 참여하려면 옵트인하세요. **기본값은 OFF**: 코어 메모리 기능은 이 플래그 없이도 작동합니다. |
 | `MEMESH_AUTO_UPDATE` | `off` | 자동 업데이트 정책. `off`(기본값)는 자동 업데이트하지 않습니다; `patch`는 `X.Y.Z → X.Y.Z+N`을 허용합니다; `minor`는 `X.Y.Z → X.Y+1.0`을 추가합니다; `major`는 모든 bump를 허용합니다. 허용된 경우, 분리된 `npm install -g`가 세션 종료 시(Stop 훅) 실행되어 작업을 차단하지 않습니다 — 결과는 `~/.memesh/auto-update.log`에 기록됩니다. `~/.memesh/config.json`에서도 `autoUpdate`로 설정 가능합니다(env가 우선). 설치된 버전이 메인테이너에 의해 deprecated된 경우(보안 권고), `off`에서도 `patch`가 강제 허용됩니다 — minor / major bump는 조용한 동작 변화를 피하기 위해 수동으로 유지됩니다. |
 | `OPENAI_API_KEY` | 미설정 | OpenAI 키. `MEMESH_AUTO_DETECT_LLM=0`을 설정하거나 프로바이더를 명시적으로 구성하지 않는 한 LLM 기능에 자동으로 사용됩니다. |
@@ -363,14 +363,14 @@ memesh serve  # 대시보드 열기 → Settings 탭
 
 ### 자체 임베딩 사용 (선택)
 
-임베딩은 기본적으로 로컬 ONNX 모델(`Xenova/all-MiniLM-L6-v2`, 384차원)을 사용합니다 — API 키 불필요, 데이터가 기기를 벗어나지 않으며, 기본 FTS5 리콜은 아예 필요하지 않습니다. 호스팅형 또는 로컬 서버 임베더를 쓰려면:
+기본적으로 MeMesh는 **키워드 전용** 리콜(FTS5)을 수행합니다 — API 키 불필요, 모델 다운로드 불필요, 데이터가 기기를 벗어나지 않습니다. 시맨틱(의미 기반) 검색은 선택 사항이며 임베더가 필요합니다. 하나를 구성하세요:
 
 ```bash
 memesh config set embedder.provider openai          # or: ollama
 memesh config set embedder.model text-embedding-3-small
 ```
 
-임베더는 **채팅 LLM과 독립적으로** 구성됩니다 — `llm.provider`를 바꿔도 임베딩이 조용히 바뀌지 않습니다. 다른 차원(예: 384 → 1536)으로 전환하면 MeMesh가 다음 쓰기 시 벡터 인덱스를 자동으로 재구축합니다. 지원되는 `embedder.provider`: `onnx`(기본, 로컬), `openai`, `ollama`.
+임베더는 **채팅 LLM과 독립적으로** 구성됩니다 — `llm.provider`를 바꿔도 임베딩이 조용히 바뀌지 않습니다. 다른 차원(예: 768 → 1536)으로 전환하면 MeMesh가 다음 쓰기 시 벡터 인덱스를 자동으로 재구축합니다. 지원되는 `embedder.provider`: `ollama`(로컬), `openai`(호스팅형). 둘 다 없으면 리콜은 키워드 검색으로 유지됩니다.
 
 | | Level 0 (기본) | Level 1 (스마트 모드) |
 |---|---|---|

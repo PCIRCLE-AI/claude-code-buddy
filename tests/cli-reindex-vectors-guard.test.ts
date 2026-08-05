@@ -151,8 +151,8 @@ describe('memesh reindex --vectors refuses to destroy more than asked', () => {
     // anything. What happens next depends on the machine, and BOTH outcomes are
     // the bug:
     //
-    //   - no local ONNX model cached (a CI runner)  -> `no_embedding`
-    //   - a cached ONNX model (a developer's box)   -> 384-dim vector against a
+    //   - no embedder configured (keyword-only)     -> `no_embedding`
+    //   - an embedder at the wrong width            -> a vector against a
     //     1536-dim index -> `dimension_mismatch`, which is the "the configured
     //     provider failed and a fallback was used" case `embedAndStore` warns
     //     about by name

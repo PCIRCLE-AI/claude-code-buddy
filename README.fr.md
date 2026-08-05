@@ -258,7 +258,7 @@ Toute la configuration passe par des variables d'environnement. Les valeurs par 
 |---|---|---|
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | Remplace l'emplacement de la base SQLite. |
 | `MEMESH_AUTO_CAPTURE` | `true` | Désactive entièrement les hooks d'auto-capture (`Stop`, `PreCompact`). |
-| `MEMESH_AUTO_DETECT_LLM` | non défini (détection auto **activée**) | Mettre à `0` pour empêcher memesh d'utiliser une clé API trouvée dans l'environnement du shell. Par défaut, si `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` est définie et qu'aucun fournisseur n'est configuré dans `~/.memesh/config.json`, memesh l'utilise pour les fonctions LLM d'écriture (extraction de leçons, auto-tagging, dream). Les embeddings ne sont pas affectés — ils restent en ONNX local (384-dim) sauf si vous définissez explicitement `embedder.provider`. |
+| `MEMESH_AUTO_DETECT_LLM` | non défini (détection auto **activée**) | Mettre à `0` pour empêcher memesh d'utiliser une clé API trouvée dans l'environnement du shell. Par défaut, si `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` est définie et qu'aucun fournisseur n'est configuré dans `~/.memesh/config.json`, memesh l'utilise pour les fonctions LLM d'écriture (extraction de leçons, auto-tagging, dream). Les embeddings ne sont pas affectés — ils restent en recherche par mots-clés uniquement (FTS5) sauf si vous définissez `embedder.provider` sur `ollama` ou `openai`. |
 | `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | non défini | Mettre à `1` pour activer un protocole de modèle de travail expérimental (cadre CTO / Orchestrateur / Agents). Ajoute une bannière en début de session, un nudge sur les commandes Bash et la télémétrie `verify_agent_work`. L'efficacité du protocole est instrumentée mais pas encore prouvée — activez-la si vous souhaitez participer. **Désactivé par défaut** : les fonctionnalités de mémoire principales fonctionnent sans ce flag. |
 | `MEMESH_AUTO_UPDATE` | `off` | Politique de mise à jour automatique. `off` (défaut) ne met jamais à jour automatiquement ; `patch` autorise `X.Y.Z → X.Y.Z+N` ; `minor` ajoute `X.Y.Z → X.Y+1.0` ; `major` autorise tout incrément. Quand c'est permis, un `npm install -g` détaché s'exécute en fin de session (hook Stop) pour ne jamais bloquer votre travail — les résultats arrivent dans `~/.memesh/auto-update.log`. Configurable aussi via `autoUpdate` dans `~/.memesh/config.json` (la variable d'environnement l'emporte). Quand la version installée est dépréciée par les mainteneurs (alerte de sécurité), `patch` est forcé même en `off` — les incréments minor / major restent manuels pour éviter une dérive de comportement silencieuse. |
 | `OPENAI_API_KEY` | non défini | Votre clé OpenAI. Utilisée automatiquement pour les fonctions LLM sauf si vous mettez `MEMESH_AUTO_DETECT_LLM=0` ou configurez un fournisseur explicitement. |
@@ -336,14 +336,14 @@ memesh serve  # ouvre le tableau de bord → onglet Settings
 
 ### Utilisez vos propres embeddings (optionnel)
 
-Les embeddings utilisent par défaut un modèle ONNX local (`Xenova/all-MiniLM-L6-v2`, 384-dim) — aucune clé API, rien ne quitte votre machine, et le recall FTS5 par défaut n'en a pas besoin. Pour utiliser un embedder hébergé ou de serveur local :
+Par défaut, MeMesh fait un recall **par mots-clés uniquement** (FTS5) — aucune clé API, aucun téléchargement de modèle, rien ne quitte votre machine. La recherche sémantique (par sens) est optionnelle et nécessite un embedder. Configurez-en un :
 
 ```bash
 memesh config set embedder.provider openai          # or: ollama
 memesh config set embedder.model text-embedding-3-small
 ```
 
-L'embedder se configure **indépendamment du LLM de chat** — changer `llm.provider` ne change jamais silencieusement vos embeddings. Si vous passez à une dimension différente (p. ex. 384 → 1536), MeMesh reconstruit l'index vectoriel automatiquement à la prochaine écriture. Valeurs `embedder.provider` prises en charge : `onnx` (par défaut, local), `openai`, `ollama`.
+L'embedder se configure **indépendamment du LLM de chat** — changer `llm.provider` ne change jamais silencieusement vos embeddings. Si vous passez à une dimension différente (p. ex. 768 → 1536), MeMesh reconstruit l'index vectoriel automatiquement à la prochaine écriture. Valeurs `embedder.provider` prises en charge : `ollama` (local), `openai` (hébergé). Sans aucun, le recall reste en recherche par mots-clés.
 
 | | Niveau 0 (défaut) | Niveau 1 (Mode Smart) |
 |---|---|---|
