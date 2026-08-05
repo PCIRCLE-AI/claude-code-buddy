@@ -414,6 +414,36 @@ describe('HTTP Transport: POST /v1/config', () => {
     await req('POST', '/v1/config', { llm: null, llmFallbacks: [] });
   });
 
+  it('a posted-back mask "***" is never persisted as a real key (primary + fallback backstop)', async () => {
+    // A client that round-trips GET (masked) → POST verbatim sends apiKey:'***'.
+    // The server must read that as "keep the stored key", not store the mask.
+    await req('POST', '/v1/config', {
+      llm: { provider: 'anthropic', apiKey: 'sk-REAL-primary' },
+      llmFallbacks: [{ provider: 'openai', apiKey: 'sk-REAL-fallback' }],
+    });
+    // Round-trip the mask back — primary by provider match, fallback by keepKeyFrom.
+    await req('POST', '/v1/config', {
+      llm: { provider: 'anthropic', apiKey: '***' },
+      llmFallbacks: [{ provider: 'openai', keepKeyFrom: 0, apiKey: '***' }],
+    });
+    const cfg = readConfig();
+    // Break-test: remove the API_KEY_MASK backstops and these become '***' → red.
+    expect(cfg.llm?.apiKey).toBe('sk-REAL-primary');
+    expect(cfg.llmFallbacks?.[0].apiKey).toBe('sk-REAL-fallback');
+
+    // A bare mask with no identity (no keepKeyFrom, provider still matches prior
+    // for the primary) → primary preserved; fallback has nothing to refill from,
+    // so it is DROPPED, never stored as the literal '***'.
+    await req('POST', '/v1/config', {
+      llm: { provider: 'anthropic', apiKey: '***' },
+      llmFallbacks: [{ provider: 'openai', apiKey: '***' }],
+    });
+    const cfg2 = readConfig();
+    expect(cfg2.llm?.apiKey).toBe('sk-REAL-primary');
+    expect(cfg2.llmFallbacks?.[0].apiKey).toBeUndefined(); // dropped, NOT '***'
+    await req('POST', '/v1/config', { llm: null, llmFallbacks: [] });
+  });
+
   it('removing one of two same-provider entries keeps the survivor its OWN key and drops only the removed', async () => {
     await req('POST', '/v1/config', {
       llmFallbacks: [

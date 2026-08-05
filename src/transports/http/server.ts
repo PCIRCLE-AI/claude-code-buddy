@@ -67,6 +67,7 @@ type ErrorCode =
   | 'payload.too-large'     // 413 — body exceeds the 1 MB limit
   | 'operation.failed'      // 400 — valid request, but the operation itself rejected it
   | 'llm.not-configured'    // 400 — the endpoint needs Smart Mode and no LLM is configured
+  | 'rate.limited'          // 429 — too many requests in the window (non-loopback only)
   | 'server.internal';      // 500/503 — unexpected server-side failure
 
 // JSON body parsing is registered LATER, scoped to /v1/* and gated
@@ -79,12 +80,42 @@ type ErrorCode =
 // IMPORTANT: registered AFTER bearerAuth below so that an unauthenticated
 // attacker cannot drain the rate-limit budget for legitimate clients
 // sharing an IP. Express runs middleware in registration order.
+// A request whose source is the loopback interface — the only clients that
+// reach a default (127.0.0.1-bound) server. `req.ip` is `::1`, `127.0.0.1`, or
+// the IPv4-mapped `::ffff:127.0.0.1` depending on the stack.
+function isLoopbackRequest(req: { ip?: string }): boolean {
+  const ip = req.ip ?? '';
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Limit each IP to 100 requests per windowMs
   standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
   legacyHeaders: false, // Disable `X-RateLimit-*` headers
-  message: 'Too many requests from this IP, please try again later.',
+  // Skip loopback. The dashboard runs on 127.0.0.1 and is chatty by design —
+  // page load fans out to ~8 endpoints and every `dream accept` triggers a full
+  // proposal refetch plus a `memesh:data-changed` reload of the other tabs, so a
+  // normal human review session legitimately passes 100 requests / 15 min. On
+  // loopback there is no auth to begin with (bearerAuth is only enforced
+  // off-loopback — process-owner UNIX semantics are the trust boundary there),
+  // so a per-IP request cap protects nothing a local process couldn't already do
+  // by reading ~/.memesh directly. The limiter is an abuse control for EXPOSED
+  // (--allow-remote / non-loopback) instances; it applies there, and only there.
+  skip: (req) => isLoopbackRequest(req),
+  // Answer over-limit with the SAME {success:false, errorCode} envelope the rest
+  // of the API uses. The default is a bare string body; the dashboard could not
+  // parse it as an envelope and fell back to its most generic guess — "the
+  // dashboard and server are out of sync, run doctor" — which is doubly wrong: on
+  // an exposed instance nothing is out of sync, and the fix is to slow down, not
+  // to reload. A machine code lets the client say exactly that.
+  handler: (_req, res) => {
+    res.status(429).json({
+      success: false,
+      errorCode: 'rate.limited' satisfies ErrorCode,
+      error: 'Too many requests in a short time. Wait a moment and try again.',
+    });
+  },
 });
 
 // --- Bearer-token auth (only enforced when bound to non-loopback) ---
@@ -478,17 +509,25 @@ app.post('/v1/verify',      (req, res) => handlePost(VerifyBody, req, res, verif
  * dashboard SPA in plaintext. Routing both surfaces through one helper makes
  * that drift impossible. Returns a shallow clone; the stored config is untouched.
  */
+// The placeholder every masked key is rendered as. A write surface must treat
+// an incoming value equal to this as "the user left the stored key untouched",
+// NOT as a real key — otherwise a client that round-trips GET→POST verbatim
+// (a second tab, a script) would overwrite the real key with the literal mask
+// and the next provider call fails auth. One constant so the mask and the
+// treat-as-omitted check can never drift apart.
+const API_KEY_MASK = '***';
+
 function maskLlmSecrets<T extends {
   llm?: { apiKey?: string } | null;
   llmFallbacks?: Array<{ apiKey?: string } | null> | null;
 }>(obj: T): T {
   const masked: T = { ...obj };
   if (masked.llm?.apiKey) {
-    masked.llm = { ...masked.llm, apiKey: '***' };
+    masked.llm = { ...masked.llm, apiKey: API_KEY_MASK };
   }
   if (Array.isArray(masked.llmFallbacks) && masked.llmFallbacks.length > 0) {
     masked.llmFallbacks = masked.llmFallbacks.map(fb =>
-      fb?.apiKey ? { ...fb, apiKey: '***' } : fb
+      fb?.apiKey ? { ...fb, apiKey: API_KEY_MASK } : fb
     );
   }
   return masked;
@@ -527,6 +566,10 @@ type FallbackEntry = { provider: 'anthropic' | 'openai' | 'ollama'; model?: stri
 function preserveFallbackApiKeys(incoming: IncomingFallback[], stored: LLMConfig[] | undefined): FallbackEntry[] {
   return incoming.map((entry) => {
     const { keepKeyFrom, ...clean } = entry;
+    // The mask is not a real key. Treat it as omitted so it is refilled from
+    // storage (or dropped) — never persisted as the literal '***', which would
+    // silently overwrite the real key and break the next call to that provider.
+    if (clean.apiKey === API_KEY_MASK) delete clean.apiKey;
     if (clean.apiKey) return clean;
     if (typeof keepKeyFrom === 'number' && stored && keepKeyFrom >= 0 && keepKeyFrom < stored.length) {
       const src = stored[keepKeyFrom];
@@ -621,6 +664,17 @@ app.post('/v1/config', async (req, res) => {
     // Acceptable for the single-user MeMesh dashboard; revisit if the HTTP API
     // ever serves multi-tenant config writes.
     const before = readConfig();
+    // Backstop the PRIMARY llm key the same way as the fallbacks: a posted-back
+    // mask means "keep the stored key", never "set the key to '***'". Refill
+    // from the prior config when the provider matches; otherwise strip the
+    // placeholder so the literal mask is never persisted as a real credential.
+    if (parsed.data.llm && parsed.data.llm.apiKey === API_KEY_MASK) {
+      if (before.llm && before.llm.provider === parsed.data.llm.provider && before.llm.apiKey) {
+        parsed.data.llm.apiKey = before.llm.apiKey;
+      } else {
+        delete parsed.data.llm.apiKey;
+      }
+    }
     // Refill any fallback apiKey the SPA omitted because the user left a
     // stored (masked) key untouched — otherwise the wholesale llmFallbacks
     // write would drop it. See preserveFallbackApiKeys.

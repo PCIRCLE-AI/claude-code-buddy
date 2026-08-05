@@ -26,12 +26,23 @@ const packageJsonPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 const packageRoot = path.dirname(packageJsonPath);
 const packageVersion = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')).version ?? '0.0.0';
 const app = express();
+function isLoopbackRequest(req) {
+    const ip = req.ip ?? '';
+    return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
 const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 100,
     standardHeaders: true,
     legacyHeaders: false,
-    message: 'Too many requests from this IP, please try again later.',
+    skip: (req) => isLoopbackRequest(req),
+    handler: (_req, res) => {
+        res.status(429).json({
+            success: false,
+            errorCode: 'rate.limited',
+            error: 'Too many requests in a short time. Wait a moment and try again.',
+        });
+    },
 });
 let remoteToken = null;
 const serverAuthRequired = new WeakMap();
@@ -275,19 +286,22 @@ app.post('/v1/export', (req, res) => handlePost(ExportBody, req, res, exportMemo
 app.post('/v1/import', (req, res) => handlePost(ImportBody, req, res, importMemories));
 app.post('/v1/learn', (req, res) => handlePost(LearnBody, req, res, learn));
 app.post('/v1/verify', (req, res) => handlePost(VerifyBody, req, res, verifyAgentWork));
+const API_KEY_MASK = '***';
 function maskLlmSecrets(obj) {
     const masked = { ...obj };
     if (masked.llm?.apiKey) {
-        masked.llm = { ...masked.llm, apiKey: '***' };
+        masked.llm = { ...masked.llm, apiKey: API_KEY_MASK };
     }
     if (Array.isArray(masked.llmFallbacks) && masked.llmFallbacks.length > 0) {
-        masked.llmFallbacks = masked.llmFallbacks.map(fb => fb?.apiKey ? { ...fb, apiKey: '***' } : fb);
+        masked.llmFallbacks = masked.llmFallbacks.map(fb => fb?.apiKey ? { ...fb, apiKey: API_KEY_MASK } : fb);
     }
     return masked;
 }
 function preserveFallbackApiKeys(incoming, stored) {
     return incoming.map((entry) => {
         const { keepKeyFrom, ...clean } = entry;
+        if (clean.apiKey === API_KEY_MASK)
+            delete clean.apiKey;
         if (clean.apiKey)
             return clean;
         if (typeof keepKeyFrom === 'number' && stored && keepKeyFrom >= 0 && keepKeyFrom < stored.length) {
@@ -345,6 +359,14 @@ app.post('/v1/config', async (req, res) => {
     }
     try {
         const before = readConfig();
+        if (parsed.data.llm && parsed.data.llm.apiKey === API_KEY_MASK) {
+            if (before.llm && before.llm.provider === parsed.data.llm.provider && before.llm.apiKey) {
+                parsed.data.llm.apiKey = before.llm.apiKey;
+            }
+            else {
+                delete parsed.data.llm.apiKey;
+            }
+        }
         if (parsed.data.llmFallbacks) {
             parsed.data.llmFallbacks = preserveFallbackApiKeys(parsed.data.llmFallbacks, before.llmFallbacks);
         }

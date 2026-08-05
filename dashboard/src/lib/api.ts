@@ -70,6 +70,20 @@ export class NetworkError extends Error {
 }
 
 /**
+ * A 429 — the server is up and understood the request, but the client is over
+ * the rate limit. Kept distinct from HttpError so the UI says "slow down, retry
+ * in a moment" instead of routing every non-2xx through the generic
+ * "dashboard and server may be out of sync" load message. (Only reachable on a
+ * non-loopback / --allow-remote server; loopback is not rate-limited.)
+ */
+export class RateLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RateLimitError';
+  }
+}
+
+/**
  * The Error a `success: false` envelope becomes. Server envelopes carry a
  * stable machine `errorCode` next to the English `error` prose (see
  * API_REFERENCE → "Stable error codes"). Prefer the translated message for a
@@ -109,6 +123,11 @@ export async function api<T = any>(method: string, path: string, body?: any): Pr
       throw new AuthRequiredError();
     }
     if (!res.ok) {
+      // A 429 is not a "bad response" — it is "you asked too often". Map it to
+      // its own error with the translated slow-down message, regardless of
+      // whether the body is the JSON envelope or a bare rate-limiter string, so
+      // no load path mislabels it as a version skew.
+      if (res.status === 429) throw new RateLimitError(t('httpError.rate.limited'));
       // The server sends its `success: false` envelopes WITH the matching
       // HTTP status (400/500), not wrapped in a 200 — so throwing HttpError
       // straight off `!res.ok` discarded the `errorCode` the envelope
