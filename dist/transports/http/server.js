@@ -285,6 +285,21 @@ function maskLlmSecrets(obj) {
     }
     return masked;
 }
+function preserveFallbackApiKeys(incoming, stored) {
+    if (!stored || stored.length === 0)
+        return incoming;
+    const pool = stored.map((s, i) => ({ provider: s.provider, apiKey: s.apiKey, index: i, used: false }));
+    return incoming.map((entry, idx) => {
+        if (entry.apiKey)
+            return entry;
+        const candidates = pool.filter((p) => !p.used && p.provider === entry.provider && p.apiKey);
+        if (candidates.length === 0)
+            return entry;
+        const pick = candidates.find((c) => c.index === idx) ?? candidates[0];
+        pick.used = true;
+        return { ...entry, apiKey: pick.apiKey };
+    });
+}
 app.get('/v1/config', (_req, res) => {
     try {
         const config = readConfig();
@@ -330,6 +345,9 @@ app.post('/v1/config', async (req, res) => {
     }
     try {
         const before = readConfig();
+        if (parsed.data.llmFallbacks) {
+            parsed.data.llmFallbacks = preserveFallbackApiKeys(parsed.data.llmFallbacks, before.llmFallbacks);
+        }
         const updated = updateConfig(parsed.data);
         const llmChanged = parsed.data.llm !== undefined &&
             (before.llm?.provider !== updated.llm?.provider ||

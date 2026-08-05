@@ -1,11 +1,47 @@
 import { useState, useEffect } from 'preact/hooks';
-import { api, type ConfigData, type ConfigTestResult, type UpdateStatusData } from '../lib/api';
+import { api, type ConfigData, type ConfigTestResult, type LlmFallback, type UpdateStatusData } from '../lib/api';
 import { t, setLocale, getLocales, type Locale } from '../lib/i18n';
 import { actionFailureMessage } from '../lib/failure';
 
 interface SettingsTabProps {
   locale: Locale;
   onLocaleChange: (locale: Locale) => void;
+}
+
+type FallbackProvider = 'anthropic' | 'openai' | 'ollama';
+
+/**
+ * Editable state for one entry in the failover chain. `apiKey` is ALWAYS the
+ * user's live input — never the server's '***' mask. Whether a key is already
+ * on disk is tracked separately in `hasStoredKey`, so an untouched cloud entry
+ * can be saved with its apiKey OMITTED (the server then keeps the stored one)
+ * instead of echoing the mask back. Loading the mask into `apiKey` is exactly
+ * the bug the mask-not-resent test guards against.
+ */
+interface FallbackEntry {
+  provider: FallbackProvider;
+  model: string;
+  apiKey: string;
+  hasStoredKey: boolean;
+}
+
+const FALLBACK_PROVIDERS: ReadonlyArray<readonly [FallbackProvider, string]> = [
+  ['ollama', 'Ollama (Local)'],
+  ['openai', 'OpenAI'],
+  ['anthropic', 'Anthropic (Claude)'],
+];
+
+/**
+ * Build the wire object for one fallback entry. The key-omission here is the
+ * "omit unchanged masked key" rule: a cloud entry whose key the user did not
+ * retype sends NO apiKey, so the server preserves the stored one and the '***'
+ * mask never travels back. ollama entries are keyless by nature.
+ */
+export function fallbackToWire(fb: FallbackEntry): LlmFallback {
+  const wire: LlmFallback = { provider: fb.provider };
+  if (fb.model.trim()) wire.model = fb.model.trim();
+  if (fb.provider !== 'ollama' && fb.apiKey.trim()) wire.apiKey = fb.apiKey.trim();
+  return wire;
 }
 
 /**
@@ -114,6 +150,13 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   const [loading, setLoading] = useState(true);
   const [updateLoading, setUpdateLoading] = useState(true);
   const [updateRefreshing, setUpdateRefreshing] = useState(false);
+  // Fallback failover chain. `fbTest[i]` holds the per-entry probe result;
+  // `fbTesting` is the index currently being tested (null = none).
+  const [fallbacks, setFallbacks] = useState<FallbackEntry[]>([]);
+  const [fbTest, setFbTest] = useState<Array<ConfigTestResult | null>>([]);
+  const [fbTesting, setFbTesting] = useState<number | null>(null);
+  const [fbSaving, setFbSaving] = useState(false);
+  const [fbMsg, setFbMsg] = useState('');
 
   async function loadUpdateStatus(forceFresh = true, keepCurrentState = false) {
     if (keepCurrentState) {
@@ -168,6 +211,17 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         // Server masks the key as '***' when one is stored. Empty/undefined
         // means no key on disk (e.g. ollama or fresh install).
         setInitialHasApiKey(!!data.config.llm?.apiKey);
+        // Load the failover chain. Deliberately NOT loading fb.apiKey (the
+        // '***' mask) into the editable field — track only whether a key
+        // exists, so an untouched cloud entry saves without re-sending the mask.
+        const fbs: FallbackEntry[] = (data.config.llmFallbacks ?? []).map((fb) => ({
+          provider: fb.provider,
+          model: fb.model ?? '',
+          apiKey: '',
+          hasStoredKey: !!fb.apiKey,
+        }));
+        setFallbacks(fbs);
+        setFbTest(fbs.map(() => null));
       })
       .catch((e) => {
         // This chain had a .finally and no .catch, so a server that was simply
@@ -283,6 +337,89 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
       setMsg(t('settings.saved'));
     } catch (e) {
       setMsg(t('common.error') + ': ' + actionFailureMessage(e));
+    }
+  }
+
+  // --- Fallback chain editing ---
+  // Every mutation resets the touched entry's probe result: a stale ✓ from a
+  // previous provider/key must not read as valid for what is on screen now.
+  function patchFallback(i: number, patch: Partial<FallbackEntry>) {
+    setFallbacks((cur) => cur.map((fb, idx) => (idx === i ? { ...fb, ...patch } : fb)));
+    setFbTest((cur) => cur.map((r, idx) => (idx === i ? null : r)));
+  }
+
+  function onFbProviderChange(i: number, provider: FallbackProvider) {
+    // Switching provider invalidates the model, any typed key, AND the stored
+    // key (a saved OpenAI key is meaningless once the entry becomes Anthropic).
+    setFallbacks((cur) => cur.map((fb, idx) => (idx === i ? { ...fb, provider, model: '', apiKey: '', hasStoredKey: false } : fb)));
+    setFbTest((cur) => cur.map((r, idx) => (idx === i ? null : r)));
+  }
+
+  function addFallback() {
+    setFallbacks((cur) => [...cur, { provider: 'ollama', model: '', apiKey: '', hasStoredKey: false }]);
+    setFbTest((cur) => [...cur, null]);
+    setFbMsg('');
+  }
+
+  function removeFallback(i: number) {
+    setFallbacks((cur) => cur.filter((_, idx) => idx !== i));
+    setFbTest((cur) => cur.filter((_, idx) => idx !== i));
+    setFbMsg('');
+  }
+
+  function moveFallback(i: number, dir: -1 | 1) {
+    const j = i + dir;
+    setFallbacks((cur) => {
+      if (j < 0 || j >= cur.length) return cur;
+      const next = cur.slice();
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+    setFbTest((cur) => {
+      if (j < 0 || j >= cur.length) return cur;
+      const next = cur.slice();
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+    setFbMsg('');
+  }
+
+  async function testFallback(i: number) {
+    const fb = fallbacks[i];
+    if (!fb) return;
+    setFbTesting(i);
+    setFbMsg('');
+    try {
+      const result = await api<ConfigTestResult>('POST', '/v1/config/test', {
+        provider: fb.provider,
+        ...(fb.apiKey.trim() ? { apiKey: fb.apiKey.trim() } : {}),
+      });
+      setFbTest((cur) => cur.map((r, idx) => (idx === i ? result : r)));
+    } catch (e) {
+      setFbTest((cur) => cur.map((r, idx) => (idx === i ? { valid: false, error: actionFailureMessage(e) } : r)));
+    } finally {
+      setFbTesting(null);
+    }
+  }
+
+  async function saveFallbacks() {
+    setFbSaving(true);
+    setFbMsg('');
+    try {
+      const llmFallbacks = fallbacks.map(fallbackToWire);
+      await api('POST', '/v1/config', { llmFallbacks });
+      // A freshly typed key is now on disk; reflect that and clear the input so
+      // the field does not keep a plaintext secret in memory longer than needed.
+      setFallbacks((cur) => cur.map((fb) => ({
+        ...fb,
+        hasStoredKey: fb.provider !== 'ollama' && (fb.hasStoredKey || !!fb.apiKey.trim()),
+        apiKey: '',
+      })));
+      setFbMsg(t('settings.saved'));
+    } catch (e) {
+      setFbMsg(t('common.error') + ': ' + actionFailureMessage(e));
+    } finally {
+      setFbSaving(false);
     }
   }
 
@@ -604,6 +741,196 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             );
           })()}
         </form>
+      </div>
+
+      {/* Fallback providers — discoverable UI for the ordered llmFallbacks
+          failover chain. Previously config-file / CLI only, so most users
+          never knew it existed. */}
+      <div class="card" data-testid="settings-fallbacks">
+        <div class="card-title">{t('settings.fallbacks.title')}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.55, marginBottom: 12 }}>
+          {t('settings.fallbacks.explainer')}
+        </div>
+
+        {/* Privacy caveat — ALWAYS visible, before any cloud entry is added.
+            A local-only user must understand that a cloud fallback sends
+            memory content off-device when the primary is down. */}
+        <div
+          role="note"
+          style={{
+            padding: '10px 12px',
+            marginBottom: 14,
+            background: 'var(--warning-soft)',
+            border: '1px solid rgba(255, 184, 77, 0.4)',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: 12,
+            lineHeight: 1.55,
+            color: 'var(--text-0)',
+          }}
+          data-testid="settings-fallbacks-privacy"
+        >
+          <div style={{ fontWeight: 600, color: 'var(--warning)', marginBottom: 4 }}>
+            {t('settings.fallbacks.privacyTitle')}
+          </div>
+          <div>{t('settings.fallbacks.privacyBody')}</div>
+        </div>
+
+        {fallbacks.length === 0 && (
+          <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>
+            {t('settings.fallbacks.empty')}
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gap: 12 }}>
+          {fallbacks.map((fb, i) => {
+            const isCloud = fb.provider !== 'ollama';
+            const result = fbTest[i];
+            const needsKey = isCloud && !fb.apiKey.trim() && !fb.hasStoredKey;
+            return (
+              <div
+                key={i}
+                data-testid="fallback-entry"
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-sm)',
+                  background: 'var(--bg-2)',
+                  padding: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-2)', fontFamily: 'var(--mono)' }}>
+                    {t('settings.fallbacks.priority', { n: i + 1 })}
+                  </span>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      type="button"
+                      class="btn btn-sm"
+                      onClick={() => moveFallback(i, -1)}
+                      disabled={i === 0}
+                      aria-label={t('settings.fallbacks.moveUp')}
+                      title={t('settings.fallbacks.moveUp')}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-sm"
+                      onClick={() => moveFallback(i, 1)}
+                      disabled={i === fallbacks.length - 1}
+                      aria-label={t('settings.fallbacks.moveDown')}
+                      title={t('settings.fallbacks.moveDown')}
+                    >
+                      ↓
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-sm"
+                      onClick={() => removeFallback(i)}
+                      style={{ borderColor: 'var(--danger)', color: 'var(--danger)', background: 'transparent' }}
+                    >
+                      {t('settings.fallbacks.remove')}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                  <div>
+                    <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>
+                      {t('settings.fallbacks.providerLabel')}
+                    </label>
+                    <select
+                      aria-label={t('settings.fallbacks.providerLabel')}
+                      value={fb.provider}
+                      onChange={(e) => onFbProviderChange(i, (e.target as HTMLSelectElement).value as FallbackProvider)}
+                      style={{ fontSize: 13, padding: '6px 10px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', background: 'var(--bg-input)', color: 'var(--text-1)', cursor: 'pointer' }}
+                    >
+                      {FALLBACK_PROVIDERS.map(([val, label]) => (
+                        <option key={val} value={val}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div style={{ flex: 1, minWidth: 160 }}>
+                    <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>
+                      {t('settings.fallbacks.modelLabel')}
+                    </label>
+                    <input
+                      type="text"
+                      value={fb.model}
+                      placeholder={t('settings.fallbacks.modelPlaceholder')}
+                      onInput={(e) => patchFallback(i, { model: (e.target as HTMLInputElement).value })}
+                      style={{ width: '100%', fontFamily: 'var(--mono)' }}
+                    />
+                  </div>
+                </div>
+
+                {isCloud && (
+                  <div style={{ marginTop: 10 }}>
+                    <label style={{ fontSize: 12, color: 'var(--text-2)', display: 'block', marginBottom: 4 }}>
+                      {t('settings.apiKey')}
+                    </label>
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      placeholder={fb.provider === 'anthropic' ? 'sk-ant-api03-…' : 'sk-…'}
+                      value={fb.apiKey}
+                      onInput={(e) => patchFallback(i, { apiKey: (e.target as HTMLInputElement).value })}
+                      style={{ width: '100%' }}
+                    />
+                    {fb.hasStoredKey && !fb.apiKey.trim() && (
+                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+                        {t('settings.fallbacks.apiKeyStoredHint')}
+                      </div>
+                    )}
+                    {needsKey && (
+                      <div style={{ fontSize: 11, color: 'var(--warning)', marginTop: 4 }}>
+                        {t('settings.fallbacks.needsKey')}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    class="btn btn-sm"
+                    onClick={() => void testFallback(i)}
+                    disabled={fbTesting === i}
+                  >
+                    {fbTesting === i ? t('settings.testing') : t('settings.test')}
+                  </button>
+                  {result && (
+                    <span
+                      role={result.valid ? 'status' : 'alert'}
+                      style={{ fontSize: 12, color: result.valid ? 'var(--success)' : 'var(--danger)' }}
+                    >
+                      {result.valid
+                        ? t('settings.testPassed', { count: result.models?.length ?? 0 })
+                        : `✗ ${probeErrorMessage(result)}`}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 14, flexWrap: 'wrap' }}>
+          <button type="button" class="btn" onClick={addFallback}>
+            {t('settings.fallbacks.add')}
+          </button>
+          <button type="button" class="btn btn-primary" onClick={() => void saveFallbacks()} disabled={fbSaving}>
+            {fbSaving ? t('settings.saving') : t('settings.fallbacks.save')}
+          </button>
+          {fbMsg && (
+            <span
+              role={fbMsg.startsWith(t('common.error')) ? 'alert' : 'status'}
+              style={{ fontSize: 12, color: fbMsg.startsWith(t('common.error')) ? 'var(--danger)' : 'var(--success)' }}
+            >
+              {fbMsg}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Updates */}

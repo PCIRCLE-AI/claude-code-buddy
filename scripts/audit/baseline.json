@@ -421,15 +421,20 @@
       "reason": "set -uo pipefail at file top preserves the left commands verdict",
       "triaged": "2026-08-04 (re-keyed: the mktemp-orphan fix shifted lines by five)"
     },
-    "C5 src/transports/http/server.ts:859": {
+    "C5 src/transports/http/server.ts:899": {
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-04 (re-keyed again: requireJsonBody extraction shifted lines)"
+      "triaged": "2026-08-04 (re-keyed again: llmFallbacks key-preservation helper shifted lines)"
     },
-    "C5 src/transports/http/server.ts:924": {
+    "C5 src/transports/http/server.ts:964": {
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-04 (re-keyed again: requireJsonBody extraction shifted lines)"
+      "triaged": "2026-08-04 (re-keyed again: llmFallbacks key-preservation helper shifted lines)"
+    },
+    "C5 dashboard/src/components/SettingsTab.tsx:217": {
+      "class": "SAFE-GUARDED",
+      "reason": "absent llmFallbacks truthfully means an empty failover chain (a real state, rendered as no entries), not a masked failure; mirrors config.ts:353",
+      "triaged": "2026-08-05"
     },
     "C1 tests/cli/recall-presentation.test.ts": {
       "class": "SAFE",

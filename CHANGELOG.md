@@ -6,6 +6,21 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **Fallback LLM providers can now be configured from the dashboard.** The
+  ordered failover chain (`llmFallbacks`) — the providers memesh tries in
+  order when your primary is down — was config-file / CLI only, so most
+  users never knew it existed. Settings now has a "Fallback providers"
+  section: add entries, pick a provider (Ollama, OpenAI, Anthropic), set a
+  model, test each one against the live provider, reorder them (order is the
+  failover priority), and remove them. A prominent, always-visible privacy
+  note spells out the tradeoff before you add a cloud fallback: when your
+  primary is down, memory content — which can be private — is sent to that
+  cloud provider, which matters if you run local-only Ollama for privacy.
+  Stored API keys are shown masked and are never re-sent: leaving a cloud
+  entry's key untouched saves the entry with no key and the server keeps the
+  one on disk, matching by provider so a reorder or a model edit never drops
+  a key; a freshly typed key rotates it.
+
 - **`memesh dream run --from-transcripts` now mines the conversation, not
   just the mechanics.** The capture hook and the old transcript parser only
   ever extracted mechanical signals — files edited, bash commands, errors.

@@ -7,6 +7,7 @@ import { openDatabase, closeDatabase } from '../../src/db.js';
 // Import the Express app (not startServer, which opens its own DB and binds a port).
 // We open our own isolated DB and start the app on a random port.
 import { app, startServer, __setRemoteTokenForTest } from '../../src/transports/http/server.js';
+import { readConfig } from '../../src/core/config.js';
 
 let tmpDir: string;
 let server: ReturnType<typeof app.listen>;
@@ -381,6 +382,58 @@ describe('HTTP Transport: POST /v1/config', () => {
 
     // Reset to Core Mode so the fake credentials don't leak into other tests'
     // capability detection.
+    await req('POST', '/v1/config', { llm: null, llmFallbacks: [] });
+  });
+
+  it('preserves a stored fallback apiKey the dashboard omitted, even after a reorder', async () => {
+    // The dashboard masks stored keys as '***' and never re-sends the mask —
+    // it OMITS the apiKey for an untouched cloud entry. But llmFallbacks is
+    // written wholesale, so without the server refilling the key it would be
+    // DROPPED: a saved credential silently lost while the response says
+    // "saved". Match is by provider so a reorder keeps every key.
+    await req('POST', '/v1/config', {
+      llmFallbacks: [
+        { provider: 'openai', model: 'gpt-4o-mini', apiKey: 'sk-real-openai' },
+        { provider: 'anthropic', apiKey: 'sk-real-anthropic' },
+      ],
+    });
+
+    // Save again reordered, both keys OMITTED (untouched masked entries).
+    const res = await req('POST', '/v1/config', {
+      llmFallbacks: [
+        { provider: 'anthropic' },
+        { provider: 'openai', model: 'gpt-4o-mini' },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    // Read the real (unmasked) config back from disk — the HTTP response masks.
+    const stored = readConfig().llmFallbacks;
+    expect(stored).toEqual([
+      { provider: 'anthropic', apiKey: 'sk-real-anthropic' },
+      { provider: 'openai', model: 'gpt-4o-mini', apiKey: 'sk-real-openai' },
+    ]);
+
+    await req('POST', '/v1/config', { llm: null, llmFallbacks: [] });
+  });
+
+  it('keeps a fallback key when only the model changed, and a fresh key overrides', async () => {
+    await req('POST', '/v1/config', {
+      llmFallbacks: [{ provider: 'openai', model: 'gpt-4o-mini', apiKey: 'sk-original' }],
+    });
+
+    // Model edited, key omitted → key kept (provider match).
+    await req('POST', '/v1/config', {
+      llmFallbacks: [{ provider: 'openai', model: 'gpt-4o' }],
+    });
+    expect(readConfig().llmFallbacks).toEqual([{ provider: 'openai', model: 'gpt-4o', apiKey: 'sk-original' }]);
+
+    // A freshly typed key wins over the stored one.
+    await req('POST', '/v1/config', {
+      llmFallbacks: [{ provider: 'openai', model: 'gpt-4o', apiKey: 'sk-rotated' }],
+    });
+    expect(readConfig().llmFallbacks).toEqual([{ provider: 'openai', model: 'gpt-4o', apiKey: 'sk-rotated' }]);
+
     await req('POST', '/v1/config', { llm: null, llmFallbacks: [] });
   });
 });

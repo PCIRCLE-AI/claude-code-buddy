@@ -200,11 +200,25 @@ export interface LlmConfig {
   apiKey?: string;
 }
 
+/**
+ * One entry in the ordered LLM failover chain (config `llmFallbacks`). Same
+ * shape as a primary provider, but `provider` is required: an entry with no
+ * provider is not a fallback. The server masks `apiKey` as '***' on load; the
+ * Settings UI must NOT re-send that mask (see SettingsTab fallback save).
+ */
+export interface LlmFallback {
+  provider: 'anthropic' | 'openai' | 'ollama';
+  model?: string;
+  apiKey?: string;
+}
+
 export type AutoUpdatePolicy = 'off' | 'patch' | 'minor' | 'major';
 
 export interface ConfigData {
   config: {
     llm?: LlmConfig;
+    /** Ordered cross-provider failover chain. apiKeys arrive masked as '***'. */
+    llmFallbacks?: LlmFallback[];
     setupCompleted?: boolean;
     autoCapture?: boolean;
     /** Auto-update policy. Mirrors MEMESH_AUTO_UPDATE env var with env > config precedence. */
@@ -218,7 +232,7 @@ export interface ConfigData {
      */
     language?: string;
   };
-  capabilities: { searchLevel: number; llm?: LlmConfig; embeddings: string };
+  capabilities: { searchLevel: number; llm?: LlmConfig; llmFallbacks?: LlmFallback[]; embeddings: string };
 }
 
 export interface ConfigTestResult {

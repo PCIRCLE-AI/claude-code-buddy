@@ -8,7 +8,7 @@ import { randomBytes, timingSafeEqual } from 'crypto';
 import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
-import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
+import { logCapabilities, readConfig, updateConfig, detectCapabilities, type LLMConfig } from '../../core/config.js';
 import { languageValueError } from '../../core/output-language.js';
 import { computePatterns } from '../../core/patterns.js';
 import { computeAnalytics, computePmAnalytics } from '../../core/analytics.js';
@@ -494,6 +494,40 @@ function maskLlmSecrets<T extends {
   return masked;
 }
 
+type FallbackEntry = { provider: 'anthropic' | 'openai' | 'ollama'; model?: string; apiKey?: string };
+
+/**
+ * Restore the stored apiKey on fallback entries the dashboard sent WITHOUT one.
+ *
+ * The GET response masks every fallback key as '***', and the SPA is built to
+ * NOT re-send that mask — it omits the apiKey for a cloud entry whose key the
+ * user never retyped (mirroring the primary provider's "leave it and it stays"
+ * behaviour). But unlike the primary `llm`, which `updateConfig` deep-merges,
+ * `llmFallbacks` is written wholesale (it rides the generic `{...partialRest}`
+ * spread). So an omitted key would be DROPPED — a saved credential silently
+ * lost while the response still says "saved". That is the exact fake-working
+ * class this project guards against, so the write surface has to close it.
+ *
+ * Match each keyless incoming entry to a stored entry by provider, consuming
+ * each stored entry at most once and preferring the one at the same index on a
+ * tie. This keeps every key across a pure reorder (provider identifies the
+ * entry), keeps the key when only the model changed (index/provider still
+ * match), and never cross-assigns two DISTINCT same-provider keys. An entry
+ * that DOES carry an apiKey is a freshly entered credential and is left as-is.
+ */
+function preserveFallbackApiKeys(incoming: FallbackEntry[], stored: LLMConfig[] | undefined): FallbackEntry[] {
+  if (!stored || stored.length === 0) return incoming;
+  const pool = stored.map((s, i) => ({ provider: s.provider, apiKey: s.apiKey, index: i, used: false }));
+  return incoming.map((entry, idx) => {
+    if (entry.apiKey) return entry;
+    const candidates = pool.filter((p) => !p.used && p.provider === entry.provider && p.apiKey);
+    if (candidates.length === 0) return entry;
+    const pick = candidates.find((c) => c.index === idx) ?? candidates[0];
+    pick.used = true;
+    return { ...entry, apiKey: pick.apiKey };
+  });
+}
+
 app.get('/v1/config', (_req, res) => {
   try {
     const config = readConfig();
@@ -574,6 +608,12 @@ app.post('/v1/config', async (req, res) => {
     // single tab in practice); revisit if the HTTP API ever serves
     // multi-tenant config writes.
     const before = readConfig();
+    // Refill any fallback apiKey the SPA omitted because the user left a
+    // stored (masked) key untouched — otherwise the wholesale llmFallbacks
+    // write would drop it. See preserveFallbackApiKeys.
+    if (parsed.data.llmFallbacks) {
+      parsed.data.llmFallbacks = preserveFallbackApiKeys(parsed.data.llmFallbacks, before.llmFallbacks);
+    }
     const updated = updateConfig(parsed.data);
     // If the LLM provider/apiKey changed, the embedder may have cached an
     // ONNX pipeline (or be about to use the now-stale apiKey path). Reset

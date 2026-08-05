@@ -671,7 +671,9 @@ Save a partial config update. Fields not provided are preserved.
 
 `language` sets the output language for LLM-generated *content* — dreamer digests, emergent patterns, lessons, digest-validator reasons. It is free-form (a locale code like `zh-TW` or a language name like `繁體中文`, max 60 chars) because it becomes a prompt instruction, not a parsed locale. Unset means English. It is deliberately separate from the dashboard's own locale (stored client-side in the browser): that setting translates the UI chrome, this one decides what language generated memories are written in. Machine identifiers (entity type slugs, tags, category enums) stay English regardless. CLI equivalent: `memesh config set language zh-TW` / `memesh config unset language`.
 
-**Response**: `{ success: true, data: <updated config> }` (API key masked if present)
+`llmFallbacks` is the ordered cross-provider failover chain, written *wholesale* — the array you send replaces the stored one, so send the entries in the priority order you want (index 0 is tried first after the primary). One exception preserves stored secrets: because GET masks every fallback `apiKey` as `***`, a client MUST NOT echo that mask back. Send an entry **with no `apiKey`** to keep the key already on disk; the server refills it, matching a keyless entry to a stored one by `provider` (so a pure reorder or a model edit keeps its key) and never cross-assigning two distinct same-provider keys. Send an `apiKey` to set or rotate it. CLI equivalent: `memesh config set llmFallbacks '[{"provider":"openai","model":"gpt-4o-mini","apiKey":"sk-..."}]'`.
+
+**Response**: `{ success: true, data: <updated config> }` (every API key — primary and fallback chain — masked if present)
 
 ### GET /v1/stats
 
