@@ -23,20 +23,28 @@ import { detectCapabilities, getEmbeddingDimension, type LLMConfig } from './con
  * essentially every hit, so the vector half of "hybrid search" was doing
  * nothing at all, silently.
  *
- * 1.30 was calibrated against two independent LongMemEval measurements on the
- * local ONNX MiniLM-L6 embedder — signal sat below ~1.27, noise above ~1.37,
- * and R@5 was flat across 1.20…2.00 so the tight end traded no recall for
- * precision.
+ * It was then 1.30, calibrated on the local ONNX MiniLM-L6 embedder memesh used
+ * to ship (signal <~1.27, noise >~1.37). That embedder has been removed; memesh
+ * now standardises on ollama (nomic-embed-text, 768-dim), whose space is far
+ * tighter — 1.30 on nomic admitted 100% of measured noise (every nonsense query
+ * returned unrelated memories as "semantic hits").
  *
- * IMPORTANT — that embedder has since been removed; memesh now standardises on
- * ollama (nomic-embed-text, 768-dim). This number has NOT been re-derived for
- * that space, and it belongs to the model, not the algorithm. A different
- * model has a different isotropy and a different noise floor, so re-derivation
- * against nomic-embed-text is open work (re-run scripts/calibrate against a
- * real graph). Until then 1.30 is a reasonable-but-unverified default; it is
- * kept rather than guessed a new value nobody measured.
+ * 1.00 is re-derived for nomic-embed-text, MEASURED on a real 575-entity graph
+ * (L2 over unit vectors; nearest-hit distance per query):
+ *
+ *   SIGNAL (queries paraphrasing real memories)  n=12  0.858 … 1.010  (11/12 ≤ 0.988)
+ *   NOISE  (queries unrelated to the graph)       n=12  0.983 … 1.104  (11/12 ≥ 1.020)
+ *
+ * The classes TOUCH in a narrow ~0.98–1.02 band (one signal straggler at 1.010,
+ * one noise outlier at 0.983) — there is no clean gap, so no single cut is
+ * perfect. 1.00 sits in that crossover: it keeps the signal body and rejects the
+ * noise body (≥1.02), erring toward recall because FTS5 keyword search supplies
+ * the precision half of hybrid recall and a semantic-only hit is never certified
+ * relevant anyway (see Entity.match). The number belongs to the model, not the
+ * algorithm — re-derive it (scripts/measure or the calibrate harness against a
+ * real graph) if the embedder changes.
  */
-export const MAX_VECTOR_DISTANCE = 1.30;
+export const MAX_VECTOR_DISTANCE = 1.00;
 
 /**
  * Map a distance from `entities_vec` onto the 0…1 relevance scale the scorer

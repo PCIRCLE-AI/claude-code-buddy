@@ -514,42 +514,37 @@ export async function extractMemoriesFromTranscript(
  * nearest same-project entity is within this distance is treated as a
  * near-duplicate and NOT staged.
  *
- * This is a DIFFERENT question from recall's MAX_VECTOR_DISTANCE (1.30 = "is
+ * This is a DIFFERENT question from recall's MAX_VECTOR_DISTANCE (1.00 = "is
  * this related enough to surface"). Dedup asks "is this the SAME memory", which
  * is a much tighter bar, so it gets its own, tighter number.
  *
- * MEASURED, not guessed (scripts/calibrate-transcript-dedup.mjs, on the local
- * ONNX MiniLM-L6 embedder that memesh shipped at the time; L2 over the exact
- * runtime text `${name} ${obs.join(' ')}`):
+ * MEASURED, not guessed (scripts/calibrate-transcript-dedup.mjs, re-derived on
+ * ollama nomic-embed-text — the embedder memesh now standardises on; L2 over the
+ * exact runtime text `${name} ${obs.join(' ')}`):
  *
- *   DUPLICATE pairs (same memory, reworded)   n=10  min 0.401  p50 0.500  p75 0.604  max 0.669
+ *   DUPLICATE pairs (same memory, reworded)   n=10  min 0.401  p50 0.530  p75 0.655  max 0.723
  *   DISTINCT pairs  (SAME domain, diff fact)  n=10  min 0.668  p50 0.827  p75 0.858  max 0.987
  *
- * The two classes essentially TOUCH at the boundary (a loose paraphrase at 0.669
- * sits right on the hardest distinct pair at 0.668) — there is NO clean gap.
- * That is deliberate: the distinct pairs are HARD negatives (same topic,
- * different fact), and their floor (0.668) is the false-positive cliff.
+ * The two classes OVERLAP at the boundary (the loosest paraphrases reach 0.723,
+ * above the hardest distinct pair at 0.668) — there is NO clean gap. That is
+ * expected: the distinct pairs are HARD negatives (same topic, different fact),
+ * and their floor (0.668) is the false-positive cliff.
  *
  * 0.55 is chosen CONSERVATIVELY, below that floor with a 0.118 margin, because a
  * false positive (silently dropping a genuinely new memory) is invisible data
  * loss and strictly worse than a false negative (re-proposing a duplicate, which
- * a human rejects in one keystroke). At 0.55 the fixture catches 6/10 duplicate
- * rewordings and 0/10 distinct pairs. The stated gap — re-running the SAME
- * session — produces IDENTICAL candidate text, distance ~0, caught at any
- * threshold > 0; everything above ~0 only buys paraphrase-catching, which is
- * exactly where the false-positive risk lives, so we stay tight.
+ * a human rejects in one keystroke). At 0.55 the fixture catches 5/10 duplicate
+ * rewordings (the near-exact cluster ≤ 0.53) and 0/10 distinct pairs. The stated
+ * gap — re-running the SAME session — produces IDENTICAL candidate text, distance
+ * ~0, caught at any threshold > 0; everything above ~0 only buys paraphrase-
+ * catching, which is exactly where the false-positive risk lives, so we stay
+ * tight and leave the ambiguous overlap tail (0.66–0.72) to human review.
  *
  * CAVEAT (surface to a human before trusting this for paraphrase dedup): the
  * fixture is synthetic and the classes overlap at the boundary, so this number
  * reliably catches only near-identical / clear duplicates (and all exact
- * re-runs). Re-derive it on a REAL knowledge graph before leaning on it for
- * paraphrase-level dedup.
- *
- * IMPORTANT — the MiniLM-L6 embedder this was measured on has been removed;
- * memesh now standardises on ollama (nomic-embed-text). The number belongs to
- * the model, not the algorithm, so it has NOT been re-derived for that space —
- * re-derivation against nomic-embed-text is open work. It is kept rather than a
- * new value nobody measured.
+ * re-runs). It coincides with the old MiniLM value, but here it is the nomic
+ * measurement, not an inherited number. Re-derive it if the embedder changes.
  */
 export const TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.55;
 
@@ -821,11 +816,18 @@ export async function runTranscriptSource(
 
     // B3 vector dedup: drop candidates that near-duplicate an entity already in
     // the graph (a prior-accepted transcript memory or a manual remember), so a
-    // re-run after `dream accept` stops re-proposing. Skipped ONLY when
-    // embeddings are available — with no vector index we cannot dedup, and the
-    // safe failure is to stage (re-propose) rather than silently drop.
+    // re-run after `dream accept` stops re-proposing. Runs when embeddings are
+    // available — with no vector index we cannot dedup, and the safe failure is
+    // to stage (re-propose) rather than silently drop.
+    //
+    // `opts.dedup?.embed` also enables this branch: an injected embedder is, by
+    // definition, an available embedder. Production never injects (so real
+    // behaviour is governed by isEmbeddingAvailable()); tests inject a
+    // deterministic embed + vectorSearch to cover the accept → re-run → skip
+    // wiring, which is otherwise unreachable under a test HOME that has no
+    // real provider.
     let toStage = extract.memories;
-    if (isEmbeddingAvailable()) {
+    if (isEmbeddingAvailable() || opts.dedup?.embed) {
       const kept: ExtractedMemory[] = [];
       for (const m of extract.memories) {
         const dup = await findDuplicateEntity(db, m, projectLabel, opts.dedup);

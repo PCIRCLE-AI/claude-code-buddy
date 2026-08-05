@@ -473,6 +473,56 @@ describe('transcript-extractor: orchestrator end-to-end', () => {
     expect(res2.duplicatesSkipped).toBe(1);
   });
 
+  it('B3: an injected embedder drives runTranscriptSource to dedup against an already-accepted entity (accept → re-run → skip)', async () => {
+    // Coverage for the widened gate: runTranscriptSource used to run B3 vector
+    // dedup only `if (isEmbeddingAvailable())`, which is always false under a
+    // test HOME with no provider — so the whole orchestrator→findDuplicateEntity
+    // →nearDuplicatesSkipped path was unreachable end-to-end. The gate now also
+    // fires on an injected `opts.dedup.embed`. Here we stand in for the
+    // post-`dream accept` state (the memory is already an entity WITH a vector),
+    // then re-run and prove the transcript candidate is dropped as a near-dup.
+    seedSessionFile();
+    stubLLM(JSON.stringify([
+      { name: 'parser-choice', type: 'decision', observations: ['Chose library B for parsing.'], tags: ['parsing'] },
+    ]));
+
+    const { getProjectName } = await import('../../src/core/paths.js');
+    const { KnowledgeGraph } = await import('../../src/knowledge-graph.js');
+    const projectLabel = getProjectName(cwd);
+    const kg = new KnowledgeGraph(db);
+    const acceptedId = kg.createEntity('parser-choice', 'decision', {
+      observations: ['Chose library B for parsing.'],
+      tags: [`project:${projectLabel}`, 'parsing'],
+    });
+    const dimRow = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get() as { value: string } | undefined;
+    const dim = dimRow ? parseInt(dimRow.value, 10) : 384;
+    const unitVec = (cos: number) => {
+      const v = new Float32Array(dim);
+      v[0] = cos;
+      v[1] = Math.sqrt(Math.max(0, 1 - cos * cos));
+      return v;
+    };
+    // Seed the accepted entity's vector at e0 = [1,0,…].
+    const atE0 = unitVec(1);
+    db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)').run(
+      BigInt(acceptedId), Buffer.from(atE0.buffer, atE0.byteOffset, atE0.byteLength),
+    );
+
+    // Injected embedder places the extracted candidate 0.30 from the accepted
+    // entity — inside TRANSCRIPT_DEDUP_MAX_DISTANCE (0.55) — and, being present,
+    // flips the widened gate ON. That gate line is what this test exists to cover.
+    const cosFor = (d: number) => 1 - (d * d) / 2;
+    const embed = async () => unitVec(cosFor(0.30));
+
+    const res = await runTranscriptSource(db, FAKE_LLM, { cwd, windowDays: 3, dedup: { embed } });
+    expect(res.candidatesExtracted).toBe(1);
+    expect(res.nearDuplicatesSkipped).toBe(1);
+    expect(res.proposalsCreated).toBe(0);
+    // Break-test: revert the gate to `if (isEmbeddingAvailable())` and this goes
+    // red — the B3 branch is skipped, so nothing is deduped: proposalsCreated
+    // becomes 1 and nearDuplicatesSkipped 0.
+  });
+
   it('surfaces per-session size-cap truncation up to the orchestrator result (finding #1)', async () => {
     const dir = join(projectsDir, projectTranscriptSlug(cwd));
     mkdirSync(dir, { recursive: true });

@@ -381,7 +381,7 @@ export async function runTranscriptSource(db, llm, opts = {}) {
             continue;
         }
         let toStage = extract.memories;
-        if (isEmbeddingAvailable()) {
+        if (isEmbeddingAvailable() || opts.dedup?.embed) {
             const kept = [];
             for (const m of extract.memories) {
                 const dup = await findDuplicateEntity(db, m, projectLabel, opts.dedup);
