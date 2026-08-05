@@ -12,6 +12,7 @@ import {
   updateConfig,
   getEmbeddingDimension,
   logCapabilities,
+  isTranscriptMiningEnabled,
   type MeMeshConfig,
 } from '../../src/core/config.js';
 import { expectPrivateDir, expectPrivateFile } from '../helpers/permissions.js';
@@ -480,5 +481,43 @@ describe('logCapabilities: semantic-search downgrade signal', () => {
     const out = captureStderr({ embedder: { provider: 'openai' } });
     expect(out).toContain('Semantic (meaning-based) search: ON (openai).');
     expect(out).not.toContain('OFF — keyword search only');
+  });
+});
+
+describe('isTranscriptMiningEnabled — env > config > default(false) (B4)', () => {
+  const KEY = 'MEMESH_TRANSCRIPT_MINING';
+  let prev: string | undefined;
+  beforeEach(() => { prev = process.env[KEY]; delete process.env[KEY]; });
+  afterEach(() => { if (prev === undefined) delete process.env[KEY]; else process.env[KEY] = prev; });
+
+  it('defaults to false when neither env nor config sets it (a scheduled entry on a default install does nothing)', () => {
+    expect(isTranscriptMiningEnabled({})).toBe(false);
+  });
+
+  it('honours the config field when env is unset', () => {
+    expect(isTranscriptMiningEnabled({ transcriptMining: true })).toBe(true);
+    expect(isTranscriptMiningEnabled({ transcriptMining: false })).toBe(false);
+  });
+
+  it('env truthy values enable regardless of config', () => {
+    for (const v of ['1', 'true', 'TRUE', 'yes', 'on']) {
+      process.env[KEY] = v;
+      expect(isTranscriptMiningEnabled({ transcriptMining: false })).toBe(true);
+    }
+  });
+
+  it('env falsy values disable regardless of config', () => {
+    for (const v of ['0', 'false', 'no', 'off', '']) {
+      process.env[KEY] = v;
+      expect(isTranscriptMiningEnabled({ transcriptMining: true })).toBe(false);
+    }
+  });
+
+  it('an unrecognised env value is IGNORED — falls through to config, never guessed "on"', () => {
+    process.env[KEY] = 'maybe';
+    // Break-test: if the reader treated any non-empty env as truthy, the first
+    // of these would be true — an LLM job nobody asked for.
+    expect(isTranscriptMiningEnabled({ transcriptMining: false })).toBe(false);
+    expect(isTranscriptMiningEnabled({ transcriptMining: true })).toBe(true);
   });
 });

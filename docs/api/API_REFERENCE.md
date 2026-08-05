@@ -1213,6 +1213,15 @@ memesh dream reject <id> [--reason <text>]
 
 **`--from-transcripts`** on `dream run` mines this project's Claude Code session transcripts (`src/core/transcript-source.ts` + `src/core/transcript-extractor.ts`) for the decisions, lessons and facts that live in the conversation itself, instead of clustering existing entities. It reads each session's JSONL directly (no dependence on a capture hook having fired), asks the LLM for the durable memories, and **stages them as proposals** for `dream accept` — nothing enters the knowledge graph automatically. It is scoped to the current project only (`--project` does not apply). Every candidate is sanitised and any candidate carrying a detected secret is dropped, not stored. Before staging, each candidate is embedded and checked against entities already in the graph with the same vector index recall uses, so a near-duplicate of a memory you already accepted is skipped (and the skip is reported, never silent). With `--dry-run` it lists the sessions and their conversation-turn counts **without calling an LLM**.
 
+**`--if-due`** (with `--from-transcripts`) makes `dream run` safe to put behind a scheduler. memesh has no daemon, so it does not mine on its own — a `--if-due` run does nothing *unless* the `transcriptMining` config switch is on (env override `MEMESH_TRANSCRIPT_MINING=1`) **and** at least `--min-interval-hours` (default 24) have elapsed since this project was last mined; otherwise it prints why and exits 0. The last-mined time is tracked per project in `~/.memesh/transcript-mining.json`, and any completed run (manual or scheduled) advances it, so a cron entry never re-mines right after a hand run. This lets one frequently-firing entry self-throttle. Example — a launchd/cron job that fires hourly but mines at most daily:
+
+```bash
+# crontab: attempt hourly; --if-due mines only when enabled AND ≥24h since last run
+0 * * * * cd /path/to/your/project && memesh dream run --from-transcripts --if-due --min-interval-hours 24 --max-llm-calls 25 >> ~/.memesh/mine.log 2>&1
+```
+
+Enable it first with `memesh config set transcriptMining true` (or `MEMESH_TRANSCRIPT_MINING=1`); until then the scheduled entry is a harmless no-op. `memesh doctor` shows the current state under "Scheduled transcript mining".
+
 Validator verdicts are `pass` | `soften` | `reject` | `unavailable`. Only `reject` skips a proposal and only `soften` annotates one. `unavailable` means the validator could not run at all (LLM unreachable, fallback chain exhausted) — it is deliberately distinct from `pass`, which asserts that every claim was checked and supported. Both let the proposal through, so an unreachable validator never costs you a real digest, but a proposal validated by nothing is no longer indistinguishable from one that passed a clean check.
 
 ### memesh-view

@@ -891,6 +891,8 @@ dreamCmd
     .option('--window-days <n>', 'Look-back window in days (default 56 = 8 weeks)', (v) => parseInt(v, 10))
     .option('--validate', 'Run a second LLM pass to cross-check each digest against its sources (doubles LLM calls per proposal; surfaces under flow=digest_validator in `memesh telemetry`)')
     .option('--from-transcripts', 'EXPERIMENTAL: mine Claude Code session transcripts for this project (decisions/lessons/facts hidden in the conversation) and STAGE them as proposals for `dream accept`, instead of clustering existing entities. Scoped to the current project only — --project does not apply here. With --dry-run, lists sessions and conversation-turn counts without calling an LLM.')
+    .option('--if-due', 'For a scheduler (cron/launchd): only mine if `transcriptMining` is enabled in config AND at least --min-interval-hours have passed since this project was last mined; otherwise exit 0 doing nothing. Lets one frequently-firing entry self-throttle. Only meaningful with --from-transcripts.')
+    .option('--min-interval-hours <n>', 'With --if-due: minimum hours between mined runs for this project (default 24).', (v) => parseInt(v, 10))
     .action(async (opts) => {
     if (opts.fromTranscripts) {
         const windowDays = typeof opts.windowDays === 'number' && !Number.isNaN(opts.windowDays) ? opts.windowDays : 3;
@@ -910,6 +912,23 @@ dreamCmd
             console.log('Run without --dry-run to extract high-value memories and stage them as proposals.');
             return;
         }
+        if (opts.ifDue) {
+            const { isTranscriptMiningEnabled } = await import('../../core/config.js');
+            if (!isTranscriptMiningEnabled(readConfig())) {
+                console.log('Scheduled transcript mining is off (opt-in). Enable it with `memesh config set transcriptMining true`; this scheduled run will then start mining when due.');
+                return;
+            }
+            const { getProjectName } = await import('../../core/paths.js');
+            const { lastTranscriptMineAt, transcriptMiningDue } = await import('../../core/transcript-source.js');
+            const projectKey = getProjectName(process.cwd());
+            const intervalH = typeof opts.minIntervalHours === 'number' && !Number.isNaN(opts.minIntervalHours) ? opts.minIntervalHours : 24;
+            const last = lastTranscriptMineAt(projectKey);
+            if (!transcriptMiningDue(Date.now(), last, intervalH)) {
+                const agoH = last === null ? null : (Date.now() - last) / 3600_000;
+                console.log(`Not due yet: this project was mined ${agoH === null ? 'recently' : `${agoH.toFixed(1)}h ago`}; interval is ${intervalH}h. Nothing to do.`);
+                return;
+            }
+        }
         if (opts.project) {
             console.log('note: --project does not scope --from-transcripts — the transcript source is always the current project. Ignoring --project.');
         }
@@ -928,6 +947,9 @@ dreamCmd
                 maxLlmCalls: opts.maxLlmCalls,
                 fallbacks: cfg.llmFallbacks,
             });
+            const { getProjectName } = await import('../../core/paths.js');
+            const { recordTranscriptMine } = await import('../../core/transcript-source.js');
+            recordTranscriptMine(getProjectName(process.cwd()), Date.now());
             console.log(`Transcript mining complete in ${result.durationMs}ms`);
             console.log(`  sessions scanned:    ${result.sessionsScanned}`);
             console.log(`  LLM calls:           ${result.llmCalls}`);

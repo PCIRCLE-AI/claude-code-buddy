@@ -14,4 +14,8 @@ export interface ScanOptions {
     now?: Date;
 }
 export declare function scanTranscripts(opts?: ScanOptions): TranscriptSession[];
+export declare function transcriptMiningStatePath(override?: string): string;
+export declare function lastTranscriptMineAt(projectKey: string, override?: string): number | null;
+export declare function recordTranscriptMine(projectKey: string, atMs: number, override?: string): void;
+export declare function transcriptMiningDue(nowMs: number, lastMs: number | null, intervalHours: number): boolean;
 //# sourceMappingURL=transcript-source.d.ts.map

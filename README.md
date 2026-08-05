@@ -365,7 +365,7 @@ Or use the dashboard Settings tab (visual setup):
 memesh serve  # opens dashboard → Settings tab
 ```
 
-**Mine your past sessions into memory.** `memesh dream run --from-transcripts` reads this project's Claude Code session transcripts, asks the LLM for the decisions and lessons buried in the conversation, and stages them as proposals — nothing enters your graph automatically. Review each with `memesh dream show <id>` and accept the ones worth keeping.
+**Mine your past sessions into memory.** `memesh dream run --from-transcripts` reads this project's Claude Code session transcripts, asks the LLM for the decisions and lessons buried in the conversation, and stages them as proposals — nothing enters your graph automatically. Review each with `memesh dream show <id>` and accept the ones worth keeping. To run it on a schedule, enable `memesh config set transcriptMining true` and point a cron/launchd entry at `memesh dream run --from-transcripts --if-due` — it self-throttles (default once every 24h per project) and stays staging-only. See [API_REFERENCE](docs/api/API_REFERENCE.md#memesh-dream).
 
 ### Semantic search / embeddings (optional)
 

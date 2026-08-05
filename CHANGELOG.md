@@ -6,6 +6,16 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **Transcript mining can now run on a schedule (opt-in).** `dream run
+  --from-transcripts --if-due` is a scheduler-friendly entry point: it does
+  nothing unless the new `transcriptMining` config switch is on (env override
+  `MEMESH_TRANSCRIPT_MINING`) *and* at least `--min-interval-hours` (default 24)
+  have passed since this project was last mined, so one frequently-firing
+  cron/launchd entry self-throttles per project. memesh has no daemon — enabling
+  the switch does not run anything by itself; it only authorises that command.
+  `memesh doctor` gained an informational "Scheduled transcript mining" row
+  reporting whether it is on and, if so, when this project was last mined. Still
+  staging-only: nothing enters the graph without `dream accept`.
 - **Fallback LLM providers can now be configured from the dashboard.** The
   ordered failover chain (`llmFallbacks`) — the providers memesh tries in
   order when your primary is down — was config-file / CLI only, so most
