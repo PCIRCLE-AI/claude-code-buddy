@@ -1,6 +1,6 @@
 import { getDatabase } from '../db.js';
 import { detectCapabilities, getEmbeddingDimension } from './config.js';
-export const MAX_VECTOR_DISTANCE = 1.30;
+export const MAX_VECTOR_DISTANCE = 1.00;
 export function vectorSimilarity(distance) {
     return Math.max(0, 1 - distance / 2);
 }

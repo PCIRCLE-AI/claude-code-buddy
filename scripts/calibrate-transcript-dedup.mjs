@@ -18,14 +18,16 @@
 // and applyTranscriptProposal use this) — so the measured quantity is the one
 // findDuplicateEntity actually computes, via dist/core/embedder.js.
 //
-// PROVENANCE / STATUS: the shipped TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.55 was
-// derived here on the local ONNX MiniLM-L6 embedder that memesh used to ship.
-// That embedder has been removed; memesh now standardises on ollama
-// (nomic-embed-text). The 0.55 number belongs to the model, not the algorithm,
-// so it has NOT been re-derived for the new space — that is open work. This
-// script now runs against whatever embedder is configured (ollama/openai), so
-// re-running it requires a configured provider and will produce numbers for
-// THAT model, not MiniLM.
+// PROVENANCE / STATUS: TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.55 was first derived
+// here on the local ONNX MiniLM-L6 embedder memesh used to ship. That embedder
+// has been removed; memesh now standardises on ollama (nomic-embed-text), and
+// 0.55 has since been RE-DERIVED on nomic — the classes overlap (dup 0.401…0.723,
+// distinct floor 0.668), so 0.55 sits conservatively below the false-positive
+// cliff (0.118 margin). The number happens to match the old MiniLM value but is
+// now the nomic measurement, recorded in the constant's comment in
+// src/core/transcript-extractor.ts. This script runs against whatever embedder
+// is configured, so re-running it produces numbers for THAT model — re-derive if
+// the embedder changes again.
 //
 // Run:  configure ollama (or an openai key), then:
 //         npm run build && node scripts/calibrate-transcript-dedup.mjs

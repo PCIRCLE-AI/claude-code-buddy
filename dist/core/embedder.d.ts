@@ -1,4 +1,4 @@
-export declare const MAX_VECTOR_DISTANCE = 1.3;
+export declare const MAX_VECTOR_DISTANCE = 1;
 export declare function vectorSimilarity(distance: number): number;
 export declare function isEmbeddingAvailable(): boolean;
 export declare function canRefillVectorIndex(): Promise<boolean>;
