@@ -16,6 +16,7 @@ export interface MeMeshConfig {
     enableAgenticOrchestration?: boolean;
     autoUpdate?: 'off' | 'patch' | 'minor' | 'major';
     language?: string;
+    transcriptMining?: boolean;
     setupCompleted?: boolean;
 }
 export interface Capabilities {
@@ -45,6 +46,7 @@ export declare function updateConfig(partial: Omit<Partial<MeMeshConfig>, 'llm'>
 export declare function maskApiKey(key: string): string;
 export declare function detectCapabilities(config?: MeMeshConfig): Capabilities;
 export declare function getEmbeddingDimension(config?: MeMeshConfig): number;
+export declare function isTranscriptMiningEnabled(config?: MeMeshConfig): boolean;
 export declare function resolveEmbeddingDimension(): {
     dimension: number;
     confident: boolean;

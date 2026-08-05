@@ -16,6 +16,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { memeshDir } from './paths.js';
 
 /**
  * Root of Claude Code's per-project transcript store. Override with
@@ -178,4 +179,69 @@ export function scanTranscripts(opts: ScanOptions = {}): TranscriptSession[] {
   // pass should prioritise under a max-calls budget.
   sessions.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
   return sessions;
+}
+
+// -----------------------------------------------------------------------------
+// Scheduled-mining throttle state (B4)
+//
+// memesh has no daemon, so `dream run --from-transcripts --if-due` is fired by a
+// user cron/launchd entry and self-throttles: it records when it last mined a
+// project and refuses to run again until an interval has elapsed. The timestamp
+// lives in a small JSON file next to the database (like the update-check cache).
+// Keyed BY PROJECT so mining one project on its schedule does not reset another.
+// The path is overridable for tests so they never read/write the real ~/.memesh.
+// -----------------------------------------------------------------------------
+
+/** Where the per-project last-mined timestamps are stored. */
+export function transcriptMiningStatePath(override?: string): string {
+  if (override && override.trim() !== '') return override;
+  return path.join(memeshDir(), 'transcript-mining.json');
+}
+
+/**
+ * Epoch-ms of the last mined run for `projectKey`, or null if never (or the
+ * state is missing/unreadable/corrupt — all of which mean "due", never a throw:
+ * a broken throttle file must not wedge the schedule shut).
+ */
+export function lastTranscriptMineAt(projectKey: string, override?: string): number | null {
+  try {
+    const raw = fs.readFileSync(transcriptMiningStatePath(override), 'utf8');
+    const parsed = JSON.parse(raw) as { projects?: Record<string, number> };
+    const at = parsed?.projects?.[projectKey];
+    return typeof at === 'number' && Number.isFinite(at) ? at : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Record that `projectKey` was mined at `atMs`. Merges into the existing file so
+ * other projects' timestamps survive. Best-effort: a write failure is swallowed
+ * (the next run just mines again — over-mining is recoverable, a crash is worse).
+ */
+export function recordTranscriptMine(projectKey: string, atMs: number, override?: string): void {
+  const target = transcriptMiningStatePath(override);
+  const state: { projects: Record<string, number> } = { projects: {} };
+  try {
+    const parsed = JSON.parse(fs.readFileSync(target, 'utf8')) as { projects?: Record<string, number> };
+    if (parsed && typeof parsed.projects === 'object' && parsed.projects) state.projects = parsed.projects;
+  } catch { /* no prior file / unreadable — start fresh */ }
+  state.projects[projectKey] = atMs;
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, JSON.stringify(state, null, 2));
+  } catch { /* best-effort */ }
+}
+
+/**
+ * Is a mine pass due? Pure decision so the throttle is unit-testable without
+ * clocks or files. `null`/absent last-run means never mined → due. A negative or
+ * NaN interval is treated as "always due" (0-floor), never as a lockout.
+ */
+export function transcriptMiningDue(nowMs: number, lastMs: number | null, intervalHours: number): boolean {
+  if (lastMs === null) return true;
+  // A non-finite or negative interval floors to 0 (always due) — never a NaN
+  // comparison, which is always false and would silently WEDGE the schedule shut.
+  const hours = Number.isFinite(intervalHours) ? Math.max(0, intervalHours) : 0;
+  return nowMs - lastMs >= hours * 3600_000;
 }

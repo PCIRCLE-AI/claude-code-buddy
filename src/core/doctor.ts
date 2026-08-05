@@ -3,14 +3,15 @@ import path from 'path';
 import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
-import { detectCapabilities, getConfigPath, type Capabilities } from './config.js';
+import { detectCapabilities, getConfigPath, isTranscriptMiningEnabled, type Capabilities } from './config.js';
 import { embedText } from './embedder.js';
 import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
-import { getDbPath, memeshDir } from './paths.js';
+import { getDbPath, memeshDir, getProjectName } from './paths.js';
+import { lastTranscriptMineAt } from './transcript-source.js';
 import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
@@ -1844,6 +1845,27 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
       `Search level ${capabilities.searchLevel} (${capabilities.searchLevel === 1 ? 'Smart Mode' : 'Core'}); embeddings: ${capabilities.embeddings}; LLM: ${capabilities.llm ? `${capabilities.llm.provider} (${capabilities.llm.model ?? 'default'})` : 'not configured'}. Configured values only — see the probe rows below for what actually works.`,
     ),
   );
+
+  // Scheduled transcript mining (opt-in). Informational by construction: it is
+  // OFF by default and being off is not a fault, so this row never warns, never
+  // reaches the banner, and never touches Overall.
+  if (!isTranscriptMiningEnabled()) {
+    checks.push(createInfo(
+      'transcript-mining',
+      'Scheduled transcript mining',
+      'Off (opt-in). memesh can mine this project\'s Claude Code session transcripts for decisions and lessons and STAGE them for your review. Turn it on with `memesh config set transcriptMining true`, then have a scheduler (cron/launchd) run `memesh dream run --from-transcripts --if-due` — it self-throttles and stages only, so nothing enters your graph without `dream accept`.',
+    ));
+  } else {
+    const last = lastTranscriptMineAt(getProjectName(process.cwd()));
+    const when = last === null
+      ? 'not yet run for this project'
+      : `last mined ${((Date.now() - last) / 3600_000).toFixed(1)}h ago`;
+    checks.push(createInfo(
+      'transcript-mining',
+      'Scheduled transcript mining',
+      `On for this project — ${when}. Have a scheduler run \`memesh dream run --from-transcripts --if-due\`; it mines when due (default every 24h) and stages proposals. Review the queue with \`memesh dream list\`.`,
+    ));
+  }
 
   checks.push(await inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyncImpl));
   checks.push(await inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl));

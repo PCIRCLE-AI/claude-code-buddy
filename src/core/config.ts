@@ -97,6 +97,16 @@ export interface MeMeshConfig {
    * JSON keys) stay English regardless — see output-language.ts.
    */
   language?: string;
+  /**
+   * Opt-in switch for scheduled mining of Claude Code session transcripts into
+   * memory proposals. Default: false. memesh has no daemon, so enabling this
+   * does NOT run anything on its own — it AUTHORISES `memesh dream run
+   * --from-transcripts --if-due`, which a user cron/launchd entry fires.
+   * `--if-due` no-ops unless this is true AND the min-interval has elapsed since
+   * the last mined run, so a scheduled entry is harmless while the switch is off.
+   * Env override: MEMESH_TRANSCRIPT_MINING=1/true enables, =0/false disables.
+   */
+  transcriptMining?: boolean;
   setupCompleted?: boolean;
 }
 
@@ -434,6 +444,27 @@ export function getEmbeddingDimension(config?: MeMeshConfig): number {
   // shell envs that have OPENAI_API_KEY set for unrelated tools.
   const source = detectEmbeddingSource(cfg.llm ?? null, cfg.embedder);
   return EMBEDDING_DIMENSIONS[source] ?? KEYWORD_ONLY_DIMENSION;
+}
+
+/**
+ * Whether scheduled transcript mining is authorised.
+ * Precedence: env > config > default(false) — mirrors the agentic-orchestration
+ * switch. Only `1/true/yes/on` (env) or `transcriptMining: true` (config) turns
+ * it on; anything else, including an unparseable env value, is off. This gates
+ * `dream run --from-transcripts --if-due`, so "off" must be the safe default —
+ * a scheduled entry pointed at a disabled install does nothing.
+ */
+export function isTranscriptMiningEnabled(config?: MeMeshConfig): boolean {
+  const env = process.env.MEMESH_TRANSCRIPT_MINING;
+  if (env !== undefined) {
+    const v = env.trim().toLowerCase();
+    if (v === '1' || v === 'true' || v === 'yes' || v === 'on') return true;
+    if (v === '0' || v === 'false' || v === 'no' || v === 'off' || v === '') return false;
+    // Unrecognised env value: ignore it and fall through to the config field,
+    // rather than guessing — an "on" guess would run an LLM job nobody asked for.
+  }
+  const cfg = config ?? readConfig();
+  return cfg.transcriptMining === true;
 }
 
 /**

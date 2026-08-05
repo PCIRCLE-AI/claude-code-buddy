@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { memeshDir } from './paths.js';
 export function claudeProjectsDir() {
     const override = process.env.CLAUDE_PROJECTS_DIR;
     if (override && override.trim() !== '')
@@ -87,5 +88,43 @@ export function scanTranscripts(opts = {}) {
     }
     sessions.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
     return sessions;
+}
+export function transcriptMiningStatePath(override) {
+    if (override && override.trim() !== '')
+        return override;
+    return path.join(memeshDir(), 'transcript-mining.json');
+}
+export function lastTranscriptMineAt(projectKey, override) {
+    try {
+        const raw = fs.readFileSync(transcriptMiningStatePath(override), 'utf8');
+        const parsed = JSON.parse(raw);
+        const at = parsed?.projects?.[projectKey];
+        return typeof at === 'number' && Number.isFinite(at) ? at : null;
+    }
+    catch {
+        return null;
+    }
+}
+export function recordTranscriptMine(projectKey, atMs, override) {
+    const target = transcriptMiningStatePath(override);
+    const state = { projects: {} };
+    try {
+        const parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+        if (parsed && typeof parsed.projects === 'object' && parsed.projects)
+            state.projects = parsed.projects;
+    }
+    catch { }
+    state.projects[projectKey] = atMs;
+    try {
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, JSON.stringify(state, null, 2));
+    }
+    catch { }
+}
+export function transcriptMiningDue(nowMs, lastMs, intervalHours) {
+    if (lastMs === null)
+        return true;
+    const hours = Number.isFinite(intervalHours) ? Math.max(0, intervalHours) : 0;
+    return nowMs - lastMs >= hours * 3600_000;
 }
 //# sourceMappingURL=transcript-source.js.map

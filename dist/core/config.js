@@ -140,6 +140,18 @@ export function getEmbeddingDimension(config) {
     const source = detectEmbeddingSource(cfg.llm ?? null, cfg.embedder);
     return EMBEDDING_DIMENSIONS[source] ?? KEYWORD_ONLY_DIMENSION;
 }
+export function isTranscriptMiningEnabled(config) {
+    const env = process.env.MEMESH_TRANSCRIPT_MINING;
+    if (env !== undefined) {
+        const v = env.trim().toLowerCase();
+        if (v === '1' || v === 'true' || v === 'yes' || v === 'on')
+            return true;
+        if (v === '0' || v === 'false' || v === 'no' || v === 'off' || v === '')
+            return false;
+    }
+    const cfg = config ?? readConfig();
+    return cfg.transcriptMining === true;
+}
 export function resolveEmbeddingDimension() {
     const { config, state } = readConfigResult();
     return {

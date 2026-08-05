@@ -7,6 +7,9 @@ import {
   scanTranscripts,
   claudeProjectsDir,
   recordedCwd,
+  transcriptMiningDue,
+  lastTranscriptMineAt,
+  recordTranscriptMine,
 } from '../../src/core/transcript-source.js';
 
 // Discovery half of the transcript source (Task #18, B1). Every test points
@@ -175,5 +178,61 @@ describe('transcript-source slug-collision guard', () => {
     seedWithCwd('/p/norm', 'norm-sess', '/p//./norm');
     const found = scanTranscripts({ cwd: '/p/norm', windowDays: 3 });
     expect(found.map((s) => s.sessionId)).toEqual(['norm-sess']);
+  });
+});
+
+describe('transcript-source scheduled-mining throttle (B4)', () => {
+  // Every test writes the throttle state to a temp file it owns (override path),
+  // so the real ~/.memesh/transcript-mining.json is never read or written.
+  let stateFile: string;
+
+  beforeEach(() => {
+    stateFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-mine-state-')), 'transcript-mining.json');
+  });
+  afterEach(() => {
+    fs.rmSync(path.dirname(stateFile), { recursive: true, force: true });
+  });
+
+  const H = 3600_000;
+
+  it('transcriptMiningDue: never-mined (null) is due', () => {
+    expect(transcriptMiningDue(1_000_000, null, 24)).toBe(true);
+  });
+
+  it('transcriptMiningDue: within the interval is NOT due; at/after it IS', () => {
+    const now = 100 * H;
+    // Break-test: flip the `>=` in transcriptMiningDue and the boundary case fails.
+    expect(transcriptMiningDue(now, now - 23 * H, 24)).toBe(false); // 23h < 24h
+    expect(transcriptMiningDue(now, now - 24 * H, 24)).toBe(true);  // exactly due
+    expect(transcriptMiningDue(now, now - 25 * H, 24)).toBe(true);  // overdue
+  });
+
+  it('transcriptMiningDue: a non-positive interval means always due, never a lockout', () => {
+    const now = 50 * H;
+    expect(transcriptMiningDue(now, now, 0)).toBe(true);
+    expect(transcriptMiningDue(now, now, -5)).toBe(true);
+    expect(transcriptMiningDue(now, now, NaN)).toBe(true); // Math.max(0, NaN) === NaN → 0-floor path
+  });
+
+  it('record → read round-trips the per-project timestamp', () => {
+    expect(lastTranscriptMineAt('proj-a', stateFile)).toBeNull(); // nothing written yet
+    recordTranscriptMine('proj-a', 42_000, stateFile);
+    expect(lastTranscriptMineAt('proj-a', stateFile)).toBe(42_000);
+  });
+
+  it('keys BY PROJECT — recording one project does not reset another', () => {
+    recordTranscriptMine('proj-a', 1_000, stateFile);
+    recordTranscriptMine('proj-b', 2_000, stateFile);
+    recordTranscriptMine('proj-a', 3_000, stateFile); // update A, B must survive
+    expect(lastTranscriptMineAt('proj-a', stateFile)).toBe(3_000);
+    expect(lastTranscriptMineAt('proj-b', stateFile)).toBe(2_000);
+  });
+
+  it('a corrupt/unreadable state file reads as null (due), never throws — a broken throttle must not wedge the schedule shut', () => {
+    fs.writeFileSync(stateFile, 'not json at all');
+    expect(lastTranscriptMineAt('proj-a', stateFile)).toBeNull();
+    // and a subsequent record still succeeds (overwrites the garbage)
+    recordTranscriptMine('proj-a', 7_000, stateFile);
+    expect(lastTranscriptMineAt('proj-a', stateFile)).toBe(7_000);
   });
 });
