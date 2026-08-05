@@ -4,6 +4,8 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+## [4.5.0] — 2026-08-05
+
 ### Added
 
 - **Transcript mining can now run on a schedule (opt-in).** `dream run
