@@ -934,7 +934,13 @@ dreamCmd
             console.log(`  candidates extracted: ${result.candidatesExtracted}`);
             console.log(`  proposals created:   ${result.proposalsCreated}`);
             if (result.duplicatesSkipped > 0)
-                console.log(`  duplicates skipped:  ${result.duplicatesSkipped}`);
+                console.log(`  duplicates skipped:  ${result.duplicatesSkipped} (already a pending proposal)`);
+            if (result.nearDuplicatesSkipped > 0) {
+                console.log(`  near-duplicates skipped: ${result.nearDuplicatesSkipped} candidate(s) skipped as near-duplicates of existing memories`);
+                for (const d of result.nearDuplicates) {
+                    console.log(`    - "${d.candidateName}" ~= existing "${d.matchedEntityName}" (distance ${d.distance.toFixed(3)})`);
+                }
+            }
             if (result.secretsDropped > 0)
                 console.log(`  secret-bearing candidates dropped: ${result.secretsDropped}`);
             if (result.llmFailures > 0)
@@ -1126,6 +1132,7 @@ dreamCmd
             console.error('See pending ids with: memesh dream list');
             process.exit(1);
         }
+        await flushPendingEmbeddings();
         console.log(`Applied proposal #${result.proposalId}`);
         console.log(`  digest entity: ${result.digestEntityName}`);
         console.log(`  sources archived: ${result.sourcesArchived}`);

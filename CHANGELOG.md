@@ -20,9 +20,23 @@ All notable changes to MeMesh are documented here.
   sanitised, and any candidate carrying a detected secret is dropped, not
   stored. Scoped to the current project only. `--dry-run` lists the
   sessions and their conversation-turn counts without calling an LLM;
-  `dream list` labels transcript-sourced proposals distinctly. (Vector
-  dedup against already-accepted entities is a later slice; a re-run today
-  dedups only against still-pending proposals.)
+  `dream list` labels transcript-sourced proposals distinctly.
+- **Transcript mining no longer re-proposes a memory you already accepted.**
+  Before staging a transcript-mined candidate, `--from-transcripts` now
+  embeds it and checks it against the entities already in your graph using
+  the same vector index recall uses — so a candidate that near-duplicates a
+  memory you accepted from an earlier run (or remembered by hand) is skipped
+  instead of proposed again. The match is scoped to the current project, so
+  a candidate from one project is never dropped as a "duplicate" of another
+  project's memory. Skips are always reported — `N candidate(s) skipped as
+  near-duplicates of existing memories`, each naming the candidate and the
+  memory it matched — never a silent drop. The similarity cut-off was
+  measured, not guessed (`scripts/calibrate-transcript-dedup.mjs`), and set
+  deliberately tight: it reliably catches exact re-runs and clear
+  duplicates, and errs toward re-proposing a borderline paraphrase (which
+  you reject in one keystroke) rather than silently discarding a genuinely
+  new memory. Accepting a transcript proposal now embeds the new entity so
+  the next run can recognise it.
 - **Generated memories can now be written in your language.** Every LLM
   prompt in MeMesh is English, so digests, emergent patterns, lessons and
   validator notes came back in English no matter what language the dashboard

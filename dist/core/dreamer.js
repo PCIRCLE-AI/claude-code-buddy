@@ -4,6 +4,7 @@ import { recordTelemetry } from './llm-telemetry.js';
 import { validateDigest } from './digest-validator.js';
 import { sanitizeListForPrompt } from './prompt-safety.js';
 import { outputLanguageInstruction } from './output-language.js';
+import { isEmbeddingAvailable, scheduleEmbedAndStore } from './embedder.js';
 const PROMPT_VERSION = 'v1';
 const COMPACT_MIN_CLUSTER_SIZE = 5;
 const COMPACT_TIME_WINDOW_DAYS = 7;
@@ -456,7 +457,10 @@ function applyTranscriptProposal(db, row, kg) {
         db.prepare("UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ?").run(row.id);
         return digestId;
     });
-    tx();
+    const digestId = tx();
+    if (isEmbeddingAvailable()) {
+        scheduleEmbedAndStore(digestId, `${entityName} ${digest.observations.join(' ')}`);
+    }
     return {
         proposalId: row.id,
         digestEntityName: entityName,

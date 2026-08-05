@@ -19,6 +19,9 @@ import {
   containsSecret,
   scrubSecrets,
   ORDERING_INSTRUCTION,
+  findDuplicateEntity,
+  entityEmbedText,
+  TRANSCRIPT_DEDUP_MAX_DISTANCE,
   type ConversationTurn,
 } from '../../src/core/transcript-extractor.js';
 import { projectTranscriptSlug } from '../../src/core/transcript-source.js';
@@ -511,5 +514,201 @@ describe('transcript-extractor: orchestrator end-to-end', () => {
     const res = await runTranscriptSource(db, null, { cwd, windowDays: 3 });
     expect(res.proposalsCreated).toBe(0);
     expect(res.skipped.some((s) => s.reason.includes('no LLM configured'))).toBe(true);
+  });
+});
+
+// =============================================================================
+// B3 — vector dedup against EXISTING (accepted / manually-remembered) entities
+// =============================================================================
+// These tests drive findDuplicateEntity with an INJECTED embedder (so the
+// distance is exact and deterministic) but the REAL vectorSearch against a real
+// entities_vec — vectors are inserted with the same statement embedAndStore
+// uses, so sqlite-vec computes the real L2 and the break-tests exercise
+// production code, not a double.
+describe('transcript-extractor: B3 vector dedup (findDuplicateEntity)', () => {
+  let tmpHome: string;
+  let db: any;
+  let dim: number;
+
+  beforeEach(async () => {
+    tmpHome = mkdtempSync(join(tmpdir(), 'memesh-tx-dedup-'));
+    process.env.MEMESH_DB_PATH = join(tmpHome, 'graph.db');
+    process.env.MEMESH_DIR = tmpHome;
+    const dbMod = await import('../../src/db.js');
+    db = dbMod.openDatabase(process.env.MEMESH_DB_PATH);
+    // The vector width entities_vec was actually created with, so the inserted
+    // blobs and the injected embeddings match the table (no hardcoded 384).
+    const row = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get() as { value: string } | undefined;
+    dim = row ? parseInt(row.value, 10) : 384;
+  });
+  afterEach(async () => {
+    const { closeDatabase } = await import('../../src/db.js');
+    try { closeDatabase(); } catch { /* already closed */ }
+    delete process.env.MEMESH_DB_PATH;
+    delete process.env.MEMESH_DIR;
+    vi.restoreAllMocks();
+    rmSync(tmpHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  /** A unit vector whose dot product with e0 = [1,0,0,…] is `cos`, so the L2
+   * distance between them is sqrt(2 - 2·cos). Lets a test dial an exact
+   * distance. */
+  function unitVec(cos: number): Float32Array {
+    const v = new Float32Array(dim);
+    v[0] = cos;
+    v[1] = Math.sqrt(Math.max(0, 1 - cos * cos));
+    return v;
+  }
+  /** The cos that yields a target L2 distance between unit vectors. */
+  const cosFor = (distance: number) => 1 - (distance * distance) / 2;
+  /** Insert a vector at an entity's rowid — the exact statement embedAndStore
+   * uses, so the real vectorSearch computes a real distance against it. */
+  function insertVec(entityId: number, vec: Float32Array): void {
+    db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)').run(
+      BigInt(entityId),
+      Buffer.from(vec.buffer, vec.byteOffset, vec.byteLength),
+    );
+  }
+  async function seedEntity(name: string, projectTag: string, atCos: number): Promise<number> {
+    const { KnowledgeGraph } = await import('../../src/knowledge-graph.js');
+    const kg = new KnowledgeGraph(db);
+    const id = kg.createEntity(name, 'fact', { observations: [`obs for ${name}`], tags: [projectTag] });
+    insertVec(id, unitVec(atCos));
+    return id;
+  }
+  const candidate = { name: 'cand', type: 'fact', observations: ['a candidate memory'], tags: [] };
+
+  it('skips a candidate that duplicates an EXISTING same-project entity', async () => {
+    // Existing entity sits at e0; candidate embeds 0.30 away — well inside 0.55.
+    await seedEntity('existing-memory', 'project:memesh', 1.0);
+    const embed = async () => unitVec(cosFor(0.30));
+    const hit = await findDuplicateEntity(db, candidate, 'memesh', { embed });
+    expect(hit).not.toBeNull();
+    expect(hit!.matchedEntityName).toBe('existing-memory');
+    expect(hit!.distance).toBeCloseTo(0.30, 2);
+  });
+
+  it('stages a genuinely-distinct candidate (returns null)', async () => {
+    // Existing entity at e0; candidate a full 1.0 away — clearly not the same
+    // memory. Break-test target: invert the `<=` comparison in
+    // findDuplicateEntity and this distinct candidate gets DROPPED → red.
+    await seedEntity('existing-memory', 'project:memesh', 1.0);
+    const embed = async () => unitVec(cosFor(1.0));
+    const hit = await findDuplicateEntity(db, candidate, 'memesh', { embed });
+    expect(hit).toBeNull();
+  });
+
+  it('conservative bias: a BORDERLINE pair just beyond the threshold is treated as distinct (staged, not dropped)', async () => {
+    await seedEntity('existing-memory', 'project:memesh', 1.0);
+    // 0.60 sits just ABOVE the 0.55 cut — the false-negative side. It must be
+    // STAGED (null), never silently dropped: re-proposing a maybe-dup is the
+    // safe error, dropping a maybe-new-memory is not.
+    const borderline = async () => unitVec(cosFor(0.60));
+    expect(await findDuplicateEntity(db, candidate, 'memesh', { embed: borderline })).toBeNull();
+    // And a pair just BELOW the cut is caught — proving 0.60 was rejected by the
+    // threshold, not by a broken query.
+    const justInside = async () => unitVec(cosFor(0.50));
+    expect(await findDuplicateEntity(db, candidate, 'memesh', { embed: justInside })).not.toBeNull();
+    // Guard the documented constant so a silent bump can't widen the drop zone.
+    expect(TRANSCRIPT_DEDUP_MAX_DISTANCE).toBe(0.55);
+  });
+
+  it('does NOT treat another project\'s entity as a duplicate (entities_vec is one table for the whole DB)', async () => {
+    // The nearest vector belongs to a DIFFERENT project. A raw vector hit would
+    // call it a duplicate and silently drop the candidate — cross-project data
+    // loss. The recall-path hydration (project tag + archived excluded) must
+    // exclude it. Break-test target: drop the getEntitiesByIds scoping and this
+    // goes red (the candidate is wrongly deduped).
+    await seedEntity('other-project-memory', 'project:OTHER', 1.0);
+    const embed = async () => unitVec(cosFor(0.20)); // very close, but wrong project
+    const hit = await findDuplicateEntity(db, candidate, 'memesh', { embed });
+    expect(hit).toBeNull();
+  });
+
+  it('fails OPEN: an embed outage stages the candidate rather than dropping it', async () => {
+    await seedEntity('existing-memory', 'project:memesh', 1.0);
+    const embed = async () => { throw new Error('embedder down'); };
+    expect(await findDuplicateEntity(db, candidate, 'memesh', { embed })).toBeNull();
+  });
+
+  it('entityEmbedText matches the runtime builder (name + observations)', () => {
+    expect(entityEmbedText('n', ['a', 'b'])).toBe('n a b');
+  });
+});
+
+// The disclosed B2 gap, closed end-to-end with the REAL embedder: after a
+// `dream accept`, the accepted memory is embedded, so a re-run recognises it as
+// a near-duplicate and does NOT re-propose. (B2 deduped only against PENDING
+// proposals; accepting one clears it from pending, so ONLY the B3 vector dedup
+// can catch the re-run.)
+describe('transcript-extractor: B3 re-run after accept no longer re-proposes (real embedder)', () => {
+  let tmpHome: string;
+  let projectsDir: string;
+  let prevProjects: string | undefined;
+  let db: any;
+  const cwd = '/proj/memesh-b3-fixture';
+
+  beforeEach(async () => {
+    tmpHome = mkdtempSync(join(tmpdir(), 'memesh-tx-b3run-'));
+    projectsDir = mkdtempSync(join(tmpdir(), 'memesh-tx-b3proj-'));
+    prevProjects = process.env.CLAUDE_PROJECTS_DIR;
+    process.env.CLAUDE_PROJECTS_DIR = projectsDir;
+    process.env.MEMESH_DB_PATH = join(tmpHome, 'graph.db');
+    process.env.MEMESH_DIR = tmpHome;
+    const { resetEmbeddingState } = await import('../../src/core/embedder.js');
+    resetEmbeddingState();
+    const dbMod = await import('../../src/db.js');
+    db = dbMod.openDatabase(process.env.MEMESH_DB_PATH);
+  });
+  afterEach(async () => {
+    const { closeDatabase } = await import('../../src/db.js');
+    const { flushPendingEmbeddings } = await import('../../src/core/embedder.js');
+    try { await flushPendingEmbeddings(); } catch { /* nothing pending */ }
+    try { closeDatabase(); } catch { /* already closed */ }
+    if (prevProjects === undefined) delete process.env.CLAUDE_PROJECTS_DIR;
+    else process.env.CLAUDE_PROJECTS_DIR = prevProjects;
+    delete process.env.MEMESH_DB_PATH;
+    delete process.env.MEMESH_DIR;
+    vi.restoreAllMocks();
+    rmSync(tmpHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(projectsDir, { recursive: true, force: true });
+  });
+
+  it('re-run after accept: 0 new proposals, 1 near-duplicate skipped, matched to the accepted entity', async () => {
+    const { isEmbeddingAvailable, flushPendingEmbeddings } = await import('../../src/core/embedder.js');
+    if (!isEmbeddingAvailable()) return; // ONNX unavailable — skip (real-embedder test)
+
+    const dir = join(projectsDir, projectTranscriptSlug(cwd));
+    mkdirSync(dir, { recursive: true });
+    writeTranscript(dir, 'sess-b3', CONTRADICTION_ENTRIES);
+    stubLLM(JSON.stringify([
+      { name: 'parser-choice', type: 'decision', observations: ['Chose library B for parsing because A cannot stream.'], tags: ['parsing'] },
+    ]));
+
+    // Run 1: stages the proposal.
+    const res1 = await runTranscriptSource(db, FAKE_LLM, { cwd, windowDays: 3 });
+    expect(res1.proposalsCreated).toBe(1);
+    expect(res1.nearDuplicatesSkipped).toBe(0);
+
+    // Accept it → becomes a real (embedded) entity; clears it from PENDING so
+    // the B2 pending-dedup can no longer catch a re-run.
+    const proposalId = (db.prepare("SELECT id FROM dream_proposals WHERE status='pending'").get() as { id: number }).id;
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const { KnowledgeGraph } = await import('../../src/knowledge-graph.js');
+    applyProposal(db, proposalId, new KnowledgeGraph(db));
+    await flushPendingEmbeddings(); // persist the accept-time embed
+
+    // Run 2: identical extraction → candidate text identical to the accepted
+    // entity → distance ~0 → recognised as a near-duplicate, NOT re-proposed.
+    // Break-test target: remove the dedup step in runTranscriptSource (or make
+    // findDuplicateEntity always return null) and this re-proposes → red.
+    const res2 = await runTranscriptSource(db, FAKE_LLM, { cwd, windowDays: 3 });
+    expect(res2.candidatesExtracted).toBe(1);
+    expect(res2.proposalsCreated).toBe(0);
+    expect(res2.nearDuplicatesSkipped).toBe(1);
+    expect(res2.nearDuplicates[0].matchedEntityName).toBe('parser-choice');
+    // Still exactly one accepted entity — the re-run added nothing.
+    const applied = db.prepare("SELECT COUNT(*) c FROM dream_proposals WHERE status='applied'").get() as { c: number };
+    expect(applied.c).toBe(1);
   });
 });
