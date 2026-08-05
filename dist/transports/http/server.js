@@ -285,6 +285,20 @@ function maskLlmSecrets(obj) {
     }
     return masked;
 }
+function preserveFallbackApiKeys(incoming, stored) {
+    return incoming.map((entry) => {
+        const { keepKeyFrom, ...clean } = entry;
+        if (clean.apiKey)
+            return clean;
+        if (typeof keepKeyFrom === 'number' && stored && keepKeyFrom >= 0 && keepKeyFrom < stored.length) {
+            const src = stored[keepKeyFrom];
+            if (src && src.provider === clean.provider && src.apiKey) {
+                return { ...clean, apiKey: src.apiKey };
+            }
+        }
+        return clean;
+    });
+}
 app.get('/v1/config', (_req, res) => {
     try {
         const config = readConfig();
@@ -308,6 +322,7 @@ const ConfigBody = z.object({
         provider: z.enum(['anthropic', 'openai', 'ollama']),
         model: z.string().optional(),
         apiKey: z.string().optional(),
+        keepKeyFrom: z.number().int().nonnegative().nullable().optional(),
     })).optional(),
     autoCapture: z.boolean().optional(),
     sessionLimit: z.number().int().min(1).max(100).optional(),
@@ -330,6 +345,9 @@ app.post('/v1/config', async (req, res) => {
     }
     try {
         const before = readConfig();
+        if (parsed.data.llmFallbacks) {
+            parsed.data.llmFallbacks = preserveFallbackApiKeys(parsed.data.llmFallbacks, before.llmFallbacks);
+        }
         const updated = updateConfig(parsed.data);
         const llmChanged = parsed.data.llm !== undefined &&
             (before.llm?.provider !== updated.llm?.provider ||
@@ -348,6 +366,7 @@ const ConfigTestBody = z.object({
     provider: z.enum(['anthropic', 'openai', 'ollama']),
     apiKey: z.string().max(500).optional(),
     host: z.string().max(500).optional(),
+    fallbackIndex: z.number().int().nonnegative().optional(),
 });
 app.post('/v1/config/test', async (req, res) => {
     if (!requireJsonBody(req, res))
@@ -363,11 +382,16 @@ app.post('/v1/config/test', async (req, res) => {
     }
     try {
         const { probeProvider } = await import('../../core/llm-validator.js');
-        const { provider, host } = parsed.data;
+        const { provider, host, fallbackIndex } = parsed.data;
         let { apiKey } = parsed.data;
         if (!apiKey && (provider === 'anthropic' || provider === 'openai')) {
             const existing = readConfig();
-            if (existing.llm?.provider === provider && existing.llm.apiKey) {
+            if (typeof fallbackIndex === 'number') {
+                const fb = existing.llmFallbacks?.[fallbackIndex];
+                if (fb && fb.provider === provider && fb.apiKey)
+                    apiKey = fb.apiKey;
+            }
+            else if (existing.llm?.provider === provider && existing.llm.apiKey) {
                 apiKey = existing.llm.apiKey;
             }
         }

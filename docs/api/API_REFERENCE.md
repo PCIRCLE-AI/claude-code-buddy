@@ -671,7 +671,9 @@ Save a partial config update. Fields not provided are preserved.
 
 `language` sets the output language for LLM-generated *content* — dreamer digests, emergent patterns, lessons, digest-validator reasons. It is free-form (a locale code like `zh-TW` or a language name like `繁體中文`, max 60 chars) because it becomes a prompt instruction, not a parsed locale. Unset means English. It is deliberately separate from the dashboard's own locale (stored client-side in the browser): that setting translates the UI chrome, this one decides what language generated memories are written in. Machine identifiers (entity type slugs, tags, category enums) stay English regardless. CLI equivalent: `memesh config set language zh-TW` / `memesh config unset language`.
 
-**Response**: `{ success: true, data: <updated config> }` (API key masked if present)
+`llmFallbacks` is the ordered cross-provider failover chain, written *wholesale* — the array you send replaces the stored one, so send the entries in the priority order you want (index 0 is tried first after the primary). Stored secrets are preserved through an EXPLICIT identity, never positional guessing: because GET masks every fallback `apiKey` as `***`, a client MUST NOT echo that mask back. To keep the key already on disk for an entry, send it **with no `apiKey`** and a `keepKeyFrom: <original index>` — the index that entry occupied in the chain you loaded. The server refills the key from exactly that stored slot (guarded by a `provider` match, so a stale index can never graft one provider's key onto another), then strips `keepKeyFrom` before persisting. Carry `keepKeyFrom` with the entry across reorders and removals; omit it (or send `null`) for a new entry, one whose key you retyped, or one whose provider you changed. An entry that sends an `apiKey` sets or rotates that key and wins over `keepKeyFrom`. An entry with neither `apiKey` nor `keepKeyFrom` is stored with no key. CLI equivalent: `memesh config set llmFallbacks '[{"provider":"openai","model":"gpt-4o-mini","apiKey":"sk-..."}]'`.
+
+**Response**: `{ success: true, data: <updated config> }` (every API key — primary and fallback chain — masked if present)
 
 ### GET /v1/stats
 
@@ -826,13 +828,16 @@ Returns PM-framed metrics: decision velocity, knowledge-graph connectedness, and
 
 Probes the provider's `/v1/models` endpoint with the supplied `apiKey` (or local `host` for Ollama) and returns whether the credential authenticates plus the live model catalog. Used by the dashboard Settings tab to validate before persisting and to populate a model dropdown with real choices instead of stale hardcoded names. **Does not write to disk.**
 
+When `apiKey` is omitted the server resolves a stored key so the dashboard can offer "Test with current settings" without re-typing: send `fallbackIndex: <index>` to test the stored key of `llmFallbacks[index]` (provider-guarded — it tests THAT entry's own credential, not the primary's); with no `fallbackIndex`, an omitted key resolves the primary `llm` key when its provider matches. This keeps a Test on a saved-but-untouched fallback from either falsely failing (probing empty) or falsely passing on the primary's key.
+
 **Request body:**
 
 ```json
 {
   "provider": "anthropic" | "openai" | "ollama",
-  "apiKey": "<optional, required for anthropic/openai>",
-  "host": "<optional, Ollama base URL, defaults to http://localhost:11434>"
+  "apiKey": "<optional, required for anthropic/openai unless a stored key is resolved>",
+  "host": "<optional, Ollama base URL, defaults to http://localhost:11434>",
+  "fallbackIndex": "<optional, test the stored key of llmFallbacks[index]>"
 }
 ```
 

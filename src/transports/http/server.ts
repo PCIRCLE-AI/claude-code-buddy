@@ -8,7 +8,7 @@ import { randomBytes, timingSafeEqual } from 'crypto';
 import { openDatabase, closeDatabase, getDatabase } from '../../db.js';
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { KnowledgeGraph } from '../../knowledge-graph.js';
-import { logCapabilities, readConfig, updateConfig, detectCapabilities } from '../../core/config.js';
+import { logCapabilities, readConfig, updateConfig, detectCapabilities, type LLMConfig } from '../../core/config.js';
 import { languageValueError } from '../../core/output-language.js';
 import { computePatterns } from '../../core/patterns.js';
 import { computeAnalytics, computePmAnalytics } from '../../core/analytics.js';
@@ -494,6 +494,50 @@ function maskLlmSecrets<T extends {
   return masked;
 }
 
+// `keepKeyFrom` is a WIRE-ONLY field: the SPA sends it to say "reuse the key
+// stored at this original index"; it is never persisted. Stripped in
+// preserveFallbackApiKeys before the entry reaches updateConfig.
+type IncomingFallback = { provider: 'anthropic' | 'openai' | 'ollama'; model?: string; apiKey?: string; keepKeyFrom?: number | null };
+type FallbackEntry = { provider: 'anthropic' | 'openai' | 'ollama'; model?: string; apiKey?: string };
+
+/**
+ * Restore the stored apiKey on fallback entries the dashboard sent WITHOUT one.
+ *
+ * The GET response masks every fallback key as '***', and the SPA is built to
+ * NOT re-send that mask — it omits the apiKey for a cloud entry whose key the
+ * user never retyped (mirroring the primary provider's "leave it and it stays"
+ * behaviour). But unlike the primary `llm`, which `updateConfig` deep-merges,
+ * `llmFallbacks` is written wholesale (it rides the generic `{...partialRest}`
+ * spread). So an omitted key would be DROPPED — a saved credential silently
+ * lost while the response still says "saved". That is the exact fake-working
+ * class this project guards against, so the write surface has to close it.
+ *
+ * Identity is EXPLICIT, never positional. Each keyless entry that wants to keep
+ * a stored key carries `keepKeyFrom` = the index it originally loaded from; the
+ * SPA moves that field with the entry across reorders and removals, and sets it
+ * to null when the entry is new, had its key retyped, or had its provider
+ * changed. We look the key up at exactly that index (guarded by a provider
+ * match, so a stale/forged index can never graft one provider's key onto
+ * another). Positional matching was wrong: with two same-provider entries it
+ * swapped their keys on reorder, gave a survivor the deleted entry's key on
+ * removal, and grafted an unrelated key onto a provider-changed row. An entry
+ * that carries an apiKey is a freshly entered credential and wins outright.
+ * `keepKeyFrom` itself is stripped from the returned entry — it is never stored.
+ */
+function preserveFallbackApiKeys(incoming: IncomingFallback[], stored: LLMConfig[] | undefined): FallbackEntry[] {
+  return incoming.map((entry) => {
+    const { keepKeyFrom, ...clean } = entry;
+    if (clean.apiKey) return clean;
+    if (typeof keepKeyFrom === 'number' && stored && keepKeyFrom >= 0 && keepKeyFrom < stored.length) {
+      const src = stored[keepKeyFrom];
+      if (src && src.provider === clean.provider && src.apiKey) {
+        return { ...clean, apiKey: src.apiKey };
+      }
+    }
+    return clean;
+  });
+}
+
 app.get('/v1/config', (_req, res) => {
   try {
     const config = readConfig();
@@ -527,6 +571,11 @@ const ConfigBody = z.object({
     provider: z.enum(['anthropic', 'openai', 'ollama']),
     model: z.string().optional(),
     apiKey: z.string().optional(),
+    // Wire-only: "reuse the key stored at this original index". The nested
+    // z.object() strips unknown keys, so without declaring it here the SPA's
+    // keep-my-stored-key signal would be dropped before preserveFallbackApiKeys
+    // ever saw it. Resolved and then stripped there — never persisted.
+    keepKeyFrom: z.number().int().nonnegative().nullable().optional(),
   })).optional(),
   autoCapture: z.boolean().optional(),
   sessionLimit: z.number().int().min(1).max(100).optional(),
@@ -574,6 +623,12 @@ app.post('/v1/config', async (req, res) => {
     // single tab in practice); revisit if the HTTP API ever serves
     // multi-tenant config writes.
     const before = readConfig();
+    // Refill any fallback apiKey the SPA omitted because the user left a
+    // stored (masked) key untouched — otherwise the wholesale llmFallbacks
+    // write would drop it. See preserveFallbackApiKeys.
+    if (parsed.data.llmFallbacks) {
+      parsed.data.llmFallbacks = preserveFallbackApiKeys(parsed.data.llmFallbacks, before.llmFallbacks);
+    }
     const updated = updateConfig(parsed.data);
     // If the LLM provider/apiKey changed, the embedder may have cached an
     // ONNX pipeline (or be about to use the now-stale apiKey path). Reset
@@ -609,6 +664,13 @@ const ConfigTestBody = z.object({
   provider: z.enum(['anthropic', 'openai', 'ollama']),
   apiKey: z.string().max(500).optional(),
   host: z.string().max(500).optional(),
+  // Dashboard "Test" on a FALLBACK entry whose key is stored (masked) and
+  // untouched: the SPA sends the entry's original index here instead of the
+  // key. We resolve the key from llmFallbacks[fallbackIndex] so the probe
+  // tests the ENTRY'S OWN credential — not the primary provider's key (a
+  // false green on the wrong account) and not nothing (a false 401 that
+  // contradicts the "a key is saved" hint shown next to the button).
+  fallbackIndex: z.number().int().nonnegative().optional(),
 });
 
 app.post('/v1/config/test', async (req, res) => {
@@ -624,15 +686,21 @@ app.post('/v1/config/test', async (req, res) => {
   }
   try {
     const { probeProvider } = await import('../../core/llm-validator.js');
-    const { provider, host } = parsed.data;
+    const { provider, host, fallbackIndex } = parsed.data;
     let { apiKey } = parsed.data;
-    // If the caller omits apiKey, fall back to the one already saved for this
-    // provider — lets the dashboard offer "Test with current settings" without
-    // forcing the user to re-enter a key they previously saved. Without this,
-    // re-testing after a fresh page load would require digging up the key.
+    // If the caller omits apiKey, fall back to the one already saved — lets the
+    // dashboard offer "Test with current settings" without forcing the user to
+    // re-enter a key they previously saved. A `fallbackIndex` means the caller
+    // is testing a specific fallback entry, so resolve THAT entry's stored key
+    // (provider-guarded); otherwise resolve the primary provider's key. The two
+    // are mutually exclusive on purpose — a fallback test must never silently
+    // borrow the primary's credential.
     if (!apiKey && (provider === 'anthropic' || provider === 'openai')) {
       const existing = readConfig();
-      if (existing.llm?.provider === provider && existing.llm.apiKey) {
+      if (typeof fallbackIndex === 'number') {
+        const fb = existing.llmFallbacks?.[fallbackIndex];
+        if (fb && fb.provider === provider && fb.apiKey) apiKey = fb.apiKey;
+      } else if (existing.llm?.provider === provider && existing.llm.apiKey) {
         apiKey = existing.llm.apiKey;
       }
     }

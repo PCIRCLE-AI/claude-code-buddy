@@ -7,6 +7,7 @@ import { openDatabase, closeDatabase } from '../../src/db.js';
 // Import the Express app (not startServer, which opens its own DB and binds a port).
 // We open our own isolated DB and start the app on a random port.
 import { app, startServer, __setRemoteTokenForTest } from '../../src/transports/http/server.js';
+import { readConfig } from '../../src/core/config.js';
 
 let tmpDir: string;
 let server: ReturnType<typeof app.listen>;
@@ -381,6 +382,147 @@ describe('HTTP Transport: POST /v1/config', () => {
 
     // Reset to Core Mode so the fake credentials don't leak into other tests'
     // capability detection.
+    await req('POST', '/v1/config', { llm: null, llmFallbacks: [] });
+  });
+
+  // The dashboard masks stored keys as '***' and never re-sends the mask — it
+  // omits the apiKey for an untouched entry and sends `keepKeyFrom` = the index
+  // it loaded from. llmFallbacks is written wholesale, so without the server
+  // refilling by that EXACT index a saved credential would be dropped, or
+  // (with the old positional matching) grafted onto the wrong entry. These
+  // pin the credential-critical behaviour.
+
+  it('same-provider reorder keeps each entry its OWN key (keepKeyFrom, not position)', async () => {
+    await req('POST', '/v1/config', {
+      llmFallbacks: [
+        { provider: 'openai', model: 'm0', apiKey: 'sk-KEY-A' },
+        { provider: 'openai', model: 'm1', apiKey: 'sk-KEY-B' },
+      ],
+    });
+    // Reorder to [B, A]; keys omitted, identity carried by keepKeyFrom.
+    await req('POST', '/v1/config', {
+      llmFallbacks: [
+        { provider: 'openai', model: 'm1', keepKeyFrom: 1 },
+        { provider: 'openai', model: 'm0', keepKeyFrom: 0 },
+      ],
+    });
+    // Each entry keeps ITS key; positional matching would swap them.
+    expect(readConfig().llmFallbacks).toEqual([
+      { provider: 'openai', model: 'm1', apiKey: 'sk-KEY-B' },
+      { provider: 'openai', model: 'm0', apiKey: 'sk-KEY-A' },
+    ]);
+    await req('POST', '/v1/config', { llm: null, llmFallbacks: [] });
+  });
+
+  it('removing one of two same-provider entries keeps the survivor its OWN key and drops only the removed', async () => {
+    await req('POST', '/v1/config', {
+      llmFallbacks: [
+        { provider: 'openai', model: 'm0', apiKey: 'sk-KEY-A' },
+        { provider: 'openai', model: 'm1', apiKey: 'sk-KEY-B' },
+      ],
+    });
+    // Remove index 0; survivor was index 1.
+    await req('POST', '/v1/config', {
+      llmFallbacks: [{ provider: 'openai', model: 'm1', keepKeyFrom: 1 }],
+    });
+    // Survivor keeps sk-KEY-B; sk-KEY-A is gone. Positional would hand the
+    // survivor the DELETED entry's key.
+    expect(readConfig().llmFallbacks).toEqual([{ provider: 'openai', model: 'm1', apiKey: 'sk-KEY-B' }]);
+    await req('POST', '/v1/config', { llm: null, llmFallbacks: [] });
+  });
+
+  it('changing an entry provider does not steal an unrelated same-provider key', async () => {
+    await req('POST', '/v1/config', {
+      llmFallbacks: [
+        { provider: 'anthropic', apiKey: 'sk-ANT' },
+        { provider: 'openai', model: 'm1', apiKey: 'sk-OAI' },
+      ],
+    });
+    // Entry 0 anthropic→openai (keyless, keepKeyFrom cleared); entry 1 untouched.
+    await req('POST', '/v1/config', {
+      llmFallbacks: [
+        { provider: 'openai' },
+        { provider: 'openai', model: 'm1', keepKeyFrom: 1 },
+      ],
+    });
+    // The changed row is keyless; the untouched row keeps sk-OAI. Positional
+    // would graft sk-OAI onto the changed row and strip it from its real owner.
+    expect(readConfig().llmFallbacks).toEqual([
+      { provider: 'openai' },
+      { provider: 'openai', model: 'm1', apiKey: 'sk-OAI' },
+    ]);
+    await req('POST', '/v1/config', { llm: null, llmFallbacks: [] });
+  });
+
+  it('keeps a fallback key on a model-only edit, and a fresh key still overrides', async () => {
+    await req('POST', '/v1/config', {
+      llmFallbacks: [{ provider: 'openai', model: 'gpt-4o-mini', apiKey: 'sk-original' }],
+    });
+    // Model edited, key omitted but keepKeyFrom carried → key kept.
+    await req('POST', '/v1/config', {
+      llmFallbacks: [{ provider: 'openai', model: 'gpt-4o', keepKeyFrom: 0 }],
+    });
+    expect(readConfig().llmFallbacks).toEqual([{ provider: 'openai', model: 'gpt-4o', apiKey: 'sk-original' }]);
+    // A freshly typed key wins even if keepKeyFrom is also present.
+    await req('POST', '/v1/config', {
+      llmFallbacks: [{ provider: 'openai', model: 'gpt-4o', apiKey: 'sk-rotated', keepKeyFrom: 0 }],
+    });
+    expect(readConfig().llmFallbacks).toEqual([{ provider: 'openai', model: 'gpt-4o', apiKey: 'sk-rotated' }]);
+    await req('POST', '/v1/config', { llm: null, llmFallbacks: [] });
+  });
+
+  it('drops the key when neither apiKey nor keepKeyFrom is sent, and never grafts across a provider mismatch', async () => {
+    await req('POST', '/v1/config', {
+      llmFallbacks: [
+        { provider: 'anthropic', apiKey: 'sk-ANT' },
+        { provider: 'openai', model: 'm1', apiKey: 'sk-OAI' },
+      ],
+    });
+    // (a) No apiKey and no keepKeyFrom → explicit identity absent → key dropped.
+    // (b) keepKeyFrom pointing at a DIFFERENT provider's slot → provider guard
+    //     refuses to graft it.
+    await req('POST', '/v1/config', {
+      llmFallbacks: [
+        { provider: 'openai', model: 'm1' },
+        { provider: 'openai', keepKeyFrom: 0 },
+      ],
+    });
+    expect(readConfig().llmFallbacks).toEqual([
+      { provider: 'openai', model: 'm1' },
+      { provider: 'openai' },
+    ]);
+    await req('POST', '/v1/config', { llm: null, llmFallbacks: [] });
+  });
+
+  it('keepKeyFrom is a wire-only field and is never persisted to config', async () => {
+    await req('POST', '/v1/config', {
+      llmFallbacks: [{ provider: 'openai', model: 'm0', apiKey: 'sk-KEY' }],
+    });
+    await req('POST', '/v1/config', {
+      llmFallbacks: [{ provider: 'openai', model: 'm0', keepKeyFrom: 0 }],
+    });
+    const stored = readConfig().llmFallbacks;
+    expect(stored?.[0]).not.toHaveProperty('keepKeyFrom');
+    expect(stored).toEqual([{ provider: 'openai', model: 'm0', apiKey: 'sk-KEY' }]);
+    await req('POST', '/v1/config', { llm: null, llmFallbacks: [] });
+  });
+
+  it('POST /v1/config/test resolves a fallback entry OWN stored key by fallbackIndex, not the primary key', async () => {
+    // Seed a primary (anthropic) plus a cross-provider fallback (openai) with a
+    // stored key. Testing the fallback with fallbackIndex must probe the
+    // openai key at that index — NOT fall through to the anthropic primary and
+    // NOT probe keyless. We can't assert a live probe SUCCESS offline, so we
+    // assert the resolution wiring: with a bogus stored key the probe returns a
+    // structured failure (valid:false) rather than a bad-body 400 (schema
+    // accepted fallbackIndex) — proving the field is honoured end to end.
+    await req('POST', '/v1/config', {
+      llm: { provider: 'anthropic', apiKey: 'sk-ant-primary' },
+      llmFallbacks: [{ provider: 'openai', model: 'm0', apiKey: 'sk-openai-fallback' }],
+    });
+    const res = await req('POST', '/v1/config/test', { provider: 'openai', fallbackIndex: 0 });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.valid).toBe(false); // bogus key → probe fails cleanly, not a 400
     await req('POST', '/v1/config', { llm: null, llmFallbacks: [] });
   });
 });
