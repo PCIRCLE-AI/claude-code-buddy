@@ -416,15 +416,15 @@
       "reason": "set -uo pipefail at file top preserves the left commands verdict",
       "triaged": "2026-08-04 (re-keyed: the mktemp-orphan fix shifted lines by five)"
     },
-    "C5 src/transports/http/server.ts:913": {
+    "C5 src/transports/http/server.ts:967": {
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-05 (re-keyed 927->913: rebasing the ONNX removal onto #126 removed the resetEmbeddingState-on-config-change block, shifting the file up 14 lines; same DreamRunBody.safeParse code verified before re-keying)"
+      "triaged": "2026-08-05 (re-keyed 927->913->967: the rate-limit skip/handler + API_KEY_MASK backstop additions shifted the file down; same DreamRunBody.safeParse code verified before re-keying)"
     },
-    "C5 src/transports/http/server.ts:978": {
+    "C5 src/transports/http/server.ts:1032": {
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-05 (re-keyed 992->978: rebasing the ONNX removal onto #126 removed the resetEmbeddingState-on-config-change block, shifting the file up 14 lines; same RejectBodySchema.safeParse code verified before re-keying)"
+      "triaged": "2026-08-05 (re-keyed 992->978->1032: the rate-limit skip/handler + API_KEY_MASK backstop additions shifted the file down; same RejectBodySchema.safeParse code verified before re-keying)"
     },
     "C5 dashboard/src/components/SettingsTab.tsx:237": {
       "class": "SAFE-GUARDED",

@@ -74,6 +74,24 @@ export function recordedCwd(text: string): string | null {
   return null;
 }
 
+/**
+ * Do two paths point at the same project? Normalised compare first (collapses
+ * `.`/`..`, doubled slashes — the common cosmetic difference, and it needs no
+ * I/O). Only if that says "different" do we pay for `fs.realpathSync` on both,
+ * which resolves symlinks (macOS `/tmp`→`/private/tmp`, Linux bind mounts) — so
+ * a session recorded under a symlinked root is NOT falsely skipped as a sibling
+ * project. realpath throws on a path that no longer exists; that failure falls
+ * back to "different" (the prior fail-closed behaviour), so an unresolvable
+ * recorded cwd is still skipped rather than wrongly claimed.
+ */
+function sameProjectPath(a: string, b: string): boolean {
+  if (path.normalize(a) === path.normalize(b)) return true;
+  try {
+    if (fs.realpathSync(a) === fs.realpathSync(b)) return true;
+  } catch { /* one side unresolvable — cannot prove equivalence, treat as different */ }
+  return false;
+}
+
 export interface TranscriptSession {
   /** Session id = the transcript filename without .jsonl. */
   sessionId: string;
@@ -150,16 +168,13 @@ export function scanTranscripts(opts: ScanOptions = {}): TranscriptSession[] {
       // the "current project only" promise holds. Decode only a bounded prefix
       // of the buffer we already read (no new I/O, no new path resolution).
       //
-      // Compare NORMALISED paths (trailing slash, `.`/`..` segments) so a
-      // cosmetic difference does not cause a false skip. This is FAIL-CLOSED:
-      // when a recorded cwd is present and differs, the session is dropped — so
-      // a symlinked project root (macOS /tmp vs /private/tmp) whose recorded
-      // form differs from the scanned form could skip the project's OWN
-      // sessions. No caller can trigger that today (no --cwd flag; the scan
-      // uses process.cwd()), but normalising removes the most common mismatch.
+      // Compare via sameProjectPath (normalised, then symlink-resolved) so a
+      // cosmetic OR a symlink difference (macOS /tmp vs /private/tmp) does not
+      // cause a false skip. Still FAIL-CLOSED: a present-but-genuinely-different
+      // recorded cwd is dropped so the "current project only" promise holds.
       const prefix = buf.subarray(0, Math.min(buf.length, 65536)).toString('utf8');
       const sessionCwd = recordedCwd(prefix);
-      if (sessionCwd !== null && path.normalize(sessionCwd) !== path.normalize(cwd)) continue;
+      if (sessionCwd !== null && !sameProjectPath(sessionCwd, cwd)) continue;
 
       sessions.push({
         sessionId: name.replace(/\.jsonl$/, ''),
@@ -240,6 +255,12 @@ export function recordTranscriptMine(projectKey: string, atMs: number, override?
  */
 export function transcriptMiningDue(nowMs: number, lastMs: number | null, intervalHours: number): boolean {
   if (lastMs === null) return true;
+  // A last-run stamped in the FUTURE (clock moved back, NTP correction, a state
+  // file copied from a machine ahead in time) is bogus. Left alone, `now - last`
+  // is negative and stays below the interval until wall-clock catches up —
+  // wedging the schedule shut for hours with no signal. Treat it as due and let
+  // the next run re-stamp a sane time.
+  if (lastMs > nowMs) return true;
   // A non-finite or negative interval floors to 0 (always due) — never a NaN
   // comparison, which is always false and would silently WEDGE the schedule shut.
   const hours = Number.isFinite(intervalHours) ? Math.max(0, intervalHours) : 0;

@@ -65,10 +65,11 @@ export interface Entity {
    * query text; `semantic` = the vector index supplied it because nothing
    * (or nothing else) matched lexically. The distinction is load-bearing
    * for presentation: a semantic-only hit CANNOT be certified relevant —
-   * measured on this repo's own calibration data, junk queries land at
-   * distance 1.205–1.288 against real stored entities while genuine
-   * matches reach p75 1.269, so the two distributions overlap and no
-   * threshold separates them. What geometry cannot decide, the UI must
+   * measured on this repo's own calibration data (nomic-embed-text, the
+   * current embedder), genuine matches land at nearest distance 0.858–1.010
+   * while unrelated queries land at 0.983–1.104, so the two distributions
+   * overlap around ~1.0 (where MAX_VECTOR_DISTANCE sits) and no threshold
+   * cleanly separates them. What geometry cannot decide, the UI must
    * disclose. Absent on non-recall reads.
    */
   match?: { source: 'keyword' | 'semantic'; relevance: number };

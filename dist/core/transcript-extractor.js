@@ -169,47 +169,56 @@ Rules:
 ${body}
 </conversation>`;
 }
+const CANDIDATE_TYPES = new Set(['decision', 'lesson_learned', 'fact']);
+function coerceCandidateType(raw) {
+    const v = (typeof raw === 'string' ? raw : '').trim().toLowerCase();
+    if (v === 'lesson' || v === 'lesson-learned' || v === 'lessonlearned' || v === 'lesson learned') {
+        return 'lesson_learned';
+    }
+    return CANDIDATE_TYPES.has(v) ? v : 'fact';
+}
 function parseMemories(text) {
+    const block = extractJsonBlock(text, 'array');
+    if (!block)
+        return { memories: [], parseFailed: true };
+    let arr;
     try {
-        const block = extractJsonBlock(text, 'array');
-        if (!block)
-            return [];
-        const arr = JSON.parse(block);
-        if (!Array.isArray(arr))
-            return [];
-        const out = [];
-        for (const m of arr) {
-            if (!m || typeof m.name !== 'string' || !m.name.trim())
-                continue;
-            if (!Array.isArray(m.observations) || m.observations.length === 0)
-                continue;
-            const observations = m.observations
-                .map((o) => sanitizeForPrompt(String(o)).slice(0, 1000))
-                .filter((o) => o.trim())
-                .slice(0, 10);
-            if (observations.length === 0)
-                continue;
-            const tags = Array.isArray(m.tags)
-                ? m.tags.map((tg) => sanitizeForPrompt(String(tg)).slice(0, 80)).filter((tg) => tg.trim()).slice(0, 20)
-                : [];
-            out.push({
-                name: sanitizeForPrompt(String(m.name)).slice(0, 100),
-                type: sanitizeForPrompt(m.type ? String(m.type) : 'fact').slice(0, 60) || 'fact',
-                observations,
-                tags,
-            });
-        }
-        return out;
+        arr = JSON.parse(block);
     }
     catch {
-        return [];
+        return { memories: [], parseFailed: true };
     }
+    if (!Array.isArray(arr))
+        return { memories: [], parseFailed: true };
+    const out = [];
+    for (const m of arr) {
+        if (!m || typeof m.name !== 'string' || !m.name.trim())
+            continue;
+        if (!Array.isArray(m.observations) || m.observations.length === 0)
+            continue;
+        const observations = m.observations
+            .map((o) => sanitizeForPrompt(String(o)).slice(0, 1000))
+            .filter((o) => o.trim())
+            .slice(0, 10);
+        if (observations.length === 0)
+            continue;
+        const tags = Array.isArray(m.tags)
+            ? m.tags.map((tg) => sanitizeForPrompt(String(tg)).slice(0, 80)).filter((tg) => tg.trim()).slice(0, 20)
+            : [];
+        out.push({
+            name: sanitizeForPrompt(String(m.name)).slice(0, 100),
+            type: coerceCandidateType(m.type),
+            observations,
+            tags,
+        });
+    }
+    return { memories: out, parseFailed: false };
 }
 function memoryHasSecret(m) {
     return containsSecret(m.name) || m.observations.some(containsSecret) || m.tags.some(containsSecret);
 }
 export async function extractMemoriesFromTranscript(transcriptPath, llm, opts = {}) {
-    const result = { memories: [], llmCalls: 0, secretsDropped: 0, llmFailures: 0, truncatedTurns: 0 };
+    const result = { memories: [], llmCalls: 0, secretsDropped: 0, llmFailures: 0, parseFailures: 0, truncatedTurns: 0 };
     const turns = parseConversation(transcriptPath);
     if (turns.length < 2)
         return result;
@@ -225,7 +234,7 @@ export async function extractMemoriesFromTranscript(transcriptPath, llm, opts = 
         let text;
         try {
             text = await callLLM(prompt, llm, {
-                maxTokens: 800,
+                maxTokens: 2000,
                 fallbacks: opts.fallbacks,
                 onAttempt: (attempts) => {
                     recordTelemetry(attempts, { flow: 'transcript_extractor', project: projectLabel });
@@ -239,7 +248,10 @@ export async function extractMemoriesFromTranscript(transcriptPath, llm, opts = 
             continue;
         }
         result.llmCalls++;
-        for (const m of parseMemories(text)) {
+        const { memories: parsed, parseFailed } = parseMemories(text);
+        if (parseFailed)
+            result.parseFailures++;
+        for (const m of parsed) {
             if (memoryHasSecret(m)) {
                 result.secretsDropped++;
                 continue;
@@ -337,6 +349,7 @@ export async function runTranscriptSource(db, llm, opts = {}) {
         nearDuplicates: [],
         secretsDropped: 0,
         llmFailures: 0,
+        parseFailures: 0,
         llmCalls: 0,
         skipped: [],
         truncatedTurns: 0,
@@ -369,14 +382,22 @@ export async function runTranscriptSource(db, llm, opts = {}) {
         result.candidatesExtracted += extract.memories.length;
         result.secretsDropped += extract.secretsDropped;
         result.llmFailures += extract.llmFailures;
+        result.parseFailures += extract.parseFailures;
         if (extract.truncatedTurns > 0) {
             result.truncatedTurns += extract.truncatedTurns;
             result.truncatedSessions.push({ sessionId: session.sessionId, truncatedTurns: extract.truncatedTurns });
         }
         if (extract.memories.length === 0) {
-            const reason = extract.llmFailures > 0
-                ? 'LLM call(s) failed for this session — not mined (retry when the provider is reachable)'
-                : 'no durable memories extracted';
+            let reason;
+            if (extract.llmFailures > 0) {
+                reason = 'LLM call(s) failed for this session — not mined (retry when the provider is reachable)';
+            }
+            else if (extract.parseFailures > 0) {
+                reason = 'LLM reply could not be parsed (likely truncated) — not mined (retry; raise the model output limit if it recurs)';
+            }
+            else {
+                reason = 'no durable memories extracted';
+            }
             result.skipped.push({ reason, sessionId: session.sessionId });
             continue;
         }

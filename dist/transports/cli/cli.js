@@ -967,6 +967,8 @@ dreamCmd
                 console.log(`  secret-bearing candidates dropped: ${result.secretsDropped}`);
             if (result.llmFailures > 0)
                 console.log(`  LLM call failures:   ${result.llmFailures} (sessions not mined — retry when the provider is reachable)`);
+            if (result.parseFailures > 0)
+                console.log(`  unparsable replies:  ${result.parseFailures} (chunk reply not valid JSON — likely truncated; those candidates were lost, retry)`);
             if (result.truncatedTurns > 0) {
                 console.log(`  size-cap truncation: ${result.truncatedTurns} conversation turn(s) beyond the cap were NOT analysed`);
                 for (const t of result.truncatedSessions) {

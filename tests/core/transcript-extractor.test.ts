@@ -133,6 +133,50 @@ describe('transcript-extractor: extraction pipeline', () => {
     expect(res.memories[0].observations[0]).toContain('library B');
     expect(res.secretsDropped).toBe(0);
     expect(res.llmCalls).toBe(1);
+    expect(res.parseFailures).toBe(0);
+  });
+
+  it('coerces an off-enum / misspelled type to the contract set (compaction-protection guarantee)', async () => {
+    // The model returns a type outside {decision, lesson_learned, fact}. If it
+    // were stored verbatim, an accepted `insight`/`Decision`/`lesson` entity
+    // would fall outside dreamer's PROTECTED_TYPES and silently become
+    // compaction-eligible. Each must be coerced.
+    const path = writeTranscript(tmp, 'sess', CONTRADICTION_ENTRIES);
+    stubLLM(JSON.stringify([
+      { name: 'a', type: 'insight', observations: ['off-enum type'], tags: [] },
+      { name: 'b', type: 'Decision', observations: ['cased variant'], tags: [] },
+      { name: 'c', type: 'lesson', observations: ['near-miss of lesson_learned'], tags: [] },
+    ]));
+    const res = await extractMemoriesFromTranscript(path, FAKE_LLM);
+    const byName = Object.fromEntries(res.memories.map((m) => [m.name, m.type]));
+    // Break-test: drop coerceCandidateType's fallback and `a` stays 'insight' → red.
+    expect(byName.a).toBe('fact');       // unknown → fact
+    expect(byName.b).toBe('decision');   // case-normalised into the set
+    expect(byName.c).toBe('lesson_learned'); // 'lesson' mapped to the protected type
+  });
+
+  it('a truncated / unparseable reply is a parseFailure, NOT a silent "no memories" (absence != evidence)', async () => {
+    // The model's JSON array is cut off mid-object (what maxTokens truncation
+    // produces): an opener with no balanced closer. extractJsonBlock returns
+    // null, so the chunk's memories are lost — but this MUST be reported as a
+    // retryable parse failure, not counted as a successful empty session.
+    const path = writeTranscript(tmp, 'sess', CONTRADICTION_ENTRIES);
+    stubLLM('[{"name":"parser-choice","type":"decision","observations":["Chose library B because library A cannot');
+    const res = await extractMemoriesFromTranscript(path, FAKE_LLM);
+    expect(res.memories).toHaveLength(0);
+    expect(res.llmCalls).toBe(1);
+    expect(res.llmFailures).toBe(0);   // the call SUCCEEDED — it just returned garbage
+    // Break-test: make parseMemories return [] without the parseFailed flag and
+    // this goes red — the loss would read as a clean empty session.
+    expect(res.parseFailures).toBe(1);
+  });
+
+  it('a valid EMPTY array is a real "nothing found", not a parse failure', async () => {
+    const path = writeTranscript(tmp, 'sess', CONTRADICTION_ENTRIES);
+    stubLLM('[]');
+    const res = await extractMemoriesFromTranscript(path, FAKE_LLM);
+    expect(res.memories).toHaveLength(0);
+    expect(res.parseFailures).toBe(0); // `[]` parsed fine — the model found nothing
   });
 
   it('drops a candidate whose observation carries a detected secret', async () => {
@@ -548,6 +592,17 @@ describe('transcript-extractor: orchestrator end-to-end', () => {
     expect(res.proposalsCreated).toBe(0);
     expect(res.llmFailures).toBeGreaterThan(0);
     expect(res.skipped.some((s) => s.reason.includes('LLM call(s) failed'))).toBe(true);
+    expect(res.skipped.some((s) => s.reason === 'no durable memories extracted')).toBe(false);
+  });
+
+  it('reports a truncated/unparseable reply as retryable, NOT "no durable memories"', async () => {
+    seedSessionFile();
+    // Call succeeds but returns a cut-off array — memories lost, must be retryable.
+    stubLLM('[{"name":"x","type":"decision","observations":["chose B because A cannot');
+    const res = await runTranscriptSource(db, FAKE_LLM, { cwd, windowDays: 3 });
+    expect(res.proposalsCreated).toBe(0);
+    expect(res.parseFailures).toBeGreaterThan(0);
+    expect(res.skipped.some((s) => /could not be parsed/.test(s.reason))).toBe(true);
     expect(res.skipped.some((s) => s.reason === 'no durable memories extracted')).toBe(false);
   });
 

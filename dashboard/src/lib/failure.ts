@@ -1,5 +1,5 @@
 import { t } from './i18n';
-import { AuthRequiredError, HttpError, NetworkError } from './api';
+import { AuthRequiredError, HttpError, NetworkError, RateLimitError } from './api';
 
 /**
  * The two ways a data load fails, kept apart because they carry different
@@ -11,29 +11,35 @@ import { AuthRequiredError, HttpError, NetworkError } from './api';
  *     guard. The server is fine; this bundle cannot read what it said —
  *     stale cached bundle or version skew. Next step: reload, then
  *     `memesh doctor`.
+ *   - `ratelimited` — the server answered 429: it is fine and the bundle is
+ *     fine, the client is simply asking too often. Next step: wait, then retry.
+ *     Distinct because "reload / run doctor" is the wrong instruction — there is
+ *     nothing to fix, only to slow down. (Only an exposed/--allow-remote server
+ *     rate-limits; loopback is skipped.)
  *
- * Collapsing both into one "could not load" message sends half the users
+ * Collapsing these into one "could not load" message sends half the users
  * chasing a server that is running fine.
  */
-export type LoadFailure = 'unreachable' | 'unreadable';
+export type LoadFailure = 'unreachable' | 'unreadable' | 'ratelimited';
 
 /**
- * Which kind a caught load error is. Only a transport-level failure — no
- * response at all — reads as `unreachable`; EVERYTHING the server answered
- * with, error statuses included, is `unreadable`: a 500 comes from a server
- * that is demonstrably running, and "go check `memesh serve`" would send the
- * user to a process that is fine. The first version of this labelled every
+ * Which kind a caught load error is. A transport-level failure — no response at
+ * all — is `unreachable`; a 429 is `ratelimited`; EVERYTHING else the server
+ * answered with, error statuses included, is `unreadable`: a 500 comes from a
+ * server that is demonstrably running, and "go check `memesh serve`" would send
+ * the user to a process that is fine. The first version of this labelled every
  * catch `unreachable`, which mislabelled the most common real failure.
  */
 export function classifyLoadError(err: unknown): LoadFailure {
+  if (err instanceof RateLimitError) return 'ratelimited';
   return err instanceof NetworkError ? 'unreachable' : 'unreadable';
 }
 
 /** The full user-facing sentence for a failure kind: what happened + what to do. */
 export function failureMessage(kind: LoadFailure): string {
-  return kind === 'unreachable'
-    ? `${t('common.serverUnreachable')} ${t('common.serverUnreachableAction')}`
-    : `${t('common.responseUnreadable')} ${t('common.responseUnreadableAction')}`;
+  if (kind === 'unreachable') return `${t('common.serverUnreachable')} ${t('common.serverUnreachableAction')}`;
+  if (kind === 'ratelimited') return t('httpError.rate.limited');
+  return `${t('common.responseUnreadable')} ${t('common.responseUnreadableAction')}`;
 }
 
 /**

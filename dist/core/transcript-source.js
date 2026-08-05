@@ -28,6 +28,16 @@ export function recordedCwd(text) {
     }
     return null;
 }
+function sameProjectPath(a, b) {
+    if (path.normalize(a) === path.normalize(b))
+        return true;
+    try {
+        if (fs.realpathSync(a) === fs.realpathSync(b))
+            return true;
+    }
+    catch { }
+    return false;
+}
 export function scanTranscripts(opts = {}) {
     const cwd = opts.cwd && opts.cwd.length > 0 ? opts.cwd : process.cwd();
     const windowDays = opts.windowDays ?? 3;
@@ -66,7 +76,7 @@ export function scanTranscripts(opts = {}) {
                     lineCount++;
             const prefix = buf.subarray(0, Math.min(buf.length, 65536)).toString('utf8');
             const sessionCwd = recordedCwd(prefix);
-            if (sessionCwd !== null && path.normalize(sessionCwd) !== path.normalize(cwd))
+            if (sessionCwd !== null && !sameProjectPath(sessionCwd, cwd))
                 continue;
             sessions.push({
                 sessionId: name.replace(/\.jsonl$/, ''),
@@ -123,6 +133,8 @@ export function recordTranscriptMine(projectKey, atMs, override) {
 }
 export function transcriptMiningDue(nowMs, lastMs, intervalHours) {
     if (lastMs === null)
+        return true;
+    if (lastMs > nowMs)
         return true;
     const hours = Number.isFinite(intervalHours) ? Math.max(0, intervalHours) : 0;
     return nowMs - lastMs >= hours * 3600_000;
