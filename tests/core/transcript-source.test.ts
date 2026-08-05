@@ -207,6 +207,13 @@ describe('transcript-source scheduled-mining throttle (B4)', () => {
     expect(transcriptMiningDue(now, now - 25 * H, 24)).toBe(true);  // overdue
   });
 
+  it('transcriptMiningDue: a FUTURE last-run (clock skew) is due, not a lockout', () => {
+    const now = 100 * H;
+    // Break-test: remove the `lastMs > nowMs` guard and this returns false
+    // (now - future is negative < interval) → the schedule wedges shut.
+    expect(transcriptMiningDue(now, now + 5 * H, 24)).toBe(true);
+  });
+
   it('transcriptMiningDue: a non-positive interval means always due, never a lockout', () => {
     const now = 50 * H;
     expect(transcriptMiningDue(now, now, 0)).toBe(true);

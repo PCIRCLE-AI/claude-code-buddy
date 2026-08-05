@@ -1164,6 +1164,7 @@ dreamCmd
         }
         if (result.secretsDropped > 0) console.log(`  secret-bearing candidates dropped: ${result.secretsDropped}`);
         if (result.llmFailures > 0) console.log(`  LLM call failures:   ${result.llmFailures} (sessions not mined — retry when the provider is reachable)`);
+        if (result.parseFailures > 0) console.log(`  unparsable replies:  ${result.parseFailures} (chunk reply not valid JSON — likely truncated; those candidates were lost, retry)`);
         // Never let a size-cap truncation be a silent 0: name each session that
         // lost tail turns (the newest content, likeliest to hold a reversal).
         if (result.truncatedTurns > 0) {

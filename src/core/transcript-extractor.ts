@@ -378,6 +378,14 @@ export interface ExtractResult {
    */
   llmFailures: number;
   /**
+   * Chunks whose LLM call SUCCEEDED but whose reply was not a valid JSON array —
+   * truncated past maxTokens, prose, a refusal, or empty. Kept separate from
+   * both `llmFailures` (the call threw) and `memories.length === 0` (a valid
+   * empty answer), because a truncated rich chunk loses real memories and must
+   * be reported as retryable, not as "nothing worth remembering".
+   */
+  parseFailures: number;
+  /**
    * Tail turns dropped by the size cap (MAX_CHUNKS_PER_SESSION × budget) before
    * any LLM call — never analysed. Surfaced by the CLI per session so a huge
    * session that was only partially mined is never reported as a silent 0. The
@@ -386,41 +394,75 @@ export interface ExtractResult {
   truncatedTurns: number;
 }
 
-function parseMemories(text: string): ExtractedMemory[] {
-  try {
-    const block = extractJsonBlock(text, 'array');
-    if (!block) return [];
-    const arr = JSON.parse(block) as Array<Partial<ExtractedMemory>>;
-    if (!Array.isArray(arr)) return [];
-    // Explicit guards, not a filter-then-optimistic-default: each field is
-    // validated up front and only the validated value is used, so there is no
-    // `?? []` turning a missing array into a benign empty one (the
-    // absence-is-not-evidence trap). A candidate with no usable name or no
-    // observation is dropped, not defaulted.
-    const out: ExtractedMemory[] = [];
-    for (const m of arr) {
-      if (!m || typeof m.name !== 'string' || !m.name.trim()) continue;
-      if (!Array.isArray(m.observations) || m.observations.length === 0) continue;
-      // Sanitise every string BEFORE it can reach a proposal (task item 4).
-      const observations = m.observations
-        .map((o) => sanitizeForPrompt(String(o)).slice(0, 1000))
-        .filter((o) => o.trim())
-        .slice(0, 10);
-      if (observations.length === 0) continue;
-      const tags = Array.isArray(m.tags)
-        ? m.tags.map((tg) => sanitizeForPrompt(String(tg)).slice(0, 80)).filter((tg) => tg.trim()).slice(0, 20)
-        : [];
-      out.push({
-        name: sanitizeForPrompt(String(m.name)).slice(0, 100),
-        type: sanitizeForPrompt(m.type ? String(m.type) : 'fact').slice(0, 60) || 'fact',
-        observations,
-        tags,
-      });
-    }
-    return out;
-  } catch {
-    return [];
+/**
+ * The only candidate types the extraction contract allows. `decision` and
+ * `lesson_learned` are in dreamer's PROTECTED_TYPES (never compaction-eligible),
+ * which is the durability the module header promises accepted transcript
+ * memories. A model-invented or misspelled type (`insight`, `Decision`,
+ * `lesson`) that slipped through verbatim would fall OUTSIDE that set and, once
+ * accepted, silently become compaction-eligible — voiding the guarantee. So any
+ * value not exactly one of these is coerced, not stored raw.
+ */
+const CANDIDATE_TYPES = new Set(['decision', 'lesson_learned', 'fact']);
+function coerceCandidateType(raw: unknown): string {
+  const v = (typeof raw === 'string' ? raw : '').trim().toLowerCase();
+  if (v === 'lesson' || v === 'lesson-learned' || v === 'lessonlearned' || v === 'lesson learned') {
+    return 'lesson_learned';
   }
+  return CANDIDATE_TYPES.has(v) ? v : 'fact';
+}
+
+/**
+ * Parse the model's reply into candidates. Returns `parseFailed: true` when the
+ * reply is NOT a valid JSON array — truncated past maxTokens (an opener with no
+ * balanced closer), prose, a refusal, or empty. That is DISTINCT from a valid
+ * empty array `[]` (the model was asked and legitimately found nothing), which
+ * returns `parseFailed: false`. The caller needs the distinction: a truncated
+ * rich chunk whose memories are all lost must be reported as "not mined, retry",
+ * never as "no durable memories" — the exact absence-is-not-evidence trap the
+ * `llmFailures` field guards for a thrown call, one layer deeper.
+ */
+function parseMemories(text: string): { memories: ExtractedMemory[]; parseFailed: boolean } {
+  const block = extractJsonBlock(text, 'array');
+  // No balanced array at all → the model did not return the contract's shape.
+  // A legitimate "nothing found" is `[]`, which extractJsonBlock DOES return.
+  if (!block) return { memories: [], parseFailed: true };
+  let arr: unknown;
+  try {
+    arr = JSON.parse(block);
+  } catch {
+    return { memories: [], parseFailed: true };
+  }
+  if (!Array.isArray(arr)) return { memories: [], parseFailed: true };
+  // Explicit guards, not a filter-then-optimistic-default: each field is
+  // validated up front and only the validated value is used, so there is no
+  // `?? []` turning a missing array into a benign empty one (the
+  // absence-is-not-evidence trap). A candidate with no usable name or no
+  // observation is dropped, not defaulted.
+  const out: ExtractedMemory[] = [];
+  for (const m of arr as Array<Partial<ExtractedMemory>>) {
+    if (!m || typeof m.name !== 'string' || !m.name.trim()) continue;
+    if (!Array.isArray(m.observations) || m.observations.length === 0) continue;
+    // Sanitise every string BEFORE it can reach a proposal (task item 4).
+    const observations = m.observations
+      .map((o) => sanitizeForPrompt(String(o)).slice(0, 1000))
+      .filter((o) => o.trim())
+      .slice(0, 10);
+    if (observations.length === 0) continue;
+    const tags = Array.isArray(m.tags)
+      ? m.tags.map((tg) => sanitizeForPrompt(String(tg)).slice(0, 80)).filter((tg) => tg.trim()).slice(0, 20)
+      : [];
+    out.push({
+      name: sanitizeForPrompt(String(m.name)).slice(0, 100),
+      type: coerceCandidateType(m.type),
+      observations,
+      tags,
+    });
+  }
+  // A well-formed array whose every item was invalid is NOT a parse failure —
+  // the model answered in-shape, it just had nothing usable. Only a reply that
+  // was never a valid array counts as a failure.
+  return { memories: out, parseFailed: false };
 }
 
 function memoryHasSecret(m: ExtractedMemory): boolean {
@@ -438,7 +480,7 @@ export async function extractMemoriesFromTranscript(
   llm: LLMConfig,
   opts: ExtractOptions = {},
 ): Promise<ExtractResult> {
-  const result: ExtractResult = { memories: [], llmCalls: 0, secretsDropped: 0, llmFailures: 0, truncatedTurns: 0 };
+  const result: ExtractResult = { memories: [], llmCalls: 0, secretsDropped: 0, llmFailures: 0, parseFailures: 0, truncatedTurns: 0 };
   const turns = parseConversation(transcriptPath);
   if (turns.length < 2) return result; // nothing conversational to mine
 
@@ -459,7 +501,12 @@ export async function extractMemoriesFromTranscript(
     let text: string;
     try {
       text = await callLLM(prompt, llm, {
-        maxTokens: 800,
+        // A rich chunk can yield ~10 candidates with multi-sentence
+        // observations; 800 output tokens truncated those mid-array, and the
+        // truncated reply parsed to nothing. 2000 gives real headroom, and the
+        // parseFailures path below catches any residual truncation instead of
+        // silently reporting a lost chunk as "no durable memories".
+        maxTokens: 2000,
         fallbacks: opts.fallbacks,
         onAttempt: (attempts) => {
           recordTelemetry(attempts, { flow: 'transcript_extractor', project: projectLabel });
@@ -475,7 +522,12 @@ export async function extractMemoriesFromTranscript(
       continue;
     }
     result.llmCalls++;
-    for (const m of parseMemories(text)) {
+    const { memories: parsed, parseFailed } = parseMemories(text);
+    // A successful call whose reply could not be parsed as the contract's array
+    // lost this chunk's memories. Record it so the orchestrator reports the
+    // session as retryable rather than empty — never a silent 0.
+    if (parseFailed) result.parseFailures++;
+    for (const m of parsed) {
       if (memoryHasSecret(m)) {
         result.secretsDropped++;
         continue;
@@ -736,6 +788,9 @@ export interface TranscriptSourceResult {
   secretsDropped: number;
   /** Chunks whose LLM call threw — an outage, not an empty session. */
   llmFailures: number;
+  /** Chunks whose call succeeded but whose reply was not a valid array (likely
+   * truncated) — memories lost, retryable, NOT an empty session. */
+  parseFailures: number;
   llmCalls: number;
   skipped: Array<{ reason: string; sessionId?: string }>;
   /** Total tail turns dropped by the size cap across all sessions. */
@@ -764,6 +819,7 @@ export async function runTranscriptSource(
     nearDuplicates: [],
     secretsDropped: 0,
     llmFailures: 0,
+    parseFailures: 0,
     llmCalls: 0,
     skipped: [],
     truncatedTurns: 0,
@@ -799,17 +855,26 @@ export async function runTranscriptSource(
     result.candidatesExtracted += extract.memories.length;
     result.secretsDropped += extract.secretsDropped;
     result.llmFailures += extract.llmFailures;
+    result.parseFailures += extract.parseFailures;
     if (extract.truncatedTurns > 0) {
       result.truncatedTurns += extract.truncatedTurns;
       result.truncatedSessions.push({ sessionId: session.sessionId, truncatedTurns: extract.truncatedTurns });
     }
 
     if (extract.memories.length === 0) {
-      // Distinguish "the model was asked and found nothing" from "the model
-      // was unreachable" — never report an outage as an empty session.
-      const reason = extract.llmFailures > 0
-        ? 'LLM call(s) failed for this session — not mined (retry when the provider is reachable)'
-        : 'no durable memories extracted';
+      // Three distinct empties, three different next steps. Never collapse a
+      // retryable failure into "nothing worth remembering":
+      //   - the call threw            → outage, retry when reachable
+      //   - the call answered garbage → truncated/unparseable, retry (raise cap)
+      //   - the call answered `[]`    → genuinely nothing durable here
+      let reason: string;
+      if (extract.llmFailures > 0) {
+        reason = 'LLM call(s) failed for this session — not mined (retry when the provider is reachable)';
+      } else if (extract.parseFailures > 0) {
+        reason = 'LLM reply could not be parsed (likely truncated) — not mined (retry; raise the model output limit if it recurs)';
+      } else {
+        reason = 'no durable memories extracted';
+      }
       result.skipped.push({ reason, sessionId: session.sessionId });
       continue;
     }

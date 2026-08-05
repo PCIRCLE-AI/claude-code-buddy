@@ -25,6 +25,7 @@ export interface ExtractResult {
     llmCalls: number;
     secretsDropped: number;
     llmFailures: number;
+    parseFailures: number;
     truncatedTurns: number;
 }
 export declare function extractMemoriesFromTranscript(transcriptPath: string, llm: LLMConfig, opts?: ExtractOptions): Promise<ExtractResult>;
@@ -71,6 +72,7 @@ export interface TranscriptSourceResult {
     nearDuplicates: DuplicateHit[];
     secretsDropped: number;
     llmFailures: number;
+    parseFailures: number;
     llmCalls: number;
     skipped: Array<{
         reason: string;
