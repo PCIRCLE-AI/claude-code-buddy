@@ -26,7 +26,7 @@ const packageJsonPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)
 const packageRoot = path.dirname(packageJsonPath);
 const packageVersion = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')).version ?? '0.0.0';
 const app = express();
-function isLoopbackRequest(req) {
+export function isLoopbackRequest(req) {
     const ip = req.ip ?? '';
     return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
 }

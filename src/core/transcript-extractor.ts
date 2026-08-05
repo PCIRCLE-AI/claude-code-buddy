@@ -404,12 +404,26 @@ export interface ExtractResult {
  * value not exactly one of these is coerced, not stored raw.
  */
 const CANDIDATE_TYPES = new Set(['decision', 'lesson_learned', 'fact']);
+// Near-miss spellings mapped to the canonical type. Plurals matter most: a model
+// that answers `"decisions"` must NOT fall through to 'fact', because that is a
+// silent downgrade OUT of the protected set — the one direction this coercion
+// exists to prevent. Only 'fact' is a safe default, and only for genuinely
+// unknown types (`insight`, `note`), never for a recognisable protected one.
+const CANDIDATE_TYPE_ALIASES: Record<string, string> = {
+  decisions: 'decision',
+  lesson: 'lesson_learned',
+  lessons: 'lesson_learned',
+  'lesson-learned': 'lesson_learned',
+  'lessons-learned': 'lesson_learned',
+  lessonlearned: 'lesson_learned',
+  'lesson learned': 'lesson_learned',
+  'lessons learned': 'lesson_learned',
+  facts: 'fact',
+};
 function coerceCandidateType(raw: unknown): string {
   const v = (typeof raw === 'string' ? raw : '').trim().toLowerCase();
-  if (v === 'lesson' || v === 'lesson-learned' || v === 'lessonlearned' || v === 'lesson learned') {
-    return 'lesson_learned';
-  }
-  return CANDIDATE_TYPES.has(v) ? v : 'fact';
+  if (CANDIDATE_TYPES.has(v)) return v;
+  return CANDIDATE_TYPE_ALIASES[v] ?? 'fact';
 }
 
 /**

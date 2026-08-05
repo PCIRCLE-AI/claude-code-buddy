@@ -146,6 +146,8 @@ describe('transcript-extractor: extraction pipeline', () => {
       { name: 'a', type: 'insight', observations: ['off-enum type'], tags: [] },
       { name: 'b', type: 'Decision', observations: ['cased variant'], tags: [] },
       { name: 'c', type: 'lesson', observations: ['near-miss of lesson_learned'], tags: [] },
+      { name: 'd', type: 'decisions', observations: ['pluralised protected type'], tags: [] },
+      { name: 'e', type: 'lessons learned', observations: ['pluralised, spaced'], tags: [] },
     ]));
     const res = await extractMemoriesFromTranscript(path, FAKE_LLM);
     const byName = Object.fromEntries(res.memories.map((m) => [m.name, m.type]));
@@ -153,6 +155,11 @@ describe('transcript-extractor: extraction pipeline', () => {
     expect(byName.a).toBe('fact');       // unknown → fact
     expect(byName.b).toBe('decision');   // case-normalised into the set
     expect(byName.c).toBe('lesson_learned'); // 'lesson' mapped to the protected type
+    // Plurals must map to the PROTECTED type, not fall through to 'fact' — that
+    // fall-through was a silent downgrade out of PROTECTED_TYPES. Break-test:
+    // remove the aliases and `d`/`e` become 'fact' → red.
+    expect(byName.d).toBe('decision');
+    expect(byName.e).toBe('lesson_learned');
   });
 
   it('a truncated / unparseable reply is a parseFailure, NOT a silent "no memories" (absence != evidence)', async () => {

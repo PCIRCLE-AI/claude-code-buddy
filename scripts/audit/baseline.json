@@ -416,15 +416,15 @@
       "reason": "set -uo pipefail at file top preserves the left commands verdict",
       "triaged": "2026-08-04 (re-keyed: the mktemp-orphan fix shifted lines by five)"
     },
-    "C5 src/transports/http/server.ts:967": {
+    "C5 src/transports/http/server.ts:969": {
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-05 (re-keyed 927->913->967: the rate-limit skip/handler + API_KEY_MASK backstop additions shifted the file down; same DreamRunBody.safeParse code verified before re-keying)"
+      "triaged": "2026-08-05 (re-keyed 927->913->967->969: exporting isLoopbackRequest for its unit test added 2 lines above; same DreamRunBody.safeParse code verified before re-keying)"
     },
-    "C5 src/transports/http/server.ts:1032": {
+    "C5 src/transports/http/server.ts:1034": {
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-05 (re-keyed 992->978->1032: the rate-limit skip/handler + API_KEY_MASK backstop additions shifted the file down; same RejectBodySchema.safeParse code verified before re-keying)"
+      "triaged": "2026-08-05 (re-keyed 992->978->1032->1034: exporting isLoopbackRequest for its unit test added 2 lines above; same RejectBodySchema.safeParse code verified before re-keying)"
     },
     "C5 dashboard/src/components/SettingsTab.tsx:237": {
       "class": "SAFE-GUARDED",

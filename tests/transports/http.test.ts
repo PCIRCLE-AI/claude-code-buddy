@@ -6,7 +6,7 @@ import { openDatabase, closeDatabase } from '../../src/db.js';
 
 // Import the Express app (not startServer, which opens its own DB and binds a port).
 // We open our own isolated DB and start the app on a random port.
-import { app, startServer, __setRemoteTokenForTest } from '../../src/transports/http/server.js';
+import { app, startServer, __setRemoteTokenForTest, isLoopbackRequest } from '../../src/transports/http/server.js';
 import { readConfig } from '../../src/core/config.js';
 
 let tmpDir: string;
@@ -1016,5 +1016,28 @@ describe('HTTP Transport: Startup validation', () => {
       else process.env.MEMESH_DB_PATH = previousDbPath;
       fs.rmSync(portTmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
+  });
+});
+
+describe('isLoopbackRequest (rate-limit skip boundary)', () => {
+  // This predicate decides whether the rate limiter is SKIPPED, so it is the
+  // security boundary: a public IP must never be treated as loopback, or an
+  // exposed (--allow-remote) instance loses its abuse control. `trust proxy`
+  // is left at Express's default (false), so `req.ip` is the raw socket address
+  // and cannot be forged via X-Forwarded-For — these cases lock that in.
+  it('returns true for every loopback form the stack can produce', () => {
+    expect(isLoopbackRequest({ ip: '127.0.0.1' })).toBe(true);
+    expect(isLoopbackRequest({ ip: '::1' })).toBe(true);
+    expect(isLoopbackRequest({ ip: '::ffff:127.0.0.1' })).toBe(true);
+  });
+
+  it('returns false for public and private-but-remote addresses', () => {
+    // Break-test: widen the predicate to `true` and each of these goes red.
+    expect(isLoopbackRequest({ ip: '203.0.113.5' })).toBe(false); // public
+    expect(isLoopbackRequest({ ip: '10.0.0.7' })).toBe(false); // LAN, still remote
+    expect(isLoopbackRequest({ ip: '::ffff:203.0.113.5' })).toBe(false); // mapped public
+    expect(isLoopbackRequest({ ip: '127.0.0.1:54321' })).toBe(false); // ip never carries a port
+    expect(isLoopbackRequest({})).toBe(false); // missing ip is not loopback
+    expect(isLoopbackRequest({ ip: '' })).toBe(false);
   });
 });

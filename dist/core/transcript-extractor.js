@@ -170,12 +170,22 @@ ${body}
 </conversation>`;
 }
 const CANDIDATE_TYPES = new Set(['decision', 'lesson_learned', 'fact']);
+const CANDIDATE_TYPE_ALIASES = {
+    decisions: 'decision',
+    lesson: 'lesson_learned',
+    lessons: 'lesson_learned',
+    'lesson-learned': 'lesson_learned',
+    'lessons-learned': 'lesson_learned',
+    lessonlearned: 'lesson_learned',
+    'lesson learned': 'lesson_learned',
+    'lessons learned': 'lesson_learned',
+    facts: 'fact',
+};
 function coerceCandidateType(raw) {
     const v = (typeof raw === 'string' ? raw : '').trim().toLowerCase();
-    if (v === 'lesson' || v === 'lesson-learned' || v === 'lessonlearned' || v === 'lesson learned') {
-        return 'lesson_learned';
-    }
-    return CANDIDATE_TYPES.has(v) ? v : 'fact';
+    if (CANDIDATE_TYPES.has(v))
+        return v;
+    return CANDIDATE_TYPE_ALIASES[v] ?? 'fact';
 }
 function parseMemories(text) {
     const block = extractJsonBlock(text, 'array');

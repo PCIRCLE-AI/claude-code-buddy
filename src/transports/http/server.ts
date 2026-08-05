@@ -83,7 +83,9 @@ type ErrorCode =
 // A request whose source is the loopback interface — the only clients that
 // reach a default (127.0.0.1-bound) server. `req.ip` is `::1`, `127.0.0.1`, or
 // the IPv4-mapped `::ffff:127.0.0.1` depending on the stack.
-function isLoopbackRequest(req: { ip?: string }): boolean {
+// Exported for testing: this predicate is the security boundary that decides
+// whether the rate limiter is skipped, so it is unit-tested directly.
+export function isLoopbackRequest(req: { ip?: string }): boolean {
   const ip = req.ip ?? '';
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
 }
