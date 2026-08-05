@@ -87,7 +87,7 @@ describe('remember', () => {
     });
 
     // auth-v2 should be auto-archived — must NOT appear in default recall.
-    // (We don't assert []: if ONNX embeddings are loaded, recallEnhanced
+    // (We don't assert []: if a neural embedder is configured, recallEnhanced
     // can supplement with vector hits, e.g. surfacing the related auth-v3.
     // The behavioural guarantee here is "archived rows stay hidden", not
     // "no results at all".)

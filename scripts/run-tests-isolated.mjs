@@ -25,21 +25,10 @@ try {
   // the whole suite at the real config and the real database, from the publish
   // path. The docblock above warned about *setting* MEMESH_DB_PATH and said
   // nothing about inheriting it.
-  // Share ONE ONNX model cache across runs and across the per-test HOMEs that
-  // six test files create. Without this, every isolated HOME re-downloads the
-  // ~98 MB all-MiniLM-L6-v2 model from HuggingFace — measured at 19.4s for the
-  // first write in a fresh HOME, at 8% CPU, so it is network wait, not work.
-  // Isolation is about the DATABASE and the config; a read-only model cache is
-  // not state a test can contaminate.
-  const modelCache = process.env.MEMESH_MODEL_CACHE_DIR
-    || path.join(os.tmpdir(), 'memesh-shared-model-cache');
-  fs.mkdirSync(modelCache, { recursive: true });
-
   const env = {
     ...process.env,
     HOME: home,
     USERPROFILE: home,
-    MEMESH_MODEL_CACHE_DIR: modelCache,
   };
   delete env.MEMESH_DIR;
   delete env.MEMESH_DB_PATH;

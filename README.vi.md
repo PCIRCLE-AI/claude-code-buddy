@@ -258,7 +258,7 @@ Toàn bộ cấu hình thông qua biến môi trường. Các giá trị mặc �
 |---|---|---|
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | Ghi đè vị trí của database SQLite. |
 | `MEMESH_AUTO_CAPTURE` | `true` | Tắt hoàn toàn các hooks auto-capture (`Stop`, `PreCompact`). |
-| `MEMESH_AUTO_DETECT_LLM` | chưa đặt (tự động phát hiện **bật**) | Đặt `0` để memesh KHÔNG dùng khóa API tìm thấy trong môi trường shell. Mặc định, nếu `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` được đặt và bạn chưa cấu hình nhà cung cấp trong `~/.memesh/config.json`, memesh sẽ dùng nó cho các tính năng LLM phía ghi (hợp nhất, trích xuất bài học, tự gắn thẻ, dream). Embeddings không bị ảnh hưởng — vẫn là ONNX cục bộ (384 chiều) trừ khi bạn đặt `embedder.provider` một cách rõ ràng. |
+| `MEMESH_AUTO_DETECT_LLM` | chưa đặt (tự động phát hiện **bật**) | Đặt `0` để memesh KHÔNG dùng khóa API tìm thấy trong môi trường shell. Mặc định, nếu `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` được đặt và bạn chưa cấu hình nhà cung cấp trong `~/.memesh/config.json`, memesh sẽ dùng nó cho các tính năng LLM phía ghi (hợp nhất, trích xuất bài học, tự gắn thẻ, dream). Embeddings không bị ảnh hưởng — vẫn chỉ tìm kiếm theo từ khóa (FTS5) trừ khi bạn đặt `embedder.provider` thành `ollama` hoặc `openai`. |
 | `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | chưa đặt | Đặt thành `1` để bật một giao thức working-model thử nghiệm (CTO / Orchestrator / Agents framing). Thêm session-start banner, một Bash command nudge, và telemetry `verify_agent_work`. Hiệu quả của giao thức đang được instrument, chưa được chứng minh — opt in nếu bạn muốn tham gia. **Mặc định là OFF**: các tính năng bộ nhớ cốt lõi vẫn hoạt động mà không cần flag này. |
 | `MEMESH_AUTO_UPDATE` | `off` | Chính sách auto-update. `off` (mặc định) không bao giờ tự cập nhật; `patch` cho phép `X.Y.Z → X.Y.Z+N`; `minor` thêm `X.Y.Z → X.Y+1.0`; `major` cho phép mọi bump. Khi được phép, một `npm install -g` detached chạy ở cuối session (Stop hook) để không bao giờ chặn công việc của bạn — kết quả lưu vào `~/.memesh/auto-update.log`. Cũng có thể đặt là `autoUpdate` trong `~/.memesh/config.json` (env thắng). Khi phiên bản đã cài bị maintainers đánh dấu deprecated (security advisory), `patch` sẽ được force-allowed ngay cả khi `off` — minor / major bumps vẫn manual để tránh behaviour drift im lặng. |
 | `OPENAI_API_KEY` | chưa đặt | Khóa OpenAI của bạn. Được dùng tự động cho các tính năng LLM trừ khi bạn đặt `MEMESH_AUTO_DETECT_LLM=0` hoặc cấu hình nhà cung cấp một cách rõ ràng. |
@@ -336,14 +336,14 @@ memesh serve  # mở dashboard → Settings tab
 
 ### Dùng embeddings của riêng bạn (tùy chọn)
 
-Mặc định embeddings dùng mô hình ONNX cục bộ (`Xenova/all-MiniLM-L6-v2`, 384 chiều) — không cần khóa API, không có gì rời khỏi máy bạn, và recall FTS5 mặc định thậm chí không cần đến. Để dùng embedder lưu trữ đám mây hoặc máy chủ cục bộ:
+Mặc định MeMesh recall **chỉ theo từ khóa** (FTS5) — không cần khóa API, không tải mô hình, không có gì rời khỏi máy bạn. Tìm kiếm ngữ nghĩa (theo ý nghĩa) là tùy chọn và cần một embedder. Hãy cấu hình một trong số:
 
 ```bash
 memesh config set embedder.provider openai          # or: ollama
 memesh config set embedder.model text-embedding-3-small
 ```
 
-Embedder được cấu hình **độc lập với LLM chat** — thay đổi `llm.provider` không bao giờ âm thầm thay đổi embeddings của bạn. Nếu bạn chuyển sang chiều khác (ví dụ 384 → 1536), MeMesh tự động xây dựng lại chỉ mục vector ở lần ghi tiếp theo. Các giá trị `embedder.provider` được hỗ trợ: `onnx` (mặc định, cục bộ), `openai`, `ollama`.
+Embedder được cấu hình **độc lập với LLM chat** — thay đổi `llm.provider` không bao giờ âm thầm thay đổi embeddings của bạn. Nếu bạn chuyển sang chiều khác (ví dụ 768 → 1536), MeMesh tự động xây dựng lại chỉ mục vector ở lần ghi tiếp theo. Các giá trị `embedder.provider` được hỗ trợ: `ollama` (cục bộ), `openai` (đám mây). Không đặt gì thì recall vẫn là tìm kiếm theo từ khóa.
 
 | | Level 0 (default) | Level 1 (Smart Mode) |
 |---|---|---|

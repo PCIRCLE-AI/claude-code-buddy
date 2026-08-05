@@ -1,6 +1,11 @@
 # Reproducing the MeMesh LongMemEval Benchmark
 
-Anyone — journalist, competitor, researcher — can reproduce these results in under 10 commands. Total time: ~10 seconds (Mode A) or ~14 minutes (Mode B, ONNX-dependent).
+Anyone — journalist, competitor, researcher — can reproduce these results in under 10 commands. Total time: ~10 seconds (Mode A).
+
+> **Mode B is historical.** It was measured on the local ONNX MiniLM-L6 embedder
+> that has since been removed. To reproduce a Mode B run today you must configure
+> an embedder (`ollama serve` + `memesh config set embedder.provider ollama`, or
+> openai); the numbers you get belong to that model, not to the original MiniLM run.
 
 The runner calls MeMesh's shipped retrieval path (`recallEnhanced()`), so what
 you measure here is what a `recall` call does. That was not true before 2026-07;
@@ -10,7 +15,7 @@ see RESULTS.md if you are comparing against an older figure.
 
 - Node.js >= 20.0.0
 - ~500MB disk space (dataset)
-- Internet access (first run downloads ONNX model ~25MB for Mode B)
+- For Mode B only: a configured embedder (ollama or openai) reachable from the runner
 
 ## Step-by-step
 
@@ -89,7 +94,7 @@ LongMemEval is released under the MIT license by Xiaowu0162/LongMemEval. The dat
 
 **"Cannot find module 'sqlite-vec'"** — Same; ensure you're on Node >= 20.
 
-**Mode B/C slow on first run** — The Xenova/all-MiniLM-L6-v2 ONNX model downloads on first use (~25MB). Subsequent runs use the cached model.
+**Mode B needs an embedder** — the local ONNX model is gone; Mode B calls the configured provider (ollama/openai). Ensure it is running/reachable before the run, or Mode B exits with a message telling you so.
 
 **Different results** — If your numbers differ by more than ±0.5pp, check:
 1. Dataset SHA256 matches the value above

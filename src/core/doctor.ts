@@ -4,7 +4,7 @@ import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
 import { detectCapabilities, getConfigPath, type Capabilities } from './config.js';
-import { embedText, isOnnxModelCached } from './embedder.js';
+import { embedText } from './embedder.js';
 import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
@@ -124,7 +124,7 @@ interface DoctorOptions {
 
 /**
  * Cap on the live embedding probe in `memesh doctor`. Generous enough for a
- * cold ONNX model load or a local ollama call, short enough that doctor
+ * local ollama call or a hosted embedder round-trip, short enough that doctor
  * always returns.
  */
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
@@ -1438,14 +1438,10 @@ async function inspectConfigParse(
  * while every vector write and semantic recall silently returns nothing.
  *
  * The probe is therefore real — but it must never have side effects the
- * user did not ask a *diagnostic* command for. Two cases are gated behind
- * `--probe`:
- *
- *   - a BYOK provider (openai / ollama / anthropic) is a network call, and
- *     for hosted providers a billed one;
- *   - local ONNX with a cold cache would download ~90 MB of model weights.
- *     `memesh doctor` is what you reach for when the network is already
- *     misbehaving; it must not be the command that starts a large download.
+ * user did not ask a *diagnostic* command for. A live embedder call is gated
+ * behind `--probe`: every embedder is now a network call (ollama is local but
+ * still a socket; openai is billed), and `memesh doctor` is what you reach for
+ * when the network is already misbehaving.
  *
  * When the probe is skipped the row says NOT VERIFIED and names the reason.
  * That is not the hardcoded-'pass' failure this row was rewritten to fix —
@@ -1467,31 +1463,18 @@ async function inspectEmbeddingProbe(
   }
 
   if (!probeCapabilities) {
-    const isLocal = capabilities.embeddings === 'onnx';
-    if (!isLocal) {
-      return createInfo(
-        'embeddings_probe',
-        'Embeddings work',
-        `NOT VERIFIED. Config names "${capabilities.embeddings}", but generating a test embedding is a network call (billed on hosted providers) so it was not made — a revoked key or an unreachable host would look identical to a healthy setup here.`,
-        'Run: memesh doctor --probe   (generates one test embedding to confirm)',
-      );
-    }
-    if (!isOnnxModelCached()) {
-      return createInfo(
-        'embeddings_probe',
-        'Embeddings work',
-        `NOT VERIFIED. Config names "onnx" but the model is not in the local cache yet, and probing would download ~90 MB — which a diagnostic command must not do on its own.`,
-        'Run: memesh doctor --probe   (downloads the model once, then verifies)',
-      );
-    }
-    // Local model already on disk: probing costs a few hundred ms and no
-    // network, so verify for real even without --probe.
+    return createInfo(
+      'embeddings_probe',
+      'Embeddings work',
+      `NOT VERIFIED. Config names "${capabilities.embeddings}", but generating a test embedding is a network call (billed on hosted providers) so it was not made — a revoked key or an unreachable host would look identical to a healthy setup here.`,
+      'Run: memesh doctor --probe   (generates one test embedding to confirm)',
+    );
   }
 
-  // Bound the probe. A BYOK embedder is a network call and the local ONNX
-  // path can block on a cold model load, so an unbounded await turns
-  // `memesh doctor` — the command you reach for when things are wrong — into
-  // the thing that hangs. Timing out is itself a useful answer.
+  // Bound the probe. A BYOK embedder is a network call and a local ollama
+  // endpoint can be slow to answer, so an unbounded await turns `memesh
+  // doctor` — the command you reach for when things are wrong — into the
+  // thing that hangs. Timing out is itself a useful answer.
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const vector = await Promise.race([
@@ -1526,7 +1509,7 @@ async function inspectEmbeddingProbe(
       'Embeddings work',
       'warn',
       `Config selects "${capabilities.embeddings}" but the embedder threw (${msg}). Semantic recall is degraded to FTS5-only.`,
-      'Check the embedding provider is reachable, or set: memesh config set embedder.provider onnx',
+      'Check the embedding provider is reachable (e.g. run `ollama serve`), or remove embedder config to use keyword-only search.',
       { code: 'embeddings.threw', params: { provider: String(capabilities.embeddings), detail: msg } },
     );
   } finally {

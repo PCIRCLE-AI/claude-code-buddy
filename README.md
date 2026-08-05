@@ -131,7 +131,7 @@ npm install -g @pcircle/memesh
 
 > **First-install notes (one-time):**
 > - **Native modules** — `better-sqlite3` and `sqlite-vec` install via prebuilt binaries on macOS (arm64/x64), Linux (x64/arm64), and Windows x64. On uncommon platforms or when prebuilds fail, you'll need a working C/C++ toolchain.
-> - **Embedding model** — the first call that triggers a local embedding (e.g. `recall` with semantic mode) downloads `Xenova/all-MiniLM-L6-v2` (~80 MB) into `~/.memesh/models/`. Subsequent calls are instant. The default retrieval path (FTS5) does not require this download.
+> - **Semantic (meaning-based) search is optional** — the default recall path is FTS5 keyword search, which needs no model and no download. Meaning-based search needs an embedder: run [Ollama](https://ollama.com) locally, or configure a cloud embedder (see "Bring-your-own embeddings" below). Without one, memesh uses keyword search only.
 
 ### Step 1.5: Wire MeMesh into Claude Code (npm path only)
 
@@ -287,7 +287,7 @@ All configuration is via environment variables. Defaults are local-only and zero
 |---|---|---|
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | Override the SQLite database location. |
 | `MEMESH_AUTO_CAPTURE` | `true` | Disable the auto-capture hooks (`Stop`, `PreCompact`) entirely. |
-| `MEMESH_AUTO_DETECT_LLM` | unset (auto-detect **on**) | Set to `0` to stop memesh using an API key it finds in your shell env. By default, if `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` is set and you have not configured a provider in `~/.memesh/config.json`, memesh uses it for write-side LLM features (lesson extraction, auto-tagging, dream). Embeddings are unaffected — they stay local ONNX (384-dim) unless you explicitly set `embedder.provider`. |
+| `MEMESH_AUTO_DETECT_LLM` | unset (auto-detect **on**) | Set to `0` to stop memesh using an API key it finds in your shell env. By default, if `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` is set and you have not configured a provider in `~/.memesh/config.json`, memesh uses it for write-side LLM features (lesson extraction, auto-tagging, dream). Embeddings are unaffected — they stay keyword-only (FTS5) unless you explicitly set `embedder.provider` to `ollama` or `openai`. |
 | `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | unset | Set to `1` to enable an experimental working-model protocol (CTO / Orchestrator / Agents framing). Adds a session-start banner, a Bash command nudge, and `verify_agent_work` telemetry. The protocol's effectiveness is being instrumented, not yet proven — opt in if you want to participate. **Default is OFF**: the core memory features work without this flag. |
 | `MEMESH_AUTO_UPDATE` | `off` | Auto-update policy. `off` (default) never auto-updates; `patch` allows `X.Y.Z → X.Y.Z+N`; `minor` adds `X.Y.Z → X.Y+1.0`; `major` allows any bump. When permitted, a detached `npm install -g` fires at session end (Stop hook) so it never blocks your work — outcomes land in `~/.memesh/auto-update.log`. Also settable as `autoUpdate` in `~/.memesh/config.json` (env wins). When the installed version is deprecated by maintainers (security advisory), `patch` is force-allowed even on `off` — minor / major bumps still stay manual to avoid silent behaviour drift. |
 | `OPENAI_API_KEY` | unset | Your OpenAI key. Used automatically for LLM features unless you set `MEMESH_AUTO_DETECT_LLM=0` or configure a provider explicitly. |
@@ -363,16 +363,19 @@ Or use the dashboard Settings tab (visual setup):
 memesh serve  # opens dashboard → Settings tab
 ```
 
-### Bring-your-own embeddings (optional)
+### Semantic search / embeddings (optional)
 
-Embeddings default to a local ONNX model (`Xenova/all-MiniLM-L6-v2`, 384-dim) — no API key, nothing leaves your machine, and the default FTS5 recall path doesn't need them at all. To use a hosted or local-server embedder instead:
+By default MeMesh does **keyword-only** recall (FTS5) — no API key, no model download, nothing leaves your machine. Semantic (meaning-based) search is opt-in and needs an embedder. Point one of these at it:
 
 ```bash
-memesh config set embedder.provider openai          # or: ollama
+memesh config set embedder.provider ollama          # local, needs `ollama serve`
+memesh config set embedder.model nomic-embed-text
+# or, for a hosted embedder:
+memesh config set embedder.provider openai
 memesh config set embedder.model text-embedding-3-small
 ```
 
-The embedder is configured **independently of the chat LLM** — changing `llm.provider` never silently changes your embeddings. If you switch to an embedder with a different dimension (e.g. 384 → 1536), MeMesh rebuilds the vector index automatically on the next write. Supported `embedder.provider` values: `onnx` (default, local), `openai`, `ollama`.
+The embedder is configured **independently of the chat LLM** — changing `llm.provider` never silently changes your embeddings. If you switch to an embedder with a different dimension (e.g. 768 → 1536), MeMesh rebuilds the vector index automatically on the next write. Supported `embedder.provider` values: `ollama` (local), `openai` (hosted). With none set, recall stays on keyword search.
 
 | | Level 0 (default) | Level 1 (Smart Mode) |
 |---|---|---|

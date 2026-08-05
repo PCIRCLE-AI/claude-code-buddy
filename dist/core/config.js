@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { createRequire } from 'module';
 import { memeshDir } from './paths.js';
 const PRIVATE_DIR_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
@@ -119,30 +118,27 @@ export function detectCapabilities(config) {
     };
 }
 function detectEmbeddingSource(llm, embedder) {
-    if (embedder?.provider)
-        return embedder.provider;
+    const provider = embedder?.provider;
+    if (provider !== undefined && provider !== null) {
+        if (provider === 'openai' || provider === 'ollama')
+            return provider;
+        return 'tfidf';
+    }
     if (llm?.provider === 'openai')
         return 'openai';
     if (llm?.provider === 'ollama')
         return 'ollama';
-    try {
-        const require = createRequire(import.meta.url);
-        require.resolve('@huggingface/transformers');
-        return 'onnx';
-    }
-    catch {
-        return 'tfidf';
-    }
+    return 'tfidf';
 }
 const EMBEDDING_DIMENSIONS = {
     openai: 1536,
     ollama: 768,
-    onnx: 384,
 };
+const KEYWORD_ONLY_DIMENSION = 384;
 export function getEmbeddingDimension(config) {
     const cfg = config ?? readConfig();
     const source = detectEmbeddingSource(cfg.llm ?? null, cfg.embedder);
-    return EMBEDDING_DIMENSIONS[source] ?? 384;
+    return EMBEDDING_DIMENSIONS[source] ?? KEYWORD_ONLY_DIMENSION;
 }
 export function resolveEmbeddingDimension() {
     const { config, state } = readConfigResult();
@@ -157,6 +153,13 @@ export function logCapabilities(config) {
     process.stderr.write(`MeMesh: Level ${caps.searchLevel} (${caps.searchLevel === 1 ? 'Smart Mode' : 'Core'})\n`);
     if (caps.llm) {
         process.stderr.write(`MeMesh: LLM: ${caps.llm.provider} (${caps.llm.model ?? 'default'})\n`);
+    }
+    if (caps.embeddings === 'openai' || caps.embeddings === 'ollama') {
+        process.stderr.write(`MeMesh: Semantic (meaning-based) search: ON (${caps.embeddings}).\n`);
+    }
+    else {
+        process.stderr.write(`MeMesh: Semantic (meaning-based) search: OFF — keyword search only. ` +
+            `Configure ollama or an embedder to enable it.\n`);
     }
 }
 export function getConfigDir() { return configDir(); }

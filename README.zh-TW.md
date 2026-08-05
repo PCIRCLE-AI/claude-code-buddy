@@ -129,7 +129,7 @@ npm install -g @pcircle/memesh
 
 > **首次安裝注意事項（一次性）：**
 > - **原生模組** — `better-sqlite3` 與 `sqlite-vec` 在 macOS（arm64/x64）、Linux（x64/arm64）和 Windows x64 上會以預先編譯的二進位安裝。在較少見的平台或預編譯失敗時，你需要可運作的 C/C++ 工具鏈。
-> - **嵌入模型** — 第一次觸發本地嵌入的呼叫（例如 semantic 模式的 `recall`）會把 `Xenova/all-MiniLM-L6-v2`（約 80 MB）下載到 `~/.memesh/models/`。後續呼叫即時生效。預設的檢索路徑（FTS5）不需要這個下載。
+> - **語意搜尋是選用的** — 預設的檢索路徑是關鍵字搜尋（FTS5），不需要模型也不需要下載。以語意（意義）為基礎的搜尋需要一個 embedder：在本地執行 [Ollama](https://ollama.com)，或設定一個雲端 embedder（見下方「嵌入」）。沒有設定時，memesh 只使用關鍵字搜尋。
 
 ### 第一步半：把 MeMesh 接進 Claude Code（僅 npm 路徑需要）
 
@@ -285,7 +285,7 @@ memesh export-schema \
 |---|---|---|
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | 覆寫 SQLite 資料庫位置。 |
 | `MEMESH_AUTO_CAPTURE` | `true` | 完全停用自動擷取 hooks（`Stop`、`PreCompact`）。 |
-| `MEMESH_AUTO_DETECT_LLM` | 未設定（自動偵測**開啟**） | 設為 `0` 讓 memesh 不使用它在 shell 環境中找到的 API 金鑰。預設情況下，如果設定了 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` 且你沒有在 `~/.memesh/config.json` 設定供應商，memesh 會用它來跑寫入側的 LLM 功能（整合、經驗提取、自動打標籤、dream）。嵌入不受影響 —— 除非你明確設定 `embedder.provider`，否則保持本地 ONNX（384 維）。 |
+| `MEMESH_AUTO_DETECT_LLM` | 未設定（自動偵測**開啟**） | 設為 `0` 讓 memesh 不使用它在 shell 環境中找到的 API 金鑰。預設情況下，如果設定了 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` 且你沒有在 `~/.memesh/config.json` 設定供應商，memesh 會用它來跑寫入側的 LLM 功能（整合、經驗提取、自動打標籤、dream）。嵌入不受影響 —— 除非你把 `embedder.provider` 明確設定為 `ollama` 或 `openai`，否則保持僅關鍵字（FTS5）。 |
 | `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | 未設定 | 設為 `1` 啟用實驗性的工作模型協定（CTO／Orchestrator／Agents 框架）。會加上 session-start 橫幅、Bash 指令提示，以及 `verify_agent_work` 遙測。協定的有效性正在量測中、尚未獲得驗證 — 想參與時才加入。**預設關閉**：核心記憶功能不需要這個旗標就能運作。 |
 | `MEMESH_AUTO_UPDATE` | `off` | 自動更新策略。`off`（預設）永不自動更新；`patch` 允許 `X.Y.Z → X.Y.Z+N`；`minor` 加上 `X.Y.Z → X.Y+1.0`；`major` 允許任何升級。允許時，分離的 `npm install -g` 會在 session 結束時（Stop hook）執行，避免阻塞你的工作 — 結果寫入 `~/.memesh/auto-update.log`。也可在 `~/.memesh/config.json` 中以 `autoUpdate` 設定（環境變數優先）。當已安裝版本被維護者標為 deprecated（安全公告）時，即使是 `off` 也會強制允許 `patch` — 仍維持 minor／major 升級的手動門檻，避免靜默行為偏移。 |
 | `OPENAI_API_KEY` | 未設定 | 你的 OpenAI 金鑰。除非你設定 `MEMESH_AUTO_DETECT_LLM=0` 或明確設定供應商，否則會自動用於 LLM 功能。 |
@@ -363,14 +363,14 @@ memesh serve  # 開啟儀表板 → Settings 分頁
 
 ### 自帶嵌入(可選)
 
-嵌入預設使用本地 ONNX 模型(`Xenova/all-MiniLM-L6-v2`,384 維)—— 無需 API 金鑰,資料不離開你的機器,而且預設的 FTS5 召回根本不需要它。若要改用託管或本地伺服器的嵌入器:
+預設情況下 MeMesh 只做**關鍵字**召回(FTS5)—— 無需 API 金鑰,無需下載模型,資料不離開你的機器。語意(以意義為基礎的)搜尋是選用的,需要一個嵌入器。設定其中之一:
 
 ```bash
 memesh config set embedder.provider openai          # or: ollama
 memesh config set embedder.model text-embedding-3-small
 ```
 
-嵌入器**獨立於對話 LLM** 設定 —— 更改 `llm.provider` 絕不會悄悄改變你的嵌入。如果切換到不同維度(如 384 → 1536),MeMesh 會在下次寫入時自動重建向量索引。支援的 `embedder.provider` 取值:`onnx`(預設,本地)、`openai`、`ollama`。
+嵌入器**獨立於對話 LLM** 設定 —— 更改 `llm.provider` 絕不會悄悄改變你的嵌入。如果切換到不同維度(如 768 → 1536),MeMesh 會在下次寫入時自動重建向量索引。支援的 `embedder.provider` 取值:`ollama`(本地)、`openai`(託管)。兩者都不設定時,召回保持關鍵字搜尋。
 
 | | 等級 0（預設） | 等級 1（智慧模式） |
 |---|---|---|

@@ -13,10 +13,8 @@ const repoRoot = process.cwd();
 // This used to extract into `<repoRoot>/tmp/pack-smoke`, so when the import
 // check below loaded the packaged `dist/index.js`, every bare specifier
 // resolved by walking UP into the repo's own `node_modules` — devDependencies
-// included. Verified: `better-sqlite3` and `@huggingface/transformers` both
-// resolved to the repo tree. The gate therefore could not see a missing runtime
-// dependency, which is precisely the class of change this release made when it
-// moved `@huggingface/transformers` to an optional peer. It also printed
+// included. Verified: `better-sqlite3` resolved to the repo tree. The gate
+// therefore could not see a missing runtime dependency. It also printed
 // "installs" for an install that never happened.
 //
 // In os.tmpdir() nothing resolves upward, so the install below is the only

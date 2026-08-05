@@ -32,11 +32,6 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const WORK = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-mutation-'));
 const COPY = path.join(WORK, 'tree');
 const HOME = path.join(WORK, 'home');
-// One shared model cache across all mutants — without it every mutant's
-// throwaway HOME re-downloads the ~98MB ONNX model (measured: 2 mutants in
-// 45 minutes).
-const MODEL_CACHE = process.env.MEMESH_MODEL_CACHE_DIR
-  ?? path.join(os.tmpdir(), 'memesh-mutation-model-cache');
 const SAMPLE = Number(process.env.SAMPLE ?? 12);
 const SEED = Number(process.env.SEED ?? 20260804);
 if (!Number.isInteger(SAMPLE) || SAMPLE < 1 || !Number.isInteger(SEED)) {
@@ -117,7 +112,7 @@ function runVitest(files) {
   try {
     execFileSync('npx', ['vitest', 'run', ...files], {
       cwd: COPY, encoding: 'utf8',
-      env: { ...process.env, HOME, MEMESH_MODEL_CACHE_DIR: MODEL_CACHE },
+      env: { ...process.env, HOME },
       stdio: ['ignore', 'pipe', 'pipe'], timeout: 900_000,
     });
     return 0;

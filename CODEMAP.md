@@ -56,8 +56,8 @@ docs/                # ARCHITECTURE.md, api/API_REFERENCE.md
 - Auto-tagging (LLM) → `src/core/auto-tagger.ts`
 
 ### Embeddings
-- Provider dispatch (ONNX / OpenAI / Ollama) + `isOnnxModelCached()` → `src/core/embedder.ts`
-- Default model: `Xenova/all-MiniLM-L6-v2` (384-dim), cache `~/.memesh/models/`
+- Provider dispatch (Ollama / OpenAI) + graceful keyword-only fallback → `src/core/embedder.ts`
+- No local model: semantic search needs Ollama (nomic-embed-text, 768-dim) or OpenAI (1536-dim); with none, recall is FTS5 keyword-only
 
 ### LLM (write-side Smart Mode only — never on the recall hot path)
 - Single dispatch + cross-provider failover + secret redaction → `src/core/llm-client.ts`

@@ -41,9 +41,9 @@ describe('Feature: reindex reports what it actually wrote', () => {
   /**
    * Serve embeddings of a chosen length.
    *
-   * `embedText` falls through to the local ONNX model when the API provider
-   * returns null, and that would download ~90 MB in CI — so every stub here
-   * answers OK. The dimension is the variable, not the availability.
+   * `embedText` returns null when no provider is configured, so every stub
+   * here answers OK to exercise the write path. The dimension is the variable,
+   * not the availability.
    */
   function serveEmbeddings(lengthFor: (input: string) => number): void {
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
@@ -90,7 +90,7 @@ describe('Feature: reindex reports what it actually wrote', () => {
     process.env.MEMESH_DIR = dir;
     // Both halves: `embedText` only passes a key through when the LLM provider
     // matches the embedding provider, and `embedWithOpenAI` falls back to the
-    // environment. Without a key it returns null and ONNX takes over.
+    // environment. Without a key it returns null (recall stays on FTS5).
     process.env.OPENAI_API_KEY = 'test-key-not-used-over-the-network';
     fs.writeFileSync(
       path.join(dir, 'config.json'),

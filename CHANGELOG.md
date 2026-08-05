@@ -104,6 +104,29 @@ All notable changes to MeMesh are documented here.
   key is stored for the selected provider. The Capabilities card also
   shows which model is configured, next to the provider.
 
+### Removed
+
+- **The local ONNX embedder (`@huggingface/transformers`,
+  `Xenova/all-MiniLM-L6-v2`, 384-dim) is gone.** It was the zero-dependency
+  default for *semantic* search, but it and ollama produced
+  different-dimension vectors sharing one index, so switching embedders
+  corrupted the index. MeMesh now standardises on ollama (nomic-embed-text)
+  for local semantic search, with OpenAI as the hosted option. The
+  `@huggingface/transformers` optional peer dependency, the `~/.memesh/models`
+  download, the `onnx` value of `embedder.provider`, and the
+  `MEMESH_MODEL_CACHE_DIR` environment variable are all removed.
+  **Keyword search is unchanged.** MeMesh still needs no LLM and no embedder
+  to work: with no embedder configured, recall degrades gracefully to FTS5
+  keyword search alone — it never crashes, never blocks startup, and never
+  pretends semantic search is working. `memesh doctor` reports the
+  keyword-only state as informational (not a failure), and probes the
+  configured embedder when one is present. **Upgrade is safe:** a config that
+  still names `embedder.provider: onnx`, or an existing 384-dim vector table,
+  is treated as keyword-only at the same 384-dim width, so no vectors are
+  dropped. To get semantic search back, run Ollama and
+  `memesh config set embedder.provider ollama` (or configure OpenAI), then
+  `memesh reindex --vectors`.
+
 ### Fixed
 
 - **No raw exceptions in the dashboard's error surfaces.** A stopped

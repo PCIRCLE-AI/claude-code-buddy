@@ -518,8 +518,9 @@ export async function extractMemoriesFromTranscript(
  * this related enough to surface"). Dedup asks "is this the SAME memory", which
  * is a much tighter bar, so it gets its own, tighter number.
  *
- * MEASURED, not guessed (scripts/calibrate-transcript-dedup.mjs, MiniLM-L6, the
- * default embedder; L2 over the exact runtime text `${name} ${obs.join(' ')}`):
+ * MEASURED, not guessed (scripts/calibrate-transcript-dedup.mjs, on the local
+ * ONNX MiniLM-L6 embedder that memesh shipped at the time; L2 over the exact
+ * runtime text `${name} ${obs.join(' ')}`):
  *
  *   DUPLICATE pairs (same memory, reworded)   n=10  min 0.401  p50 0.500  p75 0.604  max 0.669
  *   DISTINCT pairs  (SAME domain, diff fact)  n=10  min 0.668  p50 0.827  p75 0.858  max 0.987
@@ -542,8 +543,13 @@ export async function extractMemoriesFromTranscript(
  * fixture is synthetic and the classes overlap at the boundary, so this number
  * reliably catches only near-identical / clear duplicates (and all exact
  * re-runs). Re-derive it on a REAL knowledge graph before leaning on it for
- * paraphrase-level dedup. Re-derive it too if the embedding model changes — the
- * number belongs to MiniLM-L6, not to the algorithm.
+ * paraphrase-level dedup.
+ *
+ * IMPORTANT — the MiniLM-L6 embedder this was measured on has been removed;
+ * memesh now standardises on ollama (nomic-embed-text). The number belongs to
+ * the model, not the algorithm, so it has NOT been re-derived for that space —
+ * re-derivation against nomic-embed-text is open work. It is kept rather than a
+ * new value nobody measured.
  */
 export const TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.55;
 
@@ -569,8 +575,8 @@ export interface DuplicateHit {
   distance: number;
 }
 
-/** Injection seams so tests can drive dedup deterministically without the real
- * ONNX model. Defaults are the real recall path. */
+/** Injection seams so tests can drive dedup deterministically without a real
+ * embedder. Defaults are the real recall path. */
 export interface DedupDeps {
   embed?: (text: string) => Promise<Float32Array | null>;
   vectorSearch?: (emb: Float32Array, limit: number) => Array<{ id: number; distance: number }>;
@@ -713,7 +719,7 @@ export interface TranscriptSourceOptions {
   /** Test seam forwarded to extraction — see ExtractOptions.chunkCharBudget. */
   chunkCharBudget?: number;
   /** Test seam forwarded to vector dedup — see DedupDeps. Defaults to the real
-   * ONNX embedder + entities_vec search. */
+   * embedder + entities_vec search. */
   dedup?: DedupDeps;
 }
 

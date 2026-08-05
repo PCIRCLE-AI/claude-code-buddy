@@ -68,14 +68,6 @@
     "sqlite-vec": "^0.1.9",
     "zod": "4.4.3"
   },
-  "peerDependencies": {
-    "@huggingface/transformers": "^4.2.0"
-  },
-  "peerDependenciesMeta": {
-    "@huggingface/transformers": {
-      "optional": true
-    }
-  },
   "overrides": {
     "@hono/node-server": "^2.0.12",
     "@protobufjs/utf8": "^1.1.2",
@@ -93,7 +85,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@huggingface/transformers": "^4.2.0",
     "@preact/preset-vite": "^2.10.5",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/preact": "^3.2.4",

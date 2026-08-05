@@ -5,8 +5,8 @@
  * embedding dimension differs from the stored one. The dimension comes from
  * `~/.memesh/config.json`, and `readConfig()` used to return `{}` for BOTH "the
  * user configured nothing" and "the file could not be read" — so a config that
- * was truncated mid-write, or briefly unreadable, resolved to the 384-dim ONNX
- * default and DROPPED a BYOK user's entire 1536-dim index. No backup, no
+ * was truncated mid-write, or briefly unreadable, resolved to the 384-dim
+ * keyword-only default and DROPPED a BYOK user's entire 1536-dim index. No backup, no
  * confirmation, and regenerating it means re-running the whole embedding
  * pipeline and paying an API provider for it a second time.
  *
@@ -26,7 +26,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { openDatabase, closeDatabase, allowVectorIndexRebuild } from '../src/db.js';
-import { isEmbeddingAvailable, canRefillVectorIndex, resetEmbeddingState } from '../src/core/embedder.js';
+import { isEmbeddingAvailable, canRefillVectorIndex } from '../src/core/embedder.js';
 
 describe('Feature: an unreadable config does not delete embeddings', () => {
   let dir: string;
@@ -245,7 +245,6 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     // loss, and the claim-based check hands it to the user through the command
     // documented as the safe way through.
     fs.writeFileSync(configPath, BYOK_CONFIG); // openai, 1536-dim
-    resetEmbeddingState();
 
     // No OPENAI_API_KEY, and the network is refused outright. The claim still
     // says yes.
@@ -264,7 +263,6 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
       fetchSpy.mockRestore();
       if (savedKey === undefined) delete process.env.OPENAI_API_KEY;
       else process.env.OPENAI_API_KEY = savedKey;
-      resetEmbeddingState();
     }
 
     // ...and the index the config would have rebuilt is still there, vector

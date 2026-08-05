@@ -510,7 +510,7 @@ function countMissingVectors(
  */
 export async function reindex(opts?: { namespace?: string }): Promise<ReindexResult> {
   if (!isEmbeddingAvailable()) {
-    throw new Error('No embedding provider available. Configure OpenAI API key, Ollama, or install @huggingface/transformers.');
+    throw new Error('No embedding provider configured, so there are no vectors to build. Run Ollama (or set an OpenAI API key) and set embedder.provider, then retry. Without an embedder, recall runs on FTS5 keyword search alone.');
   }
 
   const db = getDatabase();

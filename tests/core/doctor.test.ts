@@ -8,17 +8,13 @@ import type { UpdateCheck } from '../../src/core/version-check.js';
 import type { Capabilities } from '../../src/core/config.js';
 
 /**
- * Stand-in for the real embedder. 384 dims = all-MiniLM-L6-v2's output.
+ * Stand-in for the real embedder. 768 dims = nomic-embed-text's output.
  *
- * Every doctor test MUST inject this. The real `embedText()` builds a
- * module-level ONNX pipeline singleton that downloads ~90 MB of model
- * weights into whatever MEMESH_DIR is set at that moment and never releases
- * its file handles. In this suite MEMESH_DIR points at a per-test temp dir,
- * so `afterEach`'s `rmSync` then hits ENOTEMPTY on Windows — which is how
- * this landed as a red CI job on windows-latest while every other platform
- * stayed green.
+ * Every doctor test MUST inject this. The real `embedText()` makes a live
+ * provider call (ollama socket / openai HTTP), which a diagnostic test must
+ * not depend on. A deterministic stub keeps the probe rows testable offline.
  */
-const stubEmbedText = async (): Promise<Float32Array> => new Float32Array(384);
+const stubEmbedText = async (): Promise<Float32Array> => new Float32Array(768);
 
 /**
  * All tests go through this wrapper so no call site can accidentally reach
@@ -183,7 +179,7 @@ function caps(overrides: Partial<Capabilities> = {}): Capabilities {
     vectorSearch: true,
     scoring: true,
     knowledgeEvolution: true,
-    embeddings: 'onnx',
+    embeddings: 'ollama',
     llm: null,
     llmFallbacks: [],
     searchLevel: 0,
@@ -997,7 +993,7 @@ describe('README locale parity (doctor sub-check)', () => {
       packageVersion: '4.2.3',
       openDatabaseImpl: () => makeDatabase(3) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'ollama' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'source-checkout',
@@ -1314,7 +1310,7 @@ describe('native binding probe (plugin-marketplace silent-dropout guard)', () =>
       packageVersion: '4.2.5',
       openDatabaseImpl: () => makeDatabase(1) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'plugin-marketplace',
@@ -1345,7 +1341,7 @@ describe('native binding probe (plugin-marketplace silent-dropout guard)', () =>
       packageVersion: '4.2.5',
       openDatabaseImpl: () => makeDatabase(1) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -1374,7 +1370,7 @@ describe('native binding probe (plugin-marketplace silent-dropout guard)', () =>
       packageVersion: '4.2.5',
       openDatabaseImpl: () => makeDatabase(1) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -1400,7 +1396,7 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       packageVersion: '4.2.6',
       openDatabaseImpl: () => makeDatabase(1) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'plugin-marketplace',
@@ -1427,7 +1423,7 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       packageVersion: '4.2.6',
       openDatabaseImpl: () => makeDatabase(1) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'plugin-marketplace',
@@ -1453,7 +1449,7 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       packageVersion: '4.2.6',
       openDatabaseImpl: () => makeDatabase(1) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
@@ -1478,7 +1474,7 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       packageVersion: '4.2.6',
       openDatabaseImpl: () => makeDatabase(1) as never,
       closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'onnx' }),
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'source-checkout',
@@ -1499,11 +1495,11 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
 /**
  * The embedding probe row.
  *
- * It shipped with no tests at all, which is how it reached CI as a job that
- * downloaded ~90 MB of model weights mid-suite. These lock in both halves of
- * the contract: it must really probe when probing is cheap, and it must
- * refuse to probe — visibly, never silently green — when probing would cost
- * the user a download or a billed API call.
+ * Every embedder is now a live provider call (ollama socket / openai HTTP), so
+ * the contract is: never probe without `--probe` (a diagnostic must not make a
+ * billed or network call on its own), and when it does probe, report the real
+ * outcome — pass, empty (degraded to FTS5), or threw — never a silent green.
+ * Keyword-only (tfidf) is informational, not a failure.
  */
 describe('doctor: embeddings probe', () => {
   function baseOptions(packageRoot: string, embeddings: Capabilities['embeddings']) {
@@ -1524,40 +1520,23 @@ describe('doctor: embeddings probe', () => {
     } as unknown as Parameters<typeof runDoctorImpl>[0];
   }
 
-  /** Isolate MEMESH_DIR so the ONNX cache lookup sees only what we put there. */
+  /** Isolate MEMESH_DIR so each probe test sees only what we put there. */
   function withMemeshDir(): string {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-embed-probe-'));
     tempRoots.push(dir);
     memeshDirOverrides.push(process.env.MEMESH_DIR);
     process.env.MEMESH_DIR = dir;
-    // A "cold cache" is only cold if BOTH roots are cold: isOnnxModelCached
-    // follows onnxCacheDir(), which prefers MEMESH_MODEL_CACHE_DIR — and the
-    // test runner sets that globally to a WARM shared cache. Point it inside
-    // this test's own empty dir; the afterEach env restore puts it back.
-    modelCacheOverrides.push(process.env.MEMESH_MODEL_CACHE_DIR);
-    process.env.MEMESH_MODEL_CACHE_DIR = path.join(dir, 'models');
     return dir;
   }
 
   const memeshDirOverrides: (string | undefined)[] = [];
-  const modelCacheOverrides: (string | undefined)[] = [];
 
   afterEach(() => {
     for (const prev of memeshDirOverrides.splice(0)) {
       if (prev === undefined) delete process.env.MEMESH_DIR;
       else process.env.MEMESH_DIR = prev;
     }
-    for (const prev of modelCacheOverrides.splice(0)) {
-      if (prev === undefined) delete process.env.MEMESH_MODEL_CACHE_DIR;
-      else process.env.MEMESH_MODEL_CACHE_DIR = prev;
-    }
   });
-
-  function cacheOnnxModel(memeshDir: string): void {
-    const weights = path.join(memeshDir, 'models', 'Xenova', 'all-MiniLM-L6-v2', 'onnx', 'model.onnx');
-    fs.mkdirSync(path.dirname(weights), { recursive: true });
-    fs.writeFileSync(weights, 'not really onnx, only its presence is read');
-  }
 
   function findProbe(result: { checks: { id: string }[] }) {
     return result.checks.find((c) => c.id === 'embeddings_probe') as
@@ -1565,41 +1544,21 @@ describe('doctor: embeddings probe', () => {
       | undefined;
   }
 
-  it('really probes when the local ONNX model is already cached (no --probe needed)', async () => {
+  it('does NOT probe a local ollama embedder without --probe (network call)', async () => {
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
-    const memeshDir = withMemeshDir();
-    cacheOnnxModel(memeshDir);
+    withMemeshDir();
 
     let called = 0;
     const result = await runDoctorImpl({
-      ...baseOptions(packageRoot, 'onnx'),
-      embedTextImpl: async () => { called++; return new Float32Array(384); },
-    });
-
-    const check = findProbe(result)!;
-    expect(called).toBe(1);
-    expect(check.status).toBe('pass');
-    expect(check.informational).toBeFalsy();
-    expect(check.summary).toContain('384-dim');
-  });
-
-  it('does NOT download: cold ONNX cache reports NOT VERIFIED instead of probing', async () => {
-    const packageRoot = createPackageRoot();
-    tempRoots.push(packageRoot);
-    withMemeshDir(); // deliberately left empty — no cached weights
-
-    let called = 0;
-    const result = await runDoctorImpl({
-      ...baseOptions(packageRoot, 'onnx'),
-      embedTextImpl: async () => { called++; return new Float32Array(384); },
+      ...baseOptions(packageRoot, 'ollama'),
+      embedTextImpl: async () => { called++; return new Float32Array(768); },
     });
 
     const check = findProbe(result)!;
     expect(called).toBe(0);
     expect(check.informational).toBe(true);
     expect(check.summary).toContain('NOT VERIFIED');
-    expect(check.summary).toContain('90 MB');
     expect(check.fix).toContain('--probe');
   });
 
@@ -1689,22 +1648,5 @@ describe('doctor: embeddings probe', () => {
     expect(check.informational).toBe(true);
     expect(check.status).toBe('pass');
     expect(check.summary).toContain('FTS5');
-  });
-
-  it('a half-finished model download reads as cold, not cached', async () => {
-    const packageRoot = createPackageRoot();
-    tempRoots.push(packageRoot);
-    const memeshDir = withMemeshDir();
-    // Model directory exists but the weights file never finished writing.
-    fs.mkdirSync(path.join(memeshDir, 'models', 'Xenova', 'all-MiniLM-L6-v2', 'onnx'), { recursive: true });
-
-    let called = 0;
-    const result = await runDoctorImpl({
-      ...baseOptions(packageRoot, 'onnx'),
-      embedTextImpl: async () => { called++; return new Float32Array(384); },
-    });
-
-    expect(called).toBe(0);
-    expect(findProbe(result)!.summary).toContain('NOT VERIFIED');
   });
 });

@@ -349,13 +349,6 @@ app.post('/v1/config', async (req, res) => {
             parsed.data.llmFallbacks = preserveFallbackApiKeys(parsed.data.llmFallbacks, before.llmFallbacks);
         }
         const updated = updateConfig(parsed.data);
-        const llmChanged = parsed.data.llm !== undefined &&
-            (before.llm?.provider !== updated.llm?.provider ||
-                before.llm?.apiKey !== updated.llm?.apiKey);
-        if (llmChanged) {
-            const { resetEmbeddingState } = await import('../../core/embedder.js');
-            resetEmbeddingState();
-        }
         res.json({ success: true, data: maskLlmSecrets(updated) });
     }
     catch (err) {

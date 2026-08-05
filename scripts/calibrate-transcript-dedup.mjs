@@ -16,22 +16,39 @@
 // It embeds BOTH sides with the exact text builder the runtime uses for an
 // entity vector — `${name} ${observations.join(' ')}` (operations.ts remember()
 // and applyTranscriptProposal use this) — so the measured quantity is the one
-// findDuplicateEntity actually computes. It uses the repo's own ONNX MiniLM-L6
-// embedder (the default for fresh installs) via dist/core/embedder.js.
+// findDuplicateEntity actually computes, via dist/core/embedder.js.
 //
-// Run:  npm run build && MEMESH_MODEL_CACHE_DIR=/tmp/memesh-shared-model-cache \
-//         node scripts/calibrate-transcript-dedup.mjs
+// PROVENANCE / STATUS: the shipped TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.55 was
+// derived here on the local ONNX MiniLM-L6 embedder that memesh used to ship.
+// That embedder has been removed; memesh now standardises on ollama
+// (nomic-embed-text). The 0.55 number belongs to the model, not the algorithm,
+// so it has NOT been re-derived for the new space — that is open work. This
+// script now runs against whatever embedder is configured (ollama/openai), so
+// re-running it requires a configured provider and will produce numbers for
+// THAT model, not MiniLM.
+//
+// Run:  configure ollama (or an openai key), then:
+//         npm run build && node scripts/calibrate-transcript-dedup.mjs
 //
 // Copy the printed distributions + chosen threshold into the
-// TRANSCRIPT_DEDUP_MAX_DISTANCE comment in src/core/transcript-extractor.ts.
-// Re-run if the embedding model ever changes — the number belongs to MiniLM-L6,
-// not to the algorithm.
+// TRANSCRIPT_DEDUP_MAX_DISTANCE comment in src/core/transcript-extractor.ts,
+// noting which model they belong to.
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { embedText } = await import(path.join(repoRoot, 'dist/core/embedder.js'));
+const { embedText, isEmbeddingAvailable } = await import(path.join(repoRoot, 'dist/core/embedder.js'));
+
+if (!isEmbeddingAvailable()) {
+  console.error(
+    'No embedder is configured, so there is nothing to calibrate against. The local\n' +
+    'ONNX embedder was removed — configure ollama (`ollama serve` + `embedder.provider\n' +
+    'ollama`) or an openai embedder, then re-run. The result belongs to whichever\n' +
+    'model you point this at; record that model next to the threshold.'
+  );
+  process.exit(1);
+}
 
 /** Same builder the runtime uses for an entity vector. */
 function entityText(name, observations) {
@@ -80,8 +97,8 @@ const DUP_PAIRS = [
     { name: 'env-var-placement', observations: ['Put env assignments in front of the command — writing them after passes a plain argument instead of setting the variable.'] },
   ],
   [
-    { name: 'onnx-default-embedder', observations: ['The default embedder is a local ONNX all-MiniLM-L6 model, so fresh installs need no API key for embeddings.'] },
-    { name: 'default-embeddings', observations: ['Embeddings run on a bundled ONNX MiniLM-L6 model by default — no external provider or key required out of the box.'] },
+    { name: 'keyword-only-default', observations: ['Without a configured embedder, fresh installs run recall on FTS5 keyword search alone — no API key and no download required.'] },
+    { name: 'default-recall-path', observations: ['Out of the box memesh does semantic-free recall over FTS5; a neural embedder (ollama/openai) is opt-in and needed only for meaning-based search.'] },
   ],
   [
     { name: 'dream-accept-additive', observations: ['A transcript proposal is applied additively by dream accept — it creates a new entity and archives no sources.'] },
@@ -152,7 +169,7 @@ async function distancesFor(pairs) {
   for (const [a, b] of pairs) {
     const ea = await embedText(entityText(a.name, a.observations));
     const eb = await embedText(entityText(b.name, b.observations));
-    if (!ea || !eb) throw new Error('embedText returned null — is the ONNX model available?');
+    if (!ea || !eb) throw new Error('embedText returned null — is the configured embedder (ollama/openai) reachable?');
     out.push(l2(ea, eb));
   }
   return out;
@@ -167,7 +184,7 @@ const distinctS = stats(distinct);
 const fmt = (s) =>
   `min ${s.min.toFixed(3)}  p25 ${s.p25.toFixed(3)}  p50 ${s.p50.toFixed(3)}  p75 ${s.p75.toFixed(3)}  max ${s.max.toFixed(3)}  mean ${s.mean.toFixed(3)}`;
 
-console.log('MiniLM-L6 (all-MiniLM-L6-v2), L2 over unit vectors, text = `${name} ${observations.join(" ")}`');
+console.log('Configured embedder, L2 over unit vectors, text = `${name} ${observations.join(" ")}` (record which model these belong to)');
 console.log(`  DUPLICATE pairs   (n=${dup.length}):  ${fmt(dupS)}`);
 console.log(`  DISTINCT pairs    (n=${distinct.length}):  ${fmt(distinctS)}`);
 console.log('');
@@ -196,9 +213,9 @@ if (gap > 0) {
   // whole feature guards against. Do NOT print a number labelled
   // "conservative" here; the model cannot separate the classes on this
   // corpus, so the threshold MUST be hand-picked below the distinct floor to
-  // catch only exact/near-exact re-runs. This is exactly the regime MiniLM
-  // sits in today (see TRANSCRIPT_DEDUP_MAX_DISTANCE), which is why the
-  // shipped value was chosen by hand, not by this formula.
+  // catch only exact/near-exact re-runs. That is the regime the shipped
+  // TRANSCRIPT_DEDUP_MAX_DISTANCE was chosen in — by hand, not by this
+  // formula — on the old MiniLM embedder; re-derive per model.
   console.log(`  ⚠ CLASSES OVERLAP (gap <= 0): this embedding model cannot separate`);
   console.log(`    "same memory reworded" from "same domain, different fact" on this corpus.`);
   console.log(`    Do NOT derive a threshold from the gap — it would sit at/above the`);

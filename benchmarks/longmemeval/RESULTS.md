@@ -3,6 +3,13 @@
 **Measured through:** `recallEnhanced()` — the function every transport calls for `recall`.
 **Status:** PUBLIC — recomputed from raw per-question JSON, dataset SHA256 cross-checked.
 
+> **Historical embedder note:** the Mode B/C figures below were measured on the
+> local ONNX `Xenova/all-MiniLM-L6-v2` (384-dim) embedder that MeMesh shipped at
+> the time. That embedder has since been removed — MeMesh now standardises on
+> ollama (nomic-embed-text) — so these Mode B/C numbers are historical for that
+> model and have not been re-measured for the current embedder. Mode A (FTS5)
+> is unaffected.
+
 > See METHODOLOGY.md for technical details. See REPRODUCE.md to run this yourself.
 
 ---

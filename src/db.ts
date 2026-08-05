@@ -246,7 +246,8 @@ function initialiseDatabase(db: Database.Database, resolvedPath: string): Databa
   sqliteVec.load(db);
 
   // Create/migrate vector table for entity embeddings
-  // Dimension depends on embedding provider (384=ONNX, 1536=OpenAI, 768=Ollama)
+  // Dimension depends on embedding provider (768=Ollama, 1536=OpenAI;
+  // 384 is the keyword-only default that also matches legacy tables)
   // `confident` is false only when the config file exists but could not be
   // read. ensureVecTable DROPs on a dimension mismatch, so acting on a
   // fallback dimension derived from an unreadable config would delete a BYOK
@@ -655,8 +656,8 @@ function ensureVecTable(
   // Refuse to destroy vectors on a dimension we are not sure of.
   //
   // `targetDim` comes from the config, and an unreadable config yields the
-  // 384-dim default — indistinguishable, before this guard, from a user who
-  // genuinely configured nothing. For a BYOK user on OpenAI's 1536-dim
+  // 384-dim keyword-only default — indistinguishable, before this guard, from a
+  // user who genuinely configured nothing. For a BYOK user on OpenAI's 1536-dim
   // embeddings that meant a momentarily corrupt or unreadable config file
   // deleted every vector in the database: no backup, no confirmation, and
   // regenerating them means re-running the whole embedding pipeline and

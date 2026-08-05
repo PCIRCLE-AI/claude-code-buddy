@@ -47,24 +47,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# One ONNX model cache per job, instead of one per isolated HOME.
-#
-# Six test files spawn the CLI or a hook under a per-test HOME, and the local
-# embedding model lives at `~/.memesh/models` — so each of those tests fetched
-# the ~98 MB all-MiniLM-L6-v2 model from HuggingFace again. Measured locally:
-# the first write in a fresh HOME took 19.4s wall clock at 8% CPU, i.e. network
-# wait, and the whole suite went from 253s to 56s once the cache was shared.
-# `hook-output-contract` alone went 86.4s -> 3.1s.
-#
-# On CI that cost was paid on every leg of the matrix, and it made every leg
-# depend on HuggingFace being up and fast — a third-party outage would have
-# turned the entire matrix red with nothing wrong in the code.
-#
-# The cache is read-only model weights, not state a test can contaminate, so
-# sharing it does not weaken the HOME isolation the suite relies on.
-env:
-  MEMESH_MODEL_CACHE_DIR: ${{ github.workspace }}/.memesh-model-cache
-
 jobs:
   # One leg, ubuntu/24, alongside the matrix rather than inside it: coverage
   # instruments every worker and roughly doubles a run, and the numbers do not
@@ -88,12 +70,6 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
-
-      - name: Cache the local embedding model
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ${{ github.workspace }}/.memesh-model-cache
-          key: onnx-Xenova-all-MiniLM-L6-v2-${{ runner.os }}-v1
 
       - name: Install dependencies
         run: npm ci
@@ -166,30 +142,6 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: 'npm'
-
-      # The ~98 MB ONNX embedding model, cached across runs.
-      #
-      # Six test files spawn the CLI or a hook under a per-test HOME, and the
-      # model caches per-HOME by default — so before MEMESH_MODEL_CACHE_DIR
-      # existed, every one of those tests fetched the whole model again, on
-      # every leg of this matrix. That is fixed; this step removes what is left:
-      # the FIRST download per run, and with it the last hard dependency on
-      # huggingface.co being reachable. Without the cache, a HuggingFace outage
-      # turns the entire matrix red with nothing wrong in the code, and nothing
-      # in the failure output says so.
-      #
-      # `actions/cache` is first-party GitHub, the same trust level as the
-      # checkout and setup-node actions already pinned above, and is pinned by
-      # commit SHA for the same reason they are.
-      #
-      # A cache miss is not a failure: the model downloads as before and the
-      # step saves it for next time. The key carries the model id, so changing
-      # the model invalidates it rather than silently serving the old weights.
-      - name: Cache the local embedding model
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: ${{ github.workspace }}/.memesh-model-cache
-          key: onnx-Xenova-all-MiniLM-L6-v2-${{ runner.os }}-v1
 
       - name: Install dependencies
         run: npm ci

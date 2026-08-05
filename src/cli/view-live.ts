@@ -1585,7 +1585,7 @@ export function generateLiveDashboardHtml(): string {
     var searchLevel = caps.searchLevel !== undefined ? caps.searchLevel : '?';
     _currentSearchLevel = String(searchLevel);
     addCap('Search Level', searchLevel === 1 ? 'Smart Mode' : 'Core FTS5', searchLevel === 1);
-    addCap('Embeddings', caps.embeddings || 'tfidf', caps.embeddings && caps.embeddings !== 'tfidf');
+    addCap('Embeddings', caps.embeddings, caps.embeddings !== 'tfidf');
     var llmProvider = (caps.llm && caps.llm.provider) ? caps.llm.provider : 'None';
     addCap('LLM Provider', llmProvider, !!caps.llm);
     var llmModel = (caps.llm && caps.llm.model) ? caps.llm.model : '\u2014';

@@ -4,7 +4,7 @@ import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
 import { detectCapabilities, getConfigPath } from './config.js';
-import { embedText, isOnnxModelCached } from './embedder.js';
+import { embedText } from './embedder.js';
 import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
@@ -564,13 +564,7 @@ async function inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextI
         return createInfo('embeddings_probe', 'Embeddings work', 'No neural embedder configured — recall runs on FTS5 keyword search alone. That is a supported mode, not a fault.');
     }
     if (!probeCapabilities) {
-        const isLocal = capabilities.embeddings === 'onnx';
-        if (!isLocal) {
-            return createInfo('embeddings_probe', 'Embeddings work', `NOT VERIFIED. Config names "${capabilities.embeddings}", but generating a test embedding is a network call (billed on hosted providers) so it was not made — a revoked key or an unreachable host would look identical to a healthy setup here.`, 'Run: memesh doctor --probe   (generates one test embedding to confirm)');
-        }
-        if (!isOnnxModelCached()) {
-            return createInfo('embeddings_probe', 'Embeddings work', `NOT VERIFIED. Config names "onnx" but the model is not in the local cache yet, and probing would download ~90 MB — which a diagnostic command must not do on its own.`, 'Run: memesh doctor --probe   (downloads the model once, then verifies)');
-        }
+        return createInfo('embeddings_probe', 'Embeddings work', `NOT VERIFIED. Config names "${capabilities.embeddings}", but generating a test embedding is a network call (billed on hosted providers) so it was not made — a revoked key or an unreachable host would look identical to a healthy setup here.`, 'Run: memesh doctor --probe   (generates one test embedding to confirm)');
     }
     let timer;
     try {
@@ -587,7 +581,7 @@ async function inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextI
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return createCheck('embeddings_probe', 'Embeddings work', 'warn', `Config selects "${capabilities.embeddings}" but the embedder threw (${msg}). Semantic recall is degraded to FTS5-only.`, 'Check the embedding provider is reachable, or set: memesh config set embedder.provider onnx', { code: 'embeddings.threw', params: { provider: String(capabilities.embeddings), detail: msg } });
+        return createCheck('embeddings_probe', 'Embeddings work', 'warn', `Config selects "${capabilities.embeddings}" but the embedder threw (${msg}). Semantic recall is degraded to FTS5-only.`, 'Check the embedding provider is reachable (e.g. run `ollama serve`), or remove embedder config to use keyword-only search.', { code: 'embeddings.threw', params: { provider: String(capabilities.embeddings), detail: msg } });
     }
     finally {
         clearTimeout(timer);
