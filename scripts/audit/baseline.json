@@ -126,30 +126,30 @@
       "reason": "|| true inside an exact-match retry loop — absence retries then fails, never passes",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/config.ts:359": {
+    "C5 src/core/config.ts:369": {
       "class": "SAFE-GUARDED",
       "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
-      "triaged": "2026-08-04 (re-keyed 353->359: the ONNX-removal edits to detectEmbeddingSource/comments shifted the line down 6; same llmFallbacks ?? [] code verified before re-keying)"
+      "triaged": "2026-08-04 (re-keyed 353->359->369: the transcriptMining field + isTranscriptMiningEnabled additions shifted the line down 10; same llmFallbacks ?? [] code verified before re-keying)"
     },
-    "C5 src/core/doctor.ts:391": {
+    "C5 src/core/doctor.ts:393": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04 (re-keyed 391->393: the transcript-source import + transcript-mining INFO check shifted the line; same entry.hooks ?? [] code verified)"
     },
     "C5 src/core/doctor.ts:392": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/doctor.ts:437": {
+    "C5 src/core/doctor.ts:438": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04 (re-keyed 437->438: the transcript-source import shifted the line +1; same hooks ?? {} code verified)"
     },
-    "C5 src/core/doctor.ts:1334": {
+    "C5 src/core/doctor.ts:1335": {
       "class": "SAFE-GUARDED",
       "reason": "verifySkillsManifest: entries ?? [] is followed by entries.length === 0 -> fail (skills-manifest.empty); the ?? cannot convert absence into a pass",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04 (re-keyed 1334->1335: the transcript-source import shifted the line +1; same manifest.entries ?? [] code verified)"
     },
     "C5 src/core/dreamer.ts:670": {
       "class": "SAFE-GUARDED",
