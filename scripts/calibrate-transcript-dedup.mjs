@@ -182,7 +182,27 @@ console.log('');
 // any threshold > 0; everything above ~0 only buys paraphrase-catching, which is
 // exactly where a false positive would live.
 const gap = distinctS.min - dupS.max;
-const conservative = dupS.max + gap * 0.25; // a quarter into the gap, dup side
 console.log(`  gap between classes (distinctMin - dupMax): ${gap.toFixed(3)}`);
-console.log(`  suggested conservative threshold (dupMax + 25% of gap): ${conservative.toFixed(3)}`);
-console.log(`  (distinct-class floor is ${distinctS.min.toFixed(3)}; threshold must stay clearly below it)`);
+if (gap > 0) {
+  // Classes separate: a quarter into the gap from the dup side is safely below
+  // the distinct floor.
+  const conservative = dupS.max + gap * 0.25;
+  console.log(`  suggested conservative threshold (dupMax + 25% of gap): ${conservative.toFixed(3)}`);
+  console.log(`  (distinct-class floor is ${distinctS.min.toFixed(3)}; threshold must stay clearly below it)`);
+} else {
+  // Classes OVERLAP or touch (gap <= 0): the "dupMax + 25% of gap" formula
+  // would land AT OR ABOVE the distinct floor — i.e. it would recommend a
+  // value that silently drops genuinely-new memories, the worst outcome this
+  // whole feature guards against. Do NOT print a number labelled
+  // "conservative" here; the model cannot separate the classes on this
+  // corpus, so the threshold MUST be hand-picked below the distinct floor to
+  // catch only exact/near-exact re-runs. This is exactly the regime MiniLM
+  // sits in today (see TRANSCRIPT_DEDUP_MAX_DISTANCE), which is why the
+  // shipped value was chosen by hand, not by this formula.
+  console.log(`  ⚠ CLASSES OVERLAP (gap <= 0): this embedding model cannot separate`);
+  console.log(`    "same memory reworded" from "same domain, different fact" on this corpus.`);
+  console.log(`    Do NOT derive a threshold from the gap — it would sit at/above the`);
+  console.log(`    distinct floor (${distinctS.min.toFixed(3)}) and start dropping NEW memories.`);
+  console.log(`    Hand-pick a value clearly BELOW ${distinctS.min.toFixed(3)} that catches only`);
+  console.log(`    exact/near-exact re-runs (the shipped 0.55 was chosen this way).`);
+}
