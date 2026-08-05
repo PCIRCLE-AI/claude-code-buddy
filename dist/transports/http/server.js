@@ -286,18 +286,17 @@ function maskLlmSecrets(obj) {
     return masked;
 }
 function preserveFallbackApiKeys(incoming, stored) {
-    if (!stored || stored.length === 0)
-        return incoming;
-    const pool = stored.map((s, i) => ({ provider: s.provider, apiKey: s.apiKey, index: i, used: false }));
-    return incoming.map((entry, idx) => {
-        if (entry.apiKey)
-            return entry;
-        const candidates = pool.filter((p) => !p.used && p.provider === entry.provider && p.apiKey);
-        if (candidates.length === 0)
-            return entry;
-        const pick = candidates.find((c) => c.index === idx) ?? candidates[0];
-        pick.used = true;
-        return { ...entry, apiKey: pick.apiKey };
+    return incoming.map((entry) => {
+        const { keepKeyFrom, ...clean } = entry;
+        if (clean.apiKey)
+            return clean;
+        if (typeof keepKeyFrom === 'number' && stored && keepKeyFrom >= 0 && keepKeyFrom < stored.length) {
+            const src = stored[keepKeyFrom];
+            if (src && src.provider === clean.provider && src.apiKey) {
+                return { ...clean, apiKey: src.apiKey };
+            }
+        }
+        return clean;
     });
 }
 app.get('/v1/config', (_req, res) => {
@@ -323,6 +322,7 @@ const ConfigBody = z.object({
         provider: z.enum(['anthropic', 'openai', 'ollama']),
         model: z.string().optional(),
         apiKey: z.string().optional(),
+        keepKeyFrom: z.number().int().nonnegative().nullable().optional(),
     })).optional(),
     autoCapture: z.boolean().optional(),
     sessionLimit: z.number().int().min(1).max(100).optional(),
@@ -366,6 +366,7 @@ const ConfigTestBody = z.object({
     provider: z.enum(['anthropic', 'openai', 'ollama']),
     apiKey: z.string().max(500).optional(),
     host: z.string().max(500).optional(),
+    fallbackIndex: z.number().int().nonnegative().optional(),
 });
 app.post('/v1/config/test', async (req, res) => {
     if (!requireJsonBody(req, res))
@@ -381,11 +382,16 @@ app.post('/v1/config/test', async (req, res) => {
     }
     try {
         const { probeProvider } = await import('../../core/llm-validator.js');
-        const { provider, host } = parsed.data;
+        const { provider, host, fallbackIndex } = parsed.data;
         let { apiKey } = parsed.data;
         if (!apiKey && (provider === 'anthropic' || provider === 'openai')) {
             const existing = readConfig();
-            if (existing.llm?.provider === provider && existing.llm.apiKey) {
+            if (typeof fallbackIndex === 'number') {
+                const fb = existing.llmFallbacks?.[fallbackIndex];
+                if (fb && fb.provider === provider && fb.apiKey)
+                    apiKey = fb.apiKey;
+            }
+            else if (existing.llm?.provider === provider && existing.llm.apiKey) {
                 apiKey = existing.llm.apiKey;
             }
         }

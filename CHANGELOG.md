@@ -17,9 +17,12 @@ All notable changes to MeMesh are documented here.
   primary is down, memory content — which can be private — is sent to that
   cloud provider, which matters if you run local-only Ollama for privacy.
   Stored API keys are shown masked and are never re-sent: leaving a cloud
-  entry's key untouched saves the entry with no key and the server keeps the
-  one on disk, matching by provider so a reorder or a model edit never drops
-  a key; a freshly typed key rotates it.
+  entry's key untouched saves the entry with no key plus an explicit
+  `keepKeyFrom` index, and the server refills that exact stored key
+  (provider-guarded) — so a reorder, a removal, or a model edit keeps each
+  entry its OWN key and a provider change never inherits an unrelated one; a
+  freshly typed key rotates it. The per-entry Test button probes that entry's
+  own stored key (via `fallbackIndex`), never the primary provider's.
 
 - **`memesh dream run --from-transcripts` now mines the conversation, not
   just the mechanics.** The capture hook and the old transcript parser only

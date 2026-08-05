@@ -126,12 +126,57 @@ describe('SettingsTab fallback providers', () => {
 
     await waitFor(() => expect(lastPost(calls)).toBeDefined());
     const sent = lastPost(calls).body.llmFallbacks;
-    expect(sent).toEqual([{ provider: 'openai', model: 'gpt-4o-mini' }]);
+    // No apiKey; identity travels as keepKeyFrom = the loaded index (0).
+    expect(sent).toEqual([{ provider: 'openai', model: 'gpt-4o-mini', keepKeyFrom: 0 }]);
     // The mask must never travel back.
     expect(JSON.stringify(sent)).not.toContain('***');
   });
 
-  it('Test posts { provider, apiKey } to /v1/config/test', async () => {
+  it('reordering two same-provider stored entries sends each its OWN keepKeyFrom', async () => {
+    // The credential-swap bug: two openai entries, both with stored keys,
+    // reordered and saved untouched. Each must carry the index it loaded from,
+    // so the server refills each with ITS own key rather than swapping them.
+    const calls = mockFetch([
+      { provider: 'openai', model: 'm0', apiKey: '***' },
+      { provider: 'openai', model: 'm1', apiKey: '***' },
+    ]);
+    const { container } = render(<SettingsTab locale="en" onLocaleChange={() => {}} />);
+    await waitFor(() => expect(entries(container).length).toBe(2));
+
+    // Move entry 1 (m1) up so display order becomes [m1, m0].
+    fireEvent.click(findButton(entries(container)[1], '↑'));
+    fireEvent.click(findButton(fallbacksCard(container), 'Save fallback chain'));
+
+    await waitFor(() => expect(lastPost(calls)).toBeDefined());
+    expect(lastPost(calls).body.llmFallbacks).toEqual([
+      { provider: 'openai', model: 'm1', keepKeyFrom: 1 },
+      { provider: 'openai', model: 'm0', keepKeyFrom: 0 },
+    ]);
+  });
+
+  it('changing an entry provider clears keepKeyFrom so it cannot inherit a stored key', async () => {
+    const calls = mockFetch([
+      { provider: 'anthropic', apiKey: '***' },
+      { provider: 'openai', model: 'm1', apiKey: '***' },
+    ]);
+    const { container } = render(<SettingsTab locale="en" onLocaleChange={() => {}} />);
+    await waitFor(() => expect(entries(container).length).toBe(2));
+
+    // Change entry 0 anthropic → openai.
+    const sel0 = entries(container)[0].querySelector('select') as HTMLSelectElement;
+    fireEvent.change(sel0, { target: { value: 'openai' } });
+
+    fireEvent.click(findButton(fallbacksCard(container), 'Save fallback chain'));
+    await waitFor(() => expect(lastPost(calls)).toBeDefined());
+    // Row 0 (changed) carries NO key and NO keepKeyFrom; row 1 (untouched)
+    // keeps its own identity. The changed row must not steal index 1's key.
+    expect(lastPost(calls).body.llmFallbacks).toEqual([
+      { provider: 'openai' },
+      { provider: 'openai', model: 'm1', keepKeyFrom: 1 },
+    ]);
+  });
+
+  it('Test on a freshly typed key posts { provider, apiKey }', async () => {
     const calls = mockFetch([]);
     const { container } = render(<SettingsTab locale="en" onLocaleChange={() => {}} />);
 
@@ -150,15 +195,33 @@ describe('SettingsTab fallback providers', () => {
     fireEvent.click(findButton(entries(container)[0], 'Test'));
 
     await waitFor(() => {
-      const testCall = calls.find((c) => c.url.includes('/v1/config/test'));
-      if (!testCall) throw new Error('no test call yet');
+      if (!calls.find((c) => c.url.includes('/v1/config/test'))) throw new Error('no test call yet');
     });
     const testCall = calls.find((c) => c.url.includes('/v1/config/test'))!;
     expect(testCall.method).toBe('POST');
     expect(testCall.body).toEqual({ provider: 'anthropic', apiKey: 'sk-ant-xyz' });
   });
 
-  it('removing an entry drops it from the saved chain', async () => {
+  it('Test on an untouched stored cloud entry posts fallbackIndex (its own key), not the mask or nothing', async () => {
+    // The false-401 / false-green bug: an untouched cross-provider fallback
+    // sends fallbackIndex so the server probes THIS entry's stored key, not the
+    // primary's and not an empty key.
+    const calls = mockFetch([{ provider: 'openai', model: 'gpt-4o-mini', apiKey: '***' }]);
+    const { container } = render(<SettingsTab locale="en" onLocaleChange={() => {}} />);
+    await waitFor(() => expect(entries(container).length).toBe(1));
+
+    fireEvent.click(findButton(entries(container)[0], 'Test'));
+    await waitFor(() => {
+      if (!calls.find((c) => c.url.includes('/v1/config/test'))) throw new Error('no test call yet');
+    });
+    const testCall = calls.find((c) => c.url.includes('/v1/config/test'))!;
+    expect(testCall.body).toEqual({ provider: 'openai', fallbackIndex: 0 });
+    // No key bytes, no mask travelled.
+    expect(JSON.stringify(testCall.body)).not.toContain('***');
+    expect(testCall.body).not.toHaveProperty('apiKey');
+  });
+
+  it('removing an entry drops it and re-keys the survivor keepKeyFrom to its loaded index', async () => {
     const calls = mockFetch([
       { provider: 'ollama', model: 'llama3.2' },
       { provider: 'openai', model: 'gpt-4o-mini', apiKey: '***' },
@@ -167,12 +230,14 @@ describe('SettingsTab fallback providers', () => {
 
     await waitFor(() => expect(entries(container).length).toBe(2));
 
-    // Remove the first (ollama) entry.
+    // Remove the first (ollama) entry; the openai survivor loaded from index 1.
     fireEvent.click(findButton(entries(container)[0], 'Remove'));
     await waitFor(() => expect(entries(container).length).toBe(1));
 
     fireEvent.click(findButton(fallbacksCard(container), 'Save fallback chain'));
     await waitFor(() => expect(lastPost(calls)).toBeDefined());
-    expect(lastPost(calls).body.llmFallbacks).toEqual([{ provider: 'openai', model: 'gpt-4o-mini' }]);
+    // Survivor keeps its identity (index 1) so the server refills ITS key, not
+    // the removed ollama slot's.
+    expect(lastPost(calls).body.llmFallbacks).toEqual([{ provider: 'openai', model: 'gpt-4o-mini', keepKeyFrom: 1 }]);
   });
 });

@@ -17,13 +17,27 @@ type FallbackProvider = 'anthropic' | 'openai' | 'ollama';
  * can be saved with its apiKey OMITTED (the server then keeps the stored one)
  * instead of echoing the mask back. Loading the mask into `apiKey` is exactly
  * the bug the mask-not-resent test guards against.
+ *
+ * `originalIndex` is this entry's position in the STORED chain it loaded from,
+ * and it is the stable identity that survives reorder/removal. It is what the
+ * save sends as `keepKeyFrom` so the server reuses the right stored key, and
+ * what the Test button sends as `fallbackIndex` so the probe tests this entry's
+ * OWN stored key. It is `null` for a brand-new entry, and is cleared to `null`
+ * on a provider change (a stored key for the old provider must never carry over
+ * to the new one). Positional identity was a credential-swapping bug: two
+ * same-provider entries would trade keys on reorder.
  */
 interface FallbackEntry {
   provider: FallbackProvider;
   model: string;
   apiKey: string;
   hasStoredKey: boolean;
+  originalIndex: number | null;
 }
+
+/** Wire shape for a fallback save: the persisted fields plus the wire-only
+ *  `keepKeyFrom` identity the server resolves and then strips. */
+type FallbackWire = LlmFallback & { keepKeyFrom?: number };
 
 const FALLBACK_PROVIDERS: ReadonlyArray<readonly [FallbackProvider, string]> = [
   ['ollama', 'Ollama (Local)'],
@@ -32,15 +46,21 @@ const FALLBACK_PROVIDERS: ReadonlyArray<readonly [FallbackProvider, string]> = [
 ];
 
 /**
- * Build the wire object for one fallback entry. The key-omission here is the
- * "omit unchanged masked key" rule: a cloud entry whose key the user did not
- * retype sends NO apiKey, so the server preserves the stored one and the '***'
- * mask never travels back. ollama entries are keyless by nature.
+ * Build the wire object for one fallback entry.
+ *
+ * A freshly typed key is sent as `apiKey`. A cloud entry whose stored key the
+ * user did NOT retype sends `keepKeyFrom: originalIndex` and no apiKey — so the
+ * server reuses exactly that stored key and the '***' mask never travels back.
+ * The two are mutually exclusive; ollama entries are keyless, and a new /
+ * provider-changed entry (originalIndex null) sends neither, meaning "no key".
  */
-export function fallbackToWire(fb: FallbackEntry): LlmFallback {
-  const wire: LlmFallback = { provider: fb.provider };
+export function fallbackToWire(fb: FallbackEntry): FallbackWire {
+  const wire: FallbackWire = { provider: fb.provider };
   if (fb.model.trim()) wire.model = fb.model.trim();
-  if (fb.provider !== 'ollama' && fb.apiKey.trim()) wire.apiKey = fb.apiKey.trim();
+  if (fb.provider !== 'ollama') {
+    if (fb.apiKey.trim()) wire.apiKey = fb.apiKey.trim();
+    else if (fb.hasStoredKey && fb.originalIndex !== null) wire.keepKeyFrom = fb.originalIndex;
+  }
   return wire;
 }
 
@@ -214,11 +234,12 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         // Load the failover chain. Deliberately NOT loading fb.apiKey (the
         // '***' mask) into the editable field — track only whether a key
         // exists, so an untouched cloud entry saves without re-sending the mask.
-        const fbs: FallbackEntry[] = (data.config.llmFallbacks ?? []).map((fb) => ({
+        const fbs: FallbackEntry[] = (data.config.llmFallbacks ?? []).map((fb, i) => ({
           provider: fb.provider,
           model: fb.model ?? '',
           apiKey: '',
           hasStoredKey: !!fb.apiKey,
+          originalIndex: i,
         }));
         setFallbacks(fbs);
         setFbTest(fbs.map(() => null));
@@ -351,12 +372,14 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   function onFbProviderChange(i: number, provider: FallbackProvider) {
     // Switching provider invalidates the model, any typed key, AND the stored
     // key (a saved OpenAI key is meaningless once the entry becomes Anthropic).
-    setFallbacks((cur) => cur.map((fb, idx) => (idx === i ? { ...fb, provider, model: '', apiKey: '', hasStoredKey: false } : fb)));
+    // Clearing originalIndex is what stops the new provider inheriting the old
+    // provider's stored key on save.
+    setFallbacks((cur) => cur.map((fb, idx) => (idx === i ? { ...fb, provider, model: '', apiKey: '', hasStoredKey: false, originalIndex: null } : fb)));
     setFbTest((cur) => cur.map((r, idx) => (idx === i ? null : r)));
   }
 
   function addFallback() {
-    setFallbacks((cur) => [...cur, { provider: 'ollama', model: '', apiKey: '', hasStoredKey: false }]);
+    setFallbacks((cur) => [...cur, { provider: 'ollama', model: '', apiKey: '', hasStoredKey: false, originalIndex: null }]);
     setFbTest((cur) => [...cur, null]);
     setFbMsg('');
   }
@@ -390,9 +413,15 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
     setFbTesting(i);
     setFbMsg('');
     try {
+      // A freshly typed key tests itself. Otherwise, if this entry has a stored
+      // key, send its originalIndex as `fallbackIndex` so the server probes
+      // THIS entry's own stored credential — never the primary's, never nothing.
+      const typed = fb.apiKey.trim();
       const result = await api<ConfigTestResult>('POST', '/v1/config/test', {
         provider: fb.provider,
-        ...(fb.apiKey.trim() ? { apiKey: fb.apiKey.trim() } : {}),
+        ...(typed
+          ? { apiKey: typed }
+          : (fb.hasStoredKey && fb.originalIndex !== null ? { fallbackIndex: fb.originalIndex } : {})),
       });
       setFbTest((cur) => cur.map((r, idx) => (idx === i ? result : r)));
     } catch (e) {
@@ -408,13 +437,20 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
     try {
       const llmFallbacks = fallbacks.map(fallbackToWire);
       await api('POST', '/v1/config', { llmFallbacks });
-      // A freshly typed key is now on disk; reflect that and clear the input so
-      // the field does not keep a plaintext secret in memory longer than needed.
-      setFallbacks((cur) => cur.map((fb) => ({
-        ...fb,
-        hasStoredKey: fb.provider !== 'ollama' && (fb.hasStoredKey || !!fb.apiKey.trim()),
-        apiKey: '',
-      })));
+      // The server just wrote the chain in the CURRENT display order, so each
+      // entry's stored index is now its display index. Re-anchor originalIndex
+      // to that, reflect the newly-persisted key state, and clear the input so a
+      // plaintext secret does not linger in memory. A subsequent save without a
+      // reload then still references the right stored key.
+      setFallbacks((cur) => cur.map((fb, idx) => {
+        const nowHasKey = fb.provider !== 'ollama' && (fb.hasStoredKey || !!fb.apiKey.trim());
+        return {
+          ...fb,
+          hasStoredKey: nowHasKey,
+          originalIndex: nowHasKey ? idx : null,
+          apiKey: '',
+        };
+      }));
       setFbMsg(t('settings.saved'));
     } catch (e) {
       setFbMsg(t('common.error') + ': ' + actionFailureMessage(e));
