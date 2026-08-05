@@ -967,7 +967,8 @@ memesh reindex --fts
 
 `--vectors` is for switching embedding providers, and only that. Each provider
 emits vectors of a different width — 768 for Ollama, 1536 for OpenAI (and 384
-for the legacy local model that older tables were built at) — and a `vec0`
+for the keyword-only default, which is also the width legacy tables were built
+at) — and a `vec0`
 table is fixed at one width, so changing
 provider means dropping the table and recreating it. **Every stored embedding is
 deleted.** MeMesh will not do that on its own: when the database and the config
@@ -1198,14 +1199,19 @@ LLM cluster compactor + pattern detector with propose / accept / reject lifecycl
 **Subcommands**:
 
 ```bash
-memesh dream run [--project <name>] [--dry-run] [--max-llm-calls <n>] [--window-days <n>] [--validate]
+memesh dream run [--project <name>] [--dry-run] [--from-transcripts] [--max-llm-calls <n>] [--window-days <n>] [--validate]
 memesh dream patterns [--project <name>] [--dry-run] [--max-llm-calls <n>] [--window-days <n>] [--min-signal <n>]
 memesh dream list [--status <pending|applied|rejected|all>]
+memesh dream show <id> [--json]
 memesh dream accept <id>
 memesh dream reject <id> [--reason <text>]
 ```
 
 **`--validate`** on `dream run` enables the optional second-pass LLM validator (`src/core/digest-validator.ts`) which cross-checks the proposed digest's claims against source observations and attaches `validation_warnings` to soften'd proposals. Doubles per-proposal LLM cost; default off.
+
+**`memesh dream show <id>`** prints a proposal in full — name, type, *every* observation untruncated, tags and source — so you can review the whole thing (including anything hiding past the `dream list` preview) before accepting. `--json` for scripts.
+
+**`--from-transcripts`** on `dream run` mines this project's Claude Code session transcripts (`src/core/transcript-source.ts` + `src/core/transcript-extractor.ts`) for the decisions, lessons and facts that live in the conversation itself, instead of clustering existing entities. It reads each session's JSONL directly (no dependence on a capture hook having fired), asks the LLM for the durable memories, and **stages them as proposals** for `dream accept` — nothing enters the knowledge graph automatically. It is scoped to the current project only (`--project` does not apply). Every candidate is sanitised and any candidate carrying a detected secret is dropped, not stored. Before staging, each candidate is embedded and checked against entities already in the graph with the same vector index recall uses, so a near-duplicate of a memory you already accepted is skipped (and the skip is reported, never silent). With `--dry-run` it lists the sessions and their conversation-turn counts **without calling an LLM**.
 
 Validator verdicts are `pass` | `soften` | `reject` | `unavailable`. Only `reject` skips a proposal and only `soften` annotates one. `unavailable` means the validator could not run at all (LLM unreachable, fallback chain exhausted) — it is deliberately distinct from `pass`, which asserts that every claim was checked and supported. Both let the proposal through, so an unreachable validator never costs you a real digest, but a proposal validated by nothing is no longer indistinguishable from one that passed a clean check.
 
@@ -1237,7 +1243,7 @@ No arguments or options required. The dashboard is a static HTML file that can b
 
 For applications that call the **Messages API directly** rather than through MCP. Claude gets a memory tool whose storage is MeMesh instead of a folder of text files, so it also gets search, ranking, decay, relations and namespaces without knowing they are there.
 
-This is **not** one of the nine MCP tools and is not exposed over HTTP or the CLI. The MCP surface serves an agent that already speaks MeMesh; this serves an application that speaks only the Messages API.
+This is **not** one of the eight MCP tools and is not exposed over HTTP or the CLI. The MCP surface serves an agent that already speaks MeMesh; this serves an application that speaks only the Messages API.
 
 ### Wiring it up
 
@@ -1333,6 +1339,8 @@ Returns user work patterns extracted from existing memory entities.
 
 **Response fields:** `workSchedule` (hour/day distribution), `toolPreferences`, `focusAreas`, `workflow` (avg session minutes, commits/session), `strengths` (high-confidence types), `learningAreas` (tags from lessons/mistakes).
 
+`workSchedule.dayDistribution` entries carry `dayNum` — an integer `0`–`6` from SQLite `strftime('%w')`, where `0` is Sunday and `6` is Saturday. There is no English `day` name field: day names are presentation, so localising `dayNum` into a weekday label is the client's job.
+
 ### GET /v1/telemetry
 
 Per-flow LLM telemetry scorecard for the last `window` days. Backs the dashboard Analytics tab's "LLM activity" panel and `memesh telemetry` CLI.
@@ -1342,7 +1350,7 @@ Per-flow LLM telemetry scorecard for the last `window` days. Backs the dashboard
 |-----------|------|---------|-------------|
 | `window` | number | 30 | Look-back window in days (1–365) |
 
-**Response shape:** `{ window_days, summaries: FlowSummary[] }` where each `FlowSummary` is `{ flow, total_calls, total_attempts, successes, failures, fallback_used, median_latency_ms, by_provider, by_model, by_project, by_error_class, sample_errors, window_days }`. `by_model` and `by_project` are `Record<string, { ok, fail }>` (per-model and per-project ok/fail counts); `sample_errors` is up to 5 recent `{ error_class, message }` failure samples. Flows: `dreamer`, `pattern_detector`, `auto_tagger`, `failure_analyzer`, `digest_validator`. (`consolidator` rows may still exist from before that tool was retired.)
+**Response shape:** `{ window_days, summaries: FlowSummary[] }` where each `FlowSummary` is `{ flow, total_calls, total_attempts, successes, failures, fallback_used, median_latency_ms, by_provider, by_model, by_project, by_error_class, sample_errors, window_days }`. `by_model` and `by_project` are `Record<string, { ok, fail }>` (per-model and per-project ok/fail counts); `sample_errors` is up to 5 recent `{ error_class, message }` failure samples. Flows: `dreamer`, `pattern_detector`, `auto_tagger`, `failure_analyzer`, `digest_validator`, `transcript_extractor`. (`consolidator` rows may still exist from before that tool was retired.)
 
 ### GET /v1/dream/proposals
 

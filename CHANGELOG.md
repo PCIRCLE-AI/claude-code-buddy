@@ -55,6 +55,12 @@ All notable changes to MeMesh are documented here.
   you reject in one keystroke) rather than silently discarding a genuinely
   new memory. Accepting a transcript proposal now embeds the new entity so
   the next run can recognise it.
+- **`memesh dream show <id>` prints a proposal in full before you accept
+  it.** `dream list` truncates each proposal's observations so the list stays
+  scannable; `show` prints the name, type, *every* observation untruncated,
+  the tags and the source — so a secret or a wrong claim hiding past the
+  preview is visible before the proposal ever enters the knowledge graph. Add
+  `--json` for scripting.
 - **Generated memories can now be written in your language.** Every LLM
   prompt in MeMesh is English, so digests, emergent patterns, lessons and
   validator notes came back in English no matter what language the dashboard

@@ -68,7 +68,7 @@
     },
     {
       "path": "skills/agentic-orchestration/SKILL.md",
-      "sha256": "d06d0c3e1fb03cee675aff26b4b26f24111b9e9f6be9ccd4e1945ef454314f1c",
+      "sha256": "6fde8a8d961d3c70c31e95cad529aebbaff1e668fc021d619eeaf0bdd7072a04",
       "bytes": 18202
     },
     {
@@ -78,8 +78,8 @@
     },
     {
       "path": "skills/memesh/SKILL.md",
-      "sha256": "cb9c13ae0b8967c3b61e9c5c7004aa1dbf4bfddfe38a86e206e03295bd375a20",
-      "bytes": 6979
+      "sha256": "106d26edfd0a45f63902517f3f5ba214e31271bee3028f13f4c222f750a98f24",
+      "bytes": 7156
     }
   ]
 }

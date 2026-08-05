@@ -295,6 +295,8 @@ memesh export-schema \
 
 npm이 설치된 버전을 deprecated로 플래그하면(일반적으로 보안 권고), 다음 세션 시작 시 강력한 `⚠️ MeMesh <ver> is DEPRECATED` 배너가 앞에 추가되고, 업그레이드할 때까지 `memesh update-status`가 동일한 라인을 표시합니다. 일시적인 네트워크 실패가 경고를 흐리지 않도록 검사가 `~/.memesh/update-check.<version>.json`에 캐시됩니다.
 
+**폴백 LLM 제공자(Smart Mode).** dashboard의 **Settings → “Fallback providers”**에서 순서가 있는 페일오버 체인을 설정할 수 있습니다 — 기본 제공자가 다운되면 memesh가 목록의 다음 것을 차례로 시도합니다. 로컬 [Ollama](https://ollama.com) 폴백이나 클라우드(OpenAI / Anthropic, API 키 필요)를 추가하세요. 프라이버시 트레이드오프: 클라우드 폴백이 사용되면 메모리 텍스트(비공개일 수 있음)가 해당 제공자로 전송되므로, 프라이버시를 위해 로컬 전용으로 운영한다면 유의하세요.
+
 ---
 
 ## 대시보드
@@ -316,7 +318,7 @@ npm이 설치된 버전을 deprecated로 플래그하면(일반적으로 보안 
 
 ## 스마트 기능
 
-**🧠 스마트 검색** — FTS5 + sqlite-vec를 사용해 모든 메모리에서 즉시 검색. 핫 패스에 LLM이 없어 LongMemEval-S에서 R@5 95.60% 달성.
+**🧠 스마트 검색** — "login security"를 검색하면 "OAuth PKCE"에 대한 메모리를 찾습니다. MeMesh는 핫 패스에서 FTS5 + sqlite-vec를 사용하며(LLM-free), 벡터 보완이 관련된 표현까지 도달합니다.
 
 **🌏 띄어쓰기를 하지 않는 문자 검색** — 중국어, 일본어, 한국어, 태국어, 라오어, 크메르어, 반각 가타카나는 인접한 두 글자 묶음으로 색인됩니다. 따라서 「資料庫遷移前一定要先備份」으로 저장한 기억은 전체 문장을 그대로 입력하지 않아도 「備份」으로 찾을 수 있습니다. 저장할 때와 검색할 때 모두 NFC 정규화를 거치므로, macOS나 한국어·베트남어 IME로 입력한 기억도 어느 쪽 표기로든 찾을 수 있습니다.
 
@@ -361,6 +363,8 @@ memesh config set llm.api-key sk-ant-...
 memesh serve  # 대시보드 열기 → Settings 탭
 ```
 
+**과거 세션을 메모리로 캐내기.** `memesh dream run --from-transcripts`는 이 프로젝트의 Claude Code 세션 기록을 읽고, 대화에 묻힌 결정과 교훈을 LLM에게 물어 제안으로 스테이징합니다 — 지식 그래프에는 자동으로 들어가지 않습니다. `memesh dream show <id>`로 하나씩 검토하고 남길 가치가 있는 것을 accept하세요.
+
 ### 자체 임베딩 사용 (선택)
 
 기본적으로 MeMesh는 **키워드 전용** 리콜(FTS5)을 수행합니다 — API 키 불필요, 모델 다운로드 불필요, 데이터가 기기를 벗어나지 않습니다. 시맨틱(의미 기반) 검색은 선택 사항이며 임베더가 필요합니다. 하나를 구성하세요:
@@ -383,7 +387,7 @@ memesh config set embedder.model text-embedding-3-small
 
 ---
 
-## 9가지 메모리 도구 전체
+## 8가지 메모리 도구 전체
 
 | 도구 | 역할 |
 |---|---|

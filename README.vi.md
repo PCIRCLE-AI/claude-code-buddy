@@ -29,7 +29,7 @@ Package này là tầng bộ nhớ cục bộ của dòng sản phẩm MeMesh. N
 
 ---
 
-## Proof — 95.60% R@5 trên LongMemEval-S
+## Bằng chứng — 95.60% R@5 trên LongMemEval-S
 
 Engine truy hồi của MeMesh là **chỉ FTS5** (không LLM, không embeddings trên hot path), được đo trên benchmark công khai [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) (500 câu hỏi, giấy phép MIT):
 
@@ -108,7 +108,20 @@ Nếu bạn chỉ dùng memesh qua chat Claude Code (không bao giờ gõ `memes
 
 ## Bắt đầu trong 60 giây
 
-### Bước 1: Cài đặt
+### Lựa chọn A — Plugin Claude Code (cài một dòng)
+
+Nếu bạn dùng Claude Code, cài MeMesh dưới dạng plugin ngay trong CLI:
+
+```
+/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin install memesh@pcircle-memesh
+```
+
+Claude Code tự động kết nối hooks, skills và MCP server. Bạn có auto-capture trong phiên, recall chủ động, skill `/memesh` trong cuộc trò chuyện, và `remember` / `recall` / `forget` / `learn` dưới dạng công cụ MCP cho agent.
+
+### Lựa chọn B — npm global (tối ưu tuỳ chọn)
+
+Nếu bạn muốn binary nằm thẳng trên `PATH` (để `memesh` chạy được ở bất kỳ terminal nào mà không có độ trễ `npx`), hoặc muốn expose `memesh-mcp` như lệnh stdio đường dẫn cố định cho các MCP client ngoài Claude Code (Cursor, Cline):
 
 ```bash
 npm install -g @pcircle/memesh
@@ -126,6 +139,12 @@ memesh doctor                # xác nhận "Hooks wired into Claude Code" PASS
 Các hooks này cùng tồn tại với bất kỳ hook tùy chỉnh nào trong `~/.claude/hooks/` — `install-hooks` ghi theo kiểu thêm, không bao giờ ghi đè của bạn. Để gỡ: `memesh uninstall-hooks`.
 
 ### Bước 2: Lưu một quyết định
+
+```bash
+memesh remember "Use OAuth 2.0 with PKCE for the new auth"
+```
+
+Hoặc dùng dạng tường minh khi bạn muốn một tên và kiểu ổn định để lọc về sau:
 
 ```bash
 memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
@@ -266,6 +285,8 @@ Toàn bộ cấu hình thông qua biến môi trường. Các giá trị mặc �
 
 `memesh doctor` in ra cấu hình đã resolve để bạn thấy cái gì đang active.
 
+**Nhà cung cấp LLM dự phòng (Smart Mode).** Trong dashboard, tại **Settings → “Fallback providers”**, bạn có thể đặt một chuỗi failover có thứ tự — memesh thử lần lượt từng nhà cung cấp khi cái chính bị hỏng. Thêm một fallback cục bộ [Ollama](https://ollama.com), hoặc một cái trên cloud (OpenAI / Anthropic, cần API key). Đánh đổi về quyền riêng tư: khi dùng fallback cloud, văn bản bộ nhớ — vốn có thể riêng tư — sẽ được gửi tới nhà cung cấp đó, điều này quan trọng nếu bạn chạy hoàn toàn cục bộ vì quyền riêng tư.
+
 Khi npm gắn cờ phiên bản đã cài là deprecated (thường là security advisory), session-start kế tiếp sẽ thêm banner mạnh `⚠️ MeMesh <ver> is DEPRECATED` ở đầu và `memesh update-status` hiển thị cùng dòng đó cho đến khi bạn nâng cấp. Kết quả check được cache tại `~/.memesh/update-check.<version>.json` để một lỗi mạng tạm thời không làm mờ cảnh báo.
 
 ---
@@ -334,6 +355,8 @@ Hoặc dùng dashboard Settings tab (visual setup):
 memesh serve  # mở dashboard → Settings tab
 ```
 
+**Khai thác các phiên trước thành bộ nhớ.** `memesh dream run --from-transcripts` đọc bản ghi phiên Claude Code của dự án này, hỏi LLM về các quyết định và bài học ẩn trong cuộc trò chuyện, rồi lưu tạm chúng dưới dạng đề xuất — không có gì tự động vào đồ thị của bạn. Xem lại từng cái bằng `memesh dream show <id>` và chấp nhận những cái đáng giữ.
+
 ### Dùng embeddings của riêng bạn (tùy chọn)
 
 Mặc định MeMesh recall **chỉ theo từ khóa** (FTS5) — không cần khóa API, không tải mô hình, không có gì rời khỏi máy bạn. Tìm kiếm ngữ nghĩa (theo ý nghĩa) là tùy chọn và cần một embedder. Hãy cấu hình một trong số:
@@ -347,7 +370,7 @@ Embedder được cấu hình **độc lập với LLM chat** — thay đổi `l
 
 | | Level 0 (default) | Level 1 (Smart Mode) |
 |---|---|---|
-| **Search** | FTS5 + sqlite-vec, 95.60% R@5 | giữ nguyên — recall luôn LLM-free ở mọi level |
+| **Tìm kiếm** | FTS5 + sqlite-vec, 95.60% R@5 | giữ nguyên — recall luôn LLM-free ở mọi level |
 | **Auto-capture** | Rule-based patterns | + LLM extracts decisions & lessons |
 | **Auto-tagging** | Chỉ thẻ thủ công | + LLM tự động gắn nhãn entity mới |
 | **Phân tích lỗi** | Không có sẵn | + LLM chuyển session errors thành structured lessons |
@@ -356,7 +379,7 @@ Embedder được cấu hình **độc lập với LLM chat** — thay đổi `l
 
 ---
 
-## Cả 9 Memory Tools
+## Cả 8 Memory Tools
 
 | Tool | Nó làm gì |
 |------|-------------|

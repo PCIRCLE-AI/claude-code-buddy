@@ -29,7 +29,7 @@ Dieses Paket ist die lokale Speicherschicht der MeMesh-Produktfamilie. Es ist be
 
 ---
 
-## Proof — 95.60% R@5 on LongMemEval-S
+## Beleg — 95.60% R@5 auf LongMemEval-S
 
 MeMeshs Retrieval-Engine ist **FTS5 alleine** (kein LLM, keine Embeddings auf dem Hot Path), gemessen am öffentlichen [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) Benchmark (500 Fragen, MIT-lizenziert):
 
@@ -108,7 +108,20 @@ Wenn du memesh nur im Claude-Code-Chat verwendest (nie `memesh` im Terminal tipp
 
 ## In 60 Sekunden starten
 
-### Schritt 1: Installation
+### Option A — Claude-Code-Plugin (Installation in einer Zeile)
+
+Wenn Sie Claude Code nutzen, installieren Sie MeMesh als Plugin direkt in der CLI:
+
+```
+/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin install memesh@pcircle-memesh
+```
+
+Claude Code verdrahtet Hooks, Skills und den MCP-Server automatisch. Sie erhalten Auto-Capture in der Session, proaktives Recall, den `/memesh`-Skill in der Unterhaltung und `remember` / `recall` / `forget` / `learn` als MCP-Tools für den Agenten.
+
+### Option B — npm global (optionale Optimierung)
+
+Wenn Sie das Binary direkt im `PATH` möchten (damit `memesh` in jedem Terminal ohne `npx`-Verzögerung läuft) oder `memesh-mcp` als stdio-Befehl mit festem Pfad für MCP-Clients außerhalb von Claude Code (Cursor, Cline) bereitstellen wollen:
 
 ```bash
 npm install -g @pcircle/memesh
@@ -126,6 +139,12 @@ memesh doctor                # bestätigt, dass „Hooks wired into Claude Code"
 Die Hooks existieren neben Ihren bestehenden Custom-Hooks unter `~/.claude/hooks/` — `install-hooks` schreibt additiv und überschreibt nie Ihre Einträge. Zum Entfernen: `memesh uninstall-hooks`.
 
 ### Schritt 2: Entscheidung speichern
+
+```bash
+memesh remember "Use OAuth 2.0 with PKCE for the new auth"
+```
+
+Oder nutzen Sie die explizite Form, wenn Sie einen stabilen Namen und Typ zum späteren Filtern möchten:
 
 ```bash
 memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
@@ -249,7 +268,7 @@ Sie müssen nicht manuell alles speichern. MeMesh verfügt über **6 Hooks**, di
 
 ---
 
-## Configuration
+## Konfiguration
 
 Die gesamte Konfiguration erfolgt über Umgebungsvariablen. Die Standardwerte sind rein lokal und ohne Netzwerk — Sie müssen nichts setzen, um ein funktionierendes System zu erhalten.
 
@@ -264,6 +283,8 @@ Die gesamte Konfiguration erfolgt über Umgebungsvariablen. Die Standardwerte si
 | `OLLAMA_HOST` | `http://localhost:11434` | Überschreibt den Ollama-Endpoint, wenn ein lokaler Ollama-Provider verwendet wird. |
 
 `memesh doctor` gibt die aufgelöste Konfiguration aus, sodass Sie sehen, was aktiv ist.
+
+**Fallback-LLM-Anbieter (Smart Mode).** Im Dashboard unter **Settings → „Fallback providers“** legen Sie eine geordnete Failover-Kette fest — memesh probiert die Anbieter der Reihe nach, wenn Ihr primärer ausfällt. Fügen Sie einen lokalen [Ollama](https://ollama.com)-Fallback hinzu oder einen Cloud-Anbieter (OpenAI / Anthropic, mit API-Key). Datenschutz-Kompromiss: Wird ein Cloud-Fallback genutzt, wird Speicher-Text — der privat sein kann — an diesen Anbieter gesendet; das ist wichtig, wenn Sie aus Datenschutzgründen nur lokal arbeiten.
 
 Wenn npm eine installierte Version als veraltet kennzeichnet (typischerweise eine Sicherheitswarnung), stellt der nächste Session-Start ein deutliches `⚠️ MeMesh <ver> is DEPRECATED`-Banner voran und `memesh update-status` zeigt dieselbe Zeile, bis Sie aktualisiert haben. Die Prüfung wird unter `~/.memesh/update-check.<version>.json` zwischengespeichert, sodass ein vorübergehender Netzwerkfehler die Warnung nicht abschwächen kann.
 
@@ -333,6 +354,8 @@ Oder nutzen Sie den Dashboard-Settings-Reiter (visuelles Setup):
 memesh serve  # öffnet Dashboard → Settings-Reiter
 ```
 
+**Frühere Sitzungen zu Speicher machen.** `memesh dream run --from-transcripts` liest die Claude-Code-Sitzungsprotokolle dieses Projekts, fragt das LLM nach den in der Unterhaltung verborgenen Entscheidungen und Lektionen und legt sie als Vorschläge ab — nichts landet automatisch in Ihrem Graphen. Prüfen Sie jeden mit `memesh dream show <id>` und akzeptieren Sie die, die es wert sind.
+
 ### Eigene Embeddings verwenden (optional)
 
 Standardmäßig macht MeMesh reines Keyword-Recall (FTS5) — kein API-Schlüssel, kein Modell-Download, nichts verlässt deinen Rechner. Semantische (bedeutungsbasierte) Suche ist optional und braucht einen Embedder. Richte einen ein:
@@ -346,7 +369,7 @@ Der Embedder wird **unabhängig vom Chat-LLM** konfiguriert — `llm.provider` z
 
 | | Stufe 0 (Standard) | Stufe 1 (Smart Mode) |
 |---|---|---|
-| **Search** | FTS5 + sqlite-vec, 95,60 % R@5 (~4 ms pro Recall) | unverändert — Recall ist auf jeder Stufe LLM-frei |
+| **Suche** | FTS5 + sqlite-vec, 95,60 % R@5 | unverändert — Recall ist auf jeder Stufe LLM-frei |
 | **Auto-Capture** | Regelbasierte Muster | + LLM extrahiert Entscheidungen & Lektionen |
 | **Auto-Tagging** | Nur manuelle Tags | + LLM generiert Tags für neue Memories |
 | **Fehleranalyse** | Nicht verfügbar | + LLM wandelt Session-Fehler in strukturierte Lektionen um |
@@ -355,7 +378,7 @@ Der Embedder wird **unabhängig vom Chat-LLM** konfiguriert — `llm.provider` z
 
 ---
 
-## Alle 9 Memory-Tools
+## Alle 8 Memory-Tools
 
 | Tool | Was es tut |
 |------|-------------|

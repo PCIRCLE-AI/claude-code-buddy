@@ -108,7 +108,20 @@ Se você só usa memesh pelo chat do Claude Code (nunca digita `memesh` num term
 
 ## Comece em 60 Segundos
 
-### Passo 1: Instale
+### Opção A — Plugin do Claude Code (instalação em uma linha)
+
+Se você usa o Claude Code, instale o MeMesh como plugin de dentro da CLI:
+
+```
+/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin install memesh@pcircle-memesh
+```
+
+O Claude Code conecta hooks, skills e o servidor MCP automaticamente. Você ganha auto-captura em sessão, recall proativo, o skill `/memesh` na conversa e `remember` / `recall` / `forget` / `learn` como ferramentas MCP para o agente.
+
+### Opção B — npm global (otimização opcional)
+
+Se quiser o binário direto no seu `PATH` (para que `memesh` funcione em qualquer terminal sem o atraso do `npx`), ou expor `memesh-mcp` como comando stdio de caminho fixo para clientes MCP fora do Claude Code (Cursor, Cline):
 
 ```bash
 npm install -g @pcircle/memesh
@@ -126,6 +139,12 @@ memesh doctor                # confirma que "Hooks wired into Claude Code" passo
 Os hooks coexistem com qualquer hook customizado em `~/.claude/hooks/` — `install-hooks` escreve de forma aditiva e nunca sobrescreve. Para remover: `memesh uninstall-hooks`.
 
 ### Passo 2: Armazene uma decisão
+
+```bash
+memesh remember "Use OAuth 2.0 with PKCE for the new auth"
+```
+
+Ou use a forma explícita quando quiser um nome e um tipo estáveis para filtrar depois:
 
 ```bash
 memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
@@ -266,6 +285,8 @@ Toda a configuração é feita por variáveis de ambiente. Os padrões são loca
 
 `memesh doctor` imprime a configuração resolvida para você ver o que está ativo.
 
+**Provedores LLM de fallback (Smart Mode).** No dashboard, em **Settings → “Fallback providers”**, você pode definir uma cadeia de failover ordenada — o memesh tenta cada provedor por vez quando o principal está fora do ar. Adicione um fallback local [Ollama](https://ollama.com), ou um na nuvem (OpenAI / Anthropic, com uma API key). Compromisso de privacidade: quando um fallback na nuvem é usado, o texto da memória — que pode ser privado — é enviado a esse provedor, o que importa se você roda só local por privacidade.
+
 Quando o npm sinaliza uma versão instalada como depreciada (tipicamente um advisory de segurança), o próximo início de sessão antepõe um banner forte `⚠️ MeMesh <ver> is DEPRECATED` e `memesh update-status` mostra a mesma linha até você atualizar. A verificação fica em cache em `~/.memesh/update-check.<version>.json` para que uma falha de rede transitória não atenue o aviso.
 
 ---
@@ -334,6 +355,8 @@ Ou use a aba Settings do dashboard (setup visual):
 memesh serve  # abre dashboard → aba Settings
 ```
 
+**Minere memória das suas sessões passadas.** `memesh dream run --from-transcripts` lê as transcrições de sessão do Claude Code deste projeto, pede ao LLM as decisões e lições escondidas na conversa e as prepara como propostas — nada entra no seu grafo automaticamente. Revise cada uma com `memesh dream show <id>` e aceite as que valerem a pena.
+
 ### Use seus próprios embeddings (opcional)
 
 Por padrão o MeMesh faz recall **apenas por palavras-chave** (FTS5) — sem chave de API, sem download de modelo, nada sai da sua máquina. A busca semântica (por significado) é opcional e precisa de um embedder. Configure um:
@@ -356,7 +379,7 @@ O embedder é configurado **independentemente do LLM de chat** — mudar `llm.pr
 
 ---
 
-## Todas as 9 Ferramentas de Memória
+## Todas as 8 Ferramentas de Memória
 
 | Ferramenta | O que faz |
 |------|-------------|

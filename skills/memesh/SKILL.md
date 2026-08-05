@@ -104,7 +104,9 @@ Archives (soft-delete). Never permanently removes.
 ### Memories are getting verbose
 ```bash
 memesh dream run --project myapp   # propose digests for clusters of noisy memories
+memesh dream run --from-transcripts # OR: mine this project's Claude Code sessions for memory
 memesh dream list                  # review what it proposed
+memesh dream show <id>             # inspect one proposal in full before accepting
 memesh dream accept <id>           # apply one, or: memesh dream reject <id>
 ```
 Nothing changes until a proposal is accepted, and sources are archived rather

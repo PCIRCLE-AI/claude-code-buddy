@@ -293,6 +293,8 @@ memesh export-schema \
 
 `memesh doctor` 會印出已解析的設定，讓你看到目前實際生效的內容。
 
+**備援 LLM 供應商（Smart Mode）。** 在 dashboard 的 **Settings → 「Fallback providers」** 可以設定一條有順序的備援鏈——當你的主要供應商掛掉時，memesh 會依序改用清單裡的下一個。可以加本機的 [Ollama](https://ollama.com) 備援，或雲端的（OpenAI / Anthropic，需要 API key）。隱私取捨：一旦用到雲端備援，記憶內容（可能是私密的）會被送到那個供應商，所以如果你為了隱私只跑本機，這點要留意。
+
 當 npm 將已安裝版本標為 deprecated（通常是安全公告），下次 session-start 會在前面附上強警示橫幅 `⚠️ MeMesh <ver> is DEPRECATED`，`memesh update-status` 也會持續顯示同一行直到你升級為止。檢查結果會被快取於 `~/.memesh/update-check.<version>.json`，以避免短暫網路失敗讓警示變淡。
 
 ---
@@ -361,6 +363,8 @@ memesh config set llm.api-key sk-ant-...
 memesh serve  # 開啟儀表板 → Settings 分頁
 ```
 
+**把過去的對話挖成記憶。** `memesh dream run --from-transcripts` 會讀這個專案的 Claude Code 對話記錄，請 LLM 找出藏在對話裡的決策與教訓，再把它們暫存成提案——不會自動寫進你的知識圖譜。用 `memesh dream show <id>` 逐一檢視，挑值得留的 accept。
+
 ### 自帶嵌入(可選)
 
 預設情況下 MeMesh 只做**關鍵字**召回(FTS5)—— 無需 API 金鑰,無需下載模型,資料不離開你的機器。語意(以意義為基礎的)搜尋是選用的,需要一個嵌入器。設定其中之一:
@@ -374,7 +378,7 @@ memesh config set embedder.model text-embedding-3-small
 
 | | 等級 0（預設） | 等級 1（智慧模式） |
 |---|---|---|
-| **搜尋** | FTS5 + sqlite-vec，95.60% R@5（每次回憶約 4ms） | 不變 — 回憶在每個等級都保持 LLM-free |
+| **搜尋** | FTS5 + sqlite-vec，95.60% R@5 | 不變 — 回憶在每個等級都保持 LLM-free |
 | **自動擷取** | 基於規則的模式 | + LLM 擷取決策與教訓 |
 | **自動標籤** | 僅手動標籤 | + LLM 為新記憶產生標籤 |
 | **失敗分析** | 不可用 | + LLM 將 session 錯誤轉為結構化教訓 |
@@ -383,7 +387,7 @@ memesh config set embedder.model text-embedding-3-small
 
 ---
 
-## 全部 9 個記憶工具
+## 全部 8 個記憶工具
 
 | 工具 | 做什麼 |
 |------|--------|

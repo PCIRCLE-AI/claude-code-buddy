@@ -61,12 +61,14 @@ docs/                # ARCHITECTURE.md, api/API_REFERENCE.md
 
 ### LLM (write-side Smart Mode only — never on the recall hot path)
 - Single dispatch + cross-provider failover + secret redaction → `src/core/llm-client.ts`
+- Fallback chain (`llmFallbacks`): ordered providers tried when the primary is down → defined in `src/core/config.ts`, consumed by `src/core/llm-client.ts`
 - Per-attempt telemetry (`by_model` / `by_project` / `sample_errors`) → `src/core/llm-telemetry.ts`
 - Provider/model capability probe → `src/core/llm-validator.ts`
 - Prompt-injection hardening → `src/core/prompt-safety.ts`
 
 ### Dream (LLM cluster compaction + pattern detection)
 - Compactor + pattern detector (propose/accept/reject) → `src/core/dreamer.ts`
+- Transcript mining (`dream run --from-transcripts`): find a project's session JSONL → mine conversational memory → sanitise → vector-dedup → stage proposals → `src/core/transcript-source.ts` + `src/core/transcript-extractor.ts`
 - `metadata.pin === true` protection is honored here (set via `memesh pin`)
 - Second-pass digest cross-check → `src/core/digest-validator.ts`
 
