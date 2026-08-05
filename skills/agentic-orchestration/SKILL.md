@@ -203,7 +203,7 @@ Before reporting any agent's work as "done" — to the user, to memory, in a com
 3. Cross-check — do the numbers in the agent's summary match reality?
    "added 5 tests"            → grep -c "^\s*it\(" <new test files>
    "77/77 pass"               → re-run test count, verify
-   "R@5 = 95.40%"             → spot-check one or two of the result rows
+   "R@5 = 95.60%"             → spot-check one or two of the result rows
    → numbers that match by accident are still verified;
      numbers that the agent calculated must be re-derived independently.
 

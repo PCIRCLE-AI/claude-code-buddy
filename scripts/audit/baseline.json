@@ -366,20 +366,20 @@
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04"
     },
-    "C7 README.md:346": {
+    "C7 README.md:348": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04 (re-keyed 346->348: the doc-sync fallback-providers paragraph added to the Configuration section shifted this line down 2; same testimonial figure verified before re-keying)"
     },
-    "C7 README.md:353": {
+    "C7 README.md:355": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04 (re-keyed 353->355: the doc-sync fallback-providers paragraph shifted this line down 2; same 95.60% R@5 out-of-the-box figure verified before re-keying)"
     },
-    "C7 README.md:382": {
+    "C7 README.md:386": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 379->382: the ONNX-removal edits to the embeddings section shifted the line down 3; same 95.60% R@5 comparison-table figure verified before re-keying)"
+      "triaged": "2026-08-04 (re-keyed 379->382->386: the doc-sync fallback-providers + transcript-mining paragraphs shifted the line down 4; same 95.60% R@5 comparison-table figure verified before re-keying)"
     },
     "C5 src/cli/view.ts:138": {
       "class": "SAFE-ACCUMULATOR/DISPLAY",

@@ -108,7 +108,20 @@ Si vous utilisez memesh uniquement via le chat Claude Code (jamais `memesh` dans
 
 ## Démarrer en 60 Secondes
 
-### Étape 1 : Installer
+### Option A — Plugin Claude Code (installation en une ligne)
+
+Si vous utilisez Claude Code, installez MeMesh comme plugin depuis la CLI :
+
+```
+/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin install memesh@pcircle-memesh
+```
+
+Claude Code connecte automatiquement les hooks, les skills et le serveur MCP. Vous obtenez l'auto-capture en session, le rappel proactif, le skill `/memesh` dans la conversation, et `remember` / `recall` / `forget` / `learn` comme outils MCP pour l'agent.
+
+### Option B — npm global (optimisation facultative)
+
+Si vous voulez le binaire directement sur votre `PATH` (pour que `memesh` fonctionne dans n'importe quel terminal sans le délai `npx`), ou exposer `memesh-mcp` comme commande stdio à chemin fixe pour des clients MCP hors Claude Code (Cursor, Cline) :
 
 ```bash
 npm install -g @pcircle/memesh
@@ -126,6 +139,12 @@ memesh doctor                # vérifie que « Hooks wired into Claude Code » p
 Ces hooks coexistent avec vos hooks personnalisés dans `~/.claude/hooks/` — `install-hooks` écrit de manière additive et n'écrase jamais les vôtres. Pour supprimer : `memesh uninstall-hooks`.
 
 ### Étape 2 : Mémoriser une décision
+
+```bash
+memesh remember "Use OAuth 2.0 with PKCE for the new auth"
+```
+
+Ou utilisez la forme explicite quand vous voulez un nom et un type stables pour filtrer plus tard :
 
 ```bash
 memesh remember --name "auth-decision" --type "decision" --obs "Use OAuth 2.0 with PKCE"
@@ -266,6 +285,8 @@ Toute la configuration passe par des variables d'environnement. Les valeurs par 
 
 `memesh doctor` affiche la configuration résolue pour que vous puissiez voir ce qui est actif.
 
+**Fournisseurs LLM de repli (Smart Mode).** Dans le dashboard, sous **Settings → « Fallback providers »**, vous pouvez définir une chaîne de bascule ordonnée — memesh essaie chaque fournisseur à tour de rôle quand votre principal est en panne. Ajoutez un repli local [Ollama](https://ollama.com), ou un repli cloud (OpenAI / Anthropic, avec une clé API). Compromis de confidentialité : quand un repli cloud est utilisé, le texte mémoire — qui peut être privé — est envoyé à ce fournisseur ; cela compte si vous travaillez en local uniquement pour la confidentialité.
+
 Lorsque npm signale une version installée comme dépréciée (typiquement une alerte de sécurité), le prochain démarrage de session ajoute en tête une bannière forte `⚠️ MeMesh <ver> is DEPRECATED` et `memesh update-status` affiche la même ligne jusqu'à la mise à jour. La vérification est mise en cache dans `~/.memesh/update-check.<version>.json` pour qu'une panne réseau transitoire ne puisse pas atténuer l'avertissement.
 
 ---
@@ -334,6 +355,8 @@ Ou utilisez l'onglet Settings du tableau de bord (configuration visuelle) :
 memesh serve  # ouvre le tableau de bord → onglet Settings
 ```
 
+**Extrayez de la mémoire de vos sessions passées.** `memesh dream run --from-transcripts` lit les transcriptions de session Claude Code de ce projet, demande au LLM les décisions et leçons enfouies dans la conversation, et les met en attente sous forme de propositions — rien n'entre automatiquement dans votre graphe. Examinez chacune avec `memesh dream show <id>` et acceptez celles qui en valent la peine.
+
 ### Utilisez vos propres embeddings (optionnel)
 
 Par défaut, MeMesh fait un recall **par mots-clés uniquement** (FTS5) — aucune clé API, aucun téléchargement de modèle, rien ne quitte votre machine. La recherche sémantique (par sens) est optionnelle et nécessite un embedder. Configurez-en un :
@@ -347,7 +370,7 @@ L'embedder se configure **indépendamment du LLM de chat** — changer `llm.prov
 
 | | Niveau 0 (défaut) | Niveau 1 (Mode Smart) |
 |---|---|---|
-| **Recherche** | FTS5 + sqlite-vec, 95,60 % R@5 (~4 ms par rappel) | inchangé — le rappel est sans LLM à tous les niveaux |
+| **Recherche** | FTS5 + sqlite-vec, 95,60 % R@5 | inchangé — le rappel est sans LLM à tous les niveaux |
 | **Auto-capture** | Motifs basés sur les règles | + LLM extrait les décisions & leçons |
 | **Auto-tagging** | Tags manuels uniquement | + LLM génère des tags pour les nouvelles mémoires |
 | **Analyse de défaillance** | Indisponible | + LLM convertit les erreurs de session en leçons structurées |
@@ -356,7 +379,7 @@ L'embedder se configure **indépendamment du LLM de chat** — changer `llm.prov
 
 ---
 
-## Les 9 Outils De Mémoire
+## Les 8 Outils De Mémoire
 
 | Outil | Ce qu'il fait |
 |---|---|

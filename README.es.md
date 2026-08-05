@@ -293,6 +293,8 @@ Toda la configuración se realiza mediante variables de entorno. Los valores por
 
 `memesh doctor` imprime la configuración resuelta para que puedas ver qué está activo.
 
+**Proveedores LLM de respaldo (Smart Mode).** En el dashboard, en **Settings → «Fallback providers»**, puedes definir una cadena de failover ordenada — memesh prueba cada proveedor por turno cuando el principal está caído. Añade un respaldo local [Ollama](https://ollama.com), o uno en la nube (OpenAI / Anthropic, con una API key). Compensación de privacidad: cuando se usa un respaldo en la nube, el texto de memoria — que puede ser privado — se envía a ese proveedor, así que importa si trabajas solo en local por privacidad.
+
 Cuando npm marca una versión instalada como deprecada (típicamente un aviso de seguridad), el siguiente inicio de sesión antepone un fuerte banner `⚠️ MeMesh <ver> is DEPRECATED` y `memesh update-status` muestra la misma línea hasta que actualices. La verificación se cachea en `~/.memesh/update-check.<version>.json` para que un fallo de red transitorio no atenúe la advertencia.
 
 ---
@@ -361,6 +363,8 @@ O usa la pestaña Configuración del dashboard (configuración visual):
 memesh serve  # abre dashboard → pestaña Settings
 ```
 
+**Extrae memoria de tus sesiones pasadas.** `memesh dream run --from-transcripts` lee las transcripciones de sesión de Claude Code de este proyecto, le pide al LLM las decisiones y lecciones ocultas en la conversación, y las prepara como propuestas — nada entra en tu grafo automáticamente. Revisa cada una con `memesh dream show <id>` y acepta las que valgan la pena.
+
 ### Usa tus propios embeddings (opcional)
 
 Por defecto MeMesh hace recall **solo por palabras clave** (FTS5) — sin clave de API, sin descarga de modelo, nada sale de tu máquina. La búsqueda semántica (por significado) es opcional y necesita un embedder. Configura uno:
@@ -383,7 +387,7 @@ El embedder se configura **independientemente del LLM de chat** — cambiar `llm
 
 ---
 
-## Las 9 Herramientas de Memoria
+## Las 8 Herramientas de Memoria
 
 | Herramienta | Qué hace |
 |---|---|

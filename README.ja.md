@@ -293,6 +293,8 @@ memesh export-schema \
 
 `memesh doctor` は解決された設定を表示するため、何が有効かを確認できます。
 
+**フォールバック LLM プロバイダー（Smart Mode）。** dashboard の **Settings → 「Fallback providers」** で、順序付きのフェイルオーバーチェーンを設定できます——プライマリのプロバイダーがダウンしたとき、memesh はリストの次のものを順に試します。ローカルの [Ollama](https://ollama.com) フォールバックや、クラウド（OpenAI / Anthropic、API キーが必要）を追加できます。プライバシーのトレードオフ：クラウドのフォールバックが使われると、メモリのテキスト（プライベートなこともあります）がそのプロバイダーに送られます。プライバシーのためにローカルのみで運用している場合は注意してください。
+
 npm がインストール済みバージョンを非推奨としてフラグした場合(典型的にはセキュリティアドバイザリ)、次のセッション開始時に強い `⚠️ MeMesh <ver> is DEPRECATED` バナーが先頭に表示され、`memesh update-status` がアップグレードまで同じ行を表示し続けます。チェックは `~/.memesh/update-check.<version>.json` にキャッシュされ、一時的なネットワーク障害で警告が薄まらないようになっています。
 
 ---
@@ -361,6 +363,8 @@ memesh config set llm.api-key sk-ant-...
 memesh serve  # ダッシュボード → Settings タブを開く
 ```
 
+**過去のセッションをメモリに掘り起こす。** `memesh dream run --from-transcripts` はこのプロジェクトの Claude Code セッション記録を読み、会話に埋もれた決定や教訓を LLM に尋ね、提案としてステージングします——知識グラフには自動的には入りません。`memesh dream show <id>` で一つずつ確認し、残す価値のあるものを accept してください。
+
 ### 独自のエンベディングを使う(任意)
 
 デフォルトで MeMesh は**キーワードのみ**のリコール(FTS5)を行います — API キー不要、モデルのダウンロード不要、データは端末外に出ません。セマンティック(意味ベース)検索は任意で、エンベダーが必要です。次のいずれかを設定してください:
@@ -383,7 +387,7 @@ memesh config set embedder.model text-embedding-3-small
 
 ---
 
-## 9 つのメモリツール全覧
+## 8 つのメモリツール全覧
 
 | ツール | 機能 |
 |------|------|

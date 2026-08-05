@@ -45,8 +45,10 @@ MeMesh separates concerns into two layers:
 - `scoring.ts` — multi-factor scoring engine: weights search relevance, recency, frequency, confidence, recall-impact; exports `rankEntities()` used by all recall paths
 - `llm-client.ts` — single dispatch for anthropic / openai / ollama with cross-provider failover, error classification, and per-attempt telemetry callback
 - `llm-telemetry.ts` — `llm_telemetry` SQLite table + `recordTelemetry()` + `summariseTelemetry()` + `pruneTelemetry()` retention
-- `dreamer.ts` — LLM cluster compactor + pattern detector with propose/accept/reject lifecycle; auto-trigger from Stop hook
+- `dreamer.ts` — LLM cluster compactor + pattern detector with propose/accept/reject lifecycle; auto-trigger from Stop hook; also the entry point for the `--from-transcripts` transcript-mining source
 - `digest-validator.ts` — opt-in second-pass LLM cross-check on dreamer digests (`pass | soften | reject`)
+- `transcript-source.ts` — read-only discovery half of transcript mining: locates the session JSONL files Claude Code writes for a project and reports what is available to mine (no LLM, no writes); dropout-proof because it reads the files directly rather than relying on the capture hook having fired
+- `transcript-extractor.ts` — extraction half: reads a session's conversation, asks the LLM for the durable memories hidden in the prose, drops any candidate carrying a secret, vector-dedups against entities already in the graph, and stages the rest as `dream_proposals` for human `dream accept` (emits the `transcript_extractor` telemetry flow)
 - `kg-backfill.ts` — non-LLM heuristic relation backfill: 4 rules (tag co-occurrence, project clustering, session co-occurrence, name-token similarity)
 - `project-tags.ts` — list / merge / rename `project:<name>` tags (heals tags mis-homed before git-based project identity); backs `memesh kg rename-project`
 - `prompt-safety.ts` — F7 prompt-injection hardening (delimiter escaping for 3 LLM call sites)
@@ -84,8 +86,10 @@ src/
 │   ├── llm-telemetry.ts   # llm_telemetry table + recordTelemetry + summariseTelemetry + pruneTelemetry
 │   ├── llm-validator.ts   # Provider+model capability detection (list models, byte-capped fetch)
 │   ├── prompt-safety.ts   # F7 prompt-injection hardening (sanitizeForPrompt for 3 call sites)
-│   ├── dreamer.ts         # LLM cluster compactor + pattern detector (propose/accept/reject)
+│   ├── dreamer.ts         # LLM cluster compactor + pattern detector (propose/accept/reject); entry point for --from-transcripts
 │   ├── digest-validator.ts # Opt-in second-pass LLM cross-check on dreamer digests
+│   ├── transcript-source.ts    # Read-only discovery: find a project's session JSONL to mine (no LLM, no writes)
+│   ├── transcript-extractor.ts # Mine conversational memory from a session → sanitise → vector-dedup → stage dream_proposals
 │   ├── kg-backfill.ts     # Heuristic relation backfill (tag co-occurrence + project clustering)
 │   ├── patterns.ts        # User work patterns computation (shared by MCP + HTTP)
 │   ├── doctor.ts          # `memesh doctor` health check (runtime / install / hooks / DB / capabilities)
@@ -260,6 +264,23 @@ Tool call: recall({query, tag, limit})
      -> rankEntities() applies multi-factor scoring (relevance, recency, frequency, confidence, impact)
      -> KnowledgeGraph.findConflicts() checks for contradicts relations among results
   -> If conflicts: return {entities, conflicts}; else return Entity[]
+```
+
+### Mine memory from transcripts (`dream run --from-transcripts`)
+
+```
+memesh dream run --from-transcripts   (current project only)
+  -> transcript-source.ts: locate this project's session JSONL files (read-only)
+     -> --dry-run stops here: list sessions + conversation-turn counts, no LLM
+  -> transcript-extractor.ts: read a session's conversation (user + assistant text)
+     -> ask the LLM for the durable, high-value memories (time-ordered:
+        a claim later reversed in the same session is not recorded)
+     -> sanitise every candidate; drop any candidate carrying a detected secret
+     -> embed each survivor and vector-dedup against entities already in the
+        graph (same index recall uses); report — never silently drop — skips
+     -> stage the rest as dream_proposals (nothing enters the graph yet)
+  -> human review: memesh dream show <id> / accept <id> / reject <id>
+     -> accept creates the entity AND embeds it, so the next run recognises it
 ```
 
 ### Delete knowledge (forget)

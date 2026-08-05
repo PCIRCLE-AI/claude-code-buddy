@@ -295,6 +295,8 @@ All configuration is via environment variables. Defaults are local-only and zero
 
 `memesh doctor` prints the resolved configuration so you can see what's active.
 
+**Fallback LLM providers (Smart Mode).** In the dashboard **Settings → "Fallback providers"** you can set an ordered failover chain — memesh tries each provider in turn when your primary is down. Add a local [Ollama](https://ollama.com) fallback, or a cloud one (OpenAI / Anthropic, with an API key). Privacy tradeoff: when a cloud fallback is used, memory text — which can be private — is sent to that provider, so it matters if you run local-only for privacy.
+
 When npm flags an installed version as deprecated (typically a security advisory), the next session-start prepends a strong `⚠️ MeMesh <ver> is DEPRECATED` banner and `memesh update-status` surfaces the same line until you upgrade. The check is cached at `~/.memesh/update-check.<version>.json` so a transient network failure can't dim the warning.
 
 ---
@@ -363,6 +365,8 @@ Or use the dashboard Settings tab (visual setup):
 memesh serve  # opens dashboard → Settings tab
 ```
 
+**Mine your past sessions into memory.** `memesh dream run --from-transcripts` reads this project's Claude Code session transcripts, asks the LLM for the decisions and lessons buried in the conversation, and stages them as proposals — nothing enters your graph automatically. Review each with `memesh dream show <id>` and accept the ones worth keeping.
+
 ### Semantic search / embeddings (optional)
 
 By default MeMesh does **keyword-only** recall (FTS5) — no API key, no model download, nothing leaves your machine. Semantic (meaning-based) search is opt-in and needs an embedder. Point one of these at it:
@@ -388,7 +392,7 @@ The embedder is configured **independently of the chat LLM** — changing `llm.p
 
 ---
 
-## All 9 Memory Tools
+## All 8 Memory Tools
 
 | Tool | What it does |
 |------|-------------|

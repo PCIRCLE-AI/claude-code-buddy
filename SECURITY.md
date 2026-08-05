@@ -13,11 +13,12 @@ We support the latest published MeMesh release. Older releases should be assumed
 
 Do not report security vulnerabilities in public GitHub issues.
 
-Use one of these private channels instead:
+Report privately through GitHub Security Advisories:
 
-1. GitHub Security Advisories: https://github.com/PCIRCLE-AI/memesh-llm-memory/security/advisories/new
-2. Email: `security@memesh.ai`
-3. Backup email: `support@pcircle.com` with subject `SECURITY VULNERABILITY`
+https://github.com/PCIRCLE-AI/memesh-llm-memory/security/advisories/new
+
+That link opens a private report visible only to the maintainers — it is the
+single channel for vulnerability reports.
 
 ## What to Include
 
