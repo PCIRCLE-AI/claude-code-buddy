@@ -75,6 +75,35 @@ describe('Feature: the SQLite driver', () => {
     });
   });
 
+  describe('busy timeout', () => {
+    it('is 5000 ms, not node:sqlite\'s 0', () => {
+      // node:sqlite defaults to 0: the first contended write fails instantly
+      // with "database is locked". better-sqlite3 defaulted to 5000, and
+      // memesh was built on that — seven hooks, the CLI, the MCP server and
+      // the HTTP server share one file, and `runOnceMigration` takes the write
+      // lock with `.immediate()`. Carrying the driver swap without carrying
+      // this number turns every overlap into a lost capture, silently.
+      const db = new MemeshDatabase(dbPath);
+      try {
+        expect(db.prepare('PRAGMA busy_timeout').get()).toMatchObject({ timeout: 5000 });
+      } finally {
+        db.close();
+      }
+    });
+
+    it('applies to read-only handles too', () => {
+      // Two hooks and the `view` CLI open read-only, and a reader can still be
+      // blocked by a writer holding the lock during a checkpoint.
+      seed();
+      const db = new MemeshDatabase(dbPath, { readOnly: true });
+      try {
+        expect(db.prepare('PRAGMA busy_timeout').get()).toMatchObject({ timeout: 5000 });
+      } finally {
+        db.close();
+      }
+    });
+  });
+
   describe('pragma()', () => {
     it('journal_mode = WAL takes effect, not just executes', () => {
       // `exec()` throws away the row this PRAGMA returns. That is fine; what is

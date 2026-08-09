@@ -139,7 +139,15 @@ function inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl) {
     if (!server || typeof server.command !== 'string') {
         return createCheck('mcp-config', 'MCP config', 'fail', '.mcp.json does not define a usable `memesh` MCP server entry.', 'Reinstall MeMesh or restore the `mcpServers.memesh` entry in `.mcp.json`.', { code: 'mcp-config.no-entry' });
     }
-    return createCheck('mcp-config', 'MCP config', 'pass', '.mcp.json is present and defines the memesh MCP server.');
+    const args = Array.isArray(server.args) ? server.args : [];
+    const entry = typeof args[0] === 'string' ? args[0] : null;
+    if (entry) {
+        const resolved = path.resolve(entry.replaceAll('${CLAUDE_PLUGIN_ROOT}', packageRoot));
+        if (!existsSyncImpl(resolved)) {
+            return createCheck('mcp-config', 'MCP config', 'fail', `.mcp.json starts \`${entry}\`, and that file is not in this install — so every memesh MCP tool fails to start.`, 'Reinstall MeMesh; if you edited `.mcp.json` by hand, point it back at `${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js`.', { code: 'mcp-config.entry-missing', params: { entry, resolved } });
+        }
+    }
+    return createCheck('mcp-config', 'MCP config', 'pass', '.mcp.json is present, defines the memesh MCP server, and the script it starts exists.');
 }
 function extractHookScriptPaths(hooksConfig, packageRoot) {
     const hooks = hooksConfig.hooks;
@@ -307,10 +315,14 @@ function defaultResolveShellMemesh() {
         return null;
     }
 }
+const RUNTIME_TOO_OLD = 'memesh:node-sqlite-too-old';
 function defaultNativeBindingProbe(packageRoot) {
     try {
         const probe = new MemeshDatabase(':memory:', { allowExtension: true });
         try {
+            if (typeof probe.enableLoadExtension !== 'function') {
+                return { ok: false, message: `${RUNTIME_TOO_OLD}: node:sqlite in ${process.version} has no enableLoadExtension` };
+            }
             probe.enableLoadExtension(true);
             const localRequire = createRequire(pathToFileURL(path.join(packageRoot, 'package.json')).href);
             const sqliteVec = localRequire('sqlite-vec');
@@ -383,18 +395,14 @@ function inspectNativeBinding(packageRoot, _existsSyncImpl, probeImpl = defaultN
     if (result.ok) {
         return createCheck('native-binding', 'SQLite and vector search', 'pass', 'node:sqlite opened a database and sqlite-vec loaded (probe succeeded).');
     }
-    const isMissingSqlite = /ERR_UNKNOWN_BUILTIN_MODULE|node:sqlite/i.test(result.message);
+    if (result.message.startsWith(RUNTIME_TOO_OLD)) {
+        return createCheck('native-binding', 'SQLite and vector search', 'fail', `The node:sqlite in this Node (${process.version}) is too old for memesh — it cannot load the vector-search extension. The complete version arrived in Node 22.13.`, 'Upgrade Node to 22.13 or newer, then re-run `memesh doctor`.', { code: 'native-binding.node-too-old', params: { version: process.version } });
+    }
     const isMissingPackage = /MODULE_NOT_FOUND|Cannot find module/i.test(result.message);
-    if (isMissingSqlite) {
-        return createCheck('native-binding', 'SQLite and vector search', 'fail', 'This Node build has no `node:sqlite` module, so memesh cannot open its database at all. '
-            + 'It was added in Node 22.5, which is why package.json requires it.', 'Upgrade Node to 22.5 or newer, then re-run `memesh doctor`.', { code: 'native-binding.no-node-sqlite' });
-    }
     if (isMissingPackage) {
-        return createCheck('native-binding', 'SQLite and vector search', 'fail', 'sqlite-vec is not installed (Node could not resolve it from any parent node_modules). '
-            + 'memesh still stores and recalls memories, but recall runs on FTS5 keyword search '
-            + 'alone — semantic similarity is off.', 'Run: npm install   (in the directory that depends on @pcircle/memesh)', { code: 'native-binding.not-installed' });
+        return createCheck('native-binding', 'SQLite and vector search', 'warn', 'sqlite-vec is not installed, so memesh cannot search by meaning. Memories are still saved, and still found by keyword.', 'Run: npm install   (in the directory that depends on @pcircle/memesh)', { code: 'native-binding.not-installed' });
     }
-    return createCheck('native-binding', 'SQLite and vector search', 'fail', `sqlite-vec failed to load: ${result.message}. Recall falls back to FTS5 keyword search.`, `Run: cd "${packageRoot}" && npm install --omit=dev`, { code: 'native-binding.load-failed', params: { detail: result.message, root: packageRoot } });
+    return createCheck('native-binding', 'SQLite and vector search', 'warn', `sqlite-vec could not be loaded: ${result.message}. Memories are still saved and found by keyword; only search by meaning is off.`, `Run: cd "${packageRoot}" && npm install --omit=dev`, { code: 'native-binding.load-failed', params: { detail: result.message, root: packageRoot } });
 }
 function inspectShellCli(installChannel, packageRoot, resolveShellMemeshImpl) {
     const shellPath = resolveShellMemeshImpl();

@@ -160,15 +160,24 @@ function initialiseDatabase(db, resolvedPath) {
     ensureLlmTelemetryTable(db);
     runAutoTelemetryPrune(db);
     ensureFtsSegmentation(db);
+    let vectorIndexAvailable = true;
     db.enableLoadExtension(true);
     try {
         sqliteVec.load(db);
     }
+    catch (err) {
+        vectorIndexAvailable = false;
+        const detail = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`MeMesh: sqlite-vec could not be loaded (${detail}).\n` +
+            'MeMesh: recall will use FTS5 keyword search only. `memesh doctor` explains this row.\n');
+    }
     finally {
         db.enableLoadExtension(false);
     }
-    const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
-    ensureVecTable(db, resolvedPath, targetDim, dimensionKnown);
+    if (vectorIndexAvailable) {
+        const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
+        ensureVecTable(db, resolvedPath, targetDim, dimensionKnown);
+    }
     return db;
 }
 export const FTS_SEGMENTATION_VERSION = 3;

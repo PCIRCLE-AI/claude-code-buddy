@@ -7,6 +7,7 @@
 
 import { getDatabase } from '../db.js';
 import { detectCapabilities, getEmbeddingDimension, type LLMConfig } from './config.js';
+import { hasVectorIndex } from '../storage/vector-index.js';
 
 /**
  * Cut-off for a vector hit, in the units `entities_vec` actually returns.
@@ -221,7 +222,9 @@ export type EmbedOutcome =
   /** The database write threw. */
   | 'write_failed'
   /** The database is closing. Nothing written, and nothing wrong. */
-  | 'database_closed';
+  | 'database_closed'
+  /** sqlite-vec is not loaded, so there is no entities_vec to write to. */
+  | 'no_vector_index';
 
 /**
  * Generate an embedding and store it in entities_vec.
@@ -237,6 +240,10 @@ export async function embedAndStore(entityId: number, text: string): Promise<Emb
     if (!embedding) return 'no_embedding';
 
     const db = getDatabase();
+    // Asked before the dimension check, because without the extension there is
+    // no table and no stored dimension either — the dimension branch would
+    // report `dimension_mismatch` for a database that simply has no index.
+    if (!hasVectorIndex(db)) return 'no_vector_index';
 
     // CRITICAL: Validate embedding dimension matches DB schema
     // Prevents silent write failures when the configured provider emits a
@@ -303,6 +310,10 @@ export function vectorSearch(
 ): Array<{ id: number; distance: number }> {
   try {
     const db = getDatabase();
+    // Without sqlite-vec there is no index to search. The blanket catch below
+    // would swallow the "no such table" too, but only by accident — and an
+    // accident that also hides real query errors.
+    if (!hasVectorIndex(db)) return [];
     const rows = db
       .prepare(
         'SELECT rowid AS id, distance FROM entities_vec WHERE embedding MATCH ? ORDER BY distance LIMIT ?'

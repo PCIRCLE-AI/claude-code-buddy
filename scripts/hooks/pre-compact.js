@@ -101,8 +101,6 @@ process.stdin.on('end', () => {
 
     // Open DB via shared helper — applies SCHEMA_SQL + status migration.
     // FTS5 needed for the entity-search index updates below.
-    // Returns null on plugin-marketplace cache installs without node_modules;
-    // silently skip in that case (sibling registered copy handles it).
     const { db } = openHookDb(process.env, { fts: true });
     let written = null;
     try {

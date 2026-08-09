@@ -21,7 +21,7 @@ import { createRequire } from 'node:module';
  * Load node:sqlite without printing Node 22's experimental warning.
  *
  * The warning is emitted once, when the module is first loaded, and memesh
- * supports Node >= 22.5 — so on the whole Node 22 LTS line every CLI
+ * supports Node >= 22.13 — so on the rest of the Node 22 LTS line every CLI
  * invocation, every hook and every MCP handshake would print a line users
  * cannot act on. Node 24 and 26 emit nothing.
  *
@@ -47,6 +47,20 @@ function loadNodeSqlite(): typeof import('node:sqlite') {
   } as any;
   try {
     return require('node:sqlite') as typeof import('node:sqlite');
+  } catch (err) {
+    // A runtime below the floor fails HERE, during module evaluation, before
+    // any diagnostic code exists to explain it — `memesh doctor` included,
+    // since it imports this module. Node's own text is
+    // `No such built-in module: node:sqlite`, which says nothing about what to
+    // do. Replacing it is the only chance to tell the user anything at all, so
+    // the sentence has to carry the whole answer.
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `memesh needs Node's built-in SQLite, which this runtime (${process.version}) does not provide. ` +
+      'It became usable without a flag in Node 22.13.0 — upgrade Node to 22.13 or newer and run memesh again. ' +
+      `(${detail})`,
+      { cause: err },
+    );
   } finally {
     process.emitWarning = original;
   }
@@ -78,6 +92,24 @@ export interface OpenOptions {
   allowExtension?: boolean;
 }
 
+/**
+ * How long SQLite waits for a held write lock before giving up.
+ *
+ * node:sqlite's default is 0 — the first contended write fails instantly with
+ * "database is locked". better-sqlite3's was 5000, and memesh was built on
+ * that: seven hooks, the CLI, the MCP server and the HTTP server all open one
+ * database file, `runOnceMigration` takes the write lock with `.immediate()`,
+ * and `tests/migration-atomicity.test.ts` sets `busy_timeout = 1` with the
+ * comment "the default 5s would only make the test slow". Carrying the driver
+ * swap without carrying this number would have turned every overlap — a
+ * post-commit hook landing while a session-summary writes — into a lost
+ * capture.
+ *
+ * Set through PRAGMA rather than the constructor's `timeout` option, which is
+ * Node >= 24 and would raise the floor for nothing.
+ */
+const BUSY_TIMEOUT_MS = 5000;
+
 /** What a `transaction()` wrapper can be called as. */
 export interface TransactionFunction<A extends unknown[], R> {
   (...args: A): R;
@@ -98,6 +130,7 @@ export class MemeshDatabase extends DatabaseSync {
   // straight through.
   constructor(path: string, options: OpenOptions = {}) {
     super(path, options);
+    this.pragma(`busy_timeout = ${BUSY_TIMEOUT_MS}`);
   }
 
   /**

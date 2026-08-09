@@ -90,3 +90,33 @@ export function binTargets(packageDir) {
 export function executableTargets(packageDir) {
   return [...new Set([...binTargets(packageDir), ...hookCommands(packageDir)])];
 }
+
+/**
+ * The script `.mcp.json` starts, relative to the package root.
+ *
+ * Derived for the same reason as the two lists above, and after the same kind
+ * of miss: the MCP entry point was renamed, `package.json` `bin` and `npm
+ * start` were both repointed, and `.mcp.json` — the only entry point a
+ * `/plugin install` user ever hits — kept naming the deleted file. Every MCP
+ * tool failed with `-32000 failed to reconnect`, and nothing noticed, because
+ * the packed-artifact gate checked a hand-written path list that no longer
+ * mentioned it.
+ *
+ * `command` is the interpreter (`node`), so the script is `args[0]`.
+ *
+ * @param {string} packageDir - package root to read .mcp.json from
+ * @returns {string} relative path
+ */
+export function mcpEntry(packageDir) {
+  const manifest = JSON.parse(fs.readFileSync(path.join(packageDir, '.mcp.json'), 'utf8'));
+  const entry = manifest.mcpServers?.memesh?.args?.[0];
+
+  if (typeof entry !== 'string') {
+    throw new Error(
+      '.mcp.json declares no `mcpServers.memesh.args[0]` — the derivation in ' +
+        'scripts/lib/executable-targets.mjs is broken, or the manifest lost its MCP entry point'
+    );
+  }
+
+  return entry.replace('${CLAUDE_PLUGIN_ROOT}/', '');
+}

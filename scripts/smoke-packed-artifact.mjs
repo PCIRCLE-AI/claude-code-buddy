@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { binTargets, hookCommands } from './lib/executable-targets.mjs';
+import { binTargets, hookCommands, mcpEntry } from './lib/executable-targets.mjs';
 import { npmSync } from './lib/npm-bin.mjs';
 
 const repoRoot = process.cwd();
@@ -82,7 +82,6 @@ const requiredFiles = [
   // Dist — transports
   'dist/transports/schemas.js',
   'dist/mcp/server.js',
-  'dist/mcp/server.js',
   'dist/transports/mcp/handlers.js',
   'dist/transports/http/server.js',
   'dist/transports/cli/cli.js',
@@ -135,6 +134,16 @@ for (const { relativePath, kind } of declaredExecutables) {
     );
   }
 }
+
+// The script `.mcp.json` starts, derived from the manifest rather than from a
+// hand-written path. A `/plugin install` user reaches memesh ONLY through this
+// entry; when it named a file that had been renamed away, every MCP tool died
+// with `-32000 failed to reconnect` and no gate said a word.
+const mcpTarget = mcpEntry(packageDir);
+assert.ok(
+  fs.existsSync(path.join(packageDir, mcpTarget)),
+  `.mcp.json starts ${mcpTarget}, which is not in the tarball — every MCP tool would fail to start`
+);
 
 const packagedJson = JSON.parse(
   fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8')

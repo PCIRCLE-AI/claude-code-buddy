@@ -117,7 +117,7 @@ Claude Code를 사용한다면 CLI 안에서 MeMesh를 플러그인으로 설치
 /plugin install memesh@pcircle-memesh
 ```
 
-Claude Code가 훅, 스킬, MCP 서버를 자동으로 연결합니다. 세션 내 자동 캡처, 능동적 회상, Claude Code 대화 내 `/memesh` 스킬(remember / recall / learn / forget), 그리고 에이전트가 사용할 수 있는 MCP 도구 `remember` / `recall` / `forget` / `learn`을 모두 얻을 수 있습니다. CLI와 로컬 대시보드도 추가 글로벌 설치 없이 완전히 접근 가능합니다 — `npx @pcircle/memesh <command>`로 모든 CLI 명령을 실행하고, `npx @pcircle/memesh`로 `localhost:3737`의 대시보드를 시작합니다. MCP 서버는 플러그인에 번들된 컴파일 결과물에서 직접 실행됩니다 — `npx` 조회, `npm install -g`, 빌드 단계가 모두 필요 없습니다. 첫 시작 시 `better-sqlite3` 네이티브 바인딩이 없는 경우(예: Node 메이저 버전 업그레이드 이후), 런처가 프로세스 내에서 자동으로 재빌드한 뒤 실행을 이어갑니다.
+Claude Code가 훅, 스킬, MCP 서버를 자동으로 연결합니다. 세션 내 자동 캡처, 능동적 회상, Claude Code 대화 내 `/memesh` 스킬(remember / recall / learn / forget), 그리고 에이전트가 사용할 수 있는 MCP 도구 `remember` / `recall` / `forget` / `learn`을 모두 얻을 수 있습니다. CLI와 로컬 대시보드도 추가 글로벌 설치 없이 완전히 접근 가능합니다 — `npx @pcircle/memesh <command>`로 모든 CLI 명령을 실행하고, `npx @pcircle/memesh`로 `localhost:3737`의 대시보드를 시작합니다. MCP 서버는 플러그인에 번들된 컴파일 결과물에서 직접 실행됩니다 — `npx` 조회, `npm install -g`, 빌드 단계가 모두 필요 없습니다. memesh는 Node에 내장된 `node:sqlite`(22.13+)에 데이터를 저장하므로, Node를 업그레이드해도 잘못된 런타임용으로 빌드된 바이너리가 남지 않습니다.
 
 ### 옵션 B — npm 글로벌 (선택적 최적화)
 
@@ -128,7 +128,7 @@ npm install -g @pcircle/memesh
 ```
 
 > **첫 설치 안내(일회성):**
-> - **네이티브 모듈** — `better-sqlite3`와 `sqlite-vec`는 macOS(arm64/x64), Linux(x64/arm64), Windows x64에서 사전 빌드 바이너리로 설치됩니다. 흔치 않은 플랫폼이거나 사전 빌드가 실패하는 경우 작동하는 C/C++ 툴체인이 필요합니다.
+> - **컴파일러가 필요 없습니다** — 데이터베이스 엔진은 Node 자체의 `node:sqlite`입니다. 의미 기반 검색을 담당하는 `sqlite-vec`는 macOS(arm64/x64), Linux(x64/arm64), Windows x64용 사전 빌드 파일로 제공됩니다. 그 외 플랫폼에서는 그냥 없으며, 회상은 키워드 검색으로 유지됩니다. 여기에는 설치 스크립트를 실행하는 것이 전혀 없으므로 `npm install --ignore-scripts`로도 완전히 동작하는 memesh가 설치됩니다.
 > - **시맨틱 검색은 선택 사항** — 기본 검색 경로는 키워드 검색(FTS5)으로, 모델도 다운로드도 필요 없습니다. 의미 기반 검색에는 임베더가 필요합니다: 로컬에서 [Ollama](https://ollama.com)를 실행하거나 클라우드 임베더를 구성하세요(아래 "임베딩" 참조). 없으면 memesh는 키워드 검색만 사용합니다.
 
 ### 1.5단계: MeMesh를 Claude Code에 연결 (npm 경로만)

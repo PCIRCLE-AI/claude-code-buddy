@@ -250,22 +250,47 @@ function initialiseDatabase(db: MemeshDatabase, resolvedPath: string): MemeshDat
   // back off immediately: nothing else in memesh loads an extension, and
   // leaving the door open would let any later SQL in this process load
   // arbitrary native code.
+  //
+  // A FAILED load is survivable, and used not to be. sqlite-vec ships its
+  // engine as a per-platform file through optionalDependencies, so on a
+  // platform it does not publish npm installs the wrapper, installs no binary,
+  // and says nothing — and this call threw straight out of `openDatabase`.
+  // Measured before changing it: hiding `sqlite-vec-darwin-arm64` made both
+  // `memesh remember` and `memesh recall` exit 1 with a raw
+  // ERR_MODULE_NOT_FOUND stack trace. That contradicted memesh's own design,
+  // stated in the README and in `reindex()`'s own error text: vector search
+  // SUPPLEMENTS FTS5 keyword recall. A supplement must not be able to stop the
+  // database from opening.
+  //
+  // So the failure is caught, traced once to stderr (never swallowed — see
+  // `hasVectorIndex`), and the vector table is simply not created. Every site
+  // that touches `entities_vec` asks first.
+  let vectorIndexAvailable = true;
   db.enableLoadExtension(true);
   try {
     sqliteVec.load(db);
+  } catch (err) {
+    vectorIndexAvailable = false;
+    const detail = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `MeMesh: sqlite-vec could not be loaded (${detail}).\n` +
+      'MeMesh: recall will use FTS5 keyword search only. `memesh doctor` explains this row.\n'
+    );
   } finally {
     db.enableLoadExtension(false);
   }
 
-  // Create/migrate vector table for entity embeddings
-  // Dimension depends on embedding provider (768=Ollama, 1536=OpenAI;
-  // 384 is the keyword-only default that also matches legacy tables)
-  // `confident` is false only when the config file exists but could not be
-  // read. ensureVecTable DROPs on a dimension mismatch, so acting on a
-  // fallback dimension derived from an unreadable config would delete a BYOK
-  // user's entire vector index because of a truncated write.
-  const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
-  ensureVecTable(db, resolvedPath, targetDim, dimensionKnown);
+  if (vectorIndexAvailable) {
+    // Create/migrate vector table for entity embeddings
+    // Dimension depends on embedding provider (768=Ollama, 1536=OpenAI;
+    // 384 is the keyword-only default that also matches legacy tables)
+    // `confident` is false only when the config file exists but could not be
+    // read. ensureVecTable DROPs on a dimension mismatch, so acting on a
+    // fallback dimension derived from an unreadable config would delete a BYOK
+    // user's entire vector index because of a truncated write.
+    const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
+    ensureVecTable(db, resolvedPath, targetDim, dimensionKnown);
+  }
 
   return db;
 }

@@ -8,8 +8,8 @@
     },
     {
       "path": ".mcp.json",
-      "sha256": "f24a2a2da6a8f9d388ac50fd3108b50835123edd0c77e1c7bc936a16add0c3cb",
-      "bytes": 134
+      "sha256": "b3f72e0ed3ca2d34267f25f5f478d6f9e087f4058fcbf2e72a89759a3e324aad",
+      "bytes": 132
     },
     {
       "path": "hooks/hooks.json",
@@ -28,8 +28,8 @@
     },
     {
       "path": "scripts/hooks/_generated/sqlite.js",
-      "sha256": "4b507c57bb23041e2bfde8c9bb75d1d9dd35cfbad4c435abff7d29f5fec3321f",
-      "bytes": 2363
+      "sha256": "e03ec8e4268b4176d9947513a788ba99a22fbdf9326a6b6e1f978e4a2086f6e3",
+      "bytes": 2838
     },
     {
       "path": "scripts/hooks/_shared.js",
@@ -48,8 +48,8 @@
     },
     {
       "path": "scripts/hooks/pre-compact.js",
-      "sha256": "19d2b826e36477faac9f545f21678064c180dd9b0ef30288406d54a0ff6b7527",
-      "bytes": 7119
+      "sha256": "82af20a3fe07895ac7d35b40c8915ad94837c041e563e5053dd48556d89da4c4",
+      "bytes": 6968
     },
     {
       "path": "scripts/hooks/pre-edit-recall.js",

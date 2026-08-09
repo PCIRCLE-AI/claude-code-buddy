@@ -11,6 +11,7 @@ import {
   SQL_NFC_FUNCTION,
 } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
+import { hasVectorIndex } from './storage/vector-index.js';
 
 /**
  * Cap on how many terms of a query reach the FTS5 MATCH expression. Terms are
@@ -903,12 +904,14 @@ export class KnowledgeGraph {
     removeFromFts(this.db, row.id, name, obsText);
 
     // CRITICAL: Remove from vector index (archived entities should not be retrievable via vector search)
-    try {
+    //
+    // Asked rather than caught: when sqlite-vec is not loaded the table does
+    // not exist, and a bare catch would swallow that indistinguishably from a
+    // real delete failure on a database that DOES have an index.
+    if (hasVectorIndex(this.db)) {
       this.db
         .prepare('DELETE FROM entities_vec WHERE rowid = ?')
         .run(BigInt(row.id));
-    } catch {
-      // Vector entry may not exist if embeddings not enabled — ignore
     }
 
     // Set status to archived
@@ -984,12 +987,10 @@ export class KnowledgeGraph {
 
     // Delete vec entry — mirror archiveEntity's cleanup so hard
     // delete doesn't leak orphan embeddings.
-    try {
+    if (hasVectorIndex(this.db)) {
       this.db
         .prepare('DELETE FROM entities_vec WHERE rowid = ?')
         .run(BigInt(row.id));
-    } catch {
-      // Vector entry may not exist if embeddings not enabled — ignore.
     }
 
     // Delete entity (CASCADE handles observations, relations, tags)

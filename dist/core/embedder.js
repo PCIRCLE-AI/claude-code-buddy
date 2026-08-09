@@ -1,5 +1,6 @@
 import { getDatabase } from '../db.js';
 import { detectCapabilities, getEmbeddingDimension } from './config.js';
+import { hasVectorIndex } from '../storage/vector-index.js';
 export const MAX_VECTOR_DISTANCE = 1.00;
 export function vectorSimilarity(distance) {
     return Math.max(0, 1 - distance / 2);
@@ -71,6 +72,8 @@ export async function embedAndStore(entityId, text) {
         if (!embedding)
             return 'no_embedding';
         const db = getDatabase();
+        if (!hasVectorIndex(db))
+            return 'no_vector_index';
         const storedDim = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get();
         const expectedDim = storedDim ? parseInt(storedDim.value, 10) : 0;
         const actualDim = embedding.length;
@@ -106,6 +109,8 @@ export async function embedAndStore(entityId, text) {
 export function vectorSearch(queryEmbedding, limit = 20) {
     try {
         const db = getDatabase();
+        if (!hasVectorIndex(db))
+            return [];
         const rows = db
             .prepare('SELECT rowid AS id, distance FROM entities_vec WHERE embedding MATCH ? ORDER BY distance LIMIT ?')
             .all(toVectorBlob(queryEmbedding), limit);

@@ -6,9 +6,19 @@ All notable changes to MeMesh are documented here.
 
 ### Changed
 
+- **The supported Node floor is now `>=22.13.0`** (was `>=22.5.0`). `node:sqlite`
+  first appeared in 22.5, but behind `--experimental-sqlite`, and the three
+  methods memesh needs — `loadExtension`, `enableLoadExtension` and
+  `db.function` — all landed in **22.13.0**. Declaring 22.5 would have let npm
+  install cleanly onto a runtime where every command, all 7 hooks and the MCP
+  server die at startup with `ERR_UNKNOWN_BUILTIN_MODULE`, while `memesh doctor`
+  — which derives what it requires from this very field — told the user their
+  Node was fine. 22.13.0 is still within the Node 22 LTS line; Node 22 users at
+  or above it need do nothing.
+
 - **memesh no longer compiles anything when you install it.** The database
   engine moved from `better-sqlite3` to `node:sqlite`, which is part of Node
-  itself (22.5+, already the required minimum). `better-sqlite3` shipped a
+  itself. `better-sqlite3` shipped a
   compiled binary built by an `install` script, and that one fact caused a
   family of failures: `npm install --ignore-scripts` never built it, so a
   `/plugin install` — which uses exactly that flag — produced a memesh whose

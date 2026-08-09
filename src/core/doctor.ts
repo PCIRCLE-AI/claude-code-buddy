@@ -376,11 +376,37 @@ function inspectMcpConfig(
     );
   }
 
+  // Does the script it points at exist?
+  //
+  // This check used to stop at "there is a string `command`", which made it
+  // structurally unable to notice the one way this file actually breaks. When
+  // the MCP entry point was renamed, `.mcp.json` kept pointing at the old path
+  // and every MCP tool died with `-32000 failed to reconnect` — while doctor
+  // reported PASS, because the entry was still well-formed. A config that names
+  // a file that is not there is not a valid config.
+  const args = Array.isArray(server.args) ? server.args : [];
+  const entry = typeof args[0] === 'string' ? args[0] : null;
+  if (entry) {
+    // Claude Code substitutes ${CLAUDE_PLUGIN_ROOT} with the installed plugin
+    // directory, which is this package root.
+    const resolved = path.resolve(entry.replaceAll('${CLAUDE_PLUGIN_ROOT}', packageRoot));
+    if (!existsSyncImpl(resolved)) {
+      return createCheck(
+        'mcp-config',
+        'MCP config',
+        'fail',
+        `.mcp.json starts \`${entry}\`, and that file is not in this install — so every memesh MCP tool fails to start.`,
+        'Reinstall MeMesh; if you edited `.mcp.json` by hand, point it back at `${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js`.',
+        { code: 'mcp-config.entry-missing', params: { entry, resolved } },
+      );
+    }
+  }
+
   return createCheck(
     'mcp-config',
     'MCP config',
     'pass',
-    '.mcp.json is present and defines the memesh MCP server.',
+    '.mcp.json is present, defines the memesh MCP server, and the script it starts exists.',
   );
 }
 
@@ -792,10 +818,29 @@ function defaultResolveShellMemesh(): string | null {
  * green PASS on a broken install, the exact failure this exists to surface.
  * Tests inject `nativeBindingProbeImpl` through runDoctor options instead.
  */
+/**
+ * Marker the probe puts in its message when the RUNTIME, not the package, is
+ * the problem. Matched by `inspectNativeBinding` instead of pattern-matching a
+ * TypeError's wording, which changes between Node releases and belongs to
+ * nobody.
+ */
+const RUNTIME_TOO_OLD = 'memesh:node-sqlite-too-old';
+
 function defaultNativeBindingProbe(packageRoot: string): { ok: true } | { ok: false; message: string } {
   try {
     const probe = new MemeshDatabase(':memory:', { allowExtension: true });
     try {
+      // Asked explicitly, because the alternative is a TypeError that reads
+      // like a package problem. `node:sqlite` exists from Node 22.5 but was
+      // behind `--experimental-sqlite`, and the extension methods only landed
+      // in 22.13 — so a user running 22.5–22.12 WITH that flag gets a handle
+      // whose `enableLoadExtension` is undefined. Left to the catch below,
+      // "probe.enableLoadExtension is not a function" matched neither
+      // classification branch and doctor told them to reinstall sqlite-vec,
+      // which cannot help: the fix is upgrading Node.
+      if (typeof probe.enableLoadExtension !== 'function') {
+        return { ok: false, message: `${RUNTIME_TOO_OLD}: node:sqlite in ${process.version} has no enableLoadExtension` };
+      }
       probe.enableLoadExtension(true);
       // Resolved from the package root so a hoisted install is found the way
       // Node would find it at runtime, not relative to this compiled file.
@@ -924,7 +969,7 @@ export function inspectNodeRuntime(
 /**
  * Is `node:sqlite` importable in this runtime?
  *
- * Added in Node 22.5. Resolved rather than imported, so the check costs
+ * Added in Node 22.13 (behind a flag from 22.5). Resolved rather than imported, so the check costs
  * nothing and — importantly — does not trigger the `ExperimentalWarning`
  * that Node 22 prints to stderr on first use. Seven hooks parse process
  * output; a warning emitted by a diagnostic would be a regression caused by
@@ -957,27 +1002,37 @@ function inspectNativeBinding(
       'node:sqlite opened a database and sqlite-vec loaded (probe succeeded).',
     );
   }
-  const isMissingSqlite = /ERR_UNKNOWN_BUILTIN_MODULE|node:sqlite/i.test(result.message);
-  const isMissingPackage = /MODULE_NOT_FOUND|Cannot find module/i.test(result.message);
-  if (isMissingSqlite) {
+  // The runtime is too old to use node:sqlite properly. Matched on the marker
+  // the probe sets, not on a TypeError's wording — that string belongs to Node
+  // and changes between releases.
+  if (result.message.startsWith(RUNTIME_TOO_OLD)) {
     return createCheck(
       'native-binding',
       'SQLite and vector search',
       'fail',
-      'This Node build has no `node:sqlite` module, so memesh cannot open its database at all. '
-        + 'It was added in Node 22.5, which is why package.json requires it.',
-      'Upgrade Node to 22.5 or newer, then re-run `memesh doctor`.',
-      { code: 'native-binding.no-node-sqlite' },
+      `The node:sqlite in this Node (${process.version}) is too old for memesh — it cannot load the vector-search extension. The complete version arrived in Node 22.13.`,
+      'Upgrade Node to 22.13 or newer, then re-run `memesh doctor`.',
+      { code: 'native-binding.node-too-old', params: { version: process.version } },
     );
   }
+
+  // Everything below is sqlite-vec, and sqlite-vec is a SUPPLEMENT: without it
+  // memesh still stores memories and still finds them by keyword, it just
+  // cannot search by meaning. So these are `warn`, not `fail`.
+  //
+  // The severity was inherited from the better-sqlite3 row, where a missing
+  // binding meant nothing was written at all. Left that way it would make
+  // `memesh doctor` exit 1 — breaking any CI step, container healthcheck or
+  // install script gating on it, and turning the dashboard banner red — on a
+  // platform this project documents as supported. The row's own words
+  // ("memories are still saved") contradicted the severity it carried.
+  const isMissingPackage = /MODULE_NOT_FOUND|Cannot find module/i.test(result.message);
   if (isMissingPackage) {
     return createCheck(
       'native-binding',
       'SQLite and vector search',
-      'fail',
-      'sqlite-vec is not installed (Node could not resolve it from any parent node_modules). '
-        + 'memesh still stores and recalls memories, but recall runs on FTS5 keyword search '
-        + 'alone — semantic similarity is off.',
+      'warn',
+      'sqlite-vec is not installed, so memesh cannot search by meaning. Memories are still saved, and still found by keyword.',
       'Run: npm install   (in the directory that depends on @pcircle/memesh)',
       { code: 'native-binding.not-installed' },
     );
@@ -985,8 +1040,8 @@ function inspectNativeBinding(
   return createCheck(
     'native-binding',
     'SQLite and vector search',
-    'fail',
-    `sqlite-vec failed to load: ${result.message}. Recall falls back to FTS5 keyword search.`,
+    'warn',
+    `sqlite-vec could not be loaded: ${result.message}. Memories are still saved and found by keyword; only search by meaning is off.`,
     `Run: cd "${packageRoot}" && npm install --omit=dev`,
     { code: 'native-binding.load-failed', params: { detail: result.message, root: packageRoot } },
   );
