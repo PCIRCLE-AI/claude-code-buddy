@@ -4,7 +4,7 @@ import { KnowledgeGraph } from '../knowledge-graph.js';
 import { rankEntities } from './scoring.js';
 import { getProjectName } from './paths.js';
 import { createExplicitLesson } from './lesson-engine.js';
-import { embedAndStore, isEmbeddingAvailable, embedText, scheduleEmbedAndStore, vectorSearch, vectorSimilarity, MAX_VECTOR_DISTANCE } from './embedder.js';
+import { embedAndStore, isEmbeddingAvailable, embedText, entityEmbedText, scheduleEmbedAndStore, vectorSearch, vectorSimilarity, MAX_VECTOR_DISTANCE } from './embedder.js';
 import { autoTagAndApply } from './auto-tagger.js';
 import { detectCapabilities } from './config.js';
 function buildLocalMetadata(existingMetadata, overrides) {
@@ -64,8 +64,7 @@ export function remember(args) {
         }
     }
     if (isEmbeddingAvailable() && args.observations?.length) {
-        const text = `${args.name} ${args.observations.join(' ')}`;
-        scheduleEmbedAndStore(entityId, text);
+        scheduleEmbedAndStore(entityId, entityEmbedText(args.name, args.observations));
     }
     if ((!args.tags || args.tags.length === 0) && args.observations?.length) {
         const caps = detectCapabilities();
@@ -243,11 +242,11 @@ export async function reindex(opts) {
             outcomes.entity_missing++;
             continue;
         }
-        const text = fullEntity.observations.join(' ');
-        if (text.trim() === '') {
+        if (fullEntity.observations.join('').trim() === '') {
             outcomes.nothing_to_embed++;
             continue;
         }
+        const text = entityEmbedText(fullEntity.name, fullEntity.observations);
         try {
             outcomes[await embedAndStore(entity.id, text)]++;
             if (processed % 10 === 0) {

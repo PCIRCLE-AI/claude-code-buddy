@@ -30,7 +30,6 @@ export interface ExtractResult {
 }
 export declare function extractMemoriesFromTranscript(transcriptPath: string, llm: LLMConfig, opts?: ExtractOptions): Promise<ExtractResult>;
 export declare const TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.55;
-export declare function entityEmbedText(name: string, observations: string[]): string;
 export interface DuplicateHit {
     candidateName: string;
     matchedEntityName: string;
