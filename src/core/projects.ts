@@ -13,7 +13,7 @@
 // dashboard can use for filter chips. Pure read-only aggregation; no side
 // effects, no caching.
 
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 import { KNOWN_ERROR_PATTERNS } from './lesson-engine.js';
 
 export interface ProjectInfo {
@@ -76,14 +76,14 @@ export function extractProjectFromEntity(
   return { project: null, source: null };
 }
 
-interface RawEntity {
+type RawEntity = {
   id: number;
   name: string;
   type: string;
   tags?: string;
-}
+};
 
-export function computeProjects(db: Database.Database): ProjectInfo[] {
+export function computeProjects(db: MemeshDatabase): ProjectInfo[] {
   // Single pass: pull every active entity + its tags. We can't aggregate in
   // SQL because the project lookup walks both tags and the name heuristic.
   // json_group_array (rather than GROUP_CONCAT with a delimiter) keeps the

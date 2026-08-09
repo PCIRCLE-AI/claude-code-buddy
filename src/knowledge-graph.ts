@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import type { MemeshDatabase } from './storage/sqlite.js';
 export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
 import type { Entity, Relation, CreateEntityInput, SearchOptions, EntityRow } from './core/types.js';
 import { findConflicts, trackAccess } from './storage/conflicts.js';
@@ -11,6 +11,7 @@ import {
   SQL_NFC_FUNCTION,
 } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
+import { hasVectorIndex } from './storage/vector-index.js';
 
 /**
  * Cap on how many terms of a query reach the FTS5 MATCH expression. Terms are
@@ -51,7 +52,7 @@ const MAX_QUERY_TERMS = 32;
  * Indexing unigrams as well would fix that at the cost of index size and noise
  * for a rare query shape; pinned as a limit rather than chased.
  */
-function buildMatchExpression(db: Database.Database, query: string): string | null {
+function buildMatchExpression(db: MemeshDatabase, query: string): string | null {
   // The cap is applied AFTER the frequency guard, not before. Bigram
   // segmentation turns a 40-character Chinese question into ~39 terms, so a
   // positional cap discarded everything past roughly the 33rd character —
@@ -76,7 +77,7 @@ function buildMatchExpression(db: Database.Database, query: string): string | nu
  * Falls back to the whole (escaped) query when tokenising yields nothing, so a
  * punctuation-only query still behaves as before rather than matching everything.
  */
-function archivedLikeTerms(db: Database.Database, query: string): string[] {
+function archivedLikeTerms(db: MemeshDatabase, query: string): string[] {
   const escapeLike = (v: string) => v.replace(/[\\%_]/g, '\\$&');
   // Same ORDER as the FTS branch: drop the ubiquitous terms FIRST, then cap.
   // These two had silently diverged — the FTS side moved the cap after the
@@ -154,7 +155,7 @@ const MIN_ROWS_FOR_DF_GUARD = 25;
  * A cache that cannot hit is complexity plus a claim that is not true, so it
  * is gone. This is the honest cost.
  */
-function activeEntityCount(db: Database.Database): number {
+function activeEntityCount(db: MemeshDatabase): number {
   return (
     db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get() as { c: number }
   ).c;
@@ -214,7 +215,7 @@ function fold(term: string): string {
   return lower.normalize('NFD').replace(/\p{M}/gu, '');
 }
 
-function dropUbiquitousTerms(db: Database.Database, terms: string[]): string[] {
+function dropUbiquitousTerms(db: MemeshDatabase, terms: string[]): string[] {
   if (terms.length < 2) return terms;
   try {
     const total = activeEntityCount(db);
@@ -251,7 +252,7 @@ function dropUbiquitousTerms(db: Database.Database, terms: string[]): string[] {
 }
 
 export class KnowledgeGraph {
-  constructor(private db: Database.Database) {}
+  constructor(private db: MemeshDatabase) {}
 
   updateEntityMetadata(
     name: string,
@@ -903,12 +904,14 @@ export class KnowledgeGraph {
     removeFromFts(this.db, row.id, name, obsText);
 
     // CRITICAL: Remove from vector index (archived entities should not be retrievable via vector search)
-    try {
+    //
+    // Asked rather than caught: when sqlite-vec is not loaded the table does
+    // not exist, and a bare catch would swallow that indistinguishably from a
+    // real delete failure on a database that DOES have an index.
+    if (hasVectorIndex(this.db)) {
       this.db
         .prepare('DELETE FROM entities_vec WHERE rowid = ?')
         .run(BigInt(row.id));
-    } catch {
-      // Vector entry may not exist if embeddings not enabled — ignore
     }
 
     // Set status to archived
@@ -984,12 +987,10 @@ export class KnowledgeGraph {
 
     // Delete vec entry — mirror archiveEntity's cleanup so hard
     // delete doesn't leak orphan embeddings.
-    try {
+    if (hasVectorIndex(this.db)) {
       this.db
         .prepare('DELETE FROM entities_vec WHERE rowid = ?')
         .run(BigInt(row.id));
-    } catch {
-      // Vector entry may not exist if embeddings not enabled — ignore.
     }
 
     // Delete entity (CASCADE handles observations, relations, tags)

@@ -7,7 +7,7 @@ export declare function scheduleEmbedAndStore(entityId: number, text: string): v
 export declare function flushPendingEmbeddings(): Promise<void>;
 export declare function entityEmbedText(name: string, observations: string[]): string;
 export declare function embedText(text: string): Promise<Float32Array | null>;
-export type EmbedOutcome = 'stored' | 'removed' | 'no_embedding' | 'dimension_mismatch' | 'write_failed' | 'database_closed';
+export type EmbedOutcome = 'stored' | 'removed' | 'no_embedding' | 'dimension_mismatch' | 'write_failed' | 'database_closed' | 'no_vector_index';
 export declare function embedAndStore(entityId: number, text: string): Promise<EmbedOutcome>;
 export declare function vectorSearch(queryEmbedding: Float32Array, limit?: number): Array<{
     id: number;

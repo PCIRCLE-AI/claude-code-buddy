@@ -62,7 +62,7 @@
 // accidental — this content is the high-value kind compaction exists to protect.
 
 import fs from 'fs';
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 import { callLLM, type LLMAttempt } from './llm-client.js';
 import type { LLMConfig } from './config.js';
 import { recordTelemetry } from './llm-telemetry.js';
@@ -648,7 +648,7 @@ export interface DedupDeps {
  * already have this".
  */
 export async function findDuplicateEntity(
-  db: Database.Database,
+  db: MemeshDatabase,
   candidate: ExtractedMemory,
   projectLabel: string,
   deps: DedupDeps = {},
@@ -706,7 +706,7 @@ export async function findDuplicateEntity(
  * candidate of the same name — so a re-run does not duplicate. NOTE: this
  * dedups ONLY against PENDING proposals. Vector dedup against ALREADY-ACCEPTED
  * entities is B3, not B2 — re-running after an accept WILL re-propose. */
-function transcriptProposalExists(db: Database.Database, clusterKey: string, name: string): boolean {
+function transcriptProposalExists(db: MemeshDatabase, clusterKey: string, name: string): boolean {
   const rows = db.prepare(
     "SELECT proposed_digest FROM dream_proposals WHERE cluster_key = ? AND source_kind = 'transcript' AND status = 'pending'",
   ).all(clusterKey) as Array<{ proposed_digest: string }>;
@@ -724,7 +724,7 @@ export interface StageResult {
 }
 
 export function stageTranscriptProposals(
-  db: Database.Database,
+  db: MemeshDatabase,
   session: { sessionId: string; path: string; lineCount: number },
   memories: ExtractedMemory[],
   llm: LLMConfig,
@@ -806,7 +806,7 @@ export interface TranscriptSourceResult {
 }
 
 export async function runTranscriptSource(
-  db: Database.Database,
+  db: MemeshDatabase,
   llm: LLMConfig | null | undefined,
   opts: TranscriptSourceOptions = {},
 ): Promise<TranscriptSourceResult> {

@@ -117,7 +117,7 @@ Si usas Claude Code, instala MeMesh como plugin desde dentro de la CLI:
 /plugin install memesh@pcircle-memesh
 ```
 
-Claude Code conecta los hooks, skills y el servidor MCP automáticamente. Obtienes auto-captura en sesión, recuperación proactiva, el skill `/memesh` (remember / recall / learn / forget) dentro de la conversación de Claude Code, y `remember` / `recall` / `forget` / `learn` disponibles como herramientas MCP para el agente. La CLI y el dashboard local también son completamente accesibles sin ninguna instalación global adicional — `npx @pcircle/memesh <command>` ejecuta cada comando CLI, y `npx @pcircle/memesh` lanza el dashboard en `localhost:3737`. El servidor MCP se ejecuta directamente desde la salida compilada incluida con el plugin — sin búsqueda de `npx`, sin `npm install -g`, sin paso de build. Si el binding nativo de `better-sqlite3` falta en el primer arranque (p. ej. tras una actualización mayor de Node), el launcher se auto-repara reconstruyéndolo en el proceso antes de continuar.
+Claude Code conecta los hooks, skills y el servidor MCP automáticamente. Obtienes auto-captura en sesión, recuperación proactiva, el skill `/memesh` (remember / recall / learn / forget) dentro de la conversación de Claude Code, y `remember` / `recall` / `forget` / `learn` disponibles como herramientas MCP para el agente. La CLI y el dashboard local también son completamente accesibles sin ninguna instalación global adicional — `npx @pcircle/memesh <command>` ejecuta cada comando CLI, y `npx @pcircle/memesh` lanza el dashboard en `localhost:3737`. El servidor MCP se ejecuta directamente desde la salida compilada incluida con el plugin — sin búsqueda de `npx`, sin `npm install -g`, sin paso de build. memesh guarda sus datos mediante `node:sqlite`, que forma parte de Node (22.13+), así que actualizar Node no puede dejarlo con un binario compilado para el runtime equivocado.
 
 ### Opción B — npm global (optimización opcional)
 
@@ -128,7 +128,7 @@ npm install -g @pcircle/memesh
 ```
 
 > **Notas de primera instalación (única vez):**
-> - **Módulos nativos** — `better-sqlite3` y `sqlite-vec` se instalan mediante binarios precompilados en macOS (arm64/x64), Linux (x64/arm64) y Windows x64. En plataformas poco comunes o cuando los precompilados fallan, necesitarás un toolchain C/C++ funcional.
+> - **No hace falta compilador** — el motor de base de datos es el propio `node:sqlite` de Node. `sqlite-vec`, que añade la búsqueda por significado, se distribuye como archivo precompilado para macOS (arm64/x64), Linux (x64/arm64) y Windows x64; en cualquier otra plataforma simplemente no está y la recuperación se queda en búsqueda por palabra clave. Nada de esto ejecuta un script de instalación, así que `npm install --ignore-scripts` instala un memesh plenamente funcional.
 > - **La búsqueda semántica es opcional** — la ruta de recuperación por defecto es la búsqueda por palabras clave (FTS5), que no necesita modelo ni descarga. La búsqueda por significado necesita un embedder: ejecuta [Ollama](https://ollama.com) en local, o configura un embedder en la nube (ver "Embeddings" más abajo). Sin uno, memesh usa solo búsqueda por palabras clave.
 
 ### Paso 1.5: Conecta MeMesh a Claude Code (solo ruta npm)

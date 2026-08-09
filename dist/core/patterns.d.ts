@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 export interface PatternsResult {
     workSchedule: {
         hourDistribution: Array<{
@@ -34,5 +34,5 @@ export interface PatternsResult {
         count: number;
     }>;
 }
-export declare function computePatterns(db: Database.Database, categories?: string[]): PatternsResult;
+export declare function computePatterns(db: MemeshDatabase, categories?: string[]): PatternsResult;
 //# sourceMappingURL=patterns.d.ts.map

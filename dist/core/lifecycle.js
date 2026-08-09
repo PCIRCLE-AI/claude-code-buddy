@@ -25,7 +25,7 @@ export function runAutoDecay(db) {
       AND confidence > ?
   `).run(DECAY_FACTOR, MIN_CONFIDENCE, threshold, MIN_CONFIDENCE);
     db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('last_decay_at', ?)").run(new Date().toISOString());
-    return { decayed: result.changes };
+    return { decayed: Number(result.changes) };
 }
 export function getDecayStatus(db) {
     ensureMetadataTable(db);

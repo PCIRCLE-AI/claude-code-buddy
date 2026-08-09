@@ -5,6 +5,7 @@ import path from 'path';
 import os from 'os';
 import { recordTelemetry, summariseTelemetry, pruneTelemetry } from '../../src/core/llm-telemetry.js';
 import type { LLMAttempt } from '../../src/core/llm-client.js';
+import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 
 const require = createRequire(import.meta.url);
 
@@ -44,9 +45,7 @@ describe('llm-telemetry persistence + summarise', () => {
       { provider: 'anthropic', model: 'claude-haiku-4-5', status: 'ok', latencyMs: 412, index: 0 },
     ];
     recordTelemetry(attempts, { flow: 'dreamer', project: 'memesh-llm-memory' });
-
-    const Database = require('better-sqlite3');
-    const db = new Database(dbPath, { readonly: true });
+    const db = new Database(dbPath, { readOnly: true });
     const rows = db.prepare('SELECT * FROM llm_telemetry').all() as Array<Record<string, unknown>>;
     db.close();
 
@@ -69,9 +68,7 @@ describe('llm-telemetry persistence + summarise', () => {
       { provider: 'ollama', model: 'gemma4:e4b', status: 'ok', latencyMs: 9421, index: 1 },
     ];
     recordTelemetry(attempts, { flow: 'consolidator' });
-
-    const Database = require('better-sqlite3');
-    const db = new Database(dbPath, { readonly: true });
+    const db = new Database(dbPath, { readOnly: true });
     const rows = db.prepare('SELECT provider, status, fallback_used, attempt_index FROM llm_telemetry ORDER BY attempt_index').all() as Array<Record<string, unknown>>;
     db.close();
 
@@ -120,8 +117,7 @@ describe('llm-telemetry persistence + summarise', () => {
 
   it('empty attempts array is a no-op (no rows)', () => {
     recordTelemetry([], { flow: 'dreamer' });
-    const Database = require('better-sqlite3');
-    const db = new Database(dbPath, { readonly: true });
+    const db = new Database(dbPath, { readOnly: true });
     const count = (db.prepare('SELECT COUNT(*) AS c FROM llm_telemetry').get() as { c: number }).c;
     db.close();
     expect(count).toBe(0);
@@ -147,7 +143,6 @@ describe('llm-telemetry persistence + summarise', () => {
     // 3 are recent. Use direct INSERTs because recordTelemetry stamps
     // ts via DEFAULT CURRENT_TIMESTAMP — we need to forge `ts` for
     // the retention test.
-    const Database = require('better-sqlite3');
     const writer = new Database(dbPath);
     const oldTs = new Date(Date.now() - 200 * 86400000).toISOString();
     const newTs = new Date(Date.now() - 10 * 86400000).toISOString();
@@ -166,14 +161,13 @@ describe('llm-telemetry persistence + summarise', () => {
     expect(result.deletedRows).toBe(2);
     expect(result.totalRowsAfter).toBe(3);
 
-    const reader = new Database(dbPath, { readonly: true });
+    const reader = new Database(dbPath, { readOnly: true });
     const remaining = (reader.prepare('SELECT COUNT(*) AS c FROM llm_telemetry').get() as { c: number }).c;
     reader.close();
     expect(remaining).toBe(3);
   });
 
   it('pruneTelemetry honours custom olderThanDays', () => {
-    const Database = require('better-sqlite3');
     const writer = new Database(dbPath);
     const t60 = new Date(Date.now() - 60 * 86400000).toISOString(); // older than 30d
     const t10 = new Date(Date.now() - 10 * 86400000).toISOString(); // newer than 30d
@@ -192,7 +186,6 @@ describe('llm-telemetry persistence + summarise', () => {
   });
 
   it('pruneTelemetry is idempotent — second run deletes 0', () => {
-    const Database = require('better-sqlite3');
     const writer = new Database(dbPath);
     const oldTs = new Date(Date.now() - 365 * 86400000).toISOString();
     writer.prepare(
@@ -215,8 +208,6 @@ describe('llm-telemetry persistence + summarise', () => {
     // no-op so the seeded old row survives.
     const { closeDatabase, openDatabase } = await import('../../src/db.js');
     closeDatabase();
-
-    const Database = require('better-sqlite3');
     const writer = new Database(dbPath);
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     writer.prepare(
@@ -231,7 +222,7 @@ describe('llm-telemetry persistence + summarise', () => {
 
     openDatabase();
 
-    const reader = new Database(dbPath, { readonly: true });
+    const reader = new Database(dbPath, { readOnly: true });
     const count = (reader.prepare('SELECT COUNT(*) AS c FROM llm_telemetry').get() as { c: number }).c;
     reader.close();
     expect(count).toBe(1);

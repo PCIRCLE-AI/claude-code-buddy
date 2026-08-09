@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
-export declare function findConflicts(db: Database.Database, entityNames: string[]): string[];
-export declare function trackAccess(db: Database.Database, entityIds: number[]): void;
+import type { MemeshDatabase } from './sqlite.js';
+export declare function findConflicts(db: MemeshDatabase, entityNames: string[]): string[];
+export declare function trackAccess(db: MemeshDatabase, entityIds: number[]): void;
 //# sourceMappingURL=conflicts.d.ts.map

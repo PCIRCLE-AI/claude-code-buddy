@@ -30,7 +30,7 @@
 //     formats diverge. Optional columns left NULL until a future
 //     extension wires them.
 
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 import type { LLMAttempt } from './llm-client.js';
 import { getDatabase } from '../db.js';
 
@@ -40,7 +40,7 @@ export interface RecordTelemetryOpts {
   /** Optional project scope (taken from cluster.project / entity tag / hook context). */
   project?: string;
   /** Pass an explicit DB if the caller already opened one (e.g. inside a hook). Default: getDatabase() singleton. */
-  db?: Database.Database;
+  db?: MemeshDatabase;
 }
 
 /**
@@ -57,7 +57,7 @@ export interface RecordTelemetryOpts {
  */
 export function recordTelemetry(attempts: LLMAttempt[], opts: RecordTelemetryOpts): void {
   if (!attempts || attempts.length === 0) return;
-  let db: Database.Database;
+  let db: MemeshDatabase;
   try {
     db = opts.db ?? getDatabase();
   } catch {
@@ -138,7 +138,7 @@ const MAX_SAMPLE_ERRORS = 5;
  * dashboard / CLI can render a per-flow scorecard. Median latency is
  * computed in JS (SQLite has no MEDIAN) — fine at this row count.
  */
-export function summariseTelemetry(windowDays = 30, db?: Database.Database): TelemetrySummary[] {
+export function summariseTelemetry(windowDays = 30, db?: MemeshDatabase): TelemetrySummary[] {
   const conn = db ?? getDatabase();
   const since = new Date(Date.now() - windowDays * 86400000).toISOString();
   const rows = conn.prepare(`
@@ -232,7 +232,7 @@ export interface PruneOptions {
   /** Rows older than this many days are deleted. Default 180. */
   olderThanDays?: number;
   /** Optional db handle; defaults to the singleton. */
-  db?: Database.Database;
+  db?: MemeshDatabase;
 }
 
 export interface PruneResult {
@@ -266,7 +266,7 @@ export function pruneTelemetry(opts: PruneOptions = {}): PruneResult {
   ).c;
 
   return {
-    deletedRows: result.changes,
+    deletedRows: Number(result.changes),
     cutoffIso,
     totalRowsAfter,
   };

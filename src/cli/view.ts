@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import Database from 'better-sqlite3';
+import { MemeshDatabase } from '../storage/sqlite.js';
 import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
@@ -54,9 +54,11 @@ function queryData(dbPath: string): DashboardData {
     return emptyData;
   }
 
-  let db: Database.Database;
+  let db: MemeshDatabase;
   try {
-    db = new Database(dbPath, { readonly: true });
+    // `readOnly`, not `readonly`: node:sqlite ignores the lowercase spelling
+    // and opens the database WRITABLE. The dashboard only ever reads.
+    db = new MemeshDatabase(dbPath, { readOnly: true });
   } catch (err) {
     console.error(`[memesh-view] Cannot open database at ${dbPath}: ${err instanceof Error ? err.message : String(err)}`);
     return emptyData;

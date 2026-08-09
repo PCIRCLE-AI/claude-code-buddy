@@ -22,6 +22,7 @@ import { createRequire } from 'module';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { MemeshDatabase as Database } from '../src/storage/sqlite.js';
 
 const require = createRequire(import.meta.url);
 
@@ -63,10 +64,12 @@ describe('memesh reindex --vectors refuses to destroy more than asked', () => {
 
   /** A database with a populated vector index, built without going through the CLI. */
   function seedVectorIndex(): void {
-    const Database = require('better-sqlite3');
     const sqliteVec = require('sqlite-vec');
-    const db = new Database(dbPath);
-    sqliteVec.load(db);
+    // node:sqlite gates extension loading twice: `allowExtension` at open
+    // and `enableLoadExtension`. Same dance as src/db.ts.
+    const db = new Database(dbPath, { allowExtension: true });
+    db.enableLoadExtension(true);
+    try { sqliteVec.load(db); } finally { db.enableLoadExtension(false); }
     db.exec('CREATE VIRTUAL TABLE IF NOT EXISTS entities_vec USING vec0(embedding float[384])');
     db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)').run(
       BigInt(1),
@@ -88,11 +91,12 @@ describe('memesh reindex --vectors refuses to destroy more than asked', () => {
   function seedEntityWithStaleVector(): void {
     const seeded = run(['remember', '--name', 'stale-note', '--type', 'note', '--obs', 'a memory worth keeping']);
     expect(seeded.status, `setup: remember failed — ${seeded.stderr}`).toBe(0);
-
-    const Database = require('better-sqlite3');
     const sqliteVec = require('sqlite-vec');
-    const db = new Database(dbPath);
-    sqliteVec.load(db);
+    // node:sqlite gates extension loading twice: `allowExtension` at open
+    // and `enableLoadExtension`. Same dance as src/db.ts.
+    const db = new Database(dbPath, { allowExtension: true });
+    db.enableLoadExtension(true);
+    try { sqliteVec.load(db); } finally { db.enableLoadExtension(false); }
     const id = (db.prepare("SELECT id FROM entities WHERE name = 'stale-note'").get() as { id: number }).id;
     const dim = parseInt(
       (db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'")
@@ -107,10 +111,12 @@ describe('memesh reindex --vectors refuses to destroy more than asked', () => {
   }
 
   function vectorCount(): number {
-    const Database = require('better-sqlite3');
     const sqliteVec = require('sqlite-vec');
-    const db = new Database(dbPath);
-    sqliteVec.load(db);
+    // node:sqlite gates extension loading twice: `allowExtension` at open
+    // and `enableLoadExtension`. Same dance as src/db.ts.
+    const db = new Database(dbPath, { allowExtension: true });
+    db.enableLoadExtension(true);
+    try { sqliteVec.load(db); } finally { db.enableLoadExtension(false); }
     const n = (db.prepare('SELECT count(*) AS c FROM entities_vec').get() as { c: number }).c;
     db.close();
     return n;

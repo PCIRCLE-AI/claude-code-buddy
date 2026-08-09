@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 import { insertFtsRow } from '../storage/fts-index.js';
 
 const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -13,7 +13,7 @@ const MIN_CONFIDENCE = 0.01;
  * Never deletes data — only reduces confidence score.
  * Skips archived entities and entities already at the confidence floor.
  */
-export function runAutoDecay(db: Database.Database): { decayed: number } {
+export function runAutoDecay(db: MemeshDatabase): { decayed: number } {
   ensureMetadataTable(db);
 
   // Check throttle: skip if last decay was less than 24h ago
@@ -52,13 +52,13 @@ export function runAutoDecay(db: Database.Database): { decayed: number } {
     "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('last_decay_at', ?)"
   ).run(new Date().toISOString());
 
-  return { decayed: result.changes };
+  return { decayed: Number(result.changes) };
 }
 
 /**
  * Get decay status for reporting or diagnostics.
  */
-export function getDecayStatus(db: Database.Database): {
+export function getDecayStatus(db: MemeshDatabase): {
   lastDecayAt: string | null;
   entitiesBelowThreshold: number;
 } {
@@ -108,7 +108,7 @@ const NOISE_THRESHOLD = 20; // minimum noise entities per week to trigger compre
  * - Only compresses if > 20 noise entities exist for a given week
  * - Never touches: decisions, patterns, lessons, bug_fixes, or any intentional knowledge
  */
-export function compressWeeklyNoise(db: Database.Database): { compressed: number; weeksProcessed: number } {
+export function compressWeeklyNoise(db: MemeshDatabase): { compressed: number; weeksProcessed: number } {
   ensureMetadataTable(db);
 
   // Throttle: skip if last compression was less than 24h ago
@@ -229,7 +229,7 @@ export { PRESERVED_TYPES, NOISE_TYPES };
  * Ensure the memesh_metadata table exists.
  * Used to store decay timestamps and other operational metadata.
  */
-function ensureMetadataTable(db: Database.Database): void {
+function ensureMetadataTable(db: MemeshDatabase): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS memesh_metadata (
       key   TEXT PRIMARY KEY,

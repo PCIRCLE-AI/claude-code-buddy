@@ -117,7 +117,7 @@ npm install -g @pcircle/memesh
 /plugin install memesh@pcircle-memesh
 ```
 
-Claude Code 會自動接好 hooks、skills 和 MCP server。你會獲得對話內自動擷取、主動回憶、可在 Claude Code 對話中使用的 `/memesh` skill（remember / recall / learn / forget），以及代理可呼叫的 `remember` / `recall` / `forget` / `learn` MCP 工具。CLI 與本地儀表板無需任何額外的全域安裝就能完整使用 — `npx @pcircle/memesh <command>` 可執行所有 CLI 指令，`npx @pcircle/memesh` 可在 `localhost:3737` 啟動儀表板。MCP server 直接從外掛內建的編譯產物啟動 — 不需要 `npx` 查找、不需要 `npm install -g`、不需要本地建置步驟。如果 `better-sqlite3` 原生 binding 在第一次啟動時缺少（例如 Node 主版本升級後），啟動器會在程序內自動重新編譯後繼續執行。
+Claude Code 會自動接好 hooks、skills 和 MCP server。你會獲得對話內自動擷取、主動回憶、可在 Claude Code 對話中使用的 `/memesh` skill（remember / recall / learn / forget），以及代理可呼叫的 `remember` / `recall` / `forget` / `learn` MCP 工具。CLI 與本地儀表板無需任何額外的全域安裝就能完整使用 — `npx @pcircle/memesh <command>` 可執行所有 CLI 指令，`npx @pcircle/memesh` 可在 `localhost:3737` 啟動儀表板。MCP server 直接從外掛內建的編譯產物啟動 — 不需要 `npx` 查找、不需要 `npm install -g`、不需要本地建置步驟。memesh 透過 Node 內建的 `node:sqlite`（22.13+）存放資料，所以升級 Node 不會留下一個為錯誤 runtime 編譯的二進位檔。
 
 ### 選項 B — npm 全域安裝（可選最佳化）
 
@@ -128,7 +128,7 @@ npm install -g @pcircle/memesh
 ```
 
 > **首次安裝注意事項（一次性）：**
-> - **原生模組** — `better-sqlite3` 與 `sqlite-vec` 在 macOS（arm64/x64）、Linux（x64/arm64）和 Windows x64 上會以預先編譯的二進位安裝。在較少見的平台或預編譯失敗時，你需要可運作的 C/C++ 工具鏈。
+> - **不需要編譯器** — 資料庫引擎就是 Node 自己的 `node:sqlite`。負責「用意思搜尋」的 `sqlite-vec` 以預先編譯好的檔案形式提供 macOS（arm64/x64）、Linux（x64/arm64）和 Windows x64；在其他平台它就是不存在，回憶維持關鍵字搜尋。這裡沒有任何東西會執行安裝腳本，所以 `npm install --ignore-scripts` 也能裝出完全可用的 memesh。
 > - **語意搜尋是選用的** — 預設的檢索路徑是關鍵字搜尋（FTS5），不需要模型也不需要下載。以語意（意義）為基礎的搜尋需要一個 embedder：在本地執行 [Ollama](https://ollama.com)，或設定一個雲端 embedder（見下方「嵌入」）。沒有設定時，memesh 只使用關鍵字搜尋。
 
 ### 第一步半：把 MeMesh 接進 Claude Code（僅 npm 路徑需要）

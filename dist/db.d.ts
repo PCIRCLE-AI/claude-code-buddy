@@ -1,11 +1,11 @@
-import Database from 'better-sqlite3';
-export declare function openDatabase(dbPath?: string): Database.Database;
+import { MemeshDatabase } from './storage/sqlite.js';
+export declare function openDatabase(dbPath?: string): MemeshDatabase;
 export declare const FTS_SEGMENTATION_VERSION = 3;
-export declare function runOnceMigration(db: Database.Database, opts: {
+export declare function runOnceMigration(db: MemeshDatabase, opts: {
     key: string;
     version: number;
     describe: string;
-    migrate: (db: Database.Database, fromVersion: number) => void;
+    migrate: (db: MemeshDatabase, fromVersion: number) => void;
 }): boolean;
 export declare function reindexFts(): {
     entities: number;
@@ -18,6 +18,6 @@ export declare function getPendingReindexInfo(): {
 } | null;
 export declare function clearPendingReindexFlag(): void;
 export declare function closeDatabase(): void;
-export declare function getDatabase(): Database.Database;
+export declare function getDatabase(): MemeshDatabase;
 export declare function isDatabaseOpen(): boolean;
 //# sourceMappingURL=db.d.ts.map

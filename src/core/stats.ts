@@ -6,7 +6,7 @@
 // Used by the HTTP /v1/stats route. CLI/MCP can call it directly when a
 // `memesh stats` command is added (currently only HTTP exposes this).
 
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 import type { CountRow } from './types.js';
 
 export interface StatsResult {
@@ -19,7 +19,7 @@ export interface StatsResult {
   statusDistribution: unknown[];
 }
 
-export function computeStats(db: Database.Database): StatsResult {
+export function computeStats(db: MemeshDatabase): StatsResult {
   const entities = db.prepare('SELECT COUNT(*) as c FROM entities').get() as CountRow;
   const observations = db.prepare('SELECT COUNT(*) as c FROM observations').get() as CountRow;
   const relations = db.prepare('SELECT COUNT(*) as c FROM relations').get() as CountRow;

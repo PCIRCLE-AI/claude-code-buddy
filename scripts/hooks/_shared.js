@@ -1,7 +1,7 @@
 import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'fs';
 import { spawn } from 'child_process';
 import { createRequire } from 'module';
-import { homedir } from 'os';
+import { MemeshDatabase } from './_generated/sqlite.js';
 import { dirname, join } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
@@ -304,171 +304,19 @@ CREATE VIRTUAL TABLE IF NOT EXISTS fts_vocab USING fts5vocab(entities_fts, 'row'
  * @param {boolean} [opts.fts=false] - Also create the FTS5 virtual table.
  * @returns {{ db: any, dbPath: string }}
  */
-// Cached lookup for the better-sqlite3 native module. Plugin-marketplace
-// installs ship the tarball without node_modules OR with a node_modules
-// tree that lacks the compiled .node binding. tryRequireBetterSqlite()
-// returns null in either scenario and lets each caller silent-skip —
-// callers paired with a working dev/npm-global registration still produce
-// output. The require() call alone is NOT sufficient: better-sqlite3's
-// `lib/index.js` defers the bindings() call until the first
-// `new Database()`, so a successful require() can still hand back a
-// constructor that throws "Could not locate the bindings file" on use.
-// We probe with an in-memory DB to force the binding load up-front.
-function _inTestEnv() {
-  return process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
-}
-
-let _cachedDatabaseCtor;
-export function tryRequireBetterSqlite() {
-  // Test-only seam: force the "native module unavailable" branch so
-  // tests can exercise the silent-skip path that plugin-marketplace
-  // cache installs hit. Gated to test environments so an accidental
-  // shell export cannot disable memesh on a real user's machine.
-  if (_inTestEnv() && process.env.MEMESH_TEST_FORCE_MISSING_NATIVE === '1') return null;
-  if (_cachedDatabaseCtor !== undefined) return _cachedDatabaseCtor;
-  try {
-    const Database = require('better-sqlite3');
-    // Second test-only seam: simulate the exact plugin-marketplace cache
-    // failure mode where require() succeeds (JS wrapper present) but the
-    // native .node is missing, so the first construction throws. Same
-    // test-env gate as the seam above.
-    if (_inTestEnv() && process.env.MEMESH_TEST_FORCE_BINDING_LOAD_FAIL === '1') {
-      throw new Error('Could not locate the bindings file. (test forced)');
-    }
-    const probe = new Database(':memory:');
-    probe.close();
-    _cachedDatabaseCtor = Database;
-  } catch (err) {
-    // Stderr-trace-then-silent: an empty catch would collapse plugin-
-    // marketplace's "no .node binding" case together with ABI mismatches,
-    // disk full, fd exhaustion, OOM, and tampered native modules — all
-    // distinct causes with distinct fixes. Following the project's hook
-    // pattern (e.g. session-summary.js, post-commit.js), we surface a
-    // single line on stderr (NOT stdout — Claude Code's hook contract
-    // requires stdout stays a single JSON document or empty) and let
-    // each caller continue its silent-skip behavior. The stderr trace
-    // is visible to anyone running `memesh doctor` or inspecting hook
-    // exit logs; it does NOT reach the Claude Code conversation.
-    try {
-      const code = err && typeof err === 'object' && 'code' in err ? err.code : '';
-      const msg = (err && typeof err === 'object' && 'message' in err ? err.message : String(err)) || 'unknown';
-      process.stderr.write(`[memesh hook] better-sqlite3 probe failed: ${code} ${msg}\n`);
-    } catch {
-      // stderr write itself failed (closed pipe, etc.) — give up silently.
-    }
-    // Self-heal for the plugin-marketplace silent-dropout class of bug.
-    // When Claude Code's `/plugin install` runs `npm install --ignore-scripts`
-    // (security default), better-sqlite3's `install` script never fetches
-    // / builds the native binding. Result: `require()` returns a JS
-    // wrapper but `new Database()` throws "Could not locate the bindings
-    // file" — and every hook silently exits without writing entities.
-    // Without this self-heal, the user has no signal that auto-capture
-    // is broken; the DB just stays empty forever.
-    //
-    // Strategy: spawn a detached `npm rebuild better-sqlite3` in the
-    // package root so the *next* hook invocation succeeds. Cap to one
-    // attempt per hour per package root via an exclusive-create marker
-    // so a crash-loop can't drive a rebuild storm. Skipped under test
-    // env (tests deliberately exercise the failure path).
-    if (!_inTestEnv()) {
-      _attemptBetterSqliteRebuild();
-    }
-    _cachedDatabaseCtor = null;
-  }
-  return _cachedDatabaseCtor;
-}
-
-function _attemptBetterSqliteRebuild() {
-  try {
-    // Package root = parent of the scripts/hooks/ directory that contains
-    // this file. That's where memesh's own `package.json` lives.
-    const here = dirname(fileURLToPath(import.meta.url));
-    const pkgRoot = dirname(dirname(here));
-    if (!existsSync(join(pkgRoot, 'package.json'))) return;
-    // Resolve better-sqlite3's actual install location via Node's normal
-    // resolution algorithm, which follows hoisting (the consumer's
-    // top-level node_modules holds the package when memesh is installed
-    // as a dependency). Looking at `<pkgRoot>/node_modules/better-sqlite3`
-    // directly would false-negative on every hoisted install.
-    let bsqliteDir;
-    try {
-      // `require.resolve` returns the path to `lib/index.js` inside the
-      // package. Walk up to the package directory.
-      const entry = require.resolve('better-sqlite3', { paths: [pkgRoot] });
-      // `<bsqliteDir>/lib/index.js` → walk back twice to the package root.
-      bsqliteDir = dirname(dirname(entry));
-    } catch {
-      // Genuinely not installed anywhere on the resolution path. `npm
-      // rebuild` cannot help; the user needs a full install.
-      try {
-        process.stderr.write(
-          `[memesh hook] better-sqlite3 is not installed (Node could not resolve from ${pkgRoot}). `
-          + `Run: cd to the project that depends on @pcircle/memesh and run \`npm install\`.\n`,
-        );
-      } catch {}
-      return;
-    }
-    // The hoisted install location's package root — npm rebuild needs to
-    // be run from a project that owns this node_modules tree. Walking
-    // up to the nearest directory that has its own package.json gives
-    // us the right cwd.
-    let rebuildCwd = dirname(bsqliteDir);
-    while (rebuildCwd !== dirname(rebuildCwd)) {
-      if (existsSync(join(rebuildCwd, 'package.json')) && !rebuildCwd.endsWith('node_modules')) break;
-      rebuildCwd = dirname(rebuildCwd);
-    }
-    const memesh = join(homedir(), '.memesh');
-    try { mkdirSync(memesh, { recursive: true, mode: 0o700 }); } catch {}
-    const markerPath = join(memesh, 'last-rebuild-attempt.lock');
-    // Atomic one-shot claim via O_EXCL. Once the marker exists, every
-    // future hook bails — no stale-cleanup-then-recreate dance, which
-    // would open a TOCTOU window (stat → unlink → open is racy: a peer
-    // can insert between any two steps and the result is either a
-    // double-spawn of `npm rebuild` or one peer's fresh marker being
-    // stomped by another peer's stale-cleanup).
-    //
-    // Trade-off: if the rebuild fails, the marker blocks retries until
-    // the user removes it manually. That's acceptable because the
-    // stderr breadcrumb below tells the user the exact manual command,
-    // and `memesh doctor` will also surface the failure. A retry-loop
-    // here would either re-introduce the race or burn CPU on a broken
-    // npm config.
-    try {
-      const fd = openSync(markerPath, 'wx', 0o600);
-      try { writeFileSync(fd, String(Date.now())); } finally { closeSync(fd); }
-    } catch (err) {
-      if (err && err.code === 'EEXIST') return; // peer / prior attempt owns it
-      return; // any other write failure — bail silently
-    }
-    process.stderr.write(
-      `[memesh hook] Attempting to rebuild better-sqlite3 in background — `
-      + `next session should capture normally. (rebuildCwd: ${rebuildCwd})\n`
-      + `[memesh hook] To retry later, manually: rm "${markerPath}" && `
-      + `cd "${rebuildCwd}" && npm rebuild better-sqlite3\n`,
-    );
-    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const child = spawn(npm, ['rebuild', 'better-sqlite3'], {
-      cwd: rebuildCwd,
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    // 'error' is emitted asynchronously (e.g. npm not on PATH). Without a
-    // listener it becomes an uncaught exception that the outer sync
-    // try/catch cannot catch — and a hook crash here would turn a silent
-    // dropout into a louder broken-hook story. Swallow it: self-heal is
-    // best-effort by design, and the binding probe already left a stderr
-    // breadcrumb explaining the manual fix.
-    child.on('error', () => {});
-    child.unref();
-  } catch {
-    // Best-effort — never let self-heal failures crash the hook.
-  }
-}
+// No native-binding probe, and nothing to self-heal.
+//
+// This is where ~160 lines used to live: a cached require() of
+// better-sqlite3, an in-memory construction to force the deferred bindings
+// load, two test seams to simulate the failure, and a detached
+// `npm rebuild` with an O_EXCL marker so a crash-loop could not storm it.
+// All of it existed because better-sqlite3 ships a compiled binary that
+// `npm install --ignore-scripts` never builds — and Claude Code's
+// `/plugin install` uses exactly that flag, so every hook silently did
+// nothing. node:sqlite is part of the runtime: there is no binary to
+// miss, so the failure mode and its whole recovery apparatus are gone.
 
 export function openHookDb(env = process.env, opts = {}) {
-  const Database = tryRequireBetterSqlite();
-  if (!Database) return null;
 
   // Path helpers read process.env directly (no-arg). The `env` parameter
   // is kept on this signature for backward compatibility with callers
@@ -479,7 +327,10 @@ export function openHookDb(env = process.env, opts = {}) {
   const dbDir = env.MEMESH_DB_PATH ? dirname(env.MEMESH_DB_PATH) : memeshDir();
   if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
 
-  const db = new Database(dbPath);
+  // `allowExtension` matches src/db.ts: it only permits a later
+  // `enableLoadExtension(true)`, and session-summary.js needs one to load
+  // sqlite-vec through this handle. The switch itself stays off.
+  const db = new MemeshDatabase(dbPath, { allowExtension: true });
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
@@ -625,8 +476,8 @@ function ensureHookFtsSegmentation(db) {
 
       db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
 
-      // Paged, not `.iterate()`: better-sqlite3 refuses to run a write while
-      // an iterator is open on the same connection, and writing as we read is
+      // Paged, not `.iterate()`: writing while an iterator is open on the
+      // same connection is not something to rely on, and writing as we read is
       // the point. Keyset pagination on e.id bounds memory to one page.
       const page = db.prepare(
         `SELECT e.id, e.name, COALESCE(group_concat(o.content, ' '), '') AS obs
@@ -711,7 +562,7 @@ function ensureHookFtsSegmentation(db) {
  * deliberately NOT done here: hooks are cheap always-on capture, and those are
  * the heavier, user-initiated `remember` concerns (core owns them).
  *
- * @param {import('better-sqlite3').Database} db - an open hook DB handle
+ * @param {import('./_generated/sqlite.js').MemeshDatabase} db - an open hook DB handle
  * @param {{name: string, type: string, observations?: string[], tags?: string[]}} entity
  * @returns {{ id: number, isNew: boolean } | null} null if the row could not be resolved
  */

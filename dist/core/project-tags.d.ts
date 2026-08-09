@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 export interface ProjectTagCount {
     project: string;
     count: number;
@@ -12,9 +12,9 @@ export interface RenameProjectResult {
     applied: boolean;
     affectedNames: string[];
 }
-export declare function listProjectTags(db?: Database.Database): ProjectTagCount[];
+export declare function listProjectTags(db?: MemeshDatabase): ProjectTagCount[];
 export declare function renameProjectTag(from: string, to: string, opts?: {
     apply?: boolean;
-    db?: Database.Database;
+    db?: MemeshDatabase;
 }): RenameProjectResult;
 //# sourceMappingURL=project-tags.d.ts.map

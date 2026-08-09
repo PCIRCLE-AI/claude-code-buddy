@@ -93,11 +93,13 @@ jobs:
       #
       #   20 — GONE. It was kept while `engines` still said `>=20` on the
       #        rule written here: "the leg goes when the claim goes, not
-      #        before." The claim went (`>=22.5.0`), so the leg went. Node 20
+      #        before." The claim went (`>=22.13.0`), so the leg went. Node 20
       #        was passing on all three OSes when it was removed — this was a
       #        support-policy change, not a fix.
-      #   22 — LTS (Jod), and the floor. `engines` names 22.5.0 specifically
-      #        because that is where `node:sqlite` landed; the matrix cannot
+      #   22 — LTS (Jod), and the floor. `engines` names 22.13.0 specifically
+      #        because that is where `node:sqlite` stopped needing
+      #        `--experimental-sqlite` and gained `loadExtension`,
+      #        `enableLoadExtension` and `db.function`; the matrix cannot
       #        pin a patch, so this leg runs whatever 22.x is current and
       #        `tests/ci-matrix-covers-engines.test.ts` is what actually holds
       #        the two together.

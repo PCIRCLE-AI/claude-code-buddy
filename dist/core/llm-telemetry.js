@@ -106,7 +106,7 @@ export function pruneTelemetry(opts = {}) {
     const result = db.prepare('DELETE FROM llm_telemetry WHERE ts < ?').run(cutoffIso);
     const totalRowsAfter = db.prepare('SELECT COUNT(*) AS c FROM llm_telemetry').get().c;
     return {
-        deletedRows: result.changes,
+        deletedRows: Number(result.changes),
         cutoffIso,
         totalRowsAfter,
     };

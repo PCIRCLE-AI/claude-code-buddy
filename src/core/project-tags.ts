@@ -6,7 +6,7 @@
 // user-driven: `memesh kg rename-project --from <old> --to <new>`. This is a
 // deliberate, opt-in, dry-run-by-default operation — it rewrites real user data.
 
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 import { getDatabase } from '../db.js';
 
 export interface ProjectTagCount {
@@ -28,7 +28,7 @@ export interface RenameProjectResult {
 }
 
 /** All `project:*` tag values with entity counts, most-used first. */
-export function listProjectTags(db?: Database.Database): ProjectTagCount[] {
+export function listProjectTags(db?: MemeshDatabase): ProjectTagCount[] {
   const conn = db ?? getDatabase();
   const rows = conn.prepare(
     "SELECT tag, COUNT(*) c FROM tags WHERE tag LIKE 'project:%' GROUP BY tag ORDER BY c DESC, tag ASC",
@@ -48,7 +48,7 @@ export function listProjectTags(db?: Database.Database): ProjectTagCount[] {
 export function renameProjectTag(
   from: string,
   to: string,
-  opts?: { apply?: boolean; db?: Database.Database },
+  opts?: { apply?: boolean; db?: MemeshDatabase },
 ): RenameProjectResult {
   const conn = opts?.db ?? getDatabase();
   const fromTag = `project:${from}`;

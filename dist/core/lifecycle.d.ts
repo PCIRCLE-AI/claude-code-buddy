@@ -1,14 +1,14 @@
-import Database from 'better-sqlite3';
-export declare function runAutoDecay(db: Database.Database): {
+import type { MemeshDatabase } from '../storage/sqlite.js';
+export declare function runAutoDecay(db: MemeshDatabase): {
     decayed: number;
 };
-export declare function getDecayStatus(db: Database.Database): {
+export declare function getDecayStatus(db: MemeshDatabase): {
     lastDecayAt: string | null;
     entitiesBelowThreshold: number;
 };
 declare const PRESERVED_TYPES: Set<string>;
 declare const NOISE_TYPES: Set<string>;
-export declare function compressWeeklyNoise(db: Database.Database): {
+export declare function compressWeeklyNoise(db: MemeshDatabase): {
     compressed: number;
     weeksProcessed: number;
 };

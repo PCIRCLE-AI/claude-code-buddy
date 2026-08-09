@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { binTargets, hookCommands } from './lib/executable-targets.mjs';
+import { binTargets, hookCommands, mcpEntry } from './lib/executable-targets.mjs';
 import { npmSync } from './lib/npm-bin.mjs';
 
 const repoRoot = process.cwd();
@@ -13,7 +13,7 @@ const repoRoot = process.cwd();
 // This used to extract into `<repoRoot>/tmp/pack-smoke`, so when the import
 // check below loaded the packaged `dist/index.js`, every bare specifier
 // resolved by walking UP into the repo's own `node_modules` — devDependencies
-// included. Verified: `better-sqlite3` resolved to the repo tree. The gate
+// included. Verified: `sqlite-vec` resolved to the repo tree. The gate
 // therefore could not see a missing runtime dependency. It also printed
 // "installs" for an install that never happened.
 //
@@ -81,7 +81,6 @@ const requiredFiles = [
   'dist/core/embedder.js',
   // Dist — transports
   'dist/transports/schemas.js',
-  'dist/mcp/launcher.js',
   'dist/mcp/server.js',
   'dist/transports/mcp/handlers.js',
   'dist/transports/http/server.js',
@@ -136,6 +135,16 @@ for (const { relativePath, kind } of declaredExecutables) {
   }
 }
 
+// The script `.mcp.json` starts, derived from the manifest rather than from a
+// hand-written path. A `/plugin install` user reaches memesh ONLY through this
+// entry; when it named a file that had been renamed away, every MCP tool died
+// with `-32000 failed to reconnect` and no gate said a word.
+const mcpTarget = mcpEntry(packageDir);
+assert.ok(
+  fs.existsSync(path.join(packageDir, mcpTarget)),
+  `.mcp.json starts ${mcpTarget}, which is not in the tarball — every MCP tool would fail to start`
+);
+
 const packagedJson = JSON.parse(
   fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8')
 );
@@ -175,7 +184,7 @@ if (typeof pkg.KnowledgeGraph !== 'function') {
   throw new Error('Packaged module missing KnowledgeGraph export');
 }
 // Exercise the runtime path, not just the export shape: opening a database
-// loads better-sqlite3 and sqlite-vec, which is where a dependency that was
+// loads sqlite-vec, which is where a dependency that was
 // moved out of \`dependencies\` actually bites.
 const db = pkg.openDatabase(${JSON.stringify(path.join(smokeDir, 'smoke.db'))});
 if (!db) throw new Error('openDatabase returned nothing');

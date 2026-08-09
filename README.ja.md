@@ -117,7 +117,7 @@ Claude Code を使っている場合、CLI 内から MeMesh をプラグイン�
 /plugin install memesh@pcircle-memesh
 ```
 
-Claude Code がフック、スキル、MCP サーバーを自動的にワイヤリングします。セッション内自動キャプチャ、プロアクティブリコール、Claude Code 会話内の `/memesh` スキル(remember / recall / learn / forget)、エージェント向け MCP ツールとしての `remember` / `recall` / `forget` / `learn` がすべて使えるようになります。CLI とローカルダッシュボードもグローバルインストールなしで完全にアクセス可能です — `npx @pcircle/memesh <command>` であらゆる CLI コマンドが実行でき、`npx @pcircle/memesh` で `localhost:3737` のダッシュボードが起動します。MCP サーバーはプラグイン同梱のコンパイル済みコードから直接起動します — `npx` ルックアップ、`npm install -g`、ビルド手順はいずれも不要です。最初の起動時に `better-sqlite3` のネイティブバインディングが見つからない場合(例: Node のメジャーバージョン更新後)、ランチャーがインプロセスで自動的にリビルドして処理を継続します。
+Claude Code がフック、スキル、MCP サーバーを自動的にワイヤリングします。セッション内自動キャプチャ、プロアクティブリコール、Claude Code 会話内の `/memesh` スキル(remember / recall / learn / forget)、エージェント向け MCP ツールとしての `remember` / `recall` / `forget` / `learn` がすべて使えるようになります。CLI とローカルダッシュボードもグローバルインストールなしで完全にアクセス可能です — `npx @pcircle/memesh <command>` であらゆる CLI コマンドが実行でき、`npx @pcircle/memesh` で `localhost:3737` のダッシュボードが起動します。MCP サーバーはプラグイン同梱のコンパイル済みコードから直接起動します — `npx` ルックアップ、`npm install -g`、ビルド手順はいずれも不要です。memesh は Node 本体に含まれる `node:sqlite`(22.13+)にデータを保存するため、Node をアップグレードしても誤ったランタイム向けにビルドされたバイナリが残ることはありません。
 
 ### オプション B — npm グローバル(オプションの最適化)
 
@@ -128,7 +128,7 @@ npm install -g @pcircle/memesh
 ```
 
 > **初回インストールに関する注意(一度きり):**
-> - **ネイティブモジュール** — `better-sqlite3` と `sqlite-vec` は macOS (arm64/x64)、Linux (x64/arm64)、Windows x64 でビルド済みバイナリ経由でインストールされます。珍しいプラットフォームやビルド済みバイナリが失敗した場合は、動作する C/C++ ツールチェインが必要です。
+> - **コンパイラは不要** — データベースエンジンは Node 自身の `node:sqlite` です。意味による検索を担う `sqlite-vec` は macOS (arm64/x64)、Linux (x64/arm64)、Windows x64 向けにビルド済みファイルとして提供されます。それ以外のプラットフォームでは単に存在せず、リコールはキーワード検索のままです。ここではインストールスクリプトを実行するものが一切ないため、`npm install --ignore-scripts` でも完全に動作する memesh がインストールされます。
 > - **セマンティック検索は任意** — デフォルトの検索パスはキーワード検索(FTS5)で、モデルもダウンロードも不要です。意味ベースの検索にはエンベダーが必要です: ローカルで [Ollama](https://ollama.com) を動かすか、クラウドのエンベダーを設定してください(下の「エンベディング」参照)。設定がなければ memesh はキーワード検索のみを使います。
 
 ### ステップ 1.5: MeMesh を Claude Code に接続(npm パスのみ)

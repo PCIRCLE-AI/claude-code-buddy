@@ -1,6 +1,7 @@
 import { findConflicts, trackAccess } from './storage/conflicts.js';
 import { insertFtsRow, removeFromFts, tokenizeQuery, renderMatchExpression, registerNfcFunction, SQL_NFC_FUNCTION, } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
+import { hasVectorIndex } from './storage/vector-index.js';
 const MAX_QUERY_TERMS = 32;
 function buildMatchExpression(db, query) {
     const terms = tokenizeQuery(query);
@@ -458,12 +459,10 @@ export class KnowledgeGraph {
             .all(row.id);
         const obsText = allObs.map((o) => o.content).join(' ');
         removeFromFts(this.db, row.id, name, obsText);
-        try {
+        if (hasVectorIndex(this.db)) {
             this.db
                 .prepare('DELETE FROM entities_vec WHERE rowid = ?')
                 .run(BigInt(row.id));
-        }
-        catch {
         }
         this.db
             .prepare("UPDATE entities SET status = 'archived' WHERE id = ?")
@@ -503,12 +502,10 @@ export class KnowledgeGraph {
             .all(row.id);
         const obsText = allObs.map((o) => o.content).join(' ');
         removeFromFts(this.db, row.id, name, obsText);
-        try {
+        if (hasVectorIndex(this.db)) {
             this.db
                 .prepare('DELETE FROM entities_vec WHERE rowid = ?')
                 .run(BigInt(row.id));
-        }
-        catch {
         }
         this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);
         return { deleted: true };

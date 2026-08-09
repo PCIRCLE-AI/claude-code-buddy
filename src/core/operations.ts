@@ -18,6 +18,7 @@ import { createExplicitLesson } from './lesson-engine.js';
 import { embedAndStore, isEmbeddingAvailable, embedText, entityEmbedText, scheduleEmbedAndStore, vectorSearch, vectorSimilarity, MAX_VECTOR_DISTANCE } from './embedder.js';
 import type { EmbedOutcome } from './embedder.js';
 import { autoTagAndApply } from './auto-tagger.js';
+import { hasVectorIndex } from '../storage/vector-index.js';
 import { detectCapabilities } from './config.js';
 import type {
   RememberInput,
@@ -485,6 +486,9 @@ function countMissingVectors(
   db: ReturnType<typeof getDatabase>,
   namespace?: string
 ): number {
+  // No sqlite-vec, no entities_vec, so no entity is OWED a vector — and the
+  // query below would fail on the missing table rather than answer.
+  if (!hasVectorIndex(db)) return 0;
   const row = db.prepare(`
     SELECT COUNT(*) AS n FROM entities e
     WHERE e.status = 'active'
@@ -513,6 +517,14 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
   }
 
   const db = getDatabase();
+
+  // An embedder without an index is still nothing to rebuild, and it is a
+  // different problem with a different fix — so it gets its own sentence
+  // rather than being folded into the message above.
+  if (!hasVectorIndex(db)) {
+    throw new Error('sqlite-vec is not loaded, so this database has no vector index to rebuild. Recall is running on FTS5 keyword search alone. Run `memesh doctor` — its "SQLite and vector search" row explains why the extension did not load on this machine.');
+  }
+
   const kg = new KnowledgeGraph(db);
 
   // Get all active entities (optionally filtered by namespace)
@@ -532,6 +544,10 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     database_closed: 0,
     entity_missing: 0,
     nothing_to_embed: 0,
+    // reindex() refuses to start without an index, so this counter stays 0
+    // here. It is in the map because the type is the full EmbedOutcome set and
+    // a missing key would be a silent hole the next time an outcome is added.
+    no_vector_index: 0,
   };
   let processed = 0;
 

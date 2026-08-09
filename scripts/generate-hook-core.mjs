@@ -45,6 +45,11 @@ const outDir = resolve(root, 'scripts/hooks/_generated');
 const SOURCES = [
   { from: 'dist/core/paths.js', to: 'core-paths.js', src: 'src/core/paths.ts' },
   { from: 'dist/storage/fts-index.js', to: 'fts-index.js', src: 'src/storage/fts-index.ts' },
+  // The SQLite driver. A leaf by construction — it imports `node:module` and
+  // nothing else — and the hooks need the identical `MemeshDatabase` the rest
+  // of memesh writes through, or the two would open the same file with
+  // different transaction semantics.
+  { from: 'dist/storage/sqlite.js', to: 'sqlite.js', src: 'src/storage/sqlite.ts' },
 ];
 
 function banner(srcPath) {
@@ -97,7 +102,9 @@ function generate() {
     code = code.replace(/\n?\/\/# sourceMappingURL=.*\s*$/, '\n');
     writeFileSync(resolve(outDir, to), banner(src) + code, 'utf8');
   }
-  console.log('✓ generated scripts/hooks/_generated/{core-paths,fts-index}.js from dist/ leaf modules');
+  // Derived from SOURCES, not restated: a hand-written list next to the real
+  // one is the drift this whole generator exists to eliminate.
+  console.log(`✓ generated scripts/hooks/_generated/{${SOURCES.map((s) => s.to.replace(/\.js$/, '')).join(',')}}.js from dist/ leaf modules`);
 }
 
 generate();

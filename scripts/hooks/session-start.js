@@ -18,9 +18,9 @@ import {
   readUpdateCheckCache,
   resolvePluginRoot,
   resolveSessionLimit,
-  tryRequireBetterSqlite,
   writePrivateJson,
 } from './_shared.js';
+import { MemeshDatabase } from './_generated/sqlite.js';
 
 const require = createRequire(import.meta.url);
 
@@ -495,16 +495,15 @@ process.stdin.on('end', async () => {
       return;
     }
 
-    // Native module unavailable (typical for plugin-marketplace cache
-    // installs that ship without node_modules). Silently skip — the
-    // plugin's own MCP server runs via npx and a sibling registered
-    // copy of this hook (npm-global / dev path) supplies the summary.
-    const Database = tryRequireBetterSqlite();
-    if (!Database) return;
-    const db = new Database(dbPath, { readonly: true });
+    // `readOnly`, not `readonly`: node:sqlite ignores the lowercase spelling
+    // and hands back a WRITABLE handle. This hook only reads.
+    //
+    // No `journal_mode = WAL` here. Setting it is a write, so a read-only
+    // connection refuses it — and it was never doing anything: the mode is a
+    // property of the database file that the writing side already set, and a
+    // reader opens a WAL database perfectly well without asking for it.
+    const db = new MemeshDatabase(dbPath, { readOnly: true });
     try {
-      db.pragma('journal_mode = WAL');
-
       // Check if tables exist (db may exist but be empty)
       const tableCheck = db.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='entities'"
@@ -545,11 +544,10 @@ process.stdin.on('end', async () => {
       // Functions:
       //   - frequency: log(c+1) / log(max(maxAccess,1) + 1)  (matches frequencyScore)
       //   - recency:   exp(-(now - lastAccessed_days) / 30)  (matches recencyScore)
-      // SQLite >= 3.35 with -DSQLITE_ENABLE_MATH_FUNCTIONS provides exp/log;
-      // better-sqlite3 v8+ ships with this flag enabled by default. We probe
-      // once per process and fall back to the legacy linear/rational forms
-      // if a stripped-down build is detected, so ranking degrades gracefully
-      // rather than throwing.
+      // SQLite >= 3.35 with -DSQLITE_ENABLE_MATH_FUNCTIONS provides exp/log,
+      // which Node's bundled SQLite has. We probe once per process and fall
+      // back to the legacy linear/rational forms if a stripped-down build is
+      // detected, so ranking degrades gracefully rather than throwing.
       // Test-only seam: force the legacy linear/rational fallback so the
       // pre-math-functions code path is reachable in CI on builds where
       // exp/log ARE available. Production callers never set this.

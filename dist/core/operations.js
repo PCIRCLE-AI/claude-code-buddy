@@ -6,6 +6,7 @@ import { getProjectName } from './paths.js';
 import { createExplicitLesson } from './lesson-engine.js';
 import { embedAndStore, isEmbeddingAvailable, embedText, entityEmbedText, scheduleEmbedAndStore, vectorSearch, vectorSimilarity, MAX_VECTOR_DISTANCE } from './embedder.js';
 import { autoTagAndApply } from './auto-tagger.js';
+import { hasVectorIndex } from '../storage/vector-index.js';
 import { detectCapabilities } from './config.js';
 function buildLocalMetadata(existingMetadata, overrides) {
     return {
@@ -205,6 +206,8 @@ export function setPinned(name, pinned) {
     return { name, pinned, found: true };
 }
 function countMissingVectors(db, namespace) {
+    if (!hasVectorIndex(db))
+        return 0;
     const row = db.prepare(`
     SELECT COUNT(*) AS n FROM entities e
     WHERE e.status = 'active'
@@ -219,6 +222,9 @@ export async function reindex(opts) {
         throw new Error('No embedding provider configured, so there are no vectors to build. Run Ollama (or set an OpenAI API key) and set embedder.provider, then retry. Without an embedder, recall runs on FTS5 keyword search alone.');
     }
     const db = getDatabase();
+    if (!hasVectorIndex(db)) {
+        throw new Error('sqlite-vec is not loaded, so this database has no vector index to rebuild. Recall is running on FTS5 keyword search alone. Run `memesh doctor` — its "SQLite and vector search" row explains why the extension did not load on this machine.');
+    }
     const kg = new KnowledgeGraph(db);
     const namespaceFilter = opts?.namespace ? 'AND namespace = ?' : '';
     const params = opts?.namespace ? [opts.namespace] : [];
@@ -232,6 +238,7 @@ export async function reindex(opts) {
         database_closed: 0,
         entity_missing: 0,
         nothing_to_embed: 0,
+        no_vector_index: 0,
     };
     let processed = 0;
     process.stderr.write(`MeMesh: Reindexing ${entities.length} entities...\n`);

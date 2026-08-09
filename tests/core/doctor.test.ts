@@ -85,10 +85,10 @@ function createPackageRoot(): string {
   fs.mkdirSync(path.join(root, 'dashboard', 'dist'), { recursive: true });
   fs.writeFileSync(path.join(root, 'dashboard', 'dist', 'index.html'), '<html></html>');
 
-  // Stub the better-sqlite3 directory so the new native-binding existence
+  // Stub the sqlite-vec directory so the native-binding existence
   // check passes. The probe itself is overridden per-test via
   // `nativeBindingProbeImpl`, so no real native module is touched here.
-  fs.mkdirSync(path.join(root, 'node_modules', 'better-sqlite3'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'node_modules', 'sqlite-vec'), { recursive: true });
 
   // F4: doctor verifies dist/skills-manifest.json. The fixture must
   // include one matching the on-disk hook stubs, otherwise the new
@@ -243,7 +243,7 @@ describe('doctor', () => {
         guidance: 'This installation can be updated directly from MeMesh.',
       }),
       fetchImpl: (async () => new Response(JSON.stringify({ ok: true }), { status: 200 })) as typeof fetch,
-      // Fixture stubs node_modules/better-sqlite3 as an empty dir, so the real
+      // Fixture stubs node_modules/sqlite-vec as an empty dir, so the real
       // probe would fail. Inject success since this test is verifying the
       // overall-PASS flow, not the binding probe itself.
       nativeBindingProbeImpl: () => ({ ok: true }),
@@ -298,7 +298,7 @@ describe('doctor', () => {
         recommendedCommand: null,
         guidance: 'Update this source checkout from its repository and rebuild it.',
       }),
-      // Fixture's better-sqlite3 dir is an empty stub; let the binding
+      // Fixture's sqlite-vec dir is an empty stub; let the binding
       // check pass so this test focuses on the update-status WARN.
       nativeBindingProbeImpl: () => ({ ok: true }),
     });
@@ -388,6 +388,83 @@ describe('doctor', () => {
       status: 'fail',
       fix: expect.stringContaining('.mcp.json'),
     });
+  });
+
+  it('fails when .mcp.json starts a script that is not in the install', async () => {
+    // The defect this was written for: the MCP entry point was renamed,
+    // `package.json` bin and `npm start` were repointed, and `.mcp.json` kept
+    // naming the deleted file. Every MCP tool died with
+    // `-32000 failed to reconnect` — and doctor reported PASS, because it
+    // stopped at "there is a string `command`" and never looked at what the
+    // config actually starts. A config that names a file which is not there is
+    // not a valid config.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    writeJson(path.join(packageRoot, '.mcp.json'), {
+      mcpServers: {
+        memesh: {
+          command: 'node',
+          args: ['${CLAUDE_PLUGIN_ROOT}/dist/mcp/launcher.js'],
+        },
+      },
+    });
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.2.5',
+      openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'plugin-marketplace',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'plugin-marketplace', label: 'Claude Code plugin marketplace',
+        canSelfUpdate: false, recommendedCommand: 'bash scripts/upgrade-plugin.sh', guidance: '',
+      }),
+      nativeBindingProbeImpl: () => ({ ok: true }),
+    });
+
+    const check = result.checks.find((c) => c.id === 'mcp-config');
+    expect(check?.status).toBe('fail');
+    expect(check?.summary).toContain('dist/mcp/launcher.js');
+    expect(result.status).toBe('FAIL');
+  });
+
+  it('passes when .mcp.json starts a script that IS present', async () => {
+    // The guard must not become "always fail": a correct config still passes,
+    // and the check really does resolve the path rather than rejecting any
+    // config that has args at all.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    fs.mkdirSync(path.join(packageRoot, 'dist', 'mcp'), { recursive: true });
+    fs.writeFileSync(path.join(packageRoot, 'dist', 'mcp', 'server.js'), '// present\n');
+    writeJson(path.join(packageRoot, '.mcp.json'), {
+      mcpServers: {
+        memesh: {
+          command: 'node',
+          args: ['${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js'],
+        },
+      },
+    });
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.2.5',
+      openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+      nativeBindingProbeImpl: () => ({ ok: true }),
+    });
+
+    expect(result.checks.find((c) => c.id === 'mcp-config')?.status).toBe('pass');
   });
 
   it('fails when hooks.json yields zero hook script commands', async () => {
@@ -1300,8 +1377,8 @@ describe('database lifecycle preservation (F16 — regression)', () => {
   });
 });
 
-describe('native binding probe (plugin-marketplace silent-dropout guard)', () => {
-  it('reports FAIL with the exact rebuild command when the .node binding is missing', async () => {
+describe('SQLite and vector-search probe', () => {
+  it('a sqlite-vec that will not load is a WARNING, not a failure', async () => {
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 
@@ -1321,18 +1398,25 @@ describe('native binding probe (plugin-marketplace silent-dropout guard)', () =>
         recommendedCommand: 'bash scripts/upgrade-plugin.sh',
         guidance: '',
       }),
-      nativeBindingProbeImpl: () => ({ ok: false, message: 'Could not locate the bindings file. Tried: ...' }),
+      nativeBindingProbeImpl: () => ({ ok: false, message: 'vec0.dylib could not be loaded' }),
     });
 
     const bindingCheck = result.checks.find((c) => c.id === 'native-binding');
     expect(bindingCheck).toBeDefined();
-    expect(bindingCheck?.status).toBe('fail');
-    expect(bindingCheck?.summary).toContain('native binding');
-    expect(bindingCheck?.fix).toContain('npm rebuild better-sqlite3');
-    expect(result.status).toBe('FAIL');
+    // `warn`, deliberately. sqlite-vec is a supplement: memesh stores and
+    // recalls perfectly well without it, on keyword search. Reporting `fail`
+    // makes `memesh doctor` exit 1, which breaks every CI step, container
+    // healthcheck and install script that gates on it — on a platform this
+    // project documents as supported.
+    expect(bindingCheck?.status).toBe('warn');
+    expect(bindingCheck?.summary).toContain('sqlite-vec could not be loaded');
+    // Says what the user LOSES, not just that something broke.
+    expect(bindingCheck?.summary).toContain('still saved');
+    expect(bindingCheck?.fix).toContain('npm install --omit=dev');
+    expect(result.status, 'a supplement being absent must not fail the run').not.toBe('FAIL');
   });
 
-  it('reports FAIL with `npm install` hint when better-sqlite3 is not resolvable', async () => {
+  it('an unresolvable sqlite-vec warns, and names the install command', async () => {
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 
@@ -1351,17 +1435,54 @@ describe('native binding probe (plugin-marketplace silent-dropout guard)', () =>
       }),
       nativeBindingProbeImpl: () => ({
         ok: false,
-        message: "Cannot find module 'better-sqlite3' — code: MODULE_NOT_FOUND",
+        message: "Cannot find module 'sqlite-vec' — code: MODULE_NOT_FOUND",
+      }),
+    });
+
+    const bindingCheck = result.checks.find((c) => c.id === 'native-binding');
+    expect(bindingCheck?.status).toBe('warn');
+    expect(bindingCheck?.summary).toContain('not installed');
+    expect(bindingCheck?.fix).toContain('npm install');
+  });
+
+  it('a Node too old to load extensions FAILS, and says to upgrade Node', async () => {
+    // The one case in this row that really is fatal, and the one that used to
+    // be misdiagnosed: node:sqlite exists from Node 22.5 but its extension
+    // methods only landed in 22.13, so an old runtime yields
+    // "enableLoadExtension is not a function" — which matched neither
+    // classification branch and got reported as a missing sqlite-vec, sending
+    // the user to reinstall a package that was never the problem.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.2.5',
+      openDatabaseImpl: () => makeDatabase(1) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, embeddings: 'ollama' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update', guidance: '',
+      }),
+      nativeBindingProbeImpl: () => ({
+        ok: false,
+        message: 'memesh:node-sqlite-too-old: node:sqlite in v22.12.0 has no enableLoadExtension',
       }),
     });
 
     const bindingCheck = result.checks.find((c) => c.id === 'native-binding');
     expect(bindingCheck?.status).toBe('fail');
-    expect(bindingCheck?.summary).toContain('not installed');
-    expect(bindingCheck?.fix).toContain('npm install');
+    expect(bindingCheck?.summary).toContain('22.13');
+    expect(bindingCheck?.fix, 'sent the user to reinstall a package instead of upgrading Node')
+      .toContain('Upgrade Node');
+    expect(bindingCheck?.fix).not.toContain('npm install');
   });
 
-  it('reports PASS when the probe succeeds (binding loads + Database() works)', async () => {
+  it('reports PASS when the probe succeeds (database opens + sqlite-vec loads)', async () => {
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 

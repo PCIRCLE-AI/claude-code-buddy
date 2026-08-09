@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import Database from 'better-sqlite3';
+import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';

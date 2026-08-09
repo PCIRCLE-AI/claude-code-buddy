@@ -27,7 +27,7 @@
 //     - bare tags that are not in the bookkeeping blocklist
 //   and rejects everything else.
 
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 import { getDatabase } from '../db.js';
 
 const SYSTEM_TAG_PREFIXES = [
@@ -181,7 +181,7 @@ const IDEMPOTENCY_KEY = 'kg_backfill_processed_v1';
 
 interface MetadataRow { value: string }
 
-function readProcessedSet(conn: Database.Database): Set<number> {
+function readProcessedSet(conn: MemeshDatabase): Set<number> {
   // memesh_metadata is created by openDatabase / ensureVecTable; if a caller
   // somehow runs before that migration, skip the cache rather than error out.
   try {
@@ -197,14 +197,14 @@ function readProcessedSet(conn: Database.Database): Set<number> {
   }
 }
 
-function writeProcessedSet(conn: Database.Database, ids: Set<number>): void {
+function writeProcessedSet(conn: MemeshDatabase, ids: Set<number>): void {
   const payload = JSON.stringify([...ids]);
   conn.prepare(
     'INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)'
   ).run(IDEMPOTENCY_KEY, payload);
 }
 
-function clearProcessedSet(conn: Database.Database): void {
+function clearProcessedSet(conn: MemeshDatabase): void {
   conn.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(IDEMPOTENCY_KEY);
 }
 
@@ -212,21 +212,21 @@ function clearProcessedSet(conn: Database.Database): void {
  * Public helper for the CLI's `--reset-idempotency` flag. Idempotent —
  * safe to call even if no cache row exists.
  */
-export function resetBackfillIdempotencyCache(db?: Database.Database): void {
+export function resetBackfillIdempotencyCache(db?: MemeshDatabase): void {
   clearProcessedSet(db ?? getDatabase());
 }
 
-interface OrphanRow {
+type OrphanRow = {
   id: number;
   name: string;
   type: string;
   metadata: string | null;
-}
+};
 
-interface TagRow {
+type TagRow = {
   entity_id: number;
   tag: string;
-}
+};
 
 /**
  * Output of `proposeBackfillCandidates`. Beyond the candidate edges, it
@@ -249,7 +249,7 @@ export interface BackfillProposalResult {
  * orphan-entity problem in the KG. The actual candidate list is exposed
  * via `proposeBackfillCandidates` for the dry-run path.
  */
-export function backfillRelations(opts: BackfillOptions = {}, db?: Database.Database): BackfillResult {
+export function backfillRelations(opts: BackfillOptions = {}, db?: MemeshDatabase): BackfillResult {
   const conn = db ?? getDatabase();
 
   // Single entry point for proposing candidates. `proposeBackfillCandidates`
@@ -307,7 +307,7 @@ export function backfillRelations(opts: BackfillOptions = {}, db?: Database.Data
   return result;
 }
 
-export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Database.Database): BackfillProposalResult {
+export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: MemeshDatabase): BackfillProposalResult {
   const conn = db ?? getDatabase();
   const maxPerSource = opts.maxEdgesPerSource ?? 3;
   const minShared = opts.minSharedTags ?? 2;

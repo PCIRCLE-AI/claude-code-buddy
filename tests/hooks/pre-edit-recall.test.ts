@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { expectPrivateFile } from '../helpers/permissions.js';
+import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 
 const require = createRequire(import.meta.url);
 
@@ -97,7 +98,6 @@ describe('Feature: Pre-Edit Recall Hook', () => {
   }
 
   function createTestDb() {
-    const Database = require('better-sqlite3');
     const db = new Database(dbPath);
     db.pragma('journal_mode = WAL');
     db.exec(`
@@ -289,7 +289,6 @@ describe('Feature: Pre-Edit Recall Hook', () => {
     // replaced with a real report, that printed on EVERY Edit and Write.
     // Suppressing the report would hide genuine index faults; not running a
     // query against a structurally-absent table is the actual fix.
-    const Database = require('better-sqlite3');
     const db = new Database(dbPath);
     db.pragma('journal_mode = WAL');
     db.exec(`

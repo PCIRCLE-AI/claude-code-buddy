@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 export interface ProjectInfo {
     name: string;
     count: number;
@@ -10,5 +10,5 @@ export declare function extractProjectFromEntity(tags: string[] | null | undefin
     project: string | null;
     source: 'tag' | 'heuristic' | null;
 };
-export declare function computeProjects(db: Database.Database): ProjectInfo[];
+export declare function computeProjects(db: MemeshDatabase): ProjectInfo[];
 //# sourceMappingURL=projects.d.ts.map

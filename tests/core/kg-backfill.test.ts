@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 import {
   isTopicalTag,
   tokenizeName,
@@ -11,7 +11,6 @@ import {
   backfillRelations,
 } from '../../src/core/kg-backfill.js';
 
-const require = createRequire(import.meta.url);
 
 // Contract tests for the heuristic KG relation backfill introduced in
 // commit 746d60cf. Two rules are pinned here:
@@ -87,9 +86,7 @@ describe('kg-backfill integration', () => {
   let testDir: string;
   let dbPath: string;
   let prevDbPath: string | undefined;
-  // Use createRequire to import better-sqlite3 synchronously
-  let Database: ReturnType<typeof require>;
-  let db: InstanceType<typeof Database>;
+  let db: Database;
 
   beforeEach(async () => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-kg-backfill-test-'));
@@ -101,7 +98,6 @@ describe('kg-backfill integration', () => {
     try { closeDatabase(); } catch { /* nothing open */ }
     openDatabase();
     // Also open a direct better-sqlite3 handle for seeding
-    Database = require('better-sqlite3');
     db = new Database(dbPath);
   });
 

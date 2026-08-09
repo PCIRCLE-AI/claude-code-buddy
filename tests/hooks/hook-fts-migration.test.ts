@@ -21,6 +21,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 
 const require = createRequire(import.meta.url);
 // `fileURLToPath`, not `new URL(...).pathname` — the latter yields `/D:/...` on
@@ -144,8 +145,6 @@ describe('Feature: hooks migrate the keyword index too', () => {
     // is injected in-process rather than by killing anything: a trigger that
     // rejects the marker write aborts the transaction the rebuild runs in.
     stageOldIndex('資料庫遷移前一定要先備份');
-
-    const Database = require('better-sqlite3');
     const raw = new Database(dbPath);
     raw.exec(`
       CREATE TRIGGER block_marker BEFORE INSERT ON memesh_metadata

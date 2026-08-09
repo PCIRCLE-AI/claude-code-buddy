@@ -1,0 +1,1 @@
+{"version":3,"file":"vector-index.js","sourceRoot":"","sources":["../../src/storage/vector-index.ts"],"names":[],"mappings":"AAoCA,MAAM,UAAU,cAAc,CAAC,EAAkB;IAC/C,MAAM,GAAG,GAAG,EAAE;SACX,OAAO,CAAC,oEAAoE,CAAC;SAC7E,GAAG,EAAE,CAAC;IACT,OAAO,GAAG,KAAK,SAAS,CAAC;AAC3B,CAAC"}

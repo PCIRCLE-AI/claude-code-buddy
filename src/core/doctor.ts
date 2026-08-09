@@ -13,6 +13,7 @@ import { getInstallRecord } from './install-id.js';
 import { getDbPath, memeshDir, getProjectName } from './paths.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
 import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
+import { MemeshDatabase } from '../storage/sqlite.js';
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
 export type DoctorOverallStatus = 'PASS' | 'PASS_WITH_CONCERNS' | 'FAIL';
@@ -69,7 +70,7 @@ interface JsonObject {
 }
 
 /**
- * The slice of better-sqlite3 doctor uses, so tests can substitute a stub.
+ * The slice of the SQLite driver doctor uses, so tests can substitute a stub.
  *
  * `get` returns `unknown` and takes bind parameters. It used to be typed
  * `() => { c?: number }` — the shape of the one query that existed when it was
@@ -110,9 +111,9 @@ interface DoctorOptions {
   statSyncImpl?: typeof fs.statSync;
   fetchImpl?: typeof fetch;
   /**
-   * Test seam: probe better-sqlite3 by instantiating a Database. Default
-   * uses Node's resolver from packageRoot. Tests inject a stub to avoid
-   * hitting the real native module.
+   * Test seam: probe that a database opens and sqlite-vec loads. Default
+   * resolves sqlite-vec from packageRoot the way Node would; tests inject a
+   * stub so the check can be exercised without a real extension.
    */
   nativeBindingProbeImpl?: (packageRoot: string) => { ok: true } | { ok: false; message: string };
   /**
@@ -375,11 +376,37 @@ function inspectMcpConfig(
     );
   }
 
+  // Does the script it points at exist?
+  //
+  // This check used to stop at "there is a string `command`", which made it
+  // structurally unable to notice the one way this file actually breaks. When
+  // the MCP entry point was renamed, `.mcp.json` kept pointing at the old path
+  // and every MCP tool died with `-32000 failed to reconnect` — while doctor
+  // reported PASS, because the entry was still well-formed. A config that names
+  // a file that is not there is not a valid config.
+  const args = Array.isArray(server.args) ? server.args : [];
+  const entry = typeof args[0] === 'string' ? args[0] : null;
+  if (entry) {
+    // Claude Code substitutes ${CLAUDE_PLUGIN_ROOT} with the installed plugin
+    // directory, which is this package root.
+    const resolved = path.resolve(entry.replaceAll('${CLAUDE_PLUGIN_ROOT}', packageRoot));
+    if (!existsSyncImpl(resolved)) {
+      return createCheck(
+        'mcp-config',
+        'MCP config',
+        'fail',
+        `.mcp.json starts \`${entry}\`, and that file is not in this install — so every memesh MCP tool fails to start.`,
+        'Reinstall MeMesh; if you edited `.mcp.json` by hand, point it back at `${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js`.',
+        { code: 'mcp-config.entry-missing', params: { entry, resolved } },
+      );
+    }
+  }
+
   return createCheck(
     'mcp-config',
     'MCP config',
     'pass',
-    '.mcp.json is present and defines the memesh MCP server.',
+    '.mcp.json is present, defines the memesh MCP server, and the script it starts exists.',
   );
 }
 
@@ -754,20 +781,6 @@ function inspectHookActivity(
   }
 }
 
-/**
- * Probe `better-sqlite3`'s native binding directly. The JS wrapper at
- * `require('better-sqlite3')` always resolves once the package is
- * installed — but instantiating `new Database()` is what triggers
- * `bindings()`, which is where the missing `.node` file surfaces.
- *
- * The failure mode this catches: Claude Code's `/plugin install` runs
- * `npm install --ignore-scripts` (security default), which skips
- * better-sqlite3's `install` script that fetches/builds the prebuilt
- * binary AND skips memesh's own `postinstall-rebuild.mjs` safety net.
- * Result: JS files present, native binding missing, every hook silently
- * skip-and-exits without writing entities. Without this check, the bug
- * is invisible until a user notices "the dashboard is empty" days later.
- */
 function defaultResolveShellMemesh(): string | null {
   // Use `which` on POSIX and `where` on Windows. Both return the first
   // matching binary on PATH. Return null on any failure (not found,
@@ -788,24 +801,56 @@ function defaultResolveShellMemesh(): string | null {
   }
 }
 
+/**
+ * Can this runtime actually open a database with vector search?
+ *
+ * There is no native binding to miss any more — node:sqlite ships with Node —
+ * so this no longer probes better-sqlite3's `.node` file. What CAN still be
+ * absent is sqlite-vec, whose per-platform loadable extension arrives through
+ * `optionalDependencies`: on an unsupported platform npm installs nothing and
+ * says nothing, and recall quietly falls back to keyword-only search.
+ *
+ * So the probe opens an in-memory database and loads the extension — the same
+ * two steps `openDatabase` takes — rather than asserting that a file exists.
+ *
+ * No test-env seam here. An earlier version gated on `process.env.VITEST`,
+ * which was too permissive: anyone with VITEST exported in their shell got a
+ * green PASS on a broken install, the exact failure this exists to surface.
+ * Tests inject `nativeBindingProbeImpl` through runDoctor options instead.
+ */
+/**
+ * Marker the probe puts in its message when the RUNTIME, not the package, is
+ * the problem. Matched by `inspectNativeBinding` instead of pattern-matching a
+ * TypeError's wording, which changes between Node releases and belongs to
+ * nobody.
+ */
+const RUNTIME_TOO_OLD = 'memesh:node-sqlite-too-old';
+
 function defaultNativeBindingProbe(packageRoot: string): { ok: true } | { ok: false; message: string } {
-  // No test-env seam here. Earlier versions of this function gated on
-  // `process.env.VITEST === 'true'` to let test fixtures stub
-  // `node_modules/better-sqlite3` as an empty directory. That seam was
-  // too permissive: any user who happened to have VITEST exported in
-  // their shell (e.g. shared between projects) would silently bypass
-  // the binding probe and see a green PASS on a broken install — the
-  // exact failure mode this check exists to surface. Tests must inject
-  // `nativeBindingProbeImpl` explicitly via runDoctor options. Production
-  // code paths always exercise the real probe.
   try {
-    // ESM-safe createRequire (the doctor module is emitted as ESM by
-    // the project's tsconfig — bare `require` would throw
-    // "require is not defined").
-    const localRequire = createRequire(pathToFileURL(path.join(packageRoot, 'package.json')).href);
-    const Database = localRequire('better-sqlite3');
-    const probe = new Database(':memory:');
-    probe.close();
+    const probe = new MemeshDatabase(':memory:', { allowExtension: true });
+    try {
+      // Asked explicitly, because the alternative is a TypeError that reads
+      // like a package problem. `node:sqlite` exists from Node 22.5 but was
+      // behind `--experimental-sqlite`, and the extension methods only landed
+      // in 22.13 — so a user running 22.5–22.12 WITH that flag gets a handle
+      // whose `enableLoadExtension` is undefined. Left to the catch below,
+      // "probe.enableLoadExtension is not a function" matched neither
+      // classification branch and doctor told them to reinstall sqlite-vec,
+      // which cannot help: the fix is upgrading Node.
+      if (typeof probe.enableLoadExtension !== 'function') {
+        return { ok: false, message: `${RUNTIME_TOO_OLD}: node:sqlite in ${process.version} has no enableLoadExtension` };
+      }
+      probe.enableLoadExtension(true);
+      // Resolved from the package root so a hoisted install is found the way
+      // Node would find it at runtime, not relative to this compiled file.
+      const localRequire = createRequire(pathToFileURL(path.join(packageRoot, 'package.json')).href);
+      const sqliteVec = localRequire('sqlite-vec');
+      sqliteVec.load(probe);
+      probe.prepare('SELECT vec_version()').get();
+    } finally {
+      probe.close();
+    }
     return { ok: true };
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) };
@@ -924,7 +969,7 @@ export function inspectNodeRuntime(
 /**
  * Is `node:sqlite` importable in this runtime?
  *
- * Added in Node 22.5. Resolved rather than imported, so the check costs
+ * Added in Node 22.13 (behind a flag from 22.5). Resolved rather than imported, so the check costs
  * nothing and — importantly — does not trigger the `ExperimentalWarning`
  * that Node 22 prints to stderr on first use. Seven hooks parse process
  * output; a warning emitted by a diagnostic would be a regression caused by
@@ -944,56 +989,60 @@ function inspectNativeBinding(
   _existsSyncImpl: typeof fs.existsSync,
   probeImpl: (packageRoot: string) => { ok: true } | { ok: false; message: string } = defaultNativeBindingProbe,
 ): DoctorCheck {
-  // DO NOT pre-check `<packageRoot>/node_modules/better-sqlite3` for
-  // existence — npm hoists dependencies, so when memesh is installed as
-  // a dependency the better-sqlite3 directory lives at the consumer's
-  // top-level node_modules, not nested under memesh's packageRoot. The
-  // probe below uses Node's normal `require.resolve` which follows the
-  // resolution algorithm (current dir → parent → ancestor's node_modules)
-  // and correctly finds hoisted packages. If better-sqlite3 is genuinely
-  // not installed anywhere on the resolution path, `require()` throws
-  // MODULE_NOT_FOUND and the probe returns ok=false with that message,
-  // which we surface below with a clean reinstall instruction.
+  // DO NOT pre-check `<packageRoot>/node_modules/sqlite-vec` for existence —
+  // npm hoists, so when memesh is installed as a dependency that directory
+  // lives at the consumer's top-level node_modules. The probe uses Node's own
+  // resolution, which follows hoisting.
   const result = probeImpl(packageRoot);
   if (result.ok) {
     return createCheck(
       'native-binding',
-      'Native SQLite binding',
+      'SQLite and vector search',
       'pass',
-      'better-sqlite3 native binding loads cleanly (Database probe succeeded).',
+      'node:sqlite opened a database and sqlite-vec loaded (probe succeeded).',
     );
   }
-  const isMissingBinding = /bindings file|locate the bindings/i.test(result.message);
+  // The runtime is too old to use node:sqlite properly. Matched on the marker
+  // the probe sets, not on a TypeError's wording — that string belongs to Node
+  // and changes between releases.
+  if (result.message.startsWith(RUNTIME_TOO_OLD)) {
+    return createCheck(
+      'native-binding',
+      'SQLite and vector search',
+      'fail',
+      `The node:sqlite in this Node (${process.version}) is too old for memesh — it cannot load the vector-search extension. The complete version arrived in Node 22.13.`,
+      'Upgrade Node to 22.13 or newer, then re-run `memesh doctor`.',
+      { code: 'native-binding.node-too-old', params: { version: process.version } },
+    );
+  }
+
+  // Everything below is sqlite-vec, and sqlite-vec is a SUPPLEMENT: without it
+  // memesh still stores memories and still finds them by keyword, it just
+  // cannot search by meaning. So these are `warn`, not `fail`.
+  //
+  // The severity was inherited from the better-sqlite3 row, where a missing
+  // binding meant nothing was written at all. Left that way it would make
+  // `memesh doctor` exit 1 — breaking any CI step, container healthcheck or
+  // install script gating on it, and turning the dashboard banner red — on a
+  // platform this project documents as supported. The row's own words
+  // ("memories are still saved") contradicted the severity it carried.
   const isMissingPackage = /MODULE_NOT_FOUND|Cannot find module/i.test(result.message);
   if (isMissingPackage) {
     return createCheck(
       'native-binding',
-      'Native SQLite binding',
-      'fail',
-      'better-sqlite3 is not installed (Node could not resolve the module from any '
-        + 'parent node_modules). Memesh hooks and database operations will not work.',
-      `Run: npm install   (in the directory that depends on @pcircle/memesh)`,
+      'SQLite and vector search',
+      'warn',
+      'sqlite-vec is not installed, so memesh cannot search by meaning. Memories are still saved, and still found by keyword.',
+      'Run: npm install   (in the directory that depends on @pcircle/memesh)',
       { code: 'native-binding.not-installed' },
-    );
-  }
-  if (isMissingBinding) {
-    return createCheck(
-      'native-binding',
-      'Native SQLite binding',
-      'fail',
-      'better-sqlite3 is installed but the native binding (.node file) is missing. '
-        + 'Hooks will silently skip-and-exit, and auto-capture will NOT write any entities. '
-        + 'This is the plugin-marketplace silent-dropout class of bug.',
-      `Run: cd "${packageRoot}" && npm rebuild better-sqlite3   (or "npm install --omit=dev" for a clean reinstall)`,
-      { code: 'native-binding.missing', params: { root: packageRoot } },
     );
   }
   return createCheck(
     'native-binding',
-    'Native SQLite binding',
-    'fail',
-    `better-sqlite3 failed to load: ${result.message}`,
-    `Run: cd "${packageRoot}" && npm rebuild better-sqlite3`,
+    'SQLite and vector search',
+    'warn',
+    `sqlite-vec could not be loaded: ${result.message}. Memories are still saved and found by keyword; only search by meaning is off.`,
+    `Run: cd "${packageRoot}" && npm install --omit=dev`,
     { code: 'native-binding.load-failed', params: { detail: result.message, root: packageRoot } },
   );
 }

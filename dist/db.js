@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { MemeshDatabase } from './storage/sqlite.js';
 import * as sqliteVec from 'sqlite-vec';
 import path from 'path';
 import fs from 'fs';
@@ -93,7 +93,7 @@ export function openDatabase(dbPath) {
         fs.chmodSync(dir, 0o700);
     }
     catch { }
-    const opening = new Database(resolvedPath);
+    const opening = new MemeshDatabase(resolvedPath, { allowExtension: true });
     try {
         initialiseDatabase(opening, resolvedPath);
     }
@@ -160,9 +160,24 @@ function initialiseDatabase(db, resolvedPath) {
     ensureLlmTelemetryTable(db);
     runAutoTelemetryPrune(db);
     ensureFtsSegmentation(db);
-    sqliteVec.load(db);
-    const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
-    ensureVecTable(db, resolvedPath, targetDim, dimensionKnown);
+    let vectorIndexAvailable = true;
+    db.enableLoadExtension(true);
+    try {
+        sqliteVec.load(db);
+    }
+    catch (err) {
+        vectorIndexAvailable = false;
+        const detail = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`MeMesh: sqlite-vec could not be loaded (${detail}).\n` +
+            'MeMesh: recall will use FTS5 keyword search only. `memesh doctor` explains this row.\n');
+    }
+    finally {
+        db.enableLoadExtension(false);
+    }
+    if (vectorIndexAvailable) {
+        const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
+        ensureVecTable(db, resolvedPath, targetDim, dimensionKnown);
+    }
     return db;
 }
 export const FTS_SEGMENTATION_VERSION = 3;

@@ -7,7 +7,7 @@
 // (`memesh analytics --json`, MCP `analytics` tool) can call this
 // directly without re-implementing the SQL.
 
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 import type { CountRow, PragmaColumnRow } from './types.js';
 
 export interface HealthFactor {
@@ -81,7 +81,7 @@ export interface AnalyticsResult {
  * uses datetime() literals, so the function is safe to call repeatedly
  * without parameter binding.
  */
-export function computeAnalytics(db: Database.Database): AnalyticsResult {
+export function computeAnalytics(db: MemeshDatabase): AnalyticsResult {
   // --- Health Score ---
   const totalActive = (db.prepare(
     "SELECT COUNT(*) as c FROM entities WHERE status = 'active'",
@@ -298,7 +298,7 @@ export interface PmAnalyticsResult {
  * All reads; no LLM. windowDays controls the velocity lookback (default 30).
  */
 export function computePmAnalytics(
-  db: Database.Database,
+  db: MemeshDatabase,
   windowDays = 30,
 ): PmAnalyticsResult {
   const decisionsInWindow = (db.prepare(

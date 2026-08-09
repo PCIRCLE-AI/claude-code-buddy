@@ -16,7 +16,7 @@
 // Dates are spread over the last 30 days so the timeline / age-matrix
 // / phase-strip have meaningful structure to render.
 
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 
 export interface SeedResult {
@@ -133,7 +133,7 @@ export const DEMO_RELATIONS: Array<[from: string, type: string, to: string]> = [
 ];
 
 export function seedDemo(
-  db: Database.Database,
+  db: MemeshDatabase,
   opts: { reset?: boolean } = {},
 ): SeedResult {
   if (opts.reset) {

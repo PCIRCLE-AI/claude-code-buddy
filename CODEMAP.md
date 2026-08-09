@@ -13,7 +13,7 @@ for the public API surface see [`docs/api/API_REFERENCE.md`](docs/api/API_REFERE
 | You run… | Entry point |
 |---|---|
 | `memesh <cmd>` (CLI) | `src/transports/cli/cli.ts` |
-| `memesh-mcp` (MCP stdio server) | `src/mcp/launcher.ts` → `src/mcp/server.ts` → `src/transports/mcp/handlers.ts` |
+| `memesh-mcp` (MCP stdio server) | `src/mcp/server.ts` → `src/transports/mcp/handlers.ts` |
 | `memesh serve` (HTTP REST) | `src/transports/http/server.ts` |
 | `memesh` (dashboard) | `dashboard/src/App.tsx` (served from `dashboard/dist/index.html`) |
 | Claude Code hooks | `scripts/hooks/*.js` (wired in `hooks/hooks.json`) |
@@ -31,7 +31,7 @@ src/
 ├── knowledge-graph.ts  # Entity CRUD, relations, FTS5 search, access tracking
 ├── storage/         # conflicts.ts (detection) + fts-index.ts (contentless-FTS5 primitives)
 ├── transports/      # cli/ · http/ · mcp/ (+ schemas.ts = shared Zod validation)
-├── mcp/             # stdio server + launcher (NOTE: server lives here, handlers in transports/mcp/)
+├── mcp/             # stdio server (NOTE: server lives here, handlers in transports/mcp/)
 └── cli/             # view.ts + view-live.ts (dashboard fallback, NOT a transport)
 scripts/hooks/       # 7 Claude Code hooks + _shared.js (mirror of paths.ts, F5 boundary)
 dashboard/src/       # Preact + Vite dashboard (8 tabs)

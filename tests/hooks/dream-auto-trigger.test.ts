@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as cp from "child_process";
-import { createRequire } from "module";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { MemeshDatabase as Database } from "../../src/storage/sqlite.js";
 
 // Tests for the Stop hook dream auto-trigger added so the Insights tab
 // receives data without users running `memesh dream run` manually.
@@ -11,7 +11,6 @@ import os from "os";
 // decides — the spawned dream child is detached and its real LLM
 // behaviour is covered by the dreamer's own test suite.
 
-const require = createRequire(import.meta.url);
 
 describe("Feature: Stop-hook dream auto-trigger", () => {
   let testDir: string;
@@ -47,7 +46,6 @@ describe("Feature: Stop-hook dream auto-trigger", () => {
   }
 
   function seedEpisodicEntities(projectName: string, count: number): void {
-    const Database = require("better-sqlite3");
     const db = new Database(dbPath);
     db.exec(`
       CREATE TABLE IF NOT EXISTS entities (

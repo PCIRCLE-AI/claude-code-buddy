@@ -236,23 +236,12 @@ process.stdin.on('end', async () => {
     // (for embedding-aware recall-effectiveness tracking).
     // { fts: true } guarantees the entities_fts table exists so captureEntity()
     // can keep it in sync — session-insight memories must be FTS-recallable.
-    const handle = openHookDb(process.env, { fts: true });
-    if (!handle) {
-      // Native module unavailable (plugin-marketplace cache install with no
-      // node_modules). Skip session-capture work, but still let the
-      // auto-update tail below run — auto-update is a separate concern from
-      // session-capture, and a transient DB-availability blip should not
-      // mask a security-override patch upgrade. Throwing this sentinel
-      // routes through the existing catch, which already stderr-traces;
-      // execution then falls through to runAutoUpdateAtStop().
-      throw new Error('skip-session-capture: better-sqlite3 unavailable');
-    }
-    const { db } = handle;
-    // sqlite-vec is also a native module; same plugin-cache scenario applies
-    // (the cache tarball ships neither node_module). Resolve through a
-    // try/require here so a missing vec module degrades the same way as a
-    // missing better-sqlite3 instead of throwing into the outer catch as a
-    // bug-shaped error.
+    const { db } = openHookDb(process.env, { fts: true });
+    // sqlite-vec is a loadable extension shipped per-platform via
+    // optionalDependencies. It has no install script, so unlike the driver it
+    // used to sit beside it survives `--ignore-scripts` — but it is still
+    // absent on an unsupported platform, so resolve it through a try/require
+    // and degrade rather than throw a bug-shaped error into the outer catch.
     let sqliteVec;
     try {
       sqliteVec = require('sqlite-vec');
@@ -260,7 +249,9 @@ process.stdin.on('end', async () => {
       throw new Error('skip-session-capture: sqlite-vec unavailable');
     }
     try {
-      sqliteVec.load(db);
+      // node:sqlite gates extension loading; see src/db.ts for the same dance.
+      db.enableLoadExtension(true);
+      try { sqliteVec.load(db); } finally { db.enableLoadExtension(false); }
 
       // Duplicate detection: if we already captured this session, bail.
       //
@@ -503,8 +494,8 @@ process.stdin.on('end', async () => {
   } catch (err) {
     // Never crash Claude Code — leave a trace for debugging.
     // Suppress the expected "skip-session-capture" sentinel (raised when
-    // better-sqlite3 is unavailable in a marketplace-cache install). All
-    // other errors are real bugs and deserve a trace.
+    // sqlite-vec is unavailable, e.g. an unsupported platform). All other
+    // errors are real bugs and deserve a trace.
     if (!String(err?.message || '').startsWith('skip-session-capture:')) {
       try { process.stderr.write(`[memesh session-summary] ${err?.message || err}\n`); } catch {}
     }
@@ -650,11 +641,9 @@ function countEpisodicEntities(projectName) {
   let handle;
   try {
     handle = openHookDb();
-    // openHookDb returns null if better-sqlite3 isn't loadable;
-    // otherwise { db, dbPath }. Don't try to call db.prepare() on
-    // the wrapper itself (the previous version did and silently
-    // skipped the gate, defeating the trigger's whole purpose).
-    if (!handle?.db) return 0;
+    // { db, dbPath } — don't call db.prepare() on the wrapper itself (an
+    // earlier version did, and silently skipped the gate, defeating the
+    // trigger's whole purpose).
     const db = handle.db;
     const since = new Date(Date.now() - DREAM_WINDOW_DAYS * 86400000).toISOString();
     const types = DREAM_EPISODIC_TYPES.map(() => '?').join(',');

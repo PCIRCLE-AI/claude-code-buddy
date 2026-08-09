@@ -8,8 +8,8 @@
     },
     {
       "path": ".mcp.json",
-      "sha256": "f24a2a2da6a8f9d388ac50fd3108b50835123edd0c77e1c7bc936a16add0c3cb",
-      "bytes": 134
+      "sha256": "b3f72e0ed3ca2d34267f25f5f478d6f9e087f4058fcbf2e72a89759a3e324aad",
+      "bytes": 132
     },
     {
       "path": "hooks/hooks.json",
@@ -27,14 +27,19 @@
       "bytes": 3478
     },
     {
+      "path": "scripts/hooks/_generated/sqlite.js",
+      "sha256": "e03ec8e4268b4176d9947513a788ba99a22fbdf9326a6b6e1f978e4a2086f6e3",
+      "bytes": 2838
+    },
+    {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "8e2bc8082997e1da4eabc1c9cb9adb15bf24fad1ff00cc60a98f3bf4fbc86e70",
-      "bytes": 46487
+      "sha256": "feec0593ffc3d1703a632e76db8286c3ee94937326d1ac99c3f01c3e0b007824",
+      "bytes": 38949
     },
     {
       "path": "scripts/hooks/post-commit.js",
-      "sha256": "2c42b76e2ca44342c0be9375717813f910a2ec0a1a59548e5c3c3abab47d19fa",
-      "bytes": 5545
+      "sha256": "c45366f09afcd63c46a3fb1f482d17566db875186402febe8498d47062d1c5e3",
+      "bytes": 5232
     },
     {
       "path": "scripts/hooks/pre-bash-orchestration-nudge.js",
@@ -43,23 +48,23 @@
     },
     {
       "path": "scripts/hooks/pre-compact.js",
-      "sha256": "0ef046aab8de40f862465bd71e4833a3906f9d42fb58f85dc07e5d93e6625ad0",
-      "bytes": 7171
+      "sha256": "82af20a3fe07895ac7d35b40c8915ad94837c041e563e5053dd48556d89da4c4",
+      "bytes": 6968
     },
     {
       "path": "scripts/hooks/pre-edit-recall.js",
-      "sha256": "4c79ccabae3ef7d388f3cdf04247c8fe4df49679824fe51b77fa4f308aa0ea5a",
-      "bytes": 10345
+      "sha256": "682e65993ec3ca08be536b0f90781f4d51c7387eeb95207cbe8af6f16953665a",
+      "bytes": 10205
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "96c185001b9ea781e86cc77e1751621008d27ddbc81c8b277ec0ade1b7deb4d7",
-      "bytes": 44254
+      "sha256": "15a8ae7fff8343cd2c6dc192758837922f1f63d81b4681129e1c5060416aa3a0",
+      "bytes": 44313
     },
     {
       "path": "scripts/hooks/session-summary.js",
-      "sha256": "5105006b7045f24fdca1d2b7edc6c3a74c680a6c2e4fa45e7f8e263b0cc94f7a",
-      "bytes": 39695
+      "sha256": "43be347240b5a7233b064639ac48498abf6e4d03fd3ff91b79fbba1ae3257d7c",
+      "bytes": 39164
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",

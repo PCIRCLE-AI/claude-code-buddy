@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import Database from 'better-sqlite3';
+import { MemeshDatabase } from '../storage/sqlite.js';
 import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
@@ -27,7 +27,7 @@ function queryData(dbPath) {
     }
     let db;
     try {
-        db = new Database(dbPath, { readonly: true });
+        db = new MemeshDatabase(dbPath, { readOnly: true });
     }
     catch (err) {
         console.error(`[memesh-view] Cannot open database at ${dbPath}: ${err instanceof Error ? err.message : String(err)}`);

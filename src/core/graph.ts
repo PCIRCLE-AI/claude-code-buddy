@@ -2,16 +2,16 @@
 // Graph — entities + relations for the dashboard graph view
 // =============================================================================
 
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import type { Entity } from './types.js';
 import { NOISE_TYPES } from './analytics.js';
 
-export interface GraphRelation {
+export type GraphRelation = {
   from: string;
   to: string;
   type: string;
-}
+};
 
 export interface GraphResult {
   entities: Entity[];
@@ -20,7 +20,7 @@ export interface GraphResult {
   noiseTypes: string[];
 }
 
-export function computeGraph(db: Database.Database): GraphResult {
+export function computeGraph(db: MemeshDatabase): GraphResult {
   const kg = new KnowledgeGraph(db);
   const noiseList = Array.from(NOISE_TYPES);
   const placeholders = noiseList.map(() => '?').join(',');
