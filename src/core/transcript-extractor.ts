@@ -584,35 +584,51 @@ export async function extractMemoriesFromTranscript(
  * this related enough to surface"). Dedup asks "is this the SAME memory", which
  * is a much tighter bar, so it gets its own, tighter number.
  *
- * MEASURED, not guessed (scripts/calibrate-transcript-dedup.mjs, re-derived on
- * ollama nomic-embed-text — the embedder memesh now standardises on; L2 over the
- * exact runtime text `${name} ${obs.join(' ')}`):
+ * MEASURED ON A REAL KNOWLEDGE GRAPH, which is what changed this number.
  *
- *   DUPLICATE pairs (same memory, reworded)   n=10  min 0.401  p50 0.530  p75 0.655  max 0.723
- *   DISTINCT pairs  (SAME domain, diff fact)  n=10  min 0.668  p50 0.827  p75 0.858  max 0.987
+ * The first derivation used a synthetic fixture of 10 hand-written duplicate
+ * pairs and 10 hand-written distinct pairs. It put the false-positive cliff at
+ * 0.668 and chose 0.55 as a conservative 0.118 below it. The fixture was wrong
+ * about the cliff, and the comment said so at the time — "surface to a human
+ * before trusting this".
  *
- * The two classes OVERLAP at the boundary (the loosest paraphrases reach 0.723,
- * above the hardest distinct pair at 0.668) — there is NO clean gap. That is
- * expected: the distinct pairs are HARD negatives (same topic, different fact),
- * and their floor (0.668) is the false-positive cliff.
+ * Re-measured 2026-08-09 against a live graph (214 active entities, 47 of them
+ * transcript-mined memories a human had reviewed and ACCEPTED), embedding every
+ * entity through the same ollama nomic-embed-text call the runtime makes, on the
+ * same `${name} ${obs.join(' ')}` text `findDuplicateEntity` uses:
  *
- * 0.55 is chosen CONSERVATIVELY, below that floor with a 0.118 margin, because a
- * false positive (silently dropping a genuinely new memory) is invisible data
- * loss and strictly worse than a false negative (re-proposing a duplicate, which
- * a human rejects in one keystroke). At 0.55 the fixture catches 5/10 duplicate
- * rewordings (the near-exact cluster ≤ 0.53) and 0/10 distinct pairs. The stated
- * gap — re-running the SAME session — produces IDENTICAL candidate text, distance
- * ~0, caught at any threshold > 0; everything above ~0 only buys paraphrase-
- * catching, which is exactly where the false-positive risk lives, so we stay
- * tight and leave the ambiguous overlap tail (0.66–0.72) to human review.
+ *   accepted transcript memory -> nearest existing entity
+ *     min 0.446   p5 0.506   p25 0.621   p50 0.697   max 0.838
  *
- * CAVEAT (surface to a human before trusting this for paraphrase dedup): the
- * fixture is synthetic and the classes overlap at the boundary, so this number
- * reliably catches only near-identical / clear duplicates (and all exact
- * re-runs). It coincides with the old MiniLM value, but here it is the nomic
- * measurement, not an inherited number. Re-derive it if the embedder changes.
+ * At 0.55 that drops 6 of 47 — 13% of the memories a human chose to keep,
+ * silently. And the closest pair it drops is not a duplicate at all:
+ *
+ *   0.446  "data_seeding_integrity"  ~  "graph_relation_integrity"   DISTINCT
+ *   0.506  "audit-baseline-metadata" ~  "audit_baseline_structure"   arguable
+ *   0.527  "auto-update-cache-population" ~ "auto-populate-update-cache"  DUPLICATE
+ *
+ * So the real false-positive floor is 0.446, not 0.668 — the synthetic fixture
+ * overstated it by 0.22, and 0.55 sat ABOVE the real floor rather than below it.
+ * The two classes overlap on real data in roughly 0.44…0.53, exactly as the
+ * fixture warned they might; a single distance cannot separate them.
+ *
+ * 0.44 keeps the choice already made — a false positive is invisible data loss
+ * and strictly worse than re-proposing a duplicate, which a human rejects in one
+ * keystroke — and anchors it to the measured floor instead of a guessed one. It
+ * still catches the case this exists for: re-running the SAME session produces
+ * identical candidate text at distance ~0.
+ *
+ * Two things to know before re-deriving:
+ *   - Measure in the `name + observations` space. A graph whose vectors were
+ *     last written by an older `reindex` holds observations-only vectors (KT's
+ *     did, 25 of 25 sampled), and distances measured there describe a space the
+ *     dedup path does not use. Run `memesh reindex` first.
+ *   - Measure against ACCEPTED memories, not a global nearest-neighbour sweep.
+ *     The global figure is dominated by formulaic `commit-*` and `session-*`
+ *     families that cluster at 0.135 and that no transcript candidate resembles
+ *     (nothing closer than 0.78). It says 44% where the real answer is 13%.
  */
-export const TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.55;
+export const TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.44;
 
 /** A candidate that was skipped because it near-duplicates an existing entity —
  * reported (never a silent drop) so a reviewer can audit WHICH memory the dedup

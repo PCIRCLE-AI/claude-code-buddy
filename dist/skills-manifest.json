@@ -63,8 +63,8 @@
     },
     {
       "path": "scripts/hooks/session-summary.js",
-      "sha256": "43be347240b5a7233b064639ac48498abf6e4d03fd3ff91b79fbba1ae3257d7c",
-      "bytes": 39164
+      "sha256": "e992ecee16bb0edf72c04ee3428a52fe12e78822317b817baf10a3d7c1cc45c0",
+      "bytes": 40101
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",

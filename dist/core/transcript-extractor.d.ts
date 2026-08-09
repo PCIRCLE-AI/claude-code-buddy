@@ -29,7 +29,7 @@ export interface ExtractResult {
     truncatedTurns: number;
 }
 export declare function extractMemoriesFromTranscript(transcriptPath: string, llm: LLMConfig, opts?: ExtractOptions): Promise<ExtractResult>;
-export declare const TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.55;
+export declare const TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.44;
 export interface DuplicateHit {
     candidateName: string;
     matchedEntityName: string;

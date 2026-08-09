@@ -18,16 +18,22 @@
 // and applyTranscriptProposal use this) — so the measured quantity is the one
 // findDuplicateEntity actually computes, via dist/core/embedder.js.
 //
-// PROVENANCE / STATUS: TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.55 was first derived
-// here on the local ONNX MiniLM-L6 embedder memesh used to ship. That embedder
-// has been removed; memesh now standardises on ollama (nomic-embed-text), and
-// 0.55 has since been RE-DERIVED on nomic — the classes overlap (dup 0.401…0.723,
-// distinct floor 0.668), so 0.55 sits conservatively below the false-positive
-// cliff (0.118 margin). The number happens to match the old MiniLM value but is
-// now the nomic measurement, recorded in the constant's comment in
-// src/core/transcript-extractor.ts. This script runs against whatever embedder
-// is configured, so re-running it produces numbers for THAT model — re-derive if
-// the embedder changes again.
+// PROVENANCE / STATUS: this script's SYNTHETIC fixture is no longer what the
+// shipped threshold comes from, and the reason is worth keeping.
+//
+// It derived 0.55 twice — once on the old ONNX MiniLM embedder, once on ollama
+// nomic — from 10 hand-written duplicate pairs and 10 hand-written distinct
+// pairs, putting the false-positive cliff at 0.668. Measured against a real
+// graph on 2026-08-09 (214 entities, 47 human-accepted transcript memories) the
+// real floor was 0.446: the fixture overstated it by 0.22, and 0.55 sat ABOVE
+// the real cliff, dropping 13% of memories a human had chosen to keep.
+//
+// TRANSCRIPT_DEDUP_MAX_DISTANCE is now 0.44, derived from that live measurement
+// and recorded in the constant's comment in src/core/transcript-extractor.ts.
+// This script is still useful for comparing EMBEDDERS on a fixed fixture, but a
+// hand-written fixture cannot tell you where a real corpus puts the boundary —
+// real memories are formulaic and cluster far tighter than invented ones. Derive
+// the shipped number from a real graph.
 //
 // Run:  configure ollama (or an openai key), then:
 //         npm run build && node scripts/calibrate-transcript-dedup.mjs
@@ -223,5 +229,5 @@ if (gap > 0) {
   console.log(`    Do NOT derive a threshold from the gap — it would sit at/above the`);
   console.log(`    distinct floor (${distinctS.min.toFixed(3)}) and start dropping NEW memories.`);
   console.log(`    Hand-pick a value clearly BELOW ${distinctS.min.toFixed(3)} that catches only`);
-  console.log(`    exact/near-exact re-runs (the shipped 0.55 was chosen this way).`);
+  console.log(`    exact/near-exact re-runs. The SHIPPED threshold is no longer chosen from this fixture — see the header.`);
 }

@@ -3,6 +3,22 @@
 // Session Auto-Capture — Stop hook
 // Extracts knowledge from completed Claude Code sessions
 // and stores as session-insight entities in MeMesh.
+//
+// THIS HOOK STAYS, and that was an open question rather than an assumption.
+// `dream run --from-transcripts` reads the same sessions from their raw JSONL
+// and does not depend on this hook having fired, so the obvious next step was
+// to retire the hook as redundant. Measured first, on a real graph
+// (2026-08-09, 214 active entities, ollama nomic-embed-text, L2 over the same
+// `name + observations` text the runtime embeds):
+//
+//   every transcript-mined memory -> its nearest hook-captured entity
+//     min 0.784   p25 0.821   p50 0.865   max 0.946
+//     within 0.55: 0 of 47.   within 0.70: 0 of 47.
+//
+// Nothing the transcript miner produced came within 0.78 of anything this hook
+// recorded. They are not two views of the same material: this hook records what
+// HAPPENED (files touched, commands run, commits), the miner extracts what was
+// DECIDED and what was LEARNED. Retiring either one loses a whole category.
 
 import { createRequire } from 'module';
 import { basename, join } from 'path';

@@ -4,6 +4,20 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Transcript mining no longer throws away memories that are not duplicates.**
+  The near-duplicate cut-off was `0.55`, derived from a fixture of twenty
+  hand-written pairs which put the false-positive boundary at `0.668`. Measured
+  against a real knowledge graph instead — 214 entities, including 47
+  transcript-mined memories a human had reviewed and accepted — the real
+  boundary is `0.446`: `0.55` sat *above* it and would have silently dropped 6
+  of those 47, including a pair that is plainly two different facts. Invented
+  examples are further apart than real memories, which are formulaic and cluster
+  tightly. The cut-off is now `0.44`, taken from the measurement, and the
+  calibration script says in its header that a synthetic fixture is not where
+  the shipped number comes from.
+
 ### Changed
 
 - **The supported Node floor is now `>=22.13.0`** (was `>=22.5.0`). `node:sqlite`
