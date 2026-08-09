@@ -72,7 +72,7 @@ import { getProjectName } from './paths.js';
 import { extractJsonBlock } from './json-utils.js';
 import type { ExtractedMemory } from './extractor.js';
 import { scanTranscripts } from './transcript-source.js';
-import { embedText, vectorSearch, isEmbeddingAvailable } from './embedder.js';
+import { embedText, vectorSearch, isEmbeddingAvailable, entityEmbedText } from './embedder.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 
 // Distinct from dreamer.ts's PROMPT_VERSION ('v1'): two different prompts must
@@ -613,19 +613,6 @@ export async function extractMemoriesFromTranscript(
  * measurement, not an inherited number. Re-derive it if the embedder changes.
  */
 export const TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.55;
-
-/**
- * The exact text an entity vector is built from. remember() (operations.ts) and
- * the transcript-accept path (applyTranscriptProposal) both embed
- * `${name} ${observations.join(' ')}`, so a candidate must be embedded the same
- * way or the measured threshold describes a quantity the runtime never computes.
- * (reindex embeds observations-only — a pre-existing inconsistency in
- * operations.ts, out of scope here; entities embedded ONLY via reindex may not
- * dedup cleanly until that is unified.)
- */
-export function entityEmbedText(name: string, observations: string[]): string {
-  return `${name} ${observations.join(' ')}`;
-}
 
 /** A candidate that was skipped because it near-duplicates an existing entity —
  * reported (never a silent drop) so a reviewer can audit WHICH memory the dedup

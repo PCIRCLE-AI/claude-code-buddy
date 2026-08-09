@@ -15,7 +15,7 @@ import { KnowledgeGraph } from '../knowledge-graph.js';
 import { rankEntities } from './scoring.js';
 import { getProjectName } from './paths.js';
 import { createExplicitLesson } from './lesson-engine.js';
-import { embedAndStore, isEmbeddingAvailable, embedText, scheduleEmbedAndStore, vectorSearch, vectorSimilarity, MAX_VECTOR_DISTANCE } from './embedder.js';
+import { embedAndStore, isEmbeddingAvailable, embedText, entityEmbedText, scheduleEmbedAndStore, vectorSearch, vectorSimilarity, MAX_VECTOR_DISTANCE } from './embedder.js';
 import type { EmbedOutcome } from './embedder.js';
 import { autoTagAndApply } from './auto-tagger.js';
 import { detectCapabilities } from './config.js';
@@ -130,8 +130,7 @@ export function remember(args: RememberInput): RememberResult {
 
   // Fire-and-forget: generate embedding asynchronously (don't block sync remember)
   if (isEmbeddingAvailable() && args.observations?.length) {
-    const text = `${args.name} ${args.observations.join(' ')}`;
-    scheduleEmbedAndStore(entityId, text);
+    scheduleEmbedAndStore(entityId, entityEmbedText(args.name, args.observations));
   }
 
   // Fire-and-forget: auto-generate tags if none provided and LLM is configured
@@ -548,19 +547,26 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
       continue;
     }
 
-    // Concatenate all observations as embedding text
-    const text = fullEntity.observations.join(' ');
-
     // An entity with nothing but whitespace can never produce a vector, and
     // `countMissingVectors` already excludes it from what the database is owed.
     // Recognising it HERE too is what keeps the two halves of the verdict
     // asking the same question: without this the entity comes back as a
     // provider failure, and once failures block the flag that would leave
     // `pending_reindex` set forever for work nobody can do.
-    if (text.trim() === '') {
+    //
+    // The question is asked of the OBSERVATIONS alone, deliberately. The text
+    // embedded below now carries the name too, and a name is never blank — so
+    // testing the embedded text would answer "yes, embeddable" for every
+    // entity, quietly re-owing exactly the rows `countMissingVectors` excludes.
+    if (fullEntity.observations.join('').trim() === '') {
       outcomes.nothing_to_embed++;
       continue;
     }
+
+    // Same text every other writer embeds — see entityEmbedText. This used to
+    // be observations-only, which made an entity's vector depend on whether
+    // remember() or reindex() wrote it last.
+    const text = entityEmbedText(fullEntity.name, fullEntity.observations);
 
     try {
       outcomes[await embedAndStore(entity.id, text)]++;
