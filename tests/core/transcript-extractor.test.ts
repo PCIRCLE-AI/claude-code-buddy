@@ -560,7 +560,7 @@ describe('transcript-extractor: orchestrator end-to-end', () => {
     );
 
     // Injected embedder places the extracted candidate 0.30 from the accepted
-    // entity — inside TRANSCRIPT_DEDUP_MAX_DISTANCE (0.55) — and, being present,
+    // entity — inside TRANSCRIPT_DEDUP_MAX_DISTANCE (0.44) — and, being present,
     // flips the widened gate ON. That gate line is what this test exists to cover.
     const cosFor = (d: number) => 1 - (d * d) / 2;
     const embed = async () => unitVec(cosFor(0.30));
@@ -712,17 +712,22 @@ describe('transcript-extractor: B3 vector dedup (findDuplicateEntity)', () => {
 
   it('conservative bias: a BORDERLINE pair just beyond the threshold is treated as distinct (staged, not dropped)', async () => {
     await seedEntity('existing-memory', 'project:memesh', 1.0);
-    // 0.60 sits just ABOVE the 0.55 cut — the false-negative side. It must be
+    // 0.50 sits just ABOVE the 0.44 cut — the false-negative side. It must be
     // STAGED (null), never silently dropped: re-proposing a maybe-dup is the
-    // safe error, dropping a maybe-new-memory is not.
-    const borderline = async () => unitVec(cosFor(0.60));
+    // safe error, dropping a maybe-new-memory is not. It is also inside the
+    // 0.44…0.53 band where real duplicates and real distinct memories overlap,
+    // which is exactly the region a human, not a number, should judge.
+    const borderline = async () => unitVec(cosFor(0.50));
     expect(await findDuplicateEntity(db, candidate, 'memesh', { embed: borderline })).toBeNull();
-    // And a pair just BELOW the cut is caught — proving 0.60 was rejected by the
+    // And a pair just BELOW the cut is caught — proving 0.50 was rejected by the
     // threshold, not by a broken query.
-    const justInside = async () => unitVec(cosFor(0.50));
+    const justInside = async () => unitVec(cosFor(0.40));
     expect(await findDuplicateEntity(db, candidate, 'memesh', { embed: justInside })).not.toBeNull();
     // Guard the documented constant so a silent bump can't widen the drop zone.
-    expect(TRANSCRIPT_DEDUP_MAX_DISTANCE).toBe(0.55);
+    // 0.44 is the measured false-positive floor on a real graph — see the
+    // constant's comment. It was 0.55, taken from a synthetic fixture that put
+    // the floor 0.22 too high.
+    expect(TRANSCRIPT_DEDUP_MAX_DISTANCE).toBe(0.44);
   });
 
   it('does NOT treat another project\'s entity as a duplicate (entities_vec is one table for the whole DB)', async () => {

@@ -274,7 +274,7 @@ export async function extractMemoriesFromTranscript(transcriptPath, llm, opts = 
     }
     return result;
 }
-export const TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.55;
+export const TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.44;
 export async function findDuplicateEntity(db, candidate, projectLabel, deps = {}) {
     const embed = deps.embed ?? embedText;
     const search = deps.vectorSearch ?? vectorSearch;
