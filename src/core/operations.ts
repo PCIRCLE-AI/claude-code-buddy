@@ -383,6 +383,7 @@ export function forget(args: ForgetInput): ForgetResult {
       name: args.name,
       observation: args.observation,
       remaining_observations: result.remainingObservations,
+      entity_found: result.entityFound,
     };
   }
 

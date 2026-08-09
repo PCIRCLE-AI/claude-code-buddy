@@ -439,7 +439,16 @@ function handlePost<T>(
     });
     return;
   }
-  Promise.resolve(handler(parsed.data))
+  // `Promise.resolve().then(() => handler(...))`, not
+  // `Promise.resolve(handler(...))`. The second form CALLS the handler before
+  // the promise exists, so a SYNCHRONOUS throw escapes past the `.catch` below
+  // and lands in Express's default error handler — which answers with an HTML
+  // page. Measured: `POST /v1/verify` with a non-existent workdir returned
+  // `500 text/html` carrying a stack trace and the absolute install path, to a
+  // client that every other route has taught to expect JSON. `handleGet`
+  // already uses this shape; this one did not.
+  Promise.resolve()
+    .then(() => handler(parsed.data))
     .then((data) => res.json({ success: true, data }))
     .catch((err: unknown) => res.status(400).json({ success: false, errorCode: 'operation.failed' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) }));
 }
@@ -1243,14 +1252,38 @@ export function startServer(
   const server = app.listen(port, host, () => {
     // F15: Show actual bound address, not the input parameter. When port=0
     // (random port), the input shows "http://127.0.0.1:0" which is confusing.
+    //
+    // There is no `else` branch any more, and its absence is the fix. It
+    // printed the REQUESTED host:port whenever `server.address()` came back
+    // null — which is exactly what happens when the bind failed. Measured: with
+    // another process holding the port, `memesh serve` printed
+    // "running at http://127.0.0.1:3972", printed the dashboard URL, and exited
+    // 0. The user opens that URL and sees somebody else's knowledge graph, with
+    // nothing anywhere saying why, and any supervisor or CI step records a
+    // successful start. Announcing a server we did not bind is worse than
+    // saying nothing.
     const addr = server.address();
     if (addr && typeof addr === 'object') {
       console.log(`MeMesh HTTP server running at http://${addr.address}:${addr.port}`);
       console.log(`MeMesh dashboard: http://${addr.address}:${addr.port}/dashboard`);
-    } else {
-      console.log(`MeMesh HTTP server running at http://${host}:${port}`);
-      console.log(`MeMesh dashboard: http://${host}:${port}/dashboard`);
     }
+  });
+
+  // And the reason the bind failed has to reach the user. Without this there
+  // was no 'error' listener at all, so Node's default took over — the process
+  // died (or, worse, the callback above had already claimed success).
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    const where = `${host}:${port}`;
+    if (err.code === 'EADDRINUSE') {
+      console.error(`MeMesh: cannot start — ${where} is already in use.`);
+      console.error(`MeMesh: stop whatever is listening there, or pick another port with --port <n>.`);
+    } else if (err.code === 'EACCES') {
+      console.error(`MeMesh: cannot start — not permitted to bind ${where}.`);
+      console.error(`MeMesh: ports below 1024 need elevated privileges; pick a port above 1024 with --port <n>.`);
+    } else {
+      console.error(`MeMesh: cannot start on ${where} — ${err.message}`);
+    }
+    process.exit(1);
   });
   // Tag this listener as auth-required-or-not. bearerAuth reads this
   // back via `req.socket.server` so the requirement is per-listener,

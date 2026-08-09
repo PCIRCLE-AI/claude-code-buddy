@@ -925,12 +925,17 @@ export class KnowledgeGraph {
   removeObservation(
     entityName: string,
     observationContent: string
-  ): { removed: boolean; remainingObservations: number } {
+  ): { removed: boolean; remainingObservations: number; entityFound: boolean } {
     const row = this.db
       .prepare('SELECT id FROM entities WHERE name = ?')
       .get(entityName) as { id: number } | undefined;
 
-    if (!row) return { removed: false, remainingObservations: 0 };
+    // `entityFound` exists because "no such entity" and "that text does not
+    // match any observation" are different problems with opposite next steps,
+    // and the caller could not tell them apart: both arrived as
+    // `removed: false`, and the CLI printed "Entity not found" for the second
+    // one — sending the user to re-create a memory that was sitting right there.
+    if (!row) return { removed: false, remainingObservations: 0, entityFound: false };
 
     const prevObs = this.db
       .prepare('SELECT content FROM observations WHERE entity_id = ?')
@@ -942,7 +947,7 @@ export class KnowledgeGraph {
       .run(row.id, observationContent);
 
     if (deleteResult.changes === 0) {
-      return { removed: false, remainingObservations: prevObs.length };
+      return { removed: false, remainingObservations: prevObs.length, entityFound: true };
     }
 
     this.rebuildFts(row.id, entityName, prevObsText);
@@ -951,7 +956,7 @@ export class KnowledgeGraph {
       .prepare('SELECT COUNT(*) as c FROM observations WHERE entity_id = ?')
       .get(row.id) as { c: number };
 
-    return { removed: true, remainingObservations: remaining.c };
+    return { removed: true, remainingObservations: remaining.c, entityFound: true };
   }
 
   /**

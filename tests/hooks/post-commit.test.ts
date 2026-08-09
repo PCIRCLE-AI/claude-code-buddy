@@ -27,11 +27,48 @@ type Row = {
 describe('Feature: Post-Commit Hook', () => {
   let testDir: string;
   let dbPath: string;
+  let repoDir: string;
 
   beforeEach(() => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-hook-test-'));
     dbPath = path.join(testDir, 'test.db');
+
+    // A REAL git repository, because the hook now refuses a hash it cannot
+    // find in the repo it was told about. These tests used to pass a made-up
+    // `cwd` and a made-up hash and assert that a memory was written — which is
+    // precisely the defect the P7 audit caught: `cat`-ing a changelog whose
+    // text contained a commit line produced a permanent memory for a commit
+    // that never existed. The old fixture encoded the bug as the contract.
+    repoDir = path.join(testDir, 'repo');
+    fs.mkdirSync(repoDir);
+    git(['init', '-q', '-b', 'main']);
+    git(['config', 'user.email', 'test@example.com']);
+    git(['config', 'user.name', 'Test']);
+    git(['config', 'commit.gpgsign', 'false']);
   });
+
+  function git(args: string[]): string {
+    return execFileSync('git', ['-C', repoDir, ...args], { encoding: 'utf8', timeout: 15000 });
+  }
+
+  /**
+   * Make a real commit and hand back exactly what git printed, so the hook is
+   * fed the same text a user's terminal would show.
+   */
+  function commit(message: string, branch = 'main'): { hash: string; output: string } {
+    if (branch !== 'main') git(['checkout', '-q', '-b', branch]);
+    const file = path.join(repoDir, `f${Date.now()}${Math.round(performance.now())}.txt`);
+    fs.writeFileSync(file, 'content\n');
+    git(['add', '-A']);
+    const output = git(['commit', '-q', '-m', message, '--no-verify']) || '';
+    const hash = git(['rev-parse', '--short', 'HEAD']).trim();
+    const isFirst = git(['rev-list', '--count', 'HEAD']).trim() === '1';
+    // git's own line shape, including the (root-commit) note on the first one.
+    const line = isFirst
+      ? `[${branch} (root-commit) ${hash}] ${message}`
+      : `[${branch} ${hash}] ${message}`;
+    return { hash, output: output + line + '\n 1 file changed, 1 insertion(+)\n' };
+  }
 
   afterEach(() => {
     fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
@@ -53,39 +90,41 @@ describe('Feature: Post-Commit Hook', () => {
   }
 
   it('Scenario: a repo FIRST commit (root-commit note) -> entity created', () => {
+    const c = commit('feat(auth): add PKCE flow');
     // git prints `[master (root-commit) 32e98b8] ...` for the first commit of
     // every repository, and the old pattern required branch-then-hash with
     // nothing between — so no repo's first commit was ever remembered, with
     // zero trace. Measured live in the P7 audit.
     const input = {
       tool_name: 'Bash',
-      cwd: '/tmp/myproject',
+      cwd: repoDir,
       tool_input: { command: 'git commit -m "feat(auth): add PKCE flow"' },
-      tool_output: '[master (root-commit) 32e98b8] feat(auth): add PKCE flow\n 2 files changed, 40 insertions(+)',
+      tool_output: c.output,
     };
 
     runHook(input);
 
     const db = openDb();
-    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-32e98b8') as Row;
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get(`commit-${c.hash}`) as Row;
     db.close();
     expect(entity, 'the first commit of a repository must be remembered like any other').toBeTruthy();
     expect(entity.type).toBe('commit');
   });
 
   it('Scenario: Bash output with git commit -> entity created', () => {
+    const c = commit('fix: resolve login bug');
     const input = {
       tool_name: 'Bash',
-      cwd: '/tmp/myproject',
+      cwd: repoDir,
       tool_input: { command: 'git commit -m "fix: resolve login bug"' },
-      tool_output: '[main abc1234] fix: resolve login bug\n 2 files changed, 15 insertions(+), 3 deletions(-)',
+      tool_output: c.output,
     };
 
     runHook(input);
 
     // Verify entity was created
     const db = openDb();
-    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-abc1234') as Row;
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get(`commit-${c.hash}`) as Row;
     expect(entity).toBeTruthy();
     expect(entity.type).toBe('commit');
 
@@ -95,7 +134,7 @@ describe('Feature: Post-Commit Hook', () => {
     expect(obs.content).toBe('fix: resolve login bug');
 
     // Verify tag
-    const tag = db.prepare('SELECT * FROM tags WHERE entity_id = ? AND tag = ?').get(entity.id, 'project:myproject') as Row;
+    const tag = db.prepare('SELECT * FROM tags WHERE entity_id = ? AND tag = ?').get(entity.id, 'project:repo') as Row;
     expect(tag).toBeTruthy();
 
     // Verify FTS
@@ -105,10 +144,55 @@ describe('Feature: Post-Commit Hook', () => {
     db.close();
   });
 
+  it('Scenario: output that LOOKS like a commit, from a command that was not one -> nothing written', () => {
+    // The P7 defect, pinned. Reading a changelog whose text happens to contain
+    // git's `[branch hash] message` line used to write a permanent memory for a
+    // commit that never existed — the hook matched on the OUTPUT and never
+    // looked at the command. Reproduced before the fix: a payload whose command
+    // was `cat docs/release-notes.md` produced entity `commit-9f3c2a1`, for a
+    // hash `git cat-file -t` rejects.
+    runHook({
+      tool_name: 'Bash',
+      cwd: repoDir,
+      tool_input: { command: 'cat docs/release-notes.md' },
+      tool_response: { stdout: '[main 9f3c2a1] fix(db): drop the vec table\n' },
+    });
+    expect(fs.existsSync(dbPath), 'a fabricated commit was written to the graph').toBe(false);
+  });
+
+  it('Scenario: a REAL commit line, echoed by a command that was not a commit -> nothing written', () => {
+    // Separates the two guards. The hash here genuinely exists in this repo, so
+    // the existence check cannot be what rejects it — only the command check
+    // can. Without this, removing the command check still passed, because the
+    // fabricated-hash test was being killed by the other guard.
+    const c = commit('a real commit, quoted later');
+    runHook({
+      tool_name: 'Bash',
+      cwd: repoDir,
+      tool_input: { command: 'git log --oneline -1' },
+      tool_response: { stdout: c.output },
+    });
+    expect(fs.existsSync(dbPath), 'quoting a real commit line was enough to write a memory').toBe(false);
+  });
+
+  it('Scenario: a git commit for a hash that is not in THIS repo -> nothing written', () => {
+    // The second half of the same guard. The command is a real `git commit`,
+    // but the hash belongs to some other repository — which is what a copied
+    // terminal line, or a commit in a sibling checkout, looks like. Writing it
+    // would file a real-looking memory against the wrong project.
+    runHook({
+      tool_name: 'Bash',
+      cwd: repoDir,
+      tool_input: { command: 'git commit -m "from somewhere else"' },
+      tool_response: { stdout: '[main 0123abc] from somewhere else\n' },
+    });
+    expect(fs.existsSync(dbPath), 'a commit from another repo was written').toBe(false);
+  });
+
   it('Scenario: Bash output without git commit -> no entity created', () => {
     const input = {
       tool_name: 'Bash',
-      cwd: '/tmp/myproject',
+      cwd: repoDir,
       tool_input: { command: 'ls -la' },
       tool_output: 'total 32\ndrwxr-xr-x  5 user  staff  160 Jan  1 00:00 .',
     };
@@ -122,7 +206,7 @@ describe('Feature: Post-Commit Hook', () => {
   it('Scenario: Non-Bash tool -> exits cleanly without action', () => {
     const input = {
       tool_name: 'Read',
-      cwd: '/tmp/myproject',
+      cwd: repoDir,
       tool_input: { file_path: '/tmp/test.txt' },
       tool_output: 'file contents',
     };
@@ -132,37 +216,39 @@ describe('Feature: Post-Commit Hook', () => {
   });
 
   it('Scenario: Database does not exist -> creates it and stores commit', () => {
+    const c = commit('initial commit');
     expect(fs.existsSync(dbPath)).toBe(false);
 
     const input = {
       tool_name: 'Bash',
-      cwd: '/tmp/newproject',
+      cwd: repoDir,
       tool_input: { command: 'git commit -m "initial commit"' },
-      tool_output: '[main def5678] initial commit\n 1 file changed, 1 insertion(+)',
+      tool_output: c.output,
     };
 
     runHook(input);
 
     expect(fs.existsSync(dbPath)).toBe(true);
     const db = openDb();
-    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-def5678') as Row;
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get(`commit-${c.hash}`) as Row;
     expect(entity).toBeTruthy();
     expect(entity.type).toBe('commit');
     db.close();
   });
 
   it('Scenario: Branch name with slashes -> commit detected correctly', () => {
+    const c = commit('feat: add feature', 'feature/v3-hooks');
     const input = {
       tool_name: 'Bash',
-      cwd: '/tmp/myproject',
+      cwd: repoDir,
       tool_input: { command: 'git commit -m "feat: add feature"' },
-      tool_output: '[feature/v3-hooks 9a8b7c6] feat: add feature\n 3 files changed',
+      tool_output: c.output,
     };
 
     runHook(input);
 
     const db = openDb();
-    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-9a8b7c6') as Row;
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get(`commit-${c.hash}`) as Row;
     expect(entity).toBeTruthy();
     const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ?').get(entity.id) as Row;
     expect(obs.content).toBe('feat: add feature');
@@ -170,18 +256,19 @@ describe('Feature: Post-Commit Hook', () => {
   });
 
   it('Scenario: Duplicate commit -> no duplicate entities', () => {
+    const c = commit('same commit');
     const input = {
       tool_name: 'Bash',
-      cwd: '/tmp/myproject',
+      cwd: repoDir,
       tool_input: { command: 'git commit -m "same commit"' },
-      tool_output: '[main aaa1111] same commit\n 1 file changed',
+      tool_output: c.output,
     };
 
     runHook(input);
     runHook(input);
 
     const db = openDb();
-    const entities = db.prepare('SELECT * FROM entities WHERE name = ?').all('commit-aaa1111') as Row[];
+    const entities = db.prepare('SELECT * FROM entities WHERE name = ?').all(`commit-${c.hash}`) as Row[];
     expect(entities).toHaveLength(1);
     const tags = db.prepare('SELECT * FROM tags WHERE entity_id = ?').all(entities[0].id) as Row[];
     expect(tags).toHaveLength(1);
@@ -192,17 +279,18 @@ describe('Feature: Post-Commit Hook', () => {
   });
 
   it('Scenario: Branch name extracted from commit output -> stored as observation', () => {
+    const c = commit('feat: new feature', 'feature/my-branch');
     const input = {
       tool_name: 'Bash',
-      cwd: '/tmp/myproject',
+      cwd: repoDir,
       tool_input: { command: 'git commit -m "feat: new feature"' },
-      tool_output: '[feature/my-branch a1b2c3d] feat: new feature\n 1 file changed',
+      tool_output: c.output,
     };
 
     runHook(input);
 
     const db = openDb();
-    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-a1b2c3d') as Row;
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get(`commit-${c.hash}`) as Row;
     expect(entity).toBeTruthy();
     const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id').all(entity.id) as Row[];
     const branchObs = obs.find((o: { content: string }) => o.content.startsWith('Branch:'));
@@ -212,12 +300,13 @@ describe('Feature: Post-Commit Hook', () => {
   });
 
   it('Scenario: Hook output includes suppressOutput flag', () => {
+    const c = commit('fix: something');
     const hookPath = path.resolve('scripts/hooks/post-commit.js');
     const input = {
       tool_name: 'Bash',
-      cwd: '/tmp/myproject',
+      cwd: repoDir,
       tool_input: { command: 'git commit -m "fix: something"' },
-      tool_output: '[main b2c3d4e] fix: something\n 1 file changed',
+      tool_output: c.output,
     };
     const result = execFileSync('node', [hookPath], {
       input: JSON.stringify(input),
@@ -247,12 +336,13 @@ describe('Feature: Post-Commit Hook', () => {
   // the hook only consulted `tool_output`. This test pins the new
   // shape so a future refactor can't regress it again.
   it('Scenario: tool_response.stdout (current Claude Code schema) -> entity created', () => {
+    const c = commit('feat: tool_response shape');
     const input = {
       tool_name: 'Bash',
-      cwd: '/tmp/myproject',
+      cwd: repoDir,
       tool_input: { command: 'git commit -m "feat: tool_response shape"' },
       tool_response: {
-        stdout: '[main c0ffee1] feat: tool_response shape\n 2 files changed, 8 insertions(+)',
+        stdout: c.output,
         stderr: '',
         interrupted: false,
         isError: false,
@@ -262,7 +352,7 @@ describe('Feature: Post-Commit Hook', () => {
     runHook(input);
 
     const db = openDb();
-    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get('commit-c0ffee1') as Row;
+    const entity = db.prepare('SELECT * FROM entities WHERE name = ?').get(`commit-${c.hash}`) as Row;
     expect(entity).toBeTruthy();
     expect(entity.type).toBe('commit');
     const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id').all(entity.id) as Row[];
