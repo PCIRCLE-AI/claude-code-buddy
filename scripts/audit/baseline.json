@@ -321,16 +321,6 @@
       "reason": "set -uo pipefail at file top preserves the left commands verdict",
       "triaged": "2026-08-04 (re-keyed: the mktemp-orphan fix shifted lines by five)"
     },
-    "C5 src/transports/http/server.ts:969": {
-      "class": "SAFE-GUARDED",
-      "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-05 (re-keyed 927->913->967->969: exporting isLoopbackRequest for its unit test added 2 lines above; same DreamRunBody.safeParse code verified before re-keying)"
-    },
-    "C5 src/transports/http/server.ts:1034": {
-      "class": "SAFE-GUARDED",
-      "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-05 (re-keyed 992->978->1032->1034: exporting isLoopbackRequest for its unit test added 2 lines above; same RejectBodySchema.safeParse code verified before re-keying)"
-    },
     "C5 dashboard/src/components/SettingsTab.tsx:237": {
       "class": "SAFE-GUARDED",
       "reason": "absent llmFallbacks truthfully means an empty failover chain (a real state, rendered as no entries), not a masked failure; mirrors config.ts:353",
@@ -440,6 +430,16 @@
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
+    },
+    "C5 src/transports/http/server.ts:1043": {
+      "class": "SAFE-GUARDED",
+      "reason": "Zod safeParse still validates; fields optional-with-default by design",
+      "triaged": "2026-08-10 (re-keyed: the serve 'error' listener added 9 lines; same safeParse statements, same classification)"
+    },
+    "C5 src/transports/http/server.ts:978": {
+      "class": "SAFE-GUARDED",
+      "reason": "Zod safeParse still validates; fields optional-with-default by design",
+      "triaged": "2026-08-10 (re-keyed: the serve 'error' listener added 9 lines; same safeParse statements, same classification)"
     }
   }
 }

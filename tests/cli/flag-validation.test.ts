@@ -85,6 +85,14 @@ describe('CLI: flags reject values they do not understand', () => {
       // every strategy a no-op.
       expect(runCli(['import', bundle, '--merge', 'overwrite']).exitCode).toBe(0);
       expect(runCli(['recall', 'alpha', '--json']).stdout).toContain('REPLACEMENT');
+
+      // Size pin, and not a formality: `append` above must have ADDED an
+      // observation rather than quietly doing nothing. Without a non-zero count
+      // asserted somewhere, every "exit code 0" check in this file would pass
+      // just as happily against a command that did not run at all.
+      const after = JSON.parse(runCli(['recall', 'alpha', '--json']).stdout) as Array<{ observations: string[] }>;
+      expect(after.length).toBe(1);
+      expect(after[0].observations.length).toBeGreaterThanOrEqual(1);
     });
   });
 
