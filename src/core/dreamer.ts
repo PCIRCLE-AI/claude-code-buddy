@@ -30,7 +30,7 @@
 //     across LLM/prompt updates can be traced
 //   - all writes wrapped in transaction; partial-failure rolls back
 
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 import { extractJsonBlock } from './json-utils.js';
 import { callLLM, type LLMAttempt } from './llm-client.js';
 import type { LLMConfig } from './config.js';
@@ -107,13 +107,13 @@ export interface DreamerResult {
   durationMs: number;
 }
 
-interface EntityRow {
+type EntityRow = {
   id: number;
   name: string;
   type: string;
   created_at: string;
   metadata: string | null;
-}
+};
 
 interface ClusteredEntity {
   id: number;
@@ -134,7 +134,7 @@ interface ProposedDigest {
 }
 
 export async function runDreamer(
-  db: Database.Database,
+  db: MemeshDatabase,
   llm: LLMConfig | null | undefined,
   opts: DreamerOptions = {},
 ): Promise<DreamerResult> {
@@ -248,7 +248,7 @@ interface Cluster {
   entities: ClusteredEntity[];
 }
 
-function detectClusters(db: Database.Database, opts: DreamerOptions): Cluster[] {
+function detectClusters(db: MemeshDatabase, opts: DreamerOptions): Cluster[] {
   const windowDays = opts.windowDays ?? COMPACT_TIME_WINDOW_DAYS * 8;
   const cutoff = new Date(Date.now() - windowDays * 86400_000).toISOString();
 
@@ -313,7 +313,7 @@ function isoWeekKey(d: Date): string {
   return `${target.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
-function proposalAlreadyExists(db: Database.Database, cluster: Cluster): boolean {
+function proposalAlreadyExists(db: MemeshDatabase, cluster: Cluster): boolean {
   const sourceIds = cluster.entities.map(e => e.id).sort((a, b) => a - b);
   const rows = db.prepare(
     "SELECT source_ids FROM dream_proposals WHERE project = ? AND cluster_key = ? AND status = 'pending'"
@@ -397,7 +397,7 @@ function parseDigest(text: string): ProposedDigest | null {
 }
 
 function writeProposal(
-  db: Database.Database,
+  db: MemeshDatabase,
   cluster: Cluster,
   digest: ProposedDigest,
   llm: LLMConfig,
@@ -475,7 +475,7 @@ interface PatternProposal {
 }
 
 export async function runPatternDetector(
-  db: Database.Database,
+  db: MemeshDatabase,
   llm: LLMConfig | null | undefined,
   opts: PatternDetectorOptions = {},
 ): Promise<PatternDetectorResult> {
@@ -541,7 +541,7 @@ export async function runPatternDetector(
   return result;
 }
 
-function detectProjects(db: Database.Database): string[] {
+function detectProjects(db: MemeshDatabase): string[] {
   const rows = db.prepare(`
     SELECT DISTINCT substr(tag, length('project:') + 1) as project
     FROM tags
@@ -558,7 +558,7 @@ interface ProjectEntity {
 }
 
 function collectProjectEntitiesForPatterns(
-  db: Database.Database,
+  db: MemeshDatabase,
   project: string,
   windowDays: number,
   minSignal: number,
@@ -683,7 +683,7 @@ function parsePatterns(text: string, shownIds: ReadonlySet<number>): PatternProp
 }
 
 function writePatternProposal(
-  db: Database.Database,
+  db: MemeshDatabase,
   project: string,
   pattern: PatternProposal,
   llm: LLMConfig,
@@ -729,7 +729,7 @@ export interface ApplyResult {
  * while staying fully searchable by explicit recall.
  */
 function applyTranscriptProposal(
-  db: Database.Database,
+  db: MemeshDatabase,
   row: { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string },
   kg: { createEntity: (name: string, type: string, opts: { observations: string[]; tags: string[]; metadata: Record<string, unknown>; trustOverride?: 'trusted' | 'untrusted' }) => number },
 ): ApplyResult {
@@ -797,7 +797,7 @@ function applyTranscriptProposal(
 }
 
 export function applyProposal(
-  db: Database.Database,
+  db: MemeshDatabase,
   proposalId: number,
   kg: { createEntity: (name: string, type: string, opts: { observations: string[]; tags: string[]; metadata: Record<string, unknown>; trustOverride?: 'trusted' | 'untrusted' }) => number },
 ): ApplyResult {
@@ -934,7 +934,7 @@ export function applyProposal(
   };
 }
 
-export function rejectProposal(db: Database.Database, proposalId: number, reason?: string): void {
+export function rejectProposal(db: MemeshDatabase, proposalId: number, reason?: string): void {
   const result = db.prepare(
     "UPDATE dream_proposals SET status = 'rejected', reason = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'"
   ).run(reason ?? null, proposalId);
@@ -978,7 +978,7 @@ export interface ProposalSummary {
   source_kind: string;
 }
 
-export function listProposals(db: Database.Database, status: string = 'pending'): ProposalSummary[] {
+export function listProposals(db: MemeshDatabase, status: string = 'pending'): ProposalSummary[] {
   const rows = db.prepare(
     "SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC"
   ).all(status) as Array<{ id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; status: string; created_at: string; source_kind: string | null }>;
@@ -1027,7 +1027,7 @@ export interface ProposalDetail {
   digest: ProposedDigest;
 }
 
-export function getProposalDetail(db: Database.Database, id: number): ProposalDetail | null {
+export function getProposalDetail(db: MemeshDatabase, id: number): ProposalDetail | null {
   const row = db.prepare(
     'SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE id = ?'
   ).get(id) as { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; status: string; created_at: string; source_kind: string | null } | undefined;

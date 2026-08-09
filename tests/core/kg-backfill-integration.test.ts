@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { backfillRelations } from '../../src/core/kg-backfill.js';
+import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 
 const require = createRequire(import.meta.url);
 
@@ -24,7 +25,6 @@ describe('KG backfill — integration: orphan rate reduction', () => {
     const { closeDatabase, openDatabase } = await import('../../src/db.js');
     try { closeDatabase(); } catch { /* nothing open */ }
     openDatabase();
-    Database = require('better-sqlite3');
     db = new Database(dbPath);
   });
 

@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { MemeshDatabase } from './storage/sqlite.js';
 import * as sqliteVec from 'sqlite-vec';
 import path from 'path';
 import fs from 'fs';
@@ -93,7 +93,7 @@ export function openDatabase(dbPath) {
         fs.chmodSync(dir, 0o700);
     }
     catch { }
-    const opening = new Database(resolvedPath);
+    const opening = new MemeshDatabase(resolvedPath, { allowExtension: true });
     try {
         initialiseDatabase(opening, resolvedPath);
     }
@@ -160,7 +160,13 @@ function initialiseDatabase(db, resolvedPath) {
     ensureLlmTelemetryTable(db);
     runAutoTelemetryPrune(db);
     ensureFtsSegmentation(db);
-    sqliteVec.load(db);
+    db.enableLoadExtension(true);
+    try {
+        sqliteVec.load(db);
+    }
+    finally {
+        db.enableLoadExtension(false);
+    }
     const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
     ensureVecTable(db, resolvedPath, targetDim, dimensionKnown);
     return db;

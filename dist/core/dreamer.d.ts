@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 import { type LLMAttempt } from './llm-client.js';
 import type { LLMConfig } from './config.js';
 export interface DreamerOptions {
@@ -27,7 +27,7 @@ interface ProposedDigest {
     observations: string[];
     tags: string[];
 }
-export declare function runDreamer(db: Database.Database, llm: LLMConfig | null | undefined, opts?: DreamerOptions): Promise<DreamerResult>;
+export declare function runDreamer(db: MemeshDatabase, llm: LLMConfig | null | undefined, opts?: DreamerOptions): Promise<DreamerResult>;
 export interface PatternDetectorOptions {
     project?: string;
     dryRun?: boolean;
@@ -47,7 +47,7 @@ export interface PatternDetectorResult {
     }>;
     durationMs: number;
 }
-export declare function runPatternDetector(db: Database.Database, llm: LLMConfig | null | undefined, opts?: PatternDetectorOptions): Promise<PatternDetectorResult>;
+export declare function runPatternDetector(db: MemeshDatabase, llm: LLMConfig | null | undefined, opts?: PatternDetectorOptions): Promise<PatternDetectorResult>;
 export interface ApplyResult {
     proposalId: number;
     digestEntityName: string;
@@ -55,7 +55,7 @@ export interface ApplyResult {
     sourcesLinked: number;
     kind: 'digest' | 'pattern_emergent';
 }
-export declare function applyProposal(db: Database.Database, proposalId: number, kg: {
+export declare function applyProposal(db: MemeshDatabase, proposalId: number, kg: {
     createEntity: (name: string, type: string, opts: {
         observations: string[];
         tags: string[];
@@ -63,7 +63,7 @@ export declare function applyProposal(db: Database.Database, proposalId: number,
         trustOverride?: 'trusted' | 'untrusted';
     }) => number;
 }): ApplyResult;
-export declare function rejectProposal(db: Database.Database, proposalId: number, reason?: string): void;
+export declare function rejectProposal(db: MemeshDatabase, proposalId: number, reason?: string): void;
 export interface ProposalSummary {
     id: number;
     project: string;
@@ -76,7 +76,7 @@ export interface ProposalSummary {
     kind: 'digest' | 'pattern_emergent';
     source_kind: string;
 }
-export declare function listProposals(db: Database.Database, status?: string): ProposalSummary[];
+export declare function listProposals(db: MemeshDatabase, status?: string): ProposalSummary[];
 export interface ProposalDetail {
     id: number;
     project: string;
@@ -87,6 +87,6 @@ export interface ProposalDetail {
     source: unknown;
     digest: ProposedDigest;
 }
-export declare function getProposalDetail(db: Database.Database, id: number): ProposalDetail | null;
+export declare function getProposalDetail(db: MemeshDatabase, id: number): ProposalDetail | null;
 export {};
 //# sourceMappingURL=dreamer.d.ts.map

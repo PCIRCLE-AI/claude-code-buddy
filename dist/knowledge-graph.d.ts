@@ -1,9 +1,9 @@
-import Database from 'better-sqlite3';
+import type { MemeshDatabase } from './storage/sqlite.js';
 export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
 import type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
 export declare class KnowledgeGraph {
     private db;
-    constructor(db: Database.Database);
+    constructor(db: MemeshDatabase);
     updateEntityMetadata(name: string, updater: (currentMetadata: Record<string, unknown>) => Record<string, unknown> | null | undefined): void;
     createEntity(name: string, type: string, opts?: {
         observations?: string[];

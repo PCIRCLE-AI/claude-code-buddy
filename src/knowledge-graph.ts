@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import type { MemeshDatabase } from './storage/sqlite.js';
 export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/types.js';
 import type { Entity, Relation, CreateEntityInput, SearchOptions, EntityRow } from './core/types.js';
 import { findConflicts, trackAccess } from './storage/conflicts.js';
@@ -51,7 +51,7 @@ const MAX_QUERY_TERMS = 32;
  * Indexing unigrams as well would fix that at the cost of index size and noise
  * for a rare query shape; pinned as a limit rather than chased.
  */
-function buildMatchExpression(db: Database.Database, query: string): string | null {
+function buildMatchExpression(db: MemeshDatabase, query: string): string | null {
   // The cap is applied AFTER the frequency guard, not before. Bigram
   // segmentation turns a 40-character Chinese question into ~39 terms, so a
   // positional cap discarded everything past roughly the 33rd character —
@@ -76,7 +76,7 @@ function buildMatchExpression(db: Database.Database, query: string): string | nu
  * Falls back to the whole (escaped) query when tokenising yields nothing, so a
  * punctuation-only query still behaves as before rather than matching everything.
  */
-function archivedLikeTerms(db: Database.Database, query: string): string[] {
+function archivedLikeTerms(db: MemeshDatabase, query: string): string[] {
   const escapeLike = (v: string) => v.replace(/[\\%_]/g, '\\$&');
   // Same ORDER as the FTS branch: drop the ubiquitous terms FIRST, then cap.
   // These two had silently diverged — the FTS side moved the cap after the
@@ -154,7 +154,7 @@ const MIN_ROWS_FOR_DF_GUARD = 25;
  * A cache that cannot hit is complexity plus a claim that is not true, so it
  * is gone. This is the honest cost.
  */
-function activeEntityCount(db: Database.Database): number {
+function activeEntityCount(db: MemeshDatabase): number {
   return (
     db.prepare("SELECT count(*) AS c FROM entities WHERE status = 'active'").get() as { c: number }
   ).c;
@@ -214,7 +214,7 @@ function fold(term: string): string {
   return lower.normalize('NFD').replace(/\p{M}/gu, '');
 }
 
-function dropUbiquitousTerms(db: Database.Database, terms: string[]): string[] {
+function dropUbiquitousTerms(db: MemeshDatabase, terms: string[]): string[] {
   if (terms.length < 2) return terms;
   try {
     const total = activeEntityCount(db);
@@ -251,7 +251,7 @@ function dropUbiquitousTerms(db: Database.Database, terms: string[]): string[] {
 }
 
 export class KnowledgeGraph {
-  constructor(private db: Database.Database) {}
+  constructor(private db: MemeshDatabase) {}
 
   updateEntityMetadata(
     name: string,

@@ -20,7 +20,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import Database from 'better-sqlite3';
+import { MemeshDatabase as Database } from '../src/storage/sqlite.js';
 import {
   openDatabase,
   closeDatabase,

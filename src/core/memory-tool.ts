@@ -249,11 +249,11 @@ function graph(): KnowledgeGraph {
 }
 
 /** One row of a directory listing. Deliberately not an `Entity`. */
-interface Listing {
+type Listing = {
   name: string;
   type: string;
   bytes: number;
-}
+};
 
 /**
  * List a namespace WITHOUT touching it.

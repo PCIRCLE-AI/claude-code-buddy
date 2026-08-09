@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 export declare function tokenizeName(name: string): Set<string>;
 export declare function jaccardSimilarity(a: Set<string>, b: Set<string>): number;
 export declare function isTopicalTag(tag: string): boolean;
@@ -38,12 +38,12 @@ export interface BackfillResult {
     orphansSkippedIdempotent: number;
     orphansMarkedProcessed: number;
 }
-export declare function resetBackfillIdempotencyCache(db?: Database.Database): void;
+export declare function resetBackfillIdempotencyCache(db?: MemeshDatabase): void;
 export interface BackfillProposalResult {
     candidates: RelationCandidate[];
     consideredOrphanIds: number[];
     skippedOrphanIds: number[];
 }
-export declare function backfillRelations(opts?: BackfillOptions, db?: Database.Database): BackfillResult;
-export declare function proposeBackfillCandidates(opts?: BackfillOptions, db?: Database.Database): BackfillProposalResult;
+export declare function backfillRelations(opts?: BackfillOptions, db?: MemeshDatabase): BackfillResult;
+export declare function proposeBackfillCandidates(opts?: BackfillOptions, db?: MemeshDatabase): BackfillProposalResult;
 //# sourceMappingURL=kg-backfill.d.ts.map

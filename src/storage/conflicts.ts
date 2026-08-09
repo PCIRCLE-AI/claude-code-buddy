@@ -12,7 +12,7 @@
 // Public API on `KnowledgeGraph` is preserved via thin wrappers that
 // delegate here.
 
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from './sqlite.js';
 
 /**
  * Find contradicting entity pairs among a set of result names.
@@ -24,7 +24,7 @@ import type Database from 'better-sqlite3';
  * Returns empty array when fewer than 2 names supplied (no pair to
  * contradict).
  */
-export function findConflicts(db: Database.Database, entityNames: string[]): string[] {
+export function findConflicts(db: MemeshDatabase, entityNames: string[]): string[] {
   if (entityNames.length < 2) return [];
 
   const conflicts: string[] = [];
@@ -73,7 +73,7 @@ export function findConflicts(db: Database.Database, entityNames: string[]): str
  * failures roll back cleanly.
  */
 export function trackAccess(
-  db: Database.Database,
+  db: MemeshDatabase,
   entityIds: number[],
 ): void {
   if (entityIds.length === 0) return;

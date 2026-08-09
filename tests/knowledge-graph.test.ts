@@ -3,7 +3,7 @@ import { openDatabase, closeDatabase } from '../src/db.js';
 import { KnowledgeGraph } from '../src/knowledge-graph.js';
 import type { CreateEntityInput } from '../src/knowledge-graph.js';
 import { getEmbeddingDimension } from '../src/core/config.js';
-import Database from 'better-sqlite3';
+import { MemeshDatabase as Database } from '../src/storage/sqlite.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -11,7 +11,7 @@ import os from 'os';
 describe('Feature: Knowledge Graph', () => {
   let testDir: string;
   let testDbPath: string;
-  let db: Database.Database;
+  let db: Database;
   let kg: KnowledgeGraph;
 
   beforeEach(() => {

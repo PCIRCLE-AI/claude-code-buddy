@@ -3,7 +3,7 @@ import { getDatabase } from '../src/db.js';
 import { KnowledgeGraph } from '../src/knowledge-graph.js';
 import { recall } from '../src/core/operations.js';
 import { useTestDatabase } from './helpers/db-fixture.js';
-import Database from 'better-sqlite3';
+import { MemeshDatabase as Database } from '../src/storage/sqlite.js';
 
 /**
  * Regression suite for the recall-quality class the existing tests structurally
@@ -25,7 +25,7 @@ import Database from 'better-sqlite3';
 describe('Feature: recall relevance', () => {
   useTestDatabase('memesh-recall-rel-');
 
-  let db: Database.Database;
+  let db: Database;
   let kg: KnowledgeGraph;
 
   beforeEach(() => {

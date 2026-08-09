@@ -222,7 +222,7 @@ export interface LearnResult {
 // SQLite row types — replace `as any` casts on query results
 // ---------------------------------------------------------------------------
 
-export interface EntityRow {
+export type EntityRow = {
   id: number;
   name: string;
   type: string;
@@ -241,25 +241,25 @@ export interface EntityRow {
   // (SDD G2 cut, 2026-05). Do not add them back here without also
   // restoring the SELECT clauses in knowledge-graph.ts.
   namespace: string;
-}
+};
 
 // ObservationRow / TagRow / RelationRow / FtsRow types lived here
 // historically as aspirational shapes for SELECT-result casts but were
 // never actually imported. Removed in 2026-05 (SDD G13 cleanup) so the
 // canonical SQL row types stay close to the queries that produce them.
 
-export interface CountRow {
+export type CountRow = {
   c: number;
-}
+};
 
-export interface PragmaColumnRow {
+export type PragmaColumnRow = {
   cid: number;
   name: string;
   type: string;
   notnull: number;
   dflt_value: string | null;
   pk: number;
-}
+};
 
 // ---------------------------------------------------------------------------
 // LLM API response types — replace `as any` on response.json()

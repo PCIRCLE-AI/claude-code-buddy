@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 export interface StatsResult {
     totalEntities: number;
     totalObservations: number;
@@ -8,5 +8,5 @@ export interface StatsResult {
     tagDistribution: unknown[];
     statusDistribution: unknown[];
 }
-export declare function computeStats(db: Database.Database): StatsResult;
+export declare function computeStats(db: MemeshDatabase): StatsResult;
 //# sourceMappingURL=stats.d.ts.map

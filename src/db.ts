@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { MemeshDatabase } from './storage/sqlite.js';
 import * as sqliteVec from 'sqlite-vec';
 import path from 'path';
 import fs from 'fs';
@@ -9,7 +9,7 @@ import { getDbPath } from './core/paths.js';
 import { insertFtsRow } from './storage/fts-index.js';
 import type { PragmaColumnRow } from './core/types.js';
 
-let db: Database.Database | null = null;
+let db: MemeshDatabase | null = null;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entities (
@@ -88,7 +88,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
 CREATE VIRTUAL TABLE IF NOT EXISTS fts_vocab USING fts5vocab(entities_fts, 'row');
 `;
 
-export function openDatabase(dbPath?: string): Database.Database {
+export function openDatabase(dbPath?: string): MemeshDatabase {
   if (db) return db;
 
   const resolvedPath = dbPath ?? getDbPath();
@@ -114,7 +114,7 @@ export function openDatabase(dbPath?: string): Database.Database {
   // `insertFtsRow`'s current segmentation rules into an index that was never
   // migrated, which is the contentless-FTS delete mismatch the rest of this
   // release exists to eliminate.
-  const opening = new Database(resolvedPath);
+  const opening = new MemeshDatabase(resolvedPath, { allowExtension: true });
   try {
     initialiseDatabase(opening, resolvedPath);
   } catch (err) {
@@ -131,7 +131,7 @@ export function openDatabase(dbPath?: string): Database.Database {
  * was inline, "assign the singleton" and "finish initialising it" could not be
  * separated.
  */
-function initialiseDatabase(db: Database.Database, resolvedPath: string): Database.Database {
+function initialiseDatabase(db: MemeshDatabase, resolvedPath: string): MemeshDatabase {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
@@ -242,8 +242,20 @@ function initialiseDatabase(db: Database.Database, resolvedPath: string): Databa
   // recall from bad to zero while English kept working — a silent regression.
   ensureFtsSegmentation(db);
 
-  // Load sqlite-vec extension for vector similarity search
-  sqliteVec.load(db);
+  // Load sqlite-vec extension for vector similarity search.
+  //
+  // node:sqlite gates extension loading twice — `allowExtension` at open time
+  // (see openDatabase) and this switch — and `sqliteVec.load` is just
+  // `db.loadExtension(path)`, so without the switch it throws. It is turned
+  // back off immediately: nothing else in memesh loads an extension, and
+  // leaving the door open would let any later SQL in this process load
+  // arbitrary native code.
+  db.enableLoadExtension(true);
+  try {
+    sqliteVec.load(db);
+  } finally {
+    db.enableLoadExtension(false);
+  }
 
   // Create/migrate vector table for entity embeddings
   // Dimension depends on embedding provider (768=Ollama, 1536=OpenAI;
@@ -347,12 +359,12 @@ function isTransientDbError(err: unknown): boolean {
 }
 
 export function runOnceMigration(
-  db: Database.Database,
+  db: MemeshDatabase,
   opts: {
     key: string;
     version: number;
     describe: string;
-    migrate: (db: Database.Database, fromVersion: number) => void;
+    migrate: (db: MemeshDatabase, fromVersion: number) => void;
   }
 ): boolean {
   const { key, version, describe, migrate } = opts;
@@ -424,7 +436,7 @@ export function runOnceMigration(
   }
 }
 
-function ensureFtsSegmentation(db: Database.Database): void {
+function ensureFtsSegmentation(db: MemeshDatabase): void {
   runOnceMigration(db, {
     key: 'fts_segmentation_version',
     version: FTS_SEGMENTATION_VERSION,
@@ -457,7 +469,7 @@ function ensureFtsSegmentation(db: Database.Database): void {
  */
 const FTS_REBUILD_PAGE_SIZE = 500;
 
-function rebuildFtsIndex(db: Database.Database): void {
+function rebuildFtsIndex(db: MemeshDatabase): void {
   // This ALWAYS rebuilds. There used to be a skip here, and removing it is a
   // bug fix, not a performance regression accepted for simplicity.
   //
@@ -628,7 +640,7 @@ function consumeVectorRebuildConsent(resolvedPath: string): boolean {
  * the mismatch is reported.
  */
 function ensureVecTable(
-  db: Database.Database,
+  db: MemeshDatabase,
   resolvedPath: string,
   targetDim: number,
   dimensionKnown = true
@@ -788,7 +800,7 @@ export function clearPendingReindexFlag(): void {
  *   - llm_model + prompt_version stamped so we can re-run with a new
  *     model later and compare quality without losing the old proposal.
  */
-function ensureDreamProposalsTable(db: Database.Database): void {
+function ensureDreamProposalsTable(db: MemeshDatabase): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS dream_proposals (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -841,7 +853,7 @@ function ensureDreamProposalsTable(db: Database.Database): void {
  * `redactSecrets()` before reaching this table — the persistence
  * here is defence in depth, not the primary safeguard.
  */
-function ensureLlmTelemetryTable(db: Database.Database): void {
+function ensureLlmTelemetryTable(db: MemeshDatabase): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS llm_telemetry (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -879,7 +891,7 @@ const TELEMETRY_PRUNE_MARKER = 'last_telemetry_prune_at';
  * via `pruneTelemetry()` (or `memesh telemetry --prune <days>`) at
  * any time — this is the no-touch background sweep.
  */
-function runAutoTelemetryPrune(db: Database.Database): void {
+function runAutoTelemetryPrune(db: MemeshDatabase): void {
 
   const last = db.prepare(
     'SELECT value FROM memesh_metadata WHERE key = ?'
@@ -917,7 +929,7 @@ function runAutoTelemetryPrune(db: Database.Database): void {
  * (~200ms at rule-based speed). Reads observations + tags per
  * entity to feed the scorer the same inputs createEntity uses.
  */
-function backfillSignalScores(db: Database.Database): void {
+function backfillSignalScores(db: MemeshDatabase): void {
 
   const MARKER = 'signal_score_backfill_v1';
   const done = db.prepare(
@@ -975,7 +987,7 @@ export function closeDatabase(): void {
   }
 }
 
-export function getDatabase(): Database.Database {
+export function getDatabase(): MemeshDatabase {
   if (!db) throw new Error('Database not opened');
   return db;
 }

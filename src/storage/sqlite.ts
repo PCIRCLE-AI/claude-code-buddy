@@ -57,6 +57,10 @@ const { DatabaseSync } = loadNodeSqlite();
 /** A prepared statement. Named so call sites do not import from node:sqlite. */
 export type SqliteStatement = import('node:sqlite').StatementSync;
 
+/** What SQLite hands back in a column, and what it will accept in a binding. */
+export type SqlOutputValue = import('node:sqlite').SQLOutputValue;
+export type SqlInputValue = import('node:sqlite').SQLInputValue;
+
 /**
  * How a database is opened.
  *

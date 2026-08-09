@@ -20,6 +20,7 @@ import os from 'os';
 import path from 'path';
 import { openDatabase, closeDatabase, getDatabase } from '../src/db.js';
 import { KnowledgeGraph } from '../src/knowledge-graph.js';
+import { MemeshDatabase as Database } from '../src/storage/sqlite.js';
 
 const require = createRequire(import.meta.url);
 
@@ -56,7 +57,6 @@ describe('Feature: a failed open does not poison the process', () => {
     // the same stage — `new Database()` SUCCEEDS and `db.exec(SCHEMA_SQL)`
     // throws — where waiting out SQLite's 5s busy timeout costs five seconds
     // per case for the same coverage.
-    const Database = require('better-sqlite3');
     const seed = new Database(dbPath);
     seed.exec('CREATE TABLE IF NOT EXISTS placeholder (x)');
     seed.close();
@@ -83,7 +83,6 @@ describe('Feature: a failed open does not poison the process', () => {
   it('closes the handle it is abandoning', () => {
     // Otherwise a process that retries in a loop leaks a file descriptor and a
     // WAL reader per attempt.
-    const Database = require('better-sqlite3');
     const seed = new Database(dbPath);
     seed.exec('CREATE TABLE IF NOT EXISTS placeholder (x)');
     seed.close();

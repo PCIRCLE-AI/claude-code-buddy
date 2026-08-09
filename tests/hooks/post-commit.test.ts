@@ -4,6 +4,7 @@ import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 
 const require = createRequire(import.meta.url);
 
@@ -47,9 +48,8 @@ describe('Feature: Post-Commit Hook', () => {
     });
   }
 
-  function openDb(): InstanceType<typeof import('better-sqlite3')> {
-    const Database = require('better-sqlite3');
-    return new Database(dbPath, { readonly: true });
+  function openDb(): Database {
+    return new Database(dbPath, { readOnly: true });
   }
 
   it('Scenario: a repo FIRST commit (root-commit note) -> entity created', () => {

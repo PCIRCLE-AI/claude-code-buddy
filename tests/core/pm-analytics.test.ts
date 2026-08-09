@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { computePmAnalytics } from '../../src/core/analytics.js';
+import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 
 const require = createRequire(import.meta.url);
 
@@ -22,7 +23,6 @@ describe('computePmAnalytics', () => {
     const { closeDatabase, openDatabase } = await import('../../src/db.js');
     try { closeDatabase(); } catch { /* nothing open */ }
     openDatabase();
-    Database = require('better-sqlite3');
     db = new Database(dbPath);
   });
 

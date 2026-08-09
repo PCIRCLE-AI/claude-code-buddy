@@ -27,6 +27,7 @@ import path from 'path';
 import { openDatabase, closeDatabase, getDatabase } from '../src/db.js';
 import { reindex, remember } from '../src/core/operations.js';
 import { flushPendingEmbeddings } from '../src/core/embedder.js';
+import type { SqlInputValue } from '../src/storage/sqlite.js';
 
 /** Dimension of OpenAI's text-embedding-3-small, which the config below selects. */
 const OPENAI_DIM = 1536;
@@ -292,7 +293,7 @@ describe('Feature: reindex reports what it actually wrote', () => {
         const realAll = stmt.all.bind(stmt);
         // Hand back the list, then delete one of them — the race, made exact.
         return Object.assign(stmt, {
-          all: (...args: unknown[]) => {
+          all: (...args: SqlInputValue[]) => {
             const rows = realAll(...args);
             realPrepare("DELETE FROM entities WHERE name = 'doomed'").run();
             return rows;

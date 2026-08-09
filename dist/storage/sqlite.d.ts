@@ -1,5 +1,7 @@
 declare const DatabaseSync: typeof import("node:sqlite").DatabaseSync;
 export type SqliteStatement = import('node:sqlite').StatementSync;
+export type SqlOutputValue = import('node:sqlite').SQLOutputValue;
+export type SqlInputValue = import('node:sqlite').SQLInputValue;
 export interface OpenOptions {
     readOnly?: boolean;
     allowExtension?: boolean;

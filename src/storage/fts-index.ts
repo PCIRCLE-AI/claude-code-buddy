@@ -17,7 +17,7 @@
 //   - keeps the helpers parameterless from `KnowledgeGraph`-state so
 //     they can be called from non-class contexts (lifecycle.ts)
 
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase, SqlOutputValue } from './sqlite.js';
 
 /**
  * Scripts whose writing systems do not put spaces between words. FTS5's
@@ -238,9 +238,9 @@ const nfcRegistered = new WeakSet<object>();
  * depend on). `deterministic` is correct — NFC of a given string never changes
  * — and lets SQLite cache and reorder freely.
  */
-export function registerNfcFunction(db: Database.Database): void {
+export function registerNfcFunction(db: MemeshDatabase): void {
   if (nfcRegistered.has(db)) return;
-  db.function(SQL_NFC_FUNCTION, { deterministic: true }, (value: unknown) =>
+  db.function(SQL_NFC_FUNCTION, { deterministic: true }, (value: SqlOutputValue) =>
     typeof value === 'string' ? value.normalize('NFC') : value
   );
   nfcRegistered.add(db);
@@ -322,7 +322,7 @@ export function isLoneUnspacedChar(term: string): boolean {
  * one is genuinely safe to ignore).
  */
 export function removeFromFts(
-  db: Database.Database,
+  db: MemeshDatabase,
   entityId: number,
   name: string,
   prevObsText: string,
@@ -375,7 +375,7 @@ function isBenignFtsDeleteError(err: unknown): boolean {
  * lifecycle.ts).
  */
 export function insertFtsRow(
-  db: Database.Database,
+  db: MemeshDatabase,
   entityId: number,
   name: string,
   observationsText: string,

@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { expectValidHookOutput, HOOK_SPECIFIC_OUTPUT_EVENTS } from '../helpers/hook-output-contract.js';
+import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 
 const require = createRequire(import.meta.url);
 
@@ -48,9 +49,8 @@ describe('Feature: PreCompact Hook', () => {
     });
   }
 
-  function openDb(): InstanceType<typeof import('better-sqlite3')> {
-    const Database = require('better-sqlite3');
-    return new Database(dbPath, { readonly: true });
+  function openDb(): Database {
+    return new Database(dbPath, { readOnly: true });
   }
 
   // spawnSync variant so stderr is visible regardless of exit code.
@@ -301,7 +301,6 @@ describe('Feature: PreCompact Hook', () => {
     // Forced with a CHECK constraint: `INSERT OR IGNORE` skips a row that
     // violates one, so the insert is silently dropped and the follow-up SELECT
     // finds nothing — captureEntity's null path, reached without stubbing it.
-    const Database = require('better-sqlite3');
     const seed = new Database(dbPath);
     seed.exec(`
       CREATE TABLE entities (

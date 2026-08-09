@@ -3,6 +3,7 @@ import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 import {
   isTopicalTag,
   tokenizeName,
@@ -101,7 +102,6 @@ describe('kg-backfill integration', () => {
     try { closeDatabase(); } catch { /* nothing open */ }
     openDatabase();
     // Also open a direct better-sqlite3 handle for seeding
-    Database = require('better-sqlite3');
     db = new Database(dbPath);
   });
 

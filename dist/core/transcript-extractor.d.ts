@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 import { type LLMAttempt } from './llm-client.js';
 import type { LLMConfig } from './config.js';
 import type { ExtractedMemory } from './extractor.js';
@@ -43,12 +43,12 @@ export interface DedupDeps {
     }>;
     threshold?: number;
 }
-export declare function findDuplicateEntity(db: Database.Database, candidate: ExtractedMemory, projectLabel: string, deps?: DedupDeps): Promise<DuplicateHit | null>;
+export declare function findDuplicateEntity(db: MemeshDatabase, candidate: ExtractedMemory, projectLabel: string, deps?: DedupDeps): Promise<DuplicateHit | null>;
 export interface StageResult {
     created: number;
     skippedDuplicate: number;
 }
-export declare function stageTranscriptProposals(db: Database.Database, session: {
+export declare function stageTranscriptProposals(db: MemeshDatabase, session: {
     sessionId: string;
     path: string;
     lineCount: number;
@@ -84,5 +84,5 @@ export interface TranscriptSourceResult {
     }>;
     durationMs: number;
 }
-export declare function runTranscriptSource(db: Database.Database, llm: LLMConfig | null | undefined, opts?: TranscriptSourceOptions): Promise<TranscriptSourceResult>;
+export declare function runTranscriptSource(db: MemeshDatabase, llm: LLMConfig | null | undefined, opts?: TranscriptSourceOptions): Promise<TranscriptSourceResult>;
 //# sourceMappingURL=transcript-extractor.d.ts.map

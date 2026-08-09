@@ -74,9 +74,7 @@ process.stdin.on('end', () => {
     // (e.g. plugin-marketplace cache install with no node_modules); in
     // that case silently skip — a sibling registered hook copy with
     // proper deps still records the commit.
-    const handle = openHookDb(process.env, { fts: true });
-    if (!handle) return;
-    const { db } = handle;
+    const { db } = openHookDb(process.env, { fts: true });
     try {
       const entityName = `commit-${commitHash}`;
 

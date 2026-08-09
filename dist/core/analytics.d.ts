@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 export interface HealthFactor {
     score: number;
     weight: number;
@@ -45,7 +45,7 @@ export interface AnalyticsResult {
     ageMatrix: AgeMatrixEntry[];
     knowledgeRadar: KnowledgeRadarEntry[];
 }
-export declare function computeAnalytics(db: Database.Database): AnalyticsResult;
+export declare function computeAnalytics(db: MemeshDatabase): AnalyticsResult;
 export interface PmAnalyticsResult {
     velocity: {
         decisionsPerWeek: number;
@@ -62,5 +62,5 @@ export interface PmAnalyticsResult {
         activeEntities: number;
     };
 }
-export declare function computePmAnalytics(db: Database.Database, windowDays?: number): PmAnalyticsResult;
+export declare function computePmAnalytics(db: MemeshDatabase, windowDays?: number): PmAnalyticsResult;
 //# sourceMappingURL=analytics.d.ts.map

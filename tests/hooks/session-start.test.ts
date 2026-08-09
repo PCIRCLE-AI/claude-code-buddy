@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { expectPrivateDir, expectPrivateFile } from '../helpers/permissions.js';
+import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 
 const require = createRequire(import.meta.url);
 
@@ -55,8 +56,7 @@ describe('Feature: Session Start Hook', () => {
     return JSON.parse(fs.readFileSync(path.join(sessionsDir, files[0].f), 'utf8'));
   }
 
-  function createTestDb(): InstanceType<typeof import('better-sqlite3')> {
-    const Database = require('better-sqlite3');
+  function createTestDb(): Database {
     const db = new Database(dbPath);
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
@@ -92,7 +92,7 @@ describe('Feature: Session Start Hook', () => {
     return db;
   }
 
-  function createScoringDb(): InstanceType<typeof import('better-sqlite3')> {
+  function createScoringDb(): Database {
     const db = createTestDb();
     // Add scoring columns (v2.12+ schema)
     db.exec(`
@@ -259,7 +259,6 @@ describe('Feature: Session Start Hook', () => {
 
   it('Scenario: Empty database (no entities table) -> graceful message', () => {
     // Create an empty db file with no tables
-    const Database = require('better-sqlite3');
     const db = new Database(dbPath);
     db.close();
 
@@ -341,7 +340,6 @@ describe('Feature: Session Start Hook', () => {
   });
 
   it('Scenario: Archived entities are excluded from session recall', () => {
-    const Database = require('better-sqlite3');
     const db = new Database(dbPath);
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');

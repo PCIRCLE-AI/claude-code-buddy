@@ -1,9 +1,9 @@
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 import type { LLMAttempt } from './llm-client.js';
 export interface RecordTelemetryOpts {
     flow: string;
     project?: string;
-    db?: Database.Database;
+    db?: MemeshDatabase;
 }
 export declare function recordTelemetry(attempts: LLMAttempt[], opts: RecordTelemetryOpts): void;
 export interface TelemetrySummary {
@@ -33,10 +33,10 @@ export interface TelemetrySummary {
     }>;
     window_days: number;
 }
-export declare function summariseTelemetry(windowDays?: number, db?: Database.Database): TelemetrySummary[];
+export declare function summariseTelemetry(windowDays?: number, db?: MemeshDatabase): TelemetrySummary[];
 export interface PruneOptions {
     olderThanDays?: number;
-    db?: Database.Database;
+    db?: MemeshDatabase;
 }
 export interface PruneResult {
     deletedRows: number;

@@ -13,10 +13,10 @@ import {
   getMemeshDirFromDbPath,
   getProjectName,
   isTrustedForAutoContext,
-  tryRequireBetterSqlite,
   writePrivateJson,
   hookMatchExpression,
 } from './_shared.js';
+import { MemeshDatabase } from './_generated/sqlite.js';
 
 const dbPath = getDbPath();
 const memeshDir = getMemeshDirFromDbPath();
@@ -64,13 +64,9 @@ process.stdin.on('end', () => {
 
     if (!existsSync(dbPath)) return pass();
 
-    // tryRequireBetterSqlite() returns null on plugin-marketplace cache
-    // installs that ship without node_modules; pass-through silently in
-    // that case so a sibling registered hook copy can still inject
-    // recall context.
-    const Database = tryRequireBetterSqlite();
-    if (!Database) return pass();
-    const db = new Database(dbPath, { readonly: true });
+    // `readOnly`, not `readonly`: node:sqlite ignores the lowercase spelling
+    // and hands back a WRITABLE handle. This hook only reads.
+    const db = new MemeshDatabase(dbPath, { readOnly: true });
     try {
 
       // Check if entities table exists

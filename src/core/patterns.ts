@@ -3,7 +3,7 @@
 // Extracted to eliminate duplication between handlers.ts and http/server.ts
 // =============================================================================
 
-import type Database from 'better-sqlite3';
+import type { MemeshDatabase } from '../storage/sqlite.js';
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -41,7 +41,7 @@ const LEARNING_TYPES = ['lesson_learned', 'mistake', 'bug_fix', 'lesson'];
 // computePatterns — all SQL queries in one place
 // ---------------------------------------------------------------------------
 
-export function computePatterns(db: Database.Database, categories?: string[]): PatternsResult {
+export function computePatterns(db: MemeshDatabase, categories?: string[]): PatternsResult {
   const allCategories = !categories || categories.length === 0;
 
   // --- Work Schedule ---

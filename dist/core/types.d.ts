@@ -134,7 +134,7 @@ export interface LearnResult {
     name: string;
     type: string;
 }
-export interface EntityRow {
+export type EntityRow = {
     id: number;
     name: string;
     type: string;
@@ -145,18 +145,18 @@ export interface EntityRow {
     last_accessed_at: string | null;
     confidence: number;
     namespace: string;
-}
-export interface CountRow {
+};
+export type CountRow = {
     c: number;
-}
-export interface PragmaColumnRow {
+};
+export type PragmaColumnRow = {
     cid: number;
     name: string;
     type: string;
     notnull: number;
     dflt_value: string | null;
     pk: number;
-}
+};
 export interface AnthropicResponse {
     content?: Array<{
         text?: string;
