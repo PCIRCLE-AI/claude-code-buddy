@@ -20,6 +20,13 @@ async function withDatabase(fn) {
         closeDatabase();
     }
 }
+function requireOneOf(value, allowed, flag) {
+    if (value === undefined || allowed.includes(value))
+        return;
+    console.error(`Error: ${flag} "${value}" is not valid. Use one of: ${allowed.join(', ')}.`);
+    process.exit(1);
+}
+const NAMESPACES = ['personal', 'team', 'global'];
 const packageJsonPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../package.json');
 const packageRoot = path.dirname(packageJsonPath);
 const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
@@ -41,6 +48,7 @@ program
     .option('--namespace <namespace>', 'Namespace: personal, team, or global (default: personal)')
     .option('--json', 'Output as JSON')
     .action(async (text, opts) => {
+    requireOneOf(opts.namespace, NAMESPACES, '--namespace');
     if (text && !opts.name && !opts.type) {
         const slug = String(text)
             .toLowerCase()
@@ -96,6 +104,7 @@ program
     .option('--cross-project', 'Search across all project tags (ignores --tag filter)')
     .option('--json', 'Output as JSON')
     .action(async (query, opts) => {
+    requireOneOf(opts.namespace, NAMESPACES, '--namespace');
     await withDatabase(async () => {
         const { entities, conflicts } = await recallWithConflicts({
             query: query || undefined,
@@ -173,8 +182,14 @@ program
         else if (result.observation_removed) {
             console.log(`✂️  Removed observation (${result.remaining_observations} remaining)`);
         }
+        else if (opts.observation && result.entity_found) {
+            console.log(`Entity "${opts.name}" has no observation matching that text (${result.remaining_observations} observation(s) present).`);
+            console.log(`See them with: memesh recall "${opts.name}" --json`);
+            process.exitCode = 1;
+        }
         else {
             console.log(`Entity "${opts.name}" not found`);
+            process.exitCode = 1;
         }
     });
 });
@@ -227,6 +242,7 @@ program
     .option('--limit <n>', 'Max entities to export', '1000')
     .option('-o, --out <file>', 'Write JSON to <file> instead of stdout. Parent directory must exist.')
     .action(async (opts) => {
+    requireOneOf(opts.namespace, NAMESPACES, '--namespace');
     await withDatabase(() => {
         const result = exportMemories({
             tag: opts.tag,
@@ -235,6 +251,12 @@ program
         });
         const json = JSON.stringify(result, null, 2);
         if (opts.out) {
+            const outDir = path.dirname(path.resolve(opts.out));
+            if (!fs.existsSync(outDir)) {
+                console.error(`Error: cannot write ${opts.out} — the directory ${outDir} does not exist.`);
+                console.error(`       Create it first (mkdir -p "${outDir}"), or drop -o to write to stdout.`);
+                process.exit(1);
+            }
             fs.writeFileSync(opts.out, json + '\n');
             process.stderr.write(`✅ Exported ${result.entity_count} entities to ${opts.out}\n`);
         }
@@ -250,6 +272,8 @@ program
     .option('--namespace <ns>', 'Override namespace for all imported entities')
     .option('--merge <strategy>', 'Merge strategy: skip | overwrite | append', 'skip')
     .action(async (file, opts) => {
+    requireOneOf(opts.merge, ['skip', 'overwrite', 'append'], '--merge');
+    requireOneOf(opts.namespace, NAMESPACES, '--namespace');
     await withDatabase(() => {
         let raw;
         try {
@@ -303,6 +327,7 @@ program
     .option('--severity <level>', 'Severity: critical|major|minor', 'minor')
     .option('--json', 'Output as JSON')
     .action(async (opts) => {
+    requireOneOf(opts.severity, ['critical', 'major', 'minor'], '--severity');
     await withDatabase(() => {
         const result = learn({
             error: opts.error,
@@ -641,6 +666,12 @@ program
     .option('--prune <days>', 'Delete rows older than N days BEFORE rendering (closes v4.2.0 retention gap)', (v) => parseInt(v, 10))
     .option('--json', 'Output as JSON')
     .action(async (opts) => {
+    for (const [flag, value] of [['--window', opts.window], ['--prune', opts.prune]]) {
+        if (value !== undefined && !Number.isFinite(value)) {
+            console.error(`Error: ${flag} needs a number of days.`);
+            process.exit(1);
+        }
+    }
     await withDatabase(async () => {
         const { summariseTelemetry, pruneTelemetry } = await import('../../core/llm-telemetry.js');
         let pruneResult = null;
@@ -1319,6 +1350,7 @@ program
     'stored embedding first. Needed only when switching embedding providers.')
     .option('--json', 'Output as JSON')
     .action(async (opts) => {
+    requireOneOf(opts.namespace, NAMESPACES, '--namespace');
     try {
         if (opts.fts) {
             if (opts.vectors) {

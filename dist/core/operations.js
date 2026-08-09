@@ -181,6 +181,7 @@ export function forget(args) {
             name: args.name,
             observation: args.observation,
             remaining_observations: result.remainingObservations,
+            entity_found: result.entityFound,
         };
     }
     const result = kg.archiveEntity(args.name);

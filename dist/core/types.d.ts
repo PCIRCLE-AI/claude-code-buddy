@@ -89,6 +89,7 @@ export interface ForgetResult {
     observation_removed?: boolean;
     observation?: string;
     remaining_observations?: number;
+    entity_found?: boolean;
 }
 export interface ExportInput {
     tag?: string;

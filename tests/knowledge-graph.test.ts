@@ -392,7 +392,7 @@ describe('Feature: Knowledge Graph', () => {
       });
 
       const result = kg.removeObservation('Design', 'Use JWT');
-      expect(result).toEqual({ removed: true, remainingObservations: 2 });
+      expect(result).toEqual({ removed: true, remainingObservations: 2, entityFound: true });
 
       const entity = kg.getEntity('Design');
       expect(entity!.observations).toEqual(['Use RS256', 'Rotate keys']);
@@ -402,18 +402,25 @@ describe('Feature: Knowledge Graph', () => {
       expect(kg.search('JWT')).toEqual([]);
     });
 
-    it('should return removed:false for non-matching observation', () => {
+    it('distinguishes "no such observation" from "no such entity"', () => {
+      // Both used to arrive as a bare `removed: false`, and the CLI printed
+      // "Entity not found" for the first one — sending the user to re-create a
+      // memory that was sitting right there. `entityFound` is what lets the
+      // caller tell them apart, so it is asserted, not just tolerated.
       kg.createEntity('Design', 'decision', {
         observations: ['Use JWT'],
       });
 
-      const result = kg.removeObservation('Design', 'nonexistent');
-      expect(result).toEqual({ removed: false, remainingObservations: 1 });
-    });
+      const noSuchObservation = kg.removeObservation('Design', 'nonexistent');
+      expect(noSuchObservation).toEqual({ removed: false, remainingObservations: 1, entityFound: true });
 
-    it('should return removed:false for non-existent entity', () => {
-      const result = kg.removeObservation('Ghost', 'anything');
-      expect(result).toEqual({ removed: false, remainingObservations: 0 });
+      const noSuchEntity = kg.removeObservation('Ghost', 'anything');
+      expect(noSuchEntity).toEqual({ removed: false, remainingObservations: 0, entityFound: false });
+
+      expect(
+        noSuchObservation.entityFound,
+        'the two failures are indistinguishable again',
+      ).not.toBe(noSuchEntity.entityFound);
     });
   });
 

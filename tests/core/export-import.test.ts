@@ -209,6 +209,30 @@ describe('importMemories', () => {
     expect(Array.isArray(result.errors)).toBe(true);
   });
 
+  it('refuses a merge strategy it does not recognise, instead of overwriting', () => {
+    // This used to be two `if`s and a fall-through, so ANY other string took
+    // the overwrite path — the most destructive of the three, chosen on the
+    // least information. The CLI now validates too, but the CLI is not the only
+    // caller, and a guard that only exists one layer up is a guard the next
+    // caller does not get.
+    remember({ name: 'guarded', type: 'note', observations: ['ORIGINAL'] });
+    const bundle = {
+      version: '3.0.0',
+      exported_at: '2026-08-10T00:00:00.000Z',
+      entity_count: 1,
+      entities: [{ name: 'guarded', type: 'note', observations: ['REPLACEMENT'], tags: [] }],
+    };
+
+    expect(() => importMemories({
+      data: bundle as unknown as Parameters<typeof importMemories>[0]['data'],
+      merge_strategy: 'sikp' as Parameters<typeof importMemories>[0]['merge_strategy'],
+    })).toThrow(/Unknown merge strategy/);
+
+    // Nothing was written on the way to the throw.
+    const found = recall({ query: 'guarded' });
+    expect(found[0]?.observations).toEqual(['ORIGINAL']);
+  });
+
   it('round-trips export then import', () => {
     remember({ name: 'round-trip', type: 'pattern', observations: ['fact 1', 'fact 2'], tags: ['t:a'] });
 

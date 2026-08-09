@@ -251,7 +251,8 @@ function handlePost(schema, req, res, handler) {
         });
         return;
     }
-    Promise.resolve(handler(parsed.data))
+    Promise.resolve()
+        .then(() => handler(parsed.data))
         .then((data) => res.json({ success: true, data }))
         .catch((err) => res.status(400).json({ success: false, errorCode: 'operation.failed', error: err instanceof Error ? err.message : String(err) }));
 }
@@ -767,10 +768,21 @@ export function startServer(host = HOST, port = PORT, opts) {
             console.log(`MeMesh HTTP server running at http://${addr.address}:${addr.port}`);
             console.log(`MeMesh dashboard: http://${addr.address}:${addr.port}/dashboard`);
         }
-        else {
-            console.log(`MeMesh HTTP server running at http://${host}:${port}`);
-            console.log(`MeMesh dashboard: http://${host}:${port}/dashboard`);
+    });
+    server.on('error', (err) => {
+        const where = `${host}:${port}`;
+        if (err.code === 'EADDRINUSE') {
+            console.error(`MeMesh: cannot start — ${where} is already in use.`);
+            console.error(`MeMesh: stop whatever is listening there, or pick another port with --port <n>.`);
         }
+        else if (err.code === 'EACCES') {
+            console.error(`MeMesh: cannot start — not permitted to bind ${where}.`);
+            console.error(`MeMesh: ports below 1024 need elevated privileges; pick a port above 1024 with --port <n>.`);
+        }
+        else {
+            console.error(`MeMesh: cannot start on ${where} — ${err.message}`);
+        }
+        process.exit(1);
     });
     serverAuthRequired.set(server, isRemote);
     return server;

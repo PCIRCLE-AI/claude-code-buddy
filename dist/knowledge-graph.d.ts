@@ -36,6 +36,7 @@ export declare class KnowledgeGraph {
     removeObservation(entityName: string, observationContent: string): {
         removed: boolean;
         remainingObservations: number;
+        entityFound: boolean;
     };
     deleteEntity(name: string): {
         deleted: boolean;

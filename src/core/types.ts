@@ -169,6 +169,9 @@ export interface ForgetResult {
   observation_removed?: boolean;
   observation?: string;
   remaining_observations?: number;
+  /** Observation-level only: did the ENTITY exist? Distinguishes "no such
+   *  entity" from "that text matched no observation". */
+  entity_found?: boolean;
 }
 
 export interface ExportInput {

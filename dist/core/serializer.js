@@ -37,7 +37,12 @@ export function exportMemories(args) {
         })),
     };
 }
+const MERGE_STRATEGIES = ['skip', 'overwrite', 'append'];
 export function importMemories(args) {
+    if (!MERGE_STRATEGIES.includes(args.merge_strategy)) {
+        throw new Error(`Unknown merge strategy "${args.merge_strategy}". Use one of: ${MERGE_STRATEGIES.join(', ')}. ` +
+            'Nothing was imported — refusing rather than guessing, because the wrong guess overwrites existing memories.');
+    }
     const db = getDatabase();
     const kg = new KnowledgeGraph(db);
     let imported = 0;
