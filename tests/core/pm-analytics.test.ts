@@ -1,19 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { computePmAnalytics } from '../../src/core/analytics.js';
 import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 
-const require = createRequire(import.meta.url);
 
 describe('computePmAnalytics', () => {
   let testDir: string;
   let dbPath: string;
   let prevDbPath: string | undefined;
-  let Database: ReturnType<typeof require>;
-  let db: InstanceType<typeof Database>;
+  let db: Database;
 
   beforeEach(async () => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-pm-analytics-'));

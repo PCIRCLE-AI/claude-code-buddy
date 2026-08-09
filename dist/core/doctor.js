@@ -13,6 +13,7 @@ import { getInstallRecord } from './install-id.js';
 import { getDbPath, memeshDir, getProjectName } from './paths.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
 import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
+import { MemeshDatabase } from '../storage/sqlite.js';
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 const LOCALE_README_FILES = [
@@ -308,10 +309,17 @@ function defaultResolveShellMemesh() {
 }
 function defaultNativeBindingProbe(packageRoot) {
     try {
-        const localRequire = createRequire(pathToFileURL(path.join(packageRoot, 'package.json')).href);
-        const Database = localRequire('better-sqlite3');
-        const probe = new Database(':memory:');
-        probe.close();
+        const probe = new MemeshDatabase(':memory:', { allowExtension: true });
+        try {
+            probe.enableLoadExtension(true);
+            const localRequire = createRequire(pathToFileURL(path.join(packageRoot, 'package.json')).href);
+            const sqliteVec = localRequire('sqlite-vec');
+            sqliteVec.load(probe);
+            probe.prepare('SELECT vec_version()').get();
+        }
+        finally {
+            probe.close();
+        }
         return { ok: true };
     }
     catch (err) {
@@ -373,20 +381,20 @@ export function hasBuiltInSqlite() {
 function inspectNativeBinding(packageRoot, _existsSyncImpl, probeImpl = defaultNativeBindingProbe) {
     const result = probeImpl(packageRoot);
     if (result.ok) {
-        return createCheck('native-binding', 'Native SQLite binding', 'pass', 'better-sqlite3 native binding loads cleanly (Database probe succeeded).');
+        return createCheck('native-binding', 'SQLite and vector search', 'pass', 'node:sqlite opened a database and sqlite-vec loaded (probe succeeded).');
     }
-    const isMissingBinding = /bindings file|locate the bindings/i.test(result.message);
+    const isMissingSqlite = /ERR_UNKNOWN_BUILTIN_MODULE|node:sqlite/i.test(result.message);
     const isMissingPackage = /MODULE_NOT_FOUND|Cannot find module/i.test(result.message);
+    if (isMissingSqlite) {
+        return createCheck('native-binding', 'SQLite and vector search', 'fail', 'This Node build has no `node:sqlite` module, so memesh cannot open its database at all. '
+            + 'It was added in Node 22.5, which is why package.json requires it.', 'Upgrade Node to 22.5 or newer, then re-run `memesh doctor`.', { code: 'native-binding.no-node-sqlite' });
+    }
     if (isMissingPackage) {
-        return createCheck('native-binding', 'Native SQLite binding', 'fail', 'better-sqlite3 is not installed (Node could not resolve the module from any '
-            + 'parent node_modules). Memesh hooks and database operations will not work.', `Run: npm install   (in the directory that depends on @pcircle/memesh)`, { code: 'native-binding.not-installed' });
+        return createCheck('native-binding', 'SQLite and vector search', 'fail', 'sqlite-vec is not installed (Node could not resolve it from any parent node_modules). '
+            + 'memesh still stores and recalls memories, but recall runs on FTS5 keyword search '
+            + 'alone — semantic similarity is off.', 'Run: npm install   (in the directory that depends on @pcircle/memesh)', { code: 'native-binding.not-installed' });
     }
-    if (isMissingBinding) {
-        return createCheck('native-binding', 'Native SQLite binding', 'fail', 'better-sqlite3 is installed but the native binding (.node file) is missing. '
-            + 'Hooks will silently skip-and-exit, and auto-capture will NOT write any entities. '
-            + 'This is the plugin-marketplace silent-dropout class of bug.', `Run: cd "${packageRoot}" && npm rebuild better-sqlite3   (or "npm install --omit=dev" for a clean reinstall)`, { code: 'native-binding.missing', params: { root: packageRoot } });
-    }
-    return createCheck('native-binding', 'Native SQLite binding', 'fail', `better-sqlite3 failed to load: ${result.message}`, `Run: cd "${packageRoot}" && npm rebuild better-sqlite3`, { code: 'native-binding.load-failed', params: { detail: result.message, root: packageRoot } });
+    return createCheck('native-binding', 'SQLite and vector search', 'fail', `sqlite-vec failed to load: ${result.message}. Recall falls back to FTS5 keyword search.`, `Run: cd "${packageRoot}" && npm install --omit=dev`, { code: 'native-binding.load-failed', params: { detail: result.message, root: packageRoot } });
 }
 function inspectShellCli(installChannel, packageRoot, resolveShellMemeshImpl) {
     const shellPath = resolveShellMemeshImpl();

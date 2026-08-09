@@ -13,7 +13,7 @@ const repoRoot = process.cwd();
 // This used to extract into `<repoRoot>/tmp/pack-smoke`, so when the import
 // check below loaded the packaged `dist/index.js`, every bare specifier
 // resolved by walking UP into the repo's own `node_modules` — devDependencies
-// included. Verified: `better-sqlite3` resolved to the repo tree. The gate
+// included. Verified: `sqlite-vec` resolved to the repo tree. The gate
 // therefore could not see a missing runtime dependency. It also printed
 // "installs" for an install that never happened.
 //
@@ -81,7 +81,7 @@ const requiredFiles = [
   'dist/core/embedder.js',
   // Dist — transports
   'dist/transports/schemas.js',
-  'dist/mcp/launcher.js',
+  'dist/mcp/server.js',
   'dist/mcp/server.js',
   'dist/transports/mcp/handlers.js',
   'dist/transports/http/server.js',
@@ -175,7 +175,7 @@ if (typeof pkg.KnowledgeGraph !== 'function') {
   throw new Error('Packaged module missing KnowledgeGraph export');
 }
 // Exercise the runtime path, not just the export shape: opening a database
-// loads better-sqlite3 and sqlite-vec, which is where a dependency that was
+// loads sqlite-vec, which is where a dependency that was
 // moved out of \`dependencies\` actually bites.
 const db = pkg.openDatabase(${JSON.stringify(path.join(smokeDir, 'smoke.db'))});
 if (!db) throw new Error('openDatabase returned nothing');

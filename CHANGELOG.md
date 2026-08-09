@@ -4,6 +4,32 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **memesh no longer compiles anything when you install it.** The database
+  engine moved from `better-sqlite3` to `node:sqlite`, which is part of Node
+  itself (22.5+, already the required minimum). `better-sqlite3` shipped a
+  compiled binary built by an `install` script, and that one fact caused a
+  family of failures: `npm install --ignore-scripts` never built it, so a
+  `/plugin install` — which uses exactly that flag — produced a memesh whose
+  hooks loaded, found no binding, and silently did nothing; a Node major
+  upgrade left the binary built for the wrong runtime; and unusual platforms
+  needed a C/C++ toolchain. None of those can happen to a module that ships
+  with the runtime. A clean install now runs **zero** native build steps.
+
+  Everything that existed to nurse that binary is gone with it: the
+  `postinstall` rebuild script, the MCP launcher that probed the binding and
+  re-executed the process after `npm rebuild`, and the hooks' cached probe with
+  its detached background rebuild. `memesh doctor`'s "Native SQLite binding"
+  row becomes "SQLite and vector search" and now probes what can still
+  genuinely be missing — sqlite-vec, which ships as a prebuilt file per
+  platform and, when absent, quietly costs you meaning-based search while
+  keyword recall keeps working. The row says that, in all 11 languages,
+  instead of telling you to rebuild something that no longer exists.
+
+  Your database is untouched: same file, same schema, same SQLite. No
+  migration, no re-embedding, nothing to do.
+
 ### Fixed
 
 - **`memesh reindex` no longer rebuilds your vectors from different text than

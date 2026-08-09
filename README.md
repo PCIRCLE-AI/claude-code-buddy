@@ -117,7 +117,7 @@ If you use Claude Code, install MeMesh as a plugin from inside the CLI:
 
 Claude Code wires hooks, skills, and the MCP server automatically. You get in-session auto-capture, proactive recall, the `/memesh` skill (remember / recall / learn / forget) inside the Claude Code conversation, and `remember` / `recall` / `forget` / `learn` available as MCP tools to the agent.
 
-The MCP server runs directly from the plugin's bundled compiled output — no `npx` lookup, no build step needed. If the native `better-sqlite3` binding is missing on first start (e.g. after a Node major upgrade), the launcher self-heals by rebuilding it in-process.
+The MCP server runs directly from the plugin's bundled compiled output — no `npx` lookup, no build step, and nothing to compile. memesh stores its data through `node:sqlite`, which is part of Node itself (22.5+), so a Node upgrade cannot leave it with a binary built for the wrong runtime.
 
 > **This installs the plugin only.** You can run CLI commands via `npx @pcircle/memesh <command>` if you absolutely don't want a global install, but typing plain `memesh` in a terminal will report `command not found`. To get a real shell `memesh` command, also run **Option B** below — both paths coexist and share the same memory database. The "Install paths at a glance" diagram above covers this.
 
@@ -130,7 +130,7 @@ npm install -g @pcircle/memesh
 ```
 
 > **First-install notes (one-time):**
-> - **Native modules** — `better-sqlite3` and `sqlite-vec` install via prebuilt binaries on macOS (arm64/x64), Linux (x64/arm64), and Windows x64. On uncommon platforms or when prebuilds fail, you'll need a working C/C++ toolchain.
+> - **No compiler needed** — the database engine is Node's own `node:sqlite`. `sqlite-vec`, which adds meaning-based search, ships as a prebuilt file for macOS (arm64/x64), Linux (x64/arm64) and Windows x64; on any other platform it is simply absent and recall stays on keyword search. Nothing here runs an install script, so `npm install --ignore-scripts` installs a fully working memesh.
 > - **Semantic (meaning-based) search is optional** — the default recall path is FTS5 keyword search, which needs no model and no download. Meaning-based search needs an embedder: run [Ollama](https://ollama.com) locally, or configure a cloud embedder (see "Bring-your-own embeddings" below). Without one, memesh uses keyword search only.
 
 ### Step 1.5: Wire MeMesh into Claude Code (npm path only)

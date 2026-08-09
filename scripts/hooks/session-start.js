@@ -544,11 +544,10 @@ process.stdin.on('end', async () => {
       // Functions:
       //   - frequency: log(c+1) / log(max(maxAccess,1) + 1)  (matches frequencyScore)
       //   - recency:   exp(-(now - lastAccessed_days) / 30)  (matches recencyScore)
-      // SQLite >= 3.35 with -DSQLITE_ENABLE_MATH_FUNCTIONS provides exp/log;
-      // better-sqlite3 v8+ ships with this flag enabled by default. We probe
-      // once per process and fall back to the legacy linear/rational forms
-      // if a stripped-down build is detected, so ranking degrades gracefully
-      // rather than throwing.
+      // SQLite >= 3.35 with -DSQLITE_ENABLE_MATH_FUNCTIONS provides exp/log,
+      // which Node's bundled SQLite has. We probe once per process and fall
+      // back to the legacy linear/rational forms if a stripped-down build is
+      // detected, so ranking degrades gracefully rather than throwing.
       // Test-only seam: force the legacy linear/rational fallback so the
       // pre-math-functions code path is reachable in CI on builds where
       // exp/log ARE available. Production callers never set this.

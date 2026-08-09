@@ -494,8 +494,8 @@ process.stdin.on('end', async () => {
   } catch (err) {
     // Never crash Claude Code — leave a trace for debugging.
     // Suppress the expected "skip-session-capture" sentinel (raised when
-    // better-sqlite3 is unavailable in a marketplace-cache install). All
-    // other errors are real bugs and deserve a trace.
+    // sqlite-vec is unavailable, e.g. an unsupported platform). All other
+    // errors are real bugs and deserve a trace.
     if (!String(err?.message || '').startsWith('skip-session-capture:')) {
       try { process.stderr.write(`[memesh session-summary] ${err?.message || err}\n`); } catch {}
     }

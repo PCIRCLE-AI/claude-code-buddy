@@ -121,6 +121,14 @@ describe('Feature: the SQLite driver', () => {
     });
 
     it('rolls back when the callback throws, and re-throws', () => {
+      // Pin first: the same INSERT, committed, really does leave one row. An
+      // empty-table assertion on its own passes just as happily when the
+      // statement never ran at all — proving the write CAN land is what makes
+      // the rollback below mean something.
+      db.transaction(() => { db.prepare('INSERT INTO t (v) VALUES (?)').run('pin'); })();
+      expect(rows().length).toBe(1);
+      db.exec('DELETE FROM t');
+
       expect(() => db.transaction(() => {
         db.prepare('INSERT INTO t (v) VALUES (?)').run('doomed');
         throw new Error('boom');

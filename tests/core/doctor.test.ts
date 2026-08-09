@@ -85,10 +85,10 @@ function createPackageRoot(): string {
   fs.mkdirSync(path.join(root, 'dashboard', 'dist'), { recursive: true });
   fs.writeFileSync(path.join(root, 'dashboard', 'dist', 'index.html'), '<html></html>');
 
-  // Stub the better-sqlite3 directory so the new native-binding existence
+  // Stub the sqlite-vec directory so the native-binding existence
   // check passes. The probe itself is overridden per-test via
   // `nativeBindingProbeImpl`, so no real native module is touched here.
-  fs.mkdirSync(path.join(root, 'node_modules', 'better-sqlite3'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'node_modules', 'sqlite-vec'), { recursive: true });
 
   // F4: doctor verifies dist/skills-manifest.json. The fixture must
   // include one matching the on-disk hook stubs, otherwise the new
@@ -243,7 +243,7 @@ describe('doctor', () => {
         guidance: 'This installation can be updated directly from MeMesh.',
       }),
       fetchImpl: (async () => new Response(JSON.stringify({ ok: true }), { status: 200 })) as typeof fetch,
-      // Fixture stubs node_modules/better-sqlite3 as an empty dir, so the real
+      // Fixture stubs node_modules/sqlite-vec as an empty dir, so the real
       // probe would fail. Inject success since this test is verifying the
       // overall-PASS flow, not the binding probe itself.
       nativeBindingProbeImpl: () => ({ ok: true }),
@@ -298,7 +298,7 @@ describe('doctor', () => {
         recommendedCommand: null,
         guidance: 'Update this source checkout from its repository and rebuild it.',
       }),
-      // Fixture's better-sqlite3 dir is an empty stub; let the binding
+      // Fixture's sqlite-vec dir is an empty stub; let the binding
       // check pass so this test focuses on the update-status WARN.
       nativeBindingProbeImpl: () => ({ ok: true }),
     });
@@ -1321,18 +1321,21 @@ describe('native binding probe (plugin-marketplace silent-dropout guard)', () =>
         recommendedCommand: 'bash scripts/upgrade-plugin.sh',
         guidance: '',
       }),
-      nativeBindingProbeImpl: () => ({ ok: false, message: 'Could not locate the bindings file. Tried: ...' }),
+      nativeBindingProbeImpl: () => ({ ok: false, message: 'vec0.dylib could not be loaded' }),
     });
 
     const bindingCheck = result.checks.find((c) => c.id === 'native-binding');
     expect(bindingCheck).toBeDefined();
     expect(bindingCheck?.status).toBe('fail');
-    expect(bindingCheck?.summary).toContain('native binding');
-    expect(bindingCheck?.fix).toContain('npm rebuild better-sqlite3');
+    expect(bindingCheck?.summary).toContain('sqlite-vec failed to load');
+    // Says what the user LOSES, not just that something broke: memesh still
+    // works, recall just drops to keyword-only.
+    expect(bindingCheck?.summary).toContain('FTS5 keyword search');
+    expect(bindingCheck?.fix).toContain('npm install --omit=dev');
     expect(result.status).toBe('FAIL');
   });
 
-  it('reports FAIL with `npm install` hint when better-sqlite3 is not resolvable', async () => {
+  it('reports FAIL with `npm install` hint when sqlite-vec is not resolvable', async () => {
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 
@@ -1351,7 +1354,7 @@ describe('native binding probe (plugin-marketplace silent-dropout guard)', () =>
       }),
       nativeBindingProbeImpl: () => ({
         ok: false,
-        message: "Cannot find module 'better-sqlite3' — code: MODULE_NOT_FOUND",
+        message: "Cannot find module 'sqlite-vec' — code: MODULE_NOT_FOUND",
       }),
     });
 
@@ -1361,7 +1364,7 @@ describe('native binding probe (plugin-marketplace silent-dropout guard)', () =>
     expect(bindingCheck?.fix).toContain('npm install');
   });
 
-  it('reports PASS when the probe succeeds (binding loads + Database() works)', async () => {
+  it('reports PASS when the probe succeeds (database opens + sqlite-vec loads)', async () => {
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 

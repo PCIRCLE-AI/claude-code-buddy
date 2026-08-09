@@ -149,7 +149,7 @@ function initialiseDatabase(db: MemeshDatabase, resolvedPath: string): MemeshDat
   //      SQLite created later during normal operation.
   //   2. Belt-and-suspenders: explicitly chmod the existing files now,
   //      in case the umask was looser when this process started and
-  //      better-sqlite3 already created them.
+  //      SQLite already created them.
   try { process.umask(0o077); } catch { /* non-POSIX */ }
   for (const suffix of ['', '-wal', '-shm']) {
     try { fs.chmodSync(`${resolvedPath}${suffix}`, 0o600); }
@@ -319,7 +319,7 @@ const MIGRATION_RETRY_BACKOFF_MS = 24 * 60 * 60 * 1000;
  *
  * **The version check happens inside the write transaction.** The FTS rebuild
  * used to read its source rows before `db.transaction()` opened, and
- * better-sqlite3's default transaction is BEGIN DEFERRED, so no write lock
+ * The default transaction is BEGIN DEFERRED, so no write lock
  * existed until the first statement inside it. Seven hooks, the MCP server,
  * the HTTP server and the CLI all open this database; an entity committed by
  * any of them between the read and the `delete-all` was wiped from the index
@@ -454,11 +454,11 @@ function ensureFtsSegmentation(db: MemeshDatabase): void {
  * 80 MB of Node heap at 100k entities, inside processes as short-lived as a
  * hook invocation.
  *
- * Paging rather than `.iterate()`: better-sqlite3 refuses to run a write while
- * an iterator is open on the same connection ("This database connection is
- * busy executing a query"), and the whole point here is to write as we read.
- * Keyset pagination on `e.id` keeps memory bounded to one page, keeps the
- * order deterministic, and leaves the connection free between pages.
+ * Paging rather than `.iterate()`: writing while an iterator is open on the
+ * same connection is not something to rely on, and the whole point here is to
+ * write as we read. Keyset pagination on `e.id` keeps memory bounded to one
+ * page, keeps the order deterministic, and leaves the connection free between
+ * pages.
  *
  * Archived entities are deliberately not reindexed: `archiveEntity()` removes
  * them from FTS5 by design, and `search()` reaches them through a separate

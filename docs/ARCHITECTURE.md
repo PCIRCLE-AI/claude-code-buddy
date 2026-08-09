@@ -102,14 +102,13 @@ src/
 ├── cli/
 │   └── view.ts            # HTML dashboard generator
 ├── mcp/
-│   ├── launcher.ts        # memesh-mcp entry point: probes better-sqlite3 binding, rebuilds if missing, re-execs for fresh module cache
 │   ├── server.ts          # MCP stdio server (logs capabilities on startup)
 │   └── tools.ts           # Re-export shim → transports/mcp/handlers.ts
 └── transports/
     ├── schemas.ts         # Shared Zod validation schemas (single source of truth)
     ├── mcp/
     │   └── handlers.ts    # MCP tool handlers (imports schemas, ToolResult wrapper, conflict detection)
-    │                      # NOTE: launcher.ts + server.ts live in src/mcp/ (see below), NOT here
+    │                      # NOTE: server.ts lives in src/mcp/ (see below), NOT here
     ├── http/
     │   └── server.ts      # Express REST API server (imports schemas, 1MB body limit, rate limiting)
     └── cli/
@@ -132,7 +131,7 @@ src/
 
 **scoring.ts** — Multi-factor scoring engine. `scoreEntity()` combines five signals from `DEFAULT_WEIGHTS`: search relevance (0.30), recency via exponential decay (0.25), access frequency via log normalization (0.18), confidence (0.17), and recall-effectiveness impact via Laplace smoothing (0.10). `rankEntities()` sorts any entity list by score descending. Applied in all recall paths (`recall()` and `recallEnhanced()`).
 
-Session-start hook ranking is a SQL-only subset (no FTS query, no impact pass) that uses three of the five factors. `SESSION_START_WEIGHT_RATIO` exports the renormalised weights so the hook's hard-coded SQL stays in sync; a drift-guard test in `tests/core/scoring.test.ts` asserts the magic numbers in `scripts/hooks/session-start.js` match. The hook SQL uses SQLite's `exp()`/`log()` (available in better-sqlite3 v8+) to match the core math exactly, with a runtime probe + linear/rational fallback for stripped-down builds without `-DSQLITE_ENABLE_MATH_FUNCTIONS`.
+Session-start hook ranking is a SQL-only subset (no FTS query, no impact pass) that uses three of the five factors. `SESSION_START_WEIGHT_RATIO` exports the renormalised weights so the hook's hard-coded SQL stays in sync; a drift-guard test in `tests/core/scoring.test.ts` asserts the magic numbers in `scripts/hooks/session-start.js` match. The hook SQL uses SQLite's `exp()`/`log()` (present in Node's bundled SQLite) to match the core math exactly, with a runtime probe + linear/rational fallback for stripped-down builds without `-DSQLITE_ENABLE_MATH_FUNCTIONS`.
 
 **(retired) query-expander.ts** — LLM-powered query expansion was removed in 2026-05 after LongMemEval-S Mode A (FTS5 + sqlite-vec, no LLM) measured well above the LLM-augmented alternative's expected ceiling. The figure quoted at the time (95.40%) came from the benchmark's own reimplementation of retrieval rather than from this code; measured through `recallEnhanced()` the same 500 questions now score 95.60% R@5 in 9.1s, within 1.0pp of vendor reranker stacks. The expander cost ~500-10000ms per recall for an estimated 1-2pp ceiling lift, decisively losing the UX axis given that recall is the hot path for hooks (`pre-edit-recall`, `session-start`) and MCP agent calls. Recall is now strictly LLM-free; LLM augmentation is reserved for the async/analysis flows below (failure-analyzer, auto-tagger, dreamer, digest-validator, llm-validator).
 
@@ -179,13 +178,11 @@ CRUD operations and full-text search over the entity graph.
 
 FTS5 is configured as a contentless virtual table (`content=''`). The `rebuildFts()` method handles explicit insert/delete operations required by contentless FTS5.
 
-### mcp/launcher.ts -- MCP Startup Guard
-
-Entry point for the `memesh-mcp` binary. Probes `better-sqlite3` by instantiating an in-memory database (the binding loads lazily inside the constructor). On failure, runs `npm rebuild better-sqlite3` then re-execs the process via `spawnSync` so the fresh Node.js instance has a clean module cache. An env guard (`MEMESH_REBUILD_ATTEMPTED`) prevents infinite loops if rebuild fails.
-
 ### mcp/server.ts -- MCP Server
 
-Actual MCP server logic. Creates the MCP server with stdio transport, registers tool handlers from `handlers.ts`, opens the database on startup. Invoked by `launcher.ts` after the native addon is confirmed working.
+Entry point for the `memesh-mcp` binary and the MCP server itself. Creates the server with stdio transport, registers tool handlers from `handlers.ts`, opens the database on startup.
+
+There used to be a `launcher.ts` in front of it whose whole job was to instantiate an in-memory better-sqlite3 database, detect a missing native binding, run `npm rebuild`, and re-exec the process for a clean module cache. `node:sqlite` has no binding to miss, so the guard and its re-exec are gone and the bin points straight at the server.
 
 ### transports/mcp/handlers.ts -- MCP Tool Handlers
 

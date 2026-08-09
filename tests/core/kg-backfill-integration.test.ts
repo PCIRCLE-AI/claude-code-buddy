@@ -1,12 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { backfillRelations } from '../../src/core/kg-backfill.js';
 import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 
-const require = createRequire(import.meta.url);
 
 // Integration test: seed 50 entities across types and sessions,
 // run all 4 rules, verify orphan rate drops below 50%.
@@ -14,8 +12,7 @@ describe('KG backfill — integration: orphan rate reduction', () => {
   let testDir: string;
   let dbPath: string;
   let prevDbPath: string | undefined;
-  let Database: ReturnType<typeof require>;
-  let db: InstanceType<typeof Database>;
+  let db: Database;
 
   beforeEach(async () => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-kg-integration-'));

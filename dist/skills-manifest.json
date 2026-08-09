@@ -38,8 +38,8 @@
     },
     {
       "path": "scripts/hooks/post-commit.js",
-      "sha256": "acd2b0f8acf8544f76784b567f040dac02ef22e5b4517d2e5adb7ddd0f7a5e43",
-      "bytes": 5493
+      "sha256": "c45366f09afcd63c46a3fb1f482d17566db875186402febe8498d47062d1c5e3",
+      "bytes": 5232
     },
     {
       "path": "scripts/hooks/pre-bash-orchestration-nudge.js",
@@ -58,13 +58,13 @@
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "94e8368b942df30a9e811f2c349d9fb7cc5392d5c785e07bc536a1b2e40153bf",
-      "bytes": 44349
+      "sha256": "15a8ae7fff8343cd2c6dc192758837922f1f63d81b4681129e1c5060416aa3a0",
+      "bytes": 44313
     },
     {
       "path": "scripts/hooks/session-summary.js",
-      "sha256": "fa4ba5efc9f4e11c6a58330b016714a4bb1c4feb7b84aba5ebedfdf8a225148b",
-      "bytes": 39169
+      "sha256": "43be347240b5a7233b064639ac48498abf6e4d03fd3ff91b79fbba1ae3257d7c",
+      "bytes": 39164
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",

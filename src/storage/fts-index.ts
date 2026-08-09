@@ -233,7 +233,7 @@ const nfcRegistered = new WeakSet<object>();
 /**
  * Register `memesh_nfc(text)` on a connection, once.
  *
- * Idempotent by WeakSet rather than by relying on better-sqlite3's behaviour on
+ * Idempotent by WeakSet rather than by relying on the driver's behaviour on
  * re-registration (verified to be silent replacement, but not something to
  * depend on). `deterministic` is correct — NFC of a given string never changes
  * — and lets SQLite cache and reorder freely.
