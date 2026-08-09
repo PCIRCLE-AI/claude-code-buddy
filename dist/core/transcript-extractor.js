@@ -6,7 +6,7 @@ import { outputLanguageInstruction } from './output-language.js';
 import { getProjectName } from './paths.js';
 import { extractJsonBlock } from './json-utils.js';
 import { scanTranscripts } from './transcript-source.js';
-import { embedText, vectorSearch, isEmbeddingAvailable } from './embedder.js';
+import { embedText, vectorSearch, isEmbeddingAvailable, entityEmbedText } from './embedder.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 export const TRANSCRIPT_PROMPT_VERSION = 'transcript-v1';
 export const ORDERING_INSTRUCTION = 'The conversation below is in CHRONOLOGICAL order. Later statements override earlier ones: ' +
@@ -275,9 +275,6 @@ export async function extractMemoriesFromTranscript(transcriptPath, llm, opts = 
     return result;
 }
 export const TRANSCRIPT_DEDUP_MAX_DISTANCE = 0.55;
-export function entityEmbedText(name, observations) {
-    return `${name} ${observations.join(' ')}`;
-}
 export async function findDuplicateEntity(db, candidate, projectLabel, deps = {}) {
     const embed = deps.embed ?? embedText;
     const search = deps.vectorSearch ?? vectorSearch;

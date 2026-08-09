@@ -151,6 +151,28 @@ function isDatabaseLifecycleError(err: unknown): boolean {
 }
 
 /**
+ * The exact text an entity's vector is built from — the one definition, so
+ * every writer agrees.
+ *
+ * This has to be shared rather than inlined per call site, because a vector
+ * index only answers honestly when every row in it was built the same way.
+ * `reindex()` used to embed observations alone while `remember()`, the dreamer
+ * digest and the transcript-accept path all embedded name + observations, so an
+ * entity's vector depended on which code last touched it: reindex a database
+ * and every distance in it shifted, silently, against a dedup threshold
+ * (`TRANSCRIPT_DEDUP_MAX_DISTANCE`) and a published recall figure that were both
+ * measured on the name + observations form.
+ *
+ * Note for existing databases: this changes what NEW writes embed. Rows already
+ * embedded by an older `reindex` keep their observations-only vector until the
+ * next `memesh reindex` rebuilds them — which is a paid call on a cloud
+ * provider, so it is left to the operator rather than triggered here.
+ */
+export function entityEmbedText(name: string, observations: string[]): string {
+  return `${name} ${observations.join(' ')}`;
+}
+
+/**
  * Generate an embedding for the given text.
  *
  * Provider routing comes from `caps.embeddings` (driven by

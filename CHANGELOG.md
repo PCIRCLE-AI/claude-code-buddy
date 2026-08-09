@@ -4,6 +4,22 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`memesh reindex` no longer rebuilds your vectors from different text than
+  everything else writes.** `remember`, the dreamer digest and transcript-accept
+  all embed an entity as `name + observations`; `reindex` embedded the
+  observations alone. So an entity's vector depended on which path last wrote
+  it, and running `reindex` — the command you run precisely when the index is
+  in doubt — silently re-based the whole database into the other space, moving
+  every distance in it. Both numbers that were measured against that space (the
+  transcript dedup threshold, and the published recall figure, which the
+  benchmark builds with `name + observations`) then described something the
+  runtime no longer computed. There is now one shared builder and all four
+  writers call it. Existing rows keep the vector they were last given until the
+  next `memesh reindex` rebuilds them; that is a paid call on a cloud embedding
+  provider, so nothing re-embeds on its own.
+
 ## [4.5.0] — 2026-08-05
 
 ### Added

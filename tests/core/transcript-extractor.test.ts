@@ -20,11 +20,11 @@ import {
   scrubSecrets,
   ORDERING_INSTRUCTION,
   findDuplicateEntity,
-  entityEmbedText,
   TRANSCRIPT_DEDUP_MAX_DISTANCE,
   type ConversationTurn,
 } from '../../src/core/transcript-extractor.js';
 import { projectTranscriptSlug } from '../../src/core/transcript-source.js';
+import { entityEmbedText } from '../../src/core/embedder.js';
 
 const FAKE_LLM = { provider: 'anthropic' as const, apiKey: 'test-key-fake', model: 'claude-haiku-4-5' };
 

@@ -53,6 +53,9 @@ function isDatabaseLifecycleError(err) {
     const message = String(err.message);
     return message === 'Database not opened' || message.includes('database connection is not open');
 }
+export function entityEmbedText(name, observations) {
+    return `${name} ${observations.join(' ')}`;
+}
 export async function embedText(text) {
     const caps = detectCapabilities();
     if (caps.embeddings === 'openai' || caps.embeddings === 'ollama') {

@@ -38,7 +38,7 @@ import { recordTelemetry } from './llm-telemetry.js';
 import { validateDigest, type SuspiciousClaim } from './digest-validator.js';
 import { sanitizeListForPrompt } from './prompt-safety.js';
 import { outputLanguageInstruction } from './output-language.js';
-import { isEmbeddingAvailable, scheduleEmbedAndStore } from './embedder.js';
+import { isEmbeddingAvailable, scheduleEmbedAndStore, entityEmbedText } from './embedder.js';
 
 const PROMPT_VERSION = 'v1';
 const COMPACT_MIN_CLUSTER_SIZE = 5;
@@ -778,12 +778,12 @@ function applyTranscriptProposal(
   const digestId = tx();
   // Embed the new entity so the NEXT transcript run's vector dedup (B3) can see
   // it — without this, re-running after accept re-proposes the same memory (the
-  // gap B3 exists to close). Fire-and-forget with the SAME text builder
-  // remember() uses (`${name} ${observations}`); the caller flushes pending
-  // writes (CLI `dream accept` awaits flushPendingEmbeddings). Guarded on
+  // gap B3 exists to close). Fire-and-forget with the SAME text builder every
+  // other writer uses (entityEmbedText); the caller flushes pending writes
+  // (CLI `dream accept` awaits flushPendingEmbeddings). Guarded on
   // availability like remember() — no vector index, nothing to write.
   if (isEmbeddingAvailable()) {
-    scheduleEmbedAndStore(digestId, `${entityName} ${digest.observations.join(' ')}`);
+    scheduleEmbedAndStore(digestId, entityEmbedText(entityName, digest.observations));
   }
   return {
     proposalId: row.id,

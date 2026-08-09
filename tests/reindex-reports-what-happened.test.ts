@@ -25,7 +25,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { openDatabase, closeDatabase, getDatabase } from '../src/db.js';
-import { reindex } from '../src/core/operations.js';
+import { reindex, remember } from '../src/core/operations.js';
+import { flushPendingEmbeddings } from '../src/core/embedder.js';
 
 /** Dimension of OpenAI's text-embedding-3-small, which the config below selects. */
 const OPENAI_DIM = 1536;
@@ -310,5 +311,47 @@ describe('Feature: reindex reports what it actually wrote', () => {
     expect(result.outcomes.stored).toBe(1);
     // The deleted entity is gone from `entities` too, so it is not owed a vector.
     expect(result.missingVectors).toBe(0);
+  });
+
+  it('embeds the same text remember() does, so a reindex does not move every distance', async () => {
+    // A vector index only answers honestly when every row in it was built the
+    // same way. `reindex` embedded observations alone while `remember` embedded
+    // name + observations, so an entity's vector depended on which path last
+    // wrote it — and running `memesh reindex` silently re-based the whole
+    // database into the other space. Two measured numbers live in that space:
+    // TRANSCRIPT_DEDUP_MAX_DISTANCE and the published R@5 figure, both derived
+    // on name + observations.
+    //
+    // The pin is a comparison between the two real paths, not an assertion
+    // against the shared builder — calling the same helper twice would agree
+    // with itself no matter which text it produced.
+    const inputs: string[] = [];
+    serveEmbeddings((input) => {
+      inputs.push(input);
+      return OPENAI_DIM;
+    });
+
+    // Tags supplied on purpose: without them `remember` also fires the LLM
+    // auto-tagger, whose request would land in the same fetch stub and be
+    // mistaken for an embedding.
+    remember({ name: 'alpha', type: 'note', observations: ['first memory'], tags: ['t'] });
+    await flushPendingEmbeddings();
+    const viaRemember = inputs.splice(0);
+
+    seedEntity('beta', 'first memory');
+    await reindex();
+    const viaReindex = inputs.splice(0);
+
+    expect(viaRemember, 'remember() embedded nothing to compare against').toHaveLength(1);
+    // `alpha` already has its vector, so this run re-embeds both — take beta's.
+    expect(viaReindex.some((t) => t.includes('beta'))).toBe(true);
+
+    // Same entity shape (one observation, "first memory") under both paths, so
+    // the only difference the texts may carry is the entity's own name.
+    expect(viaReindex.find((t) => t.includes('beta'))).toBe(
+      viaRemember[0].replace('alpha', 'beta')
+    );
+    // Stated positively too: dropping the name is the exact regression.
+    expect(viaRemember[0]).toBe('alpha first memory');
   });
 });
