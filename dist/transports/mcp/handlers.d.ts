@@ -144,7 +144,7 @@ export declare const TOOL_DEFINITIONS: readonly [{
             readonly merge_strategy: {
                 readonly type: "string";
                 readonly enum: readonly ["skip", "overwrite", "append"];
-                readonly description: "How to handle existing entities: skip (default) = leave untouched, append = add observations, overwrite = archive existing and recreate";
+                readonly description: "Required. How to handle an entity that already exists: skip = leave it untouched, append = add these observations to it, overwrite = REPLACE its observations and tags (the old ones are deleted, not archived — this cannot be undone)";
             };
         };
         readonly required: readonly ["data", "merge_strategy"];

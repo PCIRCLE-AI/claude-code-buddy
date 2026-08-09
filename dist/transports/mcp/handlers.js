@@ -132,7 +132,7 @@ export const TOOL_DEFINITIONS = [
                 merge_strategy: {
                     type: 'string',
                     enum: ['skip', 'overwrite', 'append'],
-                    description: 'How to handle existing entities: skip (default) = leave untouched, append = add observations, overwrite = archive existing and recreate',
+                    description: 'Required. How to handle an entity that already exists: skip = leave it untouched, append = add these observations to it, overwrite = REPLACE its observations and tags (the old ones are deleted, not archived — this cannot be undone)',
                 },
             },
             required: ['data', 'merge_strategy'],

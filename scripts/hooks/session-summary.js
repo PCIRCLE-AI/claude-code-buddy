@@ -192,7 +192,23 @@ process.stdin.on('end', async () => {
 
     const sessionId = inputData.session_id || 'unknown';
     const transcriptPath = inputData.transcript_path;
-    const cwd = inputData.cwd || process.cwd();
+
+    // `cwd` decides the project tag, and the project tag decides which
+    // sessions `session-start` injects and which memories `pre-edit-recall`
+    // surfaces. Falling back to `process.cwd()` — the hook process's launch
+    // directory, which is unspecified for a Stop hook — tagged the session with
+    // whatever happened to be current. Measured: a payload with no `cwd` filed
+    // the whole session under `project:memesh-llm-memory`, a project it had
+    // nothing to do with, silently. That leaks one project's file names, bash
+    // commands and error text into another project's context.
+    //
+    // `post-commit` refuses this exact case and says why: better to miss one
+    // capture than to file it under the wrong project. Same rule here.
+    if (!inputData.cwd) {
+      try { process.stderr.write(`[memesh session-summary] cwd absent in payload (keys: ${Object.keys(inputData).join(',')}); cannot resolve project, skipping capture\n`); } catch {}
+      return exit0();
+    }
+    const cwd = inputData.cwd;
     // Default-allow: when Claude Code's Stop payload omits
     // `was_in_agentic_loop` (it has been silently absent in production
     // for an unknown number of releases — symptom: zero session-insight
@@ -248,27 +264,26 @@ process.stdin.on('end', async () => {
     const projectName = getProjectName(cwd);
 
     // Open DB via shared helper — applies SCHEMA_SQL + status migration.
-    // sqlite-vec is loaded separately because only this hook needs it
-    // (for embedding-aware recall-effectiveness tracking).
     // { fts: true } guarantees the entities_fts table exists so captureEntity()
     // can keep it in sync — session-insight memories must be FTS-recallable.
+    //
+    // sqlite-vec is NOT loaded here, and used to be. The comment said it was
+    // needed "for embedding-aware recall-effectiveness tracking" — but this
+    // hook runs exactly two statements, `PRAGMA table_info(entities)` and
+    // `SELECT id FROM entities WHERE name = ?`, and `captureEntity` in
+    // _shared.js touches no vectors either. Nothing here has ever used the
+    // extension.
+    //
+    // It was not free. sqlite-vec ships its engine as a per-platform file
+    // through optionalDependencies, and on a platform it does not publish the
+    // load threw — past the `require` guard, which never fired because the JS
+    // wrapper resolves fine and the throw happens later inside
+    // `sqliteVec.load()`. Measured with the platform binary hidden: the whole
+    // Stop capture vanished (0 entities against a control run's 1) and the
+    // user got a `Require stack:` dump on stderr. An extension nobody calls
+    // was silently costing every session on those platforms its memory.
     const { db } = openHookDb(process.env, { fts: true });
-    // sqlite-vec is a loadable extension shipped per-platform via
-    // optionalDependencies. It has no install script, so unlike the driver it
-    // used to sit beside it survives `--ignore-scripts` — but it is still
-    // absent on an unsupported platform, so resolve it through a try/require
-    // and degrade rather than throw a bug-shaped error into the outer catch.
-    let sqliteVec;
     try {
-      sqliteVec = require('sqlite-vec');
-    } catch {
-      throw new Error('skip-session-capture: sqlite-vec unavailable');
-    }
-    try {
-      // node:sqlite gates extension loading; see src/db.ts for the same dance.
-      db.enableLoadExtension(true);
-      try { sqliteVec.load(db); } finally { db.enableLoadExtension(false); }
-
       // Duplicate detection: if we already captured this session, bail.
       //
       // Use the FULL session_id rather than the first 8 chars: real
@@ -509,12 +524,12 @@ process.stdin.on('end', async () => {
     }
   } catch (err) {
     // Never crash Claude Code — leave a trace for debugging.
-    // Suppress the expected "skip-session-capture" sentinel (raised when
-    // sqlite-vec is unavailable, e.g. an unsupported platform). All other
-    // errors are real bugs and deserve a trace.
-    if (!String(err?.message || '').startsWith('skip-session-capture:')) {
-      try { process.stderr.write(`[memesh session-summary] ${err?.message || err}\n`); } catch {}
-    }
+    //
+    // Every error is traced now. There used to be a suppression branch for a
+    // `skip-session-capture:` sentinel, thrown when sqlite-vec was missing —
+    // an extension this hook never used. The thrower is gone, so the branch
+    // could only ever hide a real error from here on.
+    try { process.stderr.write(`[memesh session-summary] ${err?.message || err}\n`); } catch {}
   }
 
   // Spawn auto-update if policy + cache permit. Runs after all session work

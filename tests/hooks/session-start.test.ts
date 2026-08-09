@@ -112,6 +112,36 @@ describe('Feature: Session Start Hook', () => {
   // appearing in a transcript they were never shown in, permanently sinking
   // them in `impactScore`. These tests assert the payload the model actually
   // receives, so a regression to a counts-only banner fails CI.
+  describe('Scenario: the HOME cannot be written', () => {
+    it('says memories will NOT be saved, instead of "ready"', () => {
+      // The banner is a promise. On a directory the process cannot write,
+      // every capture hook then fails with EACCES, silently, for the whole
+      // session — while this line showed green. Measured: HOME at mode 555
+      // printed "MeMesh ready" and session-summary on the same HOME failed
+      // with `EACCES: permission denied, mkdir`.
+      const roParent = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-ro-'));
+      const roDb = path.join(roParent, 'nested', '.memesh', 'kg.db');
+      fs.chmodSync(roParent, 0o555);
+      try {
+        const out = runHook({ cwd: '/tmp/whatever' }, { MEMESH_DB_PATH: roDb });
+        const msg = String(out.systemMessage ?? '');
+        expect(msg, 'a green banner on a HOME nothing can write to').not.toContain('memories will be created');
+        expect(msg).toContain('NOT be saved');
+        expect(msg).toContain('memesh doctor');
+      } finally {
+        fs.chmodSync(roParent, 0o755);
+        fs.rmSync(roParent, { recursive: true, force: true });
+      }
+    });
+
+    it('a writable fresh HOME still gets the ready banner', () => {
+      // The guard must not become "always warn".
+      const freshDb = path.join(testDir, 'fresh', '.memesh', 'kg.db');
+      const out = runHook({ cwd: '/tmp/whatever' }, { MEMESH_DB_PATH: freshDb });
+      expect(String(out.systemMessage ?? '')).toContain('memories will be created');
+    });
+  });
+
   describe('Scenario: recalled memories are injected into the model context', () => {
     function seedProjectMemory() {
       const db = createScoringDb();
