@@ -27,6 +27,24 @@ async function withDatabase<T>(fn: () => T | Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Reject a flag value that is not one of the documented choices.
+ *
+ * `config set` has validated its enums since it shipped; the ordinary flags did
+ * not, and each unvalidated one failed in its own quiet way, all exiting 0.
+ * `--merge sikp` fell through to overwrite and destroyed observations.
+ * `--namespace persnal` stored the memory where nothing queries, so it vanished
+ * from every scoped view including the dashboard. `--severity catastrophic` was
+ * written into the graph as a tag nothing filters on.
+ */
+function requireOneOf(value: string | undefined, allowed: readonly string[], flag: string): void {
+  if (value === undefined || allowed.includes(value)) return;
+  console.error(`Error: ${flag} "${value}" is not valid. Use one of: ${allowed.join(', ')}.`);
+  process.exit(1);
+}
+
+const NAMESPACES = ['personal', 'team', 'global'] as const;
+
 const packageJsonPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../package.json'
@@ -65,6 +83,7 @@ program
   .option('--namespace <namespace>', 'Namespace: personal, team, or global (default: personal)')
   .option('--json', 'Output as JSON')
   .action(async (text, opts) => {
+    requireOneOf(opts.namespace, NAMESPACES, '--namespace');
     // Resolve quick-capture form into name/type/obs.
     //
     // Each invocation produces a UNIQUE name. The earlier scheme used
@@ -135,6 +154,7 @@ program
   .option('--cross-project', 'Search across all project tags (ignores --tag filter)')
   .option('--json', 'Output as JSON')
   .action(async (query, opts) => {
+    requireOneOf(opts.namespace, NAMESPACES, '--namespace');
     await withDatabase(async () => {
       // recallWithConflicts: FTS5 + sqlite-vec recall + conflict annotation,
       // owned by core so the transports can't drift on the wrapping rule.
@@ -223,8 +243,19 @@ program
         console.log(`📦 Archived "${opts.name}"`);
       } else if (result.observation_removed) {
         console.log(`✂️  Removed observation (${result.remaining_observations} remaining)`);
+      } else if (opts.observation && result.entity_found) {
+        // The entity is there; the quoted text just did not match. Saying "not
+        // found" sent the user to re-create a memory that already exists — the
+        // one action guaranteed to make it worse.
+        console.log(`Entity "${opts.name}" has no observation matching that text (${result.remaining_observations} observation(s) present).`);
+        console.log(`See them with: memesh recall "${opts.name}" --json`);
+        process.exitCode = 1;
       } else {
+        // `pin` already exits 1 here, with a comment explaining that a pin
+        // which pinned nothing is invisible to scripts. A forget that forgot
+        // nothing is the same.
         console.log(`Entity "${opts.name}" not found`);
+        process.exitCode = 1;
       }
     });
   });
@@ -297,6 +328,7 @@ program
   .option('--limit <n>', 'Max entities to export', '1000')
   .option('-o, --out <file>', 'Write JSON to <file> instead of stdout. Parent directory must exist.')
   .action(async (opts) => {
+    requireOneOf(opts.namespace, NAMESPACES, '--namespace');
     await withDatabase(() => {
       const result = exportMemories({
         tag: opts.tag,
@@ -305,11 +337,19 @@ program
       });
       const json = JSON.stringify(result, null, 2);
       if (opts.out) {
+        // Check the parent directory first. "ENOENT surfaces through commander
+        // with the path in the message" was the intent; what reached the user
+        // was a raw `node:fs` frame dump with ten stack lines and the absolute
+        // install path. The help already states the precondition ("Parent
+        // directory must exist") — it just never checked it.
+        const outDir = path.dirname(path.resolve(opts.out));
+        if (!fs.existsSync(outDir)) {
+          console.error(`Error: cannot write ${opts.out} — the directory ${outDir} does not exist.`);
+          console.error(`       Create it first (mkdir -p "${outDir}"), or drop -o to write to stdout.`);
+          process.exit(1);
+        }
         // Synchronous write so the CLI exits with a deterministic
-        // success/error code. ENOENT on the parent dir surfaces as the
-        // commander error path with the underlying path in the message,
-        // which is more useful than silent stdout output the user then
-        // has to figure out wasn't written.
+        // success/error code.
         fs.writeFileSync(opts.out, json + '\n');
         process.stderr.write(`✅ Exported ${result.entity_count} entities to ${opts.out}\n`);
       } else {
@@ -326,6 +366,8 @@ program
   .option('--namespace <ns>', 'Override namespace for all imported entities')
   .option('--merge <strategy>', 'Merge strategy: skip | overwrite | append', 'skip')
   .action(async (file, opts) => {
+    requireOneOf(opts.merge, ['skip', 'overwrite', 'append'], '--merge');
+    requireOneOf(opts.namespace, NAMESPACES, '--namespace');
     await withDatabase(() => {
       // DX: catch the failures new users hit first (missing file,
       // malformed JSON) and produce problem+cause+fix output instead
@@ -385,6 +427,7 @@ program
   .option('--severity <level>', 'Severity: critical|major|minor', 'minor')
   .option('--json', 'Output as JSON')
   .action(async (opts) => {
+    requireOneOf(opts.severity, ['critical', 'major', 'minor'], '--severity');
     await withDatabase(() => {
       const result = learn({
         error: opts.error,
@@ -801,6 +844,15 @@ program
   .option('--prune <days>', 'Delete rows older than N days BEFORE rendering (closes v4.2.0 retention gap)', (v) => parseInt(v, 10))
   .option('--json', 'Output as JSON')
   .action(async (opts) => {
+    // `--window abc` parses to NaN, which reached `new Date(NaN).toISOString()`
+    // and threw a RangeError with a stack trace. Commander's parser cannot
+    // reject it, so the check belongs here.
+    for (const [flag, value] of [['--window', opts.window], ['--prune', opts.prune]] as const) {
+      if (value !== undefined && !Number.isFinite(value)) {
+        console.error(`Error: ${flag} needs a number of days.`);
+        process.exit(1);
+      }
+    }
     await withDatabase(async () => {
       const { summariseTelemetry, pruneTelemetry } = await import('../../core/llm-telemetry.js');
       let pruneResult: { deletedRows: number; cutoffIso: string; totalRowsAfter: number } | null = null;
@@ -1561,6 +1613,7 @@ program
   )
   .option('--json', 'Output as JSON')
   .action(async (opts) => {
+    requireOneOf(opts.namespace, NAMESPACES, '--namespace');
     try {
       // The keyword index normally rebuilds itself once, on the first open
       // after an upgrade, guarded by a version marker in memesh_metadata. That

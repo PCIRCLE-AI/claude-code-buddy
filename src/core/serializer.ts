@@ -67,8 +67,24 @@ export function exportMemories(args: ExportInput): ExportResult {
  *   - 'skip': leave existing entities untouched, only create new ones
  *   - 'append': add observations to existing entities
  *   - 'overwrite': clear existing data, then re-populate
+ *
+ * An unrecognised strategy is REFUSED, not defaulted. This used to be two
+ * `if`s and a fall-through, so any other string — a typo like `sikp`, or
+ * `safe` — took the overwrite path: the most destructive of the three, on the
+ * least information. Measured: `--merge bogus` against an existing entity
+ * reported "Imported: 1", exit 0, replaced the observation and archived
+ * nothing to restore it from.
  */
+const MERGE_STRATEGIES = ['skip', 'overwrite', 'append'] as const;
+
 export function importMemories(args: ImportInput): ImportResult {
+  if (!(MERGE_STRATEGIES as readonly string[]).includes(args.merge_strategy)) {
+    throw new Error(
+      `Unknown merge strategy "${args.merge_strategy}". Use one of: ${MERGE_STRATEGIES.join(', ')}. ` +
+      'Nothing was imported — refusing rather than guessing, because the wrong guess overwrites existing memories.'
+    );
+  }
+
   const db = getDatabase();
   const kg = new KnowledgeGraph(db);
 

@@ -50,6 +50,20 @@ process.stdin.on('end', () => {
     const commitMatch = toolOutput.match(/\[[\w/.-]+(?: \([\w -]+\))? ([a-f0-9]{7,})\] (.+)/);
     if (!commitMatch) return exit0();
 
+    // The OUTPUT looking like a commit is not evidence that a commit happened.
+    // This hook stopped at the regex above, so any Bash output containing a
+    // commit-shaped line produced a permanent memory. Measured: a payload whose
+    // command was `cat docs/release-notes.md` wrote entity `commit-9f3c2a1`
+    // for a hash `git cat-file -t` rejects as "Not a valid object name".
+    // Reading a changelog, tailing a build log, or quoting a commit line was
+    // enough — and the fake then surfaced through session-start and
+    // pre-edit-recall as if it had happened.
+    const issuedCommand = typeof data.tool_input?.command === 'string' ? data.tool_input.command : '';
+    if (!/\bgit\b[^|;&]*\bcommit\b/.test(issuedCommand)) {
+      try { process.stderr.write(`[memesh post-commit] output looks like a commit but the command was not a git commit; skipping ${commitMatch[1]}\n`); } catch {}
+      return exit0();
+    }
+
     const branchMatch = commitMatch[0].match(/^\[([^\s]+)\s/);
     const branch = branchMatch ? branchMatch[1] : 'unknown';
 
@@ -66,6 +80,23 @@ process.stdin.on('end', () => {
       try { process.stderr.write(`[memesh post-commit] data.cwd absent — cannot resolve project / repo; skipping commit ${commitHash}\n`); } catch {}
       return exit0();
     }
+    // And the commit has to actually be in THIS repository.
+    //
+    // `cat-file -e <hash>^{commit}` answers exactly one question — does this
+    // resolve to a commit object here — in milliseconds, before anything is
+    // written. Deliberately separate from the `git show` below, whose failure
+    // (git absent, timeout on a huge diff) says nothing about the commit and
+    // must NOT veto.
+    try {
+      execFileSync('git', ['-C', data.cwd, 'cat-file', '-e', `${commitHash}^{commit}`], {
+        timeout: 5000,
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+    } catch {
+      try { process.stderr.write(`[memesh post-commit] ${commitHash} is not a commit in ${data.cwd}; nothing written\n`); } catch {}
+      return exit0();
+    }
+
     const projectName = getProjectName(data.cwd);
 
     // Open DB via shared helper — applies SCHEMA_SQL + status migration.

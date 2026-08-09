@@ -224,7 +224,7 @@ describe('importMemories', () => {
     };
 
     expect(() => importMemories({
-      data: bundle as Parameters<typeof importMemories>[0]['data'],
+      data: bundle as unknown as Parameters<typeof importMemories>[0]['data'],
       merge_strategy: 'sikp' as Parameters<typeof importMemories>[0]['merge_strategy'],
     })).toThrow(/Unknown merge strategy/);
 
