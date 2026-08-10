@@ -1469,10 +1469,18 @@ export function applyProposal(
 
     // `AND status = 'pending'` — the check that let us in here ran in a SELECT
     // outside this transaction, so a concurrent `dream run` that superseded
-    // the row, or a second `dream accept`, could land in between and have its
-    // rejection overwritten by 'applied' while the reason column still read
-    // "Superseded by…". `rejectProposal` has carried this predicate since it
-    // shipped; the apply path did not.
+    // the row could land in between and have its rejection overwritten by
+    // 'applied' while the reason column still read "Superseded by…".
+    // `rejectProposal` has carried this predicate since it shipped; the apply
+    // path did not.
+    //
+    // NOT covered by a test, and deliberately said out loud rather than left
+    // to look covered: a sequential double-apply is already refused by the
+    // SELECT above (that case IS tested), so reaching this line requires a
+    // second process changing the row between the SELECT and this UPDATE —
+    // which a single-threaded suite cannot stage. Mutating the predicate away
+    // leaves the suite green. It is defence against a race, verified by
+    // reading, not by execution.
     const applied = db.prepare(
       "UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'"
     ).run(row.id);

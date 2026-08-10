@@ -188,10 +188,11 @@ describe('dreamer', () => {
     }
   });
 
-  it('apply: refuses a proposal that stopped being pending', async () => {
-    // The pending check runs in a SELECT outside the transaction, so a
-    // concurrent run that supersedes the row could have its rejection
-    // overwritten by 'applied'.
+  it('apply: refuses a second apply of the same proposal', async () => {
+    // Covers the SELECT guard, not the terminal UPDATE's `AND status =
+    // 'pending'` — that one needs a second process changing the row between
+    // the SELECT and the UPDATE, which this suite cannot stage, and it says so
+    // at the line itself rather than looking covered here.
     const { applyProposal } = await import('../../src/core/dreamer.js');
     const sourceIds = seedCommits(6);
     db.prepare(`
