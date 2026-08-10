@@ -916,6 +916,27 @@ curl -s http://localhost:3737/v1/health
 
 ## CLI Commands
 
+### memesh remember — stating a relation
+
+The two relation types that change behaviour have their own flags, because
+they are the two worth typing:
+
+| Flag | What it does |
+|------|--------------|
+| `--supersedes <name...>` | Archives the named entity immediately. Recoverable — nothing is deleted — and reported as `archived as superseded: <name>`. |
+| `--contradicts <name...>` | Both memories surface as a conflict every time either is recalled (see [recall → Conflict detection](#recall)). |
+
+```bash
+memesh remember --name auth-v2 --type decision --obs "Sessions, not JWT" --supersedes auth-v1
+memesh remember --name no-jwt --type decision --obs "JWT is out" --contradicts use-jwt
+memesh recall jwt        # → Warning: Conflicts detected: "no-jwt" contradicts "use-jwt"
+```
+
+A relation whose target does not exist is reported on stderr and exits `1`:
+the consequence you asked for did not happen, so the command does not claim it
+did. Free-form relation labels are MCP/HTTP only — as a tag with extra steps,
+they have no CLI flag.
+
 ### memesh verify
 
 Reality-check work an agent claims to have done, and record the result.

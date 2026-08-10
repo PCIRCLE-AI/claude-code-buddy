@@ -231,6 +231,19 @@ All notable changes to MeMesh are documented here.
   response names a field its `*Result` type does not have, and when the
   document denies authentication the server performs.
 
+### Added
+
+- **`memesh remember --contradicts <name>` and `--supersedes <name>`.** Both
+  relation types that change behaviour were statable through MCP and HTTP and
+  from neither the terminal nor anywhere else the CLI could reach. That made
+  conflict detection structurally dead for a CLI-only user: `findConflicts()`
+  runs on every recall, nothing creates a `contradicts` relation
+  automatically, and no command could create one — so "no conflicts" was not a
+  finding, it was the only possible answer. A relation whose target does not
+  exist is reported and exits 1, because the consequence you asked for did not
+  happen. `tests/relation-types-documented.test.ts` now fails if either type
+  loses its flag or its help text stops explaining the consequence.
+
 ### Changed (dreamer)
 
 - **The dreamer groups entries by what they are about, not by which calendar

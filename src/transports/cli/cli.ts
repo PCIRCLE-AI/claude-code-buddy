@@ -119,6 +119,14 @@ program
   .option('--obs <observations...>', 'Observations (space-separated)')
   .option('--tags <tags...>', 'Tags (space-separated)')
   .option('--namespace <namespace>', 'Namespace: personal, team, or global (default: personal)')
+  // The two relation types that DO something. MCP and HTTP callers could state
+  // them through `relations`; the CLI had no way to state any relation at all,
+  // so `contradicts` — the thing every recall checks for — was unreachable from
+  // the terminal, and `memesh recall` always answered "no conflicts" for anyone
+  // who only used the CLI. Inert labels are not offered here: they would just be
+  // tags with extra steps.
+  .option('--supersedes <name...>', 'This memory replaces the named one — ARCHIVES it immediately (recoverable; nothing is deleted)')
+  .option('--contradicts <name...>', 'This memory cannot both be true with the named one — both surface as a conflict on every recall')
   .option('--json', 'Output as JSON')
   .action(async (text, opts) => {
     requireOneOf(opts.namespace, NAMESPACES, '--namespace');
@@ -163,6 +171,11 @@ program
       process.exit(1);
     }
 
+    const relations = [
+      ...((opts.supersedes ?? []) as string[]).map(to => ({ to, type: 'supersedes' })),
+      ...((opts.contradicts ?? []) as string[]).map(to => ({ to, type: 'contradicts' })),
+    ];
+
     await withDatabase(async () => {
       const result = remember({
         name: opts.name,
@@ -170,12 +183,26 @@ program
         observations: opts.obs,
         tags: opts.tags,
         namespace: opts.namespace,
+        relations: relations.length > 0 ? relations : undefined,
       });
       if (opts.json) {
         console.log(JSON.stringify(result));
       } else {
         console.log(`✅ Stored "${result.name}" (${result.observations} observations, ${result.tags} tags)`);
+        // A relation to a target that does not exist is reported, not
+        // swallowed: `remember()` collects those into relationErrors, and the
+        // consequence the user asked for (an archive, a conflict flag) did not
+        // happen.
+        if (result.superseded?.length) {
+          console.log(`   archived as superseded: ${result.superseded.join(', ')}`);
+        }
+        const stated = relations.length - (result.relationErrors?.length ?? 0);
+        if (stated > 0 && relations.some(r => r.type === 'contradicts')) {
+          console.log(`   conflicts stated: ${relations.filter(r => r.type === 'contradicts').map(r => r.to).join(', ')}`);
+        }
+        for (const err of result.relationErrors ?? []) console.error(`   ⚠️  ${err}`);
       }
+      if (result.relationErrors?.length) process.exitCode = 1;
       await flushPendingEmbeddings();
     });
   });
