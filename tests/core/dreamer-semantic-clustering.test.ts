@@ -63,9 +63,9 @@ function daysAgo(n: number): string {
  * `maxLlmCalls: 0` makes every cluster surface in `skipped` with its key, so
  * the grouping is observable without stubbing a provider.
  */
-function dreamPass(opts: { maxLlmCalls?: number } = {}) {
+function dreamPass(opts: { maxLlmCalls?: number; dryRun?: boolean } = {}) {
   return runDreamer(getDatabase(), { provider: 'anthropic', apiKey: 'sk-test' }, {
-    dryRun: true,
+    dryRun: opts.dryRun ?? true,
     maxLlmCalls: opts.maxLlmCalls ?? 0,
   });
 }
@@ -205,6 +205,50 @@ describe('dreamer says when it could not group by meaning', () => {
     const result = await dreamPass();
     expect(result.clusteringMode).toBe('semantic');
     expect(result.clusteringNote).toMatch(/1 candidate had no embedding/);
+  });
+});
+
+describe('proposals the old calendar rule left behind', () => {
+  it('retires them instead of staging an overlapping twin', async () => {
+    // Dedup needs an EXACT source-id match, and a semantic cluster is by
+    // construction a different set from the week bucket it came out of. So
+    // without retirement, upgrading stages a second proposal over overlapping
+    // entities beside every one still pending — and accepting both runs
+    // compaction twice over shared sources, where `compacted_into` is a plain
+    // overwrite.
+    seed([
+      { name: 'w-1', day: daysAgo(4), axis: 9, nudge: 0.05 },
+      { name: 'w-2', day: daysAgo(4), axis: 9, nudge: 0.08 },
+    ]);
+    const db = getDatabase();
+    const ids = (db.prepare("SELECT id FROM entities WHERE name LIKE 'w-%' ORDER BY id").all() as Array<{ id: number }>)
+      .map(r => r.id);
+    db.prepare(
+      "INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, prompt_version) VALUES ('demo', '2026-W32', ?, '{}', 'v1')"
+    ).run(JSON.stringify(ids));
+
+    // Not a dry run: a dry run correctly writes nothing.
+    const result = await dreamPass({ dryRun: false });
+
+    const row = db.prepare("SELECT status, reason FROM dream_proposals WHERE cluster_key = '2026-W32'")
+      .get() as { status: string; reason: string | null };
+    expect(row.status, 'the calendar-era proposal is still pending beside its replacement').toBe('rejected');
+    expect(row.reason).toMatch(/[Ss]uperseded by meaning-based clustering/);
+    expect(result.skipped.some(s => /calendar-week clustering/.test(s.reason))).toBe(true);
+  });
+
+  it('leaves a semantic-era pending proposal alone', async () => {
+    // The control. Retiring by key SHAPE must not touch the new keys — which
+    // are dates plus a membership hash, never `YYYY-Wnn`.
+    const db = getDatabase();
+    db.prepare(
+      "INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, prompt_version) VALUES ('demo', '2026-08-04..2026-08-09-a3f1c2d4', '[1,2]', '{}', 'v1')"
+    ).run();
+
+    await dreamPass({ dryRun: false });
+    const row = db.prepare("SELECT status FROM dream_proposals WHERE cluster_key LIKE '2026-08-04%'")
+      .get() as { status: string };
+    expect(row.status).toBe('pending');
   });
 });
 

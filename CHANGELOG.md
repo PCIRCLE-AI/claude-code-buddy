@@ -298,6 +298,45 @@ All notable changes to MeMesh are documented here.
   whether *something* succeeded rather than *which*. `remember` now returns the
   relations it actually created and the command reports from those.
 
+- **The dashboard published the account name the CLI had just stopped
+  publishing.** `memesh feedback` exists on two surfaces and only the terminal
+  one was fixed: the dashboard widget builds the same public GitHub issue body
+  from the same `/v1/doctor` route, and stripped nothing. Redaction moved into
+  `core/paths.ts` and now runs server-side in that route, so every consumer of
+  it is covered at once — the browser cannot do this itself, it does not know
+  the server's HOME. It also covers a data directory that `MEMESH_DIR` or
+  `MEMESH_DB_PATH` moved outside home, which the first version missed, and
+  matches the doubled separators a Windows path picks up when it is JSON
+  encoded.
+
+- **A namespace move is no longer silent or one-way.** Moving an existing
+  memory between namespaces drops it out of every scoped view it appeared in,
+  and it was reported as a plain `stored: true` with no record of where it came
+  from — undoable only by someone who independently remembered. The move now
+  writes `metadata.previous_namespace` and a timestamp, `remember` returns
+  `movedFromNamespace`, and the CLI prints the move with the command to reverse
+  it. The MCP schema description no longer reads `(default: "personal")`, which
+  was an invitation for an agent to fill the field in and relocate a `team`
+  memory it was merely re-remembering.
+
+- **Upgrading no longer stages a duplicate of every pending dream proposal.**
+  De-duplication needs an exact source-id match, and a semantic cluster is
+  never the exact set its week bucket was — so each pending proposal would have
+  gained an overlapping twin, and accepting both ran compaction twice over
+  shared entities where the `compacted_into` back-pointer is a plain overwrite.
+  Proposals carrying a calendar-era key are now retired on the first run, with
+  a reason, as `rejected` rather than deleted.
+
+- **The dreamer no longer loses semantic clustering on a large graph, silently
+  and with the wrong explanation.** It loaded vectors with one SQL placeholder
+  per candidate; SQLite's ceiling is 32766 (measured), and the failure was
+  caught and reported as "sqlite-vec is not loaded" — so the graphs big enough
+  to need meaning-based grouping were the ones that lost it, and were sent to
+  fix a dependency that was fine. The lookup is chunked, an unreadable index
+  now reports its real error, and the distance loop exits as soon as a pair is
+  out of range: measured 38.5s → 1.98s at 10 000 candidates. Those had to land
+  together — the placeholder limit was what capped the quadratic work.
+
 - **Two documents that described code that does not exist.**
   `API_REFERENCE.md` said "MeMesh does not add an auth layer for you" while a
   non-loopback bind has required a bearer token since 4.2 — generated before

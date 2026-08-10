@@ -48,7 +48,7 @@ export declare const TOOL_DEFINITIONS: readonly [{
             readonly namespace: {
                 readonly type: "string";
                 readonly enum: readonly ["personal", "team", "global"];
-                readonly description: "Namespace for organizing the entity (default: \"personal\")";
+                readonly description: "Namespace for organizing the entity. Omit it to leave an existing memory where it is — supplying it MOVES a memory that already exists, and it drops out of every other scoped view. New memories default to \"personal\".";
             };
         };
         readonly required: readonly ["name", "type"];

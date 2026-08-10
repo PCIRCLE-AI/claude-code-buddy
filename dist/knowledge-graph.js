@@ -86,13 +86,20 @@ export class KnowledgeGraph {
             .run(name, type, JSON.stringify(incomingMetadata), opts?.namespace ?? 'personal');
         const isNewEntity = insertResult.changes > 0;
         const row = this.db
-            .prepare('SELECT id, status FROM entities WHERE name = ?')
+            .prepare('SELECT id, status, namespace FROM entities WHERE name = ?')
             .get(name);
         const entityId = row.id;
-        if (!isNewEntity && opts?.namespace !== undefined) {
+        const previousNamespace = row.namespace ?? 'personal';
+        const requestedNamespace = opts?.namespace;
+        if (!isNewEntity && requestedNamespace !== undefined && requestedNamespace !== previousNamespace) {
             this.db
                 .prepare('UPDATE entities SET namespace = ? WHERE id = ?')
-                .run(opts.namespace, entityId);
+                .run(requestedNamespace, entityId);
+            this.updateEntityMetadata(name, (meta) => ({
+                ...meta,
+                previous_namespace: previousNamespace,
+                namespace_moved_at: new Date().toISOString(),
+            }));
         }
         const wasArchived = !isNewEntity && row.status === 'archived';
         if (wasArchived) {

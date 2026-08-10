@@ -17,7 +17,7 @@ import { verifyAgentWork } from '../../core/verifier.js';
 import { RememberSchema as RememberBody, RecallSchema as RecallBody, ForgetSchema as ForgetBody, ExportSchema as ExportBody, ImportSchema as ImportBody, LearnSchema as LearnBody, VerifyAgentWorkSchema as VerifyBody, } from '../schemas.js';
 import { checkForUpdate, getLastUpdateCheck, getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
-import { getDbPath, getMemeshDirFromDbPath } from '../../core/paths.js';
+import { getDbPath, getMemeshDirFromDbPath, redactUserPaths } from '../../core/paths.js';
 import { RETIRED_ROUTES } from './retired-routes.js';
 import fs from 'fs';
 import path from 'path';
@@ -221,7 +221,7 @@ app.get('/v1/doctor', async (_req, res) => {
             packageRoot,
             packageVersion,
         });
-        const safe = JSON.parse(redactSecrets(JSON.stringify(result)));
+        const safe = JSON.parse(redactUserPaths(redactSecrets(JSON.stringify(result))));
         res.json({ success: true, data: safe });
     }
     catch (err) {

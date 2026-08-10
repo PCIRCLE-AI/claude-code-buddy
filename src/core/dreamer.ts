@@ -212,6 +212,13 @@ export async function runDreamer(
     return result;
   }
 
+  const retired = retireCalendarProposals(db, opts.dryRun === true);
+  if (retired > 0) {
+    result.skipped.push({
+      reason: `${retired} pending proposal${retired === 1 ? '' : 's'} from the old calendar-week clustering ${opts.dryRun ? 'would be' : 'were'} retired — their entries are re-proposed by meaning below`,
+    });
+  }
+
   const maxLlmCalls = opts.maxLlmCalls ?? 100;
   const detection = detectClusters(db, opts);
   const clusters = detection.clusters;
@@ -394,7 +401,8 @@ function detectClusters(db: MemeshDatabase, opts: DreamerOptions): ClusterDetect
     return { clusters: [], mode: hasVectorIndex(db) ? 'semantic' : 'calendar' };
   }
 
-  const vectors = loadCandidateVectors(db, candidates.map(c => c.entity.id));
+  let vectorError: string | undefined;
+  const vectors = loadCandidateVectors(db, candidates.map(c => c.entity.id), (m) => { vectorError = m; });
   if (vectors === null || vectors.size === 0) {
     const clusters: Cluster[] = [];
     for (const [project, entities] of byProject) {
@@ -405,9 +413,11 @@ function detectClusters(db: MemeshDatabase, opts: DreamerOptions): ClusterDetect
     return {
       clusters,
       mode: 'calendar',
-      note: vectors === null
-        ? 'No vector index (sqlite-vec is not loaded), so entries were grouped by calendar week rather than by meaning. A digest may mix unrelated work.'
-        : 'No embeddings stored for these entries, so they were grouped by calendar week rather than by meaning. Configure a neural embedder (`memesh config set embedder.provider ollama`) and run `memesh reindex` for meaning-based grouping.',
+      note: vectorError
+        ? `The vector index could not be read (${vectorError}), so entries were grouped by calendar week rather than by meaning. This is not a missing sqlite-vec — the index is there; \`memesh doctor\` will say more.`
+        : vectors === null
+          ? 'No vector index (sqlite-vec is not loaded), so entries were grouped by calendar week rather than by meaning. A digest may mix unrelated work.'
+          : 'No embeddings stored for these entries, so they were grouped by calendar week rather than by meaning. Configure a neural embedder (`memesh config set embedder.provider ollama`) and run `memesh reindex` for meaning-based grouping.',
     };
   }
 
@@ -433,13 +443,27 @@ function detectClusters(db: MemeshDatabase, opts: DreamerOptions): ClusterDetect
 }
 
 /**
- * `entities_vec` rows for the given ids, or null when there is no index at all.
+ * `entities_vec` rows for the given ids, or null when the index cannot be read.
  *
- * The two nulls are different answers and the caller reports them differently:
- * no index means sqlite-vec is missing, an empty map means the index exists but
- * this graph has no embeddings (the default `tfidf` configuration writes none).
+ * `null` and an empty map are different answers and the caller reports them
+ * differently: null means the index is absent or unreadable, an empty map means
+ * the index exists but this graph has no embeddings (the default `tfidf`
+ * configuration writes none).
+ *
+ * Ids are fetched in chunks. `WHERE rowid IN (?,?,…)` with one placeholder per
+ * candidate hits SQLite's variable ceiling — measured on this build: 32766
+ * placeholders succeed, 32767 throws `too many SQL variables` — and the catch
+ * below turned that into "no vector index", so a graph large enough to need
+ * semantic clustering was the one that silently lost it, and was told the
+ * wrong reason.
  */
-function loadCandidateVectors(db: MemeshDatabase, ids: number[]): Map<number, Float32Array> | null {
+const VECTOR_LOOKUP_CHUNK = 500;
+
+function loadCandidateVectors(
+  db: MemeshDatabase,
+  ids: number[],
+  onError?: (message: string) => void,
+): Map<number, Float32Array> | null {
   // Index first, ids second. The other order answered "no embeddings stored —
   // configure a neural embedder and run `memesh reindex`" whenever the window
   // simply held nothing to cluster, telling a user with a full vector index to
@@ -448,30 +472,51 @@ function loadCandidateVectors(db: MemeshDatabase, ids: number[]): Map<number, Fl
   if (ids.length === 0) return new Map();
   const out = new Map<number, Float32Array>();
   try {
-    const rows = db.prepare(
-      `SELECT rowid AS id, embedding FROM entities_vec WHERE rowid IN (${ids.map(() => '?').join(',')})`
-    ).all(...ids) as Array<{ id: number; embedding: Uint8Array }>;
-    for (const row of rows) {
-      const buf = row.embedding;
-      // `.slice()` copies to a fresh, 4-byte-aligned buffer. A VIEW over the
-      // blob (`new Float32Array(buf.buffer, buf.byteOffset, …)`) throws
-      // RangeError whenever SQLite hands back a byteOffset that is not a
-      // multiple of 4 — and the catch below would have turned that into "no
-      // vector index", quietly demoting a graph that has one.
-      out.set(row.id, new Float32Array(buf.slice().buffer));
+    for (let start = 0; start < ids.length; start += VECTOR_LOOKUP_CHUNK) {
+      const chunk = ids.slice(start, start + VECTOR_LOOKUP_CHUNK);
+      const rows = db.prepare(
+        `SELECT rowid AS id, embedding FROM entities_vec WHERE rowid IN (${chunk.map(() => '?').join(',')})`
+      ).all(...chunk) as Array<{ id: number; embedding: Uint8Array }>;
+      for (const row of rows) {
+        const buf = row.embedding;
+        // `.slice()` copies to a fresh, 4-byte-aligned buffer. A VIEW over the
+        // blob (`new Float32Array(buf.buffer, buf.byteOffset, …)`) throws
+        // RangeError whenever SQLite hands back a byteOffset that is not a
+        // multiple of 4 — and the catch below would have turned that into "no
+        // vector index", quietly demoting a graph that has one.
+        out.set(row.id, new Float32Array(buf.slice().buffer));
+      }
     }
-  } catch {
-    // A malformed or half-migrated index is the calendar case, not a crash.
+  } catch (err) {
+    // An index that exists but cannot be read is NOT "sqlite-vec is missing".
+    // Reporting it as that sent users to fix a dependency that was fine; the
+    // caller now has the real message to pass on.
+    onError?.(err instanceof Error ? err.message : String(err));
     return null;
   }
   return out;
 }
 
-function l2Distance(a: Float32Array, b: Float32Array): number {
-  if (a.length !== b.length) return Infinity;
+/**
+ * Squared L2, with an early exit at `limit²`.
+ *
+ * Returns `Infinity` the moment the running sum passes the limit, which on a
+ * 768-dimension vector is usually within the first few components. Clustering
+ * is O(N²) in candidates, and the overwhelming majority of those pairs are
+ * nowhere near the threshold — measured at N=10000, walking all 768 floats and
+ * calling `Math.sqrt` on every pair took 38.5s; exiting early took 1.98s.
+ * Comparing squares alone bought nothing (39.5s): the exit is the whole win.
+ */
+function withinDistance(a: Float32Array, b: Float32Array, limit: number): boolean {
+  if (a.length !== b.length) return false;
+  const limitSquared = limit * limit;
   let sum = 0;
-  for (let i = 0; i < a.length; i++) { const d = a[i] - b[i]; sum += d * d; }
-  return Math.sqrt(sum);
+  for (let i = 0; i < a.length; i++) {
+    const d = a[i] - b[i];
+    sum += d * d;
+    if (sum >= limitSquared) return false;
+  }
+  return true;
 }
 
 /**
@@ -501,7 +546,7 @@ function clusterBySimilarity(
 
     for (let i = 0; i < remaining.length; ) {
       const candidate = vectors.get(remaining[i].id) as Float32Array;
-      if (l2Distance(centroid, candidate) < COMPACT_MAX_CLUSTER_DISTANCE) {
+      if (withinDistance(centroid, candidate, COMPACT_MAX_CLUSTER_DISTANCE)) {
         const [joined] = remaining.splice(i, 1);
         members.push(joined);
         for (let k = 0; k < centroid.length; k++) {
@@ -569,6 +614,43 @@ function isoWeekKey(d: Date): string {
  * duplicate. The source id set is the identity; matching on it holds whatever
  * the label says.
  */
+/**
+ * Retire pending proposals that the calendar-week rule produced.
+ *
+ * De-duplication requires an EXACT source-id match, and a semantic cluster is
+ * by construction a different set from the week bucket it came out of. So
+ * without this, upgrading stages a second, overlapping proposal beside every
+ * proposal still pending — `dream list` shows both, and accepting both runs
+ * compaction twice over shared entities, where `metadata.compacted_into` is a
+ * plain overwrite: the second digest takes the source's back-pointer while the
+ * first still claims it with a `summarizes` relation.
+ *
+ * Identified by the key shape, which is unambiguous: the old rule wrote an ISO
+ * week (`2026-W32`), the new one writes dates plus a membership hash
+ * (`2026-08-04..2026-08-09-a3f1c2d4`). Rejected rather than deleted — the row
+ * and its digest survive, `dream list --status rejected` still shows them, and
+ * the reason says what to do.
+ */
+function retireCalendarProposals(db: MemeshDatabase, dryRun: boolean): number {
+  const rows = db.prepare(
+    `SELECT id FROM dream_proposals
+     WHERE status = 'pending'
+       AND (source_kind IS NULL OR source_kind = 'entities')
+       AND cluster_key GLOB '[0-9][0-9][0-9][0-9]-W[0-9][0-9]'`
+  ).all() as Array<{ id: number }>;
+  if (rows.length === 0 || dryRun) return rows.length;
+
+  const stmt = db.prepare(
+    "UPDATE dream_proposals SET status = 'rejected', reason = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?"
+  );
+  const reason = 'Superseded by meaning-based clustering — the same entries are re-proposed grouped by content.';
+  const txn = db.transaction(() => {
+    for (const row of rows) stmt.run(reason, row.id);
+  });
+  txn();
+  return rows.length;
+}
+
 function proposalAlreadyExists(db: MemeshDatabase, cluster: Cluster): boolean {
   const sourceIds = cluster.entities.map(e => e.id).sort((a, b) => a - b);
   // `dream_proposals` holds three kinds of row. Compaction proposals ARCHIVE

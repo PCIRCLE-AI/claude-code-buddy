@@ -316,8 +316,8 @@ export class KnowledgeGraph {
     const isNewEntity = insertResult.changes > 0;
 
     const row = this.db
-      .prepare('SELECT id, status FROM entities WHERE name = ?')
-      .get(name) as { id: number; status: string };
+      .prepare('SELECT id, status, namespace FROM entities WHERE name = ?')
+      .get(name) as { id: number; status: string; namespace: string | null };
     const entityId = row.id;
 
     // An explicit namespace applies to an entity that already exists, too.
@@ -328,10 +328,25 @@ export class KnowledgeGraph {
     // Only an explicitly supplied value moves anything: `undefined` means the
     // caller said nothing, and a re-remember must not drag an entity back to
     // the `personal` default.
-    if (!isNewEntity && opts?.namespace !== undefined) {
+    //
+    // A move records where it came from. Nothing else does: `RememberResult`
+    // had no namespace field, no backup is taken, and the entity's own row is
+    // overwritten — so a move made by mistake (an agent filling in an optional
+    // field it saw a default for) was undoable only by a user who happened to
+    // remember the old value. `previous_namespace` makes it undoable from the
+    // row itself. Recorded only when the namespace actually CHANGES, so
+    // re-remembering into the same scope does not rewrite metadata.
+    const previousNamespace = row.namespace ?? 'personal';
+    const requestedNamespace = opts?.namespace;
+    if (!isNewEntity && requestedNamespace !== undefined && requestedNamespace !== previousNamespace) {
       this.db
         .prepare('UPDATE entities SET namespace = ? WHERE id = ?')
-        .run(opts.namespace, entityId);
+        .run(requestedNamespace, entityId);
+      this.updateEntityMetadata(name, (meta) => ({
+        ...meta,
+        previous_namespace: previousNamespace,
+        namespace_moved_at: new Date().toISOString(),
+      }));
     }
 
     // Reactivate archived entities on re-remember

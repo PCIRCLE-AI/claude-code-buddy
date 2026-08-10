@@ -1,3 +1,4 @@
+import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { execFileSync } from 'child_process';
@@ -66,5 +67,34 @@ export function slugFromRemoteUrl(url) {
 }
 export function _clearProjectNameCache() {
     projectNameCache.clear();
+}
+export function redactUserPaths(text) {
+    const home = homeDir();
+    const roots = new Set();
+    const add = (root) => {
+        if (!root)
+            return;
+        roots.add(root);
+        try {
+            roots.add(fs.realpathSync(root));
+        }
+        catch { }
+    };
+    add(home);
+    const isInside = (child) => {
+        const rel = path.relative(home, child);
+        return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+    };
+    for (const dir of [memeshDir(), path.dirname(getDbPath())]) {
+        if (dir && !isInside(dir))
+            add(dir);
+    }
+    const flags = process.platform === 'linux' ? 'g' : 'gi';
+    let out = text;
+    for (const root of [...roots].sort((a, b) => b.length - a.length)) {
+        const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        out = out.replace(new RegExp(escaped.replace(/\\\\|\//g, '[\\\\/]{1,2}'), flags), '~');
+    }
+    return out;
 }
 //# sourceMappingURL=paths.js.map

@@ -2,7 +2,6 @@
 import { Command } from 'commander';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexRebuild } from '../../db.js';
@@ -10,7 +9,7 @@ import { remember, recallWithConflicts, forget, exportMemories, importMemories, 
 import { verifyAgentWork } from '../../core/verifier.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
-import { getDbPath } from '../../core/paths.js';
+import { getDbPath, redactUserPaths } from '../../core/paths.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 import { NAMESPACES } from '../../core/types.js';
 async function withDatabase(fn) {
@@ -27,23 +26,6 @@ function requireOneOf(value, allowed, flag) {
         return;
     console.error(`Error: ${flag} "${value}" is not valid. Use one of: ${allowed.join(', ')}.`);
     process.exit(1);
-}
-function redactHome(text) {
-    const home = os.homedir();
-    if (!home)
-        return text;
-    const forms = new Set([home]);
-    try {
-        forms.add(fs.realpathSync(home));
-    }
-    catch { }
-    const flags = process.platform === 'linux' ? 'g' : 'gi';
-    let out = text;
-    for (const form of [...forms].sort((a, b) => b.length - a.length)) {
-        const escaped = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        out = out.replace(new RegExp(escaped.replace(/\\\\|\//g, '[\\\\/]'), flags), '~');
-    }
-    return out;
 }
 const packageJsonPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../package.json');
 const packageRoot = path.dirname(packageJsonPath);
@@ -63,7 +45,7 @@ program
     .option('--type <type>', 'Entity type')
     .option('--obs <observations...>', 'Observations (space-separated)')
     .option('--tags <tags...>', 'Tags (space-separated)')
-    .option('--namespace <namespace>', 'Namespace: personal, team, or global (default: personal)')
+    .option('--namespace <namespace>', 'Namespace: personal, team, or global. On a NEW memory this places it (default personal); on one that already exists it MOVES it out of the scope it is in — omit the flag to leave it alone.')
     .option('--supersedes <name...>', 'This memory replaces the named one — ARCHIVES it immediately (recoverable; nothing is deleted)')
     .option('--contradicts <name...>', 'This memory cannot both be true with the named one — both surface as a conflict on every recall')
     .option('--json', 'Output as JSON')
@@ -114,6 +96,9 @@ program
         }
         else {
             console.log(`✅ Stored "${result.name}" (${result.observations} observations, ${result.tags} tags)`);
+            if (result.movedFromNamespace) {
+                console.log(`   moved: ${result.movedFromNamespace} → ${opts.namespace} (was in ${result.movedFromNamespace}; re-run with --namespace ${result.movedFromNamespace} to put it back)`);
+            }
             if (result.superseded?.length) {
                 console.log(`   archived as superseded: ${result.superseded.join(', ')}`);
             }
@@ -1380,7 +1365,7 @@ program
             body += `\n\n---\n**System Info**\n- Version: \`${pkg.version}\`\n- Node: \`${process.version}\`\n- Platform: \`${process.platform} ${process.arch}\`\n_Diagnostics unavailable: doctor probe failed._`;
         }
     }
-    body = redactHome(body);
+    body = redactUserPaths(body);
     const url = `https://github.com/PCIRCLE-AI/memesh-llm-memory/issues/new?title=${encodeURIComponent(`[${typeLabel}] `)}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
     if (opts.open === false) {
         console.log(url);

@@ -346,11 +346,6 @@
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
     },
-    "C5 src/transports/http/server.ts:978": {
-      "class": "SAFE-GUARDED",
-      "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-10 (re-keyed: the serve 'error' listener added 9 lines; same safeParse statements, same classification)"
-    },
     "C5 src/transports/mcp/handlers.ts:290": {
       "class": "SAFE-GUARDED",
       "reason": "Zod rejects {} for schemas with required fields",
@@ -386,26 +381,6 @@
       "reason": "next line rejects the absent case",
       "triaged": "2026-08-04; re-keyed 2026-08-10 (the AUTO_CAPTURE_TAG import shifted it +1; same statement, classification unchanged)"
     },
-    "C5 src/knowledge-graph.ts:379": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the explicit-namespace update shifted it +13; same statement, classification unchanged)"
-    },
-    "C5 src/knowledge-graph.ts:596": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the explicit-namespace update shifted it +13; same statement, classification unchanged)"
-    },
-    "C5 src/knowledge-graph.ts:597": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the explicit-namespace update shifted it +13; same statement, classification unchanged)"
-    },
-    "C5 src/knowledge-graph.ts:598": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the explicit-namespace update shifted it +13; same statement, classification unchanged)"
-    },
     "C1 tests/cli/doctor-honest-pass.test.ts": {
       "class": "SAFE",
       "reason": "the zeros are exit codes and a \"warn, not pass\" status, each paired in the same test with a positive assertion (the entity exists, the opposite verdict fires)",
@@ -436,16 +411,6 @@
       "reason": "reads cli.ts to assert each behavioural relation type has a flag whose help carries the consequence — the flags' behaviour is tested against a real database in tests/cli/remember-relations.test.ts",
       "triaged": "2026-08-10 (P7 batch 2)"
     },
-    "C5 src/core/dreamer.ts:947": {
-      "class": "SAFE-GUARDED",
-      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass: namespace validation, provenance constant and the relations fix shifted these lines); same statement, classification unchanged)"
-    },
-    "C5 src/core/dreamer.ts:950": {
-      "class": "SAFE-GUARDED",
-      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass: namespace validation, provenance constant and the relations fix shifted these lines); same statement, classification unchanged)"
-    },
     "C5 src/core/kg-backfill.ts:410": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "index lookups where empty means no peers",
@@ -471,30 +436,65 @@
       "reason": "provenance spread identity; trust written unconditionally",
       "triaged": "2026-08-04"
     },
-    "C5 src/transports/http/server.ts:1051": {
+    "C5 src/core/dreamer.ts:1029": {
+      "class": "SAFE-GUARDED",
+      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); same statement, classification unchanged)"
+    },
+    "C5 src/core/dreamer.ts:1032": {
+      "class": "SAFE-GUARDED",
+      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); same statement, classification unchanged)"
+    },
+    "C5 src/knowledge-graph.ts:394": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement)"
+    },
+    "C5 src/knowledge-graph.ts:611": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement)"
+    },
+    "C5 src/knowledge-graph.ts:612": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement)"
+    },
+    "C5 src/knowledge-graph.ts:613": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement)"
+    },
+    "C5 src/transports/http/server.ts:988": {
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
       "triaged": "2026-08-10 (re-keyed: the serve 'error' listener added 9 lines; same safeParse statements, same classification)"
     },
-    "C5 src/transports/cli/cli.ts:176": {
+    "C5 src/transports/http/server.ts:1061": {
+      "class": "SAFE-GUARDED",
+      "reason": "Zod safeParse still validates; fields optional-with-default by design",
+      "triaged": "2026-08-10 (re-keyed: the serve 'error' listener added 9 lines; same safeParse statements, same classification)"
+    },
+    "C5 src/transports/cli/cli.ts:138": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "commander leaves --supersedes undefined when the flag is absent; the empty list truthfully means no relation was requested, and nothing downstream reports one as created",
       "triaged": "2026-08-10 (P7 batch 2)"
     },
-    "C5 src/transports/cli/cli.ts:177": {
+    "C5 src/transports/cli/cli.ts:139": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "commander leaves --contradicts undefined when the flag is absent; the empty list truthfully means no relation was requested",
       "triaged": "2026-08-10 (P7 batch 2)"
     },
-    "C5 src/transports/cli/cli.ts:210": {
-      "class": "SAFE-GUARDED",
-      "reason": "remember() sets relationErrors only when non-empty (operations.ts spreads it conditionally), so absent means none at the single producer; the failure path exits 1 off the same field",
-      "triaged": "2026-08-10 (P7 batch 2)"
-    },
-    "C5 src/transports/cli/cli.ts:204": {
+    "C5 src/transports/cli/cli.ts:171": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "remember() spreads relationsCreated only when non-empty, so absent means none were created at the single producer; the empty list correctly prints no conflicts line — this replaced arithmetic that announced conflicts for relations that had failed",
       "triaged": "2026-08-10 (review pass)"
+    },
+    "C5 src/transports/cli/cli.ts:177": {
+      "class": "SAFE-GUARDED",
+      "reason": "remember() sets relationErrors only when non-empty (operations.ts spreads it conditionally), so absent means none at the single producer; the failure path exits 1 off the same field",
+      "triaged": "2026-08-10 (P7 batch 2)"
     }
   }
 }

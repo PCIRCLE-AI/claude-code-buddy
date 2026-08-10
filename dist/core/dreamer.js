@@ -45,6 +45,12 @@ export async function runDreamer(db, llm, opts = {}) {
         result.durationMs = Date.now() - start;
         return result;
     }
+    const retired = retireCalendarProposals(db, opts.dryRun === true);
+    if (retired > 0) {
+        result.skipped.push({
+            reason: `${retired} pending proposal${retired === 1 ? '' : 's'} from the old calendar-week clustering ${opts.dryRun ? 'would be' : 'were'} retired — their entries are re-proposed by meaning below`,
+        });
+    }
     const maxLlmCalls = opts.maxLlmCalls ?? 100;
     const detection = detectClusters(db, opts);
     const clusters = detection.clusters;
@@ -184,7 +190,8 @@ function detectClusters(db, opts) {
     if (candidates.length === 0) {
         return { clusters: [], mode: hasVectorIndex(db) ? 'semantic' : 'calendar' };
     }
-    const vectors = loadCandidateVectors(db, candidates.map(c => c.entity.id));
+    let vectorError;
+    const vectors = loadCandidateVectors(db, candidates.map(c => c.entity.id), (m) => { vectorError = m; });
     if (vectors === null || vectors.size === 0) {
         const clusters = [];
         for (const [project, entities] of byProject) {
@@ -195,9 +202,11 @@ function detectClusters(db, opts) {
         return {
             clusters,
             mode: 'calendar',
-            note: vectors === null
-                ? 'No vector index (sqlite-vec is not loaded), so entries were grouped by calendar week rather than by meaning. A digest may mix unrelated work.'
-                : 'No embeddings stored for these entries, so they were grouped by calendar week rather than by meaning. Configure a neural embedder (`memesh config set embedder.provider ollama`) and run `memesh reindex` for meaning-based grouping.',
+            note: vectorError
+                ? `The vector index could not be read (${vectorError}), so entries were grouped by calendar week rather than by meaning. This is not a missing sqlite-vec — the index is there; \`memesh doctor\` will say more.`
+                : vectors === null
+                    ? 'No vector index (sqlite-vec is not loaded), so entries were grouped by calendar week rather than by meaning. A digest may mix unrelated work.'
+                    : 'No embeddings stored for these entries, so they were grouped by calendar week rather than by meaning. Configure a neural embedder (`memesh config set embedder.provider ollama`) and run `memesh reindex` for meaning-based grouping.',
         };
     }
     const clusters = [];
@@ -217,33 +226,41 @@ function detectClusters(db, opts) {
             : undefined,
     };
 }
-function loadCandidateVectors(db, ids) {
+const VECTOR_LOOKUP_CHUNK = 500;
+function loadCandidateVectors(db, ids, onError) {
     if (!hasVectorIndex(db))
         return null;
     if (ids.length === 0)
         return new Map();
     const out = new Map();
     try {
-        const rows = db.prepare(`SELECT rowid AS id, embedding FROM entities_vec WHERE rowid IN (${ids.map(() => '?').join(',')})`).all(...ids);
-        for (const row of rows) {
-            const buf = row.embedding;
-            out.set(row.id, new Float32Array(buf.slice().buffer));
+        for (let start = 0; start < ids.length; start += VECTOR_LOOKUP_CHUNK) {
+            const chunk = ids.slice(start, start + VECTOR_LOOKUP_CHUNK);
+            const rows = db.prepare(`SELECT rowid AS id, embedding FROM entities_vec WHERE rowid IN (${chunk.map(() => '?').join(',')})`).all(...chunk);
+            for (const row of rows) {
+                const buf = row.embedding;
+                out.set(row.id, new Float32Array(buf.slice().buffer));
+            }
         }
     }
-    catch {
+    catch (err) {
+        onError?.(err instanceof Error ? err.message : String(err));
         return null;
     }
     return out;
 }
-function l2Distance(a, b) {
+function withinDistance(a, b, limit) {
     if (a.length !== b.length)
-        return Infinity;
+        return false;
+    const limitSquared = limit * limit;
     let sum = 0;
     for (let i = 0; i < a.length; i++) {
         const d = a[i] - b[i];
         sum += d * d;
+        if (sum >= limitSquared)
+            return false;
     }
-    return Math.sqrt(sum);
+    return true;
 }
 function clusterBySimilarity(entities, vectors) {
     const remaining = [...entities].sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -254,7 +271,7 @@ function clusterBySimilarity(entities, vectors) {
         const centroid = Float32Array.from(vectors.get(seed.id));
         for (let i = 0; i < remaining.length;) {
             const candidate = vectors.get(remaining[i].id);
-            if (l2Distance(centroid, candidate) < COMPACT_MAX_CLUSTER_DISTANCE) {
+            if (withinDistance(centroid, candidate, COMPACT_MAX_CLUSTER_DISTANCE)) {
                 const [joined] = remaining.splice(i, 1);
                 members.push(joined);
                 for (let k = 0; k < centroid.length; k++) {
@@ -298,6 +315,22 @@ function isoWeekKey(d) {
     const diff = target.getTime() - firstThursday.getTime();
     const week = 1 + Math.round(diff / (7 * 86400_000));
     return `${target.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+function retireCalendarProposals(db, dryRun) {
+    const rows = db.prepare(`SELECT id FROM dream_proposals
+     WHERE status = 'pending'
+       AND (source_kind IS NULL OR source_kind = 'entities')
+       AND cluster_key GLOB '[0-9][0-9][0-9][0-9]-W[0-9][0-9]'`).all();
+    if (rows.length === 0 || dryRun)
+        return rows.length;
+    const stmt = db.prepare("UPDATE dream_proposals SET status = 'rejected', reason = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?");
+    const reason = 'Superseded by meaning-based clustering — the same entries are re-proposed grouped by content.';
+    const txn = db.transaction(() => {
+        for (const row of rows)
+            stmt.run(reason, row.id);
+    });
+    txn();
+    return rows.length;
 }
 function proposalAlreadyExists(db, cluster) {
     const sourceIds = cluster.entities.map(e => e.id).sort((a, b) => a - b);

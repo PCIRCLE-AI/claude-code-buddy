@@ -87,6 +87,7 @@ export interface RememberResult {
         to: string;
         type: string;
     }>;
+    movedFromNamespace?: string;
 }
 export interface ForgetResult {
     archived?: boolean;

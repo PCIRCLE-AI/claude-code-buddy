@@ -77,6 +77,26 @@ describe('CLI: feedback does not publish the account name', () => {
     expect(body).toMatch(/~[\\/]\.memesh[\\/]knowledge-graph\.db/);
   });
 
+  it('redacts a data directory an env override moved outside home', () => {
+    // `MEMESH_DIR` / `MEMESH_DB_PATH` are supported and can point anywhere.
+    // Redacting only `homeDir()` left the full path in the body, and in a real
+    // deployment that path is where someone put a shared or network location —
+    // which typically carries an account or organisation name.
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-corpshare-'));
+    try {
+      const r = runCli(['feedback', '--no-open'], { MEMESH_DIR: outside });
+      expect(r.exitCode).toBe(0);
+      const body = issueBody(r.stdout);
+      for (const form of new Set([outside, fs.realpathSync(outside)])) {
+        expect(body, `the override path ${form} reached the public body`).not.toContain(form);
+      }
+      // Still describes a real file, rather than having been blanked.
+      expect(body).toMatch(/~[\\/]knowledge-graph\.db/);
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
+
   it('still includes the install ID, and still lets the user drop it', () => {
     // Redaction is not censorship: the diagnostics are the point of the
     // command. What changes is the account name, not the report.

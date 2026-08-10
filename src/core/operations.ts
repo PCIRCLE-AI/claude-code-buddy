@@ -93,8 +93,12 @@ export function remember(args: RememberInput): RememberResult {
     namespace: args.namespace,
     trustOverride: args.trustOverride,
   });
-  kg.updateEntityMetadata(args.name, () => buildLocalMetadata(
-    existing?.metadata as EntityMetadata | undefined,
+  // `current`, not the snapshot taken before `createEntity`. The updater used
+  // to ignore what it was handed and rebuild from `existing?.metadata`, which
+  // silently discarded everything `createEntity` had just written — including
+  // the `previous_namespace` breadcrumb that makes a namespace move undoable.
+  kg.updateEntityMetadata(args.name, (current) => buildLocalMetadata(
+    (current ?? existing?.metadata) as EntityMetadata | undefined,
     {
       trust: args.trustOverride,
       provenance: args.provenanceOverride,
@@ -154,6 +158,10 @@ export function remember(args: RememberInput): RememberResult {
     tags: args.tags?.length ?? 0,
     relations: relationsCreated.length,
     ...(relationsCreated.length > 0 ? { relationsCreated } : {}),
+    // Only when it actually moved: same-scope re-remembers say nothing.
+    ...(existing && args.namespace !== undefined && (existing.namespace ?? 'personal') !== args.namespace
+      ? { movedFromNamespace: existing.namespace ?? 'personal' }
+      : {}),
     ...(superseded.length > 0 ? { superseded } : {}),
     ...(relationErrors.length > 0 ? { relationErrors } : {}),
   };

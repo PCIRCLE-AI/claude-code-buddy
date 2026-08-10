@@ -3,7 +3,6 @@
 import { Command } from 'commander';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexRebuild } from '../../db.js';
@@ -11,7 +10,7 @@ import { remember, recallWithConflicts, forget, exportMemories, importMemories, 
 import { verifyAgentWork } from '../../core/verifier.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
-import { getDbPath } from '../../core/paths.js';
+import { getDbPath, redactUserPaths } from '../../core/paths.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 import { NAMESPACES } from '../../core/types.js';
 import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/types.js';
@@ -46,43 +45,6 @@ function requireOneOf(value: string | undefined, allowed: readonly string[], fla
 }
 
 // One list, in core. The CLI's private copy was the fourth.
-
-/**
- * Replace the user's home directory with `~` everywhere in a string.
- *
- * `memesh feedback` composes a GitHub issue body out of `doctor` output, and
- * doctor names paths — the database, the config file, where `memesh` resolves
- * on PATH. On a normal install every one of those starts with the home
- * directory, so the body carried the account name (`/Users/<name>/...`) into a
- * **public** issue tracker, twice, in a block long enough that nobody reads it
- * before hitting Submit. The paths are still useful with the home part cut off:
- * `~/.memesh/knowledge-graph.db` says everything `/Users/<name>/.memesh/...`
- * said.
- *
- * Case-insensitive on Windows and macOS because both have case-insensitive
- * filesystems, so the same directory can be spelled either way.
- */
-function redactHome(text: string): string {
-  const home = os.homedir();
-  if (!home) return text;
-
-  // Both spellings. On macOS `/var` is a symlink to `/private/var`, so a HOME
-  // under a temp directory reaches doctor's output resolved while `homedir()`
-  // returns it unresolved — redacting only one form leaves the other in the
-  // body, which is the failure this function exists to prevent.
-  const forms = new Set([home]);
-  try { forms.add(fs.realpathSync(home)); } catch { /* home may not exist yet */ }
-
-  const flags = process.platform === 'linux' ? 'g' : 'gi';
-  let out = text;
-  // Longest first: /private/var/... must not be half-replaced by /var/... .
-  for (const form of [...forms].sort((a, b) => b.length - a.length)) {
-    const escaped = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    // Both separators: a Windows path can reach the body either way.
-    out = out.replace(new RegExp(escaped.replace(/\\\\|\//g, '[\\\\/]'), flags), '~');
-  }
-  return out;
-}
 
 const packageJsonPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -119,7 +81,7 @@ program
   .option('--type <type>', 'Entity type')
   .option('--obs <observations...>', 'Observations (space-separated)')
   .option('--tags <tags...>', 'Tags (space-separated)')
-  .option('--namespace <namespace>', 'Namespace: personal, team, or global (default: personal)')
+  .option('--namespace <namespace>', 'Namespace: personal, team, or global. On a NEW memory this places it (default personal); on one that already exists it MOVES it out of the scope it is in — omit the flag to leave it alone.')
   // The two relation types that DO something. MCP and HTTP callers could state
   // them through `relations`; the CLI had no way to state any relation at all,
   // so `contradicts` — the thing every recall checks for — was unreachable from
@@ -190,6 +152,11 @@ program
         console.log(JSON.stringify(result));
       } else {
         console.log(`✅ Stored "${result.name}" (${result.observations} observations, ${result.tags} tags)`);
+        // A move drops the memory out of every scoped view it used to appear
+        // in, so it is never silent.
+        if (result.movedFromNamespace) {
+          console.log(`   moved: ${result.movedFromNamespace} → ${opts.namespace} (was in ${result.movedFromNamespace}; re-run with --namespace ${result.movedFromNamespace} to put it back)`);
+        }
         // A relation to a target that does not exist is reported, not
         // swallowed: `remember()` collects those into relationErrors, and the
         // consequence the user asked for (an archive, a conflict flag) did not
@@ -1687,7 +1654,7 @@ program
     }
 
     // The issue tracker is public. Nothing that names the account goes into it.
-    body = redactHome(body);
+    body = redactUserPaths(body);
 
     const url = `https://github.com/PCIRCLE-AI/memesh-llm-memory/issues/new?title=${encodeURIComponent(`[${typeLabel}] `)}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
 

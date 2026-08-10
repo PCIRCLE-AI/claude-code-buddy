@@ -25,7 +25,7 @@ import {
 } from '../schemas.js';
 import { checkForUpdate, getLastUpdateCheck, getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
-import { getDbPath, getMemeshDirFromDbPath } from '../../core/paths.js';
+import { getDbPath, getMemeshDirFromDbPath, redactUserPaths } from '../../core/paths.js';
 import { RETIRED_ROUTES } from './retired-routes.js';
 
 import fs from 'fs';
@@ -391,9 +391,19 @@ app.get('/v1/doctor', async (_req, res) => {
       packageRoot,
       packageVersion,
     });
-    // Walk the result and redact any secret-shaped substring before
-    // it leaves the server — defense in depth, not a primary defence.
-    const safe = JSON.parse(redactSecrets(JSON.stringify(result)));
+    // Two redactions, in order, before anything leaves the server.
+    //
+    // `redactSecrets` catches credential shapes (sk-*, ghp_*, AKIA*, Bearer).
+    // `redactUserPaths` catches the account name, which no credential pattern
+    // matches: doctor names the database, the config file and the PATH entry,
+    // and on a normal install all three begin with the home directory. The
+    // dashboard's feedback widget builds a PUBLIC GitHub issue body out of
+    // this route's output, so an unredacted path here is published verbatim —
+    // the CLI half of that leak was closed first, and this is the other half.
+    // Redacting server-side rather than in the widget covers every consumer of
+    // the route at once, and the browser cannot do it: it does not know the
+    // server's HOME.
+    const safe = JSON.parse(redactUserPaths(redactSecrets(JSON.stringify(result))));
     res.json({ success: true, data: safe });
   } catch (err) {
     res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });

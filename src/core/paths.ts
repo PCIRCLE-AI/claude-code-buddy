@@ -14,6 +14,7 @@
 // (`scripts/check-schema-drift.mjs`) catches the SQL portion; the path
 // helpers are short enough that a JSDoc cross-link is enough.
 
+import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { execFileSync } from 'child_process';
@@ -177,4 +178,69 @@ export function slugFromRemoteUrl(url: string): string | null {
 /** Test seam: clear the per-cwd resolution cache between cases. */
 export function _clearProjectNameCache(): void {
   projectNameCache.clear();
+}
+
+/**
+ * Replace every path that identifies this machine's user with `~`.
+ *
+ * `memesh feedback` composes a GitHub issue body out of `doctor` output, and
+ * doctor names paths: the database, the config file, where `memesh` resolves
+ * on `PATH`. On a normal install every one of those begins with the home
+ * directory, so the pre-filled body carried the account name into a **public**
+ * issue tracker, twice, inside a diagnostics block long enough that nobody
+ * reads it before submitting. The paths stay just as useful with the home part
+ * cut off: `~/.memesh/knowledge-graph.db` says everything the absolute form
+ * said.
+ *
+ * It lives here, in the module that owns path resolution, because it has to
+ * redact the SAME set of roots that module produces, and because two surfaces
+ * publish this text: the CLI, and the dashboard's feedback widget via
+ * `/v1/doctor`. The CLI-only version left the dashboard leaking.
+ *
+ * Three roots, longest-first so a nested one cannot be half-replaced:
+ *   - `homeDir()`, and its realpath — on macOS a temp HOME resolves through
+ *     `/private`, so redacting only one spelling leaves the other in the body.
+ *   - `memeshDir()` and the DB's directory, which `MEMESH_DIR` /
+ *     `MEMESH_DB_PATH` can move outside home entirely. That is a supported
+ *     configuration, and in a real deployment such a path typically carries an
+ *     account or organisation name.
+ */
+export function redactUserPaths(text: string): string {
+  const home = homeDir();
+  const roots = new Set<string>();
+  const add = (root: string) => {
+    if (!root) return;
+    roots.add(root);
+    try { roots.add(fs.realpathSync(root)); } catch { /* may not exist yet */ }
+  };
+  add(home);
+
+  // The data directories only need their OWN entry when an override has moved
+  // them outside home. Inside home, redacting home already covers them — and
+  // adding them anyway makes it worse, not better: they are longer, so they
+  // match first and turn `/Users/x/.memesh/knowledge-graph.db` into
+  // `~/knowledge-graph.db`, throwing away the `.memesh` part that tells the
+  // reader which file it is.
+  const isInside = (child: string) => {
+    const rel = path.relative(home, child);
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  };
+  for (const dir of [memeshDir(), path.dirname(getDbPath())]) {
+    if (dir && !isInside(dir)) add(dir);
+  }
+
+  // Case-insensitive except on Linux: macOS and Windows filesystems are
+  // case-insensitive, so the same directory can be spelled either way.
+  const flags = process.platform === 'linux' ? 'g' : 'gi';
+  let out = text;
+  for (const root of [...roots].sort((a, b) => b.length - a.length)) {
+    const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Either separator, once or twice. Twice matters: the HTTP path redacts a
+    // JSON string, where a Windows `C:\Users\x` is serialised as
+    // `C:\\Users\\x` — a single-separator pattern matches the live path and
+    // silently misses the JSON-encoded one, which is the copy that gets
+    // published.
+    out = out.replace(new RegExp(escaped.replace(/\\\\|\//g, '[\\\\/]{1,2}'), flags), '~');
+  }
+  return out;
 }

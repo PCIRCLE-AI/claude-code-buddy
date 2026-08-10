@@ -196,6 +196,18 @@ export interface RememberResult {
    * find out what happened.
    */
   relationsCreated?: Array<{ to: string; type: string }>;
+  /**
+   * Set only when this call MOVED a memory that already existed between
+   * namespaces, naming the scope it came from.
+   *
+   * A move is a real relocation — the memory drops out of every scoped view it
+   * used to appear in — and it was invisible: the result said `stored: true`
+   * and nothing else, no backup is taken, and the row is overwritten in place.
+   * The entity keeps its id, so its vectors and FTS row are untouched; what
+   * changes is where it can be found. Pairs with `metadata.previous_namespace`,
+   * which makes the move undoable from the row itself.
+   */
+  movedFromNamespace?: string;
 }
 
 export interface ForgetResult {
