@@ -57,7 +57,7 @@ If `remember` is called again with an existing `name`, MeMesh treats it as an ap
 }
 ```
 
-If a relation target does not exist, the entity is still stored and `relationErrors` is included in the response.
+Three fields are conditional. `relationsCreated` lists the relations actually created — report from it rather than subtracting errors from what you asked for. `relationErrors` is included when a relation target does not exist; the entity is still stored. `movedFromNamespace` appears only when the call MOVED a memory that already existed, naming the scope it came from, and pairs with `metadata.previous_namespace` so the move can be reversed.
 
 **Supersedes behavior:** When a relation has type `"supersedes"`, the target entity is automatically archived. This enables knowledge evolution — new designs replace old ones without losing history.
 
@@ -268,7 +268,7 @@ Imported entities are marked with import provenance and treated as untrusted for
 |-----------|------|----------|-------------|
 | `data` | object | Yes | The JSON bundle produced by `export` |
 | `merge_strategy` | string | Yes | Merge strategy for conflicts: `"skip"`, `"overwrite"`, or `"append"` |
-| `namespace` | string | No | Force all imported entities into this namespace, ignoring namespace stored in the bundle |
+| `namespace` | string | No | Force all imported entities into this namespace, ignoring the namespace stored in the bundle. This **moves** entities that already exist, in bulk, out of the scope they are in — `metadata.previous_namespace` records where each came from. Must be `personal`, `team` or `global`; anything else is refused outright. |
 
 **Merge Strategies**:
 
@@ -1336,7 +1336,7 @@ An observation may itself contain newlines, so the line → memory map is comput
 | Command | Parameters | Against the knowledge graph |
 |---------|-----------|------------------------------|
 | `view` | `path`, `view_range?` | Root → namespaces. Namespace → its active entities. File → observations with line numbers. |
-| `create` | `path`, `file_text` | Creates the entity, or **overwrites** its observations (tags are preserved). |
+| `create` | `path`, `file_text` | Creates the entity, or **overwrites** its observations (tags are preserved). Refuses when the name is already taken in another namespace. |
 | `str_replace` | `path`, `old_str`, `new_str?` | Content-addressed edit. Omitting `new_str` deletes the text. |
 | `insert` | `path`, `insert_line`, `insert_text` | New observation after the memory owning that line. `0` prepends. |
 | `delete` | `path` | **Archives** the entity — never destroys it. |
@@ -1358,6 +1358,7 @@ Two behaviours worth stating because they differ from a filesystem:
 | Writing to `/memories` or a namespace | Those are directories. |
 | Deleting or renaming `/memories` or a namespace | The contract tells Claude it cannot; this enforces it. |
 | A rename onto a name taken in **any** namespace | Entity names are unique database-wide, so checking only the destination namespace would fail later on a UNIQUE constraint instead of returning the specified message. |
+| A create onto a name taken in **another** namespace | Same uniqueness. Writing anyway appended to a memory at a different address than the one named — and, since an explicit namespace now moves an existing entity, would instead relocate it into this one. |
 
 ---
 

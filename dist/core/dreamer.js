@@ -62,8 +62,18 @@ export async function runDreamer(db, llm, opts = {}) {
             result.skipped.push({ reason: `cluster smaller than ${COMPACT_MIN_CLUSTER_SIZE} entities`, project: cluster.project, clusterKey: cluster.key });
             continue;
         }
-        if (proposalAlreadyExists(db, cluster)) {
+        const related = relatedPendingProposals(db, cluster);
+        if (related.some(r => r.kind === 'identical')) {
             result.skipped.push({ reason: 'pending proposal already exists for this cluster', project: cluster.project, clusterKey: cluster.key });
+            continue;
+        }
+        const blocking = related.filter(r => r.kind === 'overlapping');
+        if (blocking.length > 0) {
+            result.skipped.push({
+                reason: `overlaps pending proposal ${blocking.map(r => `#${r.id}`).join(', ')} without replacing it — review with \`memesh dream show <id>\`, accept or reject, then run again`,
+                project: cluster.project,
+                clusterKey: cluster.key,
+            });
             continue;
         }
         let digest;
@@ -214,19 +224,23 @@ function detectClusters(db, opts) {
         };
     }
     const clusters = [];
-    let withoutVector = 0;
+    let byWeek = 0;
     for (const [project, entities] of byProject) {
         const embedded = entities.filter(e => vectors.has(e.id));
-        withoutVector += entities.length - embedded.length;
+        const unembedded = entities.filter(e => !vectors.has(e.id));
         for (const members of clusterBySimilarity(embedded, vectors)) {
             clusters.push({ project, key: clusterKeyFor(members), entities: members });
+        }
+        byWeek += unembedded.length;
+        for (const [week, members] of groupByIsoWeek(unembedded)) {
+            clusters.push({ project, key: week, entities: members });
         }
     }
     return {
         clusters,
         mode: 'semantic',
-        note: withoutVector > 0
-            ? `${withoutVector} candidate${withoutVector === 1 ? '' : 's'} had no embedding and were left out of clustering. \`memesh reindex\` gives them one.`
+        note: byWeek > 0
+            ? `${byWeek} candidate${byWeek === 1 ? ' has' : 's have'} no embedding, so ${byWeek === 1 ? 'it was' : 'they were'} grouped by calendar week instead of by meaning. \`memesh reindex\` gives them one.`
             : undefined,
     };
 }
@@ -350,22 +364,41 @@ function retireSupersededBy(db, cluster) {
     txn();
     return superseded.length;
 }
-function proposalAlreadyExists(db, cluster) {
+function relatedPendingProposals(db, cluster) {
     const sourceIds = cluster.entities.map(e => e.id).sort((a, b) => a - b);
-    const rows = db.prepare(`SELECT source_ids FROM dream_proposals
+    const covered = new Set(sourceIds);
+    const rows = db.prepare(`SELECT id, source_ids FROM dream_proposals
      WHERE project = ? AND status = 'pending'
        AND (source_kind IS NULL OR source_kind = 'entities')
        AND cluster_key NOT LIKE 'pattern:%'`).all(cluster.project);
+    const out = [];
     for (const row of rows) {
+        let ids;
         try {
-            const existing = JSON.parse(row.source_ids);
-            if (existing.length === sourceIds.length && existing.every((id, i) => id === sourceIds[i])) {
-                return true;
-            }
+            ids = JSON.parse(row.source_ids);
         }
-        catch { }
+        catch {
+            continue;
+        }
+        if (!Array.isArray(ids) || ids.length === 0)
+            continue;
+        const numeric = ids.filter((id) => typeof id === 'number');
+        if (numeric.length !== ids.length)
+            continue;
+        const shared = numeric.filter(id => covered.has(id));
+        if (shared.length === 0)
+            continue;
+        if (numeric.length === sourceIds.length && shared.length === sourceIds.length) {
+            out.push({ kind: 'identical', id: row.id });
+        }
+        else if (shared.length === numeric.length) {
+            out.push({ kind: 'contained', id: row.id });
+        }
+        else {
+            out.push({ kind: 'overlapping', id: row.id });
+        }
     }
-    return false;
+    return out;
 }
 async function consolidateCluster(cluster, llm, fallbacks, onAttempt) {
     const sources = sanitizeListForPrompt(cluster.entities.map(e => {
@@ -678,6 +711,7 @@ export function applyProposal(db, proposalId, kg) {
         const relStmt = db.prepare('INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?)');
         let archived = 0;
         let linked = 0;
+        let skippedAlreadyCompacted = 0;
         if (isPattern) {
             for (const sourceId of sourceIds) {
                 const sourceRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(sourceId);
@@ -712,6 +746,10 @@ export function applyProposal(db, proposalId, kg) {
                 catch {
                     meta = {};
                 }
+                if (typeof meta.compacted_into === 'number') {
+                    skippedAlreadyCompacted++;
+                    continue;
+                }
                 meta.compacted_into = digestId;
                 updateMetaStmt.run(JSON.stringify(meta), sourceId);
                 relStmt.run(digestId, sourceId, 'summarizes');
@@ -720,7 +758,7 @@ export function applyProposal(db, proposalId, kg) {
             }
         }
         db.prepare("UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ?").run(row.id);
-        return { digestId, archived, linked };
+        return { digestId, archived, linked, skippedAlreadyCompacted };
     });
     const out = tx();
     return {

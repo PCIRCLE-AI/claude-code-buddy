@@ -324,8 +324,15 @@ All notable changes to MeMesh are documented here.
   never the exact set its week bucket was — so each pending proposal would have
   gained an overlapping twin, and accepting both ran compaction twice over
   shared entities where the `compacted_into` back-pointer is a plain overwrite.
-  Proposals carrying a calendar-era key are now retired on the first run, with
-  a reason, as `rejected` rather than deleted.
+  The shipped rule is more general than that upgrade, and applies on every
+  run: when a digest is written, any pending proposal covering **strictly
+  fewer** of the same entries is marked `rejected` with a reason — never
+  deleted, so `dream list --status rejected` still shows it. Only when the
+  replacement has actually been written, because rejecting is terminal. And
+  when a pending proposal OVERLAPS a cluster without either containing the
+  other — the usual shape of a week bucket against the clusters carved out of
+  it — nothing is decided for you: the run stops before spending an LLM call
+  and names the proposal to review.
 
 - **The dreamer no longer loses semantic clustering on a large graph, silently
   and with the wrong explanation.** It loaded vectors with one SQL placeholder
@@ -346,6 +353,15 @@ All notable changes to MeMesh are documented here.
   together, because the placeholder limit was what had been capping the
   quadratic work — fixing it alone would have turned a wrong answer into a
   hang.
+
+- **The memory tool refuses to create a memory whose name is taken elsewhere.**
+  Names are unique across the whole database, so `create` at
+  `/memories/team/x` when `x` already lives under `personal` was never really
+  a create: it appended the text to the memory at the OTHER address. Once an
+  explicit namespace began moving an existing memory, it would have relocated
+  it instead. Both are a silent write to something other than the path you
+  named, so it now returns an error — the same refusal `rename` has always
+  had.
 
 - **A remembered memory now keeps the signal score it was given.** `remember`
   rebuilt an entity's metadata from a snapshot taken *before* the entity was

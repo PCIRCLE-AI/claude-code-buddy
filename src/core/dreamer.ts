@@ -250,8 +250,27 @@ export async function runDreamer(
       continue;
     }
 
-    if (proposalAlreadyExists(db, cluster)) {
+    const related = relatedPendingProposals(db, cluster);
+    if (related.some(r => r.kind === 'identical')) {
       result.skipped.push({ reason: 'pending proposal already exists for this cluster', project: cluster.project, clusterKey: cluster.key });
+      continue;
+    }
+    // Shares entries with a pending proposal, but neither contains the other —
+    // or the pending one covers MORE, which is the usual shape of a calendar
+    // week bucket against the semantic clusters carved out of it. Proposing
+    // anyway leaves two overlapping proposals a user can accept BOTH of, and
+    // `applyProposal` would then archive the shared entries twice and
+    // overwrite `metadata.compacted_into`, leaving one digest holding the
+    // back-pointer while another still claims the source. Nothing here can
+    // choose between them, so it stops before spending an LLM call and names
+    // the row to look at.
+    const blocking = related.filter(r => r.kind === 'overlapping');
+    if (blocking.length > 0) {
+      result.skipped.push({
+        reason: `overlaps pending proposal ${blocking.map(r => `#${r.id}`).join(', ')} without replacing it — review with \`memesh dream show <id>\`, accept or reject, then run again`,
+        project: cluster.project,
+        clusterKey: cluster.key,
+      });
       continue;
     }
 
@@ -453,23 +472,37 @@ function detectClusters(db: MemeshDatabase, opts: DreamerOptions): ClusterDetect
     };
   }
 
+  // Partial coverage is the NORMAL state, not an edge case: the capture hooks
+  // write entities without embedding them, `remember` only schedules an embed
+  // when an embedder is configured, and `reindex` is a manual command. So a
+  // graph almost always holds some candidates with a vector and some without.
+  //
+  // Each half is grouped by the best rule available to it, and neither is
+  // dropped. Dropping was the previous behaviour and it was severe: ONE
+  // embedded entity among ten flipped the whole run to semantic and discarded
+  // the other nine — measured, 1 proposal became 0. A user whose graph the
+  // dreamer had been summarising would have watched it quietly stop.
   const clusters: Cluster[] = [];
-  let withoutVector = 0;
+  let byWeek = 0;
   for (const [project, entities] of byProject) {
     const embedded = entities.filter(e => vectors.has(e.id));
-    withoutVector += entities.length - embedded.length;
+    const unembedded = entities.filter(e => !vectors.has(e.id));
     for (const members of clusterBySimilarity(embedded, vectors)) {
       clusters.push({ project, key: clusterKeyFor(members), entities: members });
+    }
+    byWeek += unembedded.length;
+    for (const [week, members] of groupByIsoWeek(unembedded)) {
+      clusters.push({ project, key: week, entities: members });
     }
   }
 
   return {
     clusters,
     mode: 'semantic',
-    // Entities with no vector are not silently dropped into nothing — they are
-    // dropped, and counted, and said out loud.
-    note: withoutVector > 0
-      ? `${withoutVector} candidate${withoutVector === 1 ? '' : 's'} had no embedding and were left out of clustering. \`memesh reindex\` gives them one.`
+    // Said out loud, because a week-bucketed cluster can mix unrelated work
+    // and the user can fix it with one command.
+    note: byWeek > 0
+      ? `${byWeek} candidate${byWeek === 1 ? ' has' : 's have'} no embedding, so ${byWeek === 1 ? 'it was' : 'they were'} grouped by calendar week instead of by meaning. \`memesh reindex\` gives them one.`
       : undefined,
   };
 }
@@ -726,32 +759,53 @@ function retireSupersededBy(db: MemeshDatabase, cluster: Cluster): number {
   return superseded.length;
 }
 
-function proposalAlreadyExists(db: MemeshDatabase, cluster: Cluster): boolean {
+/**
+ * How a pending proposal relates to a cluster about to be proposed.
+ *
+ * `identical`   — the same entries; the pending one already IS the answer.
+ * `contained`   — the pending one covers strictly fewer entries, so a digest
+ *                 for this cluster supersedes it (see `retireSupersededBy`).
+ * `overlapping` — they share entries but neither contains the other, or the
+ *                 pending one covers MORE. Nothing here can decide that
+ *                 safely, so it is surfaced instead.
+ */
+type ProposalRelation = { kind: 'identical' | 'contained' | 'overlapping'; id: number };
+
+function relatedPendingProposals(db: MemeshDatabase, cluster: Cluster): ProposalRelation[] {
   const sourceIds = cluster.entities.map(e => e.id).sort((a, b) => a - b);
+  const covered = new Set(sourceIds);
   // `dream_proposals` holds three kinds of row. Compaction proposals ARCHIVE
   // their sources; `pattern_emergent` rows are additive and carry
   // `cluster_key = 'pattern:<date>'` with an id array shaped exactly like a
-  // compaction one. Dropping `cluster_key` from this query removed the only
-  // thing keeping them apart, so a pending pattern over the same evidence set
-  // would suppress a compaction digest — two opposite operations, one
-  // cancelling the other. Transcript rows were never at risk (their
-  // `source_ids` is an object, so the length comparison below cannot match),
-  // but relying on that is relying on an accident.
+  // compaction one, so without the filter a pending pattern over the same
+  // evidence would suppress a compaction digest — two opposite operations, one
+  // cancelling the other. Transcript rows store an object in `source_ids`, so
+  // they cannot match the array comparisons below.
   const rows = db.prepare(
-    `SELECT source_ids FROM dream_proposals
+    `SELECT id, source_ids FROM dream_proposals
      WHERE project = ? AND status = 'pending'
        AND (source_kind IS NULL OR source_kind = 'entities')
        AND cluster_key NOT LIKE 'pattern:%'`
-  ).all(cluster.project) as Array<{ source_ids: string }>;
+  ).all(cluster.project) as Array<{ id: number; source_ids: string }>;
+
+  const out: ProposalRelation[] = [];
   for (const row of rows) {
-    try {
-      const existing: number[] = JSON.parse(row.source_ids);
-      if (existing.length === sourceIds.length && existing.every((id, i) => id === sourceIds[i])) {
-        return true;
-      }
-    } catch { /* malformed proposal — skip */ }
+    let ids: unknown;
+    try { ids = JSON.parse(row.source_ids); } catch { continue; }
+    if (!Array.isArray(ids) || ids.length === 0) continue;
+    const numeric = ids.filter((id): id is number => typeof id === 'number');
+    if (numeric.length !== ids.length) continue;
+    const shared = numeric.filter(id => covered.has(id));
+    if (shared.length === 0) continue;
+    if (numeric.length === sourceIds.length && shared.length === sourceIds.length) {
+      out.push({ kind: 'identical', id: row.id });
+    } else if (shared.length === numeric.length) {
+      out.push({ kind: 'contained', id: row.id });
+    } else {
+      out.push({ kind: 'overlapping', id: row.id });
+    }
   }
-  return false;
+  return out;
 }
 
 async function consolidateCluster(
@@ -1320,6 +1374,7 @@ export function applyProposal(
     );
     let archived = 0;
     let linked = 0;
+    let skippedAlreadyCompacted = 0;
     if (isPattern) {
       // Pattern: link sources to the new pattern via metadata + edge,
       // do NOT archive (Phase 3 is additive — sources stay primary).
@@ -1346,6 +1401,18 @@ export function applyProposal(
         if (!sourceRow) continue;
         let meta: Record<string, unknown>;
         try { meta = sourceRow.metadata ? JSON.parse(sourceRow.metadata) : {}; } catch { meta = {}; }
+        // Already summarised by another digest — leave it alone. This is a
+        // plain overwrite, so accepting two proposals that share a source used
+        // to leave the second digest holding the back-pointer while the first
+        // still claimed the source through its `summarizes` edge: two digests
+        // disagreeing about who summarises what, with no way to tell from the
+        // row which is right. Proposing an overlapping pair is now refused
+        // outright, but a graph can already hold one from before that, so the
+        // apply path refuses it too rather than trusting the gate upstream.
+        if (typeof meta.compacted_into === 'number') {
+          skippedAlreadyCompacted++;
+          continue;
+        }
         meta.compacted_into = digestId;
         updateMetaStmt.run(JSON.stringify(meta), sourceId);
         relStmt.run(digestId, sourceId, 'summarizes');
@@ -1355,7 +1422,7 @@ export function applyProposal(
     }
 
     db.prepare("UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ?").run(row.id);
-    return { digestId, archived, linked };
+    return { digestId, archived, linked, skippedAlreadyCompacted };
   });
 
   const out = tx();

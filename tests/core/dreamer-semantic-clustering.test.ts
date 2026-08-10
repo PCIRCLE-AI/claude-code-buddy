@@ -216,7 +216,13 @@ describe('dreamer says when it could not group by meaning', () => {
     expect(result.clusteringNote).toMatch(/embed/i);
   });
 
-  it('counts the candidates it had to leave out', async () => {
+  it('week-buckets the candidates it cannot place by meaning, rather than dropping them', async () => {
+    // Partial coverage is the NORMAL state: the capture hooks write entities
+    // without embedding them, and `reindex` is a manual command. Semantic mode
+    // used to be chosen if ANY candidate had a vector and then discard the
+    // rest — measured, ONE embedded entity among ten dropped the other nine
+    // and took the run from one proposal to none. Every candidate is now
+    // grouped by the best rule available to it.
     seed([
       { name: 'v-1', day: daysAgo(3), axis: 0, nudge: 0.05 },
       { name: 'v-2', day: daysAgo(3), axis: 0, nudge: 0.08 },
@@ -225,7 +231,12 @@ describe('dreamer says when it could not group by meaning', () => {
 
     const result = await dreamPass();
     expect(result.clusteringMode).toBe('semantic');
-    expect(result.clusteringNote).toMatch(/1 candidate had no embedding/);
+    expect(result.clusteringNote).toMatch(/1 candidate has no embedding/);
+    expect(result.clusteringNote).toMatch(/grouped by calendar week/);
+
+    // Two clusters: the embedded pair by meaning, the unembedded one by week.
+    // A count of 1 would mean the unembedded candidate was thrown away.
+    expect(result.clustersScanned, 'the unembedded candidate was dropped').toBe(2);
   });
 });
 
