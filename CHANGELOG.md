@@ -347,6 +347,17 @@ All notable changes to MeMesh are documented here.
   quadratic work — fixing it alone would have turned a wrong answer into a
   hang.
 
+- **A remembered memory now keeps the signal score it was given.** `remember`
+  rebuilt an entity's metadata from a snapshot taken *before* the entity was
+  written, which discarded the `signal_score` stamped at creation — so every
+  memory written through `remember` carried no score at all. Anything reading
+  that field fell back to its default: the dreamer treats a missing score as
+  `0.5`, which is inside the `0.2–0.7` band it compacts, so high-signal types
+  (`decision`, `architecture`, `lesson_learned`) were compaction candidates
+  when they should never have been, and low-signal notes were too. They now
+  carry their real score. Verified unchanged for `pin`, `compacted_into`,
+  `consolidation_depth` and import provenance.
+
 - **Two documents that described code that does not exist.**
   `API_REFERENCE.md` said "MeMesh does not add an auth layer for you" while a
   non-loopback bind has required a bearer token since 4.2 — generated before

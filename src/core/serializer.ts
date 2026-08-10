@@ -186,7 +186,14 @@ export function importMemories(args: ImportInput): ImportResult {
             namespace,
             trustOverride: 'untrusted',
           });
-          kg.updateEntityMetadata(entity.name, () => importedMetadata);
+          // MERGE, never replace. An updater that ignores `current` rebuilds the
+          // column from a snapshot taken before `createEntity` ran, discarding
+          // whatever it just wrote — which now includes the
+          // `previous_namespace` breadcrumb recorded when `--namespace` moves an
+          // entity that already exists. Import is the one path where losing that
+          // matters most: it moves entities in bulk, so a user cannot possibly
+          // remember where each one came from.
+          kg.updateEntityMetadata(entity.name, (current) => ({ ...current, ...importedMetadata }));
           appended++;
           continue;
         }
@@ -202,7 +209,7 @@ export function importMemories(args: ImportInput): ImportResult {
         trustOverride: 'untrusted',
       });
       if (existing) {
-        kg.updateEntityMetadata(entity.name, () => importedMetadata);
+        kg.updateEntityMetadata(entity.name, (current) => ({ ...current, ...importedMetadata }));
       }
 
       // Create relations — target entity must exist; silently skip if not

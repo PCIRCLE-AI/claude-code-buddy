@@ -45,15 +45,18 @@ export async function runDreamer(db, llm, opts = {}) {
         result.durationMs = Date.now() - start;
         return result;
     }
-    const retired = retireCalendarProposals(db, opts.dryRun === true);
-    if (retired > 0) {
-        result.skipped.push({
-            reason: `${retired} pending proposal${retired === 1 ? '' : 's'} from the old calendar-week clustering ${opts.dryRun ? 'would be' : 'were'} retired — their entries are re-proposed by meaning below`,
-        });
-    }
     const maxLlmCalls = opts.maxLlmCalls ?? 100;
     const detection = detectClusters(db, opts);
     const clusters = detection.clusters;
+    if (detection.mode === 'semantic') {
+        const candidateIds = new Set(clusters.flatMap(c => c.entities.map(e => e.id)));
+        const retired = retireCalendarProposals(db, candidateIds, opts.project, opts.dryRun === true);
+        if (retired > 0) {
+            result.skipped.push({
+                reason: `${retired} pending proposal${retired === 1 ? '' : 's'} from the old calendar-week clustering ${opts.dryRun ? 'would be' : 'was'} retired — the same entries are re-proposed by meaning in this run`,
+            });
+        }
+    }
     result.clustersScanned = clusters.length;
     result.clusteringMode = detection.mode;
     if (detection.note)
@@ -316,21 +319,34 @@ function isoWeekKey(d) {
     const week = 1 + Math.round(diff / (7 * 86400_000));
     return `${target.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
-function retireCalendarProposals(db, dryRun) {
-    const rows = db.prepare(`SELECT id FROM dream_proposals
+function retireCalendarProposals(db, candidateIds, project, dryRun) {
+    const rows = db.prepare(`SELECT id, source_ids FROM dream_proposals
      WHERE status = 'pending'
        AND (source_kind IS NULL OR source_kind = 'entities')
-       AND cluster_key GLOB '[0-9][0-9][0-9][0-9]-W[0-9][0-9]'`).all();
-    if (rows.length === 0 || dryRun)
-        return rows.length;
+       AND cluster_key GLOB '[0-9][0-9][0-9][0-9]-W[0-9][0-9]'
+       ${project ? 'AND project = ?' : ''}`).all(...(project ? [project] : []));
+    const replaceable = rows.filter((row) => {
+        let ids;
+        try {
+            ids = JSON.parse(row.source_ids);
+        }
+        catch {
+            return false;
+        }
+        if (!Array.isArray(ids) || ids.length === 0)
+            return false;
+        return ids.every((id) => typeof id === 'number' && candidateIds.has(id));
+    });
+    if (replaceable.length === 0 || dryRun)
+        return replaceable.length;
     const stmt = db.prepare("UPDATE dream_proposals SET status = 'rejected', reason = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?");
     const reason = 'Superseded by meaning-based clustering — the same entries are re-proposed grouped by content.';
     const txn = db.transaction(() => {
-        for (const row of rows)
+        for (const row of replaceable)
             stmt.run(reason, row.id);
     });
     txn();
-    return rows.length;
+    return replaceable.length;
 }
 function proposalAlreadyExists(db, cluster) {
     const sourceIds = cluster.entities.map(e => e.id).sort((a, b) => a - b);

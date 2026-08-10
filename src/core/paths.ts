@@ -209,7 +209,14 @@ export function redactUserPaths(text: string): string {
   const home = homeDir();
   const roots = new Set<string>();
   const add = (root: string) => {
-    if (!root) return;
+    // Absolute directories only. `getDbPath()` returns `MEMESH_DB_PATH`
+    // verbatim, so a relative value like `kg.db` makes `path.dirname(...)`
+    // exactly `"."` — which compiled to `\.` and replaced EVERY literal dot in
+    // the payload: `4.5.0` became `4~5~0`, `knowledge-graph.db` became
+    // `knowledge-graph~db`. This function runs on the `/v1/doctor` response
+    // that the dashboard turns into a public issue, so a corrupted diagnostic
+    // is published with nothing saying redaction did it.
+    if (!root || !path.isAbsolute(root)) return;
     roots.add(root);
     try { roots.add(fs.realpathSync(root)); } catch { /* may not exist yet */ }
   };
@@ -240,7 +247,13 @@ export function redactUserPaths(text: string): string {
     // `C:\\Users\\x` — a single-separator pattern matches the live path and
     // silently misses the JSON-encoded one, which is the copy that gets
     // published.
-    out = out.replace(new RegExp(escaped.replace(/\\\\|\//g, '[\\\\/]{1,2}'), flags), '~');
+    //
+    // The trailing lookahead makes a root match only at a path boundary. Without
+    // it a root is an unanchored substring, so `MEMESH_DIR=/data` rewrote
+    // `/var/lib/postgres/database` to `/var/lib/postgres~base` and `/datasets/x`
+    // to `~sets/x` — mangling unrelated paths in the same diagnostic.
+    const body = escaped.replace(/\\\\|\//g, '[\\\\/]{1,2}');
+    out = out.replace(new RegExp(`${body}(?=[\\\\/]|$)`, flags), '~');
   }
   return out;
 }

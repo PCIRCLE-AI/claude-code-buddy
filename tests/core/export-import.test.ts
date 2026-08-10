@@ -261,6 +261,24 @@ describe('importMemories', () => {
       expect(exportMemories({ namespace: 'personal' }).entities.map(e => e.name)).not.toContain('kept');
     });
 
+    it('records where a bulk-moved entity came from', () => {
+      // Import is the path where losing the breadcrumb hurts most: it moves
+      // entities in bulk, so nobody can remember where each one was. The
+      // record was being wiped — `updateEntityMetadata(name, () => built)`
+      // rebuilt the whole column from a snapshot taken before `createEntity`,
+      // discarding what `createEntity` had just written.
+      remember({ name: 'bulk-moved', type: 'note', observations: ['mine'], namespace: 'team' });
+      importMemories({ data: bundleFor('bulk-moved'), merge_strategy: 'append', namespace: 'personal' });
+
+      const moved = recall({ query: 'bulk-moved' })[0];
+      const meta = moved.metadata as Record<string, unknown>;
+      expect(meta.previous_namespace, 'the import wiped the record of where it came from').toBe('team');
+      // …and the import's own provenance is still there, so this is a merge
+      // rather than one clobber traded for another.
+      expect((meta.provenance as Record<string, unknown>).source).toBe('import');
+      expect(meta.trust).toBe('untrusted');
+    });
+
     it('the bundle\'s namespace still places entities the import creates', () => {
       importMemories({ data: bundleFor('brand-new'), merge_strategy: 'skip' });
       expect(exportMemories({ namespace: 'personal' }).entities.map(e => e.name)).toContain('brand-new');

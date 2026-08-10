@@ -97,6 +97,24 @@ describe('CLI: feedback does not publish the account name', () => {
     }
   });
 
+  it('does not mangle the report while redacting it', () => {
+    // Redaction roots were used unvalidated and unanchored. `MEMESH_DB_PATH`
+    // is returned verbatim, so a relative value made `path.dirname(...)`
+    // exactly `"."` — which replaced EVERY literal dot: `4.5.0` became
+    // `4~5~0` and `knowledge-graph.db` became `knowledge-graph~db`. The body
+    // goes into a public issue, so a corrupted diagnostic is published with
+    // nothing indicating redaction did it.
+    const r = runCli(['feedback', '--no-open'], { MEMESH_DB_PATH: 'kg.db' });
+    expect(r.exitCode).toBe(0);
+    const body = issueBody(r.stdout);
+
+    // Dot-separated witnesses that must survive intact. (`~` on its own proves
+    // nothing here — redacting the home path legitimately produces one.)
+    expect(body, 'a literal dot was eaten by the redactor').toMatch(/- Version: `\d+\.\d+\.\d+`/);
+    expect(body, 'the configured DB filename lost its extension').toMatch(/kg\.db/);
+    expect(body, 'a dot was replaced by the redaction marker').not.toMatch(/\d~\d/);
+  });
+
   it('still includes the install ID, and still lets the user drop it', () => {
     // Redaction is not censorship: the diagnostics are the point of the
     // command. What changes is the account name, not the report.

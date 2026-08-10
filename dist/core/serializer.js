@@ -103,7 +103,7 @@ export function importMemories(args) {
                         namespace,
                         trustOverride: 'untrusted',
                     });
-                    kg.updateEntityMetadata(entity.name, () => importedMetadata);
+                    kg.updateEntityMetadata(entity.name, (current) => ({ ...current, ...importedMetadata }));
                     appended++;
                     continue;
                 }
@@ -117,7 +117,7 @@ export function importMemories(args) {
                 trustOverride: 'untrusted',
             });
             if (existing) {
-                kg.updateEntityMetadata(entity.name, () => importedMetadata);
+                kg.updateEntityMetadata(entity.name, (current) => ({ ...current, ...importedMetadata }));
             }
             for (const rel of entity.relations || []) {
                 try {

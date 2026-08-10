@@ -95,10 +95,16 @@ export function remember(args: RememberInput): RememberResult {
   });
   // `current`, not the snapshot taken before `createEntity`. The updater used
   // to ignore what it was handed and rebuild from `existing?.metadata`, which
-  // silently discarded everything `createEntity` had just written — including
-  // the `previous_namespace` breadcrumb that makes a namespace move undoable.
+  // silently discarded everything `createEntity` had just written — the
+  // `previous_namespace` breadcrumb that makes a namespace move undoable, and
+  // the `signal_score` every new entity is stamped with.
+  //
+  // No `?? existing?.metadata` fallback: `updateEntityMetadata` hands over
+  // `parseMetadata(row.metadata)`, which returns `{}` for null, for non-object
+  // JSON and for a parse failure — so `current` is never nullish, and a
+  // fallback there would read as a safety net that cannot fire.
   kg.updateEntityMetadata(args.name, (current) => buildLocalMetadata(
-    (current ?? existing?.metadata) as EntityMetadata | undefined,
+    current as EntityMetadata,
     {
       trust: args.trustOverride,
       provenance: args.provenanceOverride,

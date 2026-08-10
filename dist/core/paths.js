@@ -72,7 +72,7 @@ export function redactUserPaths(text) {
     const home = homeDir();
     const roots = new Set();
     const add = (root) => {
-        if (!root)
+        if (!root || !path.isAbsolute(root))
             return;
         roots.add(root);
         try {
@@ -93,7 +93,8 @@ export function redactUserPaths(text) {
     let out = text;
     for (const root of [...roots].sort((a, b) => b.length - a.length)) {
         const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        out = out.replace(new RegExp(escaped.replace(/\\\\|\//g, '[\\\\/]{1,2}'), flags), '~');
+        const body = escaped.replace(/\\\\|\//g, '[\\\\/]{1,2}');
+        out = out.replace(new RegExp(`${body}(?=[\\\\/]|$)`, flags), '~');
     }
     return out;
 }

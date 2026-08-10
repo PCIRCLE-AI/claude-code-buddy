@@ -36,7 +36,7 @@ export function remember(args) {
         namespace: args.namespace,
         trustOverride: args.trustOverride,
     });
-    kg.updateEntityMetadata(args.name, (current) => buildLocalMetadata((current ?? existing?.metadata), {
+    kg.updateEntityMetadata(args.name, (current) => buildLocalMetadata(current, {
         trust: args.trustOverride,
         provenance: args.provenanceOverride,
     }));

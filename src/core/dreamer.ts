@@ -212,16 +212,33 @@ export async function runDreamer(
     return result;
   }
 
-  const retired = retireCalendarProposals(db, opts.dryRun === true);
-  if (retired > 0) {
-    result.skipped.push({
-      reason: `${retired} pending proposal${retired === 1 ? '' : 's'} from the old calendar-week clustering ${opts.dryRun ? 'would be' : 'were'} retired — their entries are re-proposed by meaning below`,
-    });
-  }
-
   const maxLlmCalls = opts.maxLlmCalls ?? 100;
   const detection = detectClusters(db, opts);
   const clusters = detection.clusters;
+
+  // Retirement runs AFTER clustering, and only when clustering actually
+  // produced the thing that replaces the old proposals. Three reasons, each
+  // one a defect the first version shipped:
+  //
+  //   - In calendar mode the fallback writes ISO-week keys itself, so
+  //     retiring by key shape meant every run rejected the proposal the
+  //     previous run had created and paid for an identical replacement. On a
+  //     default install — no embedder, so no vectors — that is every run,
+  //     forever, on a metered provider.
+  //   - Retirement is terminal (`applyProposal` requires `pending`), so it may
+  //     only touch proposals this run is genuinely replacing. Scoped to the
+  //     project being run, and to proposals whose sources are all in the
+  //     candidate set that was just built.
+  //   - It ran before `detectClusters`, so it could not know either of those.
+  if (detection.mode === 'semantic') {
+    const candidateIds = new Set(clusters.flatMap(c => c.entities.map(e => e.id)));
+    const retired = retireCalendarProposals(db, candidateIds, opts.project, opts.dryRun === true);
+    if (retired > 0) {
+      result.skipped.push({
+        reason: `${retired} pending proposal${retired === 1 ? '' : 's'} from the old calendar-week clustering ${opts.dryRun ? 'would be' : 'was'} retired — the same entries are re-proposed by meaning in this run`,
+      });
+    }
+  }
   result.clustersScanned = clusters.length;
   result.clusteringMode = detection.mode;
   if (detection.note) result.clusteringNote = detection.note;
@@ -630,7 +647,8 @@ function isoWeekKey(d: Date): string {
  * the label says.
  */
 /**
- * Retire pending proposals that the calendar-week rule produced.
+ * Retire pending proposals that the calendar-week rule produced — but ONLY the
+ * ones this run replaces.
  *
  * De-duplication requires an EXACT source-id match, and a semantic cluster is
  * by construction a different set from the week bucket it came out of. So
@@ -642,28 +660,52 @@ function isoWeekKey(d: Date): string {
  *
  * Identified by the key shape, which is unambiguous: the old rule wrote an ISO
  * week (`2026-W32`), the new one writes dates plus a membership hash
- * (`2026-08-04..2026-08-09-a3f1c2d4`). Rejected rather than deleted — the row
- * and its digest survive, `dream list --status rejected` still shows them, and
- * the reason says what to do.
+ * (`2026-08-04..2026-08-09-a3f1c2d4`). `GLOB` is whole-string anchored, so
+ * `2026-W3`, `12026-W32` and `2026-W32-extra` do not match.
+ *
+ * Rejecting is TERMINAL — `applyProposal` requires `pending` and nothing sets
+ * a proposal back — so this is deliberately conservative: a proposal is
+ * retired only when every entity it covers is in the candidate set this run
+ * just built, which is what makes "the same entries are re-proposed by meaning
+ * in this run" a true statement rather than a hope. A proposal whose sources
+ * have aged out of the window, or belong to another project, is left alone.
+ *
+ * Rejected rather than deleted: the row and its digest survive and
+ * `dream list --status rejected` still shows them.
  */
-function retireCalendarProposals(db: MemeshDatabase, dryRun: boolean): number {
+function retireCalendarProposals(
+  db: MemeshDatabase,
+  candidateIds: Set<number>,
+  project: string | undefined,
+  dryRun: boolean,
+): number {
   const rows = db.prepare(
-    `SELECT id FROM dream_proposals
+    `SELECT id, source_ids FROM dream_proposals
      WHERE status = 'pending'
        AND (source_kind IS NULL OR source_kind = 'entities')
-       AND cluster_key GLOB '[0-9][0-9][0-9][0-9]-W[0-9][0-9]'`
-  ).all() as Array<{ id: number }>;
-  if (rows.length === 0 || dryRun) return rows.length;
+       AND cluster_key GLOB '[0-9][0-9][0-9][0-9]-W[0-9][0-9]'
+       ${project ? 'AND project = ?' : ''}`
+  ).all(...(project ? [project] : [])) as Array<{ id: number; source_ids: string }>;
+
+  const replaceable = rows.filter((row) => {
+    let ids: unknown;
+    try { ids = JSON.parse(row.source_ids); } catch { return false; }
+    // A transcript proposal stores an object here; only an id array can be
+    // compared against the candidate set at all.
+    if (!Array.isArray(ids) || ids.length === 0) return false;
+    return ids.every((id) => typeof id === 'number' && candidateIds.has(id));
+  });
+  if (replaceable.length === 0 || dryRun) return replaceable.length;
 
   const stmt = db.prepare(
     "UPDATE dream_proposals SET status = 'rejected', reason = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?"
   );
   const reason = 'Superseded by meaning-based clustering — the same entries are re-proposed grouped by content.';
   const txn = db.transaction(() => {
-    for (const row of rows) stmt.run(reason, row.id);
+    for (const row of replaceable) stmt.run(reason, row.id);
   });
   txn();
-  return rows.length;
+  return replaceable.length;
 }
 
 function proposalAlreadyExists(db: MemeshDatabase, cluster: Cluster): boolean {
