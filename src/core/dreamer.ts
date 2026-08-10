@@ -423,7 +423,12 @@ function loadCandidateVectors(db: MemeshDatabase, ids: number[]): Map<number, Fl
     ).all(...ids) as Array<{ id: number; embedding: Uint8Array }>;
     for (const row of rows) {
       const buf = row.embedding;
-      out.set(row.id, new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4));
+      // `.slice()` copies to a fresh, 4-byte-aligned buffer. A VIEW over the
+      // blob (`new Float32Array(buf.buffer, buf.byteOffset, …)`) throws
+      // RangeError whenever SQLite hands back a byteOffset that is not a
+      // multiple of 4 — and the catch below would have turned that into "no
+      // vector index", quietly demoting a graph that has one.
+      out.set(row.id, new Float32Array(buf.slice().buffer));
     }
   } catch {
     // A malformed or half-migrated index is the calendar case, not a crash.

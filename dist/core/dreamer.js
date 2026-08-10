@@ -224,7 +224,7 @@ function loadCandidateVectors(db, ids) {
         const rows = db.prepare(`SELECT rowid AS id, embedding FROM entities_vec WHERE rowid IN (${ids.map(() => '?').join(',')})`).all(...ids);
         for (const row of rows) {
             const buf = row.embedding;
-            out.set(row.id, new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4));
+            out.set(row.id, new Float32Array(buf.slice().buffer));
         }
     }
     catch {
