@@ -119,9 +119,22 @@ describe('Feature: Session Start Hook', () => {
       // session — while this line showed green. Measured: HOME at mode 555
       // printed "MeMesh ready" and session-summary on the same HOME failed
       // with `EACCES: permission denied, mkdir`.
-      const roParent = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-ro-'));
-      const roDb = path.join(roParent, 'nested', '.memesh', 'kg.db');
-      fs.chmodSync(roParent, 0o555);
+      //
+      // The condition is created with a FILE standing where a parent
+      // directory has to go, not with `chmod 555`. Windows ignores a mode on
+      // a directory — `mkdir` under it succeeds, the banner comes back green
+      // and the assertion below fails on a guard that is working perfectly.
+      // That is what turned both Windows legs of this PR red. A file in the
+      // path makes `mkdir` fail (EEXIST/ENOTDIR) on every platform, which is
+      // the same catch branch the EACCES case takes.
+      const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-ro-'));
+      const blocker = path.join(parent, 'nested');
+      fs.writeFileSync(blocker, 'not a directory');
+      const roDb = path.join(blocker, '.memesh', 'kg.db');
+      // The fixture has to actually block, or this test passes for a reason
+      // nobody chose. Assert the precondition before assuming it.
+      expect(() => fs.mkdirSync(path.dirname(roDb), { recursive: true }),
+        'the fixture did not make the directory unwritable').toThrow();
       try {
         const out = runHook({ cwd: '/tmp/whatever' }, { MEMESH_DB_PATH: roDb });
         const msg = String(out.systemMessage ?? '');
@@ -129,8 +142,7 @@ describe('Feature: Session Start Hook', () => {
         expect(msg).toContain('NOT be saved');
         expect(msg).toContain('memesh doctor');
       } finally {
-        fs.chmodSync(roParent, 0o755);
-        fs.rmSync(roParent, { recursive: true, force: true });
+        fs.rmSync(parent, { recursive: true, force: true });
       }
     });
 
