@@ -208,6 +208,42 @@ describe('dreamer says when it could not group by meaning', () => {
   });
 });
 
+describe('more candidates than fit in one SQL statement', () => {
+  it('loads every vector across chunk boundaries', async () => {
+    // Vectors were fetched with one placeholder per candidate. SQLite's
+    // ceiling is 32766 — past it the statement throws, the catch turned that
+    // into "no vector index", and the graph large enough to need semantic
+    // clustering was the one that silently lost it. The lookup is chunked now,
+    // and the risk moves to the chunk loop: an off-by-one there drops vectors
+    // for whole chunks, which would show up as a fall back to calendar mode or
+    // as candidates counted "without embedding".
+    const CHUNK = 500;
+    const total = CHUNK + 100;
+    const db = getDatabase();
+    const day = daysAgo(3);
+    for (let i = 0; i < total; i++) {
+      const name = `bulk-${i}`;
+      db.prepare("INSERT INTO entities (name, type, created_at, metadata) VALUES (?, 'commit', ?, ?)")
+        .run(name, `${day}T12:00:00.000Z`, JSON.stringify({ signal_score: 0.5 }));
+      const id = (db.prepare('SELECT id FROM entities WHERE name = ?').get(name) as { id: number }).id;
+      db.prepare("INSERT INTO tags (entity_id, tag) VALUES (?, 'project:demo')").run(id);
+      db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(id, `work ${i}`);
+      // All on one axis, so they form a single cluster and every one of them
+      // must have been read for the count below to come out right.
+      const v = new Float32Array(DIM);
+      v[3] = 1;
+      v[4] = (i % 10) * 0.001;
+      db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)')
+        .run(BigInt(id), Buffer.from(v.buffer));
+    }
+
+    const result = await dreamPass();
+    expect(result.clusteringMode, 'the chunked lookup fell back to calendar mode').toBe('semantic');
+    expect(result.clusteringNote, 'vectors went missing across a chunk boundary').toBeUndefined();
+    expect(result.clustersScanned).toBe(1);
+  });
+});
+
 describe('proposals the old calendar rule left behind', () => {
   it('retires them instead of staging an overlapping twin', async () => {
     // Dedup needs an EXACT source-id match, and a semantic cluster is by
