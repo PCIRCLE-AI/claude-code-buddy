@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getProjectName } from './paths.js';
+import { AUTO_CAPTURE_TAG } from './types.js';
 export function parseTranscript(transcriptPath) {
     const filesEdited = new Set();
     const bashCommands = [];
@@ -89,7 +90,7 @@ export class RuleBasedExtractor {
         const memories = [];
         const projectName = getProjectName(context.cwd);
         const sessionTag = `session:${context.sessionId}`;
-        const baseTags = ['source:auto-capture', sessionTag, `project:${projectName}`];
+        const baseTags = [AUTO_CAPTURE_TAG, sessionTag, `project:${projectName}`];
         if (context.stopReason === 'user_interrupt')
             return memories;
         if (!context.wasAgenticLoop)

@@ -93,8 +93,18 @@ export function remember(args: RememberInput): RememberResult {
     namespace: args.namespace,
     trustOverride: args.trustOverride,
   });
-  kg.updateEntityMetadata(args.name, () => buildLocalMetadata(
-    existing?.metadata as EntityMetadata | undefined,
+  // `current`, not the snapshot taken before `createEntity`. The updater used
+  // to ignore what it was handed and rebuild from `existing?.metadata`, which
+  // silently discarded everything `createEntity` had just written — the
+  // `previous_namespace` breadcrumb that makes a namespace move undoable, and
+  // the `signal_score` every new entity is stamped with.
+  //
+  // No `?? existing?.metadata` fallback: `updateEntityMetadata` hands over
+  // `parseMetadata(row.metadata)`, which returns `{}` for null, for non-object
+  // JSON and for a parse failure — so `current` is never nullish, and a
+  // fallback there would read as a safety net that cannot fire.
+  kg.updateEntityMetadata(args.name, (current) => buildLocalMetadata(
+    current as EntityMetadata,
     {
       trust: args.trustOverride,
       provenance: args.provenanceOverride,
@@ -153,6 +163,11 @@ export function remember(args: RememberInput): RememberResult {
     observations: args.observations?.length ?? 0,
     tags: args.tags?.length ?? 0,
     relations: relationsCreated.length,
+    ...(relationsCreated.length > 0 ? { relationsCreated } : {}),
+    // Only when it actually moved: same-scope re-remembers say nothing.
+    ...(existing && args.namespace !== undefined && (existing.namespace ?? 'personal') !== args.namespace
+      ? { movedFromNamespace: existing.namespace ?? 'personal' }
+      : {}),
     ...(superseded.length > 0 ? { superseded } : {}),
     ...(relationErrors.length > 0 ? { relationErrors } : {}),
   };

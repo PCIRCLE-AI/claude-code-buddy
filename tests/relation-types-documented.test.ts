@@ -126,6 +126,26 @@ describe('relation types with consequences are documented where the model reads'
     }
   });
 
+  it('names every behavioural relation type in the CLI too', () => {
+    // The third direction. MCP and HTTP callers could state a relation through
+    // `remember`'s `relations`; the CLI had no flag for any relation at all, so
+    // `contradicts` was unreachable from the terminal and `memesh recall`
+    // answered "no conflicts" to a CLI-only user for a question nothing they
+    // could type would ever change. A type with a consequence has to be
+    // reachable from every surface that can write memories, and the flag has
+    // to carry the consequence — `--supersedes <name>` alone reads as a label.
+    const cli = fs.readFileSync(path.join(srcRoot, 'transports', 'cli', 'cli.ts'), 'utf8');
+    for (const type of Object.keys(BEHAVIOURAL_RELATION_TYPES)) {
+      const flag = new RegExp(`'--${type} <[^']*'\\s*,\\s*'([^']*)'`);
+      const m = flag.exec(cli);
+      expect(m, `\`memesh remember\` has no --${type} flag, so the CLI cannot state it`).not.toBeNull();
+      expect(
+        (m as RegExpExecArray)[1].length,
+        `--${type}'s help text does not say what it does`
+      ).toBeGreaterThan(40);
+    }
+  });
+
   it('still offers an inert example, so the field does not read as an enum', () => {
     // Relation type is free-form; a description listing only the two special
     // values would imply those are the only allowed ones.

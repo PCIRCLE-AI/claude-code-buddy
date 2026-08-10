@@ -4,6 +4,19 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **`memesh remember --contradicts <name>` and `--supersedes <name>`.** Both
+  relation types that change behaviour were statable through MCP and HTTP and
+  from neither the terminal nor anywhere else the CLI could reach. That made
+  conflict detection structurally dead for a CLI-only user: `findConflicts()`
+  runs on every recall, nothing creates a `contradicts` relation
+  automatically, and no command could create one — so "no conflicts" was not a
+  finding, it was the only possible answer. A relation whose target does not
+  exist is reported and exits 1, because the consequence you asked for did not
+  happen. `tests/relation-types-documented.test.ts` now fails if either type
+  loses its flag or its help text stops explaining the consequence.
+
 ### Changed
 
 - **The supported Node floor is now `>=22.13.0`** (was `>=22.5.0`). `node:sqlite`
@@ -39,6 +52,58 @@ All notable changes to MeMesh are documented here.
 
   Your database is untouched: same file, same schema, same SQLite. No
   migration, no re-embedding, nothing to do.
+
+- **The dreamer groups entries by similarity, not by which calendar week they
+  landed in.** A week is not a topic. Two unrelated pieces of work done on the
+  same Tuesday went into one digest, and one piece of work spanning a Friday
+  and the following Monday was split in half by a bucket boundary running
+  through the middle of it. Clusters are now formed from the stored embeddings
+  — nearest-first around a running centroid, with the project still a hard
+  partition, since two projects are never one narrative whatever the vectors
+  say.
+
+  **What that buys, stated no higher than it was measured.** The two clusters
+  this produced on the reference graph were read, not assumed. One is 29
+  commits that are plainly a single work-stream — a feature's tables, its
+  isolation tests, its service, its REST surface, its CI gate. The other is 33
+  commits that share a *kind* rather than a subject: assorted `fix(...)` work
+  across unrelated modules from the same days. So this separates work-streams
+  when a work-stream has its own vocabulary, and otherwise degrades toward
+  "same kind of entry, same period". That is still strictly better than the
+  week — both of those clusters fall inside ONE ISO week and used to be a
+  single bucket — and it is short of topic detection. It is also not a
+  correctness risk: the model's contract is ADD-or-NOOP, and a cluster with no
+  narrative is what NOOP is for. It costs a call, not a digest.
+
+  The cut-off is `0.55` in `entities_vec` L2 distance, **measured** on a real
+  graph (681 entities, 114 compactable candidates with vectors,
+  `nomic-embed-text` at 768 dims) rather than picked. Against pairs from
+  different projects — which cannot be one narrative, so they measure false
+  merges directly — the rate holds at 0.17–0.32% up to 0.55 and then
+  multiplies: 0.78% at 0.60, 2.17% at 0.65, 5.70% at 0.70, where the largest
+  cluster swelled to 65 entities across two weeks. The full table is on the
+  constant. It belongs to that embedder; changing embedders means measuring
+  again.
+
+  **A graph with no embeddings still works, and now says so.** The default
+  configuration is keyword-only and stores no vectors, so clustering falls back
+  to the calendar week — the previous behaviour — and `memesh dream run` prints
+  which of the two it used and why, along with a count of any candidates that
+  had no vector and were left out. A quiet fallback would have been the
+  familiar shape: no error signal, read as success.
+
+  Three consequences worth knowing. `cluster_key` is now a label — the dates
+  the cluster spans plus a short digest of its membership — and no longer the
+  grouping rule; a pending proposal is matched by the entries it covers, so a
+  changed label cannot cause the same cluster to be proposed twice. The prompt
+  no longer tells the model the entries share a week, which was an invitation
+  to invent the connection. And membership is no longer stable as the graph
+  grows: a week bucket never changed once its week ended, whereas one new entry
+  can shift a centroid and move a member. Identical membership is still
+  de-duplicated exactly; an *overlapping* cluster is not, so a pending proposal
+  can end up beside a later one covering most of the same entries. Both are
+  staged, neither touches a source entity, and `memesh dream review` shows the
+  source ids — but it is a real difference from the old behaviour.
 
 ### Fixed
 
@@ -134,6 +199,193 @@ All notable changes to MeMesh are documented here.
   writers call it. Existing rows keep the vector they were last given until the
   next `memesh reindex` rebuilds them; that is a paid call on a cloud embedding
   provider, so nothing re-embeds on its own.
+
+- **`memesh feedback` no longer puts your account name in a public issue.** The
+  issue body is composed from `doctor` output, and doctor names paths — the
+  database, the config file, where `memesh` resolves on `PATH`. On a normal
+  install every one of those starts with the home directory, so a measured run
+  carried `/Users/<name>/…` into the pre-filled GitHub issue twice, inside a
+  diagnostics block long enough that nobody reads it before submitting. Home
+  directories are now written as `~`, which keeps every path just as useful for
+  triage. And the body is printed in the terminal before the browser opens:
+  GitHub does render it, but below the fold of a form the user opened in order
+  to type. `--no-diagnostics` still drops the install ID and the report
+  entirely.
+
+- **`memesh doctor` no longer reports "Hooks wired into Claude Code / PASS" on
+  an install where nothing is wired.** It accepted the presence of
+  `.claude-plugin/plugin.json` as proof that the Claude Code plugin runtime had
+  loaded the hooks. That file is listed in `package.json`'s `files`, so it is
+  inside the tarball and exists on **every** install — including a plain
+  `npm i -g` that has never been connected to anything. The WARN telling you to
+  run `memesh install-hooks` was unreachable. It now keys off the install
+  channel, which reports `plugin-marketplace` only when the package really sits
+  under `~/.claude/plugins/cache/`. The test fixture also gained the
+  `.claude-plugin` directory, because a fixture that does not carry what ships
+  cannot see this class of bug.
+
+- **`memesh doctor` no longer reports your own typing as evidence that
+  automation works.** The "Hook activity (last 24h)" row counted entity
+  *types*, and one of them — `lesson_learned` — is what `memesh learn` writes.
+  On a brand-new HOME with no `.claude` directory at all, one hand-typed
+  `learn` produced `[PASS] auto-capture loop is alive`. The row now counts the
+  `source:auto-capture` provenance tag that the capture hooks attach.
+  `post-commit` did not attach it and now does, so all four capture paths mark
+  what they write the same way.
+
+- **An API key with no provider no longer looks like a working LLM.** `memesh
+  config set llm.apiKey sk-…` without `llm.provider` wrote `{ apiKey: … }`,
+  and that object is truthy: `memesh status` printed `LLM: undefined
+  (undefined)`, search level jumped to Smart Mode, and every LLM-backed feature
+  became a silent no-op that still reported success — the provider dispatcher
+  fell off the end of its chain and returned an empty string, which the
+  failover loop records as a successful call. Three changes: the dispatcher
+  throws and names the missing setting, a key without a provider no longer
+  counts as a configured LLM, and `config set llm.apiKey` says at that moment
+  that nothing will use the key yet. `status` also prints `(default)` rather
+  than `(undefined)` for a provider left on its built-in model.
+
+- **`memesh serve --allow-remote` no longer promises a token it does not
+  create.** Authentication is keyed to the bind *address*, not to the flag: on
+  the default loopback host the flag changes nothing — no token file, no
+  bearer requirement, `/v1/entities` answers 200 unauthenticated — while
+  `--help` said unconditionally that a token is generated and required for
+  every request. The help now states the condition, and a `--allow-remote` that
+  had no effect says so at startup, because someone who typed it meant to
+  expose the server.
+
+- **Refusing a remote bind is no longer a crash.** `memesh serve --host
+  0.0.0.0` without the opt-in produces exactly the right sentence — what was
+  refused, and the two ways to allow it — and used to throw it out of an async
+  action, so it arrived beneath a ten-frame Node dump carrying three absolute
+  install paths. Both entry points (`memesh serve` and `memesh-http`) now print
+  the sentence and exit 1.
+
+- **A malformed import bundle is described in its own terms.** An entry with no
+  `type` reported `Provided value cannot be bound to SQLite parameter 2` — the
+  storage layer's argument numbering, for someone holding a JSON file. Worse, a
+  bundle whose `entities` was a string got iterated **character by character**,
+  so `"oops"` became four entities named `undefined`. The importer now names
+  the entry and the field (`entities[0] has no usable "type"`), refuses a
+  bundle with no `entities` array outright, and still imports the good entries
+  of a partly-broken one. The check lives in the serializer, so the CLI, MCP
+  and HTTP paths all get it.
+
+- **A `namespace` you supply is no longer accepted, ignored and reported as
+  success.** `remember` with `namespace: "team"` on a memory that already
+  existed left it in `personal` and said it had stored it; `import
+  --namespace` did not do the forcing its own documentation promised. A
+  namespace was applied on creation only. It now moves an entity that already
+  exists — but only when the caller actually supplied one, so a re-remember
+  that says nothing about namespace still cannot drag a memory back to the
+  `personal` default. Import keeps the same distinction: your `--namespace`
+  override applies to everything, while the namespace stored inside a bundle
+  only places entities the import creates, so importing cannot relocate a
+  memory you already had.
+
+- **`import` and `export` now reject a namespace they do not recognise.** Both
+  validated the field as any string up to 50 characters while `remember` and
+  `recall` used the enum. On `export` a typo produced a successful **empty
+  backup**; on `import` — once an explicit namespace began moving entities that
+  already exist — it became a way to relocate memories into a scope nothing
+  queries, gone from every scoped view while the import reported them appended.
+  All four schemas now share one list with the core, and `importMemories`
+  refuses the value itself so every transport inherits the check.
+
+- **`memesh remember` no longer announces a conflict it failed to record.** With
+  one good and one bad `--contradicts` target it printed both under `conflicts
+  stated:`, two lines above the error saying the second had failed — it asked
+  whether *something* succeeded rather than *which*. `remember` now returns the
+  relations it actually created and the command reports from those.
+
+- **The dashboard published the account name the CLI had just stopped
+  publishing.** `memesh feedback` exists on two surfaces and only the terminal
+  one was fixed: the dashboard widget builds the same public GitHub issue body
+  from the same `/v1/doctor` route, and stripped nothing. Redaction moved into
+  `core/paths.ts` and now runs server-side in that route, so every consumer of
+  it is covered at once — the browser cannot do this itself, it does not know
+  the server's HOME. It also covers a data directory that `MEMESH_DIR` or
+  `MEMESH_DB_PATH` moved outside home, which the first version missed, and
+  matches the doubled separators a Windows path picks up when it is JSON
+  encoded.
+
+- **A namespace move is no longer silent or one-way.** Moving an existing
+  memory between namespaces drops it out of every scoped view it appeared in,
+  and it was reported as a plain `stored: true` with no record of where it came
+  from — undoable only by someone who independently remembered. The move now
+  writes `metadata.previous_namespace` and a timestamp, `remember` returns
+  `movedFromNamespace`, and the CLI prints the move with the command to reverse
+  it. The MCP schema description no longer reads `(default: "personal")`, which
+  was an invitation for an agent to fill the field in and relocate a `team`
+  memory it was merely re-remembering.
+
+- **Upgrading no longer stages a duplicate of every pending dream proposal.**
+  De-duplication needs an exact source-id match, and a semantic cluster is
+  never the exact set its week bucket was — so each pending proposal would have
+  gained an overlapping twin, and accepting both ran compaction twice over
+  shared entities where the `compacted_into` back-pointer is a plain overwrite.
+  The shipped rule is more general than that upgrade, and applies on every
+  run: when a digest is written, any pending proposal covering **strictly
+  fewer** of the same entries is marked `rejected` with a reason — never
+  deleted, so `dream list --status rejected` still shows it. Only when the
+  replacement has actually been written, because rejecting is terminal. And
+  when a pending proposal OVERLAPS a cluster without either containing the
+  other — the usual shape of a week bucket against the clusters carved out of
+  it — nothing is decided for you: the run stops before spending an LLM call
+  and names the proposal to review.
+
+- **The dreamer no longer loses semantic clustering on a large graph, silently
+  and with the wrong explanation.** It loaded vectors with one SQL placeholder
+  per candidate; SQLite's ceiling is 32766 (measured), and the failure was
+  caught and reported as "sqlite-vec is not loaded" — so the graphs big enough
+  to need meaning-based grouping were the ones that lost it, and were sent to
+  fix a dependency that was fine. Measured on a seeded 33 000-candidate graph:
+  before, `dream run` reported `calendar` mode in 247 ms with "No vector index
+  (sqlite-vec is not loaded)" — false, the index held all 33 000 vectors — and
+  produced a single ISO-week bucket; after, `semantic` mode, 5 249 clusters,
+  17.8 s.
+
+  The lookup is chunked, an unreadable index now reports its real error, and
+  the distance loop stops as soon as a pair is out of range — end-to-end
+  10.1 s → 3.3 s at 5 000 candidates and 20.7 s → 9.2 s at 10 000, with
+  identical cluster counts on both builds, which is the check that matters:
+  this is a speed change, not a behaviour change. Those two had to land
+  together, because the placeholder limit was what had been capping the
+  quadratic work — fixing it alone would have turned a wrong answer into a
+  hang.
+
+- **The memory tool refuses to create a memory whose name is taken elsewhere.**
+  Names are unique across the whole database, so `create` at
+  `/memories/team/x` when `x` already lives under `personal` was never really
+  a create: it appended the text to the memory at the OTHER address. Once an
+  explicit namespace began moving an existing memory, it would have relocated
+  it instead. Both are a silent write to something other than the path you
+  named, so it now returns an error — the same refusal `rename` has always
+  had.
+
+- **A remembered memory now keeps the signal score it was given.** `remember`
+  rebuilt an entity's metadata from a snapshot taken *before* the entity was
+  written, which discarded the `signal_score` stamped at creation — so every
+  memory written through `remember` carried no score at all. Anything reading
+  that field fell back to its default: the dreamer treats a missing score as
+  `0.5`, which is inside the `0.2–0.7` band it compacts, so high-signal types
+  (`decision`, `architecture`, `lesson_learned`) were compaction candidates
+  when they should never have been, and low-signal notes were too. They now
+  carry their real score. Verified unchanged for `pin`, `compacted_into`,
+  `consolidation_depth` and import provenance.
+
+- **Two documents that described code that does not exist.**
+  `API_REFERENCE.md` said "MeMesh does not add an auth layer for you" while a
+  non-loopback bind has required a bearer token since 4.2 — generated before
+  the listener opens, kept at `~/.memesh/remote-token`, overridable with
+  `MEMESH_REMOTE_TOKEN` — none of which was written down outside two error-code
+  rows. It also documented a `learn` response (`stored`, `entityId`,
+  `observations`, `tags`) that the server has never returned; the real shape is
+  `{learned, name, type}`. Both are corrected, and
+  `scripts/check-doc-claims.mjs` — which counted hooks, tools and routes but
+  checked no response *shape* and no prose claim — now fails when a documented
+  response names a field its `*Result` type does not have, and when the
+  document denies authentication the server performs.
 
 ## [4.5.0] — 2026-08-05
 

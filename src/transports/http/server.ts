@@ -25,7 +25,7 @@ import {
 } from '../schemas.js';
 import { checkForUpdate, getLastUpdateCheck, getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
-import { getDbPath, getMemeshDirFromDbPath } from '../../core/paths.js';
+import { getDbPath, getMemeshDirFromDbPath, redactUserPaths } from '../../core/paths.js';
 import { RETIRED_ROUTES } from './retired-routes.js';
 
 import fs from 'fs';
@@ -391,9 +391,19 @@ app.get('/v1/doctor', async (_req, res) => {
       packageRoot,
       packageVersion,
     });
-    // Walk the result and redact any secret-shaped substring before
-    // it leaves the server — defense in depth, not a primary defence.
-    const safe = JSON.parse(redactSecrets(JSON.stringify(result)));
+    // Two redactions, in order, before anything leaves the server.
+    //
+    // `redactSecrets` catches credential shapes (sk-*, ghp_*, AKIA*, Bearer).
+    // `redactUserPaths` catches the account name, which no credential pattern
+    // matches: doctor names the database, the config file and the PATH entry,
+    // and on a normal install all three begin with the home directory. The
+    // dashboard's feedback widget builds a PUBLIC GitHub issue body out of
+    // this route's output, so an unredacted path here is published verbatim —
+    // the CLI half of that leak was closed first, and this is the other half.
+    // Redacting server-side rather than in the widget covers every consumer of
+    // the route at once, and the browser cannot do it: it does not know the
+    // server's HOME.
+    const safe = JSON.parse(redactUserPaths(redactSecrets(JSON.stringify(result))));
     res.json({ success: true, data: safe });
   } catch (err) {
     res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
@@ -966,7 +976,7 @@ app.get('/v1/dream/proposals/:id', (req, res) => {
 // add a hard ceiling so a hostile/runaway client cannot ask for a
 // 1-year window with 10000 LLM calls.
 //
-// Forwards `cfg.llmFallbacks` so users with a primary+fallback chain
+// Forwards `caps.llmFallbacks` so users with a primary+fallback chain
 // configured in Settings get the same failover behaviour the CLI does.
 const DreamRunBody = z.object({
   project: z.string().min(1).max(100).optional(),
@@ -986,8 +996,16 @@ app.post('/v1/dream/run', async (req, res) => {
   }
   try {
     const { runDreamer } = await import('../../core/dreamer.js');
-    const cfg = readConfig();
-    if (!cfg.llm) {
+    // `detectCapabilities()`, not the raw config, so this endpoint agrees with
+    // the CLI and doctor about whether an LLM exists. `readConfig().llm` is
+    // truthy for `{ apiKey: "sk-…" }` with no provider — a configuration that
+    // configures nothing — so the documented `llm.not-configured` 400 never
+    // fired for it and the endpoint answered 200 with every cluster skipped.
+    // It also missed the reverse: an env-only ANTHROPIC_API_KEY 400'd here
+    // while `memesh status` reported Smart Mode on.
+    const caps = detectCapabilities();
+    const llm = caps.llm;
+    if (!llm) {
       res.status(400).json({
         success: false,
         errorCode: 'llm.not-configured' satisfies ErrorCode,
@@ -995,11 +1013,11 @@ app.post('/v1/dream/run', async (req, res) => {
       });
       return;
     }
-    const result = await runDreamer(getDatabase(), cfg.llm, {
+    const result = await runDreamer(getDatabase(), llm, {
       project: parsed.data.project,
       windowDays: parsed.data.windowDays,
       maxLlmCalls: parsed.data.maxLlmCalls,
-      fallbacks: cfg.llmFallbacks,
+      fallbacks: caps.llmFallbacks,
       validateBeforeStage: parsed.data.validate,
     });
     res.json({ success: true, data: result });
@@ -1166,6 +1184,16 @@ export function startServer(
       `Refusing to bind MeMesh HTTP server to non-loopback host "${host}" without explicit remote access opt-in. Use --allow-remote or MEMESH_HTTP_ALLOW_REMOTE=true.`
     );
   }
+  if (allowRemote && !isRemote) {
+    // The opt-in is about the ADDRESS, and on a loopback bind it changes
+    // nothing: no token, no auth, reachable only from this machine. Someone
+    // who typed it meant to expose the server, so say plainly that it did not
+    // happen rather than letting them assume it did.
+    process.stderr.write(
+      `MeMesh HTTP: --allow-remote has no effect on loopback host "${host}" — the server stays local ` +
+      'and no bearer token is generated. Add --host <address> to bind somewhere reachable.\n'
+    );
+  }
   if (isRemote) {
     // F3: non-loopback bind requires bearer-token auth on every request.
     // We load (or generate-and-persist) the token before app.listen so a
@@ -1301,7 +1329,15 @@ export function __setRemoteTokenForTest(value: Buffer | null): void {
 // If run directly (not imported)
 const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'));
 if (isMain || process.argv[1]?.endsWith('memesh-http')) {
-  const server = startServer();
+  let server: ReturnType<typeof startServer>;
+  try {
+    server = startServer();
+  } catch (err) {
+    // Same treatment as the CLI `serve` path: the refusal message is
+    // actionable on its own and does not need a stack trace wrapped round it.
+    console.error(`MeMesh: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
 
   function shutdown() {
     server.close();

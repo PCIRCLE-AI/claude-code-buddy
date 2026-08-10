@@ -8,12 +8,13 @@ import { embedText } from './embedder.js';
 import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
-import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
+import { getCurrentInstallChannel, getInstallChannelSupport, type InstallChannel } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
 import { getDbPath, memeshDir, getProjectName } from './paths.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
 import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
 import { MemeshDatabase } from '../storage/sqlite.js';
+import { AUTO_CAPTURE_TAG } from './types.js';
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
 export type DoctorOverallStatus = 'PASS' | 'PASS_WITH_CONCERNS' | 'FAIL';
@@ -563,7 +564,7 @@ function inspectHookWiring(
   existsSyncImpl: typeof fs.existsSync,
   readFileSyncImpl: typeof fs.readFileSync,
   memeshDir: string,
-  packageRoot?: string,
+  installChannel?: InstallChannel,
 ): DoctorCheck {
   const markerPath = path.join(memeshDir, 'install-hooks.json');
   if (!existsSyncImpl(markerPath)) {
@@ -571,19 +572,25 @@ function inspectHookWiring(
     // Claude Code plugin (via `/plugin install memesh@pcircle-memesh`),
     // hook wiring happens through the plugin runtime — `memesh
     // install-hooks` never runs, so the marker file is legitimately
-    // absent. Detect that path by `<packageRoot>/.claude-plugin/plugin.json`
-    // and report PASS rather than WARN — the runtime signal of "are
-    // hooks actually firing" is what `inspectHookActivity` covers.
-    if (packageRoot) {
-      const pluginManifest = path.join(packageRoot, '.claude-plugin', 'plugin.json');
-      if (existsSyncImpl(pluginManifest)) {
-        return createCheck(
-          'hook-wiring',
-          'Hooks wired into Claude Code',
-          'pass',
-          'Wired via Claude Code plugin runtime (.claude-plugin/plugin.json present). The install-hooks marker is not used on this install path.',
-        );
-      }
+    // absent. Report PASS there; `inspectHookActivity` covers the runtime
+    // signal of whether hooks are actually firing.
+    //
+    // This used to key off `<packageRoot>/.claude-plugin/plugin.json`, which
+    // is shipped inside the npm tarball (it is listed in `files`). So the
+    // directory exists on EVERY install, and every install reported "Hooks
+    // wired into Claude Code / PASS" — including a plain `npm i -g` where
+    // nothing was wired and nothing would ever be remembered. The WARN below
+    // was unreachable. The install channel is the honest signal: it is
+    // `plugin-marketplace` only when the package actually sits under
+    // `~/.claude/plugins/cache/`, which only Claude Code's plugin runtime
+    // writes.
+    if (installChannel === 'plugin-marketplace') {
+      return createCheck(
+        'hook-wiring',
+        'Hooks wired into Claude Code',
+        'pass',
+        'Wired via the Claude Code plugin runtime (this is a plugin-marketplace install). The install-hooks marker is not used on this install path.',
+      );
     }
     return createCheck(
       'hook-wiring',
@@ -695,23 +702,21 @@ function inspectHookWiring(
  * past 24 hours — the strongest signal that the auto-capture loop
  * is alive end-to-end.
  *
- * Hooks emit several memesh-attributed entity types:
- *   - 'session-insight' — RuleBasedExtractor + session-summary.js (Stop)
- *   - 'session-summary' — pre-compact.js (PreCompact)
- *   - 'commit'          — post-commit.js (PostToolUse / git commits)
- *   - 'lesson_learned'  — failure-analyzer / learn tool
- * User-global hooks (`~/.claude/hooks/stop.js`) write 'session_keypoint'
- * instead — counting that would mask the "memesh hooks aren't firing but
- * custom hooks are" failure mode, so it stays excluded.
+ * The question is about PROVENANCE — did a hook write this — so the count is
+ * taken from the provenance tag every capture hook attaches,
+ * `source:auto-capture`: the Stop extractor, `session-summary.js`,
+ * `pre-compact.js` and `post-commit.js`.
  *
- * Earlier this check counted ONLY 'session-insight'. session-insight is
- * the strictest source: it requires an agentic session ≥3 tools, no
- * user_interrupt, and the extractor's filters all to pass. A user who
- * just installed memesh and opened the dashboard before completing such
- * a session would see a false WARN even with hooks correctly wired —
- * because post-commit and pre-compact may have already fired but they
- * write different entity types. Broadened to the full set so any sign
- * of life satisfies the check.
+ * It used to count entity TYPES instead: `session-insight`, `session-summary`,
+ * `commit`, `lesson_learned`. The last of those is what `memesh learn` writes,
+ * and a user types that by hand — so on a brand-new HOME with no `.claude`
+ * directory at all, one hand-typed `memesh learn` was enough to make this row
+ * report "auto-capture loop is alive". It reported the user's own typing back
+ * to them as evidence that automation worked.
+ *
+ * User-global hooks (`~/.claude/hooks/stop.js`) write 'session_keypoint' and no
+ * memesh provenance tag, so they still do not count — that keeps the "memesh
+ * hooks aren't firing but custom hooks are" failure mode visible.
  *
  * Grace period: if the install-hooks marker is < 24h old, we accept
  * "no activity yet" silently. A fresh install legitimately has nothing
@@ -727,10 +732,11 @@ function inspectHookActivity(
   try {
     db = openDatabaseImpl() as unknown as DatabaseLike;
     const row = db.prepare(
-      `SELECT COUNT(*) as c FROM entities
-       WHERE type IN ('session-insight', 'session-summary', 'commit', 'lesson_learned')
-         AND created_at > datetime('now', '-24 hours')`,
-    ).get() as { c: number };
+      `SELECT COUNT(DISTINCT e.id) as c FROM entities e
+       JOIN tags t ON t.entity_id = e.id
+       WHERE t.tag = ?
+         AND e.created_at > datetime('now', '-24 hours')`,
+    ).get(AUTO_CAPTURE_TAG) as { c: number };
     const count = row?.c ?? 0;
     if (count === 0) {
       // Grace period: the install-hooks marker tells us when hooks were
@@ -1873,7 +1879,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   // Runtime wiring + activity (#25 — file existence isn't enough;
   // doctor used to PASS for users whose Claude Code never loaded
   // memesh's hooks at all).
-  checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), packageRoot));
+  checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install));
   checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl));
   checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
   // Before the native-binding row, because when that one is red this one is

@@ -44,7 +44,34 @@ export const BEHAVIOURAL_RELATION_TYPES = {
 
 export type BehaviouralRelationType = keyof typeof BEHAVIOURAL_RELATION_TYPES;
 
-export type Namespace = 'personal' | 'team' | 'global';
+/**
+ * The tag every capture hook attaches to what it writes.
+ *
+ * This is the only honest answer to "did automation produce this memory".
+ * `memesh doctor`'s hook-activity row used to answer it from entity TYPE, and
+ * one of the types it counted — `lesson_learned` — is what `memesh learn`
+ * writes, which a user types by hand. So a fresh HOME with no `.claude`
+ * directory reported "auto-capture loop is alive" after one manual command.
+ *
+ * `tests/auto-capture-provenance.test.ts` fails if a capture hook stops
+ * writing it, or if doctor stops counting it.
+ */
+export const AUTO_CAPTURE_TAG = 'source:auto-capture';
+
+/**
+ * The namespaces, as a runtime list.
+ *
+ * `Namespace` is erased at compile time, so every place that had to REJECT a
+ * bad value kept its own copy of the strings — the CLI had one, the Zod
+ * schemas have one each. That is fine until one copy is missed, which is
+ * exactly what happened: `ImportSchema` validated `namespace` as
+ * `z.string().max(50)` while `RememberSchema` used the enum, and once an
+ * explicit namespace began MOVING entities that already exist, the loose one
+ * became a way to relocate memories into a scope nothing queries.
+ */
+export const NAMESPACES = ['personal', 'team', 'global'] as const;
+
+export type Namespace = (typeof NAMESPACES)[number];
 export type MergeStrategy = 'skip' | 'overwrite' | 'append';
 export type LessonSeverity = 'critical' | 'major' | 'minor';
 export type EntityStatus = 'active' | 'archived';
@@ -158,6 +185,29 @@ export interface RememberResult {
   relations: number;
   superseded?: string[];
   relationErrors?: string[];
+  /**
+   * The relations that were actually created, not the ones that were asked for.
+   *
+   * `relations` is only a count and `relationErrors` is only messages, so a
+   * caller wanting to report "this memory now contradicts X" had to reconstruct
+   * the successful set by subtracting one from the other — and the CLI got that
+   * wrong, announcing `conflicts stated: <target>` for a target whose relation
+   * had failed in the same call. A caller should not have to do arithmetic to
+   * find out what happened.
+   */
+  relationsCreated?: Array<{ to: string; type: string }>;
+  /**
+   * Set only when this call MOVED a memory that already existed between
+   * namespaces, naming the scope it came from.
+   *
+   * A move is a real relocation — the memory drops out of every scoped view it
+   * used to appear in — and it was invisible: the result said `stored: true`
+   * and nothing else, no backup is taken, and the row is overwritten in place.
+   * The entity keeps its id, so its vectors and FTS row are untouched; what
+   * changes is where it can be found. Pairs with `metadata.previous_namespace`,
+   * which makes the move undoable from the row itself.
+   */
+  movedFromNamespace?: string;
 }
 
 export interface ForgetResult {

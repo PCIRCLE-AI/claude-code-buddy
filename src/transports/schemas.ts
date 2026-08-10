@@ -4,6 +4,7 @@
 // =============================================================================
 
 import { z } from 'zod';
+import { NAMESPACES } from '../core/types.js';
 
 const sanitizeName = (s: string) => s.replace(/[\r\n\t]+/g, ' ').trim();
 const nameField = z.string().min(1).max(255).transform(sanitizeName).refine(s => s.length > 0, {
@@ -19,7 +20,7 @@ export const RememberSchema = z.object({
     .array(z.object({ to: z.string().min(1).max(255), type: z.string().min(1).max(100) }))
     .max(50)
     .optional(),
-  namespace: z.enum(['personal', 'team', 'global']).optional(),
+  namespace: z.enum(NAMESPACES).optional(),
 });
 
 export const RecallSchema = z.object({
@@ -27,7 +28,7 @@ export const RecallSchema = z.object({
   tag: z.string().max(255).optional(),
   limit: z.number().int().min(1).max(100).optional(),
   include_archived: z.boolean().optional(),
-  namespace: z.enum(['personal', 'team', 'global']).optional(),
+  namespace: z.enum(NAMESPACES).optional(),
   cross_project: z.boolean().optional(),
 });
 // Deliberately NO refine requiring query/tag: `{}` is the documented
@@ -42,7 +43,9 @@ export const ForgetSchema = z.object({
 
 export const ExportSchema = z.object({
   tag: z.string().max(255).optional(),
-  namespace: z.string().max(50).optional(),
+  // A typo here produced a successful EMPTY backup. See ImportSchema below for
+  // why these two were the loose ones.
+  namespace: z.enum(NAMESPACES).optional(),
   limit: z.number().int().min(1).max(10000).optional(),
 });
 
@@ -62,7 +65,13 @@ export const ExportResultSchema = z.object({
 
 export const ImportSchema = z.object({
   data: ExportResultSchema,
-  namespace: z.string().max(50).optional(),
+  // The enum, not a free string. `remember` and `recall` validated this field
+  // from the start; `import` and `export` were `z.string().max(50)`, and once
+  // an explicit namespace began MOVING entities that already exist, that
+  // looseness became a way to relocate memories into a scope nothing queries —
+  // gone from every scoped view while the import reports them appended. Core
+  // refuses the same value in `importMemories`, so the CLI is covered too.
+  namespace: z.enum(NAMESPACES).optional(),
   merge_strategy: z.enum(['skip', 'overwrite', 'append']),
 });
 

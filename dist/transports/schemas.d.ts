@@ -32,7 +32,11 @@ export declare const ForgetSchema: z.ZodObject<{
 }, z.core.$strip>;
 export declare const ExportSchema: z.ZodObject<{
     tag: z.ZodOptional<z.ZodString>;
-    namespace: z.ZodOptional<z.ZodString>;
+    namespace: z.ZodOptional<z.ZodEnum<{
+        personal: "personal";
+        team: "team";
+        global: "global";
+    }>>;
     limit: z.ZodOptional<z.ZodNumber>;
 }, z.core.$strip>;
 export declare const ExportResultSchema: z.ZodObject<{
@@ -68,7 +72,11 @@ export declare const ImportSchema: z.ZodObject<{
             }, z.core.$strip>>;
         }, z.core.$strip>>;
     }, z.core.$strip>;
-    namespace: z.ZodOptional<z.ZodString>;
+    namespace: z.ZodOptional<z.ZodEnum<{
+        personal: "personal";
+        team: "team";
+        global: "global";
+    }>>;
     merge_strategy: z.ZodEnum<{
         skip: "skip";
         overwrite: "overwrite";

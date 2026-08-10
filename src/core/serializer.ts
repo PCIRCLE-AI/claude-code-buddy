@@ -5,6 +5,7 @@
 
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
+import { NAMESPACES } from './types.js';
 import type { ExportInput, ExportResult, ImportInput, ImportResult } from './types.js';
 
 type EntityMetadata = {
@@ -77,11 +78,76 @@ export function exportMemories(args: ExportInput): ExportResult {
  */
 const MERGE_STRATEGIES = ['skip', 'overwrite', 'append'] as const;
 
+/**
+ * What is wrong with one entry of a bundle, in words, or null if nothing is.
+ *
+ * The import path used to hand whatever it found straight to SQLite. An entry
+ * missing `type` produced `Provided value cannot be bound to SQLite parameter
+ * 2` — a message about the storage layer's argument list, for a user who has a
+ * JSON file in front of them and no way to map one to the other.
+ */
+function describeInvalidEntity(entity: unknown, index: number): string | null {
+  const where = `entities[${index}]`;
+  if (typeof entity !== 'object' || entity === null || Array.isArray(entity)) {
+    return `${where} is ${Array.isArray(entity) ? 'an array' : typeof entity}, not an object with "name" and "type".`;
+  }
+  const e = entity as Record<string, unknown>;
+  for (const field of ['name', 'type'] as const) {
+    if (typeof e[field] !== 'string' || e[field] === '') {
+      return `${where} has no usable "${field}" (found ${e[field] === undefined ? 'nothing' : JSON.stringify(e[field])}).`;
+    }
+  }
+  for (const field of ['observations', 'tags', 'relations'] as const) {
+    if (e[field] !== undefined && !Array.isArray(e[field])) {
+      return `${where}.${field} is ${typeof e[field]}, not an array.`;
+    }
+  }
+  // The namespace a bundle carries per entity places the entities an import
+  // CREATES, and it was unchecked while the caller's override became an enum.
+  // So a bundle — which over MCP is content an agent may have been handed —
+  // could still write memories into a scope no filter selects: invisible to
+  // every scoped recall, to `export --namespace`, and to the memory tool,
+  // while squatting the name database-wide so a later legitimate create of it
+  // is refused. Reported per entity rather than thrown, so one bad row does
+  // not cost the whole bundle.
+  if (e.namespace !== undefined && !(NAMESPACES as readonly string[]).includes(e.namespace as string)) {
+    return `${where}.namespace is ${JSON.stringify(e.namespace)}, which is not one of: ${NAMESPACES.join(', ')}.`;
+  }
+  return null;
+}
+
 export function importMemories(args: ImportInput): ImportResult {
   if (!(MERGE_STRATEGIES as readonly string[]).includes(args.merge_strategy)) {
     throw new Error(
       `Unknown merge strategy "${args.merge_strategy}". Use one of: ${MERGE_STRATEGIES.join(', ')}. ` +
       'Nothing was imported — refusing rather than guessing, because the wrong guess overwrites existing memories.'
+    );
+  }
+
+  // The namespace override MOVES entities that already exist, so an
+  // unrecognised value does not merely mis-file new rows — it relocates
+  // existing memories into a scope no filter matches, and they vanish from
+  // every scoped view while the import reports them appended. `ImportSchema`
+  // validates this field as `z.string().max(50)` rather than the enum
+  // `remember` uses, so MCP and HTTP callers reach here with anything; the CLI
+  // is the only transport that checked. Checking in core covers all three.
+  if (args.namespace !== undefined && !(NAMESPACES as readonly string[]).includes(args.namespace)) {
+    throw new Error(
+      `Unknown namespace "${args.namespace}". Use one of: ${NAMESPACES.join(', ')}. ` +
+      'Nothing was imported — an unrecognised namespace would move existing memories somewhere nothing queries.'
+    );
+  }
+
+  // A bundle whose `entities` is not an array cannot be imported at all, and
+  // the loop below would not have said so: `for…of` over a STRING iterates its
+  // characters, so `"oops"` became four entities named `undefined`, and the
+  // report came back as four `undefined: …` lines. A string is the likely
+  // shape here — someone JSON-encoded the array twice.
+  const bundleEntities = (args.data as { entities?: unknown } | null | undefined)?.entities;
+  if (!Array.isArray(bundleEntities)) {
+    throw new Error(
+      `This file has no "entities" array (found ${bundleEntities === undefined ? 'nothing' : typeof bundleEntities}). ` +
+      'Nothing was imported. memesh import expects a file produced by `memesh export`.'
     );
   }
 
@@ -93,10 +159,21 @@ export function importMemories(args: ImportInput): ImportResult {
   let appended = 0;
   const errors: string[] = [];
 
-  for (const entity of args.data.entities) {
+  for (const [index, entity] of args.data.entities.entries()) {
+    const invalid = describeInvalidEntity(entity, index);
+    if (invalid) {
+      errors.push(invalid);
+      continue;
+    }
     try {
       const existing = kg.getEntity(entity.name);
-      const namespace = args.namespace || entity.namespace || 'personal';
+      // The caller's `--namespace` override applies to everything, existing
+      // entities included — that is what "force all imported entities into
+      // this namespace" means. The namespace stored IN the bundle only places
+      // entities the import creates: a bundle should not be able to relocate a
+      // memory you already had, which for `append` would silently move it out
+      // of the scope you keep it in.
+      const namespace = args.namespace ?? (existing ? undefined : (entity.namespace || 'personal'));
       const importedMetadata = buildImportedMetadata(existing?.metadata as EntityMetadata | undefined, {
         exportedAt: args.data.exported_at,
         importVersion: args.data.version,
@@ -120,7 +197,14 @@ export function importMemories(args: ImportInput): ImportResult {
             namespace,
             trustOverride: 'untrusted',
           });
-          kg.updateEntityMetadata(entity.name, () => importedMetadata);
+          // MERGE, never replace. An updater that ignores `current` rebuilds the
+          // column from a snapshot taken before `createEntity` ran, discarding
+          // whatever it just wrote — which now includes the
+          // `previous_namespace` breadcrumb recorded when `--namespace` moves an
+          // entity that already exists. Import is the one path where losing that
+          // matters most: it moves entities in bulk, so a user cannot possibly
+          // remember where each one came from.
+          kg.updateEntityMetadata(entity.name, (current) => ({ ...current, ...importedMetadata }));
           appended++;
           continue;
         }
@@ -136,7 +220,7 @@ export function importMemories(args: ImportInput): ImportResult {
         trustOverride: 'untrusted',
       });
       if (existing) {
-        kg.updateEntityMetadata(entity.name, () => importedMetadata);
+        kg.updateEntityMetadata(entity.name, (current) => ({ ...current, ...importedMetadata }));
       }
 
       // Create relations — target entity must exist; silently skip if not

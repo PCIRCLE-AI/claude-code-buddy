@@ -462,6 +462,20 @@ function createEntityFile(
     return ok(`File created successfully at: ${path}`);
   }
 
+  // The name may be taken in ANOTHER namespace — names are unique
+  // database-wide — and then this is not a create at all. Writing anyway once
+  // appended the text to a memory at a different address than the one asked
+  // for; now that `createEntity` honours an explicit namespace it would
+  // instead MOVE that memory into this one. Both are a silent wrong write, and
+  // the second also relocates data. The rename path already refuses this case
+  // with this message; create refuses it the same way.
+  if (kg.getEntity(name)) {
+    return err(
+      `Error: ${path} cannot be created because that memory name already exists in another namespace. ` +
+        `Memory names are unique across namespaces.`
+    );
+  }
+
   kg.createEntity(name, 'note', { observations, namespace });
   return ok(`File created successfully at: ${path}`);
 }

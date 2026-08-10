@@ -732,16 +732,61 @@ describe('Feature: Knowledge Graph', () => {
       expect(personalTagResults[0].name).toBe('tagged-personal');
     });
 
-    it('should not change namespace of existing entity on re-remember', () => {
+    it('should not change namespace of an existing entity when none is given', () => {
+      // The protection that matters: a re-remember that says nothing about
+      // namespace must not drag the entity back to the `personal` default.
       kg.createEntity('stable-entity', 'note', { namespace: 'team' });
-      // Re-create with different namespace — INSERT OR IGNORE means namespace stays unchanged
-      kg.createEntity('stable-entity', 'note', {
-        observations: ['new obs'],
-        namespace: 'personal',
-      });
+      kg.createEntity('stable-entity', 'note', { observations: ['new obs'] });
       const entity = kg.getEntity('stable-entity');
       expect(entity!.namespace).toBe('team');
       expect(entity!.observations).toContain('new obs');
+    });
+
+    it('should move an existing entity when a namespace IS given', () => {
+      // This used to be creation-only, so an explicit namespace on an existing
+      // entity was accepted, ignored, and reported as success: `remember` with
+      // `namespace: "team"` left the memory in `personal` and said it had
+      // stored it. Ignoring a parameter the caller supplied is the one
+      // behaviour that cannot be right.
+      kg.createEntity('moving-entity', 'note', { namespace: 'personal' });
+      kg.createEntity('moving-entity', 'note', {
+        observations: ['new obs'],
+        namespace: 'team',
+      });
+      const entity = kg.getEntity('moving-entity');
+      expect(entity!.namespace).toBe('team');
+      expect(entity!.observations).toContain('new obs');
+      // …and it is findable under the new scope, not just labelled with it.
+      expect(kg.search(undefined, { namespace: 'team' }).map(e => e.name)).toContain('moving-entity');
+      expect(kg.search(undefined, { namespace: 'personal' }).map(e => e.name)).not.toContain('moving-entity');
+    });
+
+    it('records where a moved entity came from, so the move can be undone', () => {
+      // A move is a real relocation with no backup and no second copy: the row
+      // is overwritten in place. Without a breadcrumb it is undoable only by
+      // someone who independently remembers the old scope — and the caller
+      // most likely to make the move by accident is an agent filling in an
+      // optional field, which remembers nothing.
+      kg.createEntity('audited-move', 'note', { namespace: 'team' });
+      kg.createEntity('audited-move', 'note', { namespace: 'personal' });
+
+      const meta = kg.getEntity('audited-move')!.metadata as Record<string, unknown>;
+      expect(meta.previous_namespace).toBe('team');
+      expect(typeof meta.namespace_moved_at).toBe('string');
+
+      // Putting it back is exactly the recorded value.
+      kg.createEntity('audited-move', 'note', { namespace: String(meta.previous_namespace) });
+      expect(kg.getEntity('audited-move')!.namespace).toBe('team');
+    });
+
+    it('does not stamp a move when the namespace is unchanged', () => {
+      // Re-remembering into the SAME scope is not a move, and must not rewrite
+      // metadata — otherwise every routine capture looks like a relocation.
+      kg.createEntity('stays-put', 'note', { namespace: 'team' });
+      kg.createEntity('stays-put', 'note', { observations: ['again'], namespace: 'team' });
+
+      const meta = kg.getEntity('stays-put')!.metadata as Record<string, unknown>;
+      expect(meta.previous_namespace).toBeUndefined();
     });
   });
 });

@@ -17,7 +17,7 @@ import { verifyAgentWork } from '../../core/verifier.js';
 import { RememberSchema as RememberBody, RecallSchema as RecallBody, ForgetSchema as ForgetBody, ExportSchema as ExportBody, ImportSchema as ImportBody, LearnSchema as LearnBody, VerifyAgentWorkSchema as VerifyBody, } from '../schemas.js';
 import { checkForUpdate, getLastUpdateCheck, getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
-import { getDbPath, getMemeshDirFromDbPath } from '../../core/paths.js';
+import { getDbPath, getMemeshDirFromDbPath, redactUserPaths } from '../../core/paths.js';
 import { RETIRED_ROUTES } from './retired-routes.js';
 import fs from 'fs';
 import path from 'path';
@@ -221,7 +221,7 @@ app.get('/v1/doctor', async (_req, res) => {
             packageRoot,
             packageVersion,
         });
-        const safe = JSON.parse(redactSecrets(JSON.stringify(result)));
+        const safe = JSON.parse(redactUserPaths(redactSecrets(JSON.stringify(result))));
         res.json({ success: true, data: safe });
     }
     catch (err) {
@@ -570,8 +570,9 @@ app.post('/v1/dream/run', async (req, res) => {
     }
     try {
         const { runDreamer } = await import('../../core/dreamer.js');
-        const cfg = readConfig();
-        if (!cfg.llm) {
+        const caps = detectCapabilities();
+        const llm = caps.llm;
+        if (!llm) {
             res.status(400).json({
                 success: false,
                 errorCode: 'llm.not-configured',
@@ -579,11 +580,11 @@ app.post('/v1/dream/run', async (req, res) => {
             });
             return;
         }
-        const result = await runDreamer(getDatabase(), cfg.llm, {
+        const result = await runDreamer(getDatabase(), llm, {
             project: parsed.data.project,
             windowDays: parsed.data.windowDays,
             maxLlmCalls: parsed.data.maxLlmCalls,
-            fallbacks: cfg.llmFallbacks,
+            fallbacks: caps.llmFallbacks,
             validateBeforeStage: parsed.data.validate,
         });
         res.json({ success: true, data: result });
@@ -711,6 +712,10 @@ export function startServer(host = HOST, port = PORT, opts) {
     if (!allowRemote && isRemote) {
         throw new Error(`Refusing to bind MeMesh HTTP server to non-loopback host "${host}" without explicit remote access opt-in. Use --allow-remote or MEMESH_HTTP_ALLOW_REMOTE=true.`);
     }
+    if (allowRemote && !isRemote) {
+        process.stderr.write(`MeMesh HTTP: --allow-remote has no effect on loopback host "${host}" — the server stays local ` +
+            'and no bearer token is generated. Add --host <address> to bind somewhere reachable.\n');
+    }
     if (isRemote) {
         const { token, freshlyCreated } = loadOrCreateRemoteToken();
         remoteToken = token;
@@ -792,7 +797,14 @@ export function __setRemoteTokenForTest(value) {
 }
 const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'));
 if (isMain || process.argv[1]?.endsWith('memesh-http')) {
-    const server = startServer();
+    let server;
+    try {
+        server = startServer();
+    }
+    catch (err) {
+        console.error(`MeMesh: ${err instanceof Error ? err.message : String(err)}`);
+        process.exit(1);
+    }
     function shutdown() {
         server.close();
         try {

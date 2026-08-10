@@ -104,7 +104,8 @@ function detectFromEnv() {
 }
 export function detectCapabilities(config) {
     const cfg = config ?? readConfig();
-    const llm = cfg.llm ?? detectFromEnv() ?? null;
+    const configuredLlm = cfg.llm?.provider ? cfg.llm : null;
+    const llm = configuredLlm ?? detectFromEnv() ?? null;
     const embeddings = detectEmbeddingSource(cfg.llm ?? null, cfg.embedder);
     return {
         fts5: true,

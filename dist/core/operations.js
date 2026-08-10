@@ -36,7 +36,7 @@ export function remember(args) {
         namespace: args.namespace,
         trustOverride: args.trustOverride,
     });
-    kg.updateEntityMetadata(args.name, () => buildLocalMetadata(existing?.metadata, {
+    kg.updateEntityMetadata(args.name, (current) => buildLocalMetadata(current, {
         trust: args.trustOverride,
         provenance: args.provenanceOverride,
     }));
@@ -83,6 +83,10 @@ export function remember(args) {
         observations: args.observations?.length ?? 0,
         tags: args.tags?.length ?? 0,
         relations: relationsCreated.length,
+        ...(relationsCreated.length > 0 ? { relationsCreated } : {}),
+        ...(existing && args.namespace !== undefined && (existing.namespace ?? 'personal') !== args.namespace
+            ? { movedFromNamespace: existing.namespace ?? 'personal' }
+            : {}),
         ...(superseded.length > 0 ? { superseded } : {}),
         ...(relationErrors.length > 0 ? { relationErrors } : {}),
     };

@@ -358,6 +358,104 @@ for (const f of userFacing) {
 if (banned.length) fail(`disproven benchmark claim resurfaced in user-facing copy:\n      ${banned.join('\n      ')}`);
 else ok(`${userFacing.length} user-facing surfaces free of the disproven 95.40% claim`);
 
+// --- documented response shapes match the types the code returns -------------
+// This gate counted things — hooks, tools, routes, weights — and checked no
+// SHAPE, so `learn`'s documented response (`stored`, `entityId`,
+// `observations`, `tags`) survived years of the function returning
+// `{learned, name, type}`. A caller writing against the document got
+// `undefined` from every field it named.
+//
+// Source of truth is the `*Result` interface in src/core/types.ts. The
+// comparison is on top-level keys only: types and nesting are the compiler's
+// job, and a key that does not exist is the failure that was actually shipped.
+const typesSrc = read('src/core/types.ts');
+const apiRefSrc = read('docs/api/API_REFERENCE.md');
+
+/** Field names of `export interface <name> { … }`, top level only. */
+function interfaceKeys(name) {
+  const start = typesSrc.indexOf(`export interface ${name} {`);
+  if (start === -1) return null;
+  let depth = 0, i = typesSrc.indexOf('{', start);
+  const open = i;
+  for (; i < typesSrc.length; i++) {
+    if (typesSrc[i] === '{') depth++;
+    else if (typesSrc[i] === '}' && --depth === 0) break;
+  }
+  const body = typesSrc.slice(open + 1, i);
+  const keys = new Set();
+  let nest = 0;
+  for (const line of body.split('\n')) {
+    const bare = line.replace(/\/\/.*$/, '');
+    const m = nest === 0 && /^\s*([A-Za-z_][\w]*)\??\s*:/.exec(bare);
+    if (m) keys.add(m[1]);
+    nest += (bare.match(/{/g) ?? []).length - (bare.match(/}/g) ?? []).length;
+  }
+  return keys;
+}
+
+/** The first ```json block after `### <tool>`'s `**Response**:` heading. */
+function documentedResponseKeys(tool) {
+  const section = apiRefSrc.indexOf(`\n### ${tool}\n`);
+  if (section === -1) return null;
+  const respAt = apiRefSrc.indexOf('**Response**', section);
+  if (respAt === -1) return null;
+  const fence = apiRefSrc.indexOf('```json', respAt);
+  if (fence === -1) return null;
+  const end = apiRefSrc.indexOf('```', fence + 7);
+  const block = apiRefSrc.slice(fence + 7, end);
+  try {
+    const parsed = JSON.parse(block);
+    return new Set(Object.keys(parsed));
+  } catch {
+    return null;
+  }
+}
+
+// Only tools whose handler returns the interface directly. `recall` wraps its
+// payload and `export` is the bundle itself, so neither is a key-for-key match.
+const RESPONSE_SHAPES = [
+  ['remember', 'RememberResult'],
+  ['learn', 'LearnResult'],
+  ['import', 'ImportResult'],
+];
+const shapeProblems = [];
+let shapesChecked = 0;
+for (const [tool, iface] of RESPONSE_SHAPES) {
+  const actual = interfaceKeys(iface);
+  const documented = documentedResponseKeys(tool);
+  if (!actual) { shapeProblems.push(`${iface} is gone from src/core/types.ts — this check is now blind to ${tool}`); continue; }
+  if (!documented) { shapeProblems.push(`API_REFERENCE has no parseable Response block for \`${tool}\``); continue; }
+  shapesChecked++;
+  const invented = [...documented].filter(k => !actual.has(k));
+  if (invented.length) {
+    shapeProblems.push(`\`${tool}\` response documents ${invented.map(k => `"${k}"`).join(', ')}, which ${iface} does not return`);
+  }
+}
+if (shapeProblems.length) fail(`documented response shapes do not match the code:\n      ${shapeProblems.join('\n      ')}`);
+else ok(`${shapesChecked} documented MCP response shapes match their Result types`);
+
+// --- the auth that exists is documented --------------------------------------
+// API_REFERENCE said "MeMesh does not add an auth layer for you" while
+// server.ts generated a bearer token before listening on a non-loopback bind
+// and rejected every unauthenticated /v1 request. A reader following the
+// document would have built their own layer on top of one they were told was
+// absent — or, worse, believed the server was open and treated it as such.
+const serverSrc = read('src/transports/http/server.ts');
+const hasBearerAuth = /Authorization/.test(serverSrc) && /remote-token/.test(serverSrc);
+if (!hasBearerAuth) {
+  fail('server.ts no longer looks like it does bearer auth — re-check what API_REFERENCE promises about authentication');
+} else {
+  const missing = [
+    ['the Bearer header', /Authorization: Bearer/],
+    ['the token file path', /remote-token/],
+    ['the env override', /MEMESH_REMOTE_TOKEN/],
+  ].filter(([, re]) => !re.test(apiRefSrc)).map(([what]) => what);
+  const denies = /does not add an auth layer/i.test(apiRefSrc);
+  if (denies) fail('API_REFERENCE still says MeMesh adds no auth layer; server.ts requires a bearer token on remote binds');
+  else if (missing.length) fail(`API_REFERENCE documents remote binds without ${missing.join(', ')}`);
+  else ok('remote-bind bearer auth is documented where it is implemented');
+}
+
 // --- report ------------------------------------------------------------------
 console.log('Doc claims audit:');
 for (const n of notes) console.log('  ' + n);

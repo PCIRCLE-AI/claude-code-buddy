@@ -50,7 +50,7 @@ export const TOOL_DEFINITIONS = [
                 namespace: {
                     type: 'string',
                     enum: ['personal', 'team', 'global'],
-                    description: 'Namespace for organizing the entity (default: "personal")',
+                    description: 'Namespace for organizing the entity. Omit it to leave an existing memory where it is — supplying it MOVES a memory that already exists, and it drops out of every other scoped view. New memories default to "personal".',
                 },
             },
             required: ['name', 'type'],

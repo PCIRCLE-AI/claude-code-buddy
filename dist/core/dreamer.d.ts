@@ -20,6 +20,8 @@ export interface DreamerResult {
         clusterKey?: string;
     }>;
     durationMs: number;
+    clusteringMode?: 'semantic' | 'calendar';
+    clusteringNote?: string;
 }
 interface ProposedDigest {
     name: string;
@@ -53,6 +55,7 @@ export interface ApplyResult {
     digestEntityName: string;
     sourcesArchived: number;
     sourcesLinked: number;
+    sourcesAlreadyCompacted?: number;
     kind: 'digest' | 'pattern_emergent';
 }
 export declare function applyProposal(db: MemeshDatabase, proposalId: number, kg: {

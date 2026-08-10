@@ -233,6 +233,83 @@ describe('importMemories', () => {
     expect(found[0]?.observations).toEqual(['ORIGINAL']);
   });
 
+  describe('namespace: whose choice moves an existing entity', () => {
+    /** A bundle that claims one entity, in `personal`. */
+    function bundleFor(name: string) {
+      return {
+        version: '3.0.0', exported_at: '2026-08-10T00:00:00.000Z', entity_count: 1,
+        entities: [{ name, type: 'note', namespace: 'personal', observations: ['from bundle'], tags: [], relations: [] }],
+      } as Parameters<typeof importMemories>[0]['data'];
+    }
+
+    it('the caller\'s override forces an entity that already exists', () => {
+      // Documented as "force all imported entities into this namespace", and
+      // it did not: `createEntity` applied a namespace on creation only, so
+      // the override was accepted, ignored, and reported as success.
+      remember({ name: 'held', type: 'note', observations: ['mine'], namespace: 'personal' });
+      importMemories({ data: bundleFor('held'), merge_strategy: 'append', namespace: 'team' });
+      expect(exportMemories({ namespace: 'team' }).entities.map(e => e.name)).toContain('held');
+    });
+
+    it('the bundle\'s own namespace does not relocate an entity you already have', () => {
+      // The other direction, and the reason the override is not applied
+      // blindly: a bundle should not be able to move a memory out of the
+      // scope you keep it in just by mentioning it.
+      remember({ name: 'kept', type: 'note', observations: ['mine'], namespace: 'team' });
+      importMemories({ data: bundleFor('kept'), merge_strategy: 'append' });
+      expect(exportMemories({ namespace: 'team' }).entities.map(e => e.name)).toContain('kept');
+      expect(exportMemories({ namespace: 'personal' }).entities.map(e => e.name)).not.toContain('kept');
+    });
+
+    it('records where a bulk-moved entity came from', () => {
+      // Import is the path where losing the breadcrumb hurts most: it moves
+      // entities in bulk, so nobody can remember where each one was. The
+      // record was being wiped — `updateEntityMetadata(name, () => built)`
+      // rebuilt the whole column from a snapshot taken before `createEntity`,
+      // discarding what `createEntity` had just written.
+      remember({ name: 'bulk-moved', type: 'note', observations: ['mine'], namespace: 'team' });
+      importMemories({ data: bundleFor('bulk-moved'), merge_strategy: 'append', namespace: 'personal' });
+
+      const moved = recall({ query: 'bulk-moved' })[0];
+      const meta = moved.metadata as Record<string, unknown>;
+      expect(meta.previous_namespace, 'the import wiped the record of where it came from').toBe('team');
+      // …and the import's own provenance is still there, so this is a merge
+      // rather than one clobber traded for another.
+      expect((meta.provenance as Record<string, unknown>).source).toBe('import');
+      expect(meta.trust).toBe('untrusted');
+    });
+
+    it('refuses a per-entity namespace outside the three, without losing the rest', () => {
+      // The caller's override became an enum; the namespace a bundle carries
+      // per entity did not. Over MCP a bundle is content an agent may have
+      // been handed, and an unrecognised scope is invisible to every scoped
+      // recall and to `export --namespace` while still squatting the name
+      // database-wide. Reported per entity, so one bad row does not cost the
+      // whole bundle.
+      const bundle = {
+        version: '3.0.0', exported_at: '2026-08-10T00:00:00.000Z', entity_count: 2,
+        entities: [
+          { name: 'good', type: 'note', namespace: 'personal', observations: ['ok'], tags: [], relations: [] },
+          { name: 'smuggled', type: 'note', namespace: 'attacker-scope', observations: ['bad'], tags: [], relations: [] },
+        ],
+      } as Parameters<typeof importMemories>[0]['data'];
+
+      const result = importMemories({ data: bundle, merge_strategy: 'skip' });
+
+      expect(result.imported, 'the good entry was lost along with the bad one').toBe(1);
+      expect(result.errors.join(' ')).toContain('entities[1].namespace');
+      expect(result.errors.join(' ')).toContain('attacker-scope');
+      // The database is the check: nothing landed in the invented scope.
+      expect(recall({ query: 'smuggled' })).toEqual([]);
+      expect(recall({ query: 'good' })[0]?.namespace).toBe('personal');
+    });
+
+    it('the bundle\'s namespace still places entities the import creates', () => {
+      importMemories({ data: bundleFor('brand-new'), merge_strategy: 'skip' });
+      expect(exportMemories({ namespace: 'personal' }).entities.map(e => e.name)).toContain('brand-new');
+    });
+  });
+
   it('round-trips export then import', () => {
     remember({ name: 'round-trip', type: 'pattern', observations: ['fact 1', 'fact 2'], tags: ['t:a'] });
 

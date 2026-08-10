@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getProjectName } from './paths.js';
+import { AUTO_CAPTURE_TAG } from './types.js';
 
 // =============================================================================
 // Extractor Interface (pluggable — rule-based now, LLM-based later)
@@ -172,7 +173,7 @@ export class RuleBasedExtractor implements Extractor {
     const memories: ExtractedMemory[] = [];
     const projectName = getProjectName(context.cwd);
     const sessionTag = `session:${context.sessionId}`;
-    const baseTags = ['source:auto-capture', sessionTag, `project:${projectName}`];
+    const baseTags = [AUTO_CAPTURE_TAG, sessionTag, `project:${projectName}`];
 
     // Skip sessions that were interrupted or non-agentic
     if (context.stopReason === 'user_interrupt') return memories;

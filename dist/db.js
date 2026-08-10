@@ -409,7 +409,7 @@ function runAutoTelemetryPrune(db) {
     db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(TELEMETRY_PRUNE_MARKER, new Date().toISOString());
 }
 function backfillSignalScores(db) {
-    const MARKER = 'signal_score_backfill_v1';
+    const MARKER = 'signal_score_backfill_v2';
     const done = db.prepare("SELECT value FROM memesh_metadata WHERE key = ?").get(MARKER);
     if (done)
         return;
@@ -426,10 +426,20 @@ function backfillSignalScores(db) {
         let skipped = 0;
         for (const row of rows) {
             let metadata;
-            try {
-                metadata = row.metadata ? JSON.parse(row.metadata) : {};
+            if (row.metadata) {
+                try {
+                    metadata = JSON.parse(row.metadata);
+                }
+                catch {
+                    skipped++;
+                    continue;
+                }
+                if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
+                    skipped++;
+                    continue;
+                }
             }
-            catch {
+            else {
                 metadata = {};
             }
             if (typeof metadata.signal_score === 'number') {

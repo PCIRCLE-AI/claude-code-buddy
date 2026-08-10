@@ -27,7 +27,7 @@ If `remember` is called again with an existing `name`, MeMesh treats it as an ap
 | `observations` | string[] | No | Key facts or observations about this entity |
 | `tags` | string[] | No | Tags for filtering (e.g., `"project:myapp"`, `"type:decision"`) |
 | `relations` | object[] | No | Relations to other entities |
-| `namespace` | string | No | Namespace scope: `"personal"` (default), `"team"`, or `"global"` |
+| `namespace` | string | No | Namespace scope: `"personal"` (default), `"team"`, or `"global"`. On an entity that already exists, supplying this **moves** it; omitting it leaves the namespace it already has. |
 
 **Relations object**:
 
@@ -57,7 +57,7 @@ If `remember` is called again with an existing `name`, MeMesh treats it as an ap
 }
 ```
 
-If a relation target does not exist, the entity is still stored and `relationErrors` is included in the response.
+Three fields are conditional. `relationsCreated` lists the relations actually created — report from it rather than subtracting errors from what you asked for. `relationErrors` is included when a relation target does not exist; the entity is still stored. `movedFromNamespace` appears only when the call MOVED a memory that already existed, naming the scope it came from, and pairs with `metadata.previous_namespace` so the move can be reversed.
 
 **Supersedes behavior:** When a relation has type `"supersedes"`, the target entity is automatically archived. This enables knowledge evolution — new designs replace old ones without losing history.
 
@@ -268,7 +268,7 @@ Imported entities are marked with import provenance and treated as untrusted for
 |-----------|------|----------|-------------|
 | `data` | object | Yes | The JSON bundle produced by `export` |
 | `merge_strategy` | string | Yes | Merge strategy for conflicts: `"skip"`, `"overwrite"`, or `"append"` |
-| `namespace` | string | No | Force all imported entities into this namespace, ignoring namespace stored in the bundle |
+| `namespace` | string | No | Force all imported entities into this namespace, ignoring the namespace stored in the bundle. This **moves** entities that already exist, in bulk, out of the scope they are in — `metadata.previous_namespace` records where each came from. Must be `personal`, `team` or `global`; anything else is refused outright. |
 
 **Merge Strategies**:
 
@@ -322,13 +322,13 @@ Record a structured lesson from a mistake or discovery. Creates a `lesson_learne
 
 ```json
 {
+  "learned": true,
   "name": "lesson-myproject-null-reference",
-  "stored": true,
-  "entityId": 42,
-  "observations": 4,
-  "tags": 4
+  "type": "lesson_learned"
 }
 ```
+
+`name` is generated from the project and the error text. To see what was stored — the observations and the `severity:` / `error-pattern:` tags — recall the entity by that name.
 
 **Examples**:
 
@@ -536,7 +536,20 @@ Common errors:
 
 Start: `memesh serve` (default: `localhost:3737`)
 
-Safety note: non-loopback binds are blocked by default. To expose the HTTP server beyond the local machine, you must pass `memesh serve --host 0.0.0.0 --allow-remote` or set `MEMESH_HTTP_ALLOW_REMOTE=true`. MeMesh does not add an auth layer for you.
+Safety note: non-loopback binds are blocked by default. To expose the HTTP server beyond the local machine, you must pass `memesh serve --host 0.0.0.0 --allow-remote` or set `MEMESH_HTTP_ALLOW_REMOTE=true`.
+
+**Authentication on a remote bind.** A non-loopback bind requires a bearer token on every `/v1` request — MeMesh generates one before it starts listening, so there is no unauthenticated window:
+
+| | |
+|---|---|
+| Header | `Authorization: Bearer <token>` |
+| Token file | `~/.memesh/remote-token`, mode 600, printed at startup |
+| Override | `MEMESH_REMOTE_TOKEN` |
+| Rotate | Delete the token file and restart |
+
+The requirement is keyed to the **bind address**, not to the flag. `--allow-remote` on the default loopback host generates no token and requires no auth — the server is reachable only from this machine, and it says so at startup. Loopback requests are never challenged, even while a remote listener is running: the check is per-listener.
+
+This is transport authentication only. It does not authorise individual callers or separate their data — everyone holding the token sees the whole graph.
 
 ### Request body limits
 
@@ -545,10 +558,11 @@ All `POST /v1/*` endpoints enforce a **1 MB request body limit**. Requests large
 ```json
 {
   "success": false,
+  "errorCode": "payload.too-large",
   "error": "Request body exceeds the 1MB limit",
   "code": "PAYLOAD_TOO_LARGE",
   "limit": "1mb",
-  "hint": "Split large exports/imports into smaller batches, or compress and stream them via the CLI (`memesh export` / `memesh import`) which has no per-request size cap."
+  "hint": "Split large exports/imports into smaller batches, or stream them via the CLI (`memesh export` / `memesh import`) which reads/writes files directly and is not subject to the per-request 1MB cap."
 }
 ```
 
@@ -901,6 +915,27 @@ curl -s http://localhost:3737/v1/health
 ---
 
 ## CLI Commands
+
+### memesh remember — stating a relation
+
+The two relation types that change behaviour have their own flags, because
+they are the two worth typing:
+
+| Flag | What it does |
+|------|--------------|
+| `--supersedes <name...>` | Archives the named entity immediately. Recoverable — nothing is deleted — and reported as `archived as superseded: <name>`. |
+| `--contradicts <name...>` | Both memories surface as a conflict every time either is recalled (see [recall → Conflict detection](#recall)). |
+
+```bash
+memesh remember --name auth-v2 --type decision --obs "Sessions, not JWT" --supersedes auth-v1
+memesh remember --name no-jwt --type decision --obs "JWT is out" --contradicts use-jwt
+memesh recall jwt        # → Warning: Conflicts detected: "no-jwt" contradicts "use-jwt"
+```
+
+A relation whose target does not exist is reported on stderr and exits `1`:
+the consequence you asked for did not happen, so the command does not claim it
+did. Free-form relation labels are MCP/HTTP only — as a tag with extra steps,
+they have no CLI flag.
 
 ### memesh verify
 
@@ -1301,7 +1336,7 @@ An observation may itself contain newlines, so the line → memory map is comput
 | Command | Parameters | Against the knowledge graph |
 |---------|-----------|------------------------------|
 | `view` | `path`, `view_range?` | Root → namespaces. Namespace → its active entities. File → observations with line numbers. |
-| `create` | `path`, `file_text` | Creates the entity, or **overwrites** its observations (tags are preserved). |
+| `create` | `path`, `file_text` | Creates the entity, or **overwrites** its observations (tags are preserved). Refuses when the name is already taken in another namespace. |
 | `str_replace` | `path`, `old_str`, `new_str?` | Content-addressed edit. Omitting `new_str` deletes the text. |
 | `insert` | `path`, `insert_line`, `insert_text` | New observation after the memory owning that line. `0` prepends. |
 | `delete` | `path` | **Archives** the entity — never destroys it. |
@@ -1323,6 +1358,7 @@ Two behaviours worth stating because they differ from a filesystem:
 | Writing to `/memories` or a namespace | Those are directories. |
 | Deleting or renaming `/memories` or a namespace | The contract tells Claude it cannot; this enforces it. |
 | A rename onto a name taken in **any** namespace | Entity names are unique database-wide, so checking only the destination namespace would fail later on a UNIQUE constraint instead of returning the specified message. |
+| A create onto a name taken in **another** namespace | Same uniqueness. Writing anyway appended to a memory at a different address than the one named — and, since an explicit namespace now moves an existing entity, would instead relocate it into this one. |
 
 ---
 
@@ -1390,7 +1426,9 @@ Trigger a dream pass via HTTP. Same logic as `memesh dream run`; runs `runDreame
 | `maxLlmCalls` | number | 5 | Hard cap on LLM calls (1–20) |
 | `validate` | boolean | false | Run the digest validator as a second LLM pass before staging |
 
-**Response:** `DreamerResult` shape — `{ proposalsCreated, clustersScanned, llmCalls, skipped: Array<{reason, project, clusterKey}>, durationMs }`.
+**Response:** `DreamerResult` shape — `{ proposalsCreated, clustersScanned, llmCalls, skipped: Array<{reason, project, clusterKey}>, durationMs, clusteringMode?, clusteringNote? }`.
+
+`clusteringMode` is `"semantic"` when entries were grouped by embedding distance and `"calendar"` when the graph has no vectors and they fell back to ISO-week buckets — which can put unrelated work in one digest, so a client that surfaces digests should surface this too. `clusteringNote` is one sentence saying why, or naming candidates that had no embedding and were left out.
 
 ### POST /v1/dream/proposals/:id/accept
 
