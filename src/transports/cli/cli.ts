@@ -3,6 +3,7 @@
 import { Command } from 'commander';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexRebuild } from '../../db.js';
@@ -44,6 +45,43 @@ function requireOneOf(value: string | undefined, allowed: readonly string[], fla
 }
 
 const NAMESPACES = ['personal', 'team', 'global'] as const;
+
+/**
+ * Replace the user's home directory with `~` everywhere in a string.
+ *
+ * `memesh feedback` composes a GitHub issue body out of `doctor` output, and
+ * doctor names paths — the database, the config file, where `memesh` resolves
+ * on PATH. On a normal install every one of those starts with the home
+ * directory, so the body carried the account name (`/Users/ktseng/...`) into a
+ * **public** issue tracker, twice, in a block long enough that nobody reads it
+ * before hitting Submit. The paths are still useful with the home part cut off:
+ * `~/.memesh/knowledge-graph.db` says everything `/Users/<name>/.memesh/...`
+ * said.
+ *
+ * Case-insensitive on Windows and macOS because both have case-insensitive
+ * filesystems, so the same directory can be spelled either way.
+ */
+function redactHome(text: string): string {
+  const home = os.homedir();
+  if (!home) return text;
+
+  // Both spellings. On macOS `/var` is a symlink to `/private/var`, so a HOME
+  // under a temp directory reaches doctor's output resolved while `homedir()`
+  // returns it unresolved — redacting only one form leaves the other in the
+  // body, which is the failure this function exists to prevent.
+  const forms = new Set([home]);
+  try { forms.add(fs.realpathSync(home)); } catch { /* home may not exist yet */ }
+
+  const flags = process.platform === 'linux' ? 'g' : 'gi';
+  let out = text;
+  // Longest first: /private/var/... must not be half-replaced by /var/... .
+  for (const form of [...forms].sort((a, b) => b.length - a.length)) {
+    const escaped = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Both separators: a Windows path can reach the body either way.
+    out = out.replace(new RegExp(escaped.replace(/\\\\|\//g, '[\\\\/]'), flags), '~');
+  }
+  return out;
+}
 
 const packageJsonPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -1576,11 +1614,28 @@ program
       }
     }
 
+    // The issue tracker is public. Nothing that names the account goes into it.
+    body = redactHome(body);
+
     const url = `https://github.com/PCIRCLE-AI/memesh-llm-memory/issues/new?title=${encodeURIComponent(`[${typeLabel}] `)}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
 
     if (opts.open === false) {
       console.log(url);
       return;
+    }
+
+    // Show what is about to be published, in the terminal, before the browser
+    // opens. The browser does render the same text, but at the bottom of a
+    // GitHub form the user opened in order to type — the diagnostics block
+    // scrolls past and gets submitted unread. This is a public issue tracker:
+    // the last chance to see the payload belongs in the place the user is
+    // already looking.
+    console.log('This will be pre-filled into a PUBLIC GitHub issue:');
+    console.log('---');
+    console.log(body);
+    console.log('---');
+    if (opts.diagnostics !== false) {
+      console.log('Re-run with --no-diagnostics to leave out the install ID and the doctor report.');
     }
 
     // Cross-platform open. macOS `open`, Linux `xdg-open`, Windows `start`.

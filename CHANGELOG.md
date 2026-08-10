@@ -135,6 +135,18 @@ All notable changes to MeMesh are documented here.
   next `memesh reindex` rebuilds them; that is a paid call on a cloud embedding
   provider, so nothing re-embeds on its own.
 
+- **`memesh feedback` no longer puts your account name in a public issue.** The
+  issue body is composed from `doctor` output, and doctor names paths — the
+  database, the config file, where `memesh` resolves on `PATH`. On a normal
+  install every one of those starts with the home directory, so a measured run
+  carried `/Users/<name>/…` into the pre-filled GitHub issue twice, inside a
+  diagnostics block long enough that nobody reads it before submitting. Home
+  directories are now written as `~`, which keeps every path just as useful for
+  triage. And the body is printed in the terminal before the browser opens:
+  GitHub does render it, but below the fold of a form the user opened in order
+  to type. `--no-diagnostics` still drops the install ID and the report
+  entirely.
+
 ## [4.5.0] — 2026-08-05
 
 ### Added
