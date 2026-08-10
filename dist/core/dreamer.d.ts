@@ -20,6 +20,8 @@ export interface DreamerResult {
         clusterKey?: string;
     }>;
     durationMs: number;
+    clusteringMode?: 'semantic' | 'calendar';
+    clusteringNote?: string;
 }
 interface ProposedDigest {
     name: string;

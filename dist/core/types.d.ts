@@ -3,6 +3,7 @@ export declare const BEHAVIOURAL_RELATION_TYPES: {
     readonly contradicts: "flags both memories as a conflict every time either is recalled — use it when two memories cannot both be true";
 };
 export type BehaviouralRelationType = keyof typeof BEHAVIOURAL_RELATION_TYPES;
+export declare const AUTO_CAPTURE_TAG = "source:auto-capture";
 export type Namespace = 'personal' | 'team' | 'global';
 export type MergeStrategy = 'skip' | 'overwrite' | 'append';
 export type LessonSeverity = 'critical' | 'major' | 'minor';

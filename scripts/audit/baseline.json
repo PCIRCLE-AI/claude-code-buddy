@@ -116,26 +116,6 @@
       "reason": "|| true inside an exact-match retry loop — absence retries then fails, never passes",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/config.ts:369": {
-      "class": "SAFE-GUARDED",
-      "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
-      "triaged": "2026-08-04 (re-keyed 353->359->369: the transcriptMining field + isTranscriptMiningEnabled additions shifted the line down 10; same llmFallbacks ?? [] code verified before re-keying)"
-    },
-    "C5 src/core/dreamer.ts:670": {
-      "class": "SAFE-GUARDED",
-      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05"
-    },
-    "C5 src/core/dreamer.ts:673": {
-      "class": "SAFE-GUARDED",
-      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05"
-    },
-    "C5 src/core/extractor.ts:118": {
-      "class": "SAFE-GUARDED",
-      "reason": "next line rejects the absent case",
-      "triaged": "2026-08-04"
-    },
     "C5 src/core/install-hooks.ts:261": {
       "class": "SAFE-GUARDED",
       "reason": "readSettings throws on unparseable input; absent hooks truthfully means none wired",
@@ -376,26 +356,6 @@
       "reason": "metadata spread identity; trust is set unconditionally after",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
     },
-    "C5 src/knowledge-graph.ts:585": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
-    },
-    "C5 src/knowledge-graph.ts:584": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
-    },
-    "C5 src/knowledge-graph.ts:583": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
-    },
-    "C5 src/knowledge-graph.ts:366": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
-    },
     "C5 src/knowledge-graph.ts:306": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "write-time signal-score inputs; empty means the caller passed no observations/tags, which is the correct identity for scoring",
@@ -406,22 +366,7 @@
       "reason": "write-time signal-score inputs; empty means the caller passed no observations/tags, which is the correct identity for scoring",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
     },
-    "C5 src/core/doctor.ts:1384": {
-      "class": "SAFE-GUARDED",
-      "reason": "verifySkillsManifest: entries ?? [] is followed by entries.length === 0 -> fail (skills-manifest.empty); the ?? cannot convert absence into a pass",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
-    },
-    "C5 src/core/doctor.ts:465": {
-      "class": "SAFE-GUARDED",
-      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
-    },
     "C5 src/core/doctor.ts:420": {
-      "class": "SAFE-GUARDED",
-      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
-    },
-    "C5 src/core/doctor.ts:419": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
@@ -445,6 +390,106 @@
       "class": "DEPENDENCY-PIN",
       "reason": "asserts the hook does not require sqlite-vec — an extension it never used, whose load took the whole Stop capture down on platforms without the prebuilt binary. The behaviour cannot be tested without hiding a package from node_modules, which is global state in a serial suite; what regressed is the dependency returning, and that is what this matches. Comments are stripped first so the explanatory block is not what it reads.",
       "triaged": "2026-08-10"
+    },
+    "C5 src/core/config.ts:376": {
+      "class": "SAFE-GUARDED",
+      "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
+      "triaged": "2026-08-04 (re-keyed 353->359->369: the transcriptMining field + isTranscriptMiningEnabled additions shifted the line down 10; same llmFallbacks ?? [] code verified before re-keying); re-keyed 2026-08-10 (the AUTO_CAPTURE_TAG-driven detectCapabilities guard shifted it +7; same statement, classification unchanged)"
+    },
+    "C5 src/core/doctor.ts:421": {
+      "class": "SAFE-GUARDED",
+      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +2; same statement, classification unchanged)"
+    },
+    "C5 src/core/doctor.ts:466": {
+      "class": "SAFE-GUARDED",
+      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +1; same statement, classification unchanged)"
+    },
+    "C5 src/core/doctor.ts:1390": {
+      "class": "SAFE-GUARDED",
+      "reason": "verifySkillsManifest: entries ?? [] is followed by entries.length === 0 -> fail (skills-manifest.empty); the ?? cannot convert absence into a pass",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +6; same statement, classification unchanged)"
+    },
+    "C5 src/core/dreamer.ts:900": {
+      "class": "SAFE-GUARDED",
+      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (semantic clustering added ~230 lines above it; same statement, classification unchanged)"
+    },
+    "C5 src/core/dreamer.ts:903": {
+      "class": "SAFE-GUARDED",
+      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (semantic clustering added ~230 lines above it; same statement, classification unchanged)"
+    },
+    "C5 src/core/extractor.ts:119": {
+      "class": "SAFE-GUARDED",
+      "reason": "next line rejects the absent case",
+      "triaged": "2026-08-04; re-keyed 2026-08-10 (the AUTO_CAPTURE_TAG import shifted it +1; same statement, classification unchanged)"
+    },
+    "C5 src/knowledge-graph.ts:379": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the explicit-namespace update shifted it +13; same statement, classification unchanged)"
+    },
+    "C5 src/knowledge-graph.ts:596": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the explicit-namespace update shifted it +13; same statement, classification unchanged)"
+    },
+    "C5 src/knowledge-graph.ts:597": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the explicit-namespace update shifted it +13; same statement, classification unchanged)"
+    },
+    "C5 src/knowledge-graph.ts:598": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the explicit-namespace update shifted it +13; same statement, classification unchanged)"
+    },
+    "C1 tests/cli/doctor-honest-pass.test.ts": {
+      "class": "SAFE",
+      "reason": "the zeros are exit codes and a \"warn, not pass\" status, each paired in the same test with a positive assertion (the entity exists, the opposite verdict fires)",
+      "triaged": "2026-08-10 (P7 batch 2)"
+    },
+    "C1 tests/cli/feedback-privacy.test.ts": {
+      "class": "SAFE",
+      "reason": "the zeros are exit codes; every absence assertion is paired with the presence half (the path is still there, as ~/...)",
+      "triaged": "2026-08-10 (P7 batch 2)"
+    },
+    "C1 tests/cli/remember-relations.test.ts": {
+      "class": "SAFE",
+      "reason": "the zeros are exit codes; the no-conflict case is the deliberate control for the conflict case in the same file",
+      "triaged": "2026-08-10 (P7 batch 2)"
+    },
+    "C1 tests/cli/serve-and-import-errors.test.ts": {
+      "class": "SAFE",
+      "reason": "the zeros are exit codes, and the refusal cases are paired with an import that must still succeed",
+      "triaged": "2026-08-10 (P7 batch 2)"
+    },
+    "C1 tests/core/dreamer-semantic-clustering.test.ts": {
+      "class": "SAFE",
+      "reason": "llmCalls toBe(0) is the assertion under test (the cluster was skipped before the network) and is backed by a second assertion that no LLM attempt appears among the skip reasons",
+      "triaged": "2026-08-10 (P7 batch 2)"
+    },
+    "C5 src/transports/cli/cli.ts:175": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "commander leaves --supersedes undefined when the flag is absent; the empty list truthfully means no relation was requested, and nothing downstream reports one as created",
+      "triaged": "2026-08-10 (P7 batch 2)"
+    },
+    "C5 src/transports/cli/cli.ts:176": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "commander leaves --contradicts undefined when the flag is absent; the empty list truthfully means no relation was requested",
+      "triaged": "2026-08-10 (P7 batch 2)"
+    },
+    "C5 src/transports/cli/cli.ts:203": {
+      "class": "SAFE-GUARDED",
+      "reason": "remember() sets relationErrors only when non-empty (operations.ts spreads it conditionally), so absent means none at the single producer; the failure path exits 1 off the same field",
+      "triaged": "2026-08-10 (P7 batch 2)"
+    },
+    "C6 tests/relation-types-documented.test.ts": {
+      "class": "WIRING-PIN",
+      "reason": "reads cli.ts to assert each behavioural relation type has a flag whose help carries the consequence — the flags' behaviour is tested against a real database in tests/cli/remember-relations.test.ts",
+      "triaged": "2026-08-10 (P7 batch 2)"
     }
   }
 }

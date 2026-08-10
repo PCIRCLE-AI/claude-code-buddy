@@ -116,7 +116,8 @@ async function callSingle(prompt, config, maxTokens) {
         }
         return text;
     }
-    return '';
+    throw new Error(`No LLM provider configured (llm.provider is ${config.provider === undefined ? 'unset' : `"${String(config.provider)}"`}). ` +
+        'Set one with `memesh config set llm.provider <anthropic|openai|ollama>`.');
 }
 async function readJsonOrThrow(res, provider) {
     try {

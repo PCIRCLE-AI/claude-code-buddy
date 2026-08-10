@@ -38,8 +38,8 @@
     },
     {
       "path": "scripts/hooks/post-commit.js",
-      "sha256": "60b41d919fd096c17929eb2571eb42d2280ddee89e7c4053820ed4df5e440e3d",
-      "bytes": 6930
+      "sha256": "e1611aa7e7392f8636e146c4abe2a6c09a927f2b6ff5b17191d0d40f3334bef1",
+      "bytes": 7339
     },
     {
       "path": "scripts/hooks/pre-bash-orchestration-nudge.js",

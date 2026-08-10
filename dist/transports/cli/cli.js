@@ -2,6 +2,7 @@
 import { Command } from 'commander';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexRebuild } from '../../db.js';
@@ -27,6 +28,23 @@ function requireOneOf(value, allowed, flag) {
     process.exit(1);
 }
 const NAMESPACES = ['personal', 'team', 'global'];
+function redactHome(text) {
+    const home = os.homedir();
+    if (!home)
+        return text;
+    const forms = new Set([home]);
+    try {
+        forms.add(fs.realpathSync(home));
+    }
+    catch { }
+    const flags = process.platform === 'linux' ? 'g' : 'gi';
+    let out = text;
+    for (const form of [...forms].sort((a, b) => b.length - a.length)) {
+        const escaped = form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        out = out.replace(new RegExp(escaped.replace(/\\\\|\//g, '[\\\\/]'), flags), '~');
+    }
+    return out;
+}
 const packageJsonPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../package.json');
 const packageRoot = path.dirname(packageJsonPath);
 const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
@@ -46,6 +64,8 @@ program
     .option('--obs <observations...>', 'Observations (space-separated)')
     .option('--tags <tags...>', 'Tags (space-separated)')
     .option('--namespace <namespace>', 'Namespace: personal, team, or global (default: personal)')
+    .option('--supersedes <name...>', 'This memory replaces the named one — ARCHIVES it immediately (recoverable; nothing is deleted)')
+    .option('--contradicts <name...>', 'This memory cannot both be true with the named one — both surface as a conflict on every recall')
     .option('--json', 'Output as JSON')
     .action(async (text, opts) => {
     requireOneOf(opts.namespace, NAMESPACES, '--namespace');
@@ -76,6 +96,10 @@ program
             '  memesh remember "Use OAuth 2.0 with PKCE"');
         process.exit(1);
     }
+    const relations = [
+        ...(opts.supersedes ?? []).map(to => ({ to, type: 'supersedes' })),
+        ...(opts.contradicts ?? []).map(to => ({ to, type: 'contradicts' })),
+    ];
     await withDatabase(async () => {
         const result = remember({
             name: opts.name,
@@ -83,13 +107,25 @@ program
             observations: opts.obs,
             tags: opts.tags,
             namespace: opts.namespace,
+            relations: relations.length > 0 ? relations : undefined,
         });
         if (opts.json) {
             console.log(JSON.stringify(result));
         }
         else {
             console.log(`✅ Stored "${result.name}" (${result.observations} observations, ${result.tags} tags)`);
+            if (result.superseded?.length) {
+                console.log(`   archived as superseded: ${result.superseded.join(', ')}`);
+            }
+            const stated = relations.length - (result.relationErrors?.length ?? 0);
+            if (stated > 0 && relations.some(r => r.type === 'contradicts')) {
+                console.log(`   conflicts stated: ${relations.filter(r => r.type === 'contradicts').map(r => r.to).join(', ')}`);
+            }
+            for (const err of result.relationErrors ?? [])
+                console.error(`   ⚠️  ${err}`);
         }
+        if (result.relationErrors?.length)
+            process.exitCode = 1;
         await flushPendingEmbeddings();
     });
 });
@@ -305,11 +341,18 @@ program
             console.error(`       Try: memesh export > my-export.json && memesh import my-export.json`);
             process.exit(1);
         }
-        const result = importMemories({
-            data: data,
-            namespace: opts.namespace,
-            merge_strategy: opts.merge,
-        });
+        let result;
+        try {
+            result = importMemories({
+                data: data,
+                namespace: opts.namespace,
+                merge_strategy: opts.merge,
+            });
+        }
+        catch (err) {
+            console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+            process.exit(1);
+        }
         console.log(`Imported: ${result.imported}, Skipped: ${result.skipped}, Appended: ${result.appended}`);
         if (result.errors.length > 0) {
             console.error(`Errors:\n  ${result.errors.join('\n  ')}`);
@@ -549,6 +592,10 @@ configCmd
     writeConfig(config);
     const displayValue = canonical.toLowerCase().includes('key') ? maskApiKey(String(value)) : String(value);
     console.log(`✅ Set ${canonical} = ${displayValue}`);
+    if (canonical === 'llm.apiKey' && !config.llm?.provider) {
+        console.log('⚠️  No llm.provider is set, so this key is not used yet and LLM features stay off.');
+        console.log('    Set one with: memesh config set llm.provider <anthropic|openai|ollama>');
+    }
 });
 configCmd
     .command('unset')
@@ -617,10 +664,16 @@ program
     .description('Start the HTTP API server and web dashboard')
     .option('--port <port>', 'Port number', '3737')
     .option('--host <host>', 'Host to bind', '127.0.0.1')
-    .option('--allow-remote', 'Allow binding to non-loopback hosts. A bearer token is generated and REQUIRED for every /v1 request — the startup output shows where it lives and how to rotate it.')
+    .option('--allow-remote', 'Permit binding to a non-loopback host. Pair it with --host; on a non-loopback bind a bearer token is generated and REQUIRED for every /v1 request, and the startup output says where it lives. On the default loopback host this flag changes nothing.')
     .action(async (opts) => {
     const { startServer } = await import('../http/server.js');
-    startServer(opts.host, parseInt(opts.port, 10), { allowRemote: opts.allowRemote, autoUpdateCheck: true });
+    try {
+        startServer(opts.host, parseInt(opts.port, 10), { allowRemote: opts.allowRemote, autoUpdateCheck: true });
+    }
+    catch (err) {
+        console.error(`MeMesh: ${err instanceof Error ? err.message : String(err)}`);
+        process.exit(1);
+    }
 });
 program
     .command('update')
@@ -1042,6 +1095,11 @@ dreamCmd
         });
         console.log(`${opts.dryRun ? '[dry-run] ' : ''}Dream pass complete in ${result.durationMs}ms`);
         console.log(`  clusters scanned: ${result.clustersScanned}`);
+        if (result.clusteringMode) {
+            console.log(`  grouped by:       ${result.clusteringMode === 'semantic' ? 'meaning (embeddings)' : 'calendar week (no embeddings)'}`);
+        }
+        if (result.clusteringNote)
+            console.log(`    note: ${result.clusteringNote}`);
         console.log(`  LLM calls:        ${result.llmCalls}`);
         console.log(`  proposals created: ${result.proposalsCreated}`);
         if (result.skipped.length > 0) {
@@ -1320,10 +1378,18 @@ program
             body += `\n\n---\n**System Info**\n- Version: \`${pkg.version}\`\n- Node: \`${process.version}\`\n- Platform: \`${process.platform} ${process.arch}\`\n_Diagnostics unavailable: doctor probe failed._`;
         }
     }
+    body = redactHome(body);
     const url = `https://github.com/PCIRCLE-AI/memesh-llm-memory/issues/new?title=${encodeURIComponent(`[${typeLabel}] `)}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
     if (opts.open === false) {
         console.log(url);
         return;
+    }
+    console.log('This will be pre-filled into a PUBLIC GitHub issue:');
+    console.log('---');
+    console.log(body);
+    console.log('---');
+    if (opts.diagnostics !== false) {
+        console.log('Re-run with --no-diagnostics to leave out the install ID and the doctor report.');
     }
     const { spawn } = await import('child_process');
     const cmd = process.platform === 'darwin' ? 'open'
@@ -1476,7 +1542,7 @@ program
     console.log(`MeMesh v${pkg.version}`);
     console.log(`Search level: ${caps.searchLevel} (${caps.searchLevel === 1 ? 'Smart Mode' : 'Core'})`);
     console.log(`Embeddings: ${caps.embeddings}`);
-    console.log(`LLM: ${caps.llm ? `${caps.llm.provider} (${caps.llm.model})` : 'not configured'}`);
+    console.log(`LLM: ${caps.llm ? `${caps.llm.provider} (${caps.llm.model ?? 'default'})` : 'not configured'}`);
     console.log(`Install method: ${installSupport.label}`);
     for (const line of formatUpdateCheckStatus(update)) {
         console.log(`\n${line}`);

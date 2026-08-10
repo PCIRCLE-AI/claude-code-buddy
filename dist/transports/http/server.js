@@ -711,6 +711,10 @@ export function startServer(host = HOST, port = PORT, opts) {
     if (!allowRemote && isRemote) {
         throw new Error(`Refusing to bind MeMesh HTTP server to non-loopback host "${host}" without explicit remote access opt-in. Use --allow-remote or MEMESH_HTTP_ALLOW_REMOTE=true.`);
     }
+    if (allowRemote && !isRemote) {
+        process.stderr.write(`MeMesh HTTP: --allow-remote has no effect on loopback host "${host}" — the server stays local ` +
+            'and no bearer token is generated. Add --host <address> to bind somewhere reachable.\n');
+    }
     if (isRemote) {
         const { token, freshlyCreated } = loadOrCreateRemoteToken();
         remoteToken = token;
@@ -792,7 +796,14 @@ export function __setRemoteTokenForTest(value) {
 }
 const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'));
 if (isMain || process.argv[1]?.endsWith('memesh-http')) {
-    const server = startServer();
+    let server;
+    try {
+        server = startServer();
+    }
+    catch (err) {
+        console.error(`MeMesh: ${err instanceof Error ? err.message : String(err)}`);
+        process.exit(1);
+    }
     function shutdown() {
         server.close();
         try {

@@ -89,6 +89,11 @@ export class KnowledgeGraph {
             .prepare('SELECT id, status FROM entities WHERE name = ?')
             .get(name);
         const entityId = row.id;
+        if (!isNewEntity && opts?.namespace !== undefined) {
+            this.db
+                .prepare('UPDATE entities SET namespace = ? WHERE id = ?')
+                .run(opts.namespace, entityId);
+        }
         const wasArchived = !isNewEntity && row.status === 'archived';
         if (wasArchived) {
             this.db

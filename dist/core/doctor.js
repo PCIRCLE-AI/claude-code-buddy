@@ -14,6 +14,7 @@ import { getDbPath, memeshDir, getProjectName } from './paths.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
 import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
 import { MemeshDatabase } from '../storage/sqlite.js';
+import { AUTO_CAPTURE_TAG } from './types.js';
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 const LOCALE_README_FILES = [
@@ -215,14 +216,11 @@ function inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncI
         createCheck('hook-scripts', 'Hook scripts', 'pass', `All ${scriptPaths.length} hook scripts are present${platform === 'win32' ? '' : ' and executable'}.`),
     ];
 }
-function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, packageRoot) {
+function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, installChannel) {
     const markerPath = path.join(memeshDir, 'install-hooks.json');
     if (!existsSyncImpl(markerPath)) {
-        if (packageRoot) {
-            const pluginManifest = path.join(packageRoot, '.claude-plugin', 'plugin.json');
-            if (existsSyncImpl(pluginManifest)) {
-                return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'pass', 'Wired via Claude Code plugin runtime (.claude-plugin/plugin.json present). The install-hooks marker is not used on this install path.');
-            }
+        if (installChannel === 'plugin-marketplace') {
+            return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'pass', 'Wired via the Claude Code plugin runtime (this is a plugin-marketplace install). The install-hooks marker is not used on this install path.');
         }
         return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'warn', 'memesh is not connected to Claude Code yet, so nothing gets remembered automatically from your sessions.', 'Run `memesh install-hooks` once to connect it, then `memesh doctor` to confirm.', { code: 'hook-wiring.no-marker' });
     }
@@ -272,9 +270,10 @@ function inspectHookActivity(openDatabaseImpl, closeDatabaseImpl, existsSyncImpl
     let db = null;
     try {
         db = openDatabaseImpl();
-        const row = db.prepare(`SELECT COUNT(*) as c FROM entities
-       WHERE type IN ('session-insight', 'session-summary', 'commit', 'lesson_learned')
-         AND created_at > datetime('now', '-24 hours')`).get();
+        const row = db.prepare(`SELECT COUNT(DISTINCT e.id) as c FROM entities e
+       JOIN tags t ON t.entity_id = e.id
+       WHERE t.tag = ?
+         AND e.created_at > datetime('now', '-24 hours')`).get(AUTO_CAPTURE_TAG);
         const count = row?.c ?? 0;
         if (count === 0) {
             const markerPath = path.join(memeshDir(), 'install-hooks.json');
@@ -737,7 +736,7 @@ export async function runDoctor(options) {
     checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl));
     checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
     checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
-    checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), packageRoot));
+    checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install));
     checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl));
     checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
     checks.push(inspectNodeRuntime(packageRoot, existsSyncImpl, readFileSyncImpl));
