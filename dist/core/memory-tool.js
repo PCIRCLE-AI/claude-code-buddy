@@ -204,6 +204,10 @@ function createEntityFile(namespace, name, fileText, path) {
         rewriteObservations(kg, existing, observations);
         return ok(`File created successfully at: ${path}`);
     }
+    if (kg.getEntity(name)) {
+        return err(`Error: ${path} cannot be created because that memory name already exists in another namespace. ` +
+            `Memory names are unique across namespaces.`);
+    }
     kg.createEntity(name, 'note', { observations, namespace });
     return ok(`File created successfully at: ${path}`);
 }

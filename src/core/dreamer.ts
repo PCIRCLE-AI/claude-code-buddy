@@ -75,6 +75,24 @@ const COMPACT_MAX_SIGNAL = 0.7;
  * to 65 entities spanning two weeks, which is the "everything in one bucket"
  * behaviour this replaces. The number belongs to this embedder; re-measure
  * before changing embedders.
+ *
+ * WHAT THE CLUSTERS ACTUALLY LOOK LIKE, because a distance table is not the
+ * claim. The two clusters this produced on that graph were read:
+ *
+ *   - 29 commits that are plainly ONE work-stream — the goal-plane delivery:
+ *     its tables, its tenant-isolation tests, its service, its REST surface,
+ *     its RLS gate. A digest of these is a digest of a thing that happened.
+ *   - 33 commits that are NOT one subject — `fix(secrets)`, `fix(approvals)`,
+ *     `fix(ci)`, a dropped index, a prettier run. What they share is being
+ *     the same KIND of commit from the same days.
+ *
+ * So this separates work-streams when a work-stream has its own vocabulary,
+ * and otherwise degrades toward "same kind of entry, same period" — better
+ * than a calendar week (those two clusters fall in ONE ISO week and were
+ * previously a single bucket), and short of topic detection. The second kind
+ * is not a correctness problem: the LLM's contract is ADD-or-NOOP and a
+ * cluster with no narrative is what NOOP is for. It costs a call, not a
+ * digest.
  */
 const COMPACT_MAX_CLUSTER_DISTANCE = 0.55;
 

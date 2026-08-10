@@ -4,6 +4,19 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **`memesh remember --contradicts <name>` and `--supersedes <name>`.** Both
+  relation types that change behaviour were statable through MCP and HTTP and
+  from neither the terminal nor anywhere else the CLI could reach. That made
+  conflict detection structurally dead for a CLI-only user: `findConflicts()`
+  runs on every recall, nothing creates a `contradicts` relation
+  automatically, and no command could create one — so "no conflicts" was not a
+  finding, it was the only possible answer. A relation whose target does not
+  exist is reported and exits 1, because the consequence you asked for did not
+  happen. `tests/relation-types-documented.test.ts` now fails if either type
+  loses its flag or its help text stops explaining the consequence.
+
 ### Changed
 
 - **The supported Node floor is now `>=22.13.0`** (was `>=22.5.0`). `node:sqlite`
@@ -39,6 +52,58 @@ All notable changes to MeMesh are documented here.
 
   Your database is untouched: same file, same schema, same SQLite. No
   migration, no re-embedding, nothing to do.
+
+- **The dreamer groups entries by similarity, not by which calendar week they
+  landed in.** A week is not a topic. Two unrelated pieces of work done on the
+  same Tuesday went into one digest, and one piece of work spanning a Friday
+  and the following Monday was split in half by a bucket boundary running
+  through the middle of it. Clusters are now formed from the stored embeddings
+  — nearest-first around a running centroid, with the project still a hard
+  partition, since two projects are never one narrative whatever the vectors
+  say.
+
+  **What that buys, stated no higher than it was measured.** The two clusters
+  this produced on the reference graph were read, not assumed. One is 29
+  commits that are plainly a single work-stream — a feature's tables, its
+  isolation tests, its service, its REST surface, its CI gate. The other is 33
+  commits that share a *kind* rather than a subject: assorted `fix(...)` work
+  across unrelated modules from the same days. So this separates work-streams
+  when a work-stream has its own vocabulary, and otherwise degrades toward
+  "same kind of entry, same period". That is still strictly better than the
+  week — both of those clusters fall inside ONE ISO week and used to be a
+  single bucket — and it is short of topic detection. It is also not a
+  correctness risk: the model's contract is ADD-or-NOOP, and a cluster with no
+  narrative is what NOOP is for. It costs a call, not a digest.
+
+  The cut-off is `0.55` in `entities_vec` L2 distance, **measured** on a real
+  graph (681 entities, 114 compactable candidates with vectors,
+  `nomic-embed-text` at 768 dims) rather than picked. Against pairs from
+  different projects — which cannot be one narrative, so they measure false
+  merges directly — the rate holds at 0.17–0.32% up to 0.55 and then
+  multiplies: 0.78% at 0.60, 2.17% at 0.65, 5.70% at 0.70, where the largest
+  cluster swelled to 65 entities across two weeks. The full table is on the
+  constant. It belongs to that embedder; changing embedders means measuring
+  again.
+
+  **A graph with no embeddings still works, and now says so.** The default
+  configuration is keyword-only and stores no vectors, so clustering falls back
+  to the calendar week — the previous behaviour — and `memesh dream run` prints
+  which of the two it used and why, along with a count of any candidates that
+  had no vector and were left out. A quiet fallback would have been the
+  familiar shape: no error signal, read as success.
+
+  Three consequences worth knowing. `cluster_key` is now a label — the dates
+  the cluster spans plus a short digest of its membership — and no longer the
+  grouping rule; a pending proposal is matched by the entries it covers, so a
+  changed label cannot cause the same cluster to be proposed twice. The prompt
+  no longer tells the model the entries share a week, which was an invitation
+  to invent the connection. And membership is no longer stable as the graph
+  grows: a week bucket never changed once its week ended, whereas one new entry
+  can shift a centroid and move a member. Identical membership is still
+  de-duplicated exactly; an *overlapping* cluster is not, so a pending proposal
+  can end up beside a later one covering most of the same entries. Both are
+  staged, neither touches a source entity, and `memesh dream review` shows the
+  source ids — but it is a real difference from the old behaviour.
 
 ### Fixed
 
@@ -230,54 +295,6 @@ All notable changes to MeMesh are documented here.
   checked no response *shape* and no prose claim — now fails when a documented
   response names a field its `*Result` type does not have, and when the
   document denies authentication the server performs.
-
-### Added
-
-- **`memesh remember --contradicts <name>` and `--supersedes <name>`.** Both
-  relation types that change behaviour were statable through MCP and HTTP and
-  from neither the terminal nor anywhere else the CLI could reach. That made
-  conflict detection structurally dead for a CLI-only user: `findConflicts()`
-  runs on every recall, nothing creates a `contradicts` relation
-  automatically, and no command could create one — so "no conflicts" was not a
-  finding, it was the only possible answer. A relation whose target does not
-  exist is reported and exits 1, because the consequence you asked for did not
-  happen. `tests/relation-types-documented.test.ts` now fails if either type
-  loses its flag or its help text stops explaining the consequence.
-
-### Changed (dreamer)
-
-- **The dreamer groups entries by what they are about, not by which calendar
-  week they landed in.** A week is not a topic. Two unrelated pieces of work
-  done on the same Tuesday went into one digest, and one piece of work spanning
-  a Friday and the following Monday was split in half by a bucket boundary
-  running through the middle of it. Clusters are now formed from the stored
-  embeddings — nearest-first around a running centroid, with the project still
-  a hard partition, since two projects are never one narrative whatever the
-  vectors say.
-
-  The cut-off is `0.55` in `entities_vec` L2 distance, **measured** on a real
-  graph (681 entities, 114 compactable candidates with vectors,
-  `nomic-embed-text` at 768 dims) rather than picked. Against pairs from
-  different projects — which cannot be one narrative, so they measure false
-  merges directly — the rate holds at 0.17–0.32% up to 0.55 and then
-  multiplies: 0.78% at 0.60, 2.17% at 0.65, 5.70% at 0.70, where the largest
-  cluster swelled to 65 entities across two weeks. The full table is on the
-  constant. It belongs to that embedder; changing embedders means measuring
-  again.
-
-  **A graph with no embeddings still works, and now says so.** The default
-  configuration is keyword-only and stores no vectors, so clustering falls back
-  to the calendar week — the previous behaviour — and `memesh dream run` prints
-  which of the two it used and why, along with a count of any candidates that
-  had no vector and were left out. A quiet fallback would have been the
-  familiar shape: no error signal, read as success.
-
-  Two consequences worth knowing. `cluster_key` is now a label — the dates the
-  cluster spans plus a short digest of its membership — and no longer the
-  grouping rule; a pending proposal is matched by the entries it covers, so a
-  changed label cannot cause the same cluster to be proposed twice. And the
-  prompt no longer tells the model the entries share a week, which was an
-  invitation to invent the connection.
 
 ## [4.5.0] — 2026-08-05
 
