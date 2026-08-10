@@ -56,6 +56,74 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     return { stderr: res.stderr || '' };
   }
 
+  /** A transcript with enough tool calls to clear the low-signal guard. */
+  function writeQualifyingTranscript(): void {
+    writeTranscript([
+      { type: 'user', message: { role: 'user', content: 'fix the parser' } },
+      ...['parser.ts', 'lexer.ts', 'ast.ts', 'tokens.ts'].map((f) => ({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/repo/src/' + f } }] },
+      })),
+    ]);
+  }
+
+  it('Scenario: the hook does not load sqlite-vec — it has never used it', () => {
+    // Not a style rule. This hook runs two statements, neither of them a
+    // vector query, and `captureEntity` touches no vectors either — but it
+    // used to load sqlite-vec anyway, "for embedding-aware recall-effectiveness
+    // tracking" that does not exist. sqlite-vec ships its engine as a
+    // per-platform file, so on a platform it does not publish that load threw
+    // and took the ENTIRE Stop capture with it. Measured: 0 entities against a
+    // control run's 1, plus a `Require stack:` dump on stderr.
+    //
+    // A behavioural test would have to hide a package from node_modules, which
+    // is global state in a serial suite. This asserts the thing that actually
+    // regressed: the dependency coming back.
+    // Comments stripped first: the invariant is about CODE. The block above
+    // this test's subject explains the removal and names the very calls being
+    // banned, and a naive match on the raw file flags that prose.
+    const code = fs.readFileSync(path.resolve('scripts/hooks/session-summary.js'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+    expect(code, 'session-summary reached for sqlite-vec again').not.toMatch(/require\(['"`]sqlite-vec/);
+    expect(code).not.toMatch(/sqliteVec\.load/);
+    expect(code).not.toMatch(/enableLoadExtension/);
+    // Anti-vacuity: the stripper must not have eaten the whole file.
+    expect(code).toContain('openHookDb');
+  });
+
+  it('Scenario: no cwd in the payload -> nothing captured, and the reason is traced', () => {
+    // `cwd` decides the project tag, and the project tag decides which sessions
+    // session-start injects and which memories pre-edit-recall surfaces. The
+    // old fallback to `process.cwd()` — the hook process's launch directory,
+    // unspecified for a Stop hook — filed the session under whatever happened
+    // to be current. Measured: a payload with no cwd tagged the whole session
+    // `project:memesh-llm-memory`, leaking one project's files, commands and
+    // errors into another project's context.
+    writeQualifyingTranscript();
+    const { stderr } = runHookCapturingStderr({
+      session_id: 'no-cwd-session',
+      transcript_path: transcriptPath,
+    });
+    expect(stderr).toContain('cwd absent');
+    expect(fs.existsSync(dbPath), 'a session was filed under a guessed project').toBe(false);
+  });
+
+  it('Scenario: a payload WITH cwd still captures (the guard is not a blanket refusal)', () => {
+    writeQualifyingTranscript();
+    runHook({ session_id: 'with-cwd-session', transcript_path: transcriptPath, cwd: '/tmp/realproject' });
+    expect(fs.existsSync(dbPath)).toBe(true);
+    const db = new Database(dbPath, { readOnly: true });
+    try {
+      const names = (db.prepare('SELECT name FROM entities').all() as Array<{ name: string }>).map((r) => r.name);
+      expect(names.length).toBeGreaterThanOrEqual(1);
+      const tags = (db.prepare("SELECT DISTINCT tag FROM tags WHERE tag LIKE 'project:%'").all() as Array<{ tag: string }>).map((r) => r.tag);
+      expect(tags).toContain('project:realproject');
+    } finally {
+      db.close();
+    }
+  });
+
   it('Scenario: an unreadable transcript traces to stderr instead of silently emptying capture', () => {
     // A directory at the transcript path makes readFileSync throw EISDIR
     // (not ENOENT) — stands in for a permission/IO fault on a real file.

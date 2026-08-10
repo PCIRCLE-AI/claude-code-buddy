@@ -164,7 +164,16 @@ export const TOOL_DEFINITIONS = [
         merge_strategy: {
           type: 'string',
           enum: ['skip', 'overwrite', 'append'],
-          description: 'How to handle existing entities: skip (default) = leave untouched, append = add observations, overwrite = archive existing and recreate',
+          // "archive existing and recreate" was a lie the agent could not
+          // check. `clearEntityData` runs `DELETE FROM observations` and
+          // `DELETE FROM tags` — nothing is archived and nothing is
+          // recoverable, unlike `forget`, which really does soft-archive and
+          // is what an agent reading "archive" would expect. And
+          // `merge_strategy` is in `required` two lines below, so "(default)"
+          // sent callers to omit a field the schema rejects.
+          // API_REFERENCE.md has said the truth all along; this string is what
+          // the agent actually reads.
+          description: 'Required. How to handle an entity that already exists: skip = leave it untouched, append = add these observations to it, overwrite = REPLACE its observations and tags (the old ones are deleted, not archived — this cannot be undone)',
         },
       },
       required: ['data', 'merge_strategy'],

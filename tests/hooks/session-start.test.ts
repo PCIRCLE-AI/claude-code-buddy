@@ -112,6 +112,48 @@ describe('Feature: Session Start Hook', () => {
   // appearing in a transcript they were never shown in, permanently sinking
   // them in `impactScore`. These tests assert the payload the model actually
   // receives, so a regression to a counts-only banner fails CI.
+  describe('Scenario: the HOME cannot be written', () => {
+    it('says memories will NOT be saved, instead of "ready"', () => {
+      // The banner is a promise. On a directory the process cannot write,
+      // every capture hook then fails with EACCES, silently, for the whole
+      // session — while this line showed green. Measured: HOME at mode 555
+      // printed "MeMesh ready" and session-summary on the same HOME failed
+      // with `EACCES: permission denied, mkdir`.
+      //
+      // The condition is created with a FILE standing where a parent
+      // directory has to go, not with `chmod 555`. Windows ignores a mode on
+      // a directory — `mkdir` under it succeeds, the banner comes back green
+      // and the assertion below fails on a guard that is working perfectly.
+      // That is what turned both Windows legs of this PR red. A file in the
+      // path makes `mkdir` fail (EEXIST/ENOTDIR) on every platform, which is
+      // the same catch branch the EACCES case takes.
+      const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-ro-'));
+      const blocker = path.join(parent, 'nested');
+      fs.writeFileSync(blocker, 'not a directory');
+      const roDb = path.join(blocker, '.memesh', 'kg.db');
+      // The fixture has to actually block, or this test passes for a reason
+      // nobody chose. Assert the precondition before assuming it.
+      expect(() => fs.mkdirSync(path.dirname(roDb), { recursive: true }),
+        'the fixture did not make the directory unwritable').toThrow();
+      try {
+        const out = runHook({ cwd: '/tmp/whatever' }, { MEMESH_DB_PATH: roDb });
+        const msg = String(out.systemMessage ?? '');
+        expect(msg, 'a green banner on a HOME nothing can write to').not.toContain('memories will be created');
+        expect(msg).toContain('NOT be saved');
+        expect(msg).toContain('memesh doctor');
+      } finally {
+        fs.rmSync(parent, { recursive: true, force: true });
+      }
+    });
+
+    it('a writable fresh HOME still gets the ready banner', () => {
+      // The guard must not become "always warn".
+      const freshDb = path.join(testDir, 'fresh', '.memesh', 'kg.db');
+      const out = runHook({ cwd: '/tmp/whatever' }, { MEMESH_DB_PATH: freshDb });
+      expect(String(out.systemMessage ?? '')).toContain('memories will be created');
+    });
+  });
+
   describe('Scenario: recalled memories are injected into the model context', () => {
     function seedProjectMemory() {
       const db = createScoringDb();

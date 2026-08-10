@@ -196,11 +196,6 @@
       "reason": "empty tokens yield null match expression and hasSearchableTerms false",
       "triaged": "2026-08-04"
     },
-    "C5 src/transports/mcp/handlers.ts:281": {
-      "class": "SAFE-GUARDED",
-      "reason": "Zod rejects {} for schemas with required fields",
-      "triaged": "2026-08-04"
-    },
     "C5 dashboard/src/components/AnalyticsTab.tsx:200": {
       "class": "STALE-OR-SAFE",
       "reason": "comment line or Array.isArray-coerced optional extras",
@@ -440,6 +435,16 @@
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
       "triaged": "2026-08-10 (re-keyed: the serve 'error' listener added 9 lines; same safeParse statements, same classification)"
+    },
+    "C5 src/transports/mcp/handlers.ts:290": {
+      "class": "SAFE-GUARDED",
+      "reason": "Zod rejects {} for schemas with required fields",
+      "triaged": "2026-08-10 (re-keyed: the corrected import description added 9 lines; same safeParse statement)"
+    },
+    "C6 tests/hooks/session-summary.test.ts": {
+      "class": "DEPENDENCY-PIN",
+      "reason": "asserts the hook does not require sqlite-vec — an extension it never used, whose load took the whole Stop capture down on platforms without the prebuilt binary. The behaviour cannot be tested without hiding a package from node_modules, which is global state in a serial suite; what regressed is the dependency returning, and that is what this matches. Comments are stripped first so the explanatory block is not what it reads.",
+      "triaged": "2026-08-10"
     }
   }
 }

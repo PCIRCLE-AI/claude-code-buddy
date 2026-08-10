@@ -5,7 +5,7 @@ import { spawn } from 'child_process';
 import { homedir } from 'os';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
-import { existsSync, readFileSync, unlinkSync, rmSync, appendFileSync, chmodSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync, rmSync, appendFileSync, chmodSync, mkdirSync } from 'fs';
 import {
   buildReferenceContext,
   ensurePrivateDir,
@@ -488,6 +488,26 @@ process.stdin.on('end', async () => {
     }
 
     if (!existsSync(dbPath)) {
+      // "memories will be created as you work" is a PROMISE, so check that it
+      // can be kept before making it. On a HOME the process cannot write —
+      // a read-only mount, a directory owned by someone else — every capture
+      // hook then fails with EACCES, silently, for the whole session, while
+      // this line showed a green banner. Measured: with HOME at mode 555 this
+      // printed "MeMesh ready" and `session-summary` on the same HOME failed
+      // with `EACCES: permission denied, mkdir`.
+      //
+      // The probe is the same call the capture hooks make, so it fails in
+      // exactly the cases they would.
+      let writable = true;
+      try {
+        mkdirSync(memeshDir, { recursive: true });
+      } catch {
+        writable = false;
+      }
+      if (!writable) {
+        output(combineWithBanner(`◉ MeMesh cannot write to ${memeshDir} — memories will NOT be saved this session. Run 'memesh doctor'.`));
+        return;
+      }
       // Combine deprecation banner (if any) into the same
       // systemMessage so stdout stays a single JSON document. Outer
       // finally runs runPostBannerUpdateTasks().

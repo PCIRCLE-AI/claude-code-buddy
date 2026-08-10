@@ -4,20 +4,6 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
-### Fixed
-
-- **Transcript mining no longer throws away memories that are not duplicates.**
-  The near-duplicate cut-off was `0.55`, derived from a fixture of twenty
-  hand-written pairs which put the false-positive boundary at `0.668`. Measured
-  against a real knowledge graph instead — 214 entities, including 47
-  transcript-mined memories a human had reviewed and accepted — the real
-  boundary is `0.446`: `0.55` sat *above* it and would have silently dropped 6
-  of those 47, including a pair that is plainly two different facts. Invented
-  examples are further apart than real memories, which are formulaic and cluster
-  tightly. The cut-off is now `0.44`, taken from the measurement, and the
-  calibration script says in its header that a synthetic fixture is not where
-  the shipped number comes from.
-
 ### Changed
 
 - **The supported Node floor is now `>=22.13.0`** (was `>=22.5.0`). `node:sqlite`
@@ -55,6 +41,85 @@ All notable changes to MeMesh are documented here.
   migration, no re-embedding, nothing to do.
 
 ### Fixed
+
+- **A session on a HOME that cannot be written no longer reports itself ready.**
+  `session-start` printed `◉ MeMesh ready · memories will be created as you
+  work` on a directory the process has no permission to create. Every capture
+  hook for the rest of that session then failed with `EACCES: permission
+  denied, mkdir`, silently — the banner was a promise nothing kept. It now
+  makes the same `mkdir` call the capture hooks make, and when that fails it
+  says so and names `memesh doctor`.
+
+- **A Stop capture is no longer lost to an extension the hook never used.**
+  `session-summary` loaded sqlite-vec at startup, and on any platform whose
+  prebuilt binary was missing the load threw and took the **whole** capture
+  with it — the session's files, commands and errors, gone, with a `Require
+  stack:` and two absolute paths on stderr. The hook issues exactly two
+  statements (`PRAGMA table_info(entities)` and one `SELECT`) and neither
+  touches a vector. The load is deleted rather than guarded: an extension
+  nobody calls should not be able to cost a session its memory.
+
+- **A session is no longer filed under whatever directory the hook started in.**
+  With no `cwd` in its payload, `session-summary` fell back to `process.cwd()`
+  — unspecified for a Stop hook — and tagged the session with a project it had
+  nothing to do with. Because that tag gates `session-start` injection and
+  `pre-edit-recall`, one project's file names, commands and error text could
+  surface inside another's context. The hook now refuses and says which keys it
+  did receive, matching what `post-commit` already did.
+
+- **`import --merge <typo>` no longer overwrites.** `serializer.ts` branched on
+  `skip` and `append` and let every other value fall through to the most
+  destructive option — on the least information. A misspelled strategy reported
+  `Imported: 1`, exited 0, and left nothing archived to restore the replaced
+  observation from. Unknown strategies are now refused in the serializer, so
+  every caller is covered rather than only the CLI.
+
+- **The `import` tool no longer tells an agent "archive" when it deletes.** The
+  MCP description of `overwrite` read `archive existing and recreate`;
+  the code runs `DELETE FROM observations` and `DELETE FROM tags`, and nothing
+  is recoverable. `forget` really does soft-archive, so an agent reading
+  "archive" had every reason to expect the same. `API_REFERENCE.md` was correct
+  throughout — the string the agent actually read was not.
+
+- **`post-commit` no longer invents commits that never happened.** The hook
+  wrote a commit entity from any Bash output containing a commit-shaped line;
+  the command that produced it was never consulted. Reading a changelog or
+  tailing a build log was enough, and the fabricated commit then surfaced
+  through `session-start` and `pre-edit-recall` as fact. Two guards now: the
+  command has to be a `git commit`, and the hash has to resolve in that repo.
+
+- **`memesh serve` on a held port no longer prints a URL and exits 0.** The
+  listen callback echoed the *requested* host and port whenever the bind had
+  failed, dashboard link and all. That branch is gone, replaced by a real
+  `'error'` listener that names EADDRINUSE and EACCES.
+
+- **`POST /v1/verify` with a bad `workdir` answers JSON, not a stack trace.** A
+  synchronous throw escaped the promise chain and came back as a 500 `text/html`
+  page carrying the install path.
+
+- **Flags that accepted anything now name what they accept.** `--namespace`
+  exiled memories to a namespace nothing queries; `--severity` wrote an
+  undocumented level into the graph as a tag; `export -o` into a missing
+  directory and `telemetry --window abc` dumped Node stack traces with absolute
+  paths. All validate first and exit 1 — a complaint printed alongside exit 0
+  is invisible to a script.
+
+- **`forget` stops sending you the wrong way.** With no matching observation it
+  reported that the *entity* was missing, pointing at re-creating a memory that
+  was sitting right there; and on a genuinely missing entity it exited 0 while
+  `pin` exited 1 for the same case. Both now exit 1 and name the real problem.
+
+- **Transcript mining no longer throws away memories that are not duplicates.**
+  The near-duplicate cut-off was `0.55`, derived from a fixture of twenty
+  hand-written pairs which put the false-positive boundary at `0.668`. Measured
+  against a real knowledge graph instead — 214 entities, including 47
+  transcript-mined memories a human had reviewed and accepted — the real
+  boundary is `0.446`: `0.55` sat *above* it and would have silently dropped 6
+  of those 47, including a pair that is plainly two different facts. Invented
+  examples are further apart than real memories, which are formulaic and cluster
+  tightly. The cut-off is now `0.44`, taken from the measurement, and the
+  calibration script says in its header that a synthetic fixture is not where
+  the shipped number comes from.
 
 - **`memesh reindex` no longer rebuilds your vectors from different text than
   everything else writes.** `remember`, the dreamer digest and transcript-accept
