@@ -1334,6 +1334,13 @@ dreamCmd
       });
       console.log(`${opts.dryRun ? '[dry-run] ' : ''}Dream pass complete in ${result.durationMs}ms`);
       console.log(`  clusters scanned: ${result.clustersScanned}`);
+      // Grouping by calendar week instead of by meaning changes what gets
+      // proposed, so it is stated rather than left to be inferred from the
+      // digests. Same for candidates that carry no vector.
+      if (result.clusteringMode) {
+        console.log(`  grouped by:       ${result.clusteringMode === 'semantic' ? 'meaning (embeddings)' : 'calendar week (no embeddings)'}`);
+      }
+      if (result.clusteringNote) console.log(`    note: ${result.clusteringNote}`);
       console.log(`  LLM calls:        ${result.llmCalls}`);
       console.log(`  proposals created: ${result.proposalsCreated}`);
       if (result.skipped.length > 0) {

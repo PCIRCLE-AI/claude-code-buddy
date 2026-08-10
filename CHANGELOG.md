@@ -231,6 +231,41 @@ All notable changes to MeMesh are documented here.
   response names a field its `*Result` type does not have, and when the
   document denies authentication the server performs.
 
+### Changed (dreamer)
+
+- **The dreamer groups entries by what they are about, not by which calendar
+  week they landed in.** A week is not a topic. Two unrelated pieces of work
+  done on the same Tuesday went into one digest, and one piece of work spanning
+  a Friday and the following Monday was split in half by a bucket boundary
+  running through the middle of it. Clusters are now formed from the stored
+  embeddings — nearest-first around a running centroid, with the project still
+  a hard partition, since two projects are never one narrative whatever the
+  vectors say.
+
+  The cut-off is `0.55` in `entities_vec` L2 distance, **measured** on a real
+  graph (681 entities, 114 compactable candidates with vectors,
+  `nomic-embed-text` at 768 dims) rather than picked. Against pairs from
+  different projects — which cannot be one narrative, so they measure false
+  merges directly — the rate holds at 0.17–0.32% up to 0.55 and then
+  multiplies: 0.78% at 0.60, 2.17% at 0.65, 5.70% at 0.70, where the largest
+  cluster swelled to 65 entities across two weeks. The full table is on the
+  constant. It belongs to that embedder; changing embedders means measuring
+  again.
+
+  **A graph with no embeddings still works, and now says so.** The default
+  configuration is keyword-only and stores no vectors, so clustering falls back
+  to the calendar week — the previous behaviour — and `memesh dream run` prints
+  which of the two it used and why, along with a count of any candidates that
+  had no vector and were left out. A quiet fallback would have been the
+  familiar shape: no error signal, read as success.
+
+  Two consequences worth knowing. `cluster_key` is now a label — the dates the
+  cluster spans plus a short digest of its membership — and no longer the
+  grouping rule; a pending proposal is matched by the entries it covers, so a
+  changed label cannot cause the same cluster to be proposed twice. And the
+  prompt no longer tells the model the entries share a week, which was an
+  invitation to invent the connection.
+
 ## [4.5.0] — 2026-08-05
 
 ### Added
