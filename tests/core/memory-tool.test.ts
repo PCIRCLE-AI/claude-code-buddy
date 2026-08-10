@@ -347,6 +347,33 @@ describe('Feature: memory_20250818 over the knowledge graph', () => {
       });
       expect(result.isError).toBe(true);
     });
+
+    it('refuses a name that is taken in another namespace, and moves nothing', () => {
+      // Names are unique database-wide, so this path is not a create at all.
+      // Writing anyway once APPENDED to a memory at a different address than
+      // the one asked for; once `createEntity` began honouring an explicit
+      // namespace it would instead MOVE that memory into this one. Both are a
+      // silent wrong write and the second relocates data, which is why the
+      // rename path has refused this since it shipped.
+      const kg = new KnowledgeGraph(getDatabase());
+      kg.createEntity('shared-name', 'note', {
+        observations: ['team copy'],
+        namespace: 'team',
+      });
+
+      const result = handleMemoryCommand({
+        command: 'create', path: file('shared-name'), file_text: 'personal copy',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toMatch(/unique across namespaces/);
+
+      // The database is the check. The memory must still be in `team`, with
+      // its own content — untouched, not merged and not moved.
+      const after = new KnowledgeGraph(getDatabase()).getEntity('shared-name');
+      expect(after?.namespace, 'the memory was relocated into personal').toBe('team');
+      expect(after?.observations).toEqual(['team copy']);
+    });
   });
 
   describe('str_replace', () => {
