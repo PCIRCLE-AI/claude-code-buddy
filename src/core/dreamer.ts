@@ -252,6 +252,14 @@ export async function runDreamer(
 
     const related = relatedPendingProposals(db, cluster);
     if (related.some(r => r.kind === 'identical')) {
+      // An identical proposal already covers this cluster, so no digest is
+      // written — but any NARROWER pending proposal is superseded by that
+      // existing one just as surely as by a new one, and this is the only
+      // place that can say so. Without it an overlapping pair created by a
+      // crash between the write and the retirement could never be healed:
+      // every later run stops here and reports "already exists" while both
+      // rows stay acceptable.
+      if (!opts.dryRun) retired += retireSupersededBy(db, cluster);
       result.skipped.push({ reason: 'pending proposal already exists for this cluster', project: cluster.project, clusterKey: cluster.key });
       continue;
     }
@@ -334,27 +342,33 @@ export async function runDreamer(
     }
 
     if (!opts.dryRun) {
-      writeProposal(db, cluster, digest, llm, validationWarnings);
-      // The replacement exists NOW, so the thing it replaces can go — and only
-      // that thing. Anything the calendar rule staged for entries this cluster
-      // does not cover is left pending.
+      // ONE transaction. The replacement and the retirement of what it
+      // replaces commit together or not at all — otherwise a crash, a SIGINT
+      // or a kill in the window between them leaves the wide proposal written
+      // and the narrow one still pending, which is exactly the overlapping
+      // pair the rest of this function works to prevent.
       //
-      // Semantic mode only. This is a calendar→meaning migration, and in
-      // calendar mode there is nothing to migrate: the proposal just written
-      // carries an ISO-week key over exactly these sources, so it matches its
-      // own retirement query and rejects ITSELF. Measured before this guard:
-      // run 1 created #1 and immediately rejected it, and so did every run
-      // after — a paid LLM call per run producing nothing reviewable.
-      if (detection.mode === 'semantic') retired += retireSupersededBy(db, cluster);
+      // No mode condition here. Retirement matches a STRICT subset, so the row
+      // just written — covering exactly this cluster — can never match its own
+      // query, in any mode. An earlier `semantic` guard was written against
+      // that self-rejection and, once the predicate became strict, did nothing
+      // but disable superseding on the default install: measured, three runs
+      // left three pending proposals and paid an LLM call for each.
+      db.transaction(() => {
+        writeProposal(db, cluster, digest, llm, validationWarnings);
+        retired += retireSupersededBy(db, cluster);
+      })();
     }
     result.proposalsCreated++;
   }
 
   if (retired > 0) {
     result.skipped.push({
-      reason: retired === 1
-        ? 'a pending proposal from the old calendar-week clustering was retired, replaced by a digest written in this run'
-        : `${retired} pending proposals from the old calendar-week clustering were retired, each replaced by a digest written in this run`,
+      // Says what the predicate tested. It matches ANY narrower pending
+      // proposal, not only calendar-era ones — a semantic proposal whose
+      // cluster merely grew is retired by the same path, and calling that a
+      // calendar migration is a report that does not match what happened.
+      reason: `${retired} pending proposal${retired === 1 ? '' : 's'} covered a subset of a cluster proposed in this run and ${retired === 1 ? 'was' : 'were'} superseded — see \`memesh dream list --status rejected\``,
     });
   }
 
@@ -1201,6 +1215,19 @@ export interface ApplyResult {
   digestEntityName: string;
   sourcesArchived: number;
   sourcesLinked: number;
+  /**
+   * Sources this digest did NOT take, because another digest had already
+   * compacted them.
+   *
+   * `metadata.compacted_into` is a single value, so a source can belong to one
+   * digest only. Accepting a second proposal that overlaps a first used to
+   * overwrite it silently, leaving one digest holding the back-pointer while
+   * the other still claimed the source through its `summarizes` edge. The
+   * apply path refuses that now — and says how many it refused, because a
+   * digest that quietly summarises fewer memories than it was proposed for is
+   * exactly the kind of thing this project counts rather than assumes.
+   */
+  sourcesAlreadyCompacted?: number;
   // Aligned with `ProposedDigest.type` and `ProposalSummary.kind` —
   // earlier versions abbreviated 'pattern_emergent' to 'pattern' here,
   // creating a quiet drift between the apply path and the listing /
@@ -1328,6 +1355,10 @@ export function applyProposal(
     `project:${row.project}`,
   ];
 
+  // Filled by the transaction below, then stamped: a digest must claim the
+  // sources it actually took, not the ones it was proposed for.
+  let ownedSourceIds: number[] = sourceIds;
+
   const tx = db.transaction(() => {
     const digestId = kg.createEntity(digest.name, digest.type, {
       observations: digest.observations,
@@ -1396,6 +1427,7 @@ export function applyProposal(
       // traversal can find the sources from the digest hub. Without
       // the edge, accepted digests show as orphans in the graph view.
       const archiveStmt = db.prepare("UPDATE entities SET status = 'archived' WHERE id = ?");
+      const taken: number[] = [];
       for (const sourceId of sourceIds) {
         const sourceRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(sourceId) as { metadata: string | null } | undefined;
         if (!sourceRow) continue;
@@ -1417,12 +1449,37 @@ export function applyProposal(
         updateMetaStmt.run(JSON.stringify(meta), sourceId);
         relStmt.run(digestId, sourceId, 'summarizes');
         archiveStmt.run(sourceId);
+        taken.push(sourceId);
         archived++;
+      }
+      ownedSourceIds = taken;
+      // The digest's metadata was written before the loop, from the PROPOSED
+      // ids. Anything refused above is not this digest's, and leaving it in
+      // `source_ids` publishes a claim the graph contradicts — the dashboard
+      // reads that field straight from `/v1/dream/...`.
+      if (taken.length !== sourceIds.length) {
+        const digestRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(digestId) as { metadata: string | null } | undefined;
+        let digestMeta: Record<string, unknown>;
+        try { digestMeta = digestRow?.metadata ? JSON.parse(digestRow.metadata) as Record<string, unknown> : {}; } catch { digestMeta = {}; }
+        digestMeta.source_ids = taken;
+        digestMeta.sources_refused = sourceIds.filter(id => !taken.includes(id));
+        updateMetaStmt.run(JSON.stringify(digestMeta), digestId);
       }
     }
 
-    db.prepare("UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ?").run(row.id);
-    return { digestId, archived, linked, skippedAlreadyCompacted };
+    // `AND status = 'pending'` — the check that let us in here ran in a SELECT
+    // outside this transaction, so a concurrent `dream run` that superseded
+    // the row, or a second `dream accept`, could land in between and have its
+    // rejection overwritten by 'applied' while the reason column still read
+    // "Superseded by…". `rejectProposal` has carried this predicate since it
+    // shipped; the apply path did not.
+    const applied = db.prepare(
+      "UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'"
+    ).run(row.id);
+    if (applied.changes === 0) {
+      throw new Error(`proposal #${row.id} stopped being pending while it was being applied — nothing was changed`);
+    }
+    return { digestId, archived, linked, skippedAlreadyCompacted, ownedSourceIds };
   });
 
   const out = tx();
@@ -1431,6 +1488,7 @@ export function applyProposal(
     digestEntityName: digest.name,
     sourcesArchived: out.archived,
     sourcesLinked: out.linked,
+    ...(out.skippedAlreadyCompacted > 0 ? { sourcesAlreadyCompacted: out.skippedAlreadyCompacted } : {}),
     kind: isPattern ? 'pattern_emergent' : 'digest',
   };
 }

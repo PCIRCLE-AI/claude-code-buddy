@@ -64,6 +64,8 @@ export async function runDreamer(db, llm, opts = {}) {
         }
         const related = relatedPendingProposals(db, cluster);
         if (related.some(r => r.kind === 'identical')) {
+            if (!opts.dryRun)
+                retired += retireSupersededBy(db, cluster);
             result.skipped.push({ reason: 'pending proposal already exists for this cluster', project: cluster.project, clusterKey: cluster.key });
             continue;
         }
@@ -125,17 +127,16 @@ export async function runDreamer(db, llm, opts = {}) {
             }
         }
         if (!opts.dryRun) {
-            writeProposal(db, cluster, digest, llm, validationWarnings);
-            if (detection.mode === 'semantic')
+            db.transaction(() => {
+                writeProposal(db, cluster, digest, llm, validationWarnings);
                 retired += retireSupersededBy(db, cluster);
+            })();
         }
         result.proposalsCreated++;
     }
     if (retired > 0) {
         result.skipped.push({
-            reason: retired === 1
-                ? 'a pending proposal from the old calendar-week clustering was retired, replaced by a digest written in this run'
-                : `${retired} pending proposals from the old calendar-week clustering were retired, each replaced by a digest written in this run`,
+            reason: `${retired} pending proposal${retired === 1 ? '' : 's'} covered a subset of a cluster proposed in this run and ${retired === 1 ? 'was' : 'were'} superseded — see \`memesh dream list --status rejected\``,
         });
     }
     result.durationMs = Date.now() - start;
@@ -691,6 +692,7 @@ export function applyProposal(db, proposalId, kg) {
         ...digest.tags.filter((tag) => !tag.startsWith('project:')),
         `project:${row.project}`,
     ];
+    let ownedSourceIds = sourceIds;
     const tx = db.transaction(() => {
         const digestId = kg.createEntity(digest.name, digest.type, {
             observations: digest.observations,
@@ -735,6 +737,7 @@ export function applyProposal(db, proposalId, kg) {
         }
         else {
             const archiveStmt = db.prepare("UPDATE entities SET status = 'archived' WHERE id = ?");
+            const taken = [];
             for (const sourceId of sourceIds) {
                 const sourceRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(sourceId);
                 if (!sourceRow)
@@ -754,11 +757,29 @@ export function applyProposal(db, proposalId, kg) {
                 updateMetaStmt.run(JSON.stringify(meta), sourceId);
                 relStmt.run(digestId, sourceId, 'summarizes');
                 archiveStmt.run(sourceId);
+                taken.push(sourceId);
                 archived++;
             }
+            ownedSourceIds = taken;
+            if (taken.length !== sourceIds.length) {
+                const digestRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(digestId);
+                let digestMeta;
+                try {
+                    digestMeta = digestRow?.metadata ? JSON.parse(digestRow.metadata) : {};
+                }
+                catch {
+                    digestMeta = {};
+                }
+                digestMeta.source_ids = taken;
+                digestMeta.sources_refused = sourceIds.filter(id => !taken.includes(id));
+                updateMetaStmt.run(JSON.stringify(digestMeta), digestId);
+            }
         }
-        db.prepare("UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ?").run(row.id);
-        return { digestId, archived, linked, skippedAlreadyCompacted };
+        const applied = db.prepare("UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'").run(row.id);
+        if (applied.changes === 0) {
+            throw new Error(`proposal #${row.id} stopped being pending while it was being applied — nothing was changed`);
+        }
+        return { digestId, archived, linked, skippedAlreadyCompacted, ownedSourceIds };
     });
     const out = tx();
     return {
@@ -766,6 +787,7 @@ export function applyProposal(db, proposalId, kg) {
         digestEntityName: digest.name,
         sourcesArchived: out.archived,
         sourcesLinked: out.linked,
+        ...(out.skippedAlreadyCompacted > 0 ? { sourcesAlreadyCompacted: out.skippedAlreadyCompacted } : {}),
         kind: isPattern ? 'pattern_emergent' : 'digest',
     };
 }

@@ -146,6 +146,67 @@ describe('dreamer', () => {
     expect(listProposals(db, 'pending')).toEqual([]);
   });
 
+  it('apply: refuses a source another digest already compacted, and says so', async () => {
+    // `metadata.compacted_into` is a single value, so a source belongs to one
+    // digest only. Accepting two overlapping proposals used to overwrite it
+    // silently: one digest held the back-pointer while the other still claimed
+    // the source through its `summarizes` edge, with nothing in the row saying
+    // which was right. Proposing such a pair is refused upstream now, but a
+    // graph can already hold one from before that.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(6);
+    const stage = (name: string, ids: number[]) => {
+      db.prepare(`
+        INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+        VALUES ('memesh', '2026-W19', ?, ?, 'ollama/fake', 'v1')
+      `).run(JSON.stringify(ids), JSON.stringify({
+        name, type: 'digest', observations: ['a consolidated summary of the work'], tags: ['digest'],
+      }));
+      return (db.prepare("SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC").get() as { id: number }).id;
+    };
+    const firstId = stage('digest-first', sourceIds.slice(0, 4));
+    const secondId = stage('digest-second', sourceIds); // overlaps the first
+
+    expect(applyProposal(db, firstId, kg).sourcesArchived).toBe(4);
+
+    const second = applyProposal(db, secondId, kg);
+    expect(second.sourcesArchived, 'the second digest took sources the first owned').toBe(2);
+    expect(second.sourcesAlreadyCompacted, 'the refusal was silent').toBe(4);
+
+    // The digest must claim only what it took — the dashboard reads this field.
+    const digest = db.prepare("SELECT metadata FROM entities WHERE name = 'digest-second'").get() as { metadata: string };
+    const meta = JSON.parse(digest.metadata);
+    expect(meta.source_ids, 'the digest claims sources it never archived').toEqual(sourceIds.slice(4));
+    expect(meta.sources_refused).toEqual(sourceIds.slice(0, 4));
+
+    // And each source still points at exactly one digest.
+    for (const id of sourceIds.slice(0, 4)) {
+      const row = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(id) as { metadata: string };
+      expect(JSON.parse(row.metadata).compacted_into).toBe(
+        (db.prepare("SELECT id FROM entities WHERE name = 'digest-first'").get() as { id: number }).id
+      );
+    }
+  });
+
+  it('apply: refuses a proposal that stopped being pending', async () => {
+    // The pending check runs in a SELECT outside the transaction, so a
+    // concurrent run that supersedes the row could have its rejection
+    // overwritten by 'applied'.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(6);
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES ('memesh', '2026-W19', ?, ?, 'ollama/fake', 'v1')
+    `).run(JSON.stringify(sourceIds), JSON.stringify({
+      name: 'digest-raced', type: 'digest', observations: ['summary'], tags: ['digest'],
+    }));
+    const id = (db.prepare("SELECT id FROM dream_proposals WHERE status='pending'").get() as { id: number }).id;
+
+    expect(applyProposal(db, id, kg).sourcesArchived).toBe(6);
+    // Second apply of the same id: the row is no longer pending.
+    expect(() => applyProposal(db, id, kg)).toThrow(/not found or not pending|stopped being pending/);
+  });
+
   it('apply: writes a digest entity, soft-archives sources, links via metadata.compacted_into', async () => {
     const { applyProposal } = await import('../../src/core/dreamer.js');
     const sourceIds = seedCommits(6);

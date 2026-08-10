@@ -286,8 +286,8 @@ describe('proposals the old calendar rule left behind', () => {
    * after clustering but before the LLM loop (where a cluster can still be
    * dropped for size, the call cap, an error, a NOOP or the validator).
    */
-  function seedTopic(names: string[]): number[] {
-    seed(names.map((name, i) => ({ name, day: daysAgo(3), axis: 3, nudge: 0.05 + i * 0.01 })));
+  function seedTopic(names: string[], opts: { withVectors?: boolean } = {}): number[] {
+    seed(names.map((name, i) => ({ name, day: daysAgo(3), axis: 3, nudge: 0.05 + i * 0.01 })), opts);
     const db = getDatabase();
     return (db.prepare('SELECT id FROM entities WHERE name IN (' + names.map(() => '?').join(',') + ') ORDER BY id')
       .all(...names) as Array<{ id: number }>).map(r => r.id);
@@ -354,25 +354,33 @@ describe('proposals the old calendar rule left behind', () => {
     expect(pending.c, 'an overlapping twin was left pending beside the wider digest').toBe(1);
   });
 
-  it('retires nothing in calendar mode, where it would eat its own output', async () => {
-    // Without vectors the fallback writes ISO-week keys itself, so a
-    // retirement keyed on that shape rejects the proposal THIS run just
-    // wrote. Measured before the guard: run 1 created #1 and rejected it, and
-    // so did every run after — one metered LLM call each, nothing reviewable.
-    seed([
-      { name: 'cal-1', day: daysAgo(3), axis: 0, nudge: 0.05 },
-      { name: 'cal-2', day: daysAgo(3), axis: 0, nudge: 0.08 },
-      { name: 'cal-3', day: daysAgo(3), axis: 0, nudge: 0.11 },
-      { name: 'cal-4', day: daysAgo(3), axis: 0, nudge: 0.14 },
-      { name: 'cal-5', day: daysAgo(3), axis: 0, nudge: 0.17 },
-    ], { withVectors: false });
+  it('supersedes in calendar mode too, without rejecting what it just wrote', async () => {
+    // This case previously asserted that calendar mode retires NOTHING, on the
+    // theory that a retirement keyed on week shape would reject the proposal
+    // the run had just written. That stopped being true the moment the
+    // predicate became a STRICT subset: the new row covers exactly the
+    // cluster, so it can never be strictly smaller than itself, in any mode.
+    //
+    // The guard left over from that theory did real harm. Calendar mode is
+    // where a graph with no embeddings always lands — the default — so
+    // superseded proposals piled up there without bound, one metered LLM call
+    // per run. Measured: three runs, three pending proposals. And the old
+    // version of this test passed either way, because it staged no
+    // pre-existing proposal at all.
+    const ids = seedTopic(['k-1', 'k-2', 'k-3', 'k-4', 'k-5'], { withVectors: false });
+    stageCalendarProposal(ids.slice(0, 3));
 
     const result = await dreamPassWithLlm();
     expect(result.clusteringMode).toBe('calendar');
     expect(result.proposalsCreated).toBe(1);
 
-    const rows = getDatabase().prepare("SELECT status FROM dream_proposals").all() as Array<{ status: string }>;
-    expect(rows.map(r => r.status), 'calendar mode retired the proposal it just wrote').toEqual(['pending']);
+    const rows = getDatabase()
+      .prepare('SELECT cluster_key, status FROM dream_proposals ORDER BY id')
+      .all() as Array<{ cluster_key: string; status: string }>;
+    // The narrower one superseded, the new one left alone — NOT the reverse.
+    expect(rows[0].status, 'the superseded proposal was left to pile up').toBe('rejected');
+    expect(rows[1].status, 'the run rejected the proposal it had just written').toBe('pending');
+    expect(rows).toHaveLength(2);
   });
 });
 
