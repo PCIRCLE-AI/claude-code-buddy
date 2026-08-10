@@ -441,11 +441,21 @@ program
         process.exit(1);
       }
 
-      const result = importMemories({
-        data: data as ExportResult,
-        namespace: opts.namespace,
-        merge_strategy: opts.merge as MergeStrategy,
-      });
+      let result;
+      try {
+        result = importMemories({
+          data: data as ExportResult,
+          namespace: opts.namespace,
+          merge_strategy: opts.merge as MergeStrategy,
+        });
+      } catch (err) {
+        // importMemories refuses a bundle it cannot read, and says why in one
+        // sentence. Uncaught, that sentence arrived on top of a ten-frame Node
+        // dump with the absolute install path — the same treatment the JSON
+        // and ENOENT cases above already get.
+        console.error(`Error: ${err instanceof Error ? err.message : String(err)}`);
+        process.exit(1);
+      }
       console.log(`Imported: ${result.imported}, Skipped: ${result.skipped}, Appended: ${result.appended}`);
       if (result.errors.length > 0) {
         console.error(`Errors:\n  ${result.errors.join('\n  ')}`);
@@ -824,12 +834,25 @@ program
   .description('Start the HTTP API server and web dashboard')
   .option('--port <port>', 'Port number', '3737')
   .option('--host <host>', 'Host to bind', '127.0.0.1')
-  .option('--allow-remote', 'Allow binding to non-loopback hosts. A bearer token is generated and REQUIRED for every /v1 request — the startup output shows where it lives and how to rotate it.')
+  // The token sentence is conditional and used not to say so. Auth is keyed to
+  // the bind ADDRESS, not to this flag: `--allow-remote` on the default
+  // 127.0.0.1 generates no token and requires none, while the help promised
+  // both. Measured: `/v1/entities` answered 200 unauthenticated.
+  .option('--allow-remote', 'Permit binding to a non-loopback host. Pair it with --host; on a non-loopback bind a bearer token is generated and REQUIRED for every /v1 request, and the startup output says where it lives. On the default loopback host this flag changes nothing.')
   .action(async (opts) => {
     const { startServer } = await import('../http/server.js');
-    // autoUpdateCheck: a user-launched serve is online by definition, so it
-    // fills the npm update cache itself instead of nagging the user to.
-    startServer(opts.host, parseInt(opts.port, 10), { allowRemote: opts.allowRemote, autoUpdateCheck: true });
+    try {
+      // autoUpdateCheck: a user-launched serve is online by definition, so it
+      // fills the npm update cache itself instead of nagging the user to.
+      startServer(opts.host, parseInt(opts.port, 10), { allowRemote: opts.allowRemote, autoUpdateCheck: true });
+    } catch (err) {
+      // startServer refuses a non-loopback bind without an opt-in, and the
+      // refusal is a good actionable sentence. Thrown out of an async action
+      // it became an unhandled rejection: the sentence arrived buried in a
+      // Node stack dump with three absolute install paths.
+      console.error(`MeMesh: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
   });
 
 // --- update ---

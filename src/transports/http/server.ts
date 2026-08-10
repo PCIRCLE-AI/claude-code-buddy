@@ -1166,6 +1166,16 @@ export function startServer(
       `Refusing to bind MeMesh HTTP server to non-loopback host "${host}" without explicit remote access opt-in. Use --allow-remote or MEMESH_HTTP_ALLOW_REMOTE=true.`
     );
   }
+  if (allowRemote && !isRemote) {
+    // The opt-in is about the ADDRESS, and on a loopback bind it changes
+    // nothing: no token, no auth, reachable only from this machine. Someone
+    // who typed it meant to expose the server, so say plainly that it did not
+    // happen rather than letting them assume it did.
+    process.stderr.write(
+      `MeMesh HTTP: --allow-remote has no effect on loopback host "${host}" — the server stays local ` +
+      'and no bearer token is generated. Add --host <address> to bind somewhere reachable.\n'
+    );
+  }
   if (isRemote) {
     // F3: non-loopback bind requires bearer-token auth on every request.
     // We load (or generate-and-persist) the token before app.listen so a
@@ -1301,7 +1311,15 @@ export function __setRemoteTokenForTest(value: Buffer | null): void {
 // If run directly (not imported)
 const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'));
 if (isMain || process.argv[1]?.endsWith('memesh-http')) {
-  const server = startServer();
+  let server: ReturnType<typeof startServer>;
+  try {
+    server = startServer();
+  } catch (err) {
+    // Same treatment as the CLI `serve` path: the refusal message is
+    // actionable on its own and does not need a stack trace wrapped round it.
+    console.error(`MeMesh: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
 
   function shutdown() {
     server.close();

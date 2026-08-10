@@ -180,6 +180,32 @@ All notable changes to MeMesh are documented here.
   that nothing will use the key yet. `status` also prints `(default)` rather
   than `(undefined)` for a provider left on its built-in model.
 
+- **`memesh serve --allow-remote` no longer promises a token it does not
+  create.** Authentication is keyed to the bind *address*, not to the flag: on
+  the default loopback host the flag changes nothing — no token file, no
+  bearer requirement, `/v1/entities` answers 200 unauthenticated — while
+  `--help` said unconditionally that a token is generated and required for
+  every request. The help now states the condition, and a `--allow-remote` that
+  had no effect says so at startup, because someone who typed it meant to
+  expose the server.
+
+- **Refusing a remote bind is no longer a crash.** `memesh serve --host
+  0.0.0.0` without the opt-in produces exactly the right sentence — what was
+  refused, and the two ways to allow it — and used to throw it out of an async
+  action, so it arrived beneath a ten-frame Node dump carrying three absolute
+  install paths. Both entry points (`memesh serve` and `memesh-http`) now print
+  the sentence and exit 1.
+
+- **A malformed import bundle is described in its own terms.** An entry with no
+  `type` reported `Provided value cannot be bound to SQLite parameter 2` — the
+  storage layer's argument numbering, for someone holding a JSON file. Worse, a
+  bundle whose `entities` was a string got iterated **character by character**,
+  so `"oops"` became four entities named `undefined`. The importer now names
+  the entry and the field (`entities[0] has no usable "type"`), refuses a
+  bundle with no `entities` array outright, and still imports the good entries
+  of a partly-broken one. The check lives in the serializer, so the CLI, MCP
+  and HTTP paths all get it.
+
 ## [4.5.0] — 2026-08-05
 
 ### Added

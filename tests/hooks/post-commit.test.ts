@@ -270,8 +270,16 @@ describe('Feature: Post-Commit Hook', () => {
     const db = openDb();
     const entities = db.prepare('SELECT * FROM entities WHERE name = ?').all(`commit-${c.hash}`) as Row[];
     expect(entities).toHaveLength(1);
-    const tags = db.prepare('SELECT * FROM tags WHERE entity_id = ?').all(entities[0].id) as Row[];
-    expect(tags).toHaveLength(1);
+    // Two tags — `project:<name>` and the `source:auto-capture` provenance
+    // marker every capture hook writes — and each exactly once. The point of
+    // the assertion is that a second run does not re-insert them, so it is
+    // written as "no duplicates" rather than a bare count: a count alone goes
+    // stale the moment the tag set changes, which is what happened when
+    // provenance was added.
+    const tags = (db.prepare('SELECT tag FROM tags WHERE entity_id = ?').all(entities[0].id) as Row[])
+      .map((t) => (t as unknown as { tag: string }).tag);
+    expect(new Set(tags).size, `duplicate tags after two runs: ${tags.join(', ')}`).toBe(tags.length);
+    expect(tags).toContain('source:auto-capture');
     // But observations may be duplicated (each hook run adds one)
     const obs = db.prepare('SELECT * FROM observations WHERE entity_id = ?').all(entities[0].id) as Row[];
     expect(obs.length).toBeGreaterThanOrEqual(1);
