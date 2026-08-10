@@ -27,7 +27,7 @@ If `remember` is called again with an existing `name`, MeMesh treats it as an ap
 | `observations` | string[] | No | Key facts or observations about this entity |
 | `tags` | string[] | No | Tags for filtering (e.g., `"project:myapp"`, `"type:decision"`) |
 | `relations` | object[] | No | Relations to other entities |
-| `namespace` | string | No | Namespace scope: `"personal"` (default), `"team"`, or `"global"` |
+| `namespace` | string | No | Namespace scope: `"personal"` (default), `"team"`, or `"global"`. On an entity that already exists, supplying this **moves** it; omitting it leaves the namespace it already has. |
 
 **Relations object**:
 
@@ -322,13 +322,13 @@ Record a structured lesson from a mistake or discovery. Creates a `lesson_learne
 
 ```json
 {
+  "learned": true,
   "name": "lesson-myproject-null-reference",
-  "stored": true,
-  "entityId": 42,
-  "observations": 4,
-  "tags": 4
+  "type": "lesson_learned"
 }
 ```
+
+`name` is generated from the project and the error text. To see what was stored — the observations and the `severity:` / `error-pattern:` tags — recall the entity by that name.
 
 **Examples**:
 
@@ -536,7 +536,20 @@ Common errors:
 
 Start: `memesh serve` (default: `localhost:3737`)
 
-Safety note: non-loopback binds are blocked by default. To expose the HTTP server beyond the local machine, you must pass `memesh serve --host 0.0.0.0 --allow-remote` or set `MEMESH_HTTP_ALLOW_REMOTE=true`. MeMesh does not add an auth layer for you.
+Safety note: non-loopback binds are blocked by default. To expose the HTTP server beyond the local machine, you must pass `memesh serve --host 0.0.0.0 --allow-remote` or set `MEMESH_HTTP_ALLOW_REMOTE=true`.
+
+**Authentication on a remote bind.** A non-loopback bind requires a bearer token on every `/v1` request — MeMesh generates one before it starts listening, so there is no unauthenticated window:
+
+| | |
+|---|---|
+| Header | `Authorization: Bearer <token>` |
+| Token file | `~/.memesh/remote-token`, mode 600, printed at startup |
+| Override | `MEMESH_REMOTE_TOKEN` |
+| Rotate | Delete the token file and restart |
+
+The requirement is keyed to the **bind address**, not to the flag. `--allow-remote` on the default loopback host generates no token and requires no auth — the server is reachable only from this machine, and it says so at startup. Loopback requests are never challenged, even while a remote listener is running: the check is per-listener.
+
+This is transport authentication only. It does not authorise individual callers or separate their data — everyone holding the token sees the whole graph.
 
 ### Request body limits
 
@@ -545,10 +558,11 @@ All `POST /v1/*` endpoints enforce a **1 MB request body limit**. Requests large
 ```json
 {
   "success": false,
+  "errorCode": "payload.too-large",
   "error": "Request body exceeds the 1MB limit",
   "code": "PAYLOAD_TOO_LARGE",
   "limit": "1mb",
-  "hint": "Split large exports/imports into smaller batches, or compress and stream them via the CLI (`memesh export` / `memesh import`) which has no per-request size cap."
+  "hint": "Split large exports/imports into smaller batches, or stream them via the CLI (`memesh export` / `memesh import`) which reads/writes files directly and is not subject to the per-request 1MB cap."
 }
 ```
 

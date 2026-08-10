@@ -141,7 +141,13 @@ export function importMemories(args: ImportInput): ImportResult {
     }
     try {
       const existing = kg.getEntity(entity.name);
-      const namespace = args.namespace || entity.namespace || 'personal';
+      // The caller's `--namespace` override applies to everything, existing
+      // entities included — that is what "force all imported entities into
+      // this namespace" means. The namespace stored IN the bundle only places
+      // entities the import creates: a bundle should not be able to relocate a
+      // memory you already had, which for `append` would silently move it out
+      // of the scope you keep it in.
+      const namespace = args.namespace ?? (existing ? undefined : (entity.namespace || 'personal'));
       const importedMetadata = buildImportedMetadata(existing?.metadata as EntityMetadata | undefined, {
         exportedAt: args.data.exported_at,
         importVersion: args.data.version,

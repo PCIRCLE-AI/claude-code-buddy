@@ -206,6 +206,31 @@ All notable changes to MeMesh are documented here.
   of a partly-broken one. The check lives in the serializer, so the CLI, MCP
   and HTTP paths all get it.
 
+- **A `namespace` you supply is no longer accepted, ignored and reported as
+  success.** `remember` with `namespace: "team"` on a memory that already
+  existed left it in `personal` and said it had stored it; `import
+  --namespace` did not do the forcing its own documentation promised. A
+  namespace was applied on creation only. It now moves an entity that already
+  exists — but only when the caller actually supplied one, so a re-remember
+  that says nothing about namespace still cannot drag a memory back to the
+  `personal` default. Import keeps the same distinction: your `--namespace`
+  override applies to everything, while the namespace stored inside a bundle
+  only places entities the import creates, so importing cannot relocate a
+  memory you already had.
+
+- **Two documents that described code that does not exist.**
+  `API_REFERENCE.md` said "MeMesh does not add an auth layer for you" while a
+  non-loopback bind has required a bearer token since 4.2 — generated before
+  the listener opens, kept at `~/.memesh/remote-token`, overridable with
+  `MEMESH_REMOTE_TOKEN` — none of which was written down outside two error-code
+  rows. It also documented a `learn` response (`stored`, `entityId`,
+  `observations`, `tags`) that the server has never returned; the real shape is
+  `{learned, name, type}`. Both are corrected, and
+  `scripts/check-doc-claims.mjs` — which counted hooks, tools and routes but
+  checked no response *shape* and no prose claim — now fails when a documented
+  response names a field its `*Result` type does not have, and when the
+  document denies authentication the server performs.
+
 ## [4.5.0] — 2026-08-05
 
 ### Added

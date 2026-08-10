@@ -233,6 +233,40 @@ describe('importMemories', () => {
     expect(found[0]?.observations).toEqual(['ORIGINAL']);
   });
 
+  describe('namespace: whose choice moves an existing entity', () => {
+    /** A bundle that claims one entity, in `personal`. */
+    function bundleFor(name: string) {
+      return {
+        version: '3.0.0', exported_at: '2026-08-10T00:00:00.000Z', entity_count: 1,
+        entities: [{ name, type: 'note', namespace: 'personal', observations: ['from bundle'], tags: [], relations: [] }],
+      } as Parameters<typeof importMemories>[0]['data'];
+    }
+
+    it('the caller\'s override forces an entity that already exists', () => {
+      // Documented as "force all imported entities into this namespace", and
+      // it did not: `createEntity` applied a namespace on creation only, so
+      // the override was accepted, ignored, and reported as success.
+      remember({ name: 'held', type: 'note', observations: ['mine'], namespace: 'personal' });
+      importMemories({ data: bundleFor('held'), merge_strategy: 'append', namespace: 'team' });
+      expect(exportMemories({ namespace: 'team' }).entities.map(e => e.name)).toContain('held');
+    });
+
+    it('the bundle\'s own namespace does not relocate an entity you already have', () => {
+      // The other direction, and the reason the override is not applied
+      // blindly: a bundle should not be able to move a memory out of the
+      // scope you keep it in just by mentioning it.
+      remember({ name: 'kept', type: 'note', observations: ['mine'], namespace: 'team' });
+      importMemories({ data: bundleFor('kept'), merge_strategy: 'append' });
+      expect(exportMemories({ namespace: 'team' }).entities.map(e => e.name)).toContain('kept');
+      expect(exportMemories({ namespace: 'personal' }).entities.map(e => e.name)).not.toContain('kept');
+    });
+
+    it('the bundle\'s namespace still places entities the import creates', () => {
+      importMemories({ data: bundleFor('brand-new'), merge_strategy: 'skip' });
+      expect(exportMemories({ namespace: 'personal' }).entities.map(e => e.name)).toContain('brand-new');
+    });
+  });
+
   it('round-trips export then import', () => {
     remember({ name: 'round-trip', type: 'pattern', observations: ['fact 1', 'fact 2'], tags: ['t:a'] });
 

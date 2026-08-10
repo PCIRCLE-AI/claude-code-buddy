@@ -732,16 +732,33 @@ describe('Feature: Knowledge Graph', () => {
       expect(personalTagResults[0].name).toBe('tagged-personal');
     });
 
-    it('should not change namespace of existing entity on re-remember', () => {
+    it('should not change namespace of an existing entity when none is given', () => {
+      // The protection that matters: a re-remember that says nothing about
+      // namespace must not drag the entity back to the `personal` default.
       kg.createEntity('stable-entity', 'note', { namespace: 'team' });
-      // Re-create with different namespace — INSERT OR IGNORE means namespace stays unchanged
-      kg.createEntity('stable-entity', 'note', {
-        observations: ['new obs'],
-        namespace: 'personal',
-      });
+      kg.createEntity('stable-entity', 'note', { observations: ['new obs'] });
       const entity = kg.getEntity('stable-entity');
       expect(entity!.namespace).toBe('team');
       expect(entity!.observations).toContain('new obs');
+    });
+
+    it('should move an existing entity when a namespace IS given', () => {
+      // This used to be creation-only, so an explicit namespace on an existing
+      // entity was accepted, ignored, and reported as success: `remember` with
+      // `namespace: "team"` left the memory in `personal` and said it had
+      // stored it. Ignoring a parameter the caller supplied is the one
+      // behaviour that cannot be right.
+      kg.createEntity('moving-entity', 'note', { namespace: 'personal' });
+      kg.createEntity('moving-entity', 'note', {
+        observations: ['new obs'],
+        namespace: 'team',
+      });
+      const entity = kg.getEntity('moving-entity');
+      expect(entity!.namespace).toBe('team');
+      expect(entity!.observations).toContain('new obs');
+      // …and it is findable under the new scope, not just labelled with it.
+      expect(kg.search(undefined, { namespace: 'team' }).map(e => e.name)).toContain('moving-entity');
+      expect(kg.search(undefined, { namespace: 'personal' }).map(e => e.name)).not.toContain('moving-entity');
     });
   });
 });

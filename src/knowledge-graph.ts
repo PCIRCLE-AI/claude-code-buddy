@@ -308,7 +308,6 @@ export class KnowledgeGraph {
     }
 
     // INSERT OR IGNORE — if entity already exists, get its id
-    // namespace is set on creation only; existing entities keep their original namespace
     const insertResult = this.db
       .prepare(
         'INSERT OR IGNORE INTO entities (name, type, metadata, namespace) VALUES (?, ?, ?, ?)'
@@ -320,6 +319,20 @@ export class KnowledgeGraph {
       .prepare('SELECT id, status FROM entities WHERE name = ?')
       .get(name) as { id: number; status: string };
     const entityId = row.id;
+
+    // An explicit namespace applies to an entity that already exists, too.
+    // This used to be creation-only — the parameter was accepted, ignored and
+    // reported as success, so `remember` with `namespace: "team"` on an
+    // existing memory left it in `personal` and said it had stored it, and
+    // `import --namespace` did not do the forcing its documentation promised.
+    // Only an explicitly supplied value moves anything: `undefined` means the
+    // caller said nothing, and a re-remember must not drag an entity back to
+    // the `personal` default.
+    if (!isNewEntity && opts?.namespace !== undefined) {
+      this.db
+        .prepare('UPDATE entities SET namespace = ? WHERE id = ?')
+        .run(opts.namespace, entityId);
+    }
 
     // Reactivate archived entities on re-remember
     const wasArchived = !isNewEntity && row.status === 'archived';
