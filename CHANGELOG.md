@@ -332,10 +332,20 @@ All notable changes to MeMesh are documented here.
   per candidate; SQLite's ceiling is 32766 (measured), and the failure was
   caught and reported as "sqlite-vec is not loaded" — so the graphs big enough
   to need meaning-based grouping were the ones that lost it, and were sent to
-  fix a dependency that was fine. The lookup is chunked, an unreadable index
-  now reports its real error, and the distance loop exits as soon as a pair is
-  out of range: measured 38.5s → 1.98s at 10 000 candidates. Those had to land
-  together — the placeholder limit was what capped the quadratic work.
+  fix a dependency that was fine. Measured on a seeded 33 000-candidate graph:
+  before, `dream run` reported `calendar` mode in 247 ms with "No vector index
+  (sqlite-vec is not loaded)" — false, the index held all 33 000 vectors — and
+  produced a single ISO-week bucket; after, `semantic` mode, 5 249 clusters,
+  17.8 s.
+
+  The lookup is chunked, an unreadable index now reports its real error, and
+  the distance loop stops as soon as a pair is out of range — end-to-end
+  10.1 s → 3.3 s at 5 000 candidates and 20.7 s → 9.2 s at 10 000, with
+  identical cluster counts on both builds, which is the check that matters:
+  this is a speed change, not a behaviour change. Those two had to land
+  together, because the placeholder limit was what had been capping the
+  quadratic work — fixing it alone would have turned a wrong answer into a
+  hang.
 
 - **Two documents that described code that does not exist.**
   `API_REFERENCE.md` said "MeMesh does not add an auth layer for you" while a

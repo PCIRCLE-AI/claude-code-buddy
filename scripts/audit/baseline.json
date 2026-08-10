@@ -436,16 +436,6 @@
       "reason": "provenance spread identity; trust written unconditionally",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/dreamer.ts:1029": {
-      "class": "SAFE-GUARDED",
-      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); same statement, classification unchanged)"
-    },
-    "C5 src/core/dreamer.ts:1032": {
-      "class": "SAFE-GUARDED",
-      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); same statement, classification unchanged)"
-    },
     "C5 src/knowledge-graph.ts:394": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "batch-hydrate lookups; confidence bump fails closed",
@@ -495,6 +485,16 @@
       "class": "SAFE-GUARDED",
       "reason": "remember() sets relationErrors only when non-empty (operations.ts spreads it conditionally), so absent means none at the single producer; the failure path exits 1 off the same field",
       "triaged": "2026-08-10 (P7 batch 2)"
+    },
+    "C5 src/core/dreamer.ts:1044": {
+      "class": "SAFE-GUARDED",
+      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (measured benchmark numbers replaced the borrowed ones in two docblocks); same statement, classification unchanged)"
+    },
+    "C5 src/core/dreamer.ts:1047": {
+      "class": "SAFE-GUARDED",
+      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (measured benchmark numbers replaced the borrowed ones in two docblocks); same statement, classification unchanged)"
     }
   }
 }

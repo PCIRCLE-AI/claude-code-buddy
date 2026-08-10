@@ -451,11 +451,16 @@ function detectClusters(db: MemeshDatabase, opts: DreamerOptions): ClusterDetect
  * configuration writes none).
  *
  * Ids are fetched in chunks. `WHERE rowid IN (?,?,…)` with one placeholder per
- * candidate hits SQLite's variable ceiling — measured on this build: 32766
- * placeholders succeed, 32767 throws `too many SQL variables` — and the catch
- * below turned that into "no vector index", so a graph large enough to need
- * semantic clustering was the one that silently lost it, and was told the
- * wrong reason.
+ * candidate hits SQLite's variable ceiling — measured against `node:sqlite` on
+ * Node v24.15.0: 32766 placeholders succeed, 32767 throws `too many SQL
+ * variables` — and the catch below turned that into "no vector index", so a
+ * graph large enough to need semantic clustering was the one that silently
+ * lost it, and was told the wrong reason.
+ *
+ * Measured end-to-end on a seeded 33 000-candidate graph, same data, two
+ * builds. Before: `mode: 'calendar'` in 247ms with the note "No vector index
+ * (sqlite-vec is not loaded)" — false, the index held all 33 000 vectors — and
+ * one ISO-week bucket. After: `mode: 'semantic'`, 5 249 clusters, 17.8s.
  */
 const VECTOR_LOOKUP_CHUNK = 500;
 
@@ -500,12 +505,22 @@ function loadCandidateVectors(
 /**
  * Squared L2, with an early exit at `limit²`.
  *
- * Returns `Infinity` the moment the running sum passes the limit, which on a
- * 768-dimension vector is usually within the first few components. Clustering
- * is O(N²) in candidates, and the overwhelming majority of those pairs are
- * nowhere near the threshold — measured at N=10000, walking all 768 floats and
- * calling `Math.sqrt` on every pair took 38.5s; exiting early took 1.98s.
- * Comparing squares alone bought nothing (39.5s): the exit is the whole win.
+ * Stops the moment the running sum passes the limit, which on a 768-dimension
+ * vector is usually within the first few components. Clustering is O(N²) in
+ * candidates and the overwhelming majority of those pairs are nowhere near the
+ * threshold, so most comparisons never finish.
+ *
+ * Measured end-to-end on `runDreamer` against a seeded graph at 768 dims,
+ * comparing this against the previous full walk plus `Math.sqrt` — same data,
+ * two builds, twice each:
+ *
+ *   N = 5 000    10.1s / 10.7s  →  3.3s / 3.4s
+ *   N = 10 000   20.7s / 20.9s  →  9.2s / 8.1s
+ *
+ * So roughly 2.4–3.1× on the whole pass, not on the loop alone: loading the
+ * vectors and building the candidate list are unchanged and come to dominate.
+ * Cluster counts were identical on both builds (5 000 and 5 241), which is the
+ * check that matters — this is a speed change, not a behaviour change.
  */
 function withinDistance(a: Float32Array, b: Float32Array, limit: number): boolean {
   if (a.length !== b.length) return false;
