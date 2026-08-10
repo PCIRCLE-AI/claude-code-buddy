@@ -70,6 +70,27 @@ function dreamPass(opts: { maxLlmCalls?: number; dryRun?: boolean } = {}) {
   });
 }
 
+/**
+ * A real pass that WRITES: the network is stubbed to always return one ADD, so
+ * a proposal is genuinely staged and the retirement path can be observed.
+ */
+async function dreamPassWithLlm() {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      content: [{ text: JSON.stringify({ action: 'ADD', digest: { name: 'digest', type: 'digest', observations: ['summary'], tags: [] } }) }],
+    }),
+    text: async () => '',
+  })) as unknown as typeof fetch;
+  try {
+    return await runDreamer(getDatabase(), { provider: 'anthropic', apiKey: 'sk-test' }, { maxLlmCalls: 5 });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
 describe('dreamer clusters by meaning, not by calendar week', () => {
   it('splits two unrelated topics recorded on the same day', async () => {
     // Six entries, one day, two subjects. The week bucket produced ONE cluster
@@ -245,97 +266,102 @@ describe('more candidates than fit in one SQL statement', () => {
 });
 
 describe('proposals the old calendar rule left behind', () => {
-  it('retires them instead of staging an overlapping twin', async () => {
-    // Dedup needs an EXACT source-id match, and a semantic cluster is by
-    // construction a different set from the week bucket it came out of. So
-    // without retirement, upgrading stages a second proposal over overlapping
-    // entities beside every one still pending — and accepting both runs
-    // compaction twice over shared sources, where `compacted_into` is a plain
-    // overwrite.
-    seed([
-      { name: 'w-1', day: daysAgo(4), axis: 9, nudge: 0.05 },
-      { name: 'w-2', day: daysAgo(4), axis: 9, nudge: 0.08 },
-    ]);
+  /**
+   * Retirement is TERMINAL — `applyProposal` requires `pending` and nothing
+   * sets a proposal back — so it may only happen at the moment a replacement
+   * is actually written. Two earlier versions rejected on the strength of a
+   * replacement that had not happened: one before clustering (which on a
+   * default install re-created the very key shape it retired, forever), one
+   * after clustering but before the LLM loop (where a cluster can still be
+   * dropped for size, the call cap, an error, a NOOP or the validator).
+   */
+  function seedTopic(names: string[]): number[] {
+    seed(names.map((name, i) => ({ name, day: daysAgo(3), axis: 3, nudge: 0.05 + i * 0.01 })));
     const db = getDatabase();
-    const ids = (db.prepare("SELECT id FROM entities WHERE name LIKE 'w-%' ORDER BY id").all() as Array<{ id: number }>)
-      .map(r => r.id);
-    db.prepare(
-      "INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, prompt_version) VALUES ('demo', '2026-W32', ?, '{}', 'v1')"
+    return (db.prepare('SELECT id FROM entities WHERE name IN (' + names.map(() => '?').join(',') + ') ORDER BY id')
+      .all(...names) as Array<{ id: number }>).map(r => r.id);
+  }
+
+  function stageCalendarProposal(sourceIds: number[], key = '2026-W32'): void {
+    getDatabase().prepare(
+      "INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, prompt_version) VALUES ('demo', ?, ?, '{}', 'v1')"
+    ).run(key, JSON.stringify(sourceIds));
+  }
+
+  it('retires one only when a digest that covers it was actually written', async () => {
+    // The week bucket held 3 of the 5; the semantic cluster spans all 5, so
+    // dedup does not match and a genuine replacement is written.
+    const ids = seedTopic(['m-1', 'm-2', 'm-3', 'm-4', 'm-5']);
+    stageCalendarProposal(ids.slice(0, 3));
+    stageCalendarProposal([90001], '2026-W29'); // covers nothing in this run
+
+    const result = await dreamPassWithLlm();
+    expect(result.proposalsCreated, 'no replacement was written, so nothing may be retired').toBe(1);
+
+    const db = getDatabase();
+    const covered = db.prepare("SELECT status FROM dream_proposals WHERE cluster_key = '2026-W32'").get() as { status: string };
+    const uncovered = db.prepare("SELECT status FROM dream_proposals WHERE cluster_key = '2026-W29'").get() as { status: string };
+    expect(covered.status).toBe('rejected');
+    expect(uncovered.status, 'a proposal this digest does not cover was retired anyway').toBe('pending');
+  });
+
+  it('leaves the proposal alone when the cluster never becomes a digest', async () => {
+    // Four entries form one cluster, below COMPACT_MIN_CLUSTER_SIZE, so the
+    // run writes nothing. Measured before the fix: the proposal was rejected
+    // and the SAME result also said "cluster smaller than 5 entities" — two
+    // reasons contradicting each other, and a paid-for digest unrecoverable.
+    const ids = seedTopic(['n-1', 'n-2', 'n-3', 'n-4']);
+    stageCalendarProposal(ids);
+
+    const result = await dreamPassWithLlm();
+    expect(result.proposalsCreated).toBe(0);
+
+    const row = getDatabase().prepare("SELECT status FROM dream_proposals WHERE cluster_key = '2026-W32'").get() as { status: string };
+    expect(row.status, 'a proposal was retired with nothing replacing it').toBe('pending');
+  });
+
+  it('supersedes a narrower pending proposal when the cluster grows', async () => {
+    // Not an upgrade case — this arises on its own. Cluster membership is a
+    // topic, unbounded in time, so ONE new similar entry recorded later
+    // re-opens a cluster that already has a pending proposal. The exact-match
+    // dedup misses (different source set), a wider twin is staged, and
+    // accepting both compacts the shared entries twice — `compacted_into` is
+    // a plain overwrite. The wider digest supersedes the narrower proposal.
+    const ids = seedTopic(['g-1', 'g-2', 'g-3', 'g-4', 'g-5']);
+    // A SEMANTIC-era key, so this is not the calendar migration path.
+    getDatabase().prepare(
+      "INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, prompt_version) VALUES ('demo', '2026-07-11..2026-07-13-dd5b1f44', ?, '{}', 'v1')"
     ).run(JSON.stringify(ids));
+    seedTopic(['g-6']); // same topic, joins the cluster
 
-    // Not a dry run: a dry run correctly writes nothing.
-    const result = await dreamPass({ dryRun: false });
+    const result = await dreamPassWithLlm();
+    expect(result.proposalsCreated).toBe(1);
 
-    const row = db.prepare("SELECT status, reason FROM dream_proposals WHERE cluster_key = '2026-W32'")
-      .get() as { status: string; reason: string | null };
-    expect(row.status, 'the calendar-era proposal is still pending beside its replacement').toBe('rejected');
-    expect(row.reason).toMatch(/[Ss]uperseded by meaning-based clustering/);
-    expect(result.skipped.some(s => /calendar-week clustering/.test(s.reason))).toBe(true);
+    const pending = getDatabase()
+      .prepare("SELECT COUNT(*) c FROM dream_proposals WHERE status = 'pending'")
+      .get() as { c: number };
+    expect(pending.c, 'an overlapping twin was left pending beside the wider digest').toBe(1);
   });
 
   it('retires nothing in calendar mode, where it would eat its own output', async () => {
-    // The defect the first version shipped, and the reason the test above did
-    // not catch it: that one seeds a graph WITH vectors. On a graph without
-    // them — the default configuration, which stores none — the fallback
-    // writes ISO-week keys itself, so retiring by key shape meant every run
-    // rejected the proposal the previous run created and paid for an
-    // identical replacement. Measured before the fix: run 1 created #1, run 2
-    // rejected #1 and created #2, run 3 rejected #2 and created #3, one LLM
-    // call each time, forever.
+    // Without vectors the fallback writes ISO-week keys itself, so a
+    // retirement keyed on that shape rejects the proposal THIS run just
+    // wrote. Measured before the guard: run 1 created #1 and rejected it, and
+    // so did every run after — one metered LLM call each, nothing reviewable.
     seed([
       { name: 'cal-1', day: daysAgo(3), axis: 0, nudge: 0.05 },
       { name: 'cal-2', day: daysAgo(3), axis: 0, nudge: 0.08 },
+      { name: 'cal-3', day: daysAgo(3), axis: 0, nudge: 0.11 },
+      { name: 'cal-4', day: daysAgo(3), axis: 0, nudge: 0.14 },
+      { name: 'cal-5', day: daysAgo(3), axis: 0, nudge: 0.17 },
     ], { withVectors: false });
-    const db = getDatabase();
-    const ids = (db.prepare("SELECT id FROM entities WHERE name LIKE 'cal-%' ORDER BY id").all() as Array<{ id: number }>)
-      .map(r => r.id);
-    db.prepare(
-      "INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, prompt_version) VALUES ('demo', '2026-W32', ?, '{}', 'v1')"
-    ).run(JSON.stringify(ids));
 
-    const result = await dreamPass({ dryRun: false });
+    const result = await dreamPassWithLlm();
     expect(result.clusteringMode).toBe('calendar');
+    expect(result.proposalsCreated).toBe(1);
 
-    const row = db.prepare("SELECT status FROM dream_proposals WHERE cluster_key = '2026-W32'")
-      .get() as { status: string };
-    expect(row.status, 'calendar mode retired a proposal it is about to re-create').toBe('pending');
-  });
-
-  it('leaves alone a proposal this run cannot replace', async () => {
-    // Rejecting is terminal — `applyProposal` requires `pending` and nothing
-    // sets one back — so retiring a proposal whose entries are NOT in this
-    // run's candidate set destroys it while the message claims the entries
-    // were re-proposed. Here the proposal covers ids that do not exist among
-    // the candidates at all.
-    seed([
-      { name: 'live-1', day: daysAgo(3), axis: 2, nudge: 0.05 },
-      { name: 'live-2', day: daysAgo(3), axis: 2, nudge: 0.08 },
-    ]);
-    const db = getDatabase();
-    db.prepare(
-      "INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, prompt_version) VALUES ('demo', '2026-W30', '[90001,90002]', '{}', 'v1')"
-    ).run();
-
-    const result = await dreamPass({ dryRun: false });
-    expect(result.clusteringMode).toBe('semantic');
-
-    const row = db.prepare("SELECT status FROM dream_proposals WHERE cluster_key = '2026-W30'")
-      .get() as { status: string };
-    expect(row.status, 'a proposal this run does not replace was retired anyway').toBe('pending');
-  });
-
-  it('leaves a semantic-era pending proposal alone', async () => {
-    // The control. Retiring by key SHAPE must not touch the new keys — which
-    // are dates plus a membership hash, never `YYYY-Wnn`.
-    const db = getDatabase();
-    db.prepare(
-      "INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, prompt_version) VALUES ('demo', '2026-08-04..2026-08-09-a3f1c2d4', '[1,2]', '{}', 'v1')"
-    ).run();
-
-    await dreamPass({ dryRun: false });
-    const row = db.prepare("SELECT status FROM dream_proposals WHERE cluster_key LIKE '2026-08-04%'")
-      .get() as { status: string };
-    expect(row.status).toBe('pending');
+    const rows = getDatabase().prepare("SELECT status FROM dream_proposals").all() as Array<{ status: string }>;
+    expect(rows.map(r => r.status), 'calendar mode retired the proposal it just wrote').toEqual(['pending']);
   });
 });
 

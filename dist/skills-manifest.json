@@ -68,8 +68,8 @@
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",
-      "sha256": "75143339c275ca3ec034d04454bd1e02281dcb892f4cb1515508a912466d699b",
-      "bytes": 7457
+      "sha256": "a39c9806d403769924159da831258c85aec744799b8b71b54f0196c442a24de9",
+      "bytes": 7577
     },
     {
       "path": "skills/agentic-orchestration/SKILL.md",

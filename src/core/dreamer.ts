@@ -216,29 +216,25 @@ export async function runDreamer(
   const detection = detectClusters(db, opts);
   const clusters = detection.clusters;
 
-  // Retirement runs AFTER clustering, and only when clustering actually
-  // produced the thing that replaces the old proposals. Three reasons, each
-  // one a defect the first version shipped:
+  // Retirement of calendar-era proposals happens LAZILY, next to each
+  // replacement as it is written — see `retireSupersededBy` at the bottom of
+  // the loop. Two earlier shapes were both wrong, and both in the same
+  // direction: they rejected something terminal on the strength of a
+  // replacement that had not happened yet.
   //
-  //   - In calendar mode the fallback writes ISO-week keys itself, so
-  //     retiring by key shape meant every run rejected the proposal the
-  //     previous run had created and paid for an identical replacement. On a
-  //     default install — no embedder, so no vectors — that is every run,
-  //     forever, on a metered provider.
-  //   - Retirement is terminal (`applyProposal` requires `pending`), so it may
-  //     only touch proposals this run is genuinely replacing. Scoped to the
-  //     project being run, and to proposals whose sources are all in the
-  //     candidate set that was just built.
-  //   - It ran before `detectClusters`, so it could not know either of those.
-  if (detection.mode === 'semantic') {
-    const candidateIds = new Set(clusters.flatMap(c => c.entities.map(e => e.id)));
-    const retired = retireCalendarProposals(db, candidateIds, opts.project, opts.dryRun === true);
-    if (retired > 0) {
-      result.skipped.push({
-        reason: `${retired} pending proposal${retired === 1 ? '' : 's'} from the old calendar-week clustering ${opts.dryRun ? 'would be' : 'was'} retired — the same entries are re-proposed by meaning in this run`,
-      });
-    }
-  }
+  //   - Retiring by key shape before clustering meant that on a graph with no
+  //     embeddings — the default, since the stock embedder writes none — the
+  //     calendar FALLBACK re-created the very key shape being retired, so
+  //     every run rejected the previous run's proposal and paid for an
+  //     identical one, forever, on a metered provider.
+  //   - Retiring after clustering but before the loop was still too early: a
+  //     cluster can be dropped for being under `COMPACT_MIN_CLUSTER_SIZE`, for
+  //     the LLM call cap, for an LLM error, for a NOOP, or by the validator.
+  //     Measured: four same-topic entries retired the user's pending proposal
+  //     and then reported "cluster smaller than 5 entities" in the same
+  //     result — the two reasons contradicting each other, the paid-for digest
+  //     unrecoverable because `applyProposal` requires `pending`.
+  let retired = 0;
   result.clustersScanned = clusters.length;
   result.clusteringMode = detection.mode;
   if (detection.note) result.clusteringNote = detection.note;
@@ -320,8 +316,27 @@ export async function runDreamer(
 
     if (!opts.dryRun) {
       writeProposal(db, cluster, digest, llm, validationWarnings);
+      // The replacement exists NOW, so the thing it replaces can go — and only
+      // that thing. Anything the calendar rule staged for entries this cluster
+      // does not cover is left pending.
+      //
+      // Semantic mode only. This is a calendar→meaning migration, and in
+      // calendar mode there is nothing to migrate: the proposal just written
+      // carries an ISO-week key over exactly these sources, so it matches its
+      // own retirement query and rejects ITSELF. Measured before this guard:
+      // run 1 created #1 and immediately rejected it, and so did every run
+      // after — a paid LLM call per run producing nothing reviewable.
+      if (detection.mode === 'semantic') retired += retireSupersededBy(db, cluster);
     }
     result.proposalsCreated++;
+  }
+
+  if (retired > 0) {
+    result.skipped.push({
+      reason: retired === 1
+        ? 'a pending proposal from the old calendar-week clustering was retired, replaced by a digest written in this run'
+        : `${retired} pending proposals from the old calendar-week clustering were retired, each replaced by a digest written in this run`,
+    });
   }
 
   result.durationMs = Date.now() - start;
@@ -647,65 +662,68 @@ function isoWeekKey(d: Date): string {
  * the label says.
  */
 /**
- * Retire pending proposals that the calendar-week rule produced — but ONLY the
- * ones this run replaces.
+ * Retire the pending proposals that THIS cluster's digest replaces.
  *
- * De-duplication requires an EXACT source-id match, and a semantic cluster is
- * by construction a different set from the week bucket it came out of. So
- * without this, upgrading stages a second, overlapping proposal beside every
- * proposal still pending — `dream list` shows both, and accepting both runs
- * compaction twice over shared entities, where `metadata.compacted_into` is a
- * plain overwrite: the second digest takes the source's back-pointer while the
- * first still claims it with a `summarizes` relation.
+ * Called immediately after a replacement proposal is written, which is the
+ * only moment the claim "superseded" is true. Rejecting is terminal —
+ * `applyProposal` selects `WHERE id = ? AND status = 'pending'` and nothing
+ * sets a proposal back — so it must never happen on the strength of a
+ * replacement that might not arrive.
  *
- * Identified by the key shape, which is unambiguous: the old rule wrote an ISO
- * week (`2026-W32`), the new one writes dates plus a membership hash
- * (`2026-08-04..2026-08-09-a3f1c2d4`). `GLOB` is whole-string anchored, so
- * `2026-W3`, `12026-W32` and `2026-W32-extra` do not match.
+ * Why retire at all: de-duplication requires an EXACT source-id match, and a
+ * semantic cluster is by construction a different set from the week bucket it
+ * came out of. Without this, upgrading leaves an overlapping twin beside every
+ * pending proposal, and accepting both compacts the shared entities twice —
+ * `metadata.compacted_into` is a plain overwrite, so the second digest takes
+ * the source's back-pointer while the first still claims it with a
+ * `summarizes` edge.
  *
- * Rejecting is TERMINAL — `applyProposal` requires `pending` and nothing sets
- * a proposal back — so this is deliberately conservative: a proposal is
- * retired only when every entity it covers is in the candidate set this run
- * just built, which is what makes "the same entries are re-proposed by meaning
- * in this run" a true statement rather than a hope. A proposal whose sources
- * have aged out of the window, or belong to another project, is left alone.
+ * A proposal is superseded only when this cluster covers STRICTLY more than it
+ * does, so nothing is retired that this digest does not account for, and the
+ * proposal just written (same sources exactly) cannot reject itself.
  *
- * Rejected rather than deleted: the row and its digest survive and
+ * Rejected rather than deleted: the row and its digest survive, and
  * `dream list --status rejected` still shows them.
  */
-function retireCalendarProposals(
-  db: MemeshDatabase,
-  candidateIds: Set<number>,
-  project: string | undefined,
-  dryRun: boolean,
-): number {
+function retireSupersededBy(db: MemeshDatabase, cluster: Cluster): number {
+  const covered = new Set(cluster.entities.map(e => e.id));
   const rows = db.prepare(
     `SELECT id, source_ids FROM dream_proposals
      WHERE status = 'pending'
+       AND project = ?
        AND (source_kind IS NULL OR source_kind = 'entities')
-       AND cluster_key GLOB '[0-9][0-9][0-9][0-9]-W[0-9][0-9]'
-       ${project ? 'AND project = ?' : ''}`
-  ).all(...(project ? [project] : [])) as Array<{ id: number; source_ids: string }>;
+       AND cluster_key NOT LIKE 'pattern:%'`
+  ).all(cluster.project) as Array<{ id: number; source_ids: string }>;
 
-  const replaceable = rows.filter((row) => {
+  const superseded = rows.filter((row) => {
     let ids: unknown;
     try { ids = JSON.parse(row.source_ids); } catch { return false; }
     // A transcript proposal stores an object here; only an id array can be
-    // compared against the candidate set at all.
+    // compared against the cluster at all.
     if (!Array.isArray(ids) || ids.length === 0) return false;
-    return ids.every((id) => typeof id === 'number' && candidateIds.has(id));
+    // STRICT subset. Equality would match the proposal just written — same
+    // project, same sources — and it would reject itself.
+    //
+    // Not restricted to calendar-era keys, because the same staleness arises
+    // without any upgrade: cluster membership grows, so one new similar entry
+    // recorded later re-opens a topic that already has a pending proposal, the
+    // exact-match dedup misses, and a wider twin is staged beside the narrower
+    // one. Accepting both compacts the shared entries twice, and
+    // `metadata.compacted_into` is a plain overwrite. A digest that covers
+    // strictly more than a pending proposal supersedes it, whatever wrote it.
+    return ids.length < covered.size && ids.every((id) => typeof id === 'number' && covered.has(id));
   });
-  if (replaceable.length === 0 || dryRun) return replaceable.length;
+  if (superseded.length === 0) return 0;
 
   const stmt = db.prepare(
     "UPDATE dream_proposals SET status = 'rejected', reason = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?"
   );
-  const reason = 'Superseded by meaning-based clustering — the same entries are re-proposed grouped by content.';
+  const reason = 'Superseded by meaning-based clustering — a digest covering the same entries was proposed in its place.';
   const txn = db.transaction(() => {
-    for (const row of replaceable) stmt.run(reason, row.id);
+    for (const row of superseded) stmt.run(reason, row.id);
   });
   txn();
-  return replaceable.length;
+  return superseded.length;
 }
 
 function proposalAlreadyExists(db: MemeshDatabase, cluster: Cluster): boolean {

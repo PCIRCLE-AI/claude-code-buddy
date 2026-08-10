@@ -48,15 +48,7 @@ export async function runDreamer(db, llm, opts = {}) {
     const maxLlmCalls = opts.maxLlmCalls ?? 100;
     const detection = detectClusters(db, opts);
     const clusters = detection.clusters;
-    if (detection.mode === 'semantic') {
-        const candidateIds = new Set(clusters.flatMap(c => c.entities.map(e => e.id)));
-        const retired = retireCalendarProposals(db, candidateIds, opts.project, opts.dryRun === true);
-        if (retired > 0) {
-            result.skipped.push({
-                reason: `${retired} pending proposal${retired === 1 ? '' : 's'} from the old calendar-week clustering ${opts.dryRun ? 'would be' : 'was'} retired — the same entries are re-proposed by meaning in this run`,
-            });
-        }
-    }
+    let retired = 0;
     result.clustersScanned = clusters.length;
     result.clusteringMode = detection.mode;
     if (detection.note)
@@ -124,8 +116,17 @@ export async function runDreamer(db, llm, opts = {}) {
         }
         if (!opts.dryRun) {
             writeProposal(db, cluster, digest, llm, validationWarnings);
+            if (detection.mode === 'semantic')
+                retired += retireSupersededBy(db, cluster);
         }
         result.proposalsCreated++;
+    }
+    if (retired > 0) {
+        result.skipped.push({
+            reason: retired === 1
+                ? 'a pending proposal from the old calendar-week clustering was retired, replaced by a digest written in this run'
+                : `${retired} pending proposals from the old calendar-week clustering were retired, each replaced by a digest written in this run`,
+        });
     }
     result.durationMs = Date.now() - start;
     return result;
@@ -319,13 +320,14 @@ function isoWeekKey(d) {
     const week = 1 + Math.round(diff / (7 * 86400_000));
     return `${target.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
-function retireCalendarProposals(db, candidateIds, project, dryRun) {
+function retireSupersededBy(db, cluster) {
+    const covered = new Set(cluster.entities.map(e => e.id));
     const rows = db.prepare(`SELECT id, source_ids FROM dream_proposals
      WHERE status = 'pending'
+       AND project = ?
        AND (source_kind IS NULL OR source_kind = 'entities')
-       AND cluster_key GLOB '[0-9][0-9][0-9][0-9]-W[0-9][0-9]'
-       ${project ? 'AND project = ?' : ''}`).all(...(project ? [project] : []));
-    const replaceable = rows.filter((row) => {
+       AND cluster_key NOT LIKE 'pattern:%'`).all(cluster.project);
+    const superseded = rows.filter((row) => {
         let ids;
         try {
             ids = JSON.parse(row.source_ids);
@@ -335,18 +337,18 @@ function retireCalendarProposals(db, candidateIds, project, dryRun) {
         }
         if (!Array.isArray(ids) || ids.length === 0)
             return false;
-        return ids.every((id) => typeof id === 'number' && candidateIds.has(id));
+        return ids.length < covered.size && ids.every((id) => typeof id === 'number' && covered.has(id));
     });
-    if (replaceable.length === 0 || dryRun)
-        return replaceable.length;
+    if (superseded.length === 0)
+        return 0;
     const stmt = db.prepare("UPDATE dream_proposals SET status = 'rejected', reason = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ?");
-    const reason = 'Superseded by meaning-based clustering — the same entries are re-proposed grouped by content.';
+    const reason = 'Superseded by meaning-based clustering — a digest covering the same entries was proposed in its place.';
     const txn = db.transaction(() => {
-        for (const row of replaceable)
+        for (const row of superseded)
             stmt.run(reason, row.id);
     });
     txn();
-    return replaceable.length;
+    return superseded.length;
 }
 function proposalAlreadyExists(db, cluster) {
     const sourceIds = cluster.entities.map(e => e.id).sort((a, b) => a - b);

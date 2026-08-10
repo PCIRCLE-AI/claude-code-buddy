@@ -117,8 +117,17 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     try {
       const names = (db.prepare('SELECT name FROM entities').all() as Array<{ name: string }>).map((r) => r.name);
       expect(names.length).toBeGreaterThanOrEqual(1);
-      const tags = (db.prepare("SELECT DISTINCT tag FROM tags WHERE tag LIKE 'project:%'").all() as Array<{ tag: string }>).map((r) => r.tag);
+      const tags = (db.prepare('SELECT DISTINCT tag FROM tags').all() as Array<{ tag: string }>).map((r) => r.tag);
       expect(tags).toContain('project:realproject');
+      // The provenance marker, asserted against the DATABASE rather than the
+      // source text. `tests/auto-capture-provenance.test.ts` greps for the
+      // constant, which the import line alone satisfies — mutation-verified:
+      // dropping AUTO_CAPTURE_TAG from this hook's baseTags left that test and
+      // all 19 hook files green. This is what `memesh doctor` counts to answer
+      // "is the auto-capture loop alive"; without it this hook's captures stop
+      // being counted and the row stays green on the other three writers.
+      expect(tags, 'session-summary stopped marking what it writes as auto-captured')
+        .toContain('source:auto-capture');
     } finally {
       db.close();
     }
