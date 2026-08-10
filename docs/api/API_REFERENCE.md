@@ -1425,7 +1425,9 @@ Trigger a dream pass via HTTP. Same logic as `memesh dream run`; runs `runDreame
 | `maxLlmCalls` | number | 5 | Hard cap on LLM calls (1–20) |
 | `validate` | boolean | false | Run the digest validator as a second LLM pass before staging |
 
-**Response:** `DreamerResult` shape — `{ proposalsCreated, clustersScanned, llmCalls, skipped: Array<{reason, project, clusterKey}>, durationMs }`.
+**Response:** `DreamerResult` shape — `{ proposalsCreated, clustersScanned, llmCalls, skipped: Array<{reason, project, clusterKey}>, durationMs, clusteringMode?, clusteringNote? }`.
+
+`clusteringMode` is `"semantic"` when entries were grouped by embedding distance and `"calendar"` when the graph has no vectors and they fell back to ISO-week buckets — which can put unrelated work in one digest, so a client that surfaces digests should surface this too. `clusteringNote` is one sentence saying why, or naming candidates that had no embedding and were left out.
 
 ### POST /v1/dream/proposals/:id/accept
 

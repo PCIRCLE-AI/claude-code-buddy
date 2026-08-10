@@ -27,6 +27,7 @@ import { spawn } from 'child_process';
 import os from 'os';
 import { pathToFileURL } from 'url';
 import {
+  AUTO_CAPTURE_TAG,
   captureEntity,
   decideAutoUpdateHook,
   getMemeshDirFromDbPath,
@@ -296,7 +297,7 @@ process.stdin.on('end', async () => {
       if (alreadyCaptured) return exit0();
 
       // Build and store session memories
-      const baseTags = ['source:auto-capture', `session:${sessionId}`, `project:${projectName}`];
+      const baseTags = [AUTO_CAPTURE_TAG, `session:${sessionId}`, `project:${projectName}`];
 
       // Producer for pre-edit-recall's Strategy 1 (`file:<name>` tag lookup).
       // That read path queries both the full basename and the extension-less

@@ -283,6 +283,21 @@ All notable changes to MeMesh are documented here.
   only places entities the import creates, so importing cannot relocate a
   memory you already had.
 
+- **`import` and `export` now reject a namespace they do not recognise.** Both
+  validated the field as any string up to 50 characters while `remember` and
+  `recall` used the enum. On `export` a typo produced a successful **empty
+  backup**; on `import` — once an explicit namespace began moving entities that
+  already exist — it became a way to relocate memories into a scope nothing
+  queries, gone from every scoped view while the import reported them appended.
+  All four schemas now share one list with the core, and `importMemories`
+  refuses the value itself so every transport inherits the check.
+
+- **`memesh remember` no longer announces a conflict it failed to record.** With
+  one good and one bad `--contradicts` target it printed both under `conflicts
+  stated:`, two lines above the error saying the second had failed — it asked
+  whether *something* succeeded rather than *which*. `remember` now returns the
+  relations it actually created and the command reports from those.
+
 - **Two documents that described code that does not exist.**
   `API_REFERENCE.md` said "MeMesh does not add an auth layer for you" while a
   non-loopback bind has required a bearer token since 4.2 — generated before

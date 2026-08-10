@@ -1,5 +1,6 @@
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
+import { NAMESPACES } from './types.js';
 function buildImportedMetadata(existingMetadata, args) {
     return {
         ...(existingMetadata ?? {}),
@@ -60,6 +61,10 @@ export function importMemories(args) {
     if (!MERGE_STRATEGIES.includes(args.merge_strategy)) {
         throw new Error(`Unknown merge strategy "${args.merge_strategy}". Use one of: ${MERGE_STRATEGIES.join(', ')}. ` +
             'Nothing was imported — refusing rather than guessing, because the wrong guess overwrites existing memories.');
+    }
+    if (args.namespace !== undefined && !NAMESPACES.includes(args.namespace)) {
+        throw new Error(`Unknown namespace "${args.namespace}". Use one of: ${NAMESPACES.join(', ')}. ` +
+            'Nothing was imported — an unrecognised namespace would move existing memories somewhere nothing queries.');
     }
     const bundleEntities = args.data?.entities;
     if (!Array.isArray(bundleEntities)) {

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'child_process';
-import { captureEntity, getProjectName, openHookDb } from './_shared.js';
+import { AUTO_CAPTURE_TAG, captureEntity, getProjectName, openHookDb } from './_shared.js';
 
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -138,7 +138,7 @@ process.stdin.on('end', () => {
         name: entityName,
         type: 'commit',
         observations,
-        tags: ['source:auto-capture', `project:${projectName}`],
+        tags: [AUTO_CAPTURE_TAG, `project:${projectName}`],
       });
     } finally {
       db.close();

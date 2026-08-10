@@ -1,6 +1,6 @@
 import { getDatabase } from '../db.js';
 const SYSTEM_TAG_PREFIXES = [
-    'project:', 'week:', 'severity:', 'scope:', 'source:', 'date:',
+    'project:', 'week:', 'cluster:', 'severity:', 'scope:', 'source:', 'date:',
     'type:', 'urgency:', 'host:', 'session:', 'release:',
 ];
 const SYSTEM_TAG_LITERALS = new Set([

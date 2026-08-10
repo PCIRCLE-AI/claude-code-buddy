@@ -13,6 +13,7 @@ import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../c
 import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
 import { getDbPath } from '../../core/paths.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
+import { NAMESPACES } from '../../core/types.js';
 import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/types.js';
 
 // DX: every CLI command that touches the DB used to repeat
@@ -44,7 +45,7 @@ function requireOneOf(value: string | undefined, allowed: readonly string[], fla
   process.exit(1);
 }
 
-const NAMESPACES = ['personal', 'team', 'global'] as const;
+// One list, in core. The CLI's private copy was the fourth.
 
 /**
  * Replace the user's home directory with `~` everywhere in a string.
@@ -52,7 +53,7 @@ const NAMESPACES = ['personal', 'team', 'global'] as const;
  * `memesh feedback` composes a GitHub issue body out of `doctor` output, and
  * doctor names paths — the database, the config file, where `memesh` resolves
  * on PATH. On a normal install every one of those starts with the home
- * directory, so the body carried the account name (`/Users/ktseng/...`) into a
+ * directory, so the body carried the account name (`/Users/<name>/...`) into a
  * **public** issue tracker, twice, in a block long enough that nobody reads it
  * before hitting Submit. The paths are still useful with the home part cut off:
  * `~/.memesh/knowledge-graph.db` says everything `/Users/<name>/.memesh/...`
@@ -196,9 +197,15 @@ program
         if (result.superseded?.length) {
           console.log(`   archived as superseded: ${result.superseded.join(', ')}`);
         }
-        const stated = relations.length - (result.relationErrors?.length ?? 0);
-        if (stated > 0 && relations.some(r => r.type === 'contradicts')) {
-          console.log(`   conflicts stated: ${relations.filter(r => r.type === 'contradicts').map(r => r.to).join(', ')}`);
+        // From what was CREATED, never from what was requested. Subtracting the
+        // error count from the request count only tells you whether SOMETHING
+        // succeeded: with one good and one bad target it printed both, naming a
+        // conflict that does not exist two lines above the error saying so.
+        const contradicted = (result.relationsCreated ?? [])
+          .filter(r => r.type === 'contradicts')
+          .map(r => r.to);
+        if (contradicted.length > 0) {
+          console.log(`   conflicts stated: ${contradicted.join(', ')}`);
         }
         for (const err of result.relationErrors ?? []) console.error(`   ⚠️  ${err}`);
       }

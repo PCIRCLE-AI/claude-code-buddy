@@ -386,6 +386,14 @@ function detectClusters(db: MemeshDatabase, opts: DreamerOptions): ClusterDetect
     byProject.get(c.project)!.push(c.entity);
   }
 
+  // Nothing to cluster is not a verdict about embeddings. Saying "no
+  // embeddings stored — configure an embedder and run `memesh reindex`"
+  // because the window happened to be empty told users with a full vector
+  // index to build the one they already had.
+  if (candidates.length === 0) {
+    return { clusters: [], mode: hasVectorIndex(db) ? 'semantic' : 'calendar' };
+  }
+
   const vectors = loadCandidateVectors(db, candidates.map(c => c.entity.id));
   if (vectors === null || vectors.size === 0) {
     const clusters: Cluster[] = [];
@@ -432,8 +440,12 @@ function detectClusters(db: MemeshDatabase, opts: DreamerOptions): ClusterDetect
  * this graph has no embeddings (the default `tfidf` configuration writes none).
  */
 function loadCandidateVectors(db: MemeshDatabase, ids: number[]): Map<number, Float32Array> | null {
-  if (ids.length === 0) return new Map();
+  // Index first, ids second. The other order answered "no embeddings stored —
+  // configure a neural embedder and run `memesh reindex`" whenever the window
+  // simply held nothing to cluster, telling a user with a full vector index to
+  // go and build the one they already have.
   if (!hasVectorIndex(db)) return null;
+  if (ids.length === 0) return new Map();
   const out = new Map<number, Float32Array>();
   try {
     const rows = db.prepare(
@@ -559,8 +571,20 @@ function isoWeekKey(d: Date): string {
  */
 function proposalAlreadyExists(db: MemeshDatabase, cluster: Cluster): boolean {
   const sourceIds = cluster.entities.map(e => e.id).sort((a, b) => a - b);
+  // `dream_proposals` holds three kinds of row. Compaction proposals ARCHIVE
+  // their sources; `pattern_emergent` rows are additive and carry
+  // `cluster_key = 'pattern:<date>'` with an id array shaped exactly like a
+  // compaction one. Dropping `cluster_key` from this query removed the only
+  // thing keeping them apart, so a pending pattern over the same evidence set
+  // would suppress a compaction digest — two opposite operations, one
+  // cancelling the other. Transcript rows were never at risk (their
+  // `source_ids` is an object, so the length comparison below cannot match),
+  // but relying on that is relying on an accident.
   const rows = db.prepare(
-    "SELECT source_ids FROM dream_proposals WHERE project = ? AND status = 'pending'"
+    `SELECT source_ids FROM dream_proposals
+     WHERE project = ? AND status = 'pending'
+       AND (source_kind IS NULL OR source_kind = 'entities')
+       AND cluster_key NOT LIKE 'pattern:%'`
   ).all(cluster.project) as Array<{ source_ids: string }>;
   for (const row of rows) {
     try {

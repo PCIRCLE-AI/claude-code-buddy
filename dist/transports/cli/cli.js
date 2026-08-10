@@ -12,6 +12,7 @@ import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../c
 import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
 import { getDbPath } from '../../core/paths.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
+import { NAMESPACES } from '../../core/types.js';
 async function withDatabase(fn) {
     openDatabase();
     try {
@@ -27,7 +28,6 @@ function requireOneOf(value, allowed, flag) {
     console.error(`Error: ${flag} "${value}" is not valid. Use one of: ${allowed.join(', ')}.`);
     process.exit(1);
 }
-const NAMESPACES = ['personal', 'team', 'global'];
 function redactHome(text) {
     const home = os.homedir();
     if (!home)
@@ -117,9 +117,11 @@ program
             if (result.superseded?.length) {
                 console.log(`   archived as superseded: ${result.superseded.join(', ')}`);
             }
-            const stated = relations.length - (result.relationErrors?.length ?? 0);
-            if (stated > 0 && relations.some(r => r.type === 'contradicts')) {
-                console.log(`   conflicts stated: ${relations.filter(r => r.type === 'contradicts').map(r => r.to).join(', ')}`);
+            const contradicted = (result.relationsCreated ?? [])
+                .filter(r => r.type === 'contradicts')
+                .map(r => r.to);
+            if (contradicted.length > 0) {
+                console.log(`   conflicts stated: ${contradicted.join(', ')}`);
             }
             for (const err of result.relationErrors ?? [])
                 console.error(`   ⚠️  ${err}`);

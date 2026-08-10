@@ -31,7 +31,12 @@ import type { MemeshDatabase } from '../storage/sqlite.js';
 import { getDatabase } from '../db.js';
 
 const SYSTEM_TAG_PREFIXES = [
-  'project:', 'week:', 'severity:', 'scope:', 'source:', 'date:',
+  // `cluster:` is the dreamer's digest label. It replaced `week:` when
+  // clustering moved from ISO weeks to embedding distance; `week:` stays for
+  // digests written before that. Both are bookkeeping, not topics — without
+  // the prefix here `isTopicalTag` falls through to the bare-tag branch and
+  // starts drawing relations between digests that merely share a label.
+  'project:', 'week:', 'cluster:', 'severity:', 'scope:', 'source:', 'date:',
   'type:', 'urgency:', 'host:', 'session:', 'release:',
 ];
 const SYSTEM_TAG_LITERALS = new Set([

@@ -834,6 +834,40 @@ describe('doctor', () => {
     };
   }
 
+  it('hook-wiring: PASS with no marker when this IS a plugin-marketplace install', async () => {
+    // The other half of the C1 fix. `install-hooks` never runs on the plugin
+    // path, so the marker is legitimately absent and PASS is correct there —
+    // without this case, deleting the branch entirely leaves the suite green
+    // while every Claude Code plugin user is told to run a command they must
+    // not run. The fixture is identical to the WARN case below except for the
+    // channel, which is the whole point: the channel is the only signal.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const env = setupMemeshDir({}); // no marker, no settings
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.4',
+      openDatabaseImpl: () => makeDatabase(0) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'plugin-marketplace',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'plugin-marketplace', label: 'Claude Code plugin marketplace', canSelfUpdate: false,
+        recommendedCommand: 'bash scripts/upgrade-plugin.sh',
+        guidance: 'Reinstall the plugin from the Claude Code /plugin UI.',
+      }),
+    });
+    env.restoreEnv();
+
+    const wiring = result.checks.find(c => c.id === 'hook-wiring');
+    expect(wiring!.status).toBe('pass');
+    expect(wiring!.summary).toMatch(/plugin-marketplace install/);
+    expect(wiring!.fix).toBeUndefined();
+  });
+
   it('hook-wiring: WARN when no install-hooks marker exists (fresh install)', async () => {
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);

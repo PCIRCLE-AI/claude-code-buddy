@@ -966,7 +966,7 @@ app.get('/v1/dream/proposals/:id', (req, res) => {
 // add a hard ceiling so a hostile/runaway client cannot ask for a
 // 1-year window with 10000 LLM calls.
 //
-// Forwards `cfg.llmFallbacks` so users with a primary+fallback chain
+// Forwards `caps.llmFallbacks` so users with a primary+fallback chain
 // configured in Settings get the same failover behaviour the CLI does.
 const DreamRunBody = z.object({
   project: z.string().min(1).max(100).optional(),
@@ -986,8 +986,16 @@ app.post('/v1/dream/run', async (req, res) => {
   }
   try {
     const { runDreamer } = await import('../../core/dreamer.js');
-    const cfg = readConfig();
-    if (!cfg.llm) {
+    // `detectCapabilities()`, not the raw config, so this endpoint agrees with
+    // the CLI and doctor about whether an LLM exists. `readConfig().llm` is
+    // truthy for `{ apiKey: "sk-…" }` with no provider — a configuration that
+    // configures nothing — so the documented `llm.not-configured` 400 never
+    // fired for it and the endpoint answered 200 with every cluster skipped.
+    // It also missed the reverse: an env-only ANTHROPIC_API_KEY 400'd here
+    // while `memesh status` reported Smart Mode on.
+    const caps = detectCapabilities();
+    const llm = caps.llm;
+    if (!llm) {
       res.status(400).json({
         success: false,
         errorCode: 'llm.not-configured' satisfies ErrorCode,
@@ -995,11 +1003,11 @@ app.post('/v1/dream/run', async (req, res) => {
       });
       return;
     }
-    const result = await runDreamer(getDatabase(), cfg.llm, {
+    const result = await runDreamer(getDatabase(), llm, {
       project: parsed.data.project,
       windowDays: parsed.data.windowDays,
       maxLlmCalls: parsed.data.maxLlmCalls,
-      fallbacks: cfg.llmFallbacks,
+      fallbacks: caps.llmFallbacks,
       validateBeforeStage: parsed.data.validate,
     });
     res.json({ success: true, data: result });

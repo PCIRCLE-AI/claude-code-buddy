@@ -181,6 +181,9 @@ function detectClusters(db, opts) {
             byProject.set(c.project, []);
         byProject.get(c.project).push(c.entity);
     }
+    if (candidates.length === 0) {
+        return { clusters: [], mode: hasVectorIndex(db) ? 'semantic' : 'calendar' };
+    }
     const vectors = loadCandidateVectors(db, candidates.map(c => c.entity.id));
     if (vectors === null || vectors.size === 0) {
         const clusters = [];
@@ -215,10 +218,10 @@ function detectClusters(db, opts) {
     };
 }
 function loadCandidateVectors(db, ids) {
-    if (ids.length === 0)
-        return new Map();
     if (!hasVectorIndex(db))
         return null;
+    if (ids.length === 0)
+        return new Map();
     const out = new Map();
     try {
         const rows = db.prepare(`SELECT rowid AS id, embedding FROM entities_vec WHERE rowid IN (${ids.map(() => '?').join(',')})`).all(...ids);
@@ -298,7 +301,10 @@ function isoWeekKey(d) {
 }
 function proposalAlreadyExists(db, cluster) {
     const sourceIds = cluster.entities.map(e => e.id).sort((a, b) => a - b);
-    const rows = db.prepare("SELECT source_ids FROM dream_proposals WHERE project = ? AND status = 'pending'").all(cluster.project);
+    const rows = db.prepare(`SELECT source_ids FROM dream_proposals
+     WHERE project = ? AND status = 'pending'
+       AND (source_kind IS NULL OR source_kind = 'entities')
+       AND cluster_key NOT LIKE 'pattern:%'`).all(cluster.project);
     for (const row of rows) {
         try {
             const existing = JSON.parse(row.source_ids);

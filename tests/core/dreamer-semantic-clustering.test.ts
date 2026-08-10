@@ -131,6 +131,54 @@ describe('dreamer clusters by meaning, not by calendar week', () => {
   });
 });
 
+describe('the distance cut-off is the shipped one', () => {
+  /**
+   * The orthogonal fixtures above separate topics at L2 ≈ 1.41 and hold
+   * same-topic pairs under 0.10, so ANY threshold between roughly 0.12 and
+   * 1.40 keeps every test in this file green. Measured: setting
+   * `COMPACT_MAX_CLUSTER_DISTANCE` to 1.2 left all 38 dreamer tests passing.
+   * A constant carrying a measured-not-guessed argument in its docstring needs
+   * a test that fails when it moves, or the argument protects nothing.
+   *
+   * These two cases straddle 0.55 deliberately: 0.50 apart must merge, 0.60
+   * apart must not. They fail if the cut-off moves in either direction.
+   */
+  function vectorAtDistance(d: number): Float32Array {
+    // Distance from the all-zero seed vector is exactly `d` along one axis.
+    const v = new Float32Array(DIM);
+    v[42] = d;
+    return v;
+  }
+
+  function seedPair(names: [string, string], distance: number): void {
+    const db = getDatabase();
+    const vectors = [new Float32Array(DIM), vectorAtDistance(distance)];
+    names.forEach((name, i) => {
+      db.prepare("INSERT INTO entities (name, type, created_at, metadata) VALUES (?, 'commit', ?, ?)")
+        .run(name, `${daysAgo(3)}T12:0${i}:00.000Z`, JSON.stringify({ signal_score: 0.5 }));
+      const id = (db.prepare('SELECT id FROM entities WHERE name = ?').get(name) as { id: number }).id;
+      db.prepare("INSERT INTO tags (entity_id, tag) VALUES (?, 'project:demo')").run(id);
+      db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(id, `work ${name}`);
+      db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)')
+        .run(BigInt(id), Buffer.from(vectors[i].buffer));
+    });
+  }
+
+  it('merges a pair just inside it', async () => {
+    seedPair(['near-a', 'near-b'], 0.50);
+    const result = await dreamPass();
+    expect(result.clusteringMode).toBe('semantic');
+    expect(result.clustersScanned, 'a pair 0.50 apart should be one cluster at a 0.55 cut-off').toBe(1);
+  });
+
+  it('keeps a pair just outside it apart', async () => {
+    seedPair(['far-a', 'far-b'], 0.60);
+    const result = await dreamPass();
+    expect(result.clusteringMode).toBe('semantic');
+    expect(result.clustersScanned, 'a pair 0.60 apart should be two clusters at a 0.55 cut-off').toBe(2);
+  });
+});
+
 describe('dreamer says when it could not group by meaning', () => {
   it('falls back to the calendar week and reports that it did', async () => {
     // The default configuration stores no embeddings at all, which is the

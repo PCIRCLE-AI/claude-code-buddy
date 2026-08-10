@@ -83,6 +83,7 @@ export function remember(args) {
         observations: args.observations?.length ?? 0,
         tags: args.tags?.length ?? 0,
         relations: relationsCreated.length,
+        ...(relationsCreated.length > 0 ? { relationsCreated } : {}),
         ...(superseded.length > 0 ? { superseded } : {}),
         ...(relationErrors.length > 0 ? { relationErrors } : {}),
     };

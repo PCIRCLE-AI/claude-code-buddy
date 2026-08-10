@@ -126,21 +126,6 @@
       "reason": "readSettings throws on unparseable input; absent hooks truthfully means none wired",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/kg-backfill.ts:405": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "index lookups where empty means no peers",
-      "triaged": "2026-08-04"
-    },
-    "C5 src/core/kg-backfill.ts:550": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "index lookups where empty means no peers",
-      "triaged": "2026-08-04"
-    },
-    "C5 src/core/kg-backfill.ts:557": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "index lookups where empty means no peers",
-      "triaged": "2026-08-04"
-    },
     "C5 src/core/llm-client.ts:124": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "chain identity; all-providers-failed still throws",
@@ -159,16 +144,6 @@
     "C5 src/core/llm-validator.ts:273": {
       "class": "SAFE-GUARDED",
       "reason": "models.length === 0 now returns valid:false for all three providers (PR #112)",
-      "triaged": "2026-08-04"
-    },
-    "C5 src/core/serializer.ts:21": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "provenance spread identity; trust written unconditionally",
-      "triaged": "2026-08-04"
-    },
-    "C5 src/core/serializer.ts:24": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "provenance spread identity; trust written unconditionally",
       "triaged": "2026-08-04"
     },
     "C5 src/storage/fts-index.ts:208": {
@@ -371,11 +346,6 @@
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
     },
-    "C5 src/transports/http/server.ts:1043": {
-      "class": "SAFE-GUARDED",
-      "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-10 (re-keyed: the serve 'error' listener added 9 lines; same safeParse statements, same classification)"
-    },
     "C5 src/transports/http/server.ts:978": {
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
@@ -461,35 +431,70 @@
       "reason": "llmCalls toBe(0) is the assertion under test (the cluster was skipped before the network) and is backed by a second assertion that no LLM attempt appears among the skip reasons",
       "triaged": "2026-08-10 (P7 batch 2)"
     },
-    "C5 src/transports/cli/cli.ts:175": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "commander leaves --supersedes undefined when the flag is absent; the empty list truthfully means no relation was requested, and nothing downstream reports one as created",
-      "triaged": "2026-08-10 (P7 batch 2)"
-    },
-    "C5 src/transports/cli/cli.ts:176": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "commander leaves --contradicts undefined when the flag is absent; the empty list truthfully means no relation was requested",
-      "triaged": "2026-08-10 (P7 batch 2)"
-    },
-    "C5 src/transports/cli/cli.ts:203": {
-      "class": "SAFE-GUARDED",
-      "reason": "remember() sets relationErrors only when non-empty (operations.ts spreads it conditionally), so absent means none at the single producer; the failure path exits 1 off the same field",
-      "triaged": "2026-08-10 (P7 batch 2)"
-    },
     "C6 tests/relation-types-documented.test.ts": {
       "class": "WIRING-PIN",
       "reason": "reads cli.ts to assert each behavioural relation type has a flag whose help carries the consequence — the flags' behaviour is tested against a real database in tests/cli/remember-relations.test.ts",
       "triaged": "2026-08-10 (P7 batch 2)"
     },
-    "C5 src/core/dreamer.ts:923": {
+    "C5 src/core/dreamer.ts:947": {
       "class": "SAFE-GUARDED",
       "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (+18 total: semantic clustering, then the blob-alignment and measured-clusters comments); same statement, classification unchanged)"
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass: namespace validation, provenance constant and the relations fix shifted these lines); same statement, classification unchanged)"
     },
-    "C5 src/core/dreamer.ts:926": {
+    "C5 src/core/dreamer.ts:950": {
       "class": "SAFE-GUARDED",
       "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (+18 total: semantic clustering, then the blob-alignment and measured-clusters comments); same statement, classification unchanged)"
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass: namespace validation, provenance constant and the relations fix shifted these lines); same statement, classification unchanged)"
+    },
+    "C5 src/core/kg-backfill.ts:410": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "index lookups where empty means no peers",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/kg-backfill.ts:555": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "index lookups where empty means no peers",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/kg-backfill.ts:562": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "index lookups where empty means no peers",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/serializer.ts:22": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "provenance spread identity; trust written unconditionally",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/core/serializer.ts:25": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "provenance spread identity; trust written unconditionally",
+      "triaged": "2026-08-04"
+    },
+    "C5 src/transports/http/server.ts:1051": {
+      "class": "SAFE-GUARDED",
+      "reason": "Zod safeParse still validates; fields optional-with-default by design",
+      "triaged": "2026-08-10 (re-keyed: the serve 'error' listener added 9 lines; same safeParse statements, same classification)"
+    },
+    "C5 src/transports/cli/cli.ts:176": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "commander leaves --supersedes undefined when the flag is absent; the empty list truthfully means no relation was requested, and nothing downstream reports one as created",
+      "triaged": "2026-08-10 (P7 batch 2)"
+    },
+    "C5 src/transports/cli/cli.ts:177": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "commander leaves --contradicts undefined when the flag is absent; the empty list truthfully means no relation was requested",
+      "triaged": "2026-08-10 (P7 batch 2)"
+    },
+    "C5 src/transports/cli/cli.ts:210": {
+      "class": "SAFE-GUARDED",
+      "reason": "remember() sets relationErrors only when non-empty (operations.ts spreads it conditionally), so absent means none at the single producer; the failure path exits 1 off the same field",
+      "triaged": "2026-08-10 (P7 batch 2)"
+    },
+    "C5 src/transports/cli/cli.ts:204": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "remember() spreads relationsCreated only when non-empty, so absent means none were created at the single producer; the empty list correctly prints no conflicts line — this replaced arithmetic that announced conflicts for relations that had failed",
+      "triaged": "2026-08-10 (review pass)"
     }
   }
 }

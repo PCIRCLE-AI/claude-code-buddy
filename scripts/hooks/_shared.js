@@ -180,6 +180,19 @@ export function resolveSessionLimit(env = process.env) {
   return 10;
 }
 
+/**
+ * The tag every capture hook attaches to what it writes.
+ *
+ * `memesh doctor`'s hook-activity row counts THIS to answer "is the
+ * auto-capture loop alive" — it used to answer from entity type, and one of
+ * those types is what `memesh learn` writes by hand. The constant lives in
+ * `src/core/types.ts` for the TypeScript side; the hooks are plain .js loaded
+ * by Claude Code and cannot import it, so this is the one mirror.
+ * `tests/auto-capture-provenance.test.ts` fails if the two ever disagree, or
+ * if a capture hook stops writing it.
+ */
+export const AUTO_CAPTURE_TAG = 'source:auto-capture';
+
 const VALID_AUTO_UPDATE_POLICIES = new Set(['off', 'patch', 'minor', 'major']);
 
 /**

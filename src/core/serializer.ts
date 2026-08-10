@@ -5,6 +5,7 @@
 
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
+import { NAMESPACES } from './types.js';
 import type { ExportInput, ExportResult, ImportInput, ImportResult } from './types.js';
 
 type EntityMetadata = {
@@ -109,6 +110,20 @@ export function importMemories(args: ImportInput): ImportResult {
     throw new Error(
       `Unknown merge strategy "${args.merge_strategy}". Use one of: ${MERGE_STRATEGIES.join(', ')}. ` +
       'Nothing was imported — refusing rather than guessing, because the wrong guess overwrites existing memories.'
+    );
+  }
+
+  // The namespace override MOVES entities that already exist, so an
+  // unrecognised value does not merely mis-file new rows — it relocates
+  // existing memories into a scope no filter matches, and they vanish from
+  // every scoped view while the import reports them appended. `ImportSchema`
+  // validates this field as `z.string().max(50)` rather than the enum
+  // `remember` uses, so MCP and HTTP callers reach here with anything; the CLI
+  // is the only transport that checked. Checking in core covers all three.
+  if (args.namespace !== undefined && !(NAMESPACES as readonly string[]).includes(args.namespace)) {
+    throw new Error(
+      `Unknown namespace "${args.namespace}". Use one of: ${NAMESPACES.join(', ')}. ` +
+      'Nothing was imported — an unrecognised namespace would move existing memories somewhere nothing queries.'
     );
   }
 

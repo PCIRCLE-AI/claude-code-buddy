@@ -2,7 +2,7 @@
 
 import { basename } from 'path';
 import { existsSync, readFileSync } from 'fs';
-import { captureEntity, getProjectName, isAutoCaptureEnabled, openHookDb } from './_shared.js';
+import { AUTO_CAPTURE_TAG, captureEntity, getProjectName, isAutoCaptureEnabled, openHookDb } from './_shared.js';
 
 // Timeout guard: always exit within 10 seconds
 const TIMEOUT_MS = 10000;
@@ -110,7 +110,7 @@ process.stdin.on('end', () => {
         name: entityName,
         type: 'session-summary',
         observations: obsLines,
-        tags: ['source:auto-capture', 'urgency:pre-compact', `project:${projectName}`],
+        tags: [AUTO_CAPTURE_TAG, 'urgency:pre-compact', `project:${projectName}`],
       });
     } finally {
       db.close();

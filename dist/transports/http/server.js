@@ -570,8 +570,9 @@ app.post('/v1/dream/run', async (req, res) => {
     }
     try {
         const { runDreamer } = await import('../../core/dreamer.js');
-        const cfg = readConfig();
-        if (!cfg.llm) {
+        const caps = detectCapabilities();
+        const llm = caps.llm;
+        if (!llm) {
             res.status(400).json({
                 success: false,
                 errorCode: 'llm.not-configured',
@@ -579,11 +580,11 @@ app.post('/v1/dream/run', async (req, res) => {
             });
             return;
         }
-        const result = await runDreamer(getDatabase(), cfg.llm, {
+        const result = await runDreamer(getDatabase(), llm, {
             project: parsed.data.project,
             windowDays: parsed.data.windowDays,
             maxLlmCalls: parsed.data.maxLlmCalls,
-            fallbacks: cfg.llmFallbacks,
+            fallbacks: caps.llmFallbacks,
             validateBeforeStage: parsed.data.validate,
         });
         res.json({ success: true, data: result });

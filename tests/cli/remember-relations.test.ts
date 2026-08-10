@@ -59,6 +59,33 @@ describe('memesh remember --contradicts', () => {
     expect(runCli(['recall', 'unrelated']).stdout).not.toContain('Conflicts detected');
   });
 
+  it('does not announce a conflict whose relation failed in the same call', () => {
+    // The mixed case. Reporting was computed as `relations.length -
+    // relationErrors.length > 0`, which only asks whether SOMETHING succeeded
+    // — so one good target and one bad one printed BOTH under "conflicts
+    // stated", two lines above the error saying the second had failed. Exactly
+    // the false-success shape this branch exists to remove.
+    runCli(['remember', '--name', 'real-target', '--type', 'note', '--obs', 'exists']);
+    const r = runCli([
+      'remember', '--name', 'mixed', '--type', 'note', '--obs', 'x',
+      '--contradicts', 'real-target', '--contradicts', 'ghost',
+    ]);
+
+    expect(r.stdout).toContain('conflicts stated: real-target');
+    expect(r.stdout, 'a conflict was announced for a relation that failed').not.toContain('ghost');
+    expect(r.stderr).toMatch(/Relation to "ghost" failed/);
+    expect(r.exitCode).toBe(1);
+
+    // And the one that DID succeed really is in the graph, so this is not
+    // satisfied by a command that silently stopped creating relations.
+    // Conflict detection needs BOTH endpoints among the results, so this is
+    // the list-recent form rather than a query that matches only one of them.
+    const listed = runCli(['recall']);
+    expect(listed.stdout).toContain('Conflicts detected');
+    expect(listed.stdout).toContain('"mixed" contradicts "real-target"');
+    expect(listed.stdout, 'a relation to the missing target was created after all').not.toContain('ghost');
+  });
+
   it('says so when the target does not exist, and exits non-zero', () => {
     // The relation was not created, so the conflict the user asked for will
     // never fire. Reporting success here is the failure this repository keeps

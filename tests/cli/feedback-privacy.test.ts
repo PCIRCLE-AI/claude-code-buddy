@@ -4,7 +4,7 @@
  * 1. It carried the account name into it. The body is composed from `doctor`
  *    output, and doctor names paths — the database, the config file, where
  *    `memesh` resolves on PATH. On a normal install every one of those begins
- *    with the home directory, so a measured run put `%2FUsers%2Fktseng` in the
+ *    with the home directory, so a measured run put `%2FUsers%2F<name>` in the
  *    issue URL twice.
  * 2. Without `--no-open` the body was never shown in the terminal. It is
  *    rendered in the GitHub form, but below the fold of a page the user opened

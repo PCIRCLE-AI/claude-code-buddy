@@ -58,7 +58,20 @@ export type BehaviouralRelationType = keyof typeof BEHAVIOURAL_RELATION_TYPES;
  */
 export const AUTO_CAPTURE_TAG = 'source:auto-capture';
 
-export type Namespace = 'personal' | 'team' | 'global';
+/**
+ * The namespaces, as a runtime list.
+ *
+ * `Namespace` is erased at compile time, so every place that had to REJECT a
+ * bad value kept its own copy of the strings — the CLI had one, the Zod
+ * schemas have one each. That is fine until one copy is missed, which is
+ * exactly what happened: `ImportSchema` validated `namespace` as
+ * `z.string().max(50)` while `RememberSchema` used the enum, and once an
+ * explicit namespace began MOVING entities that already exist, the loose one
+ * became a way to relocate memories into a scope nothing queries.
+ */
+export const NAMESPACES = ['personal', 'team', 'global'] as const;
+
+export type Namespace = (typeof NAMESPACES)[number];
 export type MergeStrategy = 'skip' | 'overwrite' | 'append';
 export type LessonSeverity = 'critical' | 'major' | 'minor';
 export type EntityStatus = 'active' | 'archived';
@@ -172,6 +185,17 @@ export interface RememberResult {
   relations: number;
   superseded?: string[];
   relationErrors?: string[];
+  /**
+   * The relations that were actually created, not the ones that were asked for.
+   *
+   * `relations` is only a count and `relationErrors` is only messages, so a
+   * caller wanting to report "this memory now contradicts X" had to reconstruct
+   * the successful set by subtracting one from the other — and the CLI got that
+   * wrong, announcing `conflicts stated: <target>` for a target whose relation
+   * had failed in the same call. A caller should not have to do arithmetic to
+   * find out what happened.
+   */
+  relationsCreated?: Array<{ to: string; type: string }>;
 }
 
 export interface ForgetResult {

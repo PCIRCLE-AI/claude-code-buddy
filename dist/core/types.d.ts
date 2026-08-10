@@ -4,7 +4,8 @@ export declare const BEHAVIOURAL_RELATION_TYPES: {
 };
 export type BehaviouralRelationType = keyof typeof BEHAVIOURAL_RELATION_TYPES;
 export declare const AUTO_CAPTURE_TAG = "source:auto-capture";
-export type Namespace = 'personal' | 'team' | 'global';
+export declare const NAMESPACES: readonly ["personal", "team", "global"];
+export type Namespace = (typeof NAMESPACES)[number];
 export type MergeStrategy = 'skip' | 'overwrite' | 'append';
 export type LessonSeverity = 'critical' | 'major' | 'minor';
 export type EntityStatus = 'active' | 'archived';
@@ -82,6 +83,10 @@ export interface RememberResult {
     relations: number;
     superseded?: string[];
     relationErrors?: string[];
+    relationsCreated?: Array<{
+        to: string;
+        type: string;
+    }>;
 }
 export interface ForgetResult {
     archived?: boolean;
