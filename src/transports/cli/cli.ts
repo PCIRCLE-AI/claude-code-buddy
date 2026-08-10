@@ -735,6 +735,14 @@ configCmd
     writeConfig(config as never);
     const displayValue = canonical.toLowerCase().includes('key') ? maskApiKey(String(value)) : String(value);
     console.log(`✅ Set ${canonical} = ${displayValue}`);
+
+    // A key without a provider configures nothing. Say so here, where the user
+    // is looking, instead of letting them discover it from features that
+    // quietly do nothing.
+    if (canonical === 'llm.apiKey' && !(config.llm as { provider?: string } | undefined)?.provider) {
+      console.log('⚠️  No llm.provider is set, so this key is not used yet and LLM features stay off.');
+      console.log('    Set one with: memesh config set llm.provider <anthropic|openai|ollama>');
+    }
   });
 
 configCmd
@@ -1849,7 +1857,12 @@ program
     console.log(`MeMesh v${pkg.version}`);
     console.log(`Search level: ${caps.searchLevel} (${caps.searchLevel === 1 ? 'Smart Mode' : 'Core'})`);
     console.log(`Embeddings: ${caps.embeddings}`);
-    console.log(`LLM: ${caps.llm ? `${caps.llm.provider} (${caps.llm.model})` : 'not configured'}`);
+    // `?? 'default'` and not `${model}`: a provider set without a model is
+    // normal — each one has a built-in default — and printing the literal
+    // word "undefined" made a working setup look broken. The other half of
+    // `LLM: undefined (undefined)`, a key with no provider, is now filtered
+    // out in detectCapabilities and reaches this line as "not configured".
+    console.log(`LLM: ${caps.llm ? `${caps.llm.provider} (${caps.llm.model ?? 'default'})` : 'not configured'}`);
     console.log(`Install method: ${installSupport.label}`);
 
     for (const line of formatUpdateCheckStatus(update)) {

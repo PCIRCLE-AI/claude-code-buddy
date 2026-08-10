@@ -128,11 +128,17 @@ process.stdin.on('end', () => {
       }
 
       // Shared write dance — upsert entity + observations + tags AND reindex FTS.
+      //
+      // `source:auto-capture` is the provenance marker every capture hook
+      // writes (session-summary, pre-compact and the extractor already did;
+      // this one did not). `memesh doctor` counts it to answer "is the
+      // auto-capture loop alive" — a question it used to answer from entity
+      // TYPE, which a hand-typed `memesh learn` satisfied all by itself.
       captureEntity(db, {
         name: entityName,
         type: 'commit',
         observations,
-        tags: [`project:${projectName}`],
+        tags: ['source:auto-capture', `project:${projectName}`],
       });
     } finally {
       db.close();

@@ -238,7 +238,18 @@ async function callSingle(
     return text;
   }
 
-  return '';
+  // An unrecognised provider used to `return ''`, and the failover loop above
+  // treats a returned string as success. So `memesh config set llm.apiKey ...`
+  // without `llm.provider` — a plausible thing to type — left every LLM-backed
+  // feature doing nothing while reporting that it had run: `dream patterns`
+  // counted a call that never happened, auto-tagging quietly produced no tags,
+  // and `doctor` said PASS. Same shape as `?? true`: no failure signal is not
+  // success. Throwing lets the failover loop move on to a fallback that IS
+  // configured, and surfaces the real reason when none is.
+  throw new Error(
+    `No LLM provider configured (llm.provider is ${config.provider === undefined ? 'unset' : `"${String(config.provider)}"`}). ` +
+    'Set one with `memesh config set llm.provider <anthropic|openai|ollama>`.',
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -59,6 +59,17 @@ function createPackageRoot(): string {
     },
   });
 
+  // `.claude-plugin/plugin.json` is listed in package.json's `files`, so it is
+  // inside the tarball and exists on EVERY install. The fixture used to omit
+  // it, and that omission hid a real defect for three releases: the
+  // hook-wiring check treated the file's presence as proof that Claude Code
+  // had loaded the hooks, so a plain `npm i -g` with nothing wired reported
+  // PASS. A fixture that does not carry what ships cannot see that.
+  writeJson(path.join(root, '.claude-plugin', 'plugin.json'), {
+    name: 'memesh',
+    version: '4.1.4',
+  });
+
   writeJson(path.join(root, 'hooks', 'hooks.json'), {
     hooks: {
       PreToolUse: [{ hooks: [{ command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-edit-recall.js' }] }],
@@ -151,7 +162,12 @@ function makeDatabase(count = 3, opts: { unsegmentedCount?: number } = {}) {
       if (sql.includes('fts_vocab')) {
         return { get: () => ({ c: opts.unsegmentedCount ?? 0 }) };
       }
-      expect(sql).toContain('COUNT(*)');
+      // hook-activity counts entities carrying the auto-capture provenance
+      // tag, so its statement is `COUNT(DISTINCT e.id)` over a join. This
+      // stub cannot tell the two counts apart — it never runs the SQL. The
+      // predicate itself is covered against a real database in
+      // `tests/cli/doctor-honest-pass.test.ts`.
+      expect(sql).toMatch(/COUNT\(/);
       return {
         get: () => ({ c: count }),
       };

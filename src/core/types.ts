@@ -44,6 +44,20 @@ export const BEHAVIOURAL_RELATION_TYPES = {
 
 export type BehaviouralRelationType = keyof typeof BEHAVIOURAL_RELATION_TYPES;
 
+/**
+ * The tag every capture hook attaches to what it writes.
+ *
+ * This is the only honest answer to "did automation produce this memory".
+ * `memesh doctor`'s hook-activity row used to answer it from entity TYPE, and
+ * one of the types it counted — `lesson_learned` — is what `memesh learn`
+ * writes, which a user types by hand. So a fresh HOME with no `.claude`
+ * directory reported "auto-capture loop is alive" after one manual command.
+ *
+ * `tests/auto-capture-provenance.test.ts` fails if a capture hook stops
+ * writing it, or if doctor stops counting it.
+ */
+export const AUTO_CAPTURE_TAG = 'source:auto-capture';
+
 export type Namespace = 'personal' | 'team' | 'global';
 export type MergeStrategy = 'skip' | 'overwrite' | 'append';
 export type LessonSeverity = 'critical' | 'major' | 'minor';

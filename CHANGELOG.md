@@ -147,6 +147,39 @@ All notable changes to MeMesh are documented here.
   to type. `--no-diagnostics` still drops the install ID and the report
   entirely.
 
+- **`memesh doctor` no longer reports "Hooks wired into Claude Code / PASS" on
+  an install where nothing is wired.** It accepted the presence of
+  `.claude-plugin/plugin.json` as proof that the Claude Code plugin runtime had
+  loaded the hooks. That file is listed in `package.json`'s `files`, so it is
+  inside the tarball and exists on **every** install — including a plain
+  `npm i -g` that has never been connected to anything. The WARN telling you to
+  run `memesh install-hooks` was unreachable. It now keys off the install
+  channel, which reports `plugin-marketplace` only when the package really sits
+  under `~/.claude/plugins/cache/`. The test fixture also gained the
+  `.claude-plugin` directory, because a fixture that does not carry what ships
+  cannot see this class of bug.
+
+- **`memesh doctor` no longer reports your own typing as evidence that
+  automation works.** The "Hook activity (last 24h)" row counted entity
+  *types*, and one of them — `lesson_learned` — is what `memesh learn` writes.
+  On a brand-new HOME with no `.claude` directory at all, one hand-typed
+  `learn` produced `[PASS] auto-capture loop is alive`. The row now counts the
+  `source:auto-capture` provenance tag that the capture hooks attach.
+  `post-commit` did not attach it and now does, so all four capture paths mark
+  what they write the same way.
+
+- **An API key with no provider no longer looks like a working LLM.** `memesh
+  config set llm.apiKey sk-…` without `llm.provider` wrote `{ apiKey: … }`,
+  and that object is truthy: `memesh status` printed `LLM: undefined
+  (undefined)`, search level jumped to Smart Mode, and every LLM-backed feature
+  became a silent no-op that still reported success — the provider dispatcher
+  fell off the end of its chain and returned an empty string, which the
+  failover loop records as a successful call. Three changes: the dispatcher
+  throws and names the missing setting, a key without a provider no longer
+  counts as a configured LLM, and `config set llm.apiKey` says at that moment
+  that nothing will use the key yet. `status` also prints `(default)` rather
+  than `(undefined)` for a provider left on its built-in model.
+
 ## [4.5.0] — 2026-08-05
 
 ### Added

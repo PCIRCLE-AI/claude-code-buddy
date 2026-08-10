@@ -246,6 +246,45 @@ describe('callLLM — cross-provider failover', () => {
   });
 });
 
+describe('callLLM — a config that names no provider', () => {
+  const origFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = origFetch; });
+
+  /**
+   * `memesh config set llm.apiKey sk-…` without `llm.provider` writes
+   * `{ apiKey: "sk-…" }`. The dispatcher used to fall off the end of its
+   * provider chain and `return ''`, which the failover loop records as
+   * `status: 'ok'`. Every LLM-backed feature then did nothing and reported
+   * success: `dream patterns` counted a call that never happened, auto-tagging
+   * produced no tags, `doctor` said PASS. Absence of a failure signal is not
+   * success.
+   */
+  it('fails instead of returning an empty string', async () => {
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    const attempts: LLMAttempt[] = [];
+    await expect(
+      callLLM('hi', { apiKey: 'sk-test' } as never, { onAttempt: (a) => { attempts.push(...a); } })
+    ).rejects.toThrow(/llm\.provider/);
+
+    // No HTTP call was even attempted, and the attempt is recorded as a
+    // failure — a row saying `status: 'ok'` is what made this invisible.
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(attempts[0]).toMatchObject({ status: 'fail' });
+  });
+
+  it('still walks on to a fallback that IS configured', async () => {
+    globalThis.fetch = makeFetch([
+      { ok: true, status: 200, body: { response: 'ollama-rescued' } },
+    ]);
+    const out = await callLLM('hi', { apiKey: 'sk-test' } as never, {
+      fallbacks: [{ provider: 'ollama' }],
+    });
+    expect(out).toBe('ollama-rescued');
+  });
+});
+
 describe('classifyError', () => {
   it.each([
     ['Anthropic API error: 401', 'auth'],

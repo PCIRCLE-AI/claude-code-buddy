@@ -356,7 +356,14 @@ export function detectCapabilities(config?: MeMeshConfig): Capabilities {
   // choice), never env-detected LLM. So a user who has OPENAI_API_KEY in
   // their shell gets openai LLM features but keeps keyword-only embeddings
   // unless they explicitly write embedder.provider=openai to their config.
-  const llm = cfg.llm ?? detectFromEnv() ?? null;
+  // `cfg.llm` counts only when it names a provider. `memesh config set
+  // llm.apiKey sk-…` without `llm.provider` writes `{ apiKey: "sk-…" }`, and
+  // that object is truthy — so `status` printed `LLM: undefined (undefined)`,
+  // searchLevel went to 1, and every LLM-backed feature reported success while
+  // doing nothing. A key with no provider configures nothing; fall through to
+  // the environment, exactly as if the key had not been written.
+  const configuredLlm = cfg.llm?.provider ? cfg.llm : null;
+  const llm = configuredLlm ?? detectFromEnv() ?? null;
   const embeddings = detectEmbeddingSource(cfg.llm ?? null, cfg.embedder);
 
   return {
