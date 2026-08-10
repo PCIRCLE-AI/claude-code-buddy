@@ -102,6 +102,17 @@ function describeInvalidEntity(entity: unknown, index: number): string | null {
       return `${where}.${field} is ${typeof e[field]}, not an array.`;
     }
   }
+  // The namespace a bundle carries per entity places the entities an import
+  // CREATES, and it was unchecked while the caller's override became an enum.
+  // So a bundle — which over MCP is content an agent may have been handed —
+  // could still write memories into a scope no filter selects: invisible to
+  // every scoped recall, to `export --namespace`, and to the memory tool,
+  // while squatting the name database-wide so a later legitimate create of it
+  // is refused. Reported per entity rather than thrown, so one bad row does
+  // not cost the whole bundle.
+  if (e.namespace !== undefined && !(NAMESPACES as readonly string[]).includes(e.namespace as string)) {
+    return `${where}.namespace is ${JSON.stringify(e.namespace)}, which is not one of: ${NAMESPACES.join(', ')}.`;
+  }
   return null;
 }
 

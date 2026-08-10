@@ -956,7 +956,16 @@ function runAutoTelemetryPrune(db: MemeshDatabase): void {
  */
 function backfillSignalScores(db: MemeshDatabase): void {
 
-  const MARKER = 'signal_score_backfill_v1';
+  // v2 re-runs the scan once. `remember()` used to rebuild an entity's
+  // metadata from a snapshot taken before the row was written, discarding the
+  // score stamped at creation — so every memory written through `remember`
+  // after the v1 backfill has none. Left alone, an upgraded graph is split:
+  // old rows scored, remember-written rows not, and the three consumers
+  // disagree about what a missing score means (kg-backfill treats it as 1.0,
+  // the dreamer as 0.5, the dashboard passes it through). The pass only fills
+  // rows that lack a score, so re-running costs one scan and changes nothing
+  // that already has one.
+  const MARKER = 'signal_score_backfill_v2';
   const done = db.prepare(
     "SELECT value FROM memesh_metadata WHERE key = ?"
   ).get(MARKER);
@@ -982,7 +991,17 @@ function backfillSignalScores(db: MemeshDatabase): void {
     let skipped = 0;
     for (const row of rows) {
       let metadata: Record<string, unknown>;
-      try { metadata = row.metadata ? JSON.parse(row.metadata) : {}; } catch { metadata = {}; }
+      if (row.metadata) {
+        // Unparseable metadata is LEFT ALONE. The catch used to fall back to
+        // `{}`, and the row is written back whole further down — so a column
+        // this function could not read was replaced by one holding only a
+        // score, destroying whatever was in it. Harmless while the pass ran
+        // once on a young graph; not harmless now that it re-runs.
+        try { metadata = JSON.parse(row.metadata) as Record<string, unknown>; } catch { skipped++; continue; }
+        if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) { skipped++; continue; }
+      } else {
+        metadata = {};
+      }
       if (typeof metadata.signal_score === 'number') {
         skipped++;
         continue;

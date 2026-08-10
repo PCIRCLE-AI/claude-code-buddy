@@ -55,6 +55,9 @@ function describeInvalidEntity(entity, index) {
             return `${where}.${field} is ${typeof e[field]}, not an array.`;
         }
     }
+    if (e.namespace !== undefined && !NAMESPACES.includes(e.namespace)) {
+        return `${where}.namespace is ${JSON.stringify(e.namespace)}, which is not one of: ${NAMESPACES.join(', ')}.`;
+    }
     return null;
 }
 export function importMemories(args) {

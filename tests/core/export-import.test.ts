@@ -279,6 +279,31 @@ describe('importMemories', () => {
       expect(meta.trust).toBe('untrusted');
     });
 
+    it('refuses a per-entity namespace outside the three, without losing the rest', () => {
+      // The caller's override became an enum; the namespace a bundle carries
+      // per entity did not. Over MCP a bundle is content an agent may have
+      // been handed, and an unrecognised scope is invisible to every scoped
+      // recall and to `export --namespace` while still squatting the name
+      // database-wide. Reported per entity, so one bad row does not cost the
+      // whole bundle.
+      const bundle = {
+        version: '3.0.0', exported_at: '2026-08-10T00:00:00.000Z', entity_count: 2,
+        entities: [
+          { name: 'good', type: 'note', namespace: 'personal', observations: ['ok'], tags: [], relations: [] },
+          { name: 'smuggled', type: 'note', namespace: 'attacker-scope', observations: ['bad'], tags: [], relations: [] },
+        ],
+      } as Parameters<typeof importMemories>[0]['data'];
+
+      const result = importMemories({ data: bundle, merge_strategy: 'skip' });
+
+      expect(result.imported, 'the good entry was lost along with the bad one').toBe(1);
+      expect(result.errors.join(' ')).toContain('entities[1].namespace');
+      expect(result.errors.join(' ')).toContain('attacker-scope');
+      // The database is the check: nothing landed in the invented scope.
+      expect(recall({ query: 'smuggled' })).toEqual([]);
+      expect(recall({ query: 'good' })[0]?.namespace).toBe('personal');
+    });
+
     it('the bundle\'s namespace still places entities the import creates', () => {
       importMemories({ data: bundleFor('brand-new'), merge_strategy: 'skip' });
       expect(exportMemories({ namespace: 'personal' }).entities.map(e => e.name)).toContain('brand-new');
