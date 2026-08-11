@@ -248,12 +248,28 @@ export function redactUserPaths(text: string): string {
     // silently misses the JSON-encoded one, which is the copy that gets
     // published.
     //
-    // The trailing lookahead makes a root match only at a path boundary. Without
-    // it a root is an unanchored substring, so `MEMESH_DIR=/data` rewrote
+    // A root has to match at a path boundary on BOTH sides, and it takes two
+    // assertions to say that — one is the bug this had.
+    //
+    // Trailing lookahead: without it `MEMESH_DIR=/data` rewrote
     // `/var/lib/postgres/database` to `/var/lib/postgres~base` and `/datasets/x`
-    // to `~sets/x` — mangling unrelated paths in the same diagnostic.
+    // to `~sets/x`.
+    //
+    // Leading lookbehind: the trailing one alone still let a root match in the
+    // MIDDLE of an unrelated path, because there the next character IS a
+    // separator — `/var/lib/data/file` became `/var/lib~/file`. The comment here
+    // used to cite only the `database` case and read as though the whole class
+    // was closed; it was half closed, and the test below matched the comment
+    // rather than the claim in its own name.
+    //
+    // The forbidden preceding characters are the ones that can appear INSIDE a
+    // path component (`\w.~-`) plus the separators. Separators have to be in the
+    // set or `/var/lib//data` matches one character to the right of the pair and
+    // slips through; a root that genuinely starts with a doubled separator is
+    // still matched, because `{1,2}` in the body absorbs both and the assertion
+    // then looks at what precedes the pair.
     const body = escaped.replace(/\\\\|\//g, '[\\\\/]{1,2}');
-    out = out.replace(new RegExp(`${body}(?=[\\\\/]|$)`, flags), '~');
+    out = out.replace(new RegExp(`(?<![\\w.~\\-\\\\/])${body}(?=[\\\\/]|$)`, flags), '~');
   }
   return out;
 }

@@ -75,7 +75,7 @@ describe('redactUserPaths: does not corrupt the report', () => {
     );
   });
 
-  it('matches a root only at a path boundary', () => {
+  it('matches a root only where the path component ENDS', () => {
     // Roots were unanchored substrings, so MEMESH_DIR=/data rewrote
     // /var/lib/postgres/database and /datasets/x.
     process.env.MEMESH_DIR = '/data';
@@ -84,6 +84,36 @@ describe('redactUserPaths: does not corrupt the report', () => {
     expect(out).toContain('/datasets/x');
     // …while the genuine one is still redacted, so this is not "match nothing".
     expect(out).toContain('~/real');
+  });
+
+  it('matches a root only where the path component BEGINS', () => {
+    // The trailing boundary alone passes this case — /data is followed by a
+    // separator, which is exactly what it asks for — so a root still matched in
+    // the middle of an unrelated path and /var/lib/data/file came out as
+    // /var/lib~/file. Splitting this from the test above is deliberate: one
+    // assertion per boundary, so removing either anchor turns exactly one test
+    // red instead of leaving the other one covering for it.
+    process.env.MEMESH_DIR = '/data';
+    const out = redactUserPaths(
+      '/var/lib/data/file and /srv/data/x and MEMESH_DIR=/data/real and /data/top'
+    );
+    expect(out, 'a root matched inside an unrelated path').toContain('/var/lib/data/file');
+    expect(out, 'a root matched inside an unrelated path').toContain('/srv/data/x');
+    // Preceded by `=` and by nothing at all: both are real boundaries, so the
+    // lookbehind must not reject them. Without this half the fix reads as
+    // "redact less" rather than "redact the right thing".
+    expect(out, 'a genuine root after "=" stopped being redacted').toContain('MEMESH_DIR=~/real');
+    expect(out, 'a genuine root at the start of the text stopped being redacted').toContain('~/top');
+  });
+
+  it('does not let a doubled separator slip a root past the boundary', () => {
+    // `[\\/]{1,2}` in the pattern means the match can start one character to
+    // the right of a `//` pair. If the lookbehind only forbade word characters,
+    // that second slash would be an allowed predecessor and /var/lib//data
+    // would redact after all.
+    process.env.MEMESH_DIR = '/data';
+    const out = redactUserPaths('/var/lib//data/file');
+    expect(out, 'a doubled separator let a root match mid-path').toBe('/var/lib//data/file');
   });
 
   it('leaves text with no machine paths in it exactly as it was', () => {
