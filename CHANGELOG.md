@@ -107,6 +107,46 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **A redaction root can no longer match in the middle of an unrelated path.**
+  `redactUserPaths` anchored the end of a root but not the beginning, so with
+  `MEMESH_DIR=/data` the text `/var/lib/data/file` — someone else's path, on
+  its way into a **public** GitHub issue — came out as `/var/lib~/file`: a
+  corrupted diagnostic with nothing saying redaction did it. A root now has to
+  sit at a path boundary on both sides; genuine roots after `=`, at the start
+  of the text, or spelled with a doubled separator are still redacted.
+
+- **A dream proposal that would claim nothing is now rejected instead of
+  applied.** When every source of a digest proposal had already been
+  summarised by another digest — or every source of a pattern proposal had
+  been forgotten — `apply` still created the digest entity: a summary
+  summarising nothing (or a pattern with zero evidence), left active in the
+  graph, with the proposal marked `applied` and `sourcesArchived: 0` reported
+  as success. It now throws before writing, the transaction rolls back, and
+  the proposal is marked `rejected` with the reason — so later runs stop
+  retrying it.
+
+- **A stored vector holding `NaN` no longer joins every cluster.** The
+  clustering distance check exits early on `sum >= limit²`; `NaN` makes that
+  comparison false at every step, so the loop ran to the end and a bare
+  `return true` declared the pair a match — one corrupt vector merged with
+  everything, and the digest went to the model as if those memories belonged
+  together. The check now requires the accumulated distance to be finite.
+
+- **An embedding with a non-finite component is refused at the door.**
+  sqlite-vec stores and returns `NaN` without complaint (measured: `[0.1,
+  NaN, 0.3]` survives a round trip), and `Float32Array` manufactures one out
+  of provider JSON quietly — a `"NaN"` string, a missing slot, a magnitude
+  past float64. `embedText` now returns null for such a vector and says why
+  on stderr, so the text stays on keyword search instead of poisoning
+  clustering and vector search from inside the index.
+
+- **The `import` documentation no longer contradicts itself about `skip` +
+  `namespace`.** The parameter table said forcing a namespace "moves entities
+  that already exist" unconditionally; thirty lines down, the strategy table
+  says `skip` leaves existing entities unchanged — and the code agrees with
+  the strategy table. The docs now state the exception and show both
+  examples, because "unchanged" includes the namespace.
+
 - **A session on a HOME that cannot be written no longer reports itself ready.**
   `session-start` printed `◉ MeMesh ready · memories will be created as you
   work` on a directory the process has no permission to create. Every capture
