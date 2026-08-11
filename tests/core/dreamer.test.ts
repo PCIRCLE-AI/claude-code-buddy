@@ -188,6 +188,83 @@ describe('dreamer', () => {
     }
   });
 
+  it('apply: refuses a digest that would claim NONE of its sources, and writes nothing', async () => {
+    // The partial-overlap case above returns a digest holding what it took. Take
+    // that to its limit — every source already compacted — and the old code
+    // still applied it: `taken` empty, an entity created before the loop and
+    // left behind summarising nothing, zero `summarizes` edges, and the proposal
+    // marked `applied` with `sourcesArchived: 0` reported as success.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(4);
+    const stage = (name: string) => {
+      db.prepare(`
+        INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+        VALUES ('memesh', '2026-W19', ?, ?, 'ollama/fake', 'v1')
+      `).run(JSON.stringify(sourceIds), JSON.stringify({
+        name, type: 'digest', observations: ['a consolidated summary of the work'], tags: ['digest'],
+      }));
+      return (db.prepare("SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC").get() as { id: number }).id;
+    };
+    const firstId = stage('digest-owner');
+    const secondId = stage('digest-empty-handed'); // identical source set
+
+    expect(applyProposal(db, firstId, kg).sourcesArchived).toBe(4);
+
+    expect(() => applyProposal(db, secondId, kg)).toThrow(/claimed nothing/);
+
+    // Rolled back: the entity must not exist. This is the assertion that fails
+    // if the refusal is moved after `createEntity` instead of throwing.
+    expect(
+      db.prepare("SELECT id FROM entities WHERE name = 'digest-empty-handed'").get(),
+      'a digest that claimed nothing was still written to the graph'
+    ).toBeUndefined();
+
+    // …and it must not stay pending, or every later run retries it at the cost
+    // of one LLM call, forever.
+    const after = db.prepare('SELECT status, reason FROM dream_proposals WHERE id = ?').get(secondId) as { status: string; reason: string | null };
+    expect(after.status, 'a proposal that can never apply was left pending').toBe('rejected');
+    expect(after.reason).toMatch(/already summarised/);
+
+    // The first digest keeps every source: the refusal took nothing away.
+    for (const id of sourceIds) {
+      const row = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(id) as { metadata: string };
+      expect(JSON.parse(row.metadata).compacted_into).toBe(
+        (db.prepare("SELECT id FROM entities WHERE name = 'digest-owner'").get() as { id: number }).id
+      );
+    }
+  });
+
+  it('pattern apply: refuses a pattern whose sources have all been forgotten', async () => {
+    // Same hole, other branch, other route in: the pattern loop skips a source
+    // whose row is gone (`if (!sourceRow) continue`), so forgetting the sources
+    // between proposing and applying produced a pattern_emergent entity with
+    // zero `evidence_for` edges — a claim about a pattern with no evidence,
+    // orphaned in the graph view, reported as applied.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(4);
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES ('memesh', 'pattern:2026-W19', ?, ?, 'ollama/fake', 'v1')
+    `).run(JSON.stringify(sourceIds), JSON.stringify({
+      name: 'pattern-with-no-evidence',
+      type: 'pattern_emergent',
+      observations: ['Pattern: every commit touching X also touches Y'],
+      tags: ['pattern_emergent', 'project:memesh'],
+    }));
+    const proposalId = (db.prepare("SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC").get() as { id: number }).id;
+
+    for (const id of sourceIds) db.prepare('DELETE FROM entities WHERE id = ?').run(id);
+
+    expect(() => applyProposal(db, proposalId, kg)).toThrow(/claimed nothing/);
+    expect(
+      db.prepare("SELECT id FROM entities WHERE name = 'pattern-with-no-evidence'").get(),
+      'a pattern with no evidence was still written to the graph'
+    ).toBeUndefined();
+    const after = db.prepare('SELECT status, reason FROM dream_proposals WHERE id = ?').get(proposalId) as { status: string; reason: string | null };
+    expect(after.status).toBe('rejected');
+    expect(after.reason).toMatch(/still exist/);
+  });
+
   it('apply: refuses a second apply of the same proposal', async () => {
     // Covers the SELECT guard, not the terminal UPDATE's `AND status =
     // 'pending'` — that one needs a second process changing the row between
@@ -802,21 +879,26 @@ describe('dreamer', () => {
     // The second consumer of the marker: knowledge-graph's confidence bump
     // reads `metadata.trust` and treats a missing value as trusted.
     const { applyProposal } = await import('../../src/core/dreamer.js');
-    const sourceIds = seedCommits(4);
+    // Eight sources, four per proposal. Both proposals used to share ONE set of
+    // four — which is now refused outright, because the second would claim none
+    // of them. The re-apply this test is about is a second write to the same
+    // digest NAME, not a second write over the same sources, so splitting the
+    // sources keeps the thing under test and drops the thing that is a defect.
+    const sourceIds = seedCommits(8);
 
-    function stage(observations: string[]): number {
+    function stage(observations: string[], ids: number[]): number {
       db.prepare(`
         INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run('memesh', 'memesh::wk-20', JSON.stringify(sourceIds),
+      `).run('memesh', 'memesh::wk-20', JSON.stringify(ids),
         JSON.stringify({ name: 'repeat-digest', type: 'digest', observations, tags: ['digest'] }),
         'ollama/fake', 'v1');
       return (db.prepare("SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC").get() as { id: number }).id;
     }
 
-    applyProposal(db, stage(['first summary']), kg);
+    applyProposal(db, stage(['first summary'], sourceIds.slice(0, 4)), kg);
     db.prepare('UPDATE entities SET confidence = 0.5 WHERE name = ?').run('repeat-digest');
-    applyProposal(db, stage(['a brand new summary line']), kg);
+    applyProposal(db, stage(['a brand new summary line'], sourceIds.slice(4)), kg);
 
     const after = db.prepare('SELECT confidence AS c FROM entities WHERE name = ?').get('repeat-digest') as { c: number };
     expect(after.c, 'LLM-generated text lifted its own confidence').toBeCloseTo(0.5, 5);

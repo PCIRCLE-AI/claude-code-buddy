@@ -279,7 +279,7 @@ function withinDistance(a, b, limit) {
         if (sum >= limitSquared)
             return false;
     }
-    return true;
+    return Number.isFinite(sum);
 }
 function clusterBySimilarity(entities, vectors) {
     const remaining = [...entities].sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -775,13 +775,31 @@ export function applyProposal(db, proposalId, kg) {
                 updateMetaStmt.run(JSON.stringify(digestMeta), digestId);
             }
         }
+        const claimed = isPattern ? linked : ownedSourceIds.length;
+        if (claimed === 0) {
+            throw new NothingToClaimError(row.id, isPattern
+                ? `none of the ${sourceIds.length} source memories still exist`
+                : `all ${sourceIds.length} source memories were already summarised by another digest`);
+        }
         const applied = db.prepare("UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'").run(row.id);
         if (applied.changes === 0) {
             throw new Error(`proposal #${row.id} stopped being pending while it was being applied — nothing was changed`);
         }
         return { digestId, archived, linked, skippedAlreadyCompacted, ownedSourceIds };
     });
-    const out = tx();
+    let out;
+    try {
+        out = tx();
+    }
+    catch (err) {
+        if (err instanceof NothingToClaimError) {
+            try {
+                rejectProposal(db, err.proposalId, err.reason);
+            }
+            catch { }
+        }
+        throw err;
+    }
     return {
         proposalId: row.id,
         digestEntityName: digest.name,
@@ -790,6 +808,16 @@ export function applyProposal(db, proposalId, kg) {
         ...(out.skippedAlreadyCompacted > 0 ? { sourcesAlreadyCompacted: out.skippedAlreadyCompacted } : {}),
         kind: isPattern ? 'pattern_emergent' : 'digest',
     };
+}
+class NothingToClaimError extends Error {
+    proposalId;
+    reason;
+    constructor(proposalId, reason) {
+        super(`proposal #${proposalId} claimed nothing: ${reason}. Nothing was written; the proposal is now rejected.`);
+        this.proposalId = proposalId;
+        this.reason = reason;
+        this.name = 'NothingToClaimError';
+    }
 }
 export function rejectProposal(db, proposalId, reason) {
     const result = db.prepare("UPDATE dream_proposals SET status = 'rejected', reason = ?, reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'").run(reason ?? null, proposalId);

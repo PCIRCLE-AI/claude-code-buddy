@@ -21,7 +21,20 @@ import { useTestDatabase } from '../helpers/db-fixture.js';
 
 useTestDatabase('memesh-dreamer-semantic-');
 
-const DIM = 384; // the keyword-only default the test DB is created with
+/**
+ * The keyword-only default width, which is what `useTestDatabase` builds
+ * `entities_vec` at — under a throwaway HOME with no config, `detectCapabilities`
+ * finds no embedder and `getEmbeddingDimension()` answers 384.
+ *
+ * That "no config" part is load-bearing and is why it is spelled out. Run this
+ * file with `npx vitest` instead of `scripts/run-tests-isolated.mjs` on a machine
+ * whose real `~/.memesh/config.json` selects ollama, and the table is built at
+ * 768: every seed here fails with `Expected 768 dimensions but received 384`,
+ * eleven tests go red, and nothing about the message says the cause is the
+ * runner. It happened to an outside reviewer, who reported the file as broken.
+ * Use the isolated runner — CLAUDE.md says so for the same reason.
+ */
+const DIM = 384;
 
 /** A unit vector on `axis`, nudged so members of a topic are not identical. */
 function vectorOn(axis: number, nudge: number): Float32Array {
@@ -198,6 +211,39 @@ describe('the distance cut-off is the shipped one', () => {
     expect(result.clusteringMode).toBe('semantic');
     expect(result.clustersScanned, 'a pair 0.60 apart should be two clusters at a 0.55 cut-off').toBe(2);
   });
+
+  it('does not treat a NaN component as "close enough"', async () => {
+    // The distance test exits early on `sum >= limit²`. One NaN component makes
+    // `sum` NaN, that comparison false at every step, and the loop reached the
+    // end — where a bare `return true` declared the pair a match. So a corrupt
+    // vector merged with EVERYTHING, and the digest went to the model as if
+    // those memories belonged together.
+    //
+    // Seeded straight into the table rather than through the embedder, for the
+    // same reason the file seeds every other vector that way — and because a
+    // vector stored before the embedder learned to refuse one is still there.
+    // sqlite-vec takes it: measured, [0.1, NaN, 0.3] inserts and reads back
+    // unchanged. 5.0 apart is far outside any threshold this file uses, so a
+    // merge here can only come from the NaN.
+    const db = getDatabase();
+    const withNaN = new Float32Array(DIM);
+    withNaN[42] = 5.0;
+    withNaN[7] = NaN;
+    const vectors = [new Float32Array(DIM), withNaN];
+    ['clean', 'corrupt'].forEach((name, i) => {
+      db.prepare("INSERT INTO entities (name, type, created_at, metadata) VALUES (?, 'commit', ?, ?)")
+        .run(name, `${daysAgo(3)}T12:0${i}:00.000Z`, JSON.stringify({ signal_score: 0.5 }));
+      const id = (db.prepare('SELECT id FROM entities WHERE name = ?').get(name) as { id: number }).id;
+      db.prepare("INSERT INTO tags (entity_id, tag) VALUES (?, 'project:demo')").run(id);
+      db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(id, `work ${name}`);
+      db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)')
+        .run(BigInt(id), Buffer.from(vectors[i].buffer));
+    });
+
+    const result = await dreamPass();
+    expect(result.clusteringMode).toBe('semantic');
+    expect(result.clustersScanned, 'a vector holding NaN was clustered with an unrelated one').toBe(2);
+  });
 });
 
 describe('dreamer says when it could not group by meaning', () => {
@@ -240,7 +286,7 @@ describe('dreamer says when it could not group by meaning', () => {
   });
 });
 
-describe('more candidates than fit in one SQL statement', () => {
+describe('more candidates than fit in one vector-lookup chunk', () => {
   it('loads every vector across chunk boundaries', async () => {
     // Vectors were fetched with one placeholder per candidate. SQLite's
     // ceiling is 32766 — past it the statement throws, the catch turned that
@@ -249,6 +295,14 @@ describe('more candidates than fit in one SQL statement', () => {
     // and the risk moves to the chunk loop: an off-by-one there drops vectors
     // for whole chunks, which would show up as a fall back to calendar mode or
     // as candidates counted "without embedding".
+    //
+    // 600 rows, so this crosses the 500-row CHUNK boundary — it does NOT reach
+    // 32766 and does not exercise the original throw. The describe used to say
+    // "more candidates than fit in one SQL statement", which claimed the
+    // ceiling; a reader trusting that name would think the throw was covered.
+    // Seeding 32767 rows here to earn the old name would add minutes to every
+    // run to test a limit that is SQLite's, not ours — the chunk arithmetic is
+    // the part this repository can get wrong, and that is what this asserts.
     const CHUNK = 500;
     const total = CHUNK + 100;
     const db = getDatabase();

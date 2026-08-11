@@ -610,7 +610,21 @@ function withinDistance(a: Float32Array, b: Float32Array, limit: number): boolea
     sum += d * d;
     if (sum >= limitSquared) return false;
   }
-  return true;
+  // `Number.isFinite`, not `return true`, because the early exit is only
+  // equivalent to the full walk for finite input. One NaN component makes `sum`
+  // NaN, `NaN >= limitSquared` is false at every step, the loop runs to the end
+  // and the old `return true` declared the pair a match — so a corrupt vector
+  // joined EVERY cluster it was compared against, and the digest went to the
+  // model as if those memories belonged together.
+  //
+  // Reachable, not theoretical: sqlite-vec accepts and returns NaN without
+  // complaint — measured, `[0.1, NaN, 0.3]` inserts and reads back unchanged.
+  // `embedText` now refuses one on the way in, but that is the other half of
+  // the same fix, not a reason to drop this one: a vector stored before the
+  // guard is still in the table, and this function is what reads it.
+  //
+  // `Infinity` never reaches here: `Infinity >= limitSquared` exits above.
+  return Number.isFinite(sum);
 }
 
 /**
@@ -1467,6 +1481,34 @@ export function applyProposal(
       }
     }
 
+    // A digest that claimed nothing is not a digest — it is a new entity
+    // asserting a summary of memories it does not own, with no `summarizes` or
+    // `evidence_for` edge to anything, i.e. exactly the orphan the edges above
+    // exist to prevent. Applying it reported success (`sourcesArchived: 0`) and
+    // left that orphan in the graph for good.
+    //
+    // Reachable on both branches, by different routes:
+    //   - compaction: every source already carries `compacted_into`, so the
+    //     loop refuses all of them. Proposing an overlapping pair is refused
+    //     upstream now, but a graph made before that gate can still hold two,
+    //     and applying the first turns the second into this case.
+    //   - pattern: every source row is gone (`if (!sourceRow) continue`), e.g.
+    //     the entities were forgotten between proposing and applying.
+    //
+    // Throwing rolls the whole transaction back, so the digest entity is never
+    // written; the caller then rejects the proposal outside the transaction,
+    // because a proposal that can never claim anything must not stay pending
+    // and be retried — at one LLM call each time — forever.
+    const claimed = isPattern ? linked : ownedSourceIds.length;
+    if (claimed === 0) {
+      throw new NothingToClaimError(
+        row.id,
+        isPattern
+          ? `none of the ${sourceIds.length} source memories still exist`
+          : `all ${sourceIds.length} source memories were already summarised by another digest`
+      );
+    }
+
     // `AND status = 'pending'` — the check that let us in here ran in a SELECT
     // outside this transaction, so a concurrent `dream run` that superseded
     // the row could land in between and have its rejection overwritten by
@@ -1490,7 +1532,20 @@ export function applyProposal(
     return { digestId, archived, linked, skippedAlreadyCompacted, ownedSourceIds };
   });
 
-  const out = tx();
+  let out: ReturnType<typeof tx>;
+  try {
+    out = tx();
+  } catch (err) {
+    if (err instanceof NothingToClaimError) {
+      // Outside the transaction on purpose: the throw above rolled the digest
+      // back, and this write has to survive that rollback. Its own failure is
+      // swallowed for one reason only — the proposal stopped being pending
+      // underneath us, which means something else already decided its fate and
+      // the caller still needs the real error below, not this one.
+      try { rejectProposal(db, err.proposalId, err.reason); } catch { /* no longer pending */ }
+    }
+    throw err;
+  }
   return {
     proposalId: row.id,
     digestEntityName: digest.name,
@@ -1499,6 +1554,20 @@ export function applyProposal(
     ...(out.skippedAlreadyCompacted > 0 ? { sourcesAlreadyCompacted: out.skippedAlreadyCompacted } : {}),
     kind: isPattern ? 'pattern_emergent' : 'digest',
   };
+}
+
+/**
+ * A proposal that cannot claim a single one of its sources.
+ *
+ * Its own class rather than a plain `Error` so the catch can tell "this
+ * proposal is dead, reject it" apart from "the write failed" — rejecting on
+ * every error would mark a proposal dead because the disk was full.
+ */
+class NothingToClaimError extends Error {
+  constructor(readonly proposalId: number, readonly reason: string) {
+    super(`proposal #${proposalId} claimed nothing: ${reason}. Nothing was written; the proposal is now rejected.`);
+    this.name = 'NothingToClaimError';
+  }
 }
 
 export function rejectProposal(db: MemeshDatabase, proposalId: number, reason?: string): void {
