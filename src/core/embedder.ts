@@ -193,11 +193,52 @@ export async function embedText(text: string): Promise<Float32Array | null> {
     // null, which callers treat as "no embedding" (recall stays on FTS5).
     const sharedKey = caps.llm?.provider === caps.embeddings ? caps.llm.apiKey : undefined;
     const cfg = { provider: caps.embeddings, model: undefined, apiKey: sharedKey } as LLMConfig;
-    return embedWithProvider(text, cfg);
+    return rejectNonFinite(await embedWithProvider(text, cfg), caps.embeddings);
   }
 
   // No neural embedder configured (keyword-only / anthropic): FTS5 alone.
   return null;
+}
+
+/**
+ * Refuse a vector with a non-finite component, here rather than at each writer.
+ *
+ * `new Float32Array([...])` coerces silently, and the coercions it does are not
+ * the ones you would guess. Measured, for the value at one position:
+ *
+ *   undefined → NaN        "NaN"  → NaN        {} → NaN        "abc" → NaN
+ *   null      → 0          ""     → 0          [1] → 1         1e999 → Infinity
+ *
+ * So a JSON `null` is NOT the dangerous case (it silently becomes a legitimate
+ * 0), while a short array, a stringified `NaN` from a Python-backed server, or
+ * a magnitude past float64 range all land as non-finite. sqlite-vec then stores
+ * and returns that just as quietly — measured: `[0.1, NaN, 0.3]` inserts and
+ * reads back unchanged. Downstream, `NaN` breaks the comparisons that are
+ * supposed to bound it: `NaN >= limit` is false, so a distance test written as
+ * an early exit calls the pair a match, and one corrupt vector joins every
+ * cluster and every search result it is compared against.
+ *
+ * Guarding in `embedText` rather than in `embedAndStore` covers the query side
+ * too — a corrupt QUERY vector matches everything just as readily as a corrupt
+ * stored one, and `vectorSearch` never passes through the store path.
+ *
+ * Returning `null` puts it on the path callers already handle ("no embedding —
+ * keyword search alone"). The warning is what keeps that from being silent: a
+ * provider emitting NaN is broken, and the operator has to hear about it.
+ */
+function rejectNonFinite(vector: Float32Array | null, provider: string): Float32Array | null {
+  if (!vector) return null;
+  for (let i = 0; i < vector.length; i++) {
+    if (!Number.isFinite(vector[i])) {
+      process.stderr.write(
+        `MeMesh: the ${provider} embedder returned a non-finite value at position ${i} ` +
+        `(${vector[i]}). Refusing the vector — it would have matched every entity it was ` +
+        `compared against. This text stays on keyword search; check the embedding model.\n`
+      );
+      return null;
+    }
+  }
+  return vector;
 }
 
 /**

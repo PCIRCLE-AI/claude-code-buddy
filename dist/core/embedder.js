@@ -62,9 +62,22 @@ export async function embedText(text) {
     if (caps.embeddings === 'openai' || caps.embeddings === 'ollama') {
         const sharedKey = caps.llm?.provider === caps.embeddings ? caps.llm.apiKey : undefined;
         const cfg = { provider: caps.embeddings, model: undefined, apiKey: sharedKey };
-        return embedWithProvider(text, cfg);
+        return rejectNonFinite(await embedWithProvider(text, cfg), caps.embeddings);
     }
     return null;
+}
+function rejectNonFinite(vector, provider) {
+    if (!vector)
+        return null;
+    for (let i = 0; i < vector.length; i++) {
+        if (!Number.isFinite(vector[i])) {
+            process.stderr.write(`MeMesh: the ${provider} embedder returned a non-finite value at position ${i} ` +
+                `(${vector[i]}). Refusing the vector — it would have matched every entity it was ` +
+                `compared against. This text stays on keyword search; check the embedding model.\n`);
+            return null;
+        }
+    }
+    return vector;
 }
 export async function embedAndStore(entityId, text) {
     try {
