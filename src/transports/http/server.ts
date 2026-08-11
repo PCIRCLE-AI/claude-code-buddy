@@ -1038,10 +1038,20 @@ app.post('/v1/dream/proposals/:id/accept', async (req, res) => {
     const result = applyProposal(getDatabase(), id, kg);
     res.json({ success: true, data: result });
   } catch (err) {
-    // applyProposal throws "proposal #X not found or not pending" for
-    // invalid IDs — surface as 404 rather than a 500.
+    // NothingToClaimError is an outcome, not a failure: the server resolved
+    // the proposal (to rejected) and is reporting that accepting it is
+    // impossible. As a 500 it read as "the server broke": generic client
+    // retry logic retried the 5xx, and the retry — the proposal now being
+    // rejected — got a 404, two contradictory errors for one click. 400
+    // `operation.failed` is the code already defined as "valid request, but
+    // the operation itself rejected it".
+    const { NothingToClaimError } = await import('../../core/dreamer.js');
     const msg = err instanceof Error ? err.message : String(err);
-    if (/not found or not pending/.test(msg)) {
+    if (err instanceof NothingToClaimError) {
+      res.status(400).json({ success: false, errorCode: 'operation.failed' satisfies ErrorCode, error: msg });
+    } else if (/not found or not pending/.test(msg)) {
+      // applyProposal throws "proposal #X not found or not pending" for
+      // invalid IDs — surface as 404 rather than a 500.
       res.status(404).json({ success: false, errorCode: 'resource.not-found' satisfies ErrorCode, error: msg });
     } else {
       res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: msg });

@@ -1445,6 +1445,8 @@ Apply a pending dream proposal — creates the digest entity (or `pattern_emerge
 
 **Response:** `{ proposalId, digestEntityName, sourcesArchived, sourcesLinked, kind }`.
 
+A proposal that can no longer claim **any** of its sources (every source already summarised by another digest, or every source since forgotten) answers `400` with `errorCode: "operation.failed"` — and the server has already marked that proposal `rejected`, so it will not appear as pending again. This is a resolved outcome, not a server failure; do not retry it.
+
 ### POST /v1/dream/proposals/:id/reject
 
 Mark a pending proposal as rejected. Source entities are untouched.

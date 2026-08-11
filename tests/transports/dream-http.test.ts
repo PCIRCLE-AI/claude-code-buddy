@@ -126,3 +126,32 @@ describe('HTTP Transport: POST /v1/dream/run', () => {
     expect(res.body.success).toBe(false);
   });
 });
+
+describe('HTTP Transport: POST /v1/dream/proposals/:id/accept', () => {
+  it('answers an empty-claim proposal with 400 operation.failed, not 500', async () => {
+    // NothingToClaimError is the server resolving the proposal, not the server
+    // breaking. As a 500 `server.internal` a dashboard's generic retry logic
+    // retried it, and the retry — the proposal now being rejected — got a 404:
+    // two contradictory errors for one click. The contract is one answer that
+    // names the outcome.
+    const { getDatabase } = await import('../../src/db.js');
+    const db = getDatabase();
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES ('memesh', '2026-W19', ?, ?, 'ollama/fake', 'v1')
+    `).run(
+      JSON.stringify([999901, 999902]), // no such entities — the digest can claim nothing
+      JSON.stringify({ name: 'http-empty-digest', type: 'digest', observations: ['s'], tags: ['digest'] })
+    );
+    const id = (db.prepare("SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC").get() as { id: number }).id;
+
+    const res = await req('POST', `/v1/dream/proposals/${id}/accept`);
+    expect(res.status, 'an empty-claim proposal surfaced as a server failure').toBe(400);
+    expect(res.body.errorCode).toBe('operation.failed');
+    expect(res.body.error).toMatch(/claimed nothing/);
+
+    // And the server really did resolve it: rejected, not still pending.
+    const row = db.prepare('SELECT status FROM dream_proposals WHERE id = ?').get(id) as { status: string };
+    expect(row.status).toBe('rejected');
+  });
+});

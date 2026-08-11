@@ -112,18 +112,29 @@ All notable changes to MeMesh are documented here.
   `MEMESH_DIR=/data` the text `/var/lib/data/file` — someone else's path, on
   its way into a **public** GitHub issue — came out as `/var/lib~/file`: a
   corrupted diagnostic with nothing saying redaction did it. A root now has to
-  sit at a path boundary on both sides; genuine roots after `=`, at the start
-  of the text, or spelled with a doubled separator are still redacted.
+  sit at a path boundary on both sides, where "boundary" forbids exactly the
+  two shapes that glue a root to the end of another path component — review
+  caught that the first cut of this fix forbade more, which had stopped
+  redacting real user paths inside `file://` stack-trace frames and on diff
+  removed-lines. Ambiguity resolves toward redacting: this is a security
+  control, and an over-redacted diagnostic costs less than an account name on
+  a public tracker.
 
 - **A dream proposal that would claim nothing is now rejected instead of
   applied.** When every source of a digest proposal had already been
-  summarised by another digest — or every source of a pattern proposal had
-  been forgotten — `apply` still created the digest entity: a summary
-  summarising nothing (or a pattern with zero evidence), left active in the
-  graph, with the proposal marked `applied` and `sourcesArchived: 0` reported
-  as success. It now throws before writing, the transaction rolls back, and
-  the proposal is marked `rejected` with the reason — so later runs stop
-  retrying it.
+  summarised by another digest — or every source had since been forgotten —
+  `apply` still created the digest entity: a summary summarising nothing (or
+  a pattern with zero evidence), left active in the graph, with the proposal
+  marked `applied` and `sourcesArchived: 0` reported as success. It now
+  throws before writing, the transaction rolls back, and the proposal is
+  marked `rejected` with a reason that names what actually happened —
+  "already summarised", "no longer exist", or both — so later runs stop
+  retrying it. If marking it rejected fails too, the error says the proposal
+  is **still pending**, instead of promising a rejection that never landed.
+  Over HTTP, `POST /v1/dream/proposals/:id/accept` answers this outcome with
+  `400 operation.failed` rather than `500 server.internal` — it is the server
+  resolving the proposal, not the server breaking, and a generic retry
+  against the 500 used to earn a contradictory 404.
 
 - **A stored vector holding `NaN` no longer joins every cluster.** The
   clustering distance check exits early on `sum >= limit²`; `NaN` makes that

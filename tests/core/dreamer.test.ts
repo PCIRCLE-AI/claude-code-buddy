@@ -234,6 +234,76 @@ describe('dreamer', () => {
     }
   });
 
+  it('apply: does NOT claim a proposal was rejected when the rejection write failed', async () => {
+    // The catch around `rejectProposal` may swallow exactly one failure — "not
+    // found or not pending", something else settled the row. A bare catch also
+    // swallowed SQLITE_BUSY and disk-full, and then let an error escape whose
+    // text promised the proposal would not be retried — while it sat there
+    // pending, retried by every later run at one LLM call each.
+    //
+    // The write failure is injected with a trigger because nothing in a
+    // single-process suite can make this UPDATE fail for real: the abort fires
+    // only on a transition to 'rejected', so the apply path's own writes are
+    // untouched.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(3);
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES ('memesh', '2026-W19', ?, ?, 'ollama/fake', 'v1')
+    `).run(JSON.stringify(sourceIds), JSON.stringify({
+      name: 'digest-unrejectable', type: 'digest', observations: ['a summary'], tags: ['digest'],
+    }));
+    const proposalId = (db.prepare("SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC").get() as { id: number }).id;
+    for (const id of sourceIds) db.prepare('DELETE FROM entities WHERE id = ?').run(id);
+
+    db.exec(`
+      CREATE TRIGGER reject_write_fails BEFORE UPDATE ON dream_proposals
+      WHEN NEW.status = 'rejected'
+      BEGIN SELECT RAISE(ABORT, 'simulated disk I/O error'); END
+    `);
+    try {
+      let thrown: Error | undefined;
+      try { applyProposal(db, proposalId, kg); } catch (e) { thrown = e as Error; }
+      expect(thrown, 'applyProposal swallowed a failed rejection entirely').toBeDefined();
+      expect(
+        thrown!.message,
+        'the error still promised the proposal would not be retried'
+      ).toMatch(/still pending/);
+      expect(thrown!.message).not.toMatch(/will not be retried/);
+      // And the row really is still pending — the message must match the state.
+      const row = db.prepare('SELECT status FROM dream_proposals WHERE id = ?').get(proposalId) as { status: string };
+      expect(row.status).toBe('pending');
+    } finally {
+      db.exec('DROP TRIGGER reject_write_fails');
+    }
+  });
+
+  it('apply: a digest whose sources were FORGOTTEN says so, not "already summarised"', async () => {
+    // The digest branch has its own `if (!sourceRow) continue`, so its
+    // empty-claim case has two distinct causes — and the rejection reason is
+    // operator-facing (`dream list`, dashboard). The first version keyed the
+    // reason on the branch alone, so a compaction whose sources were all
+    // deleted blamed "another digest" that never existed, and the operator
+    // audited for a duplicate instead of the forget that actually happened.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(3);
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES ('memesh', '2026-W19', ?, ?, 'ollama/fake', 'v1')
+    `).run(JSON.stringify(sourceIds), JSON.stringify({
+      name: 'digest-of-the-forgotten', type: 'digest', observations: ['a summary'], tags: ['digest'],
+    }));
+    const proposalId = (db.prepare("SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC").get() as { id: number }).id;
+
+    for (const id of sourceIds) db.prepare('DELETE FROM entities WHERE id = ?').run(id);
+
+    expect(() => applyProposal(db, proposalId, kg)).toThrow(/claimed nothing/);
+    const after = db.prepare('SELECT status, reason FROM dream_proposals WHERE id = ?').get(proposalId) as { status: string; reason: string | null };
+    expect(after.status).toBe('rejected');
+    expect(after.reason, 'a deleted-sources digest blamed a nonexistent duplicate digest').toMatch(/no longer exist|still exist/);
+    expect(after.reason).not.toMatch(/another digest/);
+  });
+
   it('pattern apply: refuses a pattern whose sources have all been forgotten', async () => {
     // Same hole, other branch, other route in: the pattern loop skips a source
     // whose row is gone (`if (!sourceRow) continue`), so forgetting the sources

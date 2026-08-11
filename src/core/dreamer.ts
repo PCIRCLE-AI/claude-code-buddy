@@ -1420,6 +1420,7 @@ export function applyProposal(
     let archived = 0;
     let linked = 0;
     let skippedAlreadyCompacted = 0;
+    let missingSources = 0;
     if (isPattern) {
       // Pattern: link sources to the new pattern via metadata + edge,
       // do NOT archive (Phase 3 is additive — sources stay primary).
@@ -1444,7 +1445,7 @@ export function applyProposal(
       const taken: number[] = [];
       for (const sourceId of sourceIds) {
         const sourceRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(sourceId) as { metadata: string | null } | undefined;
-        if (!sourceRow) continue;
+        if (!sourceRow) { missingSources++; continue; }
         let meta: Record<string, unknown>;
         try { meta = sourceRow.metadata ? JSON.parse(sourceRow.metadata) : {}; } catch { meta = {}; }
         // Already summarised by another digest — leave it alone. This is a
@@ -1501,12 +1502,19 @@ export function applyProposal(
     // and be retried — at one LLM call each time — forever.
     const claimed = isPattern ? linked : ownedSourceIds.length;
     if (claimed === 0) {
-      throw new NothingToClaimError(
-        row.id,
-        isPattern
+      // The reason is stored on the proposal row and shown by `dream list` and
+      // the dashboard, so it has to name what actually happened. The first
+      // version keyed it on the branch alone — pattern says "gone", digest says
+      // "already summarised" — but the digest loop skips missing rows too, so a
+      // compaction whose sources were all FORGOTTEN blamed a duplicate digest
+      // that does not exist, and the operator went auditing for it.
+      const reason =
+        isPattern || skippedAlreadyCompacted === 0
           ? `none of the ${sourceIds.length} source memories still exist`
-          : `all ${sourceIds.length} source memories were already summarised by another digest`
-      );
+          : missingSources === 0
+            ? `all ${sourceIds.length} source memories were already summarised by another digest`
+            : `of ${sourceIds.length} source memories, ${skippedAlreadyCompacted} were already summarised by another digest and ${missingSources} no longer exist`;
+      throw new NothingToClaimError(row.id, reason);
     }
 
     // `AND status = 'pending'` — the check that let us in here ran in a SELECT
@@ -1538,11 +1546,26 @@ export function applyProposal(
   } catch (err) {
     if (err instanceof NothingToClaimError) {
       // Outside the transaction on purpose: the throw above rolled the digest
-      // back, and this write has to survive that rollback. Its own failure is
-      // swallowed for one reason only — the proposal stopped being pending
-      // underneath us, which means something else already decided its fate and
-      // the caller still needs the real error below, not this one.
-      try { rejectProposal(db, err.proposalId, err.reason); } catch { /* no longer pending */ }
+      // back, and this write has to survive that rollback.
+      try {
+        rejectProposal(db, err.proposalId, err.reason);
+      } catch (rejectErr) {
+        // Exactly one failure is survivable here: the proposal stopped being
+        // pending underneath us, meaning something else already decided its
+        // fate — then the caller still needs the NothingToClaim error below,
+        // not this one. The first version of this catch was bare, which also
+        // swallowed SQLITE_BUSY and disk-full: the proposal silently stayed
+        // pending — re-entering the retry-forever loop this throw exists to
+        // close — while the propagated message still said it was rejected.
+        const msg = rejectErr instanceof Error ? rejectErr.message : String(rejectErr);
+        if (!/not found or not pending/.test(msg)) {
+          throw new Error(
+            `proposal #${err.proposalId} claimed nothing (${err.reason}), and marking it ` +
+              `rejected failed too: ${msg}. It is still pending and the next dream run will retry it.`,
+            { cause: rejectErr }
+          );
+        }
+      }
     }
     throw err;
   }
@@ -1559,13 +1582,25 @@ export function applyProposal(
 /**
  * A proposal that cannot claim a single one of its sources.
  *
- * Its own class rather than a plain `Error` so the catch can tell "this
+ * Its own class rather than a plain `Error` so a catch can tell "this
  * proposal is dead, reject it" apart from "the write failed" — rejecting on
  * every error would mark a proposal dead because the disk was full.
+ *
+ * Exported for the same distinction one layer up: the HTTP accept handler
+ * matched errors by message and knew only "not found or not pending", so this
+ * — a request the server understood, resolved, and answered with a state
+ * change — went out as a 500 `server.internal`, which generic client retry
+ * logic then retried into a 404. It is an outcome, not a server failure.
+ *
+ * The message says "will not be retried", not "is now rejected", because at
+ * throw time neither has happened yet — the catch in `applyProposal` makes it
+ * true before the error escapes, either by rejecting the proposal or by
+ * confirming something else already settled it. If even that fails, this error
+ * is replaced with one that says the proposal is still pending.
  */
-class NothingToClaimError extends Error {
+export class NothingToClaimError extends Error {
   constructor(readonly proposalId: number, readonly reason: string) {
-    super(`proposal #${proposalId} claimed nothing: ${reason}. Nothing was written; the proposal is now rejected.`);
+    super(`proposal #${proposalId} claimed nothing: ${reason}. Nothing was written, and the proposal will not be retried.`);
     this.name = 'NothingToClaimError';
   }
 }

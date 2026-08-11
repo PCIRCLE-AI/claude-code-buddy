@@ -714,6 +714,7 @@ export function applyProposal(db, proposalId, kg) {
         let archived = 0;
         let linked = 0;
         let skippedAlreadyCompacted = 0;
+        let missingSources = 0;
         if (isPattern) {
             for (const sourceId of sourceIds) {
                 const sourceRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(sourceId);
@@ -740,8 +741,10 @@ export function applyProposal(db, proposalId, kg) {
             const taken = [];
             for (const sourceId of sourceIds) {
                 const sourceRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(sourceId);
-                if (!sourceRow)
+                if (!sourceRow) {
+                    missingSources++;
                     continue;
+                }
                 let meta;
                 try {
                     meta = sourceRow.metadata ? JSON.parse(sourceRow.metadata) : {};
@@ -777,9 +780,12 @@ export function applyProposal(db, proposalId, kg) {
         }
         const claimed = isPattern ? linked : ownedSourceIds.length;
         if (claimed === 0) {
-            throw new NothingToClaimError(row.id, isPattern
+            const reason = isPattern || skippedAlreadyCompacted === 0
                 ? `none of the ${sourceIds.length} source memories still exist`
-                : `all ${sourceIds.length} source memories were already summarised by another digest`);
+                : missingSources === 0
+                    ? `all ${sourceIds.length} source memories were already summarised by another digest`
+                    : `of ${sourceIds.length} source memories, ${skippedAlreadyCompacted} were already summarised by another digest and ${missingSources} no longer exist`;
+            throw new NothingToClaimError(row.id, reason);
         }
         const applied = db.prepare("UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'").run(row.id);
         if (applied.changes === 0) {
@@ -796,7 +802,13 @@ export function applyProposal(db, proposalId, kg) {
             try {
                 rejectProposal(db, err.proposalId, err.reason);
             }
-            catch { }
+            catch (rejectErr) {
+                const msg = rejectErr instanceof Error ? rejectErr.message : String(rejectErr);
+                if (!/not found or not pending/.test(msg)) {
+                    throw new Error(`proposal #${err.proposalId} claimed nothing (${err.reason}), and marking it ` +
+                        `rejected failed too: ${msg}. It is still pending and the next dream run will retry it.`, { cause: rejectErr });
+                }
+            }
         }
         throw err;
     }
@@ -809,11 +821,11 @@ export function applyProposal(db, proposalId, kg) {
         kind: isPattern ? 'pattern_emergent' : 'digest',
     };
 }
-class NothingToClaimError extends Error {
+export class NothingToClaimError extends Error {
     proposalId;
     reason;
     constructor(proposalId, reason) {
-        super(`proposal #${proposalId} claimed nothing: ${reason}. Nothing was written; the proposal is now rejected.`);
+        super(`proposal #${proposalId} claimed nothing: ${reason}. Nothing was written, and the proposal will not be retried.`);
         this.proposalId = proposalId;
         this.reason = reason;
         this.name = 'NothingToClaimError';
