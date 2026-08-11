@@ -116,6 +116,37 @@ describe('redactUserPaths: does not corrupt the report', () => {
     expect(out, 'a doubled separator let a root match mid-path').toBe('/var/lib//data/file');
   });
 
+  it('still redacts a root inside a file:// URL', () => {
+    // The first lookbehind forbade EVERY separator as a predecessor, which
+    // unredacted each frame of a Node ESM stack trace: in file:///data/x the
+    // match starts at a separator that follows another separator. What makes
+    // that different from /var/lib//data — also a separator after a separator —
+    // is what comes before the pair: a component character there, a `:` here.
+    // The lookbehind has to reach past the separators to the glue, not stop at
+    // the separators themselves. This is the case that turns red if it is
+    // written as a single-character class again.
+    process.env.MEMESH_DIR = '/data';
+    const out = redactUserPaths('Error at file:///data/secret.txt:3:5');
+    // `file:/~`, not `file://~`: the pattern's `[\\/]{1,2}` absorbs up to two
+    // separators into the match (it has to, for JSON-doubled backslashes), so
+    // one of the URL's slashes is replaced along with the root. The account
+    // name is gone and the frame is still legible — this is the over-redaction
+    // side of the trade the lookbehind comment describes, chosen on purpose.
+    expect(out, 'an ESM stack-trace frame kept the real path').not.toContain('/data');
+    expect(out).toContain('file:/~/secret.txt');
+  });
+
+  it('still redacts a root on a diff removed-line', () => {
+    // `-` can end a path component in principle, but a predecessor `-` is far
+    // more often a diff marker or a bullet — and this function is a security
+    // control, so the ambiguity resolves toward redacting: over-matching costs
+    // a slightly mangled diagnostic, under-matching publishes the account name.
+    process.env.MEMESH_DIR = '/data';
+    const out = redactUserPaths('--- old\n-/data/secret and see.../data/quoted');
+    expect(out, 'a diff removed-line kept the real path').toContain('-~/secret');
+    expect(out, 'an ellipsis predecessor kept the real path').toContain('see...~/quoted');
+  });
+
   it('leaves text with no machine paths in it exactly as it was', () => {
     const text = 'Node v24.15.0 (ABI 137, darwin/arm64). 17 skill files verified.';
     expect(redactUserPaths(text)).toBe(text);

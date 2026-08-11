@@ -262,14 +262,25 @@ export function redactUserPaths(text: string): string {
     // was closed; it was half closed, and the test below matched the comment
     // rather than the claim in its own name.
     //
-    // The forbidden preceding characters are the ones that can appear INSIDE a
-    // path component (`\w.~-`) plus the separators. Separators have to be in the
-    // set or `/var/lib//data` matches one character to the right of the pair and
-    // slips through; a root that genuinely starts with a doubled separator is
-    // still matched, because `{1,2}` in the body absorbs both and the assertion
-    // then looks at what precedes the pair.
+    // What "mid-path" means, precisely: the root is glued to the END of a path
+    // component. That is a component character (`\w~`) directly before the
+    // match, or such a character with only separators between it and the match
+    // — the latter is the `/var/lib//data` doubling, where the match can start
+    // one character to the right of the pair. Both shapes, one variable-length
+    // lookbehind: `[\w~]` optionally followed by the same `{1,2}` separator
+    // run the body uses.
+    //
+    // The first version of this fix forbade `.`, `-` and bare separators as
+    // predecessors too, and those rejections UNREDACTED text that is real and
+    // on its way into a public issue: `file:///Users/x` — every frame of a
+    // Node ESM stack trace; the match starts at a separator preceded by
+    // another separator — and `-/Users/x`, a diff's removed line. This
+    // function is a security control; when a predecessor is ambiguous, the
+    // cost of matching is a slightly over-redacted diagnostic, the cost of
+    // not matching is an account name published on a public tracker. So the
+    // lookbehind names the two component-glue shapes and nothing else.
     const body = escaped.replace(/\\\\|\//g, '[\\\\/]{1,2}');
-    out = out.replace(new RegExp(`(?<![\\w.~\\-\\\\/])${body}(?=[\\\\/]|$)`, flags), '~');
+    out = out.replace(new RegExp(`(?<![\\w~](?:[\\\\/]{1,2})?)${body}(?=[\\\\/]|$)`, flags), '~');
   }
   return out;
 }
