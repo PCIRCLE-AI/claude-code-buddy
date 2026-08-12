@@ -102,7 +102,7 @@ export function redactUserPaths(text) {
     for (const root of [...roots].sort((a, b) => b.length - a.length)) {
         const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const body = escaped.replace(/\\\\|\//g, '[\\\\/]{1,2}');
-        out = out.replace(new RegExp(`${body}(?=[\\\\/]|$)`, flags), '~');
+        out = out.replace(new RegExp(`(?<![\\w~](?:[\\\\/]{1,2})?)${body}(?=[\\\\/]|$)`, flags), '~');
     }
     return out;
 }

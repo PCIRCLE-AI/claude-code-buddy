@@ -248,12 +248,39 @@ export function redactUserPaths(text: string): string {
     // silently misses the JSON-encoded one, which is the copy that gets
     // published.
     //
-    // The trailing lookahead makes a root match only at a path boundary. Without
-    // it a root is an unanchored substring, so `MEMESH_DIR=/data` rewrote
+    // A root has to match at a path boundary on BOTH sides, and it takes two
+    // assertions to say that — one is the bug this had.
+    //
+    // Trailing lookahead: without it `MEMESH_DIR=/data` rewrote
     // `/var/lib/postgres/database` to `/var/lib/postgres~base` and `/datasets/x`
-    // to `~sets/x` — mangling unrelated paths in the same diagnostic.
+    // to `~sets/x`.
+    //
+    // Leading lookbehind: the trailing one alone still let a root match in the
+    // MIDDLE of an unrelated path, because there the next character IS a
+    // separator — `/var/lib/data/file` became `/var/lib~/file`. The comment here
+    // used to cite only the `database` case and read as though the whole class
+    // was closed; it was half closed, and the test below matched the comment
+    // rather than the claim in its own name.
+    //
+    // What "mid-path" means, precisely: the root is glued to the END of a path
+    // component. That is a component character (`\w~`) directly before the
+    // match, or such a character with only separators between it and the match
+    // — the latter is the `/var/lib//data` doubling, where the match can start
+    // one character to the right of the pair. Both shapes, one variable-length
+    // lookbehind: `[\w~]` optionally followed by the same `{1,2}` separator
+    // run the body uses.
+    //
+    // The first version of this fix forbade `.`, `-` and bare separators as
+    // predecessors too, and those rejections UNREDACTED text that is real and
+    // on its way into a public issue: `file:///Users/x` — every frame of a
+    // Node ESM stack trace; the match starts at a separator preceded by
+    // another separator — and `-/Users/x`, a diff's removed line. This
+    // function is a security control; when a predecessor is ambiguous, the
+    // cost of matching is a slightly over-redacted diagnostic, the cost of
+    // not matching is an account name published on a public tracker. So the
+    // lookbehind names the two component-glue shapes and nothing else.
     const body = escaped.replace(/\\\\|\//g, '[\\\\/]{1,2}');
-    out = out.replace(new RegExp(`${body}(?=[\\\\/]|$)`, flags), '~');
+    out = out.replace(new RegExp(`(?<![\\w~](?:[\\\\/]{1,2})?)${body}(?=[\\\\/]|$)`, flags), '~');
   }
   return out;
 }

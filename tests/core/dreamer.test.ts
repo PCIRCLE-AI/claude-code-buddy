@@ -188,6 +188,192 @@ describe('dreamer', () => {
     }
   });
 
+  it('apply: refuses a digest that would claim NONE of its sources, and writes nothing', async () => {
+    // The partial-overlap case above returns a digest holding what it took. Take
+    // that to its limit — every source already compacted — and the old code
+    // still applied it: `taken` empty, an entity created before the loop and
+    // left behind summarising nothing, zero `summarizes` edges, and the proposal
+    // marked `applied` with `sourcesArchived: 0` reported as success.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(4);
+    const stage = (name: string) => {
+      db.prepare(`
+        INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+        VALUES ('memesh', '2026-W19', ?, ?, 'ollama/fake', 'v1')
+      `).run(JSON.stringify(sourceIds), JSON.stringify({
+        name, type: 'digest', observations: ['a consolidated summary of the work'], tags: ['digest'],
+      }));
+      return (db.prepare("SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC").get() as { id: number }).id;
+    };
+    const firstId = stage('digest-owner');
+    const secondId = stage('digest-empty-handed'); // identical source set
+
+    expect(applyProposal(db, firstId, kg).sourcesArchived).toBe(4);
+
+    expect(() => applyProposal(db, secondId, kg)).toThrow(/claimed nothing/);
+
+    // Rolled back: the entity must not exist. This is the assertion that fails
+    // if the refusal is moved after `createEntity` instead of throwing.
+    expect(
+      db.prepare("SELECT id FROM entities WHERE name = 'digest-empty-handed'").get(),
+      'a digest that claimed nothing was still written to the graph'
+    ).toBeUndefined();
+
+    // …and it must not stay pending, or every later run retries it at the cost
+    // of one LLM call, forever.
+    const after = db.prepare('SELECT status, reason FROM dream_proposals WHERE id = ?').get(secondId) as { status: string; reason: string | null };
+    expect(after.status, 'a proposal that can never apply was left pending').toBe('rejected');
+    expect(after.reason).toMatch(/already summarised/);
+
+    // The first digest keeps every source: the refusal took nothing away.
+    for (const id of sourceIds) {
+      const row = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(id) as { metadata: string };
+      expect(JSON.parse(row.metadata).compacted_into).toBe(
+        (db.prepare("SELECT id FROM entities WHERE name = 'digest-owner'").get() as { id: number }).id
+      );
+    }
+  });
+
+  it('apply: does NOT claim a proposal was rejected when the rejection write failed', async () => {
+    // The catch around `rejectProposal` may swallow exactly one failure — "not
+    // found or not pending", something else settled the row. A bare catch also
+    // swallowed SQLITE_BUSY and disk-full, and then let an error escape whose
+    // text promised the proposal would not be retried — while it sat there
+    // pending, retried by every later run at one LLM call each.
+    //
+    // The write failure is injected with a trigger because nothing in a
+    // single-process suite can make this UPDATE fail for real: the abort fires
+    // only on a transition to 'rejected', so the apply path's own writes are
+    // untouched.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(3);
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES ('memesh', '2026-W19', ?, ?, 'ollama/fake', 'v1')
+    `).run(JSON.stringify(sourceIds), JSON.stringify({
+      name: 'digest-unrejectable', type: 'digest', observations: ['a summary'], tags: ['digest'],
+    }));
+    const proposalId = (db.prepare("SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC").get() as { id: number }).id;
+    for (const id of sourceIds) db.prepare('DELETE FROM entities WHERE id = ?').run(id);
+
+    db.exec(`
+      CREATE TRIGGER reject_write_fails BEFORE UPDATE ON dream_proposals
+      WHEN NEW.status = 'rejected'
+      BEGIN SELECT RAISE(ABORT, 'simulated disk I/O error'); END
+    `);
+    try {
+      let thrown: Error | undefined;
+      try { applyProposal(db, proposalId, kg); } catch (e) { thrown = e as Error; }
+      expect(thrown, 'applyProposal swallowed a failed rejection entirely').toBeDefined();
+      expect(
+        thrown!.message,
+        'the error still promised the proposal would not be retried'
+      ).toMatch(/still pending/);
+      expect(thrown!.message).not.toMatch(/will not be retried/);
+      // And the row really is still pending — the message must match the state.
+      const row = db.prepare('SELECT status FROM dream_proposals WHERE id = ?').get(proposalId) as { status: string };
+      expect(row.status).toBe('pending');
+    } finally {
+      db.exec('DROP TRIGGER reject_write_fails');
+    }
+  });
+
+  it('apply: a digest whose sources were FORGOTTEN says so, not "already summarised"', async () => {
+    // The digest branch has its own `if (!sourceRow) continue`, so its
+    // empty-claim case has two distinct causes — and the rejection reason is
+    // operator-facing (`dream list`, dashboard). The first version keyed the
+    // reason on the branch alone, so a compaction whose sources were all
+    // deleted blamed "another digest" that never existed, and the operator
+    // audited for a duplicate instead of the forget that actually happened.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(3);
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES ('memesh', '2026-W19', ?, ?, 'ollama/fake', 'v1')
+    `).run(JSON.stringify(sourceIds), JSON.stringify({
+      name: 'digest-of-the-forgotten', type: 'digest', observations: ['a summary'], tags: ['digest'],
+    }));
+    const proposalId = (db.prepare("SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC").get() as { id: number }).id;
+
+    for (const id of sourceIds) db.prepare('DELETE FROM entities WHERE id = ?').run(id);
+
+    expect(() => applyProposal(db, proposalId, kg)).toThrow(/claimed nothing/);
+    const after = db.prepare('SELECT status, reason FROM dream_proposals WHERE id = ?').get(proposalId) as { status: string; reason: string | null };
+    expect(after.status).toBe('rejected');
+    expect(after.reason, 'a deleted-sources digest blamed a nonexistent duplicate digest').toMatch(/no longer exist|still exist/);
+    expect(after.reason).not.toMatch(/another digest/);
+  });
+
+  it('apply: a MIXED empty claim names both causes, with the right count for each', async () => {
+    // The two tests above stage one cause each, and both stayed green when the
+    // `missingSources` counter was deleted — because with the counter at zero
+    // the reason falls into the "all of them were already summarised" branch,
+    // which is exactly what the all-compacted test asserts. A break-test caught
+    // that: the fix that added the counter had no test that could fail without
+    // it. This is that test — some sources compacted, some forgotten, which is
+    // the ordinary shape once a graph has been running a while.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(4);
+    const stage = (name: string, ids: number[]) => {
+      db.prepare(`
+        INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+        VALUES ('memesh', '2026-W19', ?, ?, 'ollama/fake', 'v1')
+      `).run(JSON.stringify(ids), JSON.stringify({
+        name, type: 'digest', observations: ['a consolidated summary of the work'], tags: ['digest'],
+      }));
+      return (db.prepare("SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC").get() as { id: number }).id;
+    };
+
+    // Two of the four go to an earlier digest…
+    const ownerId = stage('digest-took-the-first-two', sourceIds.slice(0, 2));
+    expect(applyProposal(db, ownerId, kg).sourcesArchived).toBe(2);
+    // …and the other two are forgotten before this proposal is applied.
+    for (const id of sourceIds.slice(2)) db.prepare('DELETE FROM entities WHERE id = ?').run(id);
+
+    const mixedId = stage('digest-left-with-nothing', sourceIds);
+    expect(() => applyProposal(db, mixedId, kg)).toThrow(/claimed nothing/);
+
+    const after = db.prepare('SELECT status, reason FROM dream_proposals WHERE id = ?').get(mixedId) as { status: string; reason: string | null };
+    expect(after.status).toBe('rejected');
+    // Both counts, each accurate. "all 4 were already summarised" is the lie
+    // this guards: it sends the operator looking for two duplicate digests
+    // that do not exist, instead of at the forget that took the other two.
+    expect(after.reason, 'a mixed empty claim named only one of its two causes')
+      .toMatch(/2 were already summarised by another digest and 2 no longer exist/);
+    expect(after.reason).not.toMatch(/all 4/);
+  });
+
+  it('pattern apply: refuses a pattern whose sources have all been forgotten', async () => {
+    // Same hole, other branch, other route in: the pattern loop skips a source
+    // whose row is gone (`if (!sourceRow) continue`), so forgetting the sources
+    // between proposing and applying produced a pattern_emergent entity with
+    // zero `evidence_for` edges — a claim about a pattern with no evidence,
+    // orphaned in the graph view, reported as applied.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(4);
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES ('memesh', 'pattern:2026-W19', ?, ?, 'ollama/fake', 'v1')
+    `).run(JSON.stringify(sourceIds), JSON.stringify({
+      name: 'pattern-with-no-evidence',
+      type: 'pattern_emergent',
+      observations: ['Pattern: every commit touching X also touches Y'],
+      tags: ['pattern_emergent', 'project:memesh'],
+    }));
+    const proposalId = (db.prepare("SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC").get() as { id: number }).id;
+
+    for (const id of sourceIds) db.prepare('DELETE FROM entities WHERE id = ?').run(id);
+
+    expect(() => applyProposal(db, proposalId, kg)).toThrow(/claimed nothing/);
+    expect(
+      db.prepare("SELECT id FROM entities WHERE name = 'pattern-with-no-evidence'").get(),
+      'a pattern with no evidence was still written to the graph'
+    ).toBeUndefined();
+    const after = db.prepare('SELECT status, reason FROM dream_proposals WHERE id = ?').get(proposalId) as { status: string; reason: string | null };
+    expect(after.status).toBe('rejected');
+    expect(after.reason).toMatch(/still exist/);
+  });
+
   it('apply: refuses a second apply of the same proposal', async () => {
     // Covers the SELECT guard, not the terminal UPDATE's `AND status =
     // 'pending'` — that one needs a second process changing the row between
@@ -802,21 +988,26 @@ describe('dreamer', () => {
     // The second consumer of the marker: knowledge-graph's confidence bump
     // reads `metadata.trust` and treats a missing value as trusted.
     const { applyProposal } = await import('../../src/core/dreamer.js');
-    const sourceIds = seedCommits(4);
+    // Eight sources, four per proposal. Both proposals used to share ONE set of
+    // four — which is now refused outright, because the second would claim none
+    // of them. The re-apply this test is about is a second write to the same
+    // digest NAME, not a second write over the same sources, so splitting the
+    // sources keeps the thing under test and drops the thing that is a defect.
+    const sourceIds = seedCommits(8);
 
-    function stage(observations: string[]): number {
+    function stage(observations: string[], ids: number[]): number {
       db.prepare(`
         INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run('memesh', 'memesh::wk-20', JSON.stringify(sourceIds),
+      `).run('memesh', 'memesh::wk-20', JSON.stringify(ids),
         JSON.stringify({ name: 'repeat-digest', type: 'digest', observations, tags: ['digest'] }),
         'ollama/fake', 'v1');
       return (db.prepare("SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC").get() as { id: number }).id;
     }
 
-    applyProposal(db, stage(['first summary']), kg);
+    applyProposal(db, stage(['first summary'], sourceIds.slice(0, 4)), kg);
     db.prepare('UPDATE entities SET confidence = 0.5 WHERE name = ?').run('repeat-digest');
-    applyProposal(db, stage(['a brand new summary line']), kg);
+    applyProposal(db, stage(['a brand new summary line'], sourceIds.slice(4)), kg);
 
     const after = db.prepare('SELECT confidence AS c FROM entities WHERE name = ?').get('repeat-digest') as { c: number };
     expect(after.c, 'LLM-generated text lifted its own confidence').toBeCloseTo(0.5, 5);

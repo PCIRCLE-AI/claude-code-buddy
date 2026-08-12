@@ -461,10 +461,10 @@
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
       "triaged": "2026-08-10 (re-keyed: the serve 'error' listener added 9 lines; same safeParse statements, same classification)"
     },
-    "C5 src/transports/http/server.ts:1061": {
+    "C5 src/transports/http/server.ts:1078": {
       "class": "SAFE-GUARDED",
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-10 (re-keyed: the serve 'error' listener added 9 lines; same safeParse statements, same classification)"
+      "triaged": "2026-08-10; re-keyed 2026-08-12 +17 from :1061 (the accept handler's NothingToClaimError branch and its comment shifted the line); same safeParse statement, classification unchanged"
     },
     "C5 src/transports/cli/cli.ts:138": {
       "class": "SAFE-BY-CONSTRUCTION",
@@ -486,15 +486,15 @@
       "reason": "remember() sets relationErrors only when non-empty (operations.ts spreads it conditionally), so absent means none at the single producer; the failure path exits 1 off the same field",
       "triaged": "2026-08-10 (P7 batch 2)"
     },
-    "C5 src/core/dreamer.ts:1172": {
+    "C5 src/core/dreamer.ts:1186": {
       "class": "SAFE-GUARDED",
       "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4: lifecycle transaction, healing path, apply-side guards); same statement, classification unchanged)"
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1172 (NothingToClaimError and the missing-source counter shifted the line); same statement, classification unchanged"
     },
-    "C5 src/core/dreamer.ts:1175": {
+    "C5 src/core/dreamer.ts:1189": {
       "class": "SAFE-GUARDED",
       "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4: lifecycle transaction, healing path, apply-side guards); same statement, classification unchanged)"
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1175 (NothingToClaimError and the missing-source counter shifted the line); same statement, classification unchanged"
     }
   }
 }

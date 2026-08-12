@@ -268,15 +268,20 @@ Imported entities are marked with import provenance and treated as untrusted for
 |-----------|------|----------|-------------|
 | `data` | object | Yes | The JSON bundle produced by `export` |
 | `merge_strategy` | string | Yes | Merge strategy for conflicts: `"skip"`, `"overwrite"`, or `"append"` |
-| `namespace` | string | No | Force all imported entities into this namespace, ignoring the namespace stored in the bundle. This **moves** entities that already exist, in bulk, out of the scope they are in — `metadata.previous_namespace` records where each came from. Must be `personal`, `team` or `global`; anything else is refused outright. |
+| `namespace` | string | No | Force imported entities into this namespace, ignoring the namespace stored in the bundle. With `overwrite` or `append` it also **moves** entities that already exist, in bulk, out of the scope they are in — `metadata.previous_namespace` records where each came from. With `skip` it does not: see the table below. Must be `personal`, `team` or `global`; anything else is refused outright. |
 
 **Merge Strategies**:
 
-| Strategy | Behaviour on existing entity |
-|----------|------------------------------|
-| `skip` | Keep existing entity unchanged, discard imported copy |
-| `overwrite` | Replace existing entity's observations and tags with imported values |
-| `append` | Append imported observations to existing, deduplicate tags |
+| Strategy | Behaviour on existing entity | Does `namespace` move it? |
+|----------|------------------------------|---------------------------|
+| `skip` | Keep existing entity unchanged, discard imported copy | **No** — "unchanged" includes its namespace |
+| `overwrite` | Replace existing entity's observations and tags with imported values | Yes |
+| `append` | Append imported observations to existing, deduplicate tags | Yes |
+
+`skip` is the exception because it is the one strategy that promises to touch
+nothing that is already there, and a namespace move is a change — it takes the
+memory out of every scoped recall that used to return it. An import asking to
+skip existing entities does not get to relocate them as a side effect.
 
 **Response**:
 
@@ -298,8 +303,12 @@ Imported entities are marked with import provenance and treated as untrusted for
 // Import and overwrite conflicts
 {"data": {...}, "merge_strategy": "overwrite"}
 
-// Import into team namespace
+// File NEW entities under team; existing ones keep the namespace they have,
+// because `skip` leaves existing entities alone
 {"data": {...}, "merge_strategy": "skip", "namespace": "team"}
+
+// Move existing entities into team as well as filing new ones there
+{"data": {...}, "merge_strategy": "append", "namespace": "team"}
 ```
 
 ---
@@ -1435,6 +1444,8 @@ Trigger a dream pass via HTTP. Same logic as `memesh dream run`; runs `runDreame
 Apply a pending dream proposal — creates the digest entity (or `pattern_emergent` entity for pattern proposals), inserts `summarizes` / `evidence_for` relation edges, and soft-archives source entities for digest proposals.
 
 **Response:** `{ proposalId, digestEntityName, sourcesArchived, sourcesLinked, kind }`.
+
+A proposal that can no longer claim **any** of its sources (every source already summarised by another digest, or every source since forgotten) answers `400` with `errorCode: "operation.failed"` — and the server has already marked that proposal `rejected`, so it will not appear as pending again. This is a resolved outcome, not a server failure; do not retry it.
 
 ### POST /v1/dream/proposals/:id/reject
 

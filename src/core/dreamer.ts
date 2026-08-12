@@ -610,7 +610,21 @@ function withinDistance(a: Float32Array, b: Float32Array, limit: number): boolea
     sum += d * d;
     if (sum >= limitSquared) return false;
   }
-  return true;
+  // `Number.isFinite`, not `return true`, because the early exit is only
+  // equivalent to the full walk for finite input. One NaN component makes `sum`
+  // NaN, `NaN >= limitSquared` is false at every step, the loop runs to the end
+  // and the old `return true` declared the pair a match — so a corrupt vector
+  // joined EVERY cluster it was compared against, and the digest went to the
+  // model as if those memories belonged together.
+  //
+  // Reachable, not theoretical: sqlite-vec accepts and returns NaN without
+  // complaint — measured, `[0.1, NaN, 0.3]` inserts and reads back unchanged.
+  // `embedText` now refuses one on the way in, but that is the other half of
+  // the same fix, not a reason to drop this one: a vector stored before the
+  // guard is still in the table, and this function is what reads it.
+  //
+  // `Infinity` never reaches here: `Infinity >= limitSquared` exits above.
+  return Number.isFinite(sum);
 }
 
 /**
@@ -1406,6 +1420,7 @@ export function applyProposal(
     let archived = 0;
     let linked = 0;
     let skippedAlreadyCompacted = 0;
+    let missingSources = 0;
     if (isPattern) {
       // Pattern: link sources to the new pattern via metadata + edge,
       // do NOT archive (Phase 3 is additive — sources stay primary).
@@ -1430,7 +1445,7 @@ export function applyProposal(
       const taken: number[] = [];
       for (const sourceId of sourceIds) {
         const sourceRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(sourceId) as { metadata: string | null } | undefined;
-        if (!sourceRow) continue;
+        if (!sourceRow) { missingSources++; continue; }
         let meta: Record<string, unknown>;
         try { meta = sourceRow.metadata ? JSON.parse(sourceRow.metadata) : {}; } catch { meta = {}; }
         // Already summarised by another digest — leave it alone. This is a
@@ -1467,6 +1482,41 @@ export function applyProposal(
       }
     }
 
+    // A digest that claimed nothing is not a digest — it is a new entity
+    // asserting a summary of memories it does not own, with no `summarizes` or
+    // `evidence_for` edge to anything, i.e. exactly the orphan the edges above
+    // exist to prevent. Applying it reported success (`sourcesArchived: 0`) and
+    // left that orphan in the graph for good.
+    //
+    // Reachable on both branches, by different routes:
+    //   - compaction: every source already carries `compacted_into`, so the
+    //     loop refuses all of them. Proposing an overlapping pair is refused
+    //     upstream now, but a graph made before that gate can still hold two,
+    //     and applying the first turns the second into this case.
+    //   - pattern: every source row is gone (`if (!sourceRow) continue`), e.g.
+    //     the entities were forgotten between proposing and applying.
+    //
+    // Throwing rolls the whole transaction back, so the digest entity is never
+    // written; the caller then rejects the proposal outside the transaction,
+    // because a proposal that can never claim anything must not stay pending
+    // and be retried — at one LLM call each time — forever.
+    const claimed = isPattern ? linked : ownedSourceIds.length;
+    if (claimed === 0) {
+      // The reason is stored on the proposal row and shown by `dream list` and
+      // the dashboard, so it has to name what actually happened. The first
+      // version keyed it on the branch alone — pattern says "gone", digest says
+      // "already summarised" — but the digest loop skips missing rows too, so a
+      // compaction whose sources were all FORGOTTEN blamed a duplicate digest
+      // that does not exist, and the operator went auditing for it.
+      const reason =
+        isPattern || skippedAlreadyCompacted === 0
+          ? `none of the ${sourceIds.length} source memories still exist`
+          : missingSources === 0
+            ? `all ${sourceIds.length} source memories were already summarised by another digest`
+            : `of ${sourceIds.length} source memories, ${skippedAlreadyCompacted} were already summarised by another digest and ${missingSources} no longer exist`;
+      throw new NothingToClaimError(row.id, reason);
+    }
+
     // `AND status = 'pending'` — the check that let us in here ran in a SELECT
     // outside this transaction, so a concurrent `dream run` that superseded
     // the row could land in between and have its rejection overwritten by
@@ -1490,7 +1540,35 @@ export function applyProposal(
     return { digestId, archived, linked, skippedAlreadyCompacted, ownedSourceIds };
   });
 
-  const out = tx();
+  let out: ReturnType<typeof tx>;
+  try {
+    out = tx();
+  } catch (err) {
+    if (err instanceof NothingToClaimError) {
+      // Outside the transaction on purpose: the throw above rolled the digest
+      // back, and this write has to survive that rollback.
+      try {
+        rejectProposal(db, err.proposalId, err.reason);
+      } catch (rejectErr) {
+        // Exactly one failure is survivable here: the proposal stopped being
+        // pending underneath us, meaning something else already decided its
+        // fate — then the caller still needs the NothingToClaim error below,
+        // not this one. The first version of this catch was bare, which also
+        // swallowed SQLITE_BUSY and disk-full: the proposal silently stayed
+        // pending — re-entering the retry-forever loop this throw exists to
+        // close — while the propagated message still said it was rejected.
+        const msg = rejectErr instanceof Error ? rejectErr.message : String(rejectErr);
+        if (!/not found or not pending/.test(msg)) {
+          throw new Error(
+            `proposal #${err.proposalId} claimed nothing (${err.reason}), and marking it ` +
+              `rejected failed too: ${msg}. It is still pending and the next dream run will retry it.`,
+            { cause: rejectErr }
+          );
+        }
+      }
+    }
+    throw err;
+  }
   return {
     proposalId: row.id,
     digestEntityName: digest.name,
@@ -1499,6 +1577,32 @@ export function applyProposal(
     ...(out.skippedAlreadyCompacted > 0 ? { sourcesAlreadyCompacted: out.skippedAlreadyCompacted } : {}),
     kind: isPattern ? 'pattern_emergent' : 'digest',
   };
+}
+
+/**
+ * A proposal that cannot claim a single one of its sources.
+ *
+ * Its own class rather than a plain `Error` so a catch can tell "this
+ * proposal is dead, reject it" apart from "the write failed" — rejecting on
+ * every error would mark a proposal dead because the disk was full.
+ *
+ * Exported for the same distinction one layer up: the HTTP accept handler
+ * matched errors by message and knew only "not found or not pending", so this
+ * — a request the server understood, resolved, and answered with a state
+ * change — went out as a 500 `server.internal`, which generic client retry
+ * logic then retried into a 404. It is an outcome, not a server failure.
+ *
+ * The message says "will not be retried", not "is now rejected", because at
+ * throw time neither has happened yet — the catch in `applyProposal` makes it
+ * true before the error escapes, either by rejecting the proposal or by
+ * confirming something else already settled it. If even that fails, this error
+ * is replaced with one that says the proposal is still pending.
+ */
+export class NothingToClaimError extends Error {
+  constructor(readonly proposalId: number, readonly reason: string) {
+    super(`proposal #${proposalId} claimed nothing: ${reason}. Nothing was written, and the proposal will not be retried.`);
+    this.name = 'NothingToClaimError';
+  }
 }
 
 export function rejectProposal(db: MemeshDatabase, proposalId: number, reason?: string): void {

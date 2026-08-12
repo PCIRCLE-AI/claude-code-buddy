@@ -66,6 +66,11 @@ export declare function applyProposal(db: MemeshDatabase, proposalId: number, kg
         trustOverride?: 'trusted' | 'untrusted';
     }) => number;
 }): ApplyResult;
+export declare class NothingToClaimError extends Error {
+    readonly proposalId: number;
+    readonly reason: string;
+    constructor(proposalId: number, reason: string);
+}
 export declare function rejectProposal(db: MemeshDatabase, proposalId: number, reason?: string): void;
 export interface ProposalSummary {
     id: number;

@@ -210,7 +210,7 @@ function initialiseDatabase(db: MemeshDatabase, resolvedPath: string): MemeshDat
 
   // Phase-1 of #39: backfill metadata.signal_score on any entity
   // that doesn't already have one. One-time scan per install (the
-  // marker key 'signal_score_backfill_v1' guards against repeats).
+  // MARKER key in backfillSignalScores guards against repeats).
   // Rule-based scorer is fast — 3000 entities cost ~50ms. Future
   // schema-version bumps to the scorer can re-run by changing the
   // marker key.
@@ -907,7 +907,7 @@ const TELEMETRY_PRUNE_MARKER = 'last_telemetry_prune_at';
 /**
  * Auto-prune `llm_telemetry` rows older than 180 days, throttled to
  * once per 24h via a marker key in `memesh_metadata` (same pattern as
- * `runAutoDecay` and the `signal_score_backfill_v1` backfill). Closes
+ * `runAutoDecay` and the signal-score backfill). Closes
  * the "no automatic retention" known limitation documented in the
  * v4.2.0 CHANGELOG.
  *
@@ -945,10 +945,15 @@ function runAutoTelemetryPrune(db: MemeshDatabase): void {
 /**
  * Backfill metadata.signal_score on existing entities (#39 Phase 1).
  *
- * One-time pass keyed by 'signal_score_backfill_v1' in
- * memesh_metadata. Subsequent openDatabase calls are no-ops. If the
- * scorer rules change materially, bump the marker key (v2, v3…) to
- * trigger a re-scan against the new rules.
+ * One-time pass keyed by the MARKER constant below. Subsequent
+ * openDatabase calls are no-ops. If the scorer rules change materially,
+ * or a bug leaves rows unscored, bump the marker's version suffix to
+ * trigger a re-scan.
+ *
+ * The marker is named by pointing at the constant, not by quoting its
+ * value: three comments in this file quoted 'v1' and all three still
+ * said it after the code moved to v2. A copy of a fact drifts; a
+ * pointer cannot.
  *
  * Safe to run on a fresh DB (no entities → no-op) and on a 50k DB
  * (~200ms at rule-based speed). Reads observations + tags per

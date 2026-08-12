@@ -107,6 +107,57 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **A redaction root can no longer match in the middle of an unrelated path.**
+  `redactUserPaths` anchored the end of a root but not the beginning, so with
+  `MEMESH_DIR=/data` the text `/var/lib/data/file` — someone else's path, on
+  its way into a **public** GitHub issue — came out as `/var/lib~/file`: a
+  corrupted diagnostic with nothing saying redaction did it. A root now has to
+  sit at a path boundary on both sides, where "boundary" forbids exactly the
+  two shapes that glue a root to the end of another path component — review
+  caught that the first cut of this fix forbade more, which had stopped
+  redacting real user paths inside `file://` stack-trace frames and on diff
+  removed-lines. Ambiguity resolves toward redacting: this is a security
+  control, and an over-redacted diagnostic costs less than an account name on
+  a public tracker.
+
+- **A dream proposal that would claim nothing is now rejected instead of
+  applied.** When every source of a digest proposal had already been
+  summarised by another digest — or every source had since been forgotten —
+  `apply` still created the digest entity: a summary summarising nothing (or
+  a pattern with zero evidence), left active in the graph, with the proposal
+  marked `applied` and `sourcesArchived: 0` reported as success. It now
+  throws before writing, the transaction rolls back, and the proposal is
+  marked `rejected` with a reason that names what actually happened —
+  "already summarised", "no longer exist", or both — so later runs stop
+  retrying it. If marking it rejected fails too, the error says the proposal
+  is **still pending**, instead of promising a rejection that never landed.
+  Over HTTP, `POST /v1/dream/proposals/:id/accept` answers this outcome with
+  `400 operation.failed` rather than `500 server.internal` — it is the server
+  resolving the proposal, not the server breaking, and a generic retry
+  against the 500 used to earn a contradictory 404.
+
+- **A stored vector holding `NaN` no longer joins every cluster.** The
+  clustering distance check exits early on `sum >= limit²`; `NaN` makes that
+  comparison false at every step, so the loop ran to the end and a bare
+  `return true` declared the pair a match — one corrupt vector merged with
+  everything, and the digest went to the model as if those memories belonged
+  together. The check now requires the accumulated distance to be finite.
+
+- **An embedding with a non-finite component is refused at the door.**
+  sqlite-vec stores and returns `NaN` without complaint (measured: `[0.1,
+  NaN, 0.3]` survives a round trip), and `Float32Array` manufactures one out
+  of provider JSON quietly — a `"NaN"` string, a missing slot, a magnitude
+  past float64. `embedText` now returns null for such a vector and says why
+  on stderr, so the text stays on keyword search instead of poisoning
+  clustering and vector search from inside the index.
+
+- **The `import` documentation no longer contradicts itself about `skip` +
+  `namespace`.** The parameter table said forcing a namespace "moves entities
+  that already exist" unconditionally; thirty lines down, the strategy table
+  says `skip` leaves existing entities unchanged — and the code agrees with
+  the strategy table. The docs now state the exception and show both
+  examples, because "unchanged" includes the namespace.
+
 - **A session on a HOME that cannot be written no longer reports itself ready.**
   `session-start` printed `◉ MeMesh ready · memories will be created as you
   work` on a directory the process has no permission to create. Every capture
