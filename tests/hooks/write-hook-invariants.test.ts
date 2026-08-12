@@ -74,4 +74,48 @@ describe('write-hook invariants (fake-working gates)', () => {
       ).not.toMatch(/INSERT INTO entities_fts/);
     }
   });
+
+  it('openHookDb stamps the heartbeat when given a hook name, and not otherwise', () => {
+    // `hook_runs` is the only evidence that a hook EXECUTED rather than merely
+    // captured something, and doctor now reports a FAIL when it goes stale.
+    // That makes the write itself load-bearing: if this stops happening,
+    // doctor starts accusing a perfectly healthy install of having dead hooks.
+    const stamped = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { hook: 'session-summary' });
+    try {
+      const row = stamped.db.prepare("SELECT hook, run_count FROM hook_runs WHERE hook = 'session-summary'").get();
+      expect(row, 'openHookDb did not record that the hook ran').toBeDefined();
+      expect(row.run_count).toBe(1);
+    } finally { stamped.db.close(); }
+
+    // Second run of the same hook increments rather than duplicating — the
+    // table is keyed by hook name and must not grow with usage.
+    const again = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { hook: 'session-summary' });
+    try {
+      const rows = again.db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").all();
+      expect(rows).toHaveLength(1);
+      expect(rows[0].run_count).toBe(2);
+    } finally { again.db.close(); }
+
+    // A caller with no hook name is an internal helper, not a hook firing.
+    // session-summary calls openHookDb() a second time to count entities; if
+    // that stamped the heartbeat too, the count would stop meaning "sessions".
+    const anonymous = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath });
+    try {
+      const row = anonymous.db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").get();
+      expect(row.run_count, 'an internal openHookDb() call was counted as a hook run').toBe(2);
+    } finally { anonymous.db.close(); }
+  });
+
+  it('every capture hook passes its own name to openHookDb', () => {
+    // The stamp is opt-in per call site, so a new capture hook that forgets it
+    // is invisible: capture works, and doctor slowly decides the loop is dead.
+    for (const hook of ['session-summary.js', 'post-commit.js', 'pre-compact.js']) {
+      const src = fs.readFileSync(path.join('scripts/hooks', hook), 'utf8');
+      const name = hook.replace(/\.js$/, '');
+      expect(
+        src,
+        `${hook} must pass hook: '${name}' to openHookDb, or doctor cannot tell it ever ran`,
+      ).toContain(`hook: '${name}'`);
+    }
+  });
 });

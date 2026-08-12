@@ -289,6 +289,35 @@ CREATE TABLE IF NOT EXISTS memesh_metadata (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Proof that a capture hook actually RAN. Nothing else in this schema can
+-- give it: every other signal is "a row was written", and "the hook ran and
+-- found nothing worth saving" is the healthy case that produces no row at
+-- all. So a quiet day and a dead capture loop were byte-identical in the
+-- database, and the one doctor message that had to cover both cried wolf on
+-- the first and stayed silent on the second.
+--
+-- Written by the three hooks that hold a read-write handle (Stop, PreCompact,
+-- PostToolUse) via openHookDb's \`hook\` option. The recall-side hooks open
+-- read-only and deliberately do not appear here: their liveness answers a
+-- different question, and giving them a write handle would put a lock
+-- acquisition on the SessionStart hot path.
+--
+-- One row per hook, upserted. It does not grow.
+CREATE TABLE IF NOT EXISTS hook_runs (
+  hook        TEXT PRIMARY KEY,
+  last_run_at TIMESTAMP NOT NULL,
+  run_count   INTEGER NOT NULL DEFAULT 0
+);
+
+-- When this database first became able to record hook runs. Without it, an
+-- empty \`hook_runs\` is ambiguous on exactly the day it matters: every
+-- existing database has one the moment this ships, and reporting that as
+-- "hooks are dead" would recreate the crying-wolf problem in a louder voice.
+-- INSERT OR IGNORE runs on every open from both src and hooks, and stamps
+-- once.
+INSERT OR IGNORE INTO memesh_metadata (key, value)
+VALUES ('hook_runs_since', datetime('now'));
 `;
 
 // FTS5 virtual table — separate so hooks that don't need it stay lean.
@@ -419,7 +448,47 @@ export function openHookDb(env = process.env, opts = {}) {
   // saw "database disk image is malformed" on hook stderr.
   if (opts.fts) ensureHookFtsSegmentation(db);
 
+  // Stamp the heartbeat LAST, so the row means "a hook process got all the way
+  // to a usable handle" rather than "a hook process started". A hook that dies
+  // in migration is as broken as one that never fired, and must not look alive.
+  if (opts.hook) recordHookRun(db, opts.hook);
+
   return { db, dbPath };
+}
+
+/**
+ * Record that `hook` ran, right now.
+ *
+ * This is the only evidence in the system that a hook EXECUTED, as opposed to
+ * a hook having captured something. Doctor could previously only count
+ * auto-captured entities, which conflates the healthy "ran, nothing worth
+ * saving" with the fatal "never ran" — see the `hook_runs` comment in
+ * SCHEMA_SQL.
+ *
+ * A failure here must never take the hook down with it: the heartbeat is
+ * diagnostics, and a session that captured its work but could not stamp the
+ * row is far better than one that threw. But it is not swallowed either — it
+ * writes to stderr, because a heartbeat that silently stops recording would
+ * recreate the exact blind spot it exists to close.
+ */
+export function recordHookRun(db, hook) {
+  try {
+    db.prepare(
+      `INSERT INTO hook_runs (hook, last_run_at, run_count)
+       VALUES (?, datetime('now'), 1)
+       ON CONFLICT(hook) DO UPDATE SET
+         last_run_at = datetime('now'),
+         run_count   = run_count + 1`,
+    ).run(hook);
+  } catch (err) {
+    try {
+      process.stderr.write(
+        `MeMesh: could not record that the ${hook} hook ran (${err?.message ?? err}). ` +
+          `Capture itself is unaffected, but 'memesh doctor' will under-report ` +
+          `hook liveness until this succeeds.\n`,
+      );
+    } catch { /* stderr itself is gone; there is nowhere left to report */ }
+  }
 }
 
 /**

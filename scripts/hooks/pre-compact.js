@@ -101,7 +101,7 @@ process.stdin.on('end', () => {
 
     // Open DB via shared helper — applies SCHEMA_SQL + status migration.
     // FTS5 needed for the entity-search index updates below.
-    const { db } = openHookDb(process.env, { fts: true });
+    const { db } = openHookDb(process.env, { fts: true, hook: 'pre-compact' });
     let written = null;
     try {
       // Shared write dance — upsert entity + observations + tags AND reindex FTS

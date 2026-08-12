@@ -53,7 +53,14 @@ export const QUIET_WARN_CODES = new Set([
   'update-status.no-cache',        // has not checked yet — not a problem
   'update-status.stale',           // version is current, cache merely old
   'update-status.deprecation-unknown', // lookup failed; retried silently
-  'hook-activity.quiet',           // configured fine, just no sessions yet
+  // `hook-activity.quiet` used to sit here, and it was the most expensive
+  // entry in the list: the single signal that automatic capture might be dead
+  // was the one the dashboard refused to show. It was suppressed for a good
+  // reason — the old check could not distinguish "no session yet" from "hooks
+  // are not running", so it fired on quiet days and reading it as a problem
+  // would have been wrong most of the time. The check now measures hook RUNS
+  // rather than captured rows, so the ambiguity is gone and the code with it:
+  // a quiet day is a PASS, and a stopped loop is a FAIL that banners.
   'shell-cli.not-on-path',         // plugin-only installs work fully
   'skills-manifest.missing-dev',   // normal for source checkouts
   'install-channel.unknown',       // nothing is broken

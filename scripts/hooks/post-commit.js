@@ -101,7 +101,7 @@ process.stdin.on('end', () => {
 
     // Open DB via shared helper — applies SCHEMA_SQL + status migration.
     // Pass fts:true so the FTS5 entity-search index is also available.
-    const { db } = openHookDb(process.env, { fts: true });
+    const { db } = openHookDb(process.env, { fts: true, hook: 'post-commit' });
     try {
       const entityName = `commit-${commitHash}`;
 

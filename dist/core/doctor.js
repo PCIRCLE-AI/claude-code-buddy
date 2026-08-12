@@ -267,31 +267,47 @@ function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, installC
     return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'pass', `Wired in ${marker.settings_path} (scope: ${marker.scope ?? 'user'}, version: ${marker.version ?? 'unknown'}).`);
 }
 function inspectHookActivity(openDatabaseImpl, closeDatabaseImpl, existsSyncImpl = fs.existsSync, statSyncImpl = fs.statSync) {
+    const TITLE = 'Hook activity';
     let db = null;
     try {
         db = openDatabaseImpl();
-        const row = db.prepare(`SELECT COUNT(DISTINCT e.id) as c FROM entities e
+        const lastRun = db.prepare(`SELECT hook, last_run_at FROM hook_runs ORDER BY last_run_at DESC LIMIT 1`).get();
+        const ranHoursAgo = lastRun ? hoursSince(lastRun.last_run_at) : null;
+        const captured = db.prepare(`SELECT COUNT(DISTINCT e.id) as c FROM entities e
        JOIN tags t ON t.entity_id = e.id
        WHERE t.tag = ?
-         AND e.created_at > datetime('now', '-24 hours')`).get(AUTO_CAPTURE_TAG);
-        const count = row?.c ?? 0;
-        if (count === 0) {
+         AND e.created_at > datetime('now', '-24 hours')`).get(AUTO_CAPTURE_TAG)?.c ?? 0;
+        if (lastRun && ranHoursAgo !== null && ranHoursAgo <= 24) {
+            const tail = captured > 0
+                ? `${captured} memor${captured === 1 ? 'y' : 'ies'} captured in the last 24h.`
+                : 'Nothing was worth saving in that time, which is normal — the loop still ran.';
+            return createCheck('hook-activity', TITLE, 'pass', `The ${lastRun.hook} hook last ran ${formatHoursAgo(ranHoursAgo)} — auto-capture is alive. ${tail}`);
+        }
+        const since = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'hook_runs_since'").get()?.value;
+        const measuringHours = since ? hoursSince(since) : null;
+        if (!lastRun) {
+            if (measuringHours === null || measuringHours < 24) {
+                return createCheck('hook-activity', TITLE, 'pass', 'Hook-run tracking has only just started on this database — the first work session will fill it in.');
+            }
             const markerPath = path.join(memeshDir(), 'install-hooks.json');
             if (existsSyncImpl(markerPath)) {
                 try {
-                    const ageMs = Date.now() - statSyncImpl(markerPath).mtimeMs;
-                    if (ageMs < 24 * 60 * 60 * 1000) {
-                        return createCheck('hook-activity', 'Hook activity (last 24h)', 'pass', 'Hooks wired recently — no captureable sessions yet (this is normal for a fresh install).');
+                    if (Date.now() - statSyncImpl(markerPath).mtimeMs < 24 * 60 * 60 * 1000) {
+                        return createCheck('hook-activity', TITLE, 'pass', 'Hooks were wired in the last day and no session has ended yet — normal for a fresh install.');
                     }
                 }
                 catch { }
             }
-            return createCheck('hook-activity', 'Hook activity (last 24h)', 'warn', 'memesh has not saved anything automatically in the last 24 hours. Everything is set up — it just has not seen a work session to remember yet. If you HAVE been working all day, Claude Code may need a restart to pick the connection up.', 'Do a normal Claude Code work session (or make a git commit), then check again with `memesh doctor`.', { code: 'hook-activity.quiet' });
+            return createCheck('hook-activity', TITLE, 'fail', `No capture hook has run in the ${formatHoursAgo(measuringHours)} since tracking began. ` +
+                'Either memesh has not been wired into your agent, or it is wired and the hooks are not executing — ' +
+                'those look identical from here, and both mean nothing is being remembered.', 'Run `memesh doctor` after ending one work session. If this still says no hook has run, run `memesh install-hooks` and restart your agent.', { code: 'hook-activity.never-ran', params: { hours: Math.round(measuringHours) } });
         }
-        return createCheck('hook-activity', 'Hook activity (last 24h)', 'pass', `${count} memesh-attributed entit${count === 1 ? 'y' : 'ies'} captured in the past 24h — auto-capture loop is alive.`);
+        return createCheck('hook-activity', TITLE, 'fail', `The last capture hook ran ${formatHoursAgo(ranHoursAgo)} (${lastRun.hook}). ` +
+            'If you have worked since then, capture has stopped and nothing from those sessions was saved.', 'Restart your agent, then end one session and re-run `memesh doctor`. If it does not recover, run `memesh install-hooks`.', { code: 'hook-activity.stale', params: { hook: lastRun.hook, hours: ranHoursAgo === null ? -1 : Math.round(ranHoursAgo) } });
     }
     catch (err) {
-        return createCheck('hook-activity', 'Hook activity (last 24h)', 'warn', `Could not query the database: ${err instanceof Error ? err.message : String(err)}`, undefined, { code: 'hook-activity.query-failed', params: { detail: err instanceof Error ? err.message : String(err) } });
+        const detail = err instanceof Error ? err.message : String(err);
+        return createCheck('hook-activity', TITLE, 'fail', `Could not read hook activity from the database: ${detail}. Capture health is unknown, which is not the same as healthy.`, 'Run `memesh doctor --verbose` for the full error, and check that ~/.memesh is readable and not out of disk.', { code: 'hook-activity.query-failed', params: { detail } });
     }
     finally {
         try {
@@ -300,6 +316,27 @@ function inspectHookActivity(openDatabaseImpl, closeDatabaseImpl, existsSyncImpl
         }
         catch { }
     }
+}
+export function hoursSince(sqliteTimestamp) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(sqliteTimestamp ?? '');
+    if (!m)
+        return null;
+    const then = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    if (!Number.isFinite(then))
+        return null;
+    return (Date.now() - then) / (60 * 60 * 1000);
+}
+function formatHoursAgo(hours) {
+    if (hours === null || !Number.isFinite(hours) || hours < 0)
+        return 'at an unknown time';
+    if (hours < 1)
+        return 'less than an hour ago';
+    if (hours < 48) {
+        const h = Math.round(hours);
+        return `${h} hour${h === 1 ? '' : 's'} ago`;
+    }
+    const d = Math.round(hours / 24);
+    return `${d} day${d === 1 ? '' : 's'} ago`;
 }
 function defaultResolveShellMemesh() {
     try {

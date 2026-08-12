@@ -6,6 +6,45 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **memesh now records that a capture hook RAN, not only that it saved
+  something.** Every liveness signal in the product was "a row appeared in the
+  last 24 hours", and the healthiest state there is — a hook that ran and found
+  nothing worth remembering — produces no row at all. So a quiet Tuesday and a
+  capture loop that had been dead for a month were byte-identical in the
+  database. `memesh doctor` had one message to cover both, which meant it cried
+  wolf on ordinary days *and* stayed silent on the failure it existed to catch;
+  the dashboard, reasonably, suppressed it entirely, so the single signal that
+  automatic memory might have stopped was the single signal a dashboard user
+  could never see.
+
+  A `hook_runs` table (one row per hook, upserted, it does not grow) is now
+  stamped by the three hooks that hold a read-write handle. Doctor reads it and
+  answers a different question: a quiet day where the hook ran is a **PASS**
+  that says so, and a loop that has stopped is a **FAIL** that reaches the
+  dashboard banner. A database that only just gained the table is a PASS too —
+  `hook_runs_since` records when we first *could* tell, so the upgrade itself
+  does not look like a failure.
+
+### Fixed
+
+- **A `~/.memesh` that cannot be written no longer reports the session as
+  ready, on any run.** The probe for this existed and was measured by hand, but
+  it sat inside the "no database yet" branch — so it only ever ran before the
+  database existed, which is the one moment the failure is least likely. A
+  directory that *became* unwritable later (permissions changed, a read-only
+  mount, a botched `sudo`) printed the green count banner on every session
+  while every capture hook failed with EACCES. The probe now runs on every
+  session and also checks the database file itself, because a writable
+  directory holding a read-only database is a state the old mkdir-only check
+  called healthy. `tests/hooks/session-start-unwritable.test.ts` pins both
+  cases against a real read-only directory; nothing pinned either before.
+
+- **Doctor no longer treats the `source:auto-capture` tag as proof that
+  automation is running.** A tag is something anyone can type — the test
+  directly above this one in `doctor-honest-pass.test.ts` proves the user can
+  write entities by hand, and nothing stopped them writing that tag too.
+  Liveness now comes from `hook_runs`, which only a hook writes.
+
 - **`memesh remember --contradicts <name>` and `--supersedes <name>`.** Both
   relation types that change behaviour were statable through MCP and HTTP and
   from neither the terminal nor anywhere else the CLI could reach. That made

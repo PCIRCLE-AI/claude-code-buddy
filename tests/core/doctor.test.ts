@@ -3,7 +3,7 @@ import os from 'os';
 import path from 'path';
 import { createHash } from 'crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { formatDoctorReport, runDoctor as runDoctorImpl } from '../../src/core/doctor.js';
+import { formatDoctorReport, hoursSince, runDoctor as runDoctorImpl } from '../../src/core/doctor.js';
 import type { UpdateCheck } from '../../src/core/version-check.js';
 import type { Capabilities } from '../../src/core/config.js';
 
@@ -155,12 +155,37 @@ function createPackageRoot(): string {
  * it is pinned in `tests/fts-segmentation-doctor.test.ts` against a real FTS5
  * index.
  */
-function makeDatabase(count = 3, opts: { unsegmentedCount?: number } = {}) {
+function makeDatabase(
+  count = 3,
+  opts: {
+    unsegmentedCount?: number;
+    /** Newest `hook_runs` row. `null` = the table is empty (no hook has ever run). */
+    lastHookRun?: { hook: string; hoursAgo: number } | null;
+    /** Age of the `hook_runs_since` marker. `null` = the key is absent. */
+    trackingSinceHours?: number | null;
+  } = {},
+) {
+  const sqliteTs = (hoursAgo: number) =>
+    new Date(Date.now() - hoursAgo * 3600_000).toISOString().replace('T', ' ').slice(0, 19);
+  // Default to a healthy heartbeat so the many tests that are about OTHER
+  // checks do not have to know this one exists. Tests that are about hook
+  // activity pass it explicitly.
+  const lastHookRun = opts.lastHookRun === undefined ? { hook: 'session-summary', hoursAgo: 1 } : opts.lastHookRun;
+  const trackingSinceHours = opts.trackingSinceHours === undefined ? 720 : opts.trackingSinceHours;
   return {
     prepare(sql: string) {
       if (sql.includes('sqlite_master')) return { get: () => ({ present: 1 }) };
       if (sql.includes('fts_vocab')) {
         return { get: () => ({ c: opts.unsegmentedCount ?? 0 }) };
+      }
+      if (sql.includes('FROM hook_runs')) {
+        return {
+          get: () =>
+            lastHookRun ? { hook: lastHookRun.hook, last_run_at: sqliteTs(lastHookRun.hoursAgo) } : undefined,
+        };
+      }
+      if (sql.includes('hook_runs_since')) {
+        return { get: () => (trackingSinceHours === null ? undefined : { value: sqliteTs(trackingSinceHours) }) };
       }
       // hook-activity counts entities carrying the auto-capture provenance
       // tag, so its statement is `COUNT(DISTINCT e.id)` over a join. This
@@ -993,109 +1018,207 @@ describe('doctor', () => {
     expect(result.status).toBe('FAIL');
   });
 
-  it('hook-activity: WARN when no memesh-attributed entities in past 24h AND no install-hooks marker (grace period inapplicable)', async () => {
-    const packageRoot = createPackageRoot();
-    tempRoots.push(packageRoot);
+  // ── hook-activity ────────────────────────────────────────────────────────
+  //
+  // The check measures whether a capture hook RAN, not whether it saved
+  // anything. Before `hook_runs` existed it could only count captured rows,
+  // which made "a quiet Tuesday" and "capture has been dead for a month"
+  // produce the same WARN — so the dashboard suppressed the code entirely and
+  // the one signal that mattered could never reach a user. Each case below
+  // pins one of the states that were previously indistinguishable.
 
-    const result = await runDoctor({
+  /** Everything a runDoctor call needs that is not about hook activity. */
+  function hookActivityDoctorArgs(packageRoot: string, database: unknown) {
+    return {
       packageRoot,
       packageVersion: '4.1.4',
-      openDatabaseImpl: () => makeDatabase(0) as never, // ← key: 0 entities
+      openDatabaseImpl: () => database as never,
       closeDatabaseImpl: () => undefined,
       detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
-      getCurrentInstallChannelImpl: () => 'npm-global',
+      getCurrentInstallChannelImpl: () => 'npm-global' as const,
       getInstallChannelSupportImpl: () => ({
-        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        channel: 'npm-global' as const, label: 'npm global', canSelfUpdate: true,
         recommendedCommand: 'memesh update',
         guidance: 'This installation can be updated directly from MeMesh.',
       }),
-      // No marker → grace period cannot fire → warn must surface.
-      existsSyncImpl: ((p: fs.PathLike) => {
-        if (typeof p === 'string' && p.endsWith('install-hooks.json')) return false;
-        return fs.existsSync(p);
-      }) as typeof fs.existsSync,
+    };
+  }
+
+  const noMarker = ((p: fs.PathLike) => {
+    if (typeof p === 'string' && p.endsWith('install-hooks.json')) return false;
+    return fs.existsSync(p);
+  }) as typeof fs.existsSync;
+
+  const markerAged = (ageMs: number) => ({
+    existsSyncImpl: ((p: fs.PathLike) => {
+      if (typeof p === 'string' && p.endsWith('install-hooks.json')) return true;
+      return fs.existsSync(p);
+    }) as typeof fs.existsSync,
+    statSyncImpl: ((p: fs.PathLike) => {
+      if (typeof p === 'string' && p.endsWith('install-hooks.json')) {
+        return { mtimeMs: Date.now() - ageMs } as fs.Stats;
+      }
+      return fs.statSync(p);
+    }) as typeof fs.statSync,
+  });
+
+  it('hook-activity: PASS when a hook ran recently even though it captured NOTHING', async () => {
+    // The crying-wolf case, and the reason the old code was unusable. A hook
+    // that ran and found nothing worth saving is the single most common
+    // healthy state, and it used to raise the same warning as a dead loop.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, { lastHookRun: { hook: 'session-summary', hoursAgo: 2 } })),
+      existsSyncImpl: noMarker,
     });
 
     const activity = result.checks.find(c => c.id === 'hook-activity');
-    expect(activity!.status).toBe('warn');
-    // Plain-language copy — the old text named entity-type slugs and the
-    // "agentic-loop guard", none of which a user can act on.
-    expect(activity!.summary).toMatch(/has not saved anything automatically in the last 24 hours/i);
-    expect(activity!.fix).toMatch(/Claude Code session|commit/);
-    expect(activity!.code).toBe('hook-activity.quiet');
+    expect(activity!.status, 'a quiet but living capture loop was reported as a problem').toBe('pass');
+    expect(activity!.summary).toMatch(/session-summary/);
+    expect(activity!.summary).toMatch(/nothing was worth saving/i);
   });
 
-  it('hook-activity: PASS via grace period when install-hooks marker is fresh and 0 entities', async () => {
+  it('hook-activity: PASS and names the count when a hook ran AND captured', async () => {
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 
     const result = await runDoctor({
-      packageRoot,
-      packageVersion: '4.1.4',
-      openDatabaseImpl: () => makeDatabase(0) as never, // 0 entities
-      closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
-      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
-      getUpdateCheckImpl: async () => makeUpdateCheck(),
-      getCurrentInstallChannelImpl: () => 'npm-global',
-      getInstallChannelSupportImpl: () => ({
-        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
-        recommendedCommand: 'memesh update',
-        guidance: 'This installation can be updated directly from MeMesh.',
-      }),
-      // Fresh marker exists → grace period kicks in → no warn.
-      existsSyncImpl: ((p: fs.PathLike) => {
-        if (typeof p === 'string' && p.endsWith('install-hooks.json')) return true;
-        return fs.existsSync(p);
-      }) as typeof fs.existsSync,
-      statSyncImpl: ((p: fs.PathLike) => {
-        if (typeof p === 'string' && p.endsWith('install-hooks.json')) {
-          return { mtimeMs: Date.now() - 60_000 } as fs.Stats; // 1 min old
-        }
-        return fs.statSync(p);
-      }) as typeof fs.statSync,
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(4, { lastHookRun: { hook: 'post-commit', hoursAgo: 1 } })),
+      existsSyncImpl: noMarker,
     });
 
     const activity = result.checks.find(c => c.id === 'hook-activity');
     expect(activity!.status).toBe('pass');
-    expect(activity!.summary).toMatch(/recently|fresh install/i);
+    expect(activity!.summary).toMatch(/4 memories captured/);
   });
 
-  it('hook-activity: WARN when install-hooks marker is older than the grace window AND 0 entities', async () => {
+  it('hook-activity: PASS when tracking itself only just started (the upgrade day)', async () => {
+    // Every existing database has an empty `hook_runs` the moment this ships.
+    // Reporting that as a dead capture loop would be the old bug with a louder
+    // voice, so `hook_runs_since` records when we first COULD tell.
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 
     const result = await runDoctor({
-      packageRoot,
-      packageVersion: '4.1.4',
-      openDatabaseImpl: () => makeDatabase(0) as never,
-      closeDatabaseImpl: () => undefined,
-      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
-      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
-      getUpdateCheckImpl: async () => makeUpdateCheck(),
-      getCurrentInstallChannelImpl: () => 'npm-global',
-      getInstallChannelSupportImpl: () => ({
-        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
-        recommendedCommand: 'memesh update',
-        guidance: 'This installation can be updated directly from MeMesh.',
-      }),
-      existsSyncImpl: ((p: fs.PathLike) => {
-        if (typeof p === 'string' && p.endsWith('install-hooks.json')) return true;
-        return fs.existsSync(p);
-      }) as typeof fs.existsSync,
-      statSyncImpl: ((p: fs.PathLike) => {
-        if (typeof p === 'string' && p.endsWith('install-hooks.json')) {
-          // 48h old — well past the 24h grace window
-          return { mtimeMs: Date.now() - 48 * 60 * 60 * 1000 } as fs.Stats;
-        }
-        return fs.statSync(p);
-      }) as typeof fs.statSync,
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, { lastHookRun: null, trackingSinceHours: 3 })),
+      existsSyncImpl: noMarker,
     });
 
     const activity = result.checks.find(c => c.id === 'hook-activity');
-    expect(activity!.status).toBe('warn');
+    expect(activity!.status, 'an upgraded database was accused of having dead hooks').toBe('pass');
+    expect(activity!.summary).toMatch(/only just started/i);
+  });
+
+  it('hook-activity: PASS via the fresh-install grace when hooks were wired today', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, { lastHookRun: null, trackingSinceHours: 200 })),
+      ...markerAged(60_000), // wired one minute ago
+    });
+
+    const activity = result.checks.find(c => c.id === 'hook-activity');
+    expect(activity!.status).toBe('pass');
+    expect(activity!.summary).toMatch(/fresh install/i);
+  });
+
+  it('hook-activity: FAIL when no hook has ever run and we have been watching for days', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, { lastHookRun: null, trackingSinceHours: 200 })),
+      existsSyncImpl: noMarker,
+    });
+
+    const activity = result.checks.find(c => c.id === 'hook-activity');
+    // FAIL, not warn: the dashboard only banners fails and warns carrying a
+    // fix, and this being a warn is how it stayed invisible for so long.
+    expect(activity!.status).toBe('fail');
+    expect(activity!.code).toBe('hook-activity.never-ran');
+    expect(activity!.fix).toBeTruthy();
+    expect(result.status).toBe('FAIL');
+  });
+
+  it('hook-activity: FAIL when hooks ran once and then stopped', async () => {
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const result = await runDoctor({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, { lastHookRun: { hook: 'session-summary', hoursAgo: 96 } })),
+      existsSyncImpl: noMarker,
+    });
+
+    const activity = result.checks.find(c => c.id === 'hook-activity');
+    expect(activity!.status).toBe('fail');
+    expect(activity!.code).toBe('hook-activity.stale');
+    expect(activity!.summary).toMatch(/4 days ago/);
+  });
+
+  it('hook-activity: a SQLite timestamp is read as UTC on any machine timezone', () => {
+    // A break-test found this one. SQLite writes `datetime('now')` as
+    // `YYYY-MM-DD HH:MM:SS` in UTC, which is NOT ISO-8601 — the engines that
+    // accept it in `new Date(...)` read it as LOCAL time. Swapping the UTC
+    // parse for a local one left all 50 tests in this file green, because CI
+    // runs in UTC where the two agree and every fixture here is relative. On a
+    // UTC+8 machine the same row measures eight hours older, which is enough
+    // to flip a living capture loop to "stopped" — and everyone with a non-UTC
+    // clock is on such a machine, which is most people.
+    //
+    // Asserted against the parse function directly, with the timezone moved
+    // underneath it. Going through runDoctor cannot pin this: its fixture
+    // timestamps are relative, so both readings land in the same bucket.
+    const original = process.env.TZ;
+    try {
+      const fiveHoursAgo = new Date(Date.now() - 5 * 3600_000).toISOString().replace('T', ' ').slice(0, 19);
+      for (const tz of ['UTC', 'Asia/Taipei', 'America/Los_Angeles', 'Pacific/Kiritimati']) {
+        process.env.TZ = tz;
+        expect(hoursSince(fiveHoursAgo), `TZ=${tz} changed how the timestamp reads`).toBeCloseTo(5, 1);
+      }
+      // Guard the guard: if this runtime ignored the TZ changes, the loop above
+      // proved nothing. Two zones 8 hours apart must disagree on a local-time
+      // construction.
+      process.env.TZ = 'UTC';
+      const utcNoon = new Date(2026, 0, 1, 12, 0, 0).getTime();
+      process.env.TZ = 'Asia/Taipei';
+      const taipeiNoon = new Date(2026, 0, 1, 12, 0, 0).getTime();
+      expect((utcNoon - taipeiNoon) / 3600_000, 'this runtime ignores process.env.TZ; the loop above is vacuous').toBe(8);
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+  });
+
+  it('hook-activity: an unreadable timestamp is not reported as healthy', async () => {
+    // A corrupt `last_run_at` must not collapse to "just now". The whole point
+    // of the check is that unknown and healthy are different answers.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const db = {
+      prepare(sql: string) {
+        if (sql.includes('sqlite_master')) return { get: () => ({ present: 1 }) };
+        if (sql.includes('fts_vocab')) return { get: () => ({ c: 0 }) };
+        if (sql.includes('FROM hook_runs')) {
+          return { get: () => ({ hook: 'session-summary', last_run_at: 'not-a-timestamp' }) };
+        }
+        if (sql.includes('hook_runs_since')) return { get: () => undefined };
+        return { get: () => ({ c: 0 }) };
+      },
+    };
+
+    const result = await runDoctor({
+      ...hookActivityDoctorArgs(packageRoot, db),
+      existsSyncImpl: noMarker,
+    });
+
+    const activity = result.checks.find(c => c.id === 'hook-activity');
+    expect(activity!.status).toBe('fail');
+    expect(activity!.summary).toMatch(/at an unknown time/);
   });
 });
 

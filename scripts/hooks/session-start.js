@@ -5,7 +5,7 @@ import { spawn } from 'child_process';
 import { homedir } from 'os';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
-import { existsSync, readFileSync, unlinkSync, rmSync, appendFileSync, chmodSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync, rmSync, appendFileSync, chmodSync, mkdirSync, accessSync, constants as fsConstants } from 'fs';
 import {
   buildReferenceContext,
   ensurePrivateDir,
@@ -431,6 +431,41 @@ function runPostBannerUpdateTasks() {
 }
 
 /**
+ * Can the capture hooks actually write? Returns the offending path, or null.
+ *
+ * Probes the two things a capture hook needs and nothing else: the memesh
+ * directory has to exist and be writable, and where the database file already
+ * exists, that file has to be writable too. The second half matters on its
+ * own — a writable directory holding a read-only database is a state the old
+ * mkdir-only probe called healthy, and it is exactly what a botched `sudo`
+ * leaves behind.
+ *
+ * `accessSync(W_OK)` rather than opening a handle: this is the SessionStart
+ * hot path, and a read-write open would run the whole migration chain here
+ * just to answer a permissions question. It is one syscall and it fails in
+ * the same cases EACCES would.
+ *
+ * Deliberately not detected: a full disk. No cheap probe finds it, and
+ * claiming otherwise would be worse than the honest gap.
+ */
+function captureTargetUnwritable() {
+  try {
+    mkdirSync(memeshDir, { recursive: true });
+    accessSync(memeshDir, fsConstants.W_OK);
+  } catch {
+    return memeshDir;
+  }
+  if (existsSync(dbPath)) {
+    try {
+      accessSync(dbPath, fsConstants.W_OK);
+    } catch {
+      return dbPath;
+    }
+  }
+  return null;
+}
+
+/**
  * Build a "base message + optional deprecation banner" combined
  * single-line systemMessage payload. Keeps stdout a single JSON
  * object on every empty/no-DB exit path so Claude Code's hook
@@ -487,27 +522,24 @@ process.stdin.on('end', async () => {
       // Non-critical
     }
 
+    // Every banner below this line is a PROMISE that memories will be saved,
+    // so check that it can be kept before making any of them.
+    //
+    // This probe used to live INSIDE the `!existsSync(dbPath)` branch below,
+    // which meant it only ever ran before the database existed — while the
+    // failure it detects has nothing to do with first runs. A `~/.memesh` that
+    // became unwritable later (permissions changed, a read-only mount, a
+    // directory that changed owner) produced the cheerful green count banner
+    // on every session, forever, while every capture hook failed with EACCES.
+    // Fixing the first-run case and leaving the steady-state case is how a
+    // detector ends up covering the one day the bug is least likely to happen.
+    const unwritable = captureTargetUnwritable();
+    if (unwritable) {
+      output(combineWithBanner(`◉ MeMesh cannot write to ${unwritable} — memories will NOT be saved this session. Run 'memesh doctor'.`));
+      return;
+    }
+
     if (!existsSync(dbPath)) {
-      // "memories will be created as you work" is a PROMISE, so check that it
-      // can be kept before making it. On a HOME the process cannot write —
-      // a read-only mount, a directory owned by someone else — every capture
-      // hook then fails with EACCES, silently, for the whole session, while
-      // this line showed a green banner. Measured: with HOME at mode 555 this
-      // printed "MeMesh ready" and `session-summary` on the same HOME failed
-      // with `EACCES: permission denied, mkdir`.
-      //
-      // The probe is the same call the capture hooks make, so it fails in
-      // exactly the cases they would.
-      let writable = true;
-      try {
-        mkdirSync(memeshDir, { recursive: true });
-      } catch {
-        writable = false;
-      }
-      if (!writable) {
-        output(combineWithBanner(`◉ MeMesh cannot write to ${memeshDir} — memories will NOT be saved this session. Run 'memesh doctor'.`));
-        return;
-      }
       // Combine deprecation banner (if any) into the same
       // systemMessage so stdout stays a single JSON document. Outer
       // finally runs runPostBannerUpdateTasks().

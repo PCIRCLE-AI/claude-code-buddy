@@ -33,13 +33,13 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "c6173f9a33ce100b47c597af7d778586ea9db3f31bf666d8fd83bcdf9a010daa",
-      "bytes": 39561
+      "sha256": "fcfab31c15c5af57e3839d03a3c13629319c7304f48ac31cae34008d1d8a6bb2",
+      "bytes": 42706
     },
     {
       "path": "scripts/hooks/post-commit.js",
-      "sha256": "3e44ab3bcac59e4dd0f5eabc225828f3773cbb123c54d9580c1602a2a0fb2be8",
-      "bytes": 7352
+      "sha256": "2028ec2b458ca3d7a072a58d5f769a4d15f326f2a950970d293e2de0224b0dab",
+      "bytes": 7373
     },
     {
       "path": "scripts/hooks/pre-bash-orchestration-nudge.js",
@@ -48,8 +48,8 @@
     },
     {
       "path": "scripts/hooks/pre-compact.js",
-      "sha256": "007943e63fd633b329a3ca478e5d7a3636db804146e8619457fbd487c049632a",
-      "bytes": 6981
+      "sha256": "eadf9fb29dac79a36a9518112417ef4a268428c6b90d1472a9de443602d896da",
+      "bytes": 7002
     },
     {
       "path": "scripts/hooks/pre-edit-recall.js",
@@ -58,13 +58,13 @@
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "6f5a505fe3c1ac3feced7e3c8443a6b4cbbaaed7a07639eb03e92caf3ca0b7f6",
-      "bytes": 45299
+      "sha256": "9a68e574d52e6dd8e647643a2cfd286b842f42dfd12ff25e14aa748ae55a00a9",
+      "bytes": 46579
     },
     {
       "path": "scripts/hooks/session-summary.js",
-      "sha256": "efccbf56a18c08e3617b05267232843fca84d681133c13e7b5b6cefd59320ec4",
-      "bytes": 41271
+      "sha256": "c0fc7afd21d989f352f1d2854d45457535d849dd426daf0b74c1c6b8b200b827",
+      "bytes": 41296
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",

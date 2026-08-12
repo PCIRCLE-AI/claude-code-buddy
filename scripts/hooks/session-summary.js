@@ -283,7 +283,7 @@ process.stdin.on('end', async () => {
     // Stop capture vanished (0 entities against a control run's 1) and the
     // user got a `Require stack:` dump on stderr. An extension nobody calls
     // was silently costing every session on those platforms its memory.
-    const { db } = openHookDb(process.env, { fts: true });
+    const { db } = openHookDb(process.env, { fts: true, hook: 'session-summary' });
     try {
       // Duplicate detection: if we already captured this session, bail.
       //
