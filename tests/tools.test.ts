@@ -150,6 +150,32 @@ describe('recall', () => {
     expect(data.some((e: any) => e.name === 'auth-pattern')).toBe(true);
   });
 
+  it('treats explicit null optional params as absent, the way Gemini CLI sends them', async () => {
+    // Gemini CLI fills optional parameters its model leaves blank with null
+    // instead of omitting the key. This exact shape failed against the live
+    // server ("tag: Invalid input: expected string, received null") while the
+    // same recall from Codex, which omits the keys, succeeded.
+    const result = await handleTool('recall', {
+      query: 'auth',
+      tag: null,
+      limit: null,
+      namespace: null,
+    } as Record<string, unknown>);
+    expect(result.isError).toBeUndefined();
+    const data = JSON.parse(result.content[0].text);
+    expect(data.some((e: any) => e.name === 'auth-pattern')).toBe(true);
+  });
+
+  it('still rejects a null ELEMENT inside an array — that is data, not a blank', async () => {
+    const result = await handleTool('remember', {
+      name: 'null-element',
+      type: 'decision',
+      observations: ['fine', null],
+    } as Record<string, unknown>);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/observations/);
+  });
+
   it('filters by tag', async () => {
     const result = await handleTool('recall', {
       query: 'auth',

@@ -346,10 +346,10 @@
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
     },
-    "C5 src/transports/mcp/handlers.ts:290": {
+    "C5 src/transports/mcp/handlers.ts:312": {
       "class": "SAFE-GUARDED",
       "reason": "Zod rejects {} for schemas with required fields",
-      "triaged": "2026-08-10 (re-keyed: the corrected import description added 9 lines; same safeParse statement)"
+      "triaged": "2026-08-10 (re-keyed 290->312: the stripNullProps helper added 22 lines above; the statement now wraps args in stripNullProps, which maps {} to {} and null properties to absent — the guard this triage relies on, Zod rejecting {} for required fields, is untouched)"
     },
     "C6 tests/hooks/session-summary.test.ts": {
       "class": "DEPENDENCY-PIN",

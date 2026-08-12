@@ -227,8 +227,21 @@ function ok(data) {
 function fail(message) {
     return { content: [{ type: 'text', text: message }], isError: true };
 }
+function stripNullProps(value) {
+    if (Array.isArray(value))
+        return value.map(stripNullProps);
+    if (value !== null && typeof value === 'object') {
+        const out = {};
+        for (const [k, v] of Object.entries(value)) {
+            if (v !== null)
+                out[k] = stripNullProps(v);
+        }
+        return out;
+    }
+    return value;
+}
 function parseOrFail(schema, args) {
-    const parsed = schema.safeParse(args ?? {});
+    const parsed = schema.safeParse(stripNullProps(args ?? {}));
     if (!parsed.success) {
         const message = parsed.error instanceof z.ZodError
             ? parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')

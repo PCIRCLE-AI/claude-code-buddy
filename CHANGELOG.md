@@ -107,6 +107,18 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **An MCP tool call with `null` in an optional parameter no longer fails.**
+  Gemini CLI fills optional parameters its model leaves blank with an explicit
+  `null` where Claude Code and Codex omit the key, and Zod's `.optional()`
+  accepts only the omission — so the exact same `recall` that succeeded from a
+  Codex session came back from a Gemini session as
+  `tag: Invalid input: expected string, received null`. The MCP boundary now
+  drops null-valued properties before validation; no memesh tool uses `null`
+  as a sentinel, so a null property can only mean "left blank". A `null`
+  *element* inside an array (an observation, a tag) is still rejected — that
+  is malformed data, not a blank field — and HTTP and CLI validation are
+  unchanged.
+
 - **A redaction root can no longer match in the middle of an unrelated path.**
   `redactUserPaths` anchored the end of a root but not the beginning, so with
   `MEMESH_DIR=/data` the text `/var/lib/data/file` — someone else's path, on
