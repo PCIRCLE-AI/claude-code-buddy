@@ -84,7 +84,7 @@ flowchart TB
 | Get auto-capture (sessions → lessons → recall) in Claude Code | Path A (plugin) |
 | Run `memesh remember` / `memesh recall` / `memesh doctor` in any terminal | Path B (npm-global) |
 | Open the local dashboard via `memesh serve` (no `npx` lookup delay) | Path B (npm-global) |
-| Plug `memesh-mcp` into Cursor, Cline, or another MCP client | Path B (npm-global) |
+| Plug `memesh-mcp` into Codex CLI, Gemini CLI, Cursor, or another MCP client | Path B (npm-global) |
 | All of the above | **Install both** — they don't conflict |
 
 ### ⚠️ Installing the plugin does NOT install the CLI
@@ -123,7 +123,7 @@ The MCP server runs directly from the plugin's bundled compiled output — no `n
 
 ### Option B — npm global (optional optimisation)
 
-If you want the binary directly on your shell `PATH` (so plain `memesh`, `memesh-mcp`, etc. work in any terminal without the per-call `npx` lookup), or you want to expose `memesh-mcp` as a fixed-path stdio command to **non-Claude-Code MCP clients** (Cursor, Cline, terminal-only flows):
+If you want the binary directly on your shell `PATH` (so plain `memesh`, `memesh-mcp`, etc. work in any terminal without the per-call `npx` lookup), or you want to expose `memesh-mcp` as a fixed-path stdio command to **non-Claude-Code MCP clients** (Codex CLI, Gemini CLI, Cursor, Cline, terminal-only flows):
 
 ```bash
 npm install -g @pcircle/memesh
@@ -145,6 +145,27 @@ memesh doctor                # verifies "Hooks wired into Claude Code" passes
 ```
 
 The hooks coexist with any custom hooks you already have under `~/.claude/hooks/` — `install-hooks` writes additive entries and never overwrites yours. To remove later: `memesh uninstall-hooks`.
+
+### Same memory from Codex CLI and Gemini CLI
+
+`memesh-mcp` is a plain stdio MCP server, so any MCP-capable host can talk to it — not just Claude Code. With Option B installed (`memesh-mcp` on your `PATH`), register it once per host:
+
+```bash
+# OpenAI Codex CLI — writes [mcp_servers.memesh] into ~/.codex/config.toml
+codex mcp add memesh -- memesh-mcp
+
+# Google Gemini CLI — user scope, so it works in every folder
+gemini mcp add -s user memesh memesh-mcp
+```
+
+Every host reads and writes the same `~/.memesh/knowledge-graph.db`, so a memory stored from a Claude Code session is recallable from Codex or Gemini, and the other way around. Verify from either host by asking it to call the `recall` tool, or from a terminal:
+
+```bash
+codex mcp list       # memesh should be listed as enabled
+gemini mcp list      # memesh should show "Connected"
+```
+
+> **Use `memesh-mcp`, not `npx -p @pcircle/memesh`, as the configured command.** `npx -p` resolves to the *local* package whenever the host's working directory is inside a checkout of this repository, silently running whatever state that working tree is in instead of the installed release.
 
 ### Step 2: Store a decision
 
