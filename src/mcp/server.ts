@@ -11,6 +11,7 @@ import {
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase } from '../db.js';
 import { handleTool, TOOL_DEFINITIONS } from './tools.js';
+import { normalizeClientHost } from '../transports/mcp/handlers.js';
 import { logCapabilities } from '../core/config.js';
 
 const packageJsonPath = path.resolve(
@@ -39,7 +40,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 // knows who is connected; the model must not be able to claim it.
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
-  return handleTool(name, args, server.getClientVersion()?.name ?? 'mcp');
+  return handleTool(name, args, normalizeClientHost(server.getClientVersion()?.name));
 });
 
 // Start

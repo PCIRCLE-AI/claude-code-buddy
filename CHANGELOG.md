@@ -19,16 +19,24 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
-- **Every newly captured memory records which host wrote it**, as
-  `metadata.provenance.source_host`. The MCP server stamps the client's
-  self-declared `initialize` name (Claude Code, Codex CLI and Gemini CLI each
-  send one), the CLI stamps `cli`, the HTTP API stamps `http`, and the capture
-  hooks stamp `claude-code` — on first insert only, so a re-capture never
-  overwrites what an earlier writer recorded. The value is set by the
-  transport and is deliberately NOT a tool parameter: a provenance field the
-  model could fill in is not provenance. Existing entities are untouched;
-  with three hosts now sharing one database, "which host wrote this" is the
-  field federation (and any future attribution) hangs off.
+- **Every memory captured through `remember`, `learn` or the capture hooks
+  records which host wrote it**, as `metadata.provenance.source_host`. The
+  MCP server stamps the client's self-declared `initialize` name (Claude
+  Code, Codex CLI and Gemini CLI each send one; a client that declares none —
+  or an empty or unprintable one — is recorded as `mcp`, and every name is
+  stripped of control characters and capped at 64 characters on the way in),
+  the CLI stamps `cli`, the HTTP API stamps `http`, and the capture hooks
+  stamp `claude-code` — on first insert only, on every write path, so a
+  re-capture or a cross-host re-remember never overwrites what an earlier
+  writer recorded. The value is set by the transport and is deliberately NOT
+  a tool parameter: a provenance field the model could fill in is not
+  provenance — though note it is attribution, not authentication: stdio has
+  no identity check, so the name is honest bookkeeping, not a security
+  boundary. `import` deliberately does not stamp a host — imported entities
+  keep their own `provenance.source: 'import'` marker, and per-host ingest
+  attribution is the federation phase's job. Existing entities are
+  untouched; with three hosts now sharing one database, "which host wrote
+  this" is the field federation (and any future attribution) hangs off.
 
 ### Changed
 
@@ -45,7 +53,10 @@ All notable changes to MeMesh are documented here.
   directory under the old bare-basename identity stay under that tag. Run
   `memesh kg rename-project` (no flags) from anywhere to list every
   project tag with its entity count, then merge the old tag into the new one
-  with `memesh kg rename-project --from <old> --to <new> --apply`.
+  with `memesh kg rename-project --from <old> --to <new> --apply`. If several
+  hosts share the database, upgrade all of them before running the merge — a
+  host still on the old version keeps writing the bare-basename tag, and the
+  split reappears until it is upgraded and the merge re-run.
 
 - **The supported Node floor is now `>=22.13.0`** (was `>=22.5.0`). `node:sqlite`
   first appeared in 22.5, but behind `--experimental-sqlite`, and the three

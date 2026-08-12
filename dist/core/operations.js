@@ -39,7 +39,7 @@ export function remember(args) {
     kg.updateEntityMetadata(args.name, (current) => buildLocalMetadata(current, {
         trust: args.trustOverride,
         provenance: {
-            ...(args.sourceHost ? { source_host: args.sourceHost } : {}),
+            ...(args.sourceHost && !existing ? { source_host: args.sourceHost } : {}),
             ...(args.provenanceOverride ?? {}),
         },
     }));

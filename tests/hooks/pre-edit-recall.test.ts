@@ -25,9 +25,10 @@ describe('Feature: Pre-Edit Recall Hook', () => {
   });
 
   // Pass cwd: testDir (a non-git tmp dir) so getProjectName resolves via the
-  // basename fallback — deterministic and independent of the checkout's git
-  // remote / clone directory name. Tests that assert project-tag matching then
-  // use path.basename(testDir), which the hook and the test agree on exactly.
+  // basename+hash fallback — deterministic and independent of the checkout's
+  // git remote / clone directory name. Tests that assert project-tag matching
+  // derive the tag through projectTag() below, which asks the hook's own
+  // mirror, so seeder and hook cannot disagree.
   /**
    * Runs the hook and INSISTS it exited cleanly.
    *

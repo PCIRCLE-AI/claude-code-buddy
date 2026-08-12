@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { openDatabase, closeDatabase } from '../src/db.js';
 import { handleTool } from '../src/mcp/tools.js';
+import { normalizeClientHost } from '../src/transports/mcp/handlers.js';
 
 let tmpDir: string;
 let dbPath: string;
@@ -49,6 +50,69 @@ describe('source_host provenance', () => {
     const recall = await handleTool('recall', { query: 'prov-spoof' });
     const hit = JSON.parse(recall.content[0].text).find((e: any) => e.name === 'prov-spoof');
     expect(hit.metadata.provenance.source_host).toBe('codex');
+  });
+
+  it('a smuggled sourceHost with NO transport name still stamps nothing', async () => {
+    // The anonymous-transport variant of the spoof: today this is blocked by
+    // two independent lines (zod strip + the dispatch spreading an explicit
+    // undefined last), and a refactor to a conditional spread plus a schema
+    // .passthrough() would silently reopen it. Pin the observable outcome.
+    await handleTool('remember', {
+      name: 'prov-anon-spoof', type: 'decision', observations: ['anon spoof'],
+      sourceHost: 'gemini-cli',
+    } as Record<string, unknown>);
+    const recall = await handleTool('recall', { query: 'prov-anon-spoof' });
+    const hit = JSON.parse(recall.content[0].text).find((e: any) => e.name === 'prov-anon-spoof');
+    expect(hit.metadata.provenance.source_host).toBeUndefined();
+  });
+
+  it('re-remember from another host does NOT overwrite the first writer', async () => {
+    // First-writer-wins, the same invariant the hook path enforces with
+    // INSERT OR IGNORE and the CHANGELOG promises. Before the fix this
+    // returned 'codex': buildLocalMetadata spreads overrides over the stored
+    // provenance, so every cross-host append rewrote the attribution.
+    await handleTool('remember', { name: 'prov-first', type: 'decision', observations: ['created here'] }, 'claude-code');
+    await handleTool('remember', { name: 'prov-first', type: 'decision', observations: ['appended elsewhere'] }, 'codex');
+    const recall = await handleTool('recall', { query: 'prov-first' });
+    const hit = JSON.parse(recall.content[0].text).find((e: any) => e.name === 'prov-first');
+    expect(hit.metadata.provenance.source_host).toBe('claude-code');
+  });
+
+  it('learn threads the transport name through to the lesson entity', async () => {
+    // learn → createExplicitLesson → remember is a two-hop pass-through —
+    // exactly the kind of line a refactor silently drops. Without this test,
+    // deleting `sourceHost:` in lesson-engine.ts or in operations.ts learn()
+    // leaves the whole suite green.
+    await handleTool('learn', { error: 'prov-lesson-unique-boom', fix: 'restart the flux capacitor' }, 'codex');
+    const recall = await handleTool('recall', { query: 'prov-lesson-unique-boom' });
+    const hit = JSON.parse(recall.content[0].text).find((e: any) => e.name.startsWith('lesson-'));
+    expect(hit.metadata.provenance.source_host).toBe('codex');
+  });
+});
+
+describe('normalizeClientHost', () => {
+  // The initialize name is the one string that reaches metadata without a zod
+  // schema; this is its entire validation surface.
+  it('passes a normal client name through untouched', () => {
+    expect(normalizeClientHost('codex')).toBe('codex');
+  });
+  it('preserves non-ASCII names (clamping is not ASCII-folding)', () => {
+    expect(normalizeClientHost('克勞德')).toBe('克勞德');
+  });
+  it('strips control characters (ANSI escapes, newlines)', () => {
+    expect(normalizeClientHost('bad\u001b[31mname\nhere')).toBe('bad[31mnamehere');
+  });
+  it('caps at 64 characters', () => {
+    expect(normalizeClientHost('x'.repeat(1000))).toHaveLength(64);
+  });
+  it('empty string falls back to mcp — `?? "mcp"` alone missed this', () => {
+    expect(normalizeClientHost('')).toBe('mcp');
+  });
+  it('undefined falls back to mcp', () => {
+    expect(normalizeClientHost(undefined)).toBe('mcp');
+  });
+  it('an all-control-character name falls back to mcp, not empty string', () => {
+    expect(normalizeClientHost('\u0000\u001f\u007f')).toBe('mcp');
   });
 });
 

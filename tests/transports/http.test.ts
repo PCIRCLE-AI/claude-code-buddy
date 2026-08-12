@@ -164,6 +164,19 @@ describe('HTTP Transport: POST /v1/remember', () => {
     expect(res.status).toBe(200);
     expect(res.body.data.tags).toBe(1);
   });
+
+  it('stamps source_host=http on the stored entity', async () => {
+    // The route wrapper injects sourceHost: 'http' — deleting that injection
+    // used to leave the whole suite green. Read the stamp back out.
+    await req('POST', '/v1/remember', {
+      name: 'http-prov',
+      type: 'note',
+      observations: ['http-prov-unique-obs'],
+    });
+    const res = await req('POST', '/v1/recall', { query: 'http-prov-unique-obs' });
+    const found = res.body.data.find((e: any) => e.name === 'http-prov');
+    expect(found.metadata.provenance.source_host).toBe('http');
+  });
 });
 
 // ── Recall ────────────────────────────────────────────────────────────────────
@@ -707,6 +720,15 @@ describe('HTTP Transport: POST /v1/learn', () => {
     expect(res.body.data.learned).toBe(true);
     expect(res.body.data.type).toBe('lesson_learned');
     expect(res.body.data.name).toContain('lesson-');
+  });
+
+  it('stamps source_host=http on the lesson entity', async () => {
+    // Same guard as the remember route: the wrapper injection is the only
+    // thing carrying provenance here, so its absence must turn a test red.
+    await req('POST', '/v1/learn', { error: 'http-learn-prov-unique boom', fix: 'reseat the cable' });
+    const res = await req('POST', '/v1/recall', { query: 'http-learn-prov-unique' });
+    const found = res.body.data.find((e: any) => e.name.startsWith('lesson-'));
+    expect(found.metadata.provenance.source_host).toBe('http');
   });
 
   it('accepts optional fields', async () => {

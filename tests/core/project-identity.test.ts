@@ -133,6 +133,19 @@ describe('getProjectName — layered git identity', () => {
     expect(viaLink).toBe(direct);
   });
 
+  it('a nonexistent cwd still resolves to basename+hash — deleted cwd must never break capture', () => {
+    // realpathSync throws ENOENT here; the catch falls back to path.resolve.
+    // Replacing that catch with a rethrow used to leave the suite green while
+    // violating the stated invariant (same rule as the git layers above).
+    const ghost = path.join(os.tmpdir(), `memesh-ghost-${process.pid}`, 'gone');
+    expect(fs.existsSync(ghost)).toBe(false);
+    const core = getProjectName(ghost);
+    expect(core).toMatch(/^gone-[0-9a-f]{8}$/);
+    // The mirror must take the identical fallback.
+    _clearProjectNameCache();
+    expect(shared.getProjectName(ghost)).toBe(core);
+  });
+
   it('the hook mirror resolves identically for every layer', () => {
     const withRemote = makeRepo('git@github.com:o/mirror-check.git');
     const noRemote = makeRepo();

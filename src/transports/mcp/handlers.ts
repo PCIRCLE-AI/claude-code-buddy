@@ -299,10 +299,29 @@ function parseOrFail<T>(schema: z.ZodType<T>, args: unknown): { ok: true; data: 
 }
 
 /**
+ * The client's self-declared `initialize` name is the ONE string that reaches
+ * entity metadata without passing a zod schema — every other write field is
+ * capped and validated in schemas.ts. A hostile or buggy client can declare a
+ * multi-megabyte name (copied into every entity written that session) or one
+ * full of control characters (rendered later by the dashboard and exports).
+ * Clamp it at the boundary: strip control characters, cap at 64, and treat an
+ * empty or all-control name the same as a missing one — `?? 'mcp'` alone
+ * missed `name: ""`, which skipped both the fallback and the stamp.
+ * Deliberately NOT identity verification: stdio has no authentication, the
+ * value is self-declared by design, and any local process could write the
+ * database directly anyway.
+ */
+export function normalizeClientHost(name: string | undefined): string {
+  // eslint-disable-next-line no-control-regex -- stripping control characters is the point
+  return (name ?? '').replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, 64) || 'mcp';
+}
+
+/**
  * `sourceHost` is which MCP client is on the other end of stdio — the name it
- * declared in `initialize` (Claude Code, Codex and Gemini all send one). It is
- * threaded through to the write operations as provenance and is NOT a tool
- * parameter: a provenance field the model could set is not provenance.
+ * declared in `initialize` (Claude Code, Codex and Gemini all send one),
+ * normalized by `normalizeClientHost`. It is threaded through to the write
+ * operations as provenance and is NOT a tool parameter: a provenance field
+ * the model could set is not provenance.
  */
 export async function handleTool(name: string, args: Record<string, unknown> | undefined, sourceHost?: string): Promise<ToolResult> {
   try {

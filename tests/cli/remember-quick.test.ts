@@ -3,6 +3,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { MemeshDatabase } from '../../src/storage/sqlite.js';
 
 // v4.1 adds a quick-capture fallback for `memesh remember "<text>"`:
 // fresh users naturally try the one-arg shape before reading the README,
@@ -86,6 +87,22 @@ describe('memesh remember CLI: quick-capture form', () => {
       { HOME: tmpHome },
     );
     expect(exitCode).toBe(0);
+  }, 60_000);
+
+  it('stamps source_host=cli on the stored entity', () => {
+    // The `sourceHost: 'cli'` literal in cli.ts is the only carrier of CLI
+    // write provenance; deleting it used to leave the whole suite green.
+    // The CLI's stdout does not print metadata, so read the database.
+    const { exitCode, stderr } = runCli(
+      ['remember', '--name=cli-prov', '--type=note', '--obs=prov check'],
+      { HOME: tmpHome },
+    );
+    expect(exitCode, `stderr was: ${stderr}`).toBe(0);
+
+    const db = new MemeshDatabase(path.join(tmpHome, '.memesh', 'knowledge-graph.db'));
+    const row = db.prepare('SELECT metadata FROM entities WHERE name = ?').get('cli-prov') as { metadata: string };
+    db.close();
+    expect(JSON.parse(row.metadata).provenance.source_host).toBe('cli');
   }, 60_000);
 
   it('errors with helpful guidance when no text and no flags are given', () => {

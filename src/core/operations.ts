@@ -107,9 +107,15 @@ export function remember(args: RememberInput): RememberResult {
     current as EntityMetadata,
     {
       trust: args.trustOverride,
-      // source_host first so an explicit provenanceOverride stays authoritative.
+      // source_host is stamped on FIRST insert only — `!existing` — because
+      // buildLocalMetadata spreads these overrides over the stored provenance,
+      // so stamping on every call would let host B's re-remember of host A's
+      // entity silently rewrite the attribution this field exists to preserve.
+      // Same invariant as the hook path (captureEntity's INSERT OR IGNORE),
+      // and the one the CHANGELOG promises. source_host first so an explicit
+      // provenanceOverride stays authoritative.
       provenance: {
-        ...(args.sourceHost ? { source_host: args.sourceHost } : {}),
+        ...(args.sourceHost && !existing ? { source_host: args.sourceHost } : {}),
         ...(args.provenanceOverride ?? {}),
       },
     }

@@ -59,6 +59,8 @@ If `remember` is called again with an existing `name`, MeMesh treats it as an ap
 
 Three fields are conditional. `relationsCreated` lists the relations actually created — report from it rather than subtracting errors from what you asked for. `relationErrors` is included when a relation target does not exist; the entity is still stored. `movedFromNamespace` appears only when the call MOVED a memory that already existed, naming the scope it came from, and pairs with `metadata.previous_namespace` so the move can be reversed.
 
+**Write provenance.** Every entity created through `remember` or `learn` carries `metadata.provenance.source_host` — which surface wrote it. It is **not an input parameter** on any transport (a provenance field the caller's model could fill in is not provenance); the transport sets it: the MCP server stamps the client's self-declared `initialize` name (`claude-code`, `codex`, `gemini-cli`, …; `mcp` when the client declares none), the CLI stamps `cli`, and the HTTP API stamps `http`. The stamp lands on first insert only — appending to an existing entity from another host does not rewrite it. The field is returned wherever entity `metadata` is returned (e.g. `recall` results).
+
 **Supersedes behavior:** When a relation has type `"supersedes"`, the target entity is automatically archived. This enables knowledge evolution — new designs replace old ones without losing history.
 
 **Examples**:
@@ -1215,7 +1217,7 @@ memesh kg backfill-relations [--project <name>] [--dry-run] [--max-per-source <n
 
 ### memesh kg rename-project
 
-Merge or rename a `project:<name>` tag across every entity. Heals project tags that were split before project identity became git-based (e.g. a repo captured under both `project:tim` and `project:TIM`, or memories captured in a subdirectory tagged with the subdirectory name). The system cannot infer the correct project for an old value, so the mapping is user-driven.
+Merge or rename a `project:<name>` tag across every entity. Heals project tags that were split by an identity-rule change: tags from before project identity became git-based (e.g. a repo captured under both `project:tim` and `project:TIM`, or memories captured in a subdirectory tagged with the subdirectory name), and — since non-git identity gained its real-path hash suffix — bare-basename tags like `project:notes` that should merge into the new `project:notes-<8 hex>` form (run with no flags to see both spellings side by side). The system cannot infer the correct project for an old value, so the mapping is user-driven.
 
 **Usage**:
 
