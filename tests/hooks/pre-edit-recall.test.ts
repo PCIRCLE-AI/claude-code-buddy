@@ -91,10 +91,13 @@ describe('Feature: Pre-Edit Recall Hook', () => {
     return id;
   }
 
-  // The project name the hook will derive for these tests (basename of the
-  // non-git testDir).
+  // The project name the hook will derive for these tests. testDir is
+  // non-git, so identity is basename + real-path hash — derive it through the
+  // hook's own mirror so seeder and hook cannot disagree (the derivation rule
+  // itself is pinned in tests/core/project-identity.test.ts).
   function projectTag(): string {
-    return `project:${path.basename(testDir)}`;
+    const { getProjectName } = require('../../scripts/hooks/_shared.js');
+    return `project:${getProjectName(testDir)}`;
   }
 
   function createTestDb() {

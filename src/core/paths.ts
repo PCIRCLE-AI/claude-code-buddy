@@ -17,6 +17,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { createHash } from 'crypto';
 import { execFileSync } from 'child_process';
 
 /**
@@ -126,8 +127,13 @@ const projectNameCache = new Map<string, string>();
  *      identity, and `tim` vs `TIM` collapse to whatever the remote says.
  *   2. git repo root basename — for a real repo with no remote configured.
  *      Still fixes the subdirectory split.
- *   3. cwd basename — non-git directories keep the original behaviour, so a
- *      scratch dir or `~/Developer/Projects` is unchanged.
+ *   3. real-path basename + 8-hex hash of the real path — non-git directories
+ *      used to be bare `basename(cwd)`, which made `~/a/notes` and `~/b/notes`
+ *      one project and leaked memories across them. The hash pins identity to
+ *      the directory itself; every host on the machine derives the same id
+ *      for the same directory. (Existing non-git projects change identity
+ *      once — `memesh kg rename-project --from <old> --to <new> --apply`
+ *      merges the tags.)
  *
  * A `config.project` override would sit above all three, but adding a config
  * field with no setter is itself the "fake working" pattern this audit is
@@ -144,7 +150,22 @@ function resolveProjectIdentity(cwd: string): string {
   }
   const root = tryGit(cwd, ['rev-parse', '--show-toplevel']);
   if (root) return path.basename(root);
-  return path.basename(cwd);
+  // Non-git: the basename alone collides — `~/a/notes` and `~/b/notes` used to
+  // share one identity, and the symptom was the other directory's memories
+  // appearing. Rare with one host; three MCP hosts sharing one database made
+  // it three times likelier. The suffix is derived from the real path, so it
+  // is stateless, identical for every host that opens the same directory
+  // (including through a symlink), and different for two directories that
+  // merely share a name. realpath falls back to resolve() because a deleted
+  // cwd must never break capture (same rule as the git layers above).
+  let real: string;
+  try {
+    real = fs.realpathSync(cwd);
+  } catch {
+    real = path.resolve(cwd);
+  }
+  const suffix = createHash('sha256').update(real).digest('hex').slice(0, 8);
+  return `${path.basename(real)}-${suffix}`;
 }
 
 function tryGit(cwd: string, args: string[]): string | null {

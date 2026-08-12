@@ -9,6 +9,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { createHash } from 'crypto';
 import { execFileSync } from 'child_process';
 export function homeDir() {
     const home = process.env.HOME;
@@ -50,7 +51,15 @@ function resolveProjectIdentity(cwd) {
     const root = tryGit(cwd, ['rev-parse', '--show-toplevel']);
     if (root)
         return path.basename(root);
-    return path.basename(cwd);
+    let real;
+    try {
+        real = fs.realpathSync(cwd);
+    }
+    catch {
+        real = path.resolve(cwd);
+    }
+    const suffix = createHash('sha256').update(real).digest('hex').slice(0, 8);
+    return `${path.basename(real)}-${suffix}`;
 }
 function tryGit(cwd, args) {
     try {

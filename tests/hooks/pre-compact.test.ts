@@ -8,6 +8,8 @@ import { expectValidHookOutput, HOOK_SPECIFIC_OUTPUT_EVENTS } from '../helpers/h
 import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 
 const require = createRequire(import.meta.url);
+// Non-git identity = basename + real-path hash (tests/core/project-identity.test.ts).
+const { getProjectName: mirrorProjectName } = require('../../scripts/hooks/_shared.js');
 
 /**
  * The columns these assertions read off a `SELECT`. better-sqlite3 types
@@ -120,7 +122,7 @@ describe('Feature: PreCompact Hook', () => {
     const tags = (db.prepare('SELECT tag FROM tags WHERE entity_id = ?').all(entity.id) as Row[]).map((r) => r.tag);
     expect(tags).toContain('source:auto-capture');
     expect(tags).toContain('urgency:pre-compact');
-    expect(tags).toContain('project:myproject');
+    expect(tags).toContain(`project:${mirrorProjectName('/tmp/myproject')}`);
 
     db.close();
   });
