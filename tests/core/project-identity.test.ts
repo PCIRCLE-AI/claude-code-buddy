@@ -133,6 +133,32 @@ describe('getProjectName — layered git identity', () => {
     expect(viaLink).toBe(direct);
   });
 
+  it('two case-spellings of the same directory resolve to ONE identity', () => {
+    // macOS and Windows default to case-insensitive filesystems, where
+    // `~/Notes` and `~/notes` are the same directory. The JS realpathSync
+    // returns whatever case the caller typed, so identity depended on the
+    // spelling — realpathSync.native returns the on-disk case. On a
+    // case-sensitive filesystem (Linux CI) the mis-spelling is simply a
+    // different, absent path, and that branch asserts exactly that.
+    const real = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-CaseFold-')));
+    created.push(real);
+    const base = path.basename(real);
+    const swapped = path.join(path.dirname(real), base.toLowerCase() === base ? base.toUpperCase() : base.toLowerCase());
+    const direct = getProjectName(real);
+    _clearProjectNameCache();
+    if (fs.existsSync(swapped)) {
+      // Case-insensitive filesystem: both spellings are one directory and
+      // must be one project — for core and for the hook mirror.
+      expect(getProjectName(swapped)).toBe(direct);
+      _clearProjectNameCache();
+      expect(shared.getProjectName(swapped)).toBe(direct);
+    } else {
+      // Case-sensitive filesystem: the scenario cannot occur; pin that the
+      // probe really was decisive rather than silently passing.
+      expect(() => fs.realpathSync(swapped)).toThrow();
+    }
+  });
+
   it('a nonexistent cwd still resolves to basename+hash — deleted cwd must never break capture', () => {
     // realpathSync throws ENOENT here; the catch falls back to path.resolve.
     // Replacing that catch with a rethrow used to leave the suite green while

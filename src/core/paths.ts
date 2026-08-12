@@ -156,11 +156,17 @@ function resolveProjectIdentity(cwd: string): string {
   // it three times likelier. The suffix is derived from the real path, so it
   // is stateless, identical for every host that opens the same directory
   // (including through a symlink), and different for two directories that
-  // merely share a name. realpath falls back to resolve() because a deleted
-  // cwd must never break capture (same rule as the git layers above).
+  // merely share a name. `.native`, not the JS realpath: on the
+  // case-insensitive filesystems macOS and Windows default to, the JS one
+  // returns whatever case the caller typed, so `~/Notes` and `~/notes` — the
+  // same directory — would hash to two identities, the exact split this layer
+  // exists to close. The native call returns the on-disk spelling (and
+  // expands Windows 8.3 short names). realpath falls back to resolve()
+  // because a deleted cwd must never break capture (same rule as the git
+  // layers above).
   let real: string;
   try {
-    real = fs.realpathSync(cwd);
+    real = fs.realpathSync.native(cwd);
   } catch {
     real = path.resolve(cwd);
   }

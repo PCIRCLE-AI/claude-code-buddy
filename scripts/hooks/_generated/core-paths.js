@@ -53,7 +53,7 @@ function resolveProjectIdentity(cwd) {
         return path.basename(root);
     let real;
     try {
-        real = fs.realpathSync(cwd);
+        real = fs.realpathSync.native(cwd);
     }
     catch {
         real = path.resolve(cwd);

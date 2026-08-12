@@ -47,9 +47,12 @@ All notable changes to MeMesh are documented here.
   likelier now that Codex CLI and Gemini CLI share the database with Claude
   Code. The hash is derived from the directory's real path, so every host that
   opens the same directory (through any symlink spelling) derives the same
-  identity, and two directories that merely share a name derive two. Git
-  repositories are untouched — their identity still comes from the remote slug
-  or the repo root. **One-time effect:** memories captured in a non-git
+  identity, and two directories that merely share a name derive two — the
+  real path is taken with the OS-native resolver, so on the case-insensitive
+  filesystems macOS and Windows default to, `~/Notes` and `~/notes` (one
+  directory, two spellings) also derive one identity. Git repositories are
+  untouched — their identity still comes from the remote slug or the repo
+  root. **One-time effect:** memories captured in a non-git
   directory under the old bare-basename identity stay under that tag. Run
   `memesh kg rename-project` (no flags) from anywhere to list every
   project tag with its entity count, then merge the old tag into the new one
