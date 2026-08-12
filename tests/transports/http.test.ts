@@ -291,7 +291,7 @@ describe('HTTP Transport: GET /v1/update-status', () => {
     // fields (lastError, deprecation) are returned unchanged. With a
     // mismatched currentVersion in the cache, the round-10 fix
     // correctly clears those fields as belonging to a prior install.
-    const installedVersion = require(path.resolve('package.json')).version;
+    const installedVersion = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')).version;
 
     fs.writeFileSync(updateCheckPath, JSON.stringify({
       currentVersion: installedVersion,
@@ -321,7 +321,7 @@ describe('HTTP Transport: GET /v1/update-status', () => {
   });
 
   it('returns an unavailable state when no successful check has been recorded', async () => {
-    const installedVersion = require(path.resolve('package.json')).version;
+    const installedVersion = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')).version;
     fs.writeFileSync(updateCheckPath, JSON.stringify({
       currentVersion: installedVersion,
       latestVersion: null,

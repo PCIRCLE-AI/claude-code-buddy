@@ -1,3 +1,4 @@
+import type { JSX } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Entity } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
@@ -568,7 +569,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
 
                 return (
                   <>
-                    {phasesView.map(({ phase, entries: phEntries, idx }, vIdx) => {
+                    {phasesView.map(({ phase, entries: phEntries }, vIdx) => {
                       const isActive = vIdx === 0; // most-recent phase
                       return (
                         <div
@@ -1016,7 +1017,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
     return () => el.removeEventListener('wheel', handler);
   }, []);
 
-  const onMouseDown = (e: MouseEvent) => {
+  const onMouseDown = (e: JSX.TargetedMouseEvent<SVGSVGElement>) => {
     // Only pan on background drags. Phase nodes and entity leaves are wrapped
     // in <g style={{cursor:'pointer'}}> with onClick handlers — if mousedown
     // landed inside one of those, let the click pass through (don't pan).
@@ -1037,7 +1038,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
     setGrabbing(true);
   };
 
-  const onMouseMove = (e: MouseEvent) => {
+  const onMouseMove = (e: JSX.TargetedMouseEvent<SVGSVGElement>) => {
     if (!panRef.current.active) return;
     const el = svgRef.current;
     if (!el) return;
@@ -1123,8 +1124,8 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
           userSelect: 'none',
           touchAction: 'none',
         }}
-        onMouseDown={onMouseDown as any}
-        onMouseMove={onMouseMove as any}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
         onMouseUp={endPan}
         onMouseLeave={endPan}
         onDblClick={resetView}

@@ -1,12 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'child_process';
-import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
-
-const require = createRequire(import.meta.url);
 
 /**
  * The columns these assertions read off a `SELECT`. better-sqlite3 types

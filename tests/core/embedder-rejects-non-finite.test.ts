@@ -97,6 +97,11 @@ describe('embedText refuses a vector with a non-finite component', () => {
     // Infinity fails differently downstream (it exits the distance loop early
     // rather than running off the end), so it is not caught by the same guard
     // there and has to be refused here.
+    // `1e999` overflowing to Infinity is the point, not an accident — it is the
+    // shape a provider's JSON actually arrives in. `no-loss-of-precision` is
+    // right about the general case and wrong about this one, so the suppression
+    // is scoped to the single literal rather than the rule being relaxed.
+    // eslint-disable-next-line no-loss-of-precision
     stubProvider([0.1, 1e999, 0.3]);
     expect(await embedText('some text')).toBeNull();
     expect(written.join('')).toMatch(/non-finite/);

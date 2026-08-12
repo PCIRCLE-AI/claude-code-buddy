@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { RADAR_AXES } from '../src/core/analytics.js';
 
@@ -6,7 +7,7 @@ const i18nSource = readFileSync('dashboard/src/lib/i18n.ts', 'utf8');
 
 function parseTranslationKeys(): Map<string, Set<string>> {
   const locales = new Map<string, Set<string>>();
-  const localeBlocks = i18nSource.matchAll(/\n  ('[^']+'|\w+): \{([\s\S]*?)\n  \}/g);
+  const localeBlocks = i18nSource.matchAll(/\n {2}('[^']+'|\w+): \{([\s\S]*?)\n {2}\}/g);
 
   for (const match of localeBlocks) {
     const locale = match[1].replaceAll("'", '');
@@ -22,7 +23,7 @@ function parseNamedLocales(): string[] {
   const namesBlock = i18nSource.match(/const LOCALE_NAMES: Record<Locale, string> = \{([\s\S]*?)\n\};/);
   expect(namesBlock).not.toBeNull();
 
-  return [...namesBlock![1].matchAll(/\n  ('[^']+'|\w+):/g)].map((match) => match[1].replaceAll("'", ''));
+  return [...namesBlock![1].matchAll(/\n {2}('[^']+'|\w+):/g)].map((match) => match[1].replaceAll("'", ''));
 }
 
 describe('dashboard i18n', () => {
@@ -90,9 +91,6 @@ describe('dashboard i18n', () => {
   // for CJK code-points appearing outside of comments. Any hit is a
   // regression — every user-facing string must go through `t()`.
   it('contains no hardcoded CJK strings in dashboard components', () => {
-    const { readdirSync } = require('node:fs');
-    const { join } = require('node:path');
-
     // CJK Unified Ideographs + Hiragana + Katakana + Hangul Syllables +
     // Thai. Covers the eleven locales we ship (en/zh-TW/zh-CN/ja/ko/pt/
     // fr/de/vi/es/th); only the ones that use non-Latin scripts trigger
@@ -154,8 +152,6 @@ describe('dashboard i18n', () => {
   // was dead code and the user saw the dotted key. This scans components for
   // static t('...') keys and asserts each exists in the English catalogue.
   it('has an English translation for every static t() key used in the dashboard', () => {
-    const { readdirSync } = require('node:fs');
-    const { join } = require('node:path');
     const englishKeys = parseTranslationKeys().get('en');
     expect(englishKeys).toBeDefined();
 
@@ -283,7 +279,6 @@ describe('dashboard i18n', () => {
     // LlmTelemetryPanel: t(`telemetry.flow.${flow}`) — flows are the
     // literals passed to recordTelemetry() across src/core.
     it('covers every telemetry flow recorded in src/core', () => {
-      const { readdirSync } = require('node:fs');
       const flows = new Set<string>();
       for (const f of readdirSync('src/core')) {
         if (!f.endsWith('.ts')) continue;

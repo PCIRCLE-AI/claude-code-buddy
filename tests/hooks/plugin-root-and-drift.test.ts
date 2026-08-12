@@ -7,7 +7,6 @@ import {
   resolvePluginRoot,
   readHookConfig,
   importFromPluginRoot,
-  // @ts-ignore — _shared.js is JS, not TS
 } from '../../scripts/hooks/_shared.js';
 
 // Codex review (2026-05-05) caught two regressions in scripts/hooks/:

@@ -69,7 +69,7 @@ describe('Feature: Pre-Bash Orchestration Nudge Hook', () => {
       MEMESH_DB_PATH: dbPath,
     };
     delete cleanEnv.MEMESH_ENABLE_AGENTIC_ORCHESTRATION;
-    let out = '';
+    let out: string;
     try {
       out = execFileSync('node', [hookPath], { input: jsonInput, env: cleanEnv, encoding: 'utf8', timeout: 10000 }).trim();
     } catch {

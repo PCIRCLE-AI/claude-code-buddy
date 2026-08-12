@@ -7,7 +7,6 @@ import {
   isAutoCaptureEnabled,
   resolveAutoUpdatePolicy,
   resolveSessionLimit,
-  // @ts-ignore — _shared.js is JS, not TS
 } from '../../scripts/hooks/_shared.js';
 
 // Item #11 regression: env-only feature flags now have config-file

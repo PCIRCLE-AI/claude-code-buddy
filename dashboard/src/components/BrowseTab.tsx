@@ -121,7 +121,7 @@ export function BrowseTab({ manage, health }: { manage?: boolean; health?: Healt
       setProjects(projs);
       setPage(0);
       window.dispatchEvent(new Event('memesh:data-changed'));
-    } catch (e: any) {
+    } catch (e) {
       if (gen !== loadGen.current) return;
       console.warn('[memesh dashboard] /v1/entities failed to load:', e);
       setError(failureMessage(classifyLoadError(e)));

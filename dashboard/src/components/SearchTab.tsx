@@ -15,7 +15,13 @@ export function SearchTab() {
     setLoading(true);
     setError('');
     try {
-      const data = await api('POST', '/v1/recall', { query: query.trim(), limit: 30 });
+      // `/v1/recall` answers with a bare array, or with `{ entities, conflicts }`
+      // when it found conflicts — server.ts picks between the two on every
+      // request. The branch below was already handling both; naming the union
+      // is what stops `api()`'s old `any` default from hiding it.
+      const data = await api<Entity[] | { entities?: Entity[] }>(
+        'POST', '/v1/recall', { query: query.trim(), limit: 30 }
+      );
       const entities = Array.isArray(data) ? data : data.entities || [];
       setResults(entities);
     } catch (e) {
