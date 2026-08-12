@@ -60,6 +60,7 @@ export interface RememberInput {
     namespace?: string;
     trustOverride?: 'trusted' | 'untrusted';
     provenanceOverride?: Record<string, unknown>;
+    sourceHost?: string;
 }
 export interface RecallInput {
     query?: string;
@@ -136,6 +137,7 @@ export interface LearnInput {
     root_cause?: string;
     prevention?: string;
     severity?: LessonSeverity;
+    sourceHost?: string;
 }
 export interface LearnResult {
     learned: boolean;

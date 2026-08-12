@@ -476,7 +476,7 @@ function handleGet<T>(res: Response, produce: () => T | Promise<T>): void {
 }
 
 // --- Remember ---
-app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, remember));
+app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, (data) => remember({ ...data, sourceHost: 'http' })));
 
 // --- Recall ---
 app.post('/v1/recall', async (req, res) => {
@@ -515,7 +515,7 @@ app.post('/v1/consolidate', (_req, res) => {
 });
 app.post('/v1/export',      (req, res) => handlePost(ExportBody, req, res, exportMemories));
 app.post('/v1/import',      (req, res) => handlePost(ImportBody, req, res, importMemories));
-app.post('/v1/learn',       (req, res) => handlePost(LearnBody, req, res, learn));
+app.post('/v1/learn',       (req, res) => handlePost(LearnBody, req, res, (data) => learn({ ...data, sourceHost: 'http' })));
 app.post('/v1/verify',      (req, res) => handlePost(VerifyBody, req, res, verifyAgentWork));
 
 // --- Config ---

@@ -250,13 +250,16 @@ function parseOrFail(schema, args) {
     }
     return { ok: true, data: parsed.data };
 }
-export async function handleTool(name, args) {
+export function normalizeClientHost(name) {
+    return (name ?? '').replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, 64) || 'mcp';
+}
+export async function handleTool(name, args, sourceHost) {
     try {
         if (name === 'remember') {
             const r = parseOrFail(RememberSchema, args);
             if (!r.ok)
                 return r.result;
-            return ok(remember(r.data));
+            return ok(remember({ ...r.data, sourceHost }));
         }
         if (name === 'recall') {
             const r = parseOrFail(RecallSchema, args);
@@ -287,7 +290,7 @@ export async function handleTool(name, args) {
             const r = parseOrFail(LearnSchema, args);
             if (!r.ok)
                 return r.result;
-            return ok(learn(r.data));
+            return ok(learn({ ...r.data, sourceHost }));
         }
         if (name === 'user_patterns') {
             const r = parseOrFail(UserPatternsSchema, args);

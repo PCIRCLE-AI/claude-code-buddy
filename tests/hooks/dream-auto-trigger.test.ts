@@ -4,6 +4,16 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { MemeshDatabase as Database } from "../../src/storage/sqlite.js";
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
+// Non-git identity is basename + real-path hash. The hook derives these from
+// the payload cwd, so the seeds and history keys must derive them the same
+// way (rule pinned in tests/core/project-identity.test.ts).
+const { getProjectName: mirrorProjectName } = require("../../scripts/hooks/_shared.js");
+const D_MY = mirrorProjectName("/tmp/myproject");
+const D_MEMESH = mirrorProjectName("/tmp/memesh");
+const D_MEMESH_CLOUD = mirrorProjectName("/tmp/memesh-cloud");
 
 // Tests for the Stop hook dream auto-trigger added so the Insights tab
 // receives data without users running `memesh dream run` manually.
@@ -45,7 +55,7 @@ describe("Feature: Stop-hook dream auto-trigger", () => {
     ].map(e => JSON.stringify(e)).join("\n"));
   }
 
-  function seedEpisodicEntities(projectName: string, count: number): void {
+  function seedEpisodicEntities(projectName: string, count: number, namePrefix?: string): void {
     const db = new Database(dbPath);
     db.exec(`
       CREATE TABLE IF NOT EXISTS entities (
@@ -55,7 +65,8 @@ describe("Feature: Stop-hook dream auto-trigger", () => {
         status TEXT NOT NULL DEFAULT 'active',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         access_count INTEGER DEFAULT 0,
-        confidence REAL DEFAULT 1.0
+        confidence REAL DEFAULT 1.0,
+        metadata JSON
       );
       CREATE TABLE IF NOT EXISTS tags (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,7 +78,7 @@ describe("Feature: Stop-hook dream auto-trigger", () => {
     const insertEnt = db.prepare(`INSERT INTO entities (name, type) VALUES (?, 'session_keypoint')`);
     const insertTag = db.prepare(`INSERT INTO tags (entity_id, tag) VALUES (?, ?)`);
     for (let i = 0; i < count; i++) {
-      const r = insertEnt.run(`${projectName}-keypoint-${i}-${Date.now()}-${Math.random()}`);
+      const r = insertEnt.run(`${namePrefix ?? projectName}-keypoint-${i}-${Date.now()}-${Math.random()}`);
       insertTag.run(r.lastInsertRowid as number, `project:${projectName}`);
     }
     db.close();
@@ -103,7 +114,7 @@ describe("Feature: Stop-hook dream auto-trigger", () => {
   it("skips dream when no LLM is configured", () => {
     writeConfig({});
     writeMinimalTranscript();
-    seedEpisodicEntities("myproject", 30);
+    seedEpisodicEntities(D_MY, 30);
     runHook();
 
     const historyPath = path.join(memeshDir, "dream-history.json");
@@ -113,32 +124,32 @@ describe("Feature: Stop-hook dream auto-trigger", () => {
   it("skips dream when below the activity threshold", () => {
     writeConfig({ llm: { provider: "anthropic", model: "claude-haiku-4-5", apiKey: "sk-ant-test-junk" } });
     writeMinimalTranscript();
-    seedEpisodicEntities("myproject", 5);
+    seedEpisodicEntities(D_MY, 5);
 
     runHook();
 
     const historyPath = path.join(memeshDir, "dream-history.json");
     if (fs.existsSync(historyPath)) {
       const history = JSON.parse(fs.readFileSync(historyPath, "utf8"));
-      expect(history.myproject).toBeUndefined();
+      expect(history[D_MY]).toBeUndefined();
     }
   });
 
   it("skips dream when last run was within 24h (throttle)", () => {
     writeConfig({ llm: { provider: "anthropic", model: "claude-haiku-4-5", apiKey: "sk-ant-test-junk" } });
     writeMinimalTranscript();
-    seedEpisodicEntities("myproject", 30);
+    seedEpisodicEntities(D_MY, 30);
 
     const oneHourAgo = new Date(Date.now() - 3600 * 1000).toISOString();
     const historyPath = path.join(memeshDir, "dream-history.json");
     fs.writeFileSync(historyPath, JSON.stringify({
-      myproject: { last_run_iso: oneHourAgo, last_episodic_count: 30, last_window_days: 14 },
+      [D_MY]: { last_run_iso: oneHourAgo, last_episodic_count: 30, last_window_days: 14 },
     }));
 
     runHook();
 
     const history = JSON.parse(fs.readFileSync(historyPath, "utf8"));
-    expect(history.myproject.last_run_iso).toBe(oneHourAgo);
+    expect(history[D_MY].last_run_iso).toBe(oneHourAgo);
 
     const logDir = path.join(memeshDir, "dream-runs");
     const logs = fs.existsSync(logDir) ? fs.readdirSync(logDir) : [];
@@ -160,12 +171,12 @@ describe("Feature: Stop-hook dream auto-trigger", () => {
     // `project:memesh-cloud`. Below the activity threshold (10) for
     // `memesh` alone — but the legacy LIKE branch would have summed both
     // groups (10) and tripped the gate.
-    seedEpisodicEntities("memesh", 5);
-    seedEpisodicEntities("memesh-cloud", 5);
+    seedEpisodicEntities(D_MEMESH, 5, "memesh");
+    seedEpisodicEntities(D_MEMESH_CLOUD, 5, "memesh-cloud");
 
     const twoDaysAgo = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
     fs.writeFileSync(path.join(memeshDir, "dream-history.json"), JSON.stringify({
-      memesh: { last_run_iso: twoDaysAgo },
+      [D_MEMESH]: { last_run_iso: twoDaysAgo },
     }));
 
     // Run the hook with cwd implying project name `memesh`.
@@ -194,7 +205,7 @@ describe("Feature: Stop-hook dream auto-trigger", () => {
     // Activity gate should reject — last_run_iso must be unchanged
     // (still twoDaysAgo, not bumped to "just now").
     const history = JSON.parse(fs.readFileSync(path.join(memeshDir, "dream-history.json"), "utf8"));
-    expect(history.memesh.last_run_iso).toBe(twoDaysAgo);
+    expect(history[D_MEMESH].last_run_iso).toBe(twoDaysAgo);
 
     // No dream-runs log directory should have been created either.
     const logDir = path.join(memeshDir, "dream-runs");
@@ -221,27 +232,27 @@ describe("Feature: Stop-hook dream auto-trigger", () => {
   it.skipIf(process.platform === 'win32')("triggers dream when all gates pass (LLM + activity ≥ 10 + last run > 24h)", () => {
     writeConfig({ llm: { provider: "anthropic", model: "claude-haiku-4-5", apiKey: "sk-ant-test-junk" } });
     writeMinimalTranscript();
-    seedEpisodicEntities("myproject", 15);
+    seedEpisodicEntities(D_MY, 15);
 
     const twoDaysAgo = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
     fs.writeFileSync(path.join(memeshDir, "dream-history.json"), JSON.stringify({
-      myproject: { last_run_iso: twoDaysAgo },
+      [D_MY]: { last_run_iso: twoDaysAgo },
     }));
 
     runHook();
 
     const history = JSON.parse(fs.readFileSync(path.join(memeshDir, "dream-history.json"), "utf8"));
-    expect(history.myproject).toBeDefined();
-    const updatedAge = Date.now() - new Date(history.myproject.last_run_iso).getTime();
+    expect(history[D_MY]).toBeDefined();
+    const updatedAge = Date.now() - new Date(history[D_MY].last_run_iso).getTime();
     expect(updatedAge).toBeLessThan(60 * 1000);
-    expect(history.myproject.last_episodic_count).toBeGreaterThanOrEqual(10);
+    expect(history[D_MY].last_episodic_count).toBeGreaterThanOrEqual(10);
 
     const logDir = path.join(memeshDir, "dream-runs");
     expect(fs.existsSync(logDir)).toBe(true);
     const logs = fs.readdirSync(logDir);
     expect(logs.length).toBeGreaterThanOrEqual(1);
     const headerLine = fs.readFileSync(path.join(logDir, logs[0]), "utf8").split("\n")[0];
-    expect(headerLine).toContain("project=myproject");
+    expect(headerLine).toContain(`project=${D_MY}`);
     // The hook itself creates a session-insight entity before reaching
     // the dream trigger, so the episodic count picks up 1+ extra
     // entities of compactable type. Test for >= seed count rather than

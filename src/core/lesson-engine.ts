@@ -65,6 +65,7 @@ export function createExplicitLesson(
     prevention?: string;
     severity?: LessonSeverity;
     errorPattern?: string;
+    sourceHost?: string;
   }
 ): { name: string } {
   const errorPattern = opts?.errorPattern || inferErrorPattern(error);
@@ -85,6 +86,7 @@ export function createExplicitLesson(
       `severity:${opts?.severity || 'minor'}`,
       'source:explicit',
     ],
+    sourceHost: opts?.sourceHost,
   });
 
   // Explicit user `learn` = highest-trust signal: user asserted "this

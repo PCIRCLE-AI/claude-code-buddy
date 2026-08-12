@@ -262,7 +262,7 @@ function handleGet(res, produce) {
         .then((data) => res.json({ success: true, data }))
         .catch((err) => res.status(500).json({ success: false, errorCode: 'server.internal', error: err instanceof Error ? err.message : String(err) }));
 }
-app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, remember));
+app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, (data) => remember({ ...data, sourceHost: 'http' })));
 app.post('/v1/recall', async (req, res) => {
     if (!requireJsonBody(req, res))
         return;
@@ -285,7 +285,7 @@ app.post('/v1/consolidate', (_req, res) => {
 });
 app.post('/v1/export', (req, res) => handlePost(ExportBody, req, res, exportMemories));
 app.post('/v1/import', (req, res) => handlePost(ImportBody, req, res, importMemories));
-app.post('/v1/learn', (req, res) => handlePost(LearnBody, req, res, learn));
+app.post('/v1/learn', (req, res) => handlePost(LearnBody, req, res, (data) => learn({ ...data, sourceHost: 'http' })));
 app.post('/v1/verify', (req, res) => handlePost(VerifyBody, req, res, verifyAgentWork));
 const API_KEY_MASK = '***';
 function maskLlmSecrets(obj) {

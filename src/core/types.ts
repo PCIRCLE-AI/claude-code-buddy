@@ -157,6 +157,13 @@ export interface RememberInput {
   // inside core can set this.
   trustOverride?: 'trusted' | 'untrusted';
   provenanceOverride?: Record<string, unknown>;
+  // Which host/surface wrote this memory — 'claude-code', 'codex', 'cli',
+  // 'http', an MCP client's self-declared name. Set by the TRANSPORT, never
+  // by the model: it is deliberately absent from the tool schemas, because a
+  // provenance field the writer can spoof is not provenance. Stored as
+  // metadata.provenance.source_host so it survives federation (phase 03
+  // stamps ingested entities the same way).
+  sourceHost?: string;
 }
 
 export interface RecallInput {
@@ -263,6 +270,8 @@ export interface LearnInput {
   root_cause?: string;
   prevention?: string;
   severity?: LessonSeverity;
+  // Transport-set, never model-set — see RememberInput.sourceHost.
+  sourceHost?: string;
 }
 
 export interface LearnResult {

@@ -91,11 +91,85 @@ describe('getProjectName — layered git identity', () => {
     expect(getProjectName(repo)).toBe(path.basename(repo));
   });
 
-  it('falls back to cwd basename for a non-git directory (unchanged behaviour)', () => {
+  it('a non-git directory gets basename plus a hash of its real path', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-nogit-'));
     const real = fs.realpathSync(dir);
     created.push(real);
-    expect(getProjectName(real)).toBe(path.basename(real));
+    const name = getProjectName(real);
+    // `<basename>-<8 hex>` — bare basename collided across same-named dirs.
+    expect(name).toMatch(new RegExp(`^${path.basename(real)}-[0-9a-f]{8}$`));
+  });
+
+  it('two same-named non-git directories resolve to TWO identities', () => {
+    // ~/a/notes vs ~/b/notes — the collision this layer exists to close. The
+    // symptom of the old bare-basename rule was the other directory's
+    // memories appearing in recall.
+    const parentA = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-pa-')));
+    const parentB = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-pb-')));
+    created.push(parentA, parentB);
+    const notesA = path.join(parentA, 'notes');
+    const notesB = path.join(parentB, 'notes');
+    fs.mkdirSync(notesA);
+    fs.mkdirSync(notesB);
+    const idA = getProjectName(notesA);
+    const idB = getProjectName(notesB);
+    expect(idA).not.toBe(idB);
+    // Both still carry the human-readable basename up front.
+    expect(idA.startsWith('notes-')).toBe(true);
+    expect(idB.startsWith('notes-')).toBe(true);
+  });
+
+  it('the same non-git directory resolves to ONE identity, even via a symlink', () => {
+    // Codex, Claude Code and Gemini all spawn against the same directory —
+    // possibly through different path spellings. realpath collapses them.
+    const real = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-same-')));
+    created.push(real);
+    const link = `${real}-link`;
+    fs.symlinkSync(real, link);
+    created.push(link);
+    const direct = getProjectName(real);
+    _clearProjectNameCache();
+    const viaLink = getProjectName(link);
+    expect(viaLink).toBe(direct);
+  });
+
+  it('two case-spellings of the same directory resolve to ONE identity', () => {
+    // macOS and Windows default to case-insensitive filesystems, where
+    // `~/Notes` and `~/notes` are the same directory. The JS realpathSync
+    // returns whatever case the caller typed, so identity depended on the
+    // spelling — realpathSync.native returns the on-disk case. On a
+    // case-sensitive filesystem (Linux CI) the mis-spelling is simply a
+    // different, absent path, and that branch asserts exactly that.
+    const real = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-CaseFold-')));
+    created.push(real);
+    const base = path.basename(real);
+    const swapped = path.join(path.dirname(real), base.toLowerCase() === base ? base.toUpperCase() : base.toLowerCase());
+    const direct = getProjectName(real);
+    _clearProjectNameCache();
+    if (fs.existsSync(swapped)) {
+      // Case-insensitive filesystem: both spellings are one directory and
+      // must be one project — for core and for the hook mirror.
+      expect(getProjectName(swapped)).toBe(direct);
+      _clearProjectNameCache();
+      expect(shared.getProjectName(swapped)).toBe(direct);
+    } else {
+      // Case-sensitive filesystem: the scenario cannot occur; pin that the
+      // probe really was decisive rather than silently passing.
+      expect(() => fs.realpathSync(swapped)).toThrow();
+    }
+  });
+
+  it('a nonexistent cwd still resolves to basename+hash — deleted cwd must never break capture', () => {
+    // realpathSync throws ENOENT here; the catch falls back to path.resolve.
+    // Replacing that catch with a rethrow used to leave the suite green while
+    // violating the stated invariant (same rule as the git layers above).
+    const ghost = path.join(os.tmpdir(), `memesh-ghost-${process.pid}`, 'gone');
+    expect(fs.existsSync(ghost)).toBe(false);
+    const core = getProjectName(ghost);
+    expect(core).toMatch(/^gone-[0-9a-f]{8}$/);
+    // The mirror must take the identical fallback.
+    _clearProjectNameCache();
+    expect(shared.getProjectName(ghost)).toBe(core);
   });
 
   it('the hook mirror resolves identically for every layer', () => {

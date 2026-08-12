@@ -17,7 +17,49 @@ All notable changes to MeMesh are documented here.
   happen. `tests/relation-types-documented.test.ts` now fails if either type
   loses its flag or its help text stops explaining the consequence.
 
+### Added
+
+- **Every memory captured through `remember`, `learn` or the capture hooks
+  records which host wrote it**, as `metadata.provenance.source_host`. The
+  MCP server stamps the client's self-declared `initialize` name (Claude
+  Code, Codex CLI and Gemini CLI each send one; a client that declares none —
+  or an empty or unprintable one — is recorded as `mcp`, and every name is
+  stripped of control characters and capped at 64 characters on the way in),
+  the CLI stamps `cli`, the HTTP API stamps `http`, and the capture hooks
+  stamp `claude-code` — on first insert only, on every write path, so a
+  re-capture or a cross-host re-remember never overwrites what an earlier
+  writer recorded. The value is set by the transport and is deliberately NOT
+  a tool parameter: a provenance field the model could fill in is not
+  provenance — though note it is attribution, not authentication: stdio has
+  no identity check, so the name is honest bookkeeping, not a security
+  boundary. `import` deliberately does not stamp a host — imported entities
+  keep their own `provenance.source: 'import'` marker, and per-host ingest
+  attribution is the federation phase's job. Existing entities are
+  untouched; with three hosts now sharing one database, "which host wrote
+  this" is the field federation (and any future attribution) hangs off.
+
 ### Changed
+
+- **A non-git directory's project identity is now `<basename>-<8-hex hash of
+  its real path>` instead of the bare basename.** Bare `basename(cwd)` made
+  `~/a/notes` and `~/b/notes` one project, and the symptom was the other
+  directory's memories appearing in recall — rare with one host, three times
+  likelier now that Codex CLI and Gemini CLI share the database with Claude
+  Code. The hash is derived from the directory's real path, so every host that
+  opens the same directory (through any symlink spelling) derives the same
+  identity, and two directories that merely share a name derive two — the
+  real path is taken with the OS-native resolver, so on the case-insensitive
+  filesystems macOS and Windows default to, `~/Notes` and `~/notes` (one
+  directory, two spellings) also derive one identity. Git repositories are
+  untouched — their identity still comes from the remote slug or the repo
+  root. **One-time effect:** memories captured in a non-git
+  directory under the old bare-basename identity stay under that tag. Run
+  `memesh kg rename-project` (no flags) from anywhere to list every
+  project tag with its entity count, then merge the old tag into the new one
+  with `memesh kg rename-project --from <old> --to <new> --apply`. If several
+  hosts share the database, upgrade all of them before running the merge — a
+  host still on the old version keeps writing the bare-basename tag, and the
+  split reappears until it is upgraded and the merge re-run.
 
 - **The supported Node floor is now `>=22.13.0`** (was `>=22.5.0`). `node:sqlite`
   first appeared in 22.5, but behind `--experimental-sqlite`, and the three
