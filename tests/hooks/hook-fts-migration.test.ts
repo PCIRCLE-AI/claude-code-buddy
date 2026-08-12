@@ -16,14 +16,12 @@
  * whichever process opens the database first.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createRequire } from 'module';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
 
-const require = createRequire(import.meta.url);
 // `fileURLToPath`, not `new URL(...).pathname` — the latter yields `/D:/...` on
 // Windows, which path.join turns into `D:\D:\...`. Pinned by
 // tests/release-scripts-safety.test.ts.

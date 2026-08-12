@@ -1,13 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { recordTelemetry, summariseTelemetry, pruneTelemetry } from '../../src/core/llm-telemetry.js';
 import type { LLMAttempt } from '../../src/core/llm-client.js';
 import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
-
-const require = createRequire(import.meta.url);
 
 // Persistence + summary aggregation contract for the LLM telemetry
 // table. callLLM-driven onAttempt hooks already pin the recording

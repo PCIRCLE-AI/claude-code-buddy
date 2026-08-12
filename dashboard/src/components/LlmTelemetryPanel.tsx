@@ -63,7 +63,6 @@ function fmtLatency(ms: number | null): string {
 
 export function LlmTelemetryPanel() {
   const [data, setData] = useState<TelemetryResponse | null>(null);
-  const [error, setError] = useState('');
   const [failure, setFailure] = useState<LoadFailure | null>(null);
   const [loading, setLoading] = useState(true);
   const [window, setWindow] = useState(30);
@@ -75,13 +74,12 @@ export function LlmTelemetryPanel() {
     // could blank out fresh good data.
     let stale = false;
     setLoading(true);
-    setError('');
     api<TelemetryResponse>('GET', `/v1/telemetry?window=${window}`)
       // Without `summaries` there is nothing to render, and `data.summaries.length`
       // throws. A payload the guard rejects is a DIFFERENT failure from a
-      // request that failed, and used to be the worst of the four states:
-      // data null, error empty — every render branch false, an empty card
-      // with no explanation at all.
+      // request that failed, and used to be the worst of the states available:
+      // data null and no failure recorded — every render branch false, an empty
+      // card with no explanation at all.
       .then(d => {
         if (stale) return;
         if (!Array.isArray(d?.summaries)) {
@@ -97,7 +95,6 @@ export function LlmTelemetryPanel() {
         if (stale) return;
         console.warn('[memesh dashboard] /v1/telemetry failed to load:', e);
         setFailure(classifyLoadError(e));
-        setError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => { if (!stale) setLoading(false); });
     return () => { stale = true; };

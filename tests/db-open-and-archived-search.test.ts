@@ -14,15 +14,12 @@
  *      unfindable the moment it was archived.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createRequire } from 'module';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { openDatabase, closeDatabase, getDatabase } from '../src/db.js';
 import { KnowledgeGraph } from '../src/knowledge-graph.js';
 import { MemeshDatabase as Database } from '../src/storage/sqlite.js';
-
-const require = createRequire(import.meta.url);
 
 describe('Feature: a failed open does not poison the process', () => {
   let dir: string;
