@@ -112,26 +112,28 @@ A query that is not empty but contains nothing searchable — `???`, `@#$%` — 
 
 **Response**:
 
-Returns an array of matching entities ranked by multi-factor score — relevance 0.30, recency 0.25, frequency 0.18, confidence 0.17, recall-effectiveness impact 0.10:
+Returns an object whose `entities` array holds the matching entities ranked by multi-factor score — relevance 0.30, recency 0.25, frequency 0.18, confidence 0.17, recall-effectiveness impact 0.10. The envelope is an object, never a bare array: Gemini CLI JSON-parses a tool's text payload into the MCP result's `structuredContent`, which the protocol requires to be an object — a bare array failed every Gemini recall while other hosts read it fine:
 
 ```json
-[
-  {
-    "id": 1,
-    "name": "auth-decision",
-    "type": "decision",
-    "created_at": "2026-03-09 12:00:00",
-    "observations": [
-      "Chose JWT for authentication",
-      "Using RS256 algorithm for token signing"
-    ],
-    "tags": ["project:myapp", "topic:auth"],
-    "relations": [
-      {"from": "auth-decision", "to": "api-design", "type": "related-to"}
-    ],
-    "match": {"source": "keyword", "relevance": 0.42}
-  }
-]
+{
+  "entities": [
+    {
+      "id": 1,
+      "name": "auth-decision",
+      "type": "decision",
+      "created_at": "2026-03-09 12:00:00",
+      "observations": [
+        "Chose JWT for authentication",
+        "Using RS256 algorithm for token signing"
+      ],
+      "tags": ["project:myapp", "topic:auth"],
+      "relations": [
+        {"from": "auth-decision", "to": "api-design", "type": "related-to"}
+      ],
+      "match": {"source": "keyword", "relevance": 0.42}
+    }
+  ]
+}
 ```
 
 **Provenance (`match`)**: when the call has a query, every result says how it
@@ -150,7 +152,7 @@ not a match. In CLI (non-`--json`) output, observations longer than 500
 characters are capped on display with `… (+N more chars)`; storage and
 `--json` always carry the full text.
 
-**Conflict detection**: When any pair of returned entities have a `contradicts` relation, the response is wrapped as shown below. Nothing creates that relation for you — a caller states it via `remember`'s `relations` (see [remember](#remember)), so an empty `conflicts` means "none stated between these results", not "checked and clean":
+**Conflict detection**: When any pair of returned entities have a `contradicts` relation, the object gains a `conflicts` array beside `entities`. Nothing creates that relation for you — a caller states it via `remember`'s `relations` (see [remember](#remember)), so an absent `conflicts` means "none stated between these results", not "checked and clean":
 
 ```json
 {

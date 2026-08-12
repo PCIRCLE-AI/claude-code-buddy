@@ -236,25 +236,25 @@
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04"
     },
-    "C7 README.md:273": {
+    "C7 README.md:294": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04 (re-keyed 273->294: the Codex/Gemini MCP setup section added to Get Started shifted this line down 21; same auto-capture table row verified before re-keying)"
     },
-    "C7 README.md:348": {
+    "C7 README.md:369": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 346->348: the doc-sync fallback-providers paragraph added to the Configuration section shifted this line down 2; same testimonial figure verified before re-keying)"
+      "triaged": "2026-08-04 (re-keyed 346->348->369: the Codex/Gemini MCP setup section shifted this line down 21 more; same testimonial figure verified before re-keying)"
     },
-    "C7 README.md:355": {
+    "C7 README.md:376": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 353->355: the doc-sync fallback-providers paragraph shifted this line down 2; same 95.60% R@5 out-of-the-box figure verified before re-keying)"
+      "triaged": "2026-08-04 (re-keyed 353->355->376: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 out-of-the-box figure verified before re-keying)"
     },
-    "C7 README.md:386": {
+    "C7 README.md:407": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 379->382->386: the doc-sync fallback-providers + transcript-mining paragraphs shifted the line down 4; same 95.60% R@5 comparison-table figure verified before re-keying)"
+      "triaged": "2026-08-04 (re-keyed 379->382->386->407: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 comparison-table figure verified before re-keying)"
     },
     "C4 scripts/release-verify.sh:109": {
       "class": "SAFE",
@@ -351,10 +351,10 @@
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
     },
-    "C5 src/transports/mcp/handlers.ts:290": {
+    "C5 src/transports/mcp/handlers.ts:312": {
       "class": "SAFE-GUARDED",
       "reason": "Zod rejects {} for schemas with required fields",
-      "triaged": "2026-08-10 (re-keyed: the corrected import description added 9 lines; same safeParse statement)"
+      "triaged": "2026-08-10 (re-keyed 290->312: the stripNullProps helper added 22 lines above; the statement now wraps args in stripNullProps, which maps {} to {} and null properties to absent — the guard this triage relies on, Zod rejecting {} for required fields, is untouched)"
     },
     "C6 tests/hooks/session-summary.test.ts": {
       "class": "DEPENDENCY-PIN",
