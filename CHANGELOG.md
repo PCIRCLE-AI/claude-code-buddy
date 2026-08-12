@@ -107,16 +107,27 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **`recall` works from Gemini CLI: its MCP payload is now an object envelope,
+  never a bare JSON array.** Gemini CLI JSON-parses the first text content item
+  of every MCP tool result and assigns the parsed value to the result's
+  `structuredContent`, which the MCP SDK requires to be an *object* — so
+  `recall`'s bare-array payload failed **every** recall issued from a Gemini
+  session with `structuredContent: expected record, received array`, while
+  Claude Code and Codex, which don't rewrite the result, read the same payload
+  fine. The payload is now `{"entities": [...]}` (plus `conflicts` when any
+  are stated), which also removes the old bimodal shape — array normally,
+  object when conflicts exist — that every consumer had to special-case. The
+  HTTP API's response shape is unchanged.
+
 - **An MCP tool call with `null` in an optional parameter no longer fails.**
-  Gemini CLI fills optional parameters its model leaves blank with an explicit
-  `null` where Claude Code and Codex omit the key, and Zod's `.optional()`
-  accepts only the omission — so the exact same `recall` that succeeded from a
-  Codex session came back from a Gemini session as
-  `tag: Invalid input: expected string, received null`. The MCP boundary now
-  drops null-valued properties before validation; no memesh tool uses `null`
-  as a sentinel, so a null property can only mean "left blank". A `null`
-  *element* inside an array (an observation, a tag) is still rejected — that
-  is malformed data, not a blank field — and HTTP and CLI validation are
+  Zod's `.optional()` accepts a missing key but rejects an explicit `null`, so
+  a host that serializes blank optionals as `null` got
+  `tag: Invalid input: expected string, received null` for a call it meant as
+  "no filter" — reproduced with a direct MCP `tools/call`. The MCP boundary
+  now drops null-valued properties before validation; no memesh tool uses
+  `null` as a sentinel, so a null property can only mean "left blank". A
+  `null` *element* inside an array (an observation, a tag) is still rejected —
+  that is malformed data, not a blank field — and HTTP and CLI validation are
   unchanged.
 
 - **A redaction root can no longer match in the middle of an unrelated path.**

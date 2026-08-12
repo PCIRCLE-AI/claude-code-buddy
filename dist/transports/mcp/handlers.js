@@ -263,7 +263,7 @@ export async function handleTool(name, args) {
             if (!r.ok)
                 return r.result;
             const { entities, conflicts } = await recallWithConflicts(r.data);
-            return ok(conflicts.length > 0 ? { entities, conflicts } : entities);
+            return ok(conflicts.length > 0 ? { entities, conflicts } : { entities });
         }
         if (name === 'forget') {
             const r = parseOrFail(ForgetSchema, args);
