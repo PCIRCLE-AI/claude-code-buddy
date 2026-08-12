@@ -18,8 +18,8 @@
     },
     {
       "path": "scripts/hooks/_generated/core-paths.js",
-      "sha256": "998ed4892a132f07b31babbb6a613ddb3e41fad95accc1b6aac3578746e27ea6",
-      "bytes": 3745
+      "sha256": "d039c02ce5d85c3ac426c7c0059f9b639ffaf94f484d7bec1f3f5bd1ef67aa94",
+      "bytes": 3997
     },
     {
       "path": "scripts/hooks/_generated/fts-index.js",
@@ -33,8 +33,8 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "c6173f9a33ce100b47c597af7d778586ea9db3f31bf666d8fd83bcdf9a010daa",
-      "bytes": 39561
+      "sha256": "1ca8ae6f4d1a7c352aba02fe3fa8a83a4ecb58b3adce7082766f2e39f1ac8ea6",
+      "bytes": 40020
     },
     {
       "path": "scripts/hooks/post-commit.js",

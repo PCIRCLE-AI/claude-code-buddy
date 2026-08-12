@@ -21,6 +21,37 @@ afterEach(() => {
 
 // ── Remember ────────────────────────────────────────────────────────────
 
+describe('source_host provenance', () => {
+  it('stamps the MCP client name the transport hands over', async () => {
+    // The third argument is the client's self-declared initialize name,
+    // threaded by src/mcp/server.ts — NOT a tool parameter the model can set.
+    await handleTool('remember', { name: 'prov-mcp', type: 'decision', observations: ['from codex'] }, 'codex');
+    const recall = await handleTool('recall', { query: 'prov-mcp' });
+    const hit = JSON.parse(recall.content[0].text).find((e: any) => e.name === 'prov-mcp');
+    expect(hit.metadata.provenance.source_host).toBe('codex');
+  });
+
+  it('records no source_host when the transport does not know one', async () => {
+    await handleTool('remember', { name: 'prov-anon', type: 'decision', observations: ['origin unknown'] });
+    const recall = await handleTool('recall', { query: 'prov-anon' });
+    const hit = JSON.parse(recall.content[0].text).find((e: any) => e.name === 'prov-anon');
+    expect(hit.metadata.provenance.source_host).toBeUndefined();
+  });
+
+  it('the model cannot smuggle source_host in as a tool argument', async () => {
+    // RememberSchema strips unknown keys, so a spoofed sourceHost never
+    // reaches core. If this ever starts passing through, provenance is no
+    // longer provenance.
+    await handleTool('remember', {
+      name: 'prov-spoof', type: 'decision', observations: ['spoof attempt'],
+      sourceHost: 'gemini-cli',
+    } as Record<string, unknown>, 'codex');
+    const recall = await handleTool('recall', { query: 'prov-spoof' });
+    const hit = JSON.parse(recall.content[0].text).find((e: any) => e.name === 'prov-spoof');
+    expect(hit.metadata.provenance.source_host).toBe('codex');
+  });
+});
+
 describe('remember', () => {
   it('stores an entity and returns confirmation', async () => {
     const result = await handleTool('remember', {

@@ -299,6 +299,6 @@ type ToolResult = {
     }>;
     isError?: boolean;
 };
-export declare function handleTool(name: string, args: Record<string, unknown> | undefined): Promise<ToolResult>;
+export declare function handleTool(name: string, args: Record<string, unknown> | undefined, sourceHost?: string): Promise<ToolResult>;
 export {};
 //# sourceMappingURL=handlers.d.ts.map

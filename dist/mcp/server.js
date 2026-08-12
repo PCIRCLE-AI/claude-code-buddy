@@ -20,7 +20,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 }));
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    return handleTool(name, args);
+    return handleTool(name, args, server.getClientVersion()?.name ?? 'mcp');
 });
 async function main() {
     openDatabase();

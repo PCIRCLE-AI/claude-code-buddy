@@ -107,7 +107,11 @@ export function remember(args: RememberInput): RememberResult {
     current as EntityMetadata,
     {
       trust: args.trustOverride,
-      provenance: args.provenanceOverride,
+      // source_host first so an explicit provenanceOverride stays authoritative.
+      provenance: {
+        ...(args.sourceHost ? { source_host: args.sourceHost } : {}),
+        ...(args.provenanceOverride ?? {}),
+      },
     }
   ));
 
@@ -372,6 +376,7 @@ export function learn(args: LearnInput): LearnResult {
       rootCause: args.root_cause,
       prevention: args.prevention,
       severity: args.severity,
+      sourceHost: args.sourceHost,
     }
   );
 

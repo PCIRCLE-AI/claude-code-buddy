@@ -9,6 +9,7 @@ export declare function createExplicitLesson(error: string, fix: string, project
     prevention?: string;
     severity?: LessonSeverity;
     errorPattern?: string;
+    sourceHost?: string;
 }): {
     name: string;
 };

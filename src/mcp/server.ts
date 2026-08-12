@@ -34,10 +34,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   })),
 }));
 
-// Call tool
+// Call tool. The client's self-declared `initialize` name (claude-code,
+// codex, gemini-cli, …) rides along as write provenance — the transport
+// knows who is connected; the model must not be able to claim it.
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
-  return handleTool(name, args);
+  return handleTool(name, args, server.getClientVersion()?.name ?? 'mcp');
 });
 
 // Start

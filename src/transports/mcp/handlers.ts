@@ -298,12 +298,18 @@ function parseOrFail<T>(schema: z.ZodType<T>, args: unknown): { ok: true; data: 
   return { ok: true, data: parsed.data };
 }
 
-export async function handleTool(name: string, args: Record<string, unknown> | undefined): Promise<ToolResult> {
+/**
+ * `sourceHost` is which MCP client is on the other end of stdio — the name it
+ * declared in `initialize` (Claude Code, Codex and Gemini all send one). It is
+ * threaded through to the write operations as provenance and is NOT a tool
+ * parameter: a provenance field the model could set is not provenance.
+ */
+export async function handleTool(name: string, args: Record<string, unknown> | undefined, sourceHost?: string): Promise<ToolResult> {
   try {
     if (name === 'remember') {
       const r = parseOrFail(RememberSchema, args);
       if (!r.ok) return r.result;
-      return ok(remember(r.data));
+      return ok(remember({ ...r.data, sourceHost }));
     }
     if (name === 'recall') {
       const r = parseOrFail(RecallSchema, args);
@@ -331,7 +337,7 @@ export async function handleTool(name: string, args: Record<string, unknown> | u
     if (name === 'learn') {
       const r = parseOrFail(LearnSchema, args);
       if (!r.ok) return r.result;
-      return ok(learn(r.data));
+      return ok(learn({ ...r.data, sourceHost }));
     }
     if (name === 'user_patterns') {
       const r = parseOrFail(UserPatternsSchema, args);

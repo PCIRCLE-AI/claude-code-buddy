@@ -17,7 +17,35 @@ All notable changes to MeMesh are documented here.
   happen. `tests/relation-types-documented.test.ts` now fails if either type
   loses its flag or its help text stops explaining the consequence.
 
+### Added
+
+- **Every newly captured memory records which host wrote it**, as
+  `metadata.provenance.source_host`. The MCP server stamps the client's
+  self-declared `initialize` name (Claude Code, Codex CLI and Gemini CLI each
+  send one), the CLI stamps `cli`, the HTTP API stamps `http`, and the capture
+  hooks stamp `claude-code` — on first insert only, so a re-capture never
+  overwrites what an earlier writer recorded. The value is set by the
+  transport and is deliberately NOT a tool parameter: a provenance field the
+  model could fill in is not provenance. Existing entities are untouched;
+  with three hosts now sharing one database, "which host wrote this" is the
+  field federation (and any future attribution) hangs off.
+
 ### Changed
+
+- **A non-git directory's project identity is now `<basename>-<8-hex hash of
+  its real path>` instead of the bare basename.** Bare `basename(cwd)` made
+  `~/a/notes` and `~/b/notes` one project, and the symptom was the other
+  directory's memories appearing in recall — rare with one host, three times
+  likelier now that Codex CLI and Gemini CLI share the database with Claude
+  Code. The hash is derived from the directory's real path, so every host that
+  opens the same directory (through any symlink spelling) derives the same
+  identity, and two directories that merely share a name derive two. Git
+  repositories are untouched — their identity still comes from the remote slug
+  or the repo root. **One-time effect:** memories captured in a non-git
+  directory under the old bare-basename identity stay under that tag. Run
+  `memesh kg rename-project` (no flags) from anywhere to list every
+  project tag with its entity count, then merge the old tag into the new one
+  with `memesh kg rename-project --from <old> --to <new> --apply`.
 
 - **The supported Node floor is now `>=22.13.0`** (was `>=22.5.0`). `node:sqlite`
   first appeared in 22.5, but behind `--experimental-sqlite`, and the three

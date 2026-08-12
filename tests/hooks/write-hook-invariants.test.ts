@@ -55,6 +55,37 @@ describe('write-hook invariants (fake-working gates)', () => {
     }
   });
 
+  it('captureEntity stamps source_host=claude-code on a NEW entity', () => {
+    // Hooks only ever run under Claude Code, so hook capture IS claude-code
+    // capture. The stamp is what lets a federated reader (phase 03) say which
+    // host a memory came from.
+    const handle = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { fts: true });
+    const { db } = handle;
+    try {
+      const res = shared.captureEntity(db, { name: 'prov-new', type: 'note', observations: ['x'] });
+      const row = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(res.id) as { metadata: string };
+      expect(JSON.parse(row.metadata).provenance.source_host).toBe('claude-code');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('captureEntity does NOT overwrite metadata another writer already recorded', () => {
+    // OR IGNORE re-capture of an existing entity must leave provenance alone —
+    // an entity first written via MCP from another host keeps that host.
+    const handle = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { fts: true });
+    const { db } = handle;
+    try {
+      db.prepare('INSERT INTO entities (name, type, metadata) VALUES (?, ?, ?)')
+        .run('prov-existing', 'note', JSON.stringify({ provenance: { source_host: 'codex' } }));
+      shared.captureEntity(db, { name: 'prov-existing', type: 'note', observations: ['y'] });
+      const row = db.prepare('SELECT metadata FROM entities WHERE name = ?').get('prov-existing') as { metadata: string };
+      expect(JSON.parse(row.metadata).provenance.source_host).toBe('codex');
+    } finally {
+      db.close();
+    }
+  });
+
   it('every write hook routes through captureEntity and hand-rolls no entity writes', () => {
     // These three hooks persist entities. If any of them writes rows directly
     // instead of via captureEntity, it can drop the FTS/observation steps the

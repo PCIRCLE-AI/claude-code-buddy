@@ -90,6 +90,7 @@ program
             tags: opts.tags,
             namespace: opts.namespace,
             relations: relations.length > 0 ? relations : undefined,
+            sourceHost: 'cli',
         });
         if (opts.json) {
             console.log(JSON.stringify(result));
@@ -365,6 +366,7 @@ program
             root_cause: opts.rootCause,
             prevention: opts.prevention,
             severity: opts.severity,
+            sourceHost: 'cli',
         });
         if (opts.json) {
             console.log(JSON.stringify(result));
