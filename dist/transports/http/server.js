@@ -599,16 +599,17 @@ app.post('/v1/dream/proposals/:id/accept', async (req, res) => {
         res.status(400).json({ success: false, errorCode: 'validation.bad-param', error: 'invalid id' });
         return;
     }
+    let NothingToClaim;
     try {
-        const { applyProposal } = await import('../../core/dreamer.js');
+        const dreamer = await import('../../core/dreamer.js');
+        NothingToClaim = dreamer.NothingToClaimError;
         const kg = new KnowledgeGraph(getDatabase());
-        const result = applyProposal(getDatabase(), id, kg);
+        const result = dreamer.applyProposal(getDatabase(), id, kg);
         res.json({ success: true, data: result });
     }
     catch (err) {
-        const { NothingToClaimError } = await import('../../core/dreamer.js');
         const msg = err instanceof Error ? err.message : String(err);
-        if (err instanceof NothingToClaimError) {
+        if (NothingToClaim && err instanceof NothingToClaim) {
             res.status(400).json({ success: false, errorCode: 'operation.failed', error: msg });
         }
         else if (/not found or not pending/.test(msg)) {

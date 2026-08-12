@@ -1032,10 +1032,18 @@ app.post('/v1/dream/proposals/:id/accept', async (req, res) => {
     res.status(400).json({ success: false, errorCode: 'validation.bad-param' satisfies ErrorCode, error: 'invalid id' });
     return;
   }
+  // Captured from the try-block import so the catch can use it WITHOUT a
+  // second `await import(...)`: an import in the catch is itself awaitable
+  // failure, and a transient module-load error there would answer 500
+  // "Cannot find module" in place of the real outcome. If the import below
+  // fails, this stays undefined, `err` IS the import error, and the catch
+  // falls through to 500 — which is then the truth.
+  let NothingToClaim: (typeof import('../../core/dreamer.js'))['NothingToClaimError'] | undefined;
   try {
-    const { applyProposal } = await import('../../core/dreamer.js');
+    const dreamer = await import('../../core/dreamer.js');
+    NothingToClaim = dreamer.NothingToClaimError;
     const kg = new KnowledgeGraph(getDatabase());
-    const result = applyProposal(getDatabase(), id, kg);
+    const result = dreamer.applyProposal(getDatabase(), id, kg);
     res.json({ success: true, data: result });
   } catch (err) {
     // NothingToClaimError is an outcome, not a failure: the server resolved
@@ -1045,9 +1053,8 @@ app.post('/v1/dream/proposals/:id/accept', async (req, res) => {
     // rejected — got a 404, two contradictory errors for one click. 400
     // `operation.failed` is the code already defined as "valid request, but
     // the operation itself rejected it".
-    const { NothingToClaimError } = await import('../../core/dreamer.js');
     const msg = err instanceof Error ? err.message : String(err);
-    if (err instanceof NothingToClaimError) {
+    if (NothingToClaim && err instanceof NothingToClaim) {
       res.status(400).json({ success: false, errorCode: 'operation.failed' satisfies ErrorCode, error: msg });
     } else if (/not found or not pending/.test(msg)) {
       // applyProposal throws "proposal #X not found or not pending" for
