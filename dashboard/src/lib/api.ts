@@ -101,7 +101,7 @@ function envelopeError(json: { errorCode?: unknown; error?: unknown }): Error {
   return new Error(typeof json.error === 'string' && json.error ? json.error : t('errors.unknown'));
 }
 
-export async function api<T = any>(method: string, path: string, body?: any): Promise<T> {
+export async function api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT);
   try {
@@ -148,8 +148,8 @@ export async function api<T = any>(method: string, path: string, body?: any): Pr
     const json = await res.json();
     if (!json.success) throw envelopeError(json);
     return json.data as T;
-  } catch (err: any) {
-    if (err.name === 'AbortError') throw new NetworkError(t('errors.timeout'));
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') throw new NetworkError(t('errors.timeout'));
     // fetch signals a network-level failure as a TypeError; rewrap so
     // callers can tell "no response" from "the server answered badly"
     // without string-matching messages.

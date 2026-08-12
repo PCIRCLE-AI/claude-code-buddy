@@ -14,7 +14,7 @@ import path from 'path';
 describe('install-hooks', () => {
   let tmpDir: string;
   let pluginDir: string;
-  let originalEnv: Record<string, string | undefined> = {};
+  const originalEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-installhooks-'));

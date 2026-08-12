@@ -301,7 +301,6 @@ describe('Feature: reindex reports what it actually wrote', () => {
         });
       }
       return stmt;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     }) as any);
 
     const result = await reindex();

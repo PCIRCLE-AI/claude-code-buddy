@@ -68,6 +68,26 @@ export default tseslint.config(
     },
   },
   {
+    // Test files, and only test files.
+    //
+    // `no-explicit-any` is off here because a test's job includes reaching past
+    // a type: stubbing an internal, handing a function the malformed payload the
+    // type says it cannot receive, casting a spy. There were 201 of them when
+    // this directory was first linted, and the alternative to switching the rule
+    // off is 201 inline `eslint-disable` comments, which is the same decision
+    // written 201 times and read by nobody. In `src/` and `dashboard/src/` the
+    // rule stays on.
+    //
+    // `no-control-regex` is off for the same reason in miniature: several suites
+    // exist specifically to prove that control characters are handled, so the
+    // regex containing one IS the test.
+    files: ['tests/**/*.ts', 'tests/**/*.tsx'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      'no-control-regex': 'off',
+    },
+  },
+  {
     // The core engine is where "fake working" lives: a silent `catch {}` here
     // turns a real failure (corrupt config, unreadable transcript, dead LLM
     // call) into an all-green no-op. In src/core an empty catch must carry a

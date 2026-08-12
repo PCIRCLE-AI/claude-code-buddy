@@ -53,7 +53,7 @@ export function TabNav({
   }, [recomputeOverflow, tabs.length]);
 
   const onKeyDown = (e: KeyboardEvent, i: number) => {
-    let next = -1;
+    let next: number;
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (i + 1) % tabs.length;
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (i - 1 + tabs.length) % tabs.length;
     else if (e.key === 'Home') next = 0;

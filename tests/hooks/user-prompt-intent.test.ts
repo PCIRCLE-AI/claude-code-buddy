@@ -266,7 +266,6 @@ describe('Feature: User Prompt Intent Hook', () => {
 
     it('emits exactly one stdout-safe block (no embedded null/control bytes)', () => {
       // Stdout must be parsed as JSON downstream; control characters would corrupt it.
-      // eslint-disable-next-line no-control-regex
       expect(hint).not.toMatch(/[\x00-\x08\x0B\x0C\x0E-\x1F]/);
     });
   });
