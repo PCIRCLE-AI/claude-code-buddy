@@ -304,6 +304,45 @@ describe('dreamer', () => {
     expect(after.reason).not.toMatch(/another digest/);
   });
 
+  it('apply: a MIXED empty claim names both causes, with the right count for each', async () => {
+    // The two tests above stage one cause each, and both stayed green when the
+    // `missingSources` counter was deleted — because with the counter at zero
+    // the reason falls into the "all of them were already summarised" branch,
+    // which is exactly what the all-compacted test asserts. A break-test caught
+    // that: the fix that added the counter had no test that could fail without
+    // it. This is that test — some sources compacted, some forgotten, which is
+    // the ordinary shape once a graph has been running a while.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(4);
+    const stage = (name: string, ids: number[]) => {
+      db.prepare(`
+        INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+        VALUES ('memesh', '2026-W19', ?, ?, 'ollama/fake', 'v1')
+      `).run(JSON.stringify(ids), JSON.stringify({
+        name, type: 'digest', observations: ['a consolidated summary of the work'], tags: ['digest'],
+      }));
+      return (db.prepare("SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC").get() as { id: number }).id;
+    };
+
+    // Two of the four go to an earlier digest…
+    const ownerId = stage('digest-took-the-first-two', sourceIds.slice(0, 2));
+    expect(applyProposal(db, ownerId, kg).sourcesArchived).toBe(2);
+    // …and the other two are forgotten before this proposal is applied.
+    for (const id of sourceIds.slice(2)) db.prepare('DELETE FROM entities WHERE id = ?').run(id);
+
+    const mixedId = stage('digest-left-with-nothing', sourceIds);
+    expect(() => applyProposal(db, mixedId, kg)).toThrow(/claimed nothing/);
+
+    const after = db.prepare('SELECT status, reason FROM dream_proposals WHERE id = ?').get(mixedId) as { status: string; reason: string | null };
+    expect(after.status).toBe('rejected');
+    // Both counts, each accurate. "all 4 were already summarised" is the lie
+    // this guards: it sends the operator looking for two duplicate digests
+    // that do not exist, instead of at the forget that took the other two.
+    expect(after.reason, 'a mixed empty claim named only one of its two causes')
+      .toMatch(/2 were already summarised by another digest and 2 no longer exist/);
+    expect(after.reason).not.toMatch(/all 4/);
+  });
+
   it('pattern apply: refuses a pattern whose sources have all been forgotten', async () => {
     // Same hole, other branch, other route in: the pattern loop skips a source
     // whose row is gone (`if (!sourceRow) continue`), so forgetting the sources
