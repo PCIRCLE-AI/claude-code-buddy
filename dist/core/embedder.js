@@ -46,6 +46,16 @@ function toVectorRowId(entityId) {
     return BigInt(entityId);
 }
 function toVectorBlob(embedding) {
+    let sumSquares = 0;
+    for (let i = 0; i < embedding.length; i++)
+        sumSquares += embedding[i] * embedding[i];
+    const norm = Math.sqrt(sumSquares);
+    if (Number.isFinite(norm) && norm > 0 && Math.abs(norm - 1) > 1e-6) {
+        const unit = new Float32Array(embedding.length);
+        for (let i = 0; i < embedding.length; i++)
+            unit[i] = embedding[i] / norm;
+        embedding = unit;
+    }
     return Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
 }
 function isDatabaseLifecycleError(err) {

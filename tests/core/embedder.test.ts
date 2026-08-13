@@ -69,6 +69,11 @@ describe('Embedder', () => {
     const embedding = new Float32Array(dim);
     embedding.fill(0.01);
     embedding[0] = 1;
+    // Store a UNIT vector: direct INSERTs bypass toVectorBlob, and the query
+    // side normalizes, so a non-unit seed would report a small false
+    // distance instead of 0.
+    const norm = Math.hypot(...embedding);
+    for (let i = 0; i < dim; i++) embedding[i] /= norm;
 
     db.prepare(
       'INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)'
@@ -77,7 +82,29 @@ describe('Embedder', () => {
     const hits = vectorSearch(embedding, 1);
     expect(hits).toHaveLength(1);
     expect(hits[0].id).toBe(123);
-    expect(hits[0].distance).toBe(0);
+    expect(hits[0].distance).toBeLessThan(1e-3);
+  });
+
+  it('normalizes the query vector before matching — scale cannot distort distances', () => {
+    // Every distance constant assumes unit vectors, and toVectorBlob is the
+    // one chokepoint both stored and query vectors pass through. Query with
+    // a deliberately scaled copy of a stored unit vector: unnormalized, its
+    // L2 distance would be |3u − u| = 2.0 — past MAX_VECTOR_DISTANCE, so the
+    // hit would vanish entirely; normalized, it is ≈ 0.
+    const db = openTempDb();
+    const dim = getEmbeddingDimension();
+    const unit = new Float32Array(dim);
+    unit[0] = 1;
+    db.prepare(
+      'INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)'
+    ).run(7n, Buffer.from(unit.buffer, unit.byteOffset, unit.byteLength));
+
+    const scaled = new Float32Array(dim);
+    scaled[0] = 3;
+    const hits = vectorSearch(scaled, 5);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].id).toBe(7);
+    expect(hits[0].distance).toBeLessThan(1e-3);
   });
 
   describe('distance scale', () => {

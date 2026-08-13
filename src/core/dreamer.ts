@@ -104,7 +104,10 @@ const COMPACTABLE_TYPES = new Set([
   'weekly-summary',
   'weekly_summary',
 ]);
-const PROTECTED_TYPES = new Set([
+// Exported because conflict-candidates.ts DERIVES its signal-type list from
+// this set rather than keeping a seventh hand-copied type partition — the
+// last hand copy shipped missing release/plan/technical_pattern/best_practice.
+export const PROTECTED_TYPES = new Set([
   'lesson_learned',
   'decision',
   'architecture',

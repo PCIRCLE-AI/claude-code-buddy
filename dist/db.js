@@ -271,6 +271,7 @@ function migrateToCurrentSchema(db, resolvedPath) {
     runAutoDecay(db);
     backfillSignalScores(db);
     ensureDreamProposalsTable(db);
+    ensureConflictJudgedPairsTable(db);
     ensureLlmTelemetryTable(db);
     runAutoTelemetryPrune(db);
     ensureFtsSegmentation(db);
@@ -480,6 +481,16 @@ function ensureDreamProposalsTable(db) {
                 throw err;
         }
     }
+}
+function ensureConflictJudgedPairsTable(db) {
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS conflict_judged_pairs (
+      pair_key TEXT PRIMARY KEY,
+      verdict TEXT NOT NULL,
+      proposal_id INTEGER,
+      judged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
 }
 function ensureLlmTelemetryTable(db) {
     db.exec(`

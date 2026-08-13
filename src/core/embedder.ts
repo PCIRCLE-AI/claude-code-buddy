@@ -142,6 +142,25 @@ function toVectorRowId(entityId: number): bigint {
 }
 
 function toVectorBlob(embedding: Float32Array): Buffer {
+  // Normalize to unit length before the bytes ever reach sqlite — this is
+  // the single point every stored vector AND every query vector passes
+  // through, and every distance constant in the codebase
+  // (MAX_VECTOR_DISTANCE, vectorSimilarity, conflict-candidates' d²/2
+  // conversion) is derived under "embeddings are unit vectors". Both shipped
+  // providers already return unit vectors, so for them this is an epsilon
+  // no-op; it exists so a future provider — or Ollama's legacy
+  // /api/embeddings endpoint, which does NOT normalize — cannot silently
+  // invalidate the whole distance stack. A zero or non-finite norm is left
+  // untouched: upstream validation owns rejecting degenerate vectors, and
+  // dividing by it would manufacture NaNs here.
+  let sumSquares = 0;
+  for (let i = 0; i < embedding.length; i++) sumSquares += embedding[i] * embedding[i];
+  const norm = Math.sqrt(sumSquares);
+  if (Number.isFinite(norm) && norm > 0 && Math.abs(norm - 1) > 1e-6) {
+    const unit = new Float32Array(embedding.length);
+    for (let i = 0; i < embedding.length; i++) unit[i] = embedding[i] / norm;
+    embedding = unit;
+  }
   return Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
 }
 

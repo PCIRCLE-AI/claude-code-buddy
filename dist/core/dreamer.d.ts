@@ -1,6 +1,7 @@
 import type { MemeshDatabase } from '../storage/sqlite.js';
 import { type LLMAttempt } from './llm-client.js';
 import type { LLMConfig } from './config.js';
+export declare const PROTECTED_TYPES: Set<string>;
 export interface DreamerOptions {
     project?: string;
     dryRun?: boolean;

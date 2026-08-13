@@ -4,6 +4,30 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Conflict pipeline, first half: candidate generation.** `findConflicts`
+  has only ever reported pairs someone manually related with `contradicts` —
+  and nothing ever created that relation automatically, so in practice it
+  always answered empty. `src/core/conflict-candidates.ts` now enumerates
+  the pairs WORTH judging: signal-type entities only (episodic auto-capture
+  drowned the list — measured: the tightest pairs on a real graph were all
+  session-summary × session-summary periodicity), per-entity top-3 vector
+  neighbours inside a measured cosine gate (0.35, calibrated by exhaustive
+  sweep; on the same real graph the shipped algorithm returns 118 pairs —
+  `scripts/audit/measure-conflict-candidates.mjs` reports both the sweep and
+  the shipped output so the numbers can be re-derived before changing
+  embedders), excluding pairs already related by supersedes/contradicts and
+  pairs an earlier judge already ruled on (`conflict_judged_pairs`, keyed by
+  sorted entity-id pair — deliberately not the dreamer's drift-prone
+  cluster_key). The signal-type list is derived from the dreamer's
+  PROTECTED_TYPES rather than hand-copied, the KNN is constrained to signal
+  rows (`rowid IN`, so episodic neighbours cannot eat the k slots), and a
+  database whose catalogue lists `entities_vec` but whose platform lacks the
+  vec0 module gets the honest keyword-only answer ([]) instead of a throw.
+  Read-only; the LLM judge that turns candidates into staged CONTRADICTS /
+  SUPERSEDES / DUPLICATE proposals for human review is the second half.
+
 ### Changed
 
 - **The knowledge graph earns visibility instead of distributing it.** The
@@ -27,6 +51,16 @@ All notable changes to MeMesh are documented here.
   random positions. Informed by a study of graph UIs that read well at
   scale; the ornament they also carry (vignettes, glows, grids) was
   deliberately not adopted, per DESIGN.md.
+
+### Fixed
+
+- **Embeddings are normalized at the single write/query chokepoint.** Every
+  distance constant in the codebase (`MAX_VECTOR_DISTANCE`, the scorer's
+  similarity mapping, the conflict gate's d²/2 conversion) is derived under
+  "embeddings are unit vectors" — an invariant that was documented but never
+  enforced. `toVectorBlob` now normalizes both stored and query vectors, so
+  a future provider (or Ollama's legacy non-normalizing `/api/embeddings`
+  endpoint) cannot silently invalidate the whole distance stack.
 
 ## [4.5.1] — 2026-08-13
 
