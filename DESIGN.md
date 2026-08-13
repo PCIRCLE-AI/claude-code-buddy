@@ -98,6 +98,23 @@ or "unknown" status must not read as the accent.
 a fill. These already ship in `global.css` (`.card:hover`, `.stat:hover`,
 `.dot-ok`, `mark`) and stay.
 
+**The graph earns visibility; it does not distribute it.** Uniform brightness
+carries no information — a graph where every edge is drawn at the same alpha
+is a hairball, and a graph where no node is named until hover cannot be read.
+The renderer therefore ranks: a small backbone of the highest-traffic edges
+(≤128, ≤5 per node) draws readable while the rest recede (and are
+deterministically sampled on dense graphs); node labels follow a zoom-tiered
+budget (3/12/28) allocated by traffic-then-recency; node radii stay inside a
+tight 3.5–9px band so hubs read as bigger without dominating; each node gets
+a rim in its own hue stepped darker (category restated at the boundary — not
+decoration); and label text is stroked in `--bg-1` before filling so it stays
+legible over nodes (legibility is information, not a glow). Initial positions
+are seeded per type on a golden-angle spiral with name-hash jitter — the same
+data draws the same shape on every visit, and the simulation relaxes instead
+of untangling. What was deliberately NOT adopted from graph tools that look
+good (vignettes, ambient glows, background grids): ornament that carries no
+information stays out, per the direction above.
+
 **Entity-type colours are a separate categorical palette.** The graph and its
 legend colour nodes by type across ~14 types; a single accent cannot encode a
 category. Those hues live in `dashboard/src/lib/type-palette.ts` as literals on

@@ -2,6 +2,26 @@
 
 All notable changes to MeMesh are documented here.
 
+## [Unreleased]
+
+### Changed
+
+- **The knowledge graph earns visibility instead of distributing it.** The
+  dashboard graph drew every edge at one brightness and named no node until
+  hover — uniform emphasis that read as a hairball of anonymous dots. Now a
+  backbone of the highest-traffic edges (≤128, ≤5 per node) draws readable
+  while the rest recede (deterministically sampled on dense graphs); the
+  highest-traffic nodes carry always-on labels under a zoom-tiered budget
+  (3/12/28), stroked against the background so they stay legible over other
+  elements; node radii sit in a tight 3.5–9px band; every node gets a rim in
+  its own hue stepped darker, so adjacent same-colour nodes read as separate
+  objects; and initial positions are seeded per type on a golden-angle
+  spiral with name-hash jitter — the same data now draws the same shape on
+  every visit, and the simulation starts near equilibrium instead of
+  untangling random positions. Informed by a study of graph UIs that read
+  well at scale; the ornament they also carry (vignettes, glows, grids) was
+  deliberately not adopted, per DESIGN.md.
+
 ## [4.5.1] — 2026-08-13
 
 ### Removed
