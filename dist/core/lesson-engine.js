@@ -43,6 +43,7 @@ export function createExplicitLesson(error, fix, projectName, opts) {
             `severity:${opts?.severity || 'minor'}`,
             'source:explicit',
         ],
+        sourceHost: opts?.sourceHost,
     });
     getDatabase()
         .prepare('UPDATE entities SET confidence = 1.0 WHERE name = ?')

@@ -7,6 +7,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema, } from '@modelcontextpro
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase } from '../db.js';
 import { handleTool, TOOL_DEFINITIONS } from './tools.js';
+import { normalizeClientHost } from '../transports/mcp/handlers.js';
 import { logCapabilities } from '../core/config.js';
 const packageJsonPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../package.json');
 const packageVersion = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')).version ?? '0.0.0';
@@ -20,7 +21,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 }));
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    return handleTool(name, args);
+    return handleTool(name, args, normalizeClientHost(server.getClientVersion()?.name));
 });
 async function main() {
     openDatabase();

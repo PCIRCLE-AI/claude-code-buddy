@@ -286,8 +286,30 @@ function fail(message: string): ToolResult {
 // Dispatcher — validates with Zod, delegates to core, wraps result
 // ---------------------------------------------------------------------------
 
+/**
+ * Gemini CLI sends `null` for optional parameters its model leaves blank,
+ * where Claude Code and Codex omit the key entirely. Zod's `.optional()`
+ * accepts the missing key but rejects the explicit null, so the exact same
+ * recall that succeeds from Codex fails from Gemini with a type error. At
+ * this boundary a null-valued property can only mean "left blank" — no
+ * memesh tool uses null as a sentinel — so it is dropped before validation.
+ * Array ELEMENTS are left alone: a null inside `observations` is malformed
+ * data and must still be rejected, not silently swallowed.
+ */
+function stripNullProps(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripNullProps);
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (v !== null) out[k] = stripNullProps(v);
+    }
+    return out;
+  }
+  return value;
+}
+
 function parseOrFail<T>(schema: z.ZodType<T>, args: unknown): { ok: true; data: T } | { ok: false; result: ToolResult } {
-  const parsed = schema.safeParse(args ?? {});
+  const parsed = schema.safeParse(stripNullProps(args ?? {}));
   if (!parsed.success) {
     const message =
       parsed.error instanceof z.ZodError
@@ -298,20 +320,55 @@ function parseOrFail<T>(schema: z.ZodType<T>, args: unknown): { ok: true; data: 
   return { ok: true, data: parsed.data };
 }
 
-export async function handleTool(name: string, args: Record<string, unknown> | undefined): Promise<ToolResult> {
+/**
+ * The client's self-declared `initialize` name is the ONE string that reaches
+ * entity metadata without passing a zod schema — every other write field is
+ * capped and validated in schemas.ts. A hostile or buggy client can declare a
+ * multi-megabyte name (copied into every entity written that session) or one
+ * full of control characters (rendered later by the dashboard and exports).
+ * Clamp it at the boundary: strip control characters, cap at 64, and treat an
+ * empty or all-control name the same as a missing one — `?? 'mcp'` alone
+ * missed `name: ""`, which skipped both the fallback and the stamp.
+ * Deliberately NOT identity verification: stdio has no authentication, the
+ * value is self-declared by design, and any local process could write the
+ * database directly anyway.
+ */
+export function normalizeClientHost(name: string | undefined): string {
+  // eslint-disable-next-line no-control-regex -- stripping control characters is the point
+  return (name ?? '').replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, 64) || 'mcp';
+}
+
+/**
+ * `sourceHost` is which MCP client is on the other end of stdio — the name it
+ * declared in `initialize` (Claude Code, Codex and Gemini all send one),
+ * normalized by `normalizeClientHost`. It is threaded through to the write
+ * operations as provenance and is NOT a tool parameter: a provenance field
+ * the model could set is not provenance.
+ */
+export async function handleTool(name: string, args: Record<string, unknown> | undefined, sourceHost?: string): Promise<ToolResult> {
   try {
     if (name === 'remember') {
       const r = parseOrFail(RememberSchema, args);
       if (!r.ok) return r.result;
-      return ok(remember(r.data));
+      return ok(remember({ ...r.data, sourceHost }));
     }
     if (name === 'recall') {
       const r = parseOrFail(RecallSchema, args);
       if (!r.ok) return r.result;
       // recallWithConflicts: recall + conflict annotation, owned by core so the
       // three transports can't drift on the wrapping rule.
+      //
+      // The MCP payload is ALWAYS an object, never a bare array. Gemini CLI's
+      // transport JSON-parses the first text content item and, when it parses,
+      // assigns the value to the result's `structuredContent` — which the MCP
+      // SDK requires to be an object. A bare-array payload therefore failed
+      // every Gemini recall with "structuredContent: expected record, received
+      // array" while Claude Code and Codex, which don't do that rewrite, read
+      // the same payload fine. An object envelope also removes the old bimodal
+      // shape (array normally, object when conflicts exist) that every
+      // consumer otherwise has to special-case.
       const { entities, conflicts } = await recallWithConflicts(r.data);
-      return ok(conflicts.length > 0 ? { entities, conflicts } : entities);
+      return ok(conflicts.length > 0 ? { entities, conflicts } : { entities });
     }
     if (name === 'forget') {
       const r = parseOrFail(ForgetSchema, args);
@@ -331,7 +388,7 @@ export async function handleTool(name: string, args: Record<string, unknown> | u
     if (name === 'learn') {
       const r = parseOrFail(LearnSchema, args);
       if (!r.ok) return r.result;
-      return ok(learn(r.data));
+      return ok(learn({ ...r.data, sourceHost }));
     }
     if (name === 'user_patterns') {
       const r = parseOrFail(UserPatternsSchema, args);

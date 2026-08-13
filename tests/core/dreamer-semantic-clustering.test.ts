@@ -307,20 +307,35 @@ describe('more candidates than fit in one vector-lookup chunk', () => {
     const total = CHUNK + 100;
     const db = getDatabase();
     const day = daysAgo(3);
-    for (let i = 0; i < total; i++) {
-      const name = `bulk-${i}`;
-      db.prepare("INSERT INTO entities (name, type, created_at, metadata) VALUES (?, 'commit', ?, ?)")
-        .run(name, `${day}T12:00:00.000Z`, JSON.stringify({ signal_score: 0.5 }));
-      const id = (db.prepare('SELECT id FROM entities WHERE name = ?').get(name) as { id: number }).id;
-      db.prepare("INSERT INTO tags (entity_id, tag) VALUES (?, 'project:demo')").run(id);
-      db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(id, `work ${i}`);
-      // All on one axis, so they form a single cluster and every one of them
-      // must have been read for the count below to come out right.
-      const v = new Float32Array(DIM);
-      v[3] = 1;
-      v[4] = (i % 10) * 0.001;
-      db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)')
-        .run(BigInt(id), Buffer.from(v.buffer));
+    // One transaction, statements prepared once. 600 autocommit inserts ×4
+    // statements each re-prepared per row put this test at 30s — the default
+    // testTimeout — on the windows-latest runner (367ms for the whole file on
+    // an M-series Mac), and it failed CI on timing alone. The seeding shape is
+    // not what this test asserts; the chunk arithmetic below is.
+    const insertEntity = db.prepare("INSERT INTO entities (name, type, created_at, metadata) VALUES (?, 'commit', ?, ?)");
+    const selectId = db.prepare('SELECT id FROM entities WHERE name = ?');
+    const insertTag = db.prepare("INSERT INTO tags (entity_id, tag) VALUES (?, 'project:demo')");
+    const insertObs = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
+    const insertVec = db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)');
+    db.exec('BEGIN');
+    try {
+      for (let i = 0; i < total; i++) {
+        const name = `bulk-${i}`;
+        insertEntity.run(name, `${day}T12:00:00.000Z`, JSON.stringify({ signal_score: 0.5 }));
+        const id = (selectId.get(name) as { id: number }).id;
+        insertTag.run(id);
+        insertObs.run(id, `work ${i}`);
+        // All on one axis, so they form a single cluster and every one of them
+        // must have been read for the count below to come out right.
+        const v = new Float32Array(DIM);
+        v[3] = 1;
+        v[4] = (i % 10) * 0.001;
+        insertVec.run(BigInt(id), Buffer.from(v.buffer));
+      }
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      throw e;
     }
 
     const result = await dreamPass();

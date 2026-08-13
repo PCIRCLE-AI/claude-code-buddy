@@ -4,6 +4,11 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+// Non-git identity = basename + real-path hash (tests/core/project-identity.test.ts).
+const { getProjectName: mirrorProjectName } = require('../../scripts/hooks/_shared.js');
 
 describe('Feature: Session Summary (Stop Hook)', () => {
   let testDir: string;
@@ -115,7 +120,7 @@ describe('Feature: Session Summary (Stop Hook)', () => {
       const names = (db.prepare('SELECT name FROM entities').all() as Array<{ name: string }>).map((r) => r.name);
       expect(names.length).toBeGreaterThanOrEqual(1);
       const tags = (db.prepare('SELECT DISTINCT tag FROM tags').all() as Array<{ tag: string }>).map((r) => r.tag);
-      expect(tags).toContain('project:realproject');
+      expect(tags).toContain(`project:${mirrorProjectName('/tmp/realproject')}`);
       // The provenance marker, asserted against the DATABASE rather than the
       // source text. `tests/auto-capture-provenance.test.ts` greps for the
       // constant, which the import line alone satisfies — mutation-verified:

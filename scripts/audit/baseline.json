@@ -236,25 +236,25 @@
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04"
     },
-    "C7 README.md:273": {
+    "C7 README.md:294": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04 (re-keyed 273->294: the Codex/Gemini MCP setup section added to Get Started shifted this line down 21; same auto-capture table row verified before re-keying)"
     },
-    "C7 README.md:348": {
+    "C7 README.md:369": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 346->348: the doc-sync fallback-providers paragraph added to the Configuration section shifted this line down 2; same testimonial figure verified before re-keying)"
+      "triaged": "2026-08-04 (re-keyed 346->348->369: the Codex/Gemini MCP setup section shifted this line down 21 more; same testimonial figure verified before re-keying)"
     },
-    "C7 README.md:355": {
+    "C7 README.md:376": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 353->355: the doc-sync fallback-providers paragraph shifted this line down 2; same 95.60% R@5 out-of-the-box figure verified before re-keying)"
+      "triaged": "2026-08-04 (re-keyed 353->355->376: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 out-of-the-box figure verified before re-keying)"
     },
-    "C7 README.md:386": {
+    "C7 README.md:407": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 379->382->386: the doc-sync fallback-providers + transcript-mining paragraphs shifted the line down 4; same 95.60% R@5 comparison-table figure verified before re-keying)"
+      "triaged": "2026-08-04 (re-keyed 379->382->386->407: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 comparison-table figure verified before re-keying)"
     },
     "C4 scripts/release-verify.sh:109": {
       "class": "SAFE",
@@ -316,6 +316,11 @@
       "reason": "secondary greps run after the exit-code gate has already read DOCTOR_EXIT",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
     },
+    "C5 src/core/operations.ts:119": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "provenance spread identity: absent provenanceOverride means the caller supplied none, and spreading {} correctly leaves the source_host stamped on the line above; a spread of undefined would even be legal JS, so this cannot convert a failure into a default",
+      "triaged": "2026-08-12 (Phase 02 provenance); re-keyed 2026-08-13 (shifted +6 by the first-writer-wins comment added above, statement unchanged)"
+    },
     "C5 src/core/operations.ts:51": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "metadata spread identity; trust is set unconditionally after",
@@ -346,10 +351,10 @@
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
     },
-    "C5 src/transports/mcp/handlers.ts:290": {
+    "C5 src/transports/mcp/handlers.ts:312": {
       "class": "SAFE-GUARDED",
       "reason": "Zod rejects {} for schemas with required fields",
-      "triaged": "2026-08-10 (re-keyed: the corrected import description added 9 lines; same safeParse statement)"
+      "triaged": "2026-08-10 (re-keyed 290->312: the stripNullProps helper added 22 lines above; the statement now wraps args in stripNullProps, which maps {} to {} and null properties to absent — the guard this triage relies on, Zod rejecting {} for required fields, is untouched)"
     },
     "C6 tests/hooks/session-summary.test.ts": {
       "class": "DEPENDENCY-PIN",
@@ -476,15 +481,15 @@
       "reason": "commander leaves --contradicts undefined when the flag is absent; the empty list truthfully means no relation was requested",
       "triaged": "2026-08-10 (P7 batch 2)"
     },
-    "C5 src/transports/cli/cli.ts:171": {
+    "C5 src/transports/cli/cli.ts:172": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "remember() spreads relationsCreated only when non-empty, so absent means none were created at the single producer; the empty list correctly prints no conflicts line — this replaced arithmetic that announced conflicts for relations that had failed",
-      "triaged": "2026-08-10 (review pass)"
+      "triaged": "2026-08-10 (review pass); re-keyed 2026-08-12 (shifted +1 by the sourceHost field added to the remember() call above, code unchanged)"
     },
-    "C5 src/transports/cli/cli.ts:177": {
+    "C5 src/transports/cli/cli.ts:178": {
       "class": "SAFE-GUARDED",
       "reason": "remember() sets relationErrors only when non-empty (operations.ts spreads it conditionally), so absent means none at the single producer; the failure path exits 1 off the same field",
-      "triaged": "2026-08-10 (P7 batch 2)"
+      "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-12 (shifted +1 by the sourceHost field added to the remember() call above, code unchanged)"
     },
     "C5 src/core/dreamer.ts:1186": {
       "class": "SAFE-GUARDED",

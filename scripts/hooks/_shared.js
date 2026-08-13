@@ -649,9 +649,14 @@ function ensureHookFtsSegmentation(db) {
  * @returns {{ id: number, isNew: boolean } | null} null if the row could not be resolved
  */
 export function captureEntity(db, { name, type, observations = [], tags = [] }) {
+  // source_host provenance: these hooks only ever run under Claude Code (they
+  // are wired into ~/.claude/settings.json), so a hook-captured entity is by
+  // definition a claude-code capture. Stamped only on the INSERT — an OR
+  // IGNORE re-capture of an existing entity must not overwrite provenance an
+  // earlier writer (possibly another host, via MCP) already recorded.
   const insertResult = db
-    .prepare('INSERT OR IGNORE INTO entities (name, type) VALUES (?, ?)')
-    .run(name, type);
+    .prepare('INSERT OR IGNORE INTO entities (name, type, metadata) VALUES (?, ?, ?)')
+    .run(name, type, JSON.stringify({ provenance: { source_host: 'claude-code' } }));
   const isNew = insertResult.changes > 0;
   const row = db.prepare('SELECT id FROM entities WHERE name = ?').get(name);
   if (!row) return null;

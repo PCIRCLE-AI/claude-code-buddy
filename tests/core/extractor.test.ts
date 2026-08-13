@@ -126,7 +126,11 @@ describe('RuleBasedExtractor: memory extraction', () => {
     // colliding shortIds from sharing a tag and aggregating lessons
     // as if they were the same session.
     expect(tags).toContain('session:abc12345deadbeef');
-    expect(tags).toContain('project:myproject');
+    // `/Users/test/myproject` is not a git repo (it does not exist), so the
+    // identity is basename + 8-hex real-path hash — pin the shape, not the
+    // digest, or this test recomputes the implementation.
+    const projectTag = tags.find((t) => t.startsWith('project:'));
+    expect(projectTag).toMatch(/^project:myproject-[0-9a-f]{8}$/);
   });
 
   it('Rule 2: produces bugfix memory when errors and edits both present', () => {

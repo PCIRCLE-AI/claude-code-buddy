@@ -4,6 +4,12 @@ import os from 'os';
 import path from 'path';
 import { openDatabase, closeDatabase } from '../src/db.js';
 import { handleTool } from '../src/mcp/tools.js';
+import { normalizeClientHost } from '../src/transports/mcp/handlers.js';
+
+// recall's MCP payload is an object envelope ({ entities, conflicts? }), never
+// a bare array — see the shape contract test in the recall describe block.
+const recallEntities = (result: { content: Array<{ text: string }> }) =>
+  JSON.parse(result.content[0].text).entities;
 
 let tmpDir: string;
 let dbPath: string;
@@ -20,6 +26,100 @@ afterEach(() => {
 });
 
 // ── Remember ────────────────────────────────────────────────────────────
+
+describe('source_host provenance', () => {
+  it('stamps the MCP client name the transport hands over', async () => {
+    // The third argument is the client's self-declared initialize name,
+    // threaded by src/mcp/server.ts — NOT a tool parameter the model can set.
+    await handleTool('remember', { name: 'prov-mcp', type: 'decision', observations: ['from codex'] }, 'codex');
+    const recall = await handleTool('recall', { query: 'prov-mcp' });
+    const hit = recallEntities(recall).find((e: any) => e.name === 'prov-mcp');
+    expect(hit.metadata.provenance.source_host).toBe('codex');
+  });
+
+  it('records no source_host when the transport does not know one', async () => {
+    await handleTool('remember', { name: 'prov-anon', type: 'decision', observations: ['origin unknown'] });
+    const recall = await handleTool('recall', { query: 'prov-anon' });
+    const hit = recallEntities(recall).find((e: any) => e.name === 'prov-anon');
+    expect(hit.metadata.provenance.source_host).toBeUndefined();
+  });
+
+  it('the model cannot smuggle source_host in as a tool argument', async () => {
+    // RememberSchema strips unknown keys, so a spoofed sourceHost never
+    // reaches core. If this ever starts passing through, provenance is no
+    // longer provenance.
+    await handleTool('remember', {
+      name: 'prov-spoof', type: 'decision', observations: ['spoof attempt'],
+      sourceHost: 'gemini-cli',
+    } as Record<string, unknown>, 'codex');
+    const recall = await handleTool('recall', { query: 'prov-spoof' });
+    const hit = recallEntities(recall).find((e: any) => e.name === 'prov-spoof');
+    expect(hit.metadata.provenance.source_host).toBe('codex');
+  });
+
+  it('a smuggled sourceHost with NO transport name still stamps nothing', async () => {
+    // The anonymous-transport variant of the spoof: today this is blocked by
+    // two independent lines (zod strip + the dispatch spreading an explicit
+    // undefined last), and a refactor to a conditional spread plus a schema
+    // .passthrough() would silently reopen it. Pin the observable outcome.
+    await handleTool('remember', {
+      name: 'prov-anon-spoof', type: 'decision', observations: ['anon spoof'],
+      sourceHost: 'gemini-cli',
+    } as Record<string, unknown>);
+    const recall = await handleTool('recall', { query: 'prov-anon-spoof' });
+    const hit = recallEntities(recall).find((e: any) => e.name === 'prov-anon-spoof');
+    expect(hit.metadata.provenance.source_host).toBeUndefined();
+  });
+
+  it('re-remember from another host does NOT overwrite the first writer', async () => {
+    // First-writer-wins, the same invariant the hook path enforces with
+    // INSERT OR IGNORE and the CHANGELOG promises. Before the fix this
+    // returned 'codex': buildLocalMetadata spreads overrides over the stored
+    // provenance, so every cross-host append rewrote the attribution.
+    await handleTool('remember', { name: 'prov-first', type: 'decision', observations: ['created here'] }, 'claude-code');
+    await handleTool('remember', { name: 'prov-first', type: 'decision', observations: ['appended elsewhere'] }, 'codex');
+    const recall = await handleTool('recall', { query: 'prov-first' });
+    const hit = recallEntities(recall).find((e: any) => e.name === 'prov-first');
+    expect(hit.metadata.provenance.source_host).toBe('claude-code');
+  });
+
+  it('learn threads the transport name through to the lesson entity', async () => {
+    // learn → createExplicitLesson → remember is a two-hop pass-through —
+    // exactly the kind of line a refactor silently drops. Without this test,
+    // deleting `sourceHost:` in lesson-engine.ts or in operations.ts learn()
+    // leaves the whole suite green.
+    await handleTool('learn', { error: 'prov-lesson-unique-boom', fix: 'restart the flux capacitor' }, 'codex');
+    const recall = await handleTool('recall', { query: 'prov-lesson-unique-boom' });
+    const hit = recallEntities(recall).find((e: any) => e.name.startsWith('lesson-'));
+    expect(hit.metadata.provenance.source_host).toBe('codex');
+  });
+});
+
+describe('normalizeClientHost', () => {
+  // The initialize name is the one string that reaches metadata without a zod
+  // schema; this is its entire validation surface.
+  it('passes a normal client name through untouched', () => {
+    expect(normalizeClientHost('codex')).toBe('codex');
+  });
+  it('preserves non-ASCII names (clamping is not ASCII-folding)', () => {
+    expect(normalizeClientHost('克勞德')).toBe('克勞德');
+  });
+  it('strips control characters (ANSI escapes, newlines)', () => {
+    expect(normalizeClientHost('bad\u001b[31mname\nhere')).toBe('bad[31mnamehere');
+  });
+  it('caps at 64 characters', () => {
+    expect(normalizeClientHost('x'.repeat(1000))).toHaveLength(64);
+  });
+  it('empty string falls back to mcp — `?? "mcp"` alone missed this', () => {
+    expect(normalizeClientHost('')).toBe('mcp');
+  });
+  it('undefined falls back to mcp', () => {
+    expect(normalizeClientHost(undefined)).toBe('mcp');
+  });
+  it('an all-control-character name falls back to mcp, not empty string', () => {
+    expect(normalizeClientHost('\u0000\u001f\u007f')).toBe('mcp');
+  });
+});
 
 describe('remember', () => {
   it('stores an entity and returns confirmation', async () => {
@@ -73,7 +173,7 @@ describe('remember', () => {
     });
 
     const result = await handleTool('recall', { query: 'RS256' });
-    const data = JSON.parse(result.content[0].text);
+    const data = recallEntities(result);
     expect(data.length).toBe(1);
     expect(data[0].name).toBe('jwt-lesson');
     expect(data[0].observations).toContain('Use RS256 for JWT signing');
@@ -92,19 +192,19 @@ describe('remember', () => {
     // The behavioural guarantee here is "archived rows stay hidden", not
     // "no results at all".)
     const recallOld = await handleTool('recall', { query: 'JWT' });
-    const oldNames = JSON.parse(recallOld.content[0].text).map((e: any) => e.name);
+    const oldNames = recallEntities(recallOld).map((e: any) => e.name);
     expect(oldNames).not.toContain('auth-v2');
 
     // auth-v3 should be active and surfaced by an OAuth query.
     const recallNew = await handleTool('recall', { query: 'OAuth' });
-    const data = JSON.parse(recallNew.content[0].text);
+    const data = recallEntities(recallNew);
     expect(data.length).toBeGreaterThanOrEqual(1);
     expect(data.map((e: any) => e.name)).toContain('auth-v3');
     expect(data.map((e: any) => e.name)).not.toContain('auth-v2');
 
     // Both visible with include_archived
     const recallAll = await handleTool('recall', { include_archived: true });
-    const allData = JSON.parse(recallAll.content[0].text);
+    const allData = recallEntities(recallAll);
     const names = allData.map((e: any) => e.name);
     expect(names).toContain('auth-v2');
     expect(names).toContain('auth-v3');
@@ -145,9 +245,48 @@ describe('recall', () => {
 
   it('finds entities by query', async () => {
     const result = await handleTool('recall', { query: 'auth' });
-    const data = JSON.parse(result.content[0].text);
+    const data = recallEntities(result);
     expect(data.length).toBeGreaterThanOrEqual(1);
     expect(data.some((e: any) => e.name === 'auth-pattern')).toBe(true);
+  });
+
+  it('payload is an object envelope, never a bare array', async () => {
+    // Gemini CLI JSON-parses the first text content item of a tool result and
+    // assigns it to the MCP result's structuredContent, which the protocol
+    // requires to be an OBJECT. When this payload was a bare array, every
+    // recall issued from Gemini CLI failed with "structuredContent: expected
+    // record, received array" (its session log pins this) while Claude Code
+    // and Codex read the same payload fine.
+    const result = await handleTool('recall', { query: 'auth' });
+    const parsed = JSON.parse(result.content[0].text);
+    expect(Array.isArray(parsed), 'bare-array payload breaks Gemini CLI').toBe(false);
+    expect(Array.isArray(parsed.entities)).toBe(true);
+  });
+
+  it('treats explicit null optional params as absent, the way Gemini CLI sends them', async () => {
+    // Gemini CLI fills optional parameters its model leaves blank with null
+    // instead of omitting the key. This exact shape failed against the live
+    // server ("tag: Invalid input: expected string, received null") while the
+    // same recall from Codex, which omits the keys, succeeded.
+    const result = await handleTool('recall', {
+      query: 'auth',
+      tag: null,
+      limit: null,
+      namespace: null,
+    } as Record<string, unknown>);
+    expect(result.isError).toBeUndefined();
+    const data = recallEntities(result);
+    expect(data.some((e: any) => e.name === 'auth-pattern')).toBe(true);
+  });
+
+  it('still rejects a null ELEMENT inside an array — that is data, not a blank', async () => {
+    const result = await handleTool('remember', {
+      name: 'null-element',
+      type: 'decision',
+      observations: ['fine', null],
+    } as Record<string, unknown>);
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/observations/);
   });
 
   it('filters by tag', async () => {
@@ -155,26 +294,26 @@ describe('recall', () => {
       query: 'auth',
       tag: 'project:myapp',
     });
-    const data = JSON.parse(result.content[0].text);
+    const data = recallEntities(result);
     expect(data.length).toBe(1);
     expect(data[0].name).toBe('auth-pattern');
   });
 
   it('lists recent when no query provided', async () => {
     const result = await handleTool('recall', {});
-    const data = JSON.parse(result.content[0].text);
+    const data = recallEntities(result);
     expect(data.length).toBe(2);
   });
 
-  it('returns empty array when nothing matches', async () => {
+  it('returns empty entities when nothing matches', async () => {
     const result = await handleTool('recall', { query: 'nonexistent-xyz-123' });
-    const data = JSON.parse(result.content[0].text);
+    const data = recallEntities(result);
     expect(data).toEqual([]);
   });
 
   it('respects limit parameter', async () => {
     const result = await handleTool('recall', { limit: 1 });
-    const data = JSON.parse(result.content[0].text);
+    const data = recallEntities(result);
     expect(data.length).toBe(1);
   });
 
@@ -205,11 +344,11 @@ describe('forget', () => {
 
     // Hidden from normal recall
     const recall = await handleTool('recall', { query: 'REST' });
-    expect(JSON.parse(recall.content[0].text)).toEqual([]);
+    expect(recallEntities(recall)).toEqual([]);
 
     // Visible with include_archived
     const recallAll = await handleTool('recall', { query: 'REST', include_archived: true });
-    const allData = JSON.parse(recallAll.content[0].text);
+    const allData = recallEntities(recallAll);
     expect(allData).toHaveLength(1);
     expect(allData[0].archived).toBe(true);
   });
@@ -226,7 +365,7 @@ describe('forget', () => {
 
     // Entity still active and searchable
     const recall = await handleTool('recall', { query: 'RS256' });
-    expect(JSON.parse(recall.content[0].text)).toHaveLength(1);
+    expect(recallEntities(recall)).toHaveLength(1);
   });
 
   it('returns not-found for non-existent entity', async () => {

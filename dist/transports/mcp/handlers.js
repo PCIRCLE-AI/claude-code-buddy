@@ -227,8 +227,21 @@ function ok(data) {
 function fail(message) {
     return { content: [{ type: 'text', text: message }], isError: true };
 }
+function stripNullProps(value) {
+    if (Array.isArray(value))
+        return value.map(stripNullProps);
+    if (value !== null && typeof value === 'object') {
+        const out = {};
+        for (const [k, v] of Object.entries(value)) {
+            if (v !== null)
+                out[k] = stripNullProps(v);
+        }
+        return out;
+    }
+    return value;
+}
 function parseOrFail(schema, args) {
-    const parsed = schema.safeParse(args ?? {});
+    const parsed = schema.safeParse(stripNullProps(args ?? {}));
     if (!parsed.success) {
         const message = parsed.error instanceof z.ZodError
             ? parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
@@ -237,20 +250,23 @@ function parseOrFail(schema, args) {
     }
     return { ok: true, data: parsed.data };
 }
-export async function handleTool(name, args) {
+export function normalizeClientHost(name) {
+    return (name ?? '').replace(/[\u0000-\u001F\u007F]/g, '').trim().slice(0, 64) || 'mcp';
+}
+export async function handleTool(name, args, sourceHost) {
     try {
         if (name === 'remember') {
             const r = parseOrFail(RememberSchema, args);
             if (!r.ok)
                 return r.result;
-            return ok(remember(r.data));
+            return ok(remember({ ...r.data, sourceHost }));
         }
         if (name === 'recall') {
             const r = parseOrFail(RecallSchema, args);
             if (!r.ok)
                 return r.result;
             const { entities, conflicts } = await recallWithConflicts(r.data);
-            return ok(conflicts.length > 0 ? { entities, conflicts } : entities);
+            return ok(conflicts.length > 0 ? { entities, conflicts } : { entities });
         }
         if (name === 'forget') {
             const r = parseOrFail(ForgetSchema, args);
@@ -274,7 +290,7 @@ export async function handleTool(name, args) {
             const r = parseOrFail(LearnSchema, args);
             if (!r.ok)
                 return r.result;
-            return ok(learn(r.data));
+            return ok(learn({ ...r.data, sourceHost }));
         }
         if (name === 'user_patterns') {
             const r = parseOrFail(UserPatternsSchema, args);
