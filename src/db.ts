@@ -401,6 +401,12 @@ function migrateToCurrentSchema(db: MemeshDatabase, resolvedPath: string): void 
   // claude-mem dream-skill's safety promise.
   ensureDreamProposalsTable(db);
 
+  // Conflict pipeline: pairs an LLM has already judged (P2 writes them;
+  // candidate generation excludes them so a pair called UNRELATED is not
+  // re-bought on every run). Keyed by the sorted entity-id pair, NOT the
+  // dreamer's cluster_key — cluster membership drifts, an id pair does not.
+  ensureConflictJudgedPairsTable(db);
+
   // LLM telemetry: every callLLM attempt (primary + each fallback)
   // gets a row so the user can answer "what did memesh's LLM
   // pipeline actually do this week?". Without this, primary outages
@@ -1037,6 +1043,26 @@ function ensureDreamProposalsTable(db: MemeshDatabase): void {
       if (!String((err as Error).message).includes('duplicate column name')) throw err;
     }
   }
+}
+
+/**
+ * Pairs the conflict pipeline's LLM judge has already ruled on.
+ *
+ * Written by P2 (one row per judged pair, whatever the verdict); read by
+ * candidate generation (src/core/conflict-candidates.ts) so a pair judged
+ * UNRELATED is never re-bought, and by the audit trail. `pair_key` is the
+ * sorted entity-id pair ("minId:maxId") — deliberately NOT the dreamer's
+ * cluster_key, whose membership drifts between runs.
+ */
+function ensureConflictJudgedPairsTable(db: MemeshDatabase): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS conflict_judged_pairs (
+      pair_key TEXT PRIMARY KEY,
+      verdict TEXT NOT NULL,
+      proposal_id INTEGER,
+      judged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
 }
 
 /**

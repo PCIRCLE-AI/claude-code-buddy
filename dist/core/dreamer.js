@@ -20,7 +20,7 @@ const COMPACTABLE_TYPES = new Set([
     'weekly-summary',
     'weekly_summary',
 ]);
-const PROTECTED_TYPES = new Set([
+export const PROTECTED_TYPES = new Set([
     'lesson_learned',
     'decision',
     'architecture',
