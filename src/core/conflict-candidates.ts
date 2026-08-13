@@ -20,10 +20,14 @@
 //     gated to SIGNAL types first — that alone cut the field to 69 entities
 //     and made the tight pairs readable as duplicate / complementary /
 //     potentially-contradictory material.
-//   - 0.35 keeps ~160 signal pairs on that graph; per-entity top-k keeps the
-//     list from scaling quadratically as the library grows. The clustering
-//     threshold (0.55, dreamer.ts) answers a DIFFERENT question — "same
-//     topic, same story" — and must not be borrowed here.
+//   - 0.35 admits ~160 signal pairs on that graph in the exhaustive sweep
+//     (the semantic upper bound the threshold was calibrated on); this
+//     module's per-entity top-k then returns 118 of them — the top-k is what
+//     keeps the list from scaling quadratically as the library grows. Both
+//     numbers come from scripts/audit/measure-conflict-candidates.mjs, which
+//     reports the sweep AND the shipped algorithm side by side. The
+//     clustering threshold (0.55, dreamer.ts) answers a DIFFERENT question —
+//     "same topic, same story" — and must not be borrowed here.
 //
 // Distance units, explicitly: `entities_vec` MATCH returns L2 distance over
 // normalized embeddings; cosine distance = d²/2 (see the derivation at the
@@ -33,27 +37,34 @@
 
 import type { MemeshDatabase } from '../storage/sqlite.js';
 import { hasVectorIndex } from '../storage/vector-index.js';
+import { PROTECTED_TYPES } from './dreamer.js';
 
 /**
  * The types worth judging for contradictions: durable, human-meaningful
  * claims. Episodic auto-capture (commits, session notes, weekly summaries)
  * is excluded — near-identical episodic rows are periodicity, not
  * disagreement, and they drowned the candidate list when included.
+ *
+ * DERIVED from dreamer's PROTECTED_TYPES rather than copied: "durable enough
+ * to never compact" is the same judgement as "durable enough to judge for
+ * contradiction", and the first hand-written copy of this list proved the
+ * point by omitting release, plan, technical_pattern and best_practice —
+ * the graph's highest-scored claim types. The three additions are free-form
+ * types that occur in real graphs ('lesson') or are durable claims the
+ * dreamer never needs to protect because nothing compacts them ('fact',
+ * 'note').
  */
-export const CONFLICT_SIGNAL_TYPES = [
-  'decision',
-  'lesson_learned',
-  'lesson',
+export const CONFLICT_SIGNAL_TYPES: readonly string[] = [
+  ...PROTECTED_TYPES,
   'fact',
-  'architecture',
-  'architecture_decision',
-  'pattern',
   'note',
-] as const;
+  'lesson',
+];
 
 /**
  * Candidate gate, in COSINE distance (1 − cos). Measured 2026-08-13 on the
- * real graph: ≤ 0.30 → 68 signal pairs, ≤ 0.35 → 160, ≤ 0.40 → 535. 0.35 is
+ * real graph, exhaustive sweep: ≤ 0.30 → 68 signal pairs, ≤ 0.35 → 160,
+ * ≤ 0.40 → 535 (this module's top-k then returns 118 of the 160). 0.35 is
  * where the sampled tail still read as same-subject material; beyond it the
  * pairs drift to merely same-domain. The number belongs to this embedder
  * (768-dim); re-measure before changing embedders.
@@ -107,12 +118,23 @@ export function findConflictCandidates(
   if (!hasVectorIndex(db)) return [];
 
   const typePlaceholders = CONFLICT_SIGNAL_TYPES.map(() => '?').join(',');
-  const signal = db.prepare(
-    `SELECT v.rowid AS id, v.embedding AS emb, e.name, e.type
-     FROM entities_vec v
-     JOIN entities e ON e.id = v.rowid
-     WHERE e.status = 'active' AND e.type IN (${typePlaceholders})`,
-  ).all(...CONFLICT_SIGNAL_TYPES) as Array<{ id: number; emb: Uint8Array; name: string; type: string }>;
+  let signal: Array<{ id: number; emb: Uint8Array; name: string; type: string }>;
+  try {
+    signal = db.prepare(
+      `SELECT v.rowid AS id, v.embedding AS emb, e.name, e.type
+       FROM entities_vec v
+       JOIN entities e ON e.id = v.rowid
+       WHERE e.status = 'active' AND e.type IN (${typePlaceholders})`,
+    ).all(...CONFLICT_SIGNAL_TYPES) as typeof signal;
+  } catch (err) {
+    // `hasVectorIndex` answers from sqlite_master, which persists in the
+    // file — a database created where sqlite-vec loaded, later opened where
+    // the platform binary is missing, passes the check and then fails HERE
+    // on first touch. That specific failure IS the keyword-only answer, so
+    // return []; anything else is a real query bug and must surface.
+    if (err instanceof Error && err.message.includes('no such module: vec0')) return [];
+    throw err;
+  }
   if (signal.length < 2) return [];
 
   const byId = new Map(signal.map((s) => [s.id, s]));
@@ -134,20 +156,35 @@ export function findConflictCandidates(
   // place the conversion happens: d_l2 = sqrt(2 * d_cos).
   const maxL2 = Math.sqrt(2 * maxCos);
 
+  // The KNN is CONSTRAINED to signal rows (`rowid IN`) rather than searched
+  // globally and filtered after. On the real graph ~52% of the index is
+  // episodic, and episodic rows sit closest of all — searched globally they
+  // consume every one of the k slots and the signal pair this module exists
+  // to find never comes back at all. sqlite-vec (≥0.1.9, verified) accepts
+  // bound parameters inside the IN list of a KNN query.
+  const idPlaceholders = signal.map(() => '?').join(',');
+  const signalIds = signal.map((s) => s.id);
   const knn = db.prepare(
-    'SELECT rowid AS id, distance FROM entities_vec WHERE embedding MATCH ? ORDER BY distance LIMIT ?',
+    `SELECT rowid AS id, distance FROM entities_vec
+     WHERE embedding MATCH ? AND rowid IN (${idPlaceholders})
+     ORDER BY distance LIMIT ?`,
   );
 
   const seen = new Set<string>();
   const out: ConflictCandidate[] = [];
   for (const s of signal) {
-    // k+1 because the entity's own row comes back at distance 0.
-    const hits = knn.all(s.emb, k + 1) as Array<{ id: number; distance: number }>;
+    // Fetch k+1 and drop self, then cut back to k. The entity's own row
+    // USUALLY returns at distance 0, but sqlite-vec breaks distance ties by
+    // descending rowid, so among >k identical embeddings the self row can be
+    // displaced entirely — the slice is what actually holds the per-entity
+    // bound, not the self-check.
+    const hits = (knn.all(s.emb, ...signalIds, k + 1) as Array<{ id: number; distance: number }>)
+      .filter((hit) => hit.id !== s.id)
+      .slice(0, k);
     for (const hit of hits) {
-      if (hit.id === s.id) continue;
       if (hit.distance > maxL2) continue;
       const other = byId.get(hit.id);
-      if (!other) continue; // neighbour is not a signal-type entity
+      if (!other) continue; // paranoia: IN-list should make this unreachable
       const key = pairKey(s.id, hit.id);
       if (seen.has(key) || excluded.has(key)) continue;
       seen.add(key);

@@ -1,5 +1,5 @@
 import type { MemeshDatabase } from '../storage/sqlite.js';
-export declare const CONFLICT_SIGNAL_TYPES: readonly ["decision", "lesson_learned", "lesson", "fact", "architecture", "architecture_decision", "pattern", "note"];
+export declare const CONFLICT_SIGNAL_TYPES: readonly string[];
 export declare const CONFLICT_MAX_COSINE_DISTANCE = 0.35;
 export declare const CONFLICT_NEIGHBORS_PER_ENTITY = 3;
 export interface ConflictCandidate {

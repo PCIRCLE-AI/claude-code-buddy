@@ -1,13 +1,10 @@
 import { hasVectorIndex } from '../storage/vector-index.js';
+import { PROTECTED_TYPES } from './dreamer.js';
 export const CONFLICT_SIGNAL_TYPES = [
-    'decision',
-    'lesson_learned',
-    'lesson',
+    ...PROTECTED_TYPES,
     'fact',
-    'architecture',
-    'architecture_decision',
-    'pattern',
     'note',
+    'lesson',
 ];
 export const CONFLICT_MAX_COSINE_DISTANCE = 0.35;
 export const CONFLICT_NEIGHBORS_PER_ENTITY = 3;
@@ -20,10 +17,18 @@ export function findConflictCandidates(db, opts = {}) {
     if (!hasVectorIndex(db))
         return [];
     const typePlaceholders = CONFLICT_SIGNAL_TYPES.map(() => '?').join(',');
-    const signal = db.prepare(`SELECT v.rowid AS id, v.embedding AS emb, e.name, e.type
-     FROM entities_vec v
-     JOIN entities e ON e.id = v.rowid
-     WHERE e.status = 'active' AND e.type IN (${typePlaceholders})`).all(...CONFLICT_SIGNAL_TYPES);
+    let signal;
+    try {
+        signal = db.prepare(`SELECT v.rowid AS id, v.embedding AS emb, e.name, e.type
+       FROM entities_vec v
+       JOIN entities e ON e.id = v.rowid
+       WHERE e.status = 'active' AND e.type IN (${typePlaceholders})`).all(...CONFLICT_SIGNAL_TYPES);
+    }
+    catch (err) {
+        if (err instanceof Error && err.message.includes('no such module: vec0'))
+            return [];
+        throw err;
+    }
     if (signal.length < 2)
         return [];
     const byId = new Map(signal.map((s) => [s.id, s]));
@@ -36,14 +41,18 @@ export function findConflictCandidates(db, opts = {}) {
         excluded.add(r.pair_key);
     }
     const maxL2 = Math.sqrt(2 * maxCos);
-    const knn = db.prepare('SELECT rowid AS id, distance FROM entities_vec WHERE embedding MATCH ? ORDER BY distance LIMIT ?');
+    const idPlaceholders = signal.map(() => '?').join(',');
+    const signalIds = signal.map((s) => s.id);
+    const knn = db.prepare(`SELECT rowid AS id, distance FROM entities_vec
+     WHERE embedding MATCH ? AND rowid IN (${idPlaceholders})
+     ORDER BY distance LIMIT ?`);
     const seen = new Set();
     const out = [];
     for (const s of signal) {
-        const hits = knn.all(s.emb, k + 1);
+        const hits = knn.all(s.emb, ...signalIds, k + 1)
+            .filter((hit) => hit.id !== s.id)
+            .slice(0, k);
         for (const hit of hits) {
-            if (hit.id === s.id)
-                continue;
             if (hit.distance > maxL2)
                 continue;
             const other = byId.get(hit.id);

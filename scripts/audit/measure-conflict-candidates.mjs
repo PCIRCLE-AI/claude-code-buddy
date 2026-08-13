@@ -12,9 +12,19 @@
 //
 // Opens the database READ-ONLY via its own connection (never openDatabase —
 // that runs migrations and maintenance writes). The only output is stdout.
-// Uses the same signal-type list and cosine conversion as the shipped
-// module, imported from dist/ so the measurement cannot drift from the code
-// it calibrates.
+//
+// It reports TWO measurements, and the difference between them is the
+// point:
+//   1. An exhaustive all-pairs sweep across thresholds — the SEMANTIC upper
+//      bound, for judging where "same subject" ends. This is not what
+//      production computes.
+//   2. The shipped `findConflictCandidates` itself, imported from dist/ and
+//      run against the same database — what the pipeline will actually
+//      hand to the judge. Its per-entity top-k means it returns fewer pairs
+//      than the sweep; calibrate the THRESHOLD on (1) and the pipeline's
+//      REAL volume on (2). An earlier revision printed only (1) while
+//      claiming to measure the module — the number a maintainer quoted was
+//      an upper bound the code could not reach.
 import { DatabaseSync } from 'node:sqlite';
 import * as sqliteVec from 'sqlite-vec';
 import path from 'node:path';
@@ -28,7 +38,7 @@ if (!fs.existsSync(distModule)) {
   console.error('dist/core/conflict-candidates.js not found — run `npm run build` first.');
   process.exit(2);
 }
-const { CONFLICT_SIGNAL_TYPES } = await import(distModule);
+const { CONFLICT_SIGNAL_TYPES, findConflictCandidates } = await import(distModule);
 
 const dbArg = process.argv.indexOf('--db');
 const dbPath = dbArg !== -1
@@ -85,10 +95,22 @@ for (let i = 0; i < vecs.length; i++) {
   }
 }
 
-for (const t of thresholds) console.log(`cosine distance <= ${t.toFixed(2)}: ${counts.get(t)} candidate pairs`);
+console.log('\n[1] exhaustive all-pairs sweep (semantic upper bound, NOT the shipped algorithm):');
+for (const t of thresholds) console.log(`  cosine distance <= ${t.toFixed(2)}: ${counts.get(t)} pairs`);
 tight.sort((x, y) => x.dist - y.dist);
-console.log('\n15 tightest pairs:');
+console.log('\n  15 tightest pairs:');
 for (const p of tight.slice(0, 15)) {
   console.log(`  ${p.dist.toFixed(3)}  [${p.ta}/${p.tb}]  ${p.a}  <->  ${p.b}`);
+}
+
+// The shipped algorithm, against the same database. findConflictCandidates
+// only calls db.prepare(...), so the read-only DatabaseSync handle satisfies
+// it; if that surface grows, this call is what breaks — loudly, not by
+// drifting.
+console.log('\n[2] shipped findConflictCandidates (what the pipeline hands to the judge):');
+const shipped = findConflictCandidates(db);
+console.log(`  ${shipped.length} candidate pairs`);
+for (const c of shipped.slice(0, 15)) {
+  console.log(`  ${c.cosineDistance.toFixed(3)}  [${c.aType}/${c.bType}]  ${c.aName}  <->  ${c.bName}`);
 }
 db.close();
