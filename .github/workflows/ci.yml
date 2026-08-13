@@ -86,7 +86,18 @@ jobs:
   build-and-test:
     name: Build & Test (${{ matrix.os }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    # 40, not 15 — measured, twice (2026-08-13, runs 31697660004 and
+    # 31711750310, attempt 1 of each). A degraded windows-latest runner ran
+    # the suite at ~5× its usual pace: steady per-file progress right up to
+    # the kill, no hang — 51/127 and 48/127 test files done when the
+    # 15-minute cap cancelled the job — which projects to ~34 minutes
+    # end-to-end. A healthy Windows leg takes 6–10 minutes and ubuntu ~2, so
+    # this cap costs nothing when runners are healthy; it exists so
+    # runner-lottery slowness self-recovers as a slow green instead of a
+    # cancelled leg a human has to notice and re-run. The suite is fully
+    # serial (shared SQLite HOME) and spawn-heavy, which is why Windows
+    # magnifies runner variance this much.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       # Which runtimes this matrix covers, and why each is here.
