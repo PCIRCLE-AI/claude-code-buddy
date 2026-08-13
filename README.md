@@ -347,7 +347,7 @@ When npm flags an installed version as deprecated (typically a security advisory
 
 **🔄 Knowledge Evolution** — Decisions change. `forget` archives old memories (never deletes). `supersedes` relations link old → new. Your AI always sees the latest version.
 
-**⚠️ Conflict Detection** — If you have two memories that contradict each other, MeMesh warns you.
+**⚠️ Conflict Detection** — `memesh dream conflicts` has the LLM judge your semantically-closest memory pairs for contradiction, supersession or duplication, and stages what it finds as proposals. Nothing applies itself: you review with `dream list` / `dream show`, and only an accepted proposal creates the relation — after which every `recall` touching either memory carries the warning. Causality is never inferred from timestamps; verdicts come from what the memories actually say.
 
 **🕸️ Knowledge Graph Connectivity** — `memesh kg backfill-relations --all-rules` links orphan entities using tag co-occurrence, project clustering, session context, and name similarity — no LLM required.
 
@@ -366,6 +366,58 @@ Imported bundles stay searchable, but MeMesh does not auto-inject imported memor
 
 > "The dashboard showed me that 90% of my memories were auto-generated session logs. I started using `remember` deliberately for architecture decisions. Game changer."
 > — **Developer who discovered the Analytics tab**
+
+---
+
+## Recipes
+
+### Catch a contradiction before it bites
+
+Two decisions, made weeks apart, that cannot both be true — the failure mode
+a memory layer exists to catch:
+
+```bash
+memesh remember --name retry-policy --type decision \
+  --obs "All HTTP clients retry failed requests up to 5 times with exponential backoff."
+# ...weeks later, someone decides the opposite...
+memesh remember --name retry-policy-v2 --type decision \
+  --obs "HTTP clients must never retry automatically — fail fast and surface the error."
+
+memesh dream conflicts        # the judge flags the pair, with its reasoning
+memesh dream show 1           # read the verdict, the excerpts, what accepting creates
+memesh dream accept 1         # YOU decide — nothing is ever linked automatically
+memesh recall "retry policy"  # → Warning: Conflicts detected
+```
+
+From then on, any assistant that recalls either decision is told they
+conflict — instead of confidently quoting whichever one it found first.
+
+### One memory, three assistants
+
+MeMesh is an MCP server, so the same SQLite file serves every MCP client on
+the machine. Register it once per tool (exact commands in
+[Get Started](#get-started-in-60-seconds)) and a decision recorded in Claude
+Code is recalled by Codex or Gemini CLI mid-session — no re-explaining, no
+copy-pasting context between vendors.
+
+### Record decisions so they stay findable
+
+Auto-capture keeps session history, but the memories that pay rent are the
+deliberate ones:
+
+```bash
+memesh remember --name auth-approach --type decision \
+  --obs "JWT with RS256; PKCE over implicit flow because the client is public." \
+  --tags "project:myapp" "topic:auth"
+```
+
+Then link consequences to their causes as they happen — from any MCP client,
+in plain words: *"remember this incident as a lesson, influenced by
+auth-approach"*. The `remember` tool takes free-form relations, and `caused` /
+`influenced` are the documented causal vocabulary (cause → effect, stated
+explicitly — MeMesh never infers causality from timestamps). Weeks later,
+`memesh recall "why did we pick PKCE"` returns the decision with its recorded
+consequences attached — reasoning you can follow, not just text that matched.
 
 ---
 

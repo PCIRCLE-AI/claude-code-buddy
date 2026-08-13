@@ -6,6 +6,16 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **README recipes.** Three worked walkthroughs where feature lists used to
+  carry the weight alone: catching a contradiction with the conflict judge
+  (the reviewed-proposal flow end to end), one memory store serving Claude
+  Code / Codex / Gemini through MCP, and recording decisions with explicit
+  `caused`/`influenced` links. The Conflict Detection blurb now describes
+  the shipped pipeline (judge → staged proposal → human accept → recall
+  warning) instead of implying it happens by itself.
+
+### Added
+
 - **Conflict pipeline, second half: the LLM judge.** `memesh dream
   conflicts` spends the LLM on the tightest candidate pairs (default 20 per
   run; the list regenerates with judged pairs excluded, so successive runs
