@@ -31,6 +31,11 @@
       "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
       "triaged": "2026-08-04"
     },
+    "C1 tests/core/conflict-judge.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness assertions (no proposals staged, no judged rows, no relations) are each paired with positive assertions on the same flow in the same test",
+      "triaged": "2026-08-14 (conflict pipeline P2)"
+    },
     "C1 tests/core/config.test.ts": {
       "class": "SAFE",
       "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
@@ -401,15 +406,15 @@
       "reason": "commander leaves --contradicts undefined when the flag is absent; the empty list truthfully means no relation was requested",
       "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); corrected 2026-08-13: an earlier re-key attached this entry to the wrong sibling line (supersedes/contradicts pair swapped); reasons now match their statements"
     },
-    "C5 src/core/dreamer.ts:1189": {
+    "C5 src/core/dreamer.ts:1193": {
       "class": "SAFE-GUARDED",
       "reason": "upstream filter requires non-empty arrays before these run (the (p.observations ?? []) statement; re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1172 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1186 (PROTECTED_TYPES export comment shifted the file; statement verified — the observations line, NOT the evidence sibling that previously sat at this key)"
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1172 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1186 (PROTECTED_TYPES export comment shifted the file; statement verified — the observations line, NOT the evidence sibling that previously sat at this key); re-keyed 2026-08-14 +4 from :1189 (kind != 'relation' guards on the two pending-proposal scans; statement verified)"
     },
-    "C5 src/core/dreamer.ts:1192": {
+    "C5 src/core/dreamer.ts:1196": {
       "class": "SAFE-GUARDED",
       "reason": "upstream filter requires non-empty arrays before these run (the (p.evidence ?? []) statement; re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1175 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1189 (PROTECTED_TYPES export comment shifted the file; statement verified)"
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1175 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1189 (PROTECTED_TYPES export comment shifted the file; statement verified); re-keyed 2026-08-14 +4 from :1192 (kind != 'relation' guards on the two pending-proposal scans; statement verified)"
     },
     "C5 src/core/doctor.ts:428": {
       "class": "SAFE-GUARDED",

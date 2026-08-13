@@ -6,6 +6,25 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **Conflict pipeline, second half: the LLM judge.** `memesh dream
+  conflicts` spends the LLM on the tightest candidate pairs (default 20 per
+  run; the list regenerates with judged pairs excluded, so successive runs
+  walk down it) and rules each pair CONTRADICTS / SUPERSEDES / DUPLICATE /
+  UNRELATED. UNRELATED is recorded in `conflict_judged_pairs` and never
+  re-bought; the other three are staged as `kind='relation'` proposals in
+  the same `dream list` / `accept` / `reject` review flow as every other
+  machine proposal — accepting one creates the relation (`supersedes`
+  honours the judge's named survivor; both endpoints must still be active
+  or the apply refuses loudly), and nothing is created, archived or applied
+  automatically. An unparseable LLM response is a counted failure, not a
+  verdict — a pair is never ruled UNRELATED on evidence that was never
+  given. With this, `findConflicts` — which had never once fired, because
+  nothing ever created a `contradicts` relation — surfaces machine-found,
+  human-approved conflicts at recall time. Verified end-to-end against a
+  live Ollama (nomic embeddings + gemma judge): remember two opposing
+  decisions → judge stages CONTRADICTS → accept → recall warns. Telemetry
+  flow: `conflict_judge`.
+
 - **Conflict pipeline, first half: candidate generation.** `findConflicts`
   has only ever reported pairs someone manually related with `contradicts` —
   and nothing ever created that relation automatically, so in practice it
