@@ -41,7 +41,21 @@ If `remember` is called again with an existing `name`, MeMesh treats it as an ap
 | Type | Effect |
 |------|--------|
 | `supersedes` | **Archives the target entity**, immediately, on write. Use it when this memory replaces an older one. |
-| `contradicts` | Makes both memories surface as a conflict every time either is recalled (see [recall → Conflict detection](#recall)). Use it when two memories cannot both be true. Nothing creates this relation automatically — it is stated by the caller. |
+| `contradicts` | Makes both memories surface as a conflict every time either is recalled (see [recall → Conflict detection](#recall)). Use it when two memories cannot both be true. Stated by the caller, or staged by the conflict judge (`memesh dream conflicts`) and created only when a human accepts the proposal. |
+
+**Causal conventions (inert, but worth agreeing on).** For links between a
+decision and what it led to, use `caused` (direct: this decision produced
+that outcome) or `influenced` (partial: it was one input among several),
+pointing **from the cause to the effect**. These carry no machine behaviour —
+they are ordinary free-form labels — but a shared vocabulary is what makes a
+causal chain traversable later (`decision —caused→ incident —caused→
+lesson_learned`). The principle behind stating them explicitly: **MeMesh
+never infers causality.** Two memories being close in time, close in meaning,
+or co-mentioned proves nothing about one causing the other, so no pipeline
+here will ever manufacture a causal edge from timestamps or embedding
+distance (the conflict judge proposes `contradicts`/`supersedes`/`duplicates`
+from meaning — never `caused`). A cause you know but do not state is a cause
+the graph does not have.
 
 **Response**:
 
