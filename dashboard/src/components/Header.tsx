@@ -8,7 +8,7 @@ export function Header({ health, error }: { health: HealthData | null; error: st
   return (
     <div class="header">
       <div class="header-brand">
-        <h1>MeMesh LLM Memory</h1>
+        <h1>MeMesh</h1>
         <small>{t('brand.subtitle')}</small>
       </div>
       <div class="header-right">

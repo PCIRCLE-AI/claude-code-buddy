@@ -1,9 +1,9 @@
 🌐 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Tiếng Việt](README.vi.md) | [Español](README.es.md) | [ภาษาไทย](README.th.md)
 
 <p align="center">
-  <h1 align="center">MeMesh LLM Memory</h1>
+  <h1 align="center">MeMesh</h1>
   <p align="center">
-    <strong>Claude Code と MCP コーディングエージェント向けのローカルメモリ</strong><br />
+    <strong>コーディングエージェント向けのエージェンティックメモリ</strong><br />
     SQLite ファイル 1 つ。Docker も クラウドも不要。
   </p>
   <p align="center">
@@ -16,32 +16,18 @@
 
 ---
 
-> [!IMPORTANT]
-> **活発に開発中のプロジェクト** — 機能は継続的に更新され、リリース間で変更される可能性があります。バグや機能要望がある場合は[issue を開いてください](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues)。
+**MeMesh** — Claude Code と MCP コーディングエージェントのためのオープンソースの**エージェンティックメモリ**。エージェントの実際の作業からキャプチャし、行動するその瞬間に注入し、記憶が矛盾したときも誠実さを保ちます。SQLite ファイル 1 つ。クラウド不要。
 
 ## 課題
 
-コーディングエージェントはセッション間で記憶を失います。アーキテクチャの決定、バグ修正、テスト失敗、苦労して得た教訓 — すべてを毎回説明し直さなければなりません。Claude Code はいつも初期状態から始まり、既に知っているはずの制約を再発見し、貴重なコンテキストを無駄にします。
+コーディングエージェントはセッション間で事実を忘れるだけではありません — **作業を繰り返す**のです。先月却下したはずのアプローチを再提案し、同じ失敗するテストにつまずき、3 月に本番環境を壊した制約を再発見し、自分が設計に関わったアーキテクチャの説明をあなたに求め直します。
 
-**MeMesh は、コーディングエージェントに永続的で検索可能な進化するローカルメモリを与えます。**
+これはチャット履歴の問題ではなく、エージェントメモリの問題です。セッション間で生き残るべきなのは*作業そのもの*です: 理由とセットになった決定、修正とセットになった失敗、そしてそれらの間のリンクです。
 
-このパッケージは MeMesh プロダクトファミリーのローカルメモリ層です。意図的にシンプルでオープンソース設計になっています。npm でインストール、メモリを `~/.memesh/knowledge-graph.db` に保存、Claude Code や MCP 互換クライアントに接続するだけ。ホステッドワークスペースやエンタープライズ向けのプロダクトは、このパッケージの README やロードマップとは分離して提供されます。
+**MeMesh はそのメモリです。**フックがエージェントの実際の行動(セッション、コミット、失敗 — 手動のメモではなく)からキャプチャし、リコールがエージェントの行動するその瞬間(セッション開始時、ファイル編集前)に注入し、ナレッジグラフ層が時間の経過とともにメモリを誠実に保ちます(supersession、LLM が判定する競合検出)。npm でインストール、メモリは `~/.memesh/knowledge-graph.db` に保存、Claude Code や任意の MCP 互換クライアントに接続するだけです。
 
----
-
-## エビデンス — LongMemEval-S で 95.60% R@5
-
-MeMesh の検索エンジンは **FTS5 のみ**(LLM もホットパスのエンベディングも使用しない)で、公開されている [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) ベンチマーク(500 問、MIT ライセンス)で測定された結果です:
-
-| システム | R@5 | ソース |
-|---|---|---|
-| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
-| MemPalace | 96.6% | ベンダー自社申告 |
-| Supermemory | ~82% | ベンダー推定値 |
-| Zep | 63.8% | LongMemEval 論文 |
-| Mem0 | 49.0% | LongMemEval 論文 |
-
-再現コマンド、データセット SHA256、問題ごとの生結果、既知失敗の分析はすべて [`benchmarks/longmemeval/`](benchmarks/longmemeval/) にあります。約 10 秒で再実行可能です。
+> [!IMPORTANT]
+> **活発に開発中のプロジェクト** — 機能は継続的に更新され、リリース間で変更される可能性があります。バグや機能要望がある場合は[issue を開いてください](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues)。
 
 ---
 
@@ -256,6 +242,22 @@ memesh export-schema \
 | **トレードオフ** | シンプルなローカル構成、エンタープライズスケールは非対応 | より広いローカルアプリフットプリント | Cursor に限定 | 強力な管理プラットフォーム、ローカルファースト性が低い | 強力なグラフモデル、セットアップが重い |
 
 **MeMesh は、エンタープライズスケールの管理インフラストラクチャと引き換えに、即座のローカルセットアップ、検査可能なストレージ、コーディングエージェントワークフロー統合を選びました。**
+
+---
+
+## ベンチマーク — 95.60% R@5 on LongMemEval-S
+
+MeMesh の検索エンジンは **FTS5 のみ**(LLM もホットパスのエンベディングも使用しない)で、公開されている [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) ベンチマーク(500 問、MIT ライセンス)で測定された結果です:
+
+| システム | R@5 | ソース |
+|---|---|---|
+| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| MemPalace | 96.6% | ベンダー自社申告 |
+| Supermemory | ~82% | ベンダー推定値 |
+| Zep | 63.8% | LongMemEval 論文 |
+| Mem0 | 49.0% | LongMemEval 論文 |
+
+再現コマンド、データセット SHA256、問題ごとの生結果、既知失敗の分析はすべて [`benchmarks/longmemeval/`](benchmarks/longmemeval/) にあります。約 10 秒で再実行可能です。
 
 ---
 

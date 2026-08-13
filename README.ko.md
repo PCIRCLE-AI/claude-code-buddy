@@ -1,9 +1,9 @@
 🌐 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Tiếng Việt](README.vi.md) | [Español](README.es.md) | [ภาษาไทย](README.th.md)
 
 <p align="center">
-  <h1 align="center">MeMesh LLM Memory</h1>
+  <h1 align="center">MeMesh</h1>
   <p align="center">
-    <strong>Claude Code와 MCP 코딩 에이전트를 위한 로컬 메모리.</strong><br />
+    <strong>코딩 에이전트를 위한 에이전틱 메모리.</strong><br />
     SQLite 파일 하나. Docker 없음. 클라우드 필수 아님.
   </p>
   <p align="center">
@@ -19,29 +19,15 @@
 > [!IMPORTANT]
 > **활발히 개발 중인 프로젝트** — 기능이 지속적으로 업데이트되며 릴리스 간에 변경될 수 있습니다. 버그나 기능 요청이 있으면 [issue를 열어주세요](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues).
 
+**MeMesh** — Claude Code와 MCP 코딩 에이전트를 위한 오픈소스 **에이전틱 메모리**: 에이전트의 실제 작업에서 캡처되고, 에이전트가 행동하는 순간에 주입되며, 스스로 모순될 때 정직하게 바로잡힙니다. SQLite 파일 하나. 클라우드 없음.
+
 ## 문제점
 
-코딩 에이전트는 세션이 끝나면 모든 것을 잊어버립니다. 아키텍처 결정, 버그 수정, 실패한 테스트, 힘들게 얻은 교훈 — 매번 다시 설명해야 합니다. Claude Code는 매번 새로 시작하고, 이미 알아야 할 제약 조건을 다시 발견하며, 불필요하게 컨텍스트를 소비합니다.
+코딩 에이전트는 세션 사이에 사실만 잊어버리는 게 아니라 **작업을 반복합니다**. 지난달에 거절한 접근 방식을 다시 제안하고, 같은 실패하는 테스트에 다시 걸려 넘어지고, 3월에 프로덕션을 망가뜨린 제약 조건을 다시 발견하며, 자신이 설계를 도운 아키텍처를 다시 설명해 달라고 요청합니다.
 
-**MeMesh는 코딩 에이전트에게 영구적이고 검색 가능하며 진화하는 로컬 메모리를 제공합니다.**
+이것은 채팅 기록의 문제가 아니라 에이전트 메모리의 문제입니다. 세션 사이에 살아남아야 하는 것은 *작업* 그 자체입니다: 이유가 담긴 결정, 수정 방법이 담긴 실패, 그리고 이들 사이의 연결 고리입니다.
 
-이 패키지는 MeMesh 제품군의 로컬 메모리 레이어입니다. 의도적으로 작고 오픈소스입니다: npm으로 설치하고, 메모리는 `~/.memesh/knowledge-graph.db`에 보관하며, Claude Code 또는 MCP 호환 클라이언트와 연결합니다. 호스팅 워크스페이스와 엔터프라이즈 OS 제품은 이 패키지의 README와 로드맵과 별개로 유지됩니다.
-
----
-
-## 검증 — LongMemEval-S에서 R@5 95.60%
-
-MeMesh의 검색 엔진은 **FTS5 단독**(핫 패스에 LLM 없음, 임베딩 없음)이며, 공개 [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) 벤치마크(500개 질문, MIT 라이선스)로 측정되었습니다:
-
-| 시스템 | R@5 | 출처 |
-|---|---|---|
-| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
-| MemPalace | 96.6% | 벤더 자체 보고 |
-| Supermemory | ~82% | 벤더 추정치 |
-| Zep | 63.8% | LongMemEval 논문 |
-| Mem0 | 49.0% | LongMemEval 논문 |
-
-재현 명령어, 데이터셋 SHA256, 질문별 원시 결과, 알려진 실패 분석이 모두 [`benchmarks/longmemeval/`](benchmarks/longmemeval/)에 있습니다. 약 10초 내에 재실행 가능합니다.
+**MeMesh가 바로 그 메모리입니다.** 훅이 에이전트가 실제로 수행하는 일(세션, 커밋, 실패 — 수동 메모가 아님)에서 메모리를 캡처하고, 회상이 에이전트가 행동하는 순간(세션 시작, 파일 편집 전)에 주입하며, 지식 그래프 레이어가 시간이 지나도 정직하게 유지합니다(대체(supersession), LLM이 판정하는 충돌 감지). npm으로 설치하고, 메모리는 `~/.memesh/knowledge-graph.db`에 보관하며, Claude Code 또는 MCP 호환 클라이언트와 연결합니다.
 
 ---
 
@@ -256,6 +242,22 @@ memesh export-schema \
 | **트레이드오프** | 간단한 로컬 솔루션, 엔터프라이즈 규모 아님 | 더 넓은 로컬 앱 풋프린트 | Cursor에 종속 | 강력한 관리형 플랫폼, 로컬 우선 아님 | 강력한 그래프 모델, 복잡한 구성 |
 
 **MeMesh는 엔터프라이즈급 관리 인프라를 포기하고 즉각적인 로컬 구성, 검사 가능한 저장소, 코딩 에이전트 워크플로우 훅을 얻습니다.**
+
+---
+
+## 벤치마크 — 95.60% R@5 on LongMemEval-S
+
+MeMesh의 검색 엔진은 **FTS5 단독**(핫 패스에 LLM 없음, 임베딩 없음)이며, 공개 [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) 벤치마크(500개 질문, MIT 라이선스)로 측정되었습니다:
+
+| 시스템 | R@5 | 출처 |
+|---|---|---|
+| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| MemPalace | 96.6% | 벤더 자체 보고 |
+| Supermemory | ~82% | 벤더 추정치 |
+| Zep | 63.8% | LongMemEval 논문 |
+| Mem0 | 49.0% | LongMemEval 논문 |
+
+재현 명령어, 데이터셋 SHA256, 질문별 원시 결과, 알려진 실패 분석이 모두 [`benchmarks/longmemeval/`](benchmarks/longmemeval/)에 있습니다. 약 10초 내에 재실행 가능합니다.
 
 ---
 

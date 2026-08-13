@@ -1,9 +1,9 @@
 🌐 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Tiếng Việt](README.vi.md) | [Español](README.es.md) | [ภาษาไทย](README.th.md)
 
 <p align="center">
-  <h1 align="center">MeMesh LLM Memory</h1>
+  <h1 align="center">MeMesh</h1>
   <p align="center">
-    <strong>Bộ nhớ cục bộ cho Claude Code và các agent coding MCP.</strong><br />
+    <strong>Bộ nhớ agentic cho các agent coding.</strong><br />
     Một file SQLite. Không Docker. Không cần cloud.
   </p>
   <p align="center">
@@ -19,29 +19,15 @@
 > [!IMPORTANT]
 > **Dự án đang phát triển tích cực** — tính năng cập nhật liên tục và có thể thay đổi giữa các bản phát hành. Nếu gặp lỗi hoặc có yêu cầu tính năng, vui lòng [mở issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues).
 
+**MeMesh** — **bộ nhớ agentic** mã nguồn mở cho Claude Code & các agent coding MCP: được capture từ công việc thực tế của agent, được inject đúng lúc agent hành động, và được giữ trung thực khi nó tự mâu thuẫn. Một file SQLite. Không cần cloud.
+
 ## Vấn đề
 
-Agent coding của bạn quên mất những gì đã xảy ra giữa các phiên làm việc. Mỗi quyết định kiến trúc, bug fix, test thất bại và bài học từng trải phải được giải thích lại từ đầu. Claude Code luôn bắt đầu từ trang trắng, phát hiện lại những ràng buộc cũ, và lãng phí context cho những thứ nó đã nên biết.
+Agent coding của bạn không chỉ quên các sự kiện giữa các phiên làm việc — nó còn **lặp lại công việc**. Nó đề xuất lại cách tiếp cận bạn đã bác bỏ tháng trước, vấp phải đúng bài test thất bại cũ, khám phá lại ràng buộc từng làm hỏng production hồi tháng Ba, và yêu cầu bạn giải thích lại kiến trúc mà chính nó đã góp phần thiết kế.
 
-**MeMesh cung cấp bộ nhớ cục bộ, có khả năng tìm kiếm và phát triển liên tục cho các agent coding.**
+Đó không phải là vấn đề về lịch sử chat; đó là vấn đề về bộ nhớ agent. Thứ cần sống sót giữa các phiên làm việc chính là *công việc*: các quyết định kèm lý do, các thất bại kèm cách sửa, và những liên kết giữa chúng.
 
-Package này là tầng bộ nhớ cục bộ của dòng sản phẩm MeMesh. Nó được thiết kế nhỏ gọn và mã nguồn mở: cài đặt qua npm, lưu bộ nhớ của bạn trong `~/.memesh/knowledge-graph.db`, và kết nối với Claude Code hoặc bất kỳ client tương thích MCP nào. Các sản phẩm workspace theo dõi và hệ điều hành enterprise nên được giữ riêng biệt với README và roadmap của package này.
-
----
-
-## Bằng chứng — 95.60% R@5 trên LongMemEval-S
-
-Engine truy hồi của MeMesh là **chỉ FTS5** (không LLM, không embeddings trên hot path), được đo trên benchmark công khai [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) (500 câu hỏi, giấy phép MIT):
-
-| Hệ thống | R@5 | Nguồn |
-|---|---|---|
-| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
-| MemPalace | 96.6% | Vendor self-report |
-| Supermemory | ~82% | Vendor estimate |
-| Zep | 63.8% | LongMemEval paper |
-| Mem0 | 49.0% | LongMemEval paper |
-
-Lệnh tái hiện, SHA256 của dataset, kết quả thô theo từng câu hỏi, và phân tích các lỗi đã biết đều có trong [`benchmarks/longmemeval/`](benchmarks/longmemeval/). Có thể chạy lại trong ~10 giây.
+**MeMesh chính là bộ nhớ đó.** Hooks capture nó từ những gì agent thực sự làm (phiên làm việc, commit, thất bại — không phải ghi chú thủ công), recall inject nó đúng lúc agent hành động (khi bắt đầu phiên, trước khi sửa file), và tầng knowledge-graph giữ nó trung thực theo thời gian (supersession, phát hiện xung đột do LLM phán định). Cài đặt qua npm, bộ nhớ nằm trong `~/.memesh/knowledge-graph.db`, kết nối với Claude Code hoặc bất kỳ client tương thích MCP nào.
 
 ---
 
@@ -248,6 +234,22 @@ Dán tools vào bất kỳ API call nào
 | **Tradeoff** | Wedge cục bộ đơn giản, không phải quy mô enterprise | Footprint local app rộng hơn | Bị khóa vào Cursor | Platform được quản lý mạnh mẽ, local-first ít hơn | Strong graph model, heavier setup |
 
 **MeMesh đánh đổi hạ tầng được quản lý quy mô enterprise để có setup cục bộ tức thì, lưu trữ có thể kiểm tra, và coding-agent workflow hooks.**
+
+---
+
+## Benchmark — 95.60% R@5 on LongMemEval-S
+
+Engine truy hồi của MeMesh là **chỉ FTS5** (không LLM, không embeddings trên hot path), được đo trên benchmark công khai [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) (500 câu hỏi, giấy phép MIT):
+
+| Hệ thống | R@5 | Nguồn |
+|---|---|---|
+| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| MemPalace | 96.6% | Vendor self-report |
+| Supermemory | ~82% | Vendor estimate |
+| Zep | 63.8% | LongMemEval paper |
+| Mem0 | 49.0% | LongMemEval paper |
+
+Lệnh tái hiện, SHA256 của dataset, kết quả thô theo từng câu hỏi, và phân tích các lỗi đã biết đều có trong [`benchmarks/longmemeval/`](benchmarks/longmemeval/). Có thể chạy lại trong ~10 giây.
 
 ---
 
