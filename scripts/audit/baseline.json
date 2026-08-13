@@ -266,15 +266,15 @@
       "reason": "group-by identity or truthful zero-rows display",
       "triaged": "2026-08-09 (re-keyed: the node:sqlite driver swap shifted these lines; same statements, same classification)"
     },
-    "C4 .github/workflows/ci.yml:228": {
+    "C4 .github/workflows/ci.yml:239": {
       "class": "SAFE",
       "reason": "secondary greps run after the exit-code gate has already read DOCTOR_EXIT",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-14 228->239 (the timeout-minutes evidence comment above shifted +11; same statement — verified)"
     },
-    "C4 .github/workflows/ci.yml:222": {
+    "C4 .github/workflows/ci.yml:233": {
       "class": "SAFE",
       "reason": "secondary greps run after the exit-code gate has already read DOCTOR_EXIT",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-14 222->233 (the timeout-minutes evidence comment above shifted +11; same statement — verified)"
     },
     "C5 src/core/operations.ts:119": {
       "class": "SAFE-ACCUMULATOR",
