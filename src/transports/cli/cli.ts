@@ -1473,8 +1473,16 @@ dreamCmd
       console.log(`  staged:         ${result.staged} relation proposal(s)`);
       if (result.llmFailures > 0) {
         // A parse failure is NOT a verdict — those pairs stay unjudged and
-        // return as candidates next run.
-        console.log(`  failed:         ${result.llmFailures} (unparseable or errored LLM responses; those pairs will be retried next run)`);
+        // return as candidates next run, AT THE HEAD of the list (it is
+        // sorted tightest-first): a model that reliably fails on the same
+        // pairs will re-buy them every run, which this line makes visible.
+        console.log(`  failed:         ${result.llmFailures} (unparseable or errored LLM responses; those pairs stay at the head of the candidate list and are retried next run)`);
+      }
+      if (result.aborted) {
+        // Everything counted above is real, committed work — say so before
+        // the error, or a re-run's smaller numbers look like the whole story.
+        console.error(`  ABORTED after the work above: ${result.aborted}`);
+        process.exit(1);
       }
       if (result.staged > 0) {
         console.log('');

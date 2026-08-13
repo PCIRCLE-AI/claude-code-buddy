@@ -320,6 +320,63 @@ describe('judgeConflicts', () => {
     }
   });
 
+  it('opposite-direction SUPERSEDES blocks are ambiguity, not a text-order pick', async () => {
+    seed('od1', 'fact', 0);
+    seed('od2', 'fact', 10);
+    callLLMMock.mockResolvedValue(
+      JSON.stringify({ verdict: 'SUPERSEDES', direction: 'b_supersedes_a', rationale: 'real', severity: 'low', recommended_action: 'x', excerpts: { a: 'a', b: 'b' } })
+      + ' (the reverse would be: {"verdict":"SUPERSEDES","direction":"a_supersedes_b","rationale":"example"})',
+    );
+    const r = await judgeConflicts(getDatabase(), LLM);
+    expect(r.llmFailures).toBe(1);
+    expect(r.judged).toBe(0);
+  });
+
+  it('a verbatim echo of the prompt template does not collide with the real verdict', async () => {
+    seed('te1', 'fact', 0);
+    seed('te2', 'fact', 10);
+    callLLMMock.mockResolvedValue(
+      'Per the format {"verdict":"UNRELATED","rationale":"<one sentence>"} — my answer: '
+      + JSON.stringify({ verdict: 'CONTRADICTS', rationale: 'real', severity: 'low', recommended_action: 'x', excerpts: { a: 'a', b: 'b' } }),
+    );
+    const r = await judgeConflicts(getDatabase(), LLM);
+    expect(r.staged).toBe(1);
+    expect(r.llmFailures).toBe(0);
+  });
+
+  it('an enveloped verdict ({"response": {...}}) is unwrapped one level', async () => {
+    seed('env1', 'fact', 0);
+    seed('env2', 'fact', 10);
+    callLLMMock.mockResolvedValue(JSON.stringify({
+      response: { verdict: 'UNRELATED', rationale: 'wrapped' },
+    }));
+    const r = await judgeConflicts(getDatabase(), LLM);
+    expect(r.unrelated).toBe(1);
+    expect(r.llmFailures).toBe(0);
+  });
+
+  it('a real write failure aborts with partial counts, never reported as judged-concurrently', async () => {
+    seed('ab1', 'fact', 0);
+    seed('ab2', 'fact', 10);
+    callLLMMock.mockResolvedValue('{"verdict":"UNRELATED","rationale":"x"}');
+    // A trigger that fails every INSERT simulates BUSY/disk-full without
+    // touching the reads the candidate layer needs.
+    getDatabase().exec(
+      "CREATE TRIGGER fail_judged BEFORE INSERT ON conflict_judged_pairs BEGIN SELECT RAISE(ABORT, 'simulated write failure'); END",
+    );
+    const r = await judgeConflicts(getDatabase(), LLM);
+    expect(r.aborted).toMatch(/simulated write failure/);
+    expect(r.judged).toBe(0);
+  });
+
+  it('a negative maxPairs is a zero cap, not "all but the last"', async () => {
+    seed('neg1', 'fact', 0);
+    seed('neg2', 'fact', 10);
+    const r = await judgeConflicts(getDatabase(), LLM, { maxPairs: -1 });
+    expect(r.llmCalls).toBe(0);
+    expect(callLLMMock).not.toHaveBeenCalled();
+  });
+
   it('a relation proposal whose endpoint has since been archived refuses to apply', async () => {
     const a = seed('gone-soon', 'decision', 0);
     seed('stays', 'decision', 10);

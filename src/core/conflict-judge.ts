@@ -72,6 +72,12 @@ export interface ConflictJudgeResult {
   llmFailures: number;
   llmCalls: number;
   durationMs: number;
+  /** Set when a WRITE failed mid-run (BUSY, disk full, …): the run stopped
+   *  there, and every count above is real, committed work. Callers must
+   *  surface both — verdicts already written are already excluded from the
+   *  next run's candidates, so hiding the partial progress misreads a
+   *  re-run's smaller numbers as the whole story. */
+  aborted?: string;
 }
 
 export interface ConflictJudgeOptions {
@@ -196,7 +202,23 @@ function parseVerdict(text: string): ParsedVerdict | null {
 
 function parseVerdictBlock(block: string): ParsedVerdict | null {
   try {
-    const obj = JSON.parse(block) as Record<string, unknown>;
+    let obj = JSON.parse(block) as Record<string, unknown>;
+    // Envelope tolerance, one level: some models wrap the answer as
+    // {"response": {...}} / {"result": {...}}. Top-level-only parsing made
+    // every such response a permanent failure at the head of the candidate
+    // list — the same pairs re-bought on every run.
+    if (!VERDICTS.includes(String(obj.verdict ?? '') as ConflictVerdict)) {
+      const inner = Object.values(obj).find(
+        (v): v is Record<string, unknown> =>
+          !!v && typeof v === 'object' && !Array.isArray(v)
+          && VERDICTS.includes(String((v as Record<string, unknown>).verdict ?? '') as ConflictVerdict),
+      );
+      if (inner) obj = inner;
+    }
+    // A verbatim echo of the prompt's UNRELATED template is the prompt
+    // talking, not the model answering — left in, it collides with the real
+    // verdict under the agreement rule and permanently fails the pair.
+    if (String(obj.rationale ?? '') === '<one sentence>') return null;
     const verdict = String(obj.verdict ?? '') as ConflictVerdict;
     if (!VERDICTS.includes(verdict)) return null;
     if (verdict === 'UNRELATED') return { verdict };
@@ -294,10 +316,12 @@ export async function judgeConflicts(
         ).run(key);
       } catch (err) {
         // ONLY the pair PK collision means "judged concurrently". Anything
-        // else (BUSY, disk full, read-only) is a real failure and must
-        // surface — swallowing it re-buys the same judgment every run.
+        // else (BUSY, disk full, read-only) is a real failure: stop, and
+        // hand back the partial counts with the reason instead of throwing
+        // away the record of work already committed.
         if (err instanceof Error && err.message.includes('UNIQUE constraint failed: conflict_judged_pairs')) continue;
-        throw err;
+        result.aborted = err instanceof Error ? err.message : String(err);
+        break;
       }
       result.judged++;
       result.unrelated++;
@@ -345,9 +369,11 @@ export async function judgeConflicts(
       tx();
     } catch (err) {
       // Same narrowness as the UNRELATED path: only the pair PK collision
-      // is the benign concurrent-judge race; everything else surfaces.
+      // is the benign concurrent-judge race; everything else stops the run
+      // with the partial counts attached.
       if (err instanceof Error && err.message.includes('UNIQUE constraint failed: conflict_judged_pairs')) continue;
-      throw err;
+      result.aborted = err instanceof Error ? err.message : String(err);
+      break;
     }
     result.judged++;
     result.staged++;
