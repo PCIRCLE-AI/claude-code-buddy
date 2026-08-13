@@ -14,7 +14,15 @@ All notable changes to MeMesh are documented here.
   the shipped pipeline (judge → staged proposal → human accept → recall
   warning) instead of implying it happens by itself.
 
-### Added
+- **Causal-relation conventions, written where a model can see them.**
+  `caused` and `influenced` are documented as the vocabulary for causal
+  links (from cause to effect; inert by design — no machine behaviour),
+  in both the MCP `remember` schema description and API_REFERENCE, together
+  with the principle they exist to carry: MeMesh never infers causality
+  from timestamps, embedding distance or co-occurrence — the conflict judge
+  proposes contradicts/supersedes/duplicates from meaning, never `caused`.
+  Pinned by `relation-types-documented.test.ts` at both reading surfaces,
+  so the convention cannot drift out of the schema or the docs separately.
 
 - **Conflict pipeline, second half: the LLM judge.** `memesh dream
   conflicts` spends the LLM on the tightest candidate pairs (default 20 per

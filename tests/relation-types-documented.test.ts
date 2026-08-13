@@ -152,4 +152,26 @@ describe('relation types with consequences are documented where the model reads'
     const description = relationTypeDescription();
     expect(description).toMatch(/related-to|implements/);
   });
+
+  it('names the causal convention where the model reads, with the never-inferred principle', () => {
+    // caused/influenced are INERT — no code branches on them — but they are
+    // the documented vocabulary for causal chains, and the principle that
+    // pairs with them ("MeMesh never infers causality from timestamps or
+    // co-occurrence") is a promise the conflict pipeline is built around.
+    // Both live or die by being visible at the two reading surfaces: the MCP
+    // schema (what a model reads at run time) and API_REFERENCE (what a
+    // human reads). A convention written in only one of them drifts.
+    const description = relationTypeDescription();
+    expect(description).toContain('caused');
+    expect(description).toContain('influenced');
+    expect(description).toMatch(/never infers/);
+
+    const apiRef = fs.readFileSync(
+      path.join(repoRoot, 'docs', 'api', 'API_REFERENCE.md'),
+      'utf8',
+    );
+    expect(apiRef).toContain('`caused`');
+    expect(apiRef).toContain('`influenced`');
+    expect(apiRef).toMatch(/never infers causality/);
+  });
 });

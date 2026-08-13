@@ -439,7 +439,7 @@
     "C5 src/core/config.ts:370": {
       "class": "SAFE-GUARDED",
       "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
-      "triaged": "2026-08-04 (re-keyed 353->359->369: the transcriptMining field + isTranscriptMiningEnabled additions shifted the line down 10; same llmFallbacks ?? [] code verified before re-keying); re-keyed 2026-08-10 (the AUTO_CAPTURE_TAG-driven detectCapabilities guard shifted it +7; same statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged)"
+      "triaged": "2026-08-04 (re-keyed 353->359->369: the transcriptMining field + isTranscriptMiningEnabled additions shifted the line down 10; same llmFallbacks ?? [] code verified before re-keying); re-keyed 2026-08-10 (the AUTO_CAPTURE_TAG-driven detectCapabilities guard shifted it +7; same statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified)"
     },
     "C5 src/transports/cli/cli.ts:137": {
       "class": "SAFE-BY-CONSTRUCTION",
@@ -449,17 +449,17 @@
     "C5 src/transports/cli/cli.ts:171": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "remember() spreads relationsCreated only when non-empty, so absent means none were created at the single producer; the empty list correctly prints no conflicts line — this replaced arithmetic that announced conflicts for relations that had failed",
-      "triaged": "2026-08-10 (review pass); re-keyed 2026-08-12 (shifted +1 by the sourceHost field added to the remember() call above, code unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged)"
+      "triaged": "2026-08-10 (review pass); re-keyed 2026-08-12 (shifted +1 by the sourceHost field added to the remember() call above, code unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified)"
     },
     "C5 src/transports/cli/cli.ts:177": {
       "class": "SAFE-GUARDED",
       "reason": "remember() sets relationErrors only when non-empty (operations.ts spreads it conditionally), so absent means none at the single producer; the failure path exits 1 off the same field",
-      "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-12 (shifted +1 by the sourceHost field added to the remember() call above, code unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged)"
+      "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-12 (shifted +1 by the sourceHost field added to the remember() call above, code unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified)"
     },
-    "C5 src/transports/mcp/handlers.ts:266": {
+    "C5 src/transports/mcp/handlers.ts:268": {
       "class": "SAFE-GUARDED",
       "reason": "Zod rejects {} for schemas with required fields",
-      "triaged": "2026-08-10 (re-keyed 290->312: the stripNullProps helper added 22 lines above; the statement now wraps args in stripNullProps, which maps {} to {} and null properties to absent — the guard this triage relies on, Zod rejecting {} for required fields, is untouched); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged)"
+      "triaged": "2026-08-10 (re-keyed 290->312: the stripNullProps helper added 22 lines above; the statement now wraps args in stripNullProps, which maps {} to {} and null properties to absent — the guard this triage relies on, Zod rejecting {} for required fields, is untouched); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified)"
     },
     "C5 src/core/doctor.ts:1707": {
       "class": "SAFE-GUARDED",
