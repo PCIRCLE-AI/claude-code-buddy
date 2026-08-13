@@ -38,7 +38,9 @@ export const TOOL_DEFINITIONS = [
                                 type: 'string',
                                 description: 'Relation type. Free-form label (e.g. "implements", "related-to"), except for two that change behaviour: ' +
                                     '"supersedes" archives the target entity — use it when this memory replaces an older one; ' +
-                                    '"contradicts" flags both memories as a conflict every time either is recalled — use it when two memories cannot both be true.',
+                                    '"contradicts" flags both memories as a conflict every time either is recalled — use it when two memories cannot both be true. ' +
+                                    'For causal links between decisions and outcomes, use "caused" or "influenced" (inert labels, but the shared vocabulary makes causal chains traversable): ' +
+                                    'state causality explicitly when you KNOW it — MeMesh never infers it from timestamps or co-occurrence, so an unstated cause is an unrecorded one.',
                             },
                         },
                         required: ['to', 'type'],
