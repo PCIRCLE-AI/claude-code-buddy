@@ -33,6 +33,11 @@ interface GNode {
   recency: number;          // 0.15–1.0
   isOrphan: boolean;
   lastDate: string;         // ISO string for tooltip age
+  /** Raw access_count (clamped to ≥0), kept because RANKING must use it:
+   *  the radius clamps at 9px from access_count ≈ 23 up, so sorting on
+   *  radius silently made recency the primary key for every
+   *  well-trafficked node. */
+  accessCount: number;
 }
 
 interface GEdge {
@@ -65,7 +70,7 @@ const DEFAULT_TYPE_VAR = '--text-1';
 const CANVAS_TOKENS = [
   '--accent', '--accent-hover', '--info', '--warning',
   '--text-0', '--text-1', '--text-2', '--text-3',
-  '--bg-1', '--font', '--mono',
+  '--bg-0', '--bg-1', '--font', '--mono',
 ] as const;
 
 /** DOM swatch/legend colour — a CSS value (`var()` for token types, else the
@@ -96,11 +101,56 @@ function getDriftColor(recency: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
-/** Scale radius by access_count using log2 so high-traffic nodes stand out. */
+/**
+ * Scale radius by access_count using log2 so high-traffic nodes stand out —
+ * inside a deliberately TIGHT band (3.5–9px). The earlier 5–14px band let one
+ * hub dwarf the field and collide with its neighbours' labels; a narrow band
+ * keeps hubs readable as "bigger" without letting size dominate the layout.
+ * (Same reasoning as sigma-based graph UIs that clamp to ~2–12px.)
+ */
 function computeRadius(accessCount: number | undefined): number {
-  const n = accessCount ?? 0;
-  if (n === 0) return 5;
-  return Math.min(14, 5 + Math.log2(n + 1) * 2);
+  // Domain guard: a negative or non-finite count reaching Math.log2 puts
+  // NaN into ctx.arc, which throws and kills the animation frame — a blank
+  // graph from one corrupt row.
+  const n = Number.isFinite(accessCount) && (accessCount as number) > 0 ? (accessCount as number) : 0;
+  if (n === 0) return 3.5;
+  return Math.min(9, 3.5 + Math.log2(n + 1) * 1.2);
+}
+
+/**
+ * Darken a resolved CSS color for the node rim. The rim is the node's OWN
+ * hue stepped darker — category information restated at the boundary, which
+ * is what makes adjacent same-colour nodes read as separate objects instead
+ * of one blob. Accepts the `rgb()`/`#hex` strings getComputedStyle returns.
+ * Unparseable input comes back UNCHANGED — and note what that means at the
+ * call site: assigning an invalid string to ctx.strokeStyle is silently
+ * IGNORED by canvas, which keeps its previous colour. Both real palettes
+ * (global.css tokens, CATEGORICAL_TYPE_COLORS) resolve to 6-digit hex, so
+ * that path is only reachable when tokens are missing entirely (unit
+ * tests); documented so nobody mistakes the passthrough for a signal.
+ */
+function darkenColor(color: string, factor = 0.55): string {
+  const hex = /^#([0-9a-f]{6})$/i.exec(color.trim());
+  if (hex) {
+    const v = parseInt(hex[1], 16);
+    const r = Math.round(((v >> 16) & 255) * factor);
+    const g = Math.round(((v >> 8) & 255) * factor);
+    const b = Math.round((v & 255) * factor);
+    return `rgb(${r},${g},${b})`;
+  }
+  const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(color.trim());
+  if (rgb) {
+    return `rgb(${Math.round(+rgb[1] * factor)},${Math.round(+rgb[2] * factor)},${Math.round(+rgb[3] * factor)})`;
+  }
+  return color;
+}
+
+/** Deterministic string hash (djb2) — position jitter and edge sampling must
+ *  be stable across reloads, or the graph reshuffles every visit. */
+function hashString(s: string): number {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h;
 }
 
 /** Compute recency (0.15–1.0) from a date string. */
@@ -177,6 +227,8 @@ export function GraphTab() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const nodesRef = useRef<GNode[]>([]);
   const edgesRef = useRef<GEdge[]>([]);
+  /** The bright-skeleton edge set — see the backbone block in the loader. */
+  const backboneRef = useRef<Set<GEdge>>(new Set());
   const animRef = useRef<number>(0);
   // Viewport transform: world = (screen - rect.{left,top} - {panX,panY}) / scale.
   // Render applies setTransform(scale*dpr, 0, 0, scale*dpr, panX*dpr, panY*dpr)
@@ -326,26 +378,136 @@ export function GraphTab() {
       connectedNodes.add(r.to);
     });
 
+    // Seeded initial positions, not Math.random(). Each TYPE is a cluster
+    // seeded on a golden-angle spiral around the canvas centre; members pack
+    // inside their cluster on a sqrt-radial spiral with name-hash jitter.
+    // Two payoffs: the simulation starts near equilibrium (it only has to
+    // relax, not untangle), and the SAME data produces the SAME shape on
+    // every reload — a graph that reshuffles per visit cannot be learned.
+    // "Same shape" requires CONTENT-derived slots: the server orders
+    // entities by last-recall time, so anything keyed on response order
+    // (the first cut used arrival index) re-dealt every cluster on every
+    // recall. Slots come from the name-sorted member list instead.
+    const GOLDEN_ANGLE = 2.399963229728653;
+    const cx = w / 2, cy = h / 2;
+    const types = [...new Set(data.entities.map((e) => e.type))].sort();
+    const clusterCentre = new Map<string, { x: number; y: number }>();
+    // Spiral radii scaled PER AXIS: the stage is ~2.4× wider than tall, and
+    // a min(w,h) radius used ~44% of the width — clusters overlapped
+    // laterally while both sides of the canvas sat empty.
+    const maxSpiralX = w * 0.42;
+    const maxSpiralY = h * 0.42;
+    types.forEach((type, i) => {
+      const f = Math.sqrt((i + 1) / types.length);
+      const angle = i * GOLDEN_ANGLE;
+      clusterCentre.set(type, {
+        x: cx + Math.cos(angle) * maxSpiralX * f,
+        y: cy + Math.sin(angle) * maxSpiralY * f,
+      });
+    });
+    // Deterministic intra-cluster slot: index in the name-sorted member list.
+    const slotByName = new Map<string, number>();
+    for (const type of types) {
+      data.entities
+        .filter((e) => e.type === type)
+        .map((e) => e.name)
+        .sort()
+        .forEach((name, i) => slotByName.set(name, i));
+    }
+    // Members must SEED on the stage: the sqrt spiral is capped against the
+    // short axis (a big cluster packs denser rather than seeding past the
+    // canvas edge and flying back in over the first frames), and the seed
+    // point is clamped with a margin as the last line of defence.
+    const spreadCap = Math.min(w, h) * 0.18;
+
     const nodeMap = new Map<string, GNode>();
     data.entities.forEach((e: Entity) => {
       const lastDate = e.last_accessed_at || e.created_at;
+      const centre = clusterCentre.get(e.type)!;
+      const k = slotByName.get(e.name)!;
+      const hash = hashString(e.name);
+      const angle = k * GOLDEN_ANGLE + (hash % 100) / 100;
+      const spread = Math.min(spreadCap, 14 + Math.sqrt(k) * 16 + (hash % 7));
       nodeMap.set(e.name, {
         id: e.name,
         type: e.type,
-        x: Math.random() * w * 0.8 + w * 0.1,
-        y: Math.random() * h * 0.8 + h * 0.1,
+        x: Math.min(w - 16, Math.max(16, centre.x + Math.cos(angle) * spread)),
+        y: Math.min(h - 16, Math.max(16, centre.y + Math.sin(angle) * spread)),
         vx: 0,
         vy: 0,
         radius: computeRadius(e.access_count),
         recency: computeRecency(lastDate),
         isOrphan: !connectedNodes.has(e.name),
         lastDate,
+        accessCount: Math.max(0, e.access_count ?? 0),
       });
     });
+    // Label-budget order: RAW traffic first, recency as the tiebreak, name
+    // as the deterministic last resort. Not radius — the radius clamps at
+    // 9px from access_count ≈ 23 up, and ranking on it made recency the
+    // primary key for every well-trafficked node (a 24-recall newcomer
+    // outranked a 10 000-recall hub).
+    const rankedNodes = Array.from(nodeMap.values()).sort(
+      (a, b) =>
+        b.accessCount - a.accessCount
+        || b.recency - a.recency
+        || a.id.localeCompare(b.id),
+    );
     nodesRef.current = Array.from(nodeMap.values());
     edgesRef.current = data.relations.filter(
       (r) => nodeMap.has(r.from) && nodeMap.has(r.to),
     );
+    // Dense-graph sampling set, PRECOMPUTED: the render loop used to hash
+    // both endpoint names per edge per frame — load-constant work in the
+    // hottest loop. djb2's low bits are also weak (h mod 4 is close to a
+    // character-sum parity), so fold the high bits in before bucketing.
+    const denseKeep = new Set<GEdge>();
+    for (const edge of edgesRef.current) {
+      const hsh = hashString(edge.from + ' ' + edge.to);
+      if (((hsh ^ (hsh >>> 16)) & 3) === 0) denseKeep.add(edge);
+    }
+
+    // Backbone: the ≤128 highest-priority edges (≤5 per node), drawn brighter
+    // than the rest so the graph's SHAPE stays readable while the remaining
+    // edges recede. Priority = geometric mean of endpoint log-traffic (raw
+    // counts — the clamped radius degenerated to a constant 9 between hubs)
+    // scaled by the staler endpoint's recency; the same signal the label
+    // budget uses, so the bright skeleton and the labelled nodes tell one
+    // story.
+    //
+    // Computed per VIEW, not once: chosen globally, a filtered or ego view
+    // can contain zero backbone edges, leaving the whole visible
+    // neighbourhood on the faint layer (~0.08 effective alpha — invisible).
+    // The render loop re-picks it whenever the visibility signature
+    // (type filters + ego) changes.
+    const computeBackbone = (edgeList: GEdge[]): Set<GEdge> => {
+      const perNode = new Map<string, number>();
+      const scored = edgeList
+        .map((e) => {
+          const a = nodeMap.get(e.from)!;
+          const b = nodeMap.get(e.to)!;
+          const traffic = Math.sqrt(
+            Math.log2(a.accessCount + 2) * Math.log2(b.accessCount + 2),
+          );
+          return { e, p: traffic * Math.min(a.recency, b.recency) };
+        })
+        .sort((x, y) => y.p - x.p);
+      const backbone = new Set<GEdge>();
+      for (const { e } of scored) {
+        if (backbone.size >= 128) break;
+        const fa = perNode.get(e.from) ?? 0;
+        const fb = perNode.get(e.to) ?? 0;
+        if (fa >= 5 || fb >= 5) continue;
+        backbone.add(e);
+        perNode.set(e.from, fa + 1);
+        perNode.set(e.to, fb + 1);
+      }
+      return backbone;
+    };
+    // null = not yet computed; the first frame computes it from the actual
+    // visible edge set, so a filter restored from state is respected from
+    // frame one.
+    let backboneSig: string | null = null;
 
     /* ---------- visibility helpers (read from refs) ---------- */
     const isNodeVisible = (n: GNode): boolean => {
@@ -551,17 +713,51 @@ export function GraphTab() {
       const visibleEdges = edges.filter(isEdgeVisible);
       const showEdgeLabels = visibleEdges.length < 30;
 
+      // Re-pick the backbone whenever the VIEW changes (type filters, ego).
+      // A backbone chosen once over the whole graph can be entirely absent
+      // from a filtered view, which would leave every visible edge on the
+      // faint layer — the hairball fix rendering the filtered neighbourhood
+      // invisible instead of legible.
+      const visSig =
+        (egoNodeIdRef.current ?? '') + '|' +
+        Object.keys(typeFiltersRef.current)
+          .filter((t) => typeFiltersRef.current[t] === false)
+          .sort()
+          .join(',');
+      if (visSig !== backboneSig) {
+        backboneSig = visSig;
+        backboneRef.current = computeBackbone(visibleEdges);
+      }
+
       // (nodeById was built once at the top of simulate() and is reused
       // here for edge rendering — see physics block above.)
 
-      // Draw edges
+      // Draw edges in two layers. The old renderer drew EVERY edge at the
+      // same 1px/0.4-alpha accent line — at a few hundred edges that is the
+      // hairball: uniform brightness carries no information. Now the
+      // backbone (≤128 highest-priority edges) is drawn readable and the
+      // rest recede to a faint field; on dense graphs the faint layer is
+      // additionally SAMPLED deterministically (precomputed name-hash set,
+      // so the same edges appear on every frame and every reload — a
+      // flickering or reshuffling background would read as activity that
+      // isn't there).
+      const backbone = backboneRef.current;
+      const denseGraph = visibleEdges.length > 400;
+      const isEgoView = egoNodeIdRef.current !== null;
       for (const edge of visibleEdges) {
         const a = nodeById.get(edge.from);
         const b = nodeById.get(edge.to);
         if (!a || !b) continue;
-        const edgeAlpha = Math.min(a.recency, b.recency) * 0.6;
-        ctx.globalAlpha = edgeAlpha;
-        ctx.strokeStyle = rgbaFrom(tk['--accent'], 0.4);
+        const onBackbone = backbone.has(edge);
+        // Ego view is already a curated neighbourhood: every edge in it is
+        // the information, so nothing recedes there.
+        if (!onBackbone && !isEgoView) {
+          if (denseGraph && !denseKeep.has(edge)) continue;
+          ctx.globalAlpha = Math.min(a.recency, b.recency) * 0.22;
+        } else {
+          ctx.globalAlpha = Math.min(a.recency, b.recency) * 0.7;
+        }
+        ctx.strokeStyle = rgbaFrom(tk['--accent'], onBackbone || isEgoView ? 0.5 : 0.35);
         ctx.lineWidth = 1;
         ctx.setLineDash([]);
         ctx.beginPath();
@@ -570,11 +766,19 @@ export function GraphTab() {
         ctx.stroke();
 
         if (showEdgeLabels) {
+          // Relation labels are vocabulary, not texture: they must not
+          // inherit the faint edge layer's alpha (0.22×recency put them at
+          // ~5% over the canvas in exactly the small filtered views this
+          // branch exists for), and their size is a SCREEN size — we are
+          // inside the world transform, so divide by scale.
           const mx = (a.x + b.x) / 2;
           const my = (a.y + b.y) / 2;
-          ctx.font = `9px ${tk['--font']}`;
+          const edgeAlpha = ctx.globalAlpha;
+          ctx.globalAlpha = Math.max(0.6, Math.min(a.recency, b.recency));
+          ctx.font = `${9 / vp.scale}px ${tk['--font']}`;
           ctx.fillStyle = tk['--text-2'];
           ctx.fillText(relationLabel(edge.type), mx + 2, my - 2);
+          ctx.globalAlpha = edgeAlpha;
         }
       }
 
@@ -582,6 +786,29 @@ export function GraphTab() {
 
       // Collect visible nodes
       const visibleNodes = nodes.filter(isNodeVisible);
+
+      // Zoom-tiered ALWAYS-ON label budget — 3 zoomed out, 12 at working
+      // zoom, 28 zoomed in — allocated over what the user can actually SEE:
+      // the ranking is global (traffic-then-recency), but eligibility is
+      // checked against the current view (visibility filters AND viewport),
+      // so a filtered, ego or zoomed-in view spends its whole budget on
+      // nodes that are on screen. A global-rank cut here meant an ego view
+      // of any non-hub neighbourhood carried no labels at all — in the one
+      // view where names matter most — and zooming IN could show fewer
+      // labels than the working zoom. Drift Mode suppresses the budget on
+      // purpose: it is the ambient view; interaction labels still show.
+      const labelBudget = vp.scale < 0.75 ? 3 : vp.scale < 1.5 ? 12 : 28;
+      const budgeted = new Set<GNode>();
+      if (!driftModeRef.current) {
+        for (const rn of rankedNodes) {
+          if (budgeted.size >= labelBudget) break;
+          if (!isNodeVisible(rn)) continue;
+          const sx = rn.x * vp.scale + vp.panX;
+          const sy = rn.y * vp.scale + vp.panY;
+          if (sx < -20 || sx > w + 20 || sy < -20 || sy > h + 20) continue;
+          budgeted.add(rn);
+        }
+      }
 
       // Draw nodes
       const hoveredNode = hoverRef.current;
@@ -598,8 +825,23 @@ export function GraphTab() {
         // Node fill
         ctx.beginPath();
         ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = driftModeRef.current ? getDriftColor(n.recency) : typeColorCanvas(n.type, tk);
+        const fillColor = driftModeRef.current ? getDriftColor(n.recency) : typeColorCanvas(n.type, tk);
+        ctx.fillStyle = fillColor;
         ctx.fill();
+
+        // Rim: the node's own hue stepped darker. Category information
+        // restated at the boundary — adjacent same-colour nodes read as
+        // separate objects instead of one blob. Connected nodes only:
+        // orphans keep their dashed --text-3 boundary below, which is
+        // already their defined edge. Drawn under the node's recency alpha
+        // on purpose — a stale node's rim fades with its fill; boundary
+        // contrast belongs to the live graph, not to re-brightening old
+        // nodes.
+        if (!n.isOrphan) {
+          ctx.strokeStyle = darkenColor(fillColor);
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
 
         // Orphan dashed border
         if (n.isOrphan) {
@@ -631,19 +873,36 @@ export function GraphTab() {
           ctx.stroke();
         }
 
-        // Node labels: only show for hovered, focused, or matched nodes
-        const showLabel = isHovered || matched || isFocusCenter;
+        // Node labels. Interaction labels (hover/search/ego) always show at
+        // full strength; the always-on budget set was allocated above,
+        // before this loop — a graph where no node is named until you hover
+        // is a graph you cannot read; a graph where every node is named is
+        // a graph you cannot see.
+        const showLabel = isHovered || matched || isFocusCenter || budgeted.has(n);
         if (showLabel) {
-          ctx.globalAlpha = 1;
-          ctx.fillStyle = tk['--text-1'];
-          ctx.font = `10px ${tk['--font']}`;
+          const interactive = isHovered || matched || isFocusCenter;
+          ctx.globalAlpha = interactive ? 1 : Math.max(0.7, n.recency);
+          // Label metrics are SCREEN sizes drawn inside the world
+          // transform, so divide by scale — otherwise zooming out shrinks
+          // the zoomed-out tier's 3 labels to unreadable specks and zooming
+          // in blows 20px text and 6px halos over the graph.
+          ctx.font = `${10 / vp.scale}px ${tk['--font']}`;
           const label =
             matched || isFocusCenter
               ? n.id
               : n.id.length > 20
                 ? n.id.slice(0, 18) + '...'
                 : n.id;
+          // Halo: the label stroked in the canvas background colour
+          // (--bg-0 — the canvas element's actual background) before the
+          // fill, so text stays legible when it crosses nodes or edges.
+          // Legibility is information; this is not a decorative glow.
+          ctx.strokeStyle = tk['--bg-0'];
+          ctx.lineWidth = 3 / vp.scale;
+          ctx.strokeText(label, n.x + r + 4, n.y + 3);
+          ctx.fillStyle = interactive ? tk['--text-1'] : tk['--text-2'];
           ctx.fillText(label, n.x + r + 4, n.y + 3);
+          ctx.globalAlpha = alpha;
         }
       }
 
