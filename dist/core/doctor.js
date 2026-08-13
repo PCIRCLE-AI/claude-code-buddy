@@ -3,7 +3,7 @@ import path from 'path';
 import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
-import { detectCapabilities, getConfigPath, isTranscriptMiningEnabled } from './config.js';
+import { detectCapabilities, getConfigPath, isTranscriptMiningEnabled, readConfig } from './config.js';
 import { embedText } from './embedder.js';
 import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } from '../db.js';
@@ -266,44 +266,80 @@ function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, installC
     }
     return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'pass', `Wired in ${marker.settings_path} (scope: ${marker.scope ?? 'user'}, version: ${marker.version ?? 'unknown'}).`);
 }
-function inspectHookActivity(openDatabaseImpl, closeDatabaseImpl, existsSyncImpl = fs.existsSync, statSyncImpl = fs.statSync) {
+function inspectHookActivity(openDatabaseImpl, closeDatabaseImpl, existsSyncImpl = fs.existsSync, statSyncImpl = fs.statSync, wiringPresent = true) {
     const TITLE = 'Hook activity';
+    if (isAutoCaptureOff()) {
+        return createCheck('hook-activity', TITLE, 'pass', 'Automatic capture is turned off (MEMESH_AUTO_CAPTURE or config autoCapture) — deliberately, so hook silence is expected. Re-enable it to resume capturing sessions.', undefined, { code: 'hook-activity.disabled' });
+    }
     let db = null;
     try {
         db = openDatabaseImpl();
-        const lastRun = db.prepare(`SELECT hook, last_run_at FROM hook_runs ORDER BY last_run_at DESC LIMIT 1`).get();
-        const ranHoursAgo = lastRun ? hoursSince(lastRun.last_run_at) : null;
+        const rows = db.prepare(`SELECT hook, last_run_at FROM hook_runs`).all();
         const captured = db.prepare(`SELECT COUNT(DISTINCT e.id) as c FROM entities e
        JOIN tags t ON t.entity_id = e.id
        WHERE t.tag = ?
          AND e.created_at > datetime('now', '-24 hours')`).get(AUTO_CAPTURE_TAG)?.c ?? 0;
-        if (lastRun && ranHoursAgo !== null && ranHoursAgo <= 24) {
-            const tail = captured > 0
+        if (rows.length > 0) {
+            const SKEW_TOLERANCE_H = 5 / 60;
+            const ages = new Map();
+            for (const r of rows) {
+                const age = hoursSince(r.last_run_at);
+                ages.set(r.hook, age !== null && age >= -SKEW_TOLERANCE_H ? Math.max(age, 0) : null);
+            }
+            const capturedTail = captured > 0
                 ? `${captured} memor${captured === 1 ? 'y' : 'ies'} captured in the last 24h.`
                 : 'Nothing was worth saving in that time, which is normal — the loop still ran.';
-            return createCheck('hook-activity', TITLE, 'pass', `The ${lastRun.hook} hook last ran ${formatHoursAgo(ranHoursAgo)} — auto-capture is alive. ${tail}`);
+            const ssAge = ages.has('session-summary') ? ages.get('session-summary') : undefined;
+            if (ssAge === null) {
+                return createCheck('hook-activity', TITLE, 'fail', 'The session-summary hook\'s last-run timestamp cannot be read (corrupt, or stamped by a machine with a wrong clock). ' +
+                    'Capture health is unknown, which is not the same as healthy.', 'End one work session, then re-run `memesh doctor` — a fresh run overwrites the bad timestamp.', { code: 'hook-activity.stale-unknown', params: { hook: 'session-summary' } });
+            }
+            if (ssAge !== undefined) {
+                if (ssAge <= 24) {
+                    return createCheck('hook-activity', TITLE, 'pass', `The session-summary hook last ran ${formatHoursAgo(ssAge)} — auto-capture is alive. ${capturedTail}`);
+                }
+                const status = ssAge <= 72 ? 'warn' : 'fail';
+                return createCheck('hook-activity', TITLE, status, `The session-summary hook last ran ${formatHoursAgo(ssAge)}. ` +
+                    'If you have worked since then, capture has stopped and nothing from those sessions was saved.', 'Restart your agent, then end one session and re-run `memesh doctor`. If it does not recover, run `memesh install-hooks`.', { code: 'hook-activity.stale', params: { hook: 'session-summary', hours: Math.round(ssAge) } });
+            }
+            const known = [...ages.entries()].filter((e) => e[1] !== null);
+            if (known.length === 0) {
+                const [hook] = [...ages.keys()];
+                return createCheck('hook-activity', TITLE, 'fail', `The ${hook} hook's last-run timestamp cannot be read (corrupt, or stamped by a machine with a wrong clock). ` +
+                    'Capture health is unknown, which is not the same as healthy.', 'End one work session, then re-run `memesh doctor` — a fresh run overwrites the bad timestamp.', { code: 'hook-activity.stale-unknown', params: { hook } });
+            }
+            const [freshestHook, freshestAge] = known.sort((a, b) => a[1] - b[1])[0];
+            if (freshestAge <= 24) {
+                return createCheck('hook-activity', TITLE, 'pass', `The ${freshestHook} hook last ran ${formatHoursAgo(freshestAge)} — auto-capture is alive. ` +
+                    `(session-summary has not stamped yet — expected until a session with real work ends.) ${capturedTail}`);
+            }
+            const status = freshestAge <= 72 ? 'warn' : 'fail';
+            return createCheck('hook-activity', TITLE, status, `The last capture hook ran ${formatHoursAgo(freshestAge)} (${freshestHook}). ` +
+                'If you have worked since then, capture has stopped and nothing from those sessions was saved.', 'Restart your agent, then end one session and re-run `memesh doctor`. If it does not recover, run `memesh install-hooks`.', { code: 'hook-activity.stale', params: { hook: freshestHook, hours: Math.round(freshestAge) } });
         }
         const since = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'hook_runs_since'").get()?.value;
-        const measuringHours = since ? hoursSince(since) : null;
-        if (!lastRun) {
-            if (measuringHours === null || measuringHours < 24) {
-                return createCheck('hook-activity', TITLE, 'pass', 'Hook-run tracking has only just started on this database — the first work session will fill it in.');
-            }
-            const markerPath = path.join(memeshDir(), 'install-hooks.json');
-            if (existsSyncImpl(markerPath)) {
-                try {
-                    if (Date.now() - statSyncImpl(markerPath).mtimeMs < 24 * 60 * 60 * 1000) {
-                        return createCheck('hook-activity', TITLE, 'pass', 'Hooks were wired in the last day and no session has ended yet — normal for a fresh install.');
-                    }
-                }
-                catch { }
-            }
-            return createCheck('hook-activity', TITLE, 'fail', `No capture hook has run in the ${formatHoursAgo(measuringHours)} since tracking began. ` +
-                'Either memesh has not been wired into your agent, or it is wired and the hooks are not executing — ' +
-                'those look identical from here, and both mean nothing is being remembered.', 'Run `memesh doctor` after ending one work session. If this still says no hook has run, run `memesh install-hooks` and restart your agent.', { code: 'hook-activity.never-ran', params: { hours: Math.round(measuringHours) } });
+        const measuringHours = since !== undefined ? hoursSince(since) : null;
+        if (since !== undefined && (measuringHours === null || measuringHours < 0)) {
+            db.prepare("UPDATE memesh_metadata SET value = datetime('now') WHERE key = 'hook_runs_since'").run();
+            return createCheck('hook-activity', TITLE, 'pass', 'The hook-run tracking marker was unreadable and has been reset — tracking restarts now, and the next `memesh doctor` after a work session gives a real verdict.');
         }
-        return createCheck('hook-activity', TITLE, 'fail', `The last capture hook ran ${formatHoursAgo(ranHoursAgo)} (${lastRun.hook}). ` +
-            'If you have worked since then, capture has stopped and nothing from those sessions was saved.', 'Restart your agent, then end one session and re-run `memesh doctor`. If it does not recover, run `memesh install-hooks`.', { code: 'hook-activity.stale', params: { hook: lastRun.hook, hours: ranHoursAgo === null ? -1 : Math.round(ranHoursAgo) } });
+        if (measuringHours === null || measuringHours < 24) {
+            return createCheck('hook-activity', TITLE, 'pass', 'Hook-run tracking has only just started on this database — the first work session will fill it in.');
+        }
+        const markerPath = path.join(memeshDir(), 'install-hooks.json');
+        if (existsSyncImpl(markerPath)) {
+            try {
+                if (Date.now() - statSyncImpl(markerPath).mtimeMs < 24 * 60 * 60 * 1000) {
+                    return createCheck('hook-activity', TITLE, 'pass', 'Hooks were wired in the last day and no session has ended yet — normal for a fresh install.');
+                }
+            }
+            catch { }
+        }
+        if (!wiringPresent) {
+            return createCheck('hook-activity', TITLE, 'warn', 'No capture hook has ever run — consistent with the hook-wiring row above: memesh is not wired into an agent on this machine, so there is nothing to run.', 'If you want automatic capture, run `memesh install-hooks`. If this install is MCP-only (Codex / Gemini), this is expected and safe to ignore.', { code: 'hook-activity.not-wired' });
+        }
+        return createCheck('hook-activity', TITLE, 'fail', `No capture hook has run since tracking began ${formatHoursAgo(measuringHours)}. ` +
+            'Hook wiring is in place, so they should be executing and are not — nothing is being remembered.', 'Run `memesh doctor` after ending one work session. If this still says no hook has run, run `memesh install-hooks` and restart your agent.', { code: 'hook-activity.never-ran', params: { hours: Math.round(measuringHours) } });
     }
     catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
@@ -317,12 +353,29 @@ function inspectHookActivity(openDatabaseImpl, closeDatabaseImpl, existsSyncImpl
         catch { }
     }
 }
+function isAutoCaptureOff() {
+    const envVal = process.env.MEMESH_AUTO_CAPTURE;
+    if (envVal === 'false')
+        return true;
+    if (envVal === 'true')
+        return false;
+    try {
+        return readConfig().autoCapture === false;
+    }
+    catch {
+        return false;
+    }
+}
 export function hoursSince(sqliteTimestamp) {
     const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(sqliteTimestamp ?? '');
     if (!m)
         return null;
     const then = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
     if (!Number.isFinite(then))
+        return null;
+    const d = new Date(then);
+    if (d.getUTCFullYear() !== +m[1] || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]
+        || d.getUTCHours() !== +m[4] || d.getUTCMinutes() !== +m[5] || d.getUTCSeconds() !== +m[6])
         return null;
     return (Date.now() - then) / (60 * 60 * 1000);
 }
@@ -773,8 +826,9 @@ export async function runDoctor(options) {
     checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl));
     checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
     checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
-    checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install));
-    checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl));
+    const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install);
+    checks.push(wiring);
+    checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl, wiring.status === 'pass'));
     checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
     checks.push(inspectNodeRuntime(packageRoot, existsSyncImpl, readFileSyncImpl));
     checks.push(inspectNativeBinding(packageRoot, existsSyncImpl, nativeBindingProbeImpl));

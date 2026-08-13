@@ -60,7 +60,12 @@ export const QUIET_WARN_CODES = new Set([
   // are not running", so it fired on quiet days and reading it as a problem
   // would have been wrong most of the time. The check now measures hook RUNS
   // rather than captured rows, so the ambiguity is gone and the code with it:
-  // a quiet day is a PASS, and a stopped loop is a FAIL that banners.
+  // a quiet day is a PASS, a >24h gap is a WARN that banners (a weekend, or
+  // the first sign of a stopped loop), and >72h is a FAIL.
+  'hook-activity.not-wired',       // the hook-wiring row already banners this
+                                   // condition with its own fix; for MCP-only
+                                   // installs (Codex / Gemini) it is not a
+                                   // problem at all
   'shell-cli.not-on-path',         // plugin-only installs work fully
   'skills-manifest.missing-dev',   // normal for source checkouts
   'install-channel.unknown',       // nothing is broken

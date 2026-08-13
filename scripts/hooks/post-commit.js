@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'child_process';
-import { AUTO_CAPTURE_TAG, captureEntity, getProjectName, openHookDb } from './_shared.js';
+import { AUTO_CAPTURE_TAG, captureEntity, getProjectName, openHookDb, recordHookRun } from './_shared.js';
 
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -101,7 +101,7 @@ process.stdin.on('end', () => {
 
     // Open DB via shared helper — applies SCHEMA_SQL + status migration.
     // Pass fts:true so the FTS5 entity-search index is also available.
-    const { db } = openHookDb(process.env, { fts: true, hook: 'post-commit' });
+    const { db } = openHookDb(process.env, { fts: true });
     try {
       const entityName = `commit-${commitHash}`;
 
@@ -140,6 +140,10 @@ process.stdin.on('end', () => {
         observations,
         tags: [AUTO_CAPTURE_TAG, `project:${projectName}`],
       });
+
+      // Heartbeat AFTER capture, so the stamp certifies "the capture loop
+      // completed", not "a database handle existed". A throw above skips it.
+      recordHookRun(db, 'post-commit');
     } finally {
       db.close();
     }

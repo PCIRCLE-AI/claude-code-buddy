@@ -127,6 +127,65 @@ describe('Feature: PreCompact Hook', () => {
     db.close();
   });
 
+  it('Scenario: a successful run stamps the hook_runs heartbeat AFTER capture', () => {
+    runHook({
+      session_id: 'sess-heartbeat',
+      transcript_path: '',
+      cwd: '/tmp/myproject',
+      hook_event_name: 'PreCompact',
+      reason: 'auto',
+    });
+
+    const db = openDb();
+    const run = db.prepare("SELECT hook, run_count FROM hook_runs WHERE hook = 'pre-compact'").get() as
+      { hook: string; run_count: number } | undefined;
+    const entity = db.prepare('SELECT id FROM entities WHERE name = ?').get('pre-compact-sess-heartbeat');
+    db.close();
+
+    expect(entity, 'capture itself must have happened for the stamp to mean anything').toBeTruthy();
+    expect(run, 'a completed capture run must stamp the heartbeat').toBeDefined();
+    expect(run!.run_count).toBe(1);
+  });
+
+  it('Scenario: a run that dies mid-capture leaves NO heartbeat', () => {
+    // The heartbeat used to be stamped at openHookDb time, which made a hook
+    // that opened the database and then crashed in captureEntity read as
+    // "auto-capture is alive" in doctor for the next 24 hours — the exact
+    // dead-loop-looks-healthy lie the hook_runs table exists to end.
+    //
+    // Poison the database so the run reaches captureEntity and throws there:
+    // an entities table missing the `metadata` column survives openHookDb
+    // (SCHEMA_SQL is CREATE IF NOT EXISTS; the migration chain only backfills
+    // the columns it knows) and fails on captureEntity's INSERT.
+    const poisoned = new Database(dbPath);
+    poisoned.exec(`
+      CREATE TABLE entities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        status TEXT NOT NULL DEFAULT 'active'
+      );
+    `);
+    poisoned.close();
+
+    const stderr = runHookStderr({
+      session_id: 'sess-dies-mid-capture',
+      transcript_path: '',
+      cwd: '/tmp/myproject',
+      trigger: 'auto',
+    });
+    expect(stderr, 'the capture failure must be visible, not swallowed').toContain('metadata');
+
+    const db = openDb();
+    const runs = db.prepare('SELECT hook FROM hook_runs').all();
+    const entity = db.prepare('SELECT id FROM entities WHERE name = ?').get('pre-compact-sess-dies-mid-capture');
+    db.close();
+
+    expect(entity, 'precondition: capture must actually have failed').toBeUndefined();
+    expect(runs, 'a crashed capture run must not look alive').toHaveLength(0);
+  });
+
   it('Scenario: trigger (the real Claude Code field) stored as reason observation', () => {
     // Claude Code's PreCompact payload names the field `trigger`, not `reason`.
     // Feeding the REAL field proves the hook reads it; before the fix (which

@@ -2,7 +2,7 @@
 
 import { basename } from 'path';
 import { existsSync, readFileSync } from 'fs';
-import { AUTO_CAPTURE_TAG, captureEntity, getProjectName, isAutoCaptureEnabled, openHookDb } from './_shared.js';
+import { AUTO_CAPTURE_TAG, captureEntity, getProjectName, isAutoCaptureEnabled, openHookDb, recordHookRun } from './_shared.js';
 
 // Timeout guard: always exit within 10 seconds
 const TIMEOUT_MS = 10000;
@@ -101,7 +101,7 @@ process.stdin.on('end', () => {
 
     // Open DB via shared helper — applies SCHEMA_SQL + status migration.
     // FTS5 needed for the entity-search index updates below.
-    const { db } = openHookDb(process.env, { fts: true, hook: 'pre-compact' });
+    const { db } = openHookDb(process.env, { fts: true });
     let written = null;
     try {
       // Shared write dance — upsert entity + observations + tags AND reindex FTS
@@ -112,6 +112,10 @@ process.stdin.on('end', () => {
         observations: obsLines,
         tags: [AUTO_CAPTURE_TAG, 'urgency:pre-compact', `project:${projectName}`],
       });
+
+      // Heartbeat AFTER capture, so the stamp certifies "the capture loop
+      // completed", not "a database handle existed". A throw above skips it.
+      recordHookRun(db, 'pre-compact');
     } finally {
       db.close();
     }

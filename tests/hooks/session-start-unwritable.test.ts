@@ -25,6 +25,18 @@ import path from 'path';
 const isRoot = process.getuid?.() === 0;
 const isWindows = process.platform === 'win32';
 
+// The skip below is silent by construction: if CI ever moves into a root
+// container, every case in this suite evaporates with zero signal, and the
+// write-probe regression it pins was exactly a shipped-with-no-test gap.
+// This guard is NOT skipped, so an all-skip run fails loudly and the move
+// to root has to be a conscious decision, not an accident.
+describe('session-start unwritable-suite skip guard', () => {
+  it('does not silently skip the whole suite on CI', () => {
+    if (!process.env.CI) return; // local root runs are the developer's business
+    expect(isRoot && !isWindows, 'CI runs as root — the unwritable-dir suite below is silently skipped; run it in a non-root user or consciously retire it').toBe(false);
+  });
+});
+
 describe.skipIf(isRoot || isWindows)('session-start: an unwritable memesh dir is never reported as ready', () => {
   let home: string;
   let memeshDir: string;

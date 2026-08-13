@@ -106,47 +106,51 @@ describe('write-hook invariants (fake-working gates)', () => {
     }
   });
 
-  it('openHookDb stamps the heartbeat when given a hook name, and not otherwise', () => {
+  it('recordHookRun stamps and upserts; openHookDb alone never stamps', () => {
     // `hook_runs` is the only evidence that a hook EXECUTED rather than merely
     // captured something, and doctor now reports a FAIL when it goes stale.
     // That makes the write itself load-bearing: if this stops happening,
     // doctor starts accusing a perfectly healthy install of having dead hooks.
-    const stamped = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { hook: 'session-summary' });
+    //
+    // openHookDb must NOT stamp: it used to, and that certified the wrong
+    // thing — a hook that opened the database and then died in its own
+    // capture logic looked alive for a day. The stamp belongs to the hook's
+    // successful exit (pinned end-to-end in pre-compact.test.ts).
+    const opened = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { fts: true });
     try {
-      const row = stamped.db.prepare("SELECT hook, run_count FROM hook_runs WHERE hook = 'session-summary'").get();
-      expect(row, 'openHookDb did not record that the hook ran').toBeDefined();
+      const rows = opened.db.prepare('SELECT hook FROM hook_runs').all();
+      expect(rows, 'openHookDb stamped a heartbeat — that lie is what this PR removes').toHaveLength(0);
+
+      shared.recordHookRun(opened.db, 'session-summary');
+      const row = opened.db.prepare("SELECT hook, run_count FROM hook_runs WHERE hook = 'session-summary'").get();
+      expect(row, 'recordHookRun did not record that the hook ran').toBeDefined();
       expect(row.run_count).toBe(1);
-    } finally { stamped.db.close(); }
 
-    // Second run of the same hook increments rather than duplicating — the
-    // table is keyed by hook name and must not grow with usage.
-    const again = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { hook: 'session-summary' });
-    try {
-      const rows = again.db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").all();
-      expect(rows).toHaveLength(1);
-      expect(rows[0].run_count).toBe(2);
-    } finally { again.db.close(); }
-
-    // A caller with no hook name is an internal helper, not a hook firing.
-    // session-summary calls openHookDb() a second time to count entities; if
-    // that stamped the heartbeat too, the count would stop meaning "sessions".
-    const anonymous = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath });
-    try {
-      const row = anonymous.db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").get();
-      expect(row.run_count, 'an internal openHookDb() call was counted as a hook run').toBe(2);
-    } finally { anonymous.db.close(); }
+      // Second run of the same hook increments rather than duplicating — the
+      // table is keyed by hook name and must not grow with usage.
+      shared.recordHookRun(opened.db, 'session-summary');
+      const again = opened.db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").all();
+      expect(again).toHaveLength(1);
+      expect(again[0].run_count).toBe(2);
+    } finally { opened.db.close(); }
   });
 
-  it('every capture hook passes its own name to openHookDb', () => {
-    // The stamp is opt-in per call site, so a new capture hook that forgets it
-    // is invisible: capture works, and doctor slowly decides the loop is dead.
+  it('every capture hook stamps its own completion, and none stamps at open', () => {
+    // The stamp is per call site, so a new capture hook that forgets it is
+    // invisible: capture works, and doctor slowly decides the loop is dead.
+    // The inverse matters just as much: a `hook:` option handed back to
+    // openHookDb would quietly move the stamp to before capture again.
     for (const hook of ['session-summary.js', 'post-commit.js', 'pre-compact.js']) {
       const src = fs.readFileSync(path.join('scripts/hooks', hook), 'utf8');
       const name = hook.replace(/\.js$/, '');
       expect(
         src,
-        `${hook} must pass hook: '${name}' to openHookDb, or doctor cannot tell it ever ran`,
-      ).toContain(`hook: '${name}'`);
+        `${hook} must call recordHookRun(db, '${name}') at its successful exit, or doctor cannot tell it ever ran`,
+      ).toContain(`recordHookRun(db, '${name}')`);
+      expect(
+        src,
+        `${hook} passes hook: to openHookDb — the open-time stamp reported crashed hooks as alive`,
+      ).not.toMatch(/openHookDb\([^)]*hook:/);
     }
   });
 });

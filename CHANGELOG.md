@@ -18,12 +18,37 @@ All notable changes to MeMesh are documented here.
   could never see.
 
   A `hook_runs` table (one row per hook, upserted, it does not grow) is now
-  stamped by the three hooks that hold a read-write handle. Doctor reads it and
-  answers a different question: a quiet day where the hook ran is a **PASS**
-  that says so, and a loop that has stopped is a **FAIL** that reaches the
-  dashboard banner. A database that only just gained the table is a PASS too —
-  `hook_runs_since` records when we first *could* tell, so the upgrade itself
-  does not look like a failure.
+  stamped by the three hooks that hold a read-write handle — each at its own
+  **successful exit**, after capture, never at open. The first draft stamped
+  when the database handle became usable, and two independent adversarial
+  reviews converged on the same objection: a hook that opens the database and
+  then dies in its own capture logic would read as "alive" for a day, which
+  is the exact lie this table exists to end, relocated one step later. A
+  run that correctly decides there is nothing to do (the dedup bail) stamps
+  too; a run that throws does not, and a test drives a hook into a
+  mid-capture crash to hold that.
+
+  Doctor reads the table per hook, and only `session-summary`'s silence is
+  allowed to alarm: it fires on every real session's Stop, while
+  `post-commit` and `pre-compact` fire only when the user commits or a
+  session compacts — a week without commits proves nothing, and treating it
+  as death would just relocate the crying wolf. A healthy `post-commit`
+  cannot mask a dead `session-summary` either: once session-summary has ever
+  stamped, its row owns the verdict. Staleness is two-tiered — >24h is a
+  warn (a weekend), >72h is the FAIL that banners. A quiet day where the
+  hook ran is a **PASS** that says so. A database that only just gained the
+  table is a PASS too — `hook_runs_since` records when we first *could*
+  tell, so the upgrade itself does not look like a failure (and a corrupt or
+  future-dated marker is restamped rather than granting that grace forever).
+  Deliberately disabled capture (`MEMESH_AUTO_CAPTURE=false` or config
+  `autoCapture: false`) is a PASS that names the setting, never a failure;
+  and "never ran" only reds when hook wiring is actually in place — an
+  MCP-only install (Codex / Gemini) gets a quiet corroborating warn, not a
+  permanent unfixable red. Timestamps are parsed as the UTC that SQLite
+  writes, rolled-over pseudo-dates (`2026-99-99`) are rejected rather than
+  normalised into the future, and a future-dated heartbeat reads as
+  *unknown*, not *recent* — three hosts share this database, and one wrong
+  clock must not hide a dead loop behind a timestamp from tomorrow.
 
 ### Fixed
 

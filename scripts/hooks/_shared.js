@@ -298,10 +298,12 @@ CREATE TABLE IF NOT EXISTS memesh_metadata (
 -- the first and stayed silent on the second.
 --
 -- Written by the three hooks that hold a read-write handle (Stop, PreCompact,
--- PostToolUse) via openHookDb's \`hook\` option. The recall-side hooks open
--- read-only and deliberately do not appear here: their liveness answers a
--- different question, and giving them a write handle would put a lock
--- acquisition on the SessionStart hot path.
+-- PostToolUse), each calling recordHookRun() at its own SUCCESSFUL exit —
+-- after capture, not at open. Stamping at open certified the wrong thing: a
+-- hook that opened the database and then died mid-capture looked alive for a
+-- day. The recall-side hooks open read-only and deliberately do not appear
+-- here: their liveness answers a different question, and giving them a write
+-- handle would put a lock acquisition on the SessionStart hot path.
 --
 -- One row per hook, upserted. It does not grow.
 CREATE TABLE IF NOT EXISTS hook_runs (
@@ -448,10 +450,13 @@ export function openHookDb(env = process.env, opts = {}) {
   // saw "database disk image is malformed" on hook stderr.
   if (opts.fts) ensureHookFtsSegmentation(db);
 
-  // Stamp the heartbeat LAST, so the row means "a hook process got all the way
-  // to a usable handle" rather than "a hook process started". A hook that dies
-  // in migration is as broken as one that never fired, and must not look alive.
-  if (opts.hook) recordHookRun(db, opts.hook);
+  // No heartbeat here. This helper used to stamp `hook_runs` as soon as the
+  // handle was usable, and that stamped-then-crashed hooks into looking
+  // alive: a hook that opened the database and then died in its own capture
+  // logic — the failure class this table exists to expose — read as PASS in
+  // `memesh doctor` for the next 24 hours. Each capture hook now calls
+  // recordHookRun() itself at every SUCCESSFUL exit (including "ran, nothing
+  // worth saving"), so a mid-capture throw leaves no stamp.
 
   return { db, dbPath };
 }

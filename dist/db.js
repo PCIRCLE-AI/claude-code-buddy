@@ -80,10 +80,12 @@ CREATE TABLE IF NOT EXISTS memesh_metadata (
 -- the first and stayed silent on the second.
 --
 -- Written by the three hooks that hold a read-write handle (Stop, PreCompact,
--- PostToolUse) via openHookDb's \`hook\` option. The recall-side hooks open
--- read-only and deliberately do not appear here: their liveness answers a
--- different question, and giving them a write handle would put a lock
--- acquisition on the SessionStart hot path.
+-- PostToolUse), each calling recordHookRun() at its own SUCCESSFUL exit —
+-- after capture, not at open. Stamping at open certified the wrong thing: a
+-- hook that opened the database and then died mid-capture looked alive for a
+-- day. The recall-side hooks open read-only and deliberately do not appear
+-- here: their liveness answers a different question, and giving them a write
+-- handle would put a lock acquisition on the SessionStart hot path.
 --
 -- One row per hook, upserted. It does not grow.
 CREATE TABLE IF NOT EXISTS hook_runs (

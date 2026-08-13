@@ -36,6 +36,7 @@ import {
   isAutoCaptureEnabled,
   openHookDb,
   readUpdateCheckCache,
+  recordHookRun,
   resolveAutoUpdatePolicy,
   resolvePluginRoot,
   spawnAutoUpdate,
@@ -283,7 +284,7 @@ process.stdin.on('end', async () => {
     // Stop capture vanished (0 entities against a control run's 1) and the
     // user got a `Require stack:` dump on stderr. An extension nobody calls
     // was silently costing every session on those platforms its memory.
-    const { db } = openHookDb(process.env, { fts: true, hook: 'session-summary' });
+    const { db } = openHookDb(process.env, { fts: true });
     try {
       // Duplicate detection: if we already captured this session, bail.
       //
@@ -293,8 +294,15 @@ process.stdin.on('end', async () => {
       // share the prefix and silently skipped the second session
       // entirely. The contract is one stored capture per distinct
       // session_id, so the dedup key has to be the full id.
+      //
+      // A dedup bail is a SUCCESSFUL run — the loop executed and correctly
+      // decided there was nothing to do — so it stamps the heartbeat like
+      // the capture path below does. Only a throw leaves no stamp.
       const alreadyCaptured = db.prepare("SELECT id FROM entities WHERE name = ?").get(`session-${sessionId}-files`);
-      if (alreadyCaptured) return exit0();
+      if (alreadyCaptured) {
+        recordHookRun(db, 'session-summary');
+        return exit0();
+      }
 
       // Build and store session memories
       const baseTags = [AUTO_CAPTURE_TAG, `session:${sessionId}`, `project:${projectName}`];
@@ -469,6 +477,12 @@ process.stdin.on('end', async () => {
         // missing-column failure is visible without crashing the hook.
         try { process.stderr.write(`[memesh session-summary] recall-effectiveness write: ${err?.message || err}\n`); } catch {}
       }
+
+      // Heartbeat AFTER capture, so the stamp certifies "the capture loop
+      // completed", not "a database handle existed". A throw above skips it.
+      // (The recall-effectiveness block catches its own errors — session
+      // memories were already stored by then, so the run still counts.)
+      recordHookRun(db, 'session-summary');
     } finally {
       db.close();
     }

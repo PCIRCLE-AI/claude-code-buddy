@@ -440,6 +440,15 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     const entities = db.prepare("SELECT * FROM entities WHERE name LIKE 'session-test-ses%'").all();
     // Should have exactly 1 entity (not duplicated)
     expect(entities.length).toBe(1);
+
+    // Both runs stamp the heartbeat: a dedup bail is a SUCCESSFUL run — the
+    // loop executed and correctly decided there was nothing to do. If the
+    // bail stopped stamping, a day of already-captured sessions would read
+    // as "capture stopped" in doctor.
+    const run = db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").get() as
+      { run_count: number } | undefined;
+    expect(run, 'session-summary must stamp its heartbeat').toBeDefined();
+    expect(run!.run_count, 'the dedup bail must stamp too — it is a successful run').toBe(2);
     db.close();
   });
 

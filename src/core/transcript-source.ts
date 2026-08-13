@@ -9,9 +9,10 @@
 // Why a transcript source at all: the capture hook (session-summary) already
 // parses these files, but only at session end and only if the hook fired
 // (native binding built, hooks wired, session ended naturally, agentic-loop
-// guard did not filter it — the `hook-activity.quiet` doctor check exists
-// because that chain breaks often). The files themselves are on disk
-// regardless. A batch that reads them directly is dropout-proof.
+// guard did not filter it — the `hook_runs` heartbeat and doctor's
+// hook-activity check exist because that chain breaks often). The files
+// themselves are on disk regardless. A batch that reads them directly is
+// dropout-proof.
 
 import fs from 'fs';
 import os from 'os';
