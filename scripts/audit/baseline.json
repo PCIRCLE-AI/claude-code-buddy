@@ -141,11 +141,6 @@
       "reason": "client-side search haystack only",
       "triaged": "2026-08-04 (re-keyed: the Batch-D mono-count span shifted 168→169; same code verified before re-keying)"
     },
-    "C5 dashboard/src/components/GraphTab.tsx:233": {
-      "class": "SAFE-GUARDED",
-      "reason": "computeGraph always returns noiseTypes; same-origin fetch",
-      "triaged": "2026-08-04 (re-keyed: the Batch-D token-resolver + palette refactor shifted 208→233; same code verified before re-keying)"
-    },
     "C5 dashboard/src/components/InsightsBanner.tsx:65": {
       "class": "SAFE-DISPLAY",
       "reason": "zero pending proposals legitimately hides the banner",
@@ -510,6 +505,11 @@
       "class": "WIRING-PIN",
       "reason": "retired message lives in RETIRED_ROUTES; remaining source asserts pin the wiring (CLI signpost text, 410 registration), sibling of consolidate-retired.test.ts with the same classification",
       "triaged": "2026-08-13 (verify_agent_work retirement)"
+    },
+    "C5 dashboard/src/components/GraphTab.tsx:276": {
+      "class": "SAFE-GUARDED",
+      "reason": "computeGraph always returns noiseTypes; same-origin fetch",
+      "triaged": "2026-08-04 (re-keyed: the Batch-D token-resolver + palette refactor shifted 208→233; same code verified before re-keying); re-keyed 2026-08-13 233->276 (graph visual-hierarchy helpers added above; same statement, classification unchanged — verified)"
     }
   }
 }
