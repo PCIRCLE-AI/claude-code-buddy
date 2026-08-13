@@ -3,7 +3,7 @@ import path from 'path';
 import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
-import { detectCapabilities, getConfigPath, isTranscriptMiningEnabled } from './config.js';
+import { detectCapabilities, getConfigPath, isTranscriptMiningEnabled, readConfig } from './config.js';
 import { embedText } from './embedder.js';
 import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } from '../db.js';
@@ -239,10 +239,12 @@ function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, installC
     if (!settingsParsed.ok) {
         return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'fail', `${marker.settings_path} is no longer valid JSON.`, 'Restore from your ~/.claude backups or re-create with `memesh install-hooks`.', { code: 'hook-wiring.settings-invalid', params: { path: String(marker.settings_path) } });
     }
+    const CAPTURE_EVENTS = new Set(['Stop', 'PostToolUse', 'PreCompact']);
     const hooks = settingsParsed.value.hooks;
     let hasMemeshHook = false;
+    let hasCaptureHook = false;
     if (hooks && typeof hooks === 'object') {
-        for (const entries of Object.values(hooks)) {
+        for (const [event, entries] of Object.entries(hooks)) {
             if (!Array.isArray(entries))
                 continue;
             for (const entry of entries) {
@@ -251,10 +253,12 @@ function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, installC
                     continue;
                 if (cmds.some((c) => c._memesh === true)) {
                     hasMemeshHook = true;
+                    if (CAPTURE_EVENTS.has(event))
+                        hasCaptureHook = true;
                     break;
                 }
             }
-            if (hasMemeshHook)
+            if (hasMemeshHook && hasCaptureHook)
                 break;
         }
     }
@@ -264,34 +268,110 @@ function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, installC
     if (typeof marker.plugin_root === 'string' && !existsSyncImpl(marker.plugin_root)) {
         return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'fail', `Hook commands point at ${marker.plugin_root}, which no longer exists (likely after an npm-global path change).`, 'Re-run `memesh install-hooks` to refresh paths.', { code: 'hook-wiring.root-moved', params: { path: String(marker.plugin_root) } });
     }
-    return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'pass', `Wired in ${marker.settings_path} (scope: ${marker.scope ?? 'user'}, version: ${marker.version ?? 'unknown'}).`);
+    return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'pass', `Wired in ${marker.settings_path} (scope: ${marker.scope ?? 'user'}, version: ${marker.version ?? 'unknown'}).`, undefined, { params: { captureWired: hasCaptureHook ? 1 : 0 } });
 }
-function inspectHookActivity(openDatabaseImpl, closeDatabaseImpl, existsSyncImpl = fs.existsSync, statSyncImpl = fs.statSync) {
+function inspectHookActivity(openDatabaseImpl, closeDatabaseImpl, existsSyncImpl = fs.existsSync, statSyncImpl = fs.statSync, wiringPresent = true) {
+    const TITLE = 'Hook activity';
+    const captureOff = autoCaptureOffSource();
+    if (captureOff === 'config') {
+        return createCheck('hook-activity', TITLE, 'pass', 'Automatic capture is turned off (config autoCapture: false) — deliberately, so hook silence is expected. Re-enable it to resume capturing sessions.', undefined, { code: 'hook-activity.disabled' });
+    }
+    if (captureOff === 'env') {
+        return createCheck('hook-activity', TITLE, 'pass', 'Automatic capture is turned off by MEMESH_AUTO_CAPTURE=false in this shell\'s environment. Doctor can only see its own environment — if your agent runs without this variable, capture there is unaffected.', undefined, { code: 'hook-activity.disabled-env' });
+    }
     let db = null;
     try {
         db = openDatabaseImpl();
-        const row = db.prepare(`SELECT COUNT(DISTINCT e.id) as c FROM entities e
+        const hookRunsTablePresent = !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'hook_runs'").get();
+        const rows = hookRunsTablePresent
+            ? db.prepare(`SELECT hook, last_run_at FROM hook_runs`).all()
+            : [];
+        const captured = db.prepare(`SELECT COUNT(DISTINCT e.id) as c FROM entities e
        JOIN tags t ON t.entity_id = e.id
        WHERE t.tag = ?
-         AND e.created_at > datetime('now', '-24 hours')`).get(AUTO_CAPTURE_TAG);
-        const count = row?.c ?? 0;
-        if (count === 0) {
-            const markerPath = path.join(memeshDir(), 'install-hooks.json');
-            if (existsSyncImpl(markerPath)) {
-                try {
-                    const ageMs = Date.now() - statSyncImpl(markerPath).mtimeMs;
-                    if (ageMs < 24 * 60 * 60 * 1000) {
-                        return createCheck('hook-activity', 'Hook activity (last 24h)', 'pass', 'Hooks wired recently — no captureable sessions yet (this is normal for a fresh install).');
-                    }
-                }
-                catch { }
-            }
-            return createCheck('hook-activity', 'Hook activity (last 24h)', 'warn', 'memesh has not saved anything automatically in the last 24 hours. Everything is set up — it just has not seen a work session to remember yet. If you HAVE been working all day, Claude Code may need a restart to pick the connection up.', 'Do a normal Claude Code work session (or make a git commit), then check again with `memesh doctor`.', { code: 'hook-activity.quiet' });
+         AND e.created_at > datetime('now', '-24 hours')`).get(AUTO_CAPTURE_TAG)?.c ?? 0;
+        const since = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'hook_runs_since'").get()?.value;
+        const measuringHours = since !== undefined ? hoursSince(since) : null;
+        const SKEW_TOLERANCE_H = 5 / 60;
+        const KNOWN_HOOKS = new Set(['session-summary', 'post-commit', 'pre-compact']);
+        const ages = new Map();
+        for (const r of rows) {
+            if (!KNOWN_HOOKS.has(r.hook))
+                continue;
+            const age = hoursSince(r.last_run_at);
+            ages.set(r.hook, age !== null && age >= -SKEW_TOLERANCE_H ? Math.max(age, 0) : null);
         }
-        return createCheck('hook-activity', 'Hook activity (last 24h)', 'pass', `${count} memesh-attributed entit${count === 1 ? 'y' : 'ies'} captured in the past 24h — auto-capture loop is alive.`);
+        if (ages.size > 0) {
+            const capturedTail = captured > 0
+                ? `${captured} memor${captured === 1 ? 'y' : 'ies'} captured in the last 24h.`
+                : 'Nothing was worth saving in that time, which is normal — the loop still ran.';
+            const staleUnknown = (hook) => createCheck('hook-activity', TITLE, 'fail', `The ${hook} hook's last-run timestamp cannot be read (corrupt, or stamped by a machine with a wrong clock). ` +
+                'Capture health is unknown, which is not the same as healthy.', 'End one work session, then re-run `memesh doctor` — a fresh run overwrites the bad timestamp.', { code: 'hook-activity.stale-unknown', params: { hook } });
+            const stale = (hook, age, status) => createCheck('hook-activity', TITLE, status, `The ${hook} hook last ran ${formatHoursAgo(Math.ceil(age))}. ` +
+                'If you have worked since then, capture has stopped and nothing from those sessions was saved.', 'Restart your agent, then end one session and re-run `memesh doctor`. If it does not recover, run `memesh install-hooks`.', { code: 'hook-activity.stale', params: { hook, hours: Math.ceil(age) } });
+            const ssAge = ages.has('session-summary') ? ages.get('session-summary') : undefined;
+            if (ssAge === null)
+                return staleUnknown('session-summary');
+            if (ssAge !== undefined) {
+                if (ssAge <= 24) {
+                    return createCheck('hook-activity', TITLE, 'pass', `The session-summary hook last ran ${formatHoursAgo(ssAge)} — auto-capture is alive. ${capturedTail}`);
+                }
+                if (ssAge <= 72)
+                    return stale('session-summary', ssAge, 'warn');
+                const ccWrites = db.prepare(`SELECT COUNT(*) as c FROM entities
+           WHERE created_at > datetime('now', '-72 hours')
+             AND json_valid(metadata)
+             AND json_extract(metadata, '$.provenance.source_host') = 'claude-code'`).get()?.c ?? 0;
+                if (ccWrites > 0)
+                    return stale('session-summary', ssAge, 'fail');
+                return createCheck('hook-activity', TITLE, 'warn', `The session-summary hook last ran ${formatHoursAgo(Math.ceil(ssAge))}, and no Claude Code writes landed in the last 3 days either. If this machine has moved to another agent (Codex / Gemini), this is expected; if you still use Claude Code here, capture has stopped.`, 'If you still use Claude Code on this machine: restart it, end one session, and re-run `memesh doctor`. If it does not recover, run `memesh install-hooks`.', { code: 'hook-activity.stale-unconfirmed', params: { hook: 'session-summary', hours: Math.ceil(ssAge) } });
+            }
+            const known = [...ages.entries()].filter((e) => e[1] !== null);
+            if (known.length === 0) {
+                const [hook] = [...ages.keys()].sort();
+                return staleUnknown(hook);
+            }
+            const [freshestHook, freshestAge] = known.sort((a, b) => a[1] - b[1])[0];
+            if (freshestAge <= 24) {
+                if (measuringHours !== null && measuringHours > 72) {
+                    return createCheck('hook-activity', TITLE, 'warn', `The ${freshestHook} hook is stamping (last ran ${formatHoursAgo(freshestAge)}), but the session-summary hook has never run once in the ${Math.round(measuringHours)} hours since tracking began — session capture may be broken while commit capture hides it.`, 'End one work session and re-run `memesh doctor`. If session-summary still has not run, run `memesh install-hooks` and restart your agent.', { code: 'hook-activity.stop-silent', params: { hook: freshestHook, hours: Math.round(measuringHours) } });
+                }
+                return createCheck('hook-activity', TITLE, 'pass', `The ${freshestHook} hook last ran ${formatHoursAgo(freshestAge)} — auto-capture is alive. ` +
+                    `(session-summary has not stamped yet — expected until a session with real work ends.) ${capturedTail}`);
+            }
+            return stale(freshestHook, freshestAge, 'warn');
+        }
+        if (since !== undefined && (measuringHours === null || measuringHours < 0)) {
+            return createCheck('hook-activity', TITLE, 'pass', 'The hook-run tracking marker is unreadable — it will be re-stamped automatically the next time the database is opened for writing (any session, commit, or memesh command does it). Tracking restarts then.');
+        }
+        if (measuringHours === null || measuringHours < 24) {
+            return createCheck('hook-activity', TITLE, 'pass', 'Hook-run tracking has only just started on this database — the first work session will fill it in.');
+        }
+        const markerPath = path.join(memeshDir(), 'install-hooks.json');
+        if (existsSyncImpl(markerPath)) {
+            try {
+                if (Date.now() - statSyncImpl(markerPath).mtimeMs < 24 * 60 * 60 * 1000) {
+                    return createCheck('hook-activity', TITLE, 'pass', 'Hooks were wired in the last day and no session has ended yet — normal for a fresh install.');
+                }
+            }
+            catch { }
+        }
+        const legacyCaptured = db.prepare(`SELECT COUNT(DISTINCT e.id) as c FROM entities e
+       JOIN tags t ON t.entity_id = e.id
+       WHERE t.tag = ?
+         AND e.created_at > ?`).get(AUTO_CAPTURE_TAG, since)?.c ?? 0;
+        if (legacyCaptured > 0) {
+            return createCheck('hook-activity', TITLE, 'warn', `No hook has stamped the heartbeat, but ${legacyCaptured} auto-capture memor${legacyCaptured === 1 ? 'y' : 'ies'} landed since tracking began — hooks from a version before heartbeat tracking are probably still running.`, 'Update the memesh hooks to the current version (plugin installs: `/plugin update memesh`; npm installs: `memesh install-hooks`), then restart your agent.', { code: 'hook-activity.never-ran-legacy', params: { captured: legacyCaptured } });
+        }
+        if (!wiringPresent) {
+            return createCheck('hook-activity', TITLE, 'warn', 'No capture hook has ever run — and no capture hook (Stop / PostToolUse / PreCompact) is confirmed wired on this machine, so there is nothing to run.', 'If you want automatic capture, run `memesh install-hooks`. If this install is MCP-only (Codex / Gemini), this is expected and safe to ignore.', { code: 'hook-activity.not-wired' });
+        }
+        return createCheck('hook-activity', TITLE, 'fail', `No capture hook has run since tracking began ${formatHoursAgo(measuringHours)}. ` +
+            'Hook wiring is in place, so they should be executing and are not — nothing is being remembered.', 'Run `memesh doctor` after ending one work session. If this still says no hook has run, run `memesh install-hooks` and restart your agent.', { code: 'hook-activity.never-ran', params: { hours: Math.round(measuringHours) } });
     }
     catch (err) {
-        return createCheck('hook-activity', 'Hook activity (last 24h)', 'warn', `Could not query the database: ${err instanceof Error ? err.message : String(err)}`, undefined, { code: 'hook-activity.query-failed', params: { detail: err instanceof Error ? err.message : String(err) } });
+        const detail = err instanceof Error ? err.message : String(err);
+        return createCheck('hook-activity', TITLE, 'fail', `Could not read hook activity from the database: ${detail}. Capture health is unknown, which is not the same as healthy.`, 'Run `memesh doctor --verbose` for the full error, and check that ~/.memesh is readable and not out of disk.', { code: 'hook-activity.query-failed', params: { detail } });
     }
     finally {
         try {
@@ -300,6 +380,44 @@ function inspectHookActivity(openDatabaseImpl, closeDatabaseImpl, existsSyncImpl
         }
         catch { }
     }
+}
+function autoCaptureOffSource() {
+    const envVal = process.env.MEMESH_AUTO_CAPTURE;
+    if (envVal === 'false')
+        return 'env';
+    if (envVal === 'true')
+        return null;
+    try {
+        return readConfig().autoCapture === false ? 'config' : null;
+    }
+    catch {
+        return null;
+    }
+}
+export function hoursSince(sqliteTimestamp) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(sqliteTimestamp ?? '');
+    if (!m)
+        return null;
+    const then = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+    if (!Number.isFinite(then))
+        return null;
+    const d = new Date(then);
+    if (d.getUTCFullYear() !== +m[1] || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]
+        || d.getUTCHours() !== +m[4] || d.getUTCMinutes() !== +m[5] || d.getUTCSeconds() !== +m[6])
+        return null;
+    return (Date.now() - then) / (60 * 60 * 1000);
+}
+function formatHoursAgo(hours) {
+    if (hours === null || !Number.isFinite(hours) || hours < 0)
+        return 'at an unknown time';
+    if (hours < 1)
+        return 'less than an hour ago';
+    if (hours < 48) {
+        const h = Math.round(hours);
+        return `${h} hour${h === 1 ? '' : 's'} ago`;
+    }
+    const d = Math.round(hours / 24);
+    return `${d} day${d === 1 ? '' : 's'} ago`;
 }
 function defaultResolveShellMemesh() {
     try {
@@ -736,8 +854,11 @@ export async function runDoctor(options) {
     checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl));
     checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
     checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
-    checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install));
-    checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl));
+    const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install);
+    checks.push(wiring);
+    const captureWired = wiring.status === 'pass'
+        && (wiring.params === undefined || wiring.params.captureWired === 1);
+    checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl, captureWired));
     checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
     checks.push(inspectNodeRuntime(packageRoot, existsSyncImpl, readFileSyncImpl));
     checks.push(inspectNativeBinding(packageRoot, existsSyncImpl, nativeBindingProbeImpl));

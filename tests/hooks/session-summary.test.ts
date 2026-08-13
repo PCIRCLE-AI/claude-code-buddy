@@ -299,12 +299,60 @@ describe('Feature: Session Summary (Stop Hook)', () => {
       was_in_agentic_loop: false,
     });
 
-    // DB should not be created (or be empty) since non-agentic sessions are skipped
-    if (fs.existsSync(dbPath)) {
-      const db = openDb();
-      const count = db.prepare('SELECT COUNT(*) as c FROM entities').get() as any;
-      expect(count.c).toBe(0);
-      db.close();
+    // Nothing captured — but the bail is a CORRECT decision on a well-formed
+    // payload, so it stamps the heartbeat: a user whose sessions are
+    // consistently non-agentic must not read as "capture has stopped".
+    const db = openDb();
+    const count = db.prepare('SELECT COUNT(*) as c FROM entities').get() as { c: number };
+    const run = db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").get() as
+      { run_count: number } | undefined;
+    db.close();
+    expect(count.c).toBe(0);
+    expect(run, 'a correct non-agentic bail must stamp the heartbeat').toBeDefined();
+    expect(run!.run_count).toBe(1);
+  });
+
+  it('Scenario: a transcript that VANISHED after the payload named it still stamps', () => {
+    // Log-rotation race: the payload carried transcript_path but the file is
+    // gone by the time the hook runs. The hook itself worked correctly —
+    // this must stamp, unlike the schema-flip bail where the FIELD is
+    // absent (no-cwd test pins that side: DB never even created).
+    runHook({
+      session_id: 'vanished-transcript',
+      transcript_path: path.join(testDir, 'rotated-away.jsonl'),
+      cwd: '/tmp/myproject',
+      was_in_agentic_loop: true,
+    });
+
+    const db = openDb();
+    const run = db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").get() as
+      { run_count: number } | undefined;
+    db.close();
+    expect(run, 'a vanished transcript is a correct nothing-to-do decision').toBeDefined();
+    expect(run!.run_count).toBe(1);
+  });
+
+  it('Scenario: an UNREADABLE transcript leaves no heartbeat — capture was lost, not skipped', () => {
+    // Permission/I-O failure while reading: parseTranscript returns zeros,
+    // which are indistinguishable from a quiet session — except for the
+    // readFailed flag. Stamping here would keep doctor green through
+    // repeated read failures while every session's capture is lost.
+    // Root reads through chmod 000; Windows maps it differently — same
+    // skip guard as tests/hooks/session-start-unwritable.test.ts.
+    if (process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0)) return;
+    writeQualifyingTranscript();
+    fs.chmodSync(transcriptPath, 0o000);
+    try {
+      const { stderr } = runHookCapturingStderr({
+        session_id: 'unreadable-session',
+        transcript_path: transcriptPath,
+        cwd: '/tmp/myproject',
+        was_in_agentic_loop: true,
+      });
+      expect(stderr).toContain('unreadable');
+      expect(fs.existsSync(dbPath), 'a lost capture must not create a DB just to stamp itself alive').toBe(false);
+    } finally {
+      fs.chmodSync(transcriptPath, 0o644);
     }
   });
 
@@ -361,6 +409,101 @@ describe('Feature: Session Summary (Stop Hook)', () => {
       expect(count.c).toBe(0);
       db.close();
     }
+  });
+
+  it('Scenario: a low-signal bail still stamps the heartbeat — a quiet day is not a dead hook', () => {
+    // The <3-tool-call bail is a correct decision on a well-formed payload,
+    // so it stamps hook_runs. Without the stamp, a stretch of light sessions
+    // reads to doctor exactly like "session-summary died". The schema-flip
+    // bails (no cwd, malformed JSON) sit ABOVE the stamp on purpose — the
+    // no-cwd test asserts the DB is never even created there.
+    writeTranscript([
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', content: 'ok' }] } },
+    ]);
+
+    runHook({
+      session_id: 'light-session',
+      transcript_path: transcriptPath,
+      cwd: '/tmp/myproject',
+      was_in_agentic_loop: true,
+    });
+
+    const db = openDb();
+    const count = db.prepare('SELECT COUNT(*) as c FROM entities').get() as { c: number };
+    const run = db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").get() as
+      { run_count: number } | undefined;
+    db.close();
+    expect(count.c, 'a light session must not be captured').toBe(0);
+    expect(run, 'a correct nothing-to-do decision must stamp the heartbeat').toBeDefined();
+    expect(run!.run_count).toBe(1);
+  });
+
+  it('Scenario: a run that dies mid-capture leaves NO heartbeat', () => {
+    // An entities table missing the `metadata` column survives openHookDb
+    // (CREATE IF NOT EXISTS) and makes captureEntity throw; the outer catch
+    // exits without reaching the end-of-run stamp. A crashed capture must
+    // not look alive to doctor.
+    const poisoned = new Database(dbPath);
+    poisoned.exec(`
+      CREATE TABLE entities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        status TEXT NOT NULL DEFAULT 'active'
+      );
+    `);
+    poisoned.close();
+
+    writeQualifyingTranscript();
+    runHook({
+      session_id: 'poisoned-session',
+      transcript_path: transcriptPath,
+      cwd: '/tmp/myproject',
+      stop_reason: 'end_turn',
+      was_in_agentic_loop: true,
+    });
+
+    const db = openDb();
+    const count = db.prepare('SELECT COUNT(*) as c FROM entities').get() as { c: number };
+    const runs = db.prepare("SELECT hook FROM hook_runs WHERE hook = 'session-summary'").all();
+    db.close();
+    expect(count.c, 'precondition: capture must actually have failed').toBe(0);
+    expect(runs, 'a crashed capture run must not look alive').toHaveLength(0);
+  });
+
+  it('Scenario: a write that fails WITHOUT throwing leaves no new heartbeat', () => {
+    // captureEntity's silent failure mode: a RAISE(IGNORE) trigger swallows
+    // the INSERT, captureEntity returns null, nothing throws. The poisoned
+    // crash test above cannot reach this path, so the writeFailed gate on the
+    // end-of-run stamp is what this pins.
+    writeQualifyingTranscript();
+    runHook({
+      session_id: 'first-session',
+      transcript_path: transcriptPath,
+      cwd: '/tmp/myproject',
+      was_in_agentic_loop: true,
+    });
+
+    const setup = new Database(dbPath);
+    setup.exec('CREATE TRIGGER block_inserts BEFORE INSERT ON entities BEGIN SELECT RAISE(IGNORE); END;');
+    setup.close();
+
+    runHook({
+      session_id: 'swallowed-session',
+      transcript_path: transcriptPath,
+      cwd: '/tmp/myproject',
+      was_in_agentic_loop: true,
+    });
+
+    const db = openDb();
+    const entity = db.prepare("SELECT id FROM entities WHERE name LIKE 'session-swallowe%'").get();
+    const run = db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").get() as
+      { run_count: number } | undefined;
+    db.close();
+    expect(entity, 'precondition: the trigger must actually have swallowed the write').toBeUndefined();
+    expect(run!.run_count, 'a run that landed nothing must not stamp on top of the first run').toBe(1);
   });
 
   it('Scenario: Auto-capture opt-out skips processing', () => {
@@ -440,6 +583,15 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     const entities = db.prepare("SELECT * FROM entities WHERE name LIKE 'session-test-ses%'").all();
     // Should have exactly 1 entity (not duplicated)
     expect(entities.length).toBe(1);
+
+    // Both runs stamp the heartbeat: a dedup bail is a SUCCESSFUL run — the
+    // loop executed and correctly decided there was nothing to do. If the
+    // bail stopped stamping, a day of already-captured sessions would read
+    // as "capture stopped" in doctor.
+    const run = db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").get() as
+      { run_count: number } | undefined;
+    expect(run, 'session-summary must stamp its heartbeat').toBeDefined();
+    expect(run!.run_count, 'the dedup bail must stamp too — it is a successful run').toBe(2);
     db.close();
   });
 

@@ -13,24 +13,24 @@ import { trSummary, trFix, trLabel, isBannerWorthy } from '../../dashboard/src/c
 
 afterEach(() => setLocale('en'));
 
-const quietCheck = {
+const codedCheck = {
   id: 'hook-activity',
-  label: 'Hook activity (last 24h)',
-  status: 'warn' as const,
-  summary: 'memesh has not saved anything automatically in the last 24 hours. (raw English from server)',
-  fix: 'Do a normal Claude Code work session, then check again.',
-  code: 'hook-activity.quiet',
+  label: 'Hook activity',
+  status: 'fail' as const,
+  summary: 'The last capture hook ran 4 days ago. (raw English from server)',
+  fix: 'Restart your agent, end one session, then run memesh doctor again.',
+  code: 'hook-activity.stale',
 };
 
 describe('doctor banner i18n', () => {
   it('renders a coded check in the active locale, not the server English', () => {
     setLocale('zh-TW');
-    expect(trSummary(quietCheck)).toBe(t('doctor.msg.hook-activity.quiet.summary'));
-    expect(trSummary(quietCheck)).not.toContain('raw English from server');
-    expect(trFix(quietCheck)).toBe(t('doctor.msg.hook-activity.quiet.fix'));
-    expect(trLabel(quietCheck)).toBe(t('doctor.label.hook-activity'));
+    expect(trSummary(codedCheck)).toBe(t('doctor.msg.hook-activity.stale.summary'));
+    expect(trSummary(codedCheck)).not.toContain('raw English from server');
+    expect(trFix(codedCheck)).toBe(t('doctor.msg.hook-activity.stale.fix'));
+    expect(trLabel(codedCheck)).toBe(t('doctor.label.hook-activity'));
     // The translation must actually be Chinese, not a fallthrough.
-    expect(trSummary(quietCheck)).toMatch(/[一-鿿]/);
+    expect(trSummary(codedCheck)).toMatch(/[一-鿿]/);
   });
 
   it('interpolates params into the translated message', () => {
@@ -52,14 +52,14 @@ describe('doctor banner i18n', () => {
 
   it('falls back to the raw server text for an unknown code — nothing invented, nothing hidden', () => {
     setLocale('zh-TW');
-    const c = { ...quietCheck, code: 'not-a-real.code' };
-    expect(trSummary(c)).toBe(quietCheck.summary);
+    const c = { ...codedCheck, code: 'not-a-real.code' };
+    expect(trSummary(c)).toBe(codedCheck.summary);
   });
 
   it('falls back to raw text when the check carries no code at all', () => {
     setLocale('zh-TW');
-    const c = { ...quietCheck, code: undefined };
-    expect(trSummary(c)).toBe(quietCheck.summary);
+    const c = { ...codedCheck, code: undefined };
+    expect(trSummary(c)).toBe(codedCheck.summary);
   });
 });
 
@@ -80,11 +80,13 @@ describe('doctor banner: silence when nothing is wrong', () => {
       'update-status.no-cache',
       'update-status.stale',
       'update-status.deprecation-unknown',
-      'hook-activity.quiet',
       'shell-cli.not-on-path',
       'skills-manifest.missing-dev',
       'install-channel.unknown',
       'http-probe.no-server',
+      // the hook-wiring row already banners this condition with its own fix;
+      // for MCP-only installs (Codex / Gemini) it is not a problem at all
+      'hook-activity.not-wired',
     ]) {
       expect(isBannerWorthy(warn(code)), `${code} must stay quiet`).toBe(false);
     }
@@ -96,6 +98,30 @@ describe('doctor banner: silence when nothing is wrong', () => {
     expect(isBannerWorthy(warn('hook-wiring.no-marker'))).toBe(true);
     expect(isBannerWorthy({ ...warn('update-status.no-cache'), status: 'fail' as const })).toBe(true);
     expect(isBannerWorthy({ id: 'database', label: 'x', status: 'fail' as const, summary: 's', code: 'database.broken' })).toBe(true);
+  });
+
+  it('a dead capture loop reaches the banner — it used to be the one thing suppressed', () => {
+    // `hook-activity.quiet` sat in QUIET_WARN_CODES, so the single signal that
+    // automatic capture might have stopped was the single signal a dashboard
+    // user could never see. It was suppressed for a defensible reason — the
+    // old check could not tell a quiet day from a dead loop — and the fix is
+    // that the check no longer has to guess, not that the banner shouts more.
+    for (const code of ['hook-activity.never-ran', 'hook-activity.stale', 'hook-activity.query-failed', 'hook-activity.stale-unknown']) {
+      const check = { id: 'hook-activity', label: 'x', status: 'fail' as const, summary: 's', fix: 'do something', code };
+      expect(isBannerWorthy(check), `${code} must reach the user`).toBe(true);
+    }
+  });
+
+  it('the masked-death warns banner too — they exist to be seen, not filed', () => {
+    // stop-silent (commits stamp daily, session-summary never once) and
+    // never-ran-legacy (captures land, no heartbeat — version skew) are both
+    // warn-tier by design: neither is proof of death. But each names an
+    // action, and a warn that never reaches the banner is how hook-activity
+    // stayed invisible for four releases.
+    for (const code of ['hook-activity.stop-silent', 'hook-activity.never-ran-legacy', 'hook-activity.stale-unconfirmed']) {
+      const check = { id: 'hook-activity', label: 'x', status: 'warn' as const, summary: 's', fix: 'Run `memesh install-hooks`.', code };
+      expect(isBannerWorthy(check), `${code} must reach the user`).toBe(true);
+    }
   });
 
   it('legacy warn without code still requires a real fix hint', () => {

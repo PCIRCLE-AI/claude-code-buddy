@@ -1,3 +1,4 @@
+import { redactSecrets } from './paths.js';
 export class LLMResponseParseError extends Error {
     constructor(provider, detail) {
         super(`${provider}: response parse failed — ${detail}`);
@@ -191,10 +192,5 @@ export function classifyError(e) {
     if (/(ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|fetch failed|aborted)/i.test(msg))
         return 'network';
     return 'unknown';
-}
-function redactSecrets(msg) {
-    return msg
-        .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-<REDACTED>')
-        .replace(/Bearer\s+[A-Za-z0-9_.-]{8,}/gi, 'Bearer <REDACTED>');
 }
 //# sourceMappingURL=llm-client.js.map

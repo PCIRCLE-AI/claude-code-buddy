@@ -2,7 +2,7 @@
 
 import { basename } from 'path';
 import { existsSync, readFileSync } from 'fs';
-import { AUTO_CAPTURE_TAG, captureEntity, getProjectName, isAutoCaptureEnabled, openHookDb } from './_shared.js';
+import { AUTO_CAPTURE_TAG, captureEntity, getProjectName, isAutoCaptureEnabled, openHookDb, recordHookRun } from './_shared.js';
 
 // Timeout guard: always exit within 10 seconds
 const TIMEOUT_MS = 10000;
@@ -112,6 +112,13 @@ process.stdin.on('end', () => {
         observations: obsLines,
         tags: [AUTO_CAPTURE_TAG, 'urgency:pre-compact', `project:${projectName}`],
       });
+
+      // Heartbeat AFTER capture, so the stamp certifies "the capture loop
+      // completed", not "a database handle existed". A throw above skips it,
+      // and so does a null return — captureEntity's null means the write did
+      // not land, and this very hook tells the user "could not save" below;
+      // stamping would say "alive" to doctor about the same failed run.
+      if (written) recordHookRun(db, 'pre-compact');
     } finally {
       db.close();
     }

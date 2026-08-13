@@ -5,7 +5,7 @@ import { spawn } from 'child_process';
 import { homedir } from 'os';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
-import { existsSync, readFileSync, unlinkSync, rmSync, appendFileSync, chmodSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync, rmSync, appendFileSync, chmodSync, mkdirSync, accessSync, constants as fsConstants } from 'fs';
 import {
   buildReferenceContext,
   ensurePrivateDir,
@@ -431,6 +431,48 @@ function runPostBannerUpdateTasks() {
 }
 
 /**
+ * Can the capture hooks actually write? Returns the offending path, or null.
+ *
+ * Probes the two things a capture hook needs and nothing else: the memesh
+ * directory has to exist and be writable, and where the database file already
+ * exists, that file has to be writable too. The second half matters on its
+ * own — a writable directory holding a read-only database is a state the old
+ * mkdir-only probe called healthy, and it is exactly what a botched `sudo`
+ * leaves behind.
+ *
+ * `accessSync(W_OK)` rather than opening a handle: this is the SessionStart
+ * hot path, and a read-write open would run the whole migration chain here
+ * just to answer a permissions question. It is one syscall and it fails in
+ * the same cases EACCES would.
+ *
+ * Deliberately not detected: a full disk. No cheap probe finds it, and
+ * claiming otherwise would be worse than the honest gap.
+ */
+function captureTargetUnwritable() {
+  try {
+    mkdirSync(memeshDir, { recursive: true });
+    accessSync(memeshDir, fsConstants.W_OK);
+  } catch {
+    return memeshDir;
+  }
+  // The WAL/SHM sidecars are probed too: an interrupted `sudo` run leaves a
+  // user-owned database next to root-owned `-wal`/`-shm` files, and SQLite
+  // then fails every write with EACCES while the db file itself probes
+  // writable — the most common botched-sudo residue, and exactly the state
+  // the db-file probe alone called healthy.
+  for (const suffix of ['', '-wal', '-shm']) {
+    const p = `${dbPath}${suffix}`;
+    if (!existsSync(p)) continue;
+    try {
+      accessSync(p, fsConstants.W_OK);
+    } catch {
+      return p;
+    }
+  }
+  return null;
+}
+
+/**
  * Build a "base message + optional deprecation banner" combined
  * single-line systemMessage payload. Keeps stdout a single JSON
  * object on every empty/no-DB exit path so Claude Code's hook
@@ -466,6 +508,14 @@ let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { input += chunk; });
 process.stdin.on('end', async () => {
+  // Hoisted above both try blocks: the recall-failure catch below must be
+  // able to lead with this warning too, or a capture-dead session that ALSO
+  // hits a recall error silently drops the more important half of the story.
+  let captureWarning = null;
+  const withCaptureWarning = (msg) => {
+    if (!captureWarning) return msg;
+    return `${captureWarning}\n${msg.replace(/^◉ MeMesh ready · /, '◉ MeMesh · ')}`;
+  };
   try {
     try {
     const data = JSON.parse(input);
@@ -487,31 +537,38 @@ process.stdin.on('end', async () => {
       // Non-critical
     }
 
+    // Every banner below this line is a PROMISE that memories will be saved,
+    // so check that it can be kept before making any of them.
+    //
+    // This probe used to live INSIDE the `!existsSync(dbPath)` branch below,
+    // which meant it only ever ran before the database existed — while the
+    // failure it detects has nothing to do with first runs. A `~/.memesh` that
+    // became unwritable later (permissions changed, a read-only mount, a
+    // directory that changed owner) produced the cheerful green count banner
+    // on every session, forever, while every capture hook failed with EACCES.
+    // Fixing the first-run case and leaving the steady-state case is how a
+    // detector ends up covering the one day the bug is least likely to happen.
+    // The warning does NOT return: this hook's other job is recall, which
+    // opens the database read-only and works fine on an unwritable target.
+    // Returning here turned "capture is off" into "your memory is gone" —
+    // every existing memory silently withheld exactly when the user needs
+    // the context to notice something is wrong. Warn, then keep reading.
+    const unwritable = captureTargetUnwritable();
+    // "ready" is a promise about capture — when the warning is present,
+    // withCaptureWarning (hoisted above) demotes it instead of contradicting
+    // it one line later.
+    captureWarning = unwritable
+      ? `◉ MeMesh cannot write to ${unwritable} — memories will NOT be saved this session (recall still works). Run 'memesh doctor'.`
+      : null;
+
     if (!existsSync(dbPath)) {
-      // "memories will be created as you work" is a PROMISE, so check that it
-      // can be kept before making it. On a HOME the process cannot write —
-      // a read-only mount, a directory owned by someone else — every capture
-      // hook then fails with EACCES, silently, for the whole session, while
-      // this line showed a green banner. Measured: with HOME at mode 555 this
-      // printed "MeMesh ready" and `session-summary` on the same HOME failed
-      // with `EACCES: permission denied, mkdir`.
-      //
-      // The probe is the same call the capture hooks make, so it fails in
-      // exactly the cases they would.
-      let writable = true;
-      try {
-        mkdirSync(memeshDir, { recursive: true });
-      } catch {
-        writable = false;
-      }
-      if (!writable) {
-        output(combineWithBanner(`◉ MeMesh cannot write to ${memeshDir} — memories will NOT be saved this session. Run 'memesh doctor'.`));
-        return;
-      }
       // Combine deprecation banner (if any) into the same
       // systemMessage so stdout stays a single JSON document. Outer
       // finally runs runPostBannerUpdateTasks().
-      output(combineWithBanner('◉ MeMesh ready · no database yet, memories will be created as you work'));
+      // With no database there is nothing to recall either — the warning IS
+      // the whole truth, and "memories will be created as you work" would
+      // contradict it one line later.
+      output(combineWithBanner(captureWarning ?? '◉ MeMesh ready · no database yet, memories will be created as you work'));
       return;
     }
 
@@ -529,7 +586,7 @@ process.stdin.on('end', async () => {
         "SELECT name FROM sqlite_master WHERE type='table' AND name='entities'"
       ).get();
       if (!tableCheck) {
-        output(combineWithBanner('◉ MeMesh ready · database initialised but no memories stored yet'));
+        output(combineWithBanner(captureWarning ?? '◉ MeMesh ready · database initialised but no memories stored yet'));
         return;
       }
 
@@ -907,7 +964,7 @@ process.stdin.on('end', async () => {
         ? [...bannerLines.filter(l => l.length > 0), '', summary].join('\n')
         : summary;
 
-      output(finalMessage, memoryContext);
+      output(withCaptureWarning(finalMessage), memoryContext);
     } finally {
       db.close();
     }
@@ -939,7 +996,7 @@ process.stdin.on('end', async () => {
       // Hooks must never crash Claude Code — but report honestly.
       // Inner catch so the outer finally can still run the post-
       // banner update tasks even when the recall flow blew up.
-      console.log(JSON.stringify({ systemMessage: `MeMesh: memories not loaded this session (${err?.message || 'unknown error'}) — everything else works; run \`memesh doctor\` if this repeats.` }));
+      console.log(JSON.stringify({ systemMessage: withCaptureWarning(`MeMesh: memories not loaded this session (${err?.message || 'unknown error'}) — everything else works; run \`memesh doctor\` if this repeats.`) }));
     }
   } finally {
     // ── Auto-update + cache refresh ──────────────────────────────

@@ -41,6 +41,7 @@
 
 import type { LLMConfig } from './config.js';
 import type { AnthropicResponse, OpenAIResponse, OllamaResponse } from './types.js';
+import { redactSecrets } from './paths.js';
 
 export type LLMErrorClass =
   | 'auth'         // 401 / 403 — credential rejected; another provider may help
@@ -355,14 +356,8 @@ export function classifyError(e: Error): LLMErrorClass {
   return 'unknown';
 }
 
-/**
- * Strip credential-shaped tokens from an error message before it lands
- * in telemetry. Provider error bodies sometimes echo the supplied key
- * (OpenAI does; Anthropic does not), so the redaction is defence in
- * depth rather than the only safeguard.
- */
-function redactSecrets(msg: string): string {
-  return msg
-    .replace(/sk-[A-Za-z0-9_-]{8,}/g, 'sk-<REDACTED>')
-    .replace(/Bearer\s+[A-Za-z0-9_.-]{8,}/gi, 'Bearer <REDACTED>');
-}
+// Error messages are redacted with the canonical redactSecrets from
+// core/paths.ts before landing in telemetry: provider error bodies sometimes
+// echo the supplied key (OpenAI does; Anthropic does not). A private copy
+// used to live here covering only sk-/Bearer shapes — same name, a fraction
+// of the strength — which is exactly how a future caller picks the wrong one.

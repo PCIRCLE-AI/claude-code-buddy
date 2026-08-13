@@ -105,4 +105,165 @@ describe('write-hook invariants (fake-working gates)', () => {
       ).not.toMatch(/INSERT INTO entities_fts/);
     }
   });
+
+  it('a read-only database FILE still opens and reads — opening must not write when there is nothing to write', () => {
+    // The regression this pins: two DML statements (the hook_runs_since
+    // INSERT OR IGNORE, and a tags-dedup DELETE that predates this PR) lived
+    // inside the SCHEMA_SQL block every open executes. Even as no-ops they
+    // took the WAL writer lock, so a chmod-444 file — a backup, a snapshot,
+    // a permissions accident — failed to open at all ("attempt to write a
+    // readonly database"). Both now run behind SELECT-first guards: a
+    // database that already has the marker and the index gets pure reads.
+    if (process.platform === 'win32') return; // chmod read-only semantics differ
+
+    const first = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { fts: true });
+    expect(first).not.toBeNull();
+    shared.captureEntity(first.db, { name: 'ro-entity', type: 'note', observations: ['kept'], tags: [] });
+    first.db.close();
+
+    fs.chmodSync(dbPath, 0o444);
+    try {
+      const reopened = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { fts: true });
+      expect(reopened, 'a read-only database file must still open for reading').not.toBeNull();
+      try {
+        const row = reopened.db.prepare("SELECT id FROM entities WHERE name = 'ro-entity'").get();
+        expect(row, 'the reopened read-only database must be readable').toBeDefined();
+      } finally {
+        reopened.db.close();
+      }
+    } finally {
+      fs.chmodSync(dbPath, 0o644);
+    }
+  });
+
+  it('opening a real database stamps hook_runs_since exactly once — and never restamps a healthy marker', () => {
+    // The never-ran verdict is UNREACHABLE without this stamp: hooks that
+    // never execute cannot write it themselves, so it must come from
+    // ordinary opens. Deleting the ensureHookRunsSince call used to leave
+    // the whole suite green (the doctor tests stub the marker) while
+    // measuringHours stayed null forever — an eternal "tracking has only
+    // just started" PASS.
+    const first = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath });
+    const v1 = first.db.prepare("SELECT value FROM memesh_metadata WHERE key = 'hook_runs_since'").get() as
+      { value: string } | undefined;
+    first.db.close();
+    expect(v1, 'the never-ran verdict is unreachable without this stamp').toBeDefined();
+    expect(v1!.value).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+
+    const again = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath });
+    const v2 = again.db.prepare("SELECT value FROM memesh_metadata WHERE key = 'hook_runs_since'").get() as
+      { value: string };
+    again.db.close();
+    expect(v2.value, 'a healthy marker must not be restamped — tracking age would reset on every open').toBe(v1!.value);
+  });
+
+  it('a corrupt or future hook_runs_since is healed at open — doctor only reports, the write path repairs', () => {
+    // A marker that cannot be read as a past UTC timestamp grants doctor's
+    // "tracking just started" grace forever. The healer is the write-path
+    // open (this helper), NOT doctor: doctor is reachable via an
+    // unauthenticated loopback GET and must never write to the database it
+    // inspects.
+    for (const bad of ['garbage', '2026-08-10 12:00:00+08:00', '2099-01-01 00:00:00']) {
+      const setup = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath });
+      setup.db.prepare("UPDATE memesh_metadata SET value = ? WHERE key = 'hook_runs_since'").run(bad);
+      setup.db.close();
+
+      const healed = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath });
+      const row = healed.db.prepare("SELECT value FROM memesh_metadata WHERE key = 'hook_runs_since'").get() as
+        { value: string };
+      healed.db.close();
+      expect(row.value, `'${bad}' must be healed to a real timestamp at open`).not.toBe(bad);
+      expect(row.value).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+      const ageMs = Date.now() - Date.parse(row.value.replace(' ', 'T') + 'Z');
+      expect(ageMs, 'the healed stamp must be NOW, not another wrong value').toBeLessThan(60_000);
+    }
+  });
+
+  it('a read-only database from BEFORE this release still opens for reads', () => {
+    // The general form of the reader-breaking bug: any release that adds a
+    // table makes the first open of an older database a WRITE. Simulated by
+    // dropping hook_runs (this release's new table) and the tracking
+    // marker, then making the file read-only — the exact pre-upgrade
+    // backup/snapshot shape. "Cannot migrate" must degrade to "opened for
+    // reads", not kill the open.
+    if (process.platform === 'win32') return; // chmod read-only semantics differ
+
+    const first = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { fts: true });
+    shared.captureEntity(first.db, { name: 'legacy-entity', type: 'note', observations: ['kept'], tags: [] });
+    first.db.exec('DROP TABLE hook_runs');
+    first.db.prepare("DELETE FROM memesh_metadata WHERE key = 'hook_runs_since'").run();
+    first.db.close();
+
+    fs.chmodSync(dbPath, 0o444);
+    try {
+      const reopened = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { fts: true });
+      expect(reopened, 'a pre-upgrade read-only file must still open for reading').not.toBeNull();
+      try {
+        const row = reopened.db.prepare("SELECT id FROM entities WHERE name = 'legacy-entity'").get();
+        expect(row, 'the reopened database must be readable').toBeDefined();
+        const table = reopened.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'hook_runs'").get();
+        expect(table, 'precondition: the migration must actually have been skipped').toBeUndefined();
+      } finally {
+        reopened.db.close();
+      }
+    } finally {
+      fs.chmodSync(dbPath, 0o644);
+    }
+  });
+
+  it('recordHookRun stamps and upserts; openHookDb alone never stamps', () => {
+    // `hook_runs` is the only evidence that a hook EXECUTED rather than merely
+    // captured something, and doctor now reports a FAIL when it goes stale.
+    // That makes the write itself load-bearing: if this stops happening,
+    // doctor starts accusing a perfectly healthy install of having dead hooks.
+    //
+    // openHookDb must NOT stamp: it used to, and that certified the wrong
+    // thing — a hook that opened the database and then died in its own
+    // capture logic looked alive for a day. The stamp belongs to the hook's
+    // successful exit (pinned end-to-end in pre-compact.test.ts).
+    // Opened WITH a smuggled `hook:` option on purpose: the first draft of
+    // this file guarded against the option's return with a source grep
+    // (`/openHookDb\([^)]*hook:/`), which any indirection — a spread, an
+    // options variable — walks straight past. The behavioural claim is the
+    // one that matters: whatever a caller passes, opening must never stamp.
+    const opened = shared.openHookDb(
+      { ...process.env, MEMESH_DB_PATH: dbPath },
+      { fts: true, hook: 'session-summary' },
+    );
+    try {
+      const rows = opened.db.prepare('SELECT hook FROM hook_runs').all();
+      expect(rows, 'openHookDb stamped a heartbeat — that lie is what this PR removes').toHaveLength(0);
+
+      shared.recordHookRun(opened.db, 'session-summary');
+      const row = opened.db.prepare("SELECT hook, run_count FROM hook_runs WHERE hook = 'session-summary'").get();
+      expect(row, 'recordHookRun did not record that the hook ran').toBeDefined();
+      expect(row.run_count).toBe(1);
+
+      // Second run of the same hook increments rather than duplicating — the
+      // table is keyed by hook name and must not grow with usage.
+      shared.recordHookRun(opened.db, 'session-summary');
+      const again = opened.db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").all();
+      expect(again).toHaveLength(1);
+      expect(again[0].run_count).toBe(2);
+    } finally { opened.db.close(); }
+  });
+
+  it('every capture hook stamps its own completion, and none stamps at open', () => {
+    // The stamp is per call site, so a new capture hook that forgets it is
+    // invisible: capture works, and doctor slowly decides the loop is dead.
+    // The inverse matters just as much: a `hook:` option handed back to
+    // openHookDb would quietly move the stamp to before capture again.
+    for (const hook of ['session-summary.js', 'post-commit.js', 'pre-compact.js']) {
+      const src = fs.readFileSync(path.join('scripts/hooks', hook), 'utf8');
+      const name = hook.replace(/\.js$/, '');
+      expect(
+        src,
+        `${hook} must call recordHookRun(db, '${name}') at its successful exit, or doctor cannot tell it ever ran`,
+      ).toContain(`recordHookRun(db, '${name}')`);
+      expect(
+        src,
+        `${hook} passes hook: to openHookDb — the open-time stamp reported crashed hooks as alive`,
+      ).not.toMatch(/openHookDb\([^)]*hook:/);
+    }
+  });
 });

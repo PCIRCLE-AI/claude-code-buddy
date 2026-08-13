@@ -78,6 +78,10 @@ interface ProposalDetail {
 // which Date() refuses without the T/Z normalisation. The relative-time
 // wording itself is entity-display's relativeDate — the shared, localised
 // formatter — not a hand-rolled English 's/m/h/d ago' ladder.
+// (src/core/doctor.ts's hoursSince() solves the same not-quite-ISO pitfall
+// on the server side; they live in different bundles, so this stays a
+// cross-reference rather than a shared helper until a third consumer
+// appears.)
 function formatRelative(iso: string): string {
   if (!iso) return '';
   return relativeDate(iso.includes(' ') ? iso.replace(' ', 'T') + 'Z' : iso);

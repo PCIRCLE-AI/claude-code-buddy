@@ -148,6 +148,11 @@ export function isAgenticOrchestrationEnabled(env = process.env) {
  * Env semantics preserved: explicit `=== 'false'` disables; any other
  * value (including undefined) leaves it on or defers to config.
  *
+ * src/core/doctor.ts duplicates this precedence (isAutoCaptureOff — the
+ * TS/hook-JS bundle boundary forbids sharing code). A semantic change here
+ * MUST be mirrored there, or doctor starts reasoning about a disabled state
+ * the hooks don't agree on.
+ *
  * @param {NodeJS.ProcessEnv} [env=process.env]
  * @returns {boolean}
  */
@@ -264,13 +269,11 @@ CREATE TABLE IF NOT EXISTS tags (
 
 CREATE INDEX IF NOT EXISTS idx_tags_entity ON tags(entity_id);
 CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
-DELETE FROM tags
-WHERE id NOT IN (
-  SELECT MIN(id)
-  FROM tags
-  GROUP BY entity_id, tag
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag);
+-- The tags dedup DELETE + idx_tags_entity_tag_unique creation live in
+-- ensureTagsUniqueIndex(), AFTER this exec — the DELETE is a one-time
+-- migration, and a DML statement in this string made every open start a
+-- write transaction even when it deleted nothing (same reader-breaking
+-- pattern as the hook_runs_since note below).
 CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);
@@ -289,6 +292,44 @@ CREATE TABLE IF NOT EXISTS memesh_metadata (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Proof that a capture hook actually RAN. Nothing else in this schema can
+-- give it: every other signal is "a row was written", and "the hook ran and
+-- found nothing worth saving" is the healthy case that produces no row at
+-- all. So a quiet day and a dead capture loop were byte-identical in the
+-- database, and the one doctor message that had to cover both cried wolf on
+-- the first and stayed silent on the second.
+--
+-- Written by the three hooks that hold a read-write handle (Stop, PreCompact,
+-- PostToolUse), each calling recordHookRun() at its own SUCCESSFUL exit —
+-- after capture, not at open. Stamping at open certified the wrong thing: a
+-- hook that opened the database and then died mid-capture looked alive for a
+-- day. "Successful" is precise: a completed capture, or a well-formed
+-- payload the hook correctly decided not to capture (dedup, low-signal
+-- session). A malformed payload (schema-flip shapes) and a write that did
+-- not land both leave no stamp — either would make the heartbeat mask the
+-- exact dropout it exists to expose. The recall-side hooks open read-only
+-- and deliberately do not appear here: their liveness answers a different
+-- question, and giving them a write handle would put a lock acquisition on
+-- the SessionStart hot path.
+--
+-- One row per hook, upserted. It does not grow.
+CREATE TABLE IF NOT EXISTS hook_runs (
+  hook        TEXT PRIMARY KEY,
+  last_run_at TIMESTAMP NOT NULL,
+  run_count   INTEGER NOT NULL DEFAULT 0
+);
+
+-- The 'hook_runs_since' metadata key (when this database first became able
+-- to record hook runs) is stamped by ensureHookRunsSince() AFTER this exec,
+-- NOT here. It used to be an INSERT OR IGNORE in this string, and that made
+-- every open — including opens that only ever read — start a write
+-- transaction: an INSERT statement takes the WAL writer lock even when
+-- OR IGNORE ends up changing nothing. Two states regressed from "reads work"
+-- to "open throws": a peer holding the writer lock past busy_timeout, and a
+-- read-only database FILE (measured: "attempt to write a readonly database"
+-- killed recall along with capture). The helper SELECTs first and writes
+-- only when the key is genuinely absent — once per database lifetime.
 `;
 
 // FTS5 virtual table — separate so hooks that don't need it stay lean.
@@ -346,7 +387,52 @@ export function openHookDb(env = process.env, opts = {}) {
   const db = new MemeshDatabase(dbPath, { allowExtension: true });
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  // Bringing the schema current is a WRITE, and "cannot migrate" must not
+  // mean "cannot open": a database file that is read-only but behind on
+  // schema (a pre-upgrade backup, a permissions accident) dies on the
+  // CREATE TABLE any release adds. If the FILE refuses writes, open it for
+  // what it can still do — reads; capture writes fail individually at
+  // their own guarded call sites. Any other error still throws. Mirrors
+  // initialiseDatabase() in src/db.ts — keep the two in lockstep.
+  try {
+    migrateHookDbToCurrent(db, opts);
+  } catch (err) {
+    if (!/readonly database|SQLITE_READONLY/i.test(err?.message || '')) throw err;
+    try {
+      process.stderr.write(
+        'MeMesh: the database file is read-only, so schema migration was skipped — ' +
+          'opened for reads only. Capture and migrations resume when the file is writable.\n',
+      );
+    } catch { /* stderr gone */ }
+  }
+
+
+  // No heartbeat here. This helper used to stamp `hook_runs` as soon as the
+  // handle was usable, and that stamped-then-crashed hooks into looking
+  // alive: a hook that opened the database and then died in its own capture
+  // logic — the failure class this table exists to expose — read as PASS in
+  // `memesh doctor` for the next 24 hours. Each capture hook now calls
+  // recordHookRun() itself at every SUCCESSFUL exit (including "ran, nothing
+  // worth saving"), so a mid-capture throw leaves no stamp.
+
+  return { db, dbPath };
+}
+
+/**
+ * Everything that makes a hook-opened handle CURRENT: schema, FTS,
+ * one-time migrations and the segmentation rebuild. Split from
+ * openHookDb() so the read-only-file tolerance there has a single
+ * boundary to wrap — every statement in here may write, and none of
+ * them is load-bearing for reading what the database already holds.
+ * Mirrors migrateToCurrentSchema() in src/db.ts — keep in lockstep.
+ *
+ * @param {import('./_generated/sqlite.js').MemeshDatabase} db
+ * @param {{fts?: boolean}} opts
+ */
+function migrateHookDbToCurrent(db, opts) {
   db.exec(SCHEMA_SQL);
+  ensureTagsUniqueIndex(db);
+  ensureHookRunsSince(db);
   if (opts.fts) db.exec(FTS_SQL);
 
   // Apply the full migration chain — keep in lockstep with src/db.ts.
@@ -418,8 +504,160 @@ export function openHookDb(env = process.env, opts = {}) {
   // delete failed, the stale row survived alongside the new one, and the user
   // saw "database disk image is malformed" on hook stderr.
   if (opts.fts) ensureHookFtsSegmentation(db);
+}
 
-  return { db, dbPath };
+/**
+ * One-time tags dedup + unique-index creation, guarded so it never writes
+ * once the index exists. Mirror of ensureTagsUniqueIndex() in src/db.ts —
+ * hooks cannot import from dist/. Keep the two in lockstep.
+ *
+ * @param {import('./_generated/sqlite.js').MemeshDatabase} db
+ */
+export function ensureTagsUniqueIndex(db) {
+  try {
+    const present = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_tags_entity_tag_unique'")
+      .get();
+    if (present) return;
+    // One IMMEDIATE transaction, not two autocommit statements: exec runs
+    // each statement in its own transaction, so a crash or a busy peer
+    // between them could commit the DELETE with the index never created —
+    // and a concurrent pre-index writer could re-insert a duplicate pair in
+    // that window, failing the CREATE with a constraint error. BEGIN
+    // IMMEDIATE holds the write lock across both, so the dedup and the
+    // index land together or not at all (CREATE INDEX is transactional in
+    // SQLite).
+    db.exec(
+      'BEGIN IMMEDIATE; ' +
+        'DELETE FROM tags WHERE id NOT IN (SELECT MIN(id) FROM tags GROUP BY entity_id, tag); ' +
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag); ' +
+        'COMMIT;',
+    );
+  } catch (err) {
+    try { db.exec('ROLLBACK'); } catch { /* no transaction open */ }
+    try {
+      process.stderr.write(
+        `MeMesh: could not create the tags unique index (${err?.message ?? err}). ` +
+          `Reads are unaffected; the next open retries the dedup and index together.\n`,
+      );
+    } catch { /* stderr gone; nothing left to say */ }
+  }
+}
+
+/**
+ * Stamp 'hook_runs_since' once per database lifetime — read-first, so an
+ * open that only ever reads stays a reader.
+ *
+ * Mirror of ensureHookRunsSince() in src/db.ts — hooks cannot import from
+ * dist/. Keep the two in lockstep; the full rationale (the INSERT used to
+ * live inside SCHEMA_SQL and made read-only database files unopenable)
+ * lives on the src copy.
+ *
+ * @param {import('./_generated/sqlite.js').MemeshDatabase} db
+ */
+export function ensureHookRunsSince(db) {
+  try {
+    const row = db
+      .prepare("SELECT value FROM memesh_metadata WHERE key = 'hook_runs_since'")
+      .get();
+    if (row) {
+      // A marker that exists but cannot be read as a past UTC timestamp
+      // (corrupt text, a rolled-over pseudo-date, a wrong clock stamping the
+      // future) would grant doctor's "tracking just started" grace FOREVER —
+      // a fail-open. Heal it HERE, because this is a write path that runs on
+      // every real open; doctor is a reader (reachable via GET /v1/doctor)
+      // and must not repair the database it inspects. Same parse rules as
+      // doctor's hoursSince: anchored, UTC, round-tripped.
+      const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(row.value ?? '');
+      if (m) {
+        const then = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+        const d = new Date(then);
+        const intact = Number.isFinite(then)
+          && d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3]
+          && d.getUTCHours() === +m[4] && d.getUTCMinutes() === +m[5] && d.getUTCSeconds() === +m[6];
+        if (intact && then <= Date.now() + 5 * 60 * 1000) return;
+      }
+      db
+        .prepare("UPDATE memesh_metadata SET value = datetime('now') WHERE key = 'hook_runs_since'")
+        .run();
+      return;
+    }
+    db
+      .prepare("INSERT OR IGNORE INTO memesh_metadata (key, value) VALUES ('hook_runs_since', datetime('now'))")
+      .run();
+  } catch (err) {
+    try {
+      process.stderr.write(
+        `MeMesh: could not stamp hook_runs_since (${err?.message ?? err}). ` +
+          `Reads are unaffected; doctor's hook-activity tracking starts once the database is writable.\n`,
+      );
+    } catch { /* stderr gone; nothing left to say */ }
+  }
+}
+
+/**
+ * Stamp a hook's heartbeat from a path that has no database handle open.
+ *
+ * session-summary's low-signal bails (non-agentic session, vanished
+ * transcript, fewer than three tool calls) decide "nothing worth saving"
+ * BEFORE opening the database — and a correct nothing-to-do decision is a
+ * successful run that must stamp, or a user whose sessions are consistently
+ * short reads as "capture has stopped" in doctor within a day: the exact
+ * crying-wolf this table exists to end. Stop fires once per session, so one
+ * extra open+close here is noise.
+ *
+ * Never throws: the heartbeat is diagnostics, and the bail it decorates was
+ * already a successful exit.
+ *
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} hook
+ */
+export function stampHookRunOnly(env, hook) {
+  try {
+    const { db } = openHookDb(env);
+    try { recordHookRun(db, hook); } finally { db.close(); }
+  } catch (err) {
+    try {
+      process.stderr.write(
+        `MeMesh: could not stamp the ${hook} heartbeat on a no-capture exit (${err?.message ?? err}).\n`,
+      );
+    } catch { /* stderr gone */ }
+  }
+}
+
+/**
+ * Record that `hook` ran, right now.
+ *
+ * This is the only evidence in the system that a hook EXECUTED, as opposed to
+ * a hook having captured something. Doctor could previously only count
+ * auto-captured entities, which conflates the healthy "ran, nothing worth
+ * saving" with the fatal "never ran" — see the `hook_runs` comment in
+ * SCHEMA_SQL.
+ *
+ * A failure here must never take the hook down with it: the heartbeat is
+ * diagnostics, and a session that captured its work but could not stamp the
+ * row is far better than one that threw. But it is not swallowed either — it
+ * writes to stderr, because a heartbeat that silently stops recording would
+ * recreate the exact blind spot it exists to close.
+ */
+export function recordHookRun(db, hook) {
+  try {
+    db.prepare(
+      `INSERT INTO hook_runs (hook, last_run_at, run_count)
+       VALUES (?, datetime('now'), 1)
+       ON CONFLICT(hook) DO UPDATE SET
+         last_run_at = datetime('now'),
+         run_count   = run_count + 1`,
+    ).run(hook);
+  } catch (err) {
+    try {
+      process.stderr.write(
+        `MeMesh: could not record that the ${hook} hook ran (${err?.message ?? err}). ` +
+          `Capture itself is unaffected, but 'memesh doctor' will under-report ` +
+          `hook liveness until this succeeds.\n`,
+      );
+    } catch { /* stderr itself is gone; there is nowhere left to report */ }
+  }
 }
 
 /**

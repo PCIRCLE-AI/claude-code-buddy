@@ -36,6 +36,8 @@ import {
   isAutoCaptureEnabled,
   openHookDb,
   readUpdateCheckCache,
+  recordHookRun,
+  stampHookRunOnly,
   resolveAutoUpdatePolicy,
   resolvePluginRoot,
   spawnAutoUpdate,
@@ -87,6 +89,7 @@ function parseTranscript(transcriptPath) {
   const bashCommands = [];
   const errorsEncountered = [];
   let toolCallCount = 0;
+  let readFailed = false;
 
   try {
     const lines = readFileSync(transcriptPath, 'utf8').split('\n').filter(l => l.trim());
@@ -150,10 +153,15 @@ function parseTranscript(transcriptPath) {
   } catch (err) {
     // The transcript file itself could not be read, which empties this
     // session's entire capture — filesEdited/errors/toolCallCount all return
-    // zero, so downstream `toolCallCount < 3` bails and no session insight,
-    // failure analysis or lesson is produced. An absent file is the normal
-    // "not written yet" case; anything else is a real fault worth a trace.
+    // zero. Left unflagged, those zeros are indistinguishable from a
+    // genuinely quiet session, and the light-session bail downstream would
+    // STAMP the heartbeat — repeated permission/I-O failures keeping doctor
+    // green while every session's capture is lost. `readFailed` is the
+    // distinct signal: capture was lost, not skipped. An absent file
+    // (ENOENT) is the vanished-transcript race, which the caller already
+    // treats as a correct nothing-to-do decision.
     if (err?.code !== 'ENOENT') {
+      readFailed = true;
       try {
         process.stderr.write(
           `[memesh session-summary] transcript ${transcriptPath} unreadable ` +
@@ -163,7 +171,7 @@ function parseTranscript(transcriptPath) {
     }
   }
 
-  return { filesEdited: [...filesEdited], bashCommands, errorsEncountered, toolCallCount };
+  return { filesEdited: [...filesEdited], bashCommands, errorsEncountered, toolCallCount, readFailed };
 }
 
 // Main: read stdin, extract insights, store in DB
@@ -231,7 +239,13 @@ process.stdin.on('end', async () => {
     // but did nothing, the exact sibling of the `was_in_agentic_loop` absence
     // above. Removed; the `toolCallCount < 3` check below is the real
     // low-signal filter.
-    if (!wasAgenticLoop) return exit0();
+    // From here down the payload is well-formed and attributable — every
+    // bail is the hook deciding "nothing worth saving", which is a
+    // successful run and stamps the heartbeat. The bails ABOVE this line
+    // (empty stdin, malformed JSON, missing cwd) are schema-flip shapes: if
+    // Claude Code's payload changed under us, capture is effectively dead,
+    // and a heartbeat would mask exactly that.
+    if (!wasAgenticLoop) { stampHookRunOnly(process.env, 'session-summary'); return exit0(); }
     // Trace why we're skipping. Two failure modes:
     //   (a) transcript_path absent — schema flip, Claude Code stopped
     //       sending the field. Same bug shape as `was_in_agentic_loop`
@@ -247,14 +261,25 @@ process.stdin.on('end', async () => {
     }
     if (!existsSync(transcriptPath)) {
       try { process.stderr.write(`[memesh session-summary] transcript_path ${transcriptPath} does not exist; skipping capture\n`); } catch {}
+      // The payload named a transcript and the FILE is gone (log rotation
+      // race) — the hook itself ran fine, so this stamps. A payload that
+      // never carried the field at all (schema flip) bails above, unstamped.
+      stampHookRunOnly(process.env, 'session-summary');
       return exit0();
     }
 
     // Parse transcript
-    const { filesEdited, bashCommands, errorsEncountered, toolCallCount } = parseTranscript(transcriptPath);
+    const { filesEdited, bashCommands, errorsEncountered, toolCallCount, readFailed } = parseTranscript(transcriptPath);
 
-    // Skip sessions with too little activity
-    if (toolCallCount < 3) return exit0();
+    // An unreadable transcript is NOT a quiet session: the capture was
+    // LOST (permissions, I/O), and a heartbeat here would keep doctor green
+    // through exactly the repeated failure it exists to expose. No stamp —
+    // parseTranscript already traced the fault to stderr.
+    if (readFailed) return exit0();
+
+    // Skip sessions with too little activity — the single most common
+    // healthy exit, so it MUST stamp (see stampHookRunOnly).
+    if (toolCallCount < 3) { stampHookRunOnly(process.env, 'session-summary'); return exit0(); }
 
     // Hoisted to outer-try scope so the LLM failure-analysis block
     // below (which runs AFTER db.close()) can reference it. Earlier
@@ -284,6 +309,7 @@ process.stdin.on('end', async () => {
     // user got a `Require stack:` dump on stderr. An extension nobody calls
     // was silently costing every session on those platforms its memory.
     const { db } = openHookDb(process.env, { fts: true });
+    let writeFailed = false;
     try {
       // Duplicate detection: if we already captured this session, bail.
       //
@@ -293,8 +319,15 @@ process.stdin.on('end', async () => {
       // share the prefix and silently skipped the second session
       // entirely. The contract is one stored capture per distinct
       // session_id, so the dedup key has to be the full id.
+      //
+      // A dedup bail is a SUCCESSFUL run — the loop executed and correctly
+      // decided there was nothing to do — so it stamps the heartbeat like
+      // the capture path below does. Only a throw leaves no stamp.
       const alreadyCaptured = db.prepare("SELECT id FROM entities WHERE name = ?").get(`session-${sessionId}-files`);
-      if (alreadyCaptured) return exit0();
+      if (alreadyCaptured) {
+        recordHookRun(db, 'session-summary');
+        return exit0();
+      }
 
       // Build and store session memories
       const baseTags = [AUTO_CAPTURE_TAG, `session:${sessionId}`, `project:${projectName}`];
@@ -322,7 +355,11 @@ process.stdin.on('end', async () => {
       // only, skipping the FTS reindex the sibling hooks did — which left every
       // session-insight memory unrecallable via the FTS keyword path.
       function storeMemory(name, type, observations, tags) {
-        captureEntity(db, { name, type, observations, tags });
+        // null = the entity row could not be resolved = this write did NOT
+        // happen (captureEntity's contract). A run with a failed write must
+        // not stamp the heartbeat below — "alive" would be a lie about the
+        // exact thing the heartbeat certifies.
+        if (!captureEntity(db, { name, type, observations, tags })) writeFailed = true;
       }
 
       // Rule 1: File editing session summary
@@ -469,6 +506,14 @@ process.stdin.on('end', async () => {
         // missing-column failure is visible without crashing the hook.
         try { process.stderr.write(`[memesh session-summary] recall-effectiveness write: ${err?.message || err}\n`); } catch {}
       }
+
+      // Heartbeat AFTER capture, so the stamp certifies "the capture loop
+      // completed", not "a database handle existed". A throw above skips it,
+      // and so does a captureEntity null return (writeFailed) — a run whose
+      // write did not land must not read as alive. (The recall-effectiveness
+      // block catches its own errors — session memories were already stored
+      // by then, so the run still counts.)
+      if (!writeFailed) recordHookRun(db, 'session-summary');
     } finally {
       db.close();
     }
@@ -666,8 +711,10 @@ function writeDreamHistory(history) {
 
 /**
  * Count episodic entities for the given project over the configured
- * window. Read-only — uses the hook's _shared openHookDb helper which
- * is already on the import path.
+ * window. Only issues a SELECT, but the handle is openHookDb's ordinary
+ * read-write one (it runs the schema/migration chain) — there is no
+ * read-only variant on the hook side, and this call site must not stamp
+ * the heartbeat (recordHookRun is per-hook-exit, never per-open).
  */
 function countEpisodicEntities(projectName) {
   let handle;

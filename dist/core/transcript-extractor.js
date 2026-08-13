@@ -3,7 +3,7 @@ import { callLLM } from './llm-client.js';
 import { recordTelemetry } from './llm-telemetry.js';
 import { sanitizeForPrompt } from './prompt-safety.js';
 import { outputLanguageInstruction } from './output-language.js';
-import { getProjectName } from './paths.js';
+import { getProjectName, SECRET_PATTERN_SOURCES } from './paths.js';
 import { extractJsonBlock } from './json-utils.js';
 import { scanTranscripts } from './transcript-source.js';
 import { embedText, vectorSearch, isEmbeddingAvailable, entityEmbedText } from './embedder.js';
@@ -15,24 +15,7 @@ export const ORDERING_INSTRUCTION = 'The conversation below is in CHRONOLOGICAL 
     'that was later contradicted, corrected, or walked back within this same conversation.';
 const CHUNK_CHAR_BUDGET = 48000;
 const MAX_CHUNKS_PER_SESSION = 4;
-const SECRET_SOURCES = [
-    '-----BEGIN[A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END[A-Z ]*PRIVATE KEY-----',
-    '-----BEGIN[A-Z ]*PRIVATE KEY-----[\\s\\S]*?(?=\\n[ \\t]*\\n|$)',
-    '(?:postgres|postgresql|mysql|mariadb|mongodb(?:\\+srv)?|redis|rediss|amqp|amqps)://[^\\s:@/]+:[^\\s:@/]+@',
-    'eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}',
-    'SG\\.[A-Za-z0-9_-]{16,}\\.[A-Za-z0-9_-]{16,}',
-    '[srp]k_(?:live|test)_[A-Za-z0-9]{16,}',
-    'npm_[A-Za-z0-9]{36}',
-    'sk-ant-[A-Za-z0-9_-]{16,}',
-    'sk-[A-Za-z0-9_-]{16,}',
-    'sk_[A-Za-z0-9]{16,}',
-    'ghp_[A-Za-z0-9]{30,}',
-    'gho_[A-Za-z0-9]{30,}',
-    'github_pat_[A-Za-z0-9_]{20,}',
-    'AKIA[A-Z0-9]{16}',
-    'xox[baprs]-[A-Za-z0-9-]{10,}',
-    'Bearer\\s+[A-Za-z0-9_.\\-]{16,}',
-];
+const SECRET_SOURCES = SECRET_PATTERN_SOURCES;
 export function containsSecret(text) {
     if (typeof text !== 'string')
         return false;

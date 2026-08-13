@@ -53,7 +53,19 @@ export const QUIET_WARN_CODES = new Set([
   'update-status.no-cache',        // has not checked yet — not a problem
   'update-status.stale',           // version is current, cache merely old
   'update-status.deprecation-unknown', // lookup failed; retried silently
-  'hook-activity.quiet',           // configured fine, just no sessions yet
+  // `hook-activity.quiet` used to sit here, and it was the most expensive
+  // entry in the list: the single signal that automatic capture might be dead
+  // was the one the dashboard refused to show. It was suppressed for a good
+  // reason — the old check could not distinguish "no session yet" from "hooks
+  // are not running", so it fired on quiet days and reading it as a problem
+  // would have been wrong most of the time. The check now measures hook RUNS
+  // rather than captured rows, so the ambiguity is gone and the code with it:
+  // a quiet day is a PASS, a >24h gap is a WARN that banners (a weekend, or
+  // the first sign of a stopped loop), and >72h is a FAIL.
+  'hook-activity.not-wired',       // the hook-wiring row already banners this
+                                   // condition with its own fix; for MCP-only
+                                   // installs (Codex / Gemini) it is not a
+                                   // problem at all
   'shell-cli.not-on-path',         // plugin-only installs work fully
   'skills-manifest.missing-dev',   // normal for source checkouts
   'install-channel.unknown',       // nothing is broken
@@ -133,9 +145,14 @@ export function DoctorBanner() {
   if (concerns.length === 0) return null;
 
   // Signature is stable for the same set of failing checks. Sort
-  // before joining so check order doesn't change the signature.
+  // before joining so check order doesn't change the signature. The code
+  // and the hook param are part of the identity: hook-activity alone has
+  // several warn-tier variants (stale, stop-silent, never-ran-legacy…), and
+  // an id:status signature made dismissing one dismiss them ALL — a user
+  // who waved off a stale post-commit warning then never saw "session
+  // capture may be broken" when the condition changed underneath it.
   const currentSig = concerns
-    .map(c => `${c.id}:${c.status}`)
+    .map(c => `${c.id}:${c.status}:${c.code ?? ''}:${c.params?.hook ?? ''}`)
     .sort()
     .join('|');
   if (currentSig === dismissedSig) return null;

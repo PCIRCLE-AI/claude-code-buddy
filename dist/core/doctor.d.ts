@@ -49,6 +49,7 @@ interface DoctorOptions {
     };
     resolveShellMemeshImpl?: () => string | null;
 }
+export declare function hoursSince(sqliteTimestamp: string): number | null;
 export declare function satisfiesMinimumNodeRange(version: string, range: string): boolean | null;
 export declare function inspectNodeRuntime(packageRoot: string, existsSyncImpl: typeof fs.existsSync, readFileSyncImpl: typeof fs.readFileSync, nodeVersion?: string, moduleAbi?: string, hasNodeSqliteImpl?: () => boolean): DoctorCheck;
 export declare function hasBuiltInSqlite(): boolean;

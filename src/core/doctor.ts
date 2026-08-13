@@ -3,7 +3,7 @@ import path from 'path';
 import { createHash } from 'crypto';
 import { createRequire } from 'module';
 import { pathToFileURL } from 'url';
-import { detectCapabilities, getConfigPath, isTranscriptMiningEnabled, type Capabilities } from './config.js';
+import { detectCapabilities, getConfigPath, isTranscriptMiningEnabled, readConfig, type Capabilities } from './config.js';
 import { embedText } from './embedder.js';
 import { probeProvider } from './llm-validator.js';
 import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } from '../db.js';
@@ -80,7 +80,11 @@ interface JsonObject {
  * state what it expects at the point it reads it.
  */
 interface DatabaseLike {
-  prepare: (sql: string) => { get: (...params: unknown[]) => unknown };
+  prepare: (sql: string) => {
+    get: (...params: unknown[]) => unknown;
+    all: (...params: unknown[]) => unknown[];
+    run: (...params: unknown[]) => unknown;
+  };
 }
 
 interface DoctorOptions {
@@ -263,7 +267,11 @@ function createCheck(
   status: DoctorCheckStatus,
   summary: string,
   fix?: string,
-  i18n?: { code: string; params?: Record<string, string | number> },
+  // `code` is optional: a PASS row may carry machine-readable params (e.g.
+  // hook-wiring's captureWired, consumed by runDoctor) without claiming a
+  // catalogue entry — the i18n scan only covers codes, which is correct,
+  // because codeless params never render through a locale template.
+  i18n?: { code?: string; params?: Record<string, string | number> },
 ): DoctorCheck {
   return { id, label, status, summary, fix, code: i18n?.code, params: i18n?.params };
 }
@@ -649,22 +657,29 @@ function inspectHookWiring(
       { code: 'hook-wiring.settings-invalid', params: { path: String(marker.settings_path) } },
     );
   }
-  // Walk hooks looking for any _memesh:true entry. Doesn't need
-  // to count every event — presence is the contract.
+  // Walk hooks looking for _memesh:true entries. Presence anywhere is the
+  // wiring contract, but the CAPTURE events are tracked separately: a
+  // SessionStart-only wiring is a real wiring (recall works) while proving
+  // nothing about whether a capture hook should ever execute — and
+  // hook-activity's never-ran FAIL says "they should be executing", so it
+  // must key on capture wiring specifically, not on wiring at all.
+  const CAPTURE_EVENTS = new Set(['Stop', 'PostToolUse', 'PreCompact']);
   const hooks = (settingsParsed.value as { hooks?: Record<string, unknown> }).hooks;
   let hasMemeshHook = false;
+  let hasCaptureHook = false;
   if (hooks && typeof hooks === 'object') {
-    for (const entries of Object.values(hooks)) {
+    for (const [event, entries] of Object.entries(hooks)) {
       if (!Array.isArray(entries)) continue;
       for (const entry of entries) {
         const cmds = (entry as { hooks?: unknown[] }).hooks;
         if (!Array.isArray(cmds)) continue;
         if (cmds.some((c) => (c as { _memesh?: boolean })._memesh === true)) {
           hasMemeshHook = true;
+          if (CAPTURE_EVENTS.has(event)) hasCaptureHook = true;
           break;
         }
       }
-      if (hasMemeshHook) break;
+      if (hasMemeshHook && hasCaptureHook) break;
     }
   }
   if (!hasMemeshHook) {
@@ -694,97 +709,378 @@ function inspectHookWiring(
     'Hooks wired into Claude Code',
     'pass',
     `Wired in ${marker.settings_path} (scope: ${marker.scope ?? 'user'}, version: ${marker.version ?? 'unknown'}).`,
+    undefined,
+    // Consumed by runDoctor to arm hook-activity's never-ran FAIL — not a
+    // user-facing message param.
+    { params: { captureWired: hasCaptureHook ? 1 : 0 } },
   );
 }
 
 /**
- * Confirm memesh's hooks have actually produced an entity in the
- * past 24 hours — the strongest signal that the auto-capture loop
- * is alive end-to-end.
+ * Confirm the auto-capture loop is alive, from what actually RAN.
  *
- * The question is about PROVENANCE — did a hook write this — so the count is
- * taken from the provenance tag every capture hook attaches,
- * `source:auto-capture`: the Stop extractor, `session-summary.js`,
- * `pre-compact.js` and `post-commit.js`.
+ * The verdict reads `hook_runs` — the heartbeat each capture hook stamps at
+ * its own successful exit — not the count of captured entities. A produced
+ * entity is no longer the evidence: "ran, found nothing worth saving" is the
+ * healthy case that produces no row at all, and judging by rows made a quiet
+ * day and a dead loop byte-identical. The `source:auto-capture` count still
+ * appears in the PASS message, but as detail, never as the verdict. (The
+ * count once judged this check by entity TYPE, which a hand-typed
+ * `memesh learn` satisfied — the check reported the user's own typing back
+ * as proof of automation. That is why the count can never be trusted with
+ * the verdict again.)
  *
- * It used to count entity TYPES instead: `session-insight`, `session-summary`,
- * `commit`, `lesson_learned`. The last of those is what `memesh learn` writes,
- * and a user types that by hand — so on a brand-new HOME with no `.claude`
- * directory at all, one hand-typed `memesh learn` was enough to make this row
- * report "auto-capture loop is alive". It reported the user's own typing back
- * to them as evidence that automation worked.
+ * Three hooks stamp, but only one is load-bearing: `session-summary` fires
+ * on every session's Stop (its low-signal bails stamp too), so its silence
+ * is meaningful. `post-commit` and `pre-compact` fire only when the user
+ * commits or a session compacts — their absence proves nothing, so their
+ * STALENESS caps at warn, never fail. The two ways they can still drive a
+ * red are both positive evidence, not absence: a corrupt/future timestamp
+ * (stale-unknown — the row itself is lying), and the stop-silent warn when
+ * they keep stamping for days while session-summary has never stamped once
+ * (commit capture hiding dead session capture).
  *
- * User-global hooks (`~/.claude/hooks/stop.js`) write 'session_keypoint' and no
- * memesh provenance tag, so they still do not count — that keeps the "memesh
- * hooks aren't firing but custom hooks are" failure mode visible.
+ * Staleness has two tiers on purpose: >24h is a WARN ("worth a look — or a
+ * weekend"), >72h is the FAIL. The first version failed at 24h flat, which
+ * turned every Monday morning into a red "capture has stopped" banner; an
+ * alarm that cries wolf on weekends trains the user to ignore the real one.
  *
- * Grace period: if the install-hooks marker is < 24h old, we accept
- * "no activity yet" silently. A fresh install legitimately has nothing
- * to count.
+ * Deliberate silence is not a failure: capture disabled by config is a PASS
+ * with its own message, and "never ran" only reds when hook wiring is
+ * actually in place — otherwise the hook-wiring row already carries that
+ * story and this one downgrades to a quiet corroborating warn.
+ *
+ * Grace periods for the never-ran verdict: tracking younger than 24h (every
+ * pre-heartbeat database on its upgrade day), or an install-hooks marker
+ * younger than 24h (fresh install, no session yet).
  */
 function inspectHookActivity(
   openDatabaseImpl: typeof openDatabase,
   closeDatabaseImpl: typeof closeDatabase,
   existsSyncImpl: typeof fs.existsSync = fs.existsSync,
   statSyncImpl: typeof fs.statSync = fs.statSync,
+  wiringPresent: boolean = true,
 ): DoctorCheck {
+  const TITLE = 'Hook activity';
+
+  // Deliberately disabled capture is a configuration, not a failure — and
+  // every verdict below would misread it: the heartbeats legitimately stop
+  // the moment the user turns capture off. The two sources are reported
+  // separately because they have different blast radius: the config file is
+  // shared by every process, but an env var is visible only to THIS shell —
+  // the agent's hooks may be running under a different environment, so an
+  // env-sourced "disabled" is a statement about doctor's own process, not a
+  // verified fact about the capture loop.
+  const captureOff = autoCaptureOffSource();
+  if (captureOff === 'config') {
+    return createCheck('hook-activity', TITLE, 'pass',
+      'Automatic capture is turned off (config autoCapture: false) — deliberately, so hook silence is expected. Re-enable it to resume capturing sessions.',
+      undefined,
+      { code: 'hook-activity.disabled' });
+  }
+  if (captureOff === 'env') {
+    return createCheck('hook-activity', TITLE, 'pass',
+      'Automatic capture is turned off by MEMESH_AUTO_CAPTURE=false in this shell\'s environment. Doctor can only see its own environment — if your agent runs without this variable, capture there is unaffected.',
+      undefined,
+      { code: 'hook-activity.disabled-env' });
+  }
+
   let db: DatabaseLike | null = null;
   try {
     db = openDatabaseImpl() as unknown as DatabaseLike;
-    const row = db.prepare(
+
+    // A pre-heartbeat database whose FILE is read-only opens without the
+    // table (the open path skips migration on a read-only file rather than
+    // dying) — that is "tracking has not started", not a query failure.
+    const hookRunsTablePresent = !!db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'hook_runs'",
+    ).get();
+    const rows = hookRunsTablePresent
+      ? db.prepare(
+        `SELECT hook, last_run_at FROM hook_runs`,
+      ).all() as Array<{ hook: string; last_run_at: string }>
+      : [];
+
+    const captured = (db.prepare(
       `SELECT COUNT(DISTINCT e.id) as c FROM entities e
        JOIN tags t ON t.entity_id = e.id
        WHERE t.tag = ?
          AND e.created_at > datetime('now', '-24 hours')`,
-    ).get(AUTO_CAPTURE_TAG) as { c: number };
-    const count = row?.c ?? 0;
-    if (count === 0) {
-      // Grace period: the install-hooks marker tells us when hooks were
-      // wired. If that was recent (< 24h), 0 activity is expected — the
-      // user simply hasn't completed a captureable session yet. Skip the
-      // warning entirely so a freshly-installed dashboard doesn't open
-      // with a noisy banner that the user can't act on.
-      const markerPath = path.join(memeshDir(), 'install-hooks.json');
-      if (existsSyncImpl(markerPath)) {
-        try {
-          const ageMs = Date.now() - statSyncImpl(markerPath).mtimeMs;
-          if (ageMs < 24 * 60 * 60 * 1000) {
-            return createCheck(
-              'hook-activity',
-              'Hook activity (last 24h)',
-              'pass',
-              'Hooks wired recently — no captureable sessions yet (this is normal for a fresh install).',
-            );
-          }
-        } catch { /* best-effort */ }
-      }
-      return createCheck(
-        'hook-activity',
-        'Hook activity (last 24h)',
-        'warn',
-        'memesh has not saved anything automatically in the last 24 hours. Everything is set up — it just has not seen a work session to remember yet. If you HAVE been working all day, Claude Code may need a restart to pick the connection up.',
-        'Do a normal Claude Code work session (or make a git commit), then check again with `memesh doctor`.',
-        { code: 'hook-activity.quiet' },
-      );
+    ).get(AUTO_CAPTURE_TAG) as { c: number } | undefined)?.c ?? 0;
+
+    // How long tracking has been possible — both the event-hook branch and
+    // the nothing-ever-ran branch below reason about it.
+    const since = (db.prepare(
+      "SELECT value FROM memesh_metadata WHERE key = 'hook_runs_since'",
+    ).get() as { value: string } | undefined)?.value;
+    const measuringHours = since !== undefined ? hoursSince(since) : null;
+
+    // Small negative ages are clock jitter between processes; anything
+    // beyond that is a future timestamp — a wrong clock stamped it, and
+    // "the future" must not read as "recently" (a dead loop would hide
+    // behind it until the wall clock caught up).
+    const SKEW_TOLERANCE_H = 5 / 60;
+    // hook_runs is user-writable SQLite, so a row's name is untrusted twice
+    // over: it must not ride a diagnostic into the pre-filled PUBLIC GitHub
+    // issue body (`memesh feedback` copies summaries verbatim), and it must
+    // not COUNT — our hooks only ever stamp three literals, so any other
+    // row was written by something that is not us, and treating its
+    // timestamp as liveness evidence would let one foreign row turn a dead
+    // capture loop permanently green (four independent reviews converged on
+    // this). Foreign rows are simply not evidence, in either direction.
+    const KNOWN_HOOKS = new Set(['session-summary', 'post-commit', 'pre-compact']);
+    const ages = new Map<string, number | null>();
+    for (const r of rows) {
+      if (!KNOWN_HOOKS.has(r.hook)) continue;
+      const age = hoursSince(r.last_run_at);
+      ages.set(r.hook, age !== null && age >= -SKEW_TOLERANCE_H ? Math.max(age, 0) : null);
     }
-    return createCheck(
-      'hook-activity',
-      'Hook activity (last 24h)',
-      'pass',
-      `${count} memesh-attributed entit${count === 1 ? 'y' : 'ies'} captured in the past 24h — auto-capture loop is alive.`,
-    );
+
+    if (ages.size > 0) {
+      const capturedTail = captured > 0
+        ? `${captured} memor${captured === 1 ? 'y' : 'ies'} captured in the last 24h.`
+        : 'Nothing was worth saving in that time, which is normal — the loop still ran.';
+
+      // These two shapes each appear on two independent branches
+      // (session-summary-owned and event-hook-only), and their strings must
+      // stay aligned with 11 dashboard locales — one definition, one sync
+      // point. Stale wording rounds UP (Math.ceil): at 24.4h the status has
+      // already turned warn, and "last ran 24 hours ago" would contradict
+      // the 24h PASS wording next to it.
+      const staleUnknown = (hook: string) => createCheck('hook-activity', TITLE, 'fail',
+        `The ${hook} hook's last-run timestamp cannot be read (corrupt, or stamped by a machine with a wrong clock). ` +
+          'Capture health is unknown, which is not the same as healthy.',
+        'End one work session, then re-run `memesh doctor` — a fresh run overwrites the bad timestamp.',
+        { code: 'hook-activity.stale-unknown', params: { hook } });
+      // params.hours uses the SAME Math.ceil as the English sentence: the 11
+      // dashboard locales interpolate {hours} from params, and a Math.round
+      // there rendered "ran about 24 hours ago" on a warn row at 24.0–24.4h —
+      // the exact contradiction the ceil exists to prevent, localized.
+      const stale = (hook: string, age: number, status: DoctorCheckStatus) => createCheck(
+        'hook-activity', TITLE, status,
+        `The ${hook} hook last ran ${formatHoursAgo(Math.ceil(age))}. ` +
+          'If you have worked since then, capture has stopped and nothing from those sessions was saved.',
+        'Restart your agent, then end one session and re-run `memesh doctor`. If it does not recover, run `memesh install-hooks`.',
+        { code: 'hook-activity.stale', params: { hook, hours: Math.ceil(age) } });
+
+      // session-summary is the only hook whose silence is meaningful, so its
+      // row — when it has one — owns the verdict.
+      const ssAge = ages.has('session-summary') ? ages.get('session-summary')! : undefined;
+      if (ssAge === null) return staleUnknown('session-summary');
+      if (ssAge !== undefined) {
+        if (ssAge <= 24) {
+          return createCheck('hook-activity', TITLE, 'pass',
+            `The session-summary hook last ran ${formatHoursAgo(ssAge)} — auto-capture is alive. ${capturedTail}`);
+        }
+        if (ssAge <= 72) return stale('session-summary', ssAge, 'warn');
+        // Past 72h, distinguish "the hook died" from "the user moved to
+        // another agent": if Claude Code itself wrote anything recently
+        // (Phase 2 stamps metadata.provenance.source_host on every write
+        // path), the agent is in use and its Stop hook is provably silent —
+        // that is the red. No recent Claude Code writes is NOT proof of
+        // death (a session can write nothing), so absence only holds the
+        // verdict at warn — it never upgrades to fail on missing evidence.
+        // json_valid guards the extract: metadata has no validity constraint
+        // and the migration chain deliberately preserves unparseable legacy
+        // values, so one bad row must not turn this whole check into
+        // query-failed (measured: json_extract THROWS on malformed JSON).
+        const ccWrites = (db.prepare(
+          `SELECT COUNT(*) as c FROM entities
+           WHERE created_at > datetime('now', '-72 hours')
+             AND json_valid(metadata)
+             AND json_extract(metadata, '$.provenance.source_host') = 'claude-code'`,
+        ).get() as { c: number } | undefined)?.c ?? 0;
+        if (ccWrites > 0) return stale('session-summary', ssAge, 'fail');
+        // The hedge is its own code, not a tail glued onto the English
+        // summary: the 11 dashboard locales render by code, and gluing the
+        // hedge onto `hook-activity.stale` meant every non-English user read
+        // an unqualified "capture has stopped" — with exactly the sentence
+        // that says "this may be fine" dropped in translation.
+        return createCheck('hook-activity', TITLE, 'warn',
+          `The session-summary hook last ran ${formatHoursAgo(Math.ceil(ssAge))}, and no Claude Code writes landed in the last 3 days either. If this machine has moved to another agent (Codex / Gemini), this is expected; if you still use Claude Code here, capture has stopped.`,
+          'If you still use Claude Code on this machine: restart it, end one session, and re-run `memesh doctor`. If it does not recover, run `memesh install-hooks`.',
+          { code: 'hook-activity.stale-unconfirmed', params: { hook: 'session-summary', hours: Math.ceil(ssAge) } });
+      }
+
+      // Only the event-driven hooks (post-commit / pre-compact) have stamped.
+      // Their triggers depend on user behaviour — no commits means no
+      // post-commit run, dead or alive — so their staleness caps at WARN,
+      // never fail: evidence from hooks the user may simply not be
+      // triggering cannot prove death, only invite a look.
+      const known = [...ages.entries()].filter((e): e is [string, number] => e[1] !== null);
+      if (known.length === 0) {
+        const [hook] = [...ages.keys()].sort();
+        return staleUnknown(hook);
+      }
+      const [freshestHook, freshestAge] = known.sort((a, b) => a[1] - b[1])[0];
+      if (freshestAge <= 24) {
+        // Fresh event activity proves the machinery runs — but session-summary,
+        // the hook that carries session memory, has never stamped once. Early
+        // in tracking that is expected; past three days it stops being
+        // explicable by quiet sessions (the low-signal bails stamp too), and
+        // a permanently silent Stop hook hiding behind daily commits is the
+        // exact masked-death this check exists to expose.
+        if (measuringHours !== null && measuringHours > 72) {
+          return createCheck('hook-activity', TITLE, 'warn',
+            `The ${freshestHook} hook is stamping (last ran ${formatHoursAgo(freshestAge)}), but the session-summary hook has never run once in the ${Math.round(measuringHours)} hours since tracking began — session capture may be broken while commit capture hides it.`,
+            'End one work session and re-run `memesh doctor`. If session-summary still has not run, run `memesh install-hooks` and restart your agent.',
+            { code: 'hook-activity.stop-silent', params: { hook: freshestHook, hours: Math.round(measuringHours) } });
+        }
+        return createCheck('hook-activity', TITLE, 'pass',
+          `The ${freshestHook} hook last ran ${formatHoursAgo(freshestAge)} — auto-capture is alive. ` +
+            `(session-summary has not stamped yet — expected until a session with real work ends.) ${capturedTail}`);
+      }
+      return stale(freshestHook, freshestAge, 'warn');
+    }
+
+    if (since !== undefined && (measuringHours === null || measuringHours < 0)) {
+      // The tracking marker itself is unreadable or in the future. Left
+      // alone forever it would grant the "just started" grace FOREVER — a
+      // fail-open — but the healer is NOT this function: doctor is a reader
+      // (reachable via an unauthenticated loopback GET /v1/doctor, where a
+      // state-changing side effect has no place), and ensureHookRunsSince
+      // validates and restamps the marker on every real write-path open.
+      // The next session, commit, or CLI command heals it; doctor just says
+      // so.
+      return createCheck('hook-activity', TITLE, 'pass',
+        'The hook-run tracking marker is unreadable — it will be re-stamped automatically the next time the database is opened for writing (any session, commit, or memesh command does it). Tracking restarts then.');
+    }
+    if (measuringHours === null || measuringHours < 24) {
+      // A database that only just gained the heartbeat has an empty table for
+      // reasons that say nothing about hook health. Every existing install is
+      // in this state for its first day.
+      return createCheck('hook-activity', TITLE, 'pass',
+        'Hook-run tracking has only just started on this database — the first work session will fill it in.');
+    }
+    // Fresh-install grace: hooks wired within the last day, no session yet.
+    const markerPath = path.join(memeshDir(), 'install-hooks.json');
+    if (existsSyncImpl(markerPath)) {
+      try {
+        if (Date.now() - statSyncImpl(markerPath).mtimeMs < 24 * 60 * 60 * 1000) {
+          return createCheck('hook-activity', TITLE, 'pass',
+            'Hooks were wired in the last day and no session has ended yet — normal for a fresh install.');
+        }
+      } catch { /* marker unreadable; fall through to the real verdict */ }
+    }
+    // Version skew: the npm CLI/MCP side and the plugin hooks ship through
+    // separate channels. An upgraded CLI starts tracking while still-old
+    // hooks (which predate the heartbeat) keep capturing without stamping —
+    // entities carrying the auto-capture tag ARE landing, so "nothing is
+    // being remembered" would be flatly false. The window is "since tracking
+    // began", not the last 24h: legacy hooks capture on the user's schedule,
+    // and a quiet weekend must not flip this warn into the never-ran FAIL
+    // below (the false red would tell a working install its memory is gone).
+    // The tag is hand-typeable, so this is a warn, never a pass.
+    const legacyCaptured = (db.prepare(
+      `SELECT COUNT(DISTINCT e.id) as c FROM entities e
+       JOIN tags t ON t.entity_id = e.id
+       WHERE t.tag = ?
+         AND e.created_at > ?`,
+    ).get(AUTO_CAPTURE_TAG, since) as { c: number } | undefined)?.c ?? 0;
+    if (legacyCaptured > 0) {
+      return createCheck('hook-activity', TITLE, 'warn',
+        `No hook has stamped the heartbeat, but ${legacyCaptured} auto-capture memor${legacyCaptured === 1 ? 'y' : 'ies'} landed since tracking began — hooks from a version before heartbeat tracking are probably still running.`,
+        'Update the memesh hooks to the current version (plugin installs: `/plugin update memesh`; npm installs: `memesh install-hooks`), then restart your agent.',
+        { code: 'hook-activity.never-ran-legacy', params: { captured: legacyCaptured } });
+    }
+    if (!wiringPresent) {
+      // No CAPTURE hook is confirmed wired — the hook-wiring row is already
+      // telling that story with its own fix. Failing here too would
+      // double-report one condition, and for installs that never intend to
+      // wire capture hooks (MCP-only hosts, recall-only wirings) it would be
+      // a permanent unfixable red. Note "capture hook", not "wired at all":
+      // a SessionStart-only wiring passes the wiring row but proves nothing
+      // about Stop/PostToolUse/PreCompact ever executing, so it must not
+      // arm the never-ran FAIL below.
+      return createCheck('hook-activity', TITLE, 'warn',
+        'No capture hook has ever run — and no capture hook (Stop / PostToolUse / PreCompact) is confirmed wired on this machine, so there is nothing to run.',
+        'If you want automatic capture, run `memesh install-hooks`. If this install is MCP-only (Codex / Gemini), this is expected and safe to ignore.',
+        { code: 'hook-activity.not-wired' });
+    }
+    return createCheck('hook-activity', TITLE, 'fail',
+      `No capture hook has run since tracking began ${formatHoursAgo(measuringHours)}. ` +
+        'Hook wiring is in place, so they should be executing and are not — nothing is being remembered.',
+      'Run `memesh doctor` after ending one work session. If this still says no hook has run, run `memesh install-hooks` and restart your agent.',
+      { code: 'hook-activity.never-ran', params: { hours: Math.round(measuringHours) } });
   } catch (err) {
-    return createCheck(
-      'hook-activity',
-      'Hook activity (last 24h)',
-      'warn',
-      `Could not query the database: ${err instanceof Error ? err.message : String(err)}`,
-      undefined,
-      { code: 'hook-activity.query-failed', params: { detail: err instanceof Error ? err.message : String(err) } },
-    );
+    const detail = err instanceof Error ? err.message : String(err);
+    return createCheck('hook-activity', TITLE, 'fail',
+      `Could not read hook activity from the database: ${detail}. Capture health is unknown, which is not the same as healthy.`,
+      'Run `memesh doctor --verbose` for the full error, and check that ~/.memesh is readable and not out of disk.',
+      { code: 'hook-activity.query-failed', params: { detail } });
   } finally {
     try { if (db) closeDatabaseImpl(); } catch { /* best-effort */ }
   }
+}
+
+/**
+ * Is automatic capture deliberately switched off — and by WHICH source?
+ *
+ * Mirrors the precedence the hooks themselves use (`isAutoCaptureEnabled`
+ * in scripts/hooks/_shared.js): env wins over config, and only the explicit
+ * strings/values count — a stray env value must not disable capture.
+ *
+ * The source matters to the caller: config is shared by every process on
+ * the machine, while the env var is per-process — doctor observing it in
+ * ITS shell says nothing certain about the agent's hooks.
+ */
+function autoCaptureOffSource(): 'env' | 'config' | null {
+  const envVal = process.env.MEMESH_AUTO_CAPTURE;
+  if (envVal === 'false') return 'env';
+  if (envVal === 'true') return null;
+  try {
+    return readConfig().autoCapture === false ? 'config' : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Hours between a SQLite timestamp and now, or null if it cannot be read.
+ *
+ * SQLite writes `datetime('now')` and `CURRENT_TIMESTAMP` as
+ * `YYYY-MM-DD HH:MM:SS` in **UTC**, which is not an ISO-8601 string: handing it
+ * to `new Date(...)` is implementation-defined, and the engines that do accept
+ * it read it as LOCAL time — so the same row measures as "3 hours ago" in
+ * London and "11 hours ago" in Taipei, and a capture loop that stopped an hour
+ * ago can read as healthy. Parsed explicitly as UTC instead.
+ *
+ * Returns null rather than 0 for an unreadable value: a corrupt timestamp is
+ * "we do not know", and letting it collapse to "just now" would report a dead
+ * loop as alive, which is the exact failure this whole check exists to end.
+ */
+export function hoursSince(sqliteTimestamp: string): number | null {
+  // Anchored at BOTH ends: SQLite's datetime('now') writes exactly
+  // 'YYYY-MM-DD HH:MM:SS', so a trailing suffix means the value was not
+  // written by us — and the worst suffixes are timezone offsets, which this
+  // parser would silently ignore while reading the prefix as UTC (measured:
+  // '…10:00:00+08:00' parsed 8 hours wrong instead of returning unknown).
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(sqliteTimestamp ?? '');
+  if (!m) return null;
+  const then = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+  if (!Number.isFinite(then)) return null;
+  // Date.UTC never rejects out-of-range components — it rolls them over, so
+  // a corrupt `2026-99-99 00:00:00` silently becomes a real date years away
+  // (usually in the future, where a negative age can pass a recency check).
+  // Round-tripping catches exactly the values that rolled.
+  const d = new Date(then);
+  if (
+    d.getUTCFullYear() !== +m[1] || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]
+    || d.getUTCHours() !== +m[4] || d.getUTCMinutes() !== +m[5] || d.getUTCSeconds() !== +m[6]
+  ) return null;
+  return (Date.now() - then) / (60 * 60 * 1000);
+}
+
+/** "3 hours ago" / "6 days ago" — whichever reads as the plainer sentence. */
+function formatHoursAgo(hours: number | null): string {
+  if (hours === null || !Number.isFinite(hours) || hours < 0) return 'at an unknown time';
+  if (hours < 1) return 'less than an hour ago';
+  if (hours < 48) {
+    const h = Math.round(hours);
+    return `${h} hour${h === 1 ? '' : 's'} ago`;
+  }
+  const d = Math.round(hours / 24);
+  return `${d} day${d === 1 ? '' : 's'} ago`;
 }
 
 function defaultResolveShellMemesh(): string | null {
@@ -1879,8 +2175,19 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   // Runtime wiring + activity (#25 — file existence isn't enough;
   // doctor used to PASS for users whose Claude Code never loaded
   // memesh's hooks at all).
-  checks.push(inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install));
-  checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl));
+  const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install);
+  checks.push(wiring);
+  // hook-activity's never-ran verdict only reds when wiring is actually in
+  // place — otherwise the wiring row above already tells the story, and an
+  // MCP-only install would carry a permanent unfixable FAIL.
+  // never-ran's FAIL claims "capture hooks should be executing" — that needs
+  // a capture event (Stop/PostToolUse/PreCompact) confirmed wired, not just
+  // any wiring. A plugin-marketplace pass carries no walk result and wires
+  // every event through hooks.json, so it counts as capture-wired; a
+  // settings-walk pass counts only when the walk saw a capture event.
+  const captureWired = wiring.status === 'pass'
+    && (wiring.params === undefined || wiring.params.captureWired === 1);
+  checks.push(inspectHookActivity(openDatabaseImpl, safeCloseDatabaseImpl, existsSyncImpl, statSyncImpl, captureWired));
   checks.push(inspectDashboardArtifact(packageRoot, existsSyncImpl));
   // Before the native-binding row, because when that one is red this one is
   // the context that explains it.

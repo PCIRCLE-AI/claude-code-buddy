@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'child_process';
-import { AUTO_CAPTURE_TAG, captureEntity, getProjectName, openHookDb } from './_shared.js';
+import { AUTO_CAPTURE_TAG, captureEntity, getProjectName, isAutoCaptureEnabled, openHookDb, recordHookRun } from './_shared.js';
 
 let input = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { input += chunk; });
 process.stdin.on('end', () => {
   try {
+    // Opt-out check (env > config > default-on). This hook skipped it for
+    // years while its two siblings honoured it — with capture disabled it
+    // kept writing commit entities AND stamping the heartbeat, which made
+    // doctor's "capture is off, hook silence is expected" message false.
+    if (!isAutoCaptureEnabled(process.env)) return exit0();
+
     const data = JSON.parse(input);
 
     // tool_name absent is a schema-flip signal (Claude Code has done
@@ -134,12 +140,17 @@ process.stdin.on('end', () => {
       // this one did not). `memesh doctor` counts it to answer "is the
       // auto-capture loop alive" — a question it used to answer from entity
       // TYPE, which a hand-typed `memesh learn` satisfied all by itself.
-      captureEntity(db, {
+      const written = captureEntity(db, {
         name: entityName,
         type: 'commit',
         observations,
         tags: [AUTO_CAPTURE_TAG, `project:${projectName}`],
       });
+
+      // Heartbeat AFTER capture, so the stamp certifies "the capture loop
+      // completed", not "a database handle existed". A throw above skips it,
+      // and so does a null return (the write did not land).
+      if (written) recordHookRun(db, 'post-commit');
     } finally {
       db.close();
     }

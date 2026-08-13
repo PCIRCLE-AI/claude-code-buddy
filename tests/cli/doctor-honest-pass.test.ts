@@ -92,13 +92,16 @@ describe('doctor: auto-capture activity (C5)', () => {
     expect(
       activity.summary,
       'a lesson the user typed by hand is reported as the auto-capture loop working'
-    ).not.toMatch(/auto-capture loop is alive/);
-    expect(activity.status).toBe('warn');
+    ).not.toMatch(/auto-capture is alive/);
   });
 
-  it('an entity carrying the auto-capture tag IS evidence', () => {
-    // The other direction: the check must still fire for real hook output, or
-    // the fix above would just be "always warn".
+  it('even the auto-capture TAG is not evidence — only a recorded hook run is', () => {
+    // This case used to assert the opposite, and the assertion was wrong for
+    // the same reason as the one above it: `source:auto-capture` is a tag, and
+    // a tag is something anyone can type. The test one line up proves the user
+    // can write entities by hand; nothing stopped them writing that tag too,
+    // and doctor would then have called the capture loop alive on the strength
+    // of it. Liveness now comes from `hook_runs`, which only a hook writes.
     const r = runCli([
       'remember', '--name', 'session-abc', '--type', 'session-insight',
       '--obs', 'did some work', '--tags', 'source:auto-capture',
@@ -106,8 +109,59 @@ describe('doctor: auto-capture activity (C5)', () => {
     expect(r.exitCode, r.stderr).toBe(0);
 
     const activity = doctorCheck('hook-activity');
+    expect(
+      activity.summary,
+      'a hand-typed tag convinced doctor the hooks were running'
+    ).not.toMatch(/auto-capture is alive/);
+  });
+
+  it('a recorded hook run IS evidence, and doctor says which hook and when', () => {
+    // The other direction, or the two cases above would be satisfied by a
+    // doctor that never reports the loop alive at all.
+    const seeded = runCli(['remember', 'anything at all, just to create the database']);
+    expect(seeded.exitCode, seeded.stderr).toBe(0);
+
+    const dbPath = path.join(home, '.memesh', 'knowledge-graph.db');
+    expect(fs.existsSync(dbPath), 'no database to seed — this test would be vacuous').toBe(true);
+    execFileSync('node', [
+      '-e',
+      `const { DatabaseSync } = require('node:sqlite');
+       const db = new DatabaseSync(process.argv[1]);
+       db.prepare("INSERT INTO hook_runs (hook, last_run_at, run_count) VALUES ('session-summary', datetime('now'), 1)").run();
+       db.close();`,
+      dbPath,
+    ], { encoding: 'utf8' });
+
+    const activity = doctorCheck('hook-activity');
     expect(activity.status).toBe('pass');
-    expect(activity.summary).toMatch(/auto-capture loop is alive/);
+    expect(activity.summary).toMatch(/auto-capture is alive/);
+    expect(activity.summary).toMatch(/session-summary/);
+  });
+
+  it('one malformed metadata row does not take down the >72h corroboration query', () => {
+    // entities.metadata has no validity constraint and the migration chain
+    // deliberately preserves unparseable legacy values — while
+    // json_extract THROWS on malformed JSON (verified on node:sqlite). The
+    // >72h branch runs json_extract over recent rows, so without the
+    // json_valid guard one bad row turned the whole hook-activity check
+    // into query-failed exactly when it had something important to say.
+    const seeded = runCli(['remember', 'anything at all, just to create the database']);
+    expect(seeded.exitCode, seeded.stderr).toBe(0);
+
+    const dbPath = path.join(home, '.memesh', 'knowledge-graph.db');
+    execFileSync('node', [
+      '-e',
+      `const { DatabaseSync } = require('node:sqlite');
+       const db = new DatabaseSync(process.argv[1]);
+       db.prepare("INSERT INTO hook_runs (hook, last_run_at, run_count) VALUES ('session-summary', datetime('now', '-96 hours'), 1)").run();
+       db.prepare("INSERT INTO entities (name, type, metadata) VALUES ('bad-metadata-row', 'note', '{not json')").run();
+       db.close();`,
+      dbPath,
+    ], { encoding: 'utf8' });
+
+    const activity = doctorCheck('hook-activity');
+    expect(activity.summary, 'one malformed row must not read as a database failure').not.toMatch(/Could not read hook activity/);
+    expect(activity.summary).toMatch(/session-summary hook last ran/);
   });
 });
 

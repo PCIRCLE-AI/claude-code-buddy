@@ -6,6 +6,206 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **memesh now records that a capture hook RAN, not only that it saved
+  something.** Every liveness signal in the product was "a row appeared in the
+  last 24 hours", and the healthiest state there is — a hook that ran and found
+  nothing worth remembering — produces no row at all. So a quiet Tuesday and a
+  capture loop that had been dead for a month were byte-identical in the
+  database. `memesh doctor` had one message to cover both, which meant it cried
+  wolf on ordinary days *and* stayed silent on the failure it existed to catch;
+  the dashboard, reasonably, suppressed it entirely, so the single signal that
+  automatic memory might have stopped was the single signal a dashboard user
+  could never see.
+
+  A `hook_runs` table (one row per hook, upserted, it does not grow) is now
+  stamped by the three hooks that hold a read-write handle — each at its own
+  **successful exit**, after capture, never at open. The first draft stamped
+  when the database handle became usable, and two independent adversarial
+  reviews converged on the same objection: a hook that opens the database and
+  then dies in its own capture logic would read as "alive" for a day, which
+  is the exact lie this table exists to end, relocated one step later. The
+  stamp means precisely "this hook executed to a correct decision": a run
+  that correctly decides there is nothing to do stamps too — the dedup bail,
+  a light session under the tool-call floor, a non-agentic session, a
+  transcript rotated away between Stop and the hook. What does *not* stamp
+  is a payload the hook could not attribute (empty stdin, malformed JSON, a
+  missing `cwd` or `transcript_path` field — the schema-flip shapes, where a
+  heartbeat would mask exactly the capture-is-dead state it exists to
+  expose), a failed write, and a run that throws; tests drive hooks into a
+  mid-capture crash and a light-session bail to hold both sides.
+
+  Doctor reads the table per hook, and only `session-summary`'s silence is
+  allowed to alarm: it fires on every real session's Stop, while
+  `post-commit` and `pre-compact` fire only when the user commits or a
+  session compacts — a week without commits proves nothing, and treating it
+  as death would just relocate the crying wolf. Event-hook staleness
+  therefore caps at WARN forever: absence of commits is not evidence of a
+  dead hook. A healthy `post-commit` cannot mask a dead `session-summary`
+  either: once session-summary has ever stamped, its row owns the verdict.
+  Staleness is two-tiered — >24h is a warn (a weekend), >72h is the FAIL
+  that banners — and the red itself demands positive evidence: it fires only
+  when recent entities carry `source_host: claude-code` provenance, proving
+  the agent is in use while its Stop hook is silent. Without that
+  corroboration the verdict holds at warn with a hedge, because this
+  database is shared across MCP hosts and a user who moved to Codex or
+  Gemini stops triggering Claude Code's Stop hook forever — a permanent,
+  unfixable red under a flat rule. Two masked states get their own warns:
+  commits stamping daily while session-summary has *never* run past three
+  days of tracking (`stop-silent` — the Stop hook hiding behind a living
+  post-commit), and captures landing with no heartbeat at all
+  (`never-ran-legacy` — hooks from a version before tracking are still
+  running). A quiet day where the hook ran is a **PASS** that says so. A database that only just gained the
+  table is a PASS too — `hook_runs_since` records when we first *could*
+  tell, so the upgrade itself does not look like a failure (and a corrupt or
+  future-dated marker is restamped rather than granting that grace forever).
+  Deliberately disabled capture (`MEMESH_AUTO_CAPTURE=false` or config
+  `autoCapture: false`) is a PASS that names the setting, never a failure;
+  and "never ran" only reds when hook wiring is actually in place — an
+  MCP-only install (Codex / Gemini) gets a quiet corroborating warn, not a
+  permanent unfixable red. Timestamps are parsed as the UTC that SQLite
+  writes, rolled-over pseudo-dates (`2026-99-99`) are rejected rather than
+  normalised into the future, and a future-dated heartbeat reads as
+  *unknown*, not *recent* — three hosts share this database, and one wrong
+  clock must not hide a dead loop behind a timestamp from tomorrow.
+
+### Fixed
+
+- **A foreign row in `hook_runs` can no longer certify the capture loop
+  alive.** The table is user-writable SQLite, and the first fix only
+  sanitized unrecognized hook names for display while still counting their
+  timestamps as liveness evidence — so one fresh row written by anything
+  that is not memesh (a fork sharing the database, a renamed future hook, a
+  hand INSERT) turned a dead capture loop permanently green. Four
+  independent review passes converged on the same finding. Rows whose name
+  is not one of the three literals our hooks stamp are now excluded from
+  the verdict entirely: not echoed, not counted, in either direction.
+
+- **One credential-pattern list for the whole codebase, and it is the
+  broad one.** Three redactors existed at three strengths: the transcript
+  scrubber (broadest), the doctor/feedback egress redactor (seven
+  patterns), and a private copy in the LLM client (two). Measured against
+  the egress redactor: `github_pat_` fine-grained tokens, Stripe keys,
+  JWTs, npm tokens and pasted private keys all reached the pre-filled
+  public GitHub issue body unmasked. The shared list (18 patterns) now
+  covers all of those plus AWS temporary keys, Google API keys, Slack
+  tokens and GitHub app/refresh tokens, and every consumer draws from it.
+  The Bearer rule also matches JSON-escaped whitespace, because the
+  dashboard egress redacts stringified JSON where a newline is the two
+  characters `\n` — a shape the CLI path never produced, so the two
+  egresses silently disagreed. `redactSecrets` itself was shipped with
+  zero tests; it now has a suite that exercises every pattern plus the
+  near-misses that must survive.
+
+- **`memesh doctor` is now a pure reader.** The corrupt-tracking-marker
+  self-heal was an UPDATE inside a diagnostic reachable via unauthenticated
+  loopback `GET /v1/doctor` — a state change on a GET. The heal moved to
+  `ensureHookRunsSince` on the write-path opens, which also closes a hole
+  the doctor-side heal left: with heartbeat rows present, the doctor branch
+  that healed the marker was unreachable, so a wrong-clock marker silently
+  disabled the stop-silent detector forever. Any session, commit, or CLI
+  command now restamps a corrupt or future-dated marker; doctor just says
+  so.
+
+- **An unreadable transcript no longer stamps the session-summary
+  heartbeat.** The transcript parser returned zeros on a permissions or I/O
+  failure, which made a LOST capture indistinguishable from a quiet session
+  — and the quiet-session bail stamps. Repeated read failures would have
+  kept doctor green while every session's capture was lost. The parser now
+  flags the failure and the hook exits unstamped, so the loss shows up as
+  the silence it is.
+
+- **An unwritable capture target no longer withholds recall.** The
+  every-session write probe returned on its warning — before the read-only
+  recall connection — so a read-only mount turned "capture is off" into
+  "your memory is gone", withholding every existing memory exactly when the
+  user needs context to notice something is wrong. The hook now warns and
+  keeps reading (and if recall then fails for its own reasons, the warning
+  still leads the message instead of being dropped). The probe also checks
+  the WAL/SHM sidecars — an interrupted `sudo` run leaves a user-owned
+  database next to root-owned sidecars, which the file-level probe alone
+  called healthy — and "MeMesh ready" is demoted whenever the warning is
+  present, because ready is a promise about capture.
+
+- **"Cannot migrate" no longer means "cannot open".** The general form of
+  the read-only regression: any release that adds a table or column makes
+  the first open of an older database a write, and a database FILE that is
+  read-only (a pre-upgrade backup, a snapshot) died on it — this release's
+  `hook_runs` table would have recreated the exact failure the SELECT-first
+  helpers fixed, one layer down. Bringing the schema current is now one
+  boundary that tolerates exactly the read-only-file error class: the open
+  degrades to reads with a stderr trace, and capture and migrations resume
+  when the file is writable. Doctor treats a missing `hook_runs` table on
+  such an open as "tracking has not started", not a query failure.
+
+- **Assorted verdict-integrity fixes from the same review round.** The >72h
+  corroboration query is guarded with `json_valid` (one malformed legacy
+  metadata row — which the migration chain deliberately preserves — used to
+  throw and turn the whole check into query-failed); the no-corroboration
+  hedge is its own code (`hook-activity.stale-unconfirmed`) with entries in
+  all 11 locales, because gluing it onto the English summary dropped
+  exactly the "this may be fine" sentence in every translation; the
+  localized `{hours}` param now rounds up like the English sentence
+  (Math.round rendered "ran about 24 hours ago" next to a warn that starts
+  at 24h); the legacy-hooks detection window is "since tracking began"
+  rather than 24h (a quiet weekend flipped a working legacy install into
+  the never-ran red); the never-ran FAIL arms only when a CAPTURE event
+  (Stop / PostToolUse / PreCompact) is confirmed wired, not any `_memesh`
+  entry (a recall-only wiring is not evidence that capture hooks should be
+  executing); env-sourced "capture disabled" gets its own code that says
+  doctor can only see its own shell; the tags dedup + unique index run in
+  one IMMEDIATE transaction instead of two autocommit statements; and the
+  dashboard banner's dismissal signature includes the check code and hook,
+  so dismissing one hook-activity warning no longer swallows a different
+  one that appears later under the same id:status.
+
+- **Opening the database no longer writes to it when there is nothing to
+  write.** Two DML statements lived inside the schema block that every open
+  executes — the heartbeat-tracking marker's `INSERT OR IGNORE` (new in this
+  release's first draft) and a tags-dedup `DELETE` that had been there since
+  the unique-index migration. Even when both were no-ops, SQLite still took
+  the WAL writer lock to find that out, so a read-only database file — a
+  backup, a snapshot, a permissions accident — failed to open at all
+  (`attempt to write a readonly database`), and every reader shared the
+  writer's lock contention. Both statements now run outside the schema
+  block behind SELECT-first guards: an open that has nothing to migrate
+  reads, decides, and touches nothing.
+
+- **`post-commit` now honours `MEMESH_AUTO_CAPTURE=false`.** Its two sibling
+  hooks checked the opt-out; this one kept writing commit entities and
+  stamping the heartbeat with capture disabled, which also made doctor's
+  "capture is off, hook silence is expected" message false. A disabled hook
+  now writes nothing — not an entity, not a stamp, not even the database
+  file.
+
+- **Diagnostic egress is whitelisted and redacted on every path.** Doctor
+  summaries end up verbatim in the pre-filled public GitHub issue that
+  `memesh feedback` opens. Hook names read back from the user-writable
+  database are now masked to `unknown-hook` unless they are one of the three
+  literals our hooks actually stamp, and the CLI feedback path now applies
+  the same secret-pattern redaction (API keys, tokens, bearer headers) the
+  HTTP transport already applied — the two egresses previously disagreed.
+  Timestamp parsing is anchored at both ends as well: a value with a
+  timezone suffix was measured hours wrong (the offset silently ignored);
+  it now reads as *unknown* instead.
+
+- **A `~/.memesh` that cannot be written no longer reports the session as
+  ready, on any run.** The probe for this existed and was measured by hand, but
+  it sat inside the "no database yet" branch — so it only ever ran before the
+  database existed, which is the one moment the failure is least likely. A
+  directory that *became* unwritable later (permissions changed, a read-only
+  mount, a botched `sudo`) printed the green count banner on every session
+  while every capture hook failed with EACCES. The probe now runs on every
+  session and also checks the database file itself, because a writable
+  directory holding a read-only database is a state the old mkdir-only check
+  called healthy. `tests/hooks/session-start-unwritable.test.ts` pins both
+  cases against a real read-only directory; nothing pinned either before.
+
+- **Doctor no longer treats the `source:auto-capture` tag as proof that
+  automation is running.** A tag is something anyone can type — the test
+  directly above this one in `doctor-honest-pass.test.ts` proves the user can
+  write entities by hand, and nothing stopped them writing that tag too.
+  Liveness now comes from `hook_runs`, which only a hook writes.
+
 - **`memesh remember --contradicts <name>` and `--supersedes <name>`.** Both
   relation types that change behaviour were statable through MCP and HTTP and
   from neither the terminal nor anywhere else the CLI could reach. That made
