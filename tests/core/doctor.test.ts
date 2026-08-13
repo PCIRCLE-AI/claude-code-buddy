@@ -171,6 +171,13 @@ function makeDatabase(
     trackingSinceRaw?: string;
     /** Set to true when the self-heal UPDATE of hook_runs_since runs. */
     onMetadataUpdate?: () => void;
+    /**
+     * Result of the source_host corroboration query (the >72h branch asks
+     * "did Claude Code itself write anything recently?"). Defaults to 1 —
+     * agent in use — so the stale-fail tests exercise the provable red;
+     * pass 0 for the moved-to-another-agent hedge.
+     */
+    recentClaudeCodeWrites?: number;
   } = {},
 ) {
   const sqliteTs = (hoursAgo: number) =>
@@ -208,6 +215,9 @@ function makeDatabase(
             return trackingSinceHours === null ? undefined : { value: sqliteTs(trackingSinceHours) };
           },
         };
+      }
+      if (sql.includes('source_host')) {
+        return { get: () => ({ c: opts.recentClaudeCodeWrites ?? 1 }) };
       }
       // hook-activity counts entities carrying the auto-capture provenance
       // tag, so its statement is `COUNT(DISTINCT e.id)` over a join. This
@@ -1128,16 +1138,45 @@ describe('doctor', () => {
   it('hook-activity: PASS and names the count when only an event hook has stamped', async () => {
     // post-commit alone: session-summary has never stamped (no real session
     // ended yet) but a commit proves the machinery runs. Alive, with a note.
+    // Tracking is young here (48h) on purpose — past 72h the same shape stops
+    // being explicable by quiet sessions and becomes stop-silent, below.
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 
     const { activity } = await activityCheck({
-      ...hookActivityDoctorArgs(packageRoot, makeDatabase(4, { hookRuns: [{ hook: 'post-commit', hoursAgo: 1 }] })),
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(4, {
+        hookRuns: [{ hook: 'post-commit', hoursAgo: 1 }],
+        trackingSinceHours: 48,
+      })),
       existsSyncImpl: noMarker,
     });
     expect(activity.status).toBe('pass');
     expect(activity.summary).toMatch(/post-commit/);
     expect(activity.summary).toMatch(/4 memories captured/);
+  });
+
+  it('hook-activity: WARN stop-silent when commits stamp daily but session-summary has NEVER run', async () => {
+    // The masked-death this check exists to expose: a permanently silent Stop
+    // hook hiding behind fresh post-commit stamps. Quiet sessions cannot
+    // explain it past 72h of tracking — the low-signal bails stamp too — so
+    // the note escalates to a bannerable warn. Not a fail: the machinery
+    // provably runs, and absence of one hook's stamp is not proof of death.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const { activity } = await activityCheck({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, {
+        hookRuns: [{ hook: 'post-commit', hoursAgo: 1 }],
+        trackingSinceHours: 200,
+      })),
+      existsSyncImpl: noMarker,
+    });
+    expect(activity.status).toBe('warn');
+    expect(activity.code).toBe('hook-activity.stop-silent');
+    expect(activity.params?.hook).toBe('post-commit');
+    expect(activity.params?.hours).toBe(200);
+    expect(activity.fix, 'stop-silent without a fix cannot reach the banner').toBeTruthy();
+    expect(activity.summary).toMatch(/session-summary/);
   });
 
   it('hook-activity: a dead session-summary is NOT masked by a living post-commit', async () => {
@@ -1202,26 +1241,136 @@ describe('doctor', () => {
     expect(justOver.status, '72.5h must already be past the warn tier').toBe('fail');
   });
 
-  it('hook-activity: a stale event hook alone warns then fails, hedged', async () => {
-    // With only post-commit stamped, its staleness is ambiguous — no commits
-    // means no runs, dead or alive — so it gets the same two tiers, never an
-    // instant red.
+  it('hook-activity: >72h holds at WARN when Claude Code itself has written nothing either', async () => {
+    // The cross-host hole: this database is shared by MCP hosts, and a user
+    // who moved to Codex or Gemini stops triggering Claude Code's Stop hook
+    // forever — a permanent, unfixable red under the flat >72h rule. The red
+    // needs positive evidence the agent is in use: recent entities stamped
+    // source_host=claude-code. No writes is NOT proof of death (a session can
+    // save nothing), so absence only holds the verdict at warn.
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 
-    const { activity: warn } = await activityCheck({
-      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, { hookRuns: [{ hook: 'post-commit', hoursAgo: 30 }] })),
+    const { activity: hedged } = await activityCheck({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, {
+        hookRuns: [{ hook: 'session-summary', hoursAgo: 96 }],
+        recentClaudeCodeWrites: 0,
+      })),
       existsSyncImpl: noMarker,
     });
-    expect(warn.status).toBe('warn');
-    expect(warn.code).toBe('hook-activity.stale');
-    expect(warn.params?.hook).toBe('post-commit');
+    expect(hedged.status, 'no corroborating writes must hold the verdict at warn').toBe('warn');
+    expect(hedged.code).toBe('hook-activity.stale');
+    expect(hedged.params?.hook).toBe('session-summary');
+    expect(hedged.summary).toMatch(/another agent|Codex/);
 
-    const { activity: fail } = await activityCheck({
-      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, { hookRuns: [{ hook: 'post-commit', hoursAgo: 96 }] })),
+    // And the corroborated side, pinned explicitly rather than by default:
+    // one recent claude-code write proves the agent is in use while its Stop
+    // hook is silent — that is the provable red.
+    const { activity: corroborated } = await activityCheck({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, {
+        hookRuns: [{ hook: 'session-summary', hoursAgo: 96 }],
+        recentClaudeCodeWrites: 1,
+      })),
       existsSyncImpl: noMarker,
     });
-    expect(fail.status).toBe('fail');
+    expect(corroborated.status).toBe('fail');
+    expect(corroborated.code).toBe('hook-activity.stale');
+  });
+
+  it('hook-activity: small negative ages are clock jitter, not corruption', async () => {
+    // Two processes stamp and read with different clocks; a stamp 2 minutes
+    // "in the future" is jitter and must read as alive. Beyond the tolerance
+    // it is a wrong clock and must read as unknown (tested below).
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const { activity } = await activityCheck({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, {
+        hookRuns: [{ hook: 'session-summary', hoursAgo: -2 / 60 }],
+      })),
+      existsSyncImpl: noMarker,
+    });
+    expect(activity.status, 'a 2-minute clock skew must not read as a corrupt timestamp').toBe('pass');
+  });
+
+  it('hook-activity: event-only rows with unreadable timestamps fail as unknown, deterministically', async () => {
+    // Every row unreadable and none of them session-summary: the old code
+    // indexed [0] of an insertion-ordered map, so the named hook depended on
+    // row order. Sorted now — post-commit before pre-compact, always.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const { activity } = await activityCheck({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, {
+        hookRuns: [
+          { hook: 'pre-compact', rawLastRunAt: 'garbage' },
+          { hook: 'post-commit', rawLastRunAt: 'garbage' },
+        ],
+      })),
+      existsSyncImpl: noMarker,
+    });
+    expect(activity.status).toBe('fail');
+    expect(activity.code).toBe('hook-activity.stale-unknown');
+    expect(activity.params?.hook).toBe('post-commit');
+  });
+
+  it('hook-activity: a hook name we never wrote cannot ride the diagnostic into a public issue', async () => {
+    // Doctor summaries end up verbatim in the pre-filled PUBLIC GitHub issue
+    // body (`memesh feedback`). hook_runs is user-writable SQLite; our hooks
+    // only ever stamp three literals, so any other name was written by
+    // something that is not us and must be masked, not echoed.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const injected = 'session-summary`; DROP TABLE users; my-secret-project';
+    const { activity } = await activityCheck({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, {
+        hookRuns: [{ hook: injected, rawLastRunAt: 'garbage' }],
+      })),
+      existsSyncImpl: noMarker,
+    });
+    expect(activity.code).toBe('hook-activity.stale-unknown');
+    expect(activity.params?.hook).toBe('unknown-hook');
+    expect(activity.summary).not.toContain('my-secret-project');
+  });
+
+  it('hook-activity: WARN never-ran-legacy when captures land but no hook has ever stamped', async () => {
+    // Version skew between ship channels: an upgraded CLI starts tracking
+    // while still-old hooks (predating the heartbeat) keep capturing without
+    // stamping. Entities ARE landing, so the never-ran FAIL's "nothing is
+    // being remembered" would be flatly false — but the tag is hand-typeable,
+    // so this stays a warn, never a pass.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const { activity } = await activityCheck({
+      ...wiredDoctorArgs(packageRoot, makeDatabase(5, { hookRuns: null, trackingSinceHours: 200 })),
+      existsSyncImpl: noMarker,
+    });
+    expect(activity.status).toBe('warn');
+    expect(activity.code).toBe('hook-activity.never-ran-legacy');
+    expect(activity.params?.captured).toBe(5);
+    expect(activity.fix, 'the fix must point at updating the hooks').toMatch(/update/i);
+  });
+
+  it('hook-activity: a stale event hook alone caps at WARN — absence of commits is not evidence of death', async () => {
+    // With only post-commit stamped, its staleness is ambiguous forever: no
+    // commits means no runs, dead or alive. The first draft escalated to FAIL
+    // at 96h, which turned every week of non-git work (research, writing,
+    // another VCS) into a red "capture has stopped" — an unfixable false
+    // alarm. Event-hook staleness never outranks warn on its own.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    for (const hoursAgo of [30, 96, 500]) {
+      const { activity } = await activityCheck({
+        ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, { hookRuns: [{ hook: 'post-commit', hoursAgo }] })),
+        existsSyncImpl: noMarker,
+      });
+      expect(activity.status, `post-commit alone at ${hoursAgo}h must cap at warn`).toBe('warn');
+      expect(activity.code).toBe('hook-activity.stale');
+      expect(activity.params?.hook).toBe('post-commit');
+    }
   });
 
   it('hook-activity: PASS when tracking itself only just started (the upgrade day)', async () => {
@@ -1356,6 +1505,45 @@ describe('doctor', () => {
     }
   });
 
+  it('hook-activity: config autoCapture:false disables the check, and the env var outranks the config', async () => {
+    // isAutoCaptureOff reads the real config file (not the stubbed impls), so
+    // this test redirects MEMESH_DIR at a temp dir. Precedence is env > config
+    // — the same order every hook applies — so MEMESH_AUTO_CAPTURE=true must
+    // bring the real verdict back even while the config still says false.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const memeshTmp = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-config-'));
+    tempRoots.push(memeshTmp);
+    fs.writeFileSync(path.join(memeshTmp, 'config.json'), JSON.stringify({ autoCapture: false }));
+
+    const originalDir = process.env.MEMESH_DIR;
+    const originalCapture = process.env.MEMESH_AUTO_CAPTURE;
+    process.env.MEMESH_DIR = memeshTmp;
+    delete process.env.MEMESH_AUTO_CAPTURE;
+    try {
+      const { activity: disabled } = await activityCheck({
+        ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, { hookRuns: null, trackingSinceHours: 200 })),
+        existsSyncImpl: noMarker,
+      });
+      expect(disabled.status).toBe('pass');
+      expect(disabled.code).toBe('hook-activity.disabled');
+
+      process.env.MEMESH_AUTO_CAPTURE = 'true';
+      const { activity: reEnabled } = await activityCheck({
+        ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, { hookRuns: [{ hook: 'session-summary', hoursAgo: 1 }] })),
+        existsSyncImpl: noMarker,
+      });
+      expect(reEnabled.code, 'env=true must outrank config autoCapture:false').not.toBe('hook-activity.disabled');
+      expect(reEnabled.status).toBe('pass');
+      expect(reEnabled.summary).toMatch(/alive/);
+    } finally {
+      if (originalDir === undefined) delete process.env.MEMESH_DIR;
+      else process.env.MEMESH_DIR = originalDir;
+      if (originalCapture === undefined) delete process.env.MEMESH_AUTO_CAPTURE;
+      else process.env.MEMESH_AUTO_CAPTURE = originalCapture;
+    }
+  });
+
   it('hook-activity: a corrupt hook_runs_since is restamped, not an eternal grace', async () => {
     // Unreadable-or-future tracking marker used to satisfy `measuringHours
     // === null || < 24` forever — a fail-open that suppressed never-ran for
@@ -1477,6 +1665,19 @@ describe('doctor', () => {
     expect(hoursSince('2026-01-01 24:61:00')).toBeNull();
     // …and does not reject the values SQLite actually writes.
     expect(hoursSince('2026-02-28 23:59:59')).not.toBeNull();
+  });
+
+  it('hoursSince: trailing suffixes are rejected — a timezone offset is the worst of them', () => {
+    // The regex is anchored at BOTH ends. Unanchored, '…+08:00' parsed its
+    // prefix as UTC and silently ignored the offset — measured 8 hours wrong,
+    // enough to flip a living loop to "stopped" (or a dead one to alive).
+    expect(hoursSince('2026-08-10 12:00:00+08:00')).toBeNull();
+    expect(hoursSince('2026-08-10 12:00:00Z')).toBeNull();
+    expect(hoursSince('2026-08-10 12:00:00.123')).toBeNull();
+    expect(hoursSince('2026-08-10 12:00:00 extra')).toBeNull();
+    expect(hoursSince('junk 2026-08-10 12:00:00')).toBeNull();
+    // The 'T' separator is the one variant we do accept.
+    expect(hoursSince('2026-02-28T23:59:59')).not.toBeNull();
   });
 });
 

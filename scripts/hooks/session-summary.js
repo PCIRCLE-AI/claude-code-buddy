@@ -37,6 +37,7 @@ import {
   openHookDb,
   readUpdateCheckCache,
   recordHookRun,
+  stampHookRunOnly,
   resolveAutoUpdatePolicy,
   resolvePluginRoot,
   spawnAutoUpdate,
@@ -232,7 +233,13 @@ process.stdin.on('end', async () => {
     // but did nothing, the exact sibling of the `was_in_agentic_loop` absence
     // above. Removed; the `toolCallCount < 3` check below is the real
     // low-signal filter.
-    if (!wasAgenticLoop) return exit0();
+    // From here down the payload is well-formed and attributable — every
+    // bail is the hook deciding "nothing worth saving", which is a
+    // successful run and stamps the heartbeat. The bails ABOVE this line
+    // (empty stdin, malformed JSON, missing cwd) are schema-flip shapes: if
+    // Claude Code's payload changed under us, capture is effectively dead,
+    // and a heartbeat would mask exactly that.
+    if (!wasAgenticLoop) { stampHookRunOnly(process.env, 'session-summary'); return exit0(); }
     // Trace why we're skipping. Two failure modes:
     //   (a) transcript_path absent — schema flip, Claude Code stopped
     //       sending the field. Same bug shape as `was_in_agentic_loop`
@@ -248,14 +255,19 @@ process.stdin.on('end', async () => {
     }
     if (!existsSync(transcriptPath)) {
       try { process.stderr.write(`[memesh session-summary] transcript_path ${transcriptPath} does not exist; skipping capture\n`); } catch {}
+      // The payload named a transcript and the FILE is gone (log rotation
+      // race) — the hook itself ran fine, so this stamps. A payload that
+      // never carried the field at all (schema flip) bails above, unstamped.
+      stampHookRunOnly(process.env, 'session-summary');
       return exit0();
     }
 
     // Parse transcript
     const { filesEdited, bashCommands, errorsEncountered, toolCallCount } = parseTranscript(transcriptPath);
 
-    // Skip sessions with too little activity
-    if (toolCallCount < 3) return exit0();
+    // Skip sessions with too little activity — the single most common
+    // healthy exit, so it MUST stamp (see stampHookRunOnly).
+    if (toolCallCount < 3) { stampHookRunOnly(process.env, 'session-summary'); return exit0(); }
 
     // Hoisted to outer-try scope so the LLM failure-analysis block
     // below (which runs AFTER db.close()) can reference it. Earlier
@@ -285,6 +297,7 @@ process.stdin.on('end', async () => {
     // user got a `Require stack:` dump on stderr. An extension nobody calls
     // was silently costing every session on those platforms its memory.
     const { db } = openHookDb(process.env, { fts: true });
+    let writeFailed = false;
     try {
       // Duplicate detection: if we already captured this session, bail.
       //
@@ -330,7 +343,11 @@ process.stdin.on('end', async () => {
       // only, skipping the FTS reindex the sibling hooks did — which left every
       // session-insight memory unrecallable via the FTS keyword path.
       function storeMemory(name, type, observations, tags) {
-        captureEntity(db, { name, type, observations, tags });
+        // null = the entity row could not be resolved = this write did NOT
+        // happen (captureEntity's contract). A run with a failed write must
+        // not stamp the heartbeat below — "alive" would be a lie about the
+        // exact thing the heartbeat certifies.
+        if (!captureEntity(db, { name, type, observations, tags })) writeFailed = true;
       }
 
       // Rule 1: File editing session summary
@@ -479,10 +496,12 @@ process.stdin.on('end', async () => {
       }
 
       // Heartbeat AFTER capture, so the stamp certifies "the capture loop
-      // completed", not "a database handle existed". A throw above skips it.
-      // (The recall-effectiveness block catches its own errors — session
-      // memories were already stored by then, so the run still counts.)
-      recordHookRun(db, 'session-summary');
+      // completed", not "a database handle existed". A throw above skips it,
+      // and so does a captureEntity null return (writeFailed) — a run whose
+      // write did not land must not read as alive. (The recall-effectiveness
+      // block catches its own errors — session memories were already stored
+      // by then, so the run still counts.)
+      if (!writeFailed) recordHookRun(db, 'session-summary');
     } finally {
       db.close();
     }
@@ -680,8 +699,10 @@ function writeDreamHistory(history) {
 
 /**
  * Count episodic entities for the given project over the configured
- * window. Read-only — uses the hook's _shared openHookDb helper which
- * is already on the import path.
+ * window. Only issues a SELECT, but the handle is openHookDb's ordinary
+ * read-write one (it runs the schema/migration chain) — there is no
+ * read-only variant on the hook side, and this call site must not stamp
+ * the heartbeat (recordHookRun is per-hook-exit, never per-open).
  */
 function countEpisodicEntities(projectName) {
   let handle;

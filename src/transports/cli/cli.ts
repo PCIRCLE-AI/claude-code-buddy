@@ -10,7 +10,7 @@ import { remember, recallWithConflicts, forget, exportMemories, importMemories, 
 import { verifyAgentWork } from '../../core/verifier.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
-import { getDbPath, redactUserPaths } from '../../core/paths.js';
+import { getDbPath, redactSecrets, redactUserPaths } from '../../core/paths.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 import { NAMESPACES } from '../../core/types.js';
 import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/types.js';
@@ -1655,8 +1655,10 @@ program
       }
     }
 
-    // The issue tracker is public. Nothing that names the account goes into it.
-    body = redactUserPaths(body);
+    // The issue tracker is public. Nothing that names the account goes into
+    // it, and nothing credential-shaped either — same two-pass redaction as
+    // the dashboard's /v1/doctor egress, in the same order.
+    body = redactUserPaths(redactSecrets(body));
 
     const url = `https://github.com/PCIRCLE-AI/memesh-llm-memory/issues/new?title=${encodeURIComponent(`[${typeLabel}] `)}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
 

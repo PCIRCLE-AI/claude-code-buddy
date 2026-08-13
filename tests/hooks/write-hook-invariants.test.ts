@@ -106,6 +106,36 @@ describe('write-hook invariants (fake-working gates)', () => {
     }
   });
 
+  it('a read-only database FILE still opens and reads — opening must not write when there is nothing to write', () => {
+    // The regression this pins: two DML statements (the hook_runs_since
+    // INSERT OR IGNORE, and a tags-dedup DELETE that predates this PR) lived
+    // inside the SCHEMA_SQL block every open executes. Even as no-ops they
+    // took the WAL writer lock, so a chmod-444 file — a backup, a snapshot,
+    // a permissions accident — failed to open at all ("attempt to write a
+    // readonly database"). Both now run behind SELECT-first guards: a
+    // database that already has the marker and the index gets pure reads.
+    if (process.platform === 'win32') return; // chmod read-only semantics differ
+
+    const first = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { fts: true });
+    expect(first).not.toBeNull();
+    shared.captureEntity(first.db, { name: 'ro-entity', type: 'note', observations: ['kept'], tags: [] });
+    first.db.close();
+
+    fs.chmodSync(dbPath, 0o444);
+    try {
+      const reopened = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { fts: true });
+      expect(reopened, 'a read-only database file must still open for reading').not.toBeNull();
+      try {
+        const row = reopened.db.prepare("SELECT id FROM entities WHERE name = 'ro-entity'").get();
+        expect(row, 'the reopened read-only database must be readable').toBeDefined();
+      } finally {
+        reopened.db.close();
+      }
+    } finally {
+      fs.chmodSync(dbPath, 0o644);
+    }
+  });
+
   it('recordHookRun stamps and upserts; openHookDb alone never stamps', () => {
     // `hook_runs` is the only evidence that a hook EXECUTED rather than merely
     // captured something, and doctor now reports a FAIL when it goes stale.
@@ -116,7 +146,15 @@ describe('write-hook invariants (fake-working gates)', () => {
     // thing — a hook that opened the database and then died in its own
     // capture logic looked alive for a day. The stamp belongs to the hook's
     // successful exit (pinned end-to-end in pre-compact.test.ts).
-    const opened = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { fts: true });
+    // Opened WITH a smuggled `hook:` option on purpose: the first draft of
+    // this file guarded against the option's return with a source grep
+    // (`/openHookDb\([^)]*hook:/`), which any indirection — a spread, an
+    // options variable — walks straight past. The behavioural claim is the
+    // one that matters: whatever a caller passes, opening must never stamp.
+    const opened = shared.openHookDb(
+      { ...process.env, MEMESH_DB_PATH: dbPath },
+      { fts: true, hook: 'session-summary' },
+    );
     try {
       const rows = opened.db.prepare('SELECT hook FROM hook_runs').all();
       expect(rows, 'openHookDb stamped a heartbeat — that lie is what this PR removes').toHaveLength(0);

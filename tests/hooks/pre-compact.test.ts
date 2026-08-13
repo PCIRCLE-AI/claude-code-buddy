@@ -147,6 +147,40 @@ describe('Feature: PreCompact Hook', () => {
     expect(run!.run_count).toBe(1);
   });
 
+  it('Scenario: a write that fails WITHOUT throwing leaves no new heartbeat', () => {
+    // captureEntity's silent failure mode: a RAISE(IGNORE) trigger swallows
+    // the INSERT and it returns null without throwing — the crash test below
+    // never reaches this path. The `if (written)` gate on the stamp is what
+    // keeps a landed-nothing run from reporting itself alive.
+    runHook({
+      session_id: 'sess-first',
+      transcript_path: '',
+      cwd: '/tmp/myproject',
+      hook_event_name: 'PreCompact',
+      reason: 'auto',
+    });
+
+    const setup = new Database(dbPath);
+    setup.exec('CREATE TRIGGER block_inserts BEFORE INSERT ON entities BEGIN SELECT RAISE(IGNORE); END;');
+    setup.close();
+
+    runHook({
+      session_id: 'sess-swallowed',
+      transcript_path: '',
+      cwd: '/tmp/myproject',
+      hook_event_name: 'PreCompact',
+      reason: 'auto',
+    });
+
+    const db = openDb();
+    const entity = db.prepare('SELECT id FROM entities WHERE name = ?').get('pre-compact-sess-swallowed');
+    const run = db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'pre-compact'").get() as
+      { run_count: number } | undefined;
+    db.close();
+    expect(entity, 'precondition: the trigger must actually have swallowed the write').toBeUndefined();
+    expect(run!.run_count, 'a run that landed nothing must not stamp on top of the first run').toBe(1);
+  });
+
   it('Scenario: a run that dies mid-capture leaves NO heartbeat', () => {
     // The heartbeat used to be stamped at openHookDb time, which made a hook
     // that opened the database and then crashed in captureEntity read as

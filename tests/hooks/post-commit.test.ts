@@ -365,4 +365,115 @@ describe('Feature: Post-Commit Hook', () => {
     expect(msgObs).toBeTruthy();
     db.close();
   });
+
+  it('Scenario: a successful capture stamps the hook_runs heartbeat AFTER the write', () => {
+    // This hook had NO runtime heartbeat test — its only guard was a source
+    // grep, which a stamp moved back before captureEntity would satisfy.
+    const c = commit('feat: heartbeat success');
+    runHook({
+      tool_name: 'Bash',
+      cwd: repoDir,
+      tool_input: { command: 'git commit -m "feat: heartbeat success"' },
+      tool_output: c.output,
+    });
+
+    const db = openDb();
+    const entity = db.prepare('SELECT id FROM entities WHERE name = ?').get(`commit-${c.hash}`);
+    const run = db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'post-commit'").get() as
+      { run_count: number } | undefined;
+    db.close();
+    expect(entity, 'capture itself must have happened for the stamp to mean anything').toBeTruthy();
+    expect(run, 'a completed capture run must stamp the heartbeat').toBeDefined();
+    expect(run!.run_count).toBe(1);
+  });
+
+  it('Scenario: a run that dies mid-capture leaves NO heartbeat', () => {
+    // An entities table missing the `metadata` column survives openHookDb
+    // (CREATE IF NOT EXISTS; the migration chain only backfills columns it
+    // knows) and throws inside captureEntity — the crashed-hook-looks-alive
+    // lie must not come back through this hook either.
+    const poisoned = new Database(dbPath);
+    poisoned.exec(`
+      CREATE TABLE entities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        status TEXT NOT NULL DEFAULT 'active'
+      );
+    `);
+    poisoned.close();
+
+    const c = commit('feat: dies mid-capture');
+    runHook({
+      tool_name: 'Bash',
+      cwd: repoDir,
+      tool_input: { command: 'git commit -m "feat: dies mid-capture"' },
+      tool_output: c.output,
+    });
+
+    const db = openDb();
+    const runs = db.prepare('SELECT hook FROM hook_runs').all();
+    const entity = db.prepare('SELECT id FROM entities WHERE name = ?').get(`commit-${c.hash}`);
+    db.close();
+    expect(entity, 'precondition: capture must actually have failed').toBeUndefined();
+    expect(runs, 'a crashed capture run must not look alive').toHaveLength(0);
+  });
+
+  it('Scenario: a write that fails WITHOUT throwing leaves no new heartbeat', () => {
+    // captureEntity can fail silently: when its INSERT lands nothing (here, a
+    // RAISE(IGNORE) trigger swallows it) it returns null instead of throwing.
+    // The crash test above cannot see this path — nothing unwinds the stack —
+    // so the `if (written)` gate is what keeps a landed-nothing run from
+    // stamping itself alive.
+    const c1 = commit('feat: first capture');
+    runHook({
+      tool_name: 'Bash',
+      cwd: repoDir,
+      tool_input: { command: 'git commit -m "feat: first capture"' },
+      tool_output: c1.output,
+    });
+
+    const setup = new Database(dbPath);
+    setup.exec('CREATE TRIGGER block_inserts BEFORE INSERT ON entities BEGIN SELECT RAISE(IGNORE); END;');
+    setup.close();
+
+    const c2 = commit('feat: swallowed capture');
+    runHook({
+      tool_name: 'Bash',
+      cwd: repoDir,
+      tool_input: { command: 'git commit -m "feat: swallowed capture"' },
+      tool_output: c2.output,
+    });
+
+    const db = openDb();
+    const entity = db.prepare('SELECT id FROM entities WHERE name = ?').get(`commit-${c2.hash}`);
+    const run = db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'post-commit'").get() as
+      { run_count: number } | undefined;
+    db.close();
+    expect(entity, 'precondition: the trigger must actually have swallowed the write').toBeUndefined();
+    expect(run!.run_count, 'a run that landed nothing must not stamp on top of the first run').toBe(1);
+  });
+
+  it('Scenario: MEMESH_AUTO_CAPTURE=false -> no entity, no heartbeat, no DB', () => {
+    // This hook skipped the opt-out check its two siblings honoured — with
+    // capture disabled it kept writing commit entities and stamping the
+    // heartbeat, making doctor's "capture is off, hook silence is expected"
+    // message false.
+    const c = commit('feat: capture disabled');
+    const hookPath = path.resolve('scripts/hooks/post-commit.js');
+    execFileSync('node', [hookPath], {
+      input: JSON.stringify({
+        tool_name: 'Bash',
+        cwd: repoDir,
+        tool_input: { command: 'git commit -m "feat: capture disabled"' },
+        tool_output: c.output,
+      }),
+      env: { ...process.env, MEMESH_DB_PATH: dbPath, MEMESH_AUTO_CAPTURE: 'false' },
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+
+    expect(fs.existsSync(dbPath), 'a disabled hook must not even create the database').toBe(false);
+  });
 });

@@ -114,8 +114,11 @@ process.stdin.on('end', () => {
       });
 
       // Heartbeat AFTER capture, so the stamp certifies "the capture loop
-      // completed", not "a database handle existed". A throw above skips it.
-      recordHookRun(db, 'pre-compact');
+      // completed", not "a database handle existed". A throw above skips it,
+      // and so does a null return — captureEntity's null means the write did
+      // not land, and this very hook tells the user "could not save" below;
+      // stamping would say "alive" to doctor about the same failed run.
+      if (written) recordHookRun(db, 'pre-compact');
     } finally {
       db.close();
     }

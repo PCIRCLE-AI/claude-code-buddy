@@ -18,8 +18,8 @@
     },
     {
       "path": "scripts/hooks/_generated/core-paths.js",
-      "sha256": "9b5ca6cb7d3f3b24aaa052b33a2525ebef39348af4348db98e6f5ff918d123de",
-      "bytes": 4004
+      "sha256": "729be4151f00a761d6ea1a5093833db67da9372063bd216c4217cca2a8692951",
+      "bytes": 4535
     },
     {
       "path": "scripts/hooks/_generated/fts-index.js",
@@ -33,13 +33,13 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "5c7b1269b30eace383e526a0088e274f7eaabe767c292baff952d467e1694bdd",
-      "bytes": 43583
+      "sha256": "35cb5628ede0978dc49eb7800830fa45d1ebc8f0c18ad14931b7efc436e9c193",
+      "bytes": 47863
     },
     {
       "path": "scripts/hooks/post-commit.js",
-      "sha256": "07e1043133e0ff78abe34458d77bb4179f466194e866073d6a6eeefa388f082a",
-      "bytes": 7561
+      "sha256": "eed9ce0165267ad07d78f2c7d656728b977e3bdc6f69c7ed2b0a19a23d73b1a5",
+      "bytes": 8035
     },
     {
       "path": "scripts/hooks/pre-bash-orchestration-nudge.js",
@@ -48,8 +48,8 @@
     },
     {
       "path": "scripts/hooks/pre-compact.js",
-      "sha256": "51f09eeeb086260d930123886942e7af19ccc9d61b2992a2b9bec0306c8e7acc",
-      "bytes": 7190
+      "sha256": "21ae9d75be20d8c623c8a073dc858c7d76692bf6d9e015b68d50531af1bd0b66",
+      "bytes": 7433
     },
     {
       "path": "scripts/hooks/pre-edit-recall.js",
@@ -63,8 +63,8 @@
     },
     {
       "path": "scripts/hooks/session-summary.js",
-      "sha256": "fd84e61aa0d7672acd992c336816238112058815945c450d4f63248a82d71420",
-      "bytes": 41931
+      "sha256": "6f7ae526d01237a9ea8b5dacc8819ec098790f1879be575170afaaf4a7400f10",
+      "bytes": 43511
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",

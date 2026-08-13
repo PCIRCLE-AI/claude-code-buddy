@@ -46,13 +46,11 @@ CREATE TABLE IF NOT EXISTS tags (
 
 CREATE INDEX IF NOT EXISTS idx_tags_entity ON tags(entity_id);
 CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
-DELETE FROM tags
-WHERE id NOT IN (
-  SELECT MIN(id)
-  FROM tags
-  GROUP BY entity_id, tag
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag);
+-- The tags dedup DELETE + idx_tags_entity_tag_unique creation live in
+-- ensureTagsUniqueIndex(), AFTER this exec — the DELETE is a one-time
+-- migration, and a DML statement in this string made every open start a
+-- write transaction even when it deleted nothing (same reader-breaking
+-- pattern as the hook_runs_since note below).
 CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
 CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);
@@ -83,9 +81,14 @@ CREATE TABLE IF NOT EXISTS memesh_metadata (
 -- PostToolUse), each calling recordHookRun() at its own SUCCESSFUL exit —
 -- after capture, not at open. Stamping at open certified the wrong thing: a
 -- hook that opened the database and then died mid-capture looked alive for a
--- day. The recall-side hooks open read-only and deliberately do not appear
--- here: their liveness answers a different question, and giving them a write
--- handle would put a lock acquisition on the SessionStart hot path.
+-- day. "Successful" is precise: a completed capture, or a well-formed
+-- payload the hook correctly decided not to capture (dedup, low-signal
+-- session). A malformed payload (schema-flip shapes) and a write that did
+-- not land both leave no stamp — either would make the heartbeat mask the
+-- exact dropout it exists to expose. The recall-side hooks open read-only
+-- and deliberately do not appear here: their liveness answers a different
+-- question, and giving them a write handle would put a lock acquisition on
+-- the SessionStart hot path.
 --
 -- One row per hook, upserted. It does not grow.
 CREATE TABLE IF NOT EXISTS hook_runs (
@@ -94,14 +97,16 @@ CREATE TABLE IF NOT EXISTS hook_runs (
   run_count   INTEGER NOT NULL DEFAULT 0
 );
 
--- When this database first became able to record hook runs. Without it, an
--- empty \`hook_runs\` is ambiguous on exactly the day it matters: every
--- existing database has one the moment this ships, and reporting that as
--- "hooks are dead" would recreate the crying-wolf problem in a louder voice.
--- INSERT OR IGNORE runs on every open from both src and hooks, and stamps
--- once.
-INSERT OR IGNORE INTO memesh_metadata (key, value)
-VALUES ('hook_runs_since', datetime('now'));
+-- The 'hook_runs_since' metadata key (when this database first became able
+-- to record hook runs) is stamped by ensureHookRunsSince() AFTER this exec,
+-- NOT here. It used to be an INSERT OR IGNORE in this string, and that made
+-- every open — including opens that only ever read — start a write
+-- transaction: an INSERT statement takes the WAL writer lock even when
+-- OR IGNORE ends up changing nothing. Two states regressed from "reads work"
+-- to "open throws": a peer holding the writer lock past busy_timeout, and a
+-- read-only database FILE (measured: "attempt to write a readonly database"
+-- killed recall along with capture). The helper SELECTs first and writes
+-- only when the key is genuinely absent — once per database lifetime.
 `;
 const FTS_SQL = `
 CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
@@ -114,6 +119,43 @@ CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
 -- which are the ones BM25 already scores near zero. See dropUbiquitousTerms().
 CREATE VIRTUAL TABLE IF NOT EXISTS fts_vocab USING fts5vocab(entities_fts, 'row');
 `;
+function ensureTagsUniqueIndex(handle) {
+    try {
+        const present = handle
+            .prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_tags_entity_tag_unique'")
+            .get();
+        if (present)
+            return;
+        handle.exec('DELETE FROM tags WHERE id NOT IN (SELECT MIN(id) FROM tags GROUP BY entity_id, tag); ' +
+            'CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag);');
+    }
+    catch (err) {
+        try {
+            process.stderr.write(`MeMesh: could not create the tags unique index (${err instanceof Error ? err.message : String(err)}). ` +
+                `Reads are unaffected; tag dedup resumes once the database is writable.\n`);
+        }
+        catch { }
+    }
+}
+function ensureHookRunsSince(handle) {
+    try {
+        const present = handle
+            .prepare("SELECT 1 FROM memesh_metadata WHERE key = 'hook_runs_since'")
+            .get();
+        if (present)
+            return;
+        handle
+            .prepare("INSERT OR IGNORE INTO memesh_metadata (key, value) VALUES ('hook_runs_since', datetime('now'))")
+            .run();
+    }
+    catch (err) {
+        try {
+            process.stderr.write(`MeMesh: could not stamp hook_runs_since (${err instanceof Error ? err.message : String(err)}). ` +
+                `Reads are unaffected; doctor's hook-activity tracking starts once the database is writable.\n`);
+        }
+        catch { }
+    }
+}
 export function openDatabase(dbPath) {
     if (db)
         return db;
@@ -143,6 +185,8 @@ function initialiseDatabase(db, resolvedPath) {
     db.pragma('foreign_keys = ON');
     db.exec(SCHEMA_SQL);
     db.exec(FTS_SQL);
+    ensureTagsUniqueIndex(db);
+    ensureHookRunsSince(db);
     try {
         process.umask(0o077);
     }

@@ -84,6 +84,9 @@ describe('doctor banner: silence when nothing is wrong', () => {
       'skills-manifest.missing-dev',
       'install-channel.unknown',
       'http-probe.no-server',
+      // the hook-wiring row already banners this condition with its own fix;
+      // for MCP-only installs (Codex / Gemini) it is not a problem at all
+      'hook-activity.not-wired',
     ]) {
       expect(isBannerWorthy(warn(code)), `${code} must stay quiet`).toBe(false);
     }
@@ -103,8 +106,20 @@ describe('doctor banner: silence when nothing is wrong', () => {
     // user could never see. It was suppressed for a defensible reason — the
     // old check could not tell a quiet day from a dead loop — and the fix is
     // that the check no longer has to guess, not that the banner shouts more.
-    for (const code of ['hook-activity.never-ran', 'hook-activity.stale', 'hook-activity.query-failed']) {
+    for (const code of ['hook-activity.never-ran', 'hook-activity.stale', 'hook-activity.query-failed', 'hook-activity.stale-unknown']) {
       const check = { id: 'hook-activity', label: 'x', status: 'fail' as const, summary: 's', fix: 'do something', code };
+      expect(isBannerWorthy(check), `${code} must reach the user`).toBe(true);
+    }
+  });
+
+  it('the masked-death warns banner too — they exist to be seen, not filed', () => {
+    // stop-silent (commits stamp daily, session-summary never once) and
+    // never-ran-legacy (captures land, no heartbeat — version skew) are both
+    // warn-tier by design: neither is proof of death. But each names an
+    // action, and a warn that never reaches the banner is how hook-activity
+    // stayed invisible for four releases.
+    for (const code of ['hook-activity.stop-silent', 'hook-activity.never-ran-legacy']) {
+      const check = { id: 'hook-activity', label: 'x', status: 'warn' as const, summary: 's', fix: 'Run `memesh install-hooks`.', code };
       expect(isBannerWorthy(check), `${code} must reach the user`).toBe(true);
     }
   });

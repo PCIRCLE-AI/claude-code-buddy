@@ -77,6 +77,16 @@ export function slugFromRemoteUrl(url) {
 export function _clearProjectNameCache() {
     projectNameCache.clear();
 }
+export function redactSecrets(input) {
+    return input
+        .replace(/sk-ant-[A-Za-z0-9_-]{20,}/g, 'sk-ant-***REDACTED***')
+        .replace(/sk-proj-[A-Za-z0-9_-]{20,}/g, 'sk-proj-***REDACTED***')
+        .replace(/sk-[A-Za-z0-9]{32,}/g, 'sk-***REDACTED***')
+        .replace(/ghp_[A-Za-z0-9]{30,}/g, 'ghp_***REDACTED***')
+        .replace(/gho_[A-Za-z0-9]{30,}/g, 'gho_***REDACTED***')
+        .replace(/AKIA[A-Z0-9]{16}/g, 'AKIA***REDACTED***')
+        .replace(/Bearer\s+[A-Za-z0-9._-]{20,}/gi, 'Bearer ***REDACTED***');
+}
 export function redactUserPaths(text) {
     const home = homeDir();
     const roots = new Set();

@@ -208,6 +208,29 @@ export function _clearProjectNameCache(): void {
 }
 
 /**
+ * Redact credential-shaped substrings before text leaves the machine.
+ *
+ * Matches Anthropic / OpenAI / GitHub / AWS-style key prefixes plus generic
+ * `sk-` / Bearer tokens. Belt-and-suspenders: nothing should put a secret in
+ * a diagnostic, but two public egresses copy diagnostics verbatim into a
+ * pre-filled GitHub issue body — the dashboard's `/v1/doctor` and the CLI's
+ * `memesh feedback` — and both must run this BEFORE redactUserPaths. It
+ * lived as a private function in the HTTP server, which left the CLI egress
+ * path-redacted but not credential-redacted; it lives here now because this
+ * module owns redaction and both transports already import it.
+ */
+export function redactSecrets(input: string): string {
+  return input
+    .replace(/sk-ant-[A-Za-z0-9_-]{20,}/g, 'sk-ant-***REDACTED***')
+    .replace(/sk-proj-[A-Za-z0-9_-]{20,}/g, 'sk-proj-***REDACTED***')
+    .replace(/sk-[A-Za-z0-9]{32,}/g, 'sk-***REDACTED***')
+    .replace(/ghp_[A-Za-z0-9]{30,}/g, 'ghp_***REDACTED***')
+    .replace(/gho_[A-Za-z0-9]{30,}/g, 'gho_***REDACTED***')
+    .replace(/AKIA[A-Z0-9]{16}/g, 'AKIA***REDACTED***')
+    .replace(/Bearer\s+[A-Za-z0-9._-]{20,}/gi, 'Bearer ***REDACTED***');
+}
+
+/**
  * Replace every path that identifies this machine's user with `~`.
  *
  * `memesh feedback` composes a GitHub issue body out of `doctor` output, and

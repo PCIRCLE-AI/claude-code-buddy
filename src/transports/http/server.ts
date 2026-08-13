@@ -25,7 +25,7 @@ import {
 } from '../schemas.js';
 import { checkForUpdate, getLastUpdateCheck, getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
-import { getDbPath, getMemeshDirFromDbPath, redactUserPaths } from '../../core/paths.js';
+import { getDbPath, getMemeshDirFromDbPath, redactSecrets, redactUserPaths } from '../../core/paths.js';
 import { RETIRED_ROUTES } from './retired-routes.js';
 
 import fs from 'fs';
@@ -368,21 +368,10 @@ app.get('/v1/health', (_req, res) => {
 // `DoctorResult` shape the CLI emits with `--json` lets us evolve
 // the diagnostic surface in one place without divergence.
 //
-// SecretSafe defence (gstack pattern, gstack-brain-sync's stdin
-// regex scan): doctor itself never reads secret-bearing fields, but
-// a regex sweep belt-and-suspenders any future check that
-// accidentally includes one. Matches on Anthropic / OpenAI / GitHub
-// / AWS-style key prefixes plus generic `sk-` / Bearer tokens.
-function redactSecrets(input: string): string {
-  return input
-    .replace(/sk-ant-[A-Za-z0-9_-]{20,}/g, 'sk-ant-***REDACTED***')
-    .replace(/sk-proj-[A-Za-z0-9_-]{20,}/g, 'sk-proj-***REDACTED***')
-    .replace(/sk-[A-Za-z0-9]{32,}/g, 'sk-***REDACTED***')
-    .replace(/ghp_[A-Za-z0-9]{30,}/g, 'ghp_***REDACTED***')
-    .replace(/gho_[A-Za-z0-9]{30,}/g, 'gho_***REDACTED***')
-    .replace(/AKIA[A-Z0-9]{16}/g, 'AKIA***REDACTED***')
-    .replace(/Bearer\s+[A-Za-z0-9._-]{20,}/gi, 'Bearer ***REDACTED***');
-}
+// SecretSafe defence: doctor itself never reads secret-bearing fields, but
+// a regex sweep belt-and-suspenders any future check that accidentally
+// includes one. Shared with the CLI's `memesh feedback` egress —
+// redactSecrets lives in core/paths.ts, the module that owns redaction.
 
 app.get('/v1/doctor', async (_req, res) => {
   try {

@@ -23,20 +23,38 @@ All notable changes to MeMesh are documented here.
   when the database handle became usable, and two independent adversarial
   reviews converged on the same objection: a hook that opens the database and
   then dies in its own capture logic would read as "alive" for a day, which
-  is the exact lie this table exists to end, relocated one step later. A
-  run that correctly decides there is nothing to do (the dedup bail) stamps
-  too; a run that throws does not, and a test drives a hook into a
-  mid-capture crash to hold that.
+  is the exact lie this table exists to end, relocated one step later. The
+  stamp means precisely "this hook executed to a correct decision": a run
+  that correctly decides there is nothing to do stamps too — the dedup bail,
+  a light session under the tool-call floor, a non-agentic session, a
+  transcript rotated away between Stop and the hook. What does *not* stamp
+  is a payload the hook could not attribute (empty stdin, malformed JSON, a
+  missing `cwd` or `transcript_path` field — the schema-flip shapes, where a
+  heartbeat would mask exactly the capture-is-dead state it exists to
+  expose), a failed write, and a run that throws; tests drive hooks into a
+  mid-capture crash and a light-session bail to hold both sides.
 
   Doctor reads the table per hook, and only `session-summary`'s silence is
   allowed to alarm: it fires on every real session's Stop, while
   `post-commit` and `pre-compact` fire only when the user commits or a
   session compacts — a week without commits proves nothing, and treating it
-  as death would just relocate the crying wolf. A healthy `post-commit`
-  cannot mask a dead `session-summary` either: once session-summary has ever
-  stamped, its row owns the verdict. Staleness is two-tiered — >24h is a
-  warn (a weekend), >72h is the FAIL that banners. A quiet day where the
-  hook ran is a **PASS** that says so. A database that only just gained the
+  as death would just relocate the crying wolf. Event-hook staleness
+  therefore caps at WARN forever: absence of commits is not evidence of a
+  dead hook. A healthy `post-commit` cannot mask a dead `session-summary`
+  either: once session-summary has ever stamped, its row owns the verdict.
+  Staleness is two-tiered — >24h is a warn (a weekend), >72h is the FAIL
+  that banners — and the red itself demands positive evidence: it fires only
+  when recent entities carry `source_host: claude-code` provenance, proving
+  the agent is in use while its Stop hook is silent. Without that
+  corroboration the verdict holds at warn with a hedge, because this
+  database is shared across MCP hosts and a user who moved to Codex or
+  Gemini stops triggering Claude Code's Stop hook forever — a permanent,
+  unfixable red under a flat rule. Two masked states get their own warns:
+  commits stamping daily while session-summary has *never* run past three
+  days of tracking (`stop-silent` — the Stop hook hiding behind a living
+  post-commit), and captures landing with no heartbeat at all
+  (`never-ran-legacy` — hooks from a version before tracking are still
+  running). A quiet day where the hook ran is a **PASS** that says so. A database that only just gained the
   table is a PASS too — `hook_runs_since` records when we first *could*
   tell, so the upgrade itself does not look like a failure (and a corrupt or
   future-dated marker is restamped rather than granting that grace forever).
@@ -51,6 +69,36 @@ All notable changes to MeMesh are documented here.
   clock must not hide a dead loop behind a timestamp from tomorrow.
 
 ### Fixed
+
+- **Opening the database no longer writes to it when there is nothing to
+  write.** Two DML statements lived inside the schema block that every open
+  executes — the heartbeat-tracking marker's `INSERT OR IGNORE` (new in this
+  release's first draft) and a tags-dedup `DELETE` that had been there since
+  the unique-index migration. Even when both were no-ops, SQLite still took
+  the WAL writer lock to find that out, so a read-only database file — a
+  backup, a snapshot, a permissions accident — failed to open at all
+  (`attempt to write a readonly database`), and every reader shared the
+  writer's lock contention. Both statements now run outside the schema
+  block behind SELECT-first guards: an open that has nothing to migrate
+  reads, decides, and touches nothing.
+
+- **`post-commit` now honours `MEMESH_AUTO_CAPTURE=false`.** Its two sibling
+  hooks checked the opt-out; this one kept writing commit entities and
+  stamping the heartbeat with capture disabled, which also made doctor's
+  "capture is off, hook silence is expected" message false. A disabled hook
+  now writes nothing — not an entity, not a stamp, not even the database
+  file.
+
+- **Diagnostic egress is whitelisted and redacted on every path.** Doctor
+  summaries end up verbatim in the pre-filled public GitHub issue that
+  `memesh feedback` opens. Hook names read back from the user-writable
+  database are now masked to `unknown-hook` unless they are one of the three
+  literals our hooks actually stamp, and the CLI feedback path now applies
+  the same secret-pattern redaction (API keys, tokens, bearer headers) the
+  HTTP transport already applied — the two egresses previously disagreed.
+  Timestamp parsing is anchored at both ends as well: a value with a
+  timezone suffix was measured hours wrong (the offset silently ignored);
+  it now reads as *unknown* instead.
 
 - **A `~/.memesh` that cannot be written no longer reports the session as
   ready, on any run.** The probe for this existed and was measured by hand, but

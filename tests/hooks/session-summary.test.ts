@@ -363,6 +363,101 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     }
   });
 
+  it('Scenario: a low-signal bail still stamps the heartbeat — a quiet day is not a dead hook', () => {
+    // The <3-tool-call bail is a correct decision on a well-formed payload,
+    // so it stamps hook_runs. Without the stamp, a stretch of light sessions
+    // reads to doctor exactly like "session-summary died". The schema-flip
+    // bails (no cwd, malformed JSON) sit ABOVE the stamp on purpose — the
+    // no-cwd test asserts the DB is never even created there.
+    writeTranscript([
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', content: 'ok' }] } },
+    ]);
+
+    runHook({
+      session_id: 'light-session',
+      transcript_path: transcriptPath,
+      cwd: '/tmp/myproject',
+      was_in_agentic_loop: true,
+    });
+
+    const db = openDb();
+    const count = db.prepare('SELECT COUNT(*) as c FROM entities').get() as { c: number };
+    const run = db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").get() as
+      { run_count: number } | undefined;
+    db.close();
+    expect(count.c, 'a light session must not be captured').toBe(0);
+    expect(run, 'a correct nothing-to-do decision must stamp the heartbeat').toBeDefined();
+    expect(run!.run_count).toBe(1);
+  });
+
+  it('Scenario: a run that dies mid-capture leaves NO heartbeat', () => {
+    // An entities table missing the `metadata` column survives openHookDb
+    // (CREATE IF NOT EXISTS) and makes captureEntity throw; the outer catch
+    // exits without reaching the end-of-run stamp. A crashed capture must
+    // not look alive to doctor.
+    const poisoned = new Database(dbPath);
+    poisoned.exec(`
+      CREATE TABLE entities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        status TEXT NOT NULL DEFAULT 'active'
+      );
+    `);
+    poisoned.close();
+
+    writeQualifyingTranscript();
+    runHook({
+      session_id: 'poisoned-session',
+      transcript_path: transcriptPath,
+      cwd: '/tmp/myproject',
+      stop_reason: 'end_turn',
+      was_in_agentic_loop: true,
+    });
+
+    const db = openDb();
+    const count = db.prepare('SELECT COUNT(*) as c FROM entities').get() as { c: number };
+    const runs = db.prepare("SELECT hook FROM hook_runs WHERE hook = 'session-summary'").all();
+    db.close();
+    expect(count.c, 'precondition: capture must actually have failed').toBe(0);
+    expect(runs, 'a crashed capture run must not look alive').toHaveLength(0);
+  });
+
+  it('Scenario: a write that fails WITHOUT throwing leaves no new heartbeat', () => {
+    // captureEntity's silent failure mode: a RAISE(IGNORE) trigger swallows
+    // the INSERT, captureEntity returns null, nothing throws. The poisoned
+    // crash test above cannot reach this path, so the writeFailed gate on the
+    // end-of-run stamp is what this pins.
+    writeQualifyingTranscript();
+    runHook({
+      session_id: 'first-session',
+      transcript_path: transcriptPath,
+      cwd: '/tmp/myproject',
+      was_in_agentic_loop: true,
+    });
+
+    const setup = new Database(dbPath);
+    setup.exec('CREATE TRIGGER block_inserts BEFORE INSERT ON entities BEGIN SELECT RAISE(IGNORE); END;');
+    setup.close();
+
+    runHook({
+      session_id: 'swallowed-session',
+      transcript_path: transcriptPath,
+      cwd: '/tmp/myproject',
+      was_in_agentic_loop: true,
+    });
+
+    const db = openDb();
+    const entity = db.prepare("SELECT id FROM entities WHERE name LIKE 'session-swallowe%'").get();
+    const run = db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").get() as
+      { run_count: number } | undefined;
+    db.close();
+    expect(entity, 'precondition: the trigger must actually have swallowed the write').toBeUndefined();
+    expect(run!.run_count, 'a run that landed nothing must not stamp on top of the first run').toBe(1);
+  });
+
   it('Scenario: Auto-capture opt-out skips processing', () => {
     writeTranscript([
       { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/proj/src/auth.ts' } }] } },
