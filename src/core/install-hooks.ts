@@ -9,8 +9,7 @@
 // only puts
 // the CLI binary on PATH — Claude Code's plugin runtime never reads
 // memesh's hooks.json. Result: memesh's auto-capture (session-summary,
-// pre-edit-recall, pre-bash-orchestration-nudge, etc.) silently does
-// nothing on every npm install.
+// pre-edit-recall, etc.) silently does nothing on every npm install.
 //
 // FIX
 // ───
@@ -75,6 +74,10 @@ export interface InstallResult {
   scope: 'user' | 'project';
   added: number;
   skipped: number;
+  /** Memesh entries removed because the manifest no longer declares their
+   * (event, matcher) — the upgrade path for retired hooks. User entries are
+   * never counted here; they are never touched. */
+  pruned: number;
   conflicts: Array<{ event: string; matcher: string; existingCount: number }>;
   markerPath: string;
   // When non-null, install-hooks detected an active plugin-runtime install
@@ -250,6 +253,7 @@ export function installHooks(opts: InstallOptions): InstallResult {
       scope: opts.scope,
       added: 0,
       skipped: 0,
+      pruned: 0,
       conflicts: [],
       markerPath: path.join(memeshDir(), MARKER_FILE),
       pluginRuntimeDetected: pluginRuntime,
@@ -262,7 +266,30 @@ export function installHooks(opts: InstallOptions): InstallResult {
 
   let added = 0;
   let skipped = 0;
+  let pruned = 0;
   const conflicts: InstallResult['conflicts'] = [];
+
+  // Prune memesh entries the manifest no longer declares — BEFORE merging.
+  // The merge loop below only iterates DESIRED events/matchers, so a memesh
+  // entry under an (event, matcher) the manifest dropped survived every
+  // re-install forever, pointing at a script the upgrade deleted: Claude
+  // Code then invoked a nonexistent file on every matching tool call, and
+  // `memesh install-hooks` — the documented fix for wiring problems — could
+  // not heal it. Only memesh's own entries are swept; user hooks are never
+  // touched, which is the same boundary uninstallHooks draws.
+  const desiredKeys = new Set(
+    Object.entries(desired).flatMap(([event, entries]) =>
+      entries.map((e) => `${event} ${e.matcher ?? '*'}`)),
+  );
+  for (const [event, entries] of Object.entries(existing)) {
+    if (!Array.isArray(entries)) continue;
+    const kept = entries.filter(
+      (e) => !(isMemeshEntry(e) && !desiredKeys.has(`${event} ${e.matcher ?? '*'}`)),
+    );
+    pruned += entries.length - kept.length;
+    if (kept.length === 0) delete existing[event];
+    else existing[event] = kept;
+  }
 
   for (const [event, desiredEntries] of Object.entries(desired)) {
     if (!existing[event]) existing[event] = [];
@@ -330,6 +357,7 @@ export function installHooks(opts: InstallOptions): InstallResult {
     scope: opts.scope,
     added,
     skipped,
+    pruned,
     conflicts,
     markerPath,
   };

@@ -64,12 +64,6 @@ export interface MeMeshConfig {
   autoCapture?: boolean;     // default: true. Env override: MEMESH_AUTO_CAPTURE=false disables.
   sessionLimit?: number;     // default: 10. Env override: MEMESH_SESSION_LIMIT.
   /**
-   * Opt-in switch for the experimental agentic-orchestration protocol's
-   * active surfaces (session-start banner, Bash nudge, verify_agent_work
-   * telemetry). Default: false. Env override: MEMESH_ENABLE_AGENTIC_ORCHESTRATION=1.
-   */
-  enableAgenticOrchestration?: boolean;
-  /**
    * Auto-update policy applied by the session-start hook.
    *   'off' (default) — never auto-update; manual `memesh update` only.
    *      A deprecation override may still trigger a single patch upgrade
@@ -455,9 +449,9 @@ export function getEmbeddingDimension(config?: MeMeshConfig): number {
 
 /**
  * Whether scheduled transcript mining is authorised.
- * Precedence: env > config > default(false) — mirrors the agentic-orchestration
- * switch. Only `1/true/yes/on` (env) or `transcriptMining: true` (config) turns
- * it on; anything else, including an unparseable env value, is off. This gates
+ * Precedence: env > config > default(false). Only `1/true/yes/on` (env) or
+ * `transcriptMining: true` (config) turns it on; anything else, including an
+ * unparseable env value, is off. This gates
  * `dream run --from-transcripts --if-due`, so "off" must be the safe default —
  * a scheduled entry pointed at a disabled install does nothing.
  */

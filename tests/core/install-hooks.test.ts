@@ -27,7 +27,6 @@ describe('install-hooks', () => {
           SessionStart: [{ matcher: '*', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start.js' }] }],
           PreToolUse: [
             { matcher: 'Edit|Write', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-edit-recall.js', timeout: 5 }] },
-            { matcher: 'Bash', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-bash-orchestration-nudge.js', timeout: 3 }] },
           ],
           Stop: [{ matcher: '*', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-summary.js' }] }],
         },
@@ -62,11 +61,11 @@ describe('install-hooks', () => {
     return import('../../src/core/install-hooks.js');
   }
 
-  it('writes 4 memesh hook entries on a fresh user-scope install', async () => {
+  it('writes 3 memesh hook entries on a fresh user-scope install', async () => {
     const { installHooks } = await freshModule();
     const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
-    // Manifest has 4 entries: SessionStart×1 + PreToolUse×2 + Stop×1
-    expect(result.added).toBe(4);
+    // Manifest has 3 entries: SessionStart×1 + PreToolUse×1 + Stop×1
+    expect(result.added).toBe(3);
     expect(result.skipped).toBe(0);
     expect(result.conflicts).toEqual([]);
     expect(result.backupPath).toBeNull(); // no prior settings to back up
@@ -86,7 +85,7 @@ describe('install-hooks', () => {
         for (const h of entry.hooks) allCommands.push(h.command);
       }
     }
-    expect(allCommands.length).toBe(4);
+    expect(allCommands.length).toBe(3);
     for (const cmd of allCommands) {
       expect(cmd).not.toContain('${CLAUDE_PLUGIN_ROOT}');
       expect(cmd.startsWith(pluginDir)).toBe(true);
@@ -98,7 +97,7 @@ describe('install-hooks', () => {
     installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
     const second = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
     expect(second.added).toBe(0);
-    expect(second.skipped).toBe(4);
+    expect(second.skipped).toBe(3);
   });
 
   it('preserves existing non-memesh user hooks on the same matcher', async () => {
@@ -114,7 +113,7 @@ describe('install-hooks', () => {
 
     const { installHooks } = await freshModule();
     const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
-    expect(result.added).toBe(4);
+    expect(result.added).toBe(3);
     expect(result.conflicts.length).toBe(1);
     expect(result.conflicts[0].event).toBe('Stop');
 
@@ -142,7 +141,7 @@ describe('install-hooks', () => {
     const settingsPath = path.join(process.env.HOME!, '.claude', 'settings.json');
     const { installHooks } = await freshModule();
     const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user', dryRun: true });
-    expect(result.added).toBe(4);
+    expect(result.added).toBe(3);
     expect(fs.existsSync(settingsPath)).toBe(false);
     expect(fs.existsSync(result.markerPath)).toBe(false);
   });
@@ -181,7 +180,7 @@ describe('install-hooks', () => {
     fs.mkdirSync(path.join(newRoot, 'hooks'), { recursive: true });
     fs.copyFileSync(path.join(oldRoot, 'hooks', 'hooks.json'), path.join(newRoot, 'hooks', 'hooks.json'));
     const second = installHooks({ pluginRoot: newRoot, pluginVersion: '4.1.15', scope: 'user' });
-    expect(second.added).toBe(4);
+    expect(second.added).toBe(3);
     expect(second.skipped).toBe(0); // OLD entries are stale → replaced
 
     const settings = JSON.parse(fs.readFileSync(path.join(process.env.HOME!, '.claude', 'settings.json'), 'utf8'));
@@ -192,6 +191,62 @@ describe('install-hooks', () => {
     }
     expect(allCmds.some(c => c.includes(oldRoot))).toBe(false);
     expect(allCmds.every(c => c.startsWith(newRoot))).toBe(true);
+  });
+
+  it('upgrade prunes memesh entries the new manifest no longer declares — and never touches user hooks', async () => {
+    // The exact residue the agentic-orchestration removal left behind: a
+    // <=4.4.x install wrote a PreToolUse/Bash entry into settings.json; the
+    // upgrade deleted the script from the package, and the merge loop —
+    // which iterates only DESIRED events/matchers — never removed the stale
+    // entry. Claude Code then invoked a nonexistent file on every Bash
+    // call, and `memesh install-hooks` (the documented remedy for wiring
+    // problems) could not heal it. Start from the OLD manifest shape and
+    // prove the new install sweeps it.
+    const { installHooks } = await freshModule();
+
+    // Old-version manifest: includes a PreToolUse/Bash hook that the
+    // current manifest (fixture in beforeEach) no longer declares.
+    const oldRoot = path.join(tmpDir, 'memesh-old');
+    fs.mkdirSync(path.join(oldRoot, 'hooks'), { recursive: true });
+    fs.writeFileSync(
+      path.join(oldRoot, 'hooks', 'hooks.json'),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [{ matcher: '*', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start.js' }] }],
+          PreToolUse: [
+            { matcher: 'Edit|Write', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-edit-recall.js', timeout: 5 }] },
+            { matcher: 'Bash', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-bash-orchestration-nudge.js', timeout: 3 }] },
+          ],
+          Stop: [{ matcher: '*', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-summary.js' }] }],
+        },
+      }),
+    );
+    installHooks({ pluginRoot: oldRoot, pluginVersion: '4.4.0', scope: 'user' });
+
+    // A user hook on the SAME retired matcher must survive the sweep.
+    const settingsPath = path.join(process.env.HOME!, '.claude', 'settings.json');
+    const before = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    before.hooks.PreToolUse.push({ matcher: 'Bash', hooks: [{ type: 'command', command: '~/.claude/hooks/my-bash-guard.js' }] });
+    fs.writeFileSync(settingsPath, JSON.stringify(before));
+
+    const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.6.0', scope: 'user' });
+    expect(result.pruned, 'the retired Bash nudge entry must be swept').toBe(1);
+
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    const bashEntries = (settings.hooks.PreToolUse as any[]).filter((e) => e.matcher === 'Bash');
+    expect(bashEntries, 'only the USER Bash hook may remain').toHaveLength(1);
+    expect(bashEntries[0].hooks[0].command).toBe('~/.claude/hooks/my-bash-guard.js');
+    const allCmds: string[] = [];
+    for (const entries of Object.values(settings.hooks) as any[]) {
+      for (const e of entries) for (const h of e.hooks) allCmds.push(h.command);
+    }
+    expect(allCmds.some((c) => c.includes('pre-bash-orchestration-nudge')), 'no command may still point at the deleted script').toBe(false);
+  });
+
+  it('a fresh install with nothing to prune reports pruned: 0', async () => {
+    const { installHooks } = await freshModule();
+    const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.6.0', scope: 'user' });
+    expect(result.pruned).toBe(0);
   });
 
   it('uninstall removes only memesh entries, leaves user hooks alone', async () => {
@@ -207,7 +262,7 @@ describe('install-hooks', () => {
     installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
 
     const result = uninstallHooks({ scope: 'user' });
-    expect(result.removed).toBe(4); // 4 memesh hook commands
+    expect(result.removed).toBe(3); // the 3 memesh hook commands
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     // User's stop.js remains
     expect(settings.hooks.Stop.length).toBe(1);

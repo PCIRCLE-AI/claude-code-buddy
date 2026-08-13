@@ -1519,6 +1519,40 @@ describe('doctor', () => {
     expect(result.status).toBe('FAIL');
   });
 
+  it('hook-wiring: a wired entry pointing at a DELETED script is a fail, not a healthy wiring', async () => {
+    // Upgrade residue: a release retires a hook, the package deletes the
+    // script, but the absolute-path entry a previous `install-hooks` wrote
+    // into settings.json survives — the agent then invokes a nonexistent
+    // file on every matching event. install-hooks now prunes these, but
+    // nothing runs install-hooks automatically on a package upgrade, so
+    // doctor is where the state must be caught and named.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const settingsPath = path.join(packageRoot, 'claude-settings.json');
+    const ghostScript = path.join(packageRoot, 'scripts', 'hooks', 'retired-hook.js'); // never created
+    fs.writeFileSync(settingsPath, JSON.stringify({
+      hooks: { Stop: [{ hooks: [{ _memesh: true, command: ghostScript }] }] },
+    }));
+    const aged = markerAged(48 * 60 * 60 * 1000);
+    const readFileSyncImpl = ((p: fs.PathOrFileDescriptor, ...rest: unknown[]) => {
+      if (typeof p === 'string' && p.endsWith('install-hooks.json')) {
+        return JSON.stringify({ settings_path: settingsPath, plugin_root: packageRoot, version: '1', scope: 'user' });
+      }
+      return (fs.readFileSync as (...a: unknown[]) => string | Buffer)(p, ...rest);
+    }) as typeof fs.readFileSync;
+
+    const result = await runDoctor({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0)),
+      ...aged,
+      readFileSyncImpl,
+    });
+    const wiring = result.checks.find(c => c.id === 'hook-wiring')!;
+    expect(wiring.status, 'a wiring that invokes a missing file must not read as healthy').toBe('fail');
+    expect(wiring.code).toBe('hook-wiring.script-missing');
+    expect(String(wiring.params?.path)).toContain('retired-hook.js');
+  });
+
   it('hook-activity: a SessionStart-only wiring does not arm the never-ran FAIL', async () => {
     // The wiring row passes on ANY _memesh entry — including a recall-only
     // wiring with nothing under Stop/PostToolUse/PreCompact. That is a real

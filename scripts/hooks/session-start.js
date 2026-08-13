@@ -5,7 +5,7 @@ import { spawn } from 'child_process';
 import { homedir } from 'os';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
-import { existsSync, readFileSync, unlinkSync, rmSync, appendFileSync, chmodSync, mkdirSync, accessSync, constants as fsConstants } from 'fs';
+import { existsSync, readFileSync, unlinkSync, mkdirSync, accessSync, constants as fsConstants } from 'fs';
 import {
   buildReferenceContext,
   ensurePrivateDir,
@@ -13,7 +13,6 @@ import {
   getMemeshDirFromDbPath,
   getProjectName,
   importFromPluginRoot,
-  isAgenticOrchestrationEnabled,
   isTrustedForAutoContext,
   readUpdateCheckCache,
   resolvePluginRoot,
@@ -44,7 +43,6 @@ try {
 const dbPath = getDbPath();
 const memeshDir = getMemeshDirFromDbPath();
 const throttlePath = join(memeshDir, 'session-recalled-files.json');
-const nudgeFlagsDir = join(memeshDir, 'agent-nudge-flags');
 
 /**
  * Build the strong deprecation warning lines to prepend to the
@@ -529,13 +527,6 @@ process.stdin.on('end', async () => {
     } catch {
       // Non-critical
     }
-    try {
-      if (existsSync(nudgeFlagsDir)) {
-        rmSync(nudgeFlagsDir, { recursive: true, force: true });
-      }
-    } catch {
-      // Non-critical
-    }
 
     // Every banner below this line is a PROMISE that memories will be saved,
     // so check that it can be kept before making any of them.
@@ -915,24 +906,6 @@ process.stdin.on('end', async () => {
         // converges on 0.5 (neutral) for everything. Stderr trace so a
         // permission/serialisation regression is visible.
         try { process.stderr.write(`[memesh session-start] sessions-write: ${err?.message || err}\n`); } catch {}
-      }
-
-      // --- Agentic-orchestration mode (opt-in) ---
-      // Banner kept short. Telemetry write preserved for protocol validation.
-      if (isAgenticOrchestrationEnabled(process.env)) {
-        summary += '\n[AO opt-in: dispatch verifiable work as background agent · skill: agentic-orchestration]';
-        try {
-          const usagePath = join(homedir(), '.memesh', 'skill-usage.jsonl');
-          // Only { ts, event } — an earlier `payload: { cwd_hashed }` was never
-          // read by summariseSkillUsage (counts by event name only), so it was
-          // write-only privacy-adjacent data. Removed.
-          const line = JSON.stringify({
-            ts: new Date().toISOString(),
-            event: 'agentic_orchestration_banner_injected',
-          }) + '\n';
-          appendFileSync(usagePath, line);
-          try { chmodSync(usagePath, 0o600); } catch { /* non-POSIX */ }
-        } catch { /* swallow — telemetry must not break session-start */ }
       }
 
       // Deprecation banner (security advisory) — surfaced even with the

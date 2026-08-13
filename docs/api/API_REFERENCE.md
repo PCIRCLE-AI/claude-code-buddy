@@ -8,7 +8,7 @@
 
 ## Tools
 
-MeMesh exposes 8 tools via MCP.
+MeMesh exposes 7 tools via MCP.
 
 ---
 
@@ -405,101 +405,6 @@ Analyze user work patterns from existing memory. Returns work schedule (peak hou
 {"categories": ["workflow", "workSchedule"]}
 ```
 
-### verify_agent_work
-
-Persist a verification report for work done by a background agent. Runs a deterministic git reality-check (diff `<base>..HEAD`, count files changed, optionally cross-check against a claimed file count) and stores the result as a `verification_record` entity tagged `verification` + `verification:pass|fail|unverified`. Heavier checks (typecheck/tests/lint/build) are expected to be pre-computed by an upstream hook and passed in via `report.*.pass` — this tool focuses on persistence + cross-checking, not running test suites.
-
-**`verdict` is three-valued.** Both `claim` and `report` are optional, and with neither supplied there is nothing to check against — counting changed files is not a verification. That case returns `unverified`:
-
-| `claim` | `report` | verdict |
-|---|---|---|
-| matches | absent | `pass` |
-| mismatches | absent | `fail` |
-| absent | `pass: true` | `pass` |
-| absent | `pass: false` | `fail` |
-| matches | `pass: false` | `fail` — any failure wins |
-| **absent** | **absent** | **`unverified`** |
-
-`unverified` is also returned when the check could not run at all: no git base discoverable, or `git diff` failed. That is distinct from `fail`, which means something was checked and did not hold.
-
-This field replaces the previous `pass: boolean`, which returned `true` for the no-claim-no-report case. `pass` is **kept as a deprecated alias** for `verdict === 'pass'`, so upgrading from 4.2.10 does not break a caller that reads it — but it now reads `false` for an unverified run, where the old boolean read `true`. Read `verdict`: it is the only one of the two that can tell "checked and wrong" from "nothing was checked". The nested `reality_check.pass` is a deprecated alias on the same terms — 4.2.10 shipped both booleans, and dropping one while aliasing the other would break a caller for exactly the reason given for not breaking the other. Both are removed together in a later minor.
-
-**Parameters:**
-- `agent_id` (string, required) — Identifier for the agent whose work is being verified.
-- `workdir` (string, required) — Absolute path to the git working tree the agent edited.
-- `base` (string, optional) — Git ref/sha to diff against. Defaults to merge-base with origin/main.
-- `claim` (object, optional) — Numbers the agent claimed in its summary, used for cross-checking.
-  - `expected_files` (number) — Files the agent claimed to change.
-- `report` (object, optional) — Pre-computed external report.
-  - `pass` (boolean, required) — Overall pass/fail of the external report.
-  - `typecheck`, `tests`, `lint`, `build` (objects) — each `{ pass: boolean, summary?: string }`.
-  - `summary` (string, optional) — Free-form summary line.
-
-**Returns:**
-```json
-{
-  "entity_name": "verification:agent-1:2026-05-03T22-00-00-000Z",
-  "verdict": "pass",
-  "pass": true,
-  "reality_check": {
-    "files_changed": 5,
-    "expected_files": 5,
-    "match": true,
-    "base": "97cc25e9...",
-    "verdict": "pass",
-    "pass": true,
-    "summary": "reality OK: 5/5 files"
-  },
-  "external_report": { "...": "echo of input report or null" },
-  "timestamp": "2026-05-03T22:00:00.000Z"
-}
-```
-
-With neither `claim` nor `report`:
-
-```json
-{
-  "entity_name": "verification:agent-1:2026-05-03T22-00-00-000Z",
-  "verdict": "unverified",
-  "pass": false,
-  "reality_check": {
-    "files_changed": 5,
-    "expected_files": null,
-    "match": null,
-    "base": "97cc25e9...",
-    "verdict": "unverified",
-    "pass": false,
-    "summary": "5 files changed (no claim to check against)"
-  },
-  "external_report": null,
-  "timestamp": "2026-05-03T22:00:00.000Z"
-}
-```
-
-**Examples:**
-```js
-// Reality-check only (no external report)
-{
-  "agent_id": "wire-mcp-tool",
-  "workdir": "/tmp/mm-vgate",
-  "claim": { "expected_files": 5 }
-}
-
-// With pre-computed external report from local hook
-{
-  "agent_id": "wire-mcp-tool",
-  "workdir": "/tmp/mm-vgate",
-  "claim": { "expected_files": 5 },
-  "report": {
-    "pass": true,
-    "typecheck": { "pass": true },
-    "tests": { "pass": true, "summary": "519/520 passed" }
-  }
-}
-```
-
----
-
 ## Data Model
 
 ### Entity
@@ -602,7 +507,7 @@ The limit protects the server from accidentally parsing large payloads (e.g. an 
 | GET | /v1/graph | Signal entities (all non-noise types) + up to 200 recent noise entities + all relations |
 | GET | /v1/analytics | Health score, memory-loop metric, 30-day timeline, ageMatrix, knowledgeRadar |
 | GET | /v1/patterns | User work patterns: schedule, tools, focus areas, workflow, strengths, learning |
-| POST | /v1/verify | Record a verification report for background-agent work; returns `verdict: pass \| fail \| unverified` |
+| POST | /v1/verify | **Retired** — answers `410 Gone`. Removed with the agentic-orchestration experiment. |
 | POST | /v1/demo/seed | Insert the demo tour dataset (entities tagged `metadata.demo = true`) |
 | POST | /v1/demo/reset | Remove every demo entity; all-or-nothing transaction |
 | GET | /v1/projects | Distinct projects from `project:*` tags and name-prefix heuristics, with per-project counts |
@@ -694,7 +599,7 @@ Use `?cached=1` to read the cached state only. Without it, MeMesh prefers a fres
 
 Save a partial config update. Fields not provided are preserved.
 
-**Request body**: Any subset of `MeMeshConfig` fields (`llm`, `llmFallbacks`, `autoCapture`, `sessionLimit`, `enableAgenticOrchestration`, `autoUpdate`, `language`, `setupCompleted`)
+**Request body**: Any subset of `MeMeshConfig` fields (`llm`, `llmFallbacks`, `autoCapture`, `sessionLimit`, `autoUpdate`, `language`, `setupCompleted`)
 
 `language` sets the output language for LLM-generated *content* — dreamer digests, emergent patterns, lessons, digest-validator reasons. It is free-form (a locale code like `zh-TW` or a language name like `繁體中文`, max 60 chars) because it becomes a prompt instruction, not a parsed locale. Unset means English. It is deliberately separate from the dashboard's own locale (stored client-side in the browser): that setting translates the UI chrome, this one decides what language generated memories are written in. Machine identifiers (entity type slugs, tags, category enums) stay English regardless. CLI equivalent: `memesh config set language zh-TW` / `memesh config unset language`.
 
@@ -949,45 +854,6 @@ A relation whose target does not exist is reported on stderr and exits `1`:
 the consequence you asked for did not happen, so the command does not claim it
 did. Free-form relation labels are MCP/HTTP only — as a tag with extra steps,
 they have no CLI flag.
-
-### memesh verify
-
-Reality-check work an agent claims to have done, and record the result.
-
-Compares the actual `git diff` against the caller's claim and/or an external
-report, then persists a `verification_record` entity.
-
-**Exit codes** — these are the contract a shell gate depends on:
-
-| Code | Verdict | Meaning |
-|------|---------|---------|
-| 0 | `pass` | Something was checked and it held |
-| 1 | `fail` | Something was checked and it did not hold |
-| 2 | `unverified` | Nothing was checked — no claim, no report, or a claim that could not be evaluated |
-
-`2` is deliberately non-zero so `memesh verify … && deploy` does not deploy on
-a check that never ran. A boolean could not express this: `true` used to mean
-both "verified and correct" and "had nothing to verify".
-
-**Migrating from 4.2.10 or earlier.** This is a behaviour change, and the
-direction matters: a call with no `--expected-files` and no `--report` used to
-print `PASS` and exit `0`, and now prints `UNVERIFIED` and exits `2`. Any gate
-written as `memesh verify … && <next step>` that was passing on nothing will
-now stop — which is the point, but it will look like a new failure. The fix is
-to give it something to check (`--expected-files <n>`, `--report <file>`, or
-both), not to ignore the exit code. If you genuinely want a recorded snapshot
-with no gate, call it and discard the status explicitly: `memesh verify … || true`.
-
-**Usage**:
-
-```bash
-memesh verify /path/to/repo --agent-id build-bot --base main \
-  --expected-files 3 --report ./test-report.json
-```
-
-If `--expected-files` is supplied but no git base can be discovered, the claim
-cannot be evaluated and the verdict is `unverified` — not `pass` — even when an
-external report says everything passed.
 
 ### memesh reindex
 
@@ -1300,7 +1166,7 @@ No arguments or options required. The dashboard is a static HTML file that can b
 
 For applications that call the **Messages API directly** rather than through MCP. Claude gets a memory tool whose storage is MeMesh instead of a folder of text files, so it also gets search, ranking, decay, relations and namespaces without knowing they are there.
 
-This is **not** one of the eight MCP tools and is not exposed over HTTP or the CLI. The MCP surface serves an agent that already speaks MeMesh; this serves an application that speaks only the Messages API.
+This is **not** one of the seven MCP tools and is not exposed over HTTP or the CLI. The MCP surface serves an agent that already speaks MeMesh; this serves an application that speaks only the Messages API.
 
 ### Wiring it up
 

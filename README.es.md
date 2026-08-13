@@ -261,13 +261,12 @@ Pega las herramientas en cualquier llamada API
 
 ## Qué Sucede Automáticamente en Claude Code
 
-No necesitas recordar todo manualmente. MeMesh tiene **7 hooks** que capturan e inyectan conocimiento mientras trabajas:
+No necesitas recordar todo manualmente. MeMesh tiene **6 hooks** que capturan e inyectan conocimiento mientras trabajas:
 
 | Cuándo | Qué hace MeMesh |
 |---|---|
 | **Al inicio de cada sesión** | Carga tus memorias más relevantes + advertencias proactivas de lecciones pasadas |
 | **Antes de editar archivos** | Recupera memorias vinculadas al archivo o proyecto antes de que Claude escriba código |
-| **Antes de comandos bash** | (Opt-in) Nudge a Claude para que envíe comandos de alta verificabilidad (test, build, lint, migrate, deploy, benchmark) como agentes de fondo |
 | **Cuando pides recordar** | Detecta intención de "remember this" / "guardar en memesh" / "sauvegarder dans memesh" / "記下來" (5 idiomas) y recuerda a Claude que use memesh |
 | **Después de cada `git commit`** | Registra qué cambiaste, con estadísticas de diff |
 | **Cuando Claude se detiene** | Captura archivos editados, errores corregidos y genera automáticamente lecciones estructuradas a partir de fallos |
@@ -286,7 +285,6 @@ Toda la configuración se realiza mediante variables de entorno. Los valores por
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | Sobrescribe la ubicación de la base de datos SQLite. |
 | `MEMESH_AUTO_CAPTURE` | `true` | Desactiva por completo los hooks de auto-captura (`Stop`, `PreCompact`). |
 | `MEMESH_AUTO_DETECT_LLM` | sin definir (autodetección **activada**) | Ponlo en `0` para que memesh NO use una clave de API encontrada en el entorno del shell. Por defecto, si `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` está definida y no has configurado un proveedor en `~/.memesh/config.json`, memesh la usa para las funciones LLM de escritura (consolidación, extracción de lecciones, autoetiquetado, dream). Los embeddings no se ven afectados — siguen siendo solo por palabras clave (FTS5) salvo que definas `embedder.provider` como `ollama` u `openai`. |
-| `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | sin definir | Establece a `1` para activar un protocolo experimental de modelo de trabajo (encuadre CTO / Orquestador / Agentes). Añade un banner al inicio de sesión, un nudge de comando Bash y telemetría `verify_agent_work`. La efectividad del protocolo se está instrumentando, aún no probada — opta por activarlo si quieres participar. **Por defecto está OFF**: las características de memoria centrales funcionan sin esta flag. |
 | `MEMESH_AUTO_UPDATE` | `off` | Política de auto-actualización. `off` (por defecto) nunca auto-actualiza; `patch` permite `X.Y.Z → X.Y.Z+N`; `minor` añade `X.Y.Z → X.Y+1.0`; `major` permite cualquier bump. Cuando se permite, un `npm install -g` independiente se dispara al final de la sesión (hook Stop) por lo que nunca bloquea tu trabajo — los resultados aterrizan en `~/.memesh/auto-update.log`. También configurable como `autoUpdate` en `~/.memesh/config.json` (env gana). Cuando los mantenedores deprecan la versión instalada (aviso de seguridad), `patch` se fuerza a permitir incluso en `off` — los bumps minor / major siguen siendo manuales para evitar deriva silenciosa de comportamiento. |
 | `OPENAI_API_KEY` | sin definir | Tu clave de OpenAI. Se usa automáticamente para las funciones LLM salvo que definas `MEMESH_AUTO_DETECT_LLM=0` o configures un proveedor explícitamente. |
 | `OLLAMA_HOST` | `http://localhost:11434` | Sobrescribe el endpoint de Ollama cuando uses un proveedor Ollama local. |
@@ -387,7 +385,7 @@ El embedder se configura **independientemente del LLM de chat** — cambiar `llm
 
 ---
 
-## Las 8 Herramientas de Memoria
+## Las 7 Herramientas de Memoria
 
 | Herramienta | Qué hace |
 |---|---|
@@ -398,7 +396,6 @@ El embedder se configura **independientemente del LLM de chat** — cambiar `llm
 | `import` | Importar memorias con estrategias de fusión (skip / overwrite / append) |
 | `learn` | Registrar lecciones estructuradas de errores (error, causa raíz, corrección, prevención) |
 | `user_patterns` | Analizar tus patrones de trabajo — horario, herramientas, fortalezas, áreas de aprendizaje |
-| `verify_agent_work` | Persiste un reporte de verificación para trabajo de agente de fondo; verifica cambios de archivos contra `git diff` |
 
 ---
 
@@ -407,7 +404,7 @@ El embedder se configura **independientemente del LLM de chat** — cambiar `llm
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (8 operations) │
+                    │  (7 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │

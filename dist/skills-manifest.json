@@ -13,8 +13,8 @@
     },
     {
       "path": "hooks/hooks.json",
-      "sha256": "ea54bdce8d52e14acdc3e5ddf3c7f241e6cfb45952ca720bbd4618d5bf94a241",
-      "bytes": 1767
+      "sha256": "a382a07ea95a4bf593042faeabb685e520e254b70280bfd86ee1020068ee9a59",
+      "bytes": 1520
     },
     {
       "path": "scripts/hooks/_generated/core-paths.js",
@@ -33,18 +33,13 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "12c9508d13f93d47504b77bcb88be3774c3023c9744b00313bbfd3d2a3724241",
-      "bytes": 51211
+      "sha256": "3796b08db3ed0a88e2d86324b95e7b61bda738a2878acbee9e4f07db2bf057b8",
+      "bytes": 50658
     },
     {
       "path": "scripts/hooks/post-commit.js",
       "sha256": "eed9ce0165267ad07d78f2c7d656728b977e3bdc6f69c7ed2b0a19a23d73b1a5",
       "bytes": 8035
-    },
-    {
-      "path": "scripts/hooks/pre-bash-orchestration-nudge.js",
-      "sha256": "d8dac333d31634b91109ee12a5ff00ea14fb1c7fd12609cdab5b5d244cb6d40a",
-      "bytes": 6458
     },
     {
       "path": "scripts/hooks/pre-compact.js",
@@ -58,8 +53,8 @@
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "a72216a6ce64aca3f56abd3c1ee644082cca4e6cb20b0b31c1021f05b6bb9cf1",
-      "bytes": 48262
+      "sha256": "c6396606218aa6b58da2078748966598feaa2c64c45678caa9d846223e74db5c",
+      "bytes": 46993
     },
     {
       "path": "scripts/hooks/session-summary.js",
@@ -72,19 +67,14 @@
       "bytes": 7577
     },
     {
-      "path": "skills/agentic-orchestration/SKILL.md",
-      "sha256": "6fde8a8d961d3c70c31e95cad529aebbaff1e668fc021d619eeaf0bdd7072a04",
-      "bytes": 18202
-    },
-    {
       "path": "skills/memesh-review/SKILL.md",
       "sha256": "64231229f814fc29c4d8e98b72ebf855c443bea923cc3f2f29d5fa9949a317ea",
       "bytes": 3750
     },
     {
       "path": "skills/memesh/SKILL.md",
-      "sha256": "106d26edfd0a45f63902517f3f5ba214e31271bee3028f13f4c222f750a98f24",
-      "bytes": 7156
+      "sha256": "980eb25a4990abfe8955e3842c4ab57980f98782a2bcc61a82fca337fcfcc80a",
+      "bytes": 6981
     }
   ]
 }

@@ -6,7 +6,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexRebuild } from '../../db.js';
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
-import { verifyAgentWork } from '../../core/verifier.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
 import { getDbPath, redactSecrets, redactUserPaths } from '../../core/paths.js';
@@ -259,6 +258,31 @@ program
     process.exitCode = 1;
 });
 program
+    .command('verify')
+    .description('(retired) Removed with the agentic-orchestration experiment — see the message this prints')
+    .allowUnknownOption()
+    .action(() => {
+    console.error('`memesh verify` has been retired, along with the agentic-orchestration experiment.');
+    console.error('');
+    console.error('It recorded a verification report for background-agent work. The protocol it');
+    console.error('served was removed without ever leaving opt-in. Run your own verification');
+    console.error('(typecheck / tests / lint) and store conclusions with `memesh remember` if you');
+    console.error('want them remembered. Existing verification_record entities are untouched.');
+    process.exitCode = 1;
+});
+program
+    .command('patterns')
+    .description('(retired) Removed with the agentic-orchestration experiment — see the message this prints')
+    .allowUnknownOption()
+    .action(() => {
+    console.error('`memesh patterns` has been retired, along with the agentic-orchestration experiment.');
+    console.error('');
+    console.error('It displayed the experiment\'s local skill-usage telemetry, which is no longer');
+    console.error('written. A leftover ~/.memesh/skill-usage.jsonl is inert and safe to delete.');
+    console.error('For work-pattern insights, use the `user_patterns` MCP tool or GET /v1/patterns.');
+    process.exitCode = 1;
+});
+program
     .command('export')
     .description('Export memories as JSON. Defaults to stdout (pipe-friendly); use `-o <file>` to write directly.')
     .option('--tag <tag>', 'Export only entities with this tag')
@@ -376,50 +400,6 @@ program
         }
     });
 });
-program
-    .command('verify <workdir>')
-    .description('Record a verification report for agent work in <workdir>. ' +
-    'Exit codes: 0 pass, 1 fail, 2 unverified (nothing was checked).')
-    .requiredOption('--agent-id <id>', 'Identifier for the agent being verified')
-    .option('--base <ref>', 'Git ref to diff against (default: merge-base with origin/main)')
-    .option('--expected-files <n>', 'Number of files the agent claimed to change', (v) => parseInt(v, 10))
-    .option('--report <path>', 'Path to a JSON file with pre-computed report (typecheck/tests/lint/build)')
-    .option('--json', 'Output as JSON')
-    .action(async (workdir, opts) => {
-    await withDatabase(() => {
-        let externalReport;
-        let result;
-        try {
-            if (opts.report) {
-                const raw = fs.readFileSync(opts.report, 'utf8');
-                externalReport = JSON.parse(raw);
-            }
-            result = verifyAgentWork({
-                agent_id: opts.agentId,
-                workdir: path.resolve(workdir),
-                base: opts.base,
-                claim: opts.expectedFiles != null ? { expected_files: opts.expectedFiles } : undefined,
-                report: externalReport,
-            });
-        }
-        catch (err) {
-            console.error(err instanceof Error ? err.message : String(err));
-            console.error('Nothing was checked (exit 2 = unverified).');
-            process.exit(2);
-        }
-        if (opts.json) {
-            console.log(JSON.stringify(result, null, 2));
-        }
-        else {
-            console.log(`${result.verdict.toUpperCase()}  agent=${opts.agentId}  entity=${result.entity_name}`);
-            console.log(`  reality: ${result.reality_check.summary}`);
-            if (result.verdict === 'unverified') {
-                console.log('  nothing was checked — pass --expected-files <n> and/or --report <file> to verify something.');
-            }
-        }
-        process.exit(result.verdict === 'pass' ? 0 : result.verdict === 'fail' ? 1 : 2);
-    });
-});
 const configCmd = program.command('config').description('Manage configuration');
 configCmd
     .command('list')
@@ -449,7 +429,6 @@ const ALLOWED_KEYS = new Set([
     'embedder.model',
     'autoUpdate',
     'sessionLimit',
-    'enableAgenticOrchestration',
     'autoCapture',
     'llmFallbacks',
     'language',
@@ -573,7 +552,7 @@ configCmd
         coerced = parseInt(value, 10);
     if (canonical === 'llmFallbacks')
         coerced = JSON.parse(value);
-    if (canonical === 'enableAgenticOrchestration' || canonical === 'autoCapture') {
+    if (canonical === 'autoCapture') {
         coerced = value === 'true' || value === '1';
     }
     const config = readConfig();
@@ -1287,6 +1266,9 @@ program
         }
         console.log(`${opts.dryRun ? '[dry-run] ' : ''}Settings: ${result.settingsPath}`);
         console.log(`${opts.dryRun ? '[dry-run] Would add ' : 'Added '}${result.added} hook entr${result.added === 1 ? 'y' : 'ies'}, ${opts.dryRun ? 'would skip ' : 'skipped '}${result.skipped} already-installed.`);
+        if (result.pruned > 0) {
+            console.log(`${opts.dryRun ? '[dry-run] Would remove ' : 'Removed '}${result.pruned} retired memesh hook entr${result.pruned === 1 ? 'y' : 'ies'} no longer shipped by this version.`);
+        }
         if (result.backupPath)
             console.log(`Backup: ${result.backupPath}`);
         if (result.conflicts.length > 0) {
@@ -1488,33 +1470,6 @@ program
             process.exit(1);
         }
         throw err;
-    }
-});
-program
-    .command('patterns')
-    .description('Show local skill-usage telemetry (agentic-orchestration banner injections, verify_agent_work invocations). Local-only — never uploaded.')
-    .option('--json', 'Output as JSON')
-    .action(async (opts) => {
-    const { summariseSkillUsage } = await import('../../core/skill-usage-log.js');
-    const summary = summariseSkillUsage();
-    if (opts.json) {
-        console.log(JSON.stringify(summary, null, 2));
-        return;
-    }
-    console.log(`Skill usage log: ${summary.log_path}`);
-    console.log(`  total events: ${summary.total_events}`);
-    console.log(`  log size:     ${summary.log_bytes} bytes`);
-    if (summary.first_event)
-        console.log(`  first event:  ${summary.first_event}`);
-    if (summary.last_event)
-        console.log(`  last event:   ${summary.last_event}`);
-    if (summary.total_events === 0) {
-        console.log('  (no events recorded yet — open a Claude Code session with memesh installed, or run a verification, to start collecting)');
-        return;
-    }
-    console.log('  events by name:');
-    for (const [name, count] of Object.entries(summary.events_by_name).sort((a, b) => b[1] - a[1])) {
-        console.log(`    ${count.toString().padStart(6)}  ${name}`);
     }
 });
 program

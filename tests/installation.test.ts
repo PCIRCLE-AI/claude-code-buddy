@@ -109,7 +109,7 @@ describe('Installation Verification', () => {
       // Guards the derivation itself: if the shape of hooks.json changes and
       // the parse silently yields nothing, every case below would vacuously
       // pass by iterating an empty list.
-      expect(hookFiles.length).toBeGreaterThanOrEqual(7);
+      expect(hookFiles.length).toBeGreaterThanOrEqual(6);
     });
 
     it.each(hookFiles)('%s should exist and be executable', (hookPath) => {

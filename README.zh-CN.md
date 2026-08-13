@@ -261,13 +261,12 @@ memesh export-schema \
 
 ## Claude Code 中的自动化流程
 
-你不需要手动记住一切。MeMesh 有 **7 个钩子**在你工作时自动捕获和注入知识：
+你不需要手动记住一切。MeMesh 有 **6 个钩子**在你工作时自动捕获和注入知识：
 
 | 触发条件 | MeMesh 的动作 |
 |---------|------------|
 | **每个会话开始** | 加载最相关的记忆 + 来自过去经验教训的主动警告 |
 | **编辑文件前** | 回忆与该文件或项目相关的记忆，然后 Claude 才开始写代码 |
-| **执行 bash 命令前** | （可选启用）推动 Claude 派遣高可验证性命令（测试、构建、lint、迁移、部署、基准测试）作为后台代理 |
 | **当你要求记忆时** | 检测「remember this」/「guardar en memesh」/「sauvegarder dans memesh」/「记下来」意图（5 种语言），并提醒 Claude 使用 memesh |
 | **每次 `git commit` 后** | 记录你的改动，附带 diff 统计 |
 | **Claude 停止时** | 捕获编辑过的文件、修复的错误、自动从失败中生成结构化经验教训 |
@@ -286,7 +285,6 @@ memesh export-schema \
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | 覆盖 SQLite 数据库位置。 |
 | `MEMESH_AUTO_CAPTURE` | `true` | 完全禁用自动捕获 hooks（`Stop`、`PreCompact`）。 |
 | `MEMESH_AUTO_DETECT_LLM` | 未设置（自动检测**开启**） | 设为 `0` 让 memesh 不使用它在 shell 环境中找到的 API 密钥。默认情况下，如果设置了 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` 且你没有在 `~/.memesh/config.json` 中配置提供商，memesh 会用它来跑写入侧的 LLM 功能（整合、经验提取、自动打标签、dream）。嵌入不受影响 —— 除非你把 `embedder.provider` 显式设置为 `ollama` 或 `openai`，否则保持仅关键词（FTS5）。 |
-| `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | 未设置 | 设为 `1` 启用一个实验性工作模型协议（CTO / Orchestrator / Agents 框架）。会增加一个 session-start 横幅、Bash 命令提示，以及 `verify_agent_work` 遥测。该协议的有效性正在被检测中、尚未被证实 — 想参与实验时再开启。**默认 OFF**：核心内存功能不依赖此 flag。 |
 | `MEMESH_AUTO_UPDATE` | `off` | 自动升级策略。`off`（默认）从不自动升级；`patch` 允许 `X.Y.Z → X.Y.Z+N`；`minor` 增加 `X.Y.Z → X.Y+1.0`；`major` 允许任意版本跳升。允许时，一个分离的 `npm install -g` 会在会话结束（Stop hook）触发，所以从不阻塞你的工作 — 结果落在 `~/.memesh/auto-update.log`。也可以在 `~/.memesh/config.json` 里写为 `autoUpdate`（环境变量优先）。当已安装版本被维护者标记为 deprecated（安全建议）时，`patch` 会被强制允许，即便策略是 `off` — minor / major 升级仍保持手动，避免行为静默漂移。 |
 | `OPENAI_API_KEY` | 未设置 | 你的 OpenAI 密钥。除非你设置 `MEMESH_AUTO_DETECT_LLM=0` 或显式配置提供商，否则会自动用于 LLM 功能。 |
 | `OLLAMA_HOST` | `http://localhost:11434` | 使用本地 Ollama 提供商时覆盖 Ollama 端点。 |
@@ -387,7 +385,7 @@ memesh config set embedder.model text-embedding-3-small
 
 ---
 
-## 全部 8 个内存工具
+## 全部 7 个内存工具
 
 | 工具 | 它做什么 |
 |------|--------|
@@ -398,7 +396,6 @@ memesh config set embedder.model text-embedding-3-small
 | `import` | 导入内存，支持合并策略（跳过 / 覆盖 / 追加） |
 | `learn` | 从错误中记录结构化经验教训（错误、根本原因、修复、预防） |
 | `user_patterns` | 分析你的工作模式——日程、工具、优势、学习领域 |
-| `verify_agent_work` | 为后台代理工作保存验证报告；对照 `git diff` 验证声称的文件改动 |
 
 ---
 
@@ -407,7 +404,7 @@ memesh config set embedder.model text-embedding-3-small
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (8 operations) │
+                    │  (7 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │

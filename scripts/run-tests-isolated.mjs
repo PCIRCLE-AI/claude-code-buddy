@@ -10,9 +10,10 @@ import { npxSync } from './lib/npm-bin.mjs';
  * maintainer's real home directory, re-introducing on the publish path the
  * hazard `scripts/release-verify.sh` was changed to remove in this same series.
  *
- * MEMESH_DB_PATH is deliberately NOT set: pointing it at an existing file makes
- * `tests/hooks/session-start-telemetry.test.ts` fail, because its
- * "short-circuits on missing DB" case then cannot short-circuit.
+ * MEMESH_DB_PATH is deliberately NOT set: several hook tests exercise the
+ * "no database yet" branches, and pointing the env var at an existing file
+ * makes those branches unreachable. An isolated HOME is the right isolation;
+ * a fixed DB path is not.
  *
  * One owner for "how the suite is run", so the publish path and the release
  * script cannot drift again.

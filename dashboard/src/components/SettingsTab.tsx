@@ -346,10 +346,10 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
   }
 
   // Persist a single behaviour field and SURFACE the outcome. The autoUpdate
-  // select and the agentic checkbox used to swallow POST failures in an empty
-  // catch, so a failed write snapped the control back to its old value with no
-  // explanation — the user thought it saved. Route both through the same msg
-  // banner save()/removeProvider() use.
+  // select used to swallow POST failures in an empty catch, so a failed write
+  // snapped the control back to its old value with no explanation — the user
+  // thought it saved. Routed through the same msg banner
+  // save()/removeProvider() use.
   async function saveField(patch: Record<string, unknown>, apply: (cur: ConfigData) => ConfigData) {
     setMsg('');
     try {
@@ -1071,10 +1071,10 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
         </div>
       </div>
 
-      {/* Behaviour — surfaces autoUpdate + enableAgenticOrchestration so
-          users can configure them from the dashboard instead of editing
-          ~/.memesh/config.json by hand. Both fields were already accepted
-          by POST /v1/config; this is the missing UI side. */}
+      {/* Behaviour — surfaces autoUpdate so users can configure it from the
+          dashboard instead of editing ~/.memesh/config.json by hand. The
+          field was already accepted by POST /v1/config; this is the missing
+          UI side. */}
       <div class="card">
         <div class="card-title">{t('settings.behaviourTitle')}</div>
 
@@ -1101,27 +1101,6 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
           </div>
         </div>
 
-        <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border-subtle)' }}>
-          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={Boolean(config?.config.enableAgenticOrchestration)}
-              onChange={async (e) => {
-                const next = (e.target as HTMLInputElement).checked;
-                await saveField({ enableAgenticOrchestration: next }, (cur) => ({ ...cur, config: { ...cur.config, enableAgenticOrchestration: next } }));
-              }}
-              style={{ marginTop: 2 }}
-            />
-            <span>
-              <span style={{ fontSize: 13, color: 'var(--text-1)' }}>
-                {t('settings.agenticLabel')}
-              </span>
-              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
-                {t('settings.agenticHint')}
-              </div>
-            </span>
-          </label>
-        </div>
       </div>
 
       {/* Language */}

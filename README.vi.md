@@ -253,13 +253,12 @@ Dán tools vào bất kỳ API call nào
 
 ## Điều gì xảy ra tự động trong Claude Code
 
-Bạn không cần phải manually nhớ mọi thứ. MeMesh có **7 hooks** để capture và inject kiến thức khi bạn làm việc:
+Bạn không cần phải manually nhớ mọi thứ. MeMesh có **6 hooks** để capture và inject kiến thức khi bạn làm việc:
 
 | Khi nào | MeMesh làm gì |
 |------|------------------|
 | **Mỗi lần session bắt đầu** | Load những memories liên quan nhất + cảnh báo chủ động từ bài học trong quá khứ + agentic-orchestration banner |
 | **Trước khi chỉnh sửa file** | Gọi lại memories liên quan đến file hoặc dự án trước khi Claude viết code |
-| **Trước bash commands** | Hướng dẫn Claude dispatch những commands có độ xác minh cao (test, build, lint, migrate, deploy, benchmark) dưới dạng background agents |
 | **Khi bạn yêu cầu ghi nhớ** | Phát hiện ý định "remember this" / "記下來" và nhắc nhở (use memesh|ghi memesh) |
 | **Sau mỗi `git commit`** | Ghi lại những gì bạn thay đổi, với diff stats |
 | **Khi Claude dừng** | Capture những file đã chỉnh sửa, lỗi đã sửa, và auto-generate structured lessons từ failures |
@@ -278,7 +277,6 @@ Toàn bộ cấu hình thông qua biến môi trường. Các giá trị mặc �
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | Ghi đè vị trí của database SQLite. |
 | `MEMESH_AUTO_CAPTURE` | `true` | Tắt hoàn toàn các hooks auto-capture (`Stop`, `PreCompact`). |
 | `MEMESH_AUTO_DETECT_LLM` | chưa đặt (tự động phát hiện **bật**) | Đặt `0` để memesh KHÔNG dùng khóa API tìm thấy trong môi trường shell. Mặc định, nếu `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` được đặt và bạn chưa cấu hình nhà cung cấp trong `~/.memesh/config.json`, memesh sẽ dùng nó cho các tính năng LLM phía ghi (hợp nhất, trích xuất bài học, tự gắn thẻ, dream). Embeddings không bị ảnh hưởng — vẫn chỉ tìm kiếm theo từ khóa (FTS5) trừ khi bạn đặt `embedder.provider` thành `ollama` hoặc `openai`. |
-| `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | chưa đặt | Đặt thành `1` để bật một giao thức working-model thử nghiệm (CTO / Orchestrator / Agents framing). Thêm session-start banner, một Bash command nudge, và telemetry `verify_agent_work`. Hiệu quả của giao thức đang được instrument, chưa được chứng minh — opt in nếu bạn muốn tham gia. **Mặc định là OFF**: các tính năng bộ nhớ cốt lõi vẫn hoạt động mà không cần flag này. |
 | `MEMESH_AUTO_UPDATE` | `off` | Chính sách auto-update. `off` (mặc định) không bao giờ tự cập nhật; `patch` cho phép `X.Y.Z → X.Y.Z+N`; `minor` thêm `X.Y.Z → X.Y+1.0`; `major` cho phép mọi bump. Khi được phép, một `npm install -g` detached chạy ở cuối session (Stop hook) để không bao giờ chặn công việc của bạn — kết quả lưu vào `~/.memesh/auto-update.log`. Cũng có thể đặt là `autoUpdate` trong `~/.memesh/config.json` (env thắng). Khi phiên bản đã cài bị maintainers đánh dấu deprecated (security advisory), `patch` sẽ được force-allowed ngay cả khi `off` — minor / major bumps vẫn manual để tránh behaviour drift im lặng. |
 | `OPENAI_API_KEY` | chưa đặt | Khóa OpenAI của bạn. Được dùng tự động cho các tính năng LLM trừ khi bạn đặt `MEMESH_AUTO_DETECT_LLM=0` hoặc cấu hình nhà cung cấp một cách rõ ràng. |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ghi đè endpoint Ollama khi dùng local Ollama provider. |
@@ -379,7 +377,7 @@ Embedder được cấu hình **độc lập với LLM chat** — thay đổi `l
 
 ---
 
-## Cả 8 Memory Tools
+## Cả 7 Memory Tools
 
 | Tool | Nó làm gì |
 |------|-------------|
@@ -390,7 +388,6 @@ Embedder được cấu hình **độc lập với LLM chat** — thay đổi `l
 | `import` | Import memories với merge strategies (skip / overwrite / append) |
 | `learn` | Ghi lại structured lessons từ những sai lầm (error, root cause, fix, prevention) |
 | `user_patterns` | Phân tích work patterns của bạn — schedule, tools, strengths, learning areas |
-| `verify_agent_work` | Persist một verification report cho background-agent work; reality-checks claimed file changes với `git diff` |
 
 ---
 
@@ -399,7 +396,7 @@ Embedder được cấu hình **độc lập với LLM chat** — thay đổi `l
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (8 operations) │
+                    │  (7 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │

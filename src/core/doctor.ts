@@ -667,20 +667,41 @@ function inspectHookWiring(
   const hooks = (settingsParsed.value as { hooks?: Record<string, unknown> }).hooks;
   let hasMemeshHook = false;
   let hasCaptureHook = false;
+  let missingScript: string | null = null;
   if (hooks && typeof hooks === 'object') {
     for (const [event, entries] of Object.entries(hooks)) {
       if (!Array.isArray(entries)) continue;
       for (const entry of entries) {
         const cmds = (entry as { hooks?: unknown[] }).hooks;
         if (!Array.isArray(cmds)) continue;
-        if (cmds.some((c) => (c as { _memesh?: boolean })._memesh === true)) {
+        for (const c of cmds) {
+          const cmd = c as { _memesh?: boolean; command?: unknown };
+          if (cmd._memesh !== true) continue;
           hasMemeshHook = true;
           if (CAPTURE_EVENTS.has(event)) hasCaptureHook = true;
-          break;
+          // A wired entry whose script no longer exists is worse than no
+          // wiring: the agent invokes a nonexistent file on every matching
+          // event. This is the upgrade residue a release leaves when it
+          // retires a hook — install-hooks now prunes it, but nothing runs
+          // install-hooks automatically on a package upgrade, so doctor is
+          // where the state gets caught and named.
+          if (missingScript === null && typeof cmd.command === 'string'
+            && path.isAbsolute(cmd.command) && !existsSyncImpl(cmd.command)) {
+            missingScript = cmd.command;
+          }
         }
       }
-      if (hasMemeshHook && hasCaptureHook) break;
     }
+  }
+  if (missingScript !== null) {
+    return createCheck(
+      'hook-wiring',
+      'Hooks wired into Claude Code',
+      'fail',
+      `A wired memesh hook points at ${missingScript}, which no longer exists — the agent invokes a missing file on every matching event. This is usually residue from an upgrade that retired the hook.`,
+      'Run `memesh install-hooks` to re-wire (it now removes retired entries), then restart your agent.',
+      { code: 'hook-wiring.script-missing', params: { path: missingScript } },
+    );
   }
   if (!hasMemeshHook) {
     return createCheck(

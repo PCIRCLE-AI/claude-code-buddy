@@ -13,7 +13,6 @@ export interface MeMeshConfig {
     embedder?: EmbedderConfig;
     autoCapture?: boolean;
     sessionLimit?: number;
-    enableAgenticOrchestration?: boolean;
     autoUpdate?: 'off' | 'patch' | 'minor' | 'major';
     language?: string;
     transcriptMining?: boolean;

@@ -3,7 +3,6 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
-  isAgenticOrchestrationEnabled,
   isAutoCaptureEnabled,
   resolveAutoUpdatePolicy,
   resolveSessionLimit,
@@ -52,32 +51,6 @@ afterEach(() => {
   if (savedUserProfile === undefined) delete process.env.USERPROFILE;
   else process.env.USERPROFILE = savedUserProfile;
   fs.rmSync(tmpDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-});
-
-describe('isAgenticOrchestrationEnabled — env > config > default(false)', () => {
-  it('default off when neither env nor config sets it', () => {
-    expect(isAgenticOrchestrationEnabled(envFor())).toBe(false);
-  });
-
-  it('config { enableAgenticOrchestration: true } enables it', () => {
-    writeConfig({ enableAgenticOrchestration: true });
-    expect(isAgenticOrchestrationEnabled(envFor())).toBe(true);
-  });
-
-  it('env=1 wins over config=false', () => {
-    writeConfig({ enableAgenticOrchestration: false });
-    expect(isAgenticOrchestrationEnabled(envFor({ MEMESH_ENABLE_AGENTIC_ORCHESTRATION: '1' }))).toBe(true);
-  });
-
-  it('env=0 wins over config=true (env explicit disable)', () => {
-    writeConfig({ enableAgenticOrchestration: true });
-    expect(isAgenticOrchestrationEnabled(envFor({ MEMESH_ENABLE_AGENTIC_ORCHESTRATION: '0' }))).toBe(false);
-  });
-
-  it('only env=1 enables (truthy "true" or "yes" do not, by design)', () => {
-    expect(isAgenticOrchestrationEnabled(envFor({ MEMESH_ENABLE_AGENTIC_ORCHESTRATION: 'true' }))).toBe(false);
-    expect(isAgenticOrchestrationEnabled(envFor({ MEMESH_ENABLE_AGENTIC_ORCHESTRATION: 'yes' }))).toBe(false);
-  });
 });
 
 describe('isAutoCaptureEnabled — env > config > default(true)', () => {

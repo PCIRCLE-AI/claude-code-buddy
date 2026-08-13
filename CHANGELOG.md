@@ -4,6 +4,43 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Removed
+
+- **The agentic-orchestration experiment, whole.** The opt-in working-model
+  protocol (CTO / Orchestrator / Agents framing) shipped in 4.1.0 behind
+  `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` and never left opt-in; its
+  effectiveness was being instrumented and the instrumentation never
+  produced a reason to keep it. Removed: the `agentic-orchestration` skill,
+  the session-start banner, the `pre-bash-orchestration-nudge` PreToolUse
+  hook, the `enableAgenticOrchestration` config field and its dashboard
+  toggle, the env flag, and the local `skill-usage.jsonl` telemetry with
+  its `memesh patterns` viewer. The `verify_agent_work` tool goes with it —
+  it existed to score the protocol's background agents: the MCP tool, the
+  `memesh verify` CLI command, and `POST /v1/verify` (which now answers
+  `410 Gone` with a pointer, like every deliberately retired route, rather
+  than a silent 404). Existing `verification_record` entities in user
+  databases are untouched — they are ordinary entities and remain
+  searchable. A leftover `~/.memesh/skill-usage.jsonl` or
+  `agent-nudge-flags/` directory is inert and safe to delete by hand.
+
+  The removal's own review round (Claude + Codex, both converging on the
+  first two) then closed the residue the deletion alone would have left:
+  `memesh install-hooks` now PRUNES memesh entries the manifest no longer
+  declares — the merge loop only iterated desired events, so a `<=4.4.x`
+  install's Bash-nudge entry survived every re-install pointing at the
+  deleted script, and the documented remedy could not heal it. Doctor
+  gained `hook-wiring.script-missing` for the same state (nothing runs
+  install-hooks automatically on a package upgrade, so doctor is where the
+  residue gets caught). `memesh verify` and `memesh patterns` answer with
+  retirement signposts instead of Commander's "unknown command" (exit 1, so
+  `memesh verify … && deploy` fails loudly), pinned by
+  `tests/verify-retired.test.ts` on every surface like consolidate before
+  them. `memesh config set enableAgenticOrchestration` no longer reports
+  success while writing a key nothing reads. And the doc-claims gate grew
+  four checks for the claims this removal proved ungated: README's hook and
+  memory-tool counts, ARCHITECTURE's CLI command count, and CODEMAP's
+  bare-filename references.
+
 ### Added
 
 - **memesh now records that a capture hook RAN, not only that it saved

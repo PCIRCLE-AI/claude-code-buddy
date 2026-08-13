@@ -8,7 +8,7 @@
 // `package.json` script. Its only callers were a line in `CLAUDE.md` telling an
 // assistant to run it by hand and a manual review skill. Six checks, 150 lines,
 // executed when somebody remembered — which is the same "gate that cannot fail"
-// this repository has now found in `verify_agent_work`, in the MCP tool count,
+// this repository has found repeatedly (the since-removed `verify_agent_work`, the MCP tool count,
 // in `schema-export.test.ts` and in the benchmark itself, one level up: a gate
 // that never runs cannot fail either. This file is wired into `verify:release`,
 // which is the one list both CI and the publish path execute.
@@ -147,6 +147,58 @@ else ok(`registry and API_REFERENCE.md agree on ${toolsInCode} MCP tools`);
   else if (Number(archTools[1]) !== toolsInCode)
     fail(`docs/ARCHITECTURE.md says ${archTools[1]} MCP tools, handlers.ts registers ${toolsInCode}`);
   else ok(`ARCHITECTURE.md agrees on ${toolsInCode} MCP tools`);
+
+  // (a2) README.md's bold hook count and Memory-Tools heading. The
+  // orchestration removal updated ARCHITECTURE/SKILL counts (gated above)
+  // while the README's `**N hooks**` and `## All N Memory Tools` shipped
+  // stale in all 11 locales — this audit checked every count EXCEPT the one
+  // on the front page. English only: readme-parity covers structure, and the
+  // translated counts are updated in the same commit as the English one.
+  const readmeSrc = read('README.md');
+  const readmeHooks = readmeSrc.match(/\*\*(\d+) hooks\*\*/);
+  if (!readmeHooks) fail('README.md no longer states its `**N hooks**` count');
+  else if (Number(readmeHooks[1]) !== manifestHooks.size)
+    fail(`README.md says ${readmeHooks[1]} hooks, the manifest registers ${manifestHooks.size}`);
+  else ok(`README.md hook count ${readmeHooks[1]}`);
+  const readmeTools = readmeSrc.match(/## All (\d+) Memory Tools/);
+  if (!readmeTools) fail('README.md no longer has the `## All N Memory Tools` heading');
+  else if (Number(readmeTools[1]) !== toolsInCode)
+    fail(`README.md says ${readmeTools[1]} memory tools, handlers.ts registers ${toolsInCode}`);
+  else ok(`README.md memory-tool count ${readmeTools[1]}`);
+
+  // (a3) ARCHITECTURE.md's top-level CLI command count. Stated for four
+  // releases with nothing checking it; the orchestration removal shifted it
+  // and the stale number shipped. Top-level = `program.command('name')` at
+  // statement start (subcommands hang off configCmd/kgCmd/dreamCmd instead)
+  // plus the three named group commands.
+  const cliSrc = read('src/transports/cli/cli.ts');
+  const topLevel = (cliSrc.match(/^program\s*\n\s*\.command\('/gm) ?? []).length
+    + (cliSrc.match(/= program\.command\('/g) ?? []).length
+    // group commands declared as `const xCmd = program\n  .command('x')`
+    + (cliSrc.match(/= program\s*\n\s*\.command\('/g) ?? []).length;
+  const archCli = read('docs/ARCHITECTURE.md').match(/(\d+) top-level commands/);
+  if (topLevel < 10) fail(`CLI top-level command extraction matched only ${topLevel} — the pattern stopped matching`);
+  else if (!archCli) fail('docs/ARCHITECTURE.md no longer states the top-level CLI command count');
+  else if (Number(archCli[1]) !== topLevel)
+    fail(`docs/ARCHITECTURE.md says ${archCli[1]} top-level commands, cli.ts registers ${topLevel}`);
+  else ok(`ARCHITECTURE.md agrees on ${topLevel} top-level CLI commands`);
+
+  // (a4) CODEMAP.md's backticked file references must exist. The dangling-
+  // path check below only covers path-shaped references (with a `/`);
+  // CODEMAP's hook table used bare backticked filenames, so a deleted hook
+  // script stayed listed. Bare filenames are resolved against the two
+  // directories CODEMAP catalogues this way.
+  const codemap = read('CODEMAP.md');
+  const bareFiles = [...codemap.matchAll(/`([\w-]+\.(?:js|ts|mjs|tsx))`/g)].map((m) => m[1]);
+  if (bareFiles.length < 3) fail(`CODEMAP.md bare-filename extraction matched only ${bareFiles.length} — the pattern stopped matching`);
+  else {
+    const roots = ['scripts/hooks', 'src/core', 'src/transports/cli', 'src/transports/http', 'src/transports/mcp', 'src', 'scripts'];
+    const missing = [...new Set(bareFiles)].filter(
+      (f) => !roots.some((r) => fs.existsSync(path.join(repoRoot, r, f))),
+    );
+    if (missing.length) fail(`CODEMAP.md names ${missing.join(', ')}, which exist in none of the catalogued directories`);
+    else ok(`${new Set(bareFiles).size} CODEMAP.md file references all exist`);
+  }
 
   // (b) README's search-scoring weights vs DEFAULT_WEIGHTS.
   const scoring = read('src/core/scoring.ts');

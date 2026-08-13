@@ -37,6 +37,27 @@ const retiredNames = new Set(
 );
 
 /**
+ * `<group> <sub>` pairs that are REGISTERED subcommands (e.g. `dream
+ * patterns`). Retirement is a property of the top-level namespace: retiring
+ * top-level `patterns` must not condemn `dream patterns`, which is a live
+ * subcommand that merely shares the name. Group variables follow the
+ * `const xCmd = program.command('x')` convention.
+ */
+const registeredPairs = new Set<string>();
+{
+  const groupVars = new Map(
+    [...cli.matchAll(/const (\w+) = program\s*\n?\s*\.command\((['"`])([A-Za-z][A-Za-z0-9-]*)/g)].map(
+      m => [m[1], m[3]]
+    )
+  );
+  for (const [varName, groupName] of groupVars) {
+    for (const m of cli.matchAll(new RegExp(`${varName}\\s*\\n?\\s*\\.command\\((['"\`])([A-Za-z][A-Za-z0-9-]*)`, 'g'))) {
+      registeredPairs.add(`${groupName} ${m[2]}`);
+    }
+  }
+}
+
+/**
  * Every backticked `memesh <word> [<word>]` in a user-facing string. The
  * enclosing LINE decides intent: a line that itself talks about retirement
  * (the stub's own message, this class of comment) may name the dead command;
@@ -96,7 +117,10 @@ describe('CLI hints name real commands', () => {
       const headRetiredOk = retirementContext && retiredNames.has(head);
       if (!registeredNames.has(head)) bad.push(line);
       else if (retiredNames.has(head) && !headRetiredOk) bad.push(line);
-      else if (sub && retiredNames.has(sub)) bad.push(line);
+      // A sub token is only condemned by a retirement when it is NOT a live
+      // subcommand under its head — `dream patterns` outlives the retired
+      // top-level `patterns`, which merely shares the name.
+      else if (sub && retiredNames.has(sub) && !registeredPairs.has(`${head} ${sub}`)) bad.push(line);
     }
     expect(bad).toEqual([]);
   });

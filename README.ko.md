@@ -261,13 +261,12 @@ memesh export-schema \
 
 ## Claude Code에서 자동으로 일어나는 일
 
-모든 것을 수동으로 기억할 필요는 없습니다. MeMesh는 작업 중에 지식을 캡처하고 주입하는 **7가지 훅**이 있습니다:
+모든 것을 수동으로 기억할 필요는 없습니다. MeMesh는 작업 중에 지식을 캡처하고 주입하는 **6가지 훅**이 있습니다:
 
 | 시점 | MeMesh가 수행하는 작업 |
 |------|---|
 | **매 세션 시작** | 가장 관련 있는 메모리 + 과거 교훈의 사전 경고 로드 |
 | **파일 편집 전** | Claude가 코드를 작성하기 전에 파일 또는 프로젝트와 연결된 메모리 회상 |
-| **Bash 명령 전** | (옵트인) Claude가 높은 검증 가능성의 명령어(테스트, 빌드, 린트, 마이그레이션, 배포, 벤치마크)를 백그라운드 에이전트로 실행하도록 유도 |
 | **기억 요청 시** | "remember this" / "guardar en memesh" / "sauvegarder dans memesh" / "記下來" 의도(5개 언어)를 감지하고 Claude가 memesh를 사용하도록 알림 |
 | **모든 `git commit` 후** | 변경 사항을 diff 통계와 함께 기록 |
 | **Claude가 멈출 때** | 편집된 파일, 수정된 에러, 실패로부터 자동 생성된 구조화된 교훈 캡처 |
@@ -286,7 +285,6 @@ memesh export-schema \
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | SQLite 데이터베이스 위치를 재정의합니다. |
 | `MEMESH_AUTO_CAPTURE` | `true` | 자동 캡처 훅(`Stop`, `PreCompact`)을 완전히 비활성화합니다. |
 | `MEMESH_AUTO_DETECT_LLM` | 미설정(자동 감지 **켜짐**) | `0`으로 설정하면 memesh가 셸 환경에서 발견한 API 키를 사용하지 않습니다. 기본적으로 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST`가 설정되어 있고 `~/.memesh/config.json`에 프로바이더를 구성하지 않았다면, memesh는 쓰기 측 LLM 기능(통합, 교훈 추출, 자동 태깅, dream)에 이를 사용합니다. 임베딩은 영향을 받지 않습니다 — `embedder.provider`를 `ollama` 또는 `openai`로 명시하지 않는 한 키워드 전용(FTS5)으로 유지됩니다. |
-| `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | unset | `1`로 설정하면 실험적 작업 모델 프로토콜(CTO / Orchestrator / Agents 프레이밍)을 활성화합니다. 세션 시작 배너, Bash 명령 nudge, `verify_agent_work` 텔레메트리를 추가합니다. 이 프로토콜의 효과는 측정 중이며 아직 입증되지 않았습니다 — 참여하려면 옵트인하세요. **기본값은 OFF**: 코어 메모리 기능은 이 플래그 없이도 작동합니다. |
 | `MEMESH_AUTO_UPDATE` | `off` | 자동 업데이트 정책. `off`(기본값)는 자동 업데이트하지 않습니다; `patch`는 `X.Y.Z → X.Y.Z+N`을 허용합니다; `minor`는 `X.Y.Z → X.Y+1.0`을 추가합니다; `major`는 모든 bump를 허용합니다. 허용된 경우, 분리된 `npm install -g`가 세션 종료 시(Stop 훅) 실행되어 작업을 차단하지 않습니다 — 결과는 `~/.memesh/auto-update.log`에 기록됩니다. `~/.memesh/config.json`에서도 `autoUpdate`로 설정 가능합니다(env가 우선). 설치된 버전이 메인테이너에 의해 deprecated된 경우(보안 권고), `off`에서도 `patch`가 강제 허용됩니다 — minor / major bump는 조용한 동작 변화를 피하기 위해 수동으로 유지됩니다. |
 | `OPENAI_API_KEY` | 미설정 | OpenAI 키. `MEMESH_AUTO_DETECT_LLM=0`을 설정하거나 프로바이더를 명시적으로 구성하지 않는 한 LLM 기능에 자동으로 사용됩니다. |
 | `OLLAMA_HOST` | `http://localhost:11434` | 로컬 Ollama 프로바이더를 사용할 때 Ollama 엔드포인트를 재정의합니다. |
@@ -387,7 +385,7 @@ memesh config set embedder.model text-embedding-3-small
 
 ---
 
-## 8가지 메모리 도구 전체
+## 7가지 메모리 도구 전체
 
 | 도구 | 역할 |
 |---|---|
@@ -398,7 +396,6 @@ memesh config set embedder.model text-embedding-3-small
 | `import` | 병합 전략(스킵/덮어쓰기/추가)이 있는 메모리 임포트 |
 | `learn` | 실수로부터 구조화된 교훈 기록(에러, 근본 원인, 수정, 예방) |
 | `user_patterns` | 작업 패턴 분석 — 일정, 도구, 강점, 학습 영역 |
-| `verify_agent_work` | 백그라운드 에이전트 작업에 대한 검증 보고서 유지; 청구된 파일 변경사항을 `git diff`와 현실 확인 |
 
 ---
 
@@ -407,7 +404,7 @@ memesh config set embedder.model text-embedding-3-small
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (8 operations) │
+                    │  (7 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │

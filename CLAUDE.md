@@ -37,10 +37,10 @@ npm test -- --run                          # vitest directly — uses YOUR ~/.me
 Prefer the first. The suite writes to `~/.memesh`, so running vitest directly
 mutates your real knowledge graph.
 
-**Do not set `MEMESH_DB_PATH` when running the suite.** Pointing it at an
-existing file makes `tests/hooks/session-start-telemetry.test.ts` fail: its
-"short-circuits on a missing DB" case then has nothing to short-circuit on. An
-isolated `HOME` is the right isolation; a fixed DB path is not.
+**Do not set `MEMESH_DB_PATH` when running the suite.** Several hook tests
+exercise the "no database yet" branches, and pointing the env var at an
+existing file makes those branches unreachable. An isolated `HOME` is the
+right isolation; a fixed DB path is not.
 
 Pool mode is `forks`, one worker, no file parallelism. That is not a
 preference — several test files share one HOME and therefore one SQLite
