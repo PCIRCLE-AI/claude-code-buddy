@@ -644,14 +644,17 @@ function applyRelationProposal(db, row) {
     const [from, to] = payload.relation_type === 'supersedes' && payload.direction === 'b_supersedes_a'
         ? [payload.b, payload.a]
         : [payload.a, payload.b];
-    for (const end of [from, to]) {
-        const alive = db.prepare("SELECT 1 FROM entities WHERE id = ? AND status = 'active'").get(end.id);
-        if (!alive)
-            throw new Error(`proposal #${row.id}: entity #${end.id} (${end.name}) is no longer active`);
-    }
     const tx = db.transaction(() => {
+        for (const end of [from, to]) {
+            const alive = db.prepare("SELECT 1 FROM entities WHERE id = ? AND status = 'active'").get(end.id);
+            if (!alive)
+                throw new Error(`proposal #${row.id}: entity #${end.id} (${end.name}) is no longer active`);
+        }
+        const updated = db.prepare("UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'").run(row.id);
+        if (Number(updated.changes) !== 1) {
+            throw new Error(`proposal #${row.id} was reviewed concurrently — no longer pending`);
+        }
         db.prepare('INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?)').run(from.id, to.id, payload.relation_type);
-        db.prepare("UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'").run(row.id);
     });
     tx();
     return {
@@ -868,15 +871,27 @@ export function rejectProposal(db, proposalId, reason) {
         throw new Error(`proposal #${proposalId} not found or not pending`);
 }
 export function listProposals(db, status = 'pending') {
-    const rows = db.prepare("SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC").all(status);
+    let rows;
+    try {
+        rows = db.prepare("SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC").all(status);
+    }
+    catch (err) {
+        if (!(err instanceof Error && err.message.includes('no such column')))
+            throw err;
+        rows = db.prepare("SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC").all(status).map((r) => ({ ...r, kind: null }));
+    }
     return rows.map(r => {
         if (r.kind === 'relation') {
             let name = '(corrupt relation proposal)';
             let preview = null;
             try {
                 const rel = JSON.parse(r.proposed_digest);
-                if (rel?.a?.name && rel?.b?.name)
-                    name = `${rel.a.name} —${rel.relation_type ?? '?'}→ ${rel.b.name}`;
+                if (rel?.a?.name && rel?.b?.name) {
+                    const [fromName, toName] = rel.direction === 'b_supersedes_a'
+                        ? [rel.b.name, rel.a.name]
+                        : [rel.a.name, rel.b.name];
+                    name = `${fromName} —${rel.relation_type ?? '?'}→ ${toName}`;
+                }
                 preview = rel?.rationale ? String(rel.rationale).slice(0, 120) : null;
             }
             catch { }
@@ -921,7 +936,16 @@ export function listProposals(db, status = 'pending') {
     });
 }
 export function getProposalDetail(db, id) {
-    const row = db.prepare('SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE id = ?').get(id);
+    let row;
+    try {
+        row = db.prepare('SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE id = ?').get(id);
+    }
+    catch (err) {
+        if (!(err instanceof Error && err.message.includes('no such column')))
+            throw err;
+        const legacy = db.prepare('SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE id = ?').get(id);
+        row = legacy ? { ...legacy, kind: null } : undefined;
+    }
     if (!row)
         return null;
     let source = null;

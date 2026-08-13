@@ -14,14 +14,15 @@ vi.mock('../../src/core/llm-telemetry.js', () => ({
   recordTelemetry: () => {},
 }));
 
-import { getDatabase } from '../../src/db.js';
+import { DatabaseSync } from 'node:sqlite';
+import { getDatabase, closeDatabase } from '../../src/db.js';
 import type { LLMConfig } from '../../src/core/config.js';
 import { judgeConflicts } from '../../src/core/conflict-judge.js';
 import { findConflictCandidates } from '../../src/core/conflict-candidates.js';
 import { applyProposal, rejectProposal, listProposals, getProposalDetail } from '../../src/core/dreamer.js';
 import { useTestDatabase } from '../helpers/db-fixture.js';
 
-useTestDatabase('memesh-conflict-judge-');
+const dbHandle = useTestDatabase('memesh-conflict-judge-');
 
 const LLM: LLMConfig = { provider: 'ollama', model: 'test-model' } as LLMConfig;
 const DIM = 384;
@@ -205,6 +206,61 @@ describe('judgeConflicts', () => {
     expect(r.llmCalls).toBe(1);
     expect(r.candidatesAvailable).toBe(2);
     expect(r.judged).toBe(1);
+  });
+
+  it('reads the LAST verdict object, not a narrated example before it', async () => {
+    seed('n1', 'fact', 0);
+    seed('n2', 'fact', 10);
+    // A model that narrates: an example UNRELATED first, the real verdict
+    // last. First-block parsing recorded the example as the permanent
+    // verdict and suppressed the pair forever.
+    callLLMMock.mockResolvedValue(
+      'Considering an example: {"verdict":"UNRELATED","rationale":"example only"} — but here: '
+      + JSON.stringify({ verdict: 'CONTRADICTS', rationale: 'real verdict', severity: 'low', recommended_action: 'x', excerpts: { a: 'a', b: 'b' } }),
+    );
+
+    const r = await judgeConflicts(getDatabase(), LLM);
+    expect(r.staged).toBe(1);
+    expect(r.unrelated).toBe(0);
+    const judged = getDatabase().prepare('SELECT verdict FROM conflict_judged_pairs').all() as Array<{ verdict: string }>;
+    expect(judged).toEqual([{ verdict: 'contradicts' }]);
+  });
+
+  it('the list arrow follows the survivor: b_supersedes_a renders b —supersedes→ a', async () => {
+    seed('arrow-old', 'fact', 0);
+    seed('arrow-new', 'fact', 10);
+    callLLMMock.mockResolvedValue(JSON.stringify({
+      verdict: 'SUPERSEDES', direction: 'b_supersedes_a',
+      rationale: 'x', severity: 'low', recommended_action: 'x', excerpts: { a: 'x', b: 'y' },
+    }));
+    await judgeConflicts(getDatabase(), LLM);
+    const pending = listProposals(getDatabase(), 'pending');
+    // The displayed arrow must match the relation acceptance creates —
+    // showing a —supersedes→ b for this verdict had the reviewer approving
+    // the exact opposite of the staged relation.
+    expect(pending[0].digest_name).toBe('arrow-new —supersedes→ arrow-old');
+  });
+
+  it('listing tolerates a read-only pre-kind database (no such column is not a crash)', async () => {
+    seed('lg1', 'fact', 0);
+    seed('lg2', 'fact', 10);
+    callLLMMock.mockResolvedValue('{"verdict":"UNRELATED","rationale":"x"}');
+    await judgeConflicts(getDatabase(), LLM);
+    getDatabase().prepare(
+      "INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest) VALUES ('p', 'week:x', '[1,2]', ?)",
+    ).run(JSON.stringify({ name: 'old-digest', type: 'digest', observations: ['o'], tags: [] }));
+    closeDatabase();
+
+    const raw = new DatabaseSync(dbHandle.dbPath);
+    try {
+      raw.exec('ALTER TABLE dream_proposals DROP COLUMN kind');
+      const rows = listProposals(raw as unknown as Parameters<typeof listProposals>[0], 'pending');
+      expect(rows).toHaveLength(1);
+      expect(rows[0].digest_name).toBe('old-digest');
+      expect(rows[0].kind).toBe('digest');
+    } finally {
+      raw.close();
+    }
   });
 
   it('a relation proposal whose endpoint has since been archived refuses to apply', async () => {

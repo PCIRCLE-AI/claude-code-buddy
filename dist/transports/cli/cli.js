@@ -1223,6 +1223,31 @@ dreamCmd
         console.log(`Proposal #${detail.id}  [${detail.project}/${detail.cluster_key}]  source: ${detail.source_kind}  status: ${detail.status}`);
         console.log(`created: ${detail.created_at}`);
         console.log('');
+        if (detail.kind === 'relation') {
+            const rel = detail.relation;
+            if (!rel) {
+                console.error('relation payload is corrupt — reject this proposal');
+                process.exit(1);
+            }
+            const [fromE, toE] = rel.direction === 'b_supersedes_a' ? [rel.b, rel.a] : [rel.a, rel.b];
+            console.log(`verdict: ${rel.verdict}  (severity: ${rel.severity ?? 'unknown'})`);
+            console.log(`accepting creates: ${fromE?.name} —${rel.relation_type}→ ${toE?.name}`);
+            if (rel.relation_type === 'supersedes') {
+                console.log(`  survivor: ${fromE?.name}  (the arrow points from the surviving claim to the obsolete one)`);
+            }
+            console.log(`rationale: ${rel.rationale ?? '(none given)'}`);
+            if (rel.recommended_action)
+                console.log(`recommended action: ${rel.recommended_action}`);
+            if (rel.excerpts?.a || rel.excerpts?.b) {
+                console.log(`excerpt A (${rel.a?.name}): ${rel.excerpts?.a ?? ''}`);
+                console.log(`excerpt B (${rel.b?.name}): ${rel.excerpts?.b ?? ''}`);
+            }
+            if (typeof rel.cosine_distance === 'number')
+                console.log(`cosine distance: ${rel.cosine_distance.toFixed(3)}`);
+            console.log('');
+            console.log(`Accept: memesh dream accept ${detail.id}   |   Reject: memesh dream reject ${detail.id}`);
+            return;
+        }
         console.log(`name: ${detail.digest.name}`);
         console.log(`type: ${detail.digest.type}`);
         console.log(`observations (${detail.digest.observations.length}):`);

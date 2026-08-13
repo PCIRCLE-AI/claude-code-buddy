@@ -428,7 +428,50 @@ export function InsightsTab() {
               </div>
             </div>
 
-            {detail && detail.proposed_digest && (
+            {/* Relation proposals (the conflict judge) carry a judge payload
+                in proposed_digest, not a digest — routing them through the
+                digest renderer below threw on .observations.map and left the
+                one review surface unable to show WHY the judge flagged the
+                pair. The reviewer needs the rationale, severity, excerpts,
+                and (for supersedes) which side survives. */}
+            {detail && detail.proposed_digest && p.kind === 'relation' && (() => {
+              const rel = detail.proposed_digest as unknown as {
+                verdict?: string; relation_type?: string; severity?: string;
+                a?: { name?: string }; b?: { name?: string }; direction?: string;
+                rationale?: string; recommended_action?: string;
+                excerpts?: { a?: string; b?: string }; cosine_distance?: number;
+              };
+              const [fromN, toN] = rel.direction === 'b_supersedes_a'
+                ? [rel.b?.name, rel.a?.name] : [rel.a?.name, rel.b?.name];
+              return (
+                <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-1)', borderRadius: 'var(--radius-xs)', fontSize: 13 }}>
+                  <div style={{ marginBottom: 8, color: 'var(--text-3)', fontSize: 11 }}>
+                    {t('insights.generatedBy')}: <code>{detail.llm_model ?? t('common.unknown')}</code> · {t('insights.promptVersion')}: <code>{detail.prompt_version}</code>
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <strong>{rel.verdict}</strong>
+                    {rel.severity && <span class="tag" style={{ marginLeft: 8, fontSize: 11 }}>{rel.severity}</span>}
+                  </div>
+                  <div style={{ marginBottom: 8, fontFamily: 'var(--mono)', fontSize: 12 }}>
+                    {fromN} —{rel.relation_type}→ {toN}
+                  </div>
+                  {rel.rationale && (
+                    <div style={{ marginBottom: 8, lineHeight: 1.5 }}>{rel.rationale}</div>
+                  )}
+                  {rel.recommended_action && (
+                    <div style={{ marginBottom: 8, color: 'var(--text-2)', lineHeight: 1.5 }}>→ {rel.recommended_action}</div>
+                  )}
+                  {(rel.excerpts?.a || rel.excerpts?.b) && (
+                    <div style={{ marginBottom: 4, color: 'var(--text-2)', fontSize: 12 }}>
+                      <div><code>A</code> {rel.a?.name}: “{rel.excerpts?.a}”</div>
+                      <div><code>B</code> {rel.b?.name}: “{rel.excerpts?.b}”</div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {detail && detail.proposed_digest && p.kind !== 'relation' && (
               <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-1)', borderRadius: 'var(--radius-xs)', fontSize: 13 }}>
                 <div style={{ marginBottom: 8, color: 'var(--text-3)', fontSize: 11 }}>
                   {t('insights.generatedBy')}: <code>{detail.llm_model ?? t('common.unknown')}</code> · {t('insights.promptVersion')}: <code>{detail.prompt_version}</code>

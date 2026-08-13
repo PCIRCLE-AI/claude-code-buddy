@@ -1292,23 +1292,33 @@ function applyRelationProposal(
     ? [payload.b, payload.a]
     : [payload.a, payload.b];
 
-  // Both endpoints must still stand — accepting a months-old proposal after
-  // one side was forgotten must fail loudly, not link a ghost.
-  for (const end of [from, to]) {
-    const alive = db.prepare("SELECT 1 FROM entities WHERE id = ? AND status = 'active'").get(end.id);
-    if (!alive) throw new Error(`proposal #${row.id}: entity #${end.id} (${end.name}) is no longer active`);
-  }
-
   const tx = db.transaction(() => {
+    // Both endpoints must still stand — accepting a months-old proposal
+    // after one side was forgotten must fail loudly, not link a ghost.
+    // Checked INSIDE the transaction: outside it, an archive landing
+    // between check and insert would pass the check and link the ghost
+    // anyway.
+    for (const end of [from, to]) {
+      const alive = db.prepare("SELECT 1 FROM entities WHERE id = ? AND status = 'active'").get(end.id);
+      if (!alive) throw new Error(`proposal #${row.id}: entity #${end.id} (${end.name}) is no longer active`);
+    }
+    // The status-guarded UPDATE is the pending-ness authority, and its
+    // result is CHECKED: if a concurrent reviewer rejected this proposal
+    // after our pending read, zero rows change here — committing the
+    // relation anyway would apply a proposal whose row says rejected. The
+    // throw rolls the whole transaction back.
+    const updated = db.prepare(
+      "UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'",
+    ).run(row.id);
+    if (Number(updated.changes) !== 1) {
+      throw new Error(`proposal #${row.id} was reviewed concurrently — no longer pending`);
+    }
     // OR IGNORE: UNIQUE(from,to,type) — a human may have created the same
     // relation while this proposal sat pending, and that is agreement, not
     // an error.
     db.prepare(
       'INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?)',
     ).run(from.id, to.id, payload.relation_type);
-    db.prepare(
-      "UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'",
-    ).run(row.id);
   });
   tx();
 
@@ -1722,9 +1732,22 @@ export interface ProposalSummary {
 }
 
 export function listProposals(db: MemeshDatabase, status: string = 'pending'): ProposalSummary[] {
-  const rows = db.prepare(
-    "SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC"
-  ).all(status) as Array<{ id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; status: string; created_at: string; source_kind: string | null; kind: string | null }>;
+  type ListRow = { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; status: string; created_at: string; source_kind: string | null; kind: string | null };
+  let rows: ListRow[];
+  try {
+    rows = db.prepare(
+      "SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC"
+    ).all(status) as ListRow[];
+  } catch (err) {
+    // A read-only database from a pre-`kind` release: openDatabase tolerates
+    // the failed ALTER, so the column can genuinely be absent here. Every
+    // pre-kind row is a digest-kind row by definition — reading must not be
+    // the thing that breaks on an old snapshot.
+    if (!(err instanceof Error && err.message.includes('no such column'))) throw err;
+    rows = (db.prepare(
+      "SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC"
+    ).all(status) as Array<Omit<ListRow, 'kind'>>).map((r) => ({ ...r, kind: null }));
+  }
   return rows.map(r => {
     // Relation proposals carry a RelationProposal payload, not a digest —
     // render the pair and the judge's rationale instead of pretending the
@@ -1733,8 +1756,17 @@ export function listProposals(db: MemeshDatabase, status: string = 'pending'): P
       let name = '(corrupt relation proposal)';
       let preview: string | null = null;
       try {
-        const rel = JSON.parse(r.proposed_digest) as { relation_type?: string; a?: { name?: string }; b?: { name?: string }; rationale?: string };
-        if (rel?.a?.name && rel?.b?.name) name = `${rel.a.name} —${rel.relation_type ?? '?'}→ ${rel.b.name}`;
+        const rel = JSON.parse(r.proposed_digest) as { relation_type?: string; a?: { name?: string }; b?: { name?: string }; direction?: string; rationale?: string };
+        if (rel?.a?.name && rel?.b?.name) {
+          // The arrow must match what acceptance CREATES: for
+          // b_supersedes_a the survivor is b, so the rendered arrow flips.
+          // A list that showed a —supersedes→ b for that verdict had the
+          // reviewer approving the exact opposite of the staged relation.
+          const [fromName, toName] = rel.direction === 'b_supersedes_a'
+            ? [rel.b.name, rel.a.name]
+            : [rel.a.name, rel.b.name];
+          name = `${fromName} —${rel.relation_type ?? '?'}→ ${toName}`;
+        }
         preview = rel?.rationale ? String(rel.rationale).slice(0, 120) : null;
       } catch { /* keep the corrupt marker */ }
       return {
@@ -1798,9 +1830,20 @@ export interface ProposalDetail {
 }
 
 export function getProposalDetail(db: MemeshDatabase, id: number): ProposalDetail | null {
-  const row = db.prepare(
-    'SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE id = ?'
-  ).get(id) as { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; status: string; created_at: string; source_kind: string | null; kind: string | null } | undefined;
+  type DetailRow = { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; status: string; created_at: string; source_kind: string | null; kind: string | null };
+  let row: DetailRow | undefined;
+  try {
+    row = db.prepare(
+      'SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE id = ?'
+    ).get(id) as DetailRow | undefined;
+  } catch (err) {
+    // Same pre-`kind` read-only tolerance as listProposals.
+    if (!(err instanceof Error && err.message.includes('no such column'))) throw err;
+    const legacy = db.prepare(
+      'SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE id = ?'
+    ).get(id) as Omit<DetailRow, 'kind'> | undefined;
+    row = legacy ? { ...legacy, kind: null } : undefined;
+  }
   if (!row) return null;
   let source: unknown = null;
   try { source = JSON.parse(row.source_ids); } catch { /* leave null */ }

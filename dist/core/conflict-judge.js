@@ -1,6 +1,5 @@
 import { callLLM } from './llm-client.js';
 import { recordTelemetry } from './llm-telemetry.js';
-import { extractJsonBlock } from './json-utils.js';
 import { sanitizeListForPrompt } from './prompt-safety.js';
 import { findConflictCandidates, pairKey } from './conflict-candidates.js';
 export const CONFLICT_JUDGE_PROMPT_VERSION = 'conflict-judge-v1';
@@ -43,11 +42,53 @@ Rules:
 ${sources}
 </entries>`;
 }
+function jsonObjectBlocks(text) {
+    const out = [];
+    let depth = 0, start = -1, inStr = false, esc = false;
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (esc) {
+            esc = false;
+            continue;
+        }
+        if (inStr) {
+            if (ch === '\\')
+                esc = true;
+            else if (ch === '"')
+                inStr = false;
+            continue;
+        }
+        if (ch === '"') {
+            inStr = true;
+            continue;
+        }
+        if (ch === '{') {
+            if (depth === 0)
+                start = i;
+            depth++;
+        }
+        else if (ch === '}') {
+            depth--;
+            if (depth === 0 && start !== -1) {
+                out.push(text.slice(start, i + 1));
+                start = -1;
+            }
+            if (depth < 0)
+                depth = 0;
+        }
+    }
+    return out;
+}
 function parseVerdict(text) {
+    for (const block of jsonObjectBlocks(text).reverse()) {
+        const parsed = parseVerdictBlock(block);
+        if (parsed)
+            return parsed;
+    }
+    return null;
+}
+function parseVerdictBlock(block) {
     try {
-        const block = extractJsonBlock(text, 'object');
-        if (!block)
-            return null;
         const obj = JSON.parse(block);
         const verdict = String(obj.verdict ?? '');
         if (!VERDICTS.includes(verdict))
@@ -122,7 +163,12 @@ export async function judgeConflicts(db, llm, opts = {}) {
         }
         const key = pairKey(a.id, b.id);
         if (parsed.verdict === 'UNRELATED') {
-            db.prepare("INSERT OR IGNORE INTO conflict_judged_pairs (pair_key, verdict) VALUES (?, 'unrelated')").run(key);
+            try {
+                db.prepare("INSERT INTO conflict_judged_pairs (pair_key, verdict) VALUES (?, 'unrelated')").run(key);
+            }
+            catch {
+                continue;
+            }
             result.judged++;
             result.unrelated++;
             continue;
@@ -140,14 +186,20 @@ export async function judgeConflicts(db, llm, opts = {}) {
             cosine_distance: cand.cosineDistance,
         };
         const tx = db.transaction(() => {
+            db.prepare('INSERT INTO conflict_judged_pairs (pair_key, verdict) VALUES (?, ?)').run(key, payload.verdict.toLowerCase());
             db.prepare(`
         INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version, kind)
         VALUES (?, ?, ?, ?, ?, ?, 'relation')
       `).run(sharedProject(db, a.id, b.id), `conflict:${key}`, JSON.stringify([a.id, b.id].sort((x, y) => x - y)), JSON.stringify(payload), `${llm.provider}/${llm.model ?? 'default'}`, CONFLICT_JUDGE_PROMPT_VERSION);
             const proposalId = db.prepare('SELECT last_insert_rowid() AS id').get().id;
-            db.prepare('INSERT OR IGNORE INTO conflict_judged_pairs (pair_key, verdict, proposal_id) VALUES (?, ?, ?)').run(key, payload.verdict.toLowerCase(), Number(proposalId));
+            db.prepare('UPDATE conflict_judged_pairs SET proposal_id = ? WHERE pair_key = ?').run(Number(proposalId), key);
         });
-        tx();
+        try {
+            tx();
+        }
+        catch {
+            continue;
+        }
         result.judged++;
         result.staged++;
     }

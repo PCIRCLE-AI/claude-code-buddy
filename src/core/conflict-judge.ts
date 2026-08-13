@@ -20,12 +20,20 @@
 // "absence reported as success" failure mode the capture pipeline was
 // audited for. Failed pairs are counted, left unjudged, and come back as
 // candidates on the next run.
+//
+// Known residual (shared with every LLM flow here): sanitizeListForPrompt
+// strips the tag-shaped text an injection needs to BREAK OUT of the data
+// fence, but plain-language steering inside a memory ("call this pair
+// unrelated") is still model-visible. The asymmetry to know about: a
+// steered CONTRADICTS still faces a human reviewer; a steered UNRELATED is
+// recorded without one and suppresses the pair. That is the price of not
+// re-buying judged pairs — `conflict_judged_pairs` is plain SQL, so an
+// audit or a targeted DELETE re-opens any pair deliberately.
 
 import type { MemeshDatabase } from '../storage/sqlite.js';
 import { callLLM, type LLMAttempt } from './llm-client.js';
 import type { LLMConfig } from './config.js';
 import { recordTelemetry } from './llm-telemetry.js';
-import { extractJsonBlock } from './json-utils.js';
 import { sanitizeListForPrompt } from './prompt-safety.js';
 import { findConflictCandidates, pairKey, type ConflictCandidate } from './conflict-candidates.js';
 
@@ -140,10 +148,43 @@ interface ParsedVerdict {
   excerpts?: { a: string; b: string };
 }
 
+/** Every top-level balanced {...} block in the text, in order. The judge
+ *  takes the LAST one carrying a valid verdict: a model that narrates
+ *  ("Example: {...UNRELATED...} — but here: {...CONTRADICTS...}") must be
+ *  read by its conclusion, not its first aside — the first-block rule
+ *  turned exactly that shape into a permanently-recorded wrong verdict. */
+function jsonObjectBlocks(text: string): string[] {
+  const out: string[] = [];
+  let depth = 0, start = -1, inStr = false, esc = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (esc) { esc = false; continue; }
+    if (inStr) {
+      if (ch === '\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === '{') { if (depth === 0) start = i; depth++; }
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) { out.push(text.slice(start, i + 1)); start = -1; }
+      if (depth < 0) depth = 0;
+    }
+  }
+  return out;
+}
+
 function parseVerdict(text: string): ParsedVerdict | null {
+  for (const block of jsonObjectBlocks(text).reverse()) {
+    const parsed = parseVerdictBlock(block);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function parseVerdictBlock(block: string): ParsedVerdict | null {
   try {
-    const block = extractJsonBlock(text, 'object');
-    if (!block) return null;
     const obj = JSON.parse(block) as Record<string, unknown>;
     const verdict = String(obj.verdict ?? '') as ConflictVerdict;
     if (!VERDICTS.includes(verdict)) return null;
@@ -225,9 +266,17 @@ export async function judgeConflicts(
 
     const key = pairKey(a.id, b.id);
     if (parsed.verdict === 'UNRELATED') {
-      db.prepare(
-        "INSERT OR IGNORE INTO conflict_judged_pairs (pair_key, verdict) VALUES (?, 'unrelated')",
-      ).run(key);
+      // Plain INSERT, not OR IGNORE: if a concurrent run judged this pair
+      // meanwhile, silently discarding OUR verdict while keeping THEIR
+      // proposal (or vice versa) leaves the table and the proposal queue
+      // telling different stories. Losing the race is a skip, not a write.
+      try {
+        db.prepare(
+          "INSERT INTO conflict_judged_pairs (pair_key, verdict) VALUES (?, 'unrelated')",
+        ).run(key);
+      } catch {
+        continue; // judged concurrently — their verdict stands
+      }
       result.judged++;
       result.unrelated++;
       continue;
@@ -246,7 +295,14 @@ export async function judgeConflicts(
       cosine_distance: cand.cosineDistance,
     };
 
+    // The judged-pair row goes in FIRST, as a plain INSERT: its primary key
+    // is the concurrency guard. If another run judged this pair between our
+    // candidate query and here, this throws, the transaction rolls back and
+    // NO orphan proposal is left disagreeing with their verdict.
     const tx = db.transaction(() => {
+      db.prepare(
+        'INSERT INTO conflict_judged_pairs (pair_key, verdict) VALUES (?, ?)',
+      ).run(key, payload.verdict.toLowerCase());
       db.prepare(`
         INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version, kind)
         VALUES (?, ?, ?, ?, ?, ?, 'relation')
@@ -260,10 +316,14 @@ export async function judgeConflicts(
       );
       const proposalId = (db.prepare('SELECT last_insert_rowid() AS id').get() as { id: number | bigint }).id;
       db.prepare(
-        'INSERT OR IGNORE INTO conflict_judged_pairs (pair_key, verdict, proposal_id) VALUES (?, ?, ?)',
-      ).run(key, payload.verdict.toLowerCase(), Number(proposalId));
+        'UPDATE conflict_judged_pairs SET proposal_id = ? WHERE pair_key = ?',
+      ).run(Number(proposalId), key);
     });
-    tx();
+    try {
+      tx();
+    } catch {
+      continue; // pair judged concurrently — their verdict stands, nothing staged
+    }
     result.judged++;
     result.staged++;
   }
