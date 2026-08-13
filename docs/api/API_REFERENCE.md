@@ -8,7 +8,7 @@
 
 ## Tools
 
-MeMesh exposes 8 tools via MCP.
+MeMesh exposes 7 tools via MCP.
 
 ---
 
@@ -1166,7 +1166,7 @@ No arguments or options required. The dashboard is a static HTML file that can b
 
 For applications that call the **Messages API directly** rather than through MCP. Claude gets a memory tool whose storage is MeMesh instead of a folder of text files, so it also gets search, ranking, decay, relations and namespaces without knowing they are there.
 
-This is **not** one of the eight MCP tools and is not exposed over HTTP or the CLI. The MCP surface serves an agent that already speaks MeMesh; this serves an application that speaks only the Messages API.
+This is **not** one of the seven MCP tools and is not exposed over HTTP or the CLI. The MCP surface serves an agent that already speaks MeMesh; this serves an application that speaks only the Messages API.
 
 ### Wiring it up
 

@@ -59,7 +59,7 @@ MeMesh separates concerns into two layers:
 **Transports** (`src/transports/`) — thin adapters that expose core operations:
 - `cli/cli.ts` — Commander CLI (`memesh` command, 24 top-level commands; `config`, `kg`, and `dream` have subcommands)
 - `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, 32 endpoints, bearer-auth gate when bound non-loopback)
-- `src/mcp/server.ts` + `src/transports/mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 8 tools); `src/mcp/tools.ts` is a re-export shim
+- `src/mcp/server.ts` + `src/transports/mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 7 tools); `src/mcp/tools.ts` is a re-export shim
 
 This separation means the same `remember`/`recall`/`forget` logic runs identically whether invoked from a terminal, an HTTP request, or an MCP tool call.
 
@@ -322,7 +322,7 @@ Foreign key cascades: deleting an entity automatically deletes its observations,
 
 Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific lifecycle events.
 
-### Hook Scripts (7 hooks)
+### Hook Scripts (6 hooks)
 
 | Hook | Event | Purpose |
 |------|-------|---------|
