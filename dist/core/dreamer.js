@@ -710,7 +710,7 @@ function applyTranscriptProposal(db, row, kg) {
     };
 }
 export function applyProposal(db, proposalId, kg) {
-    const row = db.prepare("SELECT id, project, cluster_key, source_ids, proposed_digest, source_kind, kind FROM dream_proposals WHERE id = ? AND status = 'pending'").get(proposalId);
+    const row = db.prepare(`SELECT id, project, cluster_key, source_ids, proposed_digest, ${legacyProposalCols(db)} FROM dream_proposals WHERE id = ? AND status = 'pending'`).get(proposalId);
     if (!row)
         throw new Error(`proposal #${proposalId} not found or not pending`);
     if (row.kind === 'relation') {
@@ -870,16 +870,14 @@ export function rejectProposal(db, proposalId, reason) {
     if (result.changes === 0)
         throw new Error(`proposal #${proposalId} not found or not pending`);
 }
+function legacyProposalCols(db) {
+    const cols = new Set(db.prepare('PRAGMA table_info(dream_proposals)').all().map((c) => c.name));
+    const sk = cols.has('source_kind') ? 'source_kind' : 'NULL AS source_kind';
+    const k = cols.has('kind') ? 'kind' : 'NULL AS kind';
+    return `${sk}, ${k}`;
+}
 export function listProposals(db, status = 'pending') {
-    let rows;
-    try {
-        rows = db.prepare("SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC").all(status);
-    }
-    catch (err) {
-        if (!(err instanceof Error && err.message.includes('no such column')))
-            throw err;
-        rows = db.prepare("SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC").all(status).map((r) => ({ ...r, kind: null }));
-    }
+    const rows = db.prepare(`SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, ${legacyProposalCols(db)} FROM dream_proposals WHERE status = ? ORDER BY created_at DESC`).all(status);
     return rows.map(r => {
         if (r.kind === 'relation') {
             let name = '(corrupt relation proposal)';
@@ -887,7 +885,7 @@ export function listProposals(db, status = 'pending') {
             try {
                 const rel = JSON.parse(r.proposed_digest);
                 if (rel?.a?.name && rel?.b?.name) {
-                    const [fromName, toName] = rel.direction === 'b_supersedes_a'
+                    const [fromName, toName] = rel.relation_type === 'supersedes' && rel.direction === 'b_supersedes_a'
                         ? [rel.b.name, rel.a.name]
                         : [rel.a.name, rel.b.name];
                     name = `${fromName} —${rel.relation_type ?? '?'}→ ${toName}`;
@@ -936,16 +934,7 @@ export function listProposals(db, status = 'pending') {
     });
 }
 export function getProposalDetail(db, id) {
-    let row;
-    try {
-        row = db.prepare('SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE id = ?').get(id);
-    }
-    catch (err) {
-        if (!(err instanceof Error && err.message.includes('no such column')))
-            throw err;
-        const legacy = db.prepare('SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE id = ?').get(id);
-        row = legacy ? { ...legacy, kind: null } : undefined;
-    }
+    const row = db.prepare(`SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, ${legacyProposalCols(db)} FROM dream_proposals WHERE id = ?`).get(id);
     if (!row)
         return null;
     let source = null;

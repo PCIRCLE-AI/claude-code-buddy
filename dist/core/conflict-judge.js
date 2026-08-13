@@ -80,22 +80,34 @@ function jsonObjectBlocks(text) {
     return out;
 }
 function parseVerdict(text) {
-    for (const block of jsonObjectBlocks(text).reverse()) {
-        const parsed = parseVerdictBlock(block);
-        if (parsed)
-            return parsed;
-    }
-    return null;
+    const parsedBlocks = jsonObjectBlocks(text)
+        .map(parseVerdictBlock)
+        .filter((p) => p !== null);
+    if (parsedBlocks.length === 0)
+        return null;
+    const keys = new Set(parsedBlocks.map((p) => `${p.verdict}|${p.direction ?? ''}`));
+    if (keys.size > 1)
+        return null;
+    return parsedBlocks[parsedBlocks.length - 1];
 }
 function parseVerdictBlock(block) {
     try {
-        const obj = JSON.parse(block);
+        let obj = JSON.parse(block);
+        if (!VERDICTS.includes(String(obj.verdict ?? ''))) {
+            const inner = Object.values(obj).find((v) => !!v && typeof v === 'object' && !Array.isArray(v)
+                && VERDICTS.includes(String(v.verdict ?? '')));
+            if (inner)
+                obj = inner;
+        }
+        if (String(obj.rationale ?? '') === '<one sentence>')
+            return null;
         const verdict = String(obj.verdict ?? '');
         if (!VERDICTS.includes(verdict))
             return null;
         if (verdict === 'UNRELATED')
             return { verdict };
-        const direction = obj.direction === 'a_supersedes_b' || obj.direction === 'b_supersedes_a'
+        const direction = verdict === 'SUPERSEDES'
+            && (obj.direction === 'a_supersedes_b' || obj.direction === 'b_supersedes_a')
             ? obj.direction : undefined;
         if (verdict === 'SUPERSEDES' && !direction)
             return null;
@@ -125,7 +137,7 @@ const RELATION_FOR = {
 };
 export async function judgeConflicts(db, llm, opts = {}) {
     const start = Date.now();
-    const maxPairs = opts.maxPairs ?? CONFLICT_JUDGE_MAX_PAIRS;
+    const maxPairs = Math.max(0, opts.maxPairs ?? CONFLICT_JUDGE_MAX_PAIRS);
     const result = {
         candidatesAvailable: 0, judged: 0, staged: 0, unrelated: 0,
         llmFailures: 0, llmCalls: 0, durationMs: 0,
@@ -166,8 +178,11 @@ export async function judgeConflicts(db, llm, opts = {}) {
             try {
                 db.prepare("INSERT INTO conflict_judged_pairs (pair_key, verdict) VALUES (?, 'unrelated')").run(key);
             }
-            catch {
-                continue;
+            catch (err) {
+                if (err instanceof Error && err.message.includes('UNIQUE constraint failed: conflict_judged_pairs'))
+                    continue;
+                result.aborted = err instanceof Error ? err.message : String(err);
+                break;
             }
             result.judged++;
             result.unrelated++;
@@ -197,8 +212,11 @@ export async function judgeConflicts(db, llm, opts = {}) {
         try {
             tx();
         }
-        catch {
-            continue;
+        catch (err) {
+            if (err instanceof Error && err.message.includes('UNIQUE constraint failed: conflict_judged_pairs'))
+                continue;
+            result.aborted = err instanceof Error ? err.message : String(err);
+            break;
         }
         result.judged++;
         result.staged++;

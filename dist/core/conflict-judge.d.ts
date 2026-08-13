@@ -34,6 +34,7 @@ export interface ConflictJudgeResult {
     llmFailures: number;
     llmCalls: number;
     durationMs: number;
+    aborted?: string;
 }
 export interface ConflictJudgeOptions {
     maxPairs?: number;

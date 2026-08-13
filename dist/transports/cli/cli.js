@@ -1194,7 +1194,11 @@ dreamCmd
         console.log(`  judged:         ${result.judged} (${result.unrelated} unrelated, remembered so they are never re-bought)`);
         console.log(`  staged:         ${result.staged} relation proposal(s)`);
         if (result.llmFailures > 0) {
-            console.log(`  failed:         ${result.llmFailures} (unparseable or errored LLM responses; those pairs will be retried next run)`);
+            console.log(`  failed:         ${result.llmFailures} (unparseable or errored LLM responses; those pairs stay at the head of the candidate list and are retried next run)`);
+        }
+        if (result.aborted) {
+            console.error(`  ABORTED after the work above: ${result.aborted}`);
+            process.exit(1);
         }
         if (result.staged > 0) {
             console.log('');
@@ -1229,7 +1233,7 @@ dreamCmd
                 console.error('relation payload is corrupt — reject this proposal');
                 process.exit(1);
             }
-            const [fromE, toE] = rel.direction === 'b_supersedes_a' ? [rel.b, rel.a] : [rel.a, rel.b];
+            const [fromE, toE] = rel.relation_type === 'supersedes' && rel.direction === 'b_supersedes_a' ? [rel.b, rel.a] : [rel.a, rel.b];
             console.log(`verdict: ${rel.verdict}  (severity: ${rel.severity ?? 'unknown'})`);
             console.log(`accepting creates: ${fromE?.name} —${rel.relation_type}→ ${toE?.name}`);
             if (rel.relation_type === 'supersedes') {
