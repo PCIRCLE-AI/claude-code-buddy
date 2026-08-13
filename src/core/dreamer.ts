@@ -1405,7 +1405,7 @@ export function applyProposal(
   kg: { createEntity: (name: string, type: string, opts: { observations: string[]; tags: string[]; metadata: Record<string, unknown>; trustOverride?: 'trusted' | 'untrusted' }) => number },
 ): ApplyResult {
   const row = db.prepare(
-    "SELECT id, project, cluster_key, source_ids, proposed_digest, source_kind, kind FROM dream_proposals WHERE id = ? AND status = 'pending'"
+    `SELECT id, project, cluster_key, source_ids, proposed_digest, ${legacyProposalCols(db)} FROM dream_proposals WHERE id = ? AND status = 'pending'`
   ).get(proposalId) as { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; source_kind: string | null; kind: string | null } | undefined;
   if (!row) throw new Error(`proposal #${proposalId} not found or not pending`);
 
@@ -1731,23 +1731,29 @@ export interface ProposalSummary {
   source_kind: string;
 }
 
+/** SELECT fragment for the two later-added dream_proposals columns,
+ *  degrading per-column on old read-only snapshots (PRAGMA sees the real
+ *  schema; a missing column becomes a NULL alias, and NULL already means
+ *  "pre-migration default" to every consumer). */
+function legacyProposalCols(db: MemeshDatabase): string {
+  const cols = new Set(
+    (db.prepare('PRAGMA table_info(dream_proposals)').all() as Array<{ name: string }>).map((c) => c.name),
+  );
+  const sk = cols.has('source_kind') ? 'source_kind' : 'NULL AS source_kind';
+  const k = cols.has('kind') ? 'kind' : 'NULL AS kind';
+  return `${sk}, ${k}`;
+}
+
 export function listProposals(db: MemeshDatabase, status: string = 'pending'): ProposalSummary[] {
   type ListRow = { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; status: string; created_at: string; source_kind: string | null; kind: string | null };
-  let rows: ListRow[];
-  try {
-    rows = db.prepare(
-      "SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC"
-    ).all(status) as ListRow[];
-  } catch (err) {
-    // A read-only database from a pre-`kind` release: openDatabase tolerates
-    // the failed ALTER, so the column can genuinely be absent here. Every
-    // pre-kind row is a digest-kind row by definition — reading must not be
-    // the thing that breaks on an old snapshot.
-    if (!(err instanceof Error && err.message.includes('no such column'))) throw err;
-    rows = (db.prepare(
-      "SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC"
-    ).all(status) as Array<Omit<ListRow, 'kind'>>).map((r) => ({ ...r, kind: null }));
-  }
+  // Column list built from what the table ACTUALLY has: a read-only
+  // database from an older release keeps its old schema (openDatabase
+  // tolerates the failed ALTERs), and this must degrade per-column — a
+  // pre-source_kind snapshot is missing TWO columns, which a single
+  // hardcoded fallback query could not serve.
+  const rows = db.prepare(
+    `SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, ${legacyProposalCols(db)} FROM dream_proposals WHERE status = ? ORDER BY created_at DESC`
+  ).all(status) as ListRow[];
   return rows.map(r => {
     // Relation proposals carry a RelationProposal payload, not a digest —
     // render the pair and the judge's rationale instead of pretending the
@@ -1762,7 +1768,7 @@ export function listProposals(db: MemeshDatabase, status: string = 'pending'): P
           // b_supersedes_a the survivor is b, so the rendered arrow flips.
           // A list that showed a —supersedes→ b for that verdict had the
           // reviewer approving the exact opposite of the staged relation.
-          const [fromName, toName] = rel.direction === 'b_supersedes_a'
+          const [fromName, toName] = rel.relation_type === 'supersedes' && rel.direction === 'b_supersedes_a'
             ? [rel.b.name, rel.a.name]
             : [rel.a.name, rel.b.name];
           name = `${fromName} —${rel.relation_type ?? '?'}→ ${toName}`;
@@ -1831,19 +1837,10 @@ export interface ProposalDetail {
 
 export function getProposalDetail(db: MemeshDatabase, id: number): ProposalDetail | null {
   type DetailRow = { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; status: string; created_at: string; source_kind: string | null; kind: string | null };
-  let row: DetailRow | undefined;
-  try {
-    row = db.prepare(
-      'SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE id = ?'
-    ).get(id) as DetailRow | undefined;
-  } catch (err) {
-    // Same pre-`kind` read-only tolerance as listProposals.
-    if (!(err instanceof Error && err.message.includes('no such column'))) throw err;
-    const legacy = db.prepare(
-      'SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE id = ?'
-    ).get(id) as Omit<DetailRow, 'kind'> | undefined;
-    row = legacy ? { ...legacy, kind: null } : undefined;
-  }
+  // Same per-column degradation as listProposals (see legacyProposalCols).
+  const row = db.prepare(
+    `SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, ${legacyProposalCols(db)} FROM dream_proposals WHERE id = ?`
+  ).get(id) as DetailRow | undefined;
   if (!row) return null;
   let source: unknown = null;
   try { source = JSON.parse(row.source_ids); } catch { /* leave null */ }

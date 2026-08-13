@@ -441,7 +441,7 @@ export function InsightsTab() {
                 rationale?: string; recommended_action?: string;
                 excerpts?: { a?: string; b?: string }; cosine_distance?: number;
               };
-              const [fromN, toN] = rel.direction === 'b_supersedes_a'
+              const [fromN, toN] = rel.relation_type === 'supersedes' && rel.direction === 'b_supersedes_a'
                 ? [rel.b?.name, rel.a?.name] : [rel.a?.name, rel.b?.name];
               return (
                 <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-1)', borderRadius: 'var(--radius-xs)', fontSize: 13 }}>

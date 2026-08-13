@@ -1516,7 +1516,7 @@ dreamCmd
           console.error('relation payload is corrupt — reject this proposal');
           process.exit(1);
         }
-        const [fromE, toE] = rel.direction === 'b_supersedes_a' ? [rel.b, rel.a] : [rel.a, rel.b];
+        const [fromE, toE] = rel.relation_type === 'supersedes' && rel.direction === 'b_supersedes_a' ? [rel.b, rel.a] : [rel.a, rel.b];
         console.log(`verdict: ${rel.verdict}  (severity: ${rel.severity ?? 'unknown'})`);
         console.log(`accepting creates: ${fromE?.name} —${rel.relation_type}→ ${toE?.name}`);
         if (rel.relation_type === 'supersedes') {

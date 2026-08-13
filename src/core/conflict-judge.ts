@@ -176,11 +176,22 @@ function jsonObjectBlocks(text: string): string[] {
 }
 
 function parseVerdict(text: string): ParsedVerdict | null {
-  for (const block of jsonObjectBlocks(text).reverse()) {
-    const parsed = parseVerdictBlock(block);
-    if (parsed) return parsed;
-  }
-  return null;
+  // Neither "first object" nor "last object" is evidence of which one the
+  // model MEANT (the first-block rule recorded narrated examples; a
+  // last-block rule records trailing ones). If every valid verdict object
+  // agrees, take the last (usually the fullest); if they DISAGREE, the
+  // response is ambiguous and ambiguity is a parse failure — the pair
+  // returns as a candidate, it is never guessed into conflict_judged_pairs.
+  const parsedBlocks = jsonObjectBlocks(text)
+    .map(parseVerdictBlock)
+    .filter((p): p is ParsedVerdict => p !== null);
+  if (parsedBlocks.length === 0) return null;
+  // The agreement key includes the DIRECTION: two SUPERSEDES blocks with
+  // opposite survivors are as contradictory as two different verdicts, and
+  // a verdict-only check let text order pick the survivor.
+  const keys = new Set(parsedBlocks.map((p) => `${p.verdict}|${p.direction ?? ''}`));
+  if (keys.size > 1) return null;
+  return parsedBlocks[parsedBlocks.length - 1];
 }
 
 function parseVerdictBlock(block: string): ParsedVerdict | null {
@@ -189,7 +200,11 @@ function parseVerdictBlock(block: string): ParsedVerdict | null {
     const verdict = String(obj.verdict ?? '') as ConflictVerdict;
     if (!VERDICTS.includes(verdict)) return null;
     if (verdict === 'UNRELATED') return { verdict };
-    const direction = obj.direction === 'a_supersedes_b' || obj.direction === 'b_supersedes_a'
+    // Direction is only meaningful for SUPERSEDES. Kept on any other
+    // verdict, the review surfaces (which flip on direction) would show
+    // B→A while acceptance (which flips only for supersedes) stores A→B.
+    const direction = verdict === 'SUPERSEDES'
+      && (obj.direction === 'a_supersedes_b' || obj.direction === 'b_supersedes_a')
       ? obj.direction : undefined;
     if (verdict === 'SUPERSEDES' && !direction) return null; // a supersession with no survivor is unusable
     const severity = obj.severity === 'low' || obj.severity === 'medium' || obj.severity === 'high'
@@ -223,7 +238,10 @@ export async function judgeConflicts(
   opts: ConflictJudgeOptions = {},
 ): Promise<ConflictJudgeResult> {
   const start = Date.now();
-  const maxPairs = opts.maxPairs ?? CONFLICT_JUDGE_MAX_PAIRS;
+  // Clamped at 0: slice(0, -1) means "all but the last", so a negative
+  // cap ("no limit", naturally written as -1) would judge the whole
+  // candidate list — the opposite of what a spend cap exists for.
+  const maxPairs = Math.max(0, opts.maxPairs ?? CONFLICT_JUDGE_MAX_PAIRS);
   const result: ConflictJudgeResult = {
     candidatesAvailable: 0, judged: 0, staged: 0, unrelated: 0,
     llmFailures: 0, llmCalls: 0, durationMs: 0,
@@ -274,8 +292,12 @@ export async function judgeConflicts(
         db.prepare(
           "INSERT INTO conflict_judged_pairs (pair_key, verdict) VALUES (?, 'unrelated')",
         ).run(key);
-      } catch {
-        continue; // judged concurrently — their verdict stands
+      } catch (err) {
+        // ONLY the pair PK collision means "judged concurrently". Anything
+        // else (BUSY, disk full, read-only) is a real failure and must
+        // surface — swallowing it re-buys the same judgment every run.
+        if (err instanceof Error && err.message.includes('UNIQUE constraint failed: conflict_judged_pairs')) continue;
+        throw err;
       }
       result.judged++;
       result.unrelated++;
@@ -321,8 +343,11 @@ export async function judgeConflicts(
     });
     try {
       tx();
-    } catch {
-      continue; // pair judged concurrently — their verdict stands, nothing staged
+    } catch (err) {
+      // Same narrowness as the UNRELATED path: only the pair PK collision
+      // is the benign concurrent-judge race; everything else surfaces.
+      if (err instanceof Error && err.message.includes('UNIQUE constraint failed: conflict_judged_pairs')) continue;
+      throw err;
     }
     result.judged++;
     result.staged++;

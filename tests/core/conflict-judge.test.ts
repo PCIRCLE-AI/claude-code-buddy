@@ -208,15 +208,16 @@ describe('judgeConflicts', () => {
     expect(r.judged).toBe(1);
   });
 
-  it('reads the LAST verdict object, not a narrated example before it', async () => {
+  it('multiple verdict objects that AGREE are accepted — the fullest (last) one wins', async () => {
     seed('n1', 'fact', 0);
     seed('n2', 'fact', 10);
-    // A model that narrates: an example UNRELATED first, the real verdict
-    // last. First-block parsing recorded the example as the permanent
-    // verdict and suppressed the pair forever.
+    // A model that narrates a bare verdict and then the full object. Same
+    // verdict everywhere = no ambiguity; the last (fullest) block supplies
+    // the fields. (Disagreeing blocks are pinned as a parse failure in the
+    // ambiguity test below.)
     callLLMMock.mockResolvedValue(
-      'Considering an example: {"verdict":"UNRELATED","rationale":"example only"} — but here: '
-      + JSON.stringify({ verdict: 'CONTRADICTS', rationale: 'real verdict', severity: 'low', recommended_action: 'x', excerpts: { a: 'a', b: 'b' } }),
+      'Verdict: {"verdict":"CONTRADICTS","rationale":"short"} — in full: '
+      + JSON.stringify({ verdict: 'CONTRADICTS', rationale: 'full rationale', severity: 'high', recommended_action: 'x', excerpts: { a: 'a', b: 'b' } }),
     );
 
     const r = await judgeConflicts(getDatabase(), LLM);
@@ -224,6 +225,8 @@ describe('judgeConflicts', () => {
     expect(r.unrelated).toBe(0);
     const judged = getDatabase().prepare('SELECT verdict FROM conflict_judged_pairs').all() as Array<{ verdict: string }>;
     expect(judged).toEqual([{ verdict: 'contradicts' }]);
+    const detail = getProposalDetail(getDatabase(), listProposals(getDatabase(), 'pending')[0].id);
+    expect((detail?.relation as { severity: string }).severity).toBe('high');
   });
 
   it('the list arrow follows the survivor: b_supersedes_a renders b —supersedes→ a', async () => {
@@ -258,6 +261,60 @@ describe('judgeConflicts', () => {
       expect(rows).toHaveLength(1);
       expect(rows[0].digest_name).toBe('old-digest');
       expect(rows[0].kind).toBe('digest');
+    } finally {
+      raw.close();
+    }
+  });
+
+  it('disagreeing verdict objects are ambiguity, not a coin flip — parse failure', async () => {
+    seed('amb1', 'fact', 0);
+    seed('amb2', 'fact', 10);
+    // Real verdict first, trailing example second: a "take the last object"
+    // rule records the example, exactly as "take the first" recorded the
+    // narrated one. Disagreement = no verdict at all.
+    callLLMMock.mockResolvedValue(
+      JSON.stringify({ verdict: 'CONTRADICTS', rationale: 'real', severity: 'low', recommended_action: 'x', excerpts: { a: 'a', b: 'b' } })
+      + ' trailing example: {"verdict":"UNRELATED","rationale":"example"}',
+    );
+    const r = await judgeConflicts(getDatabase(), LLM);
+    expect(r.llmFailures).toBe(1);
+    expect(r.judged).toBe(0);
+    expect(getDatabase().prepare('SELECT count(*) AS c FROM conflict_judged_pairs').get()).toEqual({ c: 0 });
+  });
+
+  it('a direction supplied with a non-supersedes verdict is discarded', async () => {
+    const a = seed('dir1', 'fact', 0);
+    const b = seed('dir2', 'fact', 10);
+    callLLMMock.mockResolvedValue(JSON.stringify({
+      verdict: 'CONTRADICTS', direction: 'b_supersedes_a',
+      rationale: 'x', severity: 'low', recommended_action: 'x', excerpts: { a: 'x', b: 'y' },
+    }));
+    await judgeConflicts(getDatabase(), LLM);
+    const pending = listProposals(getDatabase(), 'pending');
+    // Surfaces flip on direction; acceptance flips only for supersedes. A
+    // stray direction on CONTRADICTS made them disagree — it must not
+    // survive parsing.
+    expect(pending[0].digest_name).toBe('dir1 —contradicts→ dir2');
+    const detail = getProposalDetail(getDatabase(), pending[0].id);
+    expect((detail?.relation as { direction?: string }).direction).toBeUndefined();
+    applyProposal(getDatabase(), pending[0].id, { createEntity: () => 0 });
+    const rel = getDatabase().prepare('SELECT from_entity_id AS f, to_entity_id AS t FROM relations').get() as { f: number; t: number };
+    expect([rel.f, rel.t]).toEqual([a, b]);
+  });
+
+  it('listing tolerates a pre-source_kind snapshot too (both columns absent)', async () => {
+    getDatabase().prepare(
+      "INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest) VALUES ('p', 'week:y', '[1]', ?)",
+    ).run(JSON.stringify({ name: 'ancient-digest', type: 'digest', observations: ['o'], tags: [] }));
+    closeDatabase();
+    const raw = new DatabaseSync(dbHandle.dbPath);
+    try {
+      raw.exec('ALTER TABLE dream_proposals DROP COLUMN kind');
+      raw.exec('ALTER TABLE dream_proposals DROP COLUMN source_kind');
+      const rows = listProposals(raw as unknown as Parameters<typeof listProposals>[0], 'pending');
+      expect(rows).toHaveLength(1);
+      expect(rows[0].digest_name).toBe('ancient-digest');
+      expect(rows[0].source_kind).toBe('entities');
     } finally {
       raw.close();
     }
