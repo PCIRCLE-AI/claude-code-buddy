@@ -47,6 +47,30 @@ All notable changes to MeMesh are documented here.
   Read-only; the LLM judge that turns candidates into staged CONTRADICTS /
   SUPERSEDES / DUPLICATE proposals for human review is the second half.
 
+### Changed
+
+- **The knowledge graph earns visibility instead of distributing it.** The
+  dashboard graph drew every edge at one brightness and named no node until
+  hover — uniform emphasis that read as a hairball of anonymous dots. Now a
+  backbone of the highest-traffic edges (≤128, ≤5 per node) draws readable
+  while the rest recede (deterministically sampled on dense graphs), and it
+  is re-picked whenever the view changes, so filtered and ego views keep a
+  bright skeleton instead of falling entirely to the faint layer; the
+  highest-traffic nodes carry always-on labels under a zoom-tiered budget
+  (3/12/28) allocated over the nodes actually in view, drawn at constant
+  screen size and stroked against the background so they stay legible over
+  other elements at any zoom; node radii sit in a tight 3.5–9px band while
+  ranking uses the raw recall counts (the clamped radius ties every hub);
+  every connected node gets a rim in its own hue stepped darker, so
+  adjacent same-colour nodes read as separate objects (orphans keep their
+  dashed boundary); and initial positions are seeded per type on a
+  golden-angle spiral, slotted by name order rather than the server's
+  recall-ordered response — the same data now draws the same shape on every
+  visit, and the simulation starts near equilibrium instead of untangling
+  random positions. Informed by a study of graph UIs that read well at
+  scale; the ornament they also carry (vignettes, glows, grids) was
+  deliberately not adopted, per DESIGN.md.
+
 ### Fixed
 
 - **Embeddings are normalized at the single write/query chokepoint.** Every
