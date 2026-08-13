@@ -1,1 +1,1 @@
-{"version":3,"file":"retired-routes.js","sourceRoot":"","sources":["../../../src/transports/http/retired-routes.ts"],"names":[],"mappings":"AAgBA,MAAM,CAAC,MAAM,cAAc,GAAqC;IAC9D,iBAAiB,EACf,+OAA+O;CAClP,CAAC"}
+{"version":3,"file":"retired-routes.js","sourceRoot":"","sources":["../../../src/transports/http/retired-routes.ts"],"names":[],"mappings":"AAgBA,MAAM,CAAC,MAAM,cAAc,GAAqC;IAC9D,iBAAiB,EACf,+OAA+O;IACjP,YAAY,EACV,qUAAqU;CACxU,CAAC"}

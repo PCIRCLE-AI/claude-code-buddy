@@ -64,14 +64,6 @@ describe('CLI error envelopes: caller mistakes are one line, not a crash', () =>
     expectNoStackTrace(r.stderr, 'dream reject');
   });
 
-  it('verify with a bogus workdir exits 2 (unverified) without a stack trace', () => {
-    const r = runCli(['verify', '--agent-id', 'p7-test', '/nonexistent/bogus-dir']);
-    expect(r.exitCode, 'nothing was checked, which is what exit 2 means').toBe(2);
-    expect(r.stderr).toContain('workdir does not exist');
-    expect(r.stderr).toContain('exit 2 = unverified');
-    expectNoStackTrace(r.stderr, 'verify');
-  });
-
   it('pin of a nonexistent entity exits 1 so scripts can see the protection did not happen', () => {
     const r = runCli(['pin', '--name', 'ghost-entity-p7']);
     expect(r.exitCode).toBe(1);

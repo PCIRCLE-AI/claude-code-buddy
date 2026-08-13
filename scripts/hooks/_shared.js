@@ -127,22 +127,6 @@ export function readHookConfig(_env = process.env) {
 }
 
 /**
- * Resolve the agentic-orchestration opt-in flag.
- * Precedence: env > config > default(false).
- * Env semantics preserved: only `=== '1'` enables (avoids accidental
- * truthy unlock from a stray env value).
- *
- * @param {NodeJS.ProcessEnv} [env=process.env]
- * @returns {boolean}
- */
-export function isAgenticOrchestrationEnabled(env = process.env) {
-  const envVal = env.MEMESH_ENABLE_AGENTIC_ORCHESTRATION;
-  if (envVal !== undefined) return envVal === '1';
-  const cfg = readHookConfig(env);
-  return cfg.enableAgenticOrchestration === true;
-}
-
-/**
  * Resolve the auto-capture flag.
  * Precedence: env > config > default(true).
  * Env semantics preserved: explicit `=== 'false'` disables; any other

@@ -7,7 +7,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexRebuild } from '../../db.js';
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
-import { verifyAgentWork } from '../../core/verifier.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
 import { getDbPath, redactSecrets, redactUserPaths } from '../../core/paths.js';
@@ -492,59 +491,6 @@ program
       } else {
         console.log(`Lesson recorded: ${result.name}`);
       }
-    });
-  });
-
-// --- verify ---
-program
-  .command('verify <workdir>')
-  .description(
-    'Record a verification report for agent work in <workdir>. ' +
-      'Exit codes: 0 pass, 1 fail, 2 unverified (nothing was checked).'
-  )
-  .requiredOption('--agent-id <id>', 'Identifier for the agent being verified')
-  .option('--base <ref>', 'Git ref to diff against (default: merge-base with origin/main)')
-  .option('--expected-files <n>', 'Number of files the agent claimed to change', (v) => parseInt(v, 10))
-  .option('--report <path>', 'Path to a JSON file with pre-computed report (typecheck/tests/lint/build)')
-  .option('--json', 'Output as JSON')
-  .action(async (workdir, opts) => {
-    await withDatabase(() => {
-      // A bad workdir or unreadable report is a CALLER mistake: nothing was
-      // checked, which is exactly what exit 2 means. It used to escape as a
-      // raw stack trace with an ENOENT cause chain.
-      let externalReport;
-      let result;
-      try {
-        if (opts.report) {
-          const raw = fs.readFileSync(opts.report, 'utf8');
-          externalReport = JSON.parse(raw);
-        }
-        result = verifyAgentWork({
-          agent_id: opts.agentId,
-          workdir: path.resolve(workdir),
-          base: opts.base,
-          claim: opts.expectedFiles != null ? { expected_files: opts.expectedFiles } : undefined,
-          report: externalReport,
-        });
-      } catch (err) {
-        console.error(err instanceof Error ? err.message : String(err));
-        console.error('Nothing was checked (exit 2 = unverified).');
-        process.exit(2);
-      }
-      if (opts.json) {
-        console.log(JSON.stringify(result, null, 2));
-      } else {
-        console.log(`${result.verdict.toUpperCase()}  agent=${opts.agentId}  entity=${result.entity_name}`);
-        console.log(`  reality: ${result.reality_check.summary}`);
-        if (result.verdict === 'unverified') {
-          console.log('  nothing was checked — pass --expected-files <n> and/or --report <file> to verify something.');
-        }
-      }
-      // Distinct exit codes, because a shell gate cannot tell PASS from
-      // "checked nothing" if both exit 0 — and `memesh verify … && deploy`
-      // used to deploy on the strength of a check that never ran.
-      //   0 = pass   1 = fail   2 = unverified (nothing to check against)
-      process.exit(result.verdict === 'pass' ? 0 : result.verdict === 'fail' ? 1 : 2);
     });
   });
 
@@ -1846,33 +1792,6 @@ program
         process.exit(1);
       }
       throw err;
-    }
-  });
-
-// --- patterns (skill-usage view) ---
-program
-  .command('patterns')
-  .description('Show local skill-usage telemetry (agentic-orchestration banner injections, verify_agent_work invocations). Local-only — never uploaded.')
-  .option('--json', 'Output as JSON')
-  .action(async (opts) => {
-    const { summariseSkillUsage } = await import('../../core/skill-usage-log.js');
-    const summary = summariseSkillUsage();
-    if (opts.json) {
-      console.log(JSON.stringify(summary, null, 2));
-      return;
-    }
-    console.log(`Skill usage log: ${summary.log_path}`);
-    console.log(`  total events: ${summary.total_events}`);
-    console.log(`  log size:     ${summary.log_bytes} bytes`);
-    if (summary.first_event) console.log(`  first event:  ${summary.first_event}`);
-    if (summary.last_event) console.log(`  last event:   ${summary.last_event}`);
-    if (summary.total_events === 0) {
-      console.log('  (no events recorded yet — open a Claude Code session with memesh installed, or run a verification, to start collecting)');
-      return;
-    }
-    console.log('  events by name:');
-    for (const [name, count] of Object.entries(summary.events_by_name).sort((a, b) => b[1] - a[1])) {
-      console.log(`    ${count.toString().padStart(6)}  ${name}`);
     }
   });
 

@@ -2,8 +2,7 @@ import { z } from 'zod';
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { getDatabase } from '../../db.js';
 import { computePatterns } from '../../core/patterns.js';
-import { verifyAgentWork } from '../../core/verifier.js';
-import { RememberSchema, RecallSchema, ForgetSchema, ExportSchema, ImportSchema, LearnSchema, UserPatternsSchema, VerifyAgentWorkSchema, } from '../schemas.js';
+import { RememberSchema, RecallSchema, ForgetSchema, ExportSchema, ImportSchema, LearnSchema, UserPatternsSchema, } from '../schemas.js';
 export const TOOL_DEFINITIONS = [
     {
         name: 'remember',
@@ -177,49 +176,6 @@ export const TOOL_DEFINITIONS = [
             additionalProperties: false,
         },
     },
-    {
-        name: 'verify_agent_work',
-        description: 'Record a verification report for work done by a background agent. Runs a deterministic git reality-check on the workdir (files changed vs claim) and persists the result as a verification_record entity. Returns verdict: "pass" | "fail" | "unverified". IMPORTANT: calling this with neither `claim` nor `report` checks nothing and returns "unverified" — it counts changed files, which is not a verification. To get a "pass" you must give it something to check: `claim.expected_files`, a `report`, or both. Heavier checks (typecheck/tests/lint) are expected to be pre-computed by a local hook and passed in via report.*.pass — this tool focuses on persistence + cross-checking, not running test suites.',
-        inputSchema: {
-            type: 'object',
-            properties: {
-                agent_id: {
-                    type: 'string',
-                    description: 'Identifier for the agent whose work is being verified.',
-                },
-                workdir: {
-                    type: 'string',
-                    description: 'Absolute path to the git working tree the agent edited.',
-                },
-                base: {
-                    type: 'string',
-                    description: 'Git ref/sha to diff against. Defaults to merge-base with origin/main.',
-                },
-                claim: {
-                    type: 'object',
-                    properties: {
-                        expected_files: { type: 'number', description: 'How MANY files the agent claimed to change — a count, not a list. Only committed changes are counted.' },
-                    },
-                    additionalProperties: false,
-                },
-                report: {
-                    type: 'object',
-                    description: 'Pre-computed external verification report (typecheck/tests/lint/build).',
-                    properties: {
-                        pass: { type: 'boolean' },
-                        typecheck: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } }, required: ['pass'] },
-                        tests: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } }, required: ['pass'] },
-                        lint: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } }, required: ['pass'] },
-                        build: { type: 'object', properties: { pass: { type: 'boolean' }, summary: { type: 'string' } }, required: ['pass'] },
-                        summary: { type: 'string' },
-                    },
-                    required: ['pass'],
-                },
-            },
-            required: ['agent_id', 'workdir'],
-            additionalProperties: false,
-        },
-    },
 ];
 function ok(data) {
     return { content: [{ type: 'text', text: JSON.stringify(data) }] };
@@ -363,12 +319,6 @@ export async function handleTool(name, args, sourceHost) {
                 }
             }
             return { content: [{ type: 'text', text: lines.join('\n') }] };
-        }
-        if (name === 'verify_agent_work') {
-            const r = parseOrFail(VerifyAgentWorkSchema, args);
-            if (!r.ok)
-                return r.result;
-            return ok(verifyAgentWork(r.data));
         }
         return fail(`Unknown tool: ${name}`);
     }

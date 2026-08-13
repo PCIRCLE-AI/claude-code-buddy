@@ -8,7 +8,7 @@
 // `package.json` script. Its only callers were a line in `CLAUDE.md` telling an
 // assistant to run it by hand and a manual review skill. Six checks, 150 lines,
 // executed when somebody remembered — which is the same "gate that cannot fail"
-// this repository has now found in `verify_agent_work`, in the MCP tool count,
+// this repository has found repeatedly (the since-removed `verify_agent_work`, the MCP tool count,
 // in `schema-export.test.ts` and in the benchmark itself, one level up: a gate
 // that never runs cannot fail either. This file is wired into `verify:release`,
 // which is the one list both CI and the publish path execute.

@@ -277,7 +277,6 @@ Die gesamte Konfiguration erfolgt über Umgebungsvariablen. Die Standardwerte si
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | Überschreibt den Speicherort der SQLite-Datenbank. |
 | `MEMESH_AUTO_CAPTURE` | `true` | Deaktiviert die Auto-Capture-Hooks (`Stop`, `PreCompact`) vollständig. |
 | `MEMESH_AUTO_DETECT_LLM` | nicht gesetzt (Auto-Erkennung **an**) | Auf `0` setzen, damit memesh einen im Shell-Environment gefundenen API-Schlüssel NICHT verwendet. Standardmäßig nutzt memesh einen gesetzten `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` für schreibseitige LLM-Funktionen (Konsolidierung, Lesson-Extraktion, Auto-Tagging, Dream), sofern in `~/.memesh/config.json` kein Provider konfiguriert ist. Embeddings sind nicht betroffen — sie bleiben Keyword-only (FTS5), außer du setzt `embedder.provider` explizit auf `ollama` oder `openai`. |
-| `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | nicht gesetzt | Auf `1` setzen, um ein experimentelles Working-Model-Protokoll zu aktivieren (CTO / Orchestrator / Agents-Framing). Fügt ein Session-Start-Banner, einen Bash-Befehls-Nudge und `verify_agent_work`-Telemetrie hinzu. Die Wirksamkeit des Protokolls wird derzeit instrumentiert, ist aber noch nicht erwiesen — Opt-in, falls Sie teilnehmen möchten. **Standard ist OFF**: Die Kern-Memory-Funktionen arbeiten ohne dieses Flag. |
 | `MEMESH_AUTO_UPDATE` | `off` | Auto-Update-Richtlinie. `off` (Standard) aktualisiert nie automatisch; `patch` erlaubt `X.Y.Z → X.Y.Z+N`; `minor` ergänzt `X.Y.Z → X.Y+1.0`; `major` erlaubt jedes Bump. Wenn zugelassen, läuft am Session-Ende (Stop-Hook) ein abgekoppeltes `npm install -g`, sodass es Ihre Arbeit nie blockiert — Ergebnisse landen in `~/.memesh/auto-update.log`. Ebenfalls als `autoUpdate` in `~/.memesh/config.json` setzbar (Env hat Vorrang). Wenn die installierte Version von den Maintainern als veraltet markiert wird (Sicherheitswarnung), wird `patch` auch bei `off` erzwungen erlaubt — Minor- / Major-Bumps bleiben manuell, um stille Verhaltensänderungen zu vermeiden. |
 | `OPENAI_API_KEY` | nicht gesetzt | Dein OpenAI-Schlüssel. Wird automatisch für LLM-Funktionen genutzt, außer du setzt `MEMESH_AUTO_DETECT_LLM=0` oder konfigurierst einen Provider explizit. |
 | `OLLAMA_HOST` | `http://localhost:11434` | Überschreibt den Ollama-Endpoint, wenn ein lokaler Ollama-Provider verwendet wird. |
@@ -389,7 +388,6 @@ Der Embedder wird **unabhängig vom Chat-LLM** konfiguriert — `llm.provider` z
 | `import` | Memories mit Merge-Strategien importieren (Skip / Overwrite / Append) |
 | `learn` | Strukturierte Lektionen aus Fehlern erfassen (Fehler, Grundursache, Behebung, Prävention) |
 | `user_patterns` | Arbeitsmuster analysieren — Zeitplan, Tools, Stärken, Lernbereiche |
-| `verify_agent_work` | Verifizierungsbericht für Hintergrund-Agent-Arbeit speichern; Reality-Check gegen behauptete Dateiänderungen via `git diff` |
 
 ---
 
@@ -398,7 +396,7 @@ Der Embedder wird **unabhängig vom Chat-LLM** konfiguriert — `llm.provider` z
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (8 operations) │
+                    │  (7 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │

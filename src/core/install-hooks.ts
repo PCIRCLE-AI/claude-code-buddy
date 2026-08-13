@@ -9,8 +9,7 @@
 // only puts
 // the CLI binary on PATH — Claude Code's plugin runtime never reads
 // memesh's hooks.json. Result: memesh's auto-capture (session-summary,
-// pre-edit-recall, pre-bash-orchestration-nudge, etc.) silently does
-// nothing on every npm install.
+// pre-edit-recall, etc.) silently does nothing on every npm install.
 //
 // FIX
 // ───

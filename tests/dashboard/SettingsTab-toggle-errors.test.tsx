@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 //
-// The Behaviour toggles (autoUpdate select, agentic checkbox) used to swallow
+// The Behaviour toggle (autoUpdate select) used to swallow
 // a failed POST in an empty catch, so the control snapped back with no signal —
 // the user thought the setting saved. Guard that a failed write is surfaced.
 

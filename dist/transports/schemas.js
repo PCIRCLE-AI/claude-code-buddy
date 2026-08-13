@@ -61,29 +61,4 @@ export const UserPatternsSchema = z.object({
     categories: z.array(z.enum(['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
         .describe('Specific categories to return. Omit for all.'),
 });
-const ExternalCheckSchema = z.object({
-    pass: z.boolean(),
-    summary: z.string().max(2000).optional(),
-});
-export const VerifyAgentWorkSchema = z.object({
-    agent_id: z.string().min(1).max(255)
-        .describe('Identifier for the agent whose work is being verified.'),
-    workdir: z.string().min(1).max(1000)
-        .describe('Absolute path to the git working tree the agent edited.'),
-    base: z.string().max(255).optional()
-        .describe('Git ref/sha to diff against. Defaults to merge-base with origin/main.'),
-    claim: z.object({
-        expected_files: z.number().int().min(0).max(1000).optional(),
-    }).optional()
-        .describe('Numbers the agent claimed in its summary, used for cross-checking.'),
-    report: z.object({
-        pass: z.boolean(),
-        typecheck: ExternalCheckSchema.optional(),
-        tests: ExternalCheckSchema.optional(),
-        lint: ExternalCheckSchema.optional(),
-        build: ExternalCheckSchema.optional(),
-        summary: z.string().max(2000).optional(),
-    }).optional()
-        .describe('Pre-computed report from a verification gate hook. If omitted, only reality-check runs.'),
-});
 //# sourceMappingURL=schemas.js.map

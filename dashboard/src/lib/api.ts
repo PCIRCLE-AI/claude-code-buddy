@@ -242,8 +242,6 @@ export interface ConfigData {
     autoCapture?: boolean;
     /** Auto-update policy. Mirrors MEMESH_AUTO_UPDATE env var with env > config precedence. */
     autoUpdate?: AutoUpdatePolicy;
-    /** Opt-in for the experimental agentic-orchestration protocol. */
-    enableAgenticOrchestration?: boolean;
     /**
      * Output language for LLM-generated content (dreamer digests, patterns,
      * lessons). Free-form — the Settings language selector posts the locale's

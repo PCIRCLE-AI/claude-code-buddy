@@ -104,32 +104,4 @@ export declare const UserPatternsSchema: z.ZodObject<{
         learningAreas: "learningAreas";
     }>>>;
 }, z.core.$strip>;
-export declare const VerifyAgentWorkSchema: z.ZodObject<{
-    agent_id: z.ZodString;
-    workdir: z.ZodString;
-    base: z.ZodOptional<z.ZodString>;
-    claim: z.ZodOptional<z.ZodObject<{
-        expected_files: z.ZodOptional<z.ZodNumber>;
-    }, z.core.$strip>>;
-    report: z.ZodOptional<z.ZodObject<{
-        pass: z.ZodBoolean;
-        typecheck: z.ZodOptional<z.ZodObject<{
-            pass: z.ZodBoolean;
-            summary: z.ZodOptional<z.ZodString>;
-        }, z.core.$strip>>;
-        tests: z.ZodOptional<z.ZodObject<{
-            pass: z.ZodBoolean;
-            summary: z.ZodOptional<z.ZodString>;
-        }, z.core.$strip>>;
-        lint: z.ZodOptional<z.ZodObject<{
-            pass: z.ZodBoolean;
-            summary: z.ZodOptional<z.ZodString>;
-        }, z.core.$strip>>;
-        build: z.ZodOptional<z.ZodObject<{
-            pass: z.ZodBoolean;
-            summary: z.ZodOptional<z.ZodString>;
-        }, z.core.$strip>>;
-        summary: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
 //# sourceMappingURL=schemas.d.ts.map

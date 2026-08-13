@@ -4,6 +4,25 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Removed
+
+- **The agentic-orchestration experiment, whole.** The opt-in working-model
+  protocol (CTO / Orchestrator / Agents framing) shipped in 4.1.0 behind
+  `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` and never left opt-in; its
+  effectiveness was being instrumented and the instrumentation never
+  produced a reason to keep it. Removed: the `agentic-orchestration` skill,
+  the session-start banner, the `pre-bash-orchestration-nudge` PreToolUse
+  hook, the `enableAgenticOrchestration` config field and its dashboard
+  toggle, the env flag, and the local `skill-usage.jsonl` telemetry with
+  its `memesh patterns` viewer. The `verify_agent_work` tool goes with it —
+  it existed to score the protocol's background agents: the MCP tool, the
+  `memesh verify` CLI command, and `POST /v1/verify` (which now answers
+  `410 Gone` with a pointer, like every deliberately retired route, rather
+  than a silent 404). Existing `verification_record` entities in user
+  databases are untouched — they are ordinary entities and remain
+  searchable. A leftover `~/.memesh/skill-usage.jsonl` or
+  `agent-nudge-flags/` directory is inert and safe to delete by hand.
+
 ### Added
 
 - **memesh now records that a capture hook RAN, not only that it saved

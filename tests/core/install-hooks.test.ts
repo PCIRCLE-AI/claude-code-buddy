@@ -27,7 +27,6 @@ describe('install-hooks', () => {
           SessionStart: [{ matcher: '*', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start.js' }] }],
           PreToolUse: [
             { matcher: 'Edit|Write', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-edit-recall.js', timeout: 5 }] },
-            { matcher: 'Bash', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-bash-orchestration-nudge.js', timeout: 3 }] },
           ],
           Stop: [{ matcher: '*', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-summary.js' }] }],
         },
@@ -62,11 +61,11 @@ describe('install-hooks', () => {
     return import('../../src/core/install-hooks.js');
   }
 
-  it('writes 4 memesh hook entries on a fresh user-scope install', async () => {
+  it('writes 3 memesh hook entries on a fresh user-scope install', async () => {
     const { installHooks } = await freshModule();
     const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
-    // Manifest has 4 entries: SessionStart×1 + PreToolUse×2 + Stop×1
-    expect(result.added).toBe(4);
+    // Manifest has 3 entries: SessionStart×1 + PreToolUse×1 + Stop×1
+    expect(result.added).toBe(3);
     expect(result.skipped).toBe(0);
     expect(result.conflicts).toEqual([]);
     expect(result.backupPath).toBeNull(); // no prior settings to back up
@@ -86,7 +85,7 @@ describe('install-hooks', () => {
         for (const h of entry.hooks) allCommands.push(h.command);
       }
     }
-    expect(allCommands.length).toBe(4);
+    expect(allCommands.length).toBe(3);
     for (const cmd of allCommands) {
       expect(cmd).not.toContain('${CLAUDE_PLUGIN_ROOT}');
       expect(cmd.startsWith(pluginDir)).toBe(true);
@@ -98,7 +97,7 @@ describe('install-hooks', () => {
     installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
     const second = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
     expect(second.added).toBe(0);
-    expect(second.skipped).toBe(4);
+    expect(second.skipped).toBe(3);
   });
 
   it('preserves existing non-memesh user hooks on the same matcher', async () => {
@@ -114,7 +113,7 @@ describe('install-hooks', () => {
 
     const { installHooks } = await freshModule();
     const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
-    expect(result.added).toBe(4);
+    expect(result.added).toBe(3);
     expect(result.conflicts.length).toBe(1);
     expect(result.conflicts[0].event).toBe('Stop');
 
@@ -142,7 +141,7 @@ describe('install-hooks', () => {
     const settingsPath = path.join(process.env.HOME!, '.claude', 'settings.json');
     const { installHooks } = await freshModule();
     const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user', dryRun: true });
-    expect(result.added).toBe(4);
+    expect(result.added).toBe(3);
     expect(fs.existsSync(settingsPath)).toBe(false);
     expect(fs.existsSync(result.markerPath)).toBe(false);
   });
@@ -181,7 +180,7 @@ describe('install-hooks', () => {
     fs.mkdirSync(path.join(newRoot, 'hooks'), { recursive: true });
     fs.copyFileSync(path.join(oldRoot, 'hooks', 'hooks.json'), path.join(newRoot, 'hooks', 'hooks.json'));
     const second = installHooks({ pluginRoot: newRoot, pluginVersion: '4.1.15', scope: 'user' });
-    expect(second.added).toBe(4);
+    expect(second.added).toBe(3);
     expect(second.skipped).toBe(0); // OLD entries are stale → replaced
 
     const settings = JSON.parse(fs.readFileSync(path.join(process.env.HOME!, '.claude', 'settings.json'), 'utf8'));
@@ -207,7 +206,7 @@ describe('install-hooks', () => {
     installHooks({ pluginRoot: pluginDir, pluginVersion: '4.1.4', scope: 'user' });
 
     const result = uninstallHooks({ scope: 'user' });
-    expect(result.removed).toBe(4); // 4 memesh hook commands
+    expect(result.removed).toBe(3); // the 3 memesh hook commands
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     // User's stop.js remains
     expect(settings.hooks.Stop.length).toBe(1);

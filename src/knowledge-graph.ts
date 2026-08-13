@@ -370,9 +370,9 @@ export class KnowledgeGraph {
     // review feedback:
     //
     //   1. First take: bump on every re-call. Codex caught it as a
-    //      pump-attack — every internal caller (auto-tagger, verifier,
-    //      importer, tight loop) would inflate confidence with no
-    //      truth value added.
+    //      pump-attack — every internal caller (auto-tagger, importer,
+    //      tight loop) would inflate confidence with no truth value
+    //      added.
     //   2. Second take: never bump from createEntity, only from
     //      explicit `learn`. (A successful `consolidate` also reached
     //      here until that tool was retired.) Codex caught

@@ -72,19 +72,6 @@ const HOOK_CASES: HookCase[] = [
     }],
   },
   {
-    file: 'pre-bash-orchestration-nudge.js',
-    boundEvent: 'PreToolUse',
-    input: {
-      session_id: 'contract-2',
-      cwd: '/tmp/contract-project',
-      hook_event_name: 'PreToolUse',
-      tool_name: 'Bash',
-      tool_input: { command: 'npm test' },
-    },
-    // Nudge is opt-in; without this it exits silently and the case is vacuous.
-    env: { MEMESH_ENABLE_AGENTIC_ORCHESTRATION: '1' },
-  },
-  {
     file: 'session-start.js',
     boundEvent: 'SessionStart',
     input: {

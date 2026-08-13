@@ -15,13 +15,12 @@ import { computeAnalytics, computePmAnalytics } from '../../core/analytics.js';
 import { computeStats } from '../../core/stats.js';
 import { computeProjects } from '../../core/projects.js';
 import { computeGraph } from '../../core/graph.js';
-import { verifyAgentWork } from '../../core/verifier.js';
 import type { CountRow } from '../../core/types.js';
 import {
   RememberSchema as RememberBody, RecallSchema as RecallBody,
   ForgetSchema as ForgetBody,
   ExportSchema as ExportBody, ImportSchema as ImportBody,
-  LearnSchema as LearnBody, VerifyAgentWorkSchema as VerifyBody,
+  LearnSchema as LearnBody,
 } from '../schemas.js';
 import { checkForUpdate, getLastUpdateCheck, getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
@@ -505,7 +504,9 @@ app.post('/v1/consolidate', (_req, res) => {
 app.post('/v1/export',      (req, res) => handlePost(ExportBody, req, res, exportMemories));
 app.post('/v1/import',      (req, res) => handlePost(ImportBody, req, res, importMemories));
 app.post('/v1/learn',       (req, res) => handlePost(LearnBody, req, res, (data) => learn({ ...data, sourceHost: 'http' })));
-app.post('/v1/verify',      (req, res) => handlePost(VerifyBody, req, res, verifyAgentWork));
+app.post('/v1/verify', (_req, res) => {
+  res.status(410).json({ success: false, errorCode: 'route.retired' satisfies ErrorCode, error: RETIRED_ROUTES['/v1/verify'] });
+});
 
 // --- Config ---
 /**
@@ -632,10 +633,6 @@ const ConfigBody = z.object({
   })).optional(),
   autoCapture: z.boolean().optional(),
   sessionLimit: z.number().int().min(1).max(100).optional(),
-  // Opt-in for the experimental agentic-orchestration protocol.
-  // Mirrors MEMESH_ENABLE_AGENTIC_ORCHESTRATION env var. Env wins
-  // when both are set so existing env-var users are not surprised.
-  enableAgenticOrchestration: z.boolean().optional(),
   // Auto-update policy for the session-start hook. Mirrors
   // MEMESH_AUTO_UPDATE env var with env > config precedence.
   // Without this on the write surface, the only way to opt into

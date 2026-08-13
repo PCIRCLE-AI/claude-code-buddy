@@ -309,7 +309,6 @@ All configuration is via environment variables. Defaults are local-only and zero
 | `MEMESH_DB_PATH` | `~/.memesh/knowledge-graph.db` | Override the SQLite database location. |
 | `MEMESH_AUTO_CAPTURE` | `true` | Disable the auto-capture hooks (`Stop`, `PreCompact`) entirely. |
 | `MEMESH_AUTO_DETECT_LLM` | unset (auto-detect **on**) | Set to `0` to stop memesh using an API key it finds in your shell env. By default, if `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` is set and you have not configured a provider in `~/.memesh/config.json`, memesh uses it for write-side LLM features (lesson extraction, auto-tagging, dream). Embeddings are unaffected — they stay keyword-only (FTS5) unless you explicitly set `embedder.provider` to `ollama` or `openai`. |
-| `MEMESH_ENABLE_AGENTIC_ORCHESTRATION` | unset | Set to `1` to enable an experimental working-model protocol (CTO / Orchestrator / Agents framing). Adds a session-start banner, a Bash command nudge, and `verify_agent_work` telemetry. The protocol's effectiveness is being instrumented, not yet proven — opt in if you want to participate. **Default is OFF**: the core memory features work without this flag. |
 | `MEMESH_AUTO_UPDATE` | `off` | Auto-update policy. `off` (default) never auto-updates; `patch` allows `X.Y.Z → X.Y.Z+N`; `minor` adds `X.Y.Z → X.Y+1.0`; `major` allows any bump. When permitted, a detached `npm install -g` fires at session end (Stop hook) so it never blocks your work — outcomes land in `~/.memesh/auto-update.log`. Also settable as `autoUpdate` in `~/.memesh/config.json` (env wins). When the installed version is deprecated by maintainers (security advisory), `patch` is force-allowed even on `off` — minor / major bumps still stay manual to avoid silent behaviour drift. |
 | `OPENAI_API_KEY` | unset | Your OpenAI key. Used automatically for LLM features unless you set `MEMESH_AUTO_DETECT_LLM=0` or configure a provider explicitly. |
 | `OLLAMA_HOST` | `http://localhost:11434` | Override the Ollama endpoint when using a local Ollama provider. |
@@ -424,7 +423,6 @@ The embedder is configured **independently of the chat LLM** — changing `llm.p
 | `import` | Import memories with merge strategies (skip / overwrite / append) |
 | `learn` | Record structured lessons from mistakes (error, root cause, fix, prevention) |
 | `user_patterns` | Analyze your work patterns — schedule, tools, strengths, learning areas |
-| `verify_agent_work` | Persist a verification report for background-agent work; reality-checks claimed file changes against `git diff` |
 
 ---
 
@@ -433,7 +431,7 @@ The embedder is configured **independently of the chat LLM** — changing `llm.p
 ```
                     ┌─────────────────┐
                     │   Core Engine   │
-                    │  (8 operations) │
+                    │  (7 operations) │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │

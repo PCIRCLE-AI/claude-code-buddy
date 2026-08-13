@@ -8,12 +8,12 @@
 
 ## Overview
 
-MeMesh Plugin is the local memory layer for Claude Code and other MCP-compatible coding agents. It provides 8 operations (`remember`, `recall`, `forget`, `export`, `import`, `learn`, `user_patterns`, `verify_agent_work`) through three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
+MeMesh Plugin is the local memory layer for Claude Code and other MCP-compatible coding agents. It provides 7 operations (`remember`, `recall`, `forget`, `export`, `import`, `learn`, `user_patterns`) through three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
 
 The package is intentionally local-first and inspectable:
 - one SQLite database under the user's control
 - no cloud service required
-- Claude Code hook integration for session-start, pre-edit recall, pre-bash orchestration nudge, user-prompt-intent detection, post-commit capture, session-summary learning, and pre-compact save
+- Claude Code hook integration for session-start, pre-edit recall, user-prompt-intent detection, post-commit capture, session-summary learning, and pre-compact save
 - optional smarter retrieval and extraction when an LLM is configured
 
 This repository is the plugin/package wedge of the broader MeMesh effort. Hosted workspace and enterprise operating-system products are intentionally out of scope for this package architecture.
@@ -54,7 +54,6 @@ MeMesh separates concerns into two layers:
 - `project-tags.ts` — list / merge / rename `project:<name>` tags (heals tags mis-homed before git-based project identity); backs `memesh kg rename-project`
 - `prompt-safety.ts` — F7 prompt-injection hardening (delimiter escaping for 3 LLM call sites)
 - `failure-analyzer.ts` / `auto-tagger.ts` / `digest-validator.ts` — Smart-Mode LLM flows (all use `callLLM` failover + telemetry)
-- `verifier.ts` — `verify_agent_work` core: git reality-check + persistence of verification reports as `verification_record` entities
 - `version-check.ts` — npm registry version check for update notifications
 
 **Transports** (`src/transports/`) — thin adapters that expose core operations:
@@ -198,7 +197,6 @@ Thin adapter: imports shared Zod schemas from `transports/schemas.ts`, validates
 | `import` | ImportSchema | Delegates to `operations.importMemories()` |
 | `learn` | LearnSchema | Delegates to `operations.learn()` |
 | `user_patterns` | UserPatternsSchema | Delegates to `core/patterns.computePatterns()` |
-| `verify_agent_work` | VerifyAgentWorkSchema | Delegates to `core/verifier.verifyAgentWork()` |
 
 ### transports/http/server.ts -- HTTP REST API Server
 
@@ -329,8 +327,7 @@ Hooks are defined in `hooks/hooks.json` and executed by Claude Code at specific 
 | Hook | Event | Purpose |
 |------|-------|---------|
 | pre-edit-recall.js | PreToolUse (Edit/Write) | Continuous recall: inject relevant memories when editing files |
-| pre-bash-orchestration-nudge.js | PreToolUse (Bash) | (Opt-in) Nudge to dispatch high-verifiability commands as background agents |
-| session-start.js | SessionStart | Auto-recall + record injected IDs + noise compression + (opt-in) agentic-orchestration banner |
+| session-start.js | SessionStart | Auto-recall + record injected IDs + noise compression |
 | post-commit.js | PostToolUse (Bash) | Record git commits with diff stats |
 | session-summary.js | Stop | Auto-capture session knowledge + recall effectiveness tracking |
 | pre-compact.js | PreCompact | Save knowledge before compaction |

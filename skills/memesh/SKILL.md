@@ -29,7 +29,7 @@ If MeMesh is installed as a Claude Code plugin, these happen **without any actio
 
 | Hook | When | What it does |
 |------|------|-------------|
-| **SessionStart** | Every session begins | Auto-recalls top memories for current project + surfaces lesson warnings + (opt-in) agentic-orchestration banner |
+| **SessionStart** | Every session begins | Auto-recalls top memories for current project + surfaces lesson warnings |
 | **PreToolUse (Edit)** | Before editing files | Injects memories related to the file or project |
 | **PreToolUse (Bash)** | Before bash commands | (Opt-in) Nudges Claude to dispatch high-verifiability commands as background agents |
 | **UserPromptSubmit** | When you submit a prompt | Detects "remember this" intent (5 languages: en, es, fr, pt, zh-TW) and reminds Claude to use memesh |
