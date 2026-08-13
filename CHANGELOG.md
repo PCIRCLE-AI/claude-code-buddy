@@ -2,6 +2,26 @@
 
 All notable changes to MeMesh are documented here.
 
+## [Unreleased]
+
+### Added
+
+- **Conflict pipeline, first half: candidate generation.** `findConflicts`
+  has only ever reported pairs someone manually related with `contradicts` —
+  and nothing ever created that relation automatically, so in practice it
+  always answered empty. `src/core/conflict-candidates.ts` now enumerates
+  the pairs WORTH judging: signal-type entities only (episodic auto-capture
+  drowned the list — measured: the tightest pairs on a real graph were all
+  session-summary × session-summary periodicity), per-entity top-3 vector
+  neighbours inside a measured cosine gate (0.35; the calibration tool ships
+  as `scripts/audit/measure-conflict-candidates.mjs` so the number can be
+  re-derived before changing embedders), excluding pairs already related by
+  supersedes/contradicts and pairs an earlier judge already ruled on
+  (`conflict_judged_pairs`, keyed by sorted entity-id pair — deliberately
+  not the dreamer's drift-prone cluster_key). Read-only; the LLM judge that
+  turns candidates into staged CONTRADICTS / SUPERSEDES / DUPLICATE
+  proposals for human review is the second half.
+
 ## [4.5.1] — 2026-08-13
 
 ### Removed
