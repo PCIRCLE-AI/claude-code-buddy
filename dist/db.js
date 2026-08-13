@@ -481,6 +481,15 @@ function ensureDreamProposalsTable(db) {
                 throw err;
         }
     }
+    if (!dpCols.some((c) => c.name === 'kind')) {
+        try {
+            db.exec("ALTER TABLE dream_proposals ADD COLUMN kind TEXT NOT NULL DEFAULT 'digest'");
+        }
+        catch (err) {
+            if (!String(err.message).includes('duplicate column name'))
+                throw err;
+        }
+    }
 }
 function ensureConflictJudgedPairsTable(db) {
     db.exec(`

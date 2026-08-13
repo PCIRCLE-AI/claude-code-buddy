@@ -341,7 +341,8 @@ function retireSupersededBy(db, cluster) {
      WHERE status = 'pending'
        AND project = ?
        AND (source_kind IS NULL OR source_kind = 'entities')
-       AND cluster_key NOT LIKE 'pattern:%'`).all(cluster.project);
+       AND cluster_key NOT LIKE 'pattern:%'
+       AND kind != 'relation'`).all(cluster.project);
     const superseded = rows.filter((row) => {
         let ids;
         try {
@@ -371,7 +372,8 @@ function relatedPendingProposals(db, cluster) {
     const rows = db.prepare(`SELECT id, source_ids FROM dream_proposals
      WHERE project = ? AND status = 'pending'
        AND (source_kind IS NULL OR source_kind = 'entities')
-       AND cluster_key NOT LIKE 'pattern:%'`).all(cluster.project);
+       AND cluster_key NOT LIKE 'pattern:%'
+       AND kind != 'relation'`).all(cluster.project);
     const out = [];
     for (const row of rows) {
         let ids;
@@ -634,6 +636,32 @@ function writePatternProposal(db, project, pattern, llm) {
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(project, `pattern:${new Date().toISOString().slice(0, 10)}`, JSON.stringify(sourceIds), JSON.stringify({ name: pattern.name, type: pattern.type, observations: pattern.observations, tags: pattern.tags }), `${llm.provider}/${llm.model ?? 'default'}`, PATTERN_PROMPT_VERSION);
 }
+function applyRelationProposal(db, row) {
+    const payload = JSON.parse(row.proposed_digest);
+    if (!payload?.a?.id || !payload?.b?.id || !payload.relation_type) {
+        throw new Error(`proposal #${row.id} carries no usable relation payload`);
+    }
+    const [from, to] = payload.relation_type === 'supersedes' && payload.direction === 'b_supersedes_a'
+        ? [payload.b, payload.a]
+        : [payload.a, payload.b];
+    for (const end of [from, to]) {
+        const alive = db.prepare("SELECT 1 FROM entities WHERE id = ? AND status = 'active'").get(end.id);
+        if (!alive)
+            throw new Error(`proposal #${row.id}: entity #${end.id} (${end.name}) is no longer active`);
+    }
+    const tx = db.transaction(() => {
+        db.prepare('INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?)').run(from.id, to.id, payload.relation_type);
+        db.prepare("UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'").run(row.id);
+    });
+    tx();
+    return {
+        proposalId: row.id,
+        digestEntityName: `${from.name} —${payload.relation_type}→ ${to.name}`,
+        sourcesArchived: 0,
+        sourcesLinked: 0,
+        kind: 'relation',
+    };
+}
 function applyTranscriptProposal(db, row, kg) {
     const digest = JSON.parse(row.proposed_digest);
     let source = null;
@@ -679,9 +707,12 @@ function applyTranscriptProposal(db, row, kg) {
     };
 }
 export function applyProposal(db, proposalId, kg) {
-    const row = db.prepare("SELECT id, project, cluster_key, source_ids, proposed_digest, source_kind FROM dream_proposals WHERE id = ? AND status = 'pending'").get(proposalId);
+    const row = db.prepare("SELECT id, project, cluster_key, source_ids, proposed_digest, source_kind, kind FROM dream_proposals WHERE id = ? AND status = 'pending'").get(proposalId);
     if (!row)
         throw new Error(`proposal #${proposalId} not found or not pending`);
+    if (row.kind === 'relation') {
+        return applyRelationProposal(db, row);
+    }
     if (row.source_kind === 'transcript') {
         return applyTranscriptProposal(db, row, kg);
     }
@@ -837,8 +868,31 @@ export function rejectProposal(db, proposalId, reason) {
         throw new Error(`proposal #${proposalId} not found or not pending`);
 }
 export function listProposals(db, status = 'pending') {
-    const rows = db.prepare("SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC").all(status);
+    const rows = db.prepare("SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC").all(status);
     return rows.map(r => {
+        if (r.kind === 'relation') {
+            let name = '(corrupt relation proposal)';
+            let preview = null;
+            try {
+                const rel = JSON.parse(r.proposed_digest);
+                if (rel?.a?.name && rel?.b?.name)
+                    name = `${rel.a.name} —${rel.relation_type ?? '?'}→ ${rel.b.name}`;
+                preview = rel?.rationale ? String(rel.rationale).slice(0, 120) : null;
+            }
+            catch { }
+            return {
+                id: r.id,
+                project: r.project,
+                cluster_key: r.cluster_key,
+                source_count: 2,
+                digest_name: name,
+                digest_observations_preview: preview,
+                status: r.status,
+                created_at: r.created_at,
+                kind: 'relation',
+                source_kind: r.source_kind ?? 'entities',
+            };
+        }
         let digest;
         try {
             digest = JSON.parse(r.proposed_digest);
@@ -867,9 +921,33 @@ export function listProposals(db, status = 'pending') {
     });
 }
 export function getProposalDetail(db, id) {
-    const row = db.prepare('SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE id = ?').get(id);
+    const row = db.prepare('SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE id = ?').get(id);
     if (!row)
         return null;
+    let source = null;
+    try {
+        source = JSON.parse(row.source_ids);
+    }
+    catch { }
+    if (row.kind === 'relation') {
+        let relation = null;
+        try {
+            relation = JSON.parse(row.proposed_digest);
+        }
+        catch { }
+        return {
+            id: row.id,
+            project: row.project,
+            cluster_key: row.cluster_key,
+            source_kind: row.source_kind ?? 'entities',
+            status: row.status,
+            created_at: row.created_at,
+            source,
+            digest: { name: '(relation proposal)', type: 'digest', observations: [], tags: [] },
+            kind: 'relation',
+            relation,
+        };
+    }
     let digest;
     try {
         digest = JSON.parse(row.proposed_digest);
@@ -877,11 +955,6 @@ export function getProposalDetail(db, id) {
     catch {
         digest = { name: '(corrupt)', type: 'digest', observations: [], tags: [] };
     }
-    let source = null;
-    try {
-        source = JSON.parse(row.source_ids);
-    }
-    catch { }
     return {
         id: row.id,
         project: row.project,
@@ -891,6 +964,7 @@ export function getProposalDetail(db, id) {
         created_at: row.created_at,
         source,
         digest,
+        kind: digest.type === 'pattern_emergent' ? 'pattern_emergent' : 'digest',
     };
 }
 //# sourceMappingURL=dreamer.js.map

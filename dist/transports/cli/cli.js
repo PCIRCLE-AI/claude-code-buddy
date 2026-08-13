@@ -1151,7 +1151,8 @@ dreamCmd
         console.log(`${proposals.length} ${opts.status} proposal(s):`);
         console.log('');
         for (const p of proposals) {
-            const srcLabel = p.source_kind === 'transcript' ? ' (transcript)' : '';
+            const srcLabel = p.kind === 'relation' ? ' (conflict)'
+                : p.source_kind === 'transcript' ? ' (transcript)' : '';
             console.log(`  #${p.id}  [${p.project}/${p.cluster_key}]${srcLabel}  ${p.source_count} source(s) → "${p.digest_name}"`);
             if (p.digest_observations_preview !== null) {
                 console.log(`         ${p.digest_observations_preview}`);
@@ -1160,6 +1161,45 @@ dreamCmd
             console.log('');
         }
         console.log(`Inspect: memesh dream show <id>   |   Apply: memesh dream accept <id>   |   Reject: memesh dream reject <id>`);
+    });
+});
+dreamCmd
+    .command('conflicts')
+    .description('Judge semantically-close memory pairs for contradiction / supersession / duplication (LLM) and stage relation proposals for review')
+    .option('--max-pairs <n>', 'Judge at most N of the tightest candidate pairs this run (default 20)', (v) => parseInt(v, 10))
+    .option('--dry-run', 'Show how many candidates are queued without calling an LLM or writing anything')
+    .action(async (opts) => {
+    await withDatabase(async () => {
+        const cfg = readConfig();
+        const llm = detectCapabilities().llm;
+        if (!llm) {
+            console.error('No LLM configured. Run `memesh config set llm.provider <anthropic|openai|ollama>` first (or set ANTHROPIC_API_KEY / OPENAI_API_KEY).');
+            console.error('LLM is required for `memesh dream conflicts` because "do these two entries disagree" is a semantic judgement, not a rule.');
+            process.exit(1);
+        }
+        const { judgeConflicts, CONFLICT_JUDGE_MAX_PAIRS } = await import('../../core/conflict-judge.js');
+        const { getDatabase } = await import('../../db.js');
+        const result = await judgeConflicts(getDatabase(), llm, {
+            maxPairs: typeof opts.maxPairs === 'number' && !Number.isNaN(opts.maxPairs) ? opts.maxPairs : CONFLICT_JUDGE_MAX_PAIRS,
+            dryRun: !!opts.dryRun,
+            fallbacks: cfg.llmFallbacks,
+        });
+        console.log(`${opts.dryRun ? '[dry-run] ' : ''}Conflict pass complete in ${result.durationMs}ms`);
+        console.log(`  candidate pairs available: ${result.candidatesAvailable}`);
+        if (opts.dryRun) {
+            console.log('  (dry run — no LLM called, nothing judged or written)');
+            return;
+        }
+        console.log(`  LLM calls:      ${result.llmCalls}`);
+        console.log(`  judged:         ${result.judged} (${result.unrelated} unrelated, remembered so they are never re-bought)`);
+        console.log(`  staged:         ${result.staged} relation proposal(s)`);
+        if (result.llmFailures > 0) {
+            console.log(`  failed:         ${result.llmFailures} (unparseable or errored LLM responses; those pairs will be retried next run)`);
+        }
+        if (result.staged > 0) {
+            console.log('');
+            console.log('Review: memesh dream list   |   Apply: memesh dream accept <id>   |   Reject: memesh dream reject <id>');
+        }
     });
 });
 dreamCmd
