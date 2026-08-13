@@ -253,13 +253,12 @@ Dán tools vào bất kỳ API call nào
 
 ## Điều gì xảy ra tự động trong Claude Code
 
-Bạn không cần phải manually nhớ mọi thứ. MeMesh có **7 hooks** để capture và inject kiến thức khi bạn làm việc:
+Bạn không cần phải manually nhớ mọi thứ. MeMesh có **6 hooks** để capture và inject kiến thức khi bạn làm việc:
 
 | Khi nào | MeMesh làm gì |
 |------|------------------|
 | **Mỗi lần session bắt đầu** | Load những memories liên quan nhất + cảnh báo chủ động từ bài học trong quá khứ + agentic-orchestration banner |
 | **Trước khi chỉnh sửa file** | Gọi lại memories liên quan đến file hoặc dự án trước khi Claude viết code |
-| **Trước bash commands** | Hướng dẫn Claude dispatch những commands có độ xác minh cao (test, build, lint, migrate, deploy, benchmark) dưới dạng background agents |
 | **Khi bạn yêu cầu ghi nhớ** | Phát hiện ý định "remember this" / "記下來" và nhắc nhở (use memesh|ghi memesh) |
 | **Sau mỗi `git commit`** | Ghi lại những gì bạn thay đổi, với diff stats |
 | **Khi Claude dừng** | Capture những file đã chỉnh sửa, lỗi đã sửa, và auto-generate structured lessons từ failures |
@@ -378,7 +377,7 @@ Embedder được cấu hình **độc lập với LLM chat** — thay đổi `l
 
 ---
 
-## Cả 8 Memory Tools
+## Cả 7 Memory Tools
 
 | Tool | Nó làm gì |
 |------|-------------|

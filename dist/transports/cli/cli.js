@@ -258,6 +258,31 @@ program
     process.exitCode = 1;
 });
 program
+    .command('verify')
+    .description('(retired) Removed with the agentic-orchestration experiment — see the message this prints')
+    .allowUnknownOption()
+    .action(() => {
+    console.error('`memesh verify` has been retired, along with the agentic-orchestration experiment.');
+    console.error('');
+    console.error('It recorded a verification report for background-agent work. The protocol it');
+    console.error('served was removed without ever leaving opt-in. Run your own verification');
+    console.error('(typecheck / tests / lint) and store conclusions with `memesh remember` if you');
+    console.error('want them remembered. Existing verification_record entities are untouched.');
+    process.exitCode = 1;
+});
+program
+    .command('patterns')
+    .description('(retired) Removed with the agentic-orchestration experiment — see the message this prints')
+    .allowUnknownOption()
+    .action(() => {
+    console.error('`memesh patterns` has been retired, along with the agentic-orchestration experiment.');
+    console.error('');
+    console.error('It displayed the experiment\'s local skill-usage telemetry, which is no longer');
+    console.error('written. A leftover ~/.memesh/skill-usage.jsonl is inert and safe to delete.');
+    console.error('For work-pattern insights, use the `user_patterns` MCP tool or GET /v1/patterns.');
+    process.exitCode = 1;
+});
+program
     .command('export')
     .description('Export memories as JSON. Defaults to stdout (pipe-friendly); use `-o <file>` to write directly.')
     .option('--tag <tag>', 'Export only entities with this tag')
@@ -404,7 +429,6 @@ const ALLOWED_KEYS = new Set([
     'embedder.model',
     'autoUpdate',
     'sessionLimit',
-    'enableAgenticOrchestration',
     'autoCapture',
     'llmFallbacks',
     'language',
@@ -528,7 +552,7 @@ configCmd
         coerced = parseInt(value, 10);
     if (canonical === 'llmFallbacks')
         coerced = JSON.parse(value);
-    if (canonical === 'enableAgenticOrchestration' || canonical === 'autoCapture') {
+    if (canonical === 'autoCapture') {
         coerced = value === 'true' || value === '1';
     }
     const config = readConfig();
@@ -1242,6 +1266,9 @@ program
         }
         console.log(`${opts.dryRun ? '[dry-run] ' : ''}Settings: ${result.settingsPath}`);
         console.log(`${opts.dryRun ? '[dry-run] Would add ' : 'Added '}${result.added} hook entr${result.added === 1 ? 'y' : 'ies'}, ${opts.dryRun ? 'would skip ' : 'skipped '}${result.skipped} already-installed.`);
+        if (result.pruned > 0) {
+            console.log(`${opts.dryRun ? '[dry-run] Would remove ' : 'Removed '}${result.pruned} retired memesh hook entr${result.pruned === 1 ? 'y' : 'ies'} no longer shipped by this version.`);
+        }
         if (result.backupPath)
             console.log(`Backup: ${result.backupPath}`);
         if (result.conflicts.length > 0) {

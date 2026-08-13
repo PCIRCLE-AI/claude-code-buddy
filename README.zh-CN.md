@@ -261,13 +261,12 @@ memesh export-schema \
 
 ## Claude Code 中的自动化流程
 
-你不需要手动记住一切。MeMesh 有 **7 个钩子**在你工作时自动捕获和注入知识：
+你不需要手动记住一切。MeMesh 有 **6 个钩子**在你工作时自动捕获和注入知识：
 
 | 触发条件 | MeMesh 的动作 |
 |---------|------------|
 | **每个会话开始** | 加载最相关的记忆 + 来自过去经验教训的主动警告 |
 | **编辑文件前** | 回忆与该文件或项目相关的记忆，然后 Claude 才开始写代码 |
-| **执行 bash 命令前** | （可选启用）推动 Claude 派遣高可验证性命令（测试、构建、lint、迁移、部署、基准测试）作为后台代理 |
 | **当你要求记忆时** | 检测「remember this」/「guardar en memesh」/「sauvegarder dans memesh」/「记下来」意图（5 种语言），并提醒 Claude 使用 memesh |
 | **每次 `git commit` 后** | 记录你的改动，附带 diff 统计 |
 | **Claude 停止时** | 捕获编辑过的文件、修复的错误、自动从失败中生成结构化经验教训 |
@@ -386,7 +385,7 @@ memesh config set embedder.model text-embedding-3-small
 
 ---
 
-## 全部 8 个内存工具
+## 全部 7 个内存工具
 
 | 工具 | 它做什么 |
 |------|--------|

@@ -243,6 +243,7 @@ function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, installC
     const hooks = settingsParsed.value.hooks;
     let hasMemeshHook = false;
     let hasCaptureHook = false;
+    let missingScript = null;
     if (hooks && typeof hooks === 'object') {
         for (const [event, entries] of Object.entries(hooks)) {
             if (!Array.isArray(entries))
@@ -251,16 +252,23 @@ function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, installC
                 const cmds = entry.hooks;
                 if (!Array.isArray(cmds))
                     continue;
-                if (cmds.some((c) => c._memesh === true)) {
+                for (const c of cmds) {
+                    const cmd = c;
+                    if (cmd._memesh !== true)
+                        continue;
                     hasMemeshHook = true;
                     if (CAPTURE_EVENTS.has(event))
                         hasCaptureHook = true;
-                    break;
+                    if (missingScript === null && typeof cmd.command === 'string'
+                        && path.isAbsolute(cmd.command) && !existsSyncImpl(cmd.command)) {
+                        missingScript = cmd.command;
+                    }
                 }
             }
-            if (hasMemeshHook && hasCaptureHook)
-                break;
         }
+    }
+    if (missingScript !== null) {
+        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'fail', `A wired memesh hook points at ${missingScript}, which no longer exists — the agent invokes a missing file on every matching event. This is usually residue from an upgrade that retired the hook.`, 'Run `memesh install-hooks` to re-wire (it now removes retired entries), then restart your agent.', { code: 'hook-wiring.script-missing', params: { path: missingScript } });
     }
     if (!hasMemeshHook) {
         return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'fail', `Marker recorded a memesh install at ${marker.settings_path}, but no _memesh:true hook entries are present anymore. Settings drifted (manual edit?) or memesh was uninstalled out-of-band.`, 'Re-run `memesh install-hooks` to re-wire.', { code: 'hook-wiring.entries-removed', params: { path: String(marker.settings_path) } });

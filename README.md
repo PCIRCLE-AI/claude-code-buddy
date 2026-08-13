@@ -284,13 +284,12 @@ Paste tools into any API call
 
 ## What Happens Automatically In Claude Code
 
-You don't need to manually remember everything. MeMesh has **7 hooks** that capture and inject knowledge while you work:
+You don't need to manually remember everything. MeMesh has **6 hooks** that capture and inject knowledge while you work:
 
 | When | What MeMesh does |
 |------|------------------|
 | **Every session start** | Loads your most relevant memories + proactive warnings from past lessons |
 | **Before editing files** | Recalls memories tied to the file or project before Claude writes code |
-| **Before bash commands** | (Opt-in) Nudges Claude to dispatch high-verifiability commands (test, build, lint, migrate, deploy, benchmark) as background agents |
 | **When you ask to remember** | Detects "remember this" / "guardar en memesh" / "sauvegarder dans memesh" / "記下來" intent (5 languages) and reminds Claude to use memesh |
 | **After every `git commit`** | Records what you changed, with diff stats |
 | **When Claude stops** | Captures files edited, errors fixed, and auto-generates structured lessons from failures |
@@ -412,7 +411,7 @@ The embedder is configured **independently of the chat LLM** — changing `llm.p
 
 ---
 
-## All 8 Memory Tools
+## All 7 Memory Tools
 
 | Tool | What it does |
 |------|-------------|

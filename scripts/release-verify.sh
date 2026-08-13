@@ -72,9 +72,9 @@ gate_build() { npm run build >/dev/null 2>&1; }
 # every gate straight back at the real config and the real database. `env -u`
 # removes them for the child process only.
 #
-# MEMESH_DB_PATH is deliberately not re-set to a temp file either: pointing it
-# at an existing file makes tests/hooks/session-start-telemetry.test.ts fail,
-# because its "short-circuits on missing DB" case then cannot short-circuit.
+# MEMESH_DB_PATH is deliberately not re-set to a temp file either: several
+# hook tests exercise the "no database yet" branches, and pointing the env var
+# at an existing file makes those branches unreachable.
 #
 # One helper rather than one copy per gate, because the copy was the bug: the
 # commit that isolated the test suite stopped one gate short, and `doctor`

@@ -13,6 +13,7 @@ export interface InstallResult {
     scope: 'user' | 'project';
     added: number;
     skipped: number;
+    pruned: number;
     conflicts: Array<{
         event: string;
         matcher: string;

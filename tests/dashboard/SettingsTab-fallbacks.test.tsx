@@ -45,7 +45,7 @@ function mockFetch(configFallbacks: unknown[] = []): Call[] {
       return jsonResponse({
         success: true,
         data: {
-          config: { autoUpdate: 'off', enableAgenticOrchestration: false, llmFallbacks: configFallbacks },
+          config: { autoUpdate: 'off', llmFallbacks: configFallbacks },
           capabilities: { searchLevel: 0 },
         },
       });

@@ -253,13 +253,12 @@ Cole as ferramentas em qualquer chamada de API
 
 ## O Que Acontece Automaticamente no Claude Code
 
-Você não precisa lembrar tudo manualmente. MeMesh tem **7 hooks** que capturam e injetam conhecimento enquanto você trabalha:
+Você não precisa lembrar tudo manualmente. MeMesh tem **6 hooks** que capturam e injetam conhecimento enquanto você trabalha:
 
 | Quando | O que MeMesh faz |
 |------|------------------|
 | **Início de cada sessão** | Carrega suas memórias mais relevantes + alertas proativos de lições passadas + banner de orquestração de agentes |
 | **Antes de editar arquivos** | Recupera memórias vinculadas ao arquivo ou projeto antes de Claude escrever código |
-| **Antes de comandos bash** | Incentiva Claude a despachar comandos de alta verificabilidade (test, build, lint, migrate, deploy, benchmark) como agentes de background |
 | **Quando você pede para lembrar** | Detecta intenção "remember this" / "記下來" e lembra Claude de escrever dual (memesh + MEMORY.md) |
 | **Depois de cada `git commit`** | Registra o que você mudou, com estatísticas de diff |
 | **Quando Claude para** | Captura arquivos editados, erros corrigidos e gera automaticamente lições estruturadas de falhas |
@@ -378,7 +377,7 @@ O embedder é configurado **independentemente do LLM de chat** — mudar `llm.pr
 
 ---
 
-## Todas as 8 Ferramentas de Memória
+## Todas as 7 Ferramentas de Memória
 
 | Ferramenta | O que faz |
 |------|-------------|

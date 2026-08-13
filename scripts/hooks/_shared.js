@@ -23,7 +23,7 @@ import { fileURLToPath, pathToFileURL } from 'url';
 // did, but the copy is byte-locked to core and CI-gated (`git diff` on rebuild +
 // `tests/hooks/mirror-parity.test.ts`), making drift structurally impossible.
 //
-// Re-exported here so all 7 hooks keep importing these names from `_shared.js`
+// Re-exported here so all 6 hooks keep importing these names from `_shared.js`
 // unchanged.
 import {
   memeshDir,

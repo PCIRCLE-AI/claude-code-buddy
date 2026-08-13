@@ -261,13 +261,12 @@ memesh export-schema \
 
 ## Claude Code 自動進行的事情
 
-你不需要手動記住所有事情。MeMesh 有 **7 個 hooks**，會在你工作時自動擷取與注入知識：
+你不需要手動記住所有事情。MeMesh 有 **6 個 hooks**，會在你工作時自動擷取與注入知識：
 
 | 何時 | MeMesh 做什麼 |
 |------|------------------|
 | **每次 session 開始時** | 載入最相關的記憶 + 來自過去教訓的主動警告 |
 | **編輯檔案前** | 回憶與檔案或專案相關的記憶，再讓 Claude 寫程式碼 |
-| **執行 bash 指令前** | （可選加入）促使 Claude 將高可驗證性指令（測試、建置、檢查、遷移、部署、基準測試）派遣為背景代理 |
 | **當你要求記住** | 偵測「remember this」／「guardar en memesh」／「sauvegarder dans memesh」／「記下來」意圖（5 種語言）並提醒 Claude 使用 memesh |
 | **每次 `git commit` 之後** | 記錄你的變更，包含 diff 統計 |
 | **Claude 停止時** | 擷取已編輯的檔案、已修復的錯誤，並從失敗自動產生結構化教訓 |
@@ -386,7 +385,7 @@ memesh config set embedder.model text-embedding-3-small
 
 ---
 
-## 全部 8 個記憶工具
+## 全部 7 個記憶工具
 
 | 工具 | 做什麼 |
 |------|--------|
@@ -405,7 +404,7 @@ memesh config set embedder.model text-embedding-3-small
 ```
                     ┌─────────────────┐
                     │   核心引擎      │
-                    │  （8 項操作）  │
+                    │  （7 項操作）  │
                     └────────┬────────┘
            ┌─────────────────┼─────────────────┐
            │                 │                 │

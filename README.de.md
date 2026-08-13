@@ -259,7 +259,6 @@ Sie müssen nicht manuell alles speichern. MeMesh verfügt über **6 Hooks**, di
 |------|------------------|
 | **Am Anfang jeder Session** | Lädt Ihre relevantesten Memories + proaktive Warnungen aus früheren Lektionen + Agentur-Orchestrierungs-Banner |
 | **Vor Dateibearbeitungen** | Ruft Memories ab, die an die Datei oder das Projekt gebunden sind, bevor Claude Code schreibt |
-| **Vor Bash-Befehlen** | Ermutigt Claude, hochverifizierbare Befehle (Test, Build, Lint, Migration, Deployment, Benchmark) als Hintergrund-Agenten zu versenden |
 | **Nach jedem `git commit`** | Erfasst Ihre Änderungen mit Diff-Statistiken |
 | **Wenn Claude stoppt** | Erfasst bearbeitete Dateien und behobene Fehler; generiert automatisch strukturierte Lektionen aus Fehlern |
 | **Vor Context-Verdichtung** | Speichert Wissen, bevor es durch Context-Limits verloren geht |
@@ -377,7 +376,7 @@ Der Embedder wird **unabhängig vom Chat-LLM** konfiguriert — `llm.provider` z
 
 ---
 
-## Alle 8 Memory-Tools
+## Alle 7 Memory-Tools
 
 | Tool | Was es tut |
 |------|-------------|

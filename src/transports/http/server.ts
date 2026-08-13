@@ -441,9 +441,12 @@ function handlePost<T>(
   // `Promise.resolve(handler(...))`. The second form CALLS the handler before
   // the promise exists, so a SYNCHRONOUS throw escapes past the `.catch` below
   // and lands in Express's default error handler — which answers with an HTML
-  // page. Measured: `POST /v1/verify` with a non-existent workdir returned
-  // `500 text/html` carrying a stack trace and the absolute install path, to a
-  // client that every other route has taught to expect JSON. `handleGet`
+  // page. Measured (on the since-retired `POST /v1/verify`, whose handler
+  // threw synchronously on a nonexistent workdir): a `500 text/html` response
+  // carrying a stack trace and the absolute install path, to a client that
+  // every other route has taught to expect JSON. Any handler passed here that
+  // throws before its first await reproduces it — the guard is
+  // load-bearing for every POST route, not for that one example. `handleGet`
   // already uses this shape; this one did not.
   Promise.resolve()
     .then(() => handler(parsed.data))

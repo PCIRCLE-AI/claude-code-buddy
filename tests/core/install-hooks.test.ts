@@ -193,6 +193,62 @@ describe('install-hooks', () => {
     expect(allCmds.every(c => c.startsWith(newRoot))).toBe(true);
   });
 
+  it('upgrade prunes memesh entries the new manifest no longer declares — and never touches user hooks', async () => {
+    // The exact residue the agentic-orchestration removal left behind: a
+    // <=4.4.x install wrote a PreToolUse/Bash entry into settings.json; the
+    // upgrade deleted the script from the package, and the merge loop —
+    // which iterates only DESIRED events/matchers — never removed the stale
+    // entry. Claude Code then invoked a nonexistent file on every Bash
+    // call, and `memesh install-hooks` (the documented remedy for wiring
+    // problems) could not heal it. Start from the OLD manifest shape and
+    // prove the new install sweeps it.
+    const { installHooks } = await freshModule();
+
+    // Old-version manifest: includes a PreToolUse/Bash hook that the
+    // current manifest (fixture in beforeEach) no longer declares.
+    const oldRoot = path.join(tmpDir, 'memesh-old');
+    fs.mkdirSync(path.join(oldRoot, 'hooks'), { recursive: true });
+    fs.writeFileSync(
+      path.join(oldRoot, 'hooks', 'hooks.json'),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [{ matcher: '*', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-start.js' }] }],
+          PreToolUse: [
+            { matcher: 'Edit|Write', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-edit-recall.js', timeout: 5 }] },
+            { matcher: 'Bash', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/pre-bash-orchestration-nudge.js', timeout: 3 }] },
+          ],
+          Stop: [{ matcher: '*', hooks: [{ type: 'command', command: '${CLAUDE_PLUGIN_ROOT}/scripts/hooks/session-summary.js' }] }],
+        },
+      }),
+    );
+    installHooks({ pluginRoot: oldRoot, pluginVersion: '4.4.0', scope: 'user' });
+
+    // A user hook on the SAME retired matcher must survive the sweep.
+    const settingsPath = path.join(process.env.HOME!, '.claude', 'settings.json');
+    const before = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    before.hooks.PreToolUse.push({ matcher: 'Bash', hooks: [{ type: 'command', command: '~/.claude/hooks/my-bash-guard.js' }] });
+    fs.writeFileSync(settingsPath, JSON.stringify(before));
+
+    const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.6.0', scope: 'user' });
+    expect(result.pruned, 'the retired Bash nudge entry must be swept').toBe(1);
+
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    const bashEntries = (settings.hooks.PreToolUse as any[]).filter((e) => e.matcher === 'Bash');
+    expect(bashEntries, 'only the USER Bash hook may remain').toHaveLength(1);
+    expect(bashEntries[0].hooks[0].command).toBe('~/.claude/hooks/my-bash-guard.js');
+    const allCmds: string[] = [];
+    for (const entries of Object.values(settings.hooks) as any[]) {
+      for (const e of entries) for (const h of e.hooks) allCmds.push(h.command);
+    }
+    expect(allCmds.some((c) => c.includes('pre-bash-orchestration-nudge')), 'no command may still point at the deleted script').toBe(false);
+  });
+
+  it('a fresh install with nothing to prune reports pruned: 0', async () => {
+    const { installHooks } = await freshModule();
+    const result = installHooks({ pluginRoot: pluginDir, pluginVersion: '4.6.0', scope: 'user' });
+    expect(result.pruned).toBe(0);
+  });
+
   it('uninstall removes only memesh entries, leaves user hooks alone', async () => {
     const settingsPath = path.join(process.env.HOME!, '.claude', 'settings.json');
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });

@@ -408,8 +408,8 @@
     },
     "C5 src/transports/cli/cli.ts:138": {
       "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "commander leaves --supersedes undefined when the flag is absent; the empty list truthfully means no relation was requested, and nothing downstream reports one as created",
-      "triaged": "2026-08-10 (P7 batch 2)"
+      "reason": "commander leaves --contradicts undefined when the flag is absent; the empty list truthfully means no relation was requested",
+      "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); corrected 2026-08-13: an earlier re-key attached this entry to the wrong sibling line (supersedes/contradicts pair swapped); reasons now match their statements"
     },
     "C5 src/core/dreamer.ts:1186": {
       "class": "SAFE-GUARDED",
@@ -463,8 +463,8 @@
     },
     "C5 src/transports/cli/cli.ts:137": {
       "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "commander leaves --contradicts undefined when the flag is absent; the empty list truthfully means no relation was requested",
-      "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged)"
+      "reason": "commander leaves --supersedes undefined when the flag is absent; the empty list truthfully means no relation was requested, and nothing downstream reports one as created",
+      "triaged": "2026-08-10 (P7 batch 2); corrected 2026-08-13: an earlier re-key attached this entry to the wrong sibling line (supersedes/contradicts pair swapped); reasons now match their statements"
     },
     "C5 src/transports/cli/cli.ts:171": {
       "class": "SAFE-BY-CONSTRUCTION",

@@ -27,7 +27,7 @@ function mockFetch(): void {
       return jsonResponse({
         success: true,
         data: {
-          config: { autoUpdate: 'off', enableAgenticOrchestration: false },
+          config: { autoUpdate: 'off' },
           capabilities: { searchLevel: 0 },
         },
       });

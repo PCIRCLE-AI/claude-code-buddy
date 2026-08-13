@@ -23,6 +23,24 @@ All notable changes to MeMesh are documented here.
   searchable. A leftover `~/.memesh/skill-usage.jsonl` or
   `agent-nudge-flags/` directory is inert and safe to delete by hand.
 
+  The removal's own review round (Claude + Codex, both converging on the
+  first two) then closed the residue the deletion alone would have left:
+  `memesh install-hooks` now PRUNES memesh entries the manifest no longer
+  declares — the merge loop only iterated desired events, so a `<=4.4.x`
+  install's Bash-nudge entry survived every re-install pointing at the
+  deleted script, and the documented remedy could not heal it. Doctor
+  gained `hook-wiring.script-missing` for the same state (nothing runs
+  install-hooks automatically on a package upgrade, so doctor is where the
+  residue gets caught). `memesh verify` and `memesh patterns` answer with
+  retirement signposts instead of Commander's "unknown command" (exit 1, so
+  `memesh verify … && deploy` fails loudly), pinned by
+  `tests/verify-retired.test.ts` on every surface like consolidate before
+  them. `memesh config set enableAgenticOrchestration` no longer reports
+  success while writing a key nothing reads. And the doc-claims gate grew
+  four checks for the claims this removal proved ungated: README's hook and
+  memory-tool counts, ARCHITECTURE's CLI command count, and CODEMAP's
+  bare-filename references.
+
 ### Added
 
 - **memesh now records that a capture hook RAN, not only that it saved
