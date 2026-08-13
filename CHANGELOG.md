@@ -2,7 +2,7 @@
 
 All notable changes to MeMesh are documented here.
 
-## [Unreleased]
+## [4.5.1] — 2026-08-13
 
 ### Removed
 
