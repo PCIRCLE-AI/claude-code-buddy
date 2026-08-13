@@ -1115,6 +1115,7 @@ LLM cluster compactor + pattern detector with propose / accept / reject lifecycl
 ```bash
 memesh dream run [--project <name>] [--dry-run] [--from-transcripts] [--max-llm-calls <n>] [--window-days <n>] [--validate]
 memesh dream patterns [--project <name>] [--dry-run] [--max-llm-calls <n>] [--window-days <n>] [--min-signal <n>]
+memesh dream conflicts [--max-pairs <n>] [--dry-run]
 memesh dream list [--status <pending|applied|rejected|all>]
 memesh dream show <id> [--json]
 memesh dream accept <id>
@@ -1122,6 +1123,28 @@ memesh dream reject <id> [--reason <text>]
 ```
 
 **`--validate`** on `dream run` enables the optional second-pass LLM validator (`src/core/digest-validator.ts`) which cross-checks the proposed digest's claims against source observations and attaches `validation_warnings` to soften'd proposals. Doubles per-proposal LLM cost; default off.
+
+**`memesh dream conflicts`** is the contradiction pipeline. Candidate
+generation (`src/core/conflict-candidates.ts`) is deterministic and free:
+signal-type entities only, per-entity nearest vector neighbours inside a
+measured cosine gate, minus pairs already related by
+`supersedes`/`contradicts` and pairs a previous run already judged
+(`conflict_judged_pairs`). The judge (`src/core/conflict-judge.ts`) then
+spends the LLM on the `--max-pairs` tightest pairs (default 20) and rules
+each one `CONTRADICTS`, `SUPERSEDES`, `DUPLICATE` or `UNRELATED`.
+`UNRELATED` is recorded so the pair is never re-bought; the other three are
+**staged as `kind='relation'` proposals** in the same `dream list` /
+`accept` / `reject` review flow as every other machine proposal. Accepting
+one creates the corresponding relation (`contradicts` / `supersedes` — the
+judge names the survivor — / `duplicates`) between the two existing
+entities; nothing is created, archived or applied automatically, and both
+endpoints must still be active or the apply refuses loudly. An unparseable
+LLM response is a counted failure, not a verdict — the pair simply returns
+as a candidate next run. Causality is never inferred from timestamps: a
+`SUPERSEDES` verdict must come from content showing revision, and relations
+like `caused`/`influenced` remain explicit human statements. `--dry-run`
+prints the candidate count without calling an LLM. Telemetry flow:
+`conflict_judge`.
 
 **`memesh dream show <id>`** prints a proposal in full — name, type, *every* observation untruncated, tags and source — so you can review the whole thing (including anything hiding past the `dream list` preview) before accepting. `--json` for scripts.
 
@@ -1274,7 +1297,7 @@ Per-flow LLM telemetry scorecard for the last `window` days. Backs the dashboard
 |-----------|------|---------|-------------|
 | `window` | number | 30 | Look-back window in days (1–365) |
 
-**Response shape:** `{ window_days, summaries: FlowSummary[] }` where each `FlowSummary` is `{ flow, total_calls, total_attempts, successes, failures, fallback_used, median_latency_ms, by_provider, by_model, by_project, by_error_class, sample_errors, window_days }`. `by_model` and `by_project` are `Record<string, { ok, fail }>` (per-model and per-project ok/fail counts); `sample_errors` is up to 5 recent `{ error_class, message }` failure samples. Flows: `dreamer`, `pattern_detector`, `auto_tagger`, `failure_analyzer`, `digest_validator`, `transcript_extractor`. (`consolidator` rows may still exist from before that tool was retired.)
+**Response shape:** `{ window_days, summaries: FlowSummary[] }` where each `FlowSummary` is `{ flow, total_calls, total_attempts, successes, failures, fallback_used, median_latency_ms, by_provider, by_model, by_project, by_error_class, sample_errors, window_days }`. `by_model` and `by_project` are `Record<string, { ok, fail }>` (per-model and per-project ok/fail counts); `sample_errors` is up to 5 recent `{ error_class, message }` failure samples. Flows: `dreamer`, `pattern_detector`, `auto_tagger`, `failure_analyzer`, `digest_validator`, `transcript_extractor`, `conflict_judge`. (`consolidator` rows may still exist from before that tool was retired.)
 
 ### GET /v1/dream/proposals
 

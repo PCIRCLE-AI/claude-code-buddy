@@ -1043,6 +1043,20 @@ function ensureDreamProposalsTable(db: MemeshDatabase): void {
       if (!String((err as Error).message).includes('duplicate column name')) throw err;
     }
   }
+  // What accepting the proposal DOES: 'digest' creates an entity (compaction
+  // or pattern — those two are discriminated by cluster_key/type, as before);
+  // 'relation' creates a RELATION between two existing entities and archives
+  // nothing (the conflict pipeline's judge stages these). A column and not a
+  // cluster_key convention because the dreamer's pending-proposal scans
+  // compare source_ids as entity-id arrays — a relation row's [a,b] pair
+  // would read as a two-entity digest and cancel real compaction work.
+  if (!dpCols.some((c) => c.name === 'kind')) {
+    try {
+      db.exec("ALTER TABLE dream_proposals ADD COLUMN kind TEXT NOT NULL DEFAULT 'digest'");
+    } catch (err) {
+      if (!String((err as Error).message).includes('duplicate column name')) throw err;
+    }
+  }
 }
 
 /**

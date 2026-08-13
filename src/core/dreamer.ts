@@ -756,7 +756,8 @@ function retireSupersededBy(db: MemeshDatabase, cluster: Cluster): number {
      WHERE status = 'pending'
        AND project = ?
        AND (source_kind IS NULL OR source_kind = 'entities')
-       AND cluster_key NOT LIKE 'pattern:%'`
+       AND cluster_key NOT LIKE 'pattern:%'
+       AND kind != 'relation'`
   ).all(cluster.project) as Array<{ id: number; source_ids: string }>;
 
   const superseded = rows.filter((row) => {
@@ -805,18 +806,21 @@ type ProposalRelation = { kind: 'identical' | 'contained' | 'overlapping'; id: n
 function relatedPendingProposals(db: MemeshDatabase, cluster: Cluster): ProposalRelation[] {
   const sourceIds = cluster.entities.map(e => e.id).sort((a, b) => a - b);
   const covered = new Set(sourceIds);
-  // `dream_proposals` holds three kinds of row. Compaction proposals ARCHIVE
+  // `dream_proposals` holds four kinds of row. Compaction proposals ARCHIVE
   // their sources; `pattern_emergent` rows are additive and carry
   // `cluster_key = 'pattern:<date>'` with an id array shaped exactly like a
   // compaction one, so without the filter a pending pattern over the same
   // evidence would suppress a compaction digest — two opposite operations, one
   // cancelling the other. Transcript rows store an object in `source_ids`, so
-  // they cannot match the array comparisons below.
+  // they cannot match the array comparisons below. kind='relation' rows (the
+  // conflict judge) carry a two-id array that would read as a tiny digest
+  // here — hence the kind guard in the query.
   const rows = db.prepare(
     `SELECT id, source_ids FROM dream_proposals
      WHERE project = ? AND status = 'pending'
        AND (source_kind IS NULL OR source_kind = 'entities')
-       AND cluster_key NOT LIKE 'pattern:%'`
+       AND cluster_key NOT LIKE 'pattern:%'
+       AND kind != 'relation'`
   ).all(cluster.project) as Array<{ id: number; source_ids: string }>;
 
   const out: ProposalRelation[] = [];
@@ -1248,8 +1252,9 @@ export interface ApplyResult {
   // Aligned with `ProposedDigest.type` and `ProposalSummary.kind` —
   // earlier versions abbreviated 'pattern_emergent' to 'pattern' here,
   // creating a quiet drift between the apply path and the listing /
-  // dashboard rendering paths.
-  kind: 'digest' | 'pattern_emergent';
+  // dashboard rendering paths. 'relation' = the conflict judge's proposals,
+  // whose acceptance creates a relation and no entity.
+  kind: 'digest' | 'pattern_emergent' | 'relation';
 }
 
 /**
@@ -1260,6 +1265,62 @@ export interface ApplyResult {
  * failure-analyzer paths, keeping it out of unprompted auto-context injection
  * while staying fully searchable by explicit recall.
  */
+/**
+ * Accept a kind='relation' proposal (the conflict judge, P2): create the
+ * relation it proposes between two EXISTING entities. Nothing is created,
+ * archived or re-scored — the relation row is the whole effect, which is why
+ * this returns sourcesArchived/Linked 0 and reuses the digestEntityName slot
+ * for a human-readable description of the link.
+ */
+function applyRelationProposal(
+  db: MemeshDatabase,
+  row: { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string },
+): ApplyResult {
+  const payload = JSON.parse(row.proposed_digest) as {
+    relation_type: 'contradicts' | 'supersedes' | 'duplicates';
+    a: { id: number; name: string };
+    b: { id: number; name: string };
+    direction?: 'a_supersedes_b' | 'b_supersedes_a';
+  };
+  if (!payload?.a?.id || !payload?.b?.id || !payload.relation_type) {
+    throw new Error(`proposal #${row.id} carries no usable relation payload`);
+  }
+  // Direction: supersedes points FROM the survivor TO the obsolete side
+  // (matching how findConflicts and the exclusion query read the pair);
+  // contradicts/duplicates are symmetric, stored a→b for determinism.
+  const [from, to] = payload.relation_type === 'supersedes' && payload.direction === 'b_supersedes_a'
+    ? [payload.b, payload.a]
+    : [payload.a, payload.b];
+
+  // Both endpoints must still stand — accepting a months-old proposal after
+  // one side was forgotten must fail loudly, not link a ghost.
+  for (const end of [from, to]) {
+    const alive = db.prepare("SELECT 1 FROM entities WHERE id = ? AND status = 'active'").get(end.id);
+    if (!alive) throw new Error(`proposal #${row.id}: entity #${end.id} (${end.name}) is no longer active`);
+  }
+
+  const tx = db.transaction(() => {
+    // OR IGNORE: UNIQUE(from,to,type) — a human may have created the same
+    // relation while this proposal sat pending, and that is agreement, not
+    // an error.
+    db.prepare(
+      'INSERT OR IGNORE INTO relations (from_entity_id, to_entity_id, relation_type) VALUES (?, ?, ?)',
+    ).run(from.id, to.id, payload.relation_type);
+    db.prepare(
+      "UPDATE dream_proposals SET status = 'applied', reviewed_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'pending'",
+    ).run(row.id);
+  });
+  tx();
+
+  return {
+    proposalId: row.id,
+    digestEntityName: `${from.name} —${payload.relation_type}→ ${to.name}`,
+    sourcesArchived: 0,
+    sourcesLinked: 0,
+    kind: 'relation',
+  };
+}
+
 function applyTranscriptProposal(
   db: MemeshDatabase,
   row: { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string },
@@ -1334,9 +1395,16 @@ export function applyProposal(
   kg: { createEntity: (name: string, type: string, opts: { observations: string[]; tags: string[]; metadata: Record<string, unknown>; trustOverride?: 'trusted' | 'untrusted' }) => number },
 ): ApplyResult {
   const row = db.prepare(
-    "SELECT id, project, cluster_key, source_ids, proposed_digest, source_kind FROM dream_proposals WHERE id = ? AND status = 'pending'"
-  ).get(proposalId) as { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; source_kind: string | null } | undefined;
+    "SELECT id, project, cluster_key, source_ids, proposed_digest, source_kind, kind FROM dream_proposals WHERE id = ? AND status = 'pending'"
+  ).get(proposalId) as { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; source_kind: string | null; kind: string | null } | undefined;
   if (!row) throw new Error(`proposal #${proposalId} not found or not pending`);
+
+  // Relation proposals (the conflict judge, P2) create a RELATION between two
+  // existing entities and archive nothing. Branch BEFORE any digest parsing:
+  // their proposed_digest is a RelationProposal payload, not a digest.
+  if (row.kind === 'relation') {
+    return applyRelationProposal(db, row);
+  }
 
   // Transcript proposals (Task #18) have NO source ENTITIES — their source_ids
   // is a JSON object {sessionId,...}, not an id array — so there is nothing to
@@ -1640,9 +1708,10 @@ export interface ProposalSummary {
    * instead of being rendered as plain digests. Derived from
    * `proposed_digest.type` — anything other than the literal
    * `'pattern_emergent'` is treated as a digest, matching the
-   * apply-side check in `applyProposal`.
+   * apply-side check in `applyProposal`. `'relation'` rows come from the
+   * kind COLUMN (the conflict judge), not from the payload type.
    */
-  kind: 'digest' | 'pattern_emergent';
+  kind: 'digest' | 'pattern_emergent' | 'relation';
   /**
    * Where the proposal's raw material came from: 'entities' (clusters of
    * captured KG rows — the original path) or 'transcript' (mined directly from
@@ -1654,9 +1723,33 @@ export interface ProposalSummary {
 
 export function listProposals(db: MemeshDatabase, status: string = 'pending'): ProposalSummary[] {
   const rows = db.prepare(
-    "SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC"
-  ).all(status) as Array<{ id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; status: string; created_at: string; source_kind: string | null }>;
+    "SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE status = ? ORDER BY created_at DESC"
+  ).all(status) as Array<{ id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; status: string; created_at: string; source_kind: string | null; kind: string | null }>;
   return rows.map(r => {
+    // Relation proposals carry a RelationProposal payload, not a digest —
+    // render the pair and the judge's rationale instead of pretending the
+    // payload is a corrupt digest.
+    if (r.kind === 'relation') {
+      let name = '(corrupt relation proposal)';
+      let preview: string | null = null;
+      try {
+        const rel = JSON.parse(r.proposed_digest) as { relation_type?: string; a?: { name?: string }; b?: { name?: string }; rationale?: string };
+        if (rel?.a?.name && rel?.b?.name) name = `${rel.a.name} —${rel.relation_type ?? '?'}→ ${rel.b.name}`;
+        preview = rel?.rationale ? String(rel.rationale).slice(0, 120) : null;
+      } catch { /* keep the corrupt marker */ }
+      return {
+        id: r.id,
+        project: r.project,
+        cluster_key: r.cluster_key,
+        source_count: 2,
+        digest_name: name,
+        digest_observations_preview: preview,
+        status: r.status,
+        created_at: r.created_at,
+        kind: 'relation' as const,
+        source_kind: r.source_kind ?? 'entities',
+      };
+    }
     let digest: ProposedDigest;
     try { digest = JSON.parse(r.proposed_digest); } catch { digest = { name: '(corrupt)', type: 'digest', observations: [], tags: [] }; }
     // source_ids is an id ARRAY for entity clusters but a JSON OBJECT
@@ -1699,17 +1792,36 @@ export interface ProposalDetail {
   /** Parsed source_ids: an id array for entity clusters, an object for transcript. */
   source: unknown;
   digest: ProposedDigest;
+  /** 'relation' rows carry their payload here instead of a real digest. */
+  kind: 'digest' | 'pattern_emergent' | 'relation';
+  relation?: unknown;
 }
 
 export function getProposalDetail(db: MemeshDatabase, id: number): ProposalDetail | null {
   const row = db.prepare(
-    'SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind FROM dream_proposals WHERE id = ?'
-  ).get(id) as { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; status: string; created_at: string; source_kind: string | null } | undefined;
+    'SELECT id, project, cluster_key, source_ids, proposed_digest, status, created_at, source_kind, kind FROM dream_proposals WHERE id = ?'
+  ).get(id) as { id: number; project: string; cluster_key: string; source_ids: string; proposed_digest: string; status: string; created_at: string; source_kind: string | null; kind: string | null } | undefined;
   if (!row) return null;
-  let digest: ProposedDigest;
-  try { digest = JSON.parse(row.proposed_digest); } catch { digest = { name: '(corrupt)', type: 'digest', observations: [], tags: [] }; }
   let source: unknown = null;
   try { source = JSON.parse(row.source_ids); } catch { /* leave null */ }
+  if (row.kind === 'relation') {
+    let relation: unknown = null;
+    try { relation = JSON.parse(row.proposed_digest); } catch { /* leave null */ }
+    return {
+      id: row.id,
+      project: row.project,
+      cluster_key: row.cluster_key,
+      source_kind: row.source_kind ?? 'entities',
+      status: row.status,
+      created_at: row.created_at,
+      source,
+      digest: { name: '(relation proposal)', type: 'digest', observations: [], tags: [] },
+      kind: 'relation',
+      relation,
+    };
+  }
+  let digest: ProposedDigest;
+  try { digest = JSON.parse(row.proposed_digest); } catch { digest = { name: '(corrupt)', type: 'digest', observations: [], tags: [] }; }
   return {
     id: row.id,
     project: row.project,
@@ -1719,5 +1831,6 @@ export function getProposalDetail(db: MemeshDatabase, id: number): ProposalDetai
     created_at: row.created_at,
     source,
     digest,
+    kind: digest.type === 'pattern_emergent' ? 'pattern_emergent' : 'digest',
   };
 }
