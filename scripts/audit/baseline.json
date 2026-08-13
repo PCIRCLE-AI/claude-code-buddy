@@ -406,15 +406,15 @@
       "reason": "commander leaves --contradicts undefined when the flag is absent; the empty list truthfully means no relation was requested",
       "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); corrected 2026-08-13: an earlier re-key attached this entry to the wrong sibling line (supersedes/contradicts pair swapped); reasons now match their statements"
     },
-    "C5 src/core/dreamer.ts:1186": {
-      "class": "SAFE-GUARDED",
-      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1172 (NothingToClaimError and the missing-source counter shifted the line); same statement, classification unchanged"
-    },
     "C5 src/core/dreamer.ts:1189": {
       "class": "SAFE-GUARDED",
-      "reason": "upstream filter requires non-empty arrays before these run (re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1175 (NothingToClaimError and the missing-source counter shifted the line); same statement, classification unchanged"
+      "reason": "upstream filter requires non-empty arrays before these run (the (p.observations ?? []) statement; re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1172 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1186 (PROTECTED_TYPES export comment shifted the file; statement verified — the observations line, NOT the evidence sibling that previously sat at this key)"
+    },
+    "C5 src/core/dreamer.ts:1192": {
+      "class": "SAFE-GUARDED",
+      "reason": "upstream filter requires non-empty arrays before these run (the (p.evidence ?? []) statement; re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1175 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1189 (PROTECTED_TYPES export comment shifted the file; statement verified)"
     },
     "C5 src/core/doctor.ts:428": {
       "class": "SAFE-GUARDED",
