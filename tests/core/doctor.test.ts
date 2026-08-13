@@ -1179,6 +1179,33 @@ describe('doctor', () => {
     expect(activity.summary).toMatch(/session-summary/);
   });
 
+  it('hook-activity: the stop-silent threshold holds at 72h, not wherever the constant drifts', async () => {
+    // The far-side fixtures (48h pass / 200h warn) survive the constant
+    // drifting anywhere between them — same reason the staleness tiers got
+    // near-boundary pins.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const { activity: justUnder } = await activityCheck({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, {
+        hookRuns: [{ hook: 'post-commit', hoursAgo: 1 }],
+        trackingSinceHours: 71.5,
+      })),
+      existsSyncImpl: noMarker,
+    });
+    expect(justUnder.status, '71.5h of tracking is still inside the quiet-sessions explanation').toBe('pass');
+
+    const { activity: justOver } = await activityCheck({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, {
+        hookRuns: [{ hook: 'post-commit', hoursAgo: 1 }],
+        trackingSinceHours: 73,
+      })),
+      existsSyncImpl: noMarker,
+    });
+    expect(justOver.status, '73h must already be past the stop-silent threshold').toBe('warn');
+    expect(justOver.code).toBe('hook-activity.stop-silent');
+  });
+
   it('hook-activity: a dead session-summary is NOT masked by a living post-commit', async () => {
     // The cross-model adversarial finding on this PR's first draft: the check
     // read only the single newest row, so any healthy hook hid any dead one —
@@ -1259,7 +1286,10 @@ describe('doctor', () => {
       existsSyncImpl: noMarker,
     });
     expect(hedged.status, 'no corroborating writes must hold the verdict at warn').toBe('warn');
-    expect(hedged.code).toBe('hook-activity.stale');
+    // Its own code, not a tail on hook-activity.stale: locales render by
+    // code, and the glued-on English tail dropped the "this may be fine"
+    // hedge in all 10 non-English dashboards.
+    expect(hedged.code).toBe('hook-activity.stale-unconfirmed');
     expect(hedged.params?.hook).toBe('session-summary');
     expect(hedged.summary).toMatch(/another agent|Codex/);
 
@@ -1314,24 +1344,44 @@ describe('doctor', () => {
     expect(activity.params?.hook).toBe('post-commit');
   });
 
-  it('hook-activity: a hook name we never wrote cannot ride the diagnostic into a public issue', async () => {
-    // Doctor summaries end up verbatim in the pre-filled PUBLIC GitHub issue
-    // body (`memesh feedback`). hook_runs is user-writable SQLite; our hooks
-    // only ever stamp three literals, so any other name was written by
-    // something that is not us and must be masked, not echoed.
+  it('hook-activity: a hook name we never wrote is neither echoed nor counted', async () => {
+    // hook_runs is user-writable SQLite, so a foreign row's name is
+    // untrusted twice over. It must not ride a diagnostic into the
+    // pre-filled PUBLIC GitHub issue body (`memesh feedback`) — and it must
+    // not COUNT: the first draft sanitized the name to 'unknown-hook' but
+    // kept the timestamp as liveness evidence, so one fresh foreign row
+    // turned a dead capture loop permanently green (four independent
+    // reviews converged on this). Foreign rows are not evidence, in either
+    // direction.
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 
     const injected = 'session-summary`; DROP TABLE users; my-secret-project';
-    const { activity } = await activityCheck({
+
+    // Fresh foreign row: must NOT read as "auto-capture is alive".
+    const { activity: fresh } = await activityCheck({
       ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, {
-        hookRuns: [{ hook: injected, rawLastRunAt: 'garbage' }],
+        hookRuns: [{ hook: injected, hoursAgo: 1 }],
+        trackingSinceHours: 200,
       })),
       existsSyncImpl: noMarker,
     });
-    expect(activity.code).toBe('hook-activity.stale-unknown');
-    expect(activity.params?.hook).toBe('unknown-hook');
-    expect(activity.summary).not.toContain('my-secret-project');
+    expect(fresh.status, 'a foreign row must not certify the capture loop alive').not.toBe('pass');
+    expect(fresh.summary).not.toContain('my-secret-project');
+    expect(String(fresh.params?.hook ?? '')).not.toContain('my-secret-project');
+
+    // Corrupt foreign row: same fall-through — our hooks have never stamped,
+    // and that is the story the verdict tells (never-ran family), without
+    // the foreign name anywhere in it.
+    const { activity: garbage } = await activityCheck({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, {
+        hookRuns: [{ hook: injected, rawLastRunAt: 'garbage' }],
+        trackingSinceHours: 200,
+      })),
+      existsSyncImpl: noMarker,
+    });
+    expect(garbage.summary).not.toContain('my-secret-project');
+    expect(garbage.status).not.toBe('pass');
   });
 
   it('hook-activity: WARN never-ran-legacy when captures land but no hook has ever stamped', async () => {
@@ -1469,6 +1519,37 @@ describe('doctor', () => {
     expect(result.status).toBe('FAIL');
   });
 
+  it('hook-activity: a SessionStart-only wiring does not arm the never-ran FAIL', async () => {
+    // The wiring row passes on ANY _memesh entry — including a recall-only
+    // wiring with nothing under Stop/PostToolUse/PreCompact. That is a real
+    // wiring, but not evidence that capture hooks should be executing, and
+    // the never-ran FAIL claims exactly that. Without the capture-event
+    // gate, every recall-only install went permanently red after the grace
+    // period.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+
+    const settingsPath = path.join(packageRoot, 'claude-settings.json');
+    fs.writeFileSync(settingsPath, JSON.stringify({
+      hooks: { SessionStart: [{ hooks: [{ _memesh: true, command: 'memesh-hook' }] }] },
+    }));
+    const aged = markerAged(48 * 60 * 60 * 1000); // wired two days ago — grace expired
+    const readFileSyncImpl = ((p: fs.PathOrFileDescriptor, ...rest: unknown[]) => {
+      if (typeof p === 'string' && p.endsWith('install-hooks.json')) {
+        return JSON.stringify({ settings_path: settingsPath, plugin_root: packageRoot, version: '1', scope: 'user' });
+      }
+      return (fs.readFileSync as (...a: unknown[]) => string | Buffer)(p, ...rest);
+    }) as typeof fs.readFileSync;
+
+    const { activity } = await activityCheck({
+      ...hookActivityDoctorArgs(packageRoot, makeDatabase(0, { hookRuns: null, trackingSinceHours: 200 })),
+      ...aged,
+      readFileSyncImpl,
+    });
+    expect(activity.status, 'a recall-only wiring must not produce the capture-hooks-dead red').toBe('warn');
+    expect(activity.code).toBe('hook-activity.not-wired');
+  });
+
   it('hook-activity: never-ran downgrades to a quiet warn when wiring is absent', async () => {
     // MCP-only installs (Codex / Gemini) never wire hooks: for them a
     // permanent never-ran FAIL would be unfixable red, and for everyone else
@@ -1484,9 +1565,13 @@ describe('doctor', () => {
     expect(activity.code).toBe('hook-activity.not-wired');
   });
 
-  it('hook-activity: PASS with its own message when capture is deliberately disabled', async () => {
-    // Config is not a failure: with autoCapture off, every heartbeat verdict
-    // below would be a false alarm about a state the user chose.
+  it('hook-activity: env-disabled capture gets its OWN message — doctor cannot vouch for the agent\'s env', async () => {
+    // Deliberately off is not a failure — but the env var is per-process:
+    // doctor seeing MEMESH_AUTO_CAPTURE=false in ITS shell says nothing
+    // certain about the agent's hooks (the agent may run without it, or
+    // with it while doctor's shell is clean). The env-sourced pass is a
+    // distinct code whose message says exactly that, instead of borrowing
+    // the config message's machine-wide confidence.
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 
@@ -1498,7 +1583,8 @@ describe('doctor', () => {
         existsSyncImpl: noMarker,
       });
       expect(activity.status).toBe('pass');
-      expect(activity.code).toBe('hook-activity.disabled');
+      expect(activity.code).toBe('hook-activity.disabled-env');
+      expect(activity.summary).toMatch(/environment/i);
     } finally {
       if (original === undefined) delete process.env.MEMESH_AUTO_CAPTURE;
       else process.env.MEMESH_AUTO_CAPTURE = original;
@@ -1544,26 +1630,29 @@ describe('doctor', () => {
     }
   });
 
-  it('hook-activity: a corrupt hook_runs_since is restamped, not an eternal grace', async () => {
+  it('hook-activity: a corrupt hook_runs_since is reported, and doctor itself never writes', async () => {
     // Unreadable-or-future tracking marker used to satisfy `measuringHours
-    // === null || < 24` forever — a fail-open that suppressed never-ran for
-    // the life of the database. The self-heal restamps it: one more day of
-    // grace, then real verdicts.
+    // === null || < 24` forever — a fail-open. The healer is NOT doctor:
+    // doctor is reachable via an unauthenticated loopback GET /v1/doctor,
+    // where a state-changing side effect has no place, so the restamp moved
+    // into ensureHookRunsSince on the write-path opens (pinned against a
+    // real database in tests/hooks/write-hook-invariants.test.ts). Doctor
+    // only reports that the next write-path open will heal it.
     const packageRoot = createPackageRoot();
     tempRoots.push(packageRoot);
 
-    let restamped = false;
+    let wrote = false;
     const { activity } = await activityCheck({
       ...wiredDoctorArgs(packageRoot, makeDatabase(0, {
         hookRuns: null,
         trackingSinceRaw: 'garbage',
-        onMetadataUpdate: () => { restamped = true; },
+        onMetadataUpdate: () => { wrote = true; },
       })),
       existsSyncImpl: noMarker,
     });
     expect(activity.status).toBe('pass');
-    expect(activity.summary).toMatch(/reset/i);
-    expect(restamped, 'the corrupt marker must actually be restamped, or the grace never ends').toBe(true);
+    expect(activity.summary).toMatch(/re-stamped automatically/i);
+    expect(wrote, 'doctor is a reader — the diagnostic must not write to the database it inspects').toBe(false);
   });
 
   it('hook-activity: FAIL query-failed (with a fix) when the database cannot be read', async () => {

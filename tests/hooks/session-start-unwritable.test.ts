@@ -18,9 +18,14 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'child_process';
+import { createRequire } from 'module';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+
+const require = createRequire(import.meta.url);
+// _shared.js is plain JS with no type declarations.
+const shared = require('../../scripts/hooks/_shared.js');
 
 const isRoot = process.getuid?.() === 0;
 const isWindows = process.platform === 'win32';
@@ -104,5 +109,94 @@ describe.skipIf(isRoot || isWindows)('session-start: an unwritable memesh dir is
     // Or the two above are satisfied by a hook that always cries wolf.
     const message = runHook();
     expect(message).not.toMatch(/cannot write to/i);
+  });
+
+  /** Full current schema + one entity, optionally project-tagged — so the
+   * recall pipeline the hook runs against it is the REAL one, not a crash
+   * on a minimal fixture. */
+  function seedDb(dbPath: string, projectTag?: string): void {
+    const { db } = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { fts: true });
+    try {
+      shared.captureEntity(db, {
+        name: 'seed-entity-1',
+        type: 'note',
+        observations: ['seeded memory for the recall-not-withheld test'],
+        tags: projectTag ? [projectTag] : [],
+      });
+    } finally {
+      db.close();
+    }
+  }
+
+  it('warns when the DB FILE is read-only inside a WRITABLE directory', () => {
+    // The botched-sudo state the probe's own comment names: the directory
+    // probes writable, the file does not. Both prior tests chmod the
+    // DIRECTORY, so the file branch was never exercised — deleting it left
+    // the suite green.
+    const dbPath = path.join(memeshDir, 'knowledge-graph.db');
+    seedDb(dbPath);
+    fs.chmodSync(dbPath, 0o444);
+    expect(() => fs.appendFileSync(dbPath, '')).toThrow();
+
+    const message = runHook();
+    expect(message).toMatch(/cannot write to/i);
+    expect(message).toContain('knowledge-graph.db');
+    expect(message).not.toMatch(/MeMesh ready/);
+  });
+
+  it('warns when a WAL sidecar is unwritable even though the db file is fine', () => {
+    // An interrupted sudo run leaves a user-owned database next to
+    // root-owned -wal/-shm files; SQLite then fails every write with EACCES
+    // while a db-file-only probe reads healthy. Simulated with mode bits
+    // (chown needs root); the probe only asks "can this process write it".
+    const dbPath = path.join(memeshDir, 'knowledge-graph.db');
+    seedDb(dbPath);
+    fs.writeFileSync(`${dbPath}-wal`, '');
+    fs.chmodSync(`${dbPath}-wal`, 0o444);
+    expect(() => fs.appendFileSync(`${dbPath}-wal`, '')).toThrow();
+
+    const message = runHook();
+    expect(message).toMatch(/cannot write to/i);
+    expect(message).toContain('-wal');
+  });
+
+  it('an unwritable target does NOT withhold recall — memories still reach the session', () => {
+    // The first draft of the every-session probe RETURNED on the warning,
+    // before the read-only recall connection — so a read-only mount turned
+    // "capture is off" into "your memory is gone", withholding every
+    // existing memory exactly when the user needs context to notice
+    // something is wrong. Warn, then keep reading.
+    // The db FILE is read-only, the directory writable: capture cannot
+    // land, but a reader can still open (SQLite can create the WAL
+    // sidecars it needs in the directory). The dir-555 sibling case is
+    // physically unreadable for a cleanly-closed WAL database — no -shm
+    // can be created — so "recall still works" is only a promise the
+    // filesystem lets us keep HERE, and the honest outcome there is the
+    // warning plus the memories-not-loaded line (both now delivered).
+    const dbPath = path.join(memeshDir, 'knowledge-graph.db');
+    const projectName = shared.getProjectName(home);
+    seedDb(dbPath, `project:${projectName}`);
+    fs.chmodSync(dbPath, 0o444);
+    expect(() => fs.appendFileSync(dbPath, '')).toThrow();
+
+    const hookPath = path.resolve('scripts/hooks/session-start.js');
+    const out = execFileSync('node', [hookPath], {
+      input: JSON.stringify({ cwd: home }),
+      env: { ...process.env, HOME: home, USERPROFILE: home, MEMESH_DIR: memeshDir },
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    const parsed = JSON.parse(out.trim()) as {
+      systemMessage?: string;
+      hookSpecificOutput?: { additionalContext?: string };
+    };
+    // The warning leads AND the seeded memory still reaches the session.
+    expect(parsed.systemMessage).toMatch(/cannot write to/i);
+    expect(parsed.systemMessage).not.toMatch(/MeMesh ready/);
+    expect(parsed.systemMessage).toMatch(/memories/);
+    expect(
+      parsed.hookSpecificOutput?.additionalContext,
+      'the recall payload must still be injected — capture being off is not memory being gone',
+    ).toContain('seeded memory for the recall-not-withheld test');
   });
 });

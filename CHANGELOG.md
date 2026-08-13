@@ -70,6 +70,94 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **A foreign row in `hook_runs` can no longer certify the capture loop
+  alive.** The table is user-writable SQLite, and the first fix only
+  sanitized unrecognized hook names for display while still counting their
+  timestamps as liveness evidence — so one fresh row written by anything
+  that is not memesh (a fork sharing the database, a renamed future hook, a
+  hand INSERT) turned a dead capture loop permanently green. Four
+  independent review passes converged on the same finding. Rows whose name
+  is not one of the three literals our hooks stamp are now excluded from
+  the verdict entirely: not echoed, not counted, in either direction.
+
+- **One credential-pattern list for the whole codebase, and it is the
+  broad one.** Three redactors existed at three strengths: the transcript
+  scrubber (broadest), the doctor/feedback egress redactor (seven
+  patterns), and a private copy in the LLM client (two). Measured against
+  the egress redactor: `github_pat_` fine-grained tokens, Stripe keys,
+  JWTs, npm tokens and pasted private keys all reached the pre-filled
+  public GitHub issue body unmasked. The shared list (18 patterns) now
+  covers all of those plus AWS temporary keys, Google API keys, Slack
+  tokens and GitHub app/refresh tokens, and every consumer draws from it.
+  The Bearer rule also matches JSON-escaped whitespace, because the
+  dashboard egress redacts stringified JSON where a newline is the two
+  characters `\n` — a shape the CLI path never produced, so the two
+  egresses silently disagreed. `redactSecrets` itself was shipped with
+  zero tests; it now has a suite that exercises every pattern plus the
+  near-misses that must survive.
+
+- **`memesh doctor` is now a pure reader.** The corrupt-tracking-marker
+  self-heal was an UPDATE inside a diagnostic reachable via unauthenticated
+  loopback `GET /v1/doctor` — a state change on a GET. The heal moved to
+  `ensureHookRunsSince` on the write-path opens, which also closes a hole
+  the doctor-side heal left: with heartbeat rows present, the doctor branch
+  that healed the marker was unreachable, so a wrong-clock marker silently
+  disabled the stop-silent detector forever. Any session, commit, or CLI
+  command now restamps a corrupt or future-dated marker; doctor just says
+  so.
+
+- **An unreadable transcript no longer stamps the session-summary
+  heartbeat.** The transcript parser returned zeros on a permissions or I/O
+  failure, which made a LOST capture indistinguishable from a quiet session
+  — and the quiet-session bail stamps. Repeated read failures would have
+  kept doctor green while every session's capture was lost. The parser now
+  flags the failure and the hook exits unstamped, so the loss shows up as
+  the silence it is.
+
+- **An unwritable capture target no longer withholds recall.** The
+  every-session write probe returned on its warning — before the read-only
+  recall connection — so a read-only mount turned "capture is off" into
+  "your memory is gone", withholding every existing memory exactly when the
+  user needs context to notice something is wrong. The hook now warns and
+  keeps reading (and if recall then fails for its own reasons, the warning
+  still leads the message instead of being dropped). The probe also checks
+  the WAL/SHM sidecars — an interrupted `sudo` run leaves a user-owned
+  database next to root-owned sidecars, which the file-level probe alone
+  called healthy — and "MeMesh ready" is demoted whenever the warning is
+  present, because ready is a promise about capture.
+
+- **"Cannot migrate" no longer means "cannot open".** The general form of
+  the read-only regression: any release that adds a table or column makes
+  the first open of an older database a write, and a database FILE that is
+  read-only (a pre-upgrade backup, a snapshot) died on it — this release's
+  `hook_runs` table would have recreated the exact failure the SELECT-first
+  helpers fixed, one layer down. Bringing the schema current is now one
+  boundary that tolerates exactly the read-only-file error class: the open
+  degrades to reads with a stderr trace, and capture and migrations resume
+  when the file is writable. Doctor treats a missing `hook_runs` table on
+  such an open as "tracking has not started", not a query failure.
+
+- **Assorted verdict-integrity fixes from the same review round.** The >72h
+  corroboration query is guarded with `json_valid` (one malformed legacy
+  metadata row — which the migration chain deliberately preserves — used to
+  throw and turn the whole check into query-failed); the no-corroboration
+  hedge is its own code (`hook-activity.stale-unconfirmed`) with entries in
+  all 11 locales, because gluing it onto the English summary dropped
+  exactly the "this may be fine" sentence in every translation; the
+  localized `{hours}` param now rounds up like the English sentence
+  (Math.round rendered "ran about 24 hours ago" next to a warn that starts
+  at 24h); the legacy-hooks detection window is "since tracking began"
+  rather than 24h (a quiet weekend flipped a working legacy install into
+  the never-ran red); the never-ran FAIL arms only when a CAPTURE event
+  (Stop / PostToolUse / PreCompact) is confirmed wired, not any `_memesh`
+  entry (a recall-only wiring is not evidence that capture hooks should be
+  executing); env-sourced "capture disabled" gets its own code that says
+  doctor can only see its own shell; the tags dedup + unique index run in
+  one IMMEDIATE transaction instead of two autocommit statements; and the
+  dashboard banner's dismissal signature includes the check code and hook,
+  so dismissing one hook-activity warning no longer swallows a different
+  one that appears later under the same id:status.
+
 - **Opening the database no longer writes to it when there is nothing to
   write.** Two DML statements lived inside the schema block that every open
   executes — the heartbeat-tracking marker's `INSERT OR IGNORE` (new in this

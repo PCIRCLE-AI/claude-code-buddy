@@ -299,12 +299,60 @@ describe('Feature: Session Summary (Stop Hook)', () => {
       was_in_agentic_loop: false,
     });
 
-    // DB should not be created (or be empty) since non-agentic sessions are skipped
-    if (fs.existsSync(dbPath)) {
-      const db = openDb();
-      const count = db.prepare('SELECT COUNT(*) as c FROM entities').get() as any;
-      expect(count.c).toBe(0);
-      db.close();
+    // Nothing captured — but the bail is a CORRECT decision on a well-formed
+    // payload, so it stamps the heartbeat: a user whose sessions are
+    // consistently non-agentic must not read as "capture has stopped".
+    const db = openDb();
+    const count = db.prepare('SELECT COUNT(*) as c FROM entities').get() as { c: number };
+    const run = db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").get() as
+      { run_count: number } | undefined;
+    db.close();
+    expect(count.c).toBe(0);
+    expect(run, 'a correct non-agentic bail must stamp the heartbeat').toBeDefined();
+    expect(run!.run_count).toBe(1);
+  });
+
+  it('Scenario: a transcript that VANISHED after the payload named it still stamps', () => {
+    // Log-rotation race: the payload carried transcript_path but the file is
+    // gone by the time the hook runs. The hook itself worked correctly —
+    // this must stamp, unlike the schema-flip bail where the FIELD is
+    // absent (no-cwd test pins that side: DB never even created).
+    runHook({
+      session_id: 'vanished-transcript',
+      transcript_path: path.join(testDir, 'rotated-away.jsonl'),
+      cwd: '/tmp/myproject',
+      was_in_agentic_loop: true,
+    });
+
+    const db = openDb();
+    const run = db.prepare("SELECT run_count FROM hook_runs WHERE hook = 'session-summary'").get() as
+      { run_count: number } | undefined;
+    db.close();
+    expect(run, 'a vanished transcript is a correct nothing-to-do decision').toBeDefined();
+    expect(run!.run_count).toBe(1);
+  });
+
+  it('Scenario: an UNREADABLE transcript leaves no heartbeat — capture was lost, not skipped', () => {
+    // Permission/I-O failure while reading: parseTranscript returns zeros,
+    // which are indistinguishable from a quiet session — except for the
+    // readFailed flag. Stamping here would keep doctor green through
+    // repeated read failures while every session's capture is lost.
+    // Root reads through chmod 000; Windows maps it differently — same
+    // skip guard as tests/hooks/session-start-unwritable.test.ts.
+    if (process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0)) return;
+    writeQualifyingTranscript();
+    fs.chmodSync(transcriptPath, 0o000);
+    try {
+      const { stderr } = runHookCapturingStderr({
+        session_id: 'unreadable-session',
+        transcript_path: transcriptPath,
+        cwd: '/tmp/myproject',
+        was_in_agentic_loop: true,
+      });
+      expect(stderr).toContain('unreadable');
+      expect(fs.existsSync(dbPath), 'a lost capture must not create a DB just to stamp itself alive').toBe(false);
+    } finally {
+      fs.chmodSync(transcriptPath, 0o644);
     }
   });
 

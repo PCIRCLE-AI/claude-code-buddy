@@ -68,7 +68,7 @@ import type { LLMConfig } from './config.js';
 import { recordTelemetry } from './llm-telemetry.js';
 import { sanitizeForPrompt } from './prompt-safety.js';
 import { outputLanguageInstruction } from './output-language.js';
-import { getProjectName } from './paths.js';
+import { getProjectName, SECRET_PATTERN_SOURCES } from './paths.js';
 import { extractJsonBlock } from './json-utils.js';
 import type { ExtractedMemory } from './extractor.js';
 import { scanTranscripts } from './transcript-source.js';
@@ -112,44 +112,15 @@ const MAX_CHUNKS_PER_SESSION = 4;
 // The placeholder scrubSecrets writes ('[REDACTED-SECRET]') deliberately does
 // not match any detect pattern, so a scrubbed turn never trips the drop path.
 // -----------------------------------------------------------------------------
-// Order matters for scrubSecrets (it replaces in list order): put the widest,
-// whole-block patterns FIRST so a full match is redacted as one unit and a
-// later narrower pattern can never leave part of the secret naked. The
-// invariant the tests pin — for EVERY shape here, containsSecret(scrubSecrets(x))
+// The pattern list itself lives in core/paths.ts (SECRET_PATTERN_SOURCES) —
+// one list, shared with the egress redactor, so a token format added for one
+// consumer protects the other. It used to be private here, and the egress
+// copy silently ran at a fraction of this list's strength: github_pat_,
+// Stripe, JWT, npm and PEM shapes reached a public GitHub issue URL
+// unmasked. Ordering (widest first) is preserved by the shared list; the
+// invariant the tests pin — for EVERY shape, containsSecret(scrubSecrets(x))
 // is false — guards any ordering surprise.
-const SECRET_SOURCES: readonly string[] = [
-  // PEM private key — whole BEGIN..END block first (so the base64 body is
-  // redacted with the markers)...
-  '-----BEGIN[A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END[A-Z ]*PRIVATE KEY-----',
-  // ...then a TRUNCATED paste (a BEGIN with no END): redact from the BEGIN
-  // marker through the base64 body to the next blank line or EOF. The earlier
-  // fallback matched only the marker LINE, so scrubSecrets left the body raw on
-  // the way to the LLM. (containsSecret trips on the BEGIN either way, so the
-  // drop path was already safe; this closes the scrub-to-LLM leak.)
-  '-----BEGIN[A-Z ]*PRIVATE KEY-----[\\s\\S]*?(?=\\n[ \\t]*\\n|$)',
-  // DB / message-broker connection string with embedded credentials. Scheme
-  // anchored so it cannot fire on ordinary `word:word@word` prose.
-  '(?:postgres|postgresql|mysql|mariadb|mongodb(?:\\+srv)?|redis|rediss|amqp|amqps)://[^\\s:@/]+:[^\\s:@/]+@',
-  // JWT — three base64url segments; `eyJ` is base64 of `{"`.
-  'eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}',
-  // SendGrid API key.
-  'SG\\.[A-Za-z0-9_-]{16,}\\.[A-Za-z0-9_-]{16,}',
-  // Stripe secret/restricted/publishable live+test keys (underscore-delimited).
-  '[srp]k_(?:live|test)_[A-Za-z0-9]{16,}',
-  // npm automation token.
-  'npm_[A-Za-z0-9]{36}',
-  // Anthropic / OpenAI-style keys — hyphen OR underscore delimited (the old
-  // list required a hyphen, so sk_live_/generic sk_ keys slipped through).
-  'sk-ant-[A-Za-z0-9_-]{16,}',
-  'sk-[A-Za-z0-9_-]{16,}',
-  'sk_[A-Za-z0-9]{16,}',
-  'ghp_[A-Za-z0-9]{30,}',             // GitHub PAT (classic)
-  'gho_[A-Za-z0-9]{30,}',             // GitHub OAuth
-  'github_pat_[A-Za-z0-9_]{20,}',     // GitHub PAT (fine-grained)
-  'AKIA[A-Z0-9]{16}',                 // AWS access key id
-  'xox[baprs]-[A-Za-z0-9-]{10,}',     // Slack token
-  'Bearer\\s+[A-Za-z0-9_.\\-]{16,}',  // bearer token
-];
+const SECRET_SOURCES: readonly string[] = SECRET_PATTERN_SOURCES;
 
 /** True if the text carries something shaped like a known secret. Fresh regex
  * per call — global-flag `lastIndex` state must never leak between calls. */

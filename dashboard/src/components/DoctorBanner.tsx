@@ -145,9 +145,14 @@ export function DoctorBanner() {
   if (concerns.length === 0) return null;
 
   // Signature is stable for the same set of failing checks. Sort
-  // before joining so check order doesn't change the signature.
+  // before joining so check order doesn't change the signature. The code
+  // and the hook param are part of the identity: hook-activity alone has
+  // several warn-tier variants (stale, stop-silent, never-ran-legacy…), and
+  // an id:status signature made dismissing one dismiss them ALL — a user
+  // who waved off a stale post-commit warning then never saw "session
+  // capture may be broken" when the condition changed underneath it.
   const currentSig = concerns
-    .map(c => `${c.id}:${c.status}`)
+    .map(c => `${c.id}:${c.status}:${c.code ?? ''}:${c.params?.hook ?? ''}`)
     .sort()
     .join('|');
   if (currentSig === dismissedSig) return null;

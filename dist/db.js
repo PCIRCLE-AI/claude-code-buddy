@@ -126,24 +126,44 @@ function ensureTagsUniqueIndex(handle) {
             .get();
         if (present)
             return;
-        handle.exec('DELETE FROM tags WHERE id NOT IN (SELECT MIN(id) FROM tags GROUP BY entity_id, tag); ' +
-            'CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag);');
+        handle.exec('BEGIN IMMEDIATE; ' +
+            'DELETE FROM tags WHERE id NOT IN (SELECT MIN(id) FROM tags GROUP BY entity_id, tag); ' +
+            'CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag); ' +
+            'COMMIT;');
     }
     catch (err) {
         try {
+            handle.exec('ROLLBACK');
+        }
+        catch { }
+        try {
             process.stderr.write(`MeMesh: could not create the tags unique index (${err instanceof Error ? err.message : String(err)}). ` +
-                `Reads are unaffected; tag dedup resumes once the database is writable.\n`);
+                `Reads are unaffected; the next open retries the dedup and index together.\n`);
         }
         catch { }
     }
 }
 function ensureHookRunsSince(handle) {
     try {
-        const present = handle
-            .prepare("SELECT 1 FROM memesh_metadata WHERE key = 'hook_runs_since'")
+        const row = handle
+            .prepare("SELECT value FROM memesh_metadata WHERE key = 'hook_runs_since'")
             .get();
-        if (present)
+        if (row) {
+            const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(row.value ?? '');
+            if (m) {
+                const then = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+                const d = new Date(then);
+                const intact = Number.isFinite(then)
+                    && d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3]
+                    && d.getUTCHours() === +m[4] && d.getUTCMinutes() === +m[5] && d.getUTCSeconds() === +m[6];
+                if (intact && then <= Date.now() + 5 * 60 * 1000)
+                    return;
+            }
+            handle
+                .prepare("UPDATE memesh_metadata SET value = datetime('now') WHERE key = 'hook_runs_since'")
+                .run();
             return;
+        }
         handle
             .prepare("INSERT OR IGNORE INTO memesh_metadata (key, value) VALUES ('hook_runs_since', datetime('now'))")
             .run();
@@ -180,9 +200,28 @@ export function openDatabase(dbPath) {
     db = opening;
     return db;
 }
+function isReadonlyDbError(err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return /readonly database|SQLITE_READONLY/i.test(msg);
+}
 function initialiseDatabase(db, resolvedPath) {
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
+    try {
+        migrateToCurrentSchema(db, resolvedPath);
+    }
+    catch (err) {
+        if (!isReadonlyDbError(err))
+            throw err;
+        try {
+            process.stderr.write('MeMesh: the database file is read-only, so schema migration was skipped — ' +
+                'opened for reads only. Capture and migrations resume when the file is writable.\n');
+        }
+        catch { }
+    }
+    return db;
+}
+function migrateToCurrentSchema(db, resolvedPath) {
     db.exec(SCHEMA_SQL);
     db.exec(FTS_SQL);
     ensureTagsUniqueIndex(db);
@@ -253,7 +292,6 @@ function initialiseDatabase(db, resolvedPath) {
         const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
         ensureVecTable(db, resolvedPath, targetDim, dimensionKnown);
     }
-    return db;
 }
 export const FTS_SEGMENTATION_VERSION = 3;
 const MIGRATION_RETRY_BACKOFF_MS = 24 * 60 * 60 * 1000;

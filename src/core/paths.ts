@@ -208,26 +208,74 @@ export function _clearProjectNameCache(): void {
 }
 
 /**
+ * The one list of secret-shaped patterns, shared by every redactor in the
+ * codebase. Three copies used to exist at three different strengths — the
+ * transcript scrubber (broadest), this module's egress redactor (middle),
+ * and a private one in llm-client (weakest, sk-/Bearer only) — and a
+ * cross-model review measured the gap: `github_pat_`, Stripe `sk_live_`,
+ * JWTs, npm tokens and private keys sailed through the egress redactor into
+ * a public GitHub issue URL. One list means one place to add the next token
+ * format.
+ *
+ * Order matters for replacement: widest, whole-block patterns FIRST so a
+ * full match is redacted as one unit and a later narrower pattern can never
+ * leave part of the secret naked (the PEM body would otherwise survive its
+ * own header being masked).
+ *
+ * Source strings, not RegExp objects: consumers compile with their own flags,
+ * and a shared global-flag RegExp would leak `lastIndex` state between calls.
+ */
+export const SECRET_PATTERN_SOURCES: readonly string[] = [
+  // PEM private key — whole BEGIN..END block first...
+  '-----BEGIN[A-Z ]*PRIVATE KEY-----[\\s\\S]*?-----END[A-Z ]*PRIVATE KEY-----',
+  // ...then a TRUNCATED paste (BEGIN with no END): redact through the base64
+  // body to the next blank line or EOF, so the body never survives naked.
+  '-----BEGIN[A-Z ]*PRIVATE KEY-----[\\s\\S]*?(?=\\n[ \\t]*\\n|$)',
+  // DB / message-broker connection string with embedded credentials. Scheme
+  // anchored so it cannot fire on ordinary `word:word@word` prose.
+  '(?:postgres|postgresql|mysql|mariadb|mongodb(?:\\+srv)?|redis|rediss|amqp|amqps)://[^\\s:@/]+:[^\\s:@/]+@',
+  // JWT — three base64url segments; `eyJ` is base64 of `{"`.
+  'eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}',
+  // SendGrid API key.
+  'SG\\.[A-Za-z0-9_-]{16,}\\.[A-Za-z0-9_-]{16,}',
+  // Stripe secret/restricted/publishable live+test keys.
+  '[srp]k_(?:live|test)_[A-Za-z0-9]{16,}',
+  // npm automation token.
+  'npm_[A-Za-z0-9]{36}',
+  // Anthropic / OpenAI-style keys — hyphen OR underscore delimited.
+  'sk-ant-[A-Za-z0-9_-]{16,}',
+  'sk-[A-Za-z0-9_-]{16,}',
+  'sk_[A-Za-z0-9]{16,}',
+  'ghp_[A-Za-z0-9]{30,}',              // GitHub PAT (classic)
+  'gho_[A-Za-z0-9]{30,}',              // GitHub OAuth
+  'gh[sur]_[A-Za-z0-9]{30,}',          // GitHub app/server/refresh tokens
+  'github_pat_[A-Za-z0-9_]{20,}',      // GitHub PAT (fine-grained)
+  'A(?:KIA|SIA)[A-Z0-9]{16}',          // AWS access key id (perm + temporary)
+  'AIza[A-Za-z0-9_-]{30,}',            // Google API key
+  'xox[baprs]-[A-Za-z0-9-]{10,}',      // Slack token
+  // Bearer token. `(?:\\s|\\\\[nrt])+` instead of plain \\s+: the HTTP
+  // doctor egress redacts JSON-STRINGIFIED text, where a real newline
+  // between "Bearer" and the token has become the two characters \n — a
+  // shape plain \s+ cannot see.
+  'Bearer(?:\\s|\\\\[nrt])+[A-Za-z0-9_.\\-]{16,}',
+];
+
+/**
  * Redact credential-shaped substrings before text leaves the machine.
  *
- * Matches Anthropic / OpenAI / GitHub / AWS-style key prefixes plus generic
- * `sk-` / Bearer tokens. Belt-and-suspenders: nothing should put a secret in
- * a diagnostic, but two public egresses copy diagnostics verbatim into a
- * pre-filled GitHub issue body — the dashboard's `/v1/doctor` and the CLI's
- * `memesh feedback` — and both must run this BEFORE redactUserPaths. It
- * lived as a private function in the HTTP server, which left the CLI egress
- * path-redacted but not credential-redacted; it lives here now because this
- * module owns redaction and both transports already import it.
+ * Belt-and-suspenders: nothing should put a secret in a diagnostic, but two
+ * public egresses copy diagnostics verbatim into a pre-filled GitHub issue
+ * body — the dashboard's `/v1/doctor` and the CLI's `memesh feedback` — and
+ * both must run this BEFORE redactUserPaths (a home path inside a token,
+ * once rewritten to `~`, would break the secret pattern and leak the rest).
+ * It lived as a private function in the HTTP server, which left the CLI
+ * egress path-redacted but not credential-redacted; it lives here because
+ * this module owns redaction and both transports already import it.
  */
 export function redactSecrets(input: string): string {
-  return input
-    .replace(/sk-ant-[A-Za-z0-9_-]{20,}/g, 'sk-ant-***REDACTED***')
-    .replace(/sk-proj-[A-Za-z0-9_-]{20,}/g, 'sk-proj-***REDACTED***')
-    .replace(/sk-[A-Za-z0-9]{32,}/g, 'sk-***REDACTED***')
-    .replace(/ghp_[A-Za-z0-9]{30,}/g, 'ghp_***REDACTED***')
-    .replace(/gho_[A-Za-z0-9]{30,}/g, 'gho_***REDACTED***')
-    .replace(/AKIA[A-Z0-9]{16}/g, 'AKIA***REDACTED***')
-    .replace(/Bearer\s+[A-Za-z0-9._-]{20,}/gi, 'Bearer ***REDACTED***');
+  let out = input;
+  for (const s of SECRET_PATTERN_SOURCES) out = out.replace(new RegExp(s, 'gi'), '***REDACTED***');
+  return out;
 }
 
 /**

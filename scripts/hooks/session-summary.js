@@ -89,6 +89,7 @@ function parseTranscript(transcriptPath) {
   const bashCommands = [];
   const errorsEncountered = [];
   let toolCallCount = 0;
+  let readFailed = false;
 
   try {
     const lines = readFileSync(transcriptPath, 'utf8').split('\n').filter(l => l.trim());
@@ -152,10 +153,15 @@ function parseTranscript(transcriptPath) {
   } catch (err) {
     // The transcript file itself could not be read, which empties this
     // session's entire capture — filesEdited/errors/toolCallCount all return
-    // zero, so downstream `toolCallCount < 3` bails and no session insight,
-    // failure analysis or lesson is produced. An absent file is the normal
-    // "not written yet" case; anything else is a real fault worth a trace.
+    // zero. Left unflagged, those zeros are indistinguishable from a
+    // genuinely quiet session, and the light-session bail downstream would
+    // STAMP the heartbeat — repeated permission/I-O failures keeping doctor
+    // green while every session's capture is lost. `readFailed` is the
+    // distinct signal: capture was lost, not skipped. An absent file
+    // (ENOENT) is the vanished-transcript race, which the caller already
+    // treats as a correct nothing-to-do decision.
     if (err?.code !== 'ENOENT') {
+      readFailed = true;
       try {
         process.stderr.write(
           `[memesh session-summary] transcript ${transcriptPath} unreadable ` +
@@ -165,7 +171,7 @@ function parseTranscript(transcriptPath) {
     }
   }
 
-  return { filesEdited: [...filesEdited], bashCommands, errorsEncountered, toolCallCount };
+  return { filesEdited: [...filesEdited], bashCommands, errorsEncountered, toolCallCount, readFailed };
 }
 
 // Main: read stdin, extract insights, store in DB
@@ -263,7 +269,13 @@ process.stdin.on('end', async () => {
     }
 
     // Parse transcript
-    const { filesEdited, bashCommands, errorsEncountered, toolCallCount } = parseTranscript(transcriptPath);
+    const { filesEdited, bashCommands, errorsEncountered, toolCallCount, readFailed } = parseTranscript(transcriptPath);
+
+    // An unreadable transcript is NOT a quiet session: the capture was
+    // LOST (permissions, I/O), and a heartbeat here would keep doctor green
+    // through exactly the repeated failure it exists to expose. No stamp —
+    // parseTranscript already traced the fault to stderr.
+    if (readFailed) return exit0();
 
     // Skip sessions with too little activity — the single most common
     // healthy exit, so it MUST stamp (see stampHookRunOnly).

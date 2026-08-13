@@ -118,7 +118,7 @@ describe('doctor banner: silence when nothing is wrong', () => {
     // warn-tier by design: neither is proof of death. But each names an
     // action, and a warn that never reaches the banner is how hook-activity
     // stayed invisible for four releases.
-    for (const code of ['hook-activity.stop-silent', 'hook-activity.never-ran-legacy']) {
+    for (const code of ['hook-activity.stop-silent', 'hook-activity.never-ran-legacy', 'hook-activity.stale-unconfirmed']) {
       const check = { id: 'hook-activity', label: 'x', status: 'warn' as const, summary: 's', fix: 'Run `memesh install-hooks`.', code };
       expect(isBannerWorthy(check), `${code} must reach the user`).toBe(true);
     }

@@ -387,6 +387,49 @@ export function openHookDb(env = process.env, opts = {}) {
   const db = new MemeshDatabase(dbPath, { allowExtension: true });
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  // Bringing the schema current is a WRITE, and "cannot migrate" must not
+  // mean "cannot open": a database file that is read-only but behind on
+  // schema (a pre-upgrade backup, a permissions accident) dies on the
+  // CREATE TABLE any release adds. If the FILE refuses writes, open it for
+  // what it can still do — reads; capture writes fail individually at
+  // their own guarded call sites. Any other error still throws. Mirrors
+  // initialiseDatabase() in src/db.ts — keep the two in lockstep.
+  try {
+    migrateHookDbToCurrent(db, opts);
+  } catch (err) {
+    if (!/readonly database|SQLITE_READONLY/i.test(err?.message || '')) throw err;
+    try {
+      process.stderr.write(
+        'MeMesh: the database file is read-only, so schema migration was skipped — ' +
+          'opened for reads only. Capture and migrations resume when the file is writable.\n',
+      );
+    } catch { /* stderr gone */ }
+  }
+
+
+  // No heartbeat here. This helper used to stamp `hook_runs` as soon as the
+  // handle was usable, and that stamped-then-crashed hooks into looking
+  // alive: a hook that opened the database and then died in its own capture
+  // logic — the failure class this table exists to expose — read as PASS in
+  // `memesh doctor` for the next 24 hours. Each capture hook now calls
+  // recordHookRun() itself at every SUCCESSFUL exit (including "ran, nothing
+  // worth saving"), so a mid-capture throw leaves no stamp.
+
+  return { db, dbPath };
+}
+
+/**
+ * Everything that makes a hook-opened handle CURRENT: schema, FTS,
+ * one-time migrations and the segmentation rebuild. Split from
+ * openHookDb() so the read-only-file tolerance there has a single
+ * boundary to wrap — every statement in here may write, and none of
+ * them is load-bearing for reading what the database already holds.
+ * Mirrors migrateToCurrentSchema() in src/db.ts — keep in lockstep.
+ *
+ * @param {import('./_generated/sqlite.js').MemeshDatabase} db
+ * @param {{fts?: boolean}} opts
+ */
+function migrateHookDbToCurrent(db, opts) {
   db.exec(SCHEMA_SQL);
   ensureTagsUniqueIndex(db);
   ensureHookRunsSince(db);
@@ -461,16 +504,6 @@ export function openHookDb(env = process.env, opts = {}) {
   // delete failed, the stale row survived alongside the new one, and the user
   // saw "database disk image is malformed" on hook stderr.
   if (opts.fts) ensureHookFtsSegmentation(db);
-
-  // No heartbeat here. This helper used to stamp `hook_runs` as soon as the
-  // handle was usable, and that stamped-then-crashed hooks into looking
-  // alive: a hook that opened the database and then died in its own capture
-  // logic — the failure class this table exists to expose — read as PASS in
-  // `memesh doctor` for the next 24 hours. Each capture hook now calls
-  // recordHookRun() itself at every SUCCESSFUL exit (including "ran, nothing
-  // worth saving"), so a mid-capture throw leaves no stamp.
-
-  return { db, dbPath };
 }
 
 /**
@@ -486,15 +519,26 @@ export function ensureTagsUniqueIndex(db) {
       .prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_tags_entity_tag_unique'")
       .get();
     if (present) return;
+    // One IMMEDIATE transaction, not two autocommit statements: exec runs
+    // each statement in its own transaction, so a crash or a busy peer
+    // between them could commit the DELETE with the index never created —
+    // and a concurrent pre-index writer could re-insert a duplicate pair in
+    // that window, failing the CREATE with a constraint error. BEGIN
+    // IMMEDIATE holds the write lock across both, so the dedup and the
+    // index land together or not at all (CREATE INDEX is transactional in
+    // SQLite).
     db.exec(
-      'DELETE FROM tags WHERE id NOT IN (SELECT MIN(id) FROM tags GROUP BY entity_id, tag); ' +
-        'CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag);',
+      'BEGIN IMMEDIATE; ' +
+        'DELETE FROM tags WHERE id NOT IN (SELECT MIN(id) FROM tags GROUP BY entity_id, tag); ' +
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag); ' +
+        'COMMIT;',
     );
   } catch (err) {
+    try { db.exec('ROLLBACK'); } catch { /* no transaction open */ }
     try {
       process.stderr.write(
         `MeMesh: could not create the tags unique index (${err?.message ?? err}). ` +
-          `Reads are unaffected; tag dedup resumes once the database is writable.\n`,
+          `Reads are unaffected; the next open retries the dedup and index together.\n`,
       );
     } catch { /* stderr gone; nothing left to say */ }
   }
@@ -513,10 +557,31 @@ export function ensureTagsUniqueIndex(db) {
  */
 export function ensureHookRunsSince(db) {
   try {
-    const present = db
-      .prepare("SELECT 1 FROM memesh_metadata WHERE key = 'hook_runs_since'")
+    const row = db
+      .prepare("SELECT value FROM memesh_metadata WHERE key = 'hook_runs_since'")
       .get();
-    if (present) return;
+    if (row) {
+      // A marker that exists but cannot be read as a past UTC timestamp
+      // (corrupt text, a rolled-over pseudo-date, a wrong clock stamping the
+      // future) would grant doctor's "tracking just started" grace FOREVER —
+      // a fail-open. Heal it HERE, because this is a write path that runs on
+      // every real open; doctor is a reader (reachable via GET /v1/doctor)
+      // and must not repair the database it inspects. Same parse rules as
+      // doctor's hoursSince: anchored, UTC, round-tripped.
+      const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(row.value ?? '');
+      if (m) {
+        const then = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+        const d = new Date(then);
+        const intact = Number.isFinite(then)
+          && d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3]
+          && d.getUTCHours() === +m[4] && d.getUTCMinutes() === +m[5] && d.getUTCSeconds() === +m[6];
+        if (intact && then <= Date.now() + 5 * 60 * 1000) return;
+      }
+      db
+        .prepare("UPDATE memesh_metadata SET value = datetime('now') WHERE key = 'hook_runs_since'")
+        .run();
+      return;
+    }
     db
       .prepare("INSERT OR IGNORE INTO memesh_metadata (key, value) VALUES ('hook_runs_since', datetime('now'))")
       .run();

@@ -142,15 +142,26 @@ function ensureTagsUniqueIndex(handle: MemeshDatabase): void {
       .prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_tags_entity_tag_unique'")
       .get();
     if (present) return;
+    // One IMMEDIATE transaction, not two autocommit statements: exec runs
+    // each statement in its own transaction, so a crash or a busy peer
+    // between them could commit the DELETE with the index never created —
+    // and a concurrent pre-index writer could re-insert a duplicate pair in
+    // that window, failing the CREATE with a constraint error. BEGIN
+    // IMMEDIATE holds the write lock across both, so the dedup and the
+    // index land together or not at all (CREATE INDEX is transactional in
+    // SQLite).
     handle.exec(
-      'DELETE FROM tags WHERE id NOT IN (SELECT MIN(id) FROM tags GROUP BY entity_id, tag); ' +
-        'CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag);',
+      'BEGIN IMMEDIATE; ' +
+        'DELETE FROM tags WHERE id NOT IN (SELECT MIN(id) FROM tags GROUP BY entity_id, tag); ' +
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag); ' +
+        'COMMIT;',
     );
   } catch (err) {
+    try { handle.exec('ROLLBACK'); } catch { /* no transaction open */ }
     try {
       process.stderr.write(
         `MeMesh: could not create the tags unique index (${err instanceof Error ? err.message : String(err)}). ` +
-          `Reads are unaffected; tag dedup resumes once the database is writable.\n`,
+          `Reads are unaffected; the next open retries the dedup and index together.\n`,
       );
     } catch { /* stderr gone; nothing left to say */ }
   }
@@ -174,10 +185,31 @@ function ensureTagsUniqueIndex(handle: MemeshDatabase): void {
  */
 function ensureHookRunsSince(handle: MemeshDatabase): void {
   try {
-    const present = handle
-      .prepare("SELECT 1 FROM memesh_metadata WHERE key = 'hook_runs_since'")
-      .get();
-    if (present) return;
+    const row = handle
+      .prepare("SELECT value FROM memesh_metadata WHERE key = 'hook_runs_since'")
+      .get() as { value: string } | undefined;
+    if (row) {
+      // A marker that exists but cannot be read as a past UTC timestamp
+      // (corrupt text, a rolled-over pseudo-date, a wrong clock stamping the
+      // future) would grant doctor's "tracking just started" grace FOREVER —
+      // a fail-open. Heal it HERE, because this is a write path that runs on
+      // every real open; doctor is a reader (reachable via GET /v1/doctor)
+      // and must not repair the database it inspects. Same parse rules as
+      // doctor's hoursSince: anchored, UTC, round-tripped.
+      const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(row.value ?? '');
+      if (m) {
+        const then = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+        const d = new Date(then);
+        const intact = Number.isFinite(then)
+          && d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3]
+          && d.getUTCHours() === +m[4] && d.getUTCMinutes() === +m[5] && d.getUTCSeconds() === +m[6];
+        if (intact && then <= Date.now() + 5 * 60 * 1000) return;
+      }
+      handle
+        .prepare("UPDATE memesh_metadata SET value = datetime('now') WHERE key = 'hook_runs_since'")
+        .run();
+      return;
+    }
     handle
       .prepare("INSERT OR IGNORE INTO memesh_metadata (key, value) VALUES ('hook_runs_since', datetime('now'))")
       .run();
@@ -234,9 +266,50 @@ export function openDatabase(dbPath?: string): MemeshDatabase {
  * was inline, "assign the singleton" and "finish initialising it" could not be
  * separated.
  */
+/**
+ * Is this error SQLite refusing a write because the database FILE is
+ * read-only? The one error class the open path deliberately survives.
+ */
+function isReadonlyDbError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /readonly database|SQLITE_READONLY/i.test(msg);
+}
+
 function initialiseDatabase(db: MemeshDatabase, resolvedPath: string): MemeshDatabase {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  // Bringing the schema current is a WRITE, and "cannot migrate" must not
+  // mean "cannot open": a database file that is read-only (a backup, a
+  // snapshot, a permissions accident) but behind on schema used to die
+  // right here — first on a DML statement that lived inside SCHEMA_SQL,
+  // and once that moved out, on the CREATE TABLE any release adds. The
+  // class of failure is the same each time, so the tolerance is general:
+  // if the file refuses writes, open it for what it can still do — reads.
+  // Anything else still throws; a read-only file is the ONE state where
+  // an incomplete migration is survivable, because nothing can write to
+  // the old shape either.
+  try {
+    migrateToCurrentSchema(db, resolvedPath);
+  } catch (err) {
+    if (!isReadonlyDbError(err)) throw err;
+    try {
+      process.stderr.write(
+        'MeMesh: the database file is read-only, so schema migration was skipped — ' +
+          'opened for reads only. Capture and migrations resume when the file is writable.\n',
+      );
+    } catch { /* stderr gone */ }
+  }
+  return db;
+}
+
+/**
+ * Everything that makes an opened handle CURRENT: schema, FTS, one-time
+ * migrations, maintenance sweeps and the vector table. Split from
+ * `initialiseDatabase` so the read-only-file tolerance above has a single
+ * boundary to wrap — every statement in here may write, and none of them
+ * is load-bearing for reading what the database already holds.
+ */
+function migrateToCurrentSchema(db: MemeshDatabase, resolvedPath: string): void {
   db.exec(SCHEMA_SQL);
   db.exec(FTS_SQL);
   ensureTagsUniqueIndex(db);
@@ -396,8 +469,6 @@ function initialiseDatabase(db: MemeshDatabase, resolvedPath: string): MemeshDat
     const { dimension: targetDim, confident: dimensionKnown } = resolveEmbeddingDimension();
     ensureVecTable(db, resolvedPath, targetDim, dimensionKnown);
   }
-
-  return db;
 }
 
 /**
