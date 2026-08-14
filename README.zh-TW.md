@@ -27,7 +27,7 @@
 **MeMesh 就是那份記憶。** Hooks 從代理實際做的事情擷取記憶（session、commit、失敗 — 不是手動筆記），回憶在代理行動的當下注入記憶（session 開始時、編輯檔案前），知識圖譜層則讓記憶長期保持誠實（supersession 汰換、由 LLM 判定的衝突偵測）。用 npm 安裝，把記憶保存在 `~/.memesh/knowledge-graph.db`，然後連接到 Claude Code 或任何支援 MCP 的用戶端。
 
 > [!IMPORTANT]
-> **持續開發中的專案** — 功能會持續更新，版本之間可能會有變動。遇到問題或想要新功能，請[開 issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues)。
+> **持續開發中的專案** — 功能會持續更新，版本之間可能會有變動。遇到問題或想要新功能，請[開 issue](https://github.com/PCIRCLE-AI/memesh/issues)。
 
 ---
 
@@ -99,7 +99,7 @@ npm install -g @pcircle/memesh
 如果你使用 Claude Code，從 CLI 內把 MeMesh 當外掛安裝：
 
 ```
-/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin marketplace add PCIRCLE-AI/memesh
 /plugin install memesh@pcircle-memesh
 ```
 
@@ -453,8 +453,8 @@ Session 開始時，有新版本可下載時會跳一行 banner（每版本每 2
 ## 貢獻
 
 ```bash
-git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory && npm install && npm run build
+git clone https://github.com/PCIRCLE-AI/memesh
+cd memesh && npm install && npm run build
 npm test             # 630 項測試
 npm run test:e2e-dashboard
 ```

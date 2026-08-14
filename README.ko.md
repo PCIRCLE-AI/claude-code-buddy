@@ -17,7 +17,7 @@
 ---
 
 > [!IMPORTANT]
-> **활발히 개발 중인 프로젝트** — 기능이 지속적으로 업데이트되며 릴리스 간에 변경될 수 있습니다. 버그나 기능 요청이 있으면 [issue를 열어주세요](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues).
+> **활발히 개발 중인 프로젝트** — 기능이 지속적으로 업데이트되며 릴리스 간에 변경될 수 있습니다. 버그나 기능 요청이 있으면 [issue를 열어주세요](https://github.com/PCIRCLE-AI/memesh/issues).
 
 **MeMesh** — Claude Code와 MCP 코딩 에이전트를 위한 오픈소스 **에이전틱 메모리**: 에이전트의 실제 작업에서 캡처되고, 에이전트가 행동하는 순간에 주입되며, 스스로 모순될 때 정직하게 바로잡힙니다. SQLite 파일 하나. 클라우드 없음.
 
@@ -99,7 +99,7 @@ Claude Code 대화에서만 memesh를 사용한다면(터미널에서 `memesh`�
 Claude Code를 사용한다면 CLI 안에서 MeMesh를 플러그인으로 설치합니다:
 
 ```
-/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin marketplace add PCIRCLE-AI/memesh
 /plugin install memesh@pcircle-memesh
 ```
 
@@ -454,8 +454,8 @@ bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.s
 ## 기여하기
 
 ```bash
-git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory && npm install && npm run build
+git clone https://github.com/PCIRCLE-AI/memesh
+cd memesh && npm install && npm run build
 npm test
 npm run test:e2e-dashboard
 ```

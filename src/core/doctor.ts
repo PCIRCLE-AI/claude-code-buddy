@@ -1747,7 +1747,7 @@ function verifySkillsManifest(
     'Skills + hooks integrity',
     'fail',
     `Manifest verification failed: ${detail}.`,
-    'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem reproduces on a fresh install, open a security issue at https://github.com/PCIRCLE-AI/memesh-llm-memory/security.',
+    'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem reproduces on a fresh install, open a security issue at https://github.com/PCIRCLE-AI/memesh/security.',
     { code: 'skills-manifest.verify-failed', params: { detail } },
   );
 }

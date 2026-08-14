@@ -21,8 +21,8 @@ see RESULTS.md if you are comparing against an older figure.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/PCIRCLE-AI/memesh-llm-memory.git
-cd memesh-llm-memory
+git clone https://github.com/PCIRCLE-AI/memesh.git
+cd memesh
 
 # 2. Install dependencies and build
 #    The runner imports from dist/, so the build must run first.

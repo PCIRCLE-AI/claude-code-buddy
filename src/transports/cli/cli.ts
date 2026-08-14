@@ -55,7 +55,7 @@ const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 const program = new Command();
 program
   .name('memesh')
-  .description('MeMesh — Local memory for Claude Code and MCP coding agents')
+  .description('MeMesh — Agentic memory for coding agents')
   .version(pkg.version)
   // DX: silence Commander's default "too many arguments. Expected 0..."
   // error so the root action below can inspect program.args and emit a
@@ -1735,7 +1735,7 @@ program
     // the dashboard's /v1/doctor egress, in the same order.
     body = redactUserPaths(redactSecrets(body));
 
-    const url = `https://github.com/PCIRCLE-AI/memesh-llm-memory/issues/new?title=${encodeURIComponent(`[${typeLabel}] `)}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
+    const url = `https://github.com/PCIRCLE-AI/memesh/issues/new?title=${encodeURIComponent(`[${typeLabel}] `)}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
 
     if (opts.open === false) {
       console.log(url);

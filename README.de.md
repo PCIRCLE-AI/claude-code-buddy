@@ -27,7 +27,7 @@ Das ist kein Chatverlauf-Problem, sondern ein Agenten-Speicher-Problem. Was zwis
 **MeMesh ist dieser Speicher.** Hooks erfassen ihn aus dem, was der Agent tatsächlich tut (Sessions, Commits, Fehlschläge — keine manuellen Notizen), Recall injiziert ihn in dem Moment, in dem der Agent handelt (Session-Start, vor Dateibearbeitungen), und die Wissensgraph-Schicht hält ihn über die Zeit ehrlich (Supersession, LLM-beurteilte Konflikterkennung). Installation via npm, der Speicher liegt in `~/.memesh/knowledge-graph.db`, Anbindung an Claude Code oder jeden MCP-kompatiblen Client.
 
 > [!IMPORTANT]
-> **Aktiv entwickeltes Projekt** — Funktionen entwickeln sich kontinuierlich weiter und können sich zwischen Releases ändern. Bei Bugs oder Feature-Wünschen bitte [ein Issue eröffnen](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues).
+> **Aktiv entwickeltes Projekt** — Funktionen entwickeln sich kontinuierlich weiter und können sich zwischen Releases ändern. Bei Bugs oder Feature-Wünschen bitte [ein Issue eröffnen](https://github.com/PCIRCLE-AI/memesh/issues).
 
 ---
 
@@ -99,7 +99,7 @@ Wenn du memesh nur im Claude-Code-Chat verwendest (nie `memesh` im Terminal tipp
 Wenn Sie Claude Code nutzen, installieren Sie MeMesh als Plugin direkt in der CLI:
 
 ```
-/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin marketplace add PCIRCLE-AI/memesh
 /plugin install memesh@pcircle-memesh
 ```
 
@@ -445,8 +445,8 @@ Beim Session-Start erscheint ein einzeiliges Banner (pro Version alle 24h gedros
 ## Beitragen
 
 ```bash
-git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory && npm install && npm run build
+git clone https://github.com/PCIRCLE-AI/memesh
+cd memesh && npm install && npm run build
 npm test
 npm run test:e2e-dashboard
 ```

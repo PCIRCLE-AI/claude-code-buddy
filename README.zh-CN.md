@@ -27,7 +27,7 @@
 **MeMesh 就是这份记忆。**钩子从代理的实际行为中捕获记忆（会话、提交、失败 — 不是手动笔记），回忆在代理行动的那一刻注入记忆（会话开始时、编辑文件前），知识图谱层则让记忆长期保持诚实（supersession 汰换、由 LLM 判定的冲突检测）。用 npm 安装，记忆保存在 `~/.memesh/knowledge-graph.db`，连接到 Claude Code 或任何兼容 MCP 的客户端即可。
 
 > [!IMPORTANT]
-> **持续开发中的项目** — 功能会持续更新，版本之间可能会有变动。遇到问题或想要新功能，请[开 issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues)。
+> **持续开发中的项目** — 功能会持续更新，版本之间可能会有变动。遇到问题或想要新功能，请[开 issue](https://github.com/PCIRCLE-AI/memesh/issues)。
 
 ---
 
@@ -99,7 +99,7 @@ npm install -g @pcircle/memesh
 如果你使用 Claude Code，可以直接在 CLI 内把 MeMesh 作为插件安装：
 
 ```
-/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin marketplace add PCIRCLE-AI/memesh
 /plugin install memesh@pcircle-memesh
 ```
 
@@ -453,8 +453,8 @@ Session 开始时，若有新版本可下载，会显示一行 banner（每版�
 ## 贡献
 
 ```bash
-git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory && npm install && npm run build
+git clone https://github.com/PCIRCLE-AI/memesh
+cd memesh && npm install && npm run build
 npm test             # 630 个测试
 npm run test:e2e-dashboard
 ```

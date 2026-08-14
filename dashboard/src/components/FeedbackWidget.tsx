@@ -98,7 +98,7 @@ export function FeedbackWidget({ health }: { health: HealthData | null }) {
         } catch { /* doctor unavailable — basic sys-info still useful */ }
       }
       const typeLabel = t(TYPE_I18N_KEYS[fbType]);
-      const url = `https://github.com/PCIRCLE-AI/memesh-llm-memory/issues/new?title=${encodeURIComponent(`[${typeLabel}] `)}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
+      const url = `https://github.com/PCIRCLE-AI/memesh/issues/new?title=${encodeURIComponent(`[${typeLabel}] `)}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
       window.open(url, '_blank');
       setDesc('');
       setOpen(false);

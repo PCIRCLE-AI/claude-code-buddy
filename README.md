@@ -27,7 +27,7 @@ That's not a chat-history problem; it's an agent-memory problem. What needs to s
 **MeMesh is that memory.** Hooks capture it from what the agent actually does (sessions, commits, failures — not manual notes), recall injects it at the moment the agent acts (session start, before file edits), and the knowledge-graph layer keeps it honest over time (supersession, LLM-judged conflict detection). Install with npm, memory lives in `~/.memesh/knowledge-graph.db`, plug into Claude Code or any MCP-compatible client.
 
 > [!IMPORTANT]
-> Actively developed — features may change between releases. [Open an issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues) for bugs or feature requests.
+> Actively developed — features may change between releases. [Open an issue](https://github.com/PCIRCLE-AI/memesh/issues) for bugs or feature requests.
 
 ---
 
@@ -97,7 +97,7 @@ If you only use memesh through Claude Code chat (never type `memesh` in a termin
 If you use Claude Code, install MeMesh as a plugin from inside the CLI:
 
 ```
-/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin marketplace add PCIRCLE-AI/memesh
 /plugin install memesh@pcircle-memesh
 ```
 
@@ -532,8 +532,8 @@ Session start surfaces a one-line banner (throttled to once per 24h per version)
 ## Contributing
 
 ```bash
-git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory && npm install && npm run build
+git clone https://github.com/PCIRCLE-AI/memesh
+cd memesh && npm install && npm run build
 npm test
 npm run test:e2e-dashboard
 ```

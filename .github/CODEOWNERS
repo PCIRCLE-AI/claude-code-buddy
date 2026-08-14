@@ -1,4 +1,4 @@
-# memesh-llm-memory CODEOWNERS
+# memesh CODEOWNERS
 #
 # F4 (skill supply chain): skill files ship via npm and are loaded as
 # Claude Code system prompts. Any change must go through a maintainer
