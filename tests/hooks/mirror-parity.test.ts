@@ -224,6 +224,9 @@ describe('F5 mirror parity: scripts/hooks/_shared.js vs src/core', () => {
 
         expect(ftsMatch(hookDb, 'walrus')).toEqual([hookRes.id]);
         expect(ftsMatch(coreDb, 'walrus')).toEqual([coreId]);
+        // Anti-vacuity pin: the emptiness assertion after the re-title below
+        // only means something because the token demonstrably WAS indexed.
+        expect(ftsMatch(hookDb, 'walrus').length).toBe(1);
 
         // Re-title on both sides; the OLD title's tokens must vanish on both.
         shared.captureEntity(hookDb, {
