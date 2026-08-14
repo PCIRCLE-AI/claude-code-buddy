@@ -10,6 +10,6 @@ export declare function registerNfcFunction(db: MemeshDatabase): void;
 export declare function hasSearchableTerms(text: string): boolean;
 export declare function renderMatchExpression(terms: string[]): string | null;
 export declare function isLoneUnspacedChar(term: string): boolean;
-export declare function removeFromFts(db: MemeshDatabase, entityId: number, name: string, prevObsText: string): void;
-export declare function insertFtsRow(db: MemeshDatabase, entityId: number, name: string, observationsText: string): void;
+export declare function removeFromFts(db: MemeshDatabase, entityId: number, name: string, prevObsText: string, prevTitle?: string | null): void;
+export declare function insertFtsRow(db: MemeshDatabase, entityId: number, name: string, observationsText: string, title?: string | null): void;
 //# sourceMappingURL=fts-index.d.ts.map

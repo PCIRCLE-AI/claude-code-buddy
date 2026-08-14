@@ -6,7 +6,7 @@ import { runAutoDecay } from './core/lifecycle.js';
 import { resolveEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
-import { insertFtsRow } from './storage/fts-index.js';
+import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
 let db = null;
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entities (
@@ -268,8 +268,13 @@ function migrateToCurrentSchema(db, resolvedPath) {
         safeAlter("ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
         safeAlter("ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
     }
+    const titleCols = db.prepare("PRAGMA table_info(entities)").all();
+    if (!titleCols.some((c) => c.name === 'title')) {
+        safeAlter("ALTER TABLE entities ADD COLUMN title TEXT");
+    }
     runAutoDecay(db);
     backfillSignalScores(db);
+    backfillTitles(db);
     ensureDreamProposalsTable(db);
     ensureConflictJudgedPairsTable(db);
     ensureLlmTelemetryTable(db);
@@ -351,7 +356,7 @@ function ensureFtsSegmentation(db) {
 const FTS_REBUILD_PAGE_SIZE = 500;
 function rebuildFtsIndex(db) {
     db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
-    const page = db.prepare(`SELECT e.id, e.name, COALESCE(group_concat(o.content, ' '), '') AS obs
+    const page = db.prepare(`SELECT e.id, e.name, e.title, COALESCE(group_concat(o.content, ' '), '') AS obs
        FROM entities e
        LEFT JOIN observations o ON o.entity_id = e.id
       WHERE e.status = 'active' AND e.id > ?
@@ -364,7 +369,7 @@ function rebuildFtsIndex(db) {
         if (rows.length === 0)
             break;
         for (const row of rows)
-            insertFtsRow(db, row.id, row.name, row.obs);
+            insertFtsRow(db, row.id, row.name, row.obs, row.title);
         afterId = rows[rows.length - 1].id;
         if (rows.length < FTS_REBUILD_PAGE_SIZE)
             break;
@@ -591,6 +596,88 @@ function backfillSignalScores(db) {
             scored++;
         }
         db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)").run(MARKER, JSON.stringify({ at: new Date().toISOString(), scored, skipped }));
+    });
+    tx();
+}
+const BACKFILL_TITLE_MAX = 120;
+function truncateBackfillTitle(text) {
+    const trimmed = text.trim();
+    return trimmed.length > BACKFILL_TITLE_MAX
+        ? trimmed.slice(0, BACKFILL_TITLE_MAX - 1).trimEnd() + '…'
+        : trimmed;
+}
+function deriveHeuristicTitle(type, observations) {
+    if (observations.length === 0)
+        return null;
+    if (type === 'lesson_learned' || type === 'lesson' || type === 'mistake') {
+        const errObs = observations.find((o) => /^Error:\s*/.test(o.trim()));
+        if (errObs) {
+            const firstLine = errObs.trim().replace(/^Error:\s*/, '').split('\n')[0].trim();
+            if (firstLine)
+                return truncateBackfillTitle(firstLine);
+        }
+    }
+    if (type === 'commit') {
+        const first = observations[0]?.split('\n')[0].trim();
+        if (first && !/^(Branch|Diff stats):/.test(first))
+            return truncateBackfillTitle(first);
+    }
+    const nonTrivial = observations.filter((o) => o.length > 30 && !/^(Steps|Commits|Branch|Diff stats|Compaction reason|Tool calls)[:\s]/.test(o.trim()));
+    const pool = nonTrivial.length > 0 ? nonTrivial : observations;
+    const best = pool.slice(0, 3).reduce((a, b) => (b.length > a.length ? b : a), pool[0]);
+    const firstLine = best?.split('\n')[0].trim();
+    return firstLine ? truncateBackfillTitle(firstLine) : null;
+}
+function backfillTitles(db) {
+    const MARKER = 'title_backfill_v1';
+    const done = db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(MARKER);
+    if (done)
+        return;
+    const rows = db.prepare('SELECT id, name, type, status, metadata FROM entities WHERE title IS NULL').all();
+    const stamp = (titled, skipped) => db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(MARKER, JSON.stringify({ at: new Date().toISOString(), titled, skipped }));
+    if (rows.length === 0) {
+        stamp(0, 0);
+        return;
+    }
+    const obsStmt = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id');
+    const updateStmt = db.prepare('UPDATE entities SET title = ?, metadata = ? WHERE id = ?');
+    const tx = db.transaction(() => {
+        let titled = 0;
+        let skipped = 0;
+        for (const row of rows) {
+            let metadata;
+            if (row.metadata) {
+                try {
+                    metadata = JSON.parse(row.metadata);
+                }
+                catch {
+                    skipped++;
+                    continue;
+                }
+                if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
+                    skipped++;
+                    continue;
+                }
+            }
+            else {
+                metadata = {};
+            }
+            const observations = obsStmt.all(row.id).map(o => o.content);
+            const title = deriveHeuristicTitle(row.type, observations);
+            if (!title) {
+                skipped++;
+                continue;
+            }
+            metadata.title_source = 'heuristic';
+            updateStmt.run(title, JSON.stringify(metadata), row.id);
+            if (row.status === 'active') {
+                const obsText = observations.join(' ');
+                removeFromFts(db, row.id, row.name, obsText);
+                insertFtsRow(db, row.id, row.name, obsText, title);
+            }
+            titled++;
+        }
+        stamp(titled, skipped);
     });
     tx();
 }

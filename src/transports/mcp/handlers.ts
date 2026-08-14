@@ -35,6 +35,11 @@ export const TOOL_DEFINITIONS = [
           description:
             'Entity type (e.g., "decision", "pattern", "lesson", "commit")',
         },
+        title: {
+          type: 'string',
+          description:
+            'Short human-readable label for this memory (e.g. "Use PKCE over implicit flow for auth"), distinct from name (which stays a stable machine key). Shown as the headline in the dashboard and in memory recalled by an agent, instead of the raw name. Reusing an existing name with a different title UPDATES the title; omit to leave an existing title untouched.',
+        },
         observations: {
           type: 'array',
           items: { type: 'string' },

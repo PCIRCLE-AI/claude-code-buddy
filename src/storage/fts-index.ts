@@ -303,9 +303,28 @@ export function isLoneUnspacedChar(term: string): boolean {
 }
 
 /**
+ * `entities_fts` has no `title` column — it is contentless with exactly
+ * two indexed columns (name, observations), and adding a third would
+ * ripple into check-schema-drift.mjs's string comparison and every
+ * hand-mirrored SELECT that feeds this table. Instead, title is folded
+ * into the observations text at index time. This ONE function is the
+ * single source of truth for the fold: `insertFtsRow` and `removeFromFts`
+ * both call it, so a delete can never build its match text differently
+ * from the insert that created the row — which on a contentless FTS5
+ * table is exactly the class of bug that leaves a stale row behind
+ * forever (see removeFromFts's docstring).
+ */
+function foldTitleIntoObservations(
+  title: string | null | undefined,
+  observationsText: string,
+): string {
+  return title ? `${title} ${observationsText}` : observationsText;
+}
+
+/**
  * Remove a row from the contentless FTS5 index. Caller must supply the
- * previously-indexed name + observation text — that's what FTS5
- * requires to find the row in `content=''` mode.
+ * previously-indexed name + observation text (and title, if the row had
+ * one) — that's what FTS5 requires to find the row in `content=''` mode.
  *
  * Best-effort: this function MUST NOT throw, because callers (e.g.
  * `archiveEntity`, `rebuildFts`) treat FTS maintenance as a side
@@ -326,6 +345,7 @@ export function removeFromFts(
   entityId: number,
   name: string,
   prevObsText: string,
+  prevTitle?: string | null,
 ): void {
   try {
     // Segment on the way out too. Contentless FTS5 locates the row by the
@@ -334,7 +354,11 @@ export function removeFromFts(
     // every rebuild.
     db.prepare(
       "INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)",
-    ).run(entityId, toIndexForm(name), toIndexForm(prevObsText));
+    ).run(
+      entityId,
+      toIndexForm(name),
+      toIndexForm(foldTitleIntoObservations(prevTitle, prevObsText)),
+    );
   } catch (err) {
     if (isBenignFtsDeleteError(err)) return;
     // Real failure — log so an operator sees the index drift signal
@@ -379,8 +403,13 @@ export function insertFtsRow(
   entityId: number,
   name: string,
   observationsText: string,
+  title?: string | null,
 ): void {
   db.prepare(
     'INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)',
-  ).run(entityId, toIndexForm(name), toIndexForm(observationsText));
+  ).run(
+    entityId,
+    toIndexForm(name),
+    toIndexForm(foldTitleIntoObservations(title, observationsText)),
+  );
 }

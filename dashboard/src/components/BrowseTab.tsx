@@ -166,7 +166,7 @@ export function BrowseTab({ manage, health }: { manage?: boolean; health?: Healt
       if (value === 'never' && (e.access_count ?? 0) > 0) return false;
       if (project !== 'all' && extractProject(e) !== project) return false;
       if (f) {
-        const hay = [e.name, e.type, ...(e.observations ?? []), ...(e.tags ?? [])].join(' ').toLowerCase();
+        const hay = [e.name, e.title ?? '', e.type, ...(e.observations ?? []), ...(e.tags ?? [])].join(' ').toLowerCase();
         if (!hay.includes(f)) return false;
       }
       return true;

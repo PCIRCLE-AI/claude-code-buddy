@@ -472,6 +472,14 @@ function migrateHookDbToCurrent(db, opts) {
     safeAlter("ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
   }
 
+  // Human-readable titles: nullable, additive. Mirrors src/db.ts's ALTER
+  // exactly — this block is invisible to check-schema-drift.mjs (it only
+  // diffs SCHEMA_SQL/FTS_SQL base strings, never ALTER blocks), so keeping
+  // the two sides in sync here is a hand discipline, not a CI guarantee.
+  if (!colNames.has('title')) {
+    safeAlter("ALTER TABLE entities ADD COLUMN title TEXT");
+  }
+
   // v4.2.11: rebuild entities_fts when the segmentation rules change.
   //
   // Hooks write to the index through the same generated primitives core uses
@@ -715,7 +723,7 @@ function ensureHookFtsSegmentation(db) {
       // same connection is not something to rely on, and writing as we read is
       // the point. Keyset pagination on e.id bounds memory to one page.
       const page = db.prepare(
-        `SELECT e.id, e.name, COALESCE(group_concat(o.content, ' '), '') AS obs
+        `SELECT e.id, e.name, e.title, COALESCE(group_concat(o.content, ' '), '') AS obs
            FROM entities e
            LEFT JOIN observations o ON o.entity_id = e.id
           WHERE e.status = 'active' AND e.id > ?
@@ -727,7 +735,7 @@ function ensureHookFtsSegmentation(db) {
       for (;;) {
         const rows = page.all(afterId, FTS_REBUILD_PAGE_SIZE);
         if (rows.length === 0) break;
-        for (const row of rows) insertFtsRow(db, row.id, row.name, row.obs);
+        for (const row of rows) insertFtsRow(db, row.id, row.name, row.obs, row.title);
         afterId = rows[rows.length - 1].id;
         if (rows.length < FTS_REBUILD_PAGE_SIZE) break;
       }
@@ -778,6 +786,20 @@ function ensureHookFtsSegmentation(db) {
   }
 }
 
+/** Title cap, shared by every hook that generates one. Matches
+ *  pre-edit-recall.js's existing 120-char observation-preview convention —
+ *  a title should read as a short scannable label, distinctly shorter than
+ *  MemoryRow's 160-char fallback preview, not a second paragraph. */
+const TITLE_MAX_LENGTH = 120;
+
+export function truncateTitle(text) {
+  if (!text) return text;
+  const trimmed = text.trim();
+  return trimmed.length > TITLE_MAX_LENGTH
+    ? trimmed.slice(0, TITLE_MAX_LENGTH - 1).trimEnd() + '…'
+    : trimmed;
+}
+
 /**
  * Single owner of the hook-side entity write dance: upsert entity, append
  * observations + tags, and — critically — keep the contentless `entities_fts`
@@ -798,22 +820,49 @@ function ensureHookFtsSegmentation(db) {
  * the heavier, user-initiated `remember` concerns (core owns them).
  *
  * @param {import('./_generated/sqlite.js').MemeshDatabase} db - an open hook DB handle
- * @param {{name: string, type: string, observations?: string[], tags?: string[]}} entity
+ * @param {{name: string, type: string, observations?: string[], tags?: string[], title?: string | null}} entity
  * @returns {{ id: number, isNew: boolean } | null} null if the row could not be resolved
  */
-export function captureEntity(db, { name, type, observations = [], tags = [] }) {
+export function captureEntity(db, { name, type, observations = [], tags = [], title }) {
   // source_host provenance: these hooks only ever run under Claude Code (they
   // are wired into ~/.claude/settings.json), so a hook-captured entity is by
   // definition a claude-code capture. Stamped only on the INSERT — an OR
   // IGNORE re-capture of an existing entity must not overwrite provenance an
   // earlier writer (possibly another host, via MCP) already recorded.
+  //
+  // title_source: every title a hook writes is machine-derived, so it is
+  // marked 'heuristic'. The mark is what lets a later LLM titling pass
+  // (dreamer backfill) know which titles it may replace — an UNMARKED title
+  // is treated as human-provided and never touched, so omitting the mark
+  // here would make today's date+verb titles permanent.
+  const insertMetadata = { provenance: { source_host: 'claude-code' } };
+  if (title != null) insertMetadata.title_source = 'heuristic';
   const insertResult = db
-    .prepare('INSERT OR IGNORE INTO entities (name, type, metadata) VALUES (?, ?, ?)')
-    .run(name, type, JSON.stringify({ provenance: { source_host: 'claude-code' } }));
+    .prepare('INSERT OR IGNORE INTO entities (name, type, metadata, title) VALUES (?, ?, ?, ?)')
+    .run(name, type, JSON.stringify(insertMetadata), title ?? null);
   const isNew = insertResult.changes > 0;
-  const row = db.prepare('SELECT id FROM entities WHERE name = ?').get(name);
+  const row = db.prepare('SELECT id, title FROM entities WHERE name = ?').get(name);
   if (!row) return null;
   const id = row.id;
+
+  // Title update on an EXISTING entity — INSERT OR IGNORE never touches
+  // `title` when the row already exists, so mirror knowledge-graph.ts's
+  // createEntity(): only an explicit, actually-different value writes
+  // anything. Captured BEFORE the write so the FTS delete below matches
+  // what was indexed.
+  const previousTitle = row.title;
+  if (!isNew && title !== undefined && title !== previousTitle) {
+    db.prepare('UPDATE entities SET title = ? WHERE id = ?').run(title, id);
+    // Keep the heuristic mark in step with the write. Unparseable metadata is
+    // left alone (same discipline as backfillSignalScores) — the title still
+    // lands, and an unmarked title errs on the never-auto-replaced side.
+    const metaRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(id);
+    const meta = parseEntityMetadata(metaRow?.metadata);
+    if ((meta || !metaRow?.metadata) && title != null) {
+      db.prepare('UPDATE entities SET metadata = ? WHERE id = ?')
+        .run(JSON.stringify({ ...(meta ?? {}), title_source: 'heuristic' }), id);
+    }
+  }
 
   // Capture the previously-indexed observation text BEFORE inserting new rows,
   // so the contentless-FTS 'delete' below matches what was indexed. Only for
@@ -835,14 +884,15 @@ export function captureEntity(db, { name, type, observations = [], tags = [] }) 
   // current observation set. Uses the generated copy of src/storage/fts-index.ts
   // so the contentless-FTS5 delete+insert dance can no longer drift from core.
   if (prevObsText !== undefined) {
-    removeFromFts(db, id, name, prevObsText);
+    removeFromFts(db, id, name, prevObsText, previousTitle);
   }
   const allObsText = db
     .prepare('SELECT content FROM observations WHERE entity_id = ?')
     .all(id)
     .map((o) => o.content)
     .join(' ');
-  insertFtsRow(db, id, name, allObsText);
+  const currentTitle = db.prepare('SELECT title FROM entities WHERE id = ?').get(id)?.title ?? null;
+  insertFtsRow(db, id, name, allObsText, currentTitle);
 
   return { id, isNew };
 }

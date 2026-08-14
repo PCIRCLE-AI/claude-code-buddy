@@ -82,13 +82,19 @@ export class KnowledgeGraph {
             });
         }
         const insertResult = this.db
-            .prepare('INSERT OR IGNORE INTO entities (name, type, metadata, namespace) VALUES (?, ?, ?, ?)')
-            .run(name, type, JSON.stringify(incomingMetadata), opts?.namespace ?? 'personal');
+            .prepare('INSERT OR IGNORE INTO entities (name, type, metadata, namespace, title) VALUES (?, ?, ?, ?, ?)')
+            .run(name, type, JSON.stringify(incomingMetadata), opts?.namespace ?? 'personal', opts?.title ?? null);
         const isNewEntity = insertResult.changes > 0;
         const row = this.db
-            .prepare('SELECT id, status, namespace FROM entities WHERE name = ?')
+            .prepare('SELECT id, status, namespace, title FROM entities WHERE name = ?')
             .get(name);
         const entityId = row.id;
+        const previousTitle = row.title;
+        if (!isNewEntity && opts?.title !== undefined && opts.title !== previousTitle) {
+            this.db
+                .prepare('UPDATE entities SET title = ? WHERE id = ?')
+                .run(opts.title, entityId);
+        }
         const previousNamespace = row.namespace ?? 'personal';
         const requestedNamespace = opts?.namespace;
         if (!isNewEntity && requestedNamespace !== undefined && requestedNamespace !== previousNamespace) {
@@ -135,7 +141,7 @@ export class KnowledgeGraph {
                 insertObs.run(entityId, obs);
             }
         }
-        this.rebuildFts(entityId, name, prevObsText);
+        this.rebuildFts(entityId, name, prevObsText, previousTitle);
         if (opts?.tags?.length) {
             const insertTag = this.db.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)');
             for (const tag of opts.tags) {
@@ -176,7 +182,7 @@ export class KnowledgeGraph {
     }
     getEntity(name) {
         const row = this.db
-            .prepare('SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace FROM entities WHERE name = ?')
+            .prepare('SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace FROM entities WHERE name = ?')
             .get(name);
         if (!row)
             return null;
@@ -192,6 +198,7 @@ export class KnowledgeGraph {
         return {
             id: row.id,
             name: row.name,
+            title: row.title,
             type: row.type,
             created_at: row.created_at,
             metadata: row.metadata ? this.parseMetadata(row.metadata) : undefined,
@@ -215,7 +222,7 @@ export class KnowledgeGraph {
         if (opts?.namespace)
             params.push(opts.namespace);
         const entityRows = this.db
-            .prepare(`SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace
+            .prepare(`SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace
          FROM entities WHERE id IN (${placeholders}) ${statusFilter} ${namespaceFilter}`)
             .all(...params);
         const entityMap = new Map();
@@ -271,6 +278,7 @@ export class KnowledgeGraph {
             results.push({
                 id: row.id,
                 name: row.name,
+                title: row.title,
                 type: row.type,
                 created_at: row.created_at,
                 metadata: row.metadata ? this.parseMetadata(row.metadata) : undefined,
@@ -361,9 +369,10 @@ export class KnowledgeGraph {
             registerNfcFunction(this.db);
             const termClause = likeTerms
                 .map(() => `(${SQL_NFC_FUNCTION}(e.name) LIKE ? ESCAPE '\\' ` +
+                `OR ${SQL_NFC_FUNCTION}(COALESCE(e.title, '')) LIKE ? ESCAPE '\\' ` +
                 `OR ${SQL_NFC_FUNCTION}(o.content) LIKE ? ESCAPE '\\')`)
                 .join(' OR ');
-            const archivedParams = likeTerms.flatMap((t) => [t, t]);
+            const archivedParams = likeTerms.flatMap((t) => [t, t, t]);
             if (opts?.tag)
                 archivedParams.push(opts.tag);
             if (opts?.namespace)
@@ -446,7 +455,7 @@ export class KnowledgeGraph {
     }
     clearEntityData(name) {
         const row = this.db
-            .prepare('SELECT id FROM entities WHERE name = ?')
+            .prepare('SELECT id, title FROM entities WHERE name = ?')
             .get(name);
         if (!row)
             return;
@@ -458,11 +467,11 @@ export class KnowledgeGraph {
             : undefined;
         this.db.prepare('DELETE FROM observations WHERE entity_id = ?').run(row.id);
         this.db.prepare('DELETE FROM tags WHERE entity_id = ?').run(row.id);
-        this.rebuildFts(row.id, name, prevObsText);
+        this.rebuildFts(row.id, name, prevObsText, row.title);
     }
     archiveEntity(name) {
         const row = this.db
-            .prepare('SELECT id, status FROM entities WHERE name = ?')
+            .prepare('SELECT id, status, title FROM entities WHERE name = ?')
             .get(name);
         if (!row)
             return { archived: false };
@@ -470,7 +479,7 @@ export class KnowledgeGraph {
             .prepare('SELECT content FROM observations WHERE entity_id = ?')
             .all(row.id);
         const obsText = allObs.map((o) => o.content).join(' ');
-        removeFromFts(this.db, row.id, name, obsText);
+        removeFromFts(this.db, row.id, name, obsText, row.title);
         if (hasVectorIndex(this.db)) {
             this.db
                 .prepare('DELETE FROM entities_vec WHERE rowid = ?')
@@ -483,7 +492,7 @@ export class KnowledgeGraph {
     }
     removeObservation(entityName, observationContent) {
         const row = this.db
-            .prepare('SELECT id FROM entities WHERE name = ?')
+            .prepare('SELECT id, title FROM entities WHERE name = ?')
             .get(entityName);
         if (!row)
             return { removed: false, remainingObservations: 0, entityFound: false };
@@ -497,7 +506,7 @@ export class KnowledgeGraph {
         if (deleteResult.changes === 0) {
             return { removed: false, remainingObservations: prevObs.length, entityFound: true };
         }
-        this.rebuildFts(row.id, entityName, prevObsText);
+        this.rebuildFts(row.id, entityName, prevObsText, row.title);
         const remaining = this.db
             .prepare('SELECT COUNT(*) as c FROM observations WHERE entity_id = ?')
             .get(row.id);
@@ -505,7 +514,7 @@ export class KnowledgeGraph {
     }
     deleteEntity(name) {
         const row = this.db
-            .prepare('SELECT id FROM entities WHERE name = ?')
+            .prepare('SELECT id, title FROM entities WHERE name = ?')
             .get(name);
         if (!row)
             return { deleted: false };
@@ -513,7 +522,7 @@ export class KnowledgeGraph {
             .prepare('SELECT content FROM observations WHERE entity_id = ?')
             .all(row.id);
         const obsText = allObs.map((o) => o.content).join(' ');
-        removeFromFts(this.db, row.id, name, obsText);
+        removeFromFts(this.db, row.id, name, obsText, row.title);
         if (hasVectorIndex(this.db)) {
             this.db
                 .prepare('DELETE FROM entities_vec WHERE rowid = ?')
@@ -533,15 +542,18 @@ export class KnowledgeGraph {
             return {};
         }
     }
-    rebuildFts(entityId, entityName, previousObsText) {
+    rebuildFts(entityId, entityName, previousObsText, previousTitle) {
         if (previousObsText !== undefined) {
-            removeFromFts(this.db, entityId, entityName, previousObsText);
+            removeFromFts(this.db, entityId, entityName, previousObsText, previousTitle);
         }
         const allObs = this.db
             .prepare('SELECT content FROM observations WHERE entity_id = ?')
             .all(entityId);
         const obsText = allObs.map((o) => o.content).join(' ');
-        insertFtsRow(this.db, entityId, entityName, obsText);
+        const currentTitleRow = this.db
+            .prepare('SELECT title FROM entities WHERE id = ?')
+            .get(entityId);
+        insertFtsRow(this.db, entityId, entityName, obsText, currentTitleRow?.title ?? null);
     }
 }
 //# sourceMappingURL=knowledge-graph.js.map

@@ -41,6 +41,7 @@ import {
   resolveAutoUpdatePolicy,
   resolvePluginRoot,
   spawnAutoUpdate,
+  truncateTitle,
 } from './_shared.js';
 
 const require = createRequire(import.meta.url);
@@ -354,13 +355,20 @@ process.stdin.on('end', async () => {
       // entities_fts too. This copy used to insert entity + observations + tags
       // only, skipping the FTS reindex the sibling hooks did — which left every
       // session-insight memory unrecallable via the FTS keyword path.
-      function storeMemory(name, type, observations, tags) {
+      function storeMemory(name, type, observations, tags, title) {
         // null = the entity row could not be resolved = this write did NOT
         // happen (captureEntity's contract). A run with a failed write must
         // not stamp the heartbeat below — "alive" would be a lie about the
         // exact thing the heartbeat certifies.
-        if (!captureEntity(db, { name, type, observations, tags })) writeFailed = true;
+        if (!captureEntity(db, { name, type, observations, tags, title })) writeFailed = true;
       }
+
+      // No free-form human text exists for these three entities the way a
+      // commit subject does — title is synthesized from the same structured
+      // counts the observations already report. date+project+verb, per the
+      // heuristic the design settled on for hooks with no natural title source.
+      const titleDate = new Date().toISOString().slice(0, 10);
+      const titlePrefix = `${titleDate} ${projectName}`;
 
       // Rule 1: File editing session summary
       if (filesEdited.length > 0) {
@@ -371,7 +379,8 @@ process.stdin.on('end', async () => {
             `Session edited ${filesEdited.length} file(s): ${filesEdited.join(', ')}`,
             `Total tool calls: ${toolCallCount}`,
           ],
-          [...baseTags, ...fileTagsFor(filesEdited)]
+          [...baseTags, ...fileTagsFor(filesEdited)],
+          truncateTitle(`${titlePrefix}: edited ${filesEdited.length} file(s)`)
         );
       }
 
@@ -384,7 +393,8 @@ process.stdin.on('end', async () => {
             `Fixed ${errorsEncountered.length} error(s) by editing ${filesEdited.join(', ')}`,
             ...errorsEncountered.slice(0, 3).map(e => `Error: ${e.slice(0, 100)}`),
           ],
-          [...baseTags, 'type:bugfix', ...fileTagsFor(filesEdited)]
+          [...baseTags, 'type:bugfix', ...fileTagsFor(filesEdited)],
+          truncateTitle(`${titlePrefix}: fixed ${errorsEncountered.length} error(s)`)
         );
       }
 
@@ -397,7 +407,8 @@ process.stdin.on('end', async () => {
             `Significant session: ${toolCallCount} tool calls, ${filesEdited.length} files edited`,
             ...bashCommands.slice(0, 3).map(c => `Command: ${c}`),
           ],
-          [...baseTags, 'type:heavy-session']
+          [...baseTags, 'type:heavy-session'],
+          truncateTitle(`${titlePrefix}: significant session (${toolCallCount} tool calls)`)
         );
       }
 

@@ -33,9 +33,12 @@ describe('ProjectRoadmap — SPEC-9 v0/v1 acceptance criteria', () => {
   });
 
   it('renders a single-entity project without crashing (edge E1)', () => {
-    const e = makeEntity({ name: 'lone', type: 'decision' });
+    // UX-1: the machine name never renders; the title (or observation
+    // fallback) is the visible label.
+    const e = makeEntity({ name: 'lone', title: 'The only decision here', type: 'decision' });
     const { container } = render(<ProjectRoadmap projectName="solo" entities={[e]} />);
-    expect(container.textContent).toContain('lone');
+    expect(container.textContent).toContain('The only decision here');
+    expect(container.textContent).not.toContain('lone');
   });
 
   it('shows "Switch to List view" button only when handler is provided (v0 AC2)', () => {
@@ -53,14 +56,14 @@ describe('ProjectRoadmap — SPEC-9 v0/v1 acceptance criteria', () => {
 
   it('puts release type FIRST within a date group (v0 AC4 — type priority sort)', () => {
     const entities = [
-      makeEntity({ id: 1, name: 'late-decision', type: 'decision', created_at: '2026-04-15T08:00:00.000Z' }),
-      makeEntity({ id: 2, name: 'early-release', type: 'release', created_at: '2026-04-15T09:00:00.000Z' }),
+      makeEntity({ id: 1, name: 'late-decision', title: 'A decision made late', type: 'decision', created_at: '2026-04-15T08:00:00.000Z' }),
+      makeEntity({ id: 2, name: 'early-release', title: 'Shipped the early release', type: 'release', created_at: '2026-04-15T09:00:00.000Z' }),
     ];
     const { container } = render(<ProjectRoadmap projectName="x" entities={entities} />);
-    // Find the visible names in DOM order — release should come before decision
+    // Find the visible titles in DOM order — release should come before decision
     const text = container.textContent ?? '';
-    const releaseIdx = text.indexOf('early-release');
-    const decisionIdx = text.indexOf('late-decision');
+    const releaseIdx = text.indexOf('Shipped the early release');
+    const decisionIdx = text.indexOf('A decision made late');
     expect(releaseIdx).toBeGreaterThanOrEqual(0);
     expect(decisionIdx).toBeGreaterThanOrEqual(0);
     expect(releaseIdx).toBeLessThan(decisionIdx);
@@ -68,15 +71,17 @@ describe('ProjectRoadmap — SPEC-9 v0/v1 acceptance criteria', () => {
 
   it('renders a Milestones rail when release entities exist (v1 AC6)', () => {
     const entities = [
-      makeEntity({ id: 1, name: 'v4.0.0', type: 'release', tags: ['project:memesh'] }),
-      makeEntity({ id: 2, name: 'a-decision', type: 'decision' }),
+      makeEntity({ id: 1, name: 'v4.0.0', title: 'Release v4.0.0 shipped', type: 'release', tags: ['project:memesh'] }),
+      makeEntity({ id: 2, name: 'a-decision', title: 'Some decision', type: 'decision' }),
     ];
     const { container } = render(<ProjectRoadmap projectName="memesh" entities={entities} />);
     // The milestones header label
     expect(container.textContent).toMatch(/里程碑|Milestones/i);
-    // The release entity name should appear in the rail (in addition to timeline)
-    const releaseMatches = (container.textContent?.match(/v4\.0\.0/g) ?? []).length;
+    // The release entity's TITLE should appear in the rail (in addition to
+    // the timeline row) — the machine name never renders anywhere.
+    const releaseMatches = (container.textContent?.match(/Release v4\.0\.0 shipped/g) ?? []).length;
     expect(releaseMatches).toBeGreaterThanOrEqual(2); // once in rail, once in timeline
+    expect(container.textContent).not.toMatch(/a-decision/);
   });
 
   it('does NOT render Milestones rail when no release entities exist (v1 AC8)', () => {
@@ -95,15 +100,17 @@ describe('ProjectRoadmap — SPEC-9 v0/v1 acceptance criteria', () => {
     const entities = [
       makeEntity({ id: 1, name: 'a', type: 'decision', created_at: '2026-04-17T08:00:00.000Z' }),
       makeEntity({ id: 2, name: 'b', type: 'pattern', created_at: '2026-04-17T10:00:00.000Z' }),
-      makeEntity({ id: 3, name: 'foundation-release', type: 'release', created_at: '2026-04-18T09:00:00.000Z' }),
+      makeEntity({ id: 3, name: 'foundation-release', title: 'Foundation release shipped', type: 'release', created_at: '2026-04-18T09:00:00.000Z' }),
       makeEntity({ id: 4, name: 'd', type: 'note', created_at: '2026-04-18T11:00:00.000Z' }),
       makeEntity({ id: 5, name: 'e', type: 'decision', created_at: '2026-05-02T08:00:00.000Z' }),
-      makeEntity({ id: 6, name: 'v2-release', type: 'release', created_at: '2026-05-02T12:00:00.000Z' }),
+      makeEntity({ id: 6, name: 'v2-release', title: 'Version two out the door', type: 'release', created_at: '2026-05-02T12:00:00.000Z' }),
       makeEntity({ id: 7, name: 'g', type: 'pattern', created_at: '2026-05-03T08:00:00.000Z' }),
     ];
     const { container } = render(<ProjectRoadmap projectName="x" entities={entities} />);
-    expect(container.textContent).toContain('foundation-release');
-    expect(container.textContent).toContain('v2-release');
+    // Phase anchors are labelled by title (never the machine name).
+    expect(container.textContent).toContain('Foundation release shipped');
+    expect(container.textContent).toContain('Version two out the door');
+    expect(container.textContent).not.toContain('foundation-release');
   });
 
   it('does NOT render phase strip when density is below threshold (v2 AC12)', () => {
@@ -117,21 +124,21 @@ describe('ProjectRoadmap — SPEC-9 v0/v1 acceptance criteria', () => {
 
   it('renders Key Lessons rail sorted by access_count desc (v1 AC7)', () => {
     const entities = [
-      makeEntity({ id: 1, name: 'low-recall', type: 'lesson_learned', access_count: 3 }),
-      makeEntity({ id: 2, name: 'high-recall', type: 'lesson_learned', access_count: 50 }),
-      makeEntity({ id: 3, name: 'mid-recall', type: 'lesson_learned', access_count: 12 }),
+      makeEntity({ id: 1, name: 'low-recall', title: 'Rarely recalled lesson', type: 'lesson_learned', access_count: 3 }),
+      makeEntity({ id: 2, name: 'high-recall', title: 'Constantly recalled lesson', type: 'lesson_learned', access_count: 50 }),
+      makeEntity({ id: 3, name: 'mid-recall', title: 'Sometimes recalled lesson', type: 'lesson_learned', access_count: 12 }),
     ];
     const { container } = render(<ProjectRoadmap projectName="x" entities={entities} />);
-    // Find the rail card by its localised heading. Then check entity-name
-    // order *within the rail* — the timeline column may render the same
-    // names in a different order (typeof-priority, not access_count).
+    // Find the rail card by its localised heading. Then check title order
+    // *within the rail* — the timeline column may render the same titles
+    // in a different order (type-priority, not access_count).
     const cards = Array.from(container.querySelectorAll('.card'));
     const railCard = cards.find((c) => /重要教訓|Key lessons/i.test(c.textContent ?? ''));
     expect(railCard).toBeDefined();
     const railText = railCard!.textContent ?? '';
-    const high = railText.indexOf('high-recall');
-    const mid = railText.indexOf('mid-recall');
-    const low = railText.indexOf('low-recall');
+    const high = railText.indexOf('Constantly recalled lesson');
+    const mid = railText.indexOf('Sometimes recalled lesson');
+    const low = railText.indexOf('Rarely recalled lesson');
     expect(high).toBeGreaterThanOrEqual(0);
     expect(mid).toBeGreaterThan(high);
     expect(low).toBeGreaterThan(mid);

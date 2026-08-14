@@ -2,7 +2,7 @@ import { t as translate } from '../lib/i18n';
 import type { Entity } from '../lib/api';
 import {
   relativeDate,
-  pickBestObservation,
+  displayTitle,
   accessSignal,
   extractProject,
   typeLabel,
@@ -39,7 +39,7 @@ const TONE_COLORS = {
 } as const;
 
 export function MemoryRow({ entity: e, actions, highlight }: Props) {
-  const preview = pickBestObservation(e.observations) || translate('memory.noContent');
+  const preview = displayTitle(e) || translate('memory.noContent');
   const obsCount = e.observations?.length ?? 0;
   const isArchived = e.archived || e.status === 'archived';
   const project = extractProject(e);
@@ -58,7 +58,10 @@ export function MemoryRow({ entity: e, actions, highlight }: Props) {
         <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>{relTime}</div>
       </div>
       <div class="mem-body">
-        <div class="mem-preview">
+        {/* The machine key (e.name) is deliberately NOT in the visible row —
+            it is a dedup/append key, not a label. Hovering the headline
+            reveals it for the rare "which entity is this exactly" case. */}
+        <div class="mem-preview" title={e.name}>
           {highlight ? <Highlight text={truncate(preview, 160)} term={highlight} /> : truncate(preview, 160)}
         </div>
         <div class="mem-meta" style={{ flexWrap: 'wrap', gap: 6 }}>
@@ -94,7 +97,6 @@ export function MemoryRow({ entity: e, actions, highlight }: Props) {
               → {e.relations!.length}
             </span>
           )}
-          <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{e.name}</span>
           <span
             style={{
               color: 'var(--text-3)',

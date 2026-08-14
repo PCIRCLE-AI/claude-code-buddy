@@ -124,6 +124,15 @@ describe('Feature: PreCompact Hook', () => {
     expect(tags).toContain('urgency:pre-compact');
     expect(tags).toContain(`project:${mirrorProjectName('/tmp/myproject')}`);
 
+    // UX-1 title: date + project + what happened, marked heuristic. The raw
+    // `pre-compact-<sessionId>` name was the clearest machine-key-as-label
+    // case in the audit; the title is what the dashboard shows instead.
+    const titled = db.prepare('SELECT title, metadata FROM entities WHERE name = ?')
+      .get('pre-compact-sess-abc123') as { title: string | null; metadata: string | null };
+    expect(titled.title).toMatch(/^\d{4}-\d{2}-\d{2} .+: auto compaction \(0 tool calls\)$/);
+    expect(titled.title).toContain(mirrorProjectName('/tmp/myproject'));
+    expect(JSON.parse(titled.metadata as string).title_source).toBe('heuristic');
+
     db.close();
   });
 

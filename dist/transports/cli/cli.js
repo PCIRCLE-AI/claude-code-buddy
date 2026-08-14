@@ -42,6 +42,7 @@ program
     .description('Store knowledge as an entity (use flags for explicit form, or positional text for quick capture)')
     .option('--name <name>', 'Entity name')
     .option('--type <type>', 'Entity type')
+    .option('--title <title>', 'Short human-readable label shown as the headline (name stays the stable machine key)')
     .option('--obs <observations...>', 'Observations (space-separated)')
     .option('--tags <tags...>', 'Tags (space-separated)')
     .option('--namespace <namespace>', 'Namespace: personal, team, or global. On a NEW memory this places it (default personal); on one that already exists it MOVES it out of the scope it is in — omit the flag to leave it alone.')
@@ -60,6 +61,8 @@ program
         const suffix = randomBytes(3).toString('hex');
         opts.name = `quick-${date}-${slug || 'note'}-${suffix}`;
         opts.type = 'note';
+        if (!opts.title)
+            opts.title = String(text).slice(0, 200);
         if (!opts.obs || opts.obs.length === 0)
             opts.obs = [String(text)];
         else
@@ -85,6 +88,7 @@ program
         const result = remember({
             name: opts.name,
             type: opts.type,
+            title: opts.title,
             observations: opts.obs,
             tags: opts.tags,
             namespace: opts.namespace,

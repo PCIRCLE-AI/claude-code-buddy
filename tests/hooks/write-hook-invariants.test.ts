@@ -55,6 +55,98 @@ describe('write-hook invariants (fake-working gates)', () => {
     }
   });
 
+  it('captureEntity writes the title, marks it heuristic, and makes it FTS-searchable', () => {
+    // UX-1: the title is folded into the FTS feed on the hook side too. If
+    // this stops happening, the human-readable label a hook writes is the one
+    // string recall cannot see.
+    const handle = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { fts: true });
+    const { db } = handle;
+    try {
+      const res = shared.captureEntity(db, {
+        name: 'titled-entity-1',
+        type: 'commit',
+        observations: ['some ordinary observation text'],
+        title: 'fix the flamingo renderer',
+      });
+      const row = db.prepare('SELECT title, metadata FROM entities WHERE id = ?').get(res.id) as
+        { title: string; metadata: string };
+      expect(row.title).toBe('fix the flamingo renderer');
+      // Unmarked auto-titles become permanent — the LLM titling pass may only
+      // replace titles explicitly marked heuristic.
+      expect(JSON.parse(row.metadata).title_source).toBe('heuristic');
+
+      // "flamingo" appears ONLY in the title.
+      const hits = (db.prepare(
+        "SELECT rowid FROM entities_fts WHERE entities_fts MATCH 'flamingo'",
+      ).all() as Array<{ rowid: number }>).map((r) => r.rowid);
+      expect(hits, 'the title is not reachable through FTS — the fold was dropped').toContain(res.id);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('captureEntity title update keeps the contentless FTS index symmetric', () => {
+    // Contentless FTS5: the delete must be issued with the exact text that
+    // was indexed. A re-capture that changes the title must remove the OLD
+    // title's tokens and index the new — or search keeps answering for a
+    // label the entity no longer has.
+    const handle = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { fts: true });
+    const { db } = handle;
+    try {
+      const res = shared.captureEntity(db, {
+        name: 'retitled-entity',
+        type: 'session-summary',
+        observations: ['first capture'],
+        title: 'ostrich phase one',
+      });
+      shared.captureEntity(db, {
+        name: 'retitled-entity',
+        type: 'session-summary',
+        observations: ['second capture'],
+        title: 'pelican phase two',
+      });
+
+      const match = (term: string) => (db.prepare(
+        `SELECT rowid FROM entities_fts WHERE entities_fts MATCH '${term}'`,
+      ).all() as Array<{ rowid: number }>).map((r) => r.rowid);
+
+      expect(match('pelican'), 'the new title must be indexed').toContain(res.id);
+      expect(match('ostrich'), 'stale tokens from the replaced title survived — asymmetric delete').not.toContain(res.id);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('captureEntity leaves an existing title alone when the caller sends none', () => {
+    const handle = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: dbPath }, { fts: true });
+    const { db } = handle;
+    try {
+      shared.captureEntity(db, {
+        name: 'keep-title', type: 'note', observations: ['a'], title: 'the original label',
+      });
+      shared.captureEntity(db, {
+        name: 'keep-title', type: 'note', observations: ['b'],
+      });
+      const row = db.prepare("SELECT title FROM entities WHERE name = 'keep-title'").get() as { title: string };
+      expect(row.title).toBe('the original label');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('every write hook caps its title through the shared truncateTitle', () => {
+    // The display side never falls back to `name`, so a hook that stops
+    // titling quietly reverts its entities to the pre-UX-1 look. That a
+    // title actually LANDS is pinned end-to-end per hook (post-commit.test.ts,
+    // session-summary.test.ts, pre-compact.test.ts assert the written row);
+    // this grep only guards the shared length cap, which the row assertions
+    // cannot see unless the fixture text happens to be long.
+    for (const hook of ['session-summary.js', 'post-commit.js', 'pre-compact.js']) {
+      const src = fs.readFileSync(path.join('scripts/hooks', hook), 'utf8');
+      expect(src, `${hook} must cap its title via the shared truncateTitle`).toMatch(/truncateTitle\(/);
+    }
+  });
+
   it('captureEntity stamps source_host=claude-code on a NEW entity', () => {
     // Hooks only ever run under Claude Code, so hook capture IS claude-code
     // capture. The stamp is what lets a federated reader (phase 03) say which

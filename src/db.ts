@@ -6,7 +6,7 @@ import { runAutoDecay } from './core/lifecycle.js';
 import { resolveEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
-import { insertFtsRow } from './storage/fts-index.js';
+import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
 import type { PragmaColumnRow } from './core/types.js';
 
 let db: MemeshDatabase | null = null;
@@ -383,6 +383,19 @@ function migrateToCurrentSchema(db: MemeshDatabase, resolvedPath: string): void 
     safeAlter("ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
   }
 
+  // Migrate: add title column if missing (human-readable titles).
+  // Nullable, additive only — `name` keeps its machine-key identity
+  // semantics (dedup/append), `title` is the display string a human or
+  // agent reads first. NOT covered by check-schema-drift.mjs (that script
+  // only diffs the base CREATE TABLE strings in SCHEMA_SQL/FTS_SQL, never
+  // ALTER blocks like this one — see scripts/hooks/_shared.js's
+  // migrateHookDbToCurrent, which this block must be kept in lockstep
+  // with by hand, same discipline as every ALTER above it).
+  const titleCols = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
+  if (!titleCols.some((c) => c.name === 'title')) {
+    safeAlter("ALTER TABLE entities ADD COLUMN title TEXT");
+  }
+
   // Run auto-decay: reduce confidence for stale entities (throttled to once per 24h)
   runAutoDecay(db);
 
@@ -393,6 +406,10 @@ function migrateToCurrentSchema(db: MemeshDatabase, resolvedPath: string): void 
   // schema-version bumps to the scorer can re-run by changing the
   // marker key.
   backfillSignalScores(db);
+
+  // UX-1: give pre-title rows a human-readable heuristic title. Same
+  // marker + fill-only discipline as backfillSignalScores above.
+  backfillTitles(db);
 
   // Phase-2 of #39 (LLM cluster compactor): proposed digests live in
   // a staging table, written by the dreamer and reviewed by the user
@@ -706,7 +723,7 @@ function rebuildFtsIndex(db: MemeshDatabase): void {
   db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
 
   const page = db.prepare(
-    `SELECT e.id, e.name, COALESCE(group_concat(o.content, ' '), '') AS obs
+    `SELECT e.id, e.name, e.title, COALESCE(group_concat(o.content, ' '), '') AS obs
        FROM entities e
        LEFT JOIN observations o ON o.entity_id = e.id
       WHERE e.status = 'active' AND e.id > ?
@@ -720,11 +737,12 @@ function rebuildFtsIndex(db: MemeshDatabase): void {
     const rows = page.all(afterId, FTS_REBUILD_PAGE_SIZE) as Array<{
       id: number;
       name: string;
+      title: string | null;
       obs: string;
     }>;
     if (rows.length === 0) break;
 
-    for (const row of rows) insertFtsRow(db, row.id, row.name, row.obs);
+    for (const row of rows) insertFtsRow(db, row.id, row.name, row.obs, row.title);
     afterId = rows[rows.length - 1].id;
 
     if (rows.length < FTS_REBUILD_PAGE_SIZE) break;
@@ -1241,6 +1259,131 @@ function backfillSignalScores(db: MemeshDatabase): void {
     db.prepare(
       "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)"
     ).run(MARKER, JSON.stringify({ at: new Date().toISOString(), scored, skipped }));
+  });
+  tx();
+}
+
+/** Backfill cap — mirrors TITLE_MAX_LENGTH in scripts/hooks/_shared.js
+ *  (the F5 boundary keeps hook and core as two copies of the contract). */
+const BACKFILL_TITLE_MAX = 120;
+
+function truncateBackfillTitle(text: string): string {
+  const trimmed = text.trim();
+  return trimmed.length > BACKFILL_TITLE_MAX
+    ? trimmed.slice(0, BACKFILL_TITLE_MAX - 1).trimEnd() + '…'
+    : trimmed;
+}
+
+/**
+ * Derive a heuristic title for a pre-title row, or null to leave it
+ * untitled. Null is a fine answer: the dashboard's display fallback
+ * (pickBestObservation → typeLabel+date) already covers untitled rows,
+ * so a title is only written when it says something the fallback cannot.
+ * Never derived from `name` — that is the machine key the title exists
+ * to hide.
+ */
+function deriveHeuristicTitle(type: string, observations: string[]): string | null {
+  if (observations.length === 0) return null;
+
+  // Failure lessons: the Error line is the story. Strip the label,
+  // keep the first line of the description.
+  if (type === 'lesson_learned' || type === 'lesson' || type === 'mistake') {
+    const errObs = observations.find((o) => /^Error:\s*/.test(o.trim()));
+    if (errObs) {
+      const firstLine = errObs.trim().replace(/^Error:\s*/, '').split('\n')[0].trim();
+      if (firstLine) return truncateBackfillTitle(firstLine);
+    }
+  }
+
+  // Commits: post-commit.js stores the commit subject as the first
+  // observation ("Branch: ..." / "Diff stats: ..." follow it).
+  if (type === 'commit') {
+    const first = observations[0]?.split('\n')[0].trim();
+    if (first && !/^(Branch|Diff stats):/.test(first)) return truncateBackfillTitle(first);
+  }
+
+  // Generic: same selection MemoryRow's preview used pre-title — the
+  // longest non-boilerplate observation among the first few — reduced
+  // to its first line.
+  const nonTrivial = observations.filter(
+    (o) => o.length > 30 && !/^(Steps|Commits|Branch|Diff stats|Compaction reason|Tool calls)[:\s]/.test(o.trim())
+  );
+  const pool = nonTrivial.length > 0 ? nonTrivial : observations;
+  const best = pool.slice(0, 3).reduce((a, b) => (b.length > a.length ? b : a), pool[0]);
+  const firstLine = best?.split('\n')[0].trim();
+  return firstLine ? truncateBackfillTitle(firstLine) : null;
+}
+
+/**
+ * Backfill `title` on rows created before the column existed (UX-1).
+ *
+ * Same shape as backfillSignalScores above: one-time pass keyed by the
+ * MARKER constant, fill-only (`WHERE title IS NULL` — an existing title is
+ * never overwritten, so the pass is idempotent by construction as well as
+ * by marker), single transaction, unparseable metadata leaves the row
+ * untouched. Every written title is stamped `metadata.title_source =
+ * 'heuristic'` so a later LLM titling pass knows it may replace them;
+ * an unmarked title is treated as human-provided and permanent.
+ *
+ * FTS: the title is folded into each entity's FTS feed on index, and these
+ * rows were indexed BEFORE they had one — so every titled row must be
+ * reindexed here, or the next contentless-FTS delete (issued with the
+ * now-current title folded in) would not match what the index holds and
+ * would silently corrupt it. Active rows only: archived rows have no FTS
+ * entry (archiveEntity removes it), and a contentless delete for text that
+ * was never indexed is exactly the corruption this block exists to avoid.
+ */
+function backfillTitles(db: MemeshDatabase): void {
+  const MARKER = 'title_backfill_v1';
+  const done = db.prepare(
+    'SELECT value FROM memesh_metadata WHERE key = ?'
+  ).get(MARKER);
+  if (done) return;
+
+  const rows = db.prepare(
+    'SELECT id, name, type, status, metadata FROM entities WHERE title IS NULL'
+  ).all() as Array<{ id: number; name: string; type: string; status: string; metadata: string | null }>;
+
+  const stamp = (titled: number, skipped: number) =>
+    db.prepare(
+      'INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)'
+    ).run(MARKER, JSON.stringify({ at: new Date().toISOString(), titled, skipped }));
+
+  if (rows.length === 0) {
+    stamp(0, 0);
+    return;
+  }
+
+  const obsStmt = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id');
+  const updateStmt = db.prepare('UPDATE entities SET title = ?, metadata = ? WHERE id = ?');
+
+  const tx = db.transaction(() => {
+    let titled = 0;
+    let skipped = 0;
+    for (const row of rows) {
+      let metadata: Record<string, unknown>;
+      if (row.metadata) {
+        try { metadata = JSON.parse(row.metadata) as Record<string, unknown>; } catch { skipped++; continue; }
+        if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) { skipped++; continue; }
+      } else {
+        metadata = {};
+      }
+
+      const observations = (obsStmt.all(row.id) as Array<{ content: string }>).map(o => o.content);
+      const title = deriveHeuristicTitle(row.type, observations);
+      if (!title) { skipped++; continue; }
+
+      metadata.title_source = 'heuristic';
+      updateStmt.run(title, JSON.stringify(metadata), row.id);
+
+      if (row.status === 'active') {
+        const obsText = observations.join(' ');
+        removeFromFts(db, row.id, row.name, obsText); // pre-title index entry: no title folded
+        insertFtsRow(db, row.id, row.name, obsText, title);
+      }
+      titled++;
+    }
+    stamp(titled, skipped);
   });
   tx();
 }

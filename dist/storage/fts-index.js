@@ -54,9 +54,12 @@ const LONE_UNSPACED_CHAR = new RegExp(`[${UNSPACED_SCRIPT_CLASS}]`, 'u');
 export function isLoneUnspacedChar(term) {
     return [...term].length === 1 && LONE_UNSPACED_CHAR.test(term);
 }
-export function removeFromFts(db, entityId, name, prevObsText) {
+function foldTitleIntoObservations(title, observationsText) {
+    return title ? `${title} ${observationsText}` : observationsText;
+}
+export function removeFromFts(db, entityId, name, prevObsText, prevTitle) {
     try {
-        db.prepare("INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)").run(entityId, toIndexForm(name), toIndexForm(prevObsText));
+        db.prepare("INSERT INTO entities_fts (entities_fts, rowid, name, observations) VALUES('delete', ?, ?, ?)").run(entityId, toIndexForm(name), toIndexForm(foldTitleIntoObservations(prevTitle, prevObsText)));
     }
     catch (err) {
         if (isBenignFtsDeleteError(err))
@@ -68,7 +71,7 @@ function isBenignFtsDeleteError(err) {
     const msg = err?.message ?? '';
     return /no such rowid|values do not match|no such row\b/i.test(msg);
 }
-export function insertFtsRow(db, entityId, name, observationsText) {
-    db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(entityId, toIndexForm(name), toIndexForm(observationsText));
+export function insertFtsRow(db, entityId, name, observationsText, title) {
+    db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(entityId, toIndexForm(name), toIndexForm(foldTitleIntoObservations(title, observationsText)));
 }
 //# sourceMappingURL=fts-index.js.map

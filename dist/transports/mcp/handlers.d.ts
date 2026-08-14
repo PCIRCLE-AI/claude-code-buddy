@@ -12,6 +12,10 @@ export declare const TOOL_DEFINITIONS: readonly [{
                 readonly type: "string";
                 readonly description: "Entity type (e.g., \"decision\", \"pattern\", \"lesson\", \"commit\")";
             };
+            readonly title: {
+                readonly type: "string";
+                readonly description: "Short human-readable label for this memory (e.g. \"Use PKCE over implicit flow for auth\"), distinct from name (which stays a stable machine key). Shown as the headline in the dashboard and in memory recalled by an agent, instead of the raw name. Reusing an existing name with a different title UPDATES the title; omit to leave an existing title untouched.";
+            };
             readonly observations: {
                 readonly type: "array";
                 readonly items: {

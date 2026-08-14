@@ -316,10 +316,10 @@ function renamePath(oldRaw, newRaw) {
     const entityId = source.id;
     const obsText = source.observations.join(' ');
     db.transaction(() => {
-        removeFromFts(db, entityId, source.name, obsText);
+        removeFromFts(db, entityId, source.name, obsText, source.title);
         db.prepare('UPDATE entities SET name = ?, namespace = ? WHERE id = ?')
             .run(to.name, to.namespace, entityId);
-        insertFtsRow(db, entityId, to.name, obsText);
+        insertFtsRow(db, entityId, to.name, obsText, source.title);
     })();
     return ok(`Successfully renamed ${String(oldRaw)} to ${String(newRaw)}`);
 }

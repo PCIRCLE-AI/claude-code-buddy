@@ -201,6 +201,47 @@ describe('F5 mirror parity: scripts/hooks/_shared.js vs src/core', () => {
         coreDb.close();
       }
     });
+
+    it('title fold parity: both sides index and un-index the title identically', () => {
+      // UX-1 folds the title into the FTS feed. Contentless FTS5 makes the
+      // fold a two-sided contract: the delete must be issued with the exact
+      // folded text that was inserted. If the hook mirror folds on insert but
+      // not on delete (or vice versa), a re-title leaves stale tokens behind
+      // on one side only — precisely the drift class this file exists for.
+      const observations = ['plain observation text'];
+
+      const hookDb = openDb(path.join(tmpDir, 'hook.db'));
+      const coreDb = openDb(path.join(tmpDir, 'core.db'));
+      try {
+        const hookRes = shared.captureEntity(hookDb, {
+          name: 'e1', type: 'note', observations, title: 'walrus label one',
+        });
+        // Core reference: same write via the core primitives.
+        coreDb.prepare('INSERT INTO entities (name, type, title) VALUES (?, ?, ?)').run('e1', 'note', 'walrus label one');
+        const coreId = (coreDb.prepare("SELECT id FROM entities WHERE name = 'e1'").get() as { id: number }).id;
+        coreDb.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(coreId, observations[0]);
+        insertFtsRow(coreDb, coreId, 'e1', observations.join(' '), 'walrus label one');
+
+        expect(ftsMatch(hookDb, 'walrus')).toEqual([hookRes.id]);
+        expect(ftsMatch(coreDb, 'walrus')).toEqual([coreId]);
+
+        // Re-title on both sides; the OLD title's tokens must vanish on both.
+        shared.captureEntity(hookDb, {
+          name: 'e1', type: 'note', observations: [], title: 'penguin label two',
+        });
+        removeFromFts(coreDb, coreId, 'e1', observations.join(' '), 'walrus label one');
+        coreDb.prepare('UPDATE entities SET title = ? WHERE id = ?').run('penguin label two', coreId);
+        insertFtsRow(coreDb, coreId, 'e1', observations.join(' '), 'penguin label two');
+
+        for (const token of ['walrus', 'penguin', 'plain']) {
+          expect(ftsMatch(hookDb, token), `token ${token} drift`).toEqual(ftsMatch(coreDb, token));
+        }
+        expect(ftsMatch(hookDb, 'walrus')).toEqual([]);
+      } finally {
+        hookDb.close();
+        coreDb.close();
+      }
+    });
   });
 
   describe('query-side parity', () => {

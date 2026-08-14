@@ -104,11 +104,12 @@ export function compressWeeklyNoise(db) {
             db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(existing.id, `+${entities.length} entities archived (${typeBreakdown})`);
         }
         else {
-            db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run(summaryName, 'weekly-summary');
+            const title = `${week} — ${entities.length} entities compressed`;
+            db.prepare('INSERT INTO entities (name, type, title, metadata) VALUES (?, ?, ?, ?)').run(summaryName, 'weekly-summary', title, JSON.stringify({ title_source: 'heuristic' }));
             const summaryRow = db.prepare('SELECT id FROM entities WHERE name = ?').get(summaryName);
             const obsText = `${week}: ${count} auto-tracked entities compressed (${typeBreakdown})`;
             db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(summaryRow.id, obsText);
-            insertFtsRow(db, summaryRow.id, summaryName, obsText);
+            insertFtsRow(db, summaryRow.id, summaryName, obsText, title);
             const entityIdPlaceholders = entities.map(() => '?').join(',');
             const projectTags = db.prepare(`
         SELECT DISTINCT t.tag FROM tags t

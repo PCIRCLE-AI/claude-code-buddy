@@ -148,6 +148,26 @@ export function pickBestObservation(observations: string[] | undefined): string 
   return pool.slice(0, 3).reduce((best, cur) => (cur.length > best.length ? cur : best), pool[0]);
 }
 
+/* ---------- display title ---------- */
+
+/** Human-readable headline for an entity row/card. Fallback chain:
+ *  title → pickBestObservation → typeLabel + date. Deliberately NEVER
+ *  falls back to `name` — name is a machine dedup key
+ *  (`pre-compact-<sessionId>`, `commit-a1b2c3d`) and the whole point of
+ *  `title` is that a human should not have to read those. An empty or
+ *  whitespace title counts as absent, same as the write-side contract
+ *  where blank collapses to undefined. */
+export function displayTitle(entity: Entity): string {
+  const title = entity.title?.trim();
+  if (title) return title;
+  const obs = pickBestObservation(entity.observations);
+  if (obs) return obs;
+  const date = entity.created_at
+    ? new Date(entity.created_at).toLocaleDateString(getLocale(), { year: 'numeric', month: 'short', day: 'numeric' })
+    : '';
+  return date ? `${typeLabel(entity.type)} · ${date}` : typeLabel(entity.type);
+}
+
 /* ---------- access count signal ---------- */
 
 export interface AccessSignal {

@@ -5,6 +5,7 @@ import { classifyLoadError, failureMessage } from '../lib/failure';
 import { EmptyLibraryState } from './EmptyLibraryState';
 import {
   classifyLesson,
+  displayTitle,
   extractProject,
   relativeDate,
   accessSignal,
@@ -76,7 +77,7 @@ function parsePlan(entity: Entity): PlanRecord {
   const stepsLine = obs.find((o) => o.startsWith('Steps:'))?.slice('Steps:'.length).trim() ?? '';
   const commitsLine = obs.find((o) => o.startsWith('Commits:'))?.slice('Commits:'.length).trim() ?? '';
   return {
-    planName: planMatch?.[1] ?? entity.name,
+    planName: planMatch?.[1] ?? displayTitle(entity),
     stepCount: planMatch ? parseInt(planMatch[2], 10) : 0,
     steps: stepsLine,
     commits: commitsLine ? commitsLine.split(',').map((c) => c.trim()).filter(Boolean) : [],
@@ -112,7 +113,7 @@ function FailureCard({ entity }: { entity: Entity }) {
     <div class="card" style={{ borderLeft: `3px solid ${borderColor}`, marginBottom: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
         <div class="card-title" style={{ margin: 0, flex: 1, minWidth: 0 }}>
-          <GlyphLabel type="lesson_learned">{entity.name}</GlyphLabel>
+          <GlyphLabel type="lesson_learned">{displayTitle(entity)}</GlyphLabel>
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
           {project && <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style={{ flexShrink: 0 }}><path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>{project}</span>}
@@ -222,7 +223,7 @@ function FreeformCard({ entity }: { entity: Entity }) {
     <div class="card" style={{ marginBottom: 10 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 8, flexWrap: 'wrap' }}>
         <div class="card-title" style={{ margin: 0, flex: 1, minWidth: 0 }}>
-          <GlyphLabel type="note">{entity.name}</GlyphLabel>
+          <GlyphLabel type="note">{displayTitle(entity)}</GlyphLabel>
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
           {project && <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style={{ flexShrink: 0 }}><path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>{project}</span>}
@@ -294,7 +295,7 @@ export function LessonsTab({ health }: { health?: HealthData | null }) {
     return list.filter((e) => {
       if (project !== 'all' && extractProject(e) !== project) return false;
       if (!s) return true;
-      const hay = [e.name, ...(e.observations ?? []), ...(e.tags ?? [])].join(' ').toLowerCase();
+      const hay = [e.name, e.title ?? '', ...(e.observations ?? []), ...(e.tags ?? [])].join(' ').toLowerCase();
       return hay.includes(s);
     });
   }, [categorized, tab, search, project]);

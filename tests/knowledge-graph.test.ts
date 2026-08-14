@@ -32,6 +32,77 @@ describe('Feature: Knowledge Graph', () => {
     fs.rmSync(testDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
+  describe('Title (UX-1 human-readable label)', () => {
+    it('roundtrips a title through createEntity and getEntity', () => {
+      kg.createEntity('auth-decision-3f9', 'decision', {
+        title: 'Adopt OAuth 2.0 with PKCE',
+        observations: ['implicit flow leaks tokens'],
+      });
+      const entity = kg.getEntity('auth-decision-3f9');
+      expect(entity!.title).toBe('Adopt OAuth 2.0 with PKCE');
+      // And through the batch path every list endpoint uses.
+      const listed = kg.search(undefined, { limit: 5 });
+      expect(listed.find((e) => e.name === 'auth-decision-3f9')?.title).toBe('Adopt OAuth 2.0 with PKCE');
+    });
+
+    it('makes the entity findable by title tokens alone', () => {
+      kg.createEntity('cryptic-key-77', 'note', {
+        title: 'the aardvark migration plan',
+        observations: ['content that never mentions the animal'],
+      });
+      expect(kg.search('aardvark').map((e) => e.name)).toContain('cryptic-key-77');
+    });
+
+    it('re-titling keeps the contentless FTS index symmetric', () => {
+      kg.createEntity('retitle-me', 'note', {
+        title: 'gazelle first title',
+        observations: ['stable observation'],
+      });
+      kg.createEntity('retitle-me', 'note', { title: 'ibex second title' });
+
+      expect(kg.getEntity('retitle-me')!.title).toBe('ibex second title');
+      expect(kg.search('ibex').map((e) => e.name)).toContain('retitle-me');
+      expect(
+        kg.search('gazelle').map((e) => e.name),
+        'stale tokens from the replaced title survived — asymmetric contentless delete'
+      ).not.toContain('retitle-me');
+    });
+
+    it('an omitted title leaves an existing one untouched', () => {
+      kg.createEntity('keep-me', 'note', { title: 'the label', observations: ['a'] });
+      kg.createEntity('keep-me', 'note', { observations: ['b'] });
+      expect(kg.getEntity('keep-me')!.title).toBe('the label');
+    });
+
+    it('an archived entity stays findable by a title token its observations never held', () => {
+      // Archived rows are OUT of FTS; the LIKE supplement is their only path.
+      // A manual title is the isolating case — backfilled titles derive from
+      // observations, so the o.content arm masks the e.title arm for them
+      // (measured: removing the title arm left the backfill tests green).
+      kg.createEntity('archived-titled', 'note', {
+        title: 'the capybara initiative',
+        observations: ['unrelated body text entirely'],
+      });
+      kg.archiveEntity('archived-titled');
+      expect(
+        kg.search('capybara', { includeArchived: true }).map((e) => e.name),
+        'a title-only match must survive archival — findable while active, gone when archived'
+      ).toContain('archived-titled');
+    });
+
+    it('archiving a titled entity leaves no ghost reachable by its title', () => {
+      kg.createEntity('vanish-cleanly', 'note', {
+        title: 'the numbat cleanup pass',
+        observations: ['ordinary text'],
+      });
+      kg.archiveEntity('vanish-cleanly');
+      expect(
+        kg.search('numbat').map((e) => e.name),
+        'archive issued its FTS delete without the title folded in'
+      ).not.toContain('vanish-cleanly');
+    });
+  });
+
   describe('Remember (Create)', () => {
     it('should create a new entity with created_at', () => {
       const id = kg.createEntity('TypeScript', 'language');

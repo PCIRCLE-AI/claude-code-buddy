@@ -182,14 +182,24 @@ export function compressWeeklyNoise(db: MemeshDatabase): { compressed: number; w
         `+${entities.length} entities archived (${typeBreakdown})`
       );
     } else {
-      db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run(summaryName, 'weekly-summary');
+      // Heuristic title, same as the auto-capture hooks generate — this is
+      // a fourth entity-creation path (besides createEntity/captureEntity)
+      // that predates the title column entirely, so without this it would
+      // stay permanently untitled and fall back to its own observation text
+      // for display, which is just as machine-flavoured as a raw name.
+      const title = `${week} — ${entities.length} entities compressed`;
+      // title_source marks this as machine-derived, so a future LLM titling
+      // pass may replace it; an unmarked title is treated as human-provided.
+      db.prepare('INSERT INTO entities (name, type, title, metadata) VALUES (?, ?, ?, ?)').run(
+        summaryName, 'weekly-summary', title, JSON.stringify({ title_source: 'heuristic' })
+      );
       const summaryRow = db.prepare('SELECT id FROM entities WHERE name = ?').get(summaryName) as { id: number };
       const obsText = `${week}: ${count} auto-tracked entities compressed (${typeBreakdown})`;
       db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(
         summaryRow.id, obsText
       );
       // Index in FTS5 so summary is searchable.
-      insertFtsRow(db, summaryRow.id, summaryName, obsText);
+      insertFtsRow(db, summaryRow.id, summaryName, obsText, title);
       // Copy project tags from originals
       const entityIdPlaceholders = entities.map(() => '?').join(',');
       const projectTags = db.prepare(`
