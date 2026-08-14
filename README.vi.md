@@ -17,7 +17,7 @@
 ---
 
 > [!IMPORTANT]
-> **Dự án đang phát triển tích cực** — tính năng cập nhật liên tục và có thể thay đổi giữa các bản phát hành. Nếu gặp lỗi hoặc có yêu cầu tính năng, vui lòng [mở issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues).
+> **Dự án đang phát triển tích cực** — tính năng cập nhật liên tục và có thể thay đổi giữa các bản phát hành. Nếu gặp lỗi hoặc có yêu cầu tính năng, vui lòng [mở issue](https://github.com/PCIRCLE-AI/memesh/issues).
 
 **MeMesh** — **bộ nhớ agentic** mã nguồn mở cho Claude Code & các agent coding MCP: được capture từ công việc thực tế của agent, được inject đúng lúc agent hành động, và được giữ trung thực khi nó tự mâu thuẫn. Một file SQLite. Không cần cloud.
 
@@ -99,7 +99,7 @@ Nếu bạn chỉ dùng memesh qua chat Claude Code (không bao giờ gõ `memes
 Nếu bạn dùng Claude Code, cài MeMesh dưới dạng plugin ngay trong CLI:
 
 ```
-/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin marketplace add PCIRCLE-AI/memesh
 /plugin install memesh@pcircle-memesh
 ```
 
@@ -446,8 +446,8 @@ Khi bắt đầu session, banner một dòng (throttle mỗi 24h mỗi version) 
 ## Đóng góp
 
 ```bash
-git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory && npm install && npm run build
+git clone https://github.com/PCIRCLE-AI/memesh
+cd memesh && npm install && npm run build
 npm test
 npm run test:e2e-dashboard
 ```

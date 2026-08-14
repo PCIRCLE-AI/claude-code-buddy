@@ -17,7 +17,7 @@
 ---
 
 > [!IMPORTANT]
-> **โปรเจกต์อยู่ระหว่างพัฒนาอย่างต่อเนื่อง** — ฟีเจอร์มีการอัปเดตอย่างต่อเนื่องและอาจเปลี่ยนแปลงระหว่างเวอร์ชัน หากพบบักหรือมีคำขอฟีเจอร์ กรุณา[เปิด issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues)
+> **โปรเจกต์อยู่ระหว่างพัฒนาอย่างต่อเนื่อง** — ฟีเจอร์มีการอัปเดตอย่างต่อเนื่องและอาจเปลี่ยนแปลงระหว่างเวอร์ชัน หากพบบักหรือมีคำขอฟีเจอร์ กรุณา[เปิด issue](https://github.com/PCIRCLE-AI/memesh/issues)
 
 **MeMesh** — **หน่วยความจำเชิงเอเจนต์**แบบโอเพนซอร์สสำหรับ Claude Code และเอเจนต์คิดโค้ด MCP: บันทึกจากงานจริงของเอเจนต์ แทรกให้ในจังหวะที่เอเจนต์ลงมือทำ และคงความถูกต้องเมื่อมันขัดแย้งกันเอง ไฟล์ SQLite เพียงตัวเดียว ไม่ต้องใช้คลาวด์
 
@@ -99,7 +99,7 @@ npm install -g @pcircle/memesh
 ถ้าใช้ Claude Code ติดตั้ง MeMesh เป็น plugin จากใน CLI ได้เลย:
 
 ```
-/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin marketplace add PCIRCLE-AI/memesh
 /plugin install memesh@pcircle-memesh
 ```
 
@@ -447,8 +447,8 @@ bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.s
 ## การร่วมพัฒนา
 
 ```bash
-git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory && npm install && npm run build
+git clone https://github.com/PCIRCLE-AI/memesh
+cd memesh && npm install && npm run build
 npm test
 npm run test:e2e-dashboard
 ```

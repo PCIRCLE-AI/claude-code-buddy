@@ -681,7 +681,7 @@ function verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl) {
         missing.length > 0 ? `${missing.length} missing: ${missing.slice(0, 3).join(', ')}${missing.length > 3 ? ` (+${missing.length - 3} more)` : ''}` : null,
         mismatches.length > 0 ? `${mismatches.length} tampered: ${mismatches.slice(0, 3).join(', ')}${mismatches.length > 3 ? ` (+${mismatches.length - 3} more)` : ''}` : null,
     ].filter(Boolean).join('; ');
-    return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', `Manifest verification failed: ${detail}.`, 'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem reproduces on a fresh install, open a security issue at https://github.com/PCIRCLE-AI/memesh-llm-memory/security.', { code: 'skills-manifest.verify-failed', params: { detail } });
+    return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', `Manifest verification failed: ${detail}.`, 'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem reproduces on a fresh install, open a security issue at https://github.com/PCIRCLE-AI/memesh/security.', { code: 'skills-manifest.verify-failed', params: { detail } });
 }
 async function inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyncImpl) {
     const configPath = getConfigPathImpl();

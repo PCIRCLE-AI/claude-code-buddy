@@ -148,7 +148,7 @@ gate_install_hooks_dryrun() {
 
 gate_feedback_url_builds() {
   with_throwaway_home node dist/transports/cli/cli.js feedback --bug --no-open --no-diagnostics --message "release-verify" 2>/dev/null \
-    | grep -q "github.com/PCIRCLE-AI/memesh-llm-memory/issues/new"
+    | grep -q "github.com/PCIRCLE-AI/memesh/issues/new"
 }
 
 gate_demo_seed_idempotent() {

@@ -1499,7 +1499,7 @@ export function generateLiveDashboardHtml() {
           bodyText += '\\n\\n## System Info\\nVersion: ' + _currentVersion + '\\nSearch Level: ' + _currentSearchLevel;
         }
         var body = encodeURIComponent(bodyText);
-        window.open('https://github.com/PCIRCLE-AI/memesh-llm-memory/issues/new?title=' + title + '&body=' + body + '&labels=' + labels, '_blank');
+        window.open('https://github.com/PCIRCLE-AI/memesh/issues/new?title=' + title + '&body=' + body + '&labels=' + labels, '_blank');
         panel.classList.remove('open');
         document.getElementById('fb-desc').value = '';
       });

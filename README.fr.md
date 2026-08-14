@@ -27,7 +27,7 @@ Ce n'est pas un problème d'historique de chat ; c'est un problème de mémoire 
 **MeMesh est cette mémoire.** Les hooks la capturent depuis ce que l'agent fait réellement (sessions, commits, échecs — pas de notes manuelles), le rappel l'injecte au moment où l'agent agit (démarrage de session, avant les modifications de fichiers), et la couche de graphe de connaissances la garde honnête dans le temps (supersession, détection de conflits arbitrée par LLM). Installez avec npm, la mémoire vit dans `~/.memesh/knowledge-graph.db`, connectez-la à Claude Code ou à tout client compatible MCP.
 
 > [!IMPORTANT]
-> **Projet en développement actif** — les fonctionnalités évoluent continuellement et peuvent changer entre les versions. En cas de bug ou de demande de fonctionnalité, merci d'[ouvrir une issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues).
+> **Projet en développement actif** — les fonctionnalités évoluent continuellement et peuvent changer entre les versions. En cas de bug ou de demande de fonctionnalité, merci d'[ouvrir une issue](https://github.com/PCIRCLE-AI/memesh/issues).
 
 ---
 
@@ -99,7 +99,7 @@ Si vous utilisez memesh uniquement via le chat Claude Code (jamais `memesh` dans
 Si vous utilisez Claude Code, installez MeMesh comme plugin depuis la CLI :
 
 ```
-/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin marketplace add PCIRCLE-AI/memesh
 /plugin install memesh@pcircle-memesh
 ```
 
@@ -446,8 +446,8 @@ Au démarrage de session, une bannière sur une ligne s'affiche (limitée à une
 ## Contribuer
 
 ```bash
-git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory && npm install && npm run build
+git clone https://github.com/PCIRCLE-AI/memesh
+cd memesh && npm install && npm run build
 npm test
 npm run test:e2e-dashboard
 ```

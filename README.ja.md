@@ -27,7 +27,7 @@
 **MeMesh はそのメモリです。**フックがエージェントの実際の行動(セッション、コミット、失敗 — 手動のメモではなく)からキャプチャし、リコールがエージェントの行動するその瞬間(セッション開始時、ファイル編集前)に注入し、ナレッジグラフ層が時間の経過とともにメモリを誠実に保ちます(supersession、LLM が判定する競合検出)。npm でインストール、メモリは `~/.memesh/knowledge-graph.db` に保存、Claude Code や任意の MCP 互換クライアントに接続するだけです。
 
 > [!IMPORTANT]
-> **活発に開発中のプロジェクト** — 機能は継続的に更新され、リリース間で変更される可能性があります。バグや機能要望がある場合は[issue を開いてください](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues)。
+> **活発に開発中のプロジェクト** — 機能は継続的に更新され、リリース間で変更される可能性があります。バグや機能要望がある場合は[issue を開いてください](https://github.com/PCIRCLE-AI/memesh/issues)。
 
 ---
 
@@ -99,7 +99,7 @@ Claude Code の会話だけで memesh を使う場合（ターミナルで `meme
 Claude Code を使っている場合、CLI 内から MeMesh をプラグインとしてインストールできます:
 
 ```
-/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin marketplace add PCIRCLE-AI/memesh
 /plugin install memesh@pcircle-memesh
 ```
 
@@ -454,8 +454,8 @@ bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.s
 ## コントリビュート
 
 ```bash
-git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory && npm install && npm run build
+git clone https://github.com/PCIRCLE-AI/memesh
+cd memesh && npm install && npm run build
 npm test
 npm run test:e2e-dashboard
 ```

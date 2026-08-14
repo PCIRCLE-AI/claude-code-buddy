@@ -15,7 +15,7 @@ Do not report security vulnerabilities in public GitHub issues.
 
 Report privately through GitHub Security Advisories:
 
-https://github.com/PCIRCLE-AI/memesh-llm-memory/security/advisories/new
+https://github.com/PCIRCLE-AI/memesh/security/advisories/new
 
 That link opens a private report visible only to the maintainers — it is the
 single channel for vulnerability reports.
