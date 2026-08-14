@@ -227,7 +227,7 @@ export function generateDashboardHtml(dbPath?: string): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MeMesh LLM Memory — Dashboard</title>
+  <title>MeMesh — Dashboard</title>
   <!-- bundled d3.js -->
   <script>
 ${bundledD3}
@@ -295,7 +295,7 @@ ${bundledD3}
 </head>
 <body>
 <div class="container">
-  <h1>MeMesh LLM Memory</h1>
+  <h1>MeMesh</h1>
   <p style="font-size:12px;color:#8b949e;margin-bottom:20px;">powered by pcircle.com</p>
 
   <div class="stats" id="stats"></div>

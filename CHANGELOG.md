@@ -4,6 +4,16 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Repositioned as agentic memory.** The README (all 11 locales), package
+  metadata and UI brand line now describe MeMesh as agentic memory for
+  coding agents — captured from the agent's real work, injected when it
+  acts, kept honest when it contradicts itself — instead of "LLM memory".
+  The LongMemEval-S benchmark moved from the first screen to a Benchmarks
+  section after the product comparison; the number itself is unchanged.
+  The dashboard/CLI viewer title `MeMesh LLM Memory` is now `MeMesh`.
+
 ### Added
 
 - **README recipes.** Three worked walkthroughs where feature lists used to

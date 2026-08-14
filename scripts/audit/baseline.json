@@ -206,16 +206,6 @@
       "reason": "parity pin that core and hook mirror share the classifier; behavior tested in the same file",
       "triaged": "2026-08-04"
     },
-    "C7 README.md:21": {
-      "class": "LINKED-MEASUREMENT",
-      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04"
-    },
-    "C7 README.md:27": {
-      "class": "LINKED-MEASUREMENT",
-      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04"
-    },
     "C4 scripts/release-verify.sh:109": {
       "class": "SAFE",
       "reason": "display-only pipe: tail|sed formats the failure log AFTER the gate already returned 1 explicitly; no verdict flows through it",
@@ -486,26 +476,6 @@
       "reason": "Zod safeParse still validates; fields optional-with-default by design",
       "triaged": "2026-08-10; re-keyed 2026-08-12 +17 from :1061 (the accept handler's NothingToClaimError branch and its comment shifted the line); same safeParse statement, classification unchanged; re-keyed 2026-08-13 1078->1067 (rev2: redactSecrets moved out to core/paths.ts, removing 11 lines above; same safeParse statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified)"
     },
-    "C7 README.md:293": {
-      "class": "LINKED-MEASUREMENT",
-      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 273->294: the Codex/Gemini MCP setup section added to Get Started shifted this line down 21; same auto-capture table row verified before re-keying); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified)"
-    },
-    "C7 README.md:367": {
-      "class": "LINKED-MEASUREMENT",
-      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 346->348->369: the Codex/Gemini MCP setup section shifted this line down 21 more; same testimonial figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified)"
-    },
-    "C7 README.md:426": {
-      "class": "LINKED-MEASUREMENT",
-      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 353->355->376: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 out-of-the-box figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 374->426 (the Recipes section added above; same statement — verified)"
-    },
-    "C7 README.md:457": {
-      "class": "LINKED-MEASUREMENT",
-      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 379->382->386->407: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 comparison-table figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 405->457 (the Recipes section added above; same statement — verified)"
-    },
     "C6 tests/verify-retired.test.ts": {
       "class": "WIRING-PIN",
       "reason": "retired message lives in RETIRED_ROUTES; remaining source asserts pin the wiring (CLI signpost text, 410 registration), sibling of consolidate-retired.test.ts with the same classification",
@@ -520,6 +490,36 @@
       "class": "NOT-A-GATE",
       "reason": "calibration tool, not a gate: re-derives the CONFLICT_MAX_COSINE_DISTANCE numbers against a real graph before an embedder or threshold change; its caller is a human, read-only by construction, and wiring it into CI would measure a fixture instead of the graph it exists to measure",
       "triaged": "2026-08-13 (conflict pipeline P1)"
+    },
+    "C7 README.md:271": {
+      "class": "LINKED-MEASUREMENT",
+      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
+      "triaged": "2026-08-04"
+    },
+    "C7 README.md:277": {
+      "class": "LINKED-MEASUREMENT",
+      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
+      "triaged": "2026-08-04"
+    },
+    "C7 README.md:295": {
+      "class": "LINKED-MEASUREMENT",
+      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
+      "triaged": "2026-08-04 (re-keyed 273->294: the Codex/Gemini MCP setup section added to Get Started shifted this line down 21; same auto-capture table row verified before re-keying); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified)"
+    },
+    "C7 README.md:369": {
+      "class": "LINKED-MEASUREMENT",
+      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
+      "triaged": "2026-08-04 (re-keyed 346->348->369: the Codex/Gemini MCP setup section shifted this line down 21 more; same testimonial figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified)"
+    },
+    "C7 README.md:428": {
+      "class": "LINKED-MEASUREMENT",
+      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
+      "triaged": "2026-08-04 (re-keyed 353->355->376: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 out-of-the-box figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 374->426 (the Recipes section added above; same statement — verified)"
+    },
+    "C7 README.md:459": {
+      "class": "LINKED-MEASUREMENT",
+      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
+      "triaged": "2026-08-04 (re-keyed 379->382->386->407: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 comparison-table figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 405->457 (the Recipes section added above; same statement — verified)"
     }
   }
 }

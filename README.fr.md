@@ -1,9 +1,9 @@
 🌐 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Tiếng Việt](README.vi.md) | [Español](README.es.md) | [ภาษาไทย](README.th.md)
 
 <p align="center">
-  <h1 align="center">MeMesh LLM Memory</h1>
+  <h1 align="center">MeMesh</h1>
   <p align="center">
-    <strong>Mémoire locale pour Claude Code et les agents de codage MCP.</strong><br />
+    <strong>Mémoire agentique pour les agents de codage.</strong><br />
     Un fichier SQLite. Aucun Docker. Aucun cloud requis.
   </p>
   <p align="center">
@@ -16,32 +16,18 @@
 
 ---
 
-> [!IMPORTANT]
-> **Projet en développement actif** — les fonctionnalités évoluent continuellement et peuvent changer entre les versions. En cas de bug ou de demande de fonctionnalité, merci d'[ouvrir une issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues).
+**MeMesh** — **mémoire agentique** open-source pour Claude Code & les agents de codage MCP : capturée depuis le travail réel de l'agent, injectée au moment où il agit, gardée honnête quand elle se contredit. Un fichier SQLite. Aucun cloud.
 
 ## Le Problème
 
-Votre agent de codage oublie ce qui s'est passé d'une session à l'autre. Chaque décision architecturale, correction de bug, test échoué et leçon apprise difficilement doit être réexpliquée. Claude Code redémarre à zéro, redécouvre les anciennes contraintes et gaspille du contexte sur des éléments qu'il devrait déjà connaître.
+Votre agent de codage ne fait pas qu'oublier des faits d'une session à l'autre — il **répète le travail**. Il repropose l'approche que vous avez rejetée le mois dernier, bute sur le même test qui échoue, redécouvre la contrainte qui a cassé la production en mars et vous demande de réexpliquer l'architecture qu'il a lui-même aidé à concevoir.
 
-**MeMesh offre aux agents de codage une mémoire locale persistante, consultable et évolutive.**
+Ce n'est pas un problème d'historique de chat ; c'est un problème de mémoire d'agent. Ce qui doit survivre d'une session à l'autre, c'est le *travail* : les décisions avec leurs raisons, les échecs avec leurs correctifs, et les liens entre eux.
 
-Ce package constitue la couche de mémoire locale de la famille de produits MeMesh. Il est volontairement léger et open-source : installez-le avec npm, conservez votre mémoire dans `~/.memesh/knowledge-graph.db` et connectez-le à Claude Code ou à tout client compatible MCP. Les produits d'espace de travail hébergé et les systèmes d'exploitation d'entreprise doivent rester distincts de ce README et de la feuille de route du package.
+**MeMesh est cette mémoire.** Les hooks la capturent depuis ce que l'agent fait réellement (sessions, commits, échecs — pas de notes manuelles), le rappel l'injecte au moment où l'agent agit (démarrage de session, avant les modifications de fichiers), et la couche de graphe de connaissances la garde honnête dans le temps (supersession, détection de conflits arbitrée par LLM). Installez avec npm, la mémoire vit dans `~/.memesh/knowledge-graph.db`, connectez-la à Claude Code ou à tout client compatible MCP.
 
----
-
-## Preuve — 95,60 % R@5 sur LongMemEval-S
-
-Le moteur de récupération de MeMesh utilise **FTS5 seul** (pas de LLM, pas d'embeddings sur le chemin chaud), mesuré sur le benchmark public [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) (500 questions, licence MIT) :
-
-| Système | R@5 | Source |
-|---|---|---|
-| **MeMesh (Mode A, via `recallEnhanced()`)** | **95,60 %** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
-| MemPalace | 96,6 % | Auto-déclaration de l'éditeur |
-| Supermemory | ~82 % | Estimation de l'éditeur |
-| Zep | 63,8 % | Article LongMemEval |
-| Mem0 | 49,0 % | Article LongMemEval |
-
-Les commandes de reproduction, le SHA256 du jeu de données, les résultats bruts par question et l'analyse des échecs connus se trouvent tous dans [`benchmarks/longmemeval/`](benchmarks/longmemeval/). Réexécutable en environ 10 secondes.
+> [!IMPORTANT]
+> **Projet en développement actif** — les fonctionnalités évoluent continuellement et peuvent changer entre les versions. En cas de bug ou de demande de fonctionnalité, merci d'[ouvrir une issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues).
 
 ---
 
@@ -248,6 +234,22 @@ Collez les outils dans n'importe quel appel API
 | **Tradeoff** | Coin simple et local, non adapté à l'échelle entreprise | Empreinte app locale plus large | Verrouillé à Cursor | Plateforme gérée puissante, moins local-first | Modèle graphe puissant, configuration plus lourde |
 
 **MeMesh sacrifie l'infrastructure gérée à l'échelle entreprise pour une installation locale instantanée, un stockage inspectable et des hooks de workflow spécifiques aux agents de codage.**
+
+---
+
+## Benchmarks — 95,60 % R@5 sur LongMemEval-S
+
+Le moteur de récupération de MeMesh utilise **FTS5 seul** (pas de LLM, pas d'embeddings sur le chemin chaud), mesuré sur le benchmark public [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) (500 questions, licence MIT) :
+
+| Système | R@5 | Source |
+|---|---|---|
+| **MeMesh (Mode A, via `recallEnhanced()`)** | **95,60 %** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| MemPalace | 96,6 % | Auto-déclaration de l'éditeur |
+| Supermemory | ~82 % | Estimation de l'éditeur |
+| Zep | 63,8 % | Article LongMemEval |
+| Mem0 | 49,0 % | Article LongMemEval |
+
+Les commandes de reproduction, le SHA256 du jeu de données, les résultats bruts par question et l'analyse des échecs connus se trouvent tous dans [`benchmarks/longmemeval/`](benchmarks/longmemeval/). Réexécutable en environ 10 secondes.
 
 ---
 

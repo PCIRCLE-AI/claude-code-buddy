@@ -1,9 +1,9 @@
 🌐 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Tiếng Việt](README.vi.md) | [Español](README.es.md) | [ภาษาไทย](README.th.md)
 
 <p align="center">
-  <h1 align="center">MeMesh LLM Memory</h1>
+  <h1 align="center">MeMesh</h1>
   <p align="center">
-    <strong>为 Claude Code 和 MCP 编码代理设计的本地内存层。</strong><br />
+    <strong>为编码代理设计的代理式内存。</strong><br />
     一个 SQLite 文件。无需 Docker。无需云服务。
   </p>
   <p align="center">
@@ -16,32 +16,18 @@
 
 ---
 
-> [!IMPORTANT]
-> **持续开发中的项目** — 功能会持续更新，版本之间可能会有变动。遇到问题或想要新功能，请[开 issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues)。
+**MeMesh** — 为 Claude Code 和 MCP 编码代理设计的开源**代理式内存**：从代理的实际工作中捕获，在它行动的那一刻注入，记忆自相矛盾时保持诚实。一个 SQLite 文件。无需云服务。
 
 ## 问题
 
-编码代理在会话间会遗忘。每个架构决策、每次 bug 修复、失败的测试用例、每一次来之不易的经验教训都需要重新解释一遍。Claude Code 每次都从零开始，重新发现老约束，浪费上下文在早该掌握的东西上。
+你的编码代理在会话之间不只是忘记事实 — 它会**重复劳动**。它会重新提出你上个月否决过的方案，被同一个失败的测试绊倒，重新发现三月份搞坏生产环境的约束，还要你重新解释那个它自己参与设计的架构。
 
-**MeMesh 为编码代理提供持久化、可搜索、不断演进的本地内存。**
+这不是聊天记录的问题，而是代理内存的问题。需要在会话之间留存下来的是*工作本身*：决策连同它的理由、失败连同它的修复方式，以及它们之间的关联。
 
-本包是 MeMesh 产品系列的本地内存层。我们刻意保持简洁并开源：用 npm 安装，内存文件保存在 `~/.memesh/knowledge-graph.db`，连接到 Claude Code 或任何兼容 MCP 的客户端即可。托管工作区和企业级操作系统产品应当独立于本包的 README 和路线图。
+**MeMesh 就是这份记忆。**钩子从代理的实际行为中捕获记忆（会话、提交、失败 — 不是手动笔记），回忆在代理行动的那一刻注入记忆（会话开始时、编辑文件前），知识图谱层则让记忆长期保持诚实（supersession 汰换、由 LLM 判定的冲突检测）。用 npm 安装，记忆保存在 `~/.memesh/knowledge-graph.db`，连接到 Claude Code 或任何兼容 MCP 的客户端即可。
 
----
-
-## 实测数据 — LongMemEval-S 上 R@5 达到 95.60%
-
-MeMesh 的检索引擎**只用 FTS5**（热路径上没有 LLM、也没有 embeddings），在公开的 [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) 基准（500 道题，MIT 许可）上的实测结果：
-
-| 系统 | R@5 | 来源 |
-|---|---|---|
-| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
-| MemPalace | 96.6% | 厂商自报 |
-| Supermemory | ~82% | 厂商估计 |
-| Zep | 63.8% | LongMemEval 论文 |
-| Mem0 | 49.0% | LongMemEval 论文 |
-
-复现命令、数据集 SHA256、每题原始结果以及已知失败分析全部放在 [`benchmarks/longmemeval/`](benchmarks/longmemeval/) 中。约 10 秒可重跑。
+> [!IMPORTANT]
+> **持续开发中的项目** — 功能会持续更新，版本之间可能会有变动。遇到问题或想要新功能，请[开 issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues)。
 
 ---
 
@@ -256,6 +242,22 @@ memesh export-schema \
 | **权衡** | 简洁的本地方案，不适用企业规模 | 更宽泛的本地应用足迹 | 绑定 Cursor | 强大的托管平台，本地化程度低 | 强大的图模型，配置更复杂 |
 
 **MeMesh 用即插即用的本地设置、可检视的存储和编码代理工作流钩子，换取企业级托管基础设施。**
+
+---
+
+## 基准测试 — 95.60% R@5 on LongMemEval-S
+
+MeMesh 的检索引擎**只用 FTS5**（热路径上没有 LLM、也没有 embeddings），在公开的 [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) 基准（500 道题，MIT 许可）上的实测结果：
+
+| 系统 | R@5 | 来源 |
+|---|---|---|
+| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| MemPalace | 96.6% | 厂商自报 |
+| Supermemory | ~82% | 厂商估计 |
+| Zep | 63.8% | LongMemEval 论文 |
+| Mem0 | 49.0% | LongMemEval 论文 |
+
+复现命令、数据集 SHA256、每题原始结果以及已知失败分析全部放在 [`benchmarks/longmemeval/`](benchmarks/longmemeval/) 中。约 10 秒可重跑。
 
 ---
 
