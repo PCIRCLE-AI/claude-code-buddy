@@ -86,7 +86,6 @@ const requiredFiles = [
   'dist/transports/http/server.js',
   'dist/transports/cli/cli.js',
   // Dist — dashboard assets
-  'dist/cli/view.js',
   'dist/cli/assets/d3.v7.min.js',
   // Hook support: hooks cannot import from dist/, so these are the whole of
   // their dependency surface. Missing, every hook throws on first require.

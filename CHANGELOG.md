@@ -4,6 +4,15 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Removed
+
+- **`memesh-view` bin retired.** It was a third, parallel dashboard
+  implementation (624-line static HTML snapshot) alongside the live fallback
+  (`view-live.ts`, still serving the no-Preact-build case) and the Preact
+  dashboard — every dashboard change was potentially a three-place edit, and
+  the HTTP server never used it. `memesh serve` is the dashboard;
+  `view-live.ts` remains as its no-build fallback.
+
 ### Added
 
 - **Platform integration guides for Hermes Agent and OpenClaw.** Two native

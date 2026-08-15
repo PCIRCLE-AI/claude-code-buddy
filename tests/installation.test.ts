@@ -149,13 +149,13 @@ describe('Installation Verification', () => {
   });
 
   describe('Bin Entries', () => {
-    it('should have 4 bin entries', () => {
+    it('should have exactly the 3 supported bin entries', () => {
       const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
       const bins = Object.keys(pkg.bin);
-      expect(bins).toContain('memesh');
-      expect(bins).toContain('memesh-mcp');
-      expect(bins).toContain('memesh-http');
-      expect(bins).toContain('memesh-view');
+      // memesh-view was retired: it was a third dashboard implementation
+      // (static snapshot) alongside view-live.ts and the Preact dashboard,
+      // and every dashboard change was a three-place edit.
+      expect(bins.sort()).toEqual(['memesh', 'memesh-http', 'memesh-mcp']);
     });
   });
 

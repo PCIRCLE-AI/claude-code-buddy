@@ -1177,28 +1177,6 @@ Enable it first with `memesh config set transcriptMining true` (or `MEMESH_TRANS
 
 Validator verdicts are `pass` | `soften` | `reject` | `unavailable`. Only `reject` skips a proposal and only `soften` annotates one. `unavailable` means the validator could not run at all (LLM unreachable, fallback chain exhausted) — it is deliberately distinct from `pass`, which asserts that every claim was checked and supported. Both let the proposal through, so an unreachable validator never costs you a real digest, but a proposal validated by nothing is no longer indistinguishable from one that passed a clean check.
 
-### memesh-view
-
-Generate and open an interactive HTML dashboard for exploring stored knowledge.
-
-**Usage**:
-
-```bash
-memesh-view
-```
-
-**Behavior**:
-
-1. Opens the MeMesh database (`~/.memesh/knowledge-graph.db`)
-2. Reads all entities, observations, relations, and tags
-3. Generates a self-contained HTML file with bundled local D3.js and:
-   - **Knowledge graph** -- D3.js force-directed graph showing entities and relations
-   - **Entity table** -- Searchable, sortable table of all entities with observations and tags
-   - **Statistics** -- Total entities, observations, relations, and tags
-4. Opens the HTML file in the default browser
-
-No arguments or options required. The dashboard is a static HTML file that can be shared, archived, and opened offline.
-
 ---
 
 ## Anthropic memory tool (`memory_20250818`)
