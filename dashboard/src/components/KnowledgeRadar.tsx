@@ -23,6 +23,12 @@ const CX = SIZE / 2;
 const CY = SIZE / 2;
 const R = 80;   // outer radius
 const INNER = 14; // inner label padding
+// Horizontal room for the axis labels. They sit on the R+18 circle with
+// textAnchor="middle", so a side label's half-width extends past the 220px
+// drawing square — without this padding the SVG viewport clipped
+// "Decisions" to "Dec" and "Patterns" to "Patt" (and longer locales worse).
+// 48px covers half of the widest catalogue label at 9px font.
+const PAD_X = 48;
 
 function polarToXY(angle: number, radius: number): [number, number] {
   // Start from top, go clockwise
@@ -53,9 +59,9 @@ export function KnowledgeRadar({ data }: KnowledgeRadarProps) {
       <div class="card-title" style={{ marginBottom: 8 }}>{t('radar.title')}</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
         <svg
-          width={SIZE}
+          width={SIZE + PAD_X * 2}
           height={SIZE}
-          viewBox={`0 0 ${SIZE} ${SIZE}`}
+          viewBox={`${-PAD_X} 0 ${SIZE + PAD_X * 2} ${SIZE}`}
           style={{ flexShrink: 0 }}
         >
           {/* Grid rings */}
