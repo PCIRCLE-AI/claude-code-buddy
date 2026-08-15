@@ -111,6 +111,25 @@ export const LearnSchema = z.object({
   severity: z.enum(['critical', 'major', 'minor']).optional(),
 });
 
+// Every field optional, including the project: a call with no fields at all is
+// the READ. Empty string is meaningful and therefore allowed — it is how a
+// resolved blocker gets removed, so `.min(1)` here would make the state
+// append-only and keep injecting a blocker that is gone.
+export const TaskStateSchema = z.object({
+  project: z.string().min(1).max(200).optional(),
+  goal: z.string().max(1000).optional(),
+  next: z.string().max(1000).optional(),
+  blocked: z.string().max(1000).optional(),
+  done: z.string().max(1000).optional(),
+// `.strict()`, alone among the schemas here, because on THIS tool a stripped
+// key changes the operation. "No recognised field" is what marks a call as a
+// read, so a model that writes `blocker:` for `blocked:` would have its key
+// dropped, fall through to the read branch, and get a success-shaped response
+// back with nothing recorded. Everywhere else an unknown key still leaves the
+// intended write intact. It also makes the runtime agree with the
+// `additionalProperties: false` this tool already publishes.
+}).strict();
+
 export const UserPatternsSchema = z.object({
   categories: z.array(z.enum(['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
     .describe('Specific categories to return. Omit for all.'),

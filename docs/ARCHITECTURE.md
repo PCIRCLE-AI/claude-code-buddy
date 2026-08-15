@@ -8,7 +8,7 @@
 
 ## Overview
 
-MeMesh Plugin is the local memory layer for Claude Code and other MCP-compatible coding agents. It provides 7 operations (`remember`, `recall`, `forget`, `export`, `import`, `learn`, `user_patterns`) through three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
+MeMesh Plugin is the local memory layer for Claude Code and other MCP-compatible coding agents. It provides 8 operations (`remember`, `recall`, `forget`, `export`, `import`, `learn`, `task_state`, `user_patterns`) through three transports — CLI, HTTP REST, and MCP — backed by SQLite with FTS5 full-text search and optional sqlite-vec vector embeddings.
 
 The package is intentionally local-first and inspectable:
 - one SQLite database under the user's control
@@ -57,9 +57,9 @@ MeMesh separates concerns into two layers:
 - `version-check.ts` — npm registry version check for update notifications
 
 **Transports** (`src/transports/`) — thin adapters that expose core operations:
-- `cli/cli.ts` — Commander CLI (`memesh` command, 23 top-level commands; `config`, `kg`, and `dream` have subcommands)
+- `cli/cli.ts` — Commander CLI (`memesh` command, 24 top-level commands; `config`, `kg`, and `dream` have subcommands)
 - `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, 32 endpoints, bearer-auth gate when bound non-loopback)
-- `src/mcp/server.ts` + `src/transports/mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 7 tools); `src/mcp/tools.ts` is a re-export shim
+- `src/mcp/server.ts` + `src/transports/mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 8 tools); `src/mcp/tools.ts` is a re-export shim
 
 This separation means the same `remember`/`recall`/`forget` logic runs identically whether invoked from a terminal, an HTTP request, or an MCP tool call.
 
@@ -196,6 +196,7 @@ Thin adapter: imports shared Zod schemas from `transports/schemas.ts`, validates
 | `export` | ExportSchema | Delegates to `operations.exportMemories()` |
 | `import` | ImportSchema | Delegates to `operations.importMemories()` |
 | `learn` | LearnSchema | Delegates to `operations.learn()` |
+| `task_state` | TaskStateSchema | Delegates to `core/task-state-store` (`getTaskState()` with no fields, `setTaskState()` otherwise) |
 | `user_patterns` | UserPatternsSchema | Delegates to `core/patterns.computePatterns()` |
 
 ### transports/http/server.ts -- HTTP REST API Server

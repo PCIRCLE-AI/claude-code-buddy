@@ -135,6 +135,24 @@ export function exportOpenAITools(): object[] {
     {
       type: 'function',
       function: {
+        name: 'memesh_task_state',
+        description:
+          'Read or update where the work stands on this project (goal, next, blocked, done). Call with no arguments to read. Record only what the user actually stated — never infer it from files edited.',
+        parameters: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Project name. Omit for the current directory’s project.' },
+            goal: { type: 'string', description: 'What this work is FOR' },
+            next: { type: 'string', description: 'The next concrete step' },
+            blocked: { type: 'string', description: 'What is standing in the way' },
+            done: { type: 'string', description: 'What was just finished' },
+          },
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'memesh_user_patterns',
         description: 'Analyze user work patterns from existing memory. Returns work schedule, tool preferences, focus areas, workflow metrics, strengths, and learning areas.',
         parameters: {

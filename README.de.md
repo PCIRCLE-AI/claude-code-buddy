@@ -390,7 +390,7 @@ Der Embedder wird **unabhängig vom Chat-LLM** konfiguriert — `llm.provider` z
 
 ---
 
-## Alle 7 Memory-Tools
+## Alle 8 Memory-Tools
 
 | Tool | Was es tut |
 |------|-------------|
@@ -400,6 +400,7 @@ Der Embedder wird **unabhängig vom Chat-LLM** konfiguriert — `llm.provider` z
 | `export` | Memories als JSON zwischen Projekten oder Teamkollegen teilen |
 | `import` | Memories mit Merge-Strategien importieren (Skip / Overwrite / Append) |
 | `learn` | Strukturierte Lektionen aus Fehlern erfassen (Fehler, Grundursache, Behebung, Prävention) |
+| `task_state` | Arbeitsstand lesen oder festhalten — Ziel, nächster Schritt, Blocker, gerade Erledigtes |
 | `user_patterns` | Arbeitsmuster analysieren — Zeitplan, Tools, Stärken, Lernbereiche |
 
 ---

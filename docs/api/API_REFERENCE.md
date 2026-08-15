@@ -10,7 +10,7 @@
 
 ## Tools
 
-MeMesh exposes 7 tools via MCP.
+MeMesh exposes 8 tools via MCP.
 
 ---
 
@@ -375,6 +375,62 @@ Record a structured lesson from a mistake or discovery. Creates a `lesson_learne
 {
   "error": "Tests fail with SIGSEGV in native module",
   "fix": "Changed vitest pool from threads to forks"
+}
+```
+
+---
+
+### task_state
+
+Read or update where the work stands on a project: the goal, the next step, what is blocked, and what was just finished. There is exactly one state per project, and it is injected at the top of the next session's context.
+
+Call it with **no arguments** to read. Any field present is a write.
+
+**Only record what the user actually stated.** These four values are handed to a future session as fact, with nothing to contradict them — a goal inferred from which files were edited is a wrong instruction with no author. Nothing derives this automatically for the same reason; the Stop hook can see that six files changed, which is not a goal.
+
+**Input Schema**:
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project` | string | No | Project name (default: the current working directory's project) |
+| `goal` | string | No | What this work is FOR — the outcome being aimed at |
+| `next` | string | No | The next concrete step |
+| `blocked` | string | No | What is standing in the way |
+| `done` | string | No | What was just finished |
+
+Passing an **empty string** clears a field — that is how a blocker is removed once it is resolved. Omitting a field leaves it untouched, which is a different thing.
+
+**Response**:
+
+```json
+{
+  "project": "myproject",
+  "state": {
+    "goal": "Ship the work-topology injection",
+    "next": "Open the PR once Windows CI is green",
+    "updated_at": "2026-08-16T02:41:00.000Z"
+  },
+  "changed": ["next"]
+}
+```
+
+`changed` lists the fields that actually differed. Re-stating a value that is already recorded returns `"changed": []` and writes nothing — which is what keeps `updated_at` an honest answer to "how old is this thinking". A read (no arguments) returns `project` and `state` only.
+
+**Examples**:
+
+```json
+// Read the current state
+{}
+
+// Record a goal and the next step
+{
+  "goal": "Cut session-start injection below 700 tokens",
+  "next": "Measure against the real graph before and after"
+}
+
+// Clear a blocker that has been resolved
+{
+  "blocked": ""
 }
 ```
 
@@ -1183,7 +1239,7 @@ Validator verdicts are `pass` | `soften` | `reject` | `unavailable`. Only `rejec
 
 For applications that call the **Messages API directly** rather than through MCP. Claude gets a memory tool whose storage is MeMesh instead of a folder of text files, so it also gets search, ranking, decay, relations and namespaces without knowing they are there.
 
-This is **not** one of the seven MCP tools and is not exposed over HTTP or the CLI. The MCP surface serves an agent that already speaks MeMesh; this serves an application that speaks only the Messages API.
+This is **not** one of the eight MCP tools and is not exposed over HTTP or the CLI. The MCP surface serves an agent that already speaks MeMesh; this serves an application that speaks only the Messages API.
 
 ### Wiring it up
 

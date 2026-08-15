@@ -19,9 +19,12 @@ import {
   // db-path-derived directory string) — the helper here is the MEMESH_DIR/
   // home resolver the update-check cache itself uses.
   memeshDir as memeshHomeDir,
+  parseTaskState,
   readUpdateCheckCache,
   resolvePluginRoot,
   resolveSessionLimit,
+  taskStateLines,
+  taskStateName,
   writePrivateJson,
 } from './_shared.js';
 import { MemeshDatabase } from './_generated/sqlite.js';
@@ -828,6 +831,25 @@ process.stdin.on('end', async () => {
           }
         }
 
+        // "Where we left off" leads the block. It is the one memory a new
+        // session needs before any other: everything below is context for
+        // work, this IS the work. It is also the only line here a human
+        // (or an agent acting for one) stated on purpose — the rest is
+        // ranked, and ranking cannot know what you meant to do next.
+        //
+        // Read from metadata, not from the observation trail: observations
+        // are the CHANGE history, and picking "the current goal" out of them
+        // means guessing which line is newest. Metadata holds one answer.
+        const taskEntityName = taskStateName(projectName);
+        const taskRow = db
+          .prepare('SELECT metadata FROM entities WHERE name = ?')
+          .get(taskEntityName);
+        const stateLines = taskStateLines(
+          parseTaskState(parseEntityMetadata(taskRow?.metadata)),
+          projectName,
+        );
+        if (stateLines.length > 0) memoryLines.push(...stateLines, '');
+
         // The three pools overlap by construction (a lesson tagged to this
         // project is in lessonEntities AND projectEntities), so dedupe by id
         // and let the topology grouping decide where each one belongs. The
@@ -845,6 +867,10 @@ process.stdin.on('end', async () => {
         const addAll = (rows, foreign) => {
           for (const e of rows) {
             if (seen.has(e.id)) continue;
+            // Already rendered in full above. Left in the pool it would be
+            // listed a second time under a ranked heading, with its title —
+            // the goal — repeated as though it were a separate memory.
+            if (e.name === taskEntityName) continue;
             seen.add(e.id);
             const meta = parseEntityMetadata(e.metadata);
             candidates.push({
@@ -872,6 +898,12 @@ process.stdin.on('end', async () => {
         // regression this block was written to fix).
         try { process.stderr.write(`[memesh session-start] memory-context: ${err?.message || err}\n`); } catch {}
       }
+
+      // The state block pushes a blank spacer so the ranked sections do not
+      // run into it. When there are no ranked sections — a graph whose only
+      // memory is the state itself — that spacer is the last line, and it
+      // would be wrapped inside the fence as a dangling empty row.
+      while (memoryLines.length > 0 && memoryLines[memoryLines.length - 1] === '') memoryLines.pop();
 
       let memoryContext = '';
       if (memoryLines.length > 0) {

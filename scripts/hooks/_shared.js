@@ -34,6 +34,7 @@ import {
 } from './_generated/core-paths.js';
 import { autoCaptureDecision } from './_generated/capture-flag.js';
 export { buildTopologyLines, WORK_LAYER_TYPES, layerOf } from './_generated/work-topology.js';
+export { parseTaskState, taskStateLines, taskStateName } from './_generated/task-state.js';
 import {
   indexedObservationText,
   insertFtsRow,

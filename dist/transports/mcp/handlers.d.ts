@@ -186,6 +186,35 @@ export declare const TOOL_DEFINITIONS: readonly [{
         readonly additionalProperties: false;
     };
 }, {
+    readonly name: "task_state";
+    readonly description: "Read or update where the work stands on this project: the goal, what is next, what is blocked, what was just finished. Call with no arguments to read it. Injected at the start of the next session, so record ONLY what the user actually stated — never infer a goal or a next step from files edited or commands run, and leave a field out if it was not said. Pass an empty string to clear a field (e.g. blocked: \"\" once a blocker is resolved).";
+    readonly inputSchema: {
+        readonly type: "object";
+        readonly properties: {
+            readonly project: {
+                readonly type: "string";
+                readonly description: "Project name. Omit to use the current working directory’s project.";
+            };
+            readonly goal: {
+                readonly type: "string";
+                readonly description: "What this work is FOR — the outcome being aimed at";
+            };
+            readonly next: {
+                readonly type: "string";
+                readonly description: "The next concrete step";
+            };
+            readonly blocked: {
+                readonly type: "string";
+                readonly description: "What is standing in the way, if anything";
+            };
+            readonly done: {
+                readonly type: "string";
+                readonly description: "What was just finished";
+            };
+        };
+        readonly additionalProperties: false;
+    };
+}, {
     readonly name: "user_patterns";
     readonly description: "Analyze user work patterns from existing memory. Returns: work schedule (peak hours/days), tool preferences, focus areas, workflow metrics (session duration, commits/session), knowledge strengths, and learning areas. Use at session start for context about the user.";
     readonly inputSchema: {

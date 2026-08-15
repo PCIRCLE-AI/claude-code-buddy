@@ -12,6 +12,8 @@ import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-langu
 import { getDbPath, redactSecrets, redactUserPaths } from '../../core/paths.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 import { NAMESPACES } from '../../core/types.js';
+import { getTaskState, setTaskState } from '../../core/task-state-store.js';
+import { TASK_STATE_FIELDS, taskStateLines, type TaskStateField } from '../../core/task-state.js';
 import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/types.js';
 
 // DX: every CLI command that touches the DB used to repeat
@@ -532,6 +534,60 @@ program
       } else {
         console.log(`Lesson recorded: ${result.name}`);
       }
+    });
+  });
+
+// --- task ---
+// The human-driven half of task-state. The MCP tool is how an agent records
+// this mid-session; this is how you set it yourself, and how you check what
+// the next session is about to be told.
+program
+  .command('task')
+  .description('Show or update where the work stands on this project')
+  .option('--project <name>', 'Project name (default: the current directory’s project)')
+  .option('--goal <text>', 'What this work is FOR — the outcome being aimed at')
+  .option('--next <text>', 'The next concrete step')
+  .option('--blocked <text>', 'What is standing in the way (pass "" to clear it once resolved)')
+  .option('--done <text>', 'What was just finished')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    await withDatabase(() => {
+      // Which flags were PASSED, not which have text: `--blocked ""` is a
+      // request to clear, and reading truthiness here would silently drop it.
+      const patch: Partial<Record<TaskStateField, string>> = {};
+      for (const field of TASK_STATE_FIELDS) {
+        if (opts[field] !== undefined) patch[field] = opts[field] as string;
+      }
+
+      if (Object.keys(patch).length === 0) {
+        const { project, state } = getTaskState(opts.project);
+        if (opts.json) {
+          console.log(JSON.stringify({ project, state }));
+          return;
+        }
+        const lines = taskStateLines(state, project);
+        if (lines.length === 0) {
+          console.log(
+            `Nothing recorded for "${project}" yet.\n` +
+            `Set it with:  memesh task --goal "…" --next "…"`,
+          );
+          return;
+        }
+        console.log(lines.join('\n'));
+        return;
+      }
+
+      const result = setTaskState({ project: opts.project, patch, sourceHost: 'cli' });
+      if (opts.json) {
+        console.log(JSON.stringify(result));
+        return;
+      }
+      if (result.changed.length === 0) {
+        console.log(`No change — "${result.project}" already said exactly that.`);
+        return;
+      }
+      console.log(`Updated ${result.changed.join(', ')} for "${result.project}".`);
+      console.log(taskStateLines(result.state, result.project).join('\n'));
     });
   });
 

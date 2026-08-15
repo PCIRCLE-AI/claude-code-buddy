@@ -95,6 +95,13 @@ export declare const LearnSchema: z.ZodObject<{
         minor: "minor";
     }>>;
 }, z.core.$strip>;
+export declare const TaskStateSchema: z.ZodObject<{
+    project: z.ZodOptional<z.ZodString>;
+    goal: z.ZodOptional<z.ZodString>;
+    next: z.ZodOptional<z.ZodString>;
+    blocked: z.ZodOptional<z.ZodString>;
+    done: z.ZodOptional<z.ZodString>;
+}, z.core.$strict>;
 export declare const UserPatternsSchema: z.ZodObject<{
     categories: z.ZodOptional<z.ZodArray<z.ZodEnum<{
         workSchedule: "workSchedule";

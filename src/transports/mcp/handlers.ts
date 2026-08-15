@@ -8,9 +8,10 @@ import { z } from 'zod';
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { getDatabase } from '../../db.js';
 import { computePatterns } from '../../core/patterns.js';
+import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import {
   RememberSchema, RecallSchema, ForgetSchema,
-  ExportSchema, ImportSchema, LearnSchema, UserPatternsSchema,
+  ExportSchema, ImportSchema, LearnSchema, TaskStateSchema, UserPatternsSchema,
 } from '../schemas.js';
 
 // ---------------------------------------------------------------------------
@@ -206,6 +207,31 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'task_state',
+    // The description carries the one rule that keeps this honest, in the
+    // place the model actually reads it. These four fields are injected at the
+    // top of the next session and acted on as fact, so a value the model
+    // GUESSED — "they edited the parser, the goal must be the parser" — is a
+    // wrong instruction to a future session with nothing to contradict it.
+    // Only what someone actually said belongs here.
+    description:
+      'Read or update where the work stands on this project: the goal, what is next, what is blocked, what was just finished. Call with no arguments to read it. Injected at the start of the next session, so record ONLY what the user actually stated — never infer a goal or a next step from files edited or commands run, and leave a field out if it was not said. Pass an empty string to clear a field (e.g. blocked: "" once a blocker is resolved).',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        project: {
+          type: 'string',
+          description: 'Project name. Omit to use the current working directory’s project.',
+        },
+        goal: { type: 'string', description: 'What this work is FOR — the outcome being aimed at' },
+        next: { type: 'string', description: 'The next concrete step' },
+        blocked: { type: 'string', description: 'What is standing in the way, if anything' },
+        done: { type: 'string', description: 'What was just finished' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'user_patterns',
     description:
       'Analyze user work patterns from existing memory. Returns: work schedule (peak hours/days), tool preferences, focus areas, workflow metrics (session duration, commits/session), knowledge strengths, and learning areas. Use at session start for context about the user.',
@@ -350,6 +376,16 @@ export async function handleTool(name: string, args: Record<string, unknown> | u
       const r = parseOrFail(LearnSchema, args);
       if (!r.ok) return r.result;
       return ok(learn({ ...r.data, sourceHost }));
+    }
+    if (name === 'task_state') {
+      const r = parseOrFail(TaskStateSchema, args);
+      if (!r.ok) return r.result;
+      const { project, ...patch } = r.data;
+      // No field mentioned at all = a read. Distinguished by which KEYS
+      // arrived, not by their values: `blocked: ""` is a write that clears,
+      // and treating it as "nothing to do" would make a blocker unremovable.
+      if (Object.keys(patch).length === 0) return ok(getTaskState(project));
+      return ok(setTaskState({ project, patch, sourceHost }));
     }
     if (name === 'user_patterns') {
       const r = parseOrFail(UserPatternsSchema, args);
