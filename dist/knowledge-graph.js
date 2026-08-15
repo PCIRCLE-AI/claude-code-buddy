@@ -94,6 +94,20 @@ export class KnowledgeGraph {
             this.db
                 .prepare('UPDATE entities SET title = ? WHERE id = ?')
                 .run(opts.title, entityId);
+            const metaRow = this.db.prepare('SELECT metadata FROM entities WHERE id = ?').get(entityId);
+            let metadata = {};
+            if (metaRow?.metadata) {
+                try {
+                    const parsed = JSON.parse(metaRow.metadata);
+                    metadata = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+                }
+                catch {
+                    console.error(`MeMesh: healed corrupted metadata for entity ${entityId} during title update.`);
+                }
+            }
+            delete metadata.title_source;
+            this.db.prepare('UPDATE entities SET metadata = ? WHERE id = ?')
+                .run(JSON.stringify(metadata), entityId);
         }
         const previousNamespace = row.namespace ?? 'personal';
         const requestedNamespace = opts?.namespace;

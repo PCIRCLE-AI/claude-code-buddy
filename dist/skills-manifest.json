@@ -33,8 +33,8 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "ed5adf0e33cfcfed599f50efedd7b4d95769a7a634b3d2de108518b66b3c0624",
-      "bytes": 53540
+      "sha256": "37033ddaecf05127ce80b230a9e6124ab71ee1343b4cba7d48212226ed4c2e6f",
+      "bytes": 54117
     },
     {
       "path": "scripts/hooks/post-commit.js",

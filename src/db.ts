@@ -1265,7 +1265,7 @@ function backfillSignalScores(db: MemeshDatabase): void {
 
 /** Backfill cap — mirrors TITLE_MAX_LENGTH in scripts/hooks/_shared.js
  *  (the F5 boundary keeps hook and core as two copies of the contract). */
-const BACKFILL_TITLE_MAX = 120;
+const BACKFILL_TITLE_MAX = 200;
 
 function truncateBackfillTitle(text: string): string {
   const trimmed = text.trim();
@@ -1360,11 +1360,31 @@ function backfillTitles(db: MemeshDatabase): void {
   const tx = db.transaction(() => {
     let titled = 0;
     let skipped = 0;
+    let healed = 0;
     for (const row of rows) {
       let metadata: Record<string, unknown>;
       if (row.metadata) {
-        try { metadata = JSON.parse(row.metadata) as Record<string, unknown>; } catch { skipped++; continue; }
-        if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) { skipped++; continue; }
+        try {
+          metadata = JSON.parse(row.metadata) as Record<string, unknown>;
+        } catch {
+          // Heal corrupted metadata: replace with {} and log. A corrupted
+          // metadata row should not be skipped — it should be healed so the
+          // entity can receive a title and title_source.
+          console.error(
+            `MeMesh: healed corrupted metadata for entity ${row.id} (${row.name}). ` +
+            `Original value was unparseable; replaced with {}.`
+          );
+          metadata = {};
+          healed++;
+        }
+        if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
+          console.error(
+            `MeMesh: healed non-object metadata for entity ${row.id} (${row.name}). ` +
+            `Type was ${Array.isArray(metadata) ? 'array' : typeof metadata}; replaced with {}.`
+          );
+          metadata = {};
+          healed++;
+        }
       } else {
         metadata = {};
       }
@@ -1383,7 +1403,10 @@ function backfillTitles(db: MemeshDatabase): void {
       }
       titled++;
     }
-    stamp(titled, skipped);
+    // Include healed count in the stamp for diagnostics
+    db.prepare(
+      'INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)'
+    ).run(MARKER, JSON.stringify({ at: new Date().toISOString(), titled, skipped, healed }));
   });
   tx();
 }

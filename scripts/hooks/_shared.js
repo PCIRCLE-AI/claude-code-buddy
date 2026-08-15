@@ -790,7 +790,7 @@ function ensureHookFtsSegmentation(db) {
  *  pre-edit-recall.js's existing 120-char observation-preview convention —
  *  a title should read as a short scannable label, distinctly shorter than
  *  MemoryRow's 160-char fallback preview, not a second paragraph. */
-const TITLE_MAX_LENGTH = 120;
+const TITLE_MAX_LENGTH = 200;
 
 export function truncateTitle(text) {
   if (!text) return text;
@@ -853,16 +853,30 @@ export function captureEntity(db, { name, type, observations = [], tags = [], ti
   const previousTitle = row.title;
   if (!isNew && title !== undefined && title !== previousTitle) {
     db.prepare('UPDATE entities SET title = ? WHERE id = ?').run(title, id);
-    // Keep the heuristic mark in step with the write. Unparseable metadata is
-    // left alone (same discipline as backfillSignalScores) — the title still
-    // lands, and an unmarked title errs on the never-auto-replaced side.
+    // Keep the heuristic mark in step with the write. Heal corrupted metadata
+    // (replace with {}) instead of leaving it — a corrupted metadata row would
+    // otherwise never get title_source stamped and remain permanently broken.
     const metaRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(id);
-    const meta = parseEntityMetadata(metaRow?.metadata);
-    // Only stamp title_source='heuristic' if no source is already recorded.
-    // An absent title_source means user-provided (permanent) — don't overwrite.
-    if ((meta || !metaRow?.metadata) && title != null && !meta?.title_source) {
+    let meta = parseEntityMetadata(metaRow?.metadata);
+    // Heal corrupted metadata: if parse returned null but metadata field exists,
+    // it's corrupted — replace with {} and log the healing.
+    if (!meta && metaRow?.metadata) {
+      try {
+        process.stderr.write(
+          `MeMesh: healed corrupted metadata for entity ${id} (${name}). ` +
+          `Original value was unparseable; replaced with {}.\n`,
+        );
+      } catch { /* stderr gone */ }
+      meta = {};
+      // Write the healed metadata immediately so it doesn't get skipped again
+      db.prepare('UPDATE entities SET metadata = ? WHERE id = ?').run('{}', id);
+    }
+    // Stamp title_source on every title write (not just initial). This keeps
+    // the source field synchronized with the current title, per Fix C3.
+    if (title != null) {
+      const updatedMeta = { ...(meta ?? {}), title_source: 'heuristic' };
       db.prepare('UPDATE entities SET metadata = ? WHERE id = ?')
-        .run(JSON.stringify({ ...(meta ?? {}), title_source: 'heuristic' }), id);
+        .run(JSON.stringify(updatedMeta), id);
     }
   }
 

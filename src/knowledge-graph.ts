@@ -330,11 +330,29 @@ export class KnowledgeGraph {
     // touches `title` when the row already exists (the whole insert attempt
     // is dropped), so this mirrors the namespace-move block below: only an
     // explicitly supplied, actually-different value writes anything.
+    // When title changes via API/remember (user-provided), clear title_source
+    // to mark it as permanent (Fix C3: keep title_source synchronized).
     const previousTitle = row.title;
     if (!isNewEntity && opts?.title !== undefined && opts.title !== previousTitle) {
       this.db
         .prepare('UPDATE entities SET title = ? WHERE id = ?')
         .run(opts.title, entityId);
+      // User-provided title: clear title_source from metadata to mark as permanent.
+      // Heal corrupted metadata if parse fails (Fix C2).
+      const metaRow = this.db.prepare('SELECT metadata FROM entities WHERE id = ?').get(entityId) as { metadata: string | null } | undefined;
+      let metadata: Record<string, unknown> = {};
+      if (metaRow?.metadata) {
+        try {
+          const parsed = JSON.parse(metaRow.metadata);
+          metadata = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+        } catch {
+          console.error(`MeMesh: healed corrupted metadata for entity ${entityId} during title update.`);
+        }
+      }
+      // Remove title_source to mark as user-provided (permanent)
+      delete metadata.title_source;
+      this.db.prepare('UPDATE entities SET metadata = ? WHERE id = ?')
+        .run(JSON.stringify(metadata), entityId);
     }
 
     // An explicit namespace applies to an entity that already exists, too.

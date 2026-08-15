@@ -599,7 +599,7 @@ function backfillSignalScores(db) {
     });
     tx();
 }
-const BACKFILL_TITLE_MAX = 120;
+const BACKFILL_TITLE_MAX = 200;
 function truncateBackfillTitle(text) {
     const trimmed = text.trim();
     return trimmed.length > BACKFILL_TITLE_MAX
@@ -644,6 +644,7 @@ function backfillTitles(db) {
     const tx = db.transaction(() => {
         let titled = 0;
         let skipped = 0;
+        let healed = 0;
         for (const row of rows) {
             let metadata;
             if (row.metadata) {
@@ -651,12 +652,16 @@ function backfillTitles(db) {
                     metadata = JSON.parse(row.metadata);
                 }
                 catch {
-                    skipped++;
-                    continue;
+                    console.error(`MeMesh: healed corrupted metadata for entity ${row.id} (${row.name}). ` +
+                        `Original value was unparseable; replaced with {}.`);
+                    metadata = {};
+                    healed++;
                 }
                 if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
-                    skipped++;
-                    continue;
+                    console.error(`MeMesh: healed non-object metadata for entity ${row.id} (${row.name}). ` +
+                        `Type was ${Array.isArray(metadata) ? 'array' : typeof metadata}; replaced with {}.`);
+                    metadata = {};
+                    healed++;
                 }
             }
             else {
@@ -677,7 +682,7 @@ function backfillTitles(db) {
             }
             titled++;
         }
-        stamp(titled, skipped);
+        db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(MARKER, JSON.stringify({ at: new Date().toISOString(), titled, skipped, healed }));
     });
     tx();
 }
