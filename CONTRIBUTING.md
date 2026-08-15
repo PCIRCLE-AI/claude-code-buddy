@@ -23,7 +23,7 @@ npm run test:packaged
 
 Documentation is part of the change, not follow-up work. The CI's `Version coherence` step and `Doctor (manifest + hooks integrity gate)` step enforce the most-fragile parts of this discipline; everything else is reviewer-judgment.
 
-- Update `README.md` when behavior, installation, or development workflow changes (and re-sync the 10 locale parities — `README.de.md`, `README.vi.md`, `README.th.md`, `README.pt.md`, `README.ja.md`, `README.ko.md`, `README.zh-CN.md`, `README.zh-TW.md`, `README.es.md`, `README.fr.md`).
+- Update `README.md` when behavior, installation, or development workflow changes (and re-sync the 2 locale parities — `README.zh-TW.md`, `README.de.md`).
 - Update `docs/api/API_REFERENCE.md` when the MCP / HTTP / CLI surface changes (and bump its `**Version**: ` line on a release).
 - Update `docs/ARCHITECTURE.md` when module structure, storage behavior, or packaging flow changes (and bump its `**Version**: ` line on a release).
 - Read `DESIGN.md` before any dashboard change that touches colour, type, spacing or an interaction, and update it when a token or rule changes. It is derived from `dashboard/src/styles/global.css`; when the two disagree the CSS is what ships, so fix whichever is wrong rather than leaving them apart.

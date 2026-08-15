@@ -6,6 +6,13 @@ All notable changes to MeMesh are documented here.
 
 ### Removed
 
+- **README locales reduced to three.** English, 繁體中文 (`README.zh-TW.md`)
+  and Deutsch (`README.de.md`) remain; the other eight locale READMEs
+  (zh-CN, ja, ko, es, fr, pt, vi, th) are removed. Eleven hand-synced
+  copies of a fast-moving front page drifted faster than they were read —
+  the dashboard UI keeps all 11 languages (`dashboard/src/lib/i18n.ts` is
+  unaffected).
+
 - **`memesh-view` bin retired.** It was a third, parallel dashboard
   implementation (624-line static HTML snapshot) alongside the live fallback
   (`view-live.ts`, still serving the no-Preact-build case) and the Preact
