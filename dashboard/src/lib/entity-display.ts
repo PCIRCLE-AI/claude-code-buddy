@@ -7,6 +7,7 @@
 
 import type { Entity } from './api';
 import { t, getLocale } from './i18n';
+import { isBoilerplateObservation } from '../../../src/core/title.js';
 
 /* ---------- type clustering ---------- */
 
@@ -121,9 +122,11 @@ export function extractProject(entity: Entity): string | null {
  *  longest meaningful one within the first few. */
 export function pickBestObservation(observations: string[] | undefined): string {
   if (!observations || observations.length === 0) return '';
-  // Filter out short metadata-style observations
+  // Filter out short metadata-style observations. Boilerplate list from
+  // core/title.ts — the same union the title backfill uses, so the two
+  // sides can no longer disagree about what counts as noise.
   const nonTrivial = observations.filter(
-    (o) => o.length > 30 && !/^(Steps|Commits|Plan ".+" completed)/.test(o.trim()),
+    (o) => o.length > 30 && !isBoilerplateObservation(o),
   );
   const pool = nonTrivial.length > 0 ? nonTrivial : observations;
   // Prefer the longest of the first 3 (avoid scanning huge memory entries)

@@ -1,5 +1,5 @@
 import { findConflicts, trackAccess } from './storage/conflicts.js';
-import { insertFtsRow, removeFromFts, tokenizeQuery, renderMatchExpression, registerNfcFunction, SQL_NFC_FUNCTION, } from './storage/fts-index.js';
+import { indexedObservationText, insertFtsRow, joinIndexedObservations, removeFromFts, tokenizeQuery, renderMatchExpression, registerNfcFunction, SQL_NFC_FUNCTION, } from './storage/fts-index.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { hasVectorIndex } from './storage/vector-index.js';
 const MAX_QUERY_TERMS = 32;
@@ -130,7 +130,7 @@ export class KnowledgeGraph {
         const prevObs = isNewEntity || wasArchived
             ? []
             : this.db
-                .prepare('SELECT content FROM observations WHERE entity_id = ?')
+                .prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id')
                 .all(entityId);
         if (!isNewEntity && !wasArchived) {
             const prevSet = new Set(prevObs.map((o) => o.content));
@@ -473,12 +473,7 @@ export class KnowledgeGraph {
             .get(name);
         if (!row)
             return;
-        const prevObs = this.db
-            .prepare('SELECT content FROM observations WHERE entity_id = ?')
-            .all(row.id);
-        const prevObsText = prevObs.length > 0
-            ? prevObs.map((o) => o.content).join(' ')
-            : undefined;
+        const prevObsText = indexedObservationText(this.db, row.id);
         this.db.prepare('DELETE FROM observations WHERE entity_id = ?').run(row.id);
         this.db.prepare('DELETE FROM tags WHERE entity_id = ?').run(row.id);
         this.rebuildFts(row.id, name, prevObsText, row.title);
@@ -489,11 +484,7 @@ export class KnowledgeGraph {
             .get(name);
         if (!row)
             return { archived: false };
-        const allObs = this.db
-            .prepare('SELECT content FROM observations WHERE entity_id = ?')
-            .all(row.id);
-        const obsText = allObs.map((o) => o.content).join(' ');
-        removeFromFts(this.db, row.id, name, obsText, row.title);
+        removeFromFts(this.db, row.id, name, indexedObservationText(this.db, row.id), row.title);
         if (hasVectorIndex(this.db)) {
             this.db
                 .prepare('DELETE FROM entities_vec WHERE rowid = ?')
@@ -511,9 +502,9 @@ export class KnowledgeGraph {
         if (!row)
             return { removed: false, remainingObservations: 0, entityFound: false };
         const prevObs = this.db
-            .prepare('SELECT content FROM observations WHERE entity_id = ?')
+            .prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id')
             .all(row.id);
-        const prevObsText = prevObs.map((o) => o.content).join(' ');
+        const prevObsText = joinIndexedObservations(prevObs.map((o) => o.content));
         const deleteResult = this.db
             .prepare('DELETE FROM observations WHERE entity_id = ? AND content = ?')
             .run(row.id, observationContent);
@@ -532,11 +523,7 @@ export class KnowledgeGraph {
             .get(name);
         if (!row)
             return { deleted: false };
-        const allObs = this.db
-            .prepare('SELECT content FROM observations WHERE entity_id = ?')
-            .all(row.id);
-        const obsText = allObs.map((o) => o.content).join(' ');
-        removeFromFts(this.db, row.id, name, obsText, row.title);
+        removeFromFts(this.db, row.id, name, indexedObservationText(this.db, row.id), row.title);
         if (hasVectorIndex(this.db)) {
             this.db
                 .prepare('DELETE FROM entities_vec WHERE rowid = ?')
@@ -560,10 +547,7 @@ export class KnowledgeGraph {
         if (previousObsText !== undefined) {
             removeFromFts(this.db, entityId, entityName, previousObsText, previousTitle);
         }
-        const allObs = this.db
-            .prepare('SELECT content FROM observations WHERE entity_id = ?')
-            .all(entityId);
-        const obsText = allObs.map((o) => o.content).join(' ');
+        const obsText = indexedObservationText(this.db, entityId);
         const currentTitleRow = this.db
             .prepare('SELECT title FROM entities WHERE id = ?')
             .get(entityId);

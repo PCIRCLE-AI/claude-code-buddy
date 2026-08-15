@@ -3,7 +3,9 @@ export type { Entity, Relation, CreateEntityInput, SearchOptions } from './core/
 import type { Entity, Relation, CreateEntityInput, SearchOptions, EntityRow } from './core/types.js';
 import { findConflicts, trackAccess } from './storage/conflicts.js';
 import {
+  indexedObservationText,
   insertFtsRow,
+  joinIndexedObservations,
   removeFromFts,
   tokenizeQuery,
   renderMatchExpression,
@@ -398,7 +400,7 @@ export class KnowledgeGraph {
     const prevObs = isNewEntity || wasArchived
       ? []
       : (this.db
-          .prepare('SELECT content FROM observations WHERE entity_id = ?')
+          .prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id')
           .all(entityId) as { content: string }[]);
 
     // Confidence policy on re-assertion. Three takes, each driven by
@@ -946,13 +948,15 @@ export class KnowledgeGraph {
       .get(name) as { id: number; title: string | null } | undefined;
     if (!row) return;
 
-    // Capture current observations text for FTS delete before clearing
-    const prevObs = this.db
-      .prepare('SELECT content FROM observations WHERE entity_id = ?')
-      .all(row.id) as { content: string }[];
-    const prevObsText = prevObs.length > 0
-      ? prevObs.map((o) => o.content).join(' ')
-      : undefined;
+    // Capture current observations text for FTS delete before clearing.
+    // ALWAYS a string, never undefined-on-empty: createEntity indexes
+    // name+title even for a zero-observation entity, so an FTS row exists —
+    // the old `length > 0 ? text : undefined` skipped the delete for exactly
+    // that case, and an overwrite-import of an observation-less entity
+    // double-inserted the same rowid into the index. If the entity truly has
+    // no FTS row (archived, pre-index era), removeFromFts's benign-error
+    // class absorbs the miss.
+    const prevObsText = indexedObservationText(this.db, row.id);
 
     this.db.prepare('DELETE FROM observations WHERE entity_id = ?').run(row.id);
     this.db.prepare('DELETE FROM tags WHERE entity_id = ?').run(row.id);
@@ -969,12 +973,7 @@ export class KnowledgeGraph {
     if (!row) return { archived: false };
 
     // Remove from FTS5 index (archived entities should not be searchable)
-    const allObs = this.db
-      .prepare('SELECT content FROM observations WHERE entity_id = ?')
-      .all(row.id) as { content: string }[];
-    const obsText = allObs.map((o) => o.content).join(' ');
-
-    removeFromFts(this.db, row.id, name, obsText, row.title);
+    removeFromFts(this.db, row.id, name, indexedObservationText(this.db, row.id), row.title);
 
     // CRITICAL: Remove from vector index (archived entities should not be retrievable via vector search)
     //
@@ -1011,9 +1010,9 @@ export class KnowledgeGraph {
     if (!row) return { removed: false, remainingObservations: 0, entityFound: false };
 
     const prevObs = this.db
-      .prepare('SELECT content FROM observations WHERE entity_id = ?')
+      .prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id')
       .all(row.id) as { content: string }[];
-    const prevObsText = prevObs.map((o) => o.content).join(' ');
+    const prevObsText = joinIndexedObservations(prevObs.map((o) => o.content));
 
     const deleteResult = this.db
       .prepare('DELETE FROM observations WHERE entity_id = ? AND content = ?')
@@ -1057,11 +1056,7 @@ export class KnowledgeGraph {
 
     // Delete FTS entry first (contentless FTS5 requires the original
     // indexed values to find the row — see storage/fts-index.ts).
-    const allObs = this.db
-      .prepare('SELECT content FROM observations WHERE entity_id = ?')
-      .all(row.id) as { content: string }[];
-    const obsText = allObs.map((o) => o.content).join(' ');
-    removeFromFts(this.db, row.id, name, obsText, row.title);
+    removeFromFts(this.db, row.id, name, indexedObservationText(this.db, row.id), row.title);
 
     // Delete vec entry — mirror archiveEntity's cleanup so hard
     // delete doesn't leak orphan embeddings.
@@ -1105,10 +1100,7 @@ export class KnowledgeGraph {
     if (previousObsText !== undefined) {
       removeFromFts(this.db, entityId, entityName, previousObsText, previousTitle);
     }
-    const allObs = this.db
-      .prepare('SELECT content FROM observations WHERE entity_id = ?')
-      .all(entityId) as { content: string }[];
-    const obsText = allObs.map((o) => o.content).join(' ');
+    const obsText = indexedObservationText(this.db, entityId);
     const currentTitleRow = this.db
       .prepare('SELECT title FROM entities WHERE id = ?')
       .get(entityId) as { title: string | null } | undefined;

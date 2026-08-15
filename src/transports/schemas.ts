@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import { NAMESPACES } from '../core/types.js';
+import { TITLE_MAX_LENGTH } from '../core/title.js';
 
 const sanitizeName = (s: string) => s.replace(/[\r\n\t]+/g, ' ').trim();
 const nameField = z.string().min(1).max(255).transform(sanitizeName).refine(s => s.length > 0, {
@@ -17,7 +18,11 @@ const nameField = z.string().min(1).max(255).transform(sanitizeName).refine(s =>
 // whitespace meant.
 const titleField = z
   .string()
-  .max(200)
+  // TITLE_MAX_LENGTH from core/title.ts — the same constant the hook
+  // generators and the backfill truncate to. Validators REJECT above the
+  // cap (an API caller can react); generators truncate (nobody to bounce
+  // the input back to).
+  .max(TITLE_MAX_LENGTH)
   .transform(sanitizeName)
   .transform(s => (s.length > 0 ? s : undefined))
   .optional();

@@ -203,20 +203,14 @@ app.get('/v1/health', (_req, res) => {
         }
     }
 });
-app.get('/v1/doctor', async (_req, res) => {
-    try {
-        const { runDoctor } = await import('../../core/doctor.js');
-        const result = await runDoctor({
-            packageRoot,
-            packageVersion,
-        });
-        const safe = JSON.parse(redactUserPaths(redactSecrets(JSON.stringify(result))));
-        res.json({ success: true, data: safe });
-    }
-    catch (err) {
-        res.status(500).json({ success: false, errorCode: 'server.internal', error: err instanceof Error ? err.message : String(err) });
-    }
-});
+app.get('/v1/doctor', (_req, res) => handleGet(res, async () => {
+    const { runDoctor } = await import('../../core/doctor.js');
+    const result = await runDoctor({
+        packageRoot,
+        packageVersion,
+    });
+    return JSON.parse(redactUserPaths(redactSecrets(JSON.stringify(result))));
+}));
 function requireJsonBody(req, res) {
     if (req.body !== undefined)
         return true;
@@ -228,46 +222,73 @@ function requireJsonBody(req, res) {
     });
     return false;
 }
-function handlePost(schema, req, res, handler) {
-    if (!requireJsonBody(req, res))
+class HttpError extends Error {
+    status;
+    code;
+    constructor(status, code, message) {
+        super(message);
+        this.status = status;
+        this.code = code;
+    }
+}
+function sendError(res, err, fallbackStatus, fallbackCode) {
+    if (err instanceof HttpError) {
+        res.status(err.status).json({ success: false, errorCode: err.code, error: err.message });
         return;
-    const parsed = schema.safeParse(req.body);
+    }
+    res.status(fallbackStatus).json({
+        success: false,
+        errorCode: fallbackCode,
+        error: err instanceof Error ? err.message : String(err),
+    });
+}
+function zodErrorText(error) {
+    return error.issues.map(i => (i.path.length ? `${i.path.join('.')}: ${i.message}` : i.message)).join('; ');
+}
+function parseQuery(schema, req, res) {
+    const parsed = schema.safeParse(req.query);
+    if (!parsed.success) {
+        res.status(400).json({ success: false, errorCode: 'validation.bad-param', error: zodErrorText(parsed.error) });
+        return null;
+    }
+    return parsed.data;
+}
+function requireIdParam(req, res) {
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isInteger(id) || id < 1) {
+        res.status(400).json({ success: false, errorCode: 'validation.bad-param', error: 'invalid id' });
+        return null;
+    }
+    return id;
+}
+function handlePost(schema, req, res, handler, opts) {
+    if (!opts?.allowEmptyBody && !requireJsonBody(req, res))
+        return;
+    const parsed = schema.safeParse(req.body ?? (opts?.allowEmptyBody ? {} : undefined));
     if (!parsed.success) {
         res.status(400).json({
             success: false,
             errorCode: 'validation.bad-body',
-            error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
+            error: zodErrorText(parsed.error),
         });
         return;
     }
     Promise.resolve()
         .then(() => handler(parsed.data))
         .then((data) => res.json({ success: true, data }))
-        .catch((err) => res.status(400).json({ success: false, errorCode: 'operation.failed', error: err instanceof Error ? err.message : String(err) }));
+        .catch((err) => sendError(res, err, opts?.errorStatus ?? 400, opts?.errorCode ?? 'operation.failed'));
 }
 function handleGet(res, produce) {
     Promise.resolve()
         .then(produce)
         .then((data) => res.json({ success: true, data }))
-        .catch((err) => res.status(500).json({ success: false, errorCode: 'server.internal', error: err instanceof Error ? err.message : String(err) }));
+        .catch((err) => sendError(res, err, 500, 'server.internal'));
 }
 app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, (data) => remember({ ...data, sourceHost: 'http' })));
-app.post('/v1/recall', async (req, res) => {
-    if (!requireJsonBody(req, res))
-        return;
-    const parsed = RecallBody.safeParse(req.body);
-    if (!parsed.success) {
-        res.status(400).json({ success: false, errorCode: 'validation.bad-body', error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
-        return;
-    }
-    try {
-        const { entities, conflicts } = await recallWithConflicts(parsed.data);
-        res.json({ success: true, data: conflicts.length > 0 ? { entities, conflicts } : { entities } });
-    }
-    catch (err) {
-        res.status(400).json({ success: false, errorCode: 'operation.failed', error: err instanceof Error ? err.message : String(err) });
-    }
-});
+app.post('/v1/recall', (req, res) => handlePost(RecallBody, req, res, async (data) => {
+    const { entities, conflicts } = await recallWithConflicts(data);
+    return conflicts.length > 0 ? { entities, conflicts } : { entities };
+}));
 app.post('/v1/forget', (req, res) => handlePost(ForgetBody, req, res, forget));
 app.post('/v1/consolidate', (_req, res) => {
     res.status(410).json({ success: false, errorCode: 'route.retired', error: RETIRED_ROUTES['/v1/consolidate'] });
@@ -305,16 +326,11 @@ function preserveFallbackApiKeys(incoming, stored) {
         return clean;
     });
 }
-app.get('/v1/config', (_req, res) => {
-    try {
-        const config = readConfig();
-        const caps = detectCapabilities(config);
-        res.json({ success: true, data: { config: maskLlmSecrets(config), capabilities: maskLlmSecrets(caps) } });
-    }
-    catch (err) {
-        res.status(500).json({ success: false, errorCode: 'server.internal', error: err instanceof Error ? err.message : String(err) });
-    }
-});
+app.get('/v1/config', (_req, res) => handleGet(res, () => {
+    const config = readConfig();
+    const caps = detectCapabilities(config);
+    return { config: maskLlmSecrets(config), capabilities: maskLlmSecrets(caps) };
+}));
 const ConfigBody = z.object({
     llm: z.union([
         z.object({
@@ -340,108 +356,71 @@ const ConfigBody = z.object({
         .optional(),
     setupCompleted: z.boolean().optional(),
 }).strip();
-app.post('/v1/config', async (req, res) => {
-    if (!requireJsonBody(req, res))
-        return;
-    const parsed = ConfigBody.safeParse(req.body);
-    if (!parsed.success) {
-        res.status(400).json({ success: false, errorCode: 'validation.bad-body', error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
-        return;
-    }
-    try {
-        const before = readConfig();
-        if (parsed.data.llm && parsed.data.llm.apiKey === API_KEY_MASK) {
-            if (before.llm && before.llm.provider === parsed.data.llm.provider && before.llm.apiKey) {
-                parsed.data.llm.apiKey = before.llm.apiKey;
-            }
-            else {
-                delete parsed.data.llm.apiKey;
-            }
+app.post('/v1/config', (req, res) => handlePost(ConfigBody, req, res, (data) => {
+    const before = readConfig();
+    if (data.llm && data.llm.apiKey === API_KEY_MASK) {
+        if (before.llm && before.llm.provider === data.llm.provider && before.llm.apiKey) {
+            data.llm.apiKey = before.llm.apiKey;
         }
-        if (parsed.data.llmFallbacks) {
-            parsed.data.llmFallbacks = preserveFallbackApiKeys(parsed.data.llmFallbacks, before.llmFallbacks);
+        else {
+            delete data.llm.apiKey;
         }
-        const updated = updateConfig(parsed.data);
-        res.json({ success: true, data: maskLlmSecrets(updated) });
     }
-    catch (err) {
-        res.status(400).json({ success: false, errorCode: 'operation.failed', error: err instanceof Error ? err.message : String(err) });
+    if (data.llmFallbacks) {
+        data.llmFallbacks = preserveFallbackApiKeys(data.llmFallbacks, before.llmFallbacks);
     }
-});
+    const updated = updateConfig(data);
+    return maskLlmSecrets(updated);
+}));
 const ConfigTestBody = z.object({
     provider: z.enum(['anthropic', 'openai', 'ollama']),
     apiKey: z.string().max(500).optional(),
     host: z.string().max(500).optional(),
     fallbackIndex: z.number().int().nonnegative().optional(),
 });
-app.post('/v1/config/test', async (req, res) => {
-    if (!requireJsonBody(req, res))
-        return;
-    const parsed = ConfigTestBody.safeParse(req.body);
-    if (!parsed.success) {
-        res.status(400).json({
-            success: false,
-            errorCode: 'validation.bad-body',
-            error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
-        });
-        return;
-    }
-    try {
-        const { probeProvider } = await import('../../core/llm-validator.js');
-        const { provider, host, fallbackIndex } = parsed.data;
-        let { apiKey } = parsed.data;
-        if (!apiKey && (provider === 'anthropic' || provider === 'openai')) {
-            const existing = readConfig();
-            if (typeof fallbackIndex === 'number') {
-                const fb = existing.llmFallbacks?.[fallbackIndex];
-                if (fb && fb.provider === provider && fb.apiKey)
-                    apiKey = fb.apiKey;
-            }
-            else if (existing.llm?.provider === provider && existing.llm.apiKey) {
-                apiKey = existing.llm.apiKey;
-            }
+app.post('/v1/config/test', (req, res) => handlePost(ConfigTestBody, req, res, async (data) => {
+    const { probeProvider } = await import('../../core/llm-validator.js');
+    const { provider, host, fallbackIndex } = data;
+    let { apiKey } = data;
+    if (!apiKey && (provider === 'anthropic' || provider === 'openai')) {
+        const existing = readConfig();
+        if (typeof fallbackIndex === 'number') {
+            const fb = existing.llmFallbacks?.[fallbackIndex];
+            if (fb && fb.provider === provider && fb.apiKey)
+                apiKey = fb.apiKey;
         }
-        const result = await probeProvider(provider, apiKey, host);
-        res.json({ success: true, data: result });
+        else if (existing.llm?.provider === provider && existing.llm.apiKey) {
+            apiKey = existing.llm.apiKey;
+        }
     }
-    catch (err) {
-        res.status(500).json({ success: false, errorCode: 'server.internal', error: err instanceof Error ? err.message : String(err) });
-    }
-});
-app.get('/v1/update-status', async (req, res) => {
-    try {
-        const cached = req.query.cached === '1' || req.query.cached === 'true';
-        const install = getCurrentInstallChannel({ packageRoot });
-        const installSupport = getInstallChannelSupport(install);
-        const update = await getUpdateCheck(packageVersion, { preferFresh: !cached });
-        res.json({
-            success: true,
-            data: {
-                currentVersion: packageVersion,
-                latestVersion: update?.latestVersion ?? null,
-                checkedAt: update?.checkedAt ?? null,
-                lastAttemptAt: update?.lastAttemptAt ?? null,
-                lastSuccessfulCheckAt: update?.lastSuccessfulCheckAt ?? null,
-                lastError: update?.lastError ?? null,
-                updateAvailable: update?.updateAvailable ?? false,
-                checkSucceeded: update?.checkSucceeded ?? false,
-                source: update?.source ?? null,
-                freshness: update?.freshness ?? 'unavailable',
-                installChannel: installSupport.channel,
-                canSelfUpdate: installSupport.canSelfUpdate,
-                recommendedCommand: (update?.currentVersionDeprecated
-                    && update.latestVersion
-                    && update.latestVersion === update.currentVersion
-                    && update.freshness === 'fresh') ? null : installSupport.recommendedCommand,
-                currentVersionDeprecated: update?.currentVersionDeprecated ?? false,
-                deprecationMessage: update?.deprecationMessage ?? null,
-            },
-        });
-    }
-    catch (err) {
-        res.status(500).json({ success: false, errorCode: 'server.internal', error: err instanceof Error ? err.message : String(err) });
-    }
-});
+    return probeProvider(provider, apiKey, host);
+}, { errorStatus: 500, errorCode: 'server.internal' }));
+app.get('/v1/update-status', (req, res) => handleGet(res, async () => {
+    const cached = req.query.cached === '1' || req.query.cached === 'true';
+    const install = getCurrentInstallChannel({ packageRoot });
+    const installSupport = getInstallChannelSupport(install);
+    const update = await getUpdateCheck(packageVersion, { preferFresh: !cached });
+    return {
+        currentVersion: packageVersion,
+        latestVersion: update?.latestVersion ?? null,
+        checkedAt: update?.checkedAt ?? null,
+        lastAttemptAt: update?.lastAttemptAt ?? null,
+        lastSuccessfulCheckAt: update?.lastSuccessfulCheckAt ?? null,
+        lastError: update?.lastError ?? null,
+        updateAvailable: update?.updateAvailable ?? false,
+        checkSucceeded: update?.checkSucceeded ?? false,
+        source: update?.source ?? null,
+        freshness: update?.freshness ?? 'unavailable',
+        installChannel: installSupport.channel,
+        canSelfUpdate: installSupport.canSelfUpdate,
+        recommendedCommand: (update?.currentVersionDeprecated
+            && update.latestVersion
+            && update.latestVersion === update.currentVersion
+            && update.freshness === 'fresh') ? null : installSupport.recommendedCommand,
+        currentVersionDeprecated: update?.currentVersionDeprecated ?? false,
+        deprecationMessage: update?.deprecationMessage ?? null,
+    };
+}));
 app.get('/v1/graph', (_req, res) => handleGet(res, () => computeGraph(getDatabase())));
 app.get('/v1/stats', (_req, res) => handleGet(res, () => computeStats(getDatabase())));
 app.get('/v1/analytics', (_req, res) => handleGet(res, () => computeAnalytics(getDatabase())));
@@ -451,80 +430,51 @@ app.get('/v1/analytics/pm', (req, res) => {
     const windowDays = Number.isFinite(window) && window > 0 ? window : 30;
     handleGet(res, () => computePmAnalytics(getDatabase(), windowDays));
 });
-app.post('/v1/demo/seed', async (_req, res) => {
-    try {
-        const { seedDemo } = await import('../../core/demo.js');
-        const data = seedDemo(getDatabase());
-        res.json({ success: true, data });
-    }
-    catch (err) {
-        res.status(500).json({ success: false, errorCode: 'server.internal', error: err instanceof Error ? err.message : String(err) });
-    }
-});
-app.post('/v1/demo/reset', async (_req, res) => {
-    try {
-        const { seedDemo } = await import('../../core/demo.js');
-        const data = seedDemo(getDatabase(), { reset: true });
-        res.json({ success: true, data });
-    }
-    catch (err) {
-        res.status(500).json({ success: false, errorCode: 'server.internal', error: err instanceof Error ? err.message : String(err) });
-    }
-});
+app.post('/v1/demo/seed', (_req, res) => handleGet(res, async () => {
+    const { seedDemo } = await import('../../core/demo.js');
+    return seedDemo(getDatabase());
+}));
+app.post('/v1/demo/reset', (_req, res) => handleGet(res, async () => {
+    const { seedDemo } = await import('../../core/demo.js');
+    return seedDemo(getDatabase(), { reset: true });
+}));
 app.get('/v1/projects', (_req, res) => handleGet(res, () => computeProjects(getDatabase())));
 app.get('/v1/patterns', (_req, res) => handleGet(res, () => computePatterns(getDatabase())));
 const TelemetryQuerySchema = z.object({
     window: z.coerce.number().int().min(1).max(365).default(30),
 });
-app.get('/v1/telemetry', async (req, res) => {
-    try {
-        const parsed = TelemetryQuerySchema.safeParse(req.query);
-        if (!parsed.success) {
-            res.status(400).json({ success: false, errorCode: 'validation.bad-param', error: parsed.error.issues.map(i => i.message).join('; ') });
-            return;
-        }
+app.get('/v1/telemetry', (req, res) => {
+    const query = parseQuery(TelemetryQuerySchema, req, res);
+    if (!query)
+        return;
+    handleGet(res, async () => {
         const { summariseTelemetry } = await import('../../core/llm-telemetry.js');
-        const summaries = summariseTelemetry(parsed.data.window);
-        res.json({ success: true, data: { window_days: parsed.data.window, summaries } });
-    }
-    catch (err) {
-        res.status(500).json({ success: false, errorCode: 'server.internal', error: err instanceof Error ? err.message : String(err) });
-    }
+        return { window_days: query.window, summaries: summariseTelemetry(query.window) };
+    });
 });
 const DreamProposalsQuerySchema = z.object({
     status: z.enum(['pending', 'applied', 'rejected', 'all']).default('pending'),
 });
 app.get('/v1/dream/proposals', (req, res) => {
-    try {
-        const parsed = DreamProposalsQuerySchema.safeParse(req.query);
-        if (!parsed.success) {
-            res.status(400).json({ success: false, errorCode: 'validation.bad-param', error: parsed.error.issues.map(i => i.message).join('; ') });
-            return;
-        }
-        const status = parsed.data.status;
-        import('../../core/dreamer.js').then(({ listProposals }) => {
-            const db = getDatabase();
-            const rows = status === 'all'
-                ? [...listProposals(db, 'pending'), ...listProposals(db, 'applied'), ...listProposals(db, 'rejected')]
-                : listProposals(db, status);
-            res.json({ success: true, data: rows });
-        }).catch((err) => res.status(500).json({ success: false, errorCode: 'server.internal', error: err instanceof Error ? err.message : String(err) }));
-    }
-    catch (err) {
-        res.status(500).json({ success: false, errorCode: 'server.internal', error: err instanceof Error ? err.message : String(err) });
-    }
+    const query = parseQuery(DreamProposalsQuerySchema, req, res);
+    if (!query)
+        return;
+    handleGet(res, async () => {
+        const { listProposals } = await import('../../core/dreamer.js');
+        const db = getDatabase();
+        return query.status === 'all'
+            ? [...listProposals(db, 'pending'), ...listProposals(db, 'applied'), ...listProposals(db, 'rejected')]
+            : listProposals(db, query.status);
+    });
 });
 app.get('/v1/dream/proposals/:id', (req, res) => {
-    const id = parseInt(req.params.id, 10);
-    if (!Number.isInteger(id) || id < 1) {
-        res.status(400).json({ success: false, errorCode: 'validation.bad-param', error: 'invalid id' });
+    const id = requireIdParam(req, res);
+    if (id === null)
         return;
-    }
-    try {
+    handleGet(res, () => {
         const row = getDatabase().prepare('SELECT id, project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version, status, reason, created_at, reviewed_at FROM dream_proposals WHERE id = ?').get(id);
         if (!row) {
-            res.status(404).json({ success: false, errorCode: 'resource.not-found', error: `proposal #${id} not found` });
-            return;
+            throw new HttpError(404, 'resource.not-found', `proposal #${id} not found`);
         }
         let digest = null;
         let sourceIds = [];
@@ -536,11 +486,8 @@ app.get('/v1/dream/proposals/:id', (req, res) => {
             sourceIds = JSON.parse(row.source_ids);
         }
         catch { }
-        res.json({ success: true, data: { ...row, proposed_digest: digest, source_ids: sourceIds } });
-    }
-    catch (err) {
-        res.status(500).json({ success: false, errorCode: 'server.internal', error: err instanceof Error ? err.message : String(err) });
-    }
+        return { ...row, proposed_digest: digest, source_ids: sourceIds };
+    });
 });
 const DreamRunBody = z.object({
     project: z.string().min(1).max(100).optional(),
@@ -548,96 +495,64 @@ const DreamRunBody = z.object({
     maxLlmCalls: z.number().int().min(1).max(20).default(5),
     validate: z.boolean().default(false),
 });
-app.post('/v1/dream/run', async (req, res) => {
-    const parsed = DreamRunBody.safeParse(req.body ?? {});
-    if (!parsed.success) {
-        res.status(400).json({
-            success: false,
-            errorCode: 'validation.bad-body',
-            error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
-        });
+app.post('/v1/dream/run', (req, res) => handlePost(DreamRunBody, req, res, async (data) => {
+    const { runDreamer } = await import('../../core/dreamer.js');
+    const caps = detectCapabilities();
+    const llm = caps.llm;
+    if (!llm) {
+        throw new HttpError(400, 'llm.not-configured', 'No LLM configured — dream run requires Smart Mode. Configure a provider in Settings.');
+    }
+    return runDreamer(getDatabase(), llm, {
+        project: data.project,
+        windowDays: data.windowDays,
+        maxLlmCalls: data.maxLlmCalls,
+        fallbacks: caps.llmFallbacks,
+        validateBeforeStage: data.validate,
+    });
+}, { allowEmptyBody: true, errorStatus: 500, errorCode: 'server.internal' }));
+app.post('/v1/dream/proposals/:id/accept', (req, res) => {
+    const id = requireIdParam(req, res);
+    if (id === null)
         return;
-    }
-    try {
-        const { runDreamer } = await import('../../core/dreamer.js');
-        const caps = detectCapabilities();
-        const llm = caps.llm;
-        if (!llm) {
-            res.status(400).json({
-                success: false,
-                errorCode: 'llm.not-configured',
-                error: 'No LLM configured — dream run requires Smart Mode. Configure a provider in Settings.',
-            });
-            return;
-        }
-        const result = await runDreamer(getDatabase(), llm, {
-            project: parsed.data.project,
-            windowDays: parsed.data.windowDays,
-            maxLlmCalls: parsed.data.maxLlmCalls,
-            fallbacks: caps.llmFallbacks,
-            validateBeforeStage: parsed.data.validate,
-        });
-        res.json({ success: true, data: result });
-    }
-    catch (err) {
-        res.status(500).json({ success: false, errorCode: 'server.internal', error: err instanceof Error ? err.message : String(err) });
-    }
-});
-app.post('/v1/dream/proposals/:id/accept', async (req, res) => {
-    const id = parseInt(req.params.id, 10);
-    if (!Number.isInteger(id) || id < 1) {
-        res.status(400).json({ success: false, errorCode: 'validation.bad-param', error: 'invalid id' });
-        return;
-    }
-    let NothingToClaim;
-    try {
+    handleGet(res, async () => {
         const dreamer = await import('../../core/dreamer.js');
-        NothingToClaim = dreamer.NothingToClaimError;
-        const kg = new KnowledgeGraph(getDatabase());
-        const result = dreamer.applyProposal(getDatabase(), id, kg);
-        res.json({ success: true, data: result });
-    }
-    catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (NothingToClaim && err instanceof NothingToClaim) {
-            res.status(400).json({ success: false, errorCode: 'operation.failed', error: msg });
+        try {
+            const kg = new KnowledgeGraph(getDatabase());
+            return dreamer.applyProposal(getDatabase(), id, kg);
         }
-        else if (/not found or not pending/.test(msg)) {
-            res.status(404).json({ success: false, errorCode: 'resource.not-found', error: msg });
+        catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (err instanceof dreamer.NothingToClaimError) {
+                throw new HttpError(400, 'operation.failed', msg);
+            }
+            if (/not found or not pending/.test(msg)) {
+                throw new HttpError(404, 'resource.not-found', msg);
+            }
+            throw err;
         }
-        else {
-            res.status(500).json({ success: false, errorCode: 'server.internal', error: msg });
-        }
-    }
+    });
 });
 const RejectBodySchema = z.object({
     reason: z.string().max(500).optional(),
 });
-app.post('/v1/dream/proposals/:id/reject', async (req, res) => {
-    const id = parseInt(req.params.id, 10);
-    if (!Number.isInteger(id) || id < 1) {
-        res.status(400).json({ success: false, errorCode: 'validation.bad-param', error: 'invalid id' });
+app.post('/v1/dream/proposals/:id/reject', (req, res) => {
+    const id = requireIdParam(req, res);
+    if (id === null)
         return;
-    }
-    const parsed = RejectBodySchema.safeParse(req.body ?? {});
-    if (!parsed.success) {
-        res.status(400).json({ success: false, errorCode: 'validation.bad-body', error: parsed.error.issues.map(i => i.message).join('; ') });
-        return;
-    }
-    try {
+    handlePost(RejectBodySchema, req, res, async (data) => {
         const { rejectProposal } = await import('../../core/dreamer.js');
-        rejectProposal(getDatabase(), id, parsed.data.reason);
-        res.json({ success: true, data: { id, status: 'rejected' } });
-    }
-    catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (/not found or not pending/.test(msg)) {
-            res.status(404).json({ success: false, errorCode: 'resource.not-found', error: msg });
+        try {
+            rejectProposal(getDatabase(), id, data.reason);
         }
-        else {
-            res.status(500).json({ success: false, errorCode: 'server.internal', error: msg });
+        catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (/not found or not pending/.test(msg)) {
+                throw new HttpError(404, 'resource.not-found', msg);
+            }
+            throw err;
         }
-    }
+        return { id, status: 'rejected' };
+    }, { allowEmptyBody: true, errorStatus: 500, errorCode: 'server.internal' });
 });
 const EntitiesQuerySchema = z.object({
     type: z.string().min(1).max(100).optional(),
@@ -645,40 +560,26 @@ const EntitiesQuerySchema = z.object({
     status: z.enum(['all', 'active']).optional(),
 });
 app.get('/v1/entities', (req, res) => {
-    try {
-        const parsed = EntitiesQuerySchema.safeParse(req.query);
-        if (!parsed.success) {
-            res.status(400).json({ success: false, errorCode: 'validation.bad-param', error: `Invalid query: ${parsed.error.message}` });
-            return;
-        }
-        const { type: typeFilter, limit, status } = parsed.data;
+    const query = parseQuery(EntitiesQuerySchema, req, res);
+    if (!query)
+        return;
+    handleGet(res, () => {
+        const { type: typeFilter, limit, status } = query;
         const includeArchived = status === 'all';
-        const db = getDatabase();
-        const kg = new KnowledgeGraph(db);
-        const entities = typeFilter
+        const kg = new KnowledgeGraph(getDatabase());
+        return typeFilter
             ? kg.listByType(typeFilter, limit, includeArchived)
             : kg.listRecent(limit, includeArchived);
-        res.json({ success: true, data: entities });
-    }
-    catch (err) {
-        res.status(500).json({ success: false, errorCode: 'server.internal', error: err instanceof Error ? err.message : String(err) });
-    }
+    });
 });
-app.get('/v1/entities/:name', (req, res) => {
-    try {
-        const db = getDatabase();
-        const kg = new KnowledgeGraph(db);
-        const entity = kg.getEntity(req.params.name);
-        if (!entity) {
-            res.status(404).json({ success: false, errorCode: 'resource.not-found', error: `Entity "${req.params.name}" not found` });
-            return;
-        }
-        res.json({ success: true, data: entity });
+app.get('/v1/entities/:name', (req, res) => handleGet(res, () => {
+    const kg = new KnowledgeGraph(getDatabase());
+    const entity = kg.getEntity(String(req.params.name));
+    if (!entity) {
+        throw new HttpError(404, 'resource.not-found', `Entity "${String(req.params.name)}" not found`);
     }
-    catch (err) {
-        res.status(500).json({ success: false, errorCode: 'server.internal', error: err instanceof Error ? err.message : String(err) });
-    }
-});
+    return entity;
+}));
 const HOST = process.env.MEMESH_HTTP_HOST || '127.0.0.1';
 const PORT = parseInt(process.env.MEMESH_HTTP_PORT || '3737');
 const ALLOW_REMOTE_BY_ENV = /^(1|true|yes)$/i.test(process.env.MEMESH_HTTP_ALLOW_REMOTE || '');

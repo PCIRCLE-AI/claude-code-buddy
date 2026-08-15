@@ -34,10 +34,12 @@ import {
 } from './_generated/core-paths.js';
 import { autoCaptureDecision } from './_generated/capture-flag.js';
 import {
-  removeFromFts,
+  indexedObservationText,
   insertFtsRow,
-  tokenizeQuery,
+  joinIndexedObservations,
+  removeFromFts,
   renderMatchExpression,
+  tokenizeQuery,
 } from './_generated/fts-index.js';
 
 export { memeshDir, getDbPath, getMemeshDirFromDbPath, getProjectName, slugFromRemoteUrl };
@@ -786,19 +788,10 @@ function ensureHookFtsSegmentation(db) {
   }
 }
 
-/** Title cap, shared by every hook that generates one. Matches
- *  pre-edit-recall.js's existing 120-char observation-preview convention —
- *  a title should read as a short scannable label, distinctly shorter than
- *  MemoryRow's 160-char fallback preview, not a second paragraph. */
-const TITLE_MAX_LENGTH = 200;
-
-export function truncateTitle(text) {
-  if (!text) return text;
-  const trimmed = text.trim();
-  return trimmed.length > TITLE_MAX_LENGTH
-    ? trimmed.slice(0, TITLE_MAX_LENGTH - 1).trimEnd() + '…'
-    : trimmed;
-}
+// Title cap + truncation live in src/core/title.ts, executed here via the
+// generated copy — the same code core's remember validation and the db
+// backfill run, so the three writers cannot drift on the contract.
+export { truncateTitle } from './_generated/title.js';
 
 /**
  * Single owner of the hook-side entity write dance: upsert entity, append
@@ -883,13 +876,9 @@ export function captureEntity(db, { name, type, observations = [], tags = [], ti
   // Capture the previously-indexed observation text BEFORE inserting new rows,
   // so the contentless-FTS 'delete' below matches what was indexed. Only for
   // existing entities — a brand-new row has no prior FTS entry to remove.
-  const prevObsText = isNew
-    ? undefined
-    : db
-        .prepare('SELECT content FROM observations WHERE entity_id = ?')
-        .all(id)
-        .map((o) => o.content)
-        .join(' ');
+  // indexedObservationText is the convention's single owner (explicit ORDER
+  // BY + the one join rule), via the generated fts-index copy.
+  const prevObsText = isNew ? undefined : indexedObservationText(db, id);
 
   const insertObs = db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)');
   for (const obs of observations) insertObs.run(id, obs);
@@ -904,13 +893,13 @@ export function captureEntity(db, { name, type, observations = [], tags = [], ti
   }
   // Compose the indexed text from data already in hand instead of
   // re-SELECTing the rows just inserted: prev text + the new observations,
-  // space-joined exactly as the row-scan join produced. This runs on every
+  // joined by the owner's single rule. This runs on every
   // Stop/PreCompact/PostToolUse capture, and the re-read grew with an
   // upserted entity's accumulated observation count.
   const obsParts = [];
   if (prevObsText) obsParts.push(prevObsText);
-  if (observations.length) obsParts.push(observations.join(' '));
-  const allObsText = obsParts.join(' ');
+  if (observations.length) obsParts.push(joinIndexedObservations(observations));
+  const allObsText = joinIndexedObservations(obsParts);
   // Current title is fully determined by the branches above — no re-read.
   const currentTitle = isNew
     ? (title ?? null)

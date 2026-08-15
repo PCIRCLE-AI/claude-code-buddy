@@ -6,8 +6,9 @@ import { runAutoDecay } from './core/lifecycle.js';
 import { resolveEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
-import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
+import { insertFtsRow, joinIndexedObservations, removeFromFts } from './storage/fts-index.js';
 import { parseSqliteUtcMs } from './core/time-utils.js';
+import { truncateTitle, isBoilerplateObservation } from './core/title.js';
 let db = null;
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entities (
@@ -347,7 +348,7 @@ function ensureFtsSegmentation(db) {
 const FTS_REBUILD_PAGE_SIZE = 500;
 function rebuildFtsIndex(db) {
     db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
-    const page = db.prepare(`SELECT e.id, e.name, e.title, COALESCE(group_concat(o.content, ' '), '') AS obs
+    const page = db.prepare(`SELECT e.id, e.name, e.title, COALESCE(group_concat(o.content, ' ' ORDER BY o.id), '') AS obs
        FROM entities e
        LEFT JOIN observations o ON o.entity_id = e.id
       WHERE e.status = 'active' AND e.id > ?
@@ -578,13 +579,6 @@ function backfillSignalScores(db) {
     });
     tx();
 }
-const BACKFILL_TITLE_MAX = 200;
-function truncateBackfillTitle(text) {
-    const trimmed = text.trim();
-    return trimmed.length > BACKFILL_TITLE_MAX
-        ? trimmed.slice(0, BACKFILL_TITLE_MAX - 1).trimEnd() + '…'
-        : trimmed;
-}
 function deriveHeuristicTitle(type, observations) {
     if (observations.length === 0)
         return null;
@@ -593,19 +587,19 @@ function deriveHeuristicTitle(type, observations) {
         if (errObs) {
             const firstLine = errObs.trim().replace(/^Error:\s*/, '').split('\n')[0].trim();
             if (firstLine)
-                return truncateBackfillTitle(firstLine);
+                return truncateTitle(firstLine);
         }
     }
     if (type === 'commit') {
         const first = observations[0]?.split('\n')[0].trim();
         if (first && !/^(Branch|Diff stats):/.test(first))
-            return truncateBackfillTitle(first);
+            return truncateTitle(first);
     }
-    const nonTrivial = observations.filter((o) => o.length > 30 && !/^(Steps|Commits|Branch|Diff stats|Compaction reason|Tool calls)[:\s]/.test(o.trim()));
+    const nonTrivial = observations.filter((o) => o.length > 30 && !isBoilerplateObservation(o));
     const pool = nonTrivial.length > 0 ? nonTrivial : observations;
     const best = pool.slice(0, 3).reduce((a, b) => (b.length > a.length ? b : a), pool[0]);
     const firstLine = best?.split('\n')[0].trim();
-    return firstLine ? truncateBackfillTitle(firstLine) : null;
+    return firstLine ? truncateTitle(firstLine) : null;
 }
 function backfillTitles(db) {
     const MARKER = 'title_backfill_v1';
@@ -650,7 +644,7 @@ function backfillTitles(db) {
             metadata.title_source = 'heuristic';
             updateStmt.run(title, JSON.stringify(metadata), row.id);
             if (row.status === 'active') {
-                const obsText = observations.join(' ');
+                const obsText = joinIndexedObservations(observations);
                 removeFromFts(db, row.id, row.name, obsText);
                 insertFtsRow(db, row.id, row.name, obsText, title);
             }

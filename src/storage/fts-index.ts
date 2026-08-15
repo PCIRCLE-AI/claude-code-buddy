@@ -393,6 +393,34 @@ function isBenignFtsDeleteError(err: unknown): boolean {
 }
 
 /**
+ * The single join rule for composing an entity's indexed observation text.
+ * Contentless FTS5 requires the delete to be byte-identical to the insert,
+ * so every composer must use the same joiner — this function IS the rule.
+ */
+export function joinIndexedObservations(contents: string[]): string {
+  return contents.join(' ');
+}
+
+/**
+ * The exact observation text the FTS index holds (or is about to hold) for
+ * an entity: one SELECT with an EXPLICIT ORDER BY id, joined by the single
+ * rule above.
+ *
+ * This is the owner of the "reconstruct the previously indexed text"
+ * convention. It used to be re-derived inline at 8+ call sites — some with
+ * no ORDER BY (agreement resting on SQLite's unspecified scan order), one
+ * with `ORDER BY id`, and a `group_concat` with order unspecified. Any
+ * future site that picks a different order or joiner silently corrupts the
+ * index in this repo's most-documented bug class; call this instead.
+ */
+export function indexedObservationText(db: MemeshDatabase, entityId: number): string {
+  const rows = db
+    .prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id')
+    .all(entityId) as { content: string }[];
+  return joinIndexedObservations(rows.map((o) => o.content));
+}
+
+/**
  * Insert a fresh row into the FTS5 index. Used after `removeFromFts`
  * when re-indexing an entity, or standalone for a brand-new entity
  * that has no prior FTS row (e.g. weekly-summary entities created in

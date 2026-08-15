@@ -1,6 +1,6 @@
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
-import { removeFromFts, insertFtsRow } from '../storage/fts-index.js';
+import { removeFromFts, insertFtsRow, indexedObservationText } from '../storage/fts-index.js';
 export const MEMORY_ROOT = '/memories';
 const NAMESPACES = ['personal', 'team', 'global'];
 const FILE_SUFFIX = '.md';
@@ -314,7 +314,7 @@ function renamePath(oldRaw, newRaw) {
     }
     const db = getDatabase();
     const entityId = source.id;
-    const obsText = source.observations.join(' ');
+    const obsText = indexedObservationText(db, entityId);
     db.transaction(() => {
         removeFromFts(db, entityId, source.name, obsText, source.title);
         db.prepare('UPDATE entities SET name = ?, namespace = ? WHERE id = ?')

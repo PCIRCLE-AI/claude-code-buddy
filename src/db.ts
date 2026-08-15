@@ -6,9 +6,10 @@ import { runAutoDecay } from './core/lifecycle.js';
 import { resolveEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
-import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
+import { insertFtsRow, joinIndexedObservations, removeFromFts } from './storage/fts-index.js';
 import type { PragmaColumnRow } from './core/types.js';
 import { parseSqliteUtcMs } from './core/time-utils.js';
+import { truncateTitle, isBoilerplateObservation } from './core/title.js';
 
 let db: MemeshDatabase | null = null;
 
@@ -727,8 +728,14 @@ function rebuildFtsIndex(db: MemeshDatabase): void {
   // silently makes memories unreachable.
   db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
 
+  // ORDER BY o.id inside the aggregate: the text inserted here must be
+  // byte-identical to what indexedObservationText (storage/fts-index.ts,
+  // ORDER BY id) will later compose for the contentless delete. An
+  // order-unspecified group_concat left that agreement to SQLite's scan
+  // order. (ORDER BY in aggregates: SQLite >= 3.44; Node 22's bundled
+  // SQLite is well past that.)
   const page = db.prepare(
-    `SELECT e.id, e.name, e.title, COALESCE(group_concat(o.content, ' '), '') AS obs
+    `SELECT e.id, e.name, e.title, COALESCE(group_concat(o.content, ' ' ORDER BY o.id), '') AS obs
        FROM entities e
        LEFT JOIN observations o ON o.entity_id = e.id
       WHERE e.status = 'active' AND e.id > ?
@@ -1258,16 +1265,9 @@ function backfillSignalScores(db: MemeshDatabase): void {
   tx();
 }
 
-/** Backfill cap — mirrors TITLE_MAX_LENGTH in scripts/hooks/_shared.js
- *  (the F5 boundary keeps hook and core as two copies of the contract). */
-const BACKFILL_TITLE_MAX = 200;
-
-function truncateBackfillTitle(text: string): string {
-  const trimmed = text.trim();
-  return trimmed.length > BACKFILL_TITLE_MAX
-    ? trimmed.slice(0, BACKFILL_TITLE_MAX - 1).trimEnd() + '…'
-    : trimmed;
-}
+// Title cap + truncation come from core/title.ts — the single owner all
+// three writers (schemas validation, hook generators via _generated/, this
+// backfill) execute. The hand-mirrored copy that lived here is gone.
 
 /**
  * Derive a heuristic title for a pre-title row, or null to leave it
@@ -1286,7 +1286,7 @@ function deriveHeuristicTitle(type: string, observations: string[]): string | nu
     const errObs = observations.find((o) => /^Error:\s*/.test(o.trim()));
     if (errObs) {
       const firstLine = errObs.trim().replace(/^Error:\s*/, '').split('\n')[0].trim();
-      if (firstLine) return truncateBackfillTitle(firstLine);
+      if (firstLine) return truncateTitle(firstLine);
     }
   }
 
@@ -1294,19 +1294,21 @@ function deriveHeuristicTitle(type: string, observations: string[]): string | nu
   // observation ("Branch: ..." / "Diff stats: ..." follow it).
   if (type === 'commit') {
     const first = observations[0]?.split('\n')[0].trim();
-    if (first && !/^(Branch|Diff stats):/.test(first)) return truncateBackfillTitle(first);
+    if (first && !/^(Branch|Diff stats):/.test(first)) return truncateTitle(first);
   }
 
   // Generic: same selection MemoryRow's preview used pre-title — the
   // longest non-boilerplate observation among the first few — reduced
-  // to its first line.
+  // to its first line. Boilerplate list from core/title.ts (the union the
+  // dashboard's preview picker also uses), so this backfill can no longer
+  // pick a "title" the dashboard would have skipped as noise.
   const nonTrivial = observations.filter(
-    (o) => o.length > 30 && !/^(Steps|Commits|Branch|Diff stats|Compaction reason|Tool calls)[:\s]/.test(o.trim())
+    (o) => o.length > 30 && !isBoilerplateObservation(o)
   );
   const pool = nonTrivial.length > 0 ? nonTrivial : observations;
   const best = pool.slice(0, 3).reduce((a, b) => (b.length > a.length ? b : a), pool[0]);
   const firstLine = best?.split('\n')[0].trim();
-  return firstLine ? truncateBackfillTitle(firstLine) : null;
+  return firstLine ? truncateTitle(firstLine) : null;
 }
 
 /**
@@ -1383,7 +1385,7 @@ function backfillTitles(db: MemeshDatabase): void {
       updateStmt.run(title, JSON.stringify(metadata), row.id);
 
       if (row.status === 'active') {
-        const obsText = observations.join(' ');
+        const obsText = joinIndexedObservations(observations);
         removeFromFts(db, row.id, row.name, obsText); // pre-title index entry: no title folded
         insertFtsRow(db, row.id, row.name, obsText, title);
       }

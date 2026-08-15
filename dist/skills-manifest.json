@@ -28,8 +28,8 @@
     },
     {
       "path": "scripts/hooks/_generated/fts-index.js",
-      "sha256": "7d47659d0eef27d808e7a59b60c45bda5ff5272af4cd082179a2a07acb1fd858",
-      "bytes": 3702
+      "sha256": "989b5970d61088188a30d7f007efea783eb83b6f3f855184eb27cacf9d9f27b0",
+      "bytes": 4037
     },
     {
       "path": "scripts/hooks/_generated/sqlite.js",
@@ -37,9 +37,14 @@
       "bytes": 2838
     },
     {
+      "path": "scripts/hooks/_generated/title.js",
+      "sha256": "28b3d47924785f905cb7dc8a28660cf2451d04a78501bae1ecede06d42be5e9c",
+      "bytes": 1057
+    },
+    {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "2c23614952706e41325338599fddb743b0cfaf2d2de98a3256c634ec04f1593a",
-      "bytes": 54796
+      "sha256": "a7df3f038258818d32c564474d54416cd95c672192648427fac3efb1db754bd9",
+      "bytes": 54618
     },
     {
       "path": "scripts/hooks/post-commit.js",

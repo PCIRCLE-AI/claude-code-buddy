@@ -23,7 +23,7 @@
 
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
-import { removeFromFts, insertFtsRow } from '../storage/fts-index.js';
+import { removeFromFts, insertFtsRow, indexedObservationText } from '../storage/fts-index.js';
 import type { Entity, Namespace } from './types.js';
 
 /** The one prefix every path must sit under. Anything else is refused. */
@@ -631,7 +631,10 @@ function renamePath(oldRaw: unknown, newRaw: unknown): MemoryToolResult {
 
   const db = getDatabase();
   const entityId = source.id as number;
-  const obsText = source.observations.join(' ');
+  // indexedObservationText, not source.observations.join(' '): the delete
+  // below must match the indexed bytes, and the owner composes them with an
+  // explicit ORDER BY instead of whatever order getEntity hydrated in.
+  const obsText = indexedObservationText(db, entityId);
 
   // A rename changes the NAME. Observations and tags are untouched, so nothing
   // here rewrites them — the only thing that has to move is the FTS row, whose

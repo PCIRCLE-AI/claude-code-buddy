@@ -1,12 +1,13 @@
 import { z } from 'zod';
 import { NAMESPACES } from '../core/types.js';
+import { TITLE_MAX_LENGTH } from '../core/title.js';
 const sanitizeName = (s) => s.replace(/[\r\n\t]+/g, ' ').trim();
 const nameField = z.string().min(1).max(255).transform(sanitizeName).refine(s => s.length > 0, {
     message: 'Name must not be blank after sanitization',
 });
 const titleField = z
     .string()
-    .max(200)
+    .max(TITLE_MAX_LENGTH)
     .transform(sanitizeName)
     .transform(s => (s.length > 0 ? s : undefined))
     .optional();

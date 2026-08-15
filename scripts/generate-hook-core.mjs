@@ -45,6 +45,7 @@ const outDir = resolve(root, 'scripts/hooks/_generated');
 const SOURCES = [
   { from: 'dist/core/paths.js', to: 'core-paths.js', src: 'src/core/paths.ts' },
   { from: 'dist/core/capture-flag.js', to: 'capture-flag.js', src: 'src/core/capture-flag.ts' },
+  { from: 'dist/core/title.js', to: 'title.js', src: 'src/core/title.ts' },
   { from: 'dist/storage/fts-index.js', to: 'fts-index.js', src: 'src/storage/fts-index.ts' },
   // The SQLite driver. A leaf by construction — it imports `node:module` and
   // nothing else — and the hooks need the identical `MemeshDatabase` the rest
