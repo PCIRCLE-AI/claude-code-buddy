@@ -79,6 +79,7 @@ temp/
 # === Non-core project files ===
 media/
 examples/
+!docs/examples/
 landing-page/
 # benchmarks/* not benchmarks/ — git does not descend into an excluded
 # directory, so a `!` exception under `benchmarks/` never takes effect and new
