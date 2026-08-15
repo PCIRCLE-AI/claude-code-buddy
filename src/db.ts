@@ -1360,30 +1360,21 @@ function backfillTitles(db: MemeshDatabase): void {
   const tx = db.transaction(() => {
     let titled = 0;
     let skipped = 0;
-    let healed = 0;
     for (const row of rows) {
       let metadata: Record<string, unknown>;
       if (row.metadata) {
         try {
           metadata = JSON.parse(row.metadata) as Record<string, unknown>;
         } catch {
-          // Heal corrupted metadata: replace with {} and log. A corrupted
-          // metadata row should not be skipped — it should be healed so the
-          // entity can receive a title and title_source.
-          console.error(
-            `MeMesh: healed corrupted metadata for entity ${row.id} (${row.name}). ` +
-            `Original value was unparseable; replaced with {}.`
-          );
-          metadata = {};
-          healed++;
+          // Skip rows with corrupt metadata — backfill should not overwrite
+          // unparseable metadata, as we don't know what was stored there.
+          skipped++;
+          continue;
         }
         if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
-          console.error(
-            `MeMesh: healed non-object metadata for entity ${row.id} (${row.name}). ` +
-            `Type was ${Array.isArray(metadata) ? 'array' : typeof metadata}; replaced with {}.`
-          );
-          metadata = {};
-          healed++;
+          // Skip non-object metadata for the same reason
+          skipped++;
+          continue;
         }
       } else {
         metadata = {};
@@ -1403,10 +1394,9 @@ function backfillTitles(db: MemeshDatabase): void {
       }
       titled++;
     }
-    // Include healed count in the stamp for diagnostics
     db.prepare(
       'INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)'
-    ).run(MARKER, JSON.stringify({ at: new Date().toISOString(), titled, skipped, healed }));
+    ).run(MARKER, JSON.stringify({ at: new Date().toISOString(), titled, skipped }));
   });
   tx();
 }
