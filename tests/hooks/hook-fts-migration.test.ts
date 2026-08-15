@@ -167,11 +167,20 @@ describe('Feature: hooks migrate the keyword index too', () => {
     // Core and the hook share ONE marker key and one 24h backoff key. If one
     // classifies a held write lock as a permanent failure it parks the
     // migration for both, machine-wide, for a day — over a peer that was simply
-    // mid-write. The classifier is mirrored, so pin that it stays mirrored.
+    // mid-write. The classifier used to be a hand-mirrored pair; it now has a
+    // single owner (storage/schema.ts) that both sides execute — core by
+    // direct import, hooks via the generated copy. Pin that the owner still
+    // classifies, and that BOTH sides still route through it.
+    const ownerSrc = fs.readFileSync(path.join(repoRoot, 'src', 'storage', 'schema.ts'), 'utf8');
+    expect(ownerSrc, 'the shared owner lost its transient classifier')
+      .toMatch(/SQLITE_BUSY\|SQLITE_LOCKED\|SQLITE_PROTOCOL/);
+
     const coreSrc = fs.readFileSync(path.join(repoRoot, 'src', 'db.ts'), 'utf8');
+    expect(coreSrc, 'core stopped importing the shared schema owner')
+      .toMatch(/from '\.\/storage\/schema\.js'/);
+
     const hookSrc = fs.readFileSync(path.join(repoRoot, 'scripts', 'hooks', '_shared.js'), 'utf8');
-    const pattern = /SQLITE_BUSY\|SQLITE_LOCKED\|SQLITE_PROTOCOL/;
-    expect(coreSrc, 'core lost its transient classifier').toMatch(pattern);
-    expect(hookSrc, 'the hook mirror lost its transient classifier').toMatch(pattern);
+    expect(hookSrc, 'the hook side stopped importing the generated schema owner')
+      .toMatch(/from '\.\/_generated\/schema\.js'/);
   });
 });

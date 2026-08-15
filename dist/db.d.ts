@@ -1,12 +1,7 @@
 import { MemeshDatabase } from './storage/sqlite.js';
+import { runOnceMigration, FTS_SEGMENTATION_VERSION } from './storage/schema.js';
+export { runOnceMigration, FTS_SEGMENTATION_VERSION };
 export declare function openDatabase(dbPath?: string): MemeshDatabase;
-export declare const FTS_SEGMENTATION_VERSION = 3;
-export declare function runOnceMigration(db: MemeshDatabase, opts: {
-    key: string;
-    version: number;
-    describe: string;
-    migrate: (db: MemeshDatabase, fromVersion: number) => void;
-}): boolean;
 export declare function reindexFts(): {
     entities: number;
 };

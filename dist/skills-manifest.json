@@ -32,9 +32,19 @@
       "bytes": 4037
     },
     {
+      "path": "scripts/hooks/_generated/schema.js",
+      "sha256": "7af0e2791213a6a0d5807d8ae5b2b5801bcb408c86cf179ac9d73fff83489423",
+      "bytes": 12700
+    },
+    {
       "path": "scripts/hooks/_generated/sqlite.js",
       "sha256": "e03ec8e4268b4176d9947513a788ba99a22fbdf9326a6b6e1f978e4a2086f6e3",
       "bytes": 2838
+    },
+    {
+      "path": "scripts/hooks/_generated/time-utils.js",
+      "sha256": "4d7861484c12f33996207fdece4e9ccc8ded03d5243fd2771c63652af9c48736",
+      "bytes": 1110
     },
     {
       "path": "scripts/hooks/_generated/title.js",
@@ -43,8 +53,8 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "a7df3f038258818d32c564474d54416cd95c672192648427fac3efb1db754bd9",
-      "bytes": 54618
+      "sha256": "e2e49d090b1e1e25eab5e720e9234782a9ee5c0ca7ceed3fd6b92eba4195f723",
+      "bytes": 37527
     },
     {
       "path": "scripts/hooks/post-commit.js",

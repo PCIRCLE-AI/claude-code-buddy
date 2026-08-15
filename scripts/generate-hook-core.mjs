@@ -46,13 +46,30 @@ const SOURCES = [
   { from: 'dist/core/paths.js', to: 'core-paths.js', src: 'src/core/paths.ts' },
   { from: 'dist/core/capture-flag.js', to: 'capture-flag.js', src: 'src/core/capture-flag.ts' },
   { from: 'dist/core/title.js', to: 'title.js', src: 'src/core/title.ts' },
+  { from: 'dist/core/time-utils.js', to: 'time-utils.js', src: 'src/core/time-utils.ts' },
   { from: 'dist/storage/fts-index.js', to: 'fts-index.js', src: 'src/storage/fts-index.ts' },
+  { from: 'dist/storage/schema.js', to: 'schema.js', src: 'src/storage/schema.ts' },
   // The SQLite driver. A leaf by construction — it imports `node:module` and
   // nothing else — and the hooks need the identical `MemeshDatabase` the rest
   // of memesh writes through, or the two would open the same file with
   // different transaction semantics.
   { from: 'dist/storage/sqlite.js', to: 'sqlite.js', src: 'src/storage/sqlite.ts' },
 ];
+
+// A copied module may import ANOTHER copied module (schema.js needs
+// time-utils' timestamp parse and fts-index's insertFtsRow). Those relative
+// specifiers are rewritten to the sibling's _generated filename — everything
+// in _generated/ sits in one flat directory. The map is derived from SOURCES:
+// the compiled specifier is the dist-relative path from the importer's dist
+// directory to the imported module.
+const REWRITES = new Map();
+for (const target of SOURCES) {
+  // e.g. dist/core/time-utils.js → '../core/time-utils.js' (from dist/storage/)
+  //                                './time-utils.js'        (from dist/core/)
+  const bare = target.from.replace(/^dist\//, ''); // core/time-utils.js
+  REWRITES.set(`./${bare.split('/').pop()}`, `./${target.to}`);
+  REWRITES.set(`../${bare}`, `./${target.to}`);
+}
 
 function banner(srcPath) {
   return [
@@ -80,25 +97,32 @@ function generate() {
       process.exit(2);
     }
     // Guard the leaf invariant: every import in the copied module must resolve
-    // to a node builtin. A relative import ('./x') or an external package
-    // ('somepkg') means the source stopped being self-contained, so the copy
-    // would break at hook runtime where dist/ and node_modules may be absent.
-    // Matches `import ... from 'spec'` AND bare `import 'spec'` (spans newlines
-    // for multi-line specifier lists via the newline-inclusive [^;] class).
+    // to a node builtin OR to another copied leaf (rewritten to its _generated
+    // sibling). Anything else — a relative import outside the SOURCES set or an
+    // external package — means the source stopped being self-contained, so the
+    // copy would break at hook runtime where dist/ and node_modules may be
+    // absent. Matches `import ... from 'spec'` AND bare `import 'spec'` (spans
+    // newlines for multi-line specifier lists via the newline-inclusive [^;]
+    // class).
     const importRe = /^\s*import\b\s*(?:[^;]*?\bfrom\s+)?['"]([^'"]+)['"]/gm;
     let imp;
     while ((imp = importRe.exec(code)) !== null) {
       const spec = imp[1];
       const isBuiltin = spec.startsWith('node:') || NODE_BUILTINS.has(spec);
-      if (!isBuiltin) {
+      if (!isBuiltin && !REWRITES.has(spec)) {
         const kind = spec.startsWith('.') ? 'a relative import' : 'an external package';
         console.error(
           `generate-hook-core: ${from} imports '${spec}' (${kind}). ` +
-          `${src} must stay a runtime-leaf module (node builtins only) to be copied ` +
-          `verbatim next to the hooks. Drop the dependency, or bundle it instead of copying.`,
+          `${src} must stay a runtime-leaf module (node builtins or other SOURCES leaves only) ` +
+          `to be copied verbatim next to the hooks. Drop the dependency, add its module to ` +
+          `SOURCES, or bundle it instead of copying.`,
         );
         process.exit(1);
       }
+    }
+    // Rewrite cross-leaf specifiers to their flat _generated siblings.
+    for (const [fromSpec, toSpec] of REWRITES) {
+      code = code.split(`'${fromSpec}'`).join(`'${toSpec}'`).split(`"${fromSpec}"`).join(`"${toSpec}"`);
     }
     // Strip the tsc sourceMappingURL footer — the .map isn't copied alongside.
     code = code.replace(/\n?\/\/# sourceMappingURL=.*\s*$/, '\n');

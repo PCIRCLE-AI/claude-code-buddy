@@ -213,123 +213,27 @@ export function resolveAutoUpdatePolicy(env = process.env) {
   return 'off';
 }
 
-// Canonical SQLite schema for hook-written entities. Mirrors src/db.ts.
-// Hooks must NOT depend on dist/ (F5 security boundary), so this is a
-// duplicate string by necessity. When src/db.ts changes, this must
-// change in lockstep.
-export const SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS entities (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL UNIQUE,
-  type TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  metadata JSON
-);
+// The schema and its migration toolkit come from src/storage/schema.ts via
+// the generated copy — the SAME bytes core's openDatabase executes. The
+// ~300-line hand-mirror that lived here ("must change in lockstep") is gone;
+// a new column or migration lands in schema.ts once and reaches both sides.
+export {
+  SCHEMA_SQL,
+  FTS_SQL,
+  ensureTagsUniqueIndex,
+  ensureHookRunsSince,
+  FTS_SEGMENTATION_VERSION,
+} from './_generated/schema.js';
+import {
+  SCHEMA_SQL,
+  FTS_SQL,
+  migrateEntitiesSchema,
+  ensureTagsUniqueIndex,
+  ensureHookRunsSince,
+  ensureFtsSegmentation,
+} from './_generated/schema.js';
 
-CREATE TABLE IF NOT EXISTS observations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  entity_id INTEGER NOT NULL,
-  content TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
-);
 
-CREATE TABLE IF NOT EXISTS relations (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  from_entity_id INTEGER NOT NULL,
-  to_entity_id INTEGER NOT NULL,
-  relation_type TEXT NOT NULL,
-  metadata JSON,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (from_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
-  FOREIGN KEY (to_entity_id) REFERENCES entities(id) ON DELETE CASCADE,
-  UNIQUE(from_entity_id, to_entity_id, relation_type)
-);
-
-CREATE TABLE IF NOT EXISTS tags (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  entity_id INTEGER NOT NULL,
-  tag TEXT NOT NULL,
-  FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_tags_entity ON tags(entity_id);
-CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
--- The tags dedup DELETE + idx_tags_entity_tag_unique creation live in
--- ensureTagsUniqueIndex(), AFTER this exec — the DELETE is a one-time
--- migration, and a DML statement in this string made every open start a
--- write transaction even when it deleted nothing (same reader-breaking
--- pattern as the hook_runs_since note below).
-CREATE INDEX IF NOT EXISTS idx_observations_entity ON observations(entity_id);
-CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_entity_id);
-CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_entity_id);
-CREATE INDEX IF NOT EXISTS idx_entities_type_created ON entities(type, created_at);
-
--- Migration markers and small bits of persistent state (index segmentation
--- version, embedding dimension, pending-reindex flags, backfill markers).
---
--- This used to be created ad hoc by each helper that needed it — four inline
--- CREATE TABLE IF NOT EXISTS copies in src/db.ts, none of them visible to
--- scripts/check-schema-drift.mjs, which only extracts SCHEMA_SQL and FTS_SQL.
--- A column added to one copy would not have been caught. It also meant the
--- hook-side schema had no metadata table at all, so hooks could not
--- participate in migrations even in principle.
-CREATE TABLE IF NOT EXISTS memesh_metadata (
-  key   TEXT PRIMARY KEY,
-  value TEXT NOT NULL
-);
-
--- Proof that a capture hook actually RAN. Nothing else in this schema can
--- give it: every other signal is "a row was written", and "the hook ran and
--- found nothing worth saving" is the healthy case that produces no row at
--- all. So a quiet day and a dead capture loop were byte-identical in the
--- database, and the one doctor message that had to cover both cried wolf on
--- the first and stayed silent on the second.
---
--- Written by the three hooks that hold a read-write handle (Stop, PreCompact,
--- PostToolUse), each calling recordHookRun() at its own SUCCESSFUL exit —
--- after capture, not at open. Stamping at open certified the wrong thing: a
--- hook that opened the database and then died mid-capture looked alive for a
--- day. "Successful" is precise: a completed capture, or a well-formed
--- payload the hook correctly decided not to capture (dedup, low-signal
--- session). A malformed payload (schema-flip shapes) and a write that did
--- not land both leave no stamp — either would make the heartbeat mask the
--- exact dropout it exists to expose. The recall-side hooks open read-only
--- and deliberately do not appear here: their liveness answers a different
--- question, and giving them a write handle would put a lock acquisition on
--- the SessionStart hot path.
---
--- One row per hook, upserted. It does not grow.
-CREATE TABLE IF NOT EXISTS hook_runs (
-  hook        TEXT PRIMARY KEY,
-  last_run_at TIMESTAMP NOT NULL,
-  run_count   INTEGER NOT NULL DEFAULT 0
-);
-
--- The 'hook_runs_since' metadata key (when this database first became able
--- to record hook runs) is stamped by ensureHookRunsSince() AFTER this exec,
--- NOT here. It used to be an INSERT OR IGNORE in this string, and that made
--- every open — including opens that only ever read — start a write
--- transaction: an INSERT statement takes the WAL writer lock even when
--- OR IGNORE ends up changing nothing. Two states regressed from "reads work"
--- to "open throws": a peer holding the writer lock past busy_timeout, and a
--- read-only database FILE (measured: "attempt to write a readonly database"
--- killed recall along with capture). The helper SELECTs first and writes
--- only when the key is genuinely absent — once per database lifetime.
-`;
-
-// FTS5 virtual table — separate so hooks that don't need it stay lean.
-export const FTS_SQL = `
-CREATE VIRTUAL TABLE IF NOT EXISTS entities_fts USING fts5(
-  name, observations, content='',
-  tokenize='unicode61 remove_diacritics 1'
-);
-
--- Term -> document-count view over the index above. Stores nothing of its own;
--- it exists so search() can drop query terms that appear in most of the corpus,
--- which are the ones BM25 already scores near zero. See dropUbiquitousTerms().
-CREATE VIRTUAL TABLE IF NOT EXISTS fts_vocab USING fts5vocab(entities_fts, 'row');
-`;
 
 /**
  * Open the hook-side memesh DB with schema + status migration applied.
@@ -421,173 +325,20 @@ function migrateHookDbToCurrent(db, opts) {
   ensureHookRunsSince(db);
   if (opts.fts) db.exec(FTS_SQL);
 
-  // Apply the full migration chain — keep in lockstep with src/db.ts.
-  // Conditional ALTER TABLE blocks ARE idempotent within a single process,
-  // but two hook processes can race: each reads `colNames` from its own
-  // PRAGMA snapshot, so both see "column missing" and both run ALTER —
-  // the second one throws SQLITE_ERROR: duplicate column name. Each ALTER
-  // is wrapped in safeAlter() which treats that specific error as the
-  // expected no-op outcome (a peer beat us to it). Any other error
-  // re-throws so we don't paper over real bugs.
-  //
-  // Earlier this helper applied ONLY the v2.11->v2.12 status migration.
-  // That left a hook-only-touched DB at v2.12 even though core was at
-  // v4.0+, so session-start fell back to `ORDER BY id DESC` (degraded
-  // ranking) until the CLI/MCP/HTTP first opened the DB and finished
-  // the chain. Backfilled here so write-path hooks produce the same
-  // schema state as core.
-  const safeAlter = (sql) => {
-    try {
-      db.exec(sql);
-    } catch (e) {
-      if (!/duplicate column name/i.test(e?.message || '')) throw e;
-      // Peer hook process won the race; column already exists. Idempotent.
-    }
-  };
-  const cols = db.prepare("PRAGMA table_info(entities)").all();
-  const colNames = new Set(cols.map((c) => c.name));
+  // The full conditional-ALTER chain — the SAME generated code core's
+  // migrateToCurrentSchema runs, so a hook-only-touched DB converges on the
+  // exact schema state core produces (the hand-copied chain that lived here
+  // once stalled at v2.12 while core was at v4.0+).
+  migrateEntitiesSchema(db);
 
-  // v2.11 -> v2.12: status
-  if (!colNames.has('status')) {
-    safeAlter("ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
-    db.exec("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)");
-  }
-
-  // v2.14 -> v2.15: scoring + temporal-validity columns
-  if (!colNames.has('access_count')) {
-    safeAlter("ALTER TABLE entities ADD COLUMN access_count INTEGER DEFAULT 0");
-    safeAlter("ALTER TABLE entities ADD COLUMN last_accessed_at TIMESTAMP");
-    safeAlter("ALTER TABLE entities ADD COLUMN confidence REAL DEFAULT 1.0");
-    safeAlter("ALTER TABLE entities ADD COLUMN valid_from TIMESTAMP");
-    safeAlter("ALTER TABLE entities ADD COLUMN valid_until TIMESTAMP");
-  }
-
-  // v3.0.0-rc -> v3.0.0: namespace
-  if (!colNames.has('namespace')) {
-    safeAlter("ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
-    db.exec("CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace)");
-  }
-
-  // v4.0.0: recall effectiveness counters
-  if (!colNames.has('recall_hits')) {
-    safeAlter("ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
-    safeAlter("ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
-  }
-
-  // Human-readable titles: nullable, additive. Mirrors src/db.ts's ALTER
-  // exactly — this block is invisible to check-schema-drift.mjs (it only
-  // diffs SCHEMA_SQL/FTS_SQL base strings, never ALTER blocks), so keeping
-  // the two sides in sync here is a hand discipline, not a CI guarantee.
-  if (!colNames.has('title')) {
-    safeAlter("ALTER TABLE entities ADD COLUMN title TEXT");
-  }
-
-  // v4.2.11: rebuild entities_fts when the segmentation rules change.
-  //
-  // Hooks write to the index through the same generated primitives core uses
-  // (`insertFtsRow` / `removeFromFts` segment CJK runs into bigrams), but this
-  // migration lived only in src/db.ts::openDatabase. A user whose memesh
-  // activity is entirely hook-driven — auto-capture on Stop and PreCompact,
-  // recall on SessionStart — therefore kept a permanently half-segmented
-  // index: rows written after the upgrade segmented, rows written before it
-  // not, until some core process happened to open the database.
-  //
-  // Worse than incomplete: on a contentless FTS5 table a delete matches on the
-  // values that were INDEXED, so re-capturing a pre-upgrade CJK entity handed
-  // the segmented form to a delete whose stored tokens were unsegmented. The
-  // delete failed, the stale row survived alongside the new one, and the user
-  // saw "database disk image is malformed" on hook stderr.
-  if (opts.fts) ensureHookFtsSegmentation(db);
+  // Rebuild entities_fts when the segmentation rules change — the shared
+  // runOnceMigration-based owner, so the hook side and core share one
+  // marker AND one implementation. The near-twin that lived here was
+  // already missing the ORDER BY fix core had picked up.
+  if (opts.fts) ensureFtsSegmentation(db);
 }
 
-/**
- * One-time tags dedup + unique-index creation, guarded so it never writes
- * once the index exists. Mirror of ensureTagsUniqueIndex() in src/db.ts —
- * hooks cannot import from dist/. Keep the two in lockstep.
- *
- * @param {import('./_generated/sqlite.js').MemeshDatabase} db
- */
-export function ensureTagsUniqueIndex(db) {
-  try {
-    const present = db
-      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_tags_entity_tag_unique'")
-      .get();
-    if (present) return;
-    // One IMMEDIATE transaction, not two autocommit statements: exec runs
-    // each statement in its own transaction, so a crash or a busy peer
-    // between them could commit the DELETE with the index never created —
-    // and a concurrent pre-index writer could re-insert a duplicate pair in
-    // that window, failing the CREATE with a constraint error. BEGIN
-    // IMMEDIATE holds the write lock across both, so the dedup and the
-    // index land together or not at all (CREATE INDEX is transactional in
-    // SQLite).
-    db.exec(
-      'BEGIN IMMEDIATE; ' +
-        'DELETE FROM tags WHERE id NOT IN (SELECT MIN(id) FROM tags GROUP BY entity_id, tag); ' +
-        'CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_entity_tag_unique ON tags(entity_id, tag); ' +
-        'COMMIT;',
-    );
-  } catch (err) {
-    try { db.exec('ROLLBACK'); } catch { /* no transaction open */ }
-    try {
-      process.stderr.write(
-        `MeMesh: could not create the tags unique index (${err?.message ?? err}). ` +
-          `Reads are unaffected; the next open retries the dedup and index together.\n`,
-      );
-    } catch { /* stderr gone; nothing left to say */ }
-  }
-}
 
-/**
- * Stamp 'hook_runs_since' once per database lifetime — read-first, so an
- * open that only ever reads stays a reader.
- *
- * Mirror of ensureHookRunsSince() in src/db.ts — hooks cannot import from
- * dist/. Keep the two in lockstep; the full rationale (the INSERT used to
- * live inside SCHEMA_SQL and made read-only database files unopenable)
- * lives on the src copy.
- *
- * @param {import('./_generated/sqlite.js').MemeshDatabase} db
- */
-export function ensureHookRunsSince(db) {
-  try {
-    const row = db
-      .prepare("SELECT value FROM memesh_metadata WHERE key = 'hook_runs_since'")
-      .get();
-    if (row) {
-      // A marker that exists but cannot be read as a past UTC timestamp
-      // (corrupt text, a rolled-over pseudo-date, a wrong clock stamping the
-      // future) would grant doctor's "tracking just started" grace FOREVER —
-      // a fail-open. Heal it HERE, because this is a write path that runs on
-      // every real open; doctor is a reader (reachable via GET /v1/doctor)
-      // and must not repair the database it inspects. Same parse rules as
-      // doctor's hoursSince: anchored, UTC, round-tripped.
-      const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(row.value ?? '');
-      if (m) {
-        const then = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
-        const d = new Date(then);
-        const intact = Number.isFinite(then)
-          && d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3]
-          && d.getUTCHours() === +m[4] && d.getUTCMinutes() === +m[5] && d.getUTCSeconds() === +m[6];
-        if (intact && then <= Date.now() + 5 * 60 * 1000) return;
-      }
-      db
-        .prepare("UPDATE memesh_metadata SET value = datetime('now') WHERE key = 'hook_runs_since'")
-        .run();
-      return;
-    }
-    db
-      .prepare("INSERT OR IGNORE INTO memesh_metadata (key, value) VALUES ('hook_runs_since', datetime('now'))")
-      .run();
-  } catch (err) {
-    try {
-      process.stderr.write(
-        `MeMesh: could not stamp hook_runs_since (${err?.message ?? err}). ` +
-          `Reads are unaffected; doctor's hook-activity tracking starts once the database is writable.\n`,
-      );
-    } catch { /* stderr gone; nothing left to say */ }
-  }
-}
 
 /**
  * Stamp a hook's heartbeat from a path that has no database handle open.
@@ -654,12 +405,6 @@ export function recordHookRun(db, hook) {
   }
 }
 
-/**
- * The segmentation version the hook side knows how to produce.
- * MUST match `FTS_SEGMENTATION_VERSION` in src/db.ts — pinned by
- * `tests/hooks/mirror-parity.test.ts`.
- */
-export const FTS_SEGMENTATION_VERSION = 3;
 
 /** Same cap core uses, so a pathological filename cannot build a huge query. */
 const HOOK_MAX_QUERY_TERMS = 32;
@@ -683,110 +428,7 @@ export function hookMatchExpression(text) {
   return renderMatchExpression(tokenizeQuery(text).slice(0, HOOK_MAX_QUERY_TERMS));
 }
 
-/** How long a failed rebuild waits before trying again. Mirrors src/db.ts. */
-const MIGRATION_RETRY_BACKOFF_MS = 24 * 60 * 60 * 1000;
 
-/** Rows re-indexed per page. Mirrors FTS_REBUILD_PAGE_SIZE in src/db.ts. */
-const FTS_REBUILD_PAGE_SIZE = 500;
-
-/**
- * Hook-side twin of `ensureFtsSegmentation` in src/db.ts.
- *
- * Same invariants, and for the same reasons: the version check and the rebuild
- * happen together inside a BEGIN IMMEDIATE transaction so a concurrent writer
- * cannot have its row erased by `delete-all` and left out of the reinsert, and
- * a failure records an attempt timestamp so a persistently broken index does
- * not re-scan the whole corpus on every hook invocation.
- *
- * This cannot import from src/ (the F5 boundary: hooks must work without
- * dist/), so it is a deliberate second implementation rather than a shared
- * one. It is small, and both halves are pinned by tests.
- */
-function ensureHookFtsSegmentation(db) {
-  const KEY = 'fts_segmentation_version';
-  const ATTEMPT_KEY = `${KEY}_last_attempt`;
-
-  const read = (k) => db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(k)?.value;
-
-  const stored = read(KEY);
-  if (stored && parseInt(stored, 10) >= FTS_SEGMENTATION_VERSION) return;
-
-  const lastAttempt = read(ATTEMPT_KEY);
-  if (lastAttempt && Date.now() - parseInt(lastAttempt, 10) < MIGRATION_RETRY_BACKOFF_MS) return;
-
-  try {
-    db.transaction(() => {
-      const current = read(KEY);
-      if (current && parseInt(current, 10) >= FTS_SEGMENTATION_VERSION) return;
-
-      db.exec("INSERT INTO entities_fts (entities_fts) VALUES('delete-all')");
-
-      // Paged, not `.iterate()`: writing while an iterator is open on the
-      // same connection is not something to rely on, and writing as we read is
-      // the point. Keyset pagination on e.id bounds memory to one page.
-      const page = db.prepare(
-        `SELECT e.id, e.name, e.title, COALESCE(group_concat(o.content, ' '), '') AS obs
-           FROM entities e
-           LEFT JOIN observations o ON o.entity_id = e.id
-          WHERE e.status = 'active' AND e.id > ?
-          GROUP BY e.id
-          ORDER BY e.id
-          LIMIT ?`
-      );
-      let afterId = 0;
-      for (;;) {
-        const rows = page.all(afterId, FTS_REBUILD_PAGE_SIZE);
-        if (rows.length === 0) break;
-        for (const row of rows) insertFtsRow(db, row.id, row.name, row.obs, row.title);
-        afterId = rows[rows.length - 1].id;
-        if (rows.length < FTS_REBUILD_PAGE_SIZE) break;
-      }
-
-      db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(
-        KEY,
-        String(FTS_SEGMENTATION_VERSION)
-      );
-      db.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(ATTEMPT_KEY);
-    }).immediate();
-  } catch (err) {
-    // A peer holding the write lock is not a broken migration, and the hook
-    // side MUST classify it the same way core does — they share one marker key.
-    //
-    // Without this, the shape is: the HTTP server is mid-import, a SessionStart
-    // hook's BEGIN IMMEDIATE times out with SQLITE_BUSY, the import commits, and
-    // the hook then successfully writes the attempt marker. Every core process
-    // — CLI, MCP, HTTP — now short-circuits on that marker for 24 HOURS, so the
-    // index stays on v1 tokens while the write paths use v2. On a contentless
-    // FTS5 table that mismatch makes each delete fail to match, leaving stale
-    // rows beside new ones: duplicate recall results, and "database disk image
-    // is malformed" on stderr. One hook losing a lock race parks the migration
-    // for the whole machine.
-    //
-    // Mirrors isTransientDbError() in src/db.ts. Kept as a literal rather than
-    // imported because hooks cannot import from dist/ (the F5 boundary).
-    const code = err?.code ?? '';
-    const msg = err?.message ?? '';
-    const transient =
-      /SQLITE_BUSY|SQLITE_LOCKED|SQLITE_PROTOCOL/.test(code) ||
-      /database is locked|database table is locked|locking protocol/i.test(msg);
-
-    if (!transient) {
-      try {
-        db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(
-          ATTEMPT_KEY,
-          String(Date.now())
-        );
-      } catch { /* nothing useful to do */ }
-    }
-    // Hooks must never break the user's session over a derived index.
-    try {
-      process.stderr.write(
-        `[memesh] search index rebuild failed (${err?.message || err}). ` +
-          `Your memories are unaffected. Run 'memesh reindex --fts' to retry.\n`
-      );
-    } catch { /* stderr must never throw */ }
-  }
-}
 
 // Title cap + truncation live in src/core/title.ts, executed here via the
 // generated copy — the same code core's remember validation and the db

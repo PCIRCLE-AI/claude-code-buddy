@@ -1,118 +1,84 @@
 #!/usr/bin/env node
 //
-// Schema-drift guard
-// ==================
+// Schema single-owner guard
+// =========================
 //
-// `src/db.ts` and `scripts/hooks/_shared.js` carry byte-for-byte identical
-// SCHEMA_SQL + FTS_SQL strings. The duplication is structurally necessary —
-// hooks cannot import from `dist/` (the F5 security boundary), so the SQL
-// has to be embedded in the hook-side helper.
+// `src/storage/schema.ts` is THE definition of SCHEMA_SQL, FTS_SQL and the
+// migration chain. Core imports it directly; the hooks execute the generated
+// copy (`scripts/hooks/_generated/schema.js`, byte-locked by
+// check-generated-mirror). There is nothing left to diff — this guard's old
+// job — so its job now is to keep it that way: fail the build if anyone
+// re-introduces a second SCHEMA_SQL / FTS_SQL definition outside the owner
+// (the hand-mirror pattern this repo paid for with the P0 FTS bug), or if
+// the owner itself loses the definitions.
 //
-// Two engineers working on different copies have repeatedly let them
-// drift in the past (the comment in _shared.js explicitly documents
-// "must change in lockstep"). This script enforces the invariant at
-// build time: it extracts both strings, normalises whitespace, diffs
-// them, and exits non-zero on any divergence.
-//
-// Wired into `npm run build` as a prebuild step. Also runnable
-// standalone:
+// Wired into `npm run build` as a prebuild step. Also runnable standalone:
 //
 //   node scripts/check-schema-drift.mjs
 //
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, join, relative } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..');
 
-const CORE_PATH = resolve(repoRoot, 'src/db.ts');
-const HOOK_PATH = resolve(repoRoot, 'scripts/hooks/_shared.js');
+const OWNER = resolve(repoRoot, 'src/storage/schema.ts');
 
-/**
- * Pull a top-level template-literal constant by its identifier.
- * Both files declare `const SCHEMA_SQL = \`…\`;` and `const FTS_SQL = \`…\`;`
- * (with `export` prefix on the hook side). Regex captures the body between
- * the surrounding backticks.
- */
-function extractConstant(source, name) {
-  const re = new RegExp(
-    String.raw`(?:export\s+)?const\s+` + name + String.raw`\s*=\s*\x60([\s\S]*?)\x60\s*;`,
-    'm',
-  );
-  const match = source.match(re);
-  if (!match) {
-    throw new Error(`Could not locate \`${name}\` template literal`);
-  }
-  // Defensive: if a future migration adds an embedded backtick to the
-  // SQL string, the lazy-match `[\s\S]*?` truncates the capture early,
-  // producing a partial body. The regex would silently match a wrong
-  // shorter capture rather than fail. Reject any body shorter than
-  // 100 chars (smallest realistic SCHEMA_SQL is ~400 chars; FTS_SQL
-  // is ~150). Forces a maintainer either to rename the constant or
-  // escape the backtick.
-  if (match[1].length < 100) {
-    throw new Error(
-      `Extracted body for \`${name}\` is implausibly short (${match[1].length} chars). `
-      + `Likely cause: an embedded backtick in the SQL truncated the match early. `
-      + `Either escape the backtick or split the constant.`,
-    );
-  }
-  return match[1];
-}
+// Where a re-introduced hand-mirror would land: anywhere in src/ or in the
+// hand-written hook scripts. dist/ and _generated/ legitimately carry the
+// compiled/copied owner and are excluded.
+const SCAN_ROOTS = [
+  resolve(repoRoot, 'src'),
+  resolve(repoRoot, 'scripts/hooks'),
+];
+const EXCLUDED_DIR = resolve(repoRoot, 'scripts/hooks/_generated');
 
-/**
- * Whitespace-only differences are not drift — collapse runs of whitespace
- * to a single space and trim. Anything else (different column, missing
- * index, wrong table name, …) survives normalisation and the diff fires.
- */
-function normalise(sql) {
-  return sql.replace(/\s+/g, ' ').trim();
-}
+const DEFINITION_RE = /(?:export\s+)?const\s+(SCHEMA_SQL|FTS_SQL)\s*=\s*`/;
 
-function readFile(path) {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch (err) {
-    console.error(`schema-drift: cannot read ${path}: ${err.message}`);
-    process.exit(2);
+function* walk(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (full === EXCLUDED_DIR) continue;
+      yield* walk(full);
+    } else if (/\.(ts|js|mjs)$/.test(entry.name) && !entry.name.endsWith('.d.ts')) {
+      yield full;
+    }
   }
 }
-
-const coreSrc = readFile(CORE_PATH);
-const hookSrc = readFile(HOOK_PATH);
 
 const failures = [];
 
+// 1. The owner must still define both constants.
+const ownerSrc = readFileSync(OWNER, 'utf8');
 for (const name of ['SCHEMA_SQL', 'FTS_SQL']) {
-  let coreVal;
-  let hookVal;
-  try {
-    coreVal = extractConstant(coreSrc, name);
-  } catch (err) {
-    failures.push(`${CORE_PATH}: ${err.message}`);
-    continue;
+  if (!new RegExp(String.raw`export\s+const\s+${name}\s*=\s*\x60`).test(ownerSrc)) {
+    failures.push(`${OWNER}: no exported \`${name}\` template literal — the single owner lost its definition.`);
   }
-  try {
-    hookVal = extractConstant(hookSrc, name);
-  } catch (err) {
-    failures.push(`${HOOK_PATH}: ${err.message}`);
-    continue;
-  }
-  if (normalise(coreVal) !== normalise(hookVal)) {
-    failures.push(
-      `${name} drift detected between ${CORE_PATH} and ${HOOK_PATH}.\n` +
-      `  Run a side-by-side diff and bring the two definitions back in sync.\n` +
-      `  Both files must declare an identical ${name} template literal.`,
-    );
+}
+
+// 2. Nobody else may define them.
+for (const root of SCAN_ROOTS) {
+  for (const file of walk(root)) {
+    if (file === OWNER) continue;
+    const src = readFileSync(file, 'utf8');
+    const m = src.match(DEFINITION_RE);
+    if (m) {
+      failures.push(
+        `${relative(repoRoot, file)} defines \`${m[1]}\` — the schema has ONE owner ` +
+        `(src/storage/schema.ts). Import it (core) or use the generated copy (hooks) ` +
+        `instead of re-introducing a hand-mirror.`,
+      );
+    }
   }
 }
 
 if (failures.length > 0) {
-  console.error('\n✗ schema-drift check FAILED:\n');
+  console.error('\n✗ schema single-owner check FAILED:\n');
   for (const f of failures) console.error(`  ${f}\n`);
   process.exit(1);
 }
 
-console.log('✓ schema-drift check passed (SCHEMA_SQL + FTS_SQL match)');
+console.log('✓ schema single-owner check passed (SCHEMA_SQL + FTS_SQL defined only in storage/schema.ts)');
