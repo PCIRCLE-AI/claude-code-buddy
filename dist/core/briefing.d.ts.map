@@ -1,0 +1,1 @@
+{"version":3,"file":"briefing.d.ts","sourceRoot":"","sources":["../../src/core/briefing.ts"],"names":[],"mappings":"AA2CA,MAAM,WAAW,cAAc;IAC7B,OAAO,EAAE,MAAM,CAAC;IAEhB,IAAI,EAAE,MAAM,CAAC;IAEb,WAAW,EAAE,MAAM,CAAC;IAEpB,YAAY,EAAE,OAAO,CAAC;CACvB;AAmBD,wBAAgB,gBAAgB,CAAC,OAAO,CAAC,EAAE,MAAM,GAAG,cAAc,CA8DjE"}

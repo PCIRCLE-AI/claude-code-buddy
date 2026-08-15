@@ -72,6 +72,9 @@ export const TaskStateSchema = z.object({
     blocked: z.string().max(1000).optional(),
     done: z.string().max(1000).optional(),
 }).strict();
+export const BriefingSchema = z.object({
+    project: z.string().min(1).max(200).optional(),
+});
 export const UserPatternsSchema = z.object({
     categories: z.array(z.enum(['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
         .describe('Specific categories to return. Omit for all.'),

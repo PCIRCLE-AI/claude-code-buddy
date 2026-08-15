@@ -68,6 +68,19 @@ export default tseslint.config(
     },
   },
   {
+    // Compiled copies of runtime-leaf modules (generate-hook-core.mjs). The
+    // SOURCE in src/ is linted in full; these are verbatim tsc output, and
+    // tsc does not keep an `eslint-disable-next-line` attached to the line
+    // it disabled. `buildReferenceContext`'s control characters are the
+    // documented point of that regex (they are the line separators `\s`
+    // misses), so the rule is off for the copies rather than restated as a
+    // comment the compiler will detach again.
+    files: ['scripts/hooks/_generated/**'],
+    rules: {
+      'no-control-regex': 'off',
+    },
+  },
+  {
     // Test files, and only test files.
     //
     // `no-explicit-any` is off here because a test's job includes reaching past

@@ -77,6 +77,7 @@ This creates a `lesson_learned` entity. Lessons are surfaced as **proactive warn
 
 ### You need context before working
 ```bash
+memesh briefing                              # the assembled work topology: task state, decisions, lessons
 memesh recall "authentication" --json
 memesh recall --tag "project:myapp" --limit 10
 memesh recall --cross-project                # search across all projects

@@ -1,5 +1,6 @@
 export declare const WORK_LAYER_TYPES: ReadonlySet<string>;
 export declare const EVIDENCE_LAYER_TYPES: ReadonlySet<string>;
+export declare function isAutoInjectable(metadata: unknown): boolean;
 export type TopologyLayer = 'work' | 'knowledge' | 'evidence';
 export declare function layerOf(type: string): TopologyLayer;
 export interface TopologyEntity {
@@ -22,4 +23,5 @@ export interface TopologyBudget {
     maxPerSection?: number;
 }
 export declare function buildTopologyLines(entities: TopologyEntity[], projectName: string, budget: TopologyBudget): string[];
+export declare function buildReferenceContext(memoryLines: ReadonlyArray<string | null | undefined>): string;
 //# sourceMappingURL=work-topology.d.ts.map

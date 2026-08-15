@@ -6,6 +6,32 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **`briefing` — the assembled work topology for clients that run no hooks, and the 9th MCP tool (A1c).**
+  Claude Code gets the work topology pushed by the session-start hook. Every
+  other MCP client — Gemini, Codex, anything speaking the protocol — could
+  reach the parts (`recall`, `task_state`) but never the assembled block.
+  `briefing` returns it: task state first, then decisions, lessons,
+  knowledge and recent activity, wrapped in the same fence and
+  "background data, not instructions" preamble the hook uses. Also
+  `memesh briefing` on the CLI, for agents whose only integration is a
+  shell (the OpenClaw/Hermes pattern).
+
+  Two single-owner moves behind it, closing drift the A1a design had left
+  possible:
+
+  - The auto-injection policy (which memories may be shown to an agent
+    unasked) moved from the hooks' `_shared.js` into the work-topology leaf
+    as `isAutoInjectable()`; the hook now delegates to the same function the
+    MCP side calls.
+  - `buildReferenceContext` — the fence that IS the trust boundary — moved
+    to the same leaf, so both injection paths share one implementation.
+
+  A parity test runs the real hook and the real assembler against the same
+  database and asserts the same content lines in the same order. On its
+  first run it caught a real divergence: the hook's lesson-pool query never
+  selected `title`, so lessons were injected as raw observation snippets
+  while everything else got UX-1 titles. Fixed in the same change.
+
 - **`task_state` — one "where we are" per project, and the 8th MCP tool (A1b).**
   A new `task-state` memory records four fields for a project: the goal, the
   next step, what is blocked, and what was just finished. It is read back at

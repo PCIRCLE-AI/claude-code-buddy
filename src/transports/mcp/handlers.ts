@@ -8,10 +8,11 @@ import { z } from 'zod';
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn } from '../../core/operations.js';
 import { getDatabase } from '../../db.js';
 import { computePatterns } from '../../core/patterns.js';
+import { assembleBriefing } from '../../core/briefing.js';
 import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import {
   RememberSchema, RecallSchema, ForgetSchema,
-  ExportSchema, ImportSchema, LearnSchema, TaskStateSchema, UserPatternsSchema,
+  BriefingSchema, ExportSchema, ImportSchema, LearnSchema, TaskStateSchema, UserPatternsSchema,
 } from '../schemas.js';
 
 // ---------------------------------------------------------------------------
@@ -232,6 +233,21 @@ export const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'briefing',
+    description:
+      'The work topology for a project, assembled and ready to use: where the work was left off (goal / next / blocked / done), decisions and direction, lessons not to repeat, what is known, and recent activity — the same block Claude Code receives at session start. Call once at the START of a session to load project context; use recall for specific questions after that. Content is wrapped as untrusted background data.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        project: {
+          type: 'string',
+          description: 'Project name. Omit to use the current working directory’s project.',
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'user_patterns',
     description:
       'Analyze user work patterns from existing memory. Returns: work schedule (peak hours/days), tool preferences, focus areas, workflow metrics (session duration, commits/session), knowledge strengths, and learning areas. Use at session start for context about the user.',
@@ -386,6 +402,11 @@ export async function handleTool(name: string, args: Record<string, unknown> | u
       // and treating it as "nothing to do" would make a blocker unremovable.
       if (Object.keys(patch).length === 0) return ok(getTaskState(project));
       return ok(setTaskState({ project, patch, sourceHost }));
+    }
+    if (name === 'briefing') {
+      const r = parseOrFail(BriefingSchema, args);
+      if (!r.ok) return r.result;
+      return ok(assembleBriefing(r.data.project));
     }
     if (name === 'user_patterns') {
       const r = parseOrFail(UserPatternsSchema, args);
