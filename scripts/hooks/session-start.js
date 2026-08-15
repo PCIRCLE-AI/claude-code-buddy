@@ -12,7 +12,9 @@ import {
   getMemeshDirFromDbPath,
   getProjectName,
   importFromPluginRoot,
+  buildTopologyLines,
   isTrustedForAutoContext,
+  parseEntityMetadata,
   // Aliased: this file already has a local `const memeshDir` (a resolved
   // db-path-derived directory string) — the helper here is the MEMESH_DIR/
   // home resolver the update-check cache itself uses.
@@ -652,7 +654,12 @@ process.stdin.on('end', async () => {
       // doesn't have confidence/access_count/last_accessed_at, so the
       // SELECT can't reference them. Build the column list to match
       // what the schema actually supports.
-      const baseCols = 'e.id, e.name, e.type, e.created_at, e.metadata';
+      // `title` is an ALTER-added column (UX-1) and gets the same
+      // legacy-schema guard as the scoring columns: a database that predates
+      // it must still produce an injection, falling back to the observation
+      // snippet for its display text.
+      const hasTitle = colNames.has('title');
+      const baseCols = `e.id, e.name, e.type,${hasTitle ? ' e.title,' : ''} e.created_at, e.metadata`;
       const scoringCols = hasScoringCols
         ? `, e.confidence, e.access_count, e.last_accessed_at`
         : '';
@@ -669,7 +676,7 @@ process.stdin.on('end', async () => {
             pool_stats AS (
               SELECT COALESCE(MAX(access_count), 0) AS max_access FROM pool
             )
-            SELECT p.id, p.name, p.type, p.created_at, p.metadata
+            SELECT p.id, p.name, p.type,${hasTitle ? ' p.title,' : ''} p.created_at, p.metadata
             FROM pool p, pool_stats s
             ORDER BY
               COALESCE(p.confidence, 1.0) * 0.2833
@@ -698,7 +705,17 @@ process.stdin.on('end', async () => {
         `JOIN tags t ON t.entity_id = e.id`,
         `WHERE t.tag = ? ${statusFilter}`,
       );
-      const projectEntities = db.prepare(projectQuery).all(projectTag, sessionLimit * 3)
+      // Over-fetch WIDE, then filter. The window used to be `sessionLimit * 3`
+      // and the trust filter ran after it — so a class of entity that ranks
+      // high can consume the entire window and leave nothing. That was not
+      // hypothetical: measured on a real graph, all 30 top-ranked rows were
+      // filtered out and the "project memory" section rendered empty while 92
+      // eligible entities sat below the cut. The filter is a JS predicate with
+      // one owner (`isTrustedForAutoContext`); rather than restate it as SQL
+      // and own it twice, the window is made wide enough that the filtered
+      // class cannot fill it. CANDIDATE_CAP bounds the work for a large graph.
+      const CANDIDATE_CAP = 400;
+      const projectEntities = db.prepare(projectQuery).all(projectTag, CANDIDATE_CAP)
         .filter(entity => isTrustedForAutoContext(entity.metadata))
         .slice(0, sessionLimit);
 
@@ -707,7 +724,7 @@ process.stdin.on('end', async () => {
       // so rewrite to e.status for consistency.
       const recentWhere = hasStatus ? "WHERE e.status = 'active'" : '';
       const recentQuery = buildScoringQuery('', recentWhere);
-      const recentEntities = db.prepare(recentQuery).all(15)
+      const recentEntities = db.prepare(recentQuery).all(CANDIDATE_CAP)
         .filter(entity => isTrustedForAutoContext(entity.metadata))
         .slice(0, 5);
 
@@ -811,29 +828,43 @@ process.stdin.on('end', async () => {
           }
         }
 
-        // Groups overlap by construction: a lesson tagged to this project
-        // is in lessonEntities AND projectEntities. Render each entity once,
-        // in the highest-priority group it belongs to, so the injected block
-        // doesn't spend the model's context repeating itself.
-        const rendered = new Set();
-        const renderGroup = (label, entities) => {
-          const fresh = entities.filter(e => !rendered.has(e.id));
-          if (fresh.length === 0) return;
-          memoryLines.push(label);
-          for (const e of fresh) {
-            rendered.add(e.id);
-            const snippet = snippets.get(e.id);
-            const type = e.type || 'memory';
-            memoryLines.push(
-              snippet ? `- ${e.name} (${type}): ${snippet}` : `- ${e.name} (${type})`
-            );
+        // The three pools overlap by construction (a lesson tagged to this
+        // project is in lessonEntities AND projectEntities), so dedupe by id
+        // and let the topology grouping decide where each one belongs. The
+        // old code grouped by WHERE THE ROW CAME FROM — "lessons", "project",
+        // "recently active" — which is provenance, not work: a decision and
+        // the commit that mentions it landed in the same bucket, and the
+        // heading told the model nothing about what it was reading.
+        // `recentEntities` is the only pool that is NOT project-scoped, so
+        // anything reaching the candidate list from there alone is marked
+        // foreign and gets its own honest heading. Order matters: the
+        // project-scoped pools are consumed first, so an entity that is in
+        // both is claimed by the project.
+        const seen = new Set();
+        const candidates = [];
+        const addAll = (rows, foreign) => {
+          for (const e of rows) {
+            if (seen.has(e.id)) continue;
+            seen.add(e.id);
+            const meta = parseEntityMetadata(e.metadata);
+            candidates.push({
+              name: e.name,
+              type: e.type || 'memory',
+              title: e.title ?? null,
+              snippet: snippets.get(e.id) ?? null,
+              signalScore: meta && typeof meta.signal_score === 'number' ? meta.signal_score : null,
+              foreign,
+            });
           }
-          memoryLines.push('');
         };
+        addAll(topLessons, false);
+        addAll(projectEntities, false);
+        addAll(recentEntities, true);
 
-        renderGroup('Lessons learned (avoid repeating these):', topLessons);
-        renderGroup(`Project memory for "${projectName}":`, projectEntities);
-        renderGroup('Recently active across projects:', recentEntities);
+        memoryLines.push(...buildTopologyLines(candidates, projectName, {
+          maxChars: MAX_CONTEXT_CHARS,
+          maxLineChars: MAX_SNIPPET,
+        }));
       } catch (err) {
         // Snippet enrichment is best-effort. A failure here must not stop
         // the banner or the session — but trace it, because a silent break

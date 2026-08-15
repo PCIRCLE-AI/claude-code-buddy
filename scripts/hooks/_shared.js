@@ -33,6 +33,7 @@ import {
   slugFromRemoteUrl,
 } from './_generated/core-paths.js';
 import { autoCaptureDecision } from './_generated/capture-flag.js';
+export { buildTopologyLines, WORK_LAYER_TYPES, layerOf } from './_generated/work-topology.js';
 import {
   indexedObservationText,
   insertFtsRow,

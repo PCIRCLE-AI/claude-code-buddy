@@ -187,19 +187,27 @@ describe('Feature: Session Start Hook', () => {
       expect(typeof hso.additionalContext).toBe('string');
     });
 
-    it('injects real entity names and observation content, not just counts', () => {
+    it('injects usable content, and spends no tokens on machine names', () => {
       seedProjectMemory();
       const output = runHook({ cwd: '/tmp/myproject' });
       const injected = (output.hookSpecificOutput as { additionalContext: string }).additionalContext;
 
-      // Entity names must be present so the model can recall them by name.
-      expect(injected).toContain('oauth-pkce-decision');
-      // Observation content must be present — a name-only list would still
-      // leave the model unable to use the memory.
+      // The content the model can act on. These fixtures carry no title, so
+      // this also exercises the title → snippet fallback.
       expect(injected).toContain('PKCE');
-      // Lessons are the highest-value signal and get their own section.
-      expect(injected).toContain('lesson-flaky-timeout');
-      expect(injected).toContain('Lessons learned');
+      expect(injected).toContain('deadlock');
+
+      // The dedup KEY must not be there. Measured over ten real sessions
+      // under the old name-first format, the number of injected memories the
+      // transcript went on to mention was zero — the names were pure cost.
+      expect(injected).not.toContain('oauth-pkce-decision');
+      expect(injected).not.toContain('lesson-flaky-timeout');
+
+      // Headings describe the WORK, not where the row came from. Matched on
+      // the stable prefix: the fixture's project name carries a per-run
+      // suffix so temp dirs cannot collide.
+      expect(injected).toContain('Decisions and direction for "myproject');
+      expect(injected).toContain('do not repeat these');
     });
 
     it('keeps the human banner and the model context on separate channels', () => {
@@ -210,10 +218,10 @@ describe('Feature: Session Start Hook', () => {
       // from model context, so memory content must NOT live here).
       const banner = output.systemMessage as string;
       expect(banner).toContain('◉ MeMesh');
-      expect(banner).not.toContain('oauth-pkce-decision');
+      expect(banner).not.toContain('PKCE');
 
       const injected = (output.hookSpecificOutput as { additionalContext: string }).additionalContext;
-      expect(injected).toContain('oauth-pkce-decision');
+      expect(injected).toContain('PKCE');
     });
 
     it('records the injected text (not the banner) for hit/miss accounting', () => {
@@ -236,7 +244,14 @@ describe('Feature: Session Start Hook', () => {
       const output = runHook({ cwd: '/tmp/myproject' });
       const injected = (output.hookSpecificOutput as { additionalContext: string }).additionalContext;
 
-      const occurrences = injected.split('lesson-flaky-timeout').length - 1;
+      // Counted on the rendered text, since the name is no longer emitted.
+      // The pools still overlap by construction — a lesson tagged to this
+      // project is in the lesson pool AND the project pool — so the dedup
+      // this asserts is load-bearing, not incidental.
+      // A phrase that occurs ONCE in the fixture's observation — "deadlock"
+      // appears twice inside that one sentence and would count 2 for a
+      // correctly deduped block.
+      const occurrences = injected.split('raising the vitest timeout').length - 1;
       expect(occurrences).toBe(1);
     });
 

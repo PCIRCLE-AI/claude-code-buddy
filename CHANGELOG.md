@@ -4,7 +4,54 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Session-start injection is a work topology, not a provenance dump (A1).**
+  The block an agent receives at session start used to be grouped by where a
+  row came from — "Lessons learned", "Project memory", "Recently active" — and
+  each line led with the entity's machine dedup key
+  (`session-<pid>-<ts>-files`), followed by a 160-character observation
+  snippet that was usually a near-duplicate of the title UX-1 had already
+  derived from it.
+
+  It now groups by what the memory IS — decisions and direction, lessons,
+  what is known, recent activity — orders within each section by
+  `signal_score` (unscored hook captures rank last but are never dropped, so
+  a graph with only mechanical capture still gets a useful block), shows the
+  title with a `title → snippet → type` fallback that never reaches the name,
+  and truncates on word boundaries instead of mid-word.
+
+  **Measured on the same database with the same eligible entities, so only
+  the serialization differs: 833 → 666 tokens, −20%.** Fewer tokens is not on
+  its own the goal — an empty block would win that — so the claim is
+  narrower: the same content, more usable structure, for a fifth less
+  context. Whether the model *uses* it more is not claimed; the instrument
+  that would measure that (literal-mention matching) was found to carry no
+  signal at all and is recorded that way in the baseline.
+
+  Memories from other projects now get their own honest heading instead of
+  being filed under one that names the current project.
+
+  New: `src/core/work-topology.ts` — a runtime leaf, copied next to the hooks
+  by the existing codegen, exporting `WORK_LAYER_TYPES` as the single
+  whitelist for what counts as the work layer. UX-4 consumes this constant
+  rather than defining its own.
+
 ### Fixed
+
+- **A memory class that ranked high could starve the injection window.** The
+  session-start pools took the top `sessionLimit * 3` rows by score and
+  applied the trust filter afterwards, so an entity class that both ranks
+  high and gets filtered could consume the whole window. Measured: all 30
+  top-ranked project rows were filtered, the section rendered empty, and 92
+  eligible entities sat below the cut. The window is now wide enough that a
+  filtered class cannot fill it.
+
+- **Recall-effectiveness scored a miss against a string it no longer sends.**
+  `isRecallHit` matched the transcript against the entity NAME; the injected
+  block now shows the title. Left alone, every injected memory would have
+  taken an unearned `recall_miss`, which lowers its impact factor in core
+  ranking. It now matches either.
 
 - **Memories you accepted were being withheld from the agent, while raw commit
   records were not.** `dream accept` stamped `metadata.trust = 'untrusted'` on

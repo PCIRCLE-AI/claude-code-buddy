@@ -501,14 +501,25 @@ process.stdin.on('end', async () => {
                 'UPDATE entities SET recall_misses = COALESCE(recall_misses, 0) + 1 WHERE id = ?'
               );
 
+              // The injected block shows an entity's TITLE, not its name
+              // (A1 — a machine key like `commit-a1b2c3d` cost tokens and
+              // taught the model nothing). Matching on the name alone would
+              // therefore score a miss against a string the session was never
+              // shown, and a miss is not inert: it lowers the entity's impact
+              // factor in core ranking. Match either.
+              const titleStmt = db.prepare('SELECT title FROM entities WHERE id = ?');
               for (let i = 0; i < entityIds.length; i++) {
                 const name = (entityNames[i] || '').toLowerCase();
                 // Skip names that carry no recall signal: too short, or a
                 // machine identifier (auto-capture entities) that can never
                 // substring-match prose. Scoring those would be a guaranteed
                 // unearned miss — see isMeasurableRecallName.
-                if (!isMeasurableRecallName(name)) continue;
-                if (isRecallHit(sessionText, name)) {
+                let title = null;
+                try { title = titleStmt.get(entityIds[i])?.title ?? null; } catch { /* pre-title schema */ }
+                // A row is measurable if EITHER string could plausibly appear
+                // in prose; a machine-named row with a human title now can.
+                if (!isMeasurableRecallName(name) && !isMeasurableRecallName(title)) continue;
+                if (isRecallHit(sessionText, name) || isRecallHit(sessionText, title)) {
                   updateHit.run(entityIds[i]);
                 } else {
                   updateMiss.run(entityIds[i]);
