@@ -34,6 +34,22 @@ function looksLikePromptInjection(text: string): boolean {
 }
 
 /**
+ * Format recall results for the LLM — shared by the memory_recall tool and
+ * the auto-recall hook so the two surfaces cannot drift. (They used to be
+ * two pasted copies, both joining with the two-character string `\n` —
+ * a literal backslash-n — instead of a newline.)
+ */
+function formatEntities(entities: any[]): string {
+  return entities
+    .map((entity, i) => {
+      const name = entity.name || "untitled";
+      const obs = entity.observations?.[0] || "";
+      return `${i + 1}. [${entity.type || "note"}] ${name}: ${obs}`;
+    })
+    .join("\n");
+}
+
+/**
  * Extract latest user message text from messages array
  * Simplified version of LanceDB's extractLatestUserText()
  */
@@ -105,11 +121,14 @@ class MemeshClient {
 
   async recall(query: string, limit: number = 5, agentId?: string): Promise<any[]> {
     const url = `${this.baseUrl}/v1/recall`;
-    const body: any = { query, limit };
+    const body: Record<string, unknown> = { query, limit };
 
-    // Tenant isolation: filter by agent-specific tag if provided
+    // Tenant isolation: filter by agent-specific tag if provided.
+    // RecallSchema takes `tag` (SINGULAR string) — a `tags` array is an
+    // unknown key that Zod silently strips, which would disable the
+    // isolation without any error.
     if (agentId) {
-      body.tags = [`agent:${agentId}`];
+      body.tag = `agent:${agentId}`;
     }
 
     const response = await fetchWithTimeout(
@@ -126,11 +145,16 @@ class MemeshClient {
       throw new Error(`MeMesh recall failed: HTTP ${response.status}`);
     }
 
-    const json = (await response.json()) as { entities?: any[]; data?: any[] };
+    const json = (await response.json()) as {
+      success?: boolean;
+      data?: { entities?: any[] } | any[];
+    };
 
-    // Handle both shapes: {entities: [...]} (documented) and {data: [...]} (issue #159, fixed)
-    const entities = json.entities ?? json.data ?? [];
-    return entities;
+    // Documented envelope (>= the issue-#159 fix): {success, data: {entities}}.
+    // Older servers returned data as a bare entity array — handle both.
+    const payload = json.data;
+    if (Array.isArray(payload)) return payload;
+    return payload?.entities ?? [];
   }
 
   async remember(params: {
@@ -165,21 +189,20 @@ class MemeshClient {
     }
   }
 
-  async forget(query: string, agentId?: string): Promise<{ count: number }> {
+  /**
+   * Archive (soft-delete) ONE entity by name. This is the server's actual
+   * forget contract — ForgetSchema takes `{name}`, not a search query, and
+   * there is no bulk endpoint. Query-based forgetting is composed client-side
+   * in the memory_forget tool: recall the matches, then forget each by name.
+   */
+  async forgetByName(name: string): Promise<boolean> {
     const url = `${this.baseUrl}/v1/forget`;
-    const body: any = { query };
-
-    // Tenant isolation: filter by agent-specific tag if provided
-    if (agentId) {
-      body.tags = [`agent:${agentId}`];
-    }
-
     const response = await fetchWithTimeout(
       url,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ name }),
       },
       this.timeoutMs
     );
@@ -188,8 +211,11 @@ class MemeshClient {
       throw new Error(`MeMesh forget failed: HTTP ${response.status}`);
     }
 
-    const json = (await response.json()) as { count?: number };
-    return { count: json.count ?? 0 };
+    const json = (await response.json()) as {
+      success?: boolean;
+      data?: { archived?: boolean };
+    };
+    return json.data?.archived === true;
   }
 
   async health(): Promise<boolean> {
@@ -259,15 +285,12 @@ export default {
 
     api.logger?.info?.(`memory-memesh: registered (baseUrl: ${cfg.baseUrl})`);
 
-    // Register memory capability (if OpenClaw supports it)
-    api.registerMemoryCapability?.({
-      publicArtifacts: {
-        async listArtifacts() {
-          // Stub: MeMesh doesn't have artifact-list endpoint yet
-          return [];
-        },
-      },
-    });
+    // Register memory capability (if OpenClaw supports it).
+    // No publicArtifacts: MeMesh has no artifact-list endpoint, and a
+    // permanent empty stub would advertise a feature that always answers
+    // "none" — indistinguishable from working-but-empty. Add the surface
+    // when the endpoint exists.
+    api.registerMemoryCapability?.({});
 
     // ========================================================================
     // Tool: memory_recall
@@ -312,17 +335,8 @@ export default {
               };
             }
 
-            // Format results (match LanceDB's output format)
-            const text = entities
-              .map((entity, i) => {
-                const name = entity.name || "untitled";
-                const obs = entity.observations?.[0] || "";
-                return `${i + 1}. [${entity.type || "note"}] ${name}: ${obs}`;
-              })
-              .join("\\n");
-
             return {
-              content: [{ type: "text", text }],
+              content: [{ type: "text", text: formatEntities(entities) }],
               details: { count: entities.length },
             };
           } catch (error) {
@@ -425,26 +439,32 @@ export default {
           const query = params.query as string;
 
           try {
-            // Preview what will be deleted (safety check)
-            const preview = await client.recall(query, 20, agentId);
-            if (preview.length === 0) {
+            // The server's forget contract is name-based (ForgetSchema takes
+            // {name}; there is no query/bulk endpoint). Compose query-based
+            // forgetting honestly: recall the matches (agent-scoped), archive
+            // each by name, count what the server actually confirmed.
+            const matches = await client.recall(query, 20, agentId);
+            if (matches.length === 0) {
               return {
                 content: [{ type: "text", text: "No memories found matching that query." }],
                 details: { count: 0 },
               };
             }
 
-            // Perform deletion with tenant isolation
-            const result = await client.forget(query, agentId);
+            let archived = 0;
+            for (const entity of matches) {
+              if (typeof entity?.name !== "string" || entity.name.length === 0) continue;
+              if (await client.forgetByName(entity.name)) archived++;
+            }
 
             return {
               content: [
                 {
                   type: "text",
-                  text: `Deleted ${result.count} memor${result.count === 1 ? "y" : "ies"}.`,
+                  text: `Archived ${archived} of ${matches.length} matching memor${matches.length === 1 ? "y" : "ies"} (soft-delete; restorable server-side).`,
                 },
               ],
-              details: { count: result.count },
+              details: { count: archived },
             };
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -501,18 +521,9 @@ export default {
           return undefined;
         }
 
-        // Format for injection (similar to LanceDB's formatRelevantMemoriesContext)
-        const memoryContext = entities
-          .map((entity, i) => {
-            const name = entity.name || "untitled";
-            const obs = entity.observations?.[0] || "";
-            return `${i + 1}. [${entity.type || "note"}] ${name}: ${obs}`;
-          })
-          .join("\\n");
-
         // Return context to inject before prompt
         return {
-          context: `Relevant memories:\\n${memoryContext}`,
+          context: `Relevant memories:\n${formatEntities(entities)}`,
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

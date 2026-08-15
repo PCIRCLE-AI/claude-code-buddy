@@ -28,12 +28,17 @@ Query sanitization now removes system-like prefixes and directive-like patterns 
 **Issue**: All agents were sharing the same MeMesh database with `namespace: "personal"`, allowing Agent A to potentially recall Agent B's memories.
 
 **Fix Applied**:
-- `client.recall()`, `client.remember()`, `client.forget()` now accept and use `agentId` parameter
-- Memories are tagged with `agent:${agentId}` on creation
-- Recalls filter by `tags: [`agent:${agentId}`]`
-- Each agent's memories are isolated via tag-based filtering
+- Memories are tagged with `agent:${agentId}` on creation (`tags` array on `/v1/remember`)
+- Recalls filter with `tag: "agent:${agentId}"` — the SINGULAR `tag` field, which is what
+  RecallSchema actually accepts (a `tags` array is an unknown key Zod silently strips,
+  which would disable the filter without any error)
+- `memory_forget` operates only on agent-scoped recall results, so one agent cannot
+  archive another agent's entities through the tool
 
-Tag-based isolation is cryptographically secure when combined with MeMesh's namespace model.
+Note the honest limit: this is cooperative isolation for well-behaved plugins sharing one
+MeMesh instance. `agentId` comes from the OpenClaw runtime and is not cryptographically
+verified; a hostile co-resident plugin could pass another agent's id. Hard isolation
+requires separate MeMesh instances (different `baseUrl`) per tenant.
 
 ### 3. Unrestricted Destructive Action (MEDIUM) ✅ FIXED
 
@@ -42,12 +47,12 @@ Tag-based isolation is cryptographically secure when combined with MeMesh's name
 **Issue**: `memory_forget` deleted all memories matching a query with no preview or confirmation.
 
 **Fix Applied**:
-- Tool now performs a preview recall before deletion
-- Returns count of deleted memories: "Deleted N memor(y|ies)."
+- Query-based forgetting is composed from the server's real name-based contract:
+  recall the matches (agent-scoped), archive each by `POST /v1/forget {name}`,
+  report the count the server actually confirmed
 - If no matches found, returns "No memories found matching that query."
-- Deletion respects tenant isolation (agentId-tagged filtering)
-
-Further safety improvements (audit logging, soft-delete) can be added at the MeMesh API level.
+- MeMesh's forget is a soft-delete (archive) — entities are restorable server-side,
+  which is the undo mechanism the original finding asked for
 
 ### 4. Fail-Open Cooldown (LOW) ✅ REVIEWED
 
