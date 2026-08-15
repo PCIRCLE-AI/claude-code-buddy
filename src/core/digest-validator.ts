@@ -39,7 +39,7 @@
 import { callLLM, type LLMAttempt } from './llm-client.js';
 import { extractJsonBlock } from './json-utils.js';
 import type { LLMConfig } from './config.js';
-import { sanitizeForPrompt, sanitizeListForPrompt } from './prompt-safety.js';
+import { sanitizeForPrompt, wrapUntrusted } from './prompt-safety.js';
 import { outputLanguageInstruction } from './output-language.js';
 
 export interface SuspiciousClaim {
@@ -99,12 +99,6 @@ export async function validateDigest(
   // shaped substrings so the user-controlled side cannot break out and
   // re-open as instructions. Same defense-in-depth as the four other
   // LLM call sites.
-  const safeDigest = sanitizeListForPrompt(
-    digestObservations.map((o, i) => `${i + 1}. ${o}`),
-  );
-  const safeSources = sanitizeListForPrompt(
-    sourceObservations.map((o, i) => `${i + 1}. ${o}`),
-  );
 
   const prompt =
     `You are MeMesh's digest validator. Below is a DIGEST (a short summary) and ` +
@@ -122,8 +116,8 @@ export async function validateDigest(
     // section, so they localise; `claim` must stay an exact quote and the
     // verdict enum stays English (the shared instruction covers both).
     outputLanguageInstruction() + `\n\n` +
-    `<digest>\n${safeDigest}\n</digest>\n\n` +
-    `<sources>\n${safeSources}\n</sources>`;
+    wrapUntrusted('digest', digestObservations.map((o, i) => `${i + 1}. ${o}`)) + '\n\n' +
+    wrapUntrusted('sources', sourceObservations.map((o, i) => `${i + 1}. ${o}`));
 
   let rawResponse: string;
   try {

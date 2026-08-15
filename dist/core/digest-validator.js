@@ -1,13 +1,11 @@
 import { callLLM } from './llm-client.js';
 import { extractJsonBlock } from './json-utils.js';
-import { sanitizeForPrompt, sanitizeListForPrompt } from './prompt-safety.js';
+import { sanitizeForPrompt, wrapUntrusted } from './prompt-safety.js';
 import { outputLanguageInstruction } from './output-language.js';
 const MAX_CLAIM_LEN = 500;
 const MAX_REASON_LEN = 300;
 const MAX_CLAIMS = 20;
 export async function validateDigest(digestObservations, sourceObservations, llm, opts = {}) {
-    const safeDigest = sanitizeListForPrompt(digestObservations.map((o, i) => `${i + 1}. ${o}`));
-    const safeSources = sanitizeListForPrompt(sourceObservations.map((o, i) => `${i + 1}. ${o}`));
     const prompt = `You are MeMesh's digest validator. Below is a DIGEST (a short summary) and ` +
         `the ORIGINAL SOURCES it was supposed to summarize. Your job: list every claim ` +
         `in the digest that is NOT supported by the sources, with a one-sentence reason. ` +
@@ -20,8 +18,8 @@ export async function validateDigest(digestObservations, sourceObservations, llm
         `- "soften": one or two minor unsupported claims; the digest is salvageable.\n` +
         `- "reject": major hallucinations (fabricated names, branches, files) — do not ship.\n` +
         outputLanguageInstruction() + `\n\n` +
-        `<digest>\n${safeDigest}\n</digest>\n\n` +
-        `<sources>\n${safeSources}\n</sources>`;
+        wrapUntrusted('digest', digestObservations.map((o, i) => `${i + 1}. ${o}`)) + '\n\n' +
+        wrapUntrusted('sources', sourceObservations.map((o, i) => `${i + 1}. ${o}`));
     let rawResponse;
     try {
         rawResponse = await callLLM(prompt, llm, {

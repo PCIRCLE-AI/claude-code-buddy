@@ -2,19 +2,13 @@
 // LLM prompt-safety helpers (F7 — OWASP LLM01 defense-in-depth)
 // =============================================================================
 //
-// memesh feeds user-controlled content to LLM providers in three places:
-//   - failure-analyzer  — error strings + edited filenames from a session
-//                          transcript (transcript may contain malicious
-//                          dependency output)
-//   - auto-tagger       — entity name/type/observations
-//   - digest-validator  — a dreamer digest and the sources it claims to
-//                          summarise
-//
-// This list is the set of files importing this module, and it has been wrong
-// before: it named `consolidator` (retired) and omitted `digest-validator`,
-// which has used these helpers since it was written. query-expander was a call
-// site too, until it was retired from the recall hot path — see
-// src/core/operations.ts:recallEnhanced.
+// Who must use this module is no longer a hand-maintained list here (that
+// list was wrong twice — it named a retired module and omitted a live one).
+// It is enforced by machine: tests/core/prompt-safety-boundary.test.ts scans
+// every file that imports `callLLM` and fails any that does not import this
+// module. `wrapUntrusted()` below is the standard way in — it builds the
+// data-block fence AND sanitises in one call, so a new LLM flow cannot
+// interpolate raw text with nothing but code review standing in the way.
 //
 // Even though every output path validates / whitelists / truncates the
 // LLM's response, defense-in-depth says we should also harden the input
@@ -77,4 +71,31 @@ export function sanitizeForPrompt(value: string): string {
  */
 export function sanitizeListForPrompt(items: readonly string[]): string {
   return items.map(sanitizeForPrompt).join('\n');
+}
+
+/**
+ * THE way to place untrusted text inside a tag-delimited data block.
+ *
+ * Sanitises by construction — the call site cannot forget the sanitise
+ * step, because building the block IS the step. This is the same design
+ * the hook side already runs (`buildReferenceContext` owns its fence):
+ * asking each caller to sanitise first is how the boundary breaks,
+ * because the next caller added will not know that it must. The
+ * conflict pipeline was the seventh LLM flow added to this codebase;
+ * this function exists so the eighth cannot interpolate raw entity text
+ * with nothing but a code review standing in the way.
+ *
+ * The tag name is caller-controlled CODE, not data — but it is validated
+ * anyway, because a tag with `>` or spaces in it would corrupt the fence
+ * that everything else relies on.
+ *
+ * Accepts a single string or a list (list items join as lines, matching
+ * sanitizeListForPrompt).
+ */
+export function wrapUntrusted(tag: string, text: string | readonly string[]): string {
+  if (!/^[a-z][a-z0-9_]*$/.test(tag)) {
+    throw new Error(`wrapUntrusted: invalid tag name ${JSON.stringify(tag)} — lowercase identifiers only`);
+  }
+  const body = Array.isArray(text) ? sanitizeListForPrompt(text) : sanitizeForPrompt(text as string);
+  return `<${tag}>\n${body}\n</${tag}>`;
 }

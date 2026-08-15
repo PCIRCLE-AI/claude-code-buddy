@@ -10,4 +10,11 @@ export function sanitizeForPrompt(value) {
 export function sanitizeListForPrompt(items) {
     return items.map(sanitizeForPrompt).join('\n');
 }
+export function wrapUntrusted(tag, text) {
+    if (!/^[a-z][a-z0-9_]*$/.test(tag)) {
+        throw new Error(`wrapUntrusted: invalid tag name ${JSON.stringify(tag)} — lowercase identifiers only`);
+    }
+    const body = Array.isArray(text) ? sanitizeListForPrompt(text) : sanitizeForPrompt(text);
+    return `<${tag}>\n${body}\n</${tag}>`;
+}
 //# sourceMappingURL=prompt-safety.js.map
