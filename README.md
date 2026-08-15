@@ -153,6 +153,12 @@ gemini mcp list      # memesh should show "Connected"
 
 > **Use `memesh-mcp`, not `npx -p @pcircle/memesh`, as the configured command.** `npx -p` resolves to the *local* package whenever the host's working directory is inside a checkout of this repository, silently running whatever state that working tree is in instead of the installed release.
 
+### Native integration: Hermes Agent
+
+**Hermes Agent** (NousResearch) has a first-party `MemoryProvider` plugin system — MeMesh integrates at the same tier as Hermes's own built-in memory backends (honcho, mem0, hindsight), not as an HTTP bridge. Unlike MCP mode where you manually call tools, Hermes's provider system runs `recall`/`remember` automatically on every turn.
+
+The integration maps Hermes's `prefetch()` and `sync_turn()` hooks directly onto MeMesh's HTTP API. Complete guide with provider code structure, config, and four real pitfalls from a live deployment: **[docs/platforms/hermes-agent.md](docs/platforms/hermes-agent.md)**
+
 ### Step 2: Store a decision
 
 > The bash examples below assume `memesh` is on your `PATH` (Option B). Option A (plugin-only) users have two equivalent paths: ask in the Claude Code conversation (the `/memesh` skill + MCP tools cover the same flows), or replace `memesh` with `npx @pcircle/memesh` in any shell — same flags, no global install needed.
