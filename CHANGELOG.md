@@ -4,6 +4,34 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`forget` archived the whole memory when the caller mistyped one key.**
+  `remember` names the field `observations`; `forget` names it `observation`.
+  Zod strips unknown keys by default, and `forget` branches on whether
+  `observation` is *present* — absent means "archive the entire entity". So
+  `forget({name, observations: "one fact"})`, using the plural that the
+  sibling tool uses for the same concept, lost the key, fell through to the
+  archive branch, and returned `{"archived": true}`.
+
+  Measured before the fix: the entity's status became `archived` with both
+  observations still in it, and it dropped out of recall and out of
+  session-start injection. The caller asked to remove one fact and was told
+  it had succeeded.
+
+  `ForgetSchema` is now `.strict()`, so the mistyped key is rejected and
+  named. Rejecting rather than accepting the plural as an alias: an alias
+  would invent API surface, while the rejection tells the caller exactly
+  which key was wrong. Reached through both the MCP tool and `POST /v1/forget`
+  (the HTTP route shares the schema); the CLI was never affected, because
+  commander rejects unknown flags already.
+
+  The other tool schemas still strip unknown keys. That is a real gap —
+  `remember` with `titel:` silently drops the title — but it is not
+  destructive anywhere else, since a stripped key there still leaves the
+  intended write intact. Making them all strict is a behaviour change with
+  compatibility risk and is deliberately not bundled here.
+
 ### Changed
 
 - **Session-start injection is a work topology, not a provenance dump (A1).**

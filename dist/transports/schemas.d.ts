@@ -30,7 +30,7 @@ export declare const RecallSchema: z.ZodObject<{
 export declare const ForgetSchema: z.ZodObject<{
     name: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
     observation: z.ZodOptional<z.ZodString>;
-}, z.core.$strip>;
+}, z.core.$strict>;
 export declare const ExportSchema: z.ZodObject<{
     tag: z.ZodOptional<z.ZodString>;
     namespace: z.ZodOptional<z.ZodEnum<{
