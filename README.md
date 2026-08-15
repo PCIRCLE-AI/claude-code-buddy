@@ -159,6 +159,12 @@ gemini mcp list      # memesh should show "Connected"
 
 The integration maps Hermes's `prefetch()` and `sync_turn()` hooks directly onto MeMesh's HTTP API. Complete guide with provider code structure, config, and four real pitfalls from a live deployment: **[docs/platforms/hermes-agent.md](docs/platforms/hermes-agent.md)**
 
+### Native integration: OpenClaw
+
+**OpenClaw** has a first-party memory-capability plugin system — MeMesh integrates as a native memory provider at the same tier as OpenClaw's own built-in backends (LanceDB), not as an HTTP bridge. The plugin registers via `api.registerMemoryCapability()` and exposes `memory_recall`/`memory_store`/`memory_forget` tools plus automatic recall on the `before_prompt_build` hook.
+
+**Key difference from Hermes**: OpenClaw's auto-capture is threshold-gated (max 3 memories/turn when triggered), not every-turn. The integration maps onto MeMesh's HTTP API (`/v1/recall`, `/v1/remember`, `/v1/forget`). Full TypeScript plugin contract, config shape, and pitfalls: **[docs/platforms/openclaw.md](docs/platforms/openclaw.md)**
+
 ### Step 2: Store a decision
 
 > The bash examples below assume `memesh` is on your `PATH` (Option B). Option A (plugin-only) users have two equivalent paths: ask in the Claude Code conversation (the `/memesh` skill + MCP tools cover the same flows), or replace `memesh` with `npx @pcircle/memesh` in any shell — same flags, no global install needed.
