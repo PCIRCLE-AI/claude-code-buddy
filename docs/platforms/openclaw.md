@@ -120,7 +120,7 @@ The official LanceDB memory plugin (`@openclaw/memory-lancedb`) is the canonical
 
 ## Status
 
-**Contract confirmed, implementation NOT yet built.** This guide documents the confirmed plugin contract from upstream OpenClaw docs and the LanceDB reference plugin. Unlike the Hermes Agent integration (which was built, deployed to dgx94, and verified end-to-end with cross-session automatic recall), this has not been tested live. Treat as the blueprint for implementation, not a battle-tested deployment guide.
+**Built, NOT yet tested against live OpenClaw.** A complete TypeScript implementation is available at `extensions/memory-memesh/` (478 lines index.ts + config schema + package.json). The plugin follows the confirmed contract from upstream OpenClaw docs and the LanceDB reference plugin. Unlike the Hermes Agent integration (which was built, deployed to dgx94, and verified end-to-end with cross-session automatic recall), this has not been tested against a running OpenClaw instance. Treat as ready for testing, not yet battle-tested.
 
 The next implementer should:
 1. Build the plugin following this spec.
