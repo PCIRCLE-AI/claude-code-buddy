@@ -174,7 +174,7 @@ describe('HTTP Transport: POST /v1/remember', () => {
       observations: ['http-prov-unique-obs'],
     });
     const res = await req('POST', '/v1/recall', { query: 'http-prov-unique-obs' });
-    const found = res.body.data.find((e: any) => e.name === 'http-prov');
+    const found = res.body.data.entities.find((e: any) => e.name === 'http-prov');
     expect(found.metadata.provenance.source_host).toBe('http');
   });
 });
@@ -194,8 +194,9 @@ describe('HTTP Transport: POST /v1/recall', () => {
     const res = await req('POST', '/v1/recall', { query: 'unique-recall-obs-abc' });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
-    expect(res.body.data.length).toBeGreaterThanOrEqual(1);
-    const found = res.body.data.find((e: any) => e.name === 'recall-target');
+    expect(res.body.data.entities).toBeDefined();
+    expect(res.body.data.entities.length).toBeGreaterThanOrEqual(1);
+    const found = res.body.data.entities.find((e: any) => e.name === 'recall-target');
     expect(found).toBeDefined();
   });
 
@@ -204,12 +205,14 @@ describe('HTTP Transport: POST /v1/recall', () => {
     // available, so a query that misses FTS5 can still surface near-neighbour
     // entities under the MAX_VECTOR_DISTANCE threshold. Asserting toHaveLength(0)
     // is brittle in that path — the API contract here is "always return a
-    // valid JSON array, never a 500" and a generous upper bound on count.
+    // valid JSON object {entities: [...]} envelope, never a 500" and a generous
+    // upper bound on count.
     const res = await req('POST', '/v1/recall', { query: 'no-match-xyz-999' });
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body.data)).toBe(true);
-    expect(res.body.data.length).toBeLessThanOrEqual(20);
-    for (const e of res.body.data) {
+    expect(res.body.data.entities).toBeDefined();
+    expect(Array.isArray(res.body.data.entities)).toBe(true);
+    expect(res.body.data.entities.length).toBeLessThanOrEqual(20);
+    for (const e of res.body.data.entities) {
       expect(typeof e.name).toBe('string');
       expect(typeof e.type).toBe('string');
     }
@@ -218,8 +221,9 @@ describe('HTTP Transport: POST /v1/recall', () => {
   it('lists entities when no query provided', async () => {
     const res = await req('POST', '/v1/recall', {});
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body.data)).toBe(true);
-    expect(res.body.data.length).toBeGreaterThan(0);
+    expect(res.body.data.entities).toBeDefined();
+    expect(Array.isArray(res.body.data.entities)).toBe(true);
+    expect(res.body.data.entities.length).toBeGreaterThan(0);
   });
 });
 
@@ -727,7 +731,7 @@ describe('HTTP Transport: POST /v1/learn', () => {
     // thing carrying provenance here, so its absence must turn a test red.
     await req('POST', '/v1/learn', { error: 'http-learn-prov-unique boom', fix: 'reseat the cable' });
     const res = await req('POST', '/v1/recall', { query: 'http-learn-prov-unique' });
-    const found = res.body.data.find((e: any) => e.name.startsWith('lesson-'));
+    const found = res.body.data.entities.find((e: any) => e.name.startsWith('lesson-'));
     expect(found.metadata.provenance.source_host).toBe('http');
   });
 
