@@ -79,6 +79,15 @@ function isBenignFtsDeleteError(err) {
     const msg = err?.message ?? '';
     return /no such rowid|values do not match|no such row\b/i.test(msg);
 }
+export function joinIndexedObservations(contents) {
+    return contents.join(' ');
+}
+export function indexedObservationText(db, entityId) {
+    const rows = db
+        .prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id')
+        .all(entityId);
+    return joinIndexedObservations(rows.map((o) => o.content));
+}
 export function insertFtsRow(db, entityId, name, observationsText, title) {
     db.prepare('INSERT INTO entities_fts (rowid, name, observations) VALUES (?, ?, ?)').run(entityId, toIndexForm(name), toIndexForm(foldTitleIntoObservations(title, observationsText)));
 }
