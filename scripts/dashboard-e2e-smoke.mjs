@@ -152,10 +152,16 @@ async function main() {
   // filter to 'knowledge'. 'note' is in the 'reference' cluster and
   // gets hidden under that default. lesson_learned is in 'knowledge'
   // and is visible without the user toggling Signal Mode off.
+  //
+  // UX-1 change: dashboard now shows entity.title (or best observation) as
+  // the primary display text, not entity.name. Set title explicitly so the
+  // test can find it by the expected text. Without title, displayTitle()
+  // falls back to the observation, which would be "Dashboard smoke test memory".
   runNode(cliEntry, [
     'remember',
     '--name', 'dashboard-e2e-memory',
     '--type', 'lesson_learned',
+    '--title', 'dashboard-e2e-memory',
     '--obs', 'Dashboard smoke test memory',
     '--tags', 'project:dashboard-e2e',
   ], commonEnv);
