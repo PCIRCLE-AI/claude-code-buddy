@@ -1076,6 +1076,7 @@ function detectProjects(db: MemeshDatabase): string[] {
 interface ProjectEntity {
   id: number;
   name: string;
+  title: string | null;
   type: string;
   observations: string[];
 }
@@ -1088,14 +1089,14 @@ function collectProjectEntitiesForPatterns(
 ): ProjectEntity[] {
   const cutoff = new Date(Date.now() - windowDays * 86400_000).toISOString();
   const rows = db.prepare(`
-    SELECT DISTINCT e.id, e.name, e.type, e.metadata
+    SELECT DISTINCT e.id, e.name, e.title, e.type, e.metadata
     FROM entities e
     JOIN tags t ON t.entity_id = e.id
     WHERE t.tag = ?
       AND e.created_at >= ?
       AND e.status = 'active'
     ORDER BY e.created_at ASC
-  `).all(`project:${project}`, cutoff) as Array<{ id: number; name: string; type: string; metadata: string | null }>;
+  `).all(`project:${project}`, cutoff) as Array<{ id: number; name: string; title: string | null; type: string; metadata: string | null }>;
 
   const obsStmt = db.prepare('SELECT content FROM observations WHERE entity_id = ?');
   const out: ProjectEntity[] = [];
@@ -1111,7 +1112,7 @@ function collectProjectEntitiesForPatterns(
     void pinned;
 
     const observations = (obsStmt.all(row.id) as Array<{ content: string }>).map(o => o.content);
-    out.push({ id: row.id, name: row.name, type: row.type, observations });
+    out.push({ id: row.id, name: row.name, title: row.title, type: row.type, observations });
   }
   return out;
 }
@@ -1124,8 +1125,10 @@ async function detectPatterns(
   onAttempt?: (attempts: LLMAttempt[]) => void,
 ): Promise<PatternProposal[]> {
   const sample = sanitizeListForPrompt(entities.map(e => {
+    // Use title if available, otherwise first observation preview (never the machine name)
+    const label = e.title?.trim() || e.observations[0]?.slice(0, 80) || `${e.type} entity`;
     const obsPreview = e.observations.slice(0, 2).map(o => o.slice(0, 150)).join(' | ');
-    return `[id=${e.id}] (${e.type}) ${e.name}: ${obsPreview}`;
+    return `[id=${e.id}] (${e.type}) ${label}: ${obsPreview}`;
   }));
 
   const prompt = `You are MeMesh's pattern detector. You are scanning ${entities.length} entries from project "${project}" for EMERGENT PATTERNS the user might miss.

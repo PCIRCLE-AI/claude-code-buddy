@@ -858,7 +858,9 @@ export function captureEntity(db, { name, type, observations = [], tags = [], ti
     // lands, and an unmarked title errs on the never-auto-replaced side.
     const metaRow = db.prepare('SELECT metadata FROM entities WHERE id = ?').get(id);
     const meta = parseEntityMetadata(metaRow?.metadata);
-    if ((meta || !metaRow?.metadata) && title != null) {
+    // Only stamp title_source='heuristic' if no source is already recorded.
+    // An absent title_source means user-provided (permanent) — don't overwrite.
+    if ((meta || !metaRow?.metadata) && title != null && !meta?.title_source) {
       db.prepare('UPDATE entities SET metadata = ? WHERE id = ?')
         .run(JSON.stringify({ ...(meta ?? {}), title_source: 'heuristic' }), id);
     }
