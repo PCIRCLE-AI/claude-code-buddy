@@ -23,8 +23,8 @@
     },
     {
       "path": "scripts/hooks/_generated/fts-index.js",
-      "sha256": "f6d0bf6f92a134fadf632e00545519f291590ffa80bde3021cef094f52cb7665",
-      "bytes": 3478
+      "sha256": "7d47659d0eef27d808e7a59b60c45bda5ff5272af4cd082179a2a07acb1fd858",
+      "bytes": 3702
     },
     {
       "path": "scripts/hooks/_generated/sqlite.js",
@@ -33,18 +33,18 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "3796b08db3ed0a88e2d86324b95e7b61bda738a2878acbee9e4f07db2bf057b8",
-      "bytes": 50658
+      "sha256": "37033ddaecf05127ce80b230a9e6124ab71ee1343b4cba7d48212226ed4c2e6f",
+      "bytes": 54117
     },
     {
       "path": "scripts/hooks/post-commit.js",
-      "sha256": "eed9ce0165267ad07d78f2c7d656728b977e3bdc6f69c7ed2b0a19a23d73b1a5",
-      "bytes": 8035
+      "sha256": "da50568994b91984029cf077a03dc99e8441b1942f4c31fc641f5c36b43970f7",
+      "bytes": 8220
     },
     {
       "path": "scripts/hooks/pre-compact.js",
-      "sha256": "21ae9d75be20d8c623c8a073dc858c7d76692bf6d9e015b68d50531af1bd0b66",
-      "bytes": 7433
+      "sha256": "69828d76b9e3f739a8f838f7baf8d3aac37328a5deb9caaaa31f1b4dc719cfe5",
+      "bytes": 8197
     },
     {
       "path": "scripts/hooks/pre-edit-recall.js",
@@ -58,8 +58,8 @@
     },
     {
       "path": "scripts/hooks/session-summary.js",
-      "sha256": "74f2d4243b69e4b10974381ed8182d7847c2458dbd6a63d1d75ca14c35b339bc",
-      "bytes": 44172
+      "sha256": "ea17b617af2427995fc7dc1edd250bdf8df9dac9f32596c2c093e0241179e12f",
+      "bytes": 44897
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",

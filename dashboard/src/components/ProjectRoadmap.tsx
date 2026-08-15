@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Entity } from '../lib/api';
 import { MemoryRow } from './MemoryRow';
 import { t, getLocale } from '../lib/i18n';
-import { relativeDate, timeBucket, accessSignal, typeLabel } from '../lib/entity-display';
+import { relativeDate, timeBucket, accessSignal, typeLabel, displayTitle } from '../lib/entity-display';
 import { EntityIcon } from './icons/EntityIcon';
 
 /** Type set that qualifies as a milestone for the rail. Releases are the
@@ -117,7 +117,7 @@ function derivePhases(entities: Entity[]): Phase[] {
       startIso: run[0].created_at,
       endIso: run[run.length - 1].created_at,
       entityCount: run.length,
-      label: anchor.e.name,
+      label: displayTitle(anchor.e),
       anchorId: anchor.e.id,
     });
   }
@@ -836,7 +836,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                   <span style={{ flexShrink: 0, color: 'var(--accent)' }}><EntityIcon type={m.type} size={14} /></span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, color: 'var(--text-1)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {m.name}
+                      {displayTitle(m)}
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2 }}>
                       {relativeDate(m.created_at)}
@@ -876,7 +876,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                     <span style={{ flexShrink: 0, color: 'var(--text-2)' }}><EntityIcon type={l.type} size={14} /></span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, color: 'var(--text-1)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {l.name}
+                        {displayTitle(l)}
                       </div>
                       <div style={{ fontSize: 10, color: sig.tone === 'high' ? 'var(--accent)' : 'var(--text-3)', marginTop: 2, fontFamily: 'var(--mono)' }}>
                         {sig.tone !== 'none' ? sig.label : t('memory.access.never')}
@@ -1247,13 +1247,14 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
                 const r = R_ENTITY_INNER + R_ENTITY_STEP * (j % 3);
                 const ex = cx + r * Math.cos(ang);
                 const ey = cy + r * Math.sin(ang);
-                const labelTrunc = e.name.length > 22 ? e.name.slice(0, 20) + '…' : e.name;
+                const label = displayTitle(e);
+                const labelTrunc = label.length > 22 ? label.slice(0, 20) + '…' : label;
                 return (
                   <g
                     key={e.id}
                     role="button"
                     tabIndex={0}
-                    aria-label={`${e.name} (${typeLabel(e.type)})`}
+                    aria-label={`${label} (${typeLabel(e.type)})`}
                     style={{ cursor: 'pointer' }}
                     onClick={() => onNodeClick(e.id)}
                     onKeyDown={(ev: KeyboardEvent) => {
@@ -1263,7 +1264,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
                       }
                     }}
                   >
-                    <title>{`${e.name} (${e.type})`}</title>
+                    <title>{`${label} (${e.type})`}</title>
                     <circle
                       cx={ex}
                       cy={ey}

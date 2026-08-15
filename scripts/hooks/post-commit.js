@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from 'child_process';
-import { AUTO_CAPTURE_TAG, captureEntity, getProjectName, isAutoCaptureEnabled, openHookDb, recordHookRun } from './_shared.js';
+import { AUTO_CAPTURE_TAG, captureEntity, getProjectName, isAutoCaptureEnabled, openHookDb, recordHookRun, truncateTitle } from './_shared.js';
 
 let input = '';
 process.stdin.setEncoding('utf8');
@@ -140,11 +140,14 @@ process.stdin.on('end', () => {
       // this one did not). `memesh doctor` counts it to answer "is the
       // auto-capture loop alive" — a question it used to answer from entity
       // TYPE, which a hand-typed `memesh learn` satisfied all by itself.
+      // The commit subject IS the title — git authors already wrote a
+      // one-line human summary; nothing to synthesize.
       const written = captureEntity(db, {
         name: entityName,
         type: 'commit',
         observations,
         tags: [AUTO_CAPTURE_TAG, `project:${projectName}`],
+        title: truncateTitle(commitMsg),
       });
 
       // Heartbeat AFTER capture, so the stamp certifies "the capture loop

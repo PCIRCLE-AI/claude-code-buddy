@@ -10,6 +10,7 @@ export declare class KnowledgeGraph {
         tags?: string[];
         metadata?: Record<string, unknown>;
         namespace?: string;
+        title?: string | null;
         trustOverride?: 'trusted' | 'untrusted';
     }): number;
     createEntitiesBatch(entities: CreateEntityInput[]): void;

@@ -2,6 +2,7 @@ import { z } from 'zod';
 export declare const RememberSchema: z.ZodObject<{
     name: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
     type: z.ZodString;
+    title: z.ZodOptional<z.ZodPipe<z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>, z.ZodTransform<string | undefined, string>>>;
     observations: z.ZodOptional<z.ZodArray<z.ZodString>>;
     tags: z.ZodOptional<z.ZodArray<z.ZodString>>;
     relations: z.ZodOptional<z.ZodArray<z.ZodObject<{

@@ -78,6 +78,7 @@ program
   .description('Store knowledge as an entity (use flags for explicit form, or positional text for quick capture)')
   .option('--name <name>', 'Entity name')
   .option('--type <type>', 'Entity type')
+  .option('--title <title>', 'Short human-readable label shown as the headline (name stays the stable machine key)')
   .option('--obs <observations...>', 'Observations (space-separated)')
   .option('--tags <tags...>', 'Tags (space-separated)')
   .option('--namespace <namespace>', 'Namespace: personal, team, or global. On a NEW memory this places it (default personal); on one that already exists it MOVES it out of the scope it is in — omit the flag to leave it alone.')
@@ -111,6 +112,10 @@ program
       const suffix = randomBytes(3).toString('hex'); // 6 hex chars = 16M outcomes
       opts.name = `quick-${date}-${slug || 'note'}-${suffix}`;
       opts.type = 'note';
+      // The quick-capture text IS the human title — the generated name above
+      // is exactly the machine-key noise titles exist to replace. Slice to
+      // the transport max; an explicit --title still wins.
+      if (!opts.title) opts.title = String(text).slice(0, 200);
       // Same rule as the flag form below: positional text is an observation,
       // never dropped. Without the else, `remember "content" --obs "note"`
       // discarded the content while naming the entity after it.
@@ -142,6 +147,7 @@ program
       const result = remember({
         name: opts.name,
         type: opts.type,
+        title: opts.title,
         observations: opts.obs,
         tags: opts.tags,
         namespace: opts.namespace,

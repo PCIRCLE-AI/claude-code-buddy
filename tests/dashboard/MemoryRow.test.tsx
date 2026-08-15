@@ -18,10 +18,31 @@ function makeEntity(overrides: Partial<Entity> = {}): Entity {
 }
 
 describe('MemoryRow', () => {
-  it('renders the entity name and the best observation', () => {
+  it('renders the best observation as the headline when no title exists', () => {
     const { container } = render(<MemoryRow entity={makeEntity()} />);
     expect(container.textContent).toContain('Use OAuth 2.0 with PKCE');
-    expect(container.textContent).toContain('auth-decision');
+    // UX-1: the machine key must NOT be visible row text — it is a dedup
+    // key, not a label. It stays discoverable as the headline's tooltip.
+    expect(container.textContent).not.toContain('auth-decision');
+    expect(container.querySelector('.mem-preview')?.getAttribute('title')).toBe('auth-decision');
+  });
+
+  it('prefers the human title as the headline when present', () => {
+    const e = makeEntity({ title: 'Adopt OAuth 2.0 with PKCE' });
+    const { container } = render(<MemoryRow entity={e} />);
+    const headline = container.querySelector('.mem-preview');
+    expect(headline?.textContent).toContain('Adopt OAuth 2.0 with PKCE');
+    // The observation is no longer the headline once a title exists
+    expect(headline?.textContent).not.toContain('Use OAuth 2.0 with PKCE');
+  });
+
+  it('never uses the machine name as headline even with no title and no observations', () => {
+    const e = makeEntity({ observations: [] });
+    const { container } = render(<MemoryRow entity={e} />);
+    const headline = container.querySelector('.mem-preview')?.textContent ?? '';
+    expect(headline).not.toContain('auth-decision');
+    // Fallback chain lands on typeLabel + date
+    expect(headline).toContain('Decision');
   });
 
   it('shows the project chip when a project: tag is present', () => {

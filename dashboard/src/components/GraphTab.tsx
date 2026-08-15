@@ -24,6 +24,7 @@ export function isGraphRenderable(d: GraphData | null | undefined): d is GraphDa
 
 interface GNode {
   id: string;
+  title: string | null;     // Human-readable title for tooltip display
   type: string;
   x: number;
   y: number;
@@ -430,6 +431,7 @@ export function GraphTab() {
       const spread = Math.min(spreadCap, 14 + Math.sqrt(k) * 16 + (hash % 7));
       nodeMap.set(e.name, {
         id: e.name,
+        title: e.title ?? null,
         type: e.type,
         x: Math.min(w - 16, Math.max(16, centre.x + Math.cos(angle) * spread)),
         y: Math.min(h - 16, Math.max(16, centre.y + Math.sin(angle) * spread)),
@@ -916,16 +918,18 @@ export function GraphTab() {
         ctx.setTransform(curDpr, 0, 0, curDpr, 0, 0);
         const tx = tip.x + 12;
         const ty = tip.y - 10;
-        const name = tip.node.id;
+        // Display title if available; never the machine name (id).
+        // Fallback to type label + age when untitled (same data as line2, but
+        // avoids showing raw entity.name like "session-summary-a3f5e").
         const typeTxt = typeLabel(tip.node.type);
         const ageTxt = formatAge(tip.node.lastDate);
-        const line1 = name;
-        const line2 = `${typeTxt}  |  ${ageTxt}`;
+        const line1 = tip.node.title?.trim() || `${typeTxt} · ${ageTxt}`;
+        const line2 = tip.node.title?.trim() ? `${typeTxt}  |  ${ageTxt}` : '';
         ctx.font = `11px ${tk['--font']}`;
         const w1 = ctx.measureText(line1).width;
-        const w2 = ctx.measureText(line2).width;
+        const w2 = line2 ? ctx.measureText(line2).width : 0;
         const boxW = Math.max(w1, w2) + 12;
-        const boxH = 34;
+        const boxH = line2 ? 34 : 20;  // Single-line when untitled
         // Tooltip panel: translucent panel bg + accent hairline, both built from
         // the resolved tokens (--bg-1 / --accent) so a palette change reaches the
         // canvas — semi-transparent so the graph shows through.
@@ -938,9 +942,11 @@ export function GraphTab() {
         ctx.stroke();
         ctx.fillStyle = tk['--text-0'];
         ctx.fillText(line1, tx, ty - 4);
-        ctx.fillStyle = tk['--text-2'];
-        ctx.font = `10px ${tk['--mono']}`;
-        ctx.fillText(line2, tx, ty + 10);
+        if (line2) {
+          ctx.fillStyle = tk['--text-2'];
+          ctx.font = `10px ${tk['--mono']}`;
+          ctx.fillText(line2, tx, ty + 10);
+        }
       }
 
       animRef.current = requestAnimationFrame(simulate);

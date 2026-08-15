@@ -4,9 +4,16 @@ const sanitizeName = (s) => s.replace(/[\r\n\t]+/g, ' ').trim();
 const nameField = z.string().min(1).max(255).transform(sanitizeName).refine(s => s.length > 0, {
     message: 'Name must not be blank after sanitization',
 });
+const titleField = z
+    .string()
+    .max(200)
+    .transform(sanitizeName)
+    .transform(s => (s.length > 0 ? s : undefined))
+    .optional();
 export const RememberSchema = z.object({
     name: nameField,
     type: z.string().min(1).max(100),
+    title: titleField,
     observations: z.array(z.string().max(10000)).max(100).optional(),
     tags: z.array(z.string().max(255)).max(50).optional(),
     relations: z

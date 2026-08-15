@@ -10,10 +10,22 @@ const sanitizeName = (s: string) => s.replace(/[\r\n\t]+/g, ' ').trim();
 const nameField = z.string().min(1).max(255).transform(sanitizeName).refine(s => s.length > 0, {
   message: 'Name must not be blank after sanitization',
 });
+// A blank-after-sanitize title collapses to `undefined`, not `''` — the
+// RememberInput contract is "omit to leave an existing title untouched"
+// (same rule namespace already follows), and an empty string would instead
+// read as "explicitly clear the title", which is not what a caller sending
+// whitespace meant.
+const titleField = z
+  .string()
+  .max(200)
+  .transform(sanitizeName)
+  .transform(s => (s.length > 0 ? s : undefined))
+  .optional();
 
 export const RememberSchema = z.object({
   name: nameField,
   type: z.string().min(1).max(100),
+  title: titleField,
   observations: z.array(z.string().max(10000)).max(100).optional(),
   tags: z.array(z.string().max(255)).max(50).optional(),
   relations: z

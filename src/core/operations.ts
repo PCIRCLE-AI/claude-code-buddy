@@ -92,6 +92,7 @@ export function remember(args: RememberInput): RememberResult {
     tags: args.tags,
     namespace: args.namespace,
     trustOverride: args.trustOverride,
+    title: args.title,
   });
   // `current`, not the snapshot taken before `createEntity`. The updater used
   // to ignore what it was handed and rebuild from `existing?.metadata`, which
@@ -169,6 +170,7 @@ export function remember(args: RememberInput): RememberResult {
     stored: true,
     entityId,
     name: args.name,
+    ...(args.title !== undefined ? { title: args.title } : {}),
     type: args.type,
     observations: args.observations?.length ?? 0,
     tags: args.tags?.length ?? 0,

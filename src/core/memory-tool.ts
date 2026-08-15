@@ -651,10 +651,12 @@ function renamePath(oldRaw: unknown, newRaw: unknown): MemoryToolResult {
   // transaction, so no reader sees the row half-renamed and a failure anywhere
   // leaves both the table and the index as they were.
   db.transaction(() => {
-    removeFromFts(db, entityId, source.name, obsText);
+    // Rename never touches title — same value goes in on both sides, same
+    // symmetric-match rule as everywhere else that maintains this index.
+    removeFromFts(db, entityId, source.name, obsText, source.title);
     db.prepare('UPDATE entities SET name = ?, namespace = ? WHERE id = ?')
       .run(to.name, to.namespace, entityId);
-    insertFtsRow(db, entityId, to.name, obsText);
+    insertFtsRow(db, entityId, to.name, obsText, source.title);
   })();
 
   return ok(`Successfully renamed ${String(oldRaw)} to ${String(newRaw)}`);

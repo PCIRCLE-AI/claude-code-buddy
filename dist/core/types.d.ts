@@ -13,6 +13,7 @@ export type LLMProvider = 'anthropic' | 'openai' | 'ollama';
 export interface Entity {
     id: number;
     name: string;
+    title?: string | null;
     type: string;
     created_at: string;
     metadata?: Record<string, unknown>;
@@ -51,6 +52,7 @@ export interface SearchOptions {
 export interface RememberInput {
     name: string;
     type: string;
+    title?: string;
     observations?: string[];
     tags?: string[];
     relations?: Array<{
@@ -78,6 +80,7 @@ export interface RememberResult {
     stored: boolean;
     entityId: number;
     name: string;
+    title?: string | null;
     type: string;
     observations: number;
     tags: number;
@@ -147,6 +150,7 @@ export interface LearnResult {
 export type EntityRow = {
     id: number;
     name: string;
+    title: string | null;
     type: string;
     created_at: string;
     metadata: string | null;

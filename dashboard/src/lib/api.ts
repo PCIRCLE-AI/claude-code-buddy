@@ -163,6 +163,7 @@ export async function api<T = unknown>(method: string, path: string, body?: unkn
 export interface Entity {
   id: number;
   name: string;
+  title?: string | null;
   type: string;
   created_at: string;
   observations: string[];

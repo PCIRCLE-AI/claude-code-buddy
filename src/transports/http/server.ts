@@ -481,7 +481,9 @@ app.post('/v1/recall', async (req, res) => {
     // recallWithConflicts: FTS5 + sqlite-vec recall + conflict annotation,
     // owned by core so the transports can't drift on the wrapping rule.
     const { entities, conflicts } = await recallWithConflicts(parsed.data);
-    res.json({ success: true, data: conflicts.length > 0 ? { entities, conflicts } : entities });
+    // Always return object envelope {entities, conflicts?} to match API_REFERENCE.md
+    // and MCP transport's documented guarantee. Fixes issue #159.
+    res.json({ success: true, data: conflicts.length > 0 ? { entities, conflicts } : { entities } });
   } catch (err) {
     res.status(400).json({ success: false, errorCode: 'operation.failed' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }

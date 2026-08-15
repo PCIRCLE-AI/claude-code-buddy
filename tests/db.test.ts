@@ -157,6 +157,51 @@ describe('Feature: Database Management', () => {
     });
   });
 
+  describe('Scenario: Title column migration (UX-1)', () => {
+    it('should have a nullable title column on entities', () => {
+      const db = openDatabase(testDbPath);
+      const info = db.prepare('PRAGMA table_info(entities)').all() as any[];
+      const titleCol = info.find((col: any) => col.name === 'title');
+      expect(titleCol).toBeDefined();
+      expect(titleCol.notnull).toBe(0);
+    });
+
+    it('re-adds the column when opening a database from before this release', () => {
+      // Faithful old-schema simulation: the column is ALTER-only (deliberately
+      // NOT in SCHEMA_SQL — check-schema-drift diffs only the base strings),
+      // so dropping it yields exactly the table a pre-title build left behind.
+      let db = openDatabase(testDbPath);
+      db.prepare("INSERT INTO entities (name, type) VALUES ('old-row', 'note')").run();
+      db.exec('ALTER TABLE entities DROP COLUMN title');
+      closeDatabase();
+
+      db = openDatabase(testDbPath);
+      const row = db.prepare("SELECT title FROM entities WHERE name = 'old-row'").get() as { title: string | null };
+      expect(row.title, 'pre-migration rows must surface as untitled, not error').toBeNull();
+      db.prepare("UPDATE entities SET title = 'now titled' WHERE name = 'old-row'").run();
+      expect((db.prepare("SELECT title FROM entities WHERE name = 'old-row'").get() as any).title).toBe('now titled');
+    });
+
+    it('the hook-side mirror migration adds the same column', async () => {
+      // A hook-only user never runs a core process, so migrateHookDbToCurrent
+      // is the only thing standing between their old database and the title
+      // writes every capture hook now performs.
+      const db = openDatabase(testDbPath);
+      db.exec('ALTER TABLE entities DROP COLUMN title');
+      closeDatabase();
+
+      const shared = await import('../scripts/hooks/_shared.js');
+      const handle = shared.openHookDb({ ...process.env, MEMESH_DB_PATH: testDbPath }, { fts: true });
+      expect(handle).not.toBeNull();
+      try {
+        const info = handle.db.prepare('PRAGMA table_info(entities)').all() as any[];
+        expect(info.some((col: any) => col.name === 'title')).toBe(true);
+      } finally {
+        handle.db.close();
+      }
+    });
+  });
+
   describe('Scenario: Vector table setup', () => {
     it('should have entities_vec virtual table', () => {
       const db = openDatabase(testDbPath);

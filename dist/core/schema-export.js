@@ -10,6 +10,7 @@ export function exportOpenAITools() {
                     properties: {
                         name: { type: 'string', description: 'Unique entity name' },
                         type: { type: 'string', description: 'Entity type (decision, pattern, lesson, etc.)' },
+                        title: { type: 'string', description: 'Short human-readable label, distinct from name (a stable machine key)' },
                         observations: { type: 'array', items: { type: 'string' }, description: 'Key facts about this entity' },
                         tags: { type: 'array', items: { type: 'string' }, description: 'Tags for filtering' },
                         relations: {

@@ -188,6 +188,11 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     const obs = db.prepare('SELECT content FROM observations WHERE entity_id = ?').all(entity.id) as any[];
     const filesObs = obs.find((o: any) => o.content.includes('auth.ts'));
     expect(filesObs).toBeTruthy();
+
+    // UX-1 title: date + project + what happened, marked heuristic — the
+    // dashboard shows this instead of the session-<id> machine key.
+    expect(entity.title).toMatch(/^\d{4}-\d{2}-\d{2} .+: edited 2 file\(s\)$/);
+    expect(JSON.parse(entity.metadata).title_source).toBe('heuristic');
     db.close();
   });
 

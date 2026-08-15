@@ -17,6 +17,8 @@ type Row = {
   id: number;
   name: string;
   type: string;
+  title: string | null;
+  metadata: string | null;
   content: string;
   tag: string;
 };
@@ -139,6 +141,25 @@ describe('Feature: Post-Commit Hook', () => {
     expect(fts.length).toBeGreaterThan(0);
 
     db.close();
+  });
+
+  it('Scenario: the commit subject becomes the entity title, marked heuristic', () => {
+    // UX-1: a commit subject is already the human-written one-line summary,
+    // so it IS the title. The heuristic mark is what lets a later LLM pass
+    // know this title is machine-assigned and replaceable.
+    const c = commit('refactor(db): collapse the tuple cache');
+    runHook({
+      tool_name: 'Bash',
+      cwd: repoDir,
+      tool_input: { command: 'git commit -m "refactor(db): collapse the tuple cache"' },
+      tool_output: c.output,
+    });
+
+    const db = openDb();
+    const entity = db.prepare('SELECT title, metadata FROM entities WHERE name = ?').get(`commit-${c.hash}`) as Row;
+    db.close();
+    expect(entity.title).toBe('refactor(db): collapse the tuple cache');
+    expect(JSON.parse(entity.metadata as string).title_source).toBe('heuristic');
   });
 
   it('Scenario: output that LOOKS like a commit, from a command that was not one -> nothing written', () => {

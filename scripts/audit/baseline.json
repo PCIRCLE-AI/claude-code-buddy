@@ -151,41 +151,6 @@
       "reason": "zero pending proposals legitimately hides the banner",
       "triaged": "2026-08-04"
     },
-    "C5 dashboard/src/components/LessonsTab.tsx:74": {
-      "class": "SAFE-DISPLAY",
-      "reason": "display fallbacks; empty renders an explicit notice",
-      "triaged": "2026-08-04"
-    },
-    "C5 dashboard/src/components/LessonsTab.tsx:95": {
-      "class": "SAFE-DISPLAY",
-      "reason": "display fallbacks; empty renders an explicit notice",
-      "triaged": "2026-08-04"
-    },
-    "C5 dashboard/src/components/LessonsTab.tsx:105": {
-      "class": "SAFE-DISPLAY",
-      "reason": "display fallbacks; empty renders an explicit notice",
-      "triaged": "2026-08-04"
-    },
-    "C5 dashboard/src/components/LessonsTab.tsx:217": {
-      "class": "SAFE-DISPLAY",
-      "reason": "display fallbacks; empty renders an explicit notice",
-      "triaged": "2026-08-04"
-    },
-    "C5 dashboard/src/components/LessonsTab.tsx:297": {
-      "class": "SAFE-DISPLAY",
-      "reason": "display fallbacks; empty renders an explicit notice",
-      "triaged": "2026-08-04"
-    },
-    "C5 dashboard/src/lib/entity-display.ts:176": {
-      "class": "SAFE-DISPLAY",
-      "reason": "classification falls through to the freeform bucket",
-      "triaged": "2026-08-04"
-    },
-    "C5 dashboard/src/lib/entity-display.ts:178": {
-      "class": "SAFE-DISPLAY",
-      "reason": "classification falls through to the freeform bucket",
-      "triaged": "2026-08-04"
-    },
     "C6 tests/consolidate-retired.test.ts": {
       "class": "WIRING-PIN",
       "reason": "retired message lives in RETIRED_ROUTES; remaining source asserts pin the wiring, behavior tested via route test",
@@ -266,11 +231,6 @@
       "reason": "secondary greps run after the exit-code gate has already read DOCTOR_EXIT",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-14 222->233 (the timeout-minutes evidence comment above shifted +11; same statement — verified)"
     },
-    "C5 src/core/operations.ts:119": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "provenance spread identity: absent provenanceOverride means the caller supplied none, and spreading {} correctly leaves the source_host stamped on the line above; a spread of undefined would even be legal JS, so this cannot convert a failure into a default",
-      "triaged": "2026-08-12 (Phase 02 provenance); re-keyed 2026-08-13 (shifted +6 by the first-writer-wins comment added above, statement unchanged)"
-    },
     "C5 src/core/operations.ts:51": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "metadata spread identity; trust is set unconditionally after",
@@ -284,16 +244,6 @@
     "C5 src/core/operations.ts:45": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "metadata spread identity; trust is set unconditionally after",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
-    },
-    "C5 src/knowledge-graph.ts:306": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "write-time signal-score inputs; empty means the caller passed no observations/tags, which is the correct identity for scoring",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
-    },
-    "C5 src/knowledge-graph.ts:305": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "write-time signal-score inputs; empty means the caller passed no observations/tags, which is the correct identity for scoring",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
     },
     "C6 tests/hooks/session-summary.test.ts": {
@@ -371,36 +321,6 @@
       "reason": "provenance spread identity; trust written unconditionally",
       "triaged": "2026-08-04"
     },
-    "C5 src/knowledge-graph.ts:394": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement)"
-    },
-    "C5 src/knowledge-graph.ts:611": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement)"
-    },
-    "C5 src/knowledge-graph.ts:612": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement)"
-    },
-    "C5 src/knowledge-graph.ts:613": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "batch-hydrate lookups; confidence bump fails closed",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement)"
-    },
-    "C5 src/transports/cli/cli.ts:138": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "commander leaves --contradicts undefined when the flag is absent; the empty list truthfully means no relation was requested",
-      "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); corrected 2026-08-13: an earlier re-key attached this entry to the wrong sibling line (supersedes/contradicts pair swapped); reasons now match their statements"
-    },
-    "C5 src/core/dreamer.ts:1193": {
-      "class": "SAFE-GUARDED",
-      "reason": "upstream filter requires non-empty arrays before these run (the (p.observations ?? []) statement; re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1172 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1186 (PROTECTED_TYPES export comment shifted the file; statement verified — the observations line, NOT the evidence sibling that previously sat at this key); re-keyed 2026-08-14 +4 from :1189 (kind != 'relation' guards on the two pending-proposal scans; statement verified)"
-    },
     "C5 src/core/dreamer.ts:1196": {
       "class": "SAFE-GUARDED",
       "reason": "upstream filter requires non-empty arrays before these run (the (p.evidence ?? []) statement; re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
@@ -431,26 +351,6 @@
       "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
       "triaged": "2026-08-04 (re-keyed 353->359->369: the transcriptMining field + isTranscriptMiningEnabled additions shifted the line down 10; same llmFallbacks ?? [] code verified before re-keying); re-keyed 2026-08-10 (the AUTO_CAPTURE_TAG-driven detectCapabilities guard shifted it +7; same statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified)"
     },
-    "C5 src/transports/cli/cli.ts:137": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "commander leaves --supersedes undefined when the flag is absent; the empty list truthfully means no relation was requested, and nothing downstream reports one as created",
-      "triaged": "2026-08-10 (P7 batch 2); corrected 2026-08-13: an earlier re-key attached this entry to the wrong sibling line (supersedes/contradicts pair swapped); reasons now match their statements"
-    },
-    "C5 src/transports/cli/cli.ts:171": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "remember() spreads relationsCreated only when non-empty, so absent means none were created at the single producer; the empty list correctly prints no conflicts line — this replaced arithmetic that announced conflicts for relations that had failed",
-      "triaged": "2026-08-10 (review pass); re-keyed 2026-08-12 (shifted +1 by the sourceHost field added to the remember() call above, code unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified)"
-    },
-    "C5 src/transports/cli/cli.ts:177": {
-      "class": "SAFE-GUARDED",
-      "reason": "remember() sets relationErrors only when non-empty (operations.ts spreads it conditionally), so absent means none at the single producer; the failure path exits 1 off the same field",
-      "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-12 (shifted +1 by the sourceHost field added to the remember() call above, code unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified)"
-    },
-    "C5 src/transports/mcp/handlers.ts:268": {
-      "class": "SAFE-GUARDED",
-      "reason": "Zod rejects {} for schemas with required fields",
-      "triaged": "2026-08-10 (re-keyed 290->312: the stripNullProps helper added 22 lines above; the statement now wraps args in stripNullProps, which maps {} to {} and null properties to absent — the guard this triage relies on, Zod rejecting {} for required fields, is untouched); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified)"
-    },
     "C5 src/core/doctor.ts:1707": {
       "class": "SAFE-GUARDED",
       "reason": "verifySkillsManifest: entries ?? [] is followed by entries.length === 0 -> fail (skills-manifest.empty); the ?? cannot convert absence into a pass",
@@ -466,60 +366,165 @@
       "reason": "readSettings throws on unparseable input; absent hooks truthfully means none wired",
       "triaged": "2026-08-04; re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified)"
     },
-    "C5 src/transports/http/server.ts:977": {
-      "class": "SAFE-GUARDED",
-      "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-10 (re-keyed: the serve 'error' listener added 9 lines; same safeParse statements, same classification); re-keyed 2026-08-13 988->977 (rev2: redactSecrets moved out to core/paths.ts, removing 11 lines above; same safeParse statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified)"
-    },
-    "C5 src/transports/http/server.ts:1067": {
-      "class": "SAFE-GUARDED",
-      "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-10; re-keyed 2026-08-12 +17 from :1061 (the accept handler's NothingToClaimError branch and its comment shifted the line); same safeParse statement, classification unchanged; re-keyed 2026-08-13 1078->1067 (rev2: redactSecrets moved out to core/paths.ts, removing 11 lines above; same safeParse statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified)"
-    },
     "C6 tests/verify-retired.test.ts": {
       "class": "WIRING-PIN",
       "reason": "retired message lives in RETIRED_ROUTES; remaining source asserts pin the wiring (CLI signpost text, 410 registration), sibling of consolidate-retired.test.ts with the same classification",
       "triaged": "2026-08-13 (verify_agent_work retirement)"
-    },
-    "C5 dashboard/src/components/GraphTab.tsx:285": {
-      "class": "SAFE-GUARDED",
-      "reason": "computeGraph always returns noiseTypes; same-origin fetch",
-      "triaged": "2026-08-04 (re-keyed: the Batch-D token-resolver + palette refactor shifted 208→233; same code verified before re-keying); re-keyed 2026-08-13 233->276 (graph visual-hierarchy helpers added above; same statement, classification unchanged — verified); re-keyed 2026-08-14 276->285 (review-fix comments above shifted it; same statement — verified)"
     },
     "C3 scripts/audit/measure-conflict-candidates.mjs": {
       "class": "NOT-A-GATE",
       "reason": "calibration tool, not a gate: re-derives the CONFLICT_MAX_COSINE_DISTANCE numbers against a real graph before an embedder or threshold change; its caller is a human, read-only by construction, and wiring it into CI would measure a fixture instead of the graph it exists to measure",
       "triaged": "2026-08-13 (conflict pipeline P1)"
     },
+    "C5 src/transports/cli/cli.ts:183": {
+      "class": "SAFE-GUARDED",
+      "reason": "remember() sets relationErrors only when non-empty (operations.ts spreads it conditionally), so absent means none at the single producer; the failure path exits 1 off the same field",
+      "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-12 (shifted +1 by the sourceHost field added to the remember() call above, code unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified); re-keyed 2026-08-14 177->183 (UX-1 --title flag + quick-capture title above; same relationErrors statement — verified)"
+    },
+    "C5 src/transports/cli/cli.ts:177": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "remember() spreads relationsCreated only when non-empty, so absent means none were created at the single producer; the empty list correctly prints no conflicts line — this replaced arithmetic that announced conflicts for relations that had failed",
+      "triaged": "2026-08-10 (review pass); re-keyed 2026-08-12 (shifted +1 by the sourceHost field added to the remember() call above, code unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified); re-keyed 2026-08-14 171->177 (UX-1 lines above; same relationsCreated statement — verified; NOTE this key previously belonged to the relationErrors entry, now at 183)"
+    },
+    "C5 src/transports/cli/cli.ts:142": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "commander leaves --supersedes undefined when the flag is absent; the empty list truthfully means no relation was requested, and nothing downstream reports one as created",
+      "triaged": "2026-08-10 (P7 batch 2); corrected 2026-08-13: an earlier re-key attached this entry to the wrong sibling line (supersedes/contradicts pair swapped); reasons now match their statements; re-keyed 2026-08-14 137->142 (UX-1 --title flag/quick-capture lines above; same supersedes statement — verified)"
+    },
+    "C5 src/transports/cli/cli.ts:143": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "commander leaves --contradicts undefined when the flag is absent; the empty list truthfully means no relation was requested",
+      "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); corrected 2026-08-13: an earlier re-key attached this entry to the wrong sibling line (supersedes/contradicts pair swapped); reasons now match their statements; re-keyed 2026-08-14 138->143 (UX-1 lines above; same contradicts statement — verified)"
+    },
+    "C5 src/transports/mcp/handlers.ts:273": {
+      "class": "SAFE-GUARDED",
+      "reason": "Zod rejects {} for schemas with required fields",
+      "triaged": "2026-08-10 (re-keyed 290->312: the stripNullProps helper added 22 lines above; the statement now wraps args in stripNullProps, which maps {} to {} and null properties to absent — the guard this triage relies on, Zod rejecting {} for required fields, is untouched); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified); re-keyed 2026-08-14 268->273 (UX-1 title property in remember inputSchema above; same safeParse statement — verified)"
+    },
+    "C5 src/core/operations.ts:120": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "provenance spread identity: absent provenanceOverride means the caller supplied none, and spreading {} correctly leaves the source_host stamped on the line above; a spread of undefined would even be legal JS, so this cannot convert a failure into a default",
+      "triaged": "2026-08-12 (Phase 02 provenance); re-keyed 2026-08-13 (shifted +6 by the first-writer-wins comment added above, statement unchanged); re-keyed 2026-08-14 119->120 (UX-1 title passed into createEntity above; same provenance spread statement — verified)"
+    },
+    "C5 src/knowledge-graph.ts:311": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "write-time signal-score inputs; empty means the caller passed no observations/tags, which is the correct identity for scoring",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content)"
+    },
+    "C5 src/knowledge-graph.ts:312": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "write-time signal-score inputs; empty means the caller passed no observations/tags, which is the correct identity for scoring",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content)"
+    },
+    "C5 dashboard/src/components/LessonsTab.tsx:75": {
+      "class": "SAFE-DISPLAY",
+      "reason": "display fallbacks; empty renders an explicit notice",
+      "triaged": "2026-08-04; re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content)"
+    },
+    "C5 dashboard/src/components/LessonsTab.tsx:96": {
+      "class": "SAFE-DISPLAY",
+      "reason": "display fallbacks; empty renders an explicit notice",
+      "triaged": "2026-08-04; re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content)"
+    },
+    "C5 dashboard/src/components/LessonsTab.tsx:106": {
+      "class": "SAFE-DISPLAY",
+      "reason": "display fallbacks; empty renders an explicit notice",
+      "triaged": "2026-08-04; re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content)"
+    },
+    "C5 dashboard/src/components/LessonsTab.tsx:218": {
+      "class": "SAFE-DISPLAY",
+      "reason": "display fallbacks; empty renders an explicit notice",
+      "triaged": "2026-08-04; re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content)"
+    },
+    "C5 dashboard/src/components/LessonsTab.tsx:298": {
+      "class": "SAFE-DISPLAY",
+      "reason": "display fallbacks; empty renders an explicit notice",
+      "triaged": "2026-08-04; re-keyed 2026-08-14 297->298 (import shift; the hay statement also gained an `e.title ?? ''` arm — same fallback class: an absent title truthfully contributes nothing to the filter haystack)"
+    },
+    "C5 dashboard/src/lib/entity-display.ts:196": {
+      "class": "SAFE-DISPLAY",
+      "reason": "classification falls through to the freeform bucket",
+      "triaged": "2026-08-04; re-keyed 2026-08-14 (displayTitle helper added above; same statement — verified)"
+    },
+    "C5 dashboard/src/lib/entity-display.ts:198": {
+      "class": "SAFE-DISPLAY",
+      "reason": "classification falls through to the freeform bucket",
+      "triaged": "2026-08-04; re-keyed 2026-08-14 (displayTitle helper added above; same statement — verified)"
+    },
+    "C1 tests/db.test.ts": {
+      "class": "SAFE",
+      "reason": "the .toBe(0) is PRAGMA table_info notnull flag equality (0 = nullable column), not a set-emptiness assertion; the column presence it depends on is pinned by toBeDefined on the line above",
+      "triaged": "2026-08-14 (UX-1 title-column migration tests)"
+    },
+    "C5 src/core/dreamer.ts:1199": {
+      "class": "SAFE-GUARDED",
+      "reason": "upstream filter requires non-empty arrays before these run (the (p.observations ?? []) statement; re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1172 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1186 (PROTECTED_TYPES export comment shifted the file; statement verified — the observations line, NOT the evidence sibling that previously sat at this key); re-keyed 2026-08-14 +4 from :1189 (kind != 'relation' guards on the two pending-proposal scans; statement verified); re-keyed 2026-08-15 1193→1199 (merge main shifted lines +6; same statement — verified)"
+    },
+    "C5 src/transports/http/server.ts:979": {
+      "class": "SAFE-GUARDED",
+      "reason": "Zod safeParse still validates; fields optional-with-default by design",
+      "triaged": "2026-08-10 (re-keyed: the serve 'error' listener added 9 lines; same safeParse statements, same classification); re-keyed 2026-08-13 988->977 (rev2: redactSecrets moved out to core/paths.ts, removing 11 lines above; same safeParse statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-15 977→979 (merge main shifted lines +2; same statement — verified)"
+    },
+    "C5 src/transports/http/server.ts:1069": {
+      "class": "SAFE-GUARDED",
+      "reason": "Zod safeParse still validates; fields optional-with-default by design",
+      "triaged": "2026-08-10; re-keyed 2026-08-12 +17 from :1061 (the accept handler's NothingToClaimError branch and its comment shifted the line); same safeParse statement, classification unchanged; re-keyed 2026-08-13 1078->1067 (rev2: redactSecrets moved out to core/paths.ts, removing 11 lines above; same safeParse statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-15 1067→1069 (merge main shifted lines +2; same statement — verified)"
+    },
+    "C5 dashboard/src/components/GraphTab.tsx:286": {
+      "class": "SAFE-GUARDED",
+      "reason": "computeGraph always returns noiseTypes; same-origin fetch",
+      "triaged": "2026-08-04 (re-keyed: the Batch-D token-resolver + palette refactor shifted 208→233; same code verified before re-keying); re-keyed 2026-08-13 233->276 (graph visual-hierarchy helpers added above; same statement, classification unchanged — verified); re-keyed 2026-08-14 276->285 (review-fix comments above shifted it; same statement — verified); re-keyed 2026-08-15 285→286 (merge main shifted lines +1; same statement — verified)"
+    },
+    "C5 src/knowledge-graph.ts:429": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-15 411→429 (merge main shifted lines +18; same statement — verified)"
+    },
+    "C5 src/knowledge-graph.ts:647": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-15 629→647 (merge main shifted lines +18; same statement — verified)"
+    },
+    "C5 src/knowledge-graph.ts:648": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-15 630→648 (merge main shifted lines +18; same statement — verified)"
+    },
+    "C5 src/knowledge-graph.ts:649": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "batch-hydrate lookups; confidence bump fails closed",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-15 631→649 (merge main shifted lines +18; same statement — verified)"
+    },
     "C7 README.md:271": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04; re-keyed 2026-08-15 21→271 (merge main shifted lines +250; same statement — verified)"
     },
     "C7 README.md:277": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04; re-keyed 2026-08-15 27→277 (merge main shifted lines +250; same statement — verified)"
     },
     "C7 README.md:295": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 273->294: the Codex/Gemini MCP setup section added to Get Started shifted this line down 21; same auto-capture table row verified before re-keying); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified)"
+      "triaged": "2026-08-04 (re-keyed 273->294: the Codex/Gemini MCP setup section added to Get Started shifted this line down 21; same auto-capture table row verified before re-keying); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-15 293→295 (merge main shifted lines +2; same statement — verified)"
     },
     "C7 README.md:369": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 346->348->369: the Codex/Gemini MCP setup section shifted this line down 21 more; same testimonial figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified)"
+      "triaged": "2026-08-04 (re-keyed 346->348->369: the Codex/Gemini MCP setup section shifted this line down 21 more; same testimonial figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-15 367→369 (merge main shifted lines +2; same statement — verified)"
     },
     "C7 README.md:428": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 353->355->376: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 out-of-the-box figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 374->426 (the Recipes section added above; same statement — verified)"
+      "triaged": "2026-08-04 (re-keyed 353->355->376: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 out-of-the-box figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 374->426 (the Recipes section added above; same statement — verified); re-keyed 2026-08-15 426→428 (merge main shifted lines +2; same statement — verified)"
     },
     "C7 README.md:459": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 379->382->386->407: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 comparison-table figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 405->457 (the Recipes section added above; same statement — verified)"
+      "triaged": "2026-08-04 (re-keyed 379->382->386->407: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 comparison-table figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 405->457 (the Recipes section added above; same statement — verified); re-keyed 2026-08-15 457→459 (merge main shifted lines +2; same statement — verified)"
     }
   }
 }

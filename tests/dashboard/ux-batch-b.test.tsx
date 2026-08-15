@@ -172,8 +172,10 @@ describe('BrowseTab empty-state awareness', () => {
   it('a filter that matched nothing keeps the filter message and no seed button', async () => {
     stubBrowse([entity(1)]);
     const { container } = render(<BrowseTab health={{ status: 'ok', version: 't', entity_count: 1 }} />);
+    // UX-1: rows no longer print the machine name; the observation-derived
+    // headline is the render sentinel now.
     await waitFor(() => {
-      expect(container.textContent).toContain('entity-1');
+      expect(container.textContent).toContain('obs 1');
     });
     const filterInput = container.querySelector('input[type="search"]') as HTMLInputElement;
     fireEvent.input(filterInput, { target: { value: 'zzz-no-match' } });
@@ -200,7 +202,7 @@ describe('BrowseTab empty-state awareness', () => {
     stubBrowse([entity(1), entity(2)], 2);
     const { container } = render(<BrowseTab health={{ status: 'ok', version: 't', entity_count: 2 }} />);
     await waitFor(() => {
-      expect(container.textContent).toContain('entity-1');
+      expect(container.textContent).toContain('obs 1');
     });
     // Match the key's stable English prefix rather than re-interpolating.
     expect(container.textContent).not.toContain('showing the first');

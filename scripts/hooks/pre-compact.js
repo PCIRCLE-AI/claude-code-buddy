@@ -2,7 +2,7 @@
 
 import { basename } from 'path';
 import { existsSync, readFileSync } from 'fs';
-import { AUTO_CAPTURE_TAG, captureEntity, getProjectName, isAutoCaptureEnabled, openHookDb, recordHookRun } from './_shared.js';
+import { AUTO_CAPTURE_TAG, captureEntity, getProjectName, isAutoCaptureEnabled, openHookDb, recordHookRun, truncateTitle } from './_shared.js';
 
 // Timeout guard: always exit within 10 seconds
 const TIMEOUT_MS = 10000;
@@ -95,6 +95,17 @@ process.stdin.on('end', () => {
 
     // Build observation content
     const obsLines = [`Compaction reason: ${reason}`, `Tool calls: ${toolCallCount}`];
+
+    // No free-form human text exists for a pre-compact save (unlike a commit
+    // subject) — same date+project+verb heuristic as session-summary.js.
+    // This hook was the one missed by the original design (it hand-rolls the
+    // same captureEntity dance as its two siblings but was overlooked as a
+    // "write hook" until a code audit found it), so its entities were the
+    // clearest case of a raw machine key (`pre-compact-<sessionId>`) with a
+    // terse observation ("Compaction reason: manual") standing in as the
+    // display label.
+    const titleDate = new Date().toISOString().slice(0, 10);
+    const title = truncateTitle(`${titleDate} ${projectName}: ${reason} compaction (${toolCallCount} tool calls)`);
     if (editedFiles.size > 0) {
       obsLines.push(`Files edited: ${Array.from(editedFiles).join(', ')}`);
     }
@@ -111,6 +122,7 @@ process.stdin.on('end', () => {
         type: 'session-summary',
         observations: obsLines,
         tags: [AUTO_CAPTURE_TAG, 'urgency:pre-compact', `project:${projectName}`],
+        title,
       });
 
       // Heartbeat AFTER capture, so the stamp certifies "the capture loop

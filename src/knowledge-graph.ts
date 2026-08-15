@@ -279,6 +279,12 @@ export class KnowledgeGraph {
       tags?: string[];
       metadata?: Record<string, unknown>;
       namespace?: string;
+      /** Human-readable display string. Set on a new entity's initial
+       *  INSERT; on an existing entity, an explicitly supplied value
+       *  that differs from the current one UPDATEs it (same "explicit
+       *  value wins, undefined leaves it alone" rule as `namespace`
+       *  below). Omit to leave an existing title untouched. */
+      title?: string | null;
       /**
        * Trust signal for the confidence-bump gate. Must arrive at
        * `createEntity()` time rather than via a later
@@ -310,15 +316,44 @@ export class KnowledgeGraph {
     // INSERT OR IGNORE — if entity already exists, get its id
     const insertResult = this.db
       .prepare(
-        'INSERT OR IGNORE INTO entities (name, type, metadata, namespace) VALUES (?, ?, ?, ?)'
+        'INSERT OR IGNORE INTO entities (name, type, metadata, namespace, title) VALUES (?, ?, ?, ?, ?)'
       )
-      .run(name, type, JSON.stringify(incomingMetadata), opts?.namespace ?? 'personal');
+      .run(name, type, JSON.stringify(incomingMetadata), opts?.namespace ?? 'personal', opts?.title ?? null);
     const isNewEntity = insertResult.changes > 0;
 
     const row = this.db
-      .prepare('SELECT id, status, namespace FROM entities WHERE name = ?')
-      .get(name) as { id: number; status: string; namespace: string | null };
+      .prepare('SELECT id, status, namespace, title FROM entities WHERE name = ?')
+      .get(name) as { id: number; status: string; namespace: string | null; title: string | null };
     const entityId = row.id;
+
+    // Title update on an EXISTING entity — the INSERT OR IGNORE above never
+    // touches `title` when the row already exists (the whole insert attempt
+    // is dropped), so this mirrors the namespace-move block below: only an
+    // explicitly supplied, actually-different value writes anything.
+    // When title changes via API/remember (user-provided), clear title_source
+    // to mark it as permanent (Fix C3: keep title_source synchronized).
+    const previousTitle = row.title;
+    if (!isNewEntity && opts?.title !== undefined && opts.title !== previousTitle) {
+      this.db
+        .prepare('UPDATE entities SET title = ? WHERE id = ?')
+        .run(opts.title, entityId);
+      // User-provided title: clear title_source from metadata to mark as permanent.
+      // Heal corrupted metadata if parse fails (Fix C2).
+      const metaRow = this.db.prepare('SELECT metadata FROM entities WHERE id = ?').get(entityId) as { metadata: string | null } | undefined;
+      let metadata: Record<string, unknown> = {};
+      if (metaRow?.metadata) {
+        try {
+          const parsed = JSON.parse(metaRow.metadata);
+          metadata = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+        } catch {
+          console.error(`MeMesh: healed corrupted metadata for entity ${entityId} during title update.`);
+        }
+      }
+      // Remove title_source to mark as user-provided (permanent)
+      delete metadata.title_source;
+      this.db.prepare('UPDATE entities SET metadata = ? WHERE id = ?')
+        .run(JSON.stringify(metadata), entityId);
+    }
 
     // An explicit namespace applies to an entity that already exists, too.
     // This used to be creation-only — the parameter was accepted, ignored and
@@ -428,7 +463,7 @@ export class KnowledgeGraph {
     }
 
     // Always rebuild FTS so the entity name is indexed (even without observations)
-    this.rebuildFts(entityId, name, prevObsText);
+    this.rebuildFts(entityId, name, prevObsText, previousTitle);
 
     // Add tags
     if (opts?.tags?.length) {
@@ -490,7 +525,7 @@ export class KnowledgeGraph {
   getEntity(name: string): Entity | null {
     const row = this.db
       .prepare(
-        'SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace FROM entities WHERE name = ?'
+        'SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace FROM entities WHERE name = ?'
       )
       .get(name) as EntityRow | undefined;
 
@@ -511,6 +546,7 @@ export class KnowledgeGraph {
     return {
       id: row.id,
       name: row.name,
+      title: row.title,
       type: row.type,
       created_at: row.created_at,
       metadata: row.metadata ? this.parseMetadata(row.metadata) : undefined,
@@ -543,7 +579,7 @@ export class KnowledgeGraph {
     // Batch query 1: entities
     const entityRows = this.db
       .prepare(
-        `SELECT id, name, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace
+        `SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace
          FROM entities WHERE id IN (${placeholders}) ${statusFilter} ${namespaceFilter}`
       )
       .all(...params) as EntityRow[];
@@ -616,6 +652,7 @@ export class KnowledgeGraph {
       results.push({
         id: row.id,
         name: row.name,
+        title: row.title,
         type: row.type,
         created_at: row.created_at,
         metadata: row.metadata ? this.parseMetadata(row.metadata) : undefined,
@@ -760,14 +797,21 @@ export class KnowledgeGraph {
       // terms against raw storage, and a memory stored decomposed was findable
       // while active and unfindable once archived.
       registerNfcFunction(this.db);
+      // `e.title` is in the clause for the same reason the whole branch
+      // exists: the active side folds title into the FTS feed, so a memory
+      // matched by its human title would otherwise be findable while active
+      // and unfindable once archived. COALESCE because title is nullable —
+      // memesh_nfc passes NULL through and NULL LIKE is three-valued NULL;
+      // functionally falsy, but coalescing keeps the arm a plain boolean.
       const termClause = likeTerms
         .map(
           () =>
             `(${SQL_NFC_FUNCTION}(e.name) LIKE ? ESCAPE '\\' ` +
+            `OR ${SQL_NFC_FUNCTION}(COALESCE(e.title, '')) LIKE ? ESCAPE '\\' ` +
             `OR ${SQL_NFC_FUNCTION}(o.content) LIKE ? ESCAPE '\\')`
         )
         .join(' OR ');
-      const archivedParams: (string | number)[] = likeTerms.flatMap((t) => [t, t]);
+      const archivedParams: (string | number)[] = likeTerms.flatMap((t) => [t, t, t]);
       if (opts?.tag) archivedParams.push(opts.tag);
       if (opts?.namespace) archivedParams.push(opts.namespace);
 
@@ -898,8 +942,8 @@ export class KnowledgeGraph {
    */
   clearEntityData(name: string): void {
     const row = this.db
-      .prepare('SELECT id FROM entities WHERE name = ?')
-      .get(name) as EntityRow | undefined;
+      .prepare('SELECT id, title FROM entities WHERE name = ?')
+      .get(name) as { id: number; title: string | null } | undefined;
     if (!row) return;
 
     // Capture current observations text for FTS delete before clearing
@@ -912,14 +956,15 @@ export class KnowledgeGraph {
 
     this.db.prepare('DELETE FROM observations WHERE entity_id = ?').run(row.id);
     this.db.prepare('DELETE FROM tags WHERE entity_id = ?').run(row.id);
-    // Rebuild FTS with empty content (removes old indexed text)
-    this.rebuildFts(row.id, name, prevObsText);
+    // Rebuild FTS with empty content (removes old indexed text). title is
+    // untouched by this method, so the same value goes in on both sides.
+    this.rebuildFts(row.id, name, prevObsText, row.title);
   }
 
   archiveEntity(name: string): { archived: boolean; name?: string; previousStatus?: string } {
     const row = this.db
-      .prepare('SELECT id, status FROM entities WHERE name = ?')
-      .get(name) as { id: number; status: string } | undefined;
+      .prepare('SELECT id, status, title FROM entities WHERE name = ?')
+      .get(name) as { id: number; status: string; title: string | null } | undefined;
 
     if (!row) return { archived: false };
 
@@ -929,7 +974,7 @@ export class KnowledgeGraph {
       .all(row.id) as { content: string }[];
     const obsText = allObs.map((o) => o.content).join(' ');
 
-    removeFromFts(this.db, row.id, name, obsText);
+    removeFromFts(this.db, row.id, name, obsText, row.title);
 
     // CRITICAL: Remove from vector index (archived entities should not be retrievable via vector search)
     //
@@ -955,8 +1000,8 @@ export class KnowledgeGraph {
     observationContent: string
   ): { removed: boolean; remainingObservations: number; entityFound: boolean } {
     const row = this.db
-      .prepare('SELECT id FROM entities WHERE name = ?')
-      .get(entityName) as { id: number } | undefined;
+      .prepare('SELECT id, title FROM entities WHERE name = ?')
+      .get(entityName) as { id: number; title: string | null } | undefined;
 
     // `entityFound` exists because "no such entity" and "that text does not
     // match any observation" are different problems with opposite next steps,
@@ -978,7 +1023,7 @@ export class KnowledgeGraph {
       return { removed: false, remainingObservations: prevObs.length, entityFound: true };
     }
 
-    this.rebuildFts(row.id, entityName, prevObsText);
+    this.rebuildFts(row.id, entityName, prevObsText, row.title);
 
     const remaining = this.db
       .prepare('SELECT COUNT(*) as c FROM observations WHERE entity_id = ?')
@@ -1005,8 +1050,8 @@ export class KnowledgeGraph {
    */
   deleteEntity(name: string): { deleted: boolean } {
     const row = this.db
-      .prepare('SELECT id FROM entities WHERE name = ?')
-      .get(name) as { id: number } | undefined;
+      .prepare('SELECT id, title FROM entities WHERE name = ?')
+      .get(name) as { id: number; title: string | null } | undefined;
 
     if (!row) return { deleted: false };
 
@@ -1016,7 +1061,7 @@ export class KnowledgeGraph {
       .prepare('SELECT content FROM observations WHERE entity_id = ?')
       .all(row.id) as { content: string }[];
     const obsText = allObs.map((o) => o.content).join(' ');
-    removeFromFts(this.db, row.id, name, obsText);
+    removeFromFts(this.db, row.id, name, obsText, row.title);
 
     // Delete vec entry — mirror archiveEntity's cleanup so hard
     // delete doesn't leak orphan embeddings.
@@ -1042,18 +1087,31 @@ export class KnowledgeGraph {
     }
   }
 
+  /**
+   * `previousTitle` must be the title as it stood BEFORE whatever change
+   * triggered this rebuild — same rule as `previousObsText` — because a
+   * contentless FTS5 delete has to match the exact values that were
+   * indexed. The insert side always re-reads the entity's CURRENT title
+   * from the DB rather than trusting a caller-supplied "new" value, so a
+   * title UPDATE that already landed before this call (see createEntity)
+   * is picked up correctly with no risk of the two getting out of sync.
+   */
   private rebuildFts(
     entityId: number,
     entityName: string,
-    previousObsText?: string
+    previousObsText?: string,
+    previousTitle?: string | null
   ): void {
     if (previousObsText !== undefined) {
-      removeFromFts(this.db, entityId, entityName, previousObsText);
+      removeFromFts(this.db, entityId, entityName, previousObsText, previousTitle);
     }
     const allObs = this.db
       .prepare('SELECT content FROM observations WHERE entity_id = ?')
       .all(entityId) as { content: string }[];
     const obsText = allObs.map((o) => o.content).join(' ');
-    insertFtsRow(this.db, entityId, entityName, obsText);
+    const currentTitleRow = this.db
+      .prepare('SELECT title FROM entities WHERE id = ?')
+      .get(entityId) as { title: string | null } | undefined;
+    insertFtsRow(this.db, entityId, entityName, obsText, currentTitleRow?.title ?? null);
   }
 }

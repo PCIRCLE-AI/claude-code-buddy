@@ -80,6 +80,13 @@ export type LLMProvider = 'anthropic' | 'openai' | 'ollama';
 export interface Entity {
   id: number;
   name: string;
+  /**
+   * Human-readable display string, distinct from `name` (the machine
+   * dedup/append key). Absent on rows written before this field existed
+   * and not yet backfilled — display code falls back to
+   * pickBestObservation() then typeLabel+date, never to `name`.
+   */
+  title?: string | null;
   type: string;
   created_at: string;
   metadata?: Record<string, unknown>;
@@ -146,6 +153,9 @@ export interface SearchOptions {
 export interface RememberInput {
   name: string;
   type: string;
+  /** Optional human-readable display string. Auto-capture hooks generate
+   *  one heuristically; a deliberate `remember` call may supply its own. */
+  title?: string;
   observations?: string[];
   tags?: string[];
   relations?: Array<{ to: string; type: string }>;
@@ -186,6 +196,7 @@ export interface RememberResult {
   stored: boolean;
   entityId: number;
   name: string;
+  title?: string | null;
   type: string;
   observations: number;
   tags: number;
@@ -287,6 +298,7 @@ export interface LearnResult {
 export type EntityRow = {
   id: number;
   name: string;
+  title: string | null;
   type: string;
   created_at: string;
   metadata: string | null;

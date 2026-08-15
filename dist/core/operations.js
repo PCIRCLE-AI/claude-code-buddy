@@ -35,6 +35,7 @@ export function remember(args) {
         tags: args.tags,
         namespace: args.namespace,
         trustOverride: args.trustOverride,
+        title: args.title,
     });
     kg.updateEntityMetadata(args.name, (current) => buildLocalMetadata(current, {
         trust: args.trustOverride,
@@ -82,6 +83,7 @@ export function remember(args) {
         stored: true,
         entityId,
         name: args.name,
+        ...(args.title !== undefined ? { title: args.title } : {}),
         type: args.type,
         observations: args.observations?.length ?? 0,
         tags: args.tags?.length ?? 0,
