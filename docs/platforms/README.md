@@ -10,6 +10,7 @@ MeMesh is designed for local coding-agent memory first. The preferred path is MC
 |--------|-----------|-------|-------|
 | **Claude Code / Claude Desktop** | MCP Server | Add `memesh-mcp` to your MCP config | See root [README](../../README.md) |
 | **MCP-compatible coding agents** | MCP Server | Point the client at `memesh-mcp` | See root [README](../../README.md) |
+| **Hermes Agent (NousResearch)** | Native `MemoryProvider` plugin | Drop `plugins/memory/memesh/` into a Hermes Agent checkout; `hermes memory setup memesh` | [hermes-agent.md](./hermes-agent.md) |
 | **Custom apps / scripts** | HTTP API | Run `memesh serve` and call `/v1/*` | [universal.md](./universal.md) |
 | **ChatGPT / Custom GPT experiments** | HTTP API | Use a local connector/proxy that can reach localhost | [chatgpt.md](./chatgpt.md) |
 | **Google Gemini experiments** | HTTP API | Use a local connector/proxy that can reach localhost | [gemini.md](./gemini.md) |
@@ -110,6 +111,7 @@ Use MCP mode when the client supports MCP. Use HTTP mode when you control a loca
 
 ## 📚 Platform-Specific Guides
 
+- **[Hermes Agent (NousResearch)](./hermes-agent.md)** - Native `MemoryProvider` plugin, on par with MCP mode
 - **[ChatGPT / Custom GPTs](./chatgpt.md)** - HTTP API with custom instructions
 - **[Google Gemini](./gemini.md)** - HTTP API with system instructions
 - **[Universal Guide](./universal.md)** - For local tools or bridge-based integrations
