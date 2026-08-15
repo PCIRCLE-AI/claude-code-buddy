@@ -644,7 +644,6 @@ function backfillTitles(db) {
     const tx = db.transaction(() => {
         let titled = 0;
         let skipped = 0;
-        let healed = 0;
         for (const row of rows) {
             let metadata;
             if (row.metadata) {
@@ -652,16 +651,12 @@ function backfillTitles(db) {
                     metadata = JSON.parse(row.metadata);
                 }
                 catch {
-                    console.error(`MeMesh: healed corrupted metadata for entity ${row.id} (${row.name}). ` +
-                        `Original value was unparseable; replaced with {}.`);
-                    metadata = {};
-                    healed++;
+                    skipped++;
+                    continue;
                 }
                 if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
-                    console.error(`MeMesh: healed non-object metadata for entity ${row.id} (${row.name}). ` +
-                        `Type was ${Array.isArray(metadata) ? 'array' : typeof metadata}; replaced with {}.`);
-                    metadata = {};
-                    healed++;
+                    skipped++;
+                    continue;
                 }
             }
             else {
@@ -682,7 +677,7 @@ function backfillTitles(db) {
             }
             titled++;
         }
-        db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(MARKER, JSON.stringify({ at: new Date().toISOString(), titled, skipped, healed }));
+        db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(MARKER, JSON.stringify({ at: new Date().toISOString(), titled, skipped }));
     });
     tx();
 }
