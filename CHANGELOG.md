@@ -12,10 +12,20 @@ All notable changes to MeMesh are documented here.
   plugin). Both integrate at the same tier as their respective framework's
   built-in memory backends — not HTTP bridges. Hermes guide includes four
   real pitfalls from a live dgx94 deployment; OpenClaw guide documents the
-  confirmed contract from the LanceDB reference plugin (not yet built/tested
-  live). Both added to README's native-integration section and the platform
-  comparison table in `docs/platforms/README.md`. GitHub topics updated to
-  include `hermes-agent` and `native-integration`.
+  confirmed contract from the LanceDB reference plugin. Both added to README's
+  native-integration section and the platform comparison table in
+  `docs/platforms/README.md`. GitHub topics updated to include `hermes-agent`
+  and `native-integration`.
+
+- **OpenClaw TypeScript plugin implementation.** Complete native
+  memory-capability plugin at `extensions/memory-memesh/` (478 lines): three
+  tools (`memory_recall`, `memory_store`, `memory_forget`), auto-recall hook
+  on `before_prompt_build`, TypeBox config schema, timeout/cooldown handling,
+  prompt injection defense. Maps MeMesh's HTTP API (`/v1/recall`,
+  `/v1/remember`, `/v1/forget`) onto OpenClaw's plugin contract. Based on
+  `@openclaw/memory-lancedb` reference (711 lines). Status: built, NOT yet
+  tested against live OpenClaw instance. Package name:
+  `@pcircle/openclaw-memory-memesh`.
 
 ## [4.6.0] - 2026-08-15
 
