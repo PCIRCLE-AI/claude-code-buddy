@@ -93,6 +93,15 @@ memesh remember \
 ```
 Types: `decision` `pattern` `lesson_learned` `bug_fix` `architecture` `convention` `feature` `best_practice` `concept` `tool` `note`
 
+### The user says what they are working on, or where they got stuck
+```bash
+memesh task --goal "Ship the work-topology injection" --next "Open the PR once CI is green"
+memesh task --blocked "Waiting on the Windows runner"
+memesh task --blocked ""                                     # resolved — clear it
+memesh task                                                  # show what the next session will see
+```
+One state per project, injected at the top of the next session. Record only what the user actually **said** — never infer a goal from which files were edited; a guessed goal reaches the next session as fact with nothing to correct it.
+
 ### Old info needs updating
 ```bash
 memesh forget --name "old-auth-approach"                    # archive entire entity

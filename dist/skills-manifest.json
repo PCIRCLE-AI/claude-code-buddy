@@ -42,6 +42,11 @@
       "bytes": 2838
     },
     {
+      "path": "scripts/hooks/_generated/task-state.js",
+      "sha256": "563b1ae491ff78d92d867967576b819c7c8b3aebb6ed9d558810d7b5389d6cfe",
+      "bytes": 3863
+    },
+    {
       "path": "scripts/hooks/_generated/time-utils.js",
       "sha256": "4d7861484c12f33996207fdece4e9ccc8ded03d5243fd2771c63652af9c48736",
       "bytes": 1110
@@ -58,8 +63,8 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "1449c7f12515552717070e17bd7b269bdfdcde05a42b100d483132ab4a3a63dd",
-      "bytes": 37622
+      "sha256": "436a64feeb678aaaab4b33ba13aa97fdc0863b2a3fac105a6429c2e7d1ddc5bc",
+      "bytes": 37714
     },
     {
       "path": "scripts/hooks/post-commit.js",
@@ -78,8 +83,8 @@
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "767fb13b83b541332146605bfc54f3e5ac609ba43e8b3ca53dc1f25d0ef9082d",
-      "bytes": 50691
+      "sha256": "07ba3809b18c53574dc38b5e1588fea945c25213e81fa3c475dc215390ca64f2",
+      "bytes": 52438
     },
     {
       "path": "scripts/hooks/session-summary.js",
@@ -98,8 +103,8 @@
     },
     {
       "path": "skills/memesh/SKILL.md",
-      "sha256": "980eb25a4990abfe8955e3842c4ab57980f98782a2bcc61a82fca337fcfcc80a",
-      "bytes": 6981
+      "sha256": "06fa5dd6cf3bc7d4c0f5ba45a8cc2328d0580b199c2da8249aa5daca88729a82",
+      "bytes": 7629
     }
   ]
 }

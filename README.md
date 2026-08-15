@@ -477,7 +477,7 @@ The embedder is configured **independently of the chat LLM** — changing `llm.p
 
 ---
 
-## All 7 Memory Tools
+## All 8 Memory Tools
 
 | Tool | What it does |
 |------|-------------|
@@ -487,6 +487,7 @@ The embedder is configured **independently of the chat LLM** — changing `llm.p
 | `export` | Share memories as JSON between projects or team members |
 | `import` | Import memories with merge strategies (skip / overwrite / append) |
 | `learn` | Record structured lessons from mistakes (error, root cause, fix, prevention) |
+| `task_state` | Read or record where the work stands — goal, next step, blocker, what was just finished |
 | `user_patterns` | Analyze your work patterns — schedule, tools, strengths, learning areas |
 
 ---

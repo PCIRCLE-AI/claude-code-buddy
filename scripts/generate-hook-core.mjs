@@ -47,6 +47,7 @@ const SOURCES = [
   { from: 'dist/core/capture-flag.js', to: 'capture-flag.js', src: 'src/core/capture-flag.ts' },
   { from: 'dist/core/title.js', to: 'title.js', src: 'src/core/title.ts' },
   { from: 'dist/core/work-topology.js', to: 'work-topology.js', src: 'src/core/work-topology.ts' },
+  { from: 'dist/core/task-state.js', to: 'task-state.js', src: 'src/core/task-state.ts' },
   { from: 'dist/core/time-utils.js', to: 'time-utils.js', src: 'src/core/time-utils.ts' },
   { from: 'dist/storage/fts-index.js', to: 'fts-index.js', src: 'src/storage/fts-index.ts' },
   { from: 'dist/storage/schema.js', to: 'schema.js', src: 'src/storage/schema.ts' },

@@ -65,6 +65,13 @@ export const LearnSchema = z.object({
     prevention: z.string().max(5000).optional(),
     severity: z.enum(['critical', 'major', 'minor']).optional(),
 });
+export const TaskStateSchema = z.object({
+    project: z.string().min(1).max(200).optional(),
+    goal: z.string().max(1000).optional(),
+    next: z.string().max(1000).optional(),
+    blocked: z.string().max(1000).optional(),
+    done: z.string().max(1000).optional(),
+}).strict();
 export const UserPatternsSchema = z.object({
     categories: z.array(z.enum(['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
         .describe('Specific categories to return. Omit for all.'),

@@ -11,6 +11,8 @@ import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-langu
 import { getDbPath, redactSecrets, redactUserPaths } from '../../core/paths.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 import { NAMESPACES } from '../../core/types.js';
+import { getTaskState, setTaskState } from '../../core/task-state-store.js';
+import { TASK_STATE_FIELDS, taskStateLines } from '../../core/task-state.js';
 async function withDatabase(fn) {
     openDatabase();
     try {
@@ -402,6 +404,50 @@ program
         else {
             console.log(`Lesson recorded: ${result.name}`);
         }
+    });
+});
+program
+    .command('task')
+    .description('Show or update where the work stands on this project')
+    .option('--project <name>', 'Project name (default: the current directory’s project)')
+    .option('--goal <text>', 'What this work is FOR — the outcome being aimed at')
+    .option('--next <text>', 'The next concrete step')
+    .option('--blocked <text>', 'What is standing in the way (pass "" to clear it once resolved)')
+    .option('--done <text>', 'What was just finished')
+    .option('--json', 'Output as JSON')
+    .action(async (opts) => {
+    await withDatabase(() => {
+        const patch = {};
+        for (const field of TASK_STATE_FIELDS) {
+            if (opts[field] !== undefined)
+                patch[field] = opts[field];
+        }
+        if (Object.keys(patch).length === 0) {
+            const { project, state } = getTaskState(opts.project);
+            if (opts.json) {
+                console.log(JSON.stringify({ project, state }));
+                return;
+            }
+            const lines = taskStateLines(state, project);
+            if (lines.length === 0) {
+                console.log(`Nothing recorded for "${project}" yet.\n` +
+                    `Set it with:  memesh task --goal "…" --next "…"`);
+                return;
+            }
+            console.log(lines.join('\n'));
+            return;
+        }
+        const result = setTaskState({ project: opts.project, patch, sourceHost: 'cli' });
+        if (opts.json) {
+            console.log(JSON.stringify(result));
+            return;
+        }
+        if (result.changed.length === 0) {
+            console.log(`No change — "${result.project}" already said exactly that.`);
+            return;
+        }
+        console.log(`Updated ${result.changed.join(', ')} for "${result.project}".`);
+        console.log(taskStateLines(result.state, result.project).join('\n'));
     });
 });
 const configCmd = program.command('config').description('Manage configuration');

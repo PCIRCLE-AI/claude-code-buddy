@@ -4,6 +4,54 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **`task_state` — one "where we are" per project, and the 8th MCP tool (A1b).**
+  A new `task-state` memory records four fields for a project: the goal, the
+  next step, what is blocked, and what was just finished. It is read back at
+  the top of the next session's injected context, before any ranked memory,
+  because it is the one line in that block someone stated on purpose —
+  everything else is ranked, and ranking cannot know what you meant to do
+  next.
+
+  Writable three ways: the new `task_state` MCP tool (read with no arguments,
+  write with any field — so Gemini and Codex reach it over MCP too), the new
+  `memesh task` CLI command, and nothing else.
+
+  **Nothing derives these fields automatically, and that is deliberate.** The
+  plan had the Stop hook write them. A transcript mechanically yields "edited
+  6 files, hit 2 errors"; turning that into "the goal is X" is a machine
+  guessing intent, and the guess would reach the next session as fact with
+  nothing to contradict it. `done` is no better — a session that edited files
+  is not a session that finished anything. So all four are stated explicitly
+  or not at all.
+
+  Details that matter in use:
+
+  - An empty string **clears** a field (`memesh task --blocked ""`), which is
+    how a resolved blocker gets removed. Omitting a field leaves it alone —
+    a different thing, and the two are told apart by which keys arrived, not
+    by whether they are truthy.
+  - Re-stating a value writes nothing: no new observation, and `updated_at`
+    stays put, so the age shown in the injected heading ("2 days ago") stays
+    an honest answer to how old the thinking is rather than how recently
+    something was echoed. This is also what bounds the row's growth — it
+    grows per change, not per session.
+  - Current state lives in `metadata.task_state`; the observation trail is
+    its history. Reading the current goal out of the trail would mean
+    guessing which line is newest.
+  - `TaskStateSchema` is `.strict()`, alone among the tool schemas: on this
+    tool an unknown key changes the operation. "No recognised field" is what
+    marks a call as a read, so a model writing `blocker:` for `blocked:`
+    would have the key stripped, fall through to the read branch, and get a
+    success-shaped response back with nothing recorded. (The other schemas
+    strip unknown keys too, but there a stripped key still leaves the
+    intended write intact.)
+
+  Break-tested 6/6 KILLED: the ranked-pool exclusion, the injection itself,
+  the strict schema, the no-op guard, empty-string-as-clear, and the age in
+  the heading.
+
 ### Changed
 
 - **Session-start injection is a work topology, not a provenance dump (A1).**
