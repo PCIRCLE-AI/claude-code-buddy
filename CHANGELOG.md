@@ -27,6 +27,14 @@ All notable changes to MeMesh are documented here.
   tested against live OpenClaw instance. Package name:
   `@pcircle/openclaw-memory-memesh`.
 
+- **Hermes Agent reference plugin implementation.** The live-tested Python
+  `MemoryProvider` from the dgx94 deployment now ships in-repo at
+  `extensions/hermes-memesh/` (`__init__.py` + `plugin.yaml` + `README.md`).
+  Includes the session-boundary hooks (`on_pre_compress`, `on_session_end`,
+  `on_session_switch`) with the synchronous-archive fix for the
+  `provider.shutdown()` race (Pitfall 5 in the platform guide). Copy into a
+  Hermes checkout as `plugins/memory/memesh/`.
+
 ## [4.6.0] - 2026-08-15
 
 ### Changed

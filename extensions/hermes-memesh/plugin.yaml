@@ -1,0 +1,10 @@
+name: memesh
+version: 1.0.0
+description: "Local-first knowledge-graph memory via MeMesh (memesh serve, localhost:3737)."
+hooks:
+  - queue_prefetch
+  - prefetch
+  - sync_turn
+  - on_pre_compress
+  - on_session_end
+  - on_session_switch
