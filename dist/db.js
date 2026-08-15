@@ -75,6 +75,7 @@ function migrateToCurrentSchema(db, resolvedPath) {
     runAutoDecay(db);
     backfillSignalScores(db);
     backfillTitles(db);
+    backfillAcceptedProposalTrust(db);
     ensureDreamProposalsTable(db);
     ensureConflictJudgedPairsTable(db);
     ensureLlmTelemetryTable(db);
@@ -332,6 +333,53 @@ function deriveHeuristicTitle(type, observations) {
     const best = pool.slice(0, 3).reduce((a, b) => (b.length > a.length ? b : a), pool[0]);
     const firstLine = best?.split('\n')[0].trim();
     return firstLine ? truncateTitle(firstLine) : null;
+}
+function backfillAcceptedProposalTrust(db) {
+    const MARKER = 'accepted_proposal_trust_v1';
+    if (db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(MARKER))
+        return;
+    const stamp = (cleared, skipped) => db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)')
+        .run(MARKER, JSON.stringify({ at: new Date().toISOString(), cleared, skipped }));
+    let rows;
+    try {
+        rows = db.prepare(`SELECT id, metadata FROM entities
+        WHERE metadata IS NOT NULL
+          AND json_valid(metadata)
+          AND json_extract(metadata, '$.trust') = 'untrusted'
+          AND json_extract(metadata, '$.proposal_id') IS NOT NULL`).all();
+    }
+    catch {
+        return;
+    }
+    if (rows.length === 0) {
+        stamp(0, 0);
+        return;
+    }
+    const updateStmt = db.prepare('UPDATE entities SET metadata = ? WHERE id = ?');
+    const tx = db.transaction(() => {
+        let cleared = 0;
+        let skipped = 0;
+        for (const row of rows) {
+            let metadata;
+            try {
+                const parsed = JSON.parse(row.metadata ?? '{}');
+                if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+                    skipped++;
+                    continue;
+                }
+                metadata = parsed;
+            }
+            catch {
+                skipped++;
+                continue;
+            }
+            delete metadata.trust;
+            updateStmt.run(JSON.stringify(metadata), row.id);
+            cleared++;
+        }
+        stamp(cleared, skipped);
+    });
+    tx();
 }
 function backfillTitles(db) {
     const MARKER = 'title_backfill_v1';

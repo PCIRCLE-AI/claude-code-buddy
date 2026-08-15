@@ -168,6 +168,10 @@ function migrateToCurrentSchema(db: MemeshDatabase, resolvedPath: string): void 
   // marker + fill-only discipline as backfillSignalScores above.
   backfillTitles(db);
 
+  // A1: release the auto-injection block on memories a human already
+  // accepted via `dream accept`. Same marker + fill-only discipline.
+  backfillAcceptedProposalTrust(db);
+
   // Phase-2 of #39 (LLM cluster compactor): proposed digests live in
   // a staging table, written by the dreamer and reviewed by the user
   // before any source entities are archived. Mirrors Mem0's 4-op
@@ -826,6 +830,74 @@ function deriveHeuristicTitle(type: string, observations: string[]): string | nu
  * entry (archiveEntity removes it), and a contentless delete for text that
  * was never indexed is exactly the corruption this block exists to avoid.
  */
+/**
+ * Clear the auto-injection block on memories a human accepted.
+ *
+ * `dream accept` used to stamp `metadata.trust = 'untrusted'` on the entity it
+ * created, which `isTrustedForAutoContext` reads as "never inject this
+ * unprompted". Measured on a real graph, that inverted the injection channel:
+ * 74/74 raw commits were injectable while 29 facts, 11 lessons and 6 decisions
+ * — every one of them human-accepted — were not. The write path stopped
+ * setting the marker (see dreamer.ts); this releases the rows already carrying
+ * it.
+ *
+ * Scoped by `proposal_id`, which only the two `dream accept` paths write, so
+ * this can never touch an import or an auto-learned lesson — those mark
+ * themselves untrusted with no human in the loop and must stay blocked.
+ *
+ * Fill-only and marker-guarded, like the two backfills below it: re-running is
+ * a no-op, and an entity whose metadata will not parse is left exactly as it
+ * is rather than being rewritten from a guess.
+ */
+function backfillAcceptedProposalTrust(db: MemeshDatabase): void {
+  const MARKER = 'accepted_proposal_trust_v1';
+  if (db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(MARKER)) return;
+
+  const stamp = (cleared: number, skipped: number) =>
+    db.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)')
+      .run(MARKER, JSON.stringify({ at: new Date().toISOString(), cleared, skipped }));
+
+  // json_extract rather than a LIKE scan: the two markers are structural, and
+  // a substring match would also hit an observation that merely quotes them.
+  let rows: Array<{ id: number; metadata: string | null }>;
+  try {
+    rows = db.prepare(
+      `SELECT id, metadata FROM entities
+        WHERE metadata IS NOT NULL
+          AND json_valid(metadata)
+          AND json_extract(metadata, '$.trust') = 'untrusted'
+          AND json_extract(metadata, '$.proposal_id') IS NOT NULL`,
+    ).all() as Array<{ id: number; metadata: string | null }>;
+  } catch {
+    // A SQLite build without JSON1 cannot run the predicate. Leaving the
+    // marker unset means a later open on a JSON1-capable build still does the
+    // work — the honest outcome, versus stamping "done" over a pass that
+    // never ran.
+    return;
+  }
+
+  if (rows.length === 0) { stamp(0, 0); return; }
+
+  const updateStmt = db.prepare('UPDATE entities SET metadata = ? WHERE id = ?');
+  const tx = db.transaction(() => {
+    let cleared = 0;
+    let skipped = 0;
+    for (const row of rows) {
+      let metadata: Record<string, unknown>;
+      try {
+        const parsed = JSON.parse(row.metadata ?? '{}');
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) { skipped++; continue; }
+        metadata = parsed as Record<string, unknown>;
+      } catch { skipped++; continue; }
+      delete metadata.trust;
+      updateStmt.run(JSON.stringify(metadata), row.id);
+      cleared++;
+    }
+    stamp(cleared, skipped);
+  });
+  tx();
+}
+
 function backfillTitles(db: MemeshDatabase): void {
   const MARKER = 'title_backfill_v1';
   const done = db.prepare(

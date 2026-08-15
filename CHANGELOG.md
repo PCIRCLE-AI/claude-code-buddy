@@ -4,6 +4,32 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Memories you accepted were being withheld from the agent, while raw commit
+  records were not.** `dream accept` stamped `metadata.trust = 'untrusted'` on
+  the entity it created, and `isTrustedForAutoContext` reads that as "never
+  inject unprompted". Measured on a real graph before changing it: of the
+  active memories tagged to one project, **74/74 commit records were eligible
+  for auto-injection while 29 facts, 11 lessons and 6 decisions — every one
+  accepted by a human — were not.** The raw commit text that motivated the
+  marker reached the model either way; only the reviewed paraphrase of it was
+  blocked, so the gate protected nothing and inverted the channel.
+
+  Auto-injection eligibility now follows human acceptance. The write-side half
+  of the old marker is unchanged and now stated explicitly as `trustOverride`:
+  a re-applied digest still cannot lift its own confidence. Import
+  (`serializer.ts`) and auto-learned lessons (`lesson-engine.ts`) still mark
+  themselves untrusted — nobody reviews those before they land. A marker-guarded
+  backfill releases entities accepted before this change, scoped by
+  `metadata.proposal_id` so it cannot reach an import. The backfill runs on the
+  next core open (CLI, MCP server, `memesh serve`); the SessionStart hook opens
+  read-only and never migrates.
+
+  Effect on this repo's own graph: session-start injection went from
+  `5 recent memories · 1 active lesson` to `10 project + 5 recent memories ·
+  12 active lessons`. New instrument: `scripts/audit/measure-injection-tokens.mjs`.
+
 ### Removed
 
 - **README locales reduced to three.** English, 繁體中文 (`README.zh-TW.md`)

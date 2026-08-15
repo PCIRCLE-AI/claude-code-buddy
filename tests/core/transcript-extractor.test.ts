@@ -400,8 +400,14 @@ describe('transcript-extractor: staging + apply', () => {
     const newRow = db.prepare('SELECT metadata FROM entities WHERE name = ?').get(result.digestEntityName) as { metadata: string } | undefined;
     expect(newRow).toBeDefined();
     const newMeta = JSON.parse(newRow!.metadata);
-    expect(newMeta.trust).toBe('untrusted');
+    // The separation is the guard, not the trust marker: transcript text must
+    // land in its OWN row rather than inheriting an existing entity's identity
+    // and observations. (Auto-context eligibility now follows human
+    // acceptance — see tests/core/accepted-proposal-trust.test.ts — so the
+    // former `trust: 'untrusted'` assertion here would pin a policy this row
+    // no longer carries, while proving nothing about the merge.)
     expect(newMeta.source_kind).toBe('transcript');
+    expect(newMeta.proposal_id).toBe(proposalId);
   });
 
   it('dream show returns the FULL digest — all observations, not a 120-char preview (finding #1)', async () => {

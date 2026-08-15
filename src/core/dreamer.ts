@@ -1362,6 +1362,11 @@ function applyTranscriptProposal(
     const digestId = kg.createEntity(entityName, digest.type, {
       observations: digest.observations,
       tags,
+      // `trustOverride` (write-side) and `metadata.trust` (read-side) are two
+      // different policies that used to be set together. This keeps the
+      // write-side one: a dreamed re-assertion must never lift an entity's
+      // confidence. It deliberately does NOT set `metadata.trust`, which is
+      // what gates unprompted auto-injection — see applyProposal's note.
       trustOverride: 'untrusted',
       metadata: {
         source_kind: 'transcript',
@@ -1369,7 +1374,9 @@ function applyTranscriptProposal(
         proposal_id: row.id,
         cluster_key: row.cluster_key,
         project: row.project,
-        trust: 'untrusted',
+        // No `metadata.trust` marker — see the note on `trustOverride` above.
+        // This function only ever runs from `dream accept`; the proposal a
+        // human did NOT accept never becomes an entity at all.
         dreamed_at: new Date().toISOString(),
         kind: 'transcript_memory',
       },
@@ -1457,31 +1464,52 @@ export function applyProposal(
     const digestId = kg.createEntity(digest.name, digest.type, {
       observations: digest.observations,
       tags,
+      // The write-side half of the old `metadata.trust` marker, stated
+      // explicitly now that the metadata key is gone. `createEntity` reads
+      // `trustOverride ?? metadata.trust` for the confidence-bump gate, so
+      // dropping the key without this line would have let a re-applied digest
+      // lift its own confidence — caught by
+      // `tests/core/dreamer.test.ts > does not let the model lift a digest's
+      // confidence on re-apply`, which is why that test exists.
+      trustOverride: 'untrusted',
       metadata: {
         source_ids: sourceIds,
         ...(isPattern ? {} : { consolidation_depth: 1 }),
         proposal_id: row.id,
         cluster_key: row.cluster_key,
         project: row.project,
-        // LLM-generated text, paraphrased from episodic memories — commit
-        // messages and session transcripts, which carry whatever a dependency
-        // or a PR title printed. `createLesson` marks exactly this threat model
-        // `untrusted` and says why in its header; the dreamer is the same class
-        // and was the only generation path that never set the marker.
+        // NO `metadata.trust` marker here, deliberately — and this is a
+        // REVERSAL of the marker this block used to write. The reasoning it
+        // carried (LLM text paraphrased from commits/transcripts can carry
+        // whatever a dependency or PR title printed) is sound about the
+        // SOURCE, but it gated the wrong door, and the cost was measured on a
+        // real graph before changing it:
         //
-        // What it changes: `isTrustedForAutoContext` (scripts/hooks/_shared.js)
-        // DEFAULTS TO ALLOW for metadata with no `trust` key, so digests were
-        // eligible for session-start and pre-edit auto-injection — at
-        // signal_score 0.85/0.9, i.e. near the top of the list. They stay fully
-        // searchable by explicit `recall`; they just stop being pushed into
-        // context unprompted. The knowledge-graph confidence-bump gate reads the
-        // same marker (via `metadata.trust`) and will no longer lift confidence
-        // on a re-apply.
+        //   project:memesh, active entities, eligible for auto-injection
+        //     commit                74 / 74      ← raw, unreviewed
+        //     session-insight        9 /  9      ← raw, unreviewed
+        //     fact                   0 / 29      ← accepted by a human
+        //     lesson_learned         1 / 12      ← accepted by a human
+        //     decision               2 /  8      ← accepted by a human
         //
-        // This is a policy inconsistency, not a break-out: the auto-context
-        // fence collapses whitespace and cannot be closed from inside, so
-        // nothing here could ever have escaped its data block.
-        trust: 'untrusted',
+        // The raw commit messages that are the SOURCE of the risk were 100%
+        // injectable; the human-reviewed paraphrase of them was blocked. That
+        // protects nothing — the tainted text reached context either way, just
+        // in its unreviewed form. And this function only runs from `dream
+        // accept`: a proposal nobody accepted never becomes an entity, so the
+        // marker never separated reviewed from unreviewed content.
+        //
+        // Two policies were being set with one key. The write-side one is
+        // KEPT via `trustOverride` above (a dreamed re-assertion must not lift
+        // confidence). The read-side one — eligibility for unprompted
+        // injection — now follows human acceptance, which is the review the
+        // fence was standing in for. Import (`serializer.ts`) and auto-learned
+        // lessons (`lesson-engine.ts`) still mark themselves untrusted: no
+        // human sees those before they land.
+        //
+        // The fence itself was never the concern: it collapses whitespace and
+        // cannot be closed from inside — this block's own previous comment
+        // said so ("not a break-out").
         signal_score: isPattern ? 0.9 : 0.85,
         dreamed_at: new Date().toISOString(),
         kind: isPattern ? 'pattern_emergent' : 'compaction_digest',

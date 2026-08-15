@@ -686,7 +686,6 @@ function applyTranscriptProposal(db, row, kg) {
                 proposal_id: row.id,
                 cluster_key: row.cluster_key,
                 project: row.project,
-                trust: 'untrusted',
                 dreamed_at: new Date().toISOString(),
                 kind: 'transcript_memory',
             },
@@ -728,13 +727,13 @@ export function applyProposal(db, proposalId, kg) {
         const digestId = kg.createEntity(digest.name, digest.type, {
             observations: digest.observations,
             tags,
+            trustOverride: 'untrusted',
             metadata: {
                 source_ids: sourceIds,
                 ...(isPattern ? {} : { consolidation_depth: 1 }),
                 proposal_id: row.id,
                 cluster_key: row.cluster_key,
                 project: row.project,
-                trust: 'untrusted',
                 signal_score: isPattern ? 0.9 : 0.85,
                 dreamed_at: new Date().toISOString(),
                 kind: isPattern ? 'pattern_emergent' : 'compaction_digest',

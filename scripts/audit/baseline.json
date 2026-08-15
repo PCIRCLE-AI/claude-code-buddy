@@ -496,9 +496,9 @@
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04 (re-keyed 379->382->386->407: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 comparison-table figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 405->457 (the Recipes section added above; same statement — verified); re-keyed 2026-08-15 457→459 (merge main shifted lines +2; same statement — verified)"
     },
-    "C3 scripts/audit/measure-work-topology-baseline.mjs": {
+    "C3 scripts/audit/measure-injection-tokens.mjs": {
       "class": "NOT-A-GATE",
-      "reason": "M0 measurement tool a human runs to derive the work-topology baselines (work-layer share, hit false-negative rate, opening-exploration cost); read-only, gates nothing",
+      "reason": "manual measurement tool a human runs to compare session-start injection size before/after a change; spawns the hook against a throwaway HOME and gates nothing. Note: this file's header names measure-work-topology-baseline.mjs, and C3 counts any basename reference — which is why that script stopped appearing as a hit and its entry was pruned. If this cross-reference is ever removed, it becomes an untriaged hit again and needs its own NOT-A-GATE entry.",
       "triaged": "2026-08-16"
     }
   }

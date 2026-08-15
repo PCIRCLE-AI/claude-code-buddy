@@ -935,7 +935,7 @@ describe('dreamer', () => {
   // closed from inside. This is about what gets pushed into context unprompted.
   // -------------------------------------------------------------------------
 
-  it('marks an applied digest untrusted, so auto-context injection skips it', async () => {
+  it('makes an ACCEPTED digest auto-context eligible, without lifting its confidence', async () => {
     const { applyProposal } = await import('../../src/core/dreamer.js');
     const { isTrustedForAutoContext } = await import('../../scripts/hooks/_shared.js');
     const sourceIds = seedCommits(4);
@@ -951,21 +951,32 @@ describe('dreamer', () => {
     applyProposal(db, proposal.id, kg);
 
     const row = db.prepare('SELECT metadata FROM entities WHERE name = ?').get('wk-19-digest') as { metadata: string };
-    const metadata = JSON.parse(row.metadata);
-    expect(metadata.trust, 'the digest carries no provenance marker').toBe('untrusted');
 
-    // The consumer, not just the field. isTrustedForAutoContext defaults to
-    // ALLOW for metadata with no `trust` key, so asserting the field alone
-    // would not prove the hook actually skips it.
+    // `applyProposal` only ever runs from `dream accept`, so reaching this
+    // line means a human said yes. Blocking it from auto-context protected
+    // nothing while the raw commits it summarises stayed 100% injectable —
+    // measured on a real graph, 74/74 commits in versus 0/29 facts. The
+    // consumer is asserted, not the field: `isTrustedForAutoContext` is what
+    // session-start and pre-edit actually call.
     expect(
       isTrustedForAutoContext(row.metadata),
-      'session-start / pre-edit would still inject this digest'
-    ).toBe(false);
+      'a digest the user accepted is still being withheld from auto-context'
+    ).toBe(true);
+
+    // The other half of the same decision, and the reason this is one test:
+    // eligibility moved, the confidence policy did NOT. `createEntity` reads
+    // `trustOverride ?? metadata.trust`, so dropping the metadata key without
+    // passing the override would silently re-enable the bump this project
+    // spent three review rounds closing.
+    const proposalMeta = JSON.parse(row.metadata);
+    expect(proposalMeta.proposal_id, 'lost the marker that proves human acceptance').toBe(proposal.id);
   });
 
-  it('marks an applied pattern untrusted too', async () => {
+  it('makes an ACCEPTED pattern auto-context eligible too', async () => {
     // Patterns are staged by the Stop hook automatically and land at
-    // signal_score 0.9 — the highest in the codebase.
+    // signal_score 0.9 — the highest in the codebase. Staging is not
+    // acceptance: the proposal sits in `dream_proposals` until a human
+    // accepts, and only then does this entity exist at all.
     const { applyProposal } = await import('../../src/core/dreamer.js');
     const { isTrustedForAutoContext } = await import('../../scripts/hooks/_shared.js');
     const sourceIds = seedCommits(4);
@@ -981,12 +992,14 @@ describe('dreamer', () => {
     applyProposal(db, proposal.id, kg);
 
     const row = db.prepare('SELECT metadata FROM entities WHERE name = ?').get('pattern-thing') as { metadata: string };
-    expect(isTrustedForAutoContext(row.metadata)).toBe(false);
+    expect(isTrustedForAutoContext(row.metadata)).toBe(true);
   });
 
   it('does not let the model lift a digest\'s confidence on re-apply', async () => {
-    // The second consumer of the marker: knowledge-graph's confidence bump
-    // reads `metadata.trust` and treats a missing value as trusted.
+    // The write-side half of the policy, which auto-context eligibility
+    // moving did NOT change. knowledge-graph's confidence bump reads
+    // `trustOverride ?? metadata.trust` and treats a missing value as
+    // trusted, so `applyProposal` states the override explicitly.
     const { applyProposal } = await import('../../src/core/dreamer.js');
     // Eight sources, four per proposal. Both proposals used to share ONE set of
     // four — which is now refused outright, because the second would claim none
