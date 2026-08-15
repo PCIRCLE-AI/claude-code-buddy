@@ -153,6 +153,20 @@ export function exportOpenAITools(): object[] {
     {
       type: 'function',
       function: {
+        name: 'memesh_briefing',
+        description:
+          'The assembled work topology for a project: where the work was left off, decisions, lessons, knowledge, recent activity. Call once at the start of a session to load project context.',
+        parameters: {
+          type: 'object',
+          properties: {
+            project: { type: 'string', description: 'Project name. Omit for the current directory’s project.' },
+          },
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'memesh_user_patterns',
         description: 'Analyze user work patterns from existing memory. Returns work schedule, tool preferences, focus areas, workflow metrics, strengths, and learning areas.',
         parameters: {

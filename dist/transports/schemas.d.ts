@@ -102,6 +102,9 @@ export declare const TaskStateSchema: z.ZodObject<{
     blocked: z.ZodOptional<z.ZodString>;
     done: z.ZodOptional<z.ZodString>;
 }, z.core.$strict>;
+export declare const BriefingSchema: z.ZodObject<{
+    project: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>;
 export declare const UserPatternsSchema: z.ZodObject<{
     categories: z.ZodOptional<z.ZodArray<z.ZodEnum<{
         workSchedule: "workSchedule";

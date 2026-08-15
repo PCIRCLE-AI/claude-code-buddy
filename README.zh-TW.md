@@ -399,7 +399,7 @@ memesh config set embedder.model text-embedding-3-small
 
 ---
 
-## 全部 8 個記憶工具
+## 全部 9 個記憶工具
 
 | 工具 | 做什麼 |
 |------|--------|
@@ -410,6 +410,7 @@ memesh config set embedder.model text-embedding-3-small
 | `import` | 匯入記憶，包含合併策略（跳過 / 覆寫 / 追加） |
 | `learn` | 記錄來自錯誤的結構化教訓（錯誤、根本原因、修復、預防） |
 | `task_state` | 讀取或記下工作進度——目標、下一步、卡住的地方、剛完成的事 |
+| `briefing` | 組合好的工作拓撲——Claude Code 在 session 開始拿到的那個區塊，任何 MCP client 都拿得到 |
 | `user_patterns` | 分析你的工作模式——時間表、工具、優勢、學習領域 |
 
 ---

@@ -740,7 +740,7 @@ process.stdin.on('end', async () => {
       let lessonEntities = [];
       try {
         const lessonRows = db.prepare(`
-          SELECT DISTINCT e.id, e.name, e.type, e.metadata
+          SELECT DISTINCT e.id, e.name, e.type,${hasTitle ? ' e.title,' : ''} e.metadata
           FROM entities e
           JOIN tags t ON t.entity_id = e.id
           WHERE e.type = 'lesson_learned'

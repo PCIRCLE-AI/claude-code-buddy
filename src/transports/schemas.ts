@@ -130,6 +130,10 @@ export const TaskStateSchema = z.object({
 // `additionalProperties: false` this tool already publishes.
 }).strict();
 
+export const BriefingSchema = z.object({
+  project: z.string().min(1).max(200).optional(),
+});
+
 export const UserPatternsSchema = z.object({
   categories: z.array(z.enum(['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
     .describe('Specific categories to return. Omit for all.'),

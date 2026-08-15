@@ -390,7 +390,7 @@ Der Embedder wird **unabhängig vom Chat-LLM** konfiguriert — `llm.provider` z
 
 ---
 
-## Alle 8 Memory-Tools
+## Alle 9 Memory-Tools
 
 | Tool | Was es tut |
 |------|-------------|
@@ -401,6 +401,7 @@ Der Embedder wird **unabhängig vom Chat-LLM** konfiguriert — `llm.provider` z
 | `import` | Memories mit Merge-Strategien importieren (Skip / Overwrite / Append) |
 | `learn` | Strukturierte Lektionen aus Fehlern erfassen (Fehler, Grundursache, Behebung, Prävention) |
 | `task_state` | Arbeitsstand lesen oder festhalten — Ziel, nächster Schritt, Blocker, gerade Erledigtes |
+| `briefing` | Die zusammengesetzte Arbeits-Topologie — derselbe Block, den Claude Code beim Session-Start erhält, für jeden MCP-Client |
 | `user_patterns` | Arbeitsmuster analysieren — Zeitplan, Tools, Stärken, Lernbereiche |
 
 ---

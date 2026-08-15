@@ -12,6 +12,7 @@ import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-langu
 import { getDbPath, redactSecrets, redactUserPaths } from '../../core/paths.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 import { NAMESPACES } from '../../core/types.js';
+import { assembleBriefing } from '../../core/briefing.js';
 import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import { TASK_STATE_FIELDS, taskStateLines, type TaskStateField } from '../../core/task-state.js';
 import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/types.js';
@@ -534,6 +535,34 @@ program
       } else {
         console.log(`Lesson recorded: ${result.name}`);
       }
+    });
+  });
+
+// --- briefing ---
+// The shell-reachable half of A1c. Claude Code gets this block pushed by the
+// session-start hook; an MCP client gets it from the `briefing` tool; and an
+// agent that has only a shell — the OpenClaw/Hermes integration pattern —
+// gets it here. Same assembly, same fence, one owner (core/briefing.ts).
+program
+  .command('briefing')
+  .description('The assembled work topology for a project — task state, decisions, lessons, knowledge, recent activity')
+  .option('--project <name>', 'Project name (default: the current directory’s project)')
+  .option('--json', 'Output as JSON')
+  .action(async (opts) => {
+    await withDatabase(() => {
+      const result = assembleBriefing(opts.project);
+      if (opts.json) {
+        console.log(JSON.stringify(result));
+        return;
+      }
+      if (!result.text) {
+        console.log(
+          `No memories for "${result.project}" yet.\n` +
+          `Capture happens automatically as you work; or set the task state:  memesh task --goal "…"`,
+        );
+        return;
+      }
+      console.log(result.text);
     });
   });
 

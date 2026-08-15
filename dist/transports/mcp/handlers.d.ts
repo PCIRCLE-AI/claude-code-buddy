@@ -215,6 +215,19 @@ export declare const TOOL_DEFINITIONS: readonly [{
         readonly additionalProperties: false;
     };
 }, {
+    readonly name: "briefing";
+    readonly description: "The work topology for a project, assembled and ready to use: where the work was left off (goal / next / blocked / done), decisions and direction, lessons not to repeat, what is known, and recent activity — the same block Claude Code receives at session start. Call once at the START of a session to load project context; use recall for specific questions after that. Content is wrapped as untrusted background data.";
+    readonly inputSchema: {
+        readonly type: "object";
+        readonly properties: {
+            readonly project: {
+                readonly type: "string";
+                readonly description: "Project name. Omit to use the current working directory’s project.";
+            };
+        };
+        readonly additionalProperties: false;
+    };
+}, {
     readonly name: "user_patterns";
     readonly description: "Analyze user work patterns from existing memory. Returns: work schedule (peak hours/days), tool preferences, focus areas, workflow metrics (session duration, commits/session), knowledge strengths, and learning areas. Use at session start for context about the user.";
     readonly inputSchema: {

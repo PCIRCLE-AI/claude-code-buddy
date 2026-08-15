@@ -58,13 +58,13 @@
     },
     {
       "path": "scripts/hooks/_generated/work-topology.js",
-      "sha256": "2011386c6b9a1c898a4198858e2d66d7cf2ae0cdcc6a54bdcf3aa800e43c68dd",
-      "bytes": 4426
+      "sha256": "0224046368b50f1aac46ebc0ef32b2907fa02d177ad0b8eb9d8b1e199784a0a3",
+      "bytes": 5484
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "436a64feeb678aaaab4b33ba13aa97fdc0863b2a3fac105a6429c2e7d1ddc5bc",
-      "bytes": 37714
+      "sha256": "11ed3c8f1aec80fe6ad672dc88dfb6943dc7519acb8ed3d665bbf88120302d74",
+      "bytes": 35167
     },
     {
       "path": "scripts/hooks/post-commit.js",
@@ -83,8 +83,8 @@
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "07ba3809b18c53574dc38b5e1588fea945c25213e81fa3c475dc215390ca64f2",
-      "bytes": 52438
+      "sha256": "9c9250471ffeeab9655dc982ff34989262e6ec70fbd99360a630c652b4907a5f",
+      "bytes": 52468
     },
     {
       "path": "scripts/hooks/session-summary.js",
@@ -103,8 +103,8 @@
     },
     {
       "path": "skills/memesh/SKILL.md",
-      "sha256": "06fa5dd6cf3bc7d4c0f5ba45a8cc2328d0580b199c2da8249aa5daca88729a82",
-      "bytes": 7629
+      "sha256": "ed37d315063755f3f569a2ed021346d0f7e77ccd66eb1b45cbaf35a028ce035d",
+      "bytes": 7736
     }
   ]
 }
