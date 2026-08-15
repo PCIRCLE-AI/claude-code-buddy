@@ -34,7 +34,7 @@ export const RecallSchema = z.object({
 export const ForgetSchema = z.object({
     name: nameField,
     observation: z.string().max(10000).optional(),
-});
+}).strict();
 export const ExportSchema = z.object({
     tag: z.string().max(255).optional(),
     namespace: z.enum(NAMESPACES).optional(),

@@ -53,10 +53,21 @@ export const RecallSchema = z.object({
 // initially read the empty-DB `[]` answer as a silent failure; it is the
 // list mode listing an empty database.
 
+// `.strict()` because on THIS tool a stripped key is destructive. Zod drops
+// unknown properties by default, and `forget` branches on whether
+// `observation` is present: absent means "archive the whole entity". So
+// `{name, observations: "one fact"}` — the plural, which is exactly the word
+// `remember` uses for the same concept — loses the key, falls through to the
+// archive branch, and answers `{"archived": true}`. The caller asked to remove
+// one fact and was told it succeeded; the entity is gone from recall and from
+// session-start injection with both observations still in it.
+//
+// Rejecting is the fix, not aliasing the plural: an alias would invent API
+// surface, while the rejection tells the caller the exact key it got wrong.
 export const ForgetSchema = z.object({
   name: nameField,
   observation: z.string().max(10000).optional(),
-});
+}).strict();
 
 export const ExportSchema = z.object({
   tag: z.string().max(255).optional(),

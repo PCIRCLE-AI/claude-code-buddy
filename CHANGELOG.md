@@ -52,6 +52,35 @@ All notable changes to MeMesh are documented here.
   the strict schema, the no-op guard, empty-string-as-clear, and the age in
   the heading.
 
+- **Platform integration guides for Hermes Agent and OpenClaw.** Two native
+  memory-plugin integrations now documented: Hermes Agent (NousResearch,
+  Python `MemoryProvider` ABC) and OpenClaw (TypeScript memory-capability
+  plugin). Both integrate at the same tier as their respective framework's
+  built-in memory backends — not HTTP bridges. Hermes guide includes four
+  real pitfalls from a live dgx94 deployment; OpenClaw guide documents the
+  confirmed contract from the LanceDB reference plugin. Both added to README's
+  native-integration section and the platform comparison table in
+  `docs/platforms/README.md`. GitHub topics updated to include `hermes-agent`
+  and `native-integration`.
+
+- **OpenClaw TypeScript plugin implementation.** Complete native
+  memory-capability plugin at `extensions/memory-memesh/` (478 lines): three
+  tools (`memory_recall`, `memory_store`, `memory_forget`), auto-recall hook
+  on `before_prompt_build`, TypeBox config schema, timeout/cooldown handling,
+  prompt injection defense. Maps MeMesh's HTTP API (`/v1/recall`,
+  `/v1/remember`, `/v1/forget`) onto OpenClaw's plugin contract. Based on
+  `@openclaw/memory-lancedb` reference (711 lines). Status: built, NOT yet
+  tested against live OpenClaw instance. Package name:
+  `@pcircle/openclaw-memory-memesh`.
+
+- **Hermes Agent reference plugin implementation.** The live-tested Python
+  `MemoryProvider` from the dgx94 deployment now ships in-repo at
+  `extensions/hermes-memesh/` (`__init__.py` + `plugin.yaml` + `README.md`).
+  Includes the session-boundary hooks (`on_pre_compress`, `on_session_end`,
+  `on_session_switch`) with the synchronous-archive fix for the
+  `provider.shutdown()` race (Pitfall 5 in the platform guide). Copy into a
+  Hermes checkout as `plugins/memory/memesh/`.
+
 ### Changed
 
 - **Session-start injection is a work topology, not a provenance dump (A1).**
@@ -125,6 +154,32 @@ All notable changes to MeMesh are documented here.
   `5 recent memories · 1 active lesson` to `10 project + 5 recent memories ·
   12 active lessons`. New instrument: `scripts/audit/measure-injection-tokens.mjs`.
 
+- **`forget` archived the whole memory when the caller mistyped one key.**
+  `remember` names the field `observations`; `forget` names it `observation`.
+  Zod strips unknown keys by default, and `forget` branches on whether
+  `observation` is *present* — absent means "archive the entire entity". So
+  `forget({name, observations: "one fact"})`, using the plural that the
+  sibling tool uses for the same concept, lost the key, fell through to the
+  archive branch, and returned `{"archived": true}`.
+
+  Measured before the fix: the entity's status became `archived` with both
+  observations still in it, and it dropped out of recall and out of
+  session-start injection. The caller asked to remove one fact and was told
+  it had succeeded.
+
+  `ForgetSchema` is now `.strict()`, so the mistyped key is rejected and
+  named. Rejecting rather than accepting the plural as an alias: an alias
+  would invent API surface, while the rejection tells the caller exactly
+  which key was wrong. Reached through both the MCP tool and `POST /v1/forget`
+  (the HTTP route shares the schema); the CLI was never affected, because
+  commander rejects unknown flags already.
+
+  The other tool schemas still strip unknown keys. That is a real gap —
+  `remember` with `titel:` silently drops the title — but it is not
+  destructive anywhere else, since a stripped key there still leaves the
+  intended write intact. Making them all strict is a behaviour change with
+  compatibility risk and is deliberately not bundled here.
+
 ### Removed
 
 - **README locales reduced to three.** English, 繁體中文 (`README.zh-TW.md`)
@@ -140,37 +195,6 @@ All notable changes to MeMesh are documented here.
   dashboard — every dashboard change was potentially a three-place edit, and
   the HTTP server never used it. `memesh serve` is the dashboard;
   `view-live.ts` remains as its no-build fallback.
-
-### Added
-
-- **Platform integration guides for Hermes Agent and OpenClaw.** Two native
-  memory-plugin integrations now documented: Hermes Agent (NousResearch,
-  Python `MemoryProvider` ABC) and OpenClaw (TypeScript memory-capability
-  plugin). Both integrate at the same tier as their respective framework's
-  built-in memory backends — not HTTP bridges. Hermes guide includes four
-  real pitfalls from a live dgx94 deployment; OpenClaw guide documents the
-  confirmed contract from the LanceDB reference plugin. Both added to README's
-  native-integration section and the platform comparison table in
-  `docs/platforms/README.md`. GitHub topics updated to include `hermes-agent`
-  and `native-integration`.
-
-- **OpenClaw TypeScript plugin implementation.** Complete native
-  memory-capability plugin at `extensions/memory-memesh/` (478 lines): three
-  tools (`memory_recall`, `memory_store`, `memory_forget`), auto-recall hook
-  on `before_prompt_build`, TypeBox config schema, timeout/cooldown handling,
-  prompt injection defense. Maps MeMesh's HTTP API (`/v1/recall`,
-  `/v1/remember`, `/v1/forget`) onto OpenClaw's plugin contract. Based on
-  `@openclaw/memory-lancedb` reference (711 lines). Status: built, NOT yet
-  tested against live OpenClaw instance. Package name:
-  `@pcircle/openclaw-memory-memesh`.
-
-- **Hermes Agent reference plugin implementation.** The live-tested Python
-  `MemoryProvider` from the dgx94 deployment now ships in-repo at
-  `extensions/hermes-memesh/` (`__init__.py` + `plugin.yaml` + `README.md`).
-  Includes the session-boundary hooks (`on_pre_compress`, `on_session_end`,
-  `on_session_switch`) with the synchronous-archive fix for the
-  `provider.shutdown()` race (Pitfall 5 in the platform guide). Copy into a
-  Hermes checkout as `plugins/memory/memesh/`.
 
 ## [4.6.0] - 2026-08-15
 
