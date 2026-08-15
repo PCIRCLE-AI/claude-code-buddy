@@ -394,14 +394,20 @@ Data lifecycle: `active` → `archived` (never deleted). Archived entities can b
 
 ## Ecosystem Compatibility
 
-MeMesh works with any MCP-compatible client:
+MeMesh supports three integration tiers:
 
-| Client | Integration Method |
-|--------|-------------------|
-| Claude Code | Plugin (native, via `.claude-plugin/plugin.json` + hooks) |
-| Claude Managed Agents | MCP connector (beta, via session config) |
-| Claude Desktop | MCP server config |
-| Custom apps | Direct stdio MCP connection |
+| Tier | Client | Integration Method |
+|------|--------|--------------------|
+| **Native plugin** | Claude Code | Plugin (`.claude-plugin/plugin.json` + 7 lifecycle hooks) |
+| | Hermes Agent | Native `MemoryProvider` plugin (Python ABC, convention-based discovery) |
+| | OpenClaw | Native memory-capability plugin (TypeScript, `api.registerMemoryCapability()`) |
+| **MCP server** | Claude Managed Agents | MCP connector (beta, via session config) |
+| | Claude Desktop | MCP server config |
+| | Codex CLI / Gemini CLI | MCP server (`memesh-mcp` in client config) |
+| | Custom apps | Direct stdio MCP connection |
+| **HTTP API** | Custom apps/scripts | HTTP REST API (`memesh serve`, 32 endpoints) |
+
+See [docs/platforms/](../platforms/) for platform-specific integration guides.
 
 ### Anthropic API Feature Alignment
 

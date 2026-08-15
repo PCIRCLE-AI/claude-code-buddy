@@ -2,6 +2,21 @@
 
 All notable changes to MeMesh are documented here.
 
+## [Unreleased]
+
+### Added
+
+- **Platform integration guides for Hermes Agent and OpenClaw.** Two native
+  memory-plugin integrations now documented: Hermes Agent (NousResearch,
+  Python `MemoryProvider` ABC) and OpenClaw (TypeScript memory-capability
+  plugin). Both integrate at the same tier as their respective framework's
+  built-in memory backends — not HTTP bridges. Hermes guide includes four
+  real pitfalls from a live dgx94 deployment; OpenClaw guide documents the
+  confirmed contract from the LanceDB reference plugin (not yet built/tested
+  live). Both added to README's native-integration section and the platform
+  comparison table in `docs/platforms/README.md`. GitHub topics updated to
+  include `hermes-agent` and `native-integration`.
+
 ## [4.6.0] - 2026-08-15
 
 ### Changed
