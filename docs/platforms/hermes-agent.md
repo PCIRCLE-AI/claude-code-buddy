@@ -108,6 +108,26 @@ positional arg skips the picker) — this writes `memory.provider: memesh` to
    MeMesh provider was on or off, i.e. MeMesh's prefetch overhead was not
    the source of the earlier apparent hang at all.
 
+5. **`on_session_end()` / `on_pre_compress()` need to be synchronous, not
+   backgrounded like `sync_turn()`.** These two hooks exist specifically to
+   solve the real production complaint that motivated writing them: on
+   Telegram, once context size triggers compression/reset, Hermes "doesn't
+   remember previous conversation/work content" — anything not captured by
+   an individual `sync_turn()` call is otherwise lost at that boundary. The
+   first implementation copied `sync_turn()`'s fire-a-background-thread
+   pattern and **silently failed every single time** with `[Errno 9] Bad
+   file descriptor`: `on_session_end()` fires immediately before
+   `MemoryManager` calls `provider.shutdown()` (which closes the shared
+   `httpx.Client`) — confirmed back-to-back in `agent/memory_manager.py`,
+   ~1ms apart in `~/.hermes/logs/agent.log`. A detached thread reliably
+   loses that race. **Fix**: run the archive write synchronously inside
+   `on_session_end()`/`on_pre_compress()` — unlike `sync_turn()` (fires every
+   turn, must not add latency), these fire once per session/compression
+   boundary, so blocking briefly is both safe and required for correctness.
+   Verified afterward with a real session — including one killed by an
+   external `timeout` mid-run, confirming the safety-net exit path still
+   archives correctly — zero further `Bad file descriptor` errors.
+
 ## Recommended platform-table entry
 
 | Client | Best Mode | Setup | Guide |
