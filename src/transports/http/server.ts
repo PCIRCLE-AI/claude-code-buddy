@@ -372,31 +372,26 @@ app.get('/v1/health', (_req, res) => {
 // includes one. Shared with the CLI's `memesh feedback` egress —
 // redactSecrets lives in core/paths.ts, the module that owns redaction.
 
-app.get('/v1/doctor', async (_req, res) => {
-  try {
-    const { runDoctor } = await import('../../core/doctor.js');
-    const result = await runDoctor({
-      packageRoot,
-      packageVersion,
-    });
-    // Two redactions, in order, before anything leaves the server.
-    //
-    // `redactSecrets` catches credential shapes (sk-*, ghp_*, AKIA*, Bearer).
-    // `redactUserPaths` catches the account name, which no credential pattern
-    // matches: doctor names the database, the config file and the PATH entry,
-    // and on a normal install all three begin with the home directory. The
-    // dashboard's feedback widget builds a PUBLIC GitHub issue body out of
-    // this route's output, so an unredacted path here is published verbatim —
-    // the CLI half of that leak was closed first, and this is the other half.
-    // Redacting server-side rather than in the widget covers every consumer of
-    // the route at once, and the browser cannot do it: it does not know the
-    // server's HOME.
-    const safe = JSON.parse(redactUserPaths(redactSecrets(JSON.stringify(result))));
-    res.json({ success: true, data: safe });
-  } catch (err) {
-    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
-  }
-});
+app.get('/v1/doctor', (_req, res) => handleGet(res, async () => {
+  const { runDoctor } = await import('../../core/doctor.js');
+  const result = await runDoctor({
+    packageRoot,
+    packageVersion,
+  });
+  // Two redactions, in order, before anything leaves the server.
+  //
+  // `redactSecrets` catches credential shapes (sk-*, ghp_*, AKIA*, Bearer).
+  // `redactUserPaths` catches the account name, which no credential pattern
+  // matches: doctor names the database, the config file and the PATH entry,
+  // and on a normal install all three begin with the home directory. The
+  // dashboard's feedback widget builds a PUBLIC GitHub issue body out of
+  // this route's output, so an unredacted path here is published verbatim —
+  // the CLI half of that leak was closed first, and this is the other half.
+  // Redacting server-side rather than in the widget covers every consumer of
+  // the route at once, and the browser cannot do it: it does not know the
+  // server's HOME.
+  return JSON.parse(redactUserPaths(redactSecrets(JSON.stringify(result))));
+}));
 
 // DX: every POST endpoint used to repeat a 10-line safeParse + 400
 // error mapping + try/catch + 200/400 block. handlePost factors that
@@ -421,19 +416,87 @@ function requireJsonBody(req: Request, res: Response): boolean {
   return false;
 }
 
+/**
+ * A handler-thrown error that already knows its HTTP mapping. Both envelope
+ * owners (handleGet / handlePost) translate it verbatim, so a route whose
+ * failure semantics differ from the default (404 not-found, a domain 400
+ * with its own errorCode) states that INSIDE its handler instead of
+ * re-implementing the whole envelope — which is how the validation-error
+ * text forked into four formats and `/v1/entities` ended up JSON-dumping
+ * raw Zod internals at clients.
+ */
+class HttpError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: ErrorCode,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+function sendError(res: Response, err: unknown, fallbackStatus: number, fallbackCode: ErrorCode): void {
+  if (err instanceof HttpError) {
+    res.status(err.status).json({ success: false, errorCode: err.code, error: err.message });
+    return;
+  }
+  res.status(fallbackStatus).json({
+    success: false,
+    errorCode: fallbackCode,
+    error: err instanceof Error ? err.message : String(err),
+  });
+}
+
+/** The one rendering of a Zod failure — `path: message` joined by '; '.
+ *  Every validation error on the HTTP surface goes through here. */
+function zodErrorText(error: z.ZodError): string {
+  return error.issues.map(i => (i.path.length ? `${i.path.join('.')}: ${i.message}` : i.message)).join('; ');
+}
+
+/** Validate query params. On failure answers 400 `validation.bad-param`
+ *  (same text rule as bodies) and returns null — the route returns. */
+function parseQuery<T>(schema: z.ZodType<T>, req: Request, res: Response): T | null {
+  const parsed = schema.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, errorCode: 'validation.bad-param' satisfies ErrorCode, error: zodErrorText(parsed.error) });
+    return null;
+  }
+  return parsed.data;
+}
+
+/** The `:id` route-param guard — used to be pasted at three sites. */
+function requireIdParam(req: Request, res: Response): number | null {
+  const id = parseInt(String(req.params.id), 10);
+  if (!Number.isInteger(id) || id < 1) {
+    res.status(400).json({ success: false, errorCode: 'validation.bad-param' satisfies ErrorCode, error: 'invalid id' });
+    return null;
+  }
+  return id;
+}
+
 function handlePost<T>(
   schema: z.ZodType<T>,
   req: Request,
   res: Response,
   handler: (data: T) => unknown | Promise<unknown>,
+  opts?: {
+    /** Route accepts an absent body (all-defaults schema): `{}` is parsed
+     *  instead of answering 400 for the missing Content-Type. */
+    allowEmptyBody?: boolean;
+    /** HTTP mapping for a non-HttpError throw. Defaults to the POST
+     *  convention 400 `operation.failed`; probe-style routes whose failures
+     *  are genuinely server-side pass 500 `server.internal`. */
+    errorStatus?: number;
+    errorCode?: ErrorCode;
+  },
 ): void {
-  if (!requireJsonBody(req, res)) return;
-  const parsed = schema.safeParse(req.body);
+  if (!opts?.allowEmptyBody && !requireJsonBody(req, res)) return;
+  const parsed = schema.safeParse(req.body ?? (opts?.allowEmptyBody ? {} : undefined));
   if (!parsed.success) {
     res.status(400).json({
       success: false,
       errorCode: 'validation.bad-body' satisfies ErrorCode,
-      error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
+      error: zodErrorText(parsed.error),
     });
     return;
   }
@@ -451,7 +514,7 @@ function handlePost<T>(
   Promise.resolve()
     .then(() => handler(parsed.data))
     .then((data) => res.json({ success: true, data }))
-    .catch((err: unknown) => res.status(400).json({ success: false, errorCode: 'operation.failed' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) }));
+    .catch((err: unknown) => sendError(res, err, opts?.errorStatus ?? 400, opts?.errorCode ?? ('operation.failed' satisfies ErrorCode)));
 }
 
 // DX: read-only GET endpoints that just compute-a-value-and-return used to
@@ -459,35 +522,27 @@ function handlePost<T>(
 // block. handleGet factors that into one place so the server-error response
 // shape (500 + `success:false`) can never drift between endpoints. Promise
 // support unifies the sync (graph/stats) and async (dynamic-import) handlers.
+// (Also used by the two POST /v1/demo routes — they take no body, and their
+// response contract is exactly this shape.)
 function handleGet<T>(res: Response, produce: () => T | Promise<T>): void {
   Promise.resolve()
     .then(produce)
     .then((data) => res.json({ success: true, data }))
-    .catch((err: unknown) => res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) }));
+    .catch((err: unknown) => sendError(res, err, 500, 'server.internal' satisfies ErrorCode));
 }
 
 // --- Remember ---
 app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, (data) => remember({ ...data, sourceHost: 'http' })));
 
 // --- Recall ---
-app.post('/v1/recall', async (req, res) => {
-  if (!requireJsonBody(req, res)) return;
-  const parsed = RecallBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ success: false, errorCode: 'validation.bad-body' satisfies ErrorCode, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
-    return;
-  }
-  try {
-    // recallWithConflicts: FTS5 + sqlite-vec recall + conflict annotation,
-    // owned by core so the transports can't drift on the wrapping rule.
-    const { entities, conflicts } = await recallWithConflicts(parsed.data);
-    // Always return object envelope {entities, conflicts?} to match API_REFERENCE.md
-    // and MCP transport's documented guarantee. Fixes issue #159.
-    res.json({ success: true, data: conflicts.length > 0 ? { entities, conflicts } : { entities } });
-  } catch (err) {
-    res.status(400).json({ success: false, errorCode: 'operation.failed' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
-  }
-});
+app.post('/v1/recall', (req, res) => handlePost(RecallBody, req, res, async (data) => {
+  // recallWithConflicts: FTS5 + sqlite-vec recall + conflict annotation,
+  // owned by core so the transports can't drift on the wrapping rule.
+  const { entities, conflicts } = await recallWithConflicts(data);
+  // Always return object envelope {entities, conflicts?} to match API_REFERENCE.md
+  // and MCP transport's documented guarantee. Fixes issue #159.
+  return conflicts.length > 0 ? { entities, conflicts } : { entities };
+}));
 
 // --- Forget / Consolidate / Export / Import / Learn / Verify ---
 // All 6 follow the same shape; handlePost above does the heavy lifting.
@@ -597,17 +652,13 @@ function preserveFallbackApiKeys(incoming: IncomingFallback[], stored: LLMConfig
   });
 }
 
-app.get('/v1/config', (_req, res) => {
-  try {
-    const config = readConfig();
-    const caps = detectCapabilities(config);
-    // detectCapabilities returns the llm config with the raw key, so mask both
-    // the config and the capabilities view before returning them.
-    res.json({ success: true, data: { config: maskLlmSecrets(config), capabilities: maskLlmSecrets(caps) } });
-  } catch (err) {
-    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
-  }
-});
+app.get('/v1/config', (_req, res) => handleGet(res, () => {
+  const config = readConfig();
+  const caps = detectCapabilities(config);
+  // detectCapabilities returns the llm config with the raw key, so mask both
+  // the config and the capabilities view before returning them.
+  return { config: maskLlmSecrets(config), capabilities: maskLlmSecrets(caps) };
+}));
 
 const ConfigBody = z.object({
   // F17: `llm: null` removes the provider entirely (Core Mode). Used by
@@ -664,47 +715,37 @@ const ConfigBody = z.object({
   setupCompleted: z.boolean().optional(),
 }).strip();
 
-app.post('/v1/config', async (req, res) => {
-  if (!requireJsonBody(req, res)) return;
-  const parsed = ConfigBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ success: false, errorCode: 'validation.bad-body' satisfies ErrorCode, error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ') });
-    return;
-  }
-  try {
-    // NOTE: the read-modify-write across `before`/`updateConfig` is non-atomic.
-    // Acceptable for the single-user MeMesh dashboard; revisit if the HTTP API
-    // ever serves multi-tenant config writes.
-    const before = readConfig();
-    // Backstop the PRIMARY llm key the same way as the fallbacks: a posted-back
-    // mask means "keep the stored key", never "set the key to '***'". Refill
-    // from the prior config when the provider matches; otherwise strip the
-    // placeholder so the literal mask is never persisted as a real credential.
-    if (parsed.data.llm && parsed.data.llm.apiKey === API_KEY_MASK) {
-      if (before.llm && before.llm.provider === parsed.data.llm.provider && before.llm.apiKey) {
-        parsed.data.llm.apiKey = before.llm.apiKey;
-      } else {
-        delete parsed.data.llm.apiKey;
-      }
+app.post('/v1/config', (req, res) => handlePost(ConfigBody, req, res, (data) => {
+  // NOTE: the read-modify-write across `before`/`updateConfig` is non-atomic.
+  // Acceptable for the single-user MeMesh dashboard; revisit if the HTTP API
+  // ever serves multi-tenant config writes.
+  const before = readConfig();
+  // Backstop the PRIMARY llm key the same way as the fallbacks: a posted-back
+  // mask means "keep the stored key", never "set the key to '***'". Refill
+  // from the prior config when the provider matches; otherwise strip the
+  // placeholder so the literal mask is never persisted as a real credential.
+  if (data.llm && data.llm.apiKey === API_KEY_MASK) {
+    if (before.llm && before.llm.provider === data.llm.provider && before.llm.apiKey) {
+      data.llm.apiKey = before.llm.apiKey;
+    } else {
+      delete data.llm.apiKey;
     }
-    // Refill any fallback apiKey the SPA omitted because the user left a
-    // stored (masked) key untouched — otherwise the wholesale llmFallbacks
-    // write would drop it. See preserveFallbackApiKeys.
-    if (parsed.data.llmFallbacks) {
-      parsed.data.llmFallbacks = preserveFallbackApiKeys(parsed.data.llmFallbacks, before.llmFallbacks);
-    }
-    const updated = updateConfig(parsed.data);
-    // The embedder holds no cached provider/pipeline state: every embedText()
-    // reads config fresh, so a config change takes effect on the next call
-    // with no reset needed and no "restart server to apply" footgun.
-    // Mask every apiKey (primary + fallback chain) before returning — same
-    // helper the GET handler uses, so the response can't leak a saved
-    // llmFallbacks[].apiKey in plaintext.
-    res.json({ success: true, data: maskLlmSecrets(updated) });
-  } catch (err) {
-    res.status(400).json({ success: false, errorCode: 'operation.failed' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }
-});
+  // Refill any fallback apiKey the SPA omitted because the user left a
+  // stored (masked) key untouched — otherwise the wholesale llmFallbacks
+  // write would drop it. See preserveFallbackApiKeys.
+  if (data.llmFallbacks) {
+    data.llmFallbacks = preserveFallbackApiKeys(data.llmFallbacks, before.llmFallbacks);
+  }
+  const updated = updateConfig(data);
+  // The embedder holds no cached provider/pipeline state: every embedText()
+  // reads config fresh, so a config change takes effect on the next call
+  // with no reset needed and no "restart server to apply" footgun.
+  // Mask every apiKey (primary + fallback chain) before returning — same
+  // helper the GET handler uses, so the response can't leak a saved
+  // llmFallbacks[].apiKey in plaintext.
+  return maskLlmSecrets(updated);
+}));
 
 // --- Test LLM credentials + fetch live model list ---
 //
@@ -725,55 +766,38 @@ const ConfigTestBody = z.object({
   fallbackIndex: z.number().int().nonnegative().optional(),
 });
 
-app.post('/v1/config/test', async (req, res) => {
-  if (!requireJsonBody(req, res)) return;
-  const parsed = ConfigTestBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({
-      success: false,
-      errorCode: 'validation.bad-body' satisfies ErrorCode,
-      error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
-    });
-    return;
-  }
-  try {
-    const { probeProvider } = await import('../../core/llm-validator.js');
-    const { provider, host, fallbackIndex } = parsed.data;
-    let { apiKey } = parsed.data;
-    // If the caller omits apiKey, fall back to the one already saved — lets the
-    // dashboard offer "Test with current settings" without forcing the user to
-    // re-enter a key they previously saved. A `fallbackIndex` means the caller
-    // is testing a specific fallback entry, so resolve THAT entry's stored key
-    // (provider-guarded); otherwise resolve the primary provider's key. The two
-    // are mutually exclusive on purpose — a fallback test must never silently
-    // borrow the primary's credential.
-    if (!apiKey && (provider === 'anthropic' || provider === 'openai')) {
-      const existing = readConfig();
-      if (typeof fallbackIndex === 'number') {
-        const fb = existing.llmFallbacks?.[fallbackIndex];
-        if (fb && fb.provider === provider && fb.apiKey) apiKey = fb.apiKey;
-      } else if (existing.llm?.provider === provider && existing.llm.apiKey) {
-        apiKey = existing.llm.apiKey;
-      }
+app.post('/v1/config/test', (req, res) => handlePost(ConfigTestBody, req, res, async (data) => {
+  const { probeProvider } = await import('../../core/llm-validator.js');
+  const { provider, host, fallbackIndex } = data;
+  let { apiKey } = data;
+  // If the caller omits apiKey, fall back to the one already saved — lets the
+  // dashboard offer "Test with current settings" without forcing the user to
+  // re-enter a key they previously saved. A `fallbackIndex` means the caller
+  // is testing a specific fallback entry, so resolve THAT entry's stored key
+  // (provider-guarded); otherwise resolve the primary provider's key. The two
+  // are mutually exclusive on purpose — a fallback test must never silently
+  // borrow the primary's credential.
+  if (!apiKey && (provider === 'anthropic' || provider === 'openai')) {
+    const existing = readConfig();
+    if (typeof fallbackIndex === 'number') {
+      const fb = existing.llmFallbacks?.[fallbackIndex];
+      if (fb && fb.provider === provider && fb.apiKey) apiKey = fb.apiKey;
+    } else if (existing.llm?.provider === provider && existing.llm.apiKey) {
+      apiKey = existing.llm.apiKey;
     }
-    const result = await probeProvider(provider, apiKey, host);
-    res.json({ success: true, data: result });
-  } catch (err) {
-    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
   }
-});
+  return probeProvider(provider, apiKey, host);
+  // Probe failures are server-side (network, module load), not caller errors.
+}, { errorStatus: 500, errorCode: 'server.internal' }));
 
 // --- Update status ---
-app.get('/v1/update-status', async (req, res) => {
-  try {
+app.get('/v1/update-status', (req, res) => handleGet(res, async () => {
     const cached = req.query.cached === '1' || req.query.cached === 'true';
     const install = getCurrentInstallChannel({ packageRoot });
     const installSupport = getInstallChannelSupport(install);
     const update = await getUpdateCheck(packageVersion, { preferFresh: !cached });
 
-    res.json({
-      success: true,
-      data: {
+    return {
         currentVersion: packageVersion,
         latestVersion: update?.latestVersion ?? null,
         checkedAt: update?.checkedAt ?? null,
@@ -809,12 +833,8 @@ app.get('/v1/update-status', async (req, res) => {
         // appears healthy in the UI.
         currentVersionDeprecated: update?.currentVersionDeprecated ?? false,
         deprecationMessage: update?.deprecationMessage ?? null,
-      },
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
-  }
-});
+    };
+}));
 
 // --- Graph / Stats / Analytics ---
 // All three pull pure read-only aggregations from the DB. Their query
@@ -836,24 +856,17 @@ app.get('/v1/analytics/pm', (req, res) => {
 // onboarding banner POSTs to these endpoints so the user gets a
 // one-click tour without leaving the GUI to run `memesh demo` from a
 // terminal. The CLI command remains for headless / CI flows.
-app.post('/v1/demo/seed', async (_req, res) => {
-  try {
-    const { seedDemo } = await import('../../core/demo.js');
-    const data = seedDemo(getDatabase());
-    res.json({ success: true, data });
-  } catch (err) {
-    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
-  }
-});
-app.post('/v1/demo/reset', async (_req, res) => {
-  try {
-    const { seedDemo } = await import('../../core/demo.js');
-    const data = seedDemo(getDatabase(), { reset: true });
-    res.json({ success: true, data });
-  } catch (err) {
-    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
-  }
-});
+// handleGet on a POST route is deliberate: these take no body, and their
+// response contract (success envelope, 500 server.internal on failure) is
+// exactly the compute-and-return shape handleGet owns.
+app.post('/v1/demo/seed', (_req, res) => handleGet(res, async () => {
+  const { seedDemo } = await import('../../core/demo.js');
+  return seedDemo(getDatabase());
+}));
+app.post('/v1/demo/reset', (_req, res) => handleGet(res, async () => {
+  const { seedDemo } = await import('../../core/demo.js');
+  return seedDemo(getDatabase(), { reset: true });
+}));
 
 // --- Projects ---
 //
@@ -874,19 +887,13 @@ app.get('/v1/patterns', (_req, res) => handleGet(res, () => computePatterns(getD
 const TelemetryQuerySchema = z.object({
   window: z.coerce.number().int().min(1).max(365).default(30),
 });
-app.get('/v1/telemetry', async (req, res) => {
-  try {
-    const parsed = TelemetryQuerySchema.safeParse(req.query);
-    if (!parsed.success) {
-      res.status(400).json({ success: false, errorCode: 'validation.bad-param' satisfies ErrorCode, error: parsed.error.issues.map(i => i.message).join('; ') });
-      return;
-    }
+app.get('/v1/telemetry', (req, res) => {
+  const query = parseQuery(TelemetryQuerySchema, req, res);
+  if (!query) return;
+  handleGet(res, async () => {
     const { summariseTelemetry } = await import('../../core/llm-telemetry.js');
-    const summaries = summariseTelemetry(parsed.data.window);
-    res.json({ success: true, data: { window_days: parsed.data.window, summaries } });
-  } catch (err) {
-    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
-  }
+    return { window_days: query.window, summaries: summariseTelemetry(query.window) };
+  });
 });
 
 // --- Dream proposals (Insights tab) ---
@@ -902,23 +909,17 @@ const DreamProposalsQuerySchema = z.object({
   status: z.enum(['pending', 'applied', 'rejected', 'all']).default('pending'),
 });
 app.get('/v1/dream/proposals', (req, res) => {
-  try {
-    const parsed = DreamProposalsQuerySchema.safeParse(req.query);
-    if (!parsed.success) {
-      res.status(400).json({ success: false, errorCode: 'validation.bad-param' satisfies ErrorCode, error: parsed.error.issues.map(i => i.message).join('; ') });
-      return;
-    }
-    const status = parsed.data.status;
+  const query = parseQuery(DreamProposalsQuerySchema, req, res);
+  if (!query) return;
+  handleGet(res, async () => {
+    const { listProposals } = await import('../../core/dreamer.js');
+    const db = getDatabase();
     // listProposals takes a single status; for 'all' we run the
     // pending+applied+rejected union.
-    import('../../core/dreamer.js').then(({ listProposals }) => {
-      const db = getDatabase();
-      const rows = status === 'all'
-        ? [...listProposals(db, 'pending'), ...listProposals(db, 'applied'), ...listProposals(db, 'rejected')]
-        : listProposals(db, status);
-      res.json({ success: true, data: rows });
-    }).catch((err: unknown) => res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) }));
-  } catch (err) { res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) }); }
+    return query.status === 'all'
+      ? [...listProposals(db, 'pending'), ...listProposals(db, 'applied'), ...listProposals(db, 'rejected')]
+      : listProposals(db, query.status);
+  });
 });
 
 // Full proposed_digest content (observations, tags, source_ids) for the
@@ -935,27 +936,21 @@ app.get('/v1/dream/proposals', (req, res) => {
 // No additional projection is needed — adding/removing fields on the
 // digest blob automatically flows through here.
 app.get('/v1/dream/proposals/:id', (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isInteger(id) || id < 1) {
-    res.status(400).json({ success: false, errorCode: 'validation.bad-param' satisfies ErrorCode, error: 'invalid id' });
-    return;
-  }
-  try {
+  const id = requireIdParam(req, res);
+  if (id === null) return;
+  handleGet(res, () => {
     const row = getDatabase().prepare(
       'SELECT id, project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version, status, reason, created_at, reviewed_at FROM dream_proposals WHERE id = ?'
     ).get(id) as { proposed_digest: string; source_ids: string; [k: string]: unknown } | undefined;
     if (!row) {
-      res.status(404).json({ success: false, errorCode: 'resource.not-found' satisfies ErrorCode, error: `proposal #${id} not found` });
-      return;
+      throw new HttpError(404, 'resource.not-found', `proposal #${id} not found`);
     }
     let digest: unknown = null;
     let sourceIds: number[] = [];
     try { digest = JSON.parse(row.proposed_digest); } catch { /* corrupt — surface as null */ }
     try { sourceIds = JSON.parse(row.source_ids); } catch { /* leave empty */ }
-    res.json({ success: true, data: { ...row, proposed_digest: digest, source_ids: sourceIds } });
-  } catch (err) {
-    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
-  }
+    return { ...row, proposed_digest: digest, source_ids: sourceIds };
+  });
 });
 
 // --- Run a dream pass on demand ---
@@ -975,114 +970,85 @@ const DreamRunBody = z.object({
   maxLlmCalls: z.number().int().min(1).max(20).default(5),
   validate: z.boolean().default(false),
 });
-app.post('/v1/dream/run', async (req, res) => {
-  const parsed = DreamRunBody.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    res.status(400).json({
-      success: false,
-      errorCode: 'validation.bad-body' satisfies ErrorCode,
-      error: parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; '),
-    });
-    return;
+app.post('/v1/dream/run', (req, res) => handlePost(DreamRunBody, req, res, async (data) => {
+  const { runDreamer } = await import('../../core/dreamer.js');
+  // `detectCapabilities()`, not the raw config, so this endpoint agrees with
+  // the CLI and doctor about whether an LLM exists. `readConfig().llm` is
+  // truthy for `{ apiKey: "sk-…" }` with no provider — a configuration that
+  // configures nothing — so the documented `llm.not-configured` 400 never
+  // fired for it and the endpoint answered 200 with every cluster skipped.
+  // It also missed the reverse: an env-only ANTHROPIC_API_KEY 400'd here
+  // while `memesh status` reported Smart Mode on.
+  const caps = detectCapabilities();
+  const llm = caps.llm;
+  if (!llm) {
+    throw new HttpError(400, 'llm.not-configured',
+      'No LLM configured — dream run requires Smart Mode. Configure a provider in Settings.');
   }
-  try {
-    const { runDreamer } = await import('../../core/dreamer.js');
-    // `detectCapabilities()`, not the raw config, so this endpoint agrees with
-    // the CLI and doctor about whether an LLM exists. `readConfig().llm` is
-    // truthy for `{ apiKey: "sk-…" }` with no provider — a configuration that
-    // configures nothing — so the documented `llm.not-configured` 400 never
-    // fired for it and the endpoint answered 200 with every cluster skipped.
-    // It also missed the reverse: an env-only ANTHROPIC_API_KEY 400'd here
-    // while `memesh status` reported Smart Mode on.
-    const caps = detectCapabilities();
-    const llm = caps.llm;
-    if (!llm) {
-      res.status(400).json({
-        success: false,
-        errorCode: 'llm.not-configured' satisfies ErrorCode,
-        error: 'No LLM configured — dream run requires Smart Mode. Configure a provider in Settings.',
-      });
-      return;
-    }
-    const result = await runDreamer(getDatabase(), llm, {
-      project: parsed.data.project,
-      windowDays: parsed.data.windowDays,
-      maxLlmCalls: parsed.data.maxLlmCalls,
-      fallbacks: caps.llmFallbacks,
-      validateBeforeStage: parsed.data.validate,
-    });
-    res.json({ success: true, data: result });
-  } catch (err) {
-    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
-  }
-});
+  return runDreamer(getDatabase(), llm, {
+    project: data.project,
+    windowDays: data.windowDays,
+    maxLlmCalls: data.maxLlmCalls,
+    fallbacks: caps.llmFallbacks,
+    validateBeforeStage: data.validate,
+  });
+  // allowEmptyBody: every field has a default; a body-less POST is the
+  // documented "run with defaults". Non-HttpError throws are server-side.
+}, { allowEmptyBody: true, errorStatus: 500, errorCode: 'server.internal' }));
 
-app.post('/v1/dream/proposals/:id/accept', async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isInteger(id) || id < 1) {
-    res.status(400).json({ success: false, errorCode: 'validation.bad-param' satisfies ErrorCode, error: 'invalid id' });
-    return;
-  }
-  // Captured from the try-block import so the catch can use it WITHOUT a
-  // second `await import(...)`: an import in the catch is itself awaitable
-  // failure, and a transient module-load error there would answer 500
-  // "Cannot find module" in place of the real outcome. If the import below
-  // fails, this stays undefined, `err` IS the import error, and the catch
-  // falls through to 500 — which is then the truth.
-  let NothingToClaim: (typeof import('../../core/dreamer.js'))['NothingToClaimError'] | undefined;
-  try {
+app.post('/v1/dream/proposals/:id/accept', (req, res) => {
+  const id = requireIdParam(req, res);
+  if (id === null) return;
+  handleGet(res, async () => {
+    // The import happens FIRST, alone: if the module fails to load, the
+    // throw below is the import error and falls through to 500 — which is
+    // then the truth. Domain outcomes are re-thrown as HttpError so the
+    // envelope owner maps them without a hand-rolled catch chain.
     const dreamer = await import('../../core/dreamer.js');
-    NothingToClaim = dreamer.NothingToClaimError;
-    const kg = new KnowledgeGraph(getDatabase());
-    const result = dreamer.applyProposal(getDatabase(), id, kg);
-    res.json({ success: true, data: result });
-  } catch (err) {
-    // NothingToClaimError is an outcome, not a failure: the server resolved
-    // the proposal (to rejected) and is reporting that accepting it is
-    // impossible. As a 500 it read as "the server broke": generic client
-    // retry logic retried the 5xx, and the retry — the proposal now being
-    // rejected — got a 404, two contradictory errors for one click. 400
-    // `operation.failed` is the code already defined as "valid request, but
-    // the operation itself rejected it".
-    const msg = err instanceof Error ? err.message : String(err);
-    if (NothingToClaim && err instanceof NothingToClaim) {
-      res.status(400).json({ success: false, errorCode: 'operation.failed' satisfies ErrorCode, error: msg });
-    } else if (/not found or not pending/.test(msg)) {
-      // applyProposal throws "proposal #X not found or not pending" for
-      // invalid IDs — surface as 404 rather than a 500.
-      res.status(404).json({ success: false, errorCode: 'resource.not-found' satisfies ErrorCode, error: msg });
-    } else {
-      res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: msg });
+    try {
+      const kg = new KnowledgeGraph(getDatabase());
+      return dreamer.applyProposal(getDatabase(), id, kg);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // NothingToClaimError is an outcome, not a failure: the server resolved
+      // the proposal (to rejected) and is reporting that accepting it is
+      // impossible. As a 500 it read as "the server broke": generic client
+      // retry logic retried the 5xx, and the retry — the proposal now being
+      // rejected — got a 404, two contradictory errors for one click. 400
+      // `operation.failed` is the code already defined as "valid request, but
+      // the operation itself rejected it".
+      if (err instanceof dreamer.NothingToClaimError) {
+        throw new HttpError(400, 'operation.failed', msg);
+      }
+      if (/not found or not pending/.test(msg)) {
+        // applyProposal throws "proposal #X not found or not pending" for
+        // invalid IDs — surface as 404 rather than a 500.
+        throw new HttpError(404, 'resource.not-found', msg);
+      }
+      throw err;
     }
-  }
+  });
 });
 
 const RejectBodySchema = z.object({
   reason: z.string().max(500).optional(),
 });
-app.post('/v1/dream/proposals/:id/reject', async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isInteger(id) || id < 1) {
-    res.status(400).json({ success: false, errorCode: 'validation.bad-param' satisfies ErrorCode, error: 'invalid id' });
-    return;
-  }
-  const parsed = RejectBodySchema.safeParse(req.body ?? {});
-  if (!parsed.success) {
-    res.status(400).json({ success: false, errorCode: 'validation.bad-body' satisfies ErrorCode, error: parsed.error.issues.map(i => i.message).join('; ') });
-    return;
-  }
-  try {
+app.post('/v1/dream/proposals/:id/reject', (req, res) => {
+  const id = requireIdParam(req, res);
+  if (id === null) return;
+  handlePost(RejectBodySchema, req, res, async (data) => {
     const { rejectProposal } = await import('../../core/dreamer.js');
-    rejectProposal(getDatabase(), id, parsed.data.reason);
-    res.json({ success: true, data: { id, status: 'rejected' } });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/not found or not pending/.test(msg)) {
-      res.status(404).json({ success: false, errorCode: 'resource.not-found' satisfies ErrorCode, error: msg });
-    } else {
-      res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: msg });
+    try {
+      rejectProposal(getDatabase(), id, data.reason);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/not found or not pending/.test(msg)) {
+        throw new HttpError(404, 'resource.not-found', msg);
+      }
+      throw err;
     }
-  }
+    return { id, status: 'rejected' };
+  }, { allowEmptyBody: true, errorStatus: 500, errorCode: 'server.internal' });
 });
 
 const EntitiesQuerySchema = z.object({
@@ -1095,42 +1061,30 @@ const EntitiesQuerySchema = z.object({
 
 // --- List entities ---
 app.get('/v1/entities', (req, res) => {
-  try {
-    const parsed = EntitiesQuerySchema.safeParse(req.query);
-    if (!parsed.success) {
-      res.status(400).json({ success: false, errorCode: 'validation.bad-param' satisfies ErrorCode, error: `Invalid query: ${parsed.error.message}` });
-      return;
-    }
-    const { type: typeFilter, limit, status } = parsed.data;
+  // parseQuery renders the failure as `path: message` like every other
+  // validation error — the old inline copy dumped `parsed.error.message`
+  // (raw Zod internals JSON) at clients.
+  const query = parseQuery(EntitiesQuerySchema, req, res);
+  if (!query) return;
+  handleGet(res, () => {
+    const { type: typeFilter, limit, status } = query;
     const includeArchived = status === 'all';
-
-    const db = getDatabase();
-    const kg = new KnowledgeGraph(db);
-
-    const entities = typeFilter
+    const kg = new KnowledgeGraph(getDatabase());
+    return typeFilter
       ? kg.listByType(typeFilter, limit, includeArchived)
       : kg.listRecent(limit, includeArchived);
-    res.json({ success: true, data: entities });
-  } catch (err) {
-    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
-  }
+  });
 });
 
 // --- Get single entity ---
-app.get('/v1/entities/:name', (req, res) => {
-  try {
-    const db = getDatabase();
-    const kg = new KnowledgeGraph(db);
-    const entity = kg.getEntity(req.params.name);
-    if (!entity) {
-      res.status(404).json({ success: false, errorCode: 'resource.not-found' satisfies ErrorCode, error: `Entity "${req.params.name}" not found` });
-      return;
-    }
-    res.json({ success: true, data: entity });
-  } catch (err) {
-    res.status(500).json({ success: false, errorCode: 'server.internal' satisfies ErrorCode, error: err instanceof Error ? err.message : String(err) });
+app.get('/v1/entities/:name', (req, res) => handleGet(res, () => {
+  const kg = new KnowledgeGraph(getDatabase());
+  const entity = kg.getEntity(String(req.params.name));
+  if (!entity) {
+    throw new HttpError(404, 'resource.not-found', `Entity "${String(req.params.name)}" not found`);
   }
-});
+  return entity;
+}));
 
 // --- Start server ---
 const HOST = process.env.MEMESH_HTTP_HOST || '127.0.0.1';
