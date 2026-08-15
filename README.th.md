@@ -126,6 +126,18 @@ memesh doctor                # ยืนยันว่า "Hooks wired into Cla
 
 Hooks เหล่านี้อยู่ร่วมกับ custom hooks ที่คุณมีใน `~/.claude/hooks/` — `install-hooks` เขียนแบบเพิ่ม ไม่เขียนทับของคุณ หากต้องการลบ: `memesh uninstall-hooks`
 
+### การผสานรวมแบบเนทีฟ: Hermes Agent
+
+**Hermes Agent** (NousResearch) มีระบบปลั๊กอิน `MemoryProvider` ระดับแรก — MeMesh ผสานรวมในระดับเดียวกับ backend หน่วยความจำในตัวของ Hermes (honcho, mem0, hindsight) ไม่ใช่สะพาน HTTP ต่างจากโหมด MCP ที่คุณเรียกเครื่องมือด้วยตนเอง ระบบ provider ของ Hermes จะรัน `recall`/`remember` โดยอัตโนมัติทุกรอบ
+
+การผสานรวม map hooks `prefetch()` และ `sync_turn()` ของ Hermes โดยตรงไปยัง HTTP API ของ MeMesh คู่มือฉบับสมบูรณ์พร้อมโครงสร้างโค้ด provider การกำหนดค่า และสี่กับดักจากการใช้งานจริง: **[docs/platforms/hermes-agent.md](docs/platforms/hermes-agent.md)**
+
+### การผสานรวมแบบเนทีฟ: OpenClaw
+
+**OpenClaw** มีระบบปลั๊กอิน memory-capability ระดับแรก — MeMesh ผสานรวมในระดับเดียวกับ backend ในตัวของ OpenClaw (LanceDB) ไม่ใช่สะพาน HTTP ปลั๊กอินลงทะเบียนผ่าน `api.registerMemoryCapability()` และให้เครื่องมือ `memory_recall`/`memory_store`/`memory_forget` บวก recall อัตโนมัติบน hook `before_prompt_build`
+
+**ความแตกต่างหลักจาก Hermes**: การจับภาพอัตโนมัติของ OpenClaw ควบคุมโดยเกณฑ์ (สูงสุด 3 ความทรงจำ/รอบเมื่อถูกกระตุ้น) ไม่ใช่ทุกรอบ การผสานรวม map ไปยัง HTTP API ของ MeMesh (`/v1/recall`, `/v1/remember`, `/v1/forget`) สัญญาปลั๊กอิน TypeScript ฉบับสมบูรณ์ รูปแบบการกำหนดค่า และกับดัก: **[docs/platforms/openclaw.md](docs/platforms/openclaw.md)**
+
 ### ขั้นตอนที่ 2: เก็บการตัดสินใจ
 
 ```bash

@@ -124,6 +124,18 @@ memesh doctor                # xác nhận "Hooks wired into Claude Code" PASS
 
 Các hooks này cùng tồn tại với bất kỳ hook tùy chỉnh nào trong `~/.claude/hooks/` — `install-hooks` ghi theo kiểu thêm, không bao giờ ghi đè của bạn. Để gỡ: `memesh uninstall-hooks`.
 
+### Tích hợp gốc: Hermes Agent
+
+**Hermes Agent** (NousResearch) có hệ thống plugin `MemoryProvider` hạng nhất — MeMesh tích hợp ở cùng cấp với các backend bộ nhớ tích hợp sẵn của Hermes (honcho, mem0, hindsight), không phải cầu nối HTTP. Khác với chế độ MCP nơi bạn gọi công cụ thủ công, hệ thống provider của Hermes tự động chạy `recall`/`remember` mỗi lượt.
+
+Tích hợp ánh xạ các hooks `prefetch()` và `sync_turn()` của Hermes trực tiếp lên API HTTP của MeMesh. Hướng dẫn đầy đủ với cấu trúc mã provider, cấu hình và bốn cạm bẫy thực tế từ triển khai thực: **[docs/platforms/hermes-agent.md](docs/platforms/hermes-agent.md)**
+
+### Tích hợp gốc: OpenClaw
+
+**OpenClaw** có hệ thống plugin memory-capability hạng nhất — MeMesh tích hợp ở cùng cấp với các backend tích hợp sẵn của OpenClaw (LanceDB), không phải cầu nối HTTP. Plugin đăng ký qua `api.registerMemoryCapability()` và cung cấp công cụ `memory_recall`/`memory_store`/`memory_forget` cùng recall tự động trên hook `before_prompt_build`.
+
+**Khác biệt chính với Hermes**: tự động capture của OpenClaw được kiểm soát ngưỡng (tối đa 3 bộ nhớ/lượt khi kích hoạt), không phải mỗi lượt. Tích hợp ánh xạ lên API HTTP của MeMesh (`/v1/recall`, `/v1/remember`, `/v1/forget`). Hợp đồng plugin TypeScript đầy đủ, dạng cấu hình và cạm bẫy: **[docs/platforms/openclaw.md](docs/platforms/openclaw.md)**
+
 ### Bước 2: Lưu một quyết định
 
 ```bash

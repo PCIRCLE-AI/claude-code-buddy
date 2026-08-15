@@ -54,11 +54,18 @@ function extractLatestUserText(messages: any[]): string | null {
 }
 
 /**
- * Normalize recall query (strip media notes, truncate)
+ * Normalize recall query (strip media notes, truncate, sanitize)
  */
 function normalizeRecallQuery(text: string, maxChars: number = 1000): string {
   // Strip markdown image syntax: ![alt](url)
   let normalized = text.replace(/!\[.*?\]\(.*?\)/g, "");
+
+  // Strip potential injection patterns (defensive sanitization)
+  // Remove system-like prefixes
+  normalized = normalized.replace(/^(system|assistant|user)\s*:\s*/gi, "");
+
+  // Remove directive-like patterns at start of query
+  normalized = normalized.replace(/^(ignore|disregard|forget|new instructions?)[\s:]/gi, "");
 
   // Truncate to max chars
   if (normalized.length > maxChars) {
@@ -96,14 +103,21 @@ async function fetchWithTimeout(
 class MemeshClient {
   constructor(private baseUrl: string, private timeoutMs: number) {}
 
-  async recall(query: string, limit: number = 5): Promise<any[]> {
+  async recall(query: string, limit: number = 5, agentId?: string): Promise<any[]> {
     const url = `${this.baseUrl}/v1/recall`;
+    const body: any = { query, limit };
+
+    // Tenant isolation: filter by agent-specific tag if provided
+    if (agentId) {
+      body.tags = [`agent:${agentId}`];
+    }
+
     const response = await fetchWithTimeout(
       url,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, limit }),
+        body: JSON.stringify(body),
       },
       this.timeoutMs
     );
@@ -112,7 +126,7 @@ class MemeshClient {
       throw new Error(`MeMesh recall failed: HTTP ${response.status}`);
     }
 
-    const json = await response.json();
+    const json = (await response.json()) as { entities?: any[]; data?: any[] };
 
     // Handle both shapes: {entities: [...]} (documented) and {data: [...]} (issue #159, fixed)
     const entities = json.entities ?? json.data ?? [];
@@ -125,14 +139,23 @@ class MemeshClient {
     observations: string[];
     tags?: string[];
     namespace?: string;
+    agentId?: string;
   }): Promise<void> {
     const url = `${this.baseUrl}/v1/remember`;
+
+    // Tenant isolation: inject agent-specific tag
+    const body = { ...params };
+    if (params.agentId) {
+      body.tags = [...(params.tags || []), `agent:${params.agentId}`];
+      delete body.agentId; // Don't send agentId to API
+    }
+
     const response = await fetchWithTimeout(
       url,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(params),
+        body: JSON.stringify(body),
       },
       this.timeoutMs
     );
@@ -142,14 +165,21 @@ class MemeshClient {
     }
   }
 
-  async forget(query: string): Promise<void> {
+  async forget(query: string, agentId?: string): Promise<{ count: number }> {
     const url = `${this.baseUrl}/v1/forget`;
+    const body: any = { query };
+
+    // Tenant isolation: filter by agent-specific tag if provided
+    if (agentId) {
+      body.tags = [`agent:${agentId}`];
+    }
+
     const response = await fetchWithTimeout(
       url,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify(body),
       },
       this.timeoutMs
     );
@@ -157,6 +187,9 @@ class MemeshClient {
     if (!response.ok) {
       throw new Error(`MeMesh forget failed: HTTP ${response.status}`);
     }
+
+    const json = (await response.json()) as { count?: number };
+    return { count: json.count ?? 0 };
   }
 
   async health(): Promise<boolean> {
@@ -270,7 +303,7 @@ export default {
           }
 
           try {
-            const entities = await client.recall(query, limit);
+            const entities = await client.recall(query, limit, agentId);
 
             if (entities.length === 0) {
               return {
@@ -334,7 +367,6 @@ export default {
         async execute(_toolCallId: string, params: any) {
           const text = params.text as string;
           const category = (params.category as string) ?? "note";
-          const importance = (params.importance as number) ?? 5;
 
           // Prompt injection guard (critical safety check)
           if (looksLikePromptInjection(text)) {
@@ -349,10 +381,15 @@ export default {
           }
 
           try {
+            // Generate name from first 50 chars of text
+            const name = text.slice(0, 50).trim() + (text.length > 50 ? "..." : "");
+
             await client.remember({
+              name, // Required by API
               type: category,
               observations: [text],
-              namespace: "personal", // Default namespace
+              namespace: "personal",
+              agentId, // Tenant isolation via tag
             });
 
             return {
@@ -388,9 +425,26 @@ export default {
           const query = params.query as string;
 
           try {
-            await client.forget(query);
+            // Preview what will be deleted (safety check)
+            const preview = await client.recall(query, 20, agentId);
+            if (preview.length === 0) {
+              return {
+                content: [{ type: "text", text: "No memories found matching that query." }],
+                details: { count: 0 },
+              };
+            }
+
+            // Perform deletion with tenant isolation
+            const result = await client.forget(query, agentId);
+
             return {
-              content: [{ type: "text", text: "Memories deleted." }],
+              content: [
+                {
+                  type: "text",
+                  text: `Deleted ${result.count} memor${result.count === 1 ? "y" : "ies"}.`,
+                },
+              ],
+              details: { count: result.count },
             };
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -440,8 +494,8 @@ export default {
           return undefined;
         }
 
-        // Fetch memories
-        const entities = await client.recall(recallQuery, cfg.recallResultCap);
+        // Fetch memories with tenant isolation
+        const entities = await client.recall(recallQuery, cfg.recallResultCap, agentId);
 
         if (entities.length === 0) {
           return undefined;

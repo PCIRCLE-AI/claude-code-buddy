@@ -130,6 +130,18 @@ memesh doctor                # 確認「Hooks wired into Claude Code」過了
 
 這些 hooks 會跟你既有的 `~/.claude/hooks/` 自訂 hooks 共存 — `install-hooks` 用追加方式寫入，從不覆寫你的東西。要移除：`memesh uninstall-hooks`。
 
+### 原生整合：Hermes Agent
+
+**Hermes Agent** (NousResearch) 有一套第一方 `MemoryProvider` 外掛系統 — MeMesh 整合的層級與 Hermes 自己內建的記憶後端（honcho、mem0、hindsight）相同，不是 HTTP 橋接。與 MCP 模式手動呼叫工具不同，Hermes 的 provider 系統在每一輪自動執行 `recall`/`remember`。
+
+整合將 Hermes 的 `prefetch()` 和 `sync_turn()` hooks 直接對應到 MeMesh 的 HTTP API。完整指南包含 provider 程式結構、設定，以及來自真實部署的四個陷阱：**[docs/platforms/hermes-agent.md](docs/platforms/hermes-agent.md)**
+
+### 原生整合：OpenClaw
+
+**OpenClaw** 有一套第一方記憶能力外掛系統 — MeMesh 整合的層級與 OpenClaw 自己內建的後端（LanceDB）相同，不是 HTTP 橋接。外掛透過 `api.registerMemoryCapability()` 註冊，並提供 `memory_recall`/`memory_store`/`memory_forget` 工具，以及在 `before_prompt_build` hook 上自動 recall。
+
+**與 Hermes 的關鍵差異**：OpenClaw 的自動擷取有門檻控制（觸發時每輪最多 3 筆記憶），而非每一輪都擷取。整合對應到 MeMesh 的 HTTP API（`/v1/recall`、`/v1/remember`、`/v1/forget`）。完整 TypeScript 外掛合約、設定形狀與陷阱：**[docs/platforms/openclaw.md](docs/platforms/openclaw.md)**
+
 ### 第二步：保存一個決策
 
 > 下方的 bash 範例假設 `memesh` 已在 `PATH` 上（選項 B）。選項 A（純外掛）使用者有兩條等價路徑：在 Claude Code 對話中發問（`/memesh` skill 與 MCP 工具涵蓋同樣的流程），或將任何 shell 中的 `memesh` 替換為 `npx @pcircle/memesh` — 旗標相同，不需要全域安裝。

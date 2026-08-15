@@ -124,6 +124,18 @@ memesh doctor                # bestätigt, dass „Hooks wired into Claude Code"
 
 Die Hooks existieren neben Ihren bestehenden Custom-Hooks unter `~/.claude/hooks/` — `install-hooks` schreibt additiv und überschreibt nie Ihre Einträge. Zum Entfernen: `memesh uninstall-hooks`.
 
+### Native Integration: Hermes Agent
+
+**Hermes Agent** (NousResearch) verfügt über ein erstklassiges `MemoryProvider`-Pluginsystem — MeMesh integriert sich auf derselben Ebene wie Hermes' eigene eingebaute Memory-Backends (honcho, mem0, hindsight), nicht als HTTP-Bridge. Anders als im MCP-Modus, wo Sie Tools manuell aufrufen, führt Hermes' Provider-System `recall`/`remember` bei jedem Turn automatisch aus.
+
+Die Integration mappt Hermes' `prefetch()`- und `sync_turn()`-Hooks direkt auf MeMesh' HTTP-API. Vollständiger Leitfaden mit Provider-Codestruktur, Konfiguration und vier echten Fallstricken aus einem Live-Deployment: **[docs/platforms/hermes-agent.md](docs/platforms/hermes-agent.md)**
+
+### Native Integration: OpenClaw
+
+**OpenClaw** verfügt über ein erstklassiges Memory-Capability-Pluginsystem — MeMesh integriert sich auf derselben Ebene wie OpenClaw's eigene eingebaute Backends (LanceDB), nicht als HTTP-Bridge. Das Plugin registriert sich über `api.registerMemoryCapability()` und stellt `memory_recall`/`memory_store`/`memory_forget`-Tools sowie automatisches Recall beim `before_prompt_build`-Hook bereit.
+
+**Hauptunterschied zu Hermes**: OpenClaw's Auto-Capture ist schwellenwertgesteuert (max. 3 Memories/Turn bei Trigger), nicht bei jedem Turn. Die Integration mappt auf MeMesh' HTTP-API (`/v1/recall`, `/v1/remember`, `/v1/forget`). Vollständiger TypeScript-Plugin-Vertrag, Konfigurationsform und Fallstricke: **[docs/platforms/openclaw.md](docs/platforms/openclaw.md)**
+
 ### Schritt 2: Entscheidung speichern
 
 ```bash

@@ -130,6 +130,18 @@ memesh doctor                # "Hooks wired into Claude Code" が PASS になる
 
 これらのフックは既存の `~/.claude/hooks/` カスタムフックと共存します — `install-hooks` は追加方式で書き込み、既存のものを上書きしません。削除する場合: `memesh uninstall-hooks`。
 
+### ネイティブ統合：Hermes Agent
+
+**Hermes Agent** (NousResearch) には第一級の `MemoryProvider` プラグインシステムがあります — MeMesh は Hermes 自身の組み込みメモリバックエンド（honcho、mem0、hindsight）と同じレベルで統合され、HTTP ブリッジではありません。ツールを手動で呼び出す MCP モードとは異なり、Hermes の provider システムは各ターンで `recall`/`remember` を自動実行します。
+
+統合は Hermes の `prefetch()` および `sync_turn()` フックを MeMesh の HTTP API に直接マッピングします。provider コード構造、設定、実際のデプロイから得られた 4 つの落とし穴を含む完全ガイド：**[docs/platforms/hermes-agent.md](docs/platforms/hermes-agent.md)**
+
+### ネイティブ統合：OpenClaw
+
+**OpenClaw** には第一級のメモリ機能プラグインシステムがあります — MeMesh は OpenClaw 自身の組み込みバックエンド（LanceDB）と同じレベルで統合され、HTTP ブリッジではありません。プラグインは `api.registerMemoryCapability()` 経由で登録され、`memory_recall`/`memory_store`/`memory_forget` ツールと `before_prompt_build` フックでの自動 recall を提供します。
+
+**Hermes との主な違い**：OpenClaw の自動キャプチャは閾値制御されています（トリガー時は各ターン最大 3 メモリ）、すべてのターンではありません。統合は MeMesh の HTTP API（`/v1/recall`、`/v1/remember`、`/v1/forget`）にマッピングされます。完全な TypeScript プラグイン契約、設定形式、落とし穴：**[docs/platforms/openclaw.md](docs/platforms/openclaw.md)**
+
 ### ステップ 2: 決定を記録
 
 > 以下の bash 例は `memesh` が `PATH` 上にあること(オプション B)を前提にしています。オプション A(プラグイン専用)のユーザーには等価な 2 つのパスがあります: Claude Code 会話内で尋ねる(`/memesh` スキル + MCP ツールが同じフローをカバー)か、任意のシェルで `memesh` を `npx @pcircle/memesh` に置き換える — フラグは同じで、グローバルインストール不要です。

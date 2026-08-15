@@ -130,6 +130,18 @@ memesh doctor                # confirma que "Hooks wired into Claude Code" pasa
 
 Estos hooks coexisten con cualquier hook personalizado que ya tengas en `~/.claude/hooks/` — `install-hooks` escribe entradas aditivas y nunca sobrescribe los tuyos. Para eliminarlos después: `memesh uninstall-hooks`.
 
+### Integración nativa: Hermes Agent
+
+**Hermes Agent** (NousResearch) tiene un sistema de plugins `MemoryProvider` de primera clase — MeMesh se integra al mismo nivel que los backends de memoria integrados de Hermes (honcho, mem0, hindsight), no como un puente HTTP. A diferencia del modo MCP donde llamas herramientas manualmente, el sistema provider de Hermes ejecuta `recall`/`remember` automáticamente en cada turno.
+
+La integración mapea los hooks `prefetch()` y `sync_turn()` de Hermes directamente a la API HTTP de MeMesh. Guía completa con estructura de código provider, configuración y cuatro trampas reales de un despliegue en vivo: **[docs/platforms/hermes-agent.md](docs/platforms/hermes-agent.md)**
+
+### Integración nativa: OpenClaw
+
+**OpenClaw** tiene un sistema de plugins memory-capability de primera clase — MeMesh se integra al mismo nivel que los backends integrados de OpenClaw (LanceDB), no como un puente HTTP. El plugin se registra vía `api.registerMemoryCapability()` y expone herramientas `memory_recall`/`memory_store`/`memory_forget` más recall automático en el hook `before_prompt_build`.
+
+**Diferencia clave con Hermes**: la captura automática de OpenClaw está controlada por umbral (máx. 3 memorias/turno al activarse), no en cada turno. La integración mapea a la API HTTP de MeMesh (`/v1/recall`, `/v1/remember`, `/v1/forget`). Contrato de plugin TypeScript completo, forma de configuración y trampas: **[docs/platforms/openclaw.md](docs/platforms/openclaw.md)**
+
 ### Paso 2: Guarda una decisión
 
 > Los ejemplos bash a continuación asumen que `memesh` está en tu `PATH` (Opción B). Los usuarios de la Opción A (solo plugin) tienen dos rutas equivalentes: pregunta en la conversación de Claude Code (el skill `/memesh` + las herramientas MCP cubren los mismos flujos), o reemplaza `memesh` con `npx @pcircle/memesh` en cualquier shell — mismas flags, sin necesidad de instalación global.
