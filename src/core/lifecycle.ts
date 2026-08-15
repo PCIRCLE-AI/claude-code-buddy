@@ -1,5 +1,5 @@
 import type { MemeshDatabase } from '../storage/sqlite.js';
-import { insertFtsRow } from '../storage/fts-index.js';
+import { KnowledgeGraph } from '../knowledge-graph.js';
 
 const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const STALE_THRESHOLD_DAYS = 30;
@@ -14,8 +14,6 @@ const MIN_CONFIDENCE = 0.01;
  * Skips archived entities and entities already at the confidence floor.
  */
 export function runAutoDecay(db: MemeshDatabase): { decayed: number } {
-  ensureMetadataTable(db);
-
   // Check throttle: skip if last decay was less than 24h ago
   const lastDecay = db.prepare(
     "SELECT value FROM memesh_metadata WHERE key = 'last_decay_at'"
@@ -62,8 +60,6 @@ export function getDecayStatus(db: MemeshDatabase): {
   lastDecayAt: string | null;
   entitiesBelowThreshold: number;
 } {
-  ensureMetadataTable(db);
-
   const lastDecay = db.prepare(
     "SELECT value FROM memesh_metadata WHERE key = 'last_decay_at'"
   ).get() as { value: string } | undefined;
@@ -109,7 +105,7 @@ const NOISE_THRESHOLD = 20; // minimum noise entities per week to trigger compre
  * - Never touches: decisions, patterns, lessons, bug_fixes, or any intentional knowledge
  */
 export function compressWeeklyNoise(db: MemeshDatabase): { compressed: number; weeksProcessed: number } {
-  ensureMetadataTable(db);
+  const kg = new KnowledgeGraph(db);
 
   // Throttle: skip if last compression was less than 24h ago
   const lastRun = db.prepare(
@@ -171,35 +167,27 @@ export function compressWeeklyNoise(db: MemeshDatabase): { compressed: number; w
       .map(([t, c]) => `${c} ${t}`)
       .join(', ');
 
-    // Create or update weekly summary entity
+    // Create or update weekly summary entity — through KnowledgeGraph.
+    // A raw INSERT here used to be a fourth entity-write path (besides
+    // createEntity/captureEntity): its append branch skipped the
+    // contentless-FTS delete+insert dance (stale index tokens on every
+    // appended summary), and its create branch skipped the signal_score
+    // stamp. createEntity owns both invariants; `untrusted` opts out of
+    // the confidence bump — a machine summary adds no truth value.
     const summaryName = `weekly-summary-${week}`;
     const existing = db.prepare('SELECT id FROM entities WHERE name = ?').get(summaryName) as { id: number } | undefined;
 
     if (existing) {
-      // Append observation to existing summary
-      db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(
-        existing.id,
-        `+${entities.length} entities archived (${typeBreakdown})`
-      );
+      kg.createEntity(summaryName, 'weekly-summary', {
+        observations: [`+${entities.length} entities archived (${typeBreakdown})`],
+        trustOverride: 'untrusted',
+      });
     } else {
-      // Heuristic title, same as the auto-capture hooks generate — this is
-      // a fourth entity-creation path (besides createEntity/captureEntity)
-      // that predates the title column entirely, so without this it would
-      // stay permanently untitled and fall back to its own observation text
-      // for display, which is just as machine-flavoured as a raw name.
-      const title = `${week} — ${entities.length} entities compressed`;
+      // Heuristic title, same as the auto-capture hooks generate.
       // title_source marks this as machine-derived, so a future LLM titling
       // pass may replace it; an unmarked title is treated as human-provided.
-      db.prepare('INSERT INTO entities (name, type, title, metadata) VALUES (?, ?, ?, ?)').run(
-        summaryName, 'weekly-summary', title, JSON.stringify({ title_source: 'heuristic' })
-      );
-      const summaryRow = db.prepare('SELECT id FROM entities WHERE name = ?').get(summaryName) as { id: number };
+      const title = `${week} — ${entities.length} entities compressed`;
       const obsText = `${week}: ${count} auto-tracked entities compressed (${typeBreakdown})`;
-      db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(
-        summaryRow.id, obsText
-      );
-      // Index in FTS5 so summary is searchable.
-      insertFtsRow(db, summaryRow.id, summaryName, obsText, title);
       // Copy project tags from originals
       const entityIdPlaceholders = entities.map(() => '?').join(',');
       const projectTags = db.prepare(`
@@ -208,10 +196,13 @@ export function compressWeeklyNoise(db: MemeshDatabase): { compressed: number; w
         WHERE e.id IN (${entityIdPlaceholders})
           AND t.tag LIKE 'project:%'
       `).all(...entities.map(e => e.id)) as Array<{ tag: string }>;
-      for (const { tag } of projectTags) {
-        db.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)').run(summaryRow.id, tag);
-      }
-      db.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)').run(summaryRow.id, 'source:noise-filter');
+      kg.createEntity(summaryName, 'weekly-summary', {
+        title,
+        metadata: { title_source: 'heuristic' },
+        observations: [obsText],
+        tags: [...projectTags.map((t) => t.tag), 'source:noise-filter'],
+        trustOverride: 'untrusted',
+      });
     }
 
     // Archive originals
@@ -235,15 +226,7 @@ export function compressWeeklyNoise(db: MemeshDatabase): { compressed: number; w
 // Export preserved/noise type sets for testing
 export { PRESERVED_TYPES, NOISE_TYPES };
 
-/**
- * Ensure the memesh_metadata table exists.
- * Used to store decay timestamps and other operational metadata.
- */
-function ensureMetadataTable(db: MemeshDatabase): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS memesh_metadata (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
-}
+// memesh_metadata is created by SCHEMA_SQL (db.ts / openHookDb) — the only
+// two schema owners. The ad-hoc CREATE TABLE that used to live here was the
+// exact drift class check-schema-drift.mjs cannot see, and its bare DDL exec
+// broke the read-only-file degradation the schema owners handle deliberately.

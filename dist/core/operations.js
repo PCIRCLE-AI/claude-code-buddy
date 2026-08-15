@@ -29,7 +29,9 @@ function buildRelevanceMap(entities) {
 export function remember(args) {
     const db = getDatabase();
     const kg = new KnowledgeGraph(db);
-    const existing = kg.getEntity(args.name);
+    const existing = db
+        .prepare('SELECT id, namespace FROM entities WHERE name = ?')
+        .get(args.name);
     const entityId = kg.createEntity(args.name, args.type, {
         observations: args.observations,
         tags: args.tags,
@@ -68,11 +70,11 @@ export function remember(args) {
             }
         }
     }
-    if (isEmbeddingAvailable() && args.observations?.length) {
-        scheduleEmbedAndStore(entityId, entityEmbedText(args.name, args.observations));
+    const caps = detectCapabilities();
+    if (isEmbeddingAvailable(caps) && args.observations?.length) {
+        scheduleEmbedAndStore(entityId, entityEmbedText(args.name, args.observations), caps);
     }
     if ((!args.tags || args.tags.length === 0) && args.observations?.length) {
-        const caps = detectCapabilities();
         if (caps.llm) {
             autoTagAndApply(entityId, args.name, args.type, args.observations, caps.llm, { fallbacks: caps.llmFallbacks }).catch((err) => {
                 console.warn('[memesh] Auto-tagging failed (non-critical):', err?.message ?? String(err));
@@ -115,10 +117,11 @@ function searchAndScore(args) {
     };
 }
 async function supplementWithVectors(query, args, kg, merged, relevanceMap) {
-    if (!isEmbeddingAvailable())
+    const caps = detectCapabilities();
+    if (!isEmbeddingAvailable(caps))
         return;
     try {
-        const queryEmb = await embedText(query);
+        const queryEmb = await embedText(query, caps);
         if (!queryEmb)
             return;
         const vectorHits = vectorSearch(queryEmb, args.limit ?? 20);
@@ -236,7 +239,6 @@ export async function reindex(opts) {
     if (!hasVectorIndex(db)) {
         throw new Error('sqlite-vec is not loaded, so this database has no vector index to rebuild. Recall is running on FTS5 keyword search alone. Run `memesh doctor` — its "SQLite and vector search" row explains why the extension did not load on this machine.');
     }
-    const kg = new KnowledgeGraph(db);
     const namespaceFilter = opts?.namespace ? 'AND namespace = ?' : '';
     const params = opts?.namespace ? [opts.namespace] : [];
     const entities = db.prepare(`SELECT id, name FROM entities WHERE status = 'active' ${namespaceFilter} ORDER BY id`).all(...params);
@@ -253,18 +255,23 @@ export async function reindex(opts) {
     };
     let processed = 0;
     process.stderr.write(`MeMesh: Reindexing ${entities.length} entities...\n`);
+    const obsStmt = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id');
     for (const entity of entities) {
         processed++;
-        const fullEntity = kg.getEntity(entity.name);
-        if (!fullEntity) {
-            outcomes.entity_missing++;
-            continue;
+        const observations = obsStmt.all(entity.id)
+            .map((o) => o.content);
+        if (observations.length === 0) {
+            const stillThere = db.prepare('SELECT 1 FROM entities WHERE id = ?').get(entity.id);
+            if (!stillThere) {
+                outcomes.entity_missing++;
+                continue;
+            }
         }
-        if (fullEntity.observations.join('').trim() === '') {
+        if (observations.join('').trim() === '') {
             outcomes.nothing_to_embed++;
             continue;
         }
-        const text = entityEmbedText(fullEntity.name, fullEntity.observations);
+        const text = entityEmbedText(entity.name, observations);
         try {
             outcomes[await embedAndStore(entity.id, text)]++;
             if (processed % 10 === 0) {

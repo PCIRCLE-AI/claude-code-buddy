@@ -67,6 +67,19 @@ function initialTab(): Tab {
 export function App() {
   const [locale, setLocale] = useState<Locale>(() => initLocale());
   const [tab, setTab] = useState<Tab>(initialTab);
+  // Tabs that have been activated at least once. Search/Browse/Analytics
+  // keep their component state across tab switches (mounted-but-hidden),
+  // but must not mount BEFORE first activation: a hidden BrowseTab fetches
+  // /v1/entities?limit=2000 fully hydrated plus /v1/projects, and a hidden
+  // AnalyticsTab fetches /v1/stats + /v1/analytics + /v1/patterns — five
+  // requests on every page load for tabs the user may never open.
+  const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<Tab>>(() => new Set<Tab>());
+  useEffect(() => {
+    setVisitedTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)));
+  }, [tab]);
+  // `|| tab === X` covers the first render before the effect lands, so the
+  // active tab never flashes empty.
+  const keepMounted = (key: Tab) => visitedTabs.has(key) || tab === key;
 
   // Persist tab choice on every change so a returning user lands where
   // they left off. localStorage failures (private mode, disabled
@@ -159,9 +172,9 @@ export function App() {
           aria-labelledby wire the roving-tablist relationship (see TabNav). */}
       <div class="main">
         <div id="panel-Insights" role="tabpanel" aria-labelledby="tab-Insights" class={`panel ${tab === 'Insights' ? 'active' : ''}`}>{tab === 'Insights' && <InsightsTab />}</div>
-        <div id="panel-Search" role="tabpanel" aria-labelledby="tab-Search" class={`panel ${tab === 'Search' ? 'active' : ''}`}><SearchTab /></div>
-        <div id="panel-Browse" role="tabpanel" aria-labelledby="tab-Browse" class={`panel ${tab === 'Browse' ? 'active' : ''}`}><BrowseTab health={health} /></div>
-        <div id="panel-Analytics" role="tabpanel" aria-labelledby="tab-Analytics" class={`panel ${tab === 'Analytics' ? 'active' : ''}`}><AnalyticsTab /></div>
+        <div id="panel-Search" role="tabpanel" aria-labelledby="tab-Search" class={`panel ${tab === 'Search' ? 'active' : ''}`}>{keepMounted('Search') && <SearchTab />}</div>
+        <div id="panel-Browse" role="tabpanel" aria-labelledby="tab-Browse" class={`panel ${tab === 'Browse' ? 'active' : ''}`}>{keepMounted('Browse') && <BrowseTab health={health} />}</div>
+        <div id="panel-Analytics" role="tabpanel" aria-labelledby="tab-Analytics" class={`panel ${tab === 'Analytics' ? 'active' : ''}`}>{keepMounted('Analytics') && <AnalyticsTab />}</div>
         <div id="panel-Graph" role="tabpanel" aria-labelledby="tab-Graph" class={`panel ${tab === 'Graph' ? 'active' : ''}`}>{tab === 'Graph' && <GraphTab />}</div>
         <div id="panel-Lessons" role="tabpanel" aria-labelledby="tab-Lessons" class={`panel ${tab === 'Lessons' ? 'active' : ''}`}>{tab === 'Lessons' && <LessonsTab health={health} />}</div>
         <div id="panel-Manage" role="tabpanel" aria-labelledby="tab-Manage" class={`panel ${tab === 'Manage' ? 'active' : ''}`}>{tab === 'Manage' && <BrowseTab manage health={health} />}</div>

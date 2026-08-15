@@ -213,14 +213,6 @@ function clearProcessedSet(conn: MemeshDatabase): void {
   conn.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(IDEMPOTENCY_KEY);
 }
 
-/**
- * Public helper for the CLI's `--reset-idempotency` flag. Idempotent —
- * safe to call even if no cache row exists.
- */
-export function resetBackfillIdempotencyCache(db?: MemeshDatabase): void {
-  clearProcessedSet(db ?? getDatabase());
-}
-
 type OrphanRow = {
   id: number;
   name: string;

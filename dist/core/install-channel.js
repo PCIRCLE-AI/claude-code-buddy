@@ -34,7 +34,8 @@ export function detectInstallChannel(options) {
     if (existsSyncImpl(path.join(normalizedPackageRoot, '.git'))) {
         return 'source-checkout';
     }
-    if (globalNpmRoot && isSubpath(path.resolve(globalNpmRoot), normalizedPackageRoot)) {
+    const resolvedGlobalNpmRoot = typeof globalNpmRoot === 'function' ? globalNpmRoot() : globalNpmRoot;
+    if (resolvedGlobalNpmRoot && isSubpath(path.resolve(resolvedGlobalNpmRoot), normalizedPackageRoot)) {
         return 'npm-global';
     }
     const rootBeforeNodeModules = getRootBeforeNodeModules(normalizedPackageRoot);
@@ -43,13 +44,23 @@ export function detectInstallChannel(options) {
     }
     return 'unknown';
 }
+const channelCache = new Map();
 export function getCurrentInstallChannel(options) {
     const { packageRoot, existsSyncImpl, execFileSyncImpl, } = options;
-    return detectInstallChannel({
+    const canCache = !existsSyncImpl && !execFileSyncImpl;
+    if (canCache) {
+        const cached = channelCache.get(packageRoot);
+        if (cached !== undefined)
+            return cached;
+    }
+    const channel = detectInstallChannel({
         packageRoot,
-        globalNpmRoot: getGlobalNpmRoot({ execFileSyncImpl }),
+        globalNpmRoot: () => getGlobalNpmRoot({ execFileSyncImpl }),
         existsSyncImpl,
     });
+    if (canCache)
+        channelCache.set(packageRoot, channel);
+    return channel;
 }
 export function getInstallChannelSupport(channel) {
     switch (channel) {

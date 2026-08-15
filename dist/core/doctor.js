@@ -15,6 +15,8 @@ import { lastTranscriptMineAt } from './transcript-source.js';
 import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
 import { MemeshDatabase } from '../storage/sqlite.js';
 import { AUTO_CAPTURE_TAG } from './types.js';
+import { parseSqliteUtcMs } from './time-utils.js';
+import { autoCaptureDecision } from './capture-flag.js';
 const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 const LOCALE_README_FILES = [
@@ -121,11 +123,18 @@ function inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl) 
     if (!existsSyncImpl(configPath)) {
         return createCheck('config', 'Config', 'pass', `No config file yet (${configPath}). MeMesh will run in Core mode until you configure Smart Mode.`, 'Optional: run `memesh config list` or set an LLM with `memesh config set llm.provider anthropic`.');
     }
-    const parsed = parseJsonFile(configPath, readFileSyncImpl);
-    if (!parsed.ok) {
-        return createCheck('config', 'Config', 'fail', `Config file is invalid JSON at ${configPath}.`, `Fix or remove ${configPath}, then run \`memesh config list\` to confirm it loads cleanly.`, { code: 'config.invalid-json', params: { path: configPath } });
+    try {
+        const raw = readFileSyncImpl(configPath, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return createCheck('config', 'Config', 'fail', `${configPath} parsed but is not a JSON object — every setting is being ignored.`, `Fix or remove ${configPath}, then re-run memesh doctor.`, { code: 'config-parse.not-object', params: { path: configPath } });
+        }
+        return createCheck('config', 'Config', 'pass', `${configPath} is valid JSON and its settings are in effect.`);
     }
-    return createCheck('config', 'Config', 'pass', `Config file is readable at ${configPath}.`);
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return createCheck('config', 'Config', 'fail', `${configPath} could not be read or parsed (${msg}). Every setting in it — LLM provider, fallbacks, embedder — is being silently ignored right now.`, `Fix the JSON or remove the file to fall back to defaults: mv ${configPath} ${configPath}.bak`, { code: 'config-parse.unreadable', params: { path: configPath, detail: msg } });
+    }
 }
 function inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl) {
     const mcpPath = path.join(packageRoot, '.mcp.json');
@@ -390,28 +399,18 @@ function inspectHookActivity(openDatabaseImpl, closeDatabaseImpl, existsSyncImpl
     }
 }
 function autoCaptureOffSource() {
-    const envVal = process.env.MEMESH_AUTO_CAPTURE;
-    if (envVal === 'false')
-        return 'env';
-    if (envVal === 'true')
-        return null;
+    let configAutoCapture;
     try {
-        return readConfig().autoCapture === false ? 'config' : null;
+        configAutoCapture = readConfig().autoCapture;
     }
     catch {
-        return null;
+        configAutoCapture = undefined;
     }
+    return autoCaptureDecision(process.env.MEMESH_AUTO_CAPTURE, configAutoCapture).offSource;
 }
 export function hoursSince(sqliteTimestamp) {
-    const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(sqliteTimestamp ?? '');
-    if (!m)
-        return null;
-    const then = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
-    if (!Number.isFinite(then))
-        return null;
-    const d = new Date(then);
-    if (d.getUTCFullYear() !== +m[1] || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]
-        || d.getUTCHours() !== +m[4] || d.getUTCMinutes() !== +m[5] || d.getUTCSeconds() !== +m[6])
+    const then = parseSqliteUtcMs(sqliteTimestamp);
+    if (then === null)
         return null;
     return (Date.now() - then) / (60 * 60 * 1000);
 }
@@ -683,24 +682,6 @@ function verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl) {
     ].filter(Boolean).join('; ');
     return createCheck('skills-manifest', 'Skills + hooks integrity', 'fail', `Manifest verification failed: ${detail}.`, 'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem reproduces on a fresh install, open a security issue at https://github.com/PCIRCLE-AI/memesh/security.', { code: 'skills-manifest.verify-failed', params: { detail } });
 }
-async function inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyncImpl) {
-    const configPath = getConfigPathImpl();
-    if (!existsSyncImpl(configPath)) {
-        return createCheck('config_parse', 'Config parses', 'pass', 'No config file yet — defaults apply. This is normal for a fresh install.');
-    }
-    try {
-        const raw = readFileSyncImpl(configPath, 'utf8');
-        const parsed = JSON.parse(raw);
-        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-            return createCheck('config_parse', 'Config parses', 'fail', `${configPath} parsed but is not a JSON object — every setting is being ignored.`, `Fix or remove ${configPath}, then re-run memesh doctor.`, { code: 'config-parse.not-object', params: { path: configPath } });
-        }
-        return createCheck('config_parse', 'Config parses', 'pass', `${configPath} is valid JSON and its settings are in effect.`);
-    }
-    catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return createCheck('config_parse', 'Config parses', 'fail', `${configPath} could not be read or parsed (${msg}). Every setting in it — LLM provider, fallbacks, embedder — is being silently ignored right now.`, `Fix the JSON or remove the file to fall back to defaults: mv ${configPath} ${configPath}.bak`, { code: 'config-parse.unreadable', params: { path: configPath, detail: msg } });
-    }
-}
 async function inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl) {
     if (capabilities.embeddings === 'tfidf') {
         return createInfo('embeddings_probe', 'Embeddings work', 'No neural embedder configured — recall runs on FTS5 keyword search alone. That is a supported mode, not a fault.');
@@ -884,7 +865,6 @@ export async function runDoctor(options) {
             : `last mined ${((Date.now() - last) / 3600_000).toFixed(1)}h ago`;
         checks.push(createInfo('transcript-mining', 'Scheduled transcript mining', `On for this project — ${when}. Have a scheduler run \`memesh dream run --from-transcripts --if-due\`; it mines when due (default every 24h) and stages proposals. Review the queue with \`memesh dream list\`.`));
     }
-    checks.push(await inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyncImpl));
     checks.push(await inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl));
     checks.push(await inspectLlmProbe(capabilities, probeCapabilities, probeProviderImpl));
     checks.push(await inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSupport));

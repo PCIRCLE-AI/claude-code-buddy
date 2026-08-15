@@ -36,28 +36,10 @@ export function clusterOf(type: string): TypeCluster {
   return TYPE_CLUSTER[type] ?? 'reference';
 }
 
-/* ---------- icons ---------- */
-
-const TYPE_ICON: Record<string, string> = {
-  lesson_learned: '💡', lesson: '💡', mistake: '⚠️',
-  decision: '🎯', architecture_decision: '🎯', design_decision: '🎯',
-  pattern: '🧩', technical_pattern: '🧩', best_practice: '🧩',
-  bug_fix: '🐛', verification_result: '✅', test_result: '✅',
-  process: '⚙️', architecture: '🏗️', infrastructure: '🏗️',
-  feature: '✨', release: '🚀', refactoring: '♻️',
-  commit: '📝',
-  session_keypoint: '⏱️', session_identity: '⏱️',
-  'session-insight': '⏱️', 'session-summary': '⏱️', 'session-identity': '⏱️',
-  weekly_summary: '📅', 'weekly-summary': '📅',
-  note: '📓', plan: '🗺️', knowledge: '📚',
-  workflow_checkpoint: '🔖',
-};
-
-export function iconFor(type: string): string {
-  return TYPE_ICON[type] ?? '·';
-}
-
 /* ---------- localised type / relation labels ---------- */
+// (Type icons live in components/icons/EntityIcon.tsx — the emoji map that
+// used to sit here was dead code superseded by that SVG component, and a
+// second hand-maintained type registry silently rots.)
 
 /** Localised label for an entity type. Entity types are open-ended server
  *  data (any string can arrive), so this cannot be a closed switch: the

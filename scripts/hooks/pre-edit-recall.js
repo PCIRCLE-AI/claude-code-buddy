@@ -43,9 +43,6 @@ process.stdin.on('end', () => {
       return pass();
     }
 
-    // Get project name from cwd for project-scoped filtering
-    const projectName = getProjectName(data.cwd);
-
     // Throttle: skip if we already recalled for this file
     const fileKey = filePath.toLowerCase();
     let seenFiles = [];
@@ -63,6 +60,11 @@ process.stdin.on('end', () => {
     }
 
     if (!existsSync(dbPath)) return pass();
+
+    // Get project name from cwd for project-scoped filtering.
+    // After the throttle/db checks: this spawns 1-2 git subprocesses, and the
+    // throttled path (every repeat edit of the same file) must not pay for it.
+    const projectName = getProjectName(data.cwd);
 
     // `readOnly`, not `readonly`: node:sqlite ignores the lowercase spelling
     // and hands back a WRITABLE handle. This hook only reads.

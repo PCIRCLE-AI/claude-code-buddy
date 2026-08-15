@@ -2,7 +2,6 @@
 
 import { createRequire } from 'module';
 import { spawn } from 'child_process';
-import { homedir } from 'os';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { existsSync, readFileSync, unlinkSync, mkdirSync, accessSync, constants as fsConstants } from 'fs';
@@ -14,6 +13,10 @@ import {
   getProjectName,
   importFromPluginRoot,
   isTrustedForAutoContext,
+  // Aliased: this file already has a local `const memeshDir` (a resolved
+  // db-path-derived directory string) — the helper here is the MEMESH_DIR/
+  // home resolver the update-check cache itself uses.
+  memeshDir as memeshHomeDir,
   readUpdateCheckCache,
   resolvePluginRoot,
   resolveSessionLimit,
@@ -192,7 +195,7 @@ function isStrictlyOlder(a, b) {
   return pa.tail < pb.tail;
 }
 
-function buildUpdateAvailableBanner(currentVersion, cache, channel) {
+function buildUpdateAvailableBanner(currentVersion, cache, getChannel) {
   if (!cache || cache.currentVersion !== currentVersion) return [];
   // Deprecation banner takes precedence — when set, it owns the
   // session-start real estate. Skip the soft banner so the user sees
@@ -215,7 +218,10 @@ function buildUpdateAvailableBanner(currentVersion, cache, channel) {
   // this user a banner today?"
   try {
     const fs = require('fs');
-    const dir = join(homedir(), '.memesh');
+    // memeshHomeDir(), not join(homedir(), '.memesh'): the throttle marker
+    // must sit next to the update-check cache it throttles when MEMESH_DIR
+    // is set (readUpdateCheckCache resolves its path with this same helper).
+    const dir = memeshHomeDir();
     try { ensurePrivateDir(dir); } catch { /* best-effort */ }
     const versionTag = /^[0-9A-Za-z.+-]+$/.test(currentVersion) ? currentVersion : 'unknown';
     const markerPath = join(dir, `last-update-banner.${versionTag}.lock`);
@@ -233,6 +239,13 @@ function buildUpdateAvailableBanner(currentVersion, cache, channel) {
       try { fs.chmodSync(markerPath, 0o600); } catch { /* non-POSIX */ }
     } catch { /* best-effort */ }
   } catch { /* best-effort */ }
+
+  // Channel detection spawns `npm root -g` (50-200ms) — resolve it only
+  // here, after every early return above has had its chance to suppress
+  // the banner. The guards fire on ~every session; the banner at most
+  // once per 24h.
+  let channel = 'unknown';
+  try { channel = getChannel(); } catch { /* best-effort */ }
 
   const lines = [
     '',
@@ -309,7 +322,9 @@ function spawnFreshUpdateCheck(installedVersion) {
     const cliPath = join(pluginRoot, 'dist/transports/cli/cli.js');
     if (!existsSync(cliPath)) return false;
     const fs = require('fs');
-    const dir = join(homedir(), '.memesh');
+    // memeshHomeDir(), not join(homedir(), '.memesh') — same reasoning as
+    // the banner marker above: marker and cache must share a directory.
+    const dir = memeshHomeDir();
     try { ensurePrivateDir(dir); } catch { /* best-effort */ }
     // Codex round 37: scope the throttle marker to the installed
     // version. The marker was machine-global, so a refresh started
@@ -491,8 +506,8 @@ function combineWithBanner(baseMessage) {
       if (deprecation.length > 0) {
         lines = deprecation;
       } else {
-        const channel = detectInstallChannelHook(pluginRoot);
-        lines = buildUpdateAvailableBanner(installedVersion, cache, channel);
+        lines = buildUpdateAvailableBanner(
+          installedVersion, cache, () => detectInstallChannelHook(pluginRoot));
       }
     }
   } catch {
@@ -571,6 +586,10 @@ process.stdin.on('end', async () => {
     // property of the database file that the writing side already set, and a
     // reader opens a WAL database perfectly well without asking for it.
     const db = new MemeshDatabase(dbPath, { readOnly: true });
+    // Whether the noise-compression epilogue below should run at all —
+    // pre-read from this readonly handle before it closes. Defaults to
+    // true so any early exit still lets the epilogue's own throttle decide.
+    let noiseCompressDue = true;
     try {
       // Check if tables exist (db may exist but be empty)
       const tableCheck = db.prepare(
@@ -925,12 +944,8 @@ process.stdin.on('end', async () => {
         if (deprecation.length > 0) {
           bannerLines = deprecation;
         } else {
-          let channel = 'unknown';
-          try {
-            const pluginRoot = resolvePluginRoot(import.meta.url);
-            channel = detectInstallChannelHook(pluginRoot);
-          } catch { /* best-effort */ }
-          bannerLines = buildUpdateAvailableBanner(installedVersion, updateCache, channel);
+          bannerLines = buildUpdateAvailableBanner(installedVersion, updateCache,
+            () => detectInstallChannelHook(resolvePluginRoot(import.meta.url)));
         }
       }
       const finalMessage = bannerLines.length > 0
@@ -938,6 +953,25 @@ process.stdin.on('end', async () => {
         : summary;
 
       output(withCaptureWarning(finalMessage), memoryContext);
+
+      // Pre-read the noise-compression throttle on the handle we already
+      // hold. compressWeeklyNoise() re-checks under its own connection, but
+      // ~364/365 sessions are inside the 24h window — and the full path
+      // costs two dist module-graph imports plus a write-capable
+      // migration-chain open (WAL writer lock) that must stay off the
+      // SessionStart hot path. Missing table / any error ⇒ due (the full
+      // path owns schema creation).
+      noiseCompressDue = (() => {
+        try {
+          const row = db.prepare(
+            "SELECT value FROM memesh_metadata WHERE key = 'last_noise_compress_at'"
+          ).get();
+          if (!row) return true;
+          return Date.now() - new Date(row.value).getTime() >= 24 * 60 * 60 * 1000;
+        } catch {
+          return true;
+        }
+      })();
     } finally {
       db.close();
     }
@@ -945,6 +979,7 @@ process.stdin.on('end', async () => {
     // Opens a separate read-write connection via the core module.
     // Throttled to once per 24h inside compressWeeklyNoise().
     try {
+      if (noiseCompressDue) {
       // F5: derive pluginRoot strictly from this file's location.
       // See `resolvePluginRoot` for the full reasoning.
       const pluginRoot = resolvePluginRoot(import.meta.url);
@@ -955,6 +990,7 @@ process.stdin.on('end', async () => {
         lifecycleMod.compressWeeklyNoise(dbMod.getDatabase());
       } finally {
         dbMod.closeDatabase();
+      }
       }
     } catch (err) {
       // Non-critical — noise compression failed, will retry next session.

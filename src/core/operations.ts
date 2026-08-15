@@ -80,7 +80,13 @@ function buildRelevanceMap(entities: Entity[]): Map<string, number> {
 export function remember(args: RememberInput): RememberResult {
   const db = getDatabase();
   const kg = new KnowledgeGraph(db);
-  const existing = kg.getEntity(args.name);
+  // Only existence + namespace are consumed below — a full kg.getEntity()
+  // here cost 4 queries (entity, observations, tags, relations) with the
+  // observation text materialized and thrown away, on the write hot path
+  // (also hit per-entity by importMemories/createEntitiesBatch).
+  const existing = db
+    .prepare('SELECT id, namespace FROM entities WHERE name = ?')
+    .get(args.name) as { id: number; namespace: string | null } | undefined;
 
   // Trust signal MUST arrive at createEntity time so the confidence-
   // bump gate (knowledge-graph.ts) can deny it for untrusted callers.
@@ -150,14 +156,20 @@ export function remember(args: RememberInput): RememberResult {
     }
   }
 
+  // Resolve capabilities ONCE for this operation and thread the snapshot
+  // through — detectCapabilities() re-reads + re-parses config.json from
+  // disk each call, and one remember used to pay that up to three times
+  // (isEmbeddingAvailable, embedText, auto-tag). Per-operation freshness is
+  // preserved: the next remember re-reads.
+  const caps = detectCapabilities();
+
   // Fire-and-forget: generate embedding asynchronously (don't block sync remember)
-  if (isEmbeddingAvailable() && args.observations?.length) {
-    scheduleEmbedAndStore(entityId, entityEmbedText(args.name, args.observations));
+  if (isEmbeddingAvailable(caps) && args.observations?.length) {
+    scheduleEmbedAndStore(entityId, entityEmbedText(args.name, args.observations), caps);
   }
 
   // Fire-and-forget: auto-generate tags if none provided and LLM is configured
   if ((!args.tags || args.tags.length === 0) && args.observations?.length) {
-    const caps = detectCapabilities();
     if (caps.llm) {
       autoTagAndApply(entityId, args.name, args.type, args.observations, caps.llm, { fallbacks: caps.llmFallbacks }).catch((err) => {
         // Log but don't fail the main operation - auto-tagging is optional
@@ -258,9 +270,13 @@ async function supplementWithVectors(
   merged: Entity[],
   relevanceMap: Map<string, number>,
 ): Promise<void> {
-  if (!isEmbeddingAvailable()) return;
+  // One caps snapshot for the availability check AND the embed call — two
+  // separate detectCapabilities() reads meant two config.json disk reads per
+  // enhanced recall on the MCP/HTTP hot path.
+  const caps = detectCapabilities();
+  if (!isEmbeddingAvailable(caps)) return;
   try {
-    const queryEmb = await embedText(query);
+    const queryEmb = await embedText(query, caps);
     if (!queryEmb) return;
     const vectorHits = vectorSearch(queryEmb, args.limit ?? 20);
     if (vectorHits.length === 0) return;
@@ -554,8 +570,6 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     throw new Error('sqlite-vec is not loaded, so this database has no vector index to rebuild. Recall is running on FTS5 keyword search alone. Run `memesh doctor` — its "SQLite and vector search" row explains why the extension did not load on this machine.');
   }
 
-  const kg = new KnowledgeGraph(db);
-
   // Get all active entities (optionally filtered by namespace)
   const namespaceFilter = opts?.namespace ? 'AND namespace = ?' : '';
   const params = opts?.namespace ? [opts.namespace] : [];
@@ -582,14 +596,29 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
 
   process.stderr.write(`MeMesh: Reindexing ${entities.length} entities...\n`);
 
+  // Fetch observations per entity with ONE query instead of kg.getEntity()'s
+  // four (entity, observations, tags, relations) — only name + observations
+  // feed the embed text, and on a whole-database operation the discarded
+  // tag/relation hydration was ~3×N wasted queries.
+  const obsStmt = db.prepare(
+    'SELECT content FROM observations WHERE entity_id = ? ORDER BY id'
+  );
+
   for (const entity of entities) {
     processed++;
 
-    // Get full entity with observations
-    const fullEntity = kg.getEntity(entity.name);
-    if (!fullEntity) {
-      outcomes.entity_missing++;
-      continue;
+    const observations = (obsStmt.all(entity.id) as Array<{ content: string }>)
+      .map((o) => o.content);
+
+    // Zero observations is ambiguous between "no observations" and "entity
+    // deleted since the list query" — disambiguate with an existence probe
+    // only on that rare path, keeping the hot path at one query per entity.
+    if (observations.length === 0) {
+      const stillThere = db.prepare('SELECT 1 FROM entities WHERE id = ?').get(entity.id);
+      if (!stillThere) {
+        outcomes.entity_missing++;
+        continue;
+      }
     }
 
     // An entity with nothing but whitespace can never produce a vector, and
@@ -603,7 +632,7 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     // embedded below now carries the name too, and a name is never blank — so
     // testing the embedded text would answer "yes, embeddable" for every
     // entity, quietly re-owing exactly the rows `countMissingVectors` excludes.
-    if (fullEntity.observations.join('').trim() === '') {
+    if (observations.join('').trim() === '') {
       outcomes.nothing_to_embed++;
       continue;
     }
@@ -611,7 +640,7 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     // Same text every other writer embeds — see entityEmbedText. This used to
     // be observations-only, which made an entity's vector depend on whether
     // remember() or reindex() wrote it last.
-    const text = entityEmbedText(fullEntity.name, fullEntity.observations);
+    const text = entityEmbedText(entity.name, observations);
 
     try {
       outcomes[await embedAndStore(entity.id, text)]++;

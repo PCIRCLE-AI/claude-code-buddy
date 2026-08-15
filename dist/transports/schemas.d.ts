@@ -90,9 +90,9 @@ export declare const LearnSchema: z.ZodObject<{
     root_cause: z.ZodOptional<z.ZodString>;
     prevention: z.ZodOptional<z.ZodString>;
     severity: z.ZodOptional<z.ZodEnum<{
-        minor: "minor";
-        major: "major";
         critical: "critical";
+        major: "major";
+        minor: "minor";
     }>>;
 }, z.core.$strip>;
 export declare const UserPatternsSchema: z.ZodObject<{

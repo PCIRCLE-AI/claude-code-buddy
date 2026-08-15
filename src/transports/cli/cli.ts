@@ -590,6 +590,11 @@ const ALLOWED_KEYS = new Set([
   // work; it becomes a prompt instruction, not a parsed locale. Unset =
   // English. See src/core/output-language.ts.
   'language',
+  // Transcript mining opt-in for the dreamer (B1-B4). Both doctor.ts and
+  // the dream CLI tell users to run `memesh config set transcriptMining
+  // true` — this entry is what makes that documented command actually
+  // succeed (it was missing, so the printed fix exited 1 "Unknown key").
+  'transcriptMining',
 ]);
 
 const KEY_VALIDATORS: Record<string, (value: string) => string | null> = {
@@ -674,9 +679,9 @@ function formatConfigValue(key: string, raw: unknown): string {
 /**
  * Build the `config list` rows from ALLOWED_KEYS — the single source of truth
  * for settable keys — so `list` shows every key `set` accepts and the two can't
- * drift. Only keys that are actually present are listed. Exported for testing.
+ * drift. Only keys that are actually present are listed.
  */
-export function buildConfigListing(config: Record<string, unknown>): Array<{ key: string; value: string }> {
+function buildConfigListing(config: Record<string, unknown>): Array<{ key: string; value: string }> {
   const rows: Array<{ key: string; value: string }> = [];
   for (const key of Array.from(ALLOWED_KEYS).sort()) {
     const raw = getNested(config, key.split('.'));
@@ -726,6 +731,11 @@ configCmd
     if (canonical === 'sessionLimit') coerced = parseInt(value, 10);
     if (canonical === 'llmFallbacks') coerced = JSON.parse(value);
     if (canonical === 'autoCapture') {
+      coerced = value === 'true' || value === '1';
+    }
+    if (canonical === 'transcriptMining') {
+      // The consumer (isTranscriptMiningEnabled) checks `=== true`, so a
+      // raw "true" string would silently leave the feature off.
       coerced = value === 'true' || value === '1';
     }
 

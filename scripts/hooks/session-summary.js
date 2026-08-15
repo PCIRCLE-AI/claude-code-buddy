@@ -24,7 +24,6 @@ import { createRequire } from 'module';
 import { basename, join } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from 'fs';
 import { spawn } from 'child_process';
-import os from 'os';
 import { pathToFileURL } from 'url';
 import {
   AUTO_CAPTURE_TAG,
@@ -91,9 +90,15 @@ function parseTranscript(transcriptPath) {
   const errorsEncountered = [];
   let toolCallCount = 0;
   let readFailed = false;
+  // The raw file content, returned so downstream consumers (the
+  // recall-effectiveness block) reuse this single read instead of a second
+  // readFileSync — real transcripts reach 47MB, so a second full read plus
+  // re-parse doubles the Stop hook's dominant I/O cost.
+  let rawText = '';
 
   try {
-    const lines = readFileSync(transcriptPath, 'utf8').split('\n').filter(l => l.trim());
+    rawText = readFileSync(transcriptPath, 'utf8');
+    const lines = rawText.split('\n').filter(l => l.trim());
     for (const line of lines) {
       try {
         const entry = JSON.parse(line);
@@ -172,7 +177,7 @@ function parseTranscript(transcriptPath) {
     }
   }
 
-  return { filesEdited: [...filesEdited], bashCommands, errorsEncountered, toolCallCount, readFailed };
+  return { filesEdited: [...filesEdited], bashCommands, errorsEncountered, toolCallCount, readFailed, rawText };
 }
 
 // Main: read stdin, extract insights, store in DB
@@ -269,8 +274,9 @@ process.stdin.on('end', async () => {
       return exit0();
     }
 
-    // Parse transcript
-    const { filesEdited, bashCommands, errorsEncountered, toolCallCount, readFailed } = parseTranscript(transcriptPath);
+    // Parse transcript (single read — rawText is reused by the
+    // recall-effectiveness block below)
+    const { filesEdited, bashCommands, errorsEncountered, toolCallCount, readFailed, rawText: transcriptRawText } = parseTranscript(transcriptPath);
 
     // An unreadable transcript is NOT a quiet session: the capture was
     // LOST (permissions, I/O), and a heartbeat here would keep doctor green
@@ -482,7 +488,9 @@ process.stdin.on('end', async () => {
               // undocumented internal — get it wrong and every entity scores
               // a hit instead of a miss. Structural removal is copy-count
               // and encoding independent.
-              const sessionText = stripHookEchoes(readFileSync(transcriptPath, 'utf8')).toLowerCase();
+              // Reuse the raw text parseTranscript already read — a second
+              // readFileSync doubles the Stop hook's I/O on 47MB transcripts.
+              const sessionText = stripHookEchoes(transcriptRawText).toLowerCase();
 
               // Hit/miss decision lives in `isRecallHit` (exported, unit-tested).
 
@@ -682,15 +690,15 @@ function dreamHistoryPath() {
   // is in pure string comparisons, which we don't do here. The trace
   // below shows the resolved value verbatim so a Windows diagnosis run
   // can confirm what actually arrived.
-  const fromEnv = process.env.MEMESH_DIR;
-  const fromDbPath = !fromEnv ? getMemeshDirFromDbPath() : null;
-  const fromHome = (!fromEnv && !fromDbPath)
-    ? join(os.homedir() || (os.userInfo()?.homedir ?? '.'), '.memesh')
-    : null;
-  const dir = fromEnv || fromDbPath || fromHome;
+  // The helper IS the precedence (MEMESH_DB_PATH > MEMESH_DIR > home).
+  // A hand-rolled version here inverted it (MEMESH_DIR won over
+  // MEMESH_DB_PATH), so with both set, dream history landed in a different
+  // directory than every sibling state file — plus a dead home-fallback
+  // branch, since the helper always returns a string.
+  const dir = getMemeshDirFromDbPath();
   dreamTrigTrace('resolve', {
-    src: fromEnv ? 'env' : (fromDbPath ? 'db-path' : 'home'),
-    MEMESH_DIR: fromEnv,
+    src: process.env.MEMESH_DB_PATH ? 'db-path' : (process.env.MEMESH_DIR ? 'env' : 'home'),
+    MEMESH_DIR: process.env.MEMESH_DIR,
     MEMESH_DB_PATH: process.env.MEMESH_DB_PATH,
     dir,
     platform: process.platform,

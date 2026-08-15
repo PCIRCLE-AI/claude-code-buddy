@@ -4,6 +4,7 @@ import { recordTelemetry } from './llm-telemetry.js';
 import { sanitizeForPrompt, sanitizeListForPrompt } from './prompt-safety.js';
 import { outputLanguageInstruction } from './output-language.js';
 import type { LessonSeverity } from './types.js';
+import { extractJsonBlock } from './json-utils.js';
 
 export interface StructuredLesson {
   error: string;
@@ -111,9 +112,14 @@ Analyze the root cause and return a JSON object (ONLY the JSON, no explanation):
 
 export function parseLesson(text: string): StructuredLesson | null {
   try {
-    const match = text.match(/\{[\s\S]*?\}/);
-    if (!match) return null;
-    const obj = JSON.parse(match[0]);
+    // extractJsonBlock, not a lazy `/\{[\s\S]*?\}/` regex: the lazy match
+    // stops at the FIRST closing brace, so any nested object (or a brace
+    // inside a string value) truncated the JSON and the lesson was silently
+    // dropped. Every sibling LLM-reply parser already migrated; this was the
+    // last holdout of the failure class json-utils.ts exists to close.
+    const block = extractJsonBlock(text, 'object');
+    if (!block) return null;
+    const obj = JSON.parse(block);
 
     // Validate required fields
     if (!obj.error || !obj.fix) return null;

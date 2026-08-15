@@ -436,6 +436,7 @@ const ALLOWED_KEYS = new Set([
     'autoCapture',
     'llmFallbacks',
     'language',
+    'transcriptMining',
 ]);
 const KEY_VALIDATORS = {
     'llm.provider': (v) => ['anthropic', 'openai', 'ollama'].includes(v) ? null : `must be one of: anthropic, openai, ollama`,
@@ -502,7 +503,7 @@ function formatConfigValue(key, raw) {
         return JSON.stringify(raw);
     return String(raw);
 }
-export function buildConfigListing(config) {
+function buildConfigListing(config) {
     const rows = [];
     for (const key of Array.from(ALLOWED_KEYS).sort()) {
         const raw = getNested(config, key.split('.'));
@@ -557,6 +558,9 @@ configCmd
     if (canonical === 'llmFallbacks')
         coerced = JSON.parse(value);
     if (canonical === 'autoCapture') {
+        coerced = value === 'true' || value === '1';
+    }
+    if (canonical === 'transcriptMining') {
         coerced = value === 'true' || value === '1';
     }
     const config = readConfig();

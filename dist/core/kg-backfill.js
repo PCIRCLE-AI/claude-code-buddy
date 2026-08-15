@@ -78,9 +78,6 @@ function writeProcessedSet(conn, ids) {
 function clearProcessedSet(conn) {
     conn.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(IDEMPOTENCY_KEY);
 }
-export function resetBackfillIdempotencyCache(db) {
-    clearProcessedSet(db ?? getDatabase());
-}
 export function backfillRelations(opts = {}, db) {
     const conn = db ?? getDatabase();
     const { candidates, consideredOrphanIds, skippedOrphanIds } = proposeBackfillCandidates(opts, conn);

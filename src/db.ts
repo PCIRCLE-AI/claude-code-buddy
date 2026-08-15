@@ -8,6 +8,7 @@ import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
 import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
 import type { PragmaColumnRow } from './core/types.js';
+import { parseSqliteUtcMs } from './core/time-utils.js';
 
 let db: MemeshDatabase | null = null;
 
@@ -194,17 +195,12 @@ function ensureHookRunsSince(handle: MemeshDatabase): void {
       // future) would grant doctor's "tracking just started" grace FOREVER —
       // a fail-open. Heal it HERE, because this is a write path that runs on
       // every real open; doctor is a reader (reachable via GET /v1/doctor)
-      // and must not repair the database it inspects. Same parse rules as
-      // doctor's hoursSince: anchored, UTC, round-tripped.
-      const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(row.value ?? '');
-      if (m) {
-        const then = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
-        const d = new Date(then);
-        const intact = Number.isFinite(then)
-          && d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3]
-          && d.getUTCHours() === +m[4] && d.getUTCMinutes() === +m[5] && d.getUTCSeconds() === +m[6];
-        if (intact && then <= Date.now() + 5 * 60 * 1000) return;
-      }
+      // and must not repair the database it inspects. Same parse as doctor's
+      // hoursSince — literally: parseSqliteUtcMs is the single owner of the
+      // anchored/UTC/round-tripped rules (the two inline copies had already
+      // drifted cosmetically).
+      const then = parseSqliteUtcMs(row.value ?? '');
+      if (then !== null && then <= Date.now() + 5 * 60 * 1000) return;
       handle
         .prepare("UPDATE memesh_metadata SET value = datetime('now') WHERE key = 'hook_runs_since'")
         .run();
@@ -309,6 +305,29 @@ function initialiseDatabase(db: MemeshDatabase, resolvedPath: string): MemeshDat
  * boundary to wrap — every statement in here may write, and none of them
  * is load-bearing for reading what the database already holds.
  */
+/**
+ * Run an ALTER TABLE that tolerates exactly one race. Conditional ALTER
+ * blocks ARE idempotent within a single process, but two processes (e.g.
+ * CLI + HTTP server starting back-to-back, or a hook running concurrently
+ * with `memesh recall`) can race: each reads its own PRAGMA snapshot, both
+ * see "column missing", both run ALTER, the second one throws SQLITE_ERROR:
+ * duplicate column name. That one error is the expected no-op outcome (a
+ * peer beat us to it); any other error rethrows so real bugs are not
+ * papered over. Module-level so EVERY conditional ALTER in this file uses
+ * the same guard — it used to be a closure inside migrateToCurrentSchema,
+ * and the next migration author (dream_proposals) re-implemented it inline
+ * with a weaker case-sensitive `.includes` check. Mirrors
+ * `scripts/hooks/_shared.js`'s openHookDb.
+ */
+function safeAlter(db: MemeshDatabase, sql: string): void {
+  try {
+    db.exec(sql);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!/duplicate column name/i.test(msg)) throw e;
+  }
+}
+
 function migrateToCurrentSchema(db: MemeshDatabase, resolvedPath: string): void {
   db.exec(SCHEMA_SQL);
   db.exec(FTS_SQL);
@@ -334,53 +353,40 @@ function migrateToCurrentSchema(db: MemeshDatabase, resolvedPath: string): void 
     catch { /* sidecar may not exist yet, or non-POSIX */ }
   }
 
-  // Migrate: add status column if missing (v2.11 -> v2.12)
-  // Conditional ALTER TABLE blocks ARE idempotent within a single
-  // process, but two processes (e.g. CLI + HTTP server starting back-
-  // to-back, or a hook running concurrently with `memesh recall`) can
-  // race: each reads its own PRAGMA snapshot, both see "column missing",
-  // both run ALTER, the second one throws SQLITE_ERROR: duplicate column
-  // name. `safeAlter` treats that one error as the expected no-op
-  // outcome (a peer beat us to it). Any other error rethrows so we
-  // don't paper over real bugs. Mirrors `scripts/hooks/_shared.js`'s
-  // openHookDb exactly — the bug shape was caught there first; the
-  // core side was untreated until a reviewer flagged the asymmetry.
-  const safeAlter = (sql: string): void => {
-    try {
-      db.exec(sql);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (!/duplicate column name/i.test(msg)) throw e;
-    }
-  };
+  // Migration chain. One PRAGMA snapshot into a Set — each block checks
+  // only columns its own ALTER adds, so re-reading table_info between
+  // blocks bought nothing (and the hook-side twin in _shared.js's
+  // migrateHookDbToCurrent already uses a single snapshot; keeping the
+  // two shapes alike makes the hand-sync auditable).
+  const entityColumns = new Set(
+    (db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[]).map((c) => c.name),
+  );
 
-  const columns = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
-  if (!columns.some((c) => c.name === 'status')) {
-    safeAlter("ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+  // Migrate: add status column if missing (v2.11 -> v2.12)
+  if (!entityColumns.has('status')) {
+    safeAlter(db, "ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
     db.exec("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)");
   }
 
   // Migrate: add scoring columns if missing (v2.14 -> v2.15)
-  const scoringCols = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
-  if (!scoringCols.some((c) => c.name === 'access_count')) {
-    safeAlter("ALTER TABLE entities ADD COLUMN access_count INTEGER DEFAULT 0");
-    safeAlter("ALTER TABLE entities ADD COLUMN last_accessed_at TIMESTAMP");
-    safeAlter("ALTER TABLE entities ADD COLUMN confidence REAL DEFAULT 1.0");
-    safeAlter("ALTER TABLE entities ADD COLUMN valid_from TIMESTAMP");
-    safeAlter("ALTER TABLE entities ADD COLUMN valid_until TIMESTAMP");
+  if (!entityColumns.has('access_count')) {
+    safeAlter(db, "ALTER TABLE entities ADD COLUMN access_count INTEGER DEFAULT 0");
+    safeAlter(db, "ALTER TABLE entities ADD COLUMN last_accessed_at TIMESTAMP");
+    safeAlter(db, "ALTER TABLE entities ADD COLUMN confidence REAL DEFAULT 1.0");
+    safeAlter(db, "ALTER TABLE entities ADD COLUMN valid_from TIMESTAMP");
+    safeAlter(db, "ALTER TABLE entities ADD COLUMN valid_until TIMESTAMP");
   }
 
   // Migrate: add namespace column if missing (v3.0.0-rc -> v3.0.0)
-  if (!scoringCols.some((c) => c.name === 'namespace')) {
-    safeAlter("ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
+  if (!entityColumns.has('namespace')) {
+    safeAlter(db, "ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
     db.exec("CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace)");
   }
 
   // Migrate: add recall effectiveness columns if missing (v4.0.0)
-  const recallCols = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
-  if (!recallCols.some((c) => c.name === 'recall_hits')) {
-    safeAlter("ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
-    safeAlter("ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
+  if (!entityColumns.has('recall_hits')) {
+    safeAlter(db, "ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
+    safeAlter(db, "ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
   }
 
   // Migrate: add title column if missing (human-readable titles).
@@ -391,9 +397,8 @@ function migrateToCurrentSchema(db: MemeshDatabase, resolvedPath: string): void 
   // ALTER blocks like this one — see scripts/hooks/_shared.js's
   // migrateHookDbToCurrent, which this block must be kept in lockstep
   // with by hand, same discipline as every ALTER above it).
-  const titleCols = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
-  if (!titleCols.some((c) => c.name === 'title')) {
-    safeAlter("ALTER TABLE entities ADD COLUMN title TEXT");
+  if (!entityColumns.has('title')) {
+    safeAlter(db, "ALTER TABLE entities ADD COLUMN title TEXT");
   }
 
   // Run auto-decay: reduce confidence for stale entities (throttled to once per 24h)
@@ -1053,13 +1058,7 @@ function ensureDreamProposalsTable(db: MemeshDatabase): void {
   // ALTER blocks above.
   const dpCols = db.prepare("PRAGMA table_info(dream_proposals)").all() as PragmaColumnRow[];
   if (!dpCols.some((c) => c.name === 'source_kind')) {
-    try {
-      db.exec("ALTER TABLE dream_proposals ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'entities'");
-    } catch (err) {
-      // Concurrent opener won the race and added it first — the only
-      // tolerable error here is the duplicate-column one.
-      if (!String((err as Error).message).includes('duplicate column name')) throw err;
-    }
+    safeAlter(db, "ALTER TABLE dream_proposals ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'entities'");
   }
   // What accepting the proposal DOES: 'digest' creates an entity (compaction
   // or pattern — those two are discriminated by cluster_key/type, as before);
@@ -1069,11 +1068,7 @@ function ensureDreamProposalsTable(db: MemeshDatabase): void {
   // compare source_ids as entity-id arrays — a relation row's [a,b] pair
   // would read as a two-entity digest and cancel real compaction work.
   if (!dpCols.some((c) => c.name === 'kind')) {
-    try {
-      db.exec("ALTER TABLE dream_proposals ADD COLUMN kind TEXT NOT NULL DEFAULT 'digest'");
-    } catch (err) {
-      if (!String((err as Error).message).includes('duplicate column name')) throw err;
-    }
+    safeAlter(db, "ALTER TABLE dream_proposals ADD COLUMN kind TEXT NOT NULL DEFAULT 'digest'");
   }
 }
 

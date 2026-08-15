@@ -6,7 +6,7 @@
 // =============================================================================
 
 import { getDatabase } from '../db.js';
-import { detectCapabilities, getEmbeddingDimension, type LLMConfig } from './config.js';
+import { detectCapabilities, getEmbeddingDimension, type Capabilities, type LLMConfig } from './config.js';
 import { hasVectorIndex } from '../storage/vector-index.js';
 
 /**
@@ -71,8 +71,7 @@ const pendingEmbeddingWrites = new Set<Promise<unknown>>();
  * separately from `config.llm`, per #36) — pre-#36 this incorrectly
  * tied embedding availability to the LLM provider.
  */
-export function isEmbeddingAvailable(): boolean {
-  const caps = detectCapabilities();
+export function isEmbeddingAvailable(caps: Capabilities = detectCapabilities()): boolean {
   if (caps.embeddings === 'openai') return true;
   if (caps.embeddings === 'ollama') return true;
   // 'tfidf' (keyword-only) and 'anthropic' (no embedding API) have no neural
@@ -120,8 +119,8 @@ export async function canRefillVectorIndex(): Promise<boolean> {
 // getEmbeddingDimension() is in config.ts to avoid circular dependency with db.ts
 export { getEmbeddingDimension } from './config.js';
 
-export function scheduleEmbedAndStore(entityId: number, text: string): void {
-  const pending = embedAndStore(entityId, text);
+export function scheduleEmbedAndStore(entityId: number, text: string, caps?: Capabilities): void {
+  const pending = embedAndStore(entityId, text, caps);
   const tracked = pending.finally(() => {
     pendingEmbeddingWrites.delete(tracked);
   });
@@ -203,9 +202,10 @@ export function entityEmbedText(name: string, observations: string[]): string {
  * The provider's API key (when needed for openai/ollama) is read
  * from the matching LLMConfig — they share credentials by provider.
  */
-export async function embedText(text: string): Promise<Float32Array | null> {
-  const caps = detectCapabilities();
-
+export async function embedText(
+  text: string,
+  caps: Capabilities = detectCapabilities(),
+): Promise<Float32Array | null> {
   if (caps.embeddings === 'openai' || caps.embeddings === 'ollama') {
     // Reuse the LLM credential for the same provider, if present.
     // Otherwise pass a minimal config — a failed provider call returns
@@ -294,9 +294,9 @@ export type EmbedOutcome =
  * progress MUST branch on it; treating a non-throw as a write is the defect
  * this return value exists to remove.
  */
-export async function embedAndStore(entityId: number, text: string): Promise<EmbedOutcome> {
+export async function embedAndStore(entityId: number, text: string, caps?: Capabilities): Promise<EmbedOutcome> {
   try {
-    const embedding = await embedText(text);
+    const embedding = await embedText(text, caps);
     if (!embedding) return 'no_embedding';
 
     const db = getDatabase();

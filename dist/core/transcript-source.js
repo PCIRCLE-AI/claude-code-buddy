@@ -1,12 +1,11 @@
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
-import { memeshDir } from './paths.js';
+import { homeDir, memeshDir } from './paths.js';
 export function claudeProjectsDir() {
     const override = process.env.CLAUDE_PROJECTS_DIR;
     if (override && override.trim() !== '')
         return override;
-    return path.join(os.homedir(), '.claude', 'projects');
+    return path.join(homeDir(), '.claude', 'projects');
 }
 export function projectTranscriptSlug(cwd) {
     return cwd.replace(/[^a-zA-Z0-9]/g, '-');

@@ -9,7 +9,11 @@ type ExecFileSyncLike = typeof execFileSync;
 
 interface DetectInstallChannelOptions {
   packageRoot: string;
-  globalNpmRoot?: string | null;
+  /** The global npm root, or a thunk that resolves it. A thunk is only
+   *  invoked if the higher-priority classifications (plugin-marketplace
+   *  path, `.git` presence) miss — resolving it eagerly costs an
+   *  `npm root -g` spawn (50-200ms) that those channels never need. */
+  globalNpmRoot?: string | null | (() => string | null);
   existsSyncImpl?: ExistsSyncLike;
 }
 
@@ -82,7 +86,9 @@ export function detectInstallChannel(options: DetectInstallChannelOptions): Inst
     return 'source-checkout';
   }
 
-  if (globalNpmRoot && isSubpath(path.resolve(globalNpmRoot), normalizedPackageRoot)) {
+  const resolvedGlobalNpmRoot =
+    typeof globalNpmRoot === 'function' ? globalNpmRoot() : globalNpmRoot;
+  if (resolvedGlobalNpmRoot && isSubpath(path.resolve(resolvedGlobalNpmRoot), normalizedPackageRoot)) {
     return 'npm-global';
   }
 
@@ -94,6 +100,12 @@ export function detectInstallChannel(options: DetectInstallChannelOptions): Inst
   return 'unknown';
 }
 
+// The install channel of a running binary cannot change within the process,
+// and the miss path can spawn `npm root -g` — which sits on the SessionStart
+// hook, `/v1/doctor` (fetched on every dashboard page load), and
+// `/v1/update-status`, blocking the single-threaded HTTP server's event loop.
+const channelCache = new Map<string, InstallChannel>();
+
 export function getCurrentInstallChannel(
   options: GetCurrentInstallChannelOptions,
 ): InstallChannel {
@@ -103,11 +115,25 @@ export function getCurrentInstallChannel(
     execFileSyncImpl,
   } = options;
 
-  return detectInstallChannel({
+  // Only cache the real-filesystem path — injected test doubles must stay
+  // isolated from each other and from real runs.
+  const canCache = !existsSyncImpl && !execFileSyncImpl;
+  if (canCache) {
+    const cached = channelCache.get(packageRoot);
+    if (cached !== undefined) return cached;
+  }
+
+  const channel = detectInstallChannel({
     packageRoot,
-    globalNpmRoot: getGlobalNpmRoot({ execFileSyncImpl }),
+    // Thunk: `npm root -g` is only spawned when the marketplace-path and
+    // `.git` classifications both miss (i.e. never for the two most common
+    // channels, plugin-marketplace and source-checkout).
+    globalNpmRoot: () => getGlobalNpmRoot({ execFileSyncImpl }),
     existsSyncImpl,
   });
+
+  if (canCache) channelCache.set(packageRoot, channel);
+  return channel;
 }
 
 export function getInstallChannelSupport(channel: InstallChannel): InstallChannelSupport {

@@ -296,17 +296,17 @@
       "reason": "reads cli.ts to assert each behavioural relation type has a flag whose help carries the consequence — the flags' behaviour is tested against a real database in tests/cli/remember-relations.test.ts",
       "triaged": "2026-08-10 (P7 batch 2)"
     },
-    "C5 src/core/kg-backfill.ts:410": {
+    "C5 src/core/kg-backfill.ts:402": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "index lookups where empty means no peers",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/kg-backfill.ts:555": {
+    "C5 src/core/kg-backfill.ts:547": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "index lookups where empty means no peers",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/kg-backfill.ts:562": {
+    "C5 src/core/kg-backfill.ts:554": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "index lookups where empty means no peers",
       "triaged": "2026-08-04"
@@ -326,17 +326,17 @@
       "reason": "upstream filter requires non-empty arrays before these run (the (p.evidence ?? []) statement; re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
       "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1175 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1189 (PROTECTED_TYPES export comment shifted the file; statement verified); re-keyed 2026-08-14 +4 from :1192 (kind != 'relation' guards on the two pending-proposal scans; statement verified)"
     },
-    "C5 src/core/doctor.ts:428": {
+    "C5 src/core/doctor.ts:449": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-13 420->424 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged)"
     },
-    "C5 src/core/doctor.ts:429": {
+    "C5 src/core/doctor.ts:450": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +2; same statement, classification unchanged); re-keyed 2026-08-13 421->425 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged)"
     },
-    "C5 src/core/doctor.ts:474": {
+    "C5 src/core/doctor.ts:495": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +1; same statement, classification unchanged); re-keyed 2026-08-13 466->470 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged)"
@@ -351,7 +351,7 @@
       "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
       "triaged": "2026-08-04 (re-keyed 353->359->369: the transcriptMining field + isTranscriptMiningEnabled additions shifted the line down 10; same llmFallbacks ?? [] code verified before re-keying); re-keyed 2026-08-10 (the AUTO_CAPTURE_TAG-driven detectCapabilities guard shifted it +7; same statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified)"
     },
-    "C5 src/core/doctor.ts:1707": {
+    "C5 src/core/doctor.ts:1715": {
       "class": "SAFE-GUARDED",
       "reason": "verifySkillsManifest: entries ?? [] is followed by entries.length === 0 -> fail (skills-manifest.empty); the ?? cannot convert absence into a pass",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +6; same statement, classification unchanged); re-keyed 2026-08-12 +56 (the hook-activity rewrite and hoursSince); re-keyed 2026-08-13 1446->1560 (the review round's inspectHookActivity per-hook rewrite, isAutoCaptureOff and hoursSince round-trip added 114 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 1560->1616 (rev2: source_host corroboration, stop-silent/never-ran-legacy branches and the staleUnknown/stale helpers added 56 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 1616->1686 (foreign-row exclusion, read-only table probe, stale-unconfirmed/disabled-env branches and the legacy-window query added 70 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified)"
@@ -401,7 +401,7 @@
       "reason": "Zod rejects {} for schemas with required fields",
       "triaged": "2026-08-10 (re-keyed 290->312: the stripNullProps helper added 22 lines above; the statement now wraps args in stripNullProps, which maps {} to {} and null properties to absent — the guard this triage relies on, Zod rejecting {} for required fields, is untouched); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified); re-keyed 2026-08-14 268->273 (UX-1 title property in remember inputSchema above; same safeParse statement — verified)"
     },
-    "C5 src/core/operations.ts:120": {
+    "C5 src/core/operations.ts:126": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "provenance spread identity: absent provenanceOverride means the caller supplied none, and spreading {} correctly leaves the source_host stamped on the line above; a spread of undefined would even be legal JS, so this cannot convert a failure into a default",
       "triaged": "2026-08-12 (Phase 02 provenance); re-keyed 2026-08-13 (shifted +6 by the first-writer-wins comment added above, statement unchanged); re-keyed 2026-08-14 119->120 (UX-1 title passed into createEntity above; same provenance spread statement — verified)"
@@ -441,12 +441,12 @@
       "reason": "display fallbacks; empty renders an explicit notice",
       "triaged": "2026-08-04; re-keyed 2026-08-14 297->298 (import shift; the hay statement also gained an `e.title ?? ''` arm — same fallback class: an absent title truthfully contributes nothing to the filter haystack)"
     },
-    "C5 dashboard/src/lib/entity-display.ts:196": {
+    "C5 dashboard/src/lib/entity-display.ts:178": {
       "class": "SAFE-DISPLAY",
       "reason": "classification falls through to the freeform bucket",
       "triaged": "2026-08-04; re-keyed 2026-08-14 (displayTitle helper added above; same statement — verified)"
     },
-    "C5 dashboard/src/lib/entity-display.ts:198": {
+    "C5 dashboard/src/lib/entity-display.ts:180": {
       "class": "SAFE-DISPLAY",
       "reason": "classification falls through to the freeform bucket",
       "triaged": "2026-08-04; re-keyed 2026-08-14 (displayTitle helper added above; same statement — verified)"
@@ -496,32 +496,32 @@
       "reason": "batch-hydrate lookups; confidence bump fails closed",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-15 631→649 (merge main shifted lines +18; same statement — verified)"
     },
-    "C7 README.md:271": {
+    "C7 README.md:283": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04; re-keyed 2026-08-15 21→271 (merge main shifted lines +250; same statement — verified)"
     },
-    "C7 README.md:277": {
+    "C7 README.md:289": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04; re-keyed 2026-08-15 27→277 (merge main shifted lines +250; same statement — verified)"
     },
-    "C7 README.md:295": {
+    "C7 README.md:307": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04 (re-keyed 273->294: the Codex/Gemini MCP setup section added to Get Started shifted this line down 21; same auto-capture table row verified before re-keying); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-15 293→295 (merge main shifted lines +2; same statement — verified)"
     },
-    "C7 README.md:369": {
+    "C7 README.md:381": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04 (re-keyed 346->348->369: the Codex/Gemini MCP setup section shifted this line down 21 more; same testimonial figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-15 367→369 (merge main shifted lines +2; same statement — verified)"
     },
-    "C7 README.md:428": {
+    "C7 README.md:440": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04 (re-keyed 353->355->376: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 out-of-the-box figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 374->426 (the Recipes section added above; same statement — verified); re-keyed 2026-08-15 426→428 (merge main shifted lines +2; same statement — verified)"
     },
-    "C7 README.md:459": {
+    "C7 README.md:471": {
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04 (re-keyed 379->382->386->407: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 comparison-table figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-14 405->457 (the Recipes section added above; same statement — verified); re-keyed 2026-08-15 457→459 (merge main shifted lines +2; same statement — verified)"

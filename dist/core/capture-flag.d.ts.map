@@ -1,0 +1,1 @@
+{"version":3,"file":"capture-flag.d.ts","sourceRoot":"","sources":["../../src/core/capture-flag.ts"],"names":[],"mappings":"AA2BA,wBAAgB,mBAAmB,CACjC,MAAM,EAAE,MAAM,GAAG,SAAS,EAC1B,iBAAiB,EAAE,OAAO,GACzB;IAAE,OAAO,EAAE,OAAO,CAAC;IAAC,SAAS,EAAE,KAAK,GAAG,QAAQ,GAAG,IAAI,CAAA;CAAE,CAK1D"}

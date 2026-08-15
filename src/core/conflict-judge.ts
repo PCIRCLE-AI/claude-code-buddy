@@ -36,6 +36,7 @@ import type { LLMConfig } from './config.js';
 import { recordTelemetry } from './llm-telemetry.js';
 import { sanitizeListForPrompt } from './prompt-safety.js';
 import { findConflictCandidates, pairKey, type ConflictCandidate } from './conflict-candidates.js';
+import { jsonBlocks } from './json-utils.js';
 
 export const CONFLICT_JUDGE_PROMPT_VERSION = 'conflict-judge-v1';
 
@@ -154,33 +155,6 @@ interface ParsedVerdict {
   excerpts?: { a: string; b: string };
 }
 
-/** Every top-level balanced {...} block in the text, in order. The judge
- *  takes the LAST one carrying a valid verdict: a model that narrates
- *  ("Example: {...UNRELATED...} — but here: {...CONTRADICTS...}") must be
- *  read by its conclusion, not its first aside — the first-block rule
- *  turned exactly that shape into a permanently-recorded wrong verdict. */
-function jsonObjectBlocks(text: string): string[] {
-  const out: string[] = [];
-  let depth = 0, start = -1, inStr = false, esc = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (esc) { esc = false; continue; }
-    if (inStr) {
-      if (ch === '\\') esc = true;
-      else if (ch === '"') inStr = false;
-      continue;
-    }
-    if (ch === '"') { inStr = true; continue; }
-    if (ch === '{') { if (depth === 0) start = i; depth++; }
-    else if (ch === '}') {
-      depth--;
-      if (depth === 0 && start !== -1) { out.push(text.slice(start, i + 1)); start = -1; }
-      if (depth < 0) depth = 0;
-    }
-  }
-  return out;
-}
-
 function parseVerdict(text: string): ParsedVerdict | null {
   // Neither "first object" nor "last object" is evidence of which one the
   // model MEANT (the first-block rule recorded narrated examples; a
@@ -188,7 +162,9 @@ function parseVerdict(text: string): ParsedVerdict | null {
   // agrees, take the last (usually the fullest); if they DISAGREE, the
   // response is ambiguous and ambiguity is a parse failure — the pair
   // returns as a candidate, it is never guessed into conflict_judged_pairs.
-  const parsedBlocks = jsonObjectBlocks(text)
+  // Every top-level balanced {...} block, in order (shared scanner from
+  // json-utils — this file used to carry its own copy of the scanner core).
+  const parsedBlocks = jsonBlocks(text, 'object')
     .map(parseVerdictBlock)
     .filter((p): p is ParsedVerdict => p !== null);
   if (parsedBlocks.length === 0) return null;

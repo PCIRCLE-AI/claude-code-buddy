@@ -2,6 +2,7 @@ import { callLLM } from './llm-client.js';
 import { recordTelemetry } from './llm-telemetry.js';
 import { sanitizeForPrompt, sanitizeListForPrompt } from './prompt-safety.js';
 import { outputLanguageInstruction } from './output-language.js';
+import { extractJsonBlock } from './json-utils.js';
 export async function analyzeFailure(errors, filesEdited, llmConfig, opts = {}) {
     const unique = [...new Set(errors)].slice(0, 5);
     if (unique.length === 0)
@@ -62,10 +63,10 @@ Analyze the root cause and return a JSON object (ONLY the JSON, no explanation):
 }
 export function parseLesson(text) {
     try {
-        const match = text.match(/\{[\s\S]*?\}/);
-        if (!match)
+        const block = extractJsonBlock(text, 'object');
+        if (!block)
             return null;
-        const obj = JSON.parse(match[0]);
+        const obj = JSON.parse(block);
         if (!obj.error || !obj.fix)
             return null;
         const validErrorPatterns = ['null-reference', 'type-error', 'import-missing', 'config-error', 'test-failure', 'build-error', 'runtime-error', 'logic-error', 'other'];

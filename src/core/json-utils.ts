@@ -21,17 +21,33 @@
  * balanced block exists.
  */
 export function extractJsonBlock(text: string, kind: 'object' | 'array'): string | null {
-  if (!text) return null;
+  return jsonBlocks(text, kind, 1)[0] ?? null;
+}
+
+/**
+ * Every top-level balanced block in the text, in order. The generalized form
+ * of {@link extractJsonBlock}: one string-aware, escape-aware bracket scanner
+ * for the whole codebase (conflict-judge used to carry a verbatim second copy
+ * of the scanner core, so a string/escape-handling fix in one would not have
+ * reached the other). `max` caps the scan for callers that only need the
+ * first block.
+ */
+export function jsonBlocks(
+  text: string,
+  kind: 'object' | 'array',
+  max: number = Infinity,
+): string[] {
+  const out: string[] = [];
+  if (!text) return out;
   const open = kind === 'object' ? '{' : '[';
   const close = kind === 'object' ? '}' : ']';
-  const start = text.indexOf(open);
-  if (start === -1) return null;
 
   let depth = 0;
+  let start = -1;
   let inString = false;
   let escaped = false;
 
-  for (let i = start; i < text.length; i++) {
+  for (let i = 0; i < text.length; i++) {
     const ch = text[i];
 
     if (inString) {
@@ -41,15 +57,22 @@ export function extractJsonBlock(text: string, kind: 'object' | 'array'): string
       continue;
     }
 
+    // A quote only opens a string INSIDE a block — prose outside can contain
+    // unbalanced quotes ("it's) that would otherwise swallow the real block.
     if (ch === '"') {
-      inString = true;
+      if (depth > 0) inString = true;
     } else if (ch === open) {
+      if (depth === 0) start = i;
       depth++;
-    } else if (ch === close) {
+    } else if (ch === close && depth > 0) {
       depth--;
-      if (depth === 0) return text.slice(start, i + 1);
+      if (depth === 0 && start !== -1) {
+        out.push(text.slice(start, i + 1));
+        start = -1;
+        if (out.length >= max) return out;
+      }
     }
   }
 
-  return null; // opener with no balanced closer
+  return out;
 }

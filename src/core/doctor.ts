@@ -15,6 +15,8 @@ import { lastTranscriptMineAt } from './transcript-source.js';
 import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
 import { MemeshDatabase } from '../storage/sqlite.js';
 import { AUTO_CAPTURE_TAG } from './types.js';
+import { parseSqliteUtcMs } from './time-utils.js';
+import { autoCaptureDecision } from './capture-flag.js';
 
 export type DoctorCheckStatus = 'pass' | 'warn' | 'fail';
 export type DoctorOverallStatus = 'PASS' | 'PASS_WITH_CONCERNS' | 'FAIL';
@@ -308,6 +310,18 @@ function parseJsonFile(
   }
 }
 
+/**
+ * Is `~/.memesh/config.json` present, parseable, and an object?
+ *
+ * ONE row for one file. This used to be two rows (`config` here and a later
+ * `config_parse`) that both read + parsed the same file and both failed on
+ * invalid JSON — two IDs, two i18n families and two fix strings to keep
+ * aligned for one fact. Merged keeping this row's id (pinned by tests) and
+ * the stricter checks: `readConfig()` returns `{}` on ANY read failure —
+ * corrupt JSON, a half-written file, EACCES, an array root — so every
+ * Smart-Mode setting degrades to a silent no-op; this row makes that state
+ * visible.
+ */
 function inspectConfigFile(
   existsSyncImpl: typeof fs.existsSync,
   readFileSyncImpl: typeof fs.readFileSync,
@@ -324,24 +338,31 @@ function inspectConfigFile(
     );
   }
 
-  const parsed = parseJsonFile(configPath, readFileSyncImpl);
-  if (!parsed.ok) {
+  try {
+    const raw = readFileSyncImpl(configPath, 'utf8') as string;
+    const parsed = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return createCheck(
+        'config',
+        'Config',
+        'fail',
+        `${configPath} parsed but is not a JSON object — every setting is being ignored.`,
+        `Fix or remove ${configPath}, then re-run memesh doctor.`,
+        { code: 'config-parse.not-object', params: { path: configPath } },
+      );
+    }
+    return createCheck('config', 'Config', 'pass', `${configPath} is valid JSON and its settings are in effect.`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
     return createCheck(
       'config',
       'Config',
       'fail',
-      `Config file is invalid JSON at ${configPath}.`,
-      `Fix or remove ${configPath}, then run \`memesh config list\` to confirm it loads cleanly.`,
-      { code: 'config.invalid-json', params: { path: configPath } },
+      `${configPath} could not be read or parsed (${msg}). Every setting in it — LLM provider, fallbacks, embedder — is being silently ignored right now.`,
+      `Fix the JSON or remove the file to fall back to defaults: mv ${configPath} ${configPath}.bak`,
+      { code: 'config-parse.unreadable', params: { path: configPath, detail: msg } },
     );
   }
-
-  return createCheck(
-    'config',
-    'Config',
-    'pass',
-    `Config file is readable at ${configPath}.`,
-  );
 }
 
 function inspectMcpConfig(
@@ -1046,14 +1067,15 @@ function inspectHookActivity(
  * ITS shell says nothing certain about the agent's hooks.
  */
 function autoCaptureOffSource(): 'env' | 'config' | null {
-  const envVal = process.env.MEMESH_AUTO_CAPTURE;
-  if (envVal === 'false') return 'env';
-  if (envVal === 'true') return null;
+  let configAutoCapture: unknown;
   try {
-    return readConfig().autoCapture === false ? 'config' : null;
+    configAutoCapture = readConfig().autoCapture;
   } catch {
-    return null;
+    configAutoCapture = undefined;
   }
+  // The precedence itself lives in capture-flag.ts — the same module the
+  // hooks execute (via _generated/), so the two sides cannot fork.
+  return autoCaptureDecision(process.env.MEMESH_AUTO_CAPTURE, configAutoCapture).offSource;
 }
 
 /**
@@ -1071,24 +1093,10 @@ function autoCaptureOffSource(): 'env' | 'config' | null {
  * loop as alive, which is the exact failure this whole check exists to end.
  */
 export function hoursSince(sqliteTimestamp: string): number | null {
-  // Anchored at BOTH ends: SQLite's datetime('now') writes exactly
-  // 'YYYY-MM-DD HH:MM:SS', so a trailing suffix means the value was not
-  // written by us — and the worst suffixes are timezone offsets, which this
-  // parser would silently ignore while reading the prefix as UTC (measured:
-  // '…10:00:00+08:00' parsed 8 hours wrong instead of returning unknown).
-  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(sqliteTimestamp ?? '');
-  if (!m) return null;
-  const then = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
-  if (!Number.isFinite(then)) return null;
-  // Date.UTC never rejects out-of-range components — it rolls them over, so
-  // a corrupt `2026-99-99 00:00:00` silently becomes a real date years away
-  // (usually in the future, where a negative age can pass a recency check).
-  // Round-tripping catches exactly the values that rolled.
-  const d = new Date(then);
-  if (
-    d.getUTCFullYear() !== +m[1] || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]
-    || d.getUTCHours() !== +m[4] || d.getUTCMinutes() !== +m[5] || d.getUTCSeconds() !== +m[6]
-  ) return null;
+  // Anchoring, UTC semantics and rollover round-trip all live in
+  // parseSqliteUtcMs — the single owner of this parse.
+  const then = parseSqliteUtcMs(sqliteTimestamp);
+  if (then === null) return null;
   return (Date.now() - then) / (60 * 60 * 1000);
 }
 
@@ -1752,55 +1760,9 @@ function verifySkillsManifest(
   );
 }
 
-/**
- * Is `~/.memesh/config.json` actually parseable?
- *
- * `readConfig()` returns `{}` on ANY read failure — corrupt JSON, a
- * half-written file, EACCES — not just "file absent". A corrupt config
- * therefore erases `llm`, `llmFallbacks` and `embedder` silently, and every
- * Smart-Mode feature degrades to a no-op while doctor happily reported
- * "Config file is readable". This row makes that state visible.
- */
-async function inspectConfigParse(
-  getConfigPathImpl: typeof getConfigPath,
-  existsSyncImpl: typeof fs.existsSync,
-  readFileSyncImpl: typeof fs.readFileSync,
-): Promise<DoctorCheck> {
-  const configPath = getConfigPathImpl();
-  if (!existsSyncImpl(configPath)) {
-    return createCheck(
-      'config_parse',
-      'Config parses',
-      'pass',
-      'No config file yet — defaults apply. This is normal for a fresh install.',
-    );
-  }
-  try {
-    const raw = readFileSyncImpl(configPath, 'utf8') as string;
-    const parsed = JSON.parse(raw);
-    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return createCheck(
-        'config_parse',
-        'Config parses',
-        'fail',
-        `${configPath} parsed but is not a JSON object — every setting is being ignored.`,
-        `Fix or remove ${configPath}, then re-run memesh doctor.`,
-        { code: 'config-parse.not-object', params: { path: configPath } },
-      );
-    }
-    return createCheck('config_parse', 'Config parses', 'pass', `${configPath} is valid JSON and its settings are in effect.`);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return createCheck(
-      'config_parse',
-      'Config parses',
-      'fail',
-      `${configPath} could not be read or parsed (${msg}). Every setting in it — LLM provider, fallbacks, embedder — is being silently ignored right now.`,
-      `Fix the JSON or remove the file to fall back to defaults: mv ${configPath} ${configPath}.bak`,
-      { code: 'config-parse.unreadable', params: { path: configPath, detail: msg } },
-    );
-  }
-}
+// (The former `config_parse` row merged into `inspectConfigFile` — one file,
+// one row, one set of fix strings. Its stricter checks and error codes
+// survived the merge; only the duplicate ID died.)
 
 /**
  * Does embedding generation actually work?
@@ -2250,7 +2212,6 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     ));
   }
 
-  checks.push(await inspectConfigParse(getConfigPathImpl, existsSyncImpl, readFileSyncImpl));
   checks.push(await inspectEmbeddingProbe(capabilities, probeCapabilities, embedTextImpl));
   checks.push(await inspectLlmProbe(capabilities, probeCapabilities, probeProviderImpl));
 

@@ -7,6 +7,7 @@ import { resolveEmbeddingDimension } from './core/config.js';
 import { computeSignalScore } from './core/signal-scorer.js';
 import { getDbPath } from './core/paths.js';
 import { insertFtsRow, removeFromFts } from './storage/fts-index.js';
+import { parseSqliteUtcMs } from './core/time-utils.js';
 let db = null;
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS entities (
@@ -149,16 +150,9 @@ function ensureHookRunsSince(handle) {
             .prepare("SELECT value FROM memesh_metadata WHERE key = 'hook_runs_since'")
             .get();
         if (row) {
-            const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(row.value ?? '');
-            if (m) {
-                const then = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
-                const d = new Date(then);
-                const intact = Number.isFinite(then)
-                    && d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3]
-                    && d.getUTCHours() === +m[4] && d.getUTCMinutes() === +m[5] && d.getUTCSeconds() === +m[6];
-                if (intact && then <= Date.now() + 5 * 60 * 1000)
-                    return;
-            }
+            const then = parseSqliteUtcMs(row.value ?? '');
+            if (then !== null && then <= Date.now() + 5 * 60 * 1000)
+                return;
             handle
                 .prepare("UPDATE memesh_metadata SET value = datetime('now') WHERE key = 'hook_runs_since'")
                 .run();
@@ -221,6 +215,16 @@ function initialiseDatabase(db, resolvedPath) {
     }
     return db;
 }
+function safeAlter(db, sql) {
+    try {
+        db.exec(sql);
+    }
+    catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!/duplicate column name/i.test(msg))
+            throw e;
+    }
+}
 function migrateToCurrentSchema(db, resolvedPath) {
     db.exec(SCHEMA_SQL);
     db.exec(FTS_SQL);
@@ -236,41 +240,28 @@ function migrateToCurrentSchema(db, resolvedPath) {
         }
         catch { }
     }
-    const safeAlter = (sql) => {
-        try {
-            db.exec(sql);
-        }
-        catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            if (!/duplicate column name/i.test(msg))
-                throw e;
-        }
-    };
-    const columns = db.prepare("PRAGMA table_info(entities)").all();
-    if (!columns.some((c) => c.name === 'status')) {
-        safeAlter("ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+    const entityColumns = new Set(db.prepare("PRAGMA table_info(entities)").all().map((c) => c.name));
+    if (!entityColumns.has('status')) {
+        safeAlter(db, "ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
         db.exec("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)");
     }
-    const scoringCols = db.prepare("PRAGMA table_info(entities)").all();
-    if (!scoringCols.some((c) => c.name === 'access_count')) {
-        safeAlter("ALTER TABLE entities ADD COLUMN access_count INTEGER DEFAULT 0");
-        safeAlter("ALTER TABLE entities ADD COLUMN last_accessed_at TIMESTAMP");
-        safeAlter("ALTER TABLE entities ADD COLUMN confidence REAL DEFAULT 1.0");
-        safeAlter("ALTER TABLE entities ADD COLUMN valid_from TIMESTAMP");
-        safeAlter("ALTER TABLE entities ADD COLUMN valid_until TIMESTAMP");
+    if (!entityColumns.has('access_count')) {
+        safeAlter(db, "ALTER TABLE entities ADD COLUMN access_count INTEGER DEFAULT 0");
+        safeAlter(db, "ALTER TABLE entities ADD COLUMN last_accessed_at TIMESTAMP");
+        safeAlter(db, "ALTER TABLE entities ADD COLUMN confidence REAL DEFAULT 1.0");
+        safeAlter(db, "ALTER TABLE entities ADD COLUMN valid_from TIMESTAMP");
+        safeAlter(db, "ALTER TABLE entities ADD COLUMN valid_until TIMESTAMP");
     }
-    if (!scoringCols.some((c) => c.name === 'namespace')) {
-        safeAlter("ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
+    if (!entityColumns.has('namespace')) {
+        safeAlter(db, "ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
         db.exec("CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace)");
     }
-    const recallCols = db.prepare("PRAGMA table_info(entities)").all();
-    if (!recallCols.some((c) => c.name === 'recall_hits')) {
-        safeAlter("ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
-        safeAlter("ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
+    if (!entityColumns.has('recall_hits')) {
+        safeAlter(db, "ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
+        safeAlter(db, "ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
     }
-    const titleCols = db.prepare("PRAGMA table_info(entities)").all();
-    if (!titleCols.some((c) => c.name === 'title')) {
-        safeAlter("ALTER TABLE entities ADD COLUMN title TEXT");
+    if (!entityColumns.has('title')) {
+        safeAlter(db, "ALTER TABLE entities ADD COLUMN title TEXT");
     }
     runAutoDecay(db);
     backfillSignalScores(db);
@@ -478,22 +469,10 @@ function ensureDreamProposalsTable(db) {
   `);
     const dpCols = db.prepare("PRAGMA table_info(dream_proposals)").all();
     if (!dpCols.some((c) => c.name === 'source_kind')) {
-        try {
-            db.exec("ALTER TABLE dream_proposals ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'entities'");
-        }
-        catch (err) {
-            if (!String(err.message).includes('duplicate column name'))
-                throw err;
-        }
+        safeAlter(db, "ALTER TABLE dream_proposals ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'entities'");
     }
     if (!dpCols.some((c) => c.name === 'kind')) {
-        try {
-            db.exec("ALTER TABLE dream_proposals ADD COLUMN kind TEXT NOT NULL DEFAULT 'digest'");
-        }
-        catch (err) {
-            if (!String(err.message).includes('duplicate column name'))
-                throw err;
-        }
+        safeAlter(db, "ALTER TABLE dream_proposals ADD COLUMN kind TEXT NOT NULL DEFAULT 'digest'");
     }
 }
 function ensureConflictJudgedPairsTable(db) {

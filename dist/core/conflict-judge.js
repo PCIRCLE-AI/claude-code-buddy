@@ -2,6 +2,7 @@ import { callLLM } from './llm-client.js';
 import { recordTelemetry } from './llm-telemetry.js';
 import { sanitizeListForPrompt } from './prompt-safety.js';
 import { findConflictCandidates, pairKey } from './conflict-candidates.js';
+import { jsonBlocks } from './json-utils.js';
 export const CONFLICT_JUDGE_PROMPT_VERSION = 'conflict-judge-v1';
 export const CONFLICT_JUDGE_MAX_PAIRS = 20;
 const VERDICTS = ['CONTRADICTS', 'SUPERSEDES', 'DUPLICATE', 'UNRELATED'];
@@ -42,45 +43,8 @@ Rules:
 ${sources}
 </entries>`;
 }
-function jsonObjectBlocks(text) {
-    const out = [];
-    let depth = 0, start = -1, inStr = false, esc = false;
-    for (let i = 0; i < text.length; i++) {
-        const ch = text[i];
-        if (esc) {
-            esc = false;
-            continue;
-        }
-        if (inStr) {
-            if (ch === '\\')
-                esc = true;
-            else if (ch === '"')
-                inStr = false;
-            continue;
-        }
-        if (ch === '"') {
-            inStr = true;
-            continue;
-        }
-        if (ch === '{') {
-            if (depth === 0)
-                start = i;
-            depth++;
-        }
-        else if (ch === '}') {
-            depth--;
-            if (depth === 0 && start !== -1) {
-                out.push(text.slice(start, i + 1));
-                start = -1;
-            }
-            if (depth < 0)
-                depth = 0;
-        }
-    }
-    return out;
-}
 function parseVerdict(text) {
-    const parsedBlocks = jsonObjectBlocks(text)
+    const parsedBlocks = jsonBlocks(text, 'object')
         .map(parseVerdictBlock)
         .filter((p) => p !== null);
     if (parsedBlocks.length === 0)

@@ -78,13 +78,12 @@ export function trackAccess(
 ): void {
   if (entityIds.length === 0) return;
   const now = new Date().toISOString();
-  const stmt = db.prepare(
-    'UPDATE entities SET access_count = access_count + 1, last_accessed_at = ? WHERE id = ?',
-  );
-  const txn = db.transaction(() => {
-    for (const id of entityIds) {
-      stmt.run(now, id);
-    }
-  });
-  txn();
+  // One statement, not one per entity: this runs on every search/recall
+  // (including the session-start and pre-edit-recall hooks), and the id list
+  // is bounded by the search limit (~20) — far under SQLite's bound-variable
+  // cap. A single UPDATE is atomic, so no transaction wrapper is needed.
+  const placeholders = entityIds.map(() => '?').join(',');
+  db.prepare(
+    `UPDATE entities SET access_count = access_count + 1, last_accessed_at = ? WHERE id IN (${placeholders})`,
+  ).run(now, ...entityIds);
 }

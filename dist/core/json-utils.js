@@ -1,15 +1,17 @@
 export function extractJsonBlock(text, kind) {
+    return jsonBlocks(text, kind, 1)[0] ?? null;
+}
+export function jsonBlocks(text, kind, max = Infinity) {
+    const out = [];
     if (!text)
-        return null;
+        return out;
     const open = kind === 'object' ? '{' : '[';
     const close = kind === 'object' ? '}' : ']';
-    const start = text.indexOf(open);
-    if (start === -1)
-        return null;
     let depth = 0;
+    let start = -1;
     let inString = false;
     let escaped = false;
-    for (let i = start; i < text.length; i++) {
+    for (let i = 0; i < text.length; i++) {
         const ch = text[i];
         if (inString) {
             if (escaped)
@@ -21,17 +23,24 @@ export function extractJsonBlock(text, kind) {
             continue;
         }
         if (ch === '"') {
-            inString = true;
+            if (depth > 0)
+                inString = true;
         }
         else if (ch === open) {
+            if (depth === 0)
+                start = i;
             depth++;
         }
-        else if (ch === close) {
+        else if (ch === close && depth > 0) {
             depth--;
-            if (depth === 0)
-                return text.slice(start, i + 1);
+            if (depth === 0 && start !== -1) {
+                out.push(text.slice(start, i + 1));
+                start = -1;
+                if (out.length >= max)
+                    return out;
+            }
         }
     }
-    return null;
+    return out;
 }
 //# sourceMappingURL=json-utils.js.map

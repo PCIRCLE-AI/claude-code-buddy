@@ -3,7 +3,7 @@
   "entries": [
     {
       "path": ".claude-plugin/plugin.json",
-      "sha256": "f6fdc813aeb067416e4ff37abe2cf3e8453e857b50c0f188f75e3669c7eef031",
+      "sha256": "485b5f993aec41ab055f7f2d7ad4a8fb115a9d165dc39fac04cdd7d5e9214837",
       "bytes": 524
     },
     {
@@ -15,6 +15,11 @@
       "path": "hooks/hooks.json",
       "sha256": "a382a07ea95a4bf593042faeabb685e520e254b70280bfd86ee1020068ee9a59",
       "bytes": 1520
+    },
+    {
+      "path": "scripts/hooks/_generated/capture-flag.js",
+      "sha256": "926c85a60b4ff4ac391666dad392f16358e875a14f2dda66edf99b1d636a0a38",
+      "bytes": 901
     },
     {
       "path": "scripts/hooks/_generated/core-paths.js",
@@ -33,8 +38,8 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "37033ddaecf05127ce80b230a9e6124ab71ee1343b4cba7d48212226ed4c2e6f",
-      "bytes": 54117
+      "sha256": "2c23614952706e41325338599fddb743b0cfaf2d2de98a3256c634ec04f1593a",
+      "bytes": 54796
     },
     {
       "path": "scripts/hooks/post-commit.js",
@@ -48,18 +53,18 @@
     },
     {
       "path": "scripts/hooks/pre-edit-recall.js",
-      "sha256": "682e65993ec3ca08be536b0f90781f4d51c7387eeb95207cbe8af6f16953665a",
-      "bytes": 10205
+      "sha256": "a55355c05751ed2195af10b1402b6c731cca752be9df51d5f166b3b212a7000d",
+      "bytes": 10365
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "c6396606218aa6b58da2078748966598feaa2c64c45678caa9d846223e74db5c",
-      "bytes": 46993
+      "sha256": "16b187beb296e643647d9b749da181b1ae15c1745365cbe264a209e92d2a8834",
+      "bytes": 48863
     },
     {
       "path": "scripts/hooks/session-summary.js",
-      "sha256": "ea17b617af2427995fc7dc1edd250bdf8df9dac9f32596c2c093e0241179e12f",
-      "bytes": 44897
+      "sha256": "bbe02fc7f28d9743fe002ea52581336242e2d117598ef48be96c4a3700935b91",
+      "bytes": 45598
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",

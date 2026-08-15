@@ -32,6 +32,7 @@ import {
   getProjectName,
   slugFromRemoteUrl,
 } from './_generated/core-paths.js';
+import { autoCaptureDecision } from './_generated/capture-flag.js';
 import {
   removeFromFts,
   insertFtsRow,
@@ -141,13 +142,12 @@ export function readHookConfig(_env = process.env) {
  * @returns {boolean}
  */
 export function isAutoCaptureEnabled(env = process.env) {
-  const envVal = env.MEMESH_AUTO_CAPTURE;
-  if (envVal === 'false') return false;
-  if (envVal === 'true') return true;
-  // env unset or other value — fall through to config
-  const cfg = readHookConfig(env);
-  if (cfg.autoCapture === false) return false;
-  return true; // default
+  // The precedence (env > config > default-on, and which values count) lives
+  // in src/core/capture-flag.ts, executed here via its generated copy — the
+  // same code doctor's autoCaptureOffSource runs, so the two sides cannot
+  // fork. Only the config READ stays hook-side (readHookConfig's lenient
+  // parse).
+  return autoCaptureDecision(env.MEMESH_AUTO_CAPTURE, readHookConfig(env).autoCapture).enabled;
 }
 
 /**
@@ -902,12 +902,19 @@ export function captureEntity(db, { name, type, observations = [], tags = [], ti
   if (prevObsText !== undefined) {
     removeFromFts(db, id, name, prevObsText, previousTitle);
   }
-  const allObsText = db
-    .prepare('SELECT content FROM observations WHERE entity_id = ?')
-    .all(id)
-    .map((o) => o.content)
-    .join(' ');
-  const currentTitle = db.prepare('SELECT title FROM entities WHERE id = ?').get(id)?.title ?? null;
+  // Compose the indexed text from data already in hand instead of
+  // re-SELECTing the rows just inserted: prev text + the new observations,
+  // space-joined exactly as the row-scan join produced. This runs on every
+  // Stop/PreCompact/PostToolUse capture, and the re-read grew with an
+  // upserted entity's accumulated observation count.
+  const obsParts = [];
+  if (prevObsText) obsParts.push(prevObsText);
+  if (observations.length) obsParts.push(observations.join(' '));
+  const allObsText = obsParts.join(' ');
+  // Current title is fully determined by the branches above — no re-read.
+  const currentTitle = isNew
+    ? (title ?? null)
+    : ((title !== undefined && title !== previousTitle) ? title : previousTitle);
   insertFtsRow(db, id, name, allObsText, currentTitle);
 
   return { id, isNew };

@@ -1,10 +1,9 @@
-import { insertFtsRow } from '../storage/fts-index.js';
+import { KnowledgeGraph } from '../knowledge-graph.js';
 const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const STALE_THRESHOLD_DAYS = 30;
 const DECAY_FACTOR = 0.9;
 const MIN_CONFIDENCE = 0.01;
 export function runAutoDecay(db) {
-    ensureMetadataTable(db);
     const lastDecay = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'last_decay_at'").get();
     if (lastDecay) {
         const elapsed = Date.now() - new Date(lastDecay.value).getTime();
@@ -28,7 +27,6 @@ export function runAutoDecay(db) {
     return { decayed: Number(result.changes) };
 }
 export function getDecayStatus(db) {
-    ensureMetadataTable(db);
     const lastDecay = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'last_decay_at'").get();
     const cols = db.prepare('PRAGMA table_info(entities)').all();
     let belowThreshold = 0;
@@ -53,7 +51,7 @@ const COMPRESS_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const NOISE_AGE_DAYS = 7;
 const NOISE_THRESHOLD = 20;
 export function compressWeeklyNoise(db) {
-    ensureMetadataTable(db);
+    const kg = new KnowledgeGraph(db);
     const lastRun = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'last_noise_compress_at'").get();
     if (lastRun) {
         const elapsed = Date.now() - new Date(lastRun.value).getTime();
@@ -101,15 +99,14 @@ export function compressWeeklyNoise(db) {
         const summaryName = `weekly-summary-${week}`;
         const existing = db.prepare('SELECT id FROM entities WHERE name = ?').get(summaryName);
         if (existing) {
-            db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(existing.id, `+${entities.length} entities archived (${typeBreakdown})`);
+            kg.createEntity(summaryName, 'weekly-summary', {
+                observations: [`+${entities.length} entities archived (${typeBreakdown})`],
+                trustOverride: 'untrusted',
+            });
         }
         else {
             const title = `${week} — ${entities.length} entities compressed`;
-            db.prepare('INSERT INTO entities (name, type, title, metadata) VALUES (?, ?, ?, ?)').run(summaryName, 'weekly-summary', title, JSON.stringify({ title_source: 'heuristic' }));
-            const summaryRow = db.prepare('SELECT id FROM entities WHERE name = ?').get(summaryName);
             const obsText = `${week}: ${count} auto-tracked entities compressed (${typeBreakdown})`;
-            db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)').run(summaryRow.id, obsText);
-            insertFtsRow(db, summaryRow.id, summaryName, obsText, title);
             const entityIdPlaceholders = entities.map(() => '?').join(',');
             const projectTags = db.prepare(`
         SELECT DISTINCT t.tag FROM tags t
@@ -117,10 +114,13 @@ export function compressWeeklyNoise(db) {
         WHERE e.id IN (${entityIdPlaceholders})
           AND t.tag LIKE 'project:%'
       `).all(...entities.map(e => e.id));
-            for (const { tag } of projectTags) {
-                db.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)').run(summaryRow.id, tag);
-            }
-            db.prepare('INSERT OR IGNORE INTO tags (entity_id, tag) VALUES (?, ?)').run(summaryRow.id, 'source:noise-filter');
+            kg.createEntity(summaryName, 'weekly-summary', {
+                title,
+                metadata: { title_source: 'heuristic' },
+                observations: [obsText],
+                tags: [...projectTags.map((t) => t.tag), 'source:noise-filter'],
+                trustOverride: 'untrusted',
+            });
         }
         const archiveIdPlaceholders = entities.map(() => '?').join(',');
         db.prepare(`
@@ -133,12 +133,4 @@ export function compressWeeklyNoise(db) {
     return { compressed: totalCompressed, weeksProcessed: weekGroups.length };
 }
 export { PRESERVED_TYPES, NOISE_TYPES };
-function ensureMetadataTable(db) {
-    db.exec(`
-    CREATE TABLE IF NOT EXISTS memesh_metadata (
-      key   TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    )
-  `);
-}
 //# sourceMappingURL=lifecycle.js.map

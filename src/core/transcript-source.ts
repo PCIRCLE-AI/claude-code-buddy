@@ -15,9 +15,8 @@
 // dropout-proof.
 
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
-import { memeshDir } from './paths.js';
+import { homeDir, memeshDir } from './paths.js';
 
 /**
  * Root of Claude Code's per-project transcript store. Override with
@@ -28,7 +27,11 @@ import { memeshDir } from './paths.js';
 export function claudeProjectsDir(): string {
   const override = process.env.CLAUDE_PROJECTS_DIR;
   if (override && override.trim() !== '') return override;
-  return path.join(os.homedir(), '.claude', 'projects');
+  // homeDir(), not os.homedir(): on Windows os.homedir() ignores HOME, so
+  // the isolated test runner's throwaway HOME would be bypassed and this
+  // would read the developer's REAL transcripts under test. homeDir() also
+  // carries the HOME="" sandbox fallback chain.
+  return path.join(homeDir(), '.claude', 'projects');
 }
 
 /**

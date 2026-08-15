@@ -38,7 +38,6 @@ export interface BackfillResult {
     orphansSkippedIdempotent: number;
     orphansMarkedProcessed: number;
 }
-export declare function resetBackfillIdempotencyCache(db?: MemeshDatabase): void;
 export interface BackfillProposalResult {
     candidates: RelationCandidate[];
     consideredOrphanIds: number[];

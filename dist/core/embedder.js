@@ -6,8 +6,7 @@ export function vectorSimilarity(distance) {
     return Math.max(0, 1 - distance / 2);
 }
 const pendingEmbeddingWrites = new Set();
-export function isEmbeddingAvailable() {
-    const caps = detectCapabilities();
+export function isEmbeddingAvailable(caps = detectCapabilities()) {
     if (caps.embeddings === 'openai')
         return true;
     if (caps.embeddings === 'ollama')
@@ -27,8 +26,8 @@ export async function canRefillVectorIndex() {
     }
 }
 export { getEmbeddingDimension } from './config.js';
-export function scheduleEmbedAndStore(entityId, text) {
-    const pending = embedAndStore(entityId, text);
+export function scheduleEmbedAndStore(entityId, text, caps) {
+    const pending = embedAndStore(entityId, text, caps);
     const tracked = pending.finally(() => {
         pendingEmbeddingWrites.delete(tracked);
     });
@@ -67,8 +66,7 @@ function isDatabaseLifecycleError(err) {
 export function entityEmbedText(name, observations) {
     return `${name} ${observations.join(' ')}`;
 }
-export async function embedText(text) {
-    const caps = detectCapabilities();
+export async function embedText(text, caps = detectCapabilities()) {
     if (caps.embeddings === 'openai' || caps.embeddings === 'ollama') {
         const sharedKey = caps.llm?.provider === caps.embeddings ? caps.llm.apiKey : undefined;
         const cfg = { provider: caps.embeddings, model: undefined, apiKey: sharedKey };
@@ -89,9 +87,9 @@ function rejectNonFinite(vector, provider) {
     }
     return vector;
 }
-export async function embedAndStore(entityId, text) {
+export async function embedAndStore(entityId, text, caps) {
     try {
-        const embedding = await embedText(text);
+        const embedding = await embedText(text, caps);
         if (!embedding)
             return 'no_embedding';
         const db = getDatabase();

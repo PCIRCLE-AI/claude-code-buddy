@@ -5,7 +5,7 @@ type ExistsSyncLike = typeof fs.existsSync;
 type ExecFileSyncLike = typeof execFileSync;
 interface DetectInstallChannelOptions {
     packageRoot: string;
-    globalNpmRoot?: string | null;
+    globalNpmRoot?: string | null | (() => string | null);
     existsSyncImpl?: ExistsSyncLike;
 }
 interface GetCurrentInstallChannelOptions {
