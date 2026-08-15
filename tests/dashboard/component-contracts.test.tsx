@@ -480,7 +480,7 @@ const MUST_RENDER: Record<string, { keys?: string[]; literals?: string[]; nothin
   EmptyLibraryState: { keys: ['emptyLibrary.title', 'onboarding.seedButton'] },
   FeedbackWidget: { keys: ['feedback.button'] },
   GraphTab: { keys: ['tab.graph', 'graph.entities'] },
-  Header: { literals: ['MeMesh LLM Memory'] },
+  Header: { literals: ['MeMesh'] },
   HealthScore: { keys: ['health.title'] },
   InsightsBanner: { nothing: 'renders only when there are unreviewed insights to point at from the current tab' },
   InsightsTab: { keys: ['insights.title'] },

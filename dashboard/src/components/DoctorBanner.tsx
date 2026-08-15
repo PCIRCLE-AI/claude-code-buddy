@@ -173,7 +173,7 @@ export function DoctorBanner() {
     });
     const body = `${t('doctorBanner.preambleForIssue')}\n\n${lines.join('\n')}`;
     const labels = 'feedback,from-dashboard,bug,doctor-warning';
-    const url = `https://github.com/PCIRCLE-AI/memesh-llm-memory/issues/new?title=${encodeURIComponent('[Bug] memesh doctor reported issues')}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
+    const url = `https://github.com/PCIRCLE-AI/memesh/issues/new?title=${encodeURIComponent('[Bug] memesh doctor reported issues')}&body=${encodeURIComponent(body)}&labels=${encodeURIComponent(labels)}`;
     window.open(url, '_blank');
   }
 

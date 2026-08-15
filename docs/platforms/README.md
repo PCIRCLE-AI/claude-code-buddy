@@ -154,4 +154,4 @@ Use MCP mode when the client supports MCP. Use HTTP mode when you control a loca
 
 ---
 
-**Need help?** Open an issue: https://github.com/PCIRCLE-AI/memesh-llm-memory/issues
+**Need help?** Open an issue: https://github.com/PCIRCLE-AI/memesh/issues

@@ -1,9 +1,9 @@
 🌐 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Tiếng Việt](README.vi.md) | [Español](README.es.md) | [ภาษาไทย](README.th.md)
 
 <p align="center">
-  <h1 align="center">MeMesh LLM Memory</h1>
+  <h1 align="center">MeMesh</h1>
   <p align="center">
-    <strong>給 Claude Code 和 MCP 程式開發代理的在地記憶系統。</strong><br />
+    <strong>給程式開發代理的代理式記憶。</strong><br />
     一個 SQLite 檔案。不需要 Docker。不需要雲端。
   </p>
   <p align="center">
@@ -16,32 +16,18 @@
 
 ---
 
-> [!IMPORTANT]
-> **持續開發中的專案** — 功能會持續更新，版本之間可能會有變動。遇到問題或想要新功能，請[開 issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues)。
+**MeMesh** — 給 Claude Code 和 MCP 程式開發代理的開源**代理式記憶**：從代理的實際工作中擷取，在它行動的當下注入，記憶自相矛盾時保持誠實。一個 SQLite 檔案。不需要雲端。
 
 ## 問題所在
 
-你的程式開發代理在每次對話之間就會忘記一切。每個架構決策、每個修復的臭蟲、每個失敗的測試、每個代價不菲的教訓，都得重新跟它解釋一遍。Claude Code 每次都從零開始，重新發現舊的限制條件，浪費寶貴的上下文在它本應已知的事情上。
+你的程式開發代理在對話之間不只是忘記事實 — 它會**重複做過的工作**。它會重新提出你上個月否決過的做法，被同一個失敗的測試絆倒，重新發現三月那次弄壞 production 的限制條件，還要你重新解釋那個它自己參與設計的架構。
 
-**MeMesh 讓程式開發代理擁有持久、可搜尋、不斷演進的在地記憶。**
+這不是聊天記錄的問題，而是代理記憶的問題。需要在對話之間留存下來的是*工作本身*：決策連同它的理由、失敗連同它的修法，以及它們之間的關聯。
 
-這個套件是 MeMesh 產品系列的在地記憶層。我們刻意保持它的精簡和開源：用 npm 安裝，把記憶保存在 `~/.memesh/knowledge-graph.db`，然後連接到 Claude Code 或任何支援 MCP 的用戶端。託管工作區和企業級作業系統產品應該與這個套件的 README 和路線圖分開。
+**MeMesh 就是那份記憶。** Hooks 從代理實際做的事情擷取記憶（session、commit、失敗 — 不是手動筆記），回憶在代理行動的當下注入記憶（session 開始時、編輯檔案前），知識圖譜層則讓記憶長期保持誠實（supersession 汰換、由 LLM 判定的衝突偵測）。用 npm 安裝，把記憶保存在 `~/.memesh/knowledge-graph.db`，然後連接到 Claude Code 或任何支援 MCP 的用戶端。
 
----
-
-## 實證 — 在 LongMemEval-S 上 R@5 達 95.60%
-
-MeMesh 的檢索引擎**只用 FTS5**（熱路徑上不使用 LLM、不使用嵌入），對照公開的 [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) 基準測試（500 題，MIT 授權）量測：
-
-| 系統 | R@5 | 來源 |
-|---|---|---|
-| **MeMesh（Mode A，經由 `recallEnhanced()`）** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
-| MemPalace | 96.6% | 廠商自行回報 |
-| Supermemory | ~82% | 廠商估計值 |
-| Zep | 63.8% | LongMemEval 論文 |
-| Mem0 | 49.0% | LongMemEval 論文 |
-
-重現指令、資料集 SHA256、原始逐題結果與已知失敗分析全部都在 [`benchmarks/longmemeval/`](benchmarks/longmemeval/)。約 10 秒可重跑一次。
+> [!IMPORTANT]
+> **持續開發中的專案** — 功能會持續更新，版本之間可能會有變動。遇到問題或想要新功能，請[開 issue](https://github.com/PCIRCLE-AI/memesh/issues)。
 
 ---
 
@@ -113,7 +99,7 @@ npm install -g @pcircle/memesh
 如果你使用 Claude Code，從 CLI 內把 MeMesh 當外掛安裝：
 
 ```
-/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin marketplace add PCIRCLE-AI/memesh
 /plugin install memesh@pcircle-memesh
 ```
 
@@ -256,6 +242,22 @@ memesh export-schema \
 | **取捨** | 簡潔的本地方案，不適合企業規模 | 更寬泛的本地應用足跡 | 綁定到 Cursor | 強大的受管平台，較少本地優先 | 強大的圖形模型，設定更複雜 |
 
 **MeMesh 用立即可用的本地設定、可檢查的儲存和程式開發代理工作流 hooks 來交換企業級受管基礎設施。**
+
+---
+
+## 基準測試 — 95.60% R@5 on LongMemEval-S
+
+MeMesh 的檢索引擎**只用 FTS5**（熱路徑上不使用 LLM、不使用嵌入），對照公開的 [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) 基準測試（500 題，MIT 授權）量測：
+
+| 系統 | R@5 | 來源 |
+|---|---|---|
+| **MeMesh（Mode A，經由 `recallEnhanced()`）** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| MemPalace | 96.6% | 廠商自行回報 |
+| Supermemory | ~82% | 廠商估計值 |
+| Zep | 63.8% | LongMemEval 論文 |
+| Mem0 | 49.0% | LongMemEval 論文 |
+
+重現指令、資料集 SHA256、原始逐題結果與已知失敗分析全部都在 [`benchmarks/longmemeval/`](benchmarks/longmemeval/)。約 10 秒可重跑一次。
 
 ---
 
@@ -451,8 +453,8 @@ Session 開始時，有新版本可下載時會跳一行 banner（每版本每 2
 ## 貢獻
 
 ```bash
-git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory && npm install && npm run build
+git clone https://github.com/PCIRCLE-AI/memesh
+cd memesh && npm install && npm run build
 npm test             # 630 項測試
 npm run test:e2e-dashboard
 ```

@@ -4,6 +4,16 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Repositioned as agentic memory.** The README (all 11 locales), package
+  metadata and UI brand line now describe MeMesh as agentic memory for
+  coding agents — captured from the agent's real work, injected when it
+  acts, kept honest when it contradicts itself — instead of "LLM memory".
+  The LongMemEval-S benchmark moved from the first screen to a Benchmarks
+  section after the product comparison; the number itself is unchanged.
+  The dashboard/CLI viewer title `MeMesh LLM Memory` is now `MeMesh`.
+
 ### Added
 
 - **README recipes.** Three worked walkthroughs where feature lists used to
@@ -2537,7 +2547,7 @@ rows, which are never touched — nothing is deleted and nothing needs re-enteri
 - **Session-start recall now actually reaches the model** (`scripts/hooks/session-start.js`) — the hook emitted its entire payload as top-level `systemMessage`, which Claude Code renders to the human and **strips from the model's context** (`normalizeAttachmentForAPI` returns `[]` for the `hook_system_message` attachment). Combined with the v4.2.x switch to a count-only banner (`◉ MeMesh · 4 project + 5 recent memories`), this meant memesh ranked the top-N memories at every session start and then delivered **none of them** to the agent — the banner reported a memory count the model never received. The hook now emits two channels: the count banner stays in `systemMessage` for the human, and the ranked entities (lessons first, one observation snippet each, capped at 4000 chars) go out as `hookSpecificOutput.additionalContext` with `hookEventName: "SessionStart"`, which *is* injected into the model's context.
 - **Recall-effectiveness scoring no longer penalises memories that were never shown** (`scripts/hooks/session-start.js`) — a direct consequence of the bug above. `session-summary.js` reads the session file written at start, and for every entity listed there increments `recall_hits` if its name appears in the transcript and `recall_misses` otherwise. Because the entities were never actually injected, virtually all of them took a `recall_miss` every session, driving `impactScore` (10% of ranking weight, Laplace-smoothed `hits/(hits+misses)`) toward zero for exactly the memories memesh had ranked highest — a self-reinforcing decay that buried good memories the agent was never given a chance to use. The session file now records the **real injected text** as `injectedContext` (previously the count banner), so the Stop hook can strip memesh's own injection from the transcript before deciding whether the session referenced a memory.
 - **Stop hook no longer miscounts its own injection as memory usage** (`scripts/hooks/session-summary.js`) — the hit/miss check removed the injected block from the transcript with `transcriptText.replace(injectedContext, '')` and then substring-matched entity names. Transcripts are JSONL, so the injected text is JSON-encoded and a multi-line `replace()` of a ~2 KB block never matches — the injection stayed in and every injected entity scored a hit. Counting occurrences and requiring `transcript > injected` fails for the same underlying reason: Claude Code echoes ONE SessionStart injection into the transcript at least twice (`hook_success` carrying the raw stdout, plus `hook_additional_context`), so `2 > 1` holds for every entity. Both approaches depend on guessing an undocumented internal. The hook now strips the echo records structurally (`stripHookEchoes`) — matching on `attachment.type` in `hook_success` / `hook_additional_context` / `hook_system_message` — which is independent of both the copy count and the JSON escaping. Decision extracted to the exported, unit-tested `isRecallHit()`; its fixtures deliberately contain both echo records.
-- **PreCompact hook no longer fails Claude Code's output validation on every compaction** (`scripts/hooks/pre-compact.js`) — closes [#53](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues/53). The hook emitted `hookSpecificOutput.hookEventName: 'PreCompact'`, but Claude Code's hook-output schema defines `hookSpecificOutput` variants for exactly nine events (`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `UserPromptSubmit`, `SessionStart`, `Setup`, `SubagentStart`, `Notification`) — `PreCompact` is not among them, so the payload failed union discrimination at the root and every compaction surfaced `Hook JSON output validation failed — (root): Invalid input` to the user. The insight save itself always succeeded, so no data was ever lost; this was user-visible noise only. The hook now emits the same message via the top-level `systemMessage` field, which is valid for every event.
+- **PreCompact hook no longer fails Claude Code's output validation on every compaction** (`scripts/hooks/pre-compact.js`) — closes [#53](https://github.com/PCIRCLE-AI/memesh/issues/53). The hook emitted `hookSpecificOutput.hookEventName: 'PreCompact'`, but Claude Code's hook-output schema defines `hookSpecificOutput` variants for exactly nine events (`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `UserPromptSubmit`, `SessionStart`, `Setup`, `SubagentStart`, `Notification`) — `PreCompact` is not among them, so the payload failed union discrimination at the root and every compaction surfaced `Hook JSON output validation failed — (root): Invalid input` to the user. The insight save itself always succeeded, so no data was ever lost; this was user-visible noise only. The hook now emits the same message via the top-level `systemMessage` field, which is valid for every event.
 - **Test flake: `tests/transports/http.test.ts > returns array (possibly empty) for no-match query`** — assertion was `toHaveLength(0)`, but `recallEnhanced` may supplement FTS5 results with sqlite-vec near-neighbours when ONNX embeddings are loaded, so a query that misses FTS5 can still legitimately return a small set. The API contract is "always return a valid JSON array of entities, never a 500"; assertion now mirrors that contract (length bounded, all rows shaped like entities).
 - **Test flake: `tests/tools.test.ts > auto-archives entity when superseded by new remember`** — same root cause; the `recall('JWT')` after archiving `auth-v2` asserted exactly `[]`, but vector supplement could surface the related `auth-v3`. The behavioural guarantee is "archived rows stay hidden from default recall", so the assertion now checks `not.toContain('auth-v2')` instead of empty-array.
 - **Test isolation: `tests/hooks/pre-bash-orchestration-nudge.test.ts` no longer reads the developer's real `~/.memesh/config.json`** — `isAgenticOrchestrationEnabled()` falls back to `readHookConfig()` when the env var is unset, and `readHookConfig()` reads `<memeshDir>/config.json`. The "default off" test deleted the env var but didn't pin `MEMESH_DIR`, so a developer with `enableAgenticOrchestration: true` in their personal config saw the test fail even though hook code was correct. Both the test helper and the gate-off case now point `MEMESH_DIR` at the per-test tmpdir.
@@ -2701,18 +2711,18 @@ Marketplace identifier renamed from `pcircle-ai` to `pcircle-memesh` to avoid na
 ### Changed
 - **Install command** (Option A — Claude Code plugin):
   ```
-  /plugin marketplace add PCIRCLE-AI/memesh-llm-memory      # repo URL unchanged
+  /plugin marketplace add PCIRCLE-AI/memesh      # repo URL unchanged
   /plugin install memesh@pcircle-memesh                      # was: memesh@pcircle-ai
   ```
-  Only the marketplace identifier changed (`pcircle-ai` → `pcircle-memesh`). The plugin name (`memesh`) and the GitHub repo (`PCIRCLE-AI/memesh-llm-memory`) stay the same.
+  Only the marketplace identifier changed (`pcircle-ai` → `pcircle-memesh`). The plugin name (`memesh`) and the GitHub repo (`PCIRCLE-AI/memesh`) stay the same.
 - **`.claude-plugin/marketplace.json`** `name` field: `"pcircle-ai"` → `"pcircle-memesh"`. The marketplace is now uniquely identifiable per plugin, which lets a user have all PCIRCLE AI plugin marketplaces registered simultaneously without collision.
 
 ### Migration for v4.1.6 plugin users
-If you ran `/plugin marketplace add PCIRCLE-AI/memesh-llm-memory` on v4.1.6, the registered marketplace name was `pcircle-ai`. After this release, run these once to switch to the new name:
+If you ran `/plugin marketplace add PCIRCLE-AI/memesh` on v4.1.6, the registered marketplace name was `pcircle-ai`. After this release, run these once to switch to the new name:
 
 ```
 /plugin marketplace remove pcircle-ai
-/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin marketplace add PCIRCLE-AI/memesh
 /plugin install memesh@pcircle-memesh
 ```
 
@@ -2731,7 +2741,7 @@ Marketplace manifest + plugin-context MCP wiring. The Claude Code plugin install
 ### Added
 - **`.claude-plugin/marketplace.json`** companion to the plugin manifest. With this file, the repo doubles as its own one-plugin marketplace. Users can install with:
   ```
-  /plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+  /plugin marketplace add PCIRCLE-AI/memesh
   /plugin install memesh@pcircle-ai
   ```
   alongside the existing `npm install -g @pcircle/memesh && memesh install-hooks` flow. The npm path is preserved verbatim — this is an additional install route, not a replacement.
@@ -2768,7 +2778,7 @@ Structural repackaging for Claude Code's plugin marketplace. No behavioural chan
 - `memesh install-hooks` users: unaffected. Hook wiring path unchanged.
 
 ### Notes
-- A `.claude-plugin/marketplace.json` companion (so users can `claude plugin marketplace add PCIRCLE-AI/memesh-llm-memory`) is a deliberate follow-up, not part of this release.
+- A `.claude-plugin/marketplace.json` companion (so users can `claude plugin marketplace add PCIRCLE-AI/memesh`) is a deliberate follow-up, not part of this release.
 
 ## [4.1.4] — 2026-05-08
 
@@ -3113,4 +3123,4 @@ MeMesh transforms from memory database to **cognitive middleware** — memory th
 - **2.0.0–2.5.x** — Initial MCP server, knowledge graph, process management
 
 ---
-_Note: The GitHub repository is [PCIRCLE-AI/memesh-llm-memory](https://github.com/PCIRCLE-AI/memesh-llm-memory). The npm package is [@pcircle/memesh](https://www.npmjs.com/package/@pcircle/memesh)._
+_Note: The GitHub repository is [PCIRCLE-AI/memesh](https://github.com/PCIRCLE-AI/memesh). The npm package is [@pcircle/memesh](https://www.npmjs.com/package/@pcircle/memesh)._

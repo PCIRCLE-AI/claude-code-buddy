@@ -1,9 +1,9 @@
 🌐 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Tiếng Việt](README.vi.md) | [Español](README.es.md) | [ภาษาไทย](README.th.md)
 
 <p align="center">
-  <h1 align="center">MeMesh LLM Memory</h1>
+  <h1 align="center">MeMesh</h1>
   <p align="center">
-    <strong>Memoria local para Claude Code y agentes de codificación MCP.</strong><br />
+    <strong>Memoria agéntica para agentes de codificación.</strong><br />
     Un archivo SQLite. Sin Docker. Sin infraestructura en la nube.
   </p>
   <p align="center">
@@ -16,32 +16,18 @@
 
 ---
 
-> [!IMPORTANT]
-> **Proyecto en desarrollo activo** — las funcionalidades evolucionan continuamente y pueden cambiar entre versiones. Si encuentras un bug o tienes una solicitud de funcionalidad, por favor [abre un issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues).
+**MeMesh** — **memoria agéntica** de código abierto para Claude Code y agentes de codificación MCP: capturada del trabajo real del agente, inyectada en el momento en que actúa, mantenida honesta cuando se contradice. Un archivo SQLite. Sin nube.
 
 ## El Problema
 
-Tu agente de codificación olvida lo que sucedió en sesiones anteriores. Cada decisión arquitectónica, corrección de bugs, prueba fallida y lección aprendida con esfuerzo debe explicarse de nuevo. Claude Code comienza desde cero, redescubre restricciones antiguas y gasta contexto en cosas que ya debería saber.
+Tu agente de codificación no solo olvida hechos entre sesiones — **repite trabajo**. Vuelve a proponer el enfoque que rechazaste el mes pasado, tropieza con la misma prueba fallida, redescubre la restricción que rompió producción en marzo y te pide que vuelvas a explicar la arquitectura que él mismo ayudó a diseñar.
 
-**MeMesh proporciona a los agentes de codificación memoria local persistente, buscable y en evolución.**
+No es un problema de historial de chat; es un problema de memoria de agente. Lo que necesita sobrevivir entre sesiones es el *trabajo*: decisiones con sus razones, fallos con sus correcciones y los vínculos entre ellos.
 
-Este paquete es la capa de memoria local de la familia de productos MeMesh. Es intencionalmente simple y de código abierto: instálalo con npm, mantén tu memoria en `~/.memesh/knowledge-graph.db` y conéctalo a Claude Code o cualquier cliente compatible con MCP. Los productos de workspace alojado y sistemas operativos empresariales deben mantenerse separados del README y roadmap de este paquete.
+**MeMesh es esa memoria.** Los hooks la capturan de lo que el agente realmente hace (sesiones, commits, fallos — no notas manuales), el recall la inyecta en el momento en que el agente actúa (inicio de sesión, antes de editar archivos) y la capa de grafo de conocimiento la mantiene honesta con el tiempo (supersesión, detección de conflictos juzgada por LLM). Instálalo con npm, la memoria vive en `~/.memesh/knowledge-graph.db` y conéctalo a Claude Code o cualquier cliente compatible con MCP.
 
----
-
-## Prueba — 95.60% R@5 en LongMemEval-S
-
-El motor de recuperación de MeMesh es **solo FTS5** (sin LLM, sin embeddings en la ruta caliente), medido contra el benchmark público [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) (500 preguntas, licencia MIT):
-
-| Sistema | R@5 | Fuente |
-|---|---|---|
-| **MeMesh (Modo A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
-| MemPalace | 96.6% | Auto-reporte del proveedor |
-| Supermemory | ~82% | Estimación del proveedor |
-| Zep | 63.8% | Paper de LongMemEval |
-| Mem0 | 49.0% | Paper de LongMemEval |
-
-Los comandos de reproducción, SHA256 del dataset, resultados crudos por pregunta y análisis de fallos conocidos están todos en [`benchmarks/longmemeval/`](benchmarks/longmemeval/). Re-ejecutable en ~10 segundos.
+> [!IMPORTANT]
+> **Proyecto en desarrollo activo** — las funcionalidades evolucionan continuamente y pueden cambiar entre versiones. Si encuentras un bug o tienes una solicitud de funcionalidad, por favor [abre un issue](https://github.com/PCIRCLE-AI/memesh/issues).
 
 ---
 
@@ -113,7 +99,7 @@ Si solo usas memesh a través del chat de Claude Code (nunca tecleas `memesh` en
 Si usas Claude Code, instala MeMesh como plugin desde dentro de la CLI:
 
 ```
-/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin marketplace add PCIRCLE-AI/memesh
 /plugin install memesh@pcircle-memesh
 ```
 
@@ -256,6 +242,22 @@ Pega las herramientas en cualquier llamada API
 | **Tradeoff** | Cuña local simple, no a escala empresarial | Huella de aplicación local más amplia | Bloqueado a Cursor | Plataforma gestionada fuerte, menos local-first | Modelo de grafo fuerte, configuración más pesada |
 
 **MeMesh intercambia infraestructura gestionada a escala empresarial por configuración local instantánea, almacenamiento inspectable y hooks de flujo de trabajo de agentes de codificación.**
+
+---
+
+## Benchmarks — 95.60% R@5 en LongMemEval-S
+
+El motor de recuperación de MeMesh es **solo FTS5** (sin LLM, sin embeddings en la ruta caliente), medido contra el benchmark público [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) (500 preguntas, licencia MIT):
+
+| Sistema | R@5 | Fuente |
+|---|---|---|
+| **MeMesh (Modo A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| MemPalace | 96.6% | Auto-reporte del proveedor |
+| Supermemory | ~82% | Estimación del proveedor |
+| Zep | 63.8% | Paper de LongMemEval |
+| Mem0 | 49.0% | Paper de LongMemEval |
+
+Los comandos de reproducción, SHA256 del dataset, resultados crudos por pregunta y análisis de fallos conocidos están todos en [`benchmarks/longmemeval/`](benchmarks/longmemeval/). Re-ejecutable en ~10 segundos.
 
 ---
 
@@ -452,8 +454,8 @@ Al inicio de sesión aparece un banner de una línea (limitado a una vez cada 24
 ## Contribuir
 
 ```bash
-git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory && npm install && npm run build
+git clone https://github.com/PCIRCLE-AI/memesh
+cd memesh && npm install && npm run build
 npm test
 npm run test:e2e-dashboard
 ```

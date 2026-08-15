@@ -1519,7 +1519,7 @@ export function generateLiveDashboardHtml(): string {
           bodyText += '\\n\\n## System Info\\nVersion: ' + _currentVersion + '\\nSearch Level: ' + _currentSearchLevel;
         }
         var body = encodeURIComponent(bodyText);
-        window.open('https://github.com/PCIRCLE-AI/memesh-llm-memory/issues/new?title=' + title + '&body=' + body + '&labels=' + labels, '_blank');
+        window.open('https://github.com/PCIRCLE-AI/memesh/issues/new?title=' + title + '&body=' + body + '&labels=' + labels, '_blank');
         panel.classList.remove('open');
         document.getElementById('fb-desc').value = '';
       });
@@ -2056,7 +2056,7 @@ export function generateLiveDashboardHtml(): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MeMesh LLM Memory — Dashboard</title>
+  <title>MeMesh — Dashboard</title>
   <style>${CSS}</style>
   <!-- bundled d3.js -->
   <script>
@@ -2067,7 +2067,7 @@ ${bundledD3}
 
 <div class="header">
   <div>
-    <h1 style="margin:0;line-height:1.2">MeMesh LLM Memory</h1>
+    <h1 style="margin:0;line-height:1.2">MeMesh</h1>
     <span class="subtitle">powered by pcircle.com</span>
   </div>
   <div class="header-right">

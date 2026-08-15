@@ -1,9 +1,9 @@
 🌐 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Português](README.pt.md) | [Français](README.fr.md) | [Deutsch](README.de.md) | [Tiếng Việt](README.vi.md) | [Español](README.es.md) | [ภาษาไทย](README.th.md)
 
 <p align="center">
-  <h1 align="center">MeMesh LLM Memory</h1>
+  <h1 align="center">MeMesh</h1>
   <p align="center">
-    <strong>Local memory for Claude Code and MCP coding agents.</strong><br />
+    <strong>Agentic memory for coding agents.</strong><br />
     One SQLite file. No Docker. No cloud required.
   </p>
   <p align="center">
@@ -16,32 +16,18 @@
 
 ---
 
-**MeMesh** — the open-source **memory layer** for Claude Code & MCP agents. One SQLite file. No cloud. Plugs into any LLM.
-
-## 95.60% R@5 on LongMemEval-S — beats Mem0 by 46 points
-
-MeMesh's retrieval is **FTS5 alone** — no LLM, no embeddings on the hot path. Measured against the public [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) benchmark (500 questions, MIT-licensed):
-
-| System | R@5 | Source |
-|---|---|---|
-| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
-| MemPalace | 96.6% | Vendor self-report |
-| Supermemory | ~82% | Vendor estimate |
-| Zep | 63.8% | LongMemEval paper |
-| Mem0 | 49.0% | LongMemEval paper |
-
-Re-runnable in ~10 seconds. Full instructions, dataset SHA256, raw per-question results, and known-failure analysis: [`benchmarks/longmemeval/REPRODUCE.md`](benchmarks/longmemeval/REPRODUCE.md).
-
----
+**MeMesh** — open-source **agentic memory** for Claude Code & MCP coding agents: captured from the agent's real work, injected at the moment it acts, kept honest when it contradicts itself. One SQLite file. No cloud.
 
 ## The Problem
 
-Your coding agent forgets between sessions. Every architecture decision, bug fix, failed test, and hard-won lesson has to be re-explained. Claude Code starts fresh, re-discovers old constraints, and burns context on things it should already know.
+Your coding agent doesn't just forget facts between sessions — it **repeats work**. It re-proposes the approach you rejected last month, trips over the same failing test, re-discovers the constraint that broke production in March, and asks you to re-explain the architecture it helped design.
 
-**MeMesh gives coding agents persistent, searchable, evolving local memory.** Install with npm, memory lives in `~/.memesh/knowledge-graph.db`, plug into Claude Code or any MCP-compatible client.
+That's not a chat-history problem; it's an agent-memory problem. What needs to survive between sessions is the *work*: decisions with their reasons, failures with their fixes, and the links between them.
+
+**MeMesh is that memory.** Hooks capture it from what the agent actually does (sessions, commits, failures — not manual notes), recall injects it at the moment the agent acts (session start, before file edits), and the knowledge-graph layer keeps it honest over time (supersession, LLM-judged conflict detection). Install with npm, memory lives in `~/.memesh/knowledge-graph.db`, plug into Claude Code or any MCP-compatible client.
 
 > [!IMPORTANT]
-> Actively developed — features may change between releases. [Open an issue](https://github.com/PCIRCLE-AI/memesh-llm-memory/issues) for bugs or feature requests.
+> Actively developed — features may change between releases. [Open an issue](https://github.com/PCIRCLE-AI/memesh/issues) for bugs or feature requests.
 
 ---
 
@@ -111,7 +97,7 @@ If you only use memesh through Claude Code chat (never type `memesh` in a termin
 If you use Claude Code, install MeMesh as a plugin from inside the CLI:
 
 ```
-/plugin marketplace add PCIRCLE-AI/memesh-llm-memory
+/plugin marketplace add PCIRCLE-AI/memesh
 /plugin install memesh@pcircle-memesh
 ```
 
@@ -279,6 +265,22 @@ Paste tools into any API call
 | **Tradeoff** | Simple local wedge, not enterprise scale | Broader local app footprint | Locked to Cursor | Strong managed platform, less local-first | Strong graph model, heavier setup |
 
 **MeMesh trades enterprise-scale managed infrastructure for instant local setup, inspectable storage, and coding-agent workflow hooks.**
+
+---
+
+## Benchmarks — 95.60% R@5 on LongMemEval-S
+
+MeMesh's retrieval is **FTS5 alone** — no LLM, no embeddings on the hot path. Measured against the public [LongMemEval-S](https://huggingface.co/datasets/xiaowu0162/longmemeval) benchmark (500 questions, MIT-licensed):
+
+| System | R@5 | Source |
+|---|---|---|
+| **MeMesh (Mode A, via `recallEnhanced()`)** | **95.60%** | [benchmarks/longmemeval/RESULTS.md](benchmarks/longmemeval/RESULTS.md) |
+| MemPalace | 96.6% | Vendor self-report |
+| Supermemory | ~82% | Vendor estimate |
+| Zep | 63.8% | LongMemEval paper |
+| Mem0 | 49.0% | LongMemEval paper |
+
+Re-runnable in ~10 seconds. Full instructions, dataset SHA256, raw per-question results, and known-failure analysis: [`benchmarks/longmemeval/REPRODUCE.md`](benchmarks/longmemeval/REPRODUCE.md).
 
 ---
 
@@ -530,8 +532,8 @@ Session start surfaces a one-line banner (throttled to once per 24h per version)
 ## Contributing
 
 ```bash
-git clone https://github.com/PCIRCLE-AI/memesh-llm-memory
-cd memesh-llm-memory && npm install && npm run build
+git clone https://github.com/PCIRCLE-AI/memesh
+cd memesh && npm install && npm run build
 npm test
 npm run test:e2e-dashboard
 ```
