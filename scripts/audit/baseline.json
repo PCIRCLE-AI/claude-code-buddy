@@ -201,26 +201,6 @@
       "reason": "spreads an in-repo literal DEMO_DATA entry (line shifted by the DEMO_RELATIONS insert; same code as the prior demo.ts entry)",
       "triaged": "2026-08-04"
     },
-    "C5 src/cli/view.ts:140": {
-      "class": "SAFE-ACCUMULATOR/DISPLAY",
-      "reason": "group-by identity or truthful zero-rows display",
-      "triaged": "2026-08-09 (re-keyed: the node:sqlite driver swap shifted these lines; same statements, same classification)"
-    },
-    "C5 src/cli/view.ts:148": {
-      "class": "SAFE-ACCUMULATOR/DISPLAY",
-      "reason": "group-by identity or truthful zero-rows display",
-      "triaged": "2026-08-09 (re-keyed: the node:sqlite driver swap shifted these lines; same statements, same classification)"
-    },
-    "C5 src/cli/view.ts:159": {
-      "class": "SAFE-ACCUMULATOR/DISPLAY",
-      "reason": "group-by identity or truthful zero-rows display",
-      "triaged": "2026-08-09 (re-keyed: the node:sqlite driver swap shifted these lines; same statements, same classification)"
-    },
-    "C5 src/cli/view.ts:160": {
-      "class": "SAFE-ACCUMULATOR/DISPLAY",
-      "reason": "group-by identity or truthful zero-rows display",
-      "triaged": "2026-08-09 (re-keyed: the node:sqlite driver swap shifted these lines; same statements, same classification)"
-    },
     "C4 .github/workflows/ci.yml:239": {
       "class": "SAFE",
       "reason": "secondary greps run after the exit-code gate has already read DOCTOR_EXIT",
@@ -321,7 +301,7 @@
       "reason": "provenance spread identity; trust written unconditionally",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/dreamer.ts:1196": {
+    "C5 src/core/dreamer.ts:1192": {
       "class": "SAFE-GUARDED",
       "reason": "upstream filter requires non-empty arrays before these run (the (p.evidence ?? []) statement; re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
       "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1175 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1189 (PROTECTED_TYPES export comment shifted the file; statement verified); re-keyed 2026-08-14 +4 from :1192 (kind != 'relation' guards on the two pending-proposal scans; statement verified)"
@@ -406,12 +386,12 @@
       "reason": "provenance spread identity: absent provenanceOverride means the caller supplied none, and spreading {} correctly leaves the source_host stamped on the line above; a spread of undefined would even be legal JS, so this cannot convert a failure into a default",
       "triaged": "2026-08-12 (Phase 02 provenance); re-keyed 2026-08-13 (shifted +6 by the first-writer-wins comment added above, statement unchanged); re-keyed 2026-08-14 119->120 (UX-1 title passed into createEntity above; same provenance spread statement — verified)"
     },
-    "C5 src/knowledge-graph.ts:311": {
+    "C5 src/knowledge-graph.ts:313": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "write-time signal-score inputs; empty means the caller passed no observations/tags, which is the correct identity for scoring",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content)"
     },
-    "C5 src/knowledge-graph.ts:312": {
+    "C5 src/knowledge-graph.ts:314": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "write-time signal-score inputs; empty means the caller passed no observations/tags, which is the correct identity for scoring",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content)"
@@ -441,12 +421,12 @@
       "reason": "display fallbacks; empty renders an explicit notice",
       "triaged": "2026-08-04; re-keyed 2026-08-14 297->298 (import shift; the hay statement also gained an `e.title ?? ''` arm — same fallback class: an absent title truthfully contributes nothing to the filter haystack)"
     },
-    "C5 dashboard/src/lib/entity-display.ts:178": {
+    "C5 dashboard/src/lib/entity-display.ts:181": {
       "class": "SAFE-DISPLAY",
       "reason": "classification falls through to the freeform bucket",
       "triaged": "2026-08-04; re-keyed 2026-08-14 (displayTitle helper added above; same statement — verified)"
     },
-    "C5 dashboard/src/lib/entity-display.ts:180": {
+    "C5 dashboard/src/lib/entity-display.ts:183": {
       "class": "SAFE-DISPLAY",
       "reason": "classification falls through to the freeform bucket",
       "triaged": "2026-08-04; re-keyed 2026-08-14 (displayTitle helper added above; same statement — verified)"
@@ -456,37 +436,27 @@
       "reason": "the .toBe(0) is PRAGMA table_info notnull flag equality (0 = nullable column), not a set-emptiness assertion; the column presence it depends on is pinned by toBeDefined on the line above",
       "triaged": "2026-08-14 (UX-1 title-column migration tests)"
     },
-    "C5 src/core/dreamer.ts:1199": {
+    "C5 src/core/dreamer.ts:1195": {
       "class": "SAFE-GUARDED",
       "reason": "upstream filter requires non-empty arrays before these run (the (p.observations ?? []) statement; re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
       "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1172 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1186 (PROTECTED_TYPES export comment shifted the file; statement verified — the observations line, NOT the evidence sibling that previously sat at this key); re-keyed 2026-08-14 +4 from :1189 (kind != 'relation' guards on the two pending-proposal scans; statement verified); re-keyed 2026-08-15 1193→1199 (merge main shifted lines +6; same statement — verified)"
-    },
-    "C5 src/transports/http/server.ts:979": {
-      "class": "SAFE-GUARDED",
-      "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-10 (re-keyed: the serve 'error' listener added 9 lines; same safeParse statements, same classification); re-keyed 2026-08-13 988->977 (rev2: redactSecrets moved out to core/paths.ts, removing 11 lines above; same safeParse statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-15 977→979 (merge main shifted lines +2; same statement — verified)"
-    },
-    "C5 src/transports/http/server.ts:1069": {
-      "class": "SAFE-GUARDED",
-      "reason": "Zod safeParse still validates; fields optional-with-default by design",
-      "triaged": "2026-08-10; re-keyed 2026-08-12 +17 from :1061 (the accept handler's NothingToClaimError branch and its comment shifted the line); same safeParse statement, classification unchanged; re-keyed 2026-08-13 1078->1067 (rev2: redactSecrets moved out to core/paths.ts, removing 11 lines above; same safeParse statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-15 1067→1069 (merge main shifted lines +2; same statement — verified)"
     },
     "C5 dashboard/src/components/GraphTab.tsx:286": {
       "class": "SAFE-GUARDED",
       "reason": "computeGraph always returns noiseTypes; same-origin fetch",
       "triaged": "2026-08-04 (re-keyed: the Batch-D token-resolver + palette refactor shifted 208→233; same code verified before re-keying); re-keyed 2026-08-13 233->276 (graph visual-hierarchy helpers added above; same statement, classification unchanged — verified); re-keyed 2026-08-14 276->285 (review-fix comments above shifted it; same statement — verified); re-keyed 2026-08-15 285→286 (merge main shifted lines +1; same statement — verified)"
     },
-    "C5 src/knowledge-graph.ts:429": {
+    "C5 src/knowledge-graph.ts:431": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "batch-hydrate lookups; confidence bump fails closed",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-15 411→429 (merge main shifted lines +18; same statement — verified)"
     },
-    "C5 src/knowledge-graph.ts:647": {
+    "C5 src/knowledge-graph.ts:650": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "batch-hydrate lookups; confidence bump fails closed",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-15 629→647 (merge main shifted lines +18; same statement — verified)"
     },
-    "C5 src/knowledge-graph.ts:648": {
+    "C5 src/knowledge-graph.ts:651": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "batch-hydrate lookups; confidence bump fails closed",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-15 630→648 (merge main shifted lines +18; same statement — verified)"
