@@ -332,6 +332,28 @@ describe('recall', () => {
 // ── Forget ──────────────────────────────────────────────────────────────
 
 describe('forget', () => {
+  it('refuses the plural typo instead of archiving the whole entity', async () => {
+    // `remember` calls the field `observations`; `forget` calls it
+    // `observation`. Zod strips unknown keys by default, and `forget` branches
+    // on whether `observation` is PRESENT — absent means "archive everything".
+    // So the natural plural silently turned "remove one fact" into "archive
+    // this memory", and answered `{"archived": true}`. Measured before the
+    // fix: status became `archived`, both observations still there, and the
+    // entity dropped out of recall and out of session-start injection.
+    await handleTool('remember', {
+      name: 'keeper', type: 'decision', observations: ['fact A', 'fact B'],
+    });
+
+    const result = await handleTool('forget', { name: 'keeper', observations: 'fact A' });
+    expect(JSON.stringify(result)).toMatch(/observations|unrecognized|invalid/i);
+
+    // The entity is untouched — still active, still recallable, both facts.
+    const recall = await handleTool('recall', { query: 'fact' });
+    const hit = recallEntities(recall).find((e: any) => e.name === 'keeper');
+    expect(hit).toBeTruthy();
+    expect(hit.observations).toHaveLength(2);
+  });
+
   it('archives an entity instead of deleting it', async () => {
     await handleTool('remember', {
       name: 'old-design', type: 'decision', observations: ['Use REST'],
