@@ -296,11 +296,6 @@
       "reason": "provenance spread identity; trust written unconditionally",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/dreamer.ts:1192": {
-      "class": "SAFE-GUARDED",
-      "reason": "upstream filter requires non-empty arrays before these run (the (p.evidence ?? []) statement; re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1175 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1189 (PROTECTED_TYPES export comment shifted the file; statement verified); re-keyed 2026-08-14 +4 from :1192 (kind != 'relation' guards on the two pending-proposal scans; statement verified)"
-    },
     "C5 src/core/doctor.ts:459": {
       "class": "SAFE-GUARDED",
       "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
@@ -405,11 +400,6 @@
       "class": "SAFE",
       "reason": "the .toBe(0) is PRAGMA table_info notnull flag equality (0 = nullable column), not a set-emptiness assertion; the column presence it depends on is pinned by toBeDefined on the line above",
       "triaged": "2026-08-14 (UX-1 title-column migration tests)"
-    },
-    "C5 src/core/dreamer.ts:1195": {
-      "class": "SAFE-GUARDED",
-      "reason": "upstream filter requires non-empty arrays before these run (the (p.observations ?? []) statement; re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
-      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1172 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1186 (PROTECTED_TYPES export comment shifted the file; statement verified \u2014 the observations line, NOT the evidence sibling that previously sat at this key); re-keyed 2026-08-14 +4 from :1189 (kind != 'relation' guards on the two pending-proposal scans; statement verified); re-keyed 2026-08-15 1193\u21921199 (merge main shifted lines +6; same statement \u2014 verified)"
     },
     "C5 src/knowledge-graph.ts:431": {
       "class": "SAFE-ACCUMULATOR",
@@ -526,25 +516,40 @@
       "reason": "client-side search haystack only (absorbs the retired BrowseTab:169 and LessonsTab:298 hay statements)",
       "triaged": "2026-08-16 (tab consolidation: statement moved verbatim from the retired LessonsTab/BrowseTab; original triage 2026-08-04)"
     },
-    "C7 README.md:434": {
-      "class": "LINKED-MEASUREMENT",
-      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 346->348->369: the Codex/Gemini MCP setup section shifted this line down 21 more; same testimonial figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged \u2014 verified); re-keyed 2026-08-15 367\u2192369 (merge main shifted lines +2; same statement \u2014 verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified)"
-    },
-    "C7 README.md:493": {
-      "class": "LINKED-MEASUREMENT",
-      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 353->355->376: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 out-of-the-box figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged \u2014 verified); re-keyed 2026-08-14 374->426 (the Recipes section added above; same statement \u2014 verified); re-keyed 2026-08-15 426\u2192428 (merge main shifted lines +2; same statement \u2014 verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified)"
-    },
-    "C7 README.md:524": {
-      "class": "LINKED-MEASUREMENT",
-      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
-      "triaged": "2026-08-04 (re-keyed 379->382->386->407: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 comparison-table figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged \u2014 verified); re-keyed 2026-08-14 405->457 (the Recipes section added above; same statement \u2014 verified); re-keyed 2026-08-15 457\u2192459 (merge main shifted lines +2; same statement \u2014 verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified)"
-    },
     "C5 src/core/work-topology.ts:416": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`line.match(/`+/g) ?? []` in buildReferenceContext, moved verbatim from scripts/hooks/_shared.js (which the C5 scan does not cover) so the MCP briefing surface shares the hook's fence. match() returns null when a line contains no backtick run; the empty list truthfully means 'no backticks', and the fence floor Math.max(3, longestRun + 1) still applies. Pinned by tests/hooks/reference-context-fence.test.ts, which feeds lines WITH backtick runs and asserts the fence outruns them.",
       "triaged": "2026-08-16 (A1c briefing); re-keyed 2026-08-16 (assembleTopologyBlock + budget consts added above; same match statement \u2014 verified); re-keyed 2026-08-16 (citation-handle additions above shifted the line 386->416; same statement verified)"
+    },
+    "C5 src/core/dreamer.ts:1198": {
+      "class": "SAFE-GUARDED",
+      "reason": "upstream filter requires non-empty arrays before these run (the (p.evidence ?? []) statement; re-keyed +1 from :672 when the B3 embedder import shifted the line; classification unchanged)",
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1175 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1189 (PROTECTED_TYPES export comment shifted the file; statement verified); re-keyed 2026-08-14 +4 from :1192 (kind != 'relation' guards on the two pending-proposal scans; statement verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
+    },
+    "C5 src/core/dreamer.ts:1201": {
+      "class": "SAFE-GUARDED",
+      "reason": "upstream filter requires non-empty arrays before these run (the (p.observations ?? []) statement; re-keyed +1 from :669 when the B3 embedder import shifted the line; classification unchanged)",
+      "triaged": "2026-08-05; re-keyed 2026-08-10 (review pass 4); re-keyed 2026-08-12 +14 from :1172 (NothingToClaimError and the missing-source counter shifted the line); re-keyed 2026-08-14 +3 from :1186 (PROTECTED_TYPES export comment shifted the file; statement verified \u2014 the observations line, NOT the evidence sibling that previously sat at this key); re-keyed 2026-08-14 +4 from :1189 (kind != 'relation' guards on the two pending-proposal scans; statement verified); re-keyed 2026-08-15 1193\u21921199 (merge main shifted lines +6; same statement \u2014 verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
+    },
+    "C7 README.md:435": {
+      "class": "LINKED-MEASUREMENT",
+      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
+      "triaged": "2026-08-04 (re-keyed 346->348->369: the Codex/Gemini MCP setup section shifted this line down 21 more; same testimonial figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged \u2014 verified); re-keyed 2026-08-15 367\u2192369 (merge main shifted lines +2; same statement \u2014 verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
+    },
+    "C7 README.md:494": {
+      "class": "LINKED-MEASUREMENT",
+      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
+      "triaged": "2026-08-04 (re-keyed 353->355->376: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 out-of-the-box figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged \u2014 verified); re-keyed 2026-08-14 374->426 (the Recipes section added above; same statement \u2014 verified); re-keyed 2026-08-15 426\u2192428 (merge main shifted lines +2; same statement \u2014 verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
+    },
+    "C7 README.md:525": {
+      "class": "LINKED-MEASUREMENT",
+      "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
+      "triaged": "2026-08-04 (re-keyed 379->382->386->407: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 comparison-table figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged \u2014 verified); re-keyed 2026-08-14 405->457 (the Recipes section added above; same statement \u2014 verified); re-keyed 2026-08-15 457\u2192459 (merge main shifted lines +2; same statement \u2014 verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified); re-keyed 2026-08-16 (G1 guard additions shifted lines; same content verified)"
+    },
+    "C1 tests/hooks/guard-check.test.ts": {
+      "class": "SAFE",
+      "reason": "emptiness (silent-pass) assertions paired with positive fire assertions in the same file \u2014 the silence IS the contract under test (guard failure must degrade to no output)",
+      "triaged": "2026-08-16"
     }
   }
 }
