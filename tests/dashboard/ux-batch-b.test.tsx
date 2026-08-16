@@ -14,8 +14,8 @@
 //      truths with different messages — and the empty-database state carries
 //      the demo seed button, the durable entry point that survives the
 //      OnboardingBanner's permanent dismissal.
-//   4. Silent truncation is spoken: Browse at its 2000-row fetch limit names
-//      the real total; the Graph's node cap names what it kept.
+//   4. Silent truncation is spoken: Memories at its 2000-row fetch limit
+//      names the real total; the Graph's node cap names what it kept.
 //
 // All network is stubbed — nothing here touches ~/.memesh or any config.
 
@@ -24,10 +24,9 @@ import { render, fireEvent, waitFor } from '@testing-library/preact';
 import { api, HttpError, NetworkError, type Entity } from '../../dashboard/src/lib/api';
 import { actionFailureMessage } from '../../dashboard/src/lib/failure';
 import { t, getLocale } from '../../dashboard/src/lib/i18n';
-import { SearchTab } from '../../dashboard/src/components/SearchTab';
-import { BrowseTab } from '../../dashboard/src/components/BrowseTab';
+import { MemoriesTab } from '../../dashboard/src/components/MemoriesTab';
+import { ProjectTab } from '../../dashboard/src/components/ProjectTab';
 import { GraphTab, capGraphEntities, GRAPH_NODE_CAP } from '../../dashboard/src/components/GraphTab';
-import { LessonsTab } from '../../dashboard/src/components/LessonsTab';
 import { SettingsTab } from '../../dashboard/src/components/SettingsTab';
 import { InsightsTab } from '../../dashboard/src/components/InsightsTab';
 import { EmptyLibraryState } from '../../dashboard/src/components/EmptyLibraryState';
@@ -43,8 +42,8 @@ function entity(i: number, over: Partial<Entity> = {}): Entity {
   return {
     id: i,
     name: `entity-${i}`,
-    // 'decision' sits in the knowledge cluster — the default filter when
-    // Signal Mode is on — so list-visibility assertions see these rows.
+    // 'decision' sits in the WORK layer — the default scope when Signal
+    // Mode is on — so list-visibility assertions see these rows.
     type: 'decision',
     created_at: '2026-08-01T00:00:00.000Z',
     observations: [`obs ${i}`],
@@ -112,18 +111,29 @@ describe('actionFailureMessage', () => {
   });
 });
 
-/* ── SearchTab: dead server ──────────────────────────────────────────────── */
+/* ── MemoriesTab: dead server, both failure paths ────────────────────────── */
 
-describe('SearchTab against a dead server', () => {
-  it('shows the localized unreachable sentence, never "Failed to fetch"', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
-      throw new TypeError('Failed to fetch');
+describe('MemoriesTab against a dead server', () => {
+  it('deep search shows the localized unreachable sentence, never "Failed to fetch"', async () => {
+    // The list loads fine and the server dies BEFORE the ranked search, so
+    // the sentence this pins comes from the /v1/recall ACTION path — the
+    // migrated SearchTab guard — not from the mount load's catch.
+    let dead = false;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+      if (dead) throw new TypeError('Failed to fetch');
+      const url = String(input);
+      if (url.includes('/v1/projects')) return jsonResponse({ success: true, data: [] });
+      return jsonResponse({ success: true, data: [entity(1)] });
     });
-    const { container } = render(<SearchTab />);
+    const { container } = render(<MemoriesTab />);
+    await waitFor(() => {
+      expect(container.textContent).toContain('obs 1');
+    });
+
+    dead = true;
     const input = container.querySelector('input[type="search"]') as HTMLInputElement;
     fireEvent.input(input, { target: { value: 'auth' } });
-    const button = container.querySelector('button.btn-primary') as HTMLButtonElement;
-    fireEvent.click(button);
+    fireEvent.keyDown(input, { key: 'Enter' });
 
     await waitFor(() => {
       const alert = container.querySelector('[role="alert"]');
@@ -132,11 +142,24 @@ describe('SearchTab against a dead server', () => {
     });
     expect(container.textContent).not.toContain('Failed to fetch');
   });
+
+  it('routes a dead server at load through the classified sentence', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      throw new TypeError('Failed to fetch');
+    });
+    const { container } = render(<MemoriesTab />);
+    await waitFor(() => {
+      const alert = container.querySelector('[role="alert"]');
+      expect(alert).not.toBeNull();
+      expect(alert!.textContent).toContain(unreachableSentence);
+    });
+    expect(container.textContent).not.toContain('Failed to fetch');
+  });
 });
 
-/* ── BrowseTab: empty database vs filter-matched-nothing ─────────────────── */
+/* ── MemoriesTab: empty database vs filter-matched-nothing ───────────────── */
 
-function stubBrowse(entities: Entity[], entityCount?: number) {
+function stubMemories(entities: Entity[], entityCount?: number) {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = (init?.method ?? 'GET').toUpperCase();
@@ -149,10 +172,10 @@ function stubBrowse(entities: Entity[], entityCount?: number) {
   });
 }
 
-describe('BrowseTab empty-state awareness', () => {
+describe('MemoriesTab empty-state awareness', () => {
   it('an empty database shows the seed entry point, not "try a different filter"', async () => {
-    stubBrowse([]);
-    const { container } = render(<BrowseTab health={{ status: 'ok', version: 't', entity_count: 0 }} />);
+    stubMemories([]);
+    const { container } = render(<MemoriesTab health={{ status: 'ok', version: 't', entity_count: 0 }} />);
     await waitFor(() => {
       expect(container.textContent).toContain(t('emptyLibrary.title'));
     });
@@ -170,8 +193,8 @@ describe('BrowseTab empty-state awareness', () => {
   });
 
   it('a filter that matched nothing keeps the filter message and no seed button', async () => {
-    stubBrowse([entity(1)]);
-    const { container } = render(<BrowseTab health={{ status: 'ok', version: 't', entity_count: 1 }} />);
+    stubMemories([entity(1)]);
+    const { container } = render(<MemoriesTab health={{ status: 'ok', version: 't', entity_count: 1 }} />);
     // UX-1: rows no longer print the machine name; the observation-derived
     // headline is the render sentinel now.
     await waitFor(() => {
@@ -185,10 +208,32 @@ describe('BrowseTab empty-state awareness', () => {
     expect(container.textContent).not.toContain(t('emptyLibrary.title'));
   });
 
+  it('an empty WORK LAYER guides instead of apologising, and one click widens the scope', async () => {
+    // Signal Mode defaults ON, so the tab opens scoped to the work layer.
+    // A graph of pure mechanical capture (commits) has nothing there — the
+    // empty state must say where work memories come from and offer the
+    // all-memories scope, not claim a filter mismatch or a fresh install.
+    stubMemories([entity(1, { type: 'commit' })]);
+    const { container } = render(<MemoriesTab health={{ status: 'ok', version: 't', entity_count: 1 }} />);
+    await waitFor(() => {
+      expect(container.textContent).toContain(t('memories.workEmpty'));
+    });
+    expect(container.textContent).not.toContain(t('emptyLibrary.title'));
+    expect(container.textContent).not.toContain(t('browse.noMatch'));
+
+    const showAll = [...container.querySelectorAll('button')]
+      .find((b) => (b.textContent ?? '').includes(t('memories.showAll')));
+    expect(showAll, 'the show-all escape hatch should render').toBeDefined();
+    fireEvent.click(showAll!);
+    await waitFor(() => {
+      expect(container.textContent).toContain('obs 1');
+    });
+  });
+
   it('names the truncation when the fetch limit is hit and the library is larger', async () => {
     const full = Array.from({ length: 2000 }, (_, i) => entity(i + 1));
-    stubBrowse(full, 5000);
-    const { container } = render(<BrowseTab health={{ status: 'ok', version: 't', entity_count: 5000 }} />);
+    stubMemories(full, 5000);
+    const { container } = render(<MemoriesTab health={{ status: 'ok', version: 't', entity_count: 5000 }} />);
     const expected = t('browse.truncated', {
       shown: (2000).toLocaleString('en'),
       total: (5000).toLocaleString('en'),
@@ -199,8 +244,8 @@ describe('BrowseTab empty-state awareness', () => {
   });
 
   it('says nothing about truncation when the fetch got everything', async () => {
-    stubBrowse([entity(1), entity(2)], 2);
-    const { container } = render(<BrowseTab health={{ status: 'ok', version: 't', entity_count: 2 }} />);
+    stubMemories([entity(1), entity(2)], 2);
+    const { container } = render(<MemoriesTab health={{ status: 'ok', version: 't', entity_count: 2 }} />);
     await waitFor(() => {
       expect(container.textContent).toContain('obs 1');
     });
@@ -290,73 +335,54 @@ describe('GraphTab scale guard', () => {
   });
 });
 
-/* ── LessonsTab: empty guidance + cap note ───────────────────────────────── */
+/* ── ProjectTab: the tri-state before claiming emptiness ─────────────────── */
+//
+// Migrated from the retired LessonsTab's empty-state suite: the tri-state
+// on `health` survived the tab merge and lives in ProjectTab now. The
+// LessonsTab cap-note guard (`lessons.capNote`) has NO surviving surface —
+// the merged Memories list speaks its truncation through `browse.truncated`,
+// pinned above.
 
-function stubLessons(lessons: Entity[]) {
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url.includes('/v1/projects')) return jsonResponse({ success: true, data: [] });
-    return jsonResponse({ success: true, data: lessons });
-  });
-}
-
-describe('LessonsTab empty states', () => {
+describe('ProjectTab empty states', () => {
   it('an empty DATABASE gets the seed entry point', async () => {
-    stubLessons([]);
-    const { container } = render(<LessonsTab health={{ status: 'ok', version: 't', entity_count: 0 }} />);
+    stubMemories([]);
+    const { container } = render(<ProjectTab health={{ status: 'ok', version: 't', entity_count: 0 }} />);
     await waitFor(() => {
       expect(container.textContent).toContain(t('emptyLibrary.title'));
     });
+    expect(container.textContent).not.toContain(t('project.empty'));
   });
 
   it('renders neither empty-state while health is still loading (no false-flash)', async () => {
     // health arrives async from App's /v1/health, independent of this tab's
-    // own lessons fetch. Before it lands, `null?.entity_count === 0` is false —
-    // deciding then would flash lessons.emptyGuide ("your DB has memories,
-    // here's how lessons form") over a genuinely EMPTY database. The tri-state
-    // shows a neutral placeholder until health !== null.
-    stubLessons([]);
-    const { container } = render(<LessonsTab health={null} />);
+    // own entities fetch. Before it lands, `null?.entity_count === 0` is
+    // false — deciding then would flash "no project memories yet" (or the
+    // fresh-install screen) over a state nobody has measured yet. The
+    // tri-state holds a neutral spinner until health !== null.
+    stubMemories([]);
+    const { container } = render(<ProjectTab health={null} />);
+    // Let the tab's own two fetches (entities + projects) settle first, so
+    // this pins the post-load decision, not the initial loading spinner.
+    // (Break-tested: with `entity_count: 0` instead of null, EmptyLibraryState
+    // is already visible at this exact flush point — so the negative
+    // assertions below run against the settled frame, not the initial one.)
     await waitFor(() => {
-      // Past the top-level loading spinner: the stats row has rendered.
-      expect(container.textContent).toContain(t('lessons.totalRecalls'));
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(container.querySelector('.loading'), 'a neutral spinner should hold the frame').not.toBeNull();
+    expect(container.textContent).not.toContain(t('emptyLibrary.title'));
+    expect(container.textContent).not.toContain(t('project.empty'));
+  });
+
+  it('a populated database with no project tags explains where the story comes from', async () => {
+    stubMemories([entity(1)]);
+    const { container } = render(<ProjectTab health={{ status: 'ok', version: 't', entity_count: 42 }} />);
+    await waitFor(() => {
+      expect(container.textContent).toContain(t('project.empty'));
     });
     expect(container.textContent).not.toContain(t('emptyLibrary.title'));
-    expect(container.textContent).not.toContain(t('lessons.emptyGuide'));
-    // A placeholder spinner sits in the card-list area instead.
-    expect(container.querySelector('.loading')).not.toBeNull();
-  });
-
-  it('a populated database with zero lessons explains where lessons come from', async () => {
-    stubLessons([]);
-    const { container } = render(<LessonsTab health={{ status: 'ok', version: 't', entity_count: 42 }} />);
-    await waitFor(() => {
-      expect(container.textContent).toContain(t('lessons.emptyGuide'));
-    });
-    expect(container.textContent).not.toContain(t('emptyLibrary.title'));
-  });
-
-  it('notes the fetch cap when exactly the limit came back', async () => {
-    const hundred = Array.from({ length: 100 }, (_, i) =>
-      entity(i + 1, { type: 'lesson_learned' }));
-    stubLessons(hundred);
-    const { container } = render(<LessonsTab health={{ status: 'ok', version: 't', entity_count: 400 }} />);
-    await waitFor(() => {
-      expect(container.textContent).toContain(t('lessons.capNote', { limit: 100 }));
-    });
-  });
-
-  it('routes a dead server through the classified sentence', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
-      throw new TypeError('Failed to fetch');
-    });
-    const { container } = render(<LessonsTab />);
-    await waitFor(() => {
-      const alert = container.querySelector('[role="alert"]');
-      expect(alert).not.toBeNull();
-      expect(alert!.textContent).toContain(unreachableSentence);
-    });
-    expect(container.textContent).not.toContain('Failed to fetch');
   });
 });
 

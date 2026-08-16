@@ -1,13 +1,11 @@
 import { useState, useEffect, useCallback } from 'preact/hooks';
 import { Header } from './components/Header';
 import { TabNav } from './components/TabNav';
-import { SearchTab } from './components/SearchTab';
-import { BrowseTab } from './components/BrowseTab';
-import { AnalyticsTab } from './components/AnalyticsTab';
+import { HomeTab } from './components/HomeTab';
+import { MemoriesTab } from './components/MemoriesTab';
+import { ProjectTab } from './components/ProjectTab';
 import { SettingsTab } from './components/SettingsTab';
 import { GraphTab } from './components/GraphTab';
-import { LessonsTab } from './components/LessonsTab';
-import { InsightsTab } from './components/InsightsTab';
 import { FeedbackWidget } from './components/FeedbackWidget';
 import { AuthPrompt } from './components/AuthPrompt';
 import { OnboardingBanner } from './components/OnboardingBanner';
@@ -16,63 +14,68 @@ import { InsightsBanner } from './components/InsightsBanner';
 import { api, AuthRequiredError, getApiToken, setApiToken, type HealthData } from './lib/api';
 import { initLocale, t, type Locale } from './lib/i18n';
 
-// Tab order — Insights leads because it surfaces what memesh did for
-// the user automatically (LLM-driven weekly recaps + patterns), which
-// is the primary value proposition once dream/auto-tagger run. Lessons
-// is second because of the failure → structured lesson loop. Search is
-// demoted past Browse and Analytics because the discovery flow (browse +
-// roadmap) is more meaningful for a returning user than another keyword
-// box. Order is the source of truth for the nav bar AND the panel-render
-// block — keep them in sync.
-const TAB_KEYS = ['Insights', 'Lessons', 'Browse', 'Analytics', 'Search', 'Graph', 'Manage', 'Settings'] as const;
+// Five tabs, one job each. Home leads because it answers the visit's real
+// question — what did memesh do for me, and does anything need my
+// judgment. Memories is the whole library behind one surface (search,
+// scope, manage). Project is the story of one project. Graph and Settings
+// keep their jobs. Order is the source of truth for the nav bar AND the
+// panel-render block — keep them in sync.
+const TAB_KEYS = ['Home', 'Memories', 'Project', 'Graph', 'Settings'] as const;
 type Tab = typeof TAB_KEYS[number];
 
 const TAB_I18N_KEYS: Record<Tab, string> = {
-  Insights: 'tab.insights',
-  Lessons: 'tab.lessons',
-  Browse: 'tab.browse',
-  Analytics: 'tab.analytics',
-  Search: 'tab.search',
+  Home: 'tab.home',
+  Memories: 'tab.memories',
+  Project: 'tab.project',
   Graph: 'tab.graph',
-  Manage: 'tab.manage',
   Settings: 'tab.settings',
+};
+
+/** Where the retired tab names lead now — a stored `memesh.tab` or a
+ *  bookmarked `?tab=Browse` deep link degrades to the surface that
+ *  absorbed it, not silently to the default. */
+const LEGACY_TAB_MAP: Record<string, Tab> = {
+  Insights: 'Home',
+  Analytics: 'Home',
+  Search: 'Memories',
+  Browse: 'Memories',
+  Manage: 'Memories',
+  Lessons: 'Memories',
 };
 
 const TAB_STORAGE_KEY = 'memesh.tab';
 
 /**
  * Resolve the initial tab from (in order): URL ?tab=, localStorage,
- * default to Insights. Deep-link wins so users can bookmark a specific
- * view; otherwise the last-used tab persists across reloads. Insights
- * leads because surfacing what memesh auto-generated for the user is
- * the dashboard's primary value once dream / auto-tagger run.
+ * default to Home. Deep-link wins so users can bookmark a specific
+ * view; otherwise the last-used tab persists across reloads.
  */
 function initialTab(): Tab {
+  const resolve = (raw: string | null): Tab | null => {
+    if (!raw) return null;
+    if ((TAB_KEYS as readonly string[]).includes(raw)) return raw as Tab;
+    return LEGACY_TAB_MAP[raw] ?? null;
+  };
   try {
     const params = new URLSearchParams(window.location.search);
-    const fromUrl = params.get('tab');
-    if (fromUrl && (TAB_KEYS as readonly string[]).includes(fromUrl)) {
-      return fromUrl as Tab;
-    }
-    const fromStorage = localStorage.getItem(TAB_STORAGE_KEY);
-    if (fromStorage && (TAB_KEYS as readonly string[]).includes(fromStorage)) {
-      return fromStorage as Tab;
-    }
+    const fromUrl = resolve(params.get('tab'));
+    if (fromUrl) return fromUrl;
+    const fromStorage = resolve(localStorage.getItem(TAB_STORAGE_KEY));
+    if (fromStorage) return fromStorage;
   } catch {
     // SSR / private mode / no window — fall through to default
   }
-  return 'Insights';
+  return 'Home';
 }
 
 export function App() {
   const [locale, setLocale] = useState<Locale>(() => initLocale());
   const [tab, setTab] = useState<Tab>(initialTab);
-  // Tabs that have been activated at least once. Search/Browse/Analytics
-  // keep their component state across tab switches (mounted-but-hidden),
-  // but must not mount BEFORE first activation: a hidden BrowseTab fetches
-  // /v1/entities?limit=2000 fully hydrated plus /v1/projects, and a hidden
-  // AnalyticsTab fetches /v1/stats + /v1/analytics + /v1/patterns — five
-  // requests on every page load for tabs the user may never open.
+  // Tabs that have been activated at least once. Memories and Project each
+  // fetch /v1/entities?limit=2000 fully hydrated plus /v1/projects on
+  // mount — they keep their component state across tab switches
+  // (mounted-but-hidden), but must not mount BEFORE first activation, or
+  // every page load pays those requests for tabs the user may never open.
   const [visitedTabs, setVisitedTabs] = useState<ReadonlySet<Tab>>(() => new Set<Tab>());
   useEffect(() => {
     setVisitedTabs((prev) => (prev.has(tab) ? prev : new Set(prev).add(tab)));
@@ -128,7 +131,7 @@ export function App() {
   }, []);
 
   // Initial fetch + subscribe to data-changed events. ISSUE-001 fix:
-  // BrowseTab's ↻ refresh (and archive/restore) refetches body data via
+  // MemoriesTab's ↻ refresh (and archive/restore) refetches body data via
   // its own state, but the header lives here in App and used to fetch
   // /v1/health only once on mount. The header therefore stayed stuck
   // at the page-load count. Dispatching `memesh:data-changed` from any
@@ -165,19 +168,16 @@ export function App() {
     <div class="shell">
       <Header health={health} error={error} />
       <DoctorBanner />
-      <InsightsBanner currentTab={tab} onNavigateToInsights={() => setTab('Insights')} />
+      <InsightsBanner currentTab={tab} onNavigateToInsights={() => setTab('Home')} />
       <OnboardingBanner health={health} />
       <TabNav tabs={tabLabels} active={tab} onSelect={(k) => setTab(k as Tab)} />
       {/* Each panel is the tabpanel for its TabNav tab: id + role +
           aria-labelledby wire the roving-tablist relationship (see TabNav). */}
       <div class="main">
-        <div id="panel-Insights" role="tabpanel" aria-labelledby="tab-Insights" class={`panel ${tab === 'Insights' ? 'active' : ''}`}>{tab === 'Insights' && <InsightsTab />}</div>
-        <div id="panel-Search" role="tabpanel" aria-labelledby="tab-Search" class={`panel ${tab === 'Search' ? 'active' : ''}`}>{keepMounted('Search') && <SearchTab />}</div>
-        <div id="panel-Browse" role="tabpanel" aria-labelledby="tab-Browse" class={`panel ${tab === 'Browse' ? 'active' : ''}`}>{keepMounted('Browse') && <BrowseTab health={health} />}</div>
-        <div id="panel-Analytics" role="tabpanel" aria-labelledby="tab-Analytics" class={`panel ${tab === 'Analytics' ? 'active' : ''}`}>{keepMounted('Analytics') && <AnalyticsTab />}</div>
+        <div id="panel-Home" role="tabpanel" aria-labelledby="tab-Home" class={`panel ${tab === 'Home' ? 'active' : ''}`}>{tab === 'Home' && <HomeTab />}</div>
+        <div id="panel-Memories" role="tabpanel" aria-labelledby="tab-Memories" class={`panel ${tab === 'Memories' ? 'active' : ''}`}>{keepMounted('Memories') && <MemoriesTab health={health} />}</div>
+        <div id="panel-Project" role="tabpanel" aria-labelledby="tab-Project" class={`panel ${tab === 'Project' ? 'active' : ''}`}>{keepMounted('Project') && <ProjectTab health={health} />}</div>
         <div id="panel-Graph" role="tabpanel" aria-labelledby="tab-Graph" class={`panel ${tab === 'Graph' ? 'active' : ''}`}>{tab === 'Graph' && <GraphTab />}</div>
-        <div id="panel-Lessons" role="tabpanel" aria-labelledby="tab-Lessons" class={`panel ${tab === 'Lessons' ? 'active' : ''}`}>{tab === 'Lessons' && <LessonsTab health={health} />}</div>
-        <div id="panel-Manage" role="tabpanel" aria-labelledby="tab-Manage" class={`panel ${tab === 'Manage' ? 'active' : ''}`}>{tab === 'Manage' && <BrowseTab manage health={health} />}</div>
         <div id="panel-Settings" role="tabpanel" aria-labelledby="tab-Settings" class={`panel ${tab === 'Settings' ? 'active' : ''}`}>
           {tab === 'Settings' && <SettingsTab locale={locale} onLocaleChange={setLocale} />}
         </div>

@@ -328,8 +328,3 @@ export async function fetchProjects(): Promise<ProjectInfo[]> {
 export async function fetchGraph(): Promise<GraphData> {
   return api<GraphData>('GET', '/v1/graph');
 }
-
-export async function fetchLessons(): Promise<Entity[]> {
-  const result = await api<Entity[]>('GET', '/v1/entities?type=lesson_learned&limit=100');
-  return Array.isArray(result) ? result : [];
-}

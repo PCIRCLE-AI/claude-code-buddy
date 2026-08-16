@@ -34,7 +34,7 @@ src/
 ├── mcp/             # stdio server (NOTE: server lives here, handlers in transports/mcp/)
 └── cli/             # view.ts + view-live.ts (dashboard fallback, NOT a transport)
 scripts/hooks/       # 7 Claude Code hooks + _shared.js (mirror of paths.ts, F5 boundary)
-dashboard/src/       # Preact + Vite dashboard (8 tabs)
+dashboard/src/       # Preact + Vite dashboard (5 tabs)
 tests/               # vitest (forks pool) — mirrors src/ layout
 benchmarks/longmemeval/  # public LongMemEval-S evidence (REPRODUCE.md)
 docs/                # ARCHITECTURE.md, api/API_REFERENCE.md

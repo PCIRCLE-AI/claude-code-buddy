@@ -219,11 +219,11 @@ memesh serve
 ```
 
 <p align="center">
-  <img src="docs/images/dashboard-search.png" alt="MeMesh Search — find any memory instantly" width="100%" />
+  <img src="docs/images/dashboard-search.png" alt="MeMesh — find any memory instantly" width="100%" />
 </p>
 
 <p align="center">
-  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — health score, timeline, patterns, knowledge coverage" width="100%" />
+  <img src="docs/images/dashboard-analytics.png" alt="MeMesh analytics — health score, timeline, patterns, knowledge coverage" width="100%" />
 </p>
 
 <p align="center">
@@ -379,17 +379,14 @@ Wenn npm eine installierte Version als veraltet kennzeichnet (typischerweise ein
 
 ## Dashboard
 
-8 Reiter, 11 Sprachen, keine externen Abhängigkeiten. Zugang unter `http://localhost:3737/dashboard` wenn der Server läuft.
+5 Reiter, 11 Sprachen, keine externen Abhängigkeiten. Zugang unter `http://localhost:3737/dashboard` wenn der Server läuft.
 
 | Reiter | Was Sie sehen |
 |--------|-------------|
-| **Insights** | Speicher-Insights — wöchentliche Zusammenfassungen und Mustervorschläge der Dreamer-Engine; Ein-Klick-Akzeptieren/Ablehnen |
-| **Search** | Volltextsuche + Vektorsimilarität über alle Memories |
-| **Browse** | Paginierte Liste aller Entitäten mit Archiv-/Restore-Funktion |
-| **Analytics** | Memory Health Score, 30-Tage-Timeline, PM-Velocity + KG-Konnektivitätskennzahlen, Arbeitsmuster, Bereinigungsvorschläge |
+| **Home** | Was memesh für Sie getan hat — Dreamer-Insights zuerst: wöchentliche Zusammenfassungen und Mustervorschläge mit Ein-Klick-Akzeptieren/Ablehnen; die komplette Analyse (Memory Health Score, 30-Tage-Timeline, PM-Velocity + KG-Konnektivität, Arbeitsmuster) liegt in einem bei Bedarf ausklappbaren Bereich |
+| **Memories** | Die ganze Bibliothek hinter einer Oberfläche — Sofortfilter plus Enter für server-gerankte Suche (Volltext + Vektor), Scope-Chips für die Arbeitsebene (Ziele/Entscheidungen/Lektionen/Pläne) vs. Belege vs. alle vs. archiviert, ein Cluster-Kompositionsbalken, aufklappbare Details pro Zeile (Lektionen behalten ihre strukturierte Fehler/Grundursache/Behebung/Prävention-Ansicht), Archivieren/Wiederherstellen inline |
+| **Project** | Die Geschichte eines Projekts — die Roadmap-Ansicht (Phasen, Meilensteine, Schlüssellektionen) hinter einem Projektwähler |
 | **Graph** | Interaktiver kraft-gerichteter Wissensgraph mit Typfiltern, Suche, Ego-Modus, Aktualitäts-Heatmap |
-| **Lessons** | Strukturierte Lektionen aus vergangenen Fehlern (Fehler, Grundursache, Behebung, Prävention) |
-| **Manage** | Entitäten archivieren und wiederherstellen |
 | **Settings** | LLM-Provider-Konfiguration, sofortiger Sprachwahlschalter |
 
 ---
@@ -422,7 +419,7 @@ Importierte Bundles bleiben durchsuchbar, aber MeMesh injiziert importierte Memo
 > — **3er-Startup mit gemeinsamer Wissensbasis**
 
 > "Das Dashboard zeigte mir, dass 90 % meiner Memories automatisch generierte Session-Logs waren. Ich begann, `remember` bewusst für Architekturentscheidungen zu nutzen. Ein Spielwechsel."
-> — **Entwickler, der den Analytics-Reiter entdeckte**
+> — **Entwickler, der das Analytics-Panel entdeckte**
 
 ---
 

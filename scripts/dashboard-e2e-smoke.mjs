@@ -147,11 +147,12 @@ async function main() {
     MEMESH_SKIP_UPDATE_CHECK: '1',
   };
 
-  // Use a knowledge-cluster type (lesson_learned) instead of 'note'.
-  // Browse tab defaults to Signal Mode = ON, which sets the cluster
-  // filter to 'knowledge'. 'note' is in the 'reference' cluster and
-  // gets hidden under that default. lesson_learned is in 'knowledge'
-  // and is visible without the user toggling Signal Mode off.
+  // Use a work-layer type (lesson_learned) instead of 'note'. The
+  // Memories tab defaults to Signal Mode = ON, which scopes the list to
+  // the work layer (WORK_LAYER_TYPES in src/core/work-topology.ts).
+  // 'note' sits outside that layer and gets hidden under the default;
+  // lesson_learned is work-layer and is visible without the user
+  // toggling Signal Mode off.
   //
   // UX-1 change: dashboard now shows entity.title (or best observation) as
   // the primary display text, not entity.name. Set title explicitly so the
@@ -201,20 +202,32 @@ async function main() {
         }
       });
 
-      // Open the dashboard with ?tab=Browse to land on the "All Memories"
-      // view directly. Default tab is "Lessons" (a recent UX change), and
-      // a `note`-type entity wouldn't appear there. Browse renders all
-      // active entities, which is what this smoke test wants to verify.
-      await page.goto(`${dashboardUrl}?tab=Browse`, { waitUntil: 'networkidle' });
+      // Open the dashboard with ?tab=Memories to land on the "All Memories"
+      // library view directly. Default tab is "Home" (the 8→5 tab merge),
+      // which leads with insights, not the entity list this smoke seeds.
+      await page.goto(`${dashboardUrl}?tab=Memories`, { waitUntil: 'networkidle' });
       await expectVisible(page, 'All Memories');
       await expectVisible(page, 'dashboard-e2e-memory');
 
-      // The nav is a WAI-ARIA tablist: tabs are role=tab, not plain buttons.
-      // The search SUBMIT (inside .search-bar) is still a real button.
-      await page.getByRole('navigation').getByRole('tab', { name: 'Search' }).click();
-      await page.getByPlaceholder(/Search your memories/i).fill('dashboard-e2e-memory');
+      // The ranked server search lives inside the Memories tab now: typing
+      // filters client-side, the Search button (inside .search-bar) POSTs
+      // /v1/recall. "ranked by relevance" only renders in recall mode, so
+      // its presence proves the server search answered — the row alone
+      // would, since UX-2, already be visible from the browsing list.
+      await page.getByPlaceholder(/Filter as you type/i).fill('dashboard-e2e-memory');
       await page.locator('.search-bar').getByRole('button', { name: 'Search' }).click();
+      await expectVisible(page, 'ranked by relevance');
       await expectVisible(page, 'dashboard-e2e-memory');
+
+      // Tab switching on a real browser: the nav is a WAI-ARIA tablist
+      // (tabs are role=tab, not plain buttons). The Project tab derives its
+      // project list from the seeded `project:dashboard-e2e` tag and
+      // auto-selects the only project. Scope the assertion to the Project
+      // panel — the Memories panel stays mounted (hidden) after the switch
+      // and also contains the project name.
+      await page.getByRole('navigation').getByRole('tab', { name: 'Project' }).click();
+      await page.locator('#panel-Project').getByText('dashboard-e2e', { exact: false }).first()
+        .waitFor({ state: 'visible', timeout: 10000 });
 
       await page.getByRole('navigation').getByRole('tab', { name: 'Settings' }).click();
       // Target the language <select> specifically — Settings has multiple

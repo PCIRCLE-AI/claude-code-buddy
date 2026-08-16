@@ -806,7 +806,7 @@ Runs the same check suite as `memesh doctor` and returns the structured result. 
 
 ### GET /v1/projects
 
-Lists distinct projects extracted from entity tags (`project:*`) and entity name prefixes. The dashboard Browse and Lessons tabs use it to populate per-project filter chips.
+Lists distinct projects extracted from entity tags (`project:*`) and entity name prefixes. The dashboard's Memories and Project tabs use it to populate the project chips.
 
 **Response:**
 
@@ -1377,7 +1377,7 @@ Returns user work patterns extracted from existing memory entities.
 
 ### GET /v1/telemetry
 
-Per-flow LLM telemetry scorecard for the last `window` days. Backs the dashboard Analytics tab's "LLM activity" panel and `memesh telemetry` CLI.
+Per-flow LLM telemetry scorecard for the last `window` days. Backs the "LLM activity" panel in the dashboard Home tab's analytics section and `memesh telemetry` CLI.
 
 **Query parameters:**
 | Parameter | Type | Default | Description |
@@ -1399,7 +1399,7 @@ Lists dream digest / pattern proposals from the staging table.
 
 ### GET /v1/dream/proposals/:id
 
-Full proposal detail for the Insights tab's expanded card view.
+Full proposal detail for the Home tab's expanded card view.
 
 **Response:** `{ id, project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version, status, reason, created_at, reviewed_at }`. `proposed_digest` includes `name`, `type`, `observations`, `tags`, and (when the validator ran with a `soften` verdict) `validation_warnings: Array<{claim, reason}>`.
 

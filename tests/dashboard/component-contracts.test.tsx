@@ -64,23 +64,24 @@ import {
 } from '../../dashboard/src/components/AnalyticsTab';
 import { isGraphRenderable } from '../../dashboard/src/components/GraphTab';
 import { isPmAnalyticsRenderable } from '../../dashboard/src/components/PmAnalyticsPanel';
-import { BrowseTab } from '../../dashboard/src/components/BrowseTab';
+import { Chip } from '../../dashboard/src/components/Chip';
 import { DoctorBanner } from '../../dashboard/src/components/DoctorBanner';
 import { EmptyLibraryState } from '../../dashboard/src/components/EmptyLibraryState';
 import { FeedbackWidget } from '../../dashboard/src/components/FeedbackWidget';
 import { GraphTab } from '../../dashboard/src/components/GraphTab';
 import { Header } from '../../dashboard/src/components/Header';
 import { HealthScore } from '../../dashboard/src/components/HealthScore';
+import { HomeTab } from '../../dashboard/src/components/HomeTab';
 import { InsightsBanner } from '../../dashboard/src/components/InsightsBanner';
 import { InsightsTab } from '../../dashboard/src/components/InsightsTab';
 import { KnowledgeRadar } from '../../dashboard/src/components/KnowledgeRadar';
-import { LessonsTab } from '../../dashboard/src/components/LessonsTab';
 import { LlmTelemetryPanel } from '../../dashboard/src/components/LlmTelemetryPanel';
+import { MemoriesTab } from '../../dashboard/src/components/MemoriesTab';
 import { MemoryAgeMatrix } from '../../dashboard/src/components/MemoryAgeMatrix';
 import { MemoryTimeline } from '../../dashboard/src/components/MemoryTimeline';
 import { PatternCard } from '../../dashboard/src/components/PatternCard';
 import { PmAnalyticsPanel } from '../../dashboard/src/components/PmAnalyticsPanel';
-import { SearchTab } from '../../dashboard/src/components/SearchTab';
+import { ProjectTab } from '../../dashboard/src/components/ProjectTab';
 import {
   SettingsTab,
   isConfigRenderable,
@@ -343,7 +344,7 @@ function assertNoLeakedInternals(name: string, text: string): void {
 /** Components and the most degenerate props they can legally be handed. */
 const CASES: Array<{ name: string; node: () => ComponentChildren }> = [
   { name: 'AnalyticsTab', node: () => <AnalyticsTab /> },
-  { name: 'BrowseTab', node: () => <BrowseTab /> },
+  { name: 'Chip', node: () => <Chip label="" active={false} onClick={() => {}} /> },
   { name: 'DoctorBanner', node: () => <DoctorBanner /> },
   { name: 'EmptyLibraryState', node: () => <EmptyLibraryState /> },
   { name: 'FeedbackWidget', node: () => <FeedbackWidget health={null} /> },
@@ -367,18 +368,19 @@ const CASES: Array<{ name: string; node: () => ComponentChildren }> = [
       );
     },
   },
+  { name: 'HomeTab', node: () => <HomeTab /> },
   {
     name: 'InsightsBanner',
-    node: () => <InsightsBanner currentTab="search" onNavigateToInsights={() => {}} />,
+    node: () => <InsightsBanner currentTab="Memories" onNavigateToInsights={() => {}} />,
   },
   { name: 'InsightsTab', node: () => <InsightsTab /> },
   { name: 'KnowledgeRadar', node: () => <KnowledgeRadar data={[]} /> },
-  { name: 'LessonsTab', node: () => <LessonsTab /> },
   { name: 'LlmTelemetryPanel', node: () => <LlmTelemetryPanel /> },
+  { name: 'MemoriesTab', node: () => <MemoriesTab /> },
   { name: 'MemoryAgeMatrix', node: () => <MemoryAgeMatrix data={[]} /> },
   { name: 'MemoryTimeline', node: () => <MemoryTimeline data={[]} /> },
   { name: 'PmAnalyticsPanel', node: () => <PmAnalyticsPanel /> },
-  { name: 'SearchTab', node: () => <SearchTab /> },
+  { name: 'ProjectTab', node: () => <ProjectTab /> },
   { name: 'SettingsTab', node: () => <SettingsTab locale="en" onLocaleChange={() => {}} /> },
   { name: 'TabNav', node: () => <TabNav tabs={[]} active="" onSelect={() => {}} /> },
   {
@@ -434,6 +436,7 @@ const CASES: Array<{ name: string; node: () => ComponentChildren }> = [
  */
 const INTENTIONALLY_EXCLUDED: Record<string, string> = {
   AuthPrompt: 'tests/dashboard/AuthPrompt.test.tsx — rendered only from a 401 path, takes no API-backed props',
+  LessonCards: 'helper renderers (severity badge, expanded bodies) with no top-level surface — exercised through MemoriesTab rows',
   MemoryLoopCard: 'tests/dashboard/MemoryLoopCard.test.tsx covers its degenerate inputs directly',
   MemoryRow: 'tests/dashboard/MemoryRow.test.tsx covers its degenerate inputs directly',
   OnboardingBanner: 'tests/dashboard/OnboardingBanner.test.tsx covers its degenerate inputs directly',
@@ -473,7 +476,7 @@ const MUST_RENDER: Record<string, { keys?: string[]; literals?: string[]; nothin
   // and a marker from a different row will not notice that row disappearing:
   // stats / health / timeline / patterns.
   AnalyticsTab: { keys: ['analytics.totalMemories', 'health.title', 'timeline.title', 'patterns.title'] },
-  BrowseTab: { keys: ['browse.title', 'browse.filterCategory'] },
+  Chip: { nothing: 'renders only its caller-supplied label, and the degenerate props hand it an empty one' },
   DoctorBanner: { nothing: 'renders only when a doctor check has failed; every stub sends an empty checks list' },
   // Fetches nothing on mount (the seed POST fires only on click), so it must
   // render the same guidance whatever the API stub does.
@@ -482,21 +485,30 @@ const MUST_RENDER: Record<string, { keys?: string[]; literals?: string[]; nothin
   GraphTab: { keys: ['tab.graph', 'graph.entities'] },
   Header: { literals: ['MeMesh'] },
   HealthScore: { keys: ['health.title'] },
+  // Home is InsightsTab (which declares its own marker above) plus the
+  // analytics expander; the expander header is the only text HomeTab itself
+  // owns, and it must survive every payload — a HomeTab that lost it lost
+  // the only route to the analytics stack.
+  HomeTab: { keys: ['home.analyticsTitle'] },
   InsightsBanner: { nothing: 'renders only when there are unreviewed insights to point at from the current tab' },
   InsightsTab: { keys: ['insights.title'] },
   KnowledgeRadar: { nothing: 'takes `data={[]}`; an empty radar has no axes to draw' },
-  // Not `lessons.tabFailure`: it renders in TWO rows (the stats row and a
-  // category header), so either row could vanish while the other kept the
-  // marker green — the same shared-marker hole the SettingsTab LLM card had.
-  // These two each render exactly once and unconditionally, in different
-  // rows: the stats row and the sub-category tab strip.
-  LessonsTab: { keys: ['lessons.totalRecalls', 'lessons.tabFreeform'] },
   LlmTelemetryPanel: { keys: ['telemetry.title'] },
+  // One marker for the static chrome (the card title) and one for the scope
+  // chip row — different rows, each rendered before any fetch settles, so
+  // either vanishing is caught independently of the payload.
+  MemoriesTab: { keys: ['browse.title', 'memories.scopeLabel'] },
   MemoryAgeMatrix: { nothing: 'takes `data={[]}`; an empty matrix has no buckets to draw' },
   MemoryTimeline: { keys: ['timeline.title'] },
   PatternCard: { literals: ['pattern-1'] },
   PmAnalyticsPanel: { keys: ['pm.decisionsPerWeek', 'pm.orphanRate'] },
-  SearchTab: { keys: ['search.title'] },
+  // ProjectTab has NO static chrome: everything it draws is data-gated
+  // (spinner → error → tri-state empty → chips). The "positive" stub's
+  // payload is not an entities array, so the tab's one honest render under
+  // it is the classified version-skew sentence — asserting it pins that a
+  // payload nobody could read is named as such instead of rendering blank
+  // or masquerading as a fresh install.
+  ProjectTab: { keys: ['common.responseUnreadable'] },
   // One marker per card: capabilities / LLM provider / updates / behaviour /
   // language. The card titles are static, so they must survive every payload
   // this suite sends — a SettingsTab that lost a card lost a control surface.
@@ -880,8 +892,8 @@ describe('dashboard components on degenerate data', () => {
       { name: 'AnalyticsTab', node: () => <AnalyticsTab />, install: stubPartialApi, kind: 'skew' },
       { name: 'GraphTab', node: () => <GraphTab />, install: stubFailingApi, kind: 'down' },
       { name: 'GraphTab', node: () => <GraphTab />, install: stubEmptyApi, kind: 'skew' },
-      { name: 'BrowseTab', node: () => <BrowseTab />, install: stubFailingApi, kind: 'down' },
-      { name: 'BrowseTab', node: () => <BrowseTab />, install: stubEmptyApi, kind: 'skew' },
+      { name: 'MemoriesTab', node: () => <MemoriesTab />, install: stubFailingApi, kind: 'down' },
+      { name: 'MemoriesTab', node: () => <MemoriesTab />, install: stubEmptyApi, kind: 'skew' },
       { name: 'InsightsTab', node: () => <InsightsTab />, install: stubFailingApi, kind: 'down' },
       { name: 'InsightsTab', node: () => <InsightsTab />, install: stubEmptyApi, kind: 'skew' },
       { name: 'LlmTelemetryPanel', node: () => <LlmTelemetryPanel />, install: stubFailingApi, kind: 'down' },

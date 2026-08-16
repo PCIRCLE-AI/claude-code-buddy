@@ -231,11 +231,11 @@ memesh serve
 ```
 
 <p align="center">
-  <img src="docs/images/dashboard-search.png" alt="MeMesh Search — find any memory instantly" width="100%" />
+  <img src="docs/images/dashboard-search.png" alt="MeMesh — find any memory instantly" width="100%" />
 </p>
 
 <p align="center">
-  <img src="docs/images/dashboard-analytics.png" alt="MeMesh Analytics — health score, timeline, patterns, knowledge coverage" width="100%" />
+  <img src="docs/images/dashboard-analytics.png" alt="MeMesh analytics — health score, timeline, patterns, knowledge coverage" width="100%" />
 </p>
 
 <p align="center">
@@ -392,17 +392,14 @@ When npm flags an installed version as deprecated (typically a security advisory
 
 ## Dashboard
 
-8 tabs, 11 languages, zero external dependencies. Access at `http://localhost:3737/dashboard` when the server is running.
+5 tabs, 11 languages, zero external dependencies. Access at `http://localhost:3737/dashboard` when the server is running.
 
 | Tab | What you see |
 |-----|-------------|
-| **Insights** | Memory insights — weekly recaps and pattern proposals from the dreamer engine; one-click accept/reject |
-| **Search** | Full-text + vector similarity search across all memories |
-| **Browse** | Paginated list of all entities with archive/restore |
-| **Analytics** | Memory Health Score, 30-day timeline, PM velocity + KG connectivity metrics, work patterns, cleanup suggestions |
+| **Home** | What memesh did for you — dreamer insights lead: weekly recaps and pattern proposals with one-click accept/reject; the full analytics stack (Memory Health Score, 30-day timeline, PM velocity + KG connectivity, work patterns) folds into an on-demand expander |
+| **Memories** | The whole library behind one surface — instant filter plus Enter for server-ranked search (full-text + vector), scope chips for the work layer (goals/decisions/lessons/plans) vs evidence vs all vs archived, a cluster composition bar, per-row expandable detail (lessons keep their structured error/root-cause/fix/prevention view), archive/restore inline |
+| **Project** | One project's history — the roadmap view (phases, milestones, key lessons) behind a project selector |
 | **Graph** | Interactive force-directed knowledge graph with type filters, search, ego mode, recency heatmap |
-| **Lessons** | Structured lessons from past failures (error, root cause, fix, prevention) |
-| **Manage** | Archive and restore entities |
 | **Settings** | LLM provider config, instant language selector |
 
 ---
@@ -435,7 +432,7 @@ Imported bundles stay searchable, but MeMesh does not auto-inject imported memor
 > — **3-person startup, shared knowledge base**
 
 > "The dashboard showed me that 90% of my memories were auto-generated session logs. I started using `remember` deliberately for architecture decisions. Game changer."
-> — **Developer who discovered the Analytics tab**
+> — **Developer who discovered the analytics panel**
 
 ---
 

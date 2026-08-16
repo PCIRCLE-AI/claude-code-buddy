@@ -227,11 +227,11 @@ memesh serve
 ```
 
 <p align="center">
-  <img src="docs/images/dashboard-search.png" alt="MeMesh 搜尋 — 瞬間找到任何記憶" width="100%" />
+  <img src="docs/images/dashboard-search.png" alt="MeMesh — 瞬間找到任何記憶" width="100%" />
 </p>
 
 <p align="center">
-  <img src="docs/images/dashboard-analytics.png" alt="MeMesh 分析 — 健康分數、時間線、模式、知識涵蓋範圍" width="100%" />
+  <img src="docs/images/dashboard-analytics.png" alt="MeMesh 分析面板 — 健康分數、時間線、模式、知識涵蓋範圍" width="100%" />
 </p>
 
 <p align="center">
@@ -388,17 +388,14 @@ MeMesh 的檢索引擎**只用 FTS5**（熱路徑上不使用 LLM、不使用嵌
 
 ## 儀表板
 
-8 個分頁、11 種語言、零外部相依性。伺服器執行時可在 `http://localhost:3737/dashboard` 存取。
+5 個分頁、11 種語言、零外部相依性。伺服器執行時可在 `http://localhost:3737/dashboard` 存取。
 
 | 分頁 | 你會看到 |
 |-----|-------------|
-| **Insights** | 記憶洞察 — 來自 dreamer 引擎的每週摘要和模式提案；一鍵接受／拒絕 |
-| **Search** | 全文 + 向量相似度搜尋所有記憶 |
-| **Browse** | 所有實體的分頁列表，可以歸檔／復原 |
-| **Analytics** | 記憶健康分數、30 天時間線、PM 速度 + KG 連通性指標、工作模式、清理建議 |
+| **Home** | memesh 為你做了什麼 — 以 dreamer 洞察開場：每週摘要和模式提案，一鍵接受／拒絕；完整的分析內容（記憶健康分數、30 天時間線、PM 速度 + KG 連通性、工作模式）收在可展開的區塊裡，需要時再打開 |
+| **Memories** | 整座記憶庫集中在同一個介面 — 即時過濾，按 Enter 由伺服器排名搜尋（全文 + 向量）；範圍籤在工作層（目標／決策／教訓／計畫）、佐證、全部、已歸檔之間切換；叢集組成長條；每列可展開細節（教訓保留結構化的錯誤／根本原因／修復／預防檢視）；歸檔／復原直接在列上操作 |
+| **Project** | 單一專案的歷史 — 透過專案選擇器檢視路線圖（階段、里程碑、關鍵教訓） |
 | **Graph** | 互動式力導向知識圖，具有類型篩選、搜尋、自我中心模式、近期熱力圖 |
-| **Lessons** | 來自過去失敗的結構化教訓（錯誤、根本原因、修復、預防） |
-| **Manage** | 歸檔和復原實體 |
 | **Settings** | LLM 供應商設定、即時語言選擇器 |
 
 ---
@@ -431,7 +428,7 @@ MeMesh 的檢索引擎**只用 FTS5**（熱路徑上不使用 LLM、不使用嵌
 > — **3 人新創公司，共享知識庫**
 
 > 「儀表板顯示我 90% 的記憶是自動生成的對話日誌。我開始有意使用 `remember` 來記錄架構決策。改變了遊戲規則。」
-> — **發現分析分頁的開發者**
+> — **發現分析面板的開發者**
 
 ---
 
