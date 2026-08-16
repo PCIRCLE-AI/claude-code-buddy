@@ -150,8 +150,14 @@ If you installed via **Option A** (`/plugin install memesh@pcircle-memesh`), ski
 If you installed via **Option B** (`npm install -g`), the CLI is on your PATH — but nothing is wired into Claude Code yet: the npm package deliberately runs no install scripts, and the plugin (Option A) is what registers the MCP server and hooks inside Claude Code. What the npm path can wire by itself is the session hooks. Without them you can still use `memesh remember` / `recall` manually, but the **auto-capture loop** (sessions → lessons → recall on next session) is silent.
 
 ```bash
+memesh setup                 # detects Claude Code / Codex / Gemini, offers to wire each, verifies
+```
+
+Or the individual steps by hand:
+
+```bash
 memesh install-hooks         # adds memesh's hooks to ~/.claude/settings.json
-memesh doctor                # verifies "Hooks wired into Claude Code" passes
+memesh setup --check         # machine-level verification: reads the hosts' own config, changes nothing
 ```
 
 The hooks coexist with any custom hooks you already have under `~/.claude/hooks/` — `install-hooks` writes additive entries and never overwrites yours. To remove later: `memesh uninstall-hooks`.

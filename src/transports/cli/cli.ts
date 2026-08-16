@@ -13,6 +13,8 @@ import { getDbPath, homeDir, redactSecrets, redactUserPaths } from '../../core/p
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 import { NAMESPACES } from '../../core/types.js';
 import { assembleBriefing } from '../../core/briefing.js';
+import { inspectHosts, allWired, type SetupSeams, type HostStatus } from '../../core/setup.js';
+import { installHooks } from '../../core/install-hooks.js';
 import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import { TASK_STATE_FIELDS, taskStateLines, type TaskStateField } from '../../core/task-state.js';
 import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/types.js';
@@ -587,6 +589,121 @@ program
       }
       console.log(result.text);
     });
+  });
+
+// --- setup ---
+//
+// Machine-level wiring, which doctor structurally cannot do: doctor scopes
+// every check to the COPY being invoked, so it cannot see a plugin install
+// from the npm binary or vice versa. setup reads the HOSTS' own state
+// (Claude Code's plugin registry and settings.json, Codex's and Gemini's
+// MCP registries) and offers to wire whatever is present but unwired —
+// through each host CLI's own `mcp add`, never by writing their config
+// files directly.
+program
+  .command('setup')
+  .description('Detect Claude Code / Codex / Gemini on this machine, wire memesh into each, and verify')
+  .option('--check', 'Only report wiring status per host; change nothing (exit 1 if a present host is unwired)')
+  .option('--yes', 'Apply every wiring action without asking')
+  .action(async (opts) => {
+    const { spawnSync, execFileSync } = await import('child_process');
+
+    const isOnPathSeam = (bin: string): boolean => {
+      try {
+        const finder = process.platform === 'win32' ? 'where' : 'which';
+        execFileSync(finder, [bin], { stdio: 'pipe' });
+        return true;
+      } catch { return false; }
+    };
+    // Windows npm shims are .cmd files: execFileSync cannot spawn them
+    // directly (no PATHEXT resolution -> ENOENT), so resolve the full path
+    // via `where` and run .cmd through a shell. Every cmd/args pair here is
+    // a fixed string from core/setup.ts -- nothing user-supplied.
+    const runSeam = (cmd: string, args: string[]) => {
+      try {
+        let target = cmd;
+        let useShell = false;
+        if (process.platform === 'win32') {
+          const resolved = execFileSync('where', [cmd], { encoding: 'utf8' }).split(/\r?\n/)[0]?.trim();
+          if (resolved) { target = resolved; useShell = /\.(cmd|bat)$/i.test(resolved); }
+        }
+        const r = spawnSync(target, args, { encoding: 'utf8', shell: useShell });
+        return { status: r.status, stderr: r.stderr ?? '' };
+      } catch (err) {
+        return { status: null, stderr: err instanceof Error ? err.message : String(err) };
+      }
+    };
+    const seams: SetupSeams = { home: () => homeDir(), isOnPath: isOnPathSeam, run: runSeam };
+
+    const render = (statuses: HostStatus[]) => {
+      for (const st of statuses) {
+        if (!st.present) { console.log(`   ${st.title}: not found (looked for ${st.presenceDetail}) — skipped`); continue; }
+        const mark = st.wired === true ? '✅' : st.wired === false ? '❌' : '❓';
+        console.log(`${mark} ${st.title}: ${st.wiredDetail}`);
+      }
+    };
+
+    let statuses = inspectHosts(seams);
+
+    if (opts.check) {
+      render(statuses);
+      process.exit(allWired(statuses) ? 0 : 1);
+    }
+
+    const pending = statuses.filter((st) => st.present && st.actions.length > 0);
+    if (pending.length === 0) {
+      render(statuses);
+      console.log(allWired(statuses)
+        ? '\nEverything present is wired. Nothing to do.'
+        : '\nNothing to wire automatically — see the lines above.');
+      process.exit(allWired(statuses) ? 0 : 1);
+    }
+
+    render(statuses);
+    console.log('\nPlanned actions:');
+    for (const st of pending) for (const a of st.actions) {
+      console.log(`  • [${st.title}] ${a.label}${a.cmd ? `\n      ${a.cmd} ${(a.args ?? []).join(' ')}` : ''}`);
+    }
+
+    // Non-interactive without --yes: show the plan, change nothing. The
+    // confirmed path is --yes (or a TTY answering per action below) — the
+    // same refuse-without---yes convention `demo --reset` uses.
+    if (!opts.yes && !process.stdin.isTTY) {
+      console.error('\nNot a terminal and --yes not given — nothing was changed. Re-run with: memesh setup --yes');
+      process.exit(1);
+    }
+
+    const confirmAll = Boolean(opts.yes);
+    let rl: import('node:readline/promises').Interface | null = null;
+    if (!confirmAll) {
+      const { createInterface } = await import('node:readline/promises');
+      rl = createInterface({ input: process.stdin, output: process.stdout });
+    }
+
+    let failed = false;
+    for (const st of pending) {
+      for (const action of st.actions) {
+        if (!confirmAll && rl) {
+          const answer = (await rl.question(`\n[${st.title}] ${action.label} — proceed? [y/N] `)).trim().toLowerCase();
+          if (answer !== 'y' && answer !== 'yes') { console.log('  skipped'); continue; }
+        }
+        if (action.kind === 'install-hooks') {
+          const result = installHooks({ pluginRoot: packageRoot, pluginVersion: pkg.version, scope: 'user' });
+          console.log(`  ✅ hooks: added ${result.added}, skipped ${result.skipped} already-installed${result.backupPath ? ` (backup: ${result.backupPath})` : ''}`);
+        } else if (action.cmd) {
+          const r = runSeam(action.cmd, action.args ?? []);
+          if (r.status === 0) console.log(`  ✅ done (${action.cmd} ${(action.args ?? []).join(' ')})`);
+          else { console.error(`  ❌ ${action.cmd} exited ${r.status ?? 'without running'}${r.stderr ? `: ${r.stderr.trim()}` : ''}`); failed = true; }
+        }
+      }
+    }
+    rl?.close();
+
+    // Verify by re-reading the hosts, not by trusting the actions.
+    console.log('\nAfter wiring:');
+    statuses = inspectHosts(seams);
+    render(statuses);
+    process.exit(failed || !allWired(statuses) ? 1 : 0);
   });
 
 // --- task ---

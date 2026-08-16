@@ -30,6 +30,10 @@ export interface UninstallResult {
     backupPath: string | null;
     removed: number;
 }
+export declare function detectPluginRuntime(installedPluginsPathImpl?: string): {
+    installPath: string;
+    version: string;
+} | null;
 export declare function installHooks(opts: InstallOptions): InstallResult;
 export interface UninstallOptions {
     scope: 'user' | 'project';

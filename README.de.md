@@ -140,8 +140,14 @@ npm install -g @pcircle/memesh
 `npm install -g` legt die CLI in den PATH — aber nichts ist damit in Claude Code eingebunden: Das npm-Paket führt bewusst keine Install-Skripte aus; MCP-Server und Hooks in Claude Code registriert das Plugin (Option A). Was der npm-Pfad selbst verdrahten kann, sind die Session-Hooks. Ohne diese Hooks können Sie `memesh remember` / `recall` manuell verwenden, aber die **Auto-Capture-Schleife** (Session → Lektionen → proaktive Erinnerung in der nächsten Session) bleibt stumm.
 
 ```bash
+memesh setup                 # erkennt Claude Code / Codex / Gemini, bietet die Verdrahtung an, prüft danach
+```
+
+Oder die Einzelschritte von Hand:
+
+```bash
 memesh install-hooks         # fügt memesh-Hooks zu ~/.claude/settings.json hinzu
-memesh doctor                # bestätigt, dass „Hooks wired into Claude Code" PASST
+memesh setup --check         # Prüfung auf Maschinenebene: liest die Host-Configs, ändert nichts
 ```
 
 Die Hooks existieren neben Ihren bestehenden Custom-Hooks unter `~/.claude/hooks/` — `install-hooks` schreibt additiv und überschreibt nie Ihre Einträge. Zum Entfernen: `memesh uninstall-hooks`.
