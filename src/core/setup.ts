@@ -39,7 +39,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { detectPluginRuntime } from './install-hooks.js';
+import { detectPluginRuntime, settingsHaveMemeshHooks } from './install-hooks.js';
 
 export type HostId = 'claude-code' | 'codex' | 'gemini';
 
@@ -85,25 +85,6 @@ export interface HostStatus {
   actions: WireAction[];
 }
 
-/** Does settings.json carry any hook entry with the `_memesh: true` marker
- *  install-hooks stamps on everything it writes? */
-function hasMemeshHookMarker(settingsPath: string): boolean {
-  try {
-    const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as {
-      hooks?: Record<string, Array<{ hooks?: Array<{ _memesh?: boolean }> }>>;
-    };
-    for (const entries of Object.values(parsed.hooks ?? {})) {
-      if (!Array.isArray(entries)) continue;
-      for (const entry of entries) {
-        for (const hook of entry.hooks ?? []) {
-          if (hook?._memesh === true) return true;
-        }
-      }
-    }
-  } catch { /* missing or unparseable settings — not wired */ }
-  return false;
-}
-
 function inspectClaudeCode(seams: SetupSeams): HostStatus {
   const claudeDir = path.join(seams.home(), '.claude');
   const present = fs.existsSync(claudeDir);
@@ -139,7 +120,7 @@ function inspectClaudeCode(seams: SetupSeams): HostStatus {
   }
 
   const settingsPath = path.join(claudeDir, 'settings.json');
-  const hooksWired = hasMemeshHookMarker(settingsPath);
+  const hooksWired = settingsHaveMemeshHooks(settingsPath);
 
   // MCP: user-scope entries live in ~/.claude.json among unrelated state,
   // so ask the claude CLI itself. Scope matters — `claude mcp add` defaults
@@ -159,7 +140,7 @@ function inspectClaudeCode(seams: SetupSeams): HostStatus {
   // (no claude CLI on PATH) are UNKNOWN, not a failure — there is nothing
   // to prescribe, and reporting false would fail a healthy plugin-less
   // hooks-only machine forever.
-  status.wired = !hooksWired ? false : mcpWired === null ? null : mcpWired;
+  status.wired = hooksWired ? mcpWired : false;
   status.wiredDetail = `${hooksWired ? 'hooks wired (settings.json)' : 'hooks NOT wired (no _memesh marker in settings.json)'}; ${mcpDetail}`;
 
   if (!hooksWired) {

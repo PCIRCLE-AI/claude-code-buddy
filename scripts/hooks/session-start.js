@@ -15,6 +15,7 @@ import {
   assembleTopologyBlock,
   DEFAULT_TOPOLOGY_BUDGET,
   SNIPPET_FETCH_CHARS,
+  TOPOLOGY_CANDIDATE_CAP,
   isTrustedForAutoContext,
   parseEntityMetadata,
   // Aliased: this file already has a local `const memeshDir` (a resolved
@@ -261,7 +262,7 @@ function buildUpdateAvailableBanner(currentVersion, cache, getChannel) {
   if (channel === 'npm-global') {
     lines.push(`    Run: memesh update`);
   } else if (channel === 'plugin-marketplace') {
-    lines.push(`    Run: bash <plugin-root>/scripts/upgrade-plugin.sh   (or reinstall from /plugin UI)`);
+    lines.push(`    Run: memesh upgrade-plugin   (no CLI? npx @pcircle/memesh upgrade-plugin — or reinstall from /plugin UI)`);
   } else if (channel === 'source-checkout') {
     lines.push(`    Source checkout: \`git pull && npm install && npm run build\`.`);
   } else if (channel === 'npm-local') {
@@ -719,7 +720,9 @@ process.stdin.on('end', async () => {
       // one owner (`isTrustedForAutoContext`); rather than restate it as SQL
       // and own it twice, the window is made wide enough that the filtered
       // class cannot fill it. CANDIDATE_CAP bounds the work for a large graph.
-      const CANDIDATE_CAP = 400;
+      // Shared with the briefing surface via the leaf, so the two sides'
+      // candidate windows cannot drift apart.
+      const CANDIDATE_CAP = TOPOLOGY_CANDIDATE_CAP;
       const projectEntities = db.prepare(projectQuery).all(projectTag, CANDIDATE_CAP)
         .filter(entity => isTrustedForAutoContext(entity.metadata))
         .slice(0, sessionLimit);
@@ -795,10 +798,9 @@ process.stdin.on('end', async () => {
       // stay far under that on purpose — session start should prime the
       // model, not consume its working context. Snippets are truncated per
       // observation and the whole block is hard-capped.
-      // Shared with the briefing surface via the leaf — "the same block"
-      // depends on the two sides' budgets agreeing.
-      const MAX_SNIPPET = DEFAULT_TOPOLOGY_BUDGET.maxLineChars;
-      const MAX_CONTEXT_CHARS = DEFAULT_TOPOLOGY_BUDGET.maxChars;
+      // The budget itself comes from the leaf (DEFAULT_TOPOLOGY_BUDGET) at
+      // the assembleTopologyBlock call — "the same block" depends on the two
+      // surfaces agreeing, so neither side restates the numbers.
 
       const memoryLines = [];
       try {
@@ -832,7 +834,7 @@ process.stdin.on('end', async () => {
             if (snippets.has(row.entity_id)) continue;
             const text = String(row.content ?? '').replace(/\s+/g, ' ').trim();
             // A few line-widths, not the exact line cap: the final cut is
-            // clip()'s, on a word boundary — a hard slice at MAX_SNIPPET
+            // clip()'s, on a word boundary — a hard slice at the line cap
             // would hand it a string with nothing left to trim and ship
             // mid-word fragments again.
             if (text) snippets.set(row.entity_id, text.slice(0, SNIPPET_FETCH_CHARS));
@@ -882,7 +884,7 @@ process.stdin.on('end', async () => {
             { entities: recentEntities.map(toEntity), foreign: true },
           ],
           projectName,
-          { maxChars: MAX_CONTEXT_CHARS, maxLineChars: MAX_SNIPPET },
+          DEFAULT_TOPOLOGY_BUDGET,
         ));
       } catch (err) {
         // Snippet enrichment is best-effort. A failure here must not stop

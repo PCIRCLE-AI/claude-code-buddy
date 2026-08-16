@@ -63,8 +63,8 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "05709c6627002bd94a48f8545653d06f9ce16838b1a038f0c37ebca71e84fe3e",
-      "bytes": 35171
+      "sha256": "96ae414ea8b2f5fd56804b6846159fafcbf2dba7d382096f36f3edef86e437d7",
+      "bytes": 35195
     },
     {
       "path": "scripts/hooks/post-commit.js",
@@ -83,8 +83,8 @@
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "990f0f06dcc5ec54cc51ead6d541aa7c4f69b9cd35888e7ae53c076f6407794a",
-      "bytes": 51524
+      "sha256": "93b12eaa2e64f718b274ce7dd8b3bc4c530bb5c4ebfa7aeb84b3d77118e86e23",
+      "bytes": 51643
     },
     {
       "path": "scripts/hooks/session-summary.js",

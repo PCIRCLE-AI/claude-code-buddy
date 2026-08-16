@@ -71,6 +71,17 @@ function isOnPath(tool: string): boolean {
   return false;
 }
 
+/**
+ * Wire the session hooks for the current user and report in one line — the
+ * shared body of `memesh setup`'s install-hooks action and
+ * `memesh doctor --fix`'s. installHooks itself backs up settings.json and
+ * refuses on plugin-managed machines.
+ */
+function wireUserHooks(): string {
+  const r = installHooks({ pluginRoot: packageRoot, pluginVersion: pkg.version, scope: 'user' });
+  return `hooks: added ${r.added}, skipped ${r.skipped} already-installed${r.backupPath ? ` (backup: ${r.backupPath})` : ''}`;
+}
+
 // One list, in core. The CLI's private copy was the fourth.
 
 const packageJsonPath = path.resolve(
@@ -608,13 +619,6 @@ program
   .action(async (opts) => {
     const { spawnSync, execFileSync } = await import('child_process');
 
-    const isOnPathSeam = (bin: string): boolean => {
-      try {
-        const finder = process.platform === 'win32' ? 'where' : 'which';
-        execFileSync(finder, [bin], { stdio: 'pipe' });
-        return true;
-      } catch { return false; }
-    };
     // Windows npm shims are .cmd files: execFileSync cannot spawn them
     // directly (no PATHEXT resolution -> ENOENT), so resolve the full path
     // via `where` and run .cmd through a shell. Every cmd/args pair here is
@@ -633,7 +637,9 @@ program
         return { status: null, stderr: err instanceof Error ? err.message : String(err) };
       }
     };
-    const seams: SetupSeams = { home: () => homeDir(), isOnPath: isOnPathSeam, run: runSeam };
+    // isOnPath is the module-scope PATH walker upgrade-plugin already uses —
+    // one predicate, no `which`/`where` subprocess per host.
+    const seams: SetupSeams = { home: () => homeDir(), isOnPath, run: runSeam };
 
     const render = (statuses: HostStatus[]) => {
       for (const st of statuses) {
@@ -688,8 +694,7 @@ program
           if (answer !== 'y' && answer !== 'yes') { console.log('  skipped'); continue; }
         }
         if (action.kind === 'install-hooks') {
-          const result = installHooks({ pluginRoot: packageRoot, pluginVersion: pkg.version, scope: 'user' });
-          console.log(`  ✅ hooks: added ${result.added}, skipped ${result.skipped} already-installed${result.backupPath ? ` (backup: ${result.backupPath})` : ''}`);
+          console.log(`  ✅ ${wireUserHooks()}`);
         } else if (action.cmd) {
           const r = runSeam(action.cmd, action.args ?? []);
           if (r.status === 0) console.log(`  ✅ done (${action.cmd} ${(action.args ?? []).join(' ')})`);
@@ -1456,6 +1461,22 @@ program
     // paid provider that costs real money — and the rm/mv database branches
     // destroy or move user data. Those stay human decisions.
     if (opts.fix) {
+      // The dispatch is a Record, not an if-chain, so a fourth fixId added
+      // in doctor.ts fails to COMPILE here instead of prompting the user
+      // and then silently doing nothing — a success-shaped no-op being the
+      // exact failure class this repo audits for.
+      const FIX_ACTIONS: Record<NonNullable<typeof result.checks[number]['fixId']>, () => string> = {
+        'install-hooks': wireUserHooks,
+        'fts-rebuild': () => {
+          openDatabase();
+          try { return `keyword index rebuilt (${reindexFts().entities} entities)`; }
+          finally { closeDatabase(); }
+        },
+        'chmod-db': () => {
+          fs.chmodSync(getDbPath(), 0o600);
+          return `permissions restored: chmod 600 ${getDbPath()}`;
+        },
+      };
       const fixable = result.checks.filter((c) => c.fixId && (c.status === 'warn' || c.status === 'fail'));
       if (fixable.length === 0) {
         console.log('Nothing on the --fix whitelist to apply.');
@@ -1476,39 +1497,38 @@ program
             if (answer !== 'y' && answer !== 'yes') { console.log('  skipped'); continue; }
           }
           try {
-            if (check.fixId === 'install-hooks') {
-              const { installHooks } = await import('../../core/install-hooks.js');
-              const r = installHooks({ pluginRoot: packageRoot, pluginVersion: pkg.version, scope: 'user' });
-              console.log(`  ✅ hooks: added ${r.added}, skipped ${r.skipped}${r.backupPath ? ` (backup: ${r.backupPath})` : ''}`);
-            } else if (check.fixId === 'fts-rebuild') {
-              openDatabase();
-              try { console.log(`  ✅ keyword index rebuilt (${reindexFts().entities} entities)`); }
-              finally { closeDatabase(); }
-            } else if (check.fixId === 'chmod-db') {
-              fs.chmodSync(getDbPath(), 0o600);
-              console.log(`  ✅ permissions restored: chmod 600 ${getDbPath()}`);
-            }
+            console.log(`  ✅ ${FIX_ACTIONS[check.fixId!]()}`);
           } catch (err) {
             console.error(`  ❌ ${err instanceof Error ? err.message : String(err)}`);
           }
         }
         rl?.close();
 
-        // The verdict is a fresh doctor run, not trust in the fixes: the
-        // inspectors are module-private, so a full re-run + per-check diff
-        // is the honest (and cheap — probes stay off) way to show change.
+        // The verdict is a fresh doctor run, not trust in the fixes (the
+        // inspectors are module-private, so re-run + diff beats an export
+        // refactor). Probes are FORCED OFF here whatever the original flags
+        // said: no whitelisted fix can change what a live LLM/HTTP probe
+        // answers, and --probe --fix would otherwise pay the LLM call twice.
+        // The diff is scoped to fixable checks for the same reason — a
+        // "probe: pass → skipped" flip would be noise from the re-run's own
+        // flags, not a fix taking effect.
         console.log('\nAfter fixes:');
         const before = new Map(result.checks.map((c) => [c.id, c.status]));
+        // Scoped by the BEFORE run's fixable ids — the re-run's healthy rows
+        // carry no fixId (a PASS prescribes nothing), so filtering on the
+        // new rows' fixId would swallow the very warn→pass lines this
+        // diff exists to show.
+        const fixedIds = new Set(fixable.map((c) => c.id));
         result = await runDoctor({
           packageRoot,
-      packageVersion: pkg.version,
-          probeHttp: opts.probeHttp,
-          probeCapabilities: opts.probe,
+          packageVersion: pkg.version,
+          probeHttp: false,
+          probeCapabilities: false,
           httpBaseUrl: opts.url,
         });
         for (const c of result.checks) {
           const was = before.get(c.id);
-          if (was && was !== c.status) console.log(`  ${c.label}: ${was} → ${c.status}`);
+          if (fixedIds.has(c.id) && was && was !== c.status) console.log(`  ${c.label}: ${was} → ${c.status}`);
         }
       }
     }

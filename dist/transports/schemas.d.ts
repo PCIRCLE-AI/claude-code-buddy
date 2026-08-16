@@ -8,13 +8,13 @@ export declare const RememberSchema: z.ZodObject<{
     relations: z.ZodOptional<z.ZodArray<z.ZodObject<{
         to: z.ZodString;
         type: z.ZodString;
-    }, z.core.$strip>>>;
+    }, z.core.$strict>>>;
     namespace: z.ZodOptional<z.ZodEnum<{
         personal: "personal";
         team: "team";
         global: "global";
     }>>;
-}, z.core.$strip>;
+}, z.core.$strict>;
 export declare const RecallSchema: z.ZodObject<{
     query: z.ZodOptional<z.ZodString>;
     tag: z.ZodOptional<z.ZodString>;
@@ -26,7 +26,7 @@ export declare const RecallSchema: z.ZodObject<{
         global: "global";
     }>>;
     cross_project: z.ZodOptional<z.ZodBoolean>;
-}, z.core.$strip>;
+}, z.core.$strict>;
 export declare const ForgetSchema: z.ZodObject<{
     name: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
     observation: z.ZodOptional<z.ZodString>;
@@ -39,7 +39,7 @@ export declare const ExportSchema: z.ZodObject<{
         global: "global";
     }>>;
     limit: z.ZodOptional<z.ZodNumber>;
-}, z.core.$strip>;
+}, z.core.$strict>;
 export declare const ExportResultSchema: z.ZodObject<{
     version: z.ZodString;
     exported_at: z.ZodString;
@@ -83,7 +83,7 @@ export declare const ImportSchema: z.ZodObject<{
         overwrite: "overwrite";
         append: "append";
     }>;
-}, z.core.$strip>;
+}, z.core.$strict>;
 export declare const LearnSchema: z.ZodObject<{
     error: z.ZodString;
     fix: z.ZodString;
@@ -94,7 +94,7 @@ export declare const LearnSchema: z.ZodObject<{
         major: "major";
         minor: "minor";
     }>>;
-}, z.core.$strip>;
+}, z.core.$strict>;
 export declare const TaskStateSchema: z.ZodObject<{
     project: z.ZodOptional<z.ZodString>;
     goal: z.ZodOptional<z.ZodString>;
@@ -104,7 +104,7 @@ export declare const TaskStateSchema: z.ZodObject<{
 }, z.core.$strict>;
 export declare const BriefingSchema: z.ZodObject<{
     project: z.ZodOptional<z.ZodString>;
-}, z.core.$strip>;
+}, z.core.$strict>;
 export declare const UserPatternsSchema: z.ZodObject<{
     categories: z.ZodOptional<z.ZodArray<z.ZodEnum<{
         workSchedule: "workSchedule";
@@ -114,5 +114,5 @@ export declare const UserPatternsSchema: z.ZodObject<{
         strengths: "strengths";
         learningAreas: "learningAreas";
     }>>>;
-}, z.core.$strip>;
+}, z.core.$strict>;
 //# sourceMappingURL=schemas.d.ts.map

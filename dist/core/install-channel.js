@@ -93,8 +93,8 @@ export function getInstallChannelSupport(channel) {
                 channel,
                 label: 'Claude Code plugin marketplace',
                 canSelfUpdate: false,
-                recommendedCommand: 'bash scripts/upgrade-plugin.sh',
-                guidance: 'Run `bash <plugin-root>/scripts/upgrade-plugin.sh` (or reinstall the plugin from the Claude Code /plugin UI). The plugin marketplace pins versions, so a new release does not auto-update.',
+                recommendedCommand: 'memesh upgrade-plugin',
+                guidance: 'Run `memesh upgrade-plugin` (no npm CLI? `npx @pcircle/memesh upgrade-plugin`), or reinstall the plugin from the Claude Code /plugin UI. The plugin marketplace pins versions, so a new release does not auto-update.',
             };
         default:
             return {

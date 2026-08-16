@@ -31,7 +31,6 @@ import { rankEntities } from './scoring.js';
 import { getTaskState } from './task-state-store.js';
 import { taskStateLines } from './task-state.js';
 import {
-  DEFAULT_TOPOLOGY_BUDGET,
   SNIPPET_FETCH_CHARS,
   TOPOLOGY_CANDIDATE_CAP,
   assembleTopologyBlock,
@@ -192,7 +191,6 @@ export function assembleBriefing(project?: string): BriefingResult {
       { entities: toEntities(recentPool), foreign: true },
     ],
     projectName,
-    DEFAULT_TOPOLOGY_BUDGET,
   );
 
   return {

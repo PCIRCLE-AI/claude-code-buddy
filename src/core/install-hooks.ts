@@ -51,6 +51,28 @@ interface PluginHooksManifest {
   hooks: HooksByEvent;
 }
 
+/**
+ * Does this Claude Code settings file carry any hook entry stamped with the
+ * `_memesh: true` marker this module writes? Exported so `memesh setup` asks
+ * the module that OWNS the stamped shape, instead of keeping a third private
+ * walker that drifts when the shape moves (doctor has the second, richer
+ * walk — it classifies per event and checks script existence, so it stays).
+ */
+export function settingsHaveMemeshHooks(settingsPath: string): boolean {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as ClaudeSettings;
+    for (const entries of Object.values(parsed.hooks ?? {})) {
+      if (!Array.isArray(entries)) continue;
+      for (const entry of entries) {
+        for (const hook of entry.hooks ?? []) {
+          if (hook?._memesh === true) return true;
+        }
+      }
+    }
+  } catch { /* missing or unparseable settings — not wired */ }
+  return false;
+}
+
 export interface InstallOptions {
   pluginRoot: string;
   pluginVersion: string;

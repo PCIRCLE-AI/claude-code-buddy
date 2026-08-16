@@ -124,8 +124,20 @@ if (manifestHooks.size === 0) {
   }
 }
 
+// The agent-facing docs, stated ONCE — livingDocs and the agent-docs gate
+// both derive from this. A third doc added to only one site would silently
+// skip the other's checks (the twice-copied list is this repo's recorded
+// number-one defect class).
+const AGENT_DOCS = ['llms-install.md', 'AGENTS.md'];
+
 // --- 3. MCP tool count -------------------------------------------------------
-const toolsInCode = (read('src/transports/mcp/handlers.ts').match(/^ {4}name: '/gm) ?? []).length;
+// The registered tool NAMES, extracted once — the count check here and the
+// agent-docs gate below both consume this set instead of re-running the
+// regex with slightly different captures.
+const toolNamesInCode = new Set(
+  [...read('src/transports/mcp/handlers.ts').matchAll(/^ {4}name: '(\w+)'/gm)].map(m => m[1]),
+);
+const toolsInCode = toolNamesInCode.size;
 const claimed = read('docs/api/API_REFERENCE.md').match(/MeMesh exposes (\d+) tools via MCP/);
 if (toolsInCode < 1) fail('found no tools in handlers.ts — the pattern stopped matching');
 else if (!claimed) fail('docs/api/API_REFERENCE.md no longer states how many tools MeMesh exposes');
@@ -364,8 +376,7 @@ ok('no phantom Python surface in READMEs');
 const docRoots = ['src/', 'scripts/', 'tests/', 'docs/', 'dashboard/', 'benchmarks/', 'skills/', 'hooks/', 'packages/', '.github/', '.claude-plugin/'];
 const livingDocs = [
   ...readmes,
-  'llms-install.md',
-  'AGENTS.md',
+  ...AGENT_DOCS,
   'CONTRIBUTING.md',
   'CODEMAP.md',
   'DESIGN.md',
@@ -518,7 +529,7 @@ if (!hasBearerAuth) {
 // exist. Both sides are derived: commands from cli.ts registrations, tools
 // from handlers.ts.
 {
-  const agentDocs = ['llms-install.md', 'AGENTS.md'].filter(d => {
+  const agentDocs = AGENT_DOCS.filter(d => {
     if (fs.existsSync(path.join(repoRoot, d))) return true;
     fail(`${d} is gone — the agent-docs gate has nothing to check`);
     return false;
@@ -529,9 +540,7 @@ if (!hasBearerAuth) {
   // pin/unpin register through a helper whose `.command(name)` is dynamic;
   // their literal names are in the registerPinCommand calls.
   for (const m of cliSrc.matchAll(/registerPinCommand\('([\w-]+)'/g)) cliCommands.add(m[1]);
-  const toolNames = new Set(
-    [...read('src/transports/mcp/handlers.ts').matchAll(/^ {4}name: '(\w+)'/gm)].map(m => m[1]),
-  );
+  const toolNames = toolNamesInCode;
   if (cliCommands.size < 10) fail(`CLI command extraction matched only ${cliCommands.size} — the pattern stopped matching cli.ts`);
   if (toolNames.size < 1) fail('MCP tool-name extraction matched nothing in handlers.ts');
 
