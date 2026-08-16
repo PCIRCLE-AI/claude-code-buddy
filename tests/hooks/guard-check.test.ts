@@ -101,8 +101,13 @@ describe('Feature: lesson guards at the PreToolUse hooks', () => {
     expect(runHook('guard-check.js', { tool_name: 'Bash', tool_input: { command: 'echo checkout' } }).stdout).toBe('');
   });
 
-  it('no database, no command, garbage input — all silent passes', () => {
+  it('no database, no command, garbage input — all silent passes', async () => {
     expect(runHook('guard-check.js', { tool_name: 'Bash', tool_input: {} }).stdout).toBe('');
+    // Close our own handle before deleting: Windows locks open files, so
+    // rmSync on a database this test still holds open throws EBUSY there
+    // (and only there — Linux/macOS happily unlink open files).
+    const { closeDatabase } = await import('../../src/db.js');
+    try { closeDatabase(); } catch { /* already closed */ }
     fs.rmSync(dbPath, { force: true });
     expect(runHook('guard-check.js', { tool_name: 'Bash', tool_input: { command: 'git checkout -- x' } }).stdout).toBe('');
   });
