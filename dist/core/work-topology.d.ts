@@ -5,12 +5,14 @@ export declare function layerOf(type: string): TopologyLayer;
 export interface TopologyEntity {
     name: string;
     type: string;
+    id?: number;
     title?: string | null;
     snippet?: string | null;
     signalScore?: number | null;
     foreign?: boolean;
 }
 export declare function topologyLine(entity: TopologyEntity, maxChars: number): string;
+export declare function extractCitedMemoryIds(text: string): Set<number>;
 export interface TopologySection {
     heading: string;
     entities: TopologyEntity[];

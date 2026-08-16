@@ -461,11 +461,6 @@
       "reason": "Same shape as the sibling file: `changed` is asserted `[]` for a no-op write and `['blocked']` when a clear actually happens, and `expect(row).toBeUndefined()` for the no-op is pinned by four other tests that read the row back and assert its tag, title and observations. Not vacuous; the pin is just not in a shape the regex matches.",
       "triaged": "2026-08-16 (A1b task-state)"
     },
-    "C5 src/core/work-topology.ts:386": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`line.match(/`+/g) ?? []` in buildReferenceContext, moved verbatim from scripts/hooks/_shared.js (which the C5 scan does not cover) so the MCP briefing surface shares the hook's fence. match() returns null when a line contains no backtick run; the empty list truthfully means 'no backticks', and the fence floor Math.max(3, longestRun + 1) still applies. Pinned by tests/hooks/reference-context-fence.test.ts, which feeds lines WITH backtick runs and asserts the fence outruns them.",
-      "triaged": "2026-08-16 (A1c briefing); re-keyed 2026-08-16 (assembleTopologyBlock + budget consts added above; same match statement \u2014 verified)"
-    },
     "C1 tests/cli/upgrade-plugin.test.ts": {
       "class": "DETECTOR-HEURISTIC",
       "reason": "the `.toBe(0)` occurrences assert child-process EXIT CODES (success), not empty collections; the file also asserts non-empty stderr/stdout content on every failure path and pins a semver comparison (4.10.0 beats 4.9.0), so nothing is vacuously empty. The detector's regex cannot tell an exit-code zero from an empty-set zero.",
@@ -545,6 +540,11 @@
       "class": "LINKED-MEASUREMENT",
       "reason": "benchmark figure linked to benchmarks/longmemeval/RESULTS.md + REPRODUCE.md; no machine gate by accepted policy",
       "triaged": "2026-08-04 (re-keyed 379->382->386->407: the Codex/Gemini MCP setup section shifted this line down 21 more; same 95.60% R@5 comparison-table figure verified before re-keying); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged \u2014 verified); re-keyed 2026-08-14 405->457 (the Recipes section added above; same statement \u2014 verified); re-keyed 2026-08-15 457\u2192459 (merge main shifted lines +2; same statement \u2014 verified); re-keyed 2026-08-16 (+48: Install first-screen section and See-what-it-remembered/Your-data subsections added above; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (+2: agent-install pointer added in the Install section; statements byte-identical \u2014 verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main \u2014 NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (tab table 8 rows -> 5 shifted lines -3; same content verified)"
+    },
+    "C5 src/core/work-topology.ts:416": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "`line.match(/`+/g) ?? []` in buildReferenceContext, moved verbatim from scripts/hooks/_shared.js (which the C5 scan does not cover) so the MCP briefing surface shares the hook's fence. match() returns null when a line contains no backtick run; the empty list truthfully means 'no backticks', and the fence floor Math.max(3, longestRun + 1) still applies. Pinned by tests/hooks/reference-context-fence.test.ts, which feeds lines WITH backtick runs and asserts the fence outruns them.",
+      "triaged": "2026-08-16 (A1c briefing); re-keyed 2026-08-16 (assembleTopologyBlock + budget consts added above; same match statement \u2014 verified); re-keyed 2026-08-16 (citation-handle additions above shifted the line 386->416; same statement verified)"
     }
   }
 }

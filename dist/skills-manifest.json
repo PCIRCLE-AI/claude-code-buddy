@@ -58,13 +58,13 @@
     },
     {
       "path": "scripts/hooks/_generated/work-topology.js",
-      "sha256": "6ad8bb1271a161110445a165c795bf15f047e1f5892674824e7eb6c525ed18da",
-      "bytes": 6706
+      "sha256": "e95bd72d4735fb49a2e69d6e28df8ed3833e7915decad8c1efafa58d7088d981",
+      "bytes": 7068
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "96ae414ea8b2f5fd56804b6846159fafcbf2dba7d382096f36f3edef86e437d7",
-      "bytes": 35195
+      "sha256": "08ff1ec3d590217c7a228c5f2d1d55dddfca5c857f8013055c5f9023971aa3ce",
+      "bytes": 35218
     },
     {
       "path": "scripts/hooks/post-commit.js",
@@ -83,13 +83,13 @@
     },
     {
       "path": "scripts/hooks/session-start.js",
-      "sha256": "93b12eaa2e64f718b274ce7dd8b3bc4c530bb5c4ebfa7aeb84b3d77118e86e23",
-      "bytes": 51643
+      "sha256": "fa405a6a9851f61ff1dcd51bafb44429971f41870abba82c49b7861f5bc1cd0c",
+      "bytes": 52469
     },
     {
       "path": "scripts/hooks/session-summary.js",
-      "sha256": "51fca53686a9e384763c9ff286d15e9a935fbe78664b5f8926a8f410ddba0e78",
-      "bytes": 46791
+      "sha256": "9b59b8daeb806843739fbc1ee7da92b2db1b5d38208dc76fde17891f37e6e54c",
+      "bytes": 44328
     },
     {
       "path": "scripts/hooks/user-prompt-intent.js",

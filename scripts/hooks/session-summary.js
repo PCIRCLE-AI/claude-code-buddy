@@ -29,6 +29,7 @@ import {
   AUTO_CAPTURE_TAG,
   captureEntity,
   decideAutoUpdateHook,
+  extractCitedMemoryIds,
   getMemeshDirFromDbPath,
   getProjectName,
   importFromPluginRoot,
@@ -475,56 +476,58 @@ process.stdin.on('end', async () => {
         }
 
         if (injectedData) {
-          const { entityIds, entityNames } = injectedData;
+          const { entityIds } = injectedData;
 
           if (entityIds && entityIds.length > 0) {
             // Check if recall_hits column exists (v4.0+ migration)
             const colCheck = db.prepare("PRAGMA table_info(entities)").all();
             if (colCheck.some(c => c.name === 'recall_hits')) {
               // Drop the records Claude Code created FROM our own hook
-              // output before matching. One SessionStart injection lands in
-              // the transcript 2+ times (hook_success + hook_additional_context),
-              // so any count-based discount depends on guessing an
-              // undocumented internal — get it wrong and every entity scores
-              // a hit instead of a miss. Structural removal is copy-count
-              // and encoding independent.
-              // Reuse the raw text parseTranscript already read — a second
-              // readFileSync doubles the Stop hook's I/O on 47MB transcripts.
-              const sessionText = stripHookEchoes(transcriptRawText).toLowerCase();
+              // output before scanning: the injected block itself prints a
+              // `[mem:id]` handle on every line, and counting those would
+              // score every injection as a hit. Structural removal is
+              // copy-count and encoding independent. Reuse the raw text
+              // parseTranscript already read — a second readFileSync
+              // doubles the Stop hook's I/O on 47MB transcripts.
+              const sessionText = stripHookEchoes(transcriptRawText);
 
-              // Hit/miss decision lives in `isRecallHit` (exported, unit-tested).
-
+              // Citation accounting. A hit is an EXPLICIT `[mem:id]` marker
+              // the agent wrote for an id this session injected — the
+              // instruction line session-start appends after the fenced
+              // block. Literal-content matching (the previous accounting)
+              // was retired after measuring 0% signal across ten real
+              // sessions and three matching strategies: every injected
+              // memory drifted toward an unearned recall_miss, and misses
+              // feed the impact factor in core ranking.
+              //
+              // Markers are self-reported: an agent that used a memory
+              // silently earns it nothing, so the signal UNDERCOUNTS and
+              // never overcounts. That asymmetry is why misses are FROZEN —
+              // recall_misses stays untouched until measured marker
+              // compliance (the counters below) justifies reading silence
+              // as non-use. The mode stamp keeps the two eras of numbers
+              // apart.
+              const cited = extractCitedMemoryIds(sessionText);
               const updateHit = db.prepare(
                 'UPDATE entities SET recall_hits = COALESCE(recall_hits, 0) + 1 WHERE id = ?'
               );
-              const updateMiss = db.prepare(
-                'UPDATE entities SET recall_misses = COALESCE(recall_misses, 0) + 1 WHERE id = ?'
-              );
-
-              // The injected block shows an entity's TITLE, not its name
-              // (A1 — a machine key like `commit-a1b2c3d` cost tokens and
-              // taught the model nothing). Matching on the name alone would
-              // therefore score a miss against a string the session was never
-              // shown, and a miss is not inert: it lowers the entity's impact
-              // factor in core ranking. Match either.
-              const titleStmt = db.prepare('SELECT title FROM entities WHERE id = ?');
-              for (let i = 0; i < entityIds.length; i++) {
-                const name = (entityNames[i] || '').toLowerCase();
-                // Skip names that carry no recall signal: too short, or a
-                // machine identifier (auto-capture entities) that can never
-                // substring-match prose. Scoring those would be a guaranteed
-                // unearned miss — see isMeasurableRecallName.
-                let title = null;
-                try { title = titleStmt.get(entityIds[i])?.title ?? null; } catch { /* pre-title schema */ }
-                // A row is measurable if EITHER string could plausibly appear
-                // in prose; a machine-named row with a human title now can.
-                if (!isMeasurableRecallName(name) && !isMeasurableRecallName(title)) continue;
-                if (isRecallHit(sessionText, name) || isRecallHit(sessionText, title)) {
-                  updateHit.run(entityIds[i]);
-                } else {
-                  updateMiss.run(entityIds[i]);
-                }
+              for (const id of entityIds) {
+                if (cited.has(id)) updateHit.run(id);
               }
+
+              // Accounting-mode stamp (constant value, rewritten every
+              // session so it survives DB restores from either era) plus
+              // the compliance denominators: sessions that HAD an injection
+              // vs sessions whose transcript carried any citation marker.
+              db.prepare(
+                'INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)'
+              ).run('recall_accounting_mode', 'citation-v1 since 2026-08-16');
+              const bump = db.prepare(
+                `INSERT INTO memesh_metadata (key, value) VALUES (?, '1')
+                 ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`
+              );
+              bump.run('citation_sessions_total');
+              if (cited.size > 0) bump.run('citation_sessions_cited');
             }
           }
         }
@@ -835,56 +838,6 @@ export function stripHookEchoes(rawTranscript) {
     kept.push(line);
   }
   return kept.join('\n');
-}
-
-/**
- * Did the session actually USE the memory named `name`, or does the name only
- * appear because memesh injected it at session start?
- *
- * The caller passes `sessionText` with memesh's own SessionStart injection
- * already stripped structurally (see `stripHookEchoes` — matches on
- * `attachment.type`, so it is independent of JSON escaping and of how many
- * times Claude Code echoes one injection). That removal is what stops an
- * injected name from scoring a false hit; once the echo is gone, a plain
- * substring match is the whole test.
- *
- * (This replaced an earlier `transcript.replace(injectedBlob, '')` + match,
- * which silently failed on JSON-encoded transcripts and scored every entity a
- * hit — see the callsite comment.)
- *
- * Ignores names shorter than 4 chars (too generic to match reliably).
- *
- * CONTRACT: `sessionText` must already be lowercased. The haystack is a
- * multi-megabyte transcript and this runs twice per injected entity (name +
- * title) — re-lowercasing it inside the function copied the whole transcript
- * on every call, hundreds of MB of transient allocation in the Stop hook.
- * The caller lowercases once; only the needle is normalized here.
- */
-export function isRecallHit(sessionText, name) {
-  if (!name || name.length < 4) return false;
-  return String(sessionText ?? '').includes(String(name).toLowerCase());
-}
-
-/**
- * Whether an injected entity's NAME can serve as a recall-effectiveness signal.
- *
- * Recall-effectiveness decides "was this injected memory used?" by substring-
- * matching the entity NAME in the session transcript (isRecallHit). That only
- * works for names a human might type. Auto-capture entities are named with
- * machine identifiers — `session-<pid>-<ts>-files`, `commit-<hash>`,
- * `pre-compact-<id>` — which never appear verbatim in conversation prose, so
- * they take a `recall_miss` they didn't earn on every injection. Over repeated
- * sessions that drags their Laplace-smoothed impact factor (scoring.ts, 10%
- * weight) down and quietly suppresses auto-captured memories from future recall.
- *
- * We can't measure their usefulness by name, so we don't count them either way —
- * they keep the neutral 0.5 impact. The prefix set is coupled to the auto-capture
- * producers' `<kind>-<id>` naming (post-commit / session-summary / pre-compact);
- * a new auto-capture producer should add its prefix here.
- */
-export function isMeasurableRecallName(name) {
-  if (!name || name.length < 4) return false;
-  return !/^(session-|commit-|pre-compact-)/i.test(name);
 }
 
 export function maybeTriggerDream(projectName, config, pluginRoot) {

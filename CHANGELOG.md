@@ -52,6 +52,27 @@ All notable changes to MeMesh are documented here.
   Doctor (broken install) > Onboarding (empty library) > Insights
   (pending proposals) — showing exactly one; the next in line surfaces
   the moment the winner is dismissed or its condition clears.
+- **Recall accounting becomes honest: explicit citations replace literal
+  matching.** "Was an injected memory actually used?" used to be answered
+  by substring-matching names and titles against the transcript — measured
+  across ten real sessions and three matching strategies, that had **zero
+  signal**: nobody restates a memory's title in prose, so every injected
+  memory drifted toward an unearned `recall_miss`, and misses feed the
+  ranking's impact factor. Now every injected line carries a citation
+  handle (`[mem:42]`, on both the session-start injection and the
+  `briefing` tool), one instruction line asks the agent to cite the
+  memories it genuinely uses, and the Stop hook credits `recall_hits`
+  from those markers alone — after structurally stripping the hook's own
+  echoes, so the injection can never cite itself. The markers are
+  self-reported and therefore undercount, never overcount; on that
+  asymmetry `recall_misses` is **frozen** until measured compliance (two
+  new `memesh_metadata` counters track it) justifies reading silence as
+  non-use, and an accounting-mode stamp keeps the two eras of numbers
+  apart. The injected-set record now also includes the lessons pool,
+  which was never accounted at all. Measured on the same database
+  snapshot, the handles and the instruction cost +70 tokens per session
+  start (695 → 765) — the price of measuring injection ROI instead of
+  guessing it.
 
 ## [4.6.0] — 2026-08-16
 

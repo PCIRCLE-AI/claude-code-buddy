@@ -19,6 +19,7 @@ import {
   WORK_LAYER_TYPES,
   layerOf,
   topologyLine,
+  extractCitedMemoryIds,
   groupTopology,
   buildTopologyLines,
   assembleTopologyBlock,
@@ -67,6 +68,48 @@ describe('work-topology', () => {
     expect(full.startsWith(shown)).toBe(true);
     const next = full.charAt(shown.length);
     expect(next === '' || next === ' ').toBe(true);
+  });
+
+  it('carries the citation handle when the entity has an id, and never otherwise', () => {
+    // The handle is the write side of citation accounting: without it the
+    // agent has no id to cite and no hit can ever be earned.
+    const withId = topologyLine(entity({ type: 'decision', id: 42, title: 'Ship FTS5 as the baseline' }), 150);
+    expect(withId).toBe('- [decision] Ship FTS5 as the baseline [mem:42]');
+
+    const withoutId = topologyLine(entity({ type: 'decision', title: 'Ship FTS5 as the baseline' }), 150);
+    expect(withoutId).not.toContain('[mem:');
+  });
+
+  it('budgets the handle like any other character — the text yields, the handle survives whole', () => {
+    const full = 'The client omits the correct Content-Type header entirely';
+    const line = topologyLine(entity({ type: 'fact', id: 1234, title: full }), 40);
+    // A truncated handle like `[mem:12` is worse than none: it cites
+    // nothing and still spends the tokens.
+    expect(line).toMatch(/\[mem:1234\]$/);
+    // The whole line respects the same ceiling an id-less line gets, so
+    // adding ids cannot blow the block budget.
+    expect(line.replace(/^- \[fact\] /, '').length).toBeLessThanOrEqual(40);
+  });
+
+  describe('extractCitedMemoryIds — the read side of the handle', () => {
+    it('collects and deduplicates explicit citations', () => {
+      const cited = extractCitedMemoryIds('per [mem:42] we kept pkce; [mem:42] again, plus [mem:7]');
+      expect([...cited].sort((a, b) => a - b)).toEqual([7, 42]);
+    });
+
+    it('tolerates the format variants an agent plausibly writes', () => {
+      // Case and inner whitespace vary in the wild; every tolerated variant
+      // is still unmistakably a citation — the shape cannot occur in prose.
+      const cited = extractCitedMemoryIds('[MEM: 42] and [ mem:7 ] and [Mem:9]');
+      expect([...cited].sort((a, b) => a - b)).toEqual([7, 9, 42]);
+    });
+
+    it('refuses everything that is not the marker', () => {
+      const cited = extractCitedMemoryIds(
+        'mem:42 bare, [mem:] empty, [mem:abc] non-numeric, [memo:42] wrong word, [mem:12345678901] absurd length',
+      );
+      expect(cited.size).toBe(0);
+    });
   });
 
   it('orders by signal, keeping unscored rows rather than dropping them', () => {
