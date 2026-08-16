@@ -13,7 +13,7 @@ import { computeAnalytics, computePmAnalytics } from '../../core/analytics.js';
 import { computeStats } from '../../core/stats.js';
 import { computeProjects } from '../../core/projects.js';
 import { computeGraph } from '../../core/graph.js';
-import { RememberSchema as RememberBody, RecallSchema as RecallBody, ForgetSchema as ForgetBody, ExportSchema as ExportBody, ImportSchema as ImportBody, LearnSchema as LearnBody, } from '../schemas.js';
+import { RememberSchema as RememberBody, RecallSchema as RecallBody, ForgetSchema as ForgetBody, ExportSchema as ExportBody, ImportSchema as ImportBody, LearnSchema as LearnBody, WhySchema as WhyBody, } from '../schemas.js';
 import { checkForUpdate, getLastUpdateCheck, getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
 import { getDbPath, getMemeshDirFromDbPath, redactSecrets, redactUserPaths } from '../../core/paths.js';
@@ -296,6 +296,15 @@ app.post('/v1/consolidate', (_req, res) => {
 app.post('/v1/export', (req, res) => handlePost(ExportBody, req, res, exportMemories));
 app.post('/v1/import', (req, res) => handlePost(ImportBody, req, res, importMemories));
 app.post('/v1/learn', (req, res) => handlePost(LearnBody, req, res, (data) => learn({ ...data, sourceHost: 'http' })));
+app.post('/v1/why', (req, res) => handlePost(WhyBody, req, res, async (data) => {
+    const { explainCommits } = await import('../../core/why.js');
+    return explainCommits(getDatabase(), {
+        file: data.file,
+        commits: (data.commits ?? []).map((hash) => ({ hash })),
+        project: data.project ?? null,
+        limit: data.limit,
+    });
+}));
 app.post('/v1/verify', (_req, res) => {
     res.status(410).json({ success: false, errorCode: 'route.retired', error: RETIRED_ROUTES['/v1/verify'] });
 });

@@ -9,7 +9,7 @@ import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexR
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
-import { getDbPath, homeDir, redactSecrets, redactUserPaths } from '../../core/paths.js';
+import { getDbPath, getProjectName, homeDir, redactSecrets, redactUserPaths } from '../../core/paths.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 import { NAMESPACES } from '../../core/types.js';
 import { assembleBriefing } from '../../core/briefing.js';
@@ -599,6 +599,79 @@ program
         return;
       }
       console.log(result.text);
+    });
+  });
+
+// --- why ---
+//
+// File attribution: local git resolves WHICH commits touched the file (log,
+// or blame for --line); the graph answers what memesh remembers about them.
+// Every gap is a typed abstention rendered as a sentence below — a commit
+// with no entity, or an entity with no session link, is reported as exactly
+// that, never guessed around. The git half runs HERE, with the user's own
+// cwd; the HTTP route takes hashes instead (see WhySchema).
+const WHY_ABSTENTION_TEXT: Record<string, string> = {
+  git_unavailable: 'git is not installed or not on PATH — commit attribution unavailable.',
+  not_a_git_repo: 'Not inside a git repository — commit attribution unavailable.',
+  file_not_tracked: 'File is not tracked by git — commit attribution unavailable.',
+  line_out_of_range: 'That line does not exist in the tracked file.',
+  line_uncommitted: 'That line is not committed yet — nothing to attribute.',
+  no_commit_entity: 'memesh has no memory of this commit (it predates capture, or was made without hooks / on another machine).',
+  no_session_link: 'This commit was captured before commits recorded their session — the session link does not exist.',
+};
+program
+  .command('why')
+  .description('Explain a file: commits memesh remembers touching it, their sessions, and related memories')
+  .argument('<file>', 'File path (relative to the current directory or absolute)')
+  .option('--line <n>', 'Attribute one line via git blame instead of file history')
+  .option('--limit <n>', 'Max commits to inspect', '10')
+  .option('--json', 'Output as JSON')
+  .action(async (file, opts) => {
+    await withDatabase(async () => {
+      const { resolveFileCommits, explainCommits } = await import('../../core/why.js');
+      const cwd = process.cwd();
+      const limit = parseInt(opts.limit);
+      const line = opts.line !== undefined ? parseInt(opts.line) : undefined;
+      const resolved = resolveFileCommits(cwd, file, { line, limit });
+      const result = explainCommits(getDatabase(), {
+        file,
+        commits: resolved.commits,
+        project: getProjectName(cwd),
+        limit,
+        abstentions: resolved.abstention ? [resolved.abstention] : [],
+      });
+      if (opts.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      console.log(`why ${result.file}  (project: ${result.project ?? 'all'})`);
+      for (const code of result.abstentions) {
+        console.log(`  ! ${WHY_ABSTENTION_TEXT[code] ?? code}`);
+      }
+      if (result.commits.length === 0 && result.abstentions.length === 0) {
+        console.log('  No commits touch this file.');
+      }
+      for (const c of result.commits) {
+        const head = [c.commit.hash.slice(0, 10), c.commit.date, c.commit.subject].filter(Boolean).join('  ');
+        console.log(`\n  ${head}`);
+        if (c.entity) {
+          console.log(`    memory: ${c.entity.name} [mem:${c.entity.id}]`);
+          for (const obs of c.entity.observations.slice(0, 3)) console.log(`      - ${obs}`);
+        }
+        if (c.session) {
+          console.log(`    session: ${c.session.session_id}`);
+          for (const s of c.session.entities) console.log(`      - ${s.name} (${s.type})`);
+        }
+        for (const code of c.abstentions) {
+          console.log(`    ! ${WHY_ABSTENTION_TEXT[code] ?? code}`);
+        }
+      }
+      const fm = result.file_memories.entities;
+      if (fm.length > 0) {
+        // Honest calibre: these are basename-tag associations, not commit-derived.
+        console.log(`\n  Related by file tag (file:${result.basename} — associated, not commit-derived):`);
+        for (const e of fm) console.log(`    - ${e.name} (${e.type})${e.title ? `: ${e.title}` : ''}`);
+      }
     });
   });
 

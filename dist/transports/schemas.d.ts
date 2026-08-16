@@ -105,6 +105,12 @@ export declare const TaskStateSchema: z.ZodObject<{
 export declare const BriefingSchema: z.ZodObject<{
     project: z.ZodOptional<z.ZodString>;
 }, z.core.$strict>;
+export declare const WhySchema: z.ZodObject<{
+    file: z.ZodString;
+    commits: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    project: z.ZodOptional<z.ZodString>;
+    limit: z.ZodOptional<z.ZodNumber>;
+}, z.core.$strict>;
 export declare const UserPatternsSchema: z.ZodObject<{
     categories: z.ZodOptional<z.ZodArray<z.ZodEnum<{
         workSchedule: "workSchedule";

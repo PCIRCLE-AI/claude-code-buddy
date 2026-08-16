@@ -133,6 +133,32 @@ process.stdin.on('end', () => {
         // git show failed — no diff stats recorded, existing behavior unchanged
       }
 
+      // Commit → session linkage, the hop `memesh why` walks. The payload has
+      // carried session_id all along; this hook just never recorded it, so
+      // every commit entity was an island (no file list, no session, no
+      // relations). Recorded as METADATA, not tags, on purpose: a `file:*`
+      // tag here would make pre-edit-recall inject commit noise into every
+      // edit of a touched file (Strategy 1 joins on exactly that tag).
+      const whyMetadata = {};
+      if (typeof data.session_id === 'string' && data.session_id) {
+        whyMetadata.session_id = data.session_id;
+      }
+      try {
+        const nameOnly = execFileSync('git', ['-C', data.cwd, 'show', '--name-only', '--format=', commitHash], {
+          encoding: 'utf8',
+          timeout: 5000,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }).trim();
+        if (nameOnly) {
+          // Repo-relative paths, capped: a lockfile-churn commit can touch
+          // thousands of files and metadata rides every entity read.
+          const files = nameOnly.split('\n').map(l => l.trim()).filter(Boolean);
+          if (files.length > 0) whyMetadata.files = files.slice(0, 50);
+        }
+      } catch {
+        // Best-effort like the diff stats above — no file list recorded.
+      }
+
       // Shared write dance — upsert entity + observations + tags AND reindex FTS.
       //
       // `source:auto-capture` is the provenance marker every capture hook
@@ -148,6 +174,7 @@ process.stdin.on('end', () => {
         observations,
         tags: [AUTO_CAPTURE_TAG, `project:${projectName}`],
         title: truncateTitle(commitMsg),
+        metadata: whyMetadata,
       });
 
       // Heartbeat AFTER capture, so the stamp certifies "the capture loop

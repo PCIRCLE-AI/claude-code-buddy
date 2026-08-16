@@ -147,6 +147,17 @@ export const BriefingSchema = z.object({
   project: z.string().min(1).max(200).optional(),
 }).strict();
 
+// `why` deliberately takes commit HASHES, not a repo path: the server never
+// shells out to git. Callers with a working tree (the CLI) resolve commits
+// locally via `resolveFileCommits` and pass them in; callers without one get
+// the honest graph-only answer (empty `commits`, file-tag memories intact).
+export const WhySchema = z.object({
+  file: z.string().min(1).max(500),
+  commits: z.array(z.string().regex(/^[a-f0-9]{7,40}$/)).max(50).optional(),
+  project: z.string().min(1).max(200).optional(),
+  limit: z.number().int().min(1).max(50).optional(),
+}).strict();
+
 export const UserPatternsSchema = z.object({
   categories: z.array(z.enum(['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
     .describe('Specific categories to return. Omit for all.'),

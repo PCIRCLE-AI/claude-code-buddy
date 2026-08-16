@@ -527,10 +527,14 @@ export { truncateTitle } from './_generated/title.js';
  * the heavier, user-initiated `remember` concerns (core owns them).
  *
  * @param {import('./_generated/sqlite.js').MemeshDatabase} db - an open hook DB handle
- * @param {{name: string, type: string, observations?: string[], tags?: string[], title?: string | null}} entity
+ * @param {{name: string, type: string, observations?: string[], tags?: string[], title?: string | null, metadata?: Record<string, unknown>}} entity
+ *   `metadata` is extra INSERT-only metadata (e.g. post-commit's session_id +
+ *   files). It cannot override the provenance/title_source stamps below, and
+ *   an OR IGNORE re-capture of an existing entity leaves it untouched — same
+ *   first-writer-wins rule provenance already follows.
  * @returns {{ id: number, isNew: boolean } | null} null if the row could not be resolved
  */
-export function captureEntity(db, { name, type, observations = [], tags = [], title }) {
+export function captureEntity(db, { name, type, observations = [], tags = [], title, metadata }) {
   // source_host provenance: these hooks only ever run under Claude Code (they
   // are wired into ~/.claude/settings.json), so a hook-captured entity is by
   // definition a claude-code capture. Stamped only on the INSERT — an OR
@@ -542,7 +546,7 @@ export function captureEntity(db, { name, type, observations = [], tags = [], ti
   // (dreamer backfill) know which titles it may replace — an UNMARKED title
   // is treated as human-provided and never touched, so omitting the mark
   // here would make today's date+verb titles permanent.
-  const insertMetadata = { provenance: { source_host: 'claude-code' } };
+  const insertMetadata = { ...(metadata ?? {}), provenance: { source_host: 'claude-code' } };
   if (title != null) insertMetadata.title_source = 'heuristic';
   const insertResult = db
     .prepare('INSERT OR IGNORE INTO entities (name, type, metadata, title) VALUES (?, ?, ?, ?)')
