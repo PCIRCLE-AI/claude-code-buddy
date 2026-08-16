@@ -27,6 +27,26 @@ All notable changes to MeMesh are documented here.
   new system, including the laws ("luminance carries information or it
   does not appear", "every moving pixel tells a truth") and the component
   patterns the coming tab consolidation must follow.
+- **Dashboard: eight tabs become five — Home, Memories, Project, Graph,
+  Settings.** Four of the eight were the same library wearing four doors:
+  Search, Browse, Manage and Lessons all listed memories, and two of them
+  each pulled their own duplicate 2000-row load to do it. They are now one
+  **Memories** tab with one fetch and one search box — it filters instantly
+  as you type, and Enter asks the server for ranked results (full-text +
+  vector). Scope chips cut the library into the work layer
+  (goals / decisions / lessons / plans), evidence, everything, or archived;
+  a cluster composition bar shows what the current scope is made of; and
+  every row expands in place — lessons keep their structured
+  error / root-cause / fix / prevention view. Archived stopped being a
+  10-row capped list and became a real scope with restore. Insights and
+  Analytics merged into **Home** — what memesh did for you, dreamer recaps
+  and pattern proposals first, with the full analytics stack (health score,
+  30-day timeline, PM velocity + KG connectivity, work patterns) folded
+  into an expander that defers its five requests until opened. The project
+  roadmap (phases, milestones, key lessons, behind a project selector) got
+  its own **Project** tab. Old `?tab=` deep links and stored tab choices
+  migrate to the surface that absorbed them, so a bookmarked
+  `?tab=Browse` opens Memories instead of nothing.
 
 ## [4.6.0] — 2026-08-16
 
