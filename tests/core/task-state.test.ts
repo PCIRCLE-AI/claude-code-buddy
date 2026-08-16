@@ -12,7 +12,6 @@ import { describe, it, expect } from 'vitest';
 import {
   TASK_STATE_FIELDS,
   taskStateName,
-  projectOfTaskStateName,
   parseTaskState,
   normalizeFieldValue,
   mergeTaskState,
@@ -29,12 +28,7 @@ describe('task-state', () => {
     // Without the project in the name, two repos share one row and every
     // session reads someone else's goal.
     expect(taskStateName('memesh')).not.toBe(taskStateName('other-repo'));
-    expect(projectOfTaskStateName(taskStateName('memesh'))).toBe('memesh');
-
-    // A name that is not a task-state key must not be mistaken for one.
-    expect(projectOfTaskStateName('commit-a1b2c3d')).toBeNull();
-    // Nor the bare prefix with no project after it.
-    expect(projectOfTaskStateName('task-state:')).toBeNull();
+    expect(taskStateName('memesh')).toBe('task-state:memesh');
   });
 
   it('clears a field on an explicit empty string', () => {

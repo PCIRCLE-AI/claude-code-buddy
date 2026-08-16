@@ -6,11 +6,10 @@
 // always-on capture path survives a missing or stale dist/ while staying
 // byte-locked to core — eliminating the hand-mirror drift behind the P0 FTS bug.
 // ============================================================================
+const LESSON_TYPES = new Set(['lesson_learned', 'lesson', 'mistake']);
 export const WORK_LAYER_TYPES = new Set([
+    ...LESSON_TYPES,
     'decision',
-    'lesson_learned',
-    'lesson',
-    'mistake',
     'milestone',
     'pattern',
     'technical_pattern',
@@ -18,7 +17,7 @@ export const WORK_LAYER_TYPES = new Set([
     'plan',
     'task-state',
 ]);
-export const EVIDENCE_LAYER_TYPES = new Set([
+const EVIDENCE_LAYER_TYPES = new Set([
     'commit',
     'session-insight',
     'session-summary',
@@ -75,6 +74,8 @@ export function groupTopology(entities, projectName) {
     const evidence = [];
     const foreign = [];
     for (const e of entities) {
+        if (e.type === 'task-state')
+            continue;
         if (e.foreign) {
             foreign.push(e);
             continue;
@@ -88,7 +89,7 @@ export function groupTopology(entities, projectName) {
             knowledge.push(e);
             continue;
         }
-        if (e.type === 'lesson_learned' || e.type === 'lesson' || e.type === 'mistake')
+        if (LESSON_TYPES.has(e.type))
             lessons.push(e);
         else
             decisions.push(e);
@@ -108,9 +109,16 @@ export function groupTopology(entities, projectName) {
         sections.push({ heading: 'From your other projects (may or may not apply here):', entities: foreign });
     return sections;
 }
+const MAX_PER_SECTION = 8;
+export const DEFAULT_TOPOLOGY_BUDGET = {
+    maxChars: 4000,
+    maxLineChars: 160,
+};
+export const TOPOLOGY_CANDIDATE_CAP = 400;
+export const SNIPPET_FETCH_CHARS = DEFAULT_TOPOLOGY_BUDGET.maxLineChars * 4;
 export function buildTopologyLines(entities, projectName, budget) {
-    const maxLineChars = budget.maxLineChars ?? 150;
-    const maxPerSection = budget.maxPerSection ?? 8;
+    const maxLineChars = budget.maxLineChars ?? DEFAULT_TOPOLOGY_BUDGET.maxLineChars;
+    const maxPerSection = MAX_PER_SECTION;
     const lines = [];
     let used = 0;
     for (const section of groupTopology(entities, projectName)) {
@@ -132,6 +140,32 @@ export function buildTopologyLines(entities, projectName, budget) {
     }
     if (lines[lines.length - 1] === '')
         lines.pop();
+    return lines;
+}
+export function assembleTopologyBlock(stateLines, pools, projectName, budget = DEFAULT_TOPOLOGY_BUDGET) {
+    const seen = new Set();
+    const candidates = [];
+    for (const pool of pools) {
+        for (const e of pool.entities) {
+            if (seen.has(e.name))
+                continue;
+            seen.add(e.name);
+            candidates.push(pool.foreign && !e.foreign ? { ...e, foreign: true } : e);
+        }
+    }
+    const lines = [];
+    let stateChars = 0;
+    for (const line of stateLines) {
+        lines.push(line);
+        stateChars += line.length + 1;
+    }
+    const remaining = Math.max(0, budget.maxChars - stateChars);
+    const topologyLines = remaining > 0
+        ? buildTopologyLines(candidates, projectName, { ...budget, maxChars: remaining })
+        : [];
+    if (lines.length > 0 && topologyLines.length > 0)
+        lines.push('');
+    lines.push(...topologyLines);
     return lines;
 }
 export function buildReferenceContext(memoryLines) {

@@ -109,6 +109,47 @@ All notable changes to MeMesh are documented here.
 
 ### Changed
 
+- **The topology assembly has one owner; the review that found it also found
+  two real defects.** A four-angle cleanup pass over the A1 arc (reuse /
+  simplification / efficiency / altitude) converged on the same seam from
+  three directions: the assembly sequence — dedupe pools, task-state block
+  first, spacer, sections, budget — was restated line for line in the
+  session-start hook and the `briefing` tool, held together only by a parity
+  test on a small fixture. It is now `assembleTopologyBlock()` in the
+  work-topology leaf, alongside the exported budget constants both sides
+  previously declared separately; each consumer keeps only its own database
+  access and row mapping, which is what the A1a design assigns it.
+
+  The two defects the pass surfaced, both fixed here:
+
+  - **A foreign or stale task-state rendered as a decision.** The consumers
+    excluded the task-state row from the ranked pool by comparing the exact
+    current name, which protects nothing else: another project's task-state
+    arriving through the recent pool, or a `task-state:<old-name>` left
+    behind by a project rename, fell through to "Decisions and direction"
+    and presented a goal as a decision someone made here. `groupTopology`
+    now drops the TYPE; `taskStateLines` is that type's sole renderer.
+  - **The briefing over-read and over-wrote.** It selected through
+    `kg.search`/`kg.listRecent` — recall's machinery, sized for limit≈20 —
+    which hydrated observations, tags and relations for up to 2×400
+    candidate rows to render ~35 lines, and bumped `access_count` on every
+    one of them, teaching the ranking that ~765 never-shown rows were
+    "used". Selection is now a lean scalar read (rank, gate, then fetch one
+    snippet for survivors only — the hook's own shape) and tracks no access,
+    matching the hook, whose injection never tracked.
+
+  Smaller items from the same pass: snippet pre-slicing at exactly the line
+  cap defeated `clip()`'s word-boundary cut on both surfaces (snippets are
+  now fetched a few line-widths long and clipped once, by the owner);
+  `isRecallHit` re-lowercased the multi-megabyte transcript on every call —
+  twice per injected entity since title matching landed (the caller now
+  lowercases once, and a new test pins the mixed-case-title match that made
+  the needle-side lowercase load-bearing); two task-state helpers nobody
+  called and one never-passed budget option were deleted; the generated hook
+  copies moved to eslint's ignore list next to `dist/` (same category:
+  compiled output of linted source).
+
+
 - **Session-start injection is a work topology, not a provenance dump (A1).**
   The block an agent receives at session start used to be grouped by where a
   row came from — "Lessons learned", "Project memory", "Recently active" — and

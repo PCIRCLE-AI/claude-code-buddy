@@ -33,7 +33,7 @@ import {
   slugFromRemoteUrl,
 } from './_generated/core-paths.js';
 import { autoCaptureDecision } from './_generated/capture-flag.js';
-export { buildTopologyLines, buildReferenceContext, isAutoInjectable, WORK_LAYER_TYPES, layerOf } from './_generated/work-topology.js';
+export { assembleTopologyBlock, buildReferenceContext, DEFAULT_TOPOLOGY_BUDGET, SNIPPET_FETCH_CHARS } from './_generated/work-topology.js';
 import { isAutoInjectable } from './_generated/work-topology.js';
 export { parseTaskState, taskStateLines, taskStateName } from './_generated/task-state.js';
 import {

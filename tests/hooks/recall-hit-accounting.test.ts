@@ -102,6 +102,16 @@ describe('Feature: recall hit/miss accounting', () => {
     it('ignores names shorter than 4 chars to avoid substring false positives', () => {
       expect(isRecallHit('the api is fine', 'api')).toBe(false);
     });
+
+    it('matches a mixed-case needle against the lowercased haystack', () => {
+      // The haystack arrives pre-lowercased (the caller lowercases the
+      // multi-MB transcript ONCE — see isRecallHit's contract), but the
+      // needle is a raw TITLE ("Ship FTS5 as the baseline") and titles are
+      // mixed-case by construction. Only the needle-side lowercase makes
+      // those ever match; without it every titled memory scores an unearned
+      // miss, which lowers its impact factor in ranking.
+      expect(isRecallHit('we kept ship fts5 as the baseline', 'Ship FTS5 as the baseline')).toBe(true);
+    });
   });
 
   describe('isMeasurableRecallName excludes machine-identifier names', () => {

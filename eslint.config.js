@@ -12,6 +12,11 @@ export default tseslint.config(
       '**/*.d.ts',
       'coverage/**',
       '.claude/**',
+      // Compiled copies of runtime-leaf modules (generate-hook-core.mjs) —
+      // the same category as dist/: build output of source that is linted
+      // in full. Hand-edit protection is the generator's git-diff
+      // determinism check in CI, not lint's job.
+      'scripts/hooks/_generated/**',
       '**/*.min.js',  // Minified third-party libraries
       'src/cli/assets/**',  // Dashboard assets (d3, etc.)
     ],
@@ -65,19 +70,6 @@ export default tseslint.config(
       'no-useless-escape': 'warn',
       'preserve-caught-error': 'warn',
       'no-control-regex': 'warn',
-    },
-  },
-  {
-    // Compiled copies of runtime-leaf modules (generate-hook-core.mjs). The
-    // SOURCE in src/ is linted in full; these are verbatim tsc output, and
-    // tsc does not keep an `eslint-disable-next-line` attached to the line
-    // it disabled. `buildReferenceContext`'s control characters are the
-    // documented point of that regex (they are the line separators `\s`
-    // misses), so the rule is off for the copies rather than restated as a
-    // comment the compiler will detach again.
-    files: ['scripts/hooks/_generated/**'],
-    rules: {
-      'no-control-regex': 'off',
     },
   },
   {

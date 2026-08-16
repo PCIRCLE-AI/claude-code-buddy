@@ -12,7 +12,9 @@ import {
   getMemeshDirFromDbPath,
   getProjectName,
   importFromPluginRoot,
-  buildTopologyLines,
+  assembleTopologyBlock,
+  DEFAULT_TOPOLOGY_BUDGET,
+  SNIPPET_FETCH_CHARS,
   isTrustedForAutoContext,
   parseEntityMetadata,
   // Aliased: this file already has a local `const memeshDir` (a resolved
@@ -793,8 +795,10 @@ process.stdin.on('end', async () => {
       // stay far under that on purpose — session start should prime the
       // model, not consume its working context. Snippets are truncated per
       // observation and the whole block is hard-capped.
-      const MAX_SNIPPET = 160;
-      const MAX_CONTEXT_CHARS = 4000;
+      // Shared with the briefing surface via the leaf — "the same block"
+      // depends on the two sides' budgets agreeing.
+      const MAX_SNIPPET = DEFAULT_TOPOLOGY_BUDGET.maxLineChars;
+      const MAX_CONTEXT_CHARS = DEFAULT_TOPOLOGY_BUDGET.maxChars;
 
       const memoryLines = [];
       try {
@@ -827,7 +831,11 @@ process.stdin.on('end', async () => {
             // later ones are refinements.
             if (snippets.has(row.entity_id)) continue;
             const text = String(row.content ?? '').replace(/\s+/g, ' ').trim();
-            if (text) snippets.set(row.entity_id, text.slice(0, MAX_SNIPPET));
+            // A few line-widths, not the exact line cap: the final cut is
+            // clip()'s, on a word boundary — a hard slice at MAX_SNIPPET
+            // would hand it a string with nothing left to trim and ship
+            // mid-word fragments again.
+            if (text) snippets.set(row.entity_id, text.slice(0, SNIPPET_FETCH_CHARS));
           }
         }
 
@@ -840,57 +848,42 @@ process.stdin.on('end', async () => {
         // Read from metadata, not from the observation trail: observations
         // are the CHANGE history, and picking "the current goal" out of them
         // means guessing which line is newest. Metadata holds one answer.
-        const taskEntityName = taskStateName(projectName);
         const taskRow = db
           .prepare('SELECT metadata FROM entities WHERE name = ?')
-          .get(taskEntityName);
+          .get(taskStateName(projectName));
         const stateLines = taskStateLines(
           parseTaskState(parseEntityMetadata(taskRow?.metadata)),
           projectName,
         );
-        if (stateLines.length > 0) memoryLines.push(...stateLines, '');
 
-        // The three pools overlap by construction (a lesson tagged to this
-        // project is in lessonEntities AND projectEntities), so dedupe by id
-        // and let the topology grouping decide where each one belongs. The
-        // old code grouped by WHERE THE ROW CAME FROM — "lessons", "project",
-        // "recently active" — which is provenance, not work: a decision and
-        // the commit that mentions it landed in the same bucket, and the
-        // heading told the model nothing about what it was reading.
-        // `recentEntities` is the only pool that is NOT project-scoped, so
-        // anything reaching the candidate list from there alone is marked
-        // foreign and gets its own honest heading. Order matters: the
-        // project-scoped pools are consumed first, so an entity that is in
-        // both is claimed by the project.
-        const seen = new Set();
-        const candidates = [];
-        const addAll = (rows, foreign) => {
-          for (const e of rows) {
-            if (seen.has(e.id)) continue;
-            // Already rendered in full above. Left in the pool it would be
-            // listed a second time under a ranked heading, with its title —
-            // the goal — repeated as though it were a separate memory.
-            if (e.name === taskEntityName) continue;
-            seen.add(e.id);
-            const meta = parseEntityMetadata(e.metadata);
-            candidates.push({
-              name: e.name,
-              type: e.type || 'memory',
-              title: e.title ?? null,
-              snippet: snippets.get(e.id) ?? null,
-              signalScore: meta && typeof meta.signal_score === 'number' ? meta.signal_score : null,
-              foreign,
-            });
-          }
+        // The pools overlap by construction (a lesson tagged to this project
+        // is in lessonEntities AND projectEntities); the shared assembler
+        // dedupes across them in claim order, so a project-scoped row is
+        // never marked foreign by the cross-project recent pool, and the
+        // topology grouping decides where each one belongs. This mapping —
+        // raw row → TopologyEntity — is the only part this hook owns; the
+        // assembly order, the spacer discipline, the budget and the
+        // task-state exclusion live in the leaf, shared with `briefing`.
+        const toEntity = (e) => {
+          const meta = parseEntityMetadata(e.metadata);
+          return {
+            name: e.name,
+            type: e.type || 'memory',
+            title: e.title ?? null,
+            snippet: snippets.get(e.id) ?? null,
+            signalScore: meta && typeof meta.signal_score === 'number' ? meta.signal_score : null,
+          };
         };
-        addAll(topLessons, false);
-        addAll(projectEntities, false);
-        addAll(recentEntities, true);
-
-        memoryLines.push(...buildTopologyLines(candidates, projectName, {
-          maxChars: MAX_CONTEXT_CHARS,
-          maxLineChars: MAX_SNIPPET,
-        }));
+        memoryLines.push(...assembleTopologyBlock(
+          stateLines,
+          [
+            { entities: topLessons.map(toEntity), foreign: false },
+            { entities: projectEntities.map(toEntity), foreign: false },
+            { entities: recentEntities.map(toEntity), foreign: true },
+          ],
+          projectName,
+          { maxChars: MAX_CONTEXT_CHARS, maxLineChars: MAX_SNIPPET },
+        ));
       } catch (err) {
         // Snippet enrichment is best-effort. A failure here must not stop
         // the banner or the session — but trace it, because a silent break
@@ -899,12 +892,6 @@ process.stdin.on('end', async () => {
         try { process.stderr.write(`[memesh session-start] memory-context: ${err?.message || err}\n`); } catch {}
       }
 
-      // The state block pushes a blank spacer so the ranked sections do not
-      // run into it. When there are no ranked sections — a graph whose only
-      // memory is the state itself — that spacer is the last line, and it
-      // would be wrapped inside the fence as a dangling empty row.
-      while (memoryLines.length > 0 && memoryLines[memoryLines.length - 1] === '') memoryLines.pop();
-
       let memoryContext = '';
       if (memoryLines.length > 0) {
         // Same wrapper pre-edit-recall uses: an explicit "background data,
@@ -912,22 +899,10 @@ process.stdin.on('end', async () => {
         // attacker-influenced in the general case (anything the agent has
         // ever been told can end up in an observation), so it must be
         // delimited the same way on every injection path — not hand-rolled
-        // per hook.
-        //
-        // Truncate the LINES before wrapping, so the closing fence is never
-        // cut off — a dangling fence would let the tail of the block escape
-        // its delimiter.
-        const budgeted = [];
-        let used = 0;
-        for (const line of memoryLines) {
-          if (used + line.length + 1 > MAX_CONTEXT_CHARS) {
-            budgeted.push('… (truncated)');
-            break;
-          }
-          budgeted.push(line);
-          used += line.length + 1;
-        }
-        memoryContext = buildReferenceContext(budgeted);
+        // per hook. The lines arrive already budgeted — assembleTopologyBlock
+        // charges the task-state block and the sections against ONE ceiling
+        // and returns whole lines only, so the closing fence cannot be cut.
+        memoryContext = buildReferenceContext(memoryLines);
       }
 
       // --- Record injected entity IDs for recall effectiveness tracking ---

@@ -511,10 +511,10 @@
       "reason": "Same shape as the sibling file: `changed` is asserted `[]` for a no-op write and `['blocked']` when a clear actually happens, and `expect(row).toBeUndefined()` for the no-op is pinned by four other tests that read the row back and assert its tag, title and observations. Not vacuous; the pin is just not in a shape the regex matches.",
       "triaged": "2026-08-16 (A1b task-state)"
     },
-    "C5 src/core/work-topology.ts:296": {
+    "C5 src/core/work-topology.ts:386": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`line.match(/`+/g) ?? []` in buildReferenceContext, moved verbatim from scripts/hooks/_shared.js (which the C5 scan does not cover) so the MCP briefing surface shares the hook's fence. match() returns null when a line contains no backtick run; the empty list truthfully means 'no backticks', and the fence floor Math.max(3, longestRun + 1) still applies. Pinned by tests/hooks/reference-context-fence.test.ts, which feeds lines WITH backtick runs and asserts the fence outruns them.",
-      "triaged": "2026-08-16 (A1c briefing)"
+      "triaged": "2026-08-16 (A1c briefing); re-keyed 2026-08-16 (assembleTopologyBlock + budget consts added above; same match statement — verified)"
     }
   }
 }

@@ -21,6 +21,7 @@ import {
   topologyLine,
   groupTopology,
   buildTopologyLines,
+  assembleTopologyBlock,
   type TopologyEntity,
 } from '../../src/core/work-topology.js';
 
@@ -131,6 +132,69 @@ describe('work-topology', () => {
     // Either nothing, or a heading WITH content under it — never a bare
     // heading promising memories that got budgeted away.
     if (lines.length > 0) expect(lines.some((l) => l.startsWith('- ['))).toBe(true);
+  });
+
+  it('never lists a task-state row, whatever pool it arrives from', () => {
+    // taskStateLines is that type's sole sanctioned renderer. Dropped by
+    // TYPE in the leaf — a name check in each consumer only protects the
+    // current project's exact key: a FOREIGN project's task-state via the
+    // recent pool, or a stale `task-state:<old-name>` after a project
+    // rename, would render its goal under "Decisions and direction" as
+    // though it were a decision someone made here.
+    const sections = groupTopology([
+      entity({ type: 'task-state', name: 'task-state:other-repo', title: 'their goal', foreign: true }),
+      entity({ type: 'task-state', name: 'task-state:old-name', title: 'stale goal' }),
+      entity({ type: 'decision', title: 'a real decision' }),
+    ], 'memesh');
+    const rendered = sections.flatMap((s) => s.entities.map((e) => e.title));
+    expect(rendered).toEqual(['a real decision']);
+  });
+
+  it('assembles state + sections once, with the spacer only between them', () => {
+    // The assembly order and spacer discipline used to be restated in both
+    // consumers (hook + briefing); this is the single owner's contract.
+    const state = ['Where "p" was left off (today):', '- Goal: ship it'];
+    const pools = [
+      { entities: [entity({ type: 'decision', name: 'd1', title: 'ours' })], foreign: false },
+      // Same entity arriving again via the cross-project pool: claimed by
+      // the FIRST pool, so it is neither duplicated nor marked foreign.
+      {
+        entities: [
+          entity({ type: 'decision', name: 'd1', title: 'ours' }),
+          entity({ type: 'fact', name: 'f1', title: 'theirs' }),
+        ],
+        foreign: true,
+      },
+    ];
+    const lines = assembleTopologyBlock(state, pools, 'p', { maxChars: 4000 });
+
+    expect(lines[0]).toBe('Where "p" was left off (today):');
+    expect(lines).toContain('');
+    expect(lines[lines.length - 1]).not.toBe('');
+    expect(lines.join('\n').split('ours').length - 1).toBe(1);
+    expect(lines.join('\n')).toContain('other projects');
+
+    // No state block, no leading spacer: the sections start at line one.
+    // ('' between SECTIONS is buildTopologyLines' own separator and fine —
+    // the assembler's contract is no blank at either edge.)
+    const bare = assembleTopologyBlock([], pools, 'p', { maxChars: 4000 });
+    expect(bare[0].endsWith(':')).toBe(true);
+    expect(bare[bare.length - 1]).not.toBe('');
+
+    // State only, no sections: no dangling spacer after the state block.
+    const stateOnly = assembleTopologyBlock(state, [], 'p', { maxChars: 4000 });
+    expect(stateOnly[stateOnly.length - 1]).toBe('- Goal: ship it');
+  });
+
+  it('charges the state block against the same budget as the sections', () => {
+    // The stated block leads, and whatever it uses the ranked sections no
+    // longer have — two ceilings would let the total exceed the one the
+    // fence wrapper was sized for.
+    const state = ['x'.repeat(90)];
+    const pools = [{ entities: [entity({ type: 'decision', title: 'squeezed out' })], foreign: false }];
+    const lines = assembleTopologyBlock(state, pools, 'p', { maxChars: 100 });
+    expect(lines.join('\n')).not.toContain('squeezed out');
+    expect(lines[0]).toBe('x'.repeat(90));
   });
 
   it('keeps one whitelist for the work layer', () => {

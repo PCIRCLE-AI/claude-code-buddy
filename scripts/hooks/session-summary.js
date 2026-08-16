@@ -852,12 +852,17 @@ export function stripHookEchoes(rawTranscript) {
  * which silently failed on JSON-encoded transcripts and scored every entity a
  * hit — see the callsite comment.)
  *
- * Self-contained for its unit tests: lowercases both sides and ignores names
- * shorter than 4 chars (too generic to match reliably).
+ * Ignores names shorter than 4 chars (too generic to match reliably).
+ *
+ * CONTRACT: `sessionText` must already be lowercased. The haystack is a
+ * multi-megabyte transcript and this runs twice per injected entity (name +
+ * title) — re-lowercasing it inside the function copied the whole transcript
+ * on every call, hundreds of MB of transient allocation in the Stop hook.
+ * The caller lowercases once; only the needle is normalized here.
  */
 export function isRecallHit(sessionText, name) {
   if (!name || name.length < 4) return false;
-  return String(sessionText ?? '').toLowerCase().includes(String(name).toLowerCase());
+  return String(sessionText ?? '').includes(String(name).toLowerCase());
 }
 
 /**

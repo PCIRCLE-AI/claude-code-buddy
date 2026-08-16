@@ -6,8 +6,6 @@ export type TaskState = Partial<Record<TaskStateField, string>> & {
 };
 export declare const MAX_FIELD_CHARS = 300;
 export declare function taskStateName(project: string): string;
-export declare function projectOfTaskStateName(name: string): string | null;
-export declare function isTaskStateField(value: string): value is TaskStateField;
 export declare function parseTaskState(metadata: unknown): TaskState;
 export declare function normalizeFieldValue(value: string): string | null;
 export interface TaskStateMerge {
