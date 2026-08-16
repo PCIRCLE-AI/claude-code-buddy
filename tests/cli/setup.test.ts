@@ -95,7 +95,10 @@ describe('memesh setup (wiring)', () => {
     expect(r.status).toBe(0);
   });
 
-  it('runs a host CLI add through a PATH shim, and reports its failure honestly', () => {
+  // POSIX-only: the shim is a #!/bin/sh script, and on win32 `where` would
+  // not resolve an extensionless file anyway — same skip the
+  // upgrade-plugin tests use for their bash-only legs.
+  it.skipIf(process.platform === 'win32')('runs a host CLI add through a PATH shim, and reports its failure honestly', () => {
     // A codex shim that answers `mcp get` with "not registered" and FAILS
     // the `mcp add` — setup must exit 1 and show the stderr, never claim
     // success it did not observe.
