@@ -109,11 +109,14 @@ const MARKER_FILE = 'install-hooks.json';
  * `<home>/.claude/plugins/installed_plugins.json` but tests can inject
  * an alternate path via `installedPluginsPathImpl`.
  */
-function detectPluginRuntime(
+export function detectPluginRuntime(
   installedPluginsPathImpl?: string,
 ): { installPath: string; version: string } | null {
-  const home = process.env.HOME || process.env.USERPROFILE || '';
-  const defaultPath = path.join(home, '.claude', 'plugins', 'installed_plugins.json');
+  // homeDir(), not a hand-rolled HOME || USERPROFILE chain — the shared
+  // resolver has the os.homedir()/userInfo() fallbacks this copy lacked,
+  // and `memesh setup` (which now imports this) must agree with every
+  // other HOME-derived path in the product.
+  const defaultPath = path.join(homeDir(), '.claude', 'plugins', 'installed_plugins.json');
   const targetPath = installedPluginsPathImpl ?? defaultPath;
   if (!fs.existsSync(targetPath)) return null;
   try {

@@ -146,8 +146,14 @@ npm install -g @pcircle/memesh
 如果你透過**選項 B**（`npm install -g`）安裝，CLI 已在 PATH 上 — 但**還沒有任何東西接進 Claude Code**：npm 套件刻意不執行安裝腳本，把 MCP server 和 hooks 接進 Claude Code 的是外掛（選項 A）。npm 路徑自己能接的是 session hooks。沒有這些 hooks 還是可以手動使用 `memesh remember` / `recall`，但**自動擷取迴路**（session → 教訓 → 下次 session 主動回憶）就會靜默不動。
 
 ```bash
+memesh setup                 # 偵測 Claude Code / Codex / Gemini、逐一詢問接線、接完驗證
+```
+
+或手動逐步：
+
+```bash
 memesh install-hooks         # 把 memesh hooks 加進 ~/.claude/settings.json
-memesh doctor                # 確認「Hooks wired into Claude Code」過了
+memesh setup --check         # 機器層級驗證：讀各主機自己的設定，什麼都不改
 ```
 
 這些 hooks 會跟你既有的 `~/.claude/hooks/` 自訂 hooks 共存 — `install-hooks` 用追加方式寫入，從不覆寫你的東西。要移除：`memesh uninstall-hooks`。

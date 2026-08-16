@@ -6,6 +6,26 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **`memesh setup` — one command from installed to wired, per host, verified
+  at machine level.** The install audit's core finding was that no tool
+  could answer "is this MACHINE wired?": `memesh doctor` scopes every check
+  to the copy being invoked, so a plugin-only user has no copy that can see
+  the plugin, and a both-paths user gets a report that contradicts
+  install-hooks' own bail message. `memesh setup` reads the HOSTS' own
+  state — Claude Code's plugin registry and settings.json markers, Codex's
+  and Gemini's MCP registries — detects which hosts exist, offers to wire
+  each (through the host CLI's own `mcp add`; memesh never writes their
+  config files), and verifies by re-reading, not by trusting its own
+  actions. `memesh setup --check` is the read-only verdict (exit 1 when a
+  present host is unwired). Design went through an adversarial engineering
+  review first, which caught — before implementation — that
+  `claude mcp add` defaults to LOCAL scope (would have wired only the
+  directory setup ran in; it uses `-s user`), and that Gemini has no
+  `mcp get` subcommand (its probe reads `~/.gemini/settings.json`, the
+  shape verified against a real machine). Absent hosts are informational,
+  never failures; an unprobeable host is UNKNOWN, never "wired".
+
+
 - **`briefing` — the assembled work topology for clients that run no hooks, and the 9th MCP tool (A1c).**
   Claude Code gets the work topology pushed by the session-start hook. Every
   other MCP client — Gemini, Codex, anything speaking the protocol — could
