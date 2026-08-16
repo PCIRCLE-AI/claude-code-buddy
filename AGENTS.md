@@ -52,6 +52,18 @@ host is recallable from all of them. Not installed yet? Follow
   `observation` parameter removes just that fact and keeps the entity active.
   Prefer it over archiving the whole entity.
 
+## What you must never invent
+
+- If MeMesh is unavailable or a recall returns nothing, **say so and work
+  without it** — never fabricate a memory, and never cite a `[mem:id]`
+  handle that was not actually shown to you. A wrong "remembered" fact is
+  worse than no memory: it arrives wearing the authority of the graph.
+- Recall windows are bounded (the `limit` parameter, 30 by default), so do
+  not infer graph-wide counts or "there is no memory about X" from the
+  number of hits one query returns. Absence of results is absence of
+  results, not evidence of absence — vary the wording or narrow by tag
+  before concluding anything.
+
 ## What Claude Code already does — do not double-write
 
 Under Claude Code with the MeMesh plugin, hooks capture automatically:
