@@ -9,7 +9,7 @@ import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexR
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
-import { getDbPath, redactSecrets, redactUserPaths } from '../../core/paths.js';
+import { getDbPath, homeDir, redactSecrets, redactUserPaths } from '../../core/paths.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 import { NAMESPACES } from '../../core/types.js';
 import { assembleBriefing } from '../../core/briefing.js';
@@ -44,6 +44,29 @@ function requireOneOf(value: string | undefined, allowed: readonly string[], fla
   if (value === undefined || allowed.includes(value)) return;
   console.error(`Error: ${flag} "${value}" is not valid. Use one of: ${allowed.join(', ')}.`);
   process.exit(1);
+}
+
+/**
+ * True when `tool` resolves to an executable on the current PATH — the same
+ * question the upgrade script's `command -v` checks ask, answered up front so
+ * a missing prerequisite is one plain sentence before anything runs, not a
+ * mid-run death. Windows executables carry a PATHEXT extension (`npm.cmd`,
+ * not `npm`), so each extension is tried there.
+ */
+function isOnPath(tool: string): boolean {
+  const exts = process.platform === 'win32'
+    ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean)
+    : [''];
+  for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+    if (!dir) continue;
+    for (const ext of exts) {
+      try {
+        fs.accessSync(path.join(dir, tool + ext), fs.constants.X_OK);
+        return true;
+      } catch { /* not in this dir — keep looking */ }
+    }
+  }
+  return false;
 }
 
 // One list, in core. The CLI's private copy was the fourth.
@@ -981,6 +1004,76 @@ program
       console.error('   Try manually: npm install -g @pcircle/memesh@latest');
       process.exit(1);
     }
+  });
+
+// --- upgrade-plugin ---
+//
+// Claude Code's plugin marketplace pins versions at install time and never
+// auto-updates. The bundled scripts/upgrade-plugin.sh closes that gap, but
+// reaching it meant hand-substituting the installed version into
+// ~/.claude/plugins/cache/pcircle-memesh/memesh/<version>/scripts/... — a
+// path shape most users get wrong on the first try. This command finds the
+// newest installed plugin version itself, checks the script's prerequisites
+// up front (the script hard-requires node, npm and rsync and would otherwise
+// die partway through), and runs it with the script's own exit code.
+program
+  .command('upgrade-plugin')
+  .description('Upgrade the Claude Code plugin install (finds and runs its bundled upgrade script)')
+  .action(async () => {
+    const { spawnSync } = await import('child_process');
+    const cacheRoot = path.join(homeDir(), '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh');
+
+    // The cache holds one directory per installed version. Only
+    // version-shaped names count, so a stray directory can never win the
+    // sort below.
+    let versions: string[] = [];
+    try {
+      versions = fs.readdirSync(cacheRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && /^\d+\.\d+\.\d+/.test(entry.name))
+        .map((entry) => entry.name);
+    } catch { /* ENOENT — no plugin cache at all; the empty list says so below */ }
+
+    if (versions.length === 0) {
+      console.error('No Claude Code plugin install found (looked in ~/.claude/plugins/cache/pcircle-memesh).');
+      console.error('If you installed via npm, upgrade with: memesh update');
+      process.exit(1);
+    }
+
+    // The highest installed version carries the newest copy of the upgrade
+    // script. `numeric: true` compares dotted segments as numbers, so 4.10.0
+    // sorts above 4.9.0 where a plain string sort would not.
+    versions.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const newest = versions[versions.length - 1];
+    const script = path.join(cacheRoot, newest, 'scripts', 'upgrade-plugin.sh');
+    if (!fs.existsSync(script)) {
+      console.error(`Plugin install found (v${newest}), but it has no scripts/upgrade-plugin.sh — plugin versions before 4.2.5 shipped without it.`);
+      console.error('Reinstall once from the Claude Code /plugin UI, or run the npm-global copy directly:');
+      console.error('  bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"');
+      process.exit(1);
+    }
+
+    // Same three tools the script itself demands, checked BEFORE it runs.
+    const installHints: Record<string, string> = {
+      node: 'node is required by the upgrade script. Install Node.js from https://nodejs.org',
+      npm: 'npm is required by the upgrade script. It ships with Node.js — reinstall from https://nodejs.org',
+      rsync: 'rsync is required by the upgrade script. macOS: already installed; Debian/Ubuntu: sudo apt install rsync',
+    };
+    const missing = Object.keys(installHints).filter((tool) => !isOnPath(tool));
+    if (missing.length > 0) {
+      for (const tool of missing) console.error(installHints[tool]);
+      process.exit(1);
+    }
+
+    const run = spawnSync('bash', [script], { stdio: 'inherit' });
+    if (run.error) {
+      console.error(`Could not run the upgrade script: ${run.error.message}`);
+      console.error('bash is required to run it. If bash is available under another name, run it yourself:');
+      console.error(`  bash ${script}`);
+      process.exit(1);
+    }
+    // The script's exit code is the verdict; pass it through unchanged.
+    // A signal kill leaves status null — report failure, not success.
+    process.exit(run.status ?? 1);
   });
 
 // --- telemetry ---

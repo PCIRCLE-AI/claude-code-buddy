@@ -570,19 +570,22 @@ Claude Code's plugin marketplace pins versions at install time and does **not** 
 
 **Option A — `/plugin` UI**: uninstall `memesh@pcircle-memesh`, then reinstall. Claude Code fetches the latest marketplace version.
 
-**Option B — one-line script** (no UI clicking, idempotent):
+**Option B — one command** (no UI clicking, idempotent; requires the npm CLI, `npm install -g @pcircle/memesh`):
 
 ```bash
-# If your plugin install is v4.2.5 or newer, the script ships inside it:
+memesh upgrade-plugin
+```
+
+It finds your installed plugin version, checks the prerequisites, and runs the bundled upgrade script for you. Prerequisites: `node`, `npm` and `rsync` on your PATH (macOS ships rsync; Debian/Ubuntu: `sudo apt install rsync`).
+
+Plugin-only users without the npm CLI can still run the script by hand — substitute your installed version into the path:
+
+```bash
 bash ~/.claude/plugins/cache/pcircle-memesh/memesh/<current-version>/scripts/upgrade-plugin.sh
 
-# If you installed before v4.2.5 (i.e. you're on v4.2.4 or v4.2.3),
-# the script isn't in your plugin yet. Use the npm-global copy instead:
+# Installs from before v4.2.5 don't contain the script yet; use the
+# npm-global copy instead (see "Install paths at a glance" above):
 bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"
-
-# (That assumes you've also run `npm install -g @pcircle/memesh`. If you
-# haven't, this is also a good moment to — see the "Install paths at a
-# glance" section above for why most users want both paths.)
 ```
 
 The script fast-forwards the marketplace cache, stages the new version under `~/.claude/plugins/cache/`, installs runtime deps, and re-points `installed_plugins.json`. Restart Claude Code afterwards so the MCP server reconnects.
