@@ -21,14 +21,6 @@ const EMBEDDING_PROBE_TIMEOUT_MS = 15000;
 const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop', 'PreCompact'];
 const LOCALE_README_FILES = [
     'README.de.md',
-    'README.es.md',
-    'README.fr.md',
-    'README.ja.md',
-    'README.ko.md',
-    'README.pt.md',
-    'README.th.md',
-    'README.vi.md',
-    'README.zh-CN.md',
     'README.zh-TW.md',
 ];
 const LOCALE_H2_TOLERANCE = 1;

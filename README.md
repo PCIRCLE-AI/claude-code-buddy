@@ -38,6 +38,8 @@ memesh doctor        # verifies this install end to end
 
 Most Claude Code users eventually want **both** — they share one database and never conflict. Details, other agents, and upgrades: [Get Started](#get-started-in-60-seconds).
 
+> **Installing via an AI agent?** Point it at [llms-install.md](llms-install.md) — deterministic steps with per-step verification. Once installed, [AGENTS.md](AGENTS.md) tells it how to use memesh well.
+
 ## The Problem
 
 Your coding agent doesn't just forget facts between sessions — it **repeats work**. It re-proposes the approach you rejected last month, trips over the same failing test, re-discovers the constraint that broke production in March, and asks you to re-explain the architecture it helped design.

@@ -364,6 +364,8 @@ ok('no phantom Python surface in READMEs');
 const docRoots = ['src/', 'scripts/', 'tests/', 'docs/', 'dashboard/', 'benchmarks/', 'skills/', 'hooks/', 'packages/', '.github/', '.claude-plugin/'];
 const livingDocs = [
   ...readmes,
+  'llms-install.md',
+  'AGENTS.md',
   'CONTRIBUTING.md',
   'CODEMAP.md',
   'DESIGN.md',
@@ -506,6 +508,89 @@ if (!hasBearerAuth) {
   if (denies) fail('API_REFERENCE still says MeMesh adds no auth layer; server.ts requires a bearer token on remote binds');
   else if (missing.length) fail(`API_REFERENCE documents remote binds without ${missing.join(', ')}`);
   else ok('remote-bind bearer auth is documented where it is implemented');
+}
+
+// --- agent-facing docs name only commands and tools that exist ---------------
+// llms-install.md is EXECUTED by an AI agent, not skimmed by a human who would
+// notice a typo'd subcommand — a wrong `memesh <word>` walks the agent into
+// "unknown command" mid-install. Likewise AGENTS.md's tool table: a name
+// absent from TOOL_DEFINITIONS is an instruction to call a tool that does not
+// exist. Both sides are derived: commands from cli.ts registrations, tools
+// from handlers.ts.
+{
+  const agentDocs = ['llms-install.md', 'AGENTS.md'].filter(d => {
+    if (fs.existsSync(path.join(repoRoot, d))) return true;
+    fail(`${d} is gone — the agent-docs gate has nothing to check`);
+    return false;
+  });
+
+  const cliSrc = read('src/transports/cli/cli.ts');
+  const cliCommands = new Set([...cliSrc.matchAll(/\.command\('([\w-]+)/g)].map(m => m[1]));
+  // pin/unpin register through a helper whose `.command(name)` is dynamic;
+  // their literal names are in the registerPinCommand calls.
+  for (const m of cliSrc.matchAll(/registerPinCommand\('([\w-]+)'/g)) cliCommands.add(m[1]);
+  const toolNames = new Set(
+    [...read('src/transports/mcp/handlers.ts').matchAll(/^ {4}name: '(\w+)'/gm)].map(m => m[1]),
+  );
+  if (cliCommands.size < 10) fail(`CLI command extraction matched only ${cliCommands.size} — the pattern stopped matching cli.ts`);
+  if (toolNames.size < 1) fail('MCP tool-name extraction matched nothing in handlers.ts');
+
+  // (a) every `memesh <subcommand>` mention resolves to a registered command.
+  // The lookbehind keeps `@pcircle/memesh`, `memesh-mcp` and `pcircle-memesh`
+  // out; a capture starting with "memesh" is a bin name passed as an argument
+  // (`codex mcp add memesh -- memesh-mcp`), not a subcommand.
+  let mentions = 0;
+  const badCommands = [];
+  for (const doc of agentDocs) {
+    for (const m of read(doc).matchAll(/(?<![\w/@.-])memesh ([a-z][a-z-]*)/g)) {
+      if (m[1].startsWith('memesh')) continue;
+      mentions++;
+      if (!cliCommands.has(m[1])) badCommands.push(`${doc} → \`memesh ${m[1]}\``);
+    }
+  }
+  if (agentDocs.length && mentions === 0) fail('found no `memesh <subcommand>` mentions in the agent docs — the extraction stopped matching');
+  else if (badCommands.length) fail(`agent docs name CLI subcommands that do not exist:\n      ${badCommands.join('\n      ')}`);
+  else if (agentDocs.length) ok(`${mentions} \`memesh <subcommand>\` mentions in agent docs all resolve to registered CLI commands`);
+
+  // (b) any "`x` tool" phrase names a registered MCP tool.
+  const badTools = [];
+  for (const doc of agentDocs) {
+    for (const m of read(doc).matchAll(/`(\w+)` (?:MCP )?tool\b/g)) {
+      if (!toolNames.has(m[1])) badTools.push(`${doc} → \`${m[1]}\``);
+    }
+  }
+  if (badTools.length) fail(`agent docs call these MCP tools, which TOOL_DEFINITIONS does not register:\n      ${badTools.join('\n      ')}`);
+  else if (agentDocs.length) ok('every `<name>` tool phrase in agent docs names a registered MCP tool');
+
+  if (agentDocs.includes('AGENTS.md')) {
+    const agentsSrc = read('AGENTS.md');
+    // (c) the tool table lists exactly the registered tools — both directions.
+    const table = agentsSrc.match(/^\| Tool \| Purpose \|\n\|[-| ]+\|\n((?:\|.*\n)+)/m);
+    if (!table) {
+      fail('AGENTS.md no longer has a `| Tool | Purpose |` table');
+    } else {
+      const listed = [...table[1].matchAll(/^\| `(\w+)`/gm)].map(m => m[1]);
+      const unknown = listed.filter(t => !toolNames.has(t));
+      const absent = [...toolNames].filter(t => !listed.includes(t));
+      if (unknown.length) fail(`AGENTS.md tool table lists ${unknown.join(', ')}, which TOOL_DEFINITIONS does not register`);
+      if (absent.length) fail(`AGENTS.md tool table is missing ${absent.join(', ')}`);
+      if (!unknown.length && !absent.length) ok(`AGENTS.md tool table matches all ${toolNames.size} registered MCP tools`);
+    }
+    // (d) the stated tool count is derived, like every other count here.
+    const counted = agentsSrc.match(/All (\d+) MCP tools/);
+    if (!counted) fail('AGENTS.md no longer states `All N MCP tools`');
+    else if (Number(counted[1]) !== toolNames.size) fail(`AGENTS.md says ${counted[1]} MCP tools, handlers.ts registers ${toolNames.size}`);
+    else ok(`AGENTS.md tool count ${counted[1]}`);
+  }
+
+  // (e) the Node floor llms-install.md tells the agent to check against is
+  // the one package.json enforces.
+  if (agentDocs.includes('llms-install.md')) {
+    const nodeFloor = (pkg.engines?.node ?? '').match(/(\d+\.\d+\.\d+)/)?.[1];
+    if (!nodeFloor) fail('package.json engines.node no longer states a version floor');
+    else if (!read('llms-install.md').includes(nodeFloor)) fail(`llms-install.md does not state the Node floor ${nodeFloor} from package.json engines`);
+    else ok(`llms-install.md Node floor matches engines (${nodeFloor})`);
+  }
 }
 
 // --- report ------------------------------------------------------------------

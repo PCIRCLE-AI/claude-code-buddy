@@ -19,7 +19,9 @@
     "skills/",
     ".claude-plugin/",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "llms-install.md",
+    "AGENTS.md"
   ],
   "scripts": {
     "build": "node scripts/check-schema-drift.mjs && tsc && node scripts/generate-hook-core.mjs && node scripts/copy-cli-assets.mjs && node scripts/set-executable-bits.mjs && node scripts/generate-skills-manifest.mjs && npm run build:dashboard && node scripts/smoke-test.mjs",

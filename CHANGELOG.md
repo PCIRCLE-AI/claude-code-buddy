@@ -6,6 +6,35 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **Agent-facing install and usage docs: `llms-install.md` and `AGENTS.md`.**
+  Many users have their AI agent install and operate memesh; until now the
+  agent's only source was the human README, 668 words to the first command
+  and with the contradictions the install audit catalogued. `llms-install.md`
+  is deterministic per-host instructions — exact command, expected output,
+  failure→remedy table — for Claude Code (typed in chat, verified by the
+  `◉ MeMesh` session-start line), terminal (Node floor checked first),
+  Codex CLI and Gemini CLI. `AGENTS.md` is how to use it well: the
+  token-economy loop first, the 9-tool table, memory hygiene, what Claude
+  Code hooks already do (so agents do not double-write), and — for agents
+  working ON this repository — the working policy in compressed form. Both
+  ship in the npm package, and `check-doc-claims` gained a machine gate:
+  every `memesh <subcommand>` in these docs must be a registered CLI
+  command, the AGENTS.md tool table must match TOOL_DEFINITIONS name-for-
+  name both directions, and the documented Node floor must equal
+  `engines.node` (gate break-tested 5/5 KILLED).
+
+### Fixed
+
+- **`memesh doctor` warned about eight locale READMEs that were removed on
+  purpose.** `LOCALE_README_FILES` still listed the ten-locale set from
+  before the reduction to English + 繁體中文 + Deutsch, so every source
+  checkout ran `readme_locale_parity` into a WARN — "missing 8 files" —
+  and the overall verdict degraded to PASS_WITH_CONCERNS on a healthy tree.
+  The list now tracks the real set (with a comment tying it to the
+  reduction), and the parity tests exercise the real locales instead of
+  eight deleted ones.
+
+
 - **`briefing` — the assembled work topology for clients that run no hooks, and the 9th MCP tool (A1c).**
   Claude Code gets the work topology pushed by the session-start hook. Every
   other MCP client — Gemini, Codex, anything speaking the protocol — could
