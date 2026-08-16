@@ -10,6 +10,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/hooks/guard-check.js",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SessionStart": [

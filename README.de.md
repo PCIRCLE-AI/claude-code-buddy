@@ -342,7 +342,7 @@ Reproduktionsbefehle, Datensatz-SHA256, rohe Ergebnisse pro Frage und Analyse be
 
 ## Was läuft in Claude Code automatisch ab
 
-Sie müssen nicht manuell alles speichern. MeMesh verfügt über **6 Hooks**, die Wissen während der Arbeit erfassen und injizieren:
+Sie müssen nicht manuell alles speichern. MeMesh verfügt über **7 Hooks**, die Wissen während der Arbeit erfassen und injizieren:
 
 | Wenn | Was MeMesh tut |
 |------|------------------|
@@ -351,6 +351,7 @@ Sie müssen nicht manuell alles speichern. MeMesh verfügt über **6 Hooks**, di
 | **Nach jedem `git commit`** | Erfasst Ihre Änderungen mit Diff-Statistiken |
 | **Wenn Claude stoppt** | Erfasst bearbeitete Dateien und behobene Fehler; generiert automatisch strukturierte Lektionen aus Fehlern |
 | **Vor Context-Verdichtung** | Speichert Wissen, bevor es durch Context-Limits verloren geht |
+| **Vor riskanten Befehlen und Edits** | Löst die von Ihnen akzeptierten Lektions-Guards aus — eine Warnung genau in dem Moment, in dem sich ein erfasster Fehler wiederholen würde |
 
 > **Jederzeit abschalten:** `export MEMESH_AUTO_CAPTURE=false`
 

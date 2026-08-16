@@ -57,7 +57,7 @@ export interface ApplyResult {
     sourcesArchived: number;
     sourcesLinked: number;
     sourcesAlreadyCompacted?: number;
-    kind: 'digest' | 'pattern_emergent' | 'relation';
+    kind: 'digest' | 'pattern_emergent' | 'relation' | 'guard';
 }
 export declare function applyProposal(db: MemeshDatabase, proposalId: number, kg: {
     createEntity: (name: string, type: string, opts: {
@@ -82,7 +82,7 @@ export interface ProposalSummary {
     digest_observations_preview: string | null;
     status: string;
     created_at: string;
-    kind: 'digest' | 'pattern_emergent' | 'relation';
+    kind: 'digest' | 'pattern_emergent' | 'relation' | 'guard';
     source_kind: string;
 }
 export declare function listProposals(db: MemeshDatabase, status?: string): ProposalSummary[];

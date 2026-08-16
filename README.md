@@ -354,7 +354,7 @@ Re-runnable in ~10 seconds. Full instructions, dataset SHA256, raw per-question 
 
 ## What Happens Automatically In Claude Code
 
-You don't need to manually remember everything. MeMesh has **6 hooks** that capture and inject knowledge while you work:
+You don't need to manually remember everything. MeMesh has **7 hooks** that capture and inject knowledge while you work:
 
 | When | What MeMesh does |
 |------|------------------|
@@ -364,6 +364,7 @@ You don't need to manually remember everything. MeMesh has **6 hooks** that capt
 | **After every `git commit`** | Records what you changed, with diff stats |
 | **When Claude stops** | Captures files edited, errors fixed, and auto-generates structured lessons from failures |
 | **Before context compaction** | Saves knowledge before it's lost to context limits |
+| **Before risky commands and edits** | Fires the lesson-guards you accepted — a warning at the exact moment a recorded mistake is about to repeat |
 
 > **Opt out anytime:** `export MEMESH_AUTO_CAPTURE=false`
 

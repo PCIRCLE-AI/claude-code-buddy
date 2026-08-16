@@ -34,6 +34,75 @@ import {
 } from './_generated/core-paths.js';
 import { autoCaptureDecision } from './_generated/capture-flag.js';
 export { assembleTopologyBlock, buildReferenceContext, extractCitedMemoryIds, DEFAULT_TOPOLOGY_BUDGET, SNIPPET_FETCH_CHARS, TOPOLOGY_CANDIDATE_CAP } from './_generated/work-topology.js';
+export { matchingGuards, guardFromMetadata } from './_generated/guards.js';
+import { guardFromMetadata as guardFromMetadataLocal } from './_generated/guards.js';
+
+/**
+ * Every accepted, enabled guard for one tool. Guards live as
+ * `metadata.guard` on lesson-family entities (G1); the LIKE is a cheap
+ * prefilter and `guardFromMetadata` is the tolerant parser. Any failure —
+ * missing column on an old schema, corrupt metadata — returns an empty
+ * list: a broken guard store must degrade to "no warnings", never to a
+ * broken hook.
+ */
+export function loadActiveGuards(db, tool) {
+  try {
+    const rows = db.prepare(
+      `SELECT id, metadata FROM entities
+       WHERE status = 'active'
+         AND type IN ('lesson_learned', 'lesson', 'mistake')
+         AND metadata LIKE '%"guard"%'`
+    ).all();
+    const out = [];
+    for (const r of rows) {
+      const g = guardFromMetadataLocal(r.id, r.metadata);
+      if (g && g.tool === tool) out.push(g);
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The lines a fired guard injects — the message is memory content
+ * (attacker-influenced in the general case), so callers wrap these with
+ * buildReferenceContext like every other injection path. The `[mem:id]`
+ * handle ties a heeded warning into citation accounting (R1).
+ */
+export function guardWarningLines(matches, toolName) {
+  const lines = [`A guard you accepted matched this ${toolName} input — check before proceeding:`];
+  for (const g of matches) {
+    lines.push(`- [guard] ${g.message} [mem:${g.lessonId}]`);
+  }
+  return lines;
+}
+
+/**
+ * Count a guard's fire. Opens its own WRITABLE handle briefly (the
+ * evaluating hooks read through a read-only one) and swallows every
+ * failure: the count powers guard-ROI review, and review data must never
+ * block the user's work.
+ */
+export function recordGuardFires(dbPath, lessonIds) {
+  if (!lessonIds || lessonIds.length === 0) return;
+  try {
+    const db = new MemeshDatabase(dbPath);
+    try {
+      const stmt = db.prepare(
+        `UPDATE entities
+         SET metadata = json_set(metadata,
+           '$.guard.fires', COALESCE(json_extract(metadata, '$.guard.fires'), 0) + 1,
+           '$.guard.last_fired_at', ?)
+         WHERE id = ?`
+      );
+      const now = new Date().toISOString();
+      for (const id of lessonIds) stmt.run(now, id);
+    } finally {
+      db.close();
+    }
+  } catch { /* counting must never block the user's work */ }
+}
 import { isAutoInjectable } from './_generated/work-topology.js';
 export { parseTaskState, taskStateLines, taskStateName } from './_generated/task-state.js';
 import {

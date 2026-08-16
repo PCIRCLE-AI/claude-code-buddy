@@ -471,7 +471,54 @@ export function InsightsTab() {
               );
             })()}
 
-            {detail && detail.proposed_digest && p.kind !== 'relation' && (
+            {/* Guard proposals (G1) carry a GuardSpec payload — the reviewer
+                is approving a regex that will warn on future tool inputs, so
+                the card shows the pattern, the message it will speak, and the
+                evidence examples the validator executed. */}
+            {detail && detail.proposed_digest && p.kind === 'guard' && (() => {
+              const g = detail.proposed_digest as unknown as {
+                guard?: { tool?: string; pattern?: string; message?: string; should_match?: string[]; should_not_match?: string[] };
+                source_lesson?: { name?: string; title?: string | null };
+              };
+              return (
+                <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-1)', borderRadius: 'var(--radius-xs)', fontSize: 13 }}>
+                  <div style={{ marginBottom: 8, color: 'var(--text-3)', fontSize: 11 }}>
+                    {t('insights.generatedBy')}: <code>{detail.llm_model ?? t('common.unknown')}</code> · {t('insights.promptVersion')}: <code>{detail.prompt_version}</code>
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <span class="tag" style={{ fontSize: 11 }}>{g.guard?.tool}</span>
+                    <span style={{ marginLeft: 8, color: 'var(--text-3)', fontSize: 11 }}>{t('guard.sourceLesson')}:</span>{' '}
+                    <span style={{ fontSize: 12 }}>{g.source_lesson?.title || g.source_lesson?.name}</span>
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 2 }}>{t('guard.pattern')}</div>
+                    <code style={{ fontFamily: 'var(--mono)', fontSize: 12, wordBreak: 'break-all' }}>{g.guard?.pattern}</code>
+                  </div>
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 2 }}>{t('guard.message')}</div>
+                    <div style={{ lineHeight: 1.5 }}>{g.guard?.message}</div>
+                  </div>
+                  {(g.guard?.should_match?.length || g.guard?.should_not_match?.length) ? (
+                    <div style={{ fontSize: 12, color: 'var(--text-2)' }}>
+                      {g.guard?.should_match?.length ? (
+                        <div style={{ marginBottom: 4 }}>
+                          <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{t('guard.shouldMatch')}:</span>{' '}
+                          {g.guard.should_match.map((ex, i) => <code key={i} style={{ fontFamily: 'var(--mono)', fontSize: 11, marginRight: 8 }}>{ex}</code>)}
+                        </div>
+                      ) : null}
+                      {g.guard?.should_not_match?.length ? (
+                        <div>
+                          <span style={{ color: 'var(--text-3)', fontSize: 11 }}>{t('guard.shouldNotMatch')}:</span>{' '}
+                          {g.guard.should_not_match.map((ex, i) => <code key={i} style={{ fontFamily: 'var(--mono)', fontSize: 11, marginRight: 8 }}>{ex}</code>)}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })()}
+
+            {detail && detail.proposed_digest && p.kind !== 'relation' && p.kind !== 'guard' && (
               <div style={{ marginTop: 12, padding: 12, background: 'var(--bg-1)', borderRadius: 'var(--radius-xs)', fontSize: 13 }}>
                 <div style={{ marginBottom: 8, color: 'var(--text-3)', fontSize: 11 }}>
                   {t('insights.generatedBy')}: <code>{detail.llm_model ?? t('common.unknown')}</code> · {t('insights.promptVersion')}: <code>{detail.prompt_version}</code>

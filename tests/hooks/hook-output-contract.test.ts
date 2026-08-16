@@ -17,6 +17,7 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { MemeshDatabase } from '../../src/storage/sqlite.js';
 import {
   expectValidHookOutput,
   validateHookOutput,
@@ -43,6 +44,10 @@ interface HookCase {
    * class, on the input the gate is meant to cover). Seeding forces the branch.
    */
   seed?: Array<{ name: string; type: string; tags: string[]; obs: string }>;
+  /** Post-seed metadata surgery for shapes the CLI cannot write — e.g. an
+   *  accepted lesson-guard (`metadata.guard`), which only the dream accept
+   *  path produces in production. */
+  patchMetadata?: Array<{ name: string; metadata: Record<string, unknown> }>;
 }
 
 /**
@@ -69,6 +74,37 @@ const HOOK_CASES: HookCase[] = [
       type: 'decision',
       tags: ['file:auth', 'project:contract-project'],
       obs: 'Use OAuth PKCE for the auth flow',
+    }],
+  },
+  {
+    file: 'guard-check.js',
+    boundEvent: 'PreToolUse',
+    input: {
+      session_id: 'contract-guard',
+      cwd: '/tmp/contract-project',
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Bash',
+      tool_input: { command: 'git checkout -- src/' },
+    },
+    // Without an accepted guard the hook emits nothing and the contract
+    // check is vacuous. The CLI cannot write metadata.guard (only the
+    // dream accept path does), so the seed is patched afterwards.
+    seed: [{
+      name: 'checkout-guard-lesson',
+      type: 'lesson_learned',
+      tags: ['project:contract-project'],
+      obs: 'Error: git checkout -- wiped uncommitted work',
+    }],
+    patchMetadata: [{
+      name: 'checkout-guard-lesson',
+      metadata: {
+        guard: {
+          enabled: true, action: 'warn', tool: 'Bash',
+          pattern: 'git\\s+checkout\\s+--\\s',
+          message: 'git checkout -- discards uncommitted work. Commit or stash first.',
+          fires: 0,
+        },
+      },
     }],
   },
   {
@@ -161,8 +197,22 @@ describe('Feature: Claude Code hook-output contract', () => {
     }
   }
 
+  function patchMetadata(patches: NonNullable<HookCase['patchMetadata']>): void {
+    // The write goes through the same driver the product uses.
+    const db = new MemeshDatabase(dbPath);
+    try {
+      for (const p of patches) {
+        db.prepare('UPDATE entities SET metadata = ? WHERE name = ?')
+          .run(JSON.stringify(p.metadata), p.name);
+      }
+    } finally {
+      db.close();
+    }
+  }
+
   function runHook(hookCase: HookCase): string {
     if (hookCase.seed) seedMemories(hookCase.seed);
+    if (hookCase.patchMetadata) patchMetadata(hookCase.patchMetadata);
     const hookPath = path.resolve('scripts/hooks', hookCase.file);
     try {
       return execFileSync('node', [hookPath], {
