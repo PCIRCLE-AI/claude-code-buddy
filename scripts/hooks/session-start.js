@@ -802,14 +802,16 @@ process.stdin.on('end', async () => {
       // the assembleTopologyBlock call — "the same block" depends on the two
       // surfaces agreeing, so neither side restates the numbers.
 
+      // Only the entities we will actually render — the lesson query pulls
+      // up to 50 rows for the banner count, but at most 5 are injected, and
+      // this runs before the user's first turn. Bounded well under SQLite's
+      // 999-variable limit by construction (5 lessons + sessionLimit
+      // project + 5 recent). Declared out here because the injected-set
+      // record below must list the SAME lessons the block renders.
+      const topLessons = lessonEntities.slice(0, 5);
+
       const memoryLines = [];
       try {
-        // Only the entities we will actually render — the lesson query pulls
-        // up to 50 rows for the banner count, but at most 5 are injected, and
-        // this runs before the user's first turn. Bounded well under SQLite's
-        // 999-variable limit by construction (5 lessons + sessionLimit
-        // project + 5 recent).
-        const topLessons = lessonEntities.slice(0, 5);
         const rankedIds = [
           ...topLessons.map(e => e.id),
           ...projectEntities.map(e => e.id),
@@ -871,6 +873,10 @@ process.stdin.on('end', async () => {
           return {
             name: e.name,
             type: e.type || 'memory',
+            // The citation handle: topologyLine prints `[mem:<id>]` so the
+            // agent can credit the exact memory it used (the Stop hook's
+            // accounting reads those markers back).
+            id: e.id,
             title: e.title ?? null,
             snippet: snippets.get(e.id) ?? null,
             signalScore: meta && typeof meta.signal_score === 'number' ? meta.signal_score : null,
@@ -905,24 +911,29 @@ process.stdin.on('end', async () => {
         // charges the task-state block and the sections against ONE ceiling
         // and returns whole lines only, so the closing fence cannot be cut.
         memoryContext = buildReferenceContext(memoryLines);
+        // The citation contract — OUTSIDE the fence on purpose: the fence
+        // declares its content "background data, not instructions", and
+        // this line IS an instruction. One line is the entire write side of
+        // the injection-ROI signal; the Stop hook credits recall_hits only
+        // from these markers (self-reported: undercounts, never overcounts).
+        memoryContext += '\nWhen a memory above genuinely informs your work, cite it once inline as [mem:ID], using the id shown on its line.';
       }
 
       // --- Record injected entity IDs for recall effectiveness tracking ---
-      // The Stop hook decides hit/miss by removing the transcript records
-      // Claude Code created FROM this hook's output (see stripHookEchoes in
-      // session-summary.js) and then looking for the entity name in what
-      // remains. `injectedContext` is kept as the record of what was shown,
-      // not as a string to subtract — an earlier version subtracted it and a
-      // later one counted its occurrences, and BOTH were wrong because one
-      // injection is echoed into the transcript more than once.
+      // The Stop hook credits recall_hits from EXPLICIT `[mem:id]` citations
+      // the agent writes (after structurally removing the transcript records
+      // Claude Code created FROM this hook's output — the injected block
+      // itself prints a handle on every line; see stripHookEchoes in
+      // session-summary.js). Literal-content matching was retired after
+      // measuring 0% signal over ten real sessions. `injectedContext` is
+      // kept as the record of what was shown.
       //
-      // It must still be the text we actually injected: previously it was the
-      // count-only banner, so every injected entity was scored against a
-      // transcript it had never appeared in and took a `recall_miss` it did
-      // not earn.
+      // The set below is every pool the topology block draws from — the
+      // lessons pool included. It used to record only project + recent
+      // rows, so an injected lesson could never be credited at all.
       try {
         const seenIds = new Set();
-        const allInjected = [...projectEntities, ...recentEntities].filter(e => {
+        const allInjected = [...topLessons, ...projectEntities, ...recentEntities].filter(e => {
           if (seenIds.has(e.id)) return false;
           seenIds.add(e.id);
           return true;
@@ -959,11 +970,11 @@ process.stdin.on('end', async () => {
           } catch {}
         }
       } catch (err) {
-        // Non-critical — sessions-file write powers recall-effectiveness
-        // tracking (recall_hits / recall_misses on the dashboard). If it
-        // silently breaks, the impact-score factor in core/scoring.ts
-        // converges on 0.5 (neutral) for everything. Stderr trace so a
-        // permission/serialisation regression is visible.
+        // Non-critical — sessions-file write powers citation accounting
+        // (recall_hits credited from `[mem:id]` markers). If it silently
+        // breaks, no hit can ever be credited and the impact-score factor
+        // in core/scoring.ts converges on 0.5 (neutral) for everything.
+        // Stderr trace so a permission/serialisation regression is visible.
         try { process.stderr.write(`[memesh session-start] sessions-write: ${err?.message || err}\n`); } catch {}
       }
 

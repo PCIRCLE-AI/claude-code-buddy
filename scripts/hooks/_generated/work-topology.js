@@ -51,7 +51,16 @@ export function topologyLine(entity, maxChars) {
     const title = entity.title?.trim();
     const snippet = entity.snippet?.trim();
     const text = title || snippet || `${entity.type} memory`;
-    return `- [${entity.type}] ${clip(text, maxChars)}`;
+    const handle = Number.isInteger(entity.id) && entity.id > 0 ? ` [mem:${entity.id}]` : '';
+    const room = Math.max(8, maxChars - handle.length);
+    return `- [${entity.type}] ${clip(text, room)}${handle}`;
+}
+export function extractCitedMemoryIds(text) {
+    const cited = new Set();
+    for (const m of text.matchAll(/\[\s*mem\s*:\s*(\d{1,10})\s*\]/gi)) {
+        cited.add(Number(m[1]));
+    }
+    return cited;
 }
 function clip(text, maxChars) {
     const flat = text.replace(/\s+/g, ' ').trim();

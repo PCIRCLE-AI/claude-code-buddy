@@ -101,6 +101,10 @@ export function layerOf(type: string): TopologyLayer {
 export interface TopologyEntity {
   name: string;
   type: string;
+  /** Database id — when present, the line carries a `[mem:<id>]` citation
+   *  handle so a reader can credit the exact memory it used (the read side
+   *  of the injection-ROI signal; see `extractCitedMemoryIds`). */
+  id?: number;
   /** UX-1's human-readable display string. */
   title?: string | null;
   /** First observation — the fallback when there is no title. */
@@ -132,7 +136,33 @@ export function topologyLine(entity: TopologyEntity, maxChars: number): string {
   const title = entity.title?.trim();
   const snippet = entity.snippet?.trim();
   const text = title || snippet || `${entity.type} memory`;
-  return `- [${entity.type}] ${clip(text, maxChars)}`;
+  // The citation handle. A line that carries the entity's id lets an agent
+  // cite the memory it actually used — `[mem:42]` — so the Stop hook's
+  // accounting can credit a hit without guessing from prose (literal
+  // content matching measured 0% signal over ten real sessions). The
+  // handle is budgeted like any other character: the text yields the
+  // space; the handle is never cut in half.
+  const handle = Number.isInteger(entity.id) && (entity.id as number) > 0 ? ` [mem:${entity.id}]` : '';
+  const room = Math.max(8, maxChars - handle.length);
+  return `- [${entity.type}] ${clip(text, room)}${handle}`;
+}
+
+/**
+ * Every memory id the text explicitly cites as `[mem:<id>]`.
+ *
+ * The scan is case-insensitive and whitespace-tolerant inside the brackets —
+ * agents reproduce formats imperfectly, and every tolerated variant is still
+ * unmistakably a citation (the shape cannot occur in organic prose). Ids are
+ * deduplicated: citing a memory five times is one use, not five. The caller
+ * is responsible for scanning only text the agent WROTE — the injected block
+ * itself prints a handle on every line (strip hook echoes first).
+ */
+export function extractCitedMemoryIds(text: string): Set<number> {
+  const cited = new Set<number>();
+  for (const m of text.matchAll(/\[\s*mem\s*:\s*(\d{1,10})\s*\]/gi)) {
+    cited.add(Number(m[1]));
+  }
+  return cited;
 }
 
 /**

@@ -122,6 +122,10 @@ function toTopologyEntity(row: PoolRow, snippet: string | null): TopologyEntity 
   return {
     name: row.name,
     type: row.type || 'memory',
+    // The citation handle: briefing lines carry the same `[mem:<id>]` ref
+    // the session-start injection prints, so a memory reads the same way on
+    // every surface an agent meets it.
+    id: row.id,
     title: row.title,
     snippet,
     signalScore: typeof signal === 'number' ? signal : null,

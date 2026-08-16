@@ -3,8 +3,9 @@
 // The pair answers one question — "was a memory we injected actually USED?" —
 // and `scoring.ts::impactScore` reads it as a Laplace-smoothed ratio,
 // (hits+1)/(hits+misses+2), which is only meaningful if both sides come from
-// the same question. Only the Stop hook can observe it, by matching injected
-// entity names against the session transcript.
+// the same question. Only the Stop hook can observe it, by reading the
+// explicit `[mem:id]` citations the agent wrote (misses are frozen until
+// marker compliance is measured — see session-summary.js).
 //
 // This file used to assert the opposite. Under the G16 / SPEC-1 reading,
 // `search()` bumped `recall_hits` too, meaning "this memory was pulled". That

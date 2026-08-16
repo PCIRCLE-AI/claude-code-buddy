@@ -40,6 +40,7 @@ function toTopologyEntity(row, snippet) {
     return {
         name: row.name,
         type: row.type || 'memory',
+        id: row.id,
         title: row.title,
         snippet,
         signalScore: typeof signal === 'number' ? signal : null,

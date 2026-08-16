@@ -69,6 +69,84 @@ describe('Feature: Session Summary (Stop Hook)', () => {
     ]);
   }
 
+  it('Scenario: citation accounting end to end — cited earns a hit, silence earns NOTHING', () => {
+    // The whole loop against a real spawned hook: an injected-set record, a
+    // transcript whose hook echoes carry `[mem:id]` handles (as every real
+    // injection now does), and one explicit citation written by the agent.
+    // Three claims are pinned at the database:
+    //   1. the cited id is credited a recall_hit;
+    //   2. the id that appears ONLY inside the hook echo gets nothing — the
+    //      strip ran before the scan (skip it and every injection is a hit,
+    //      the exact failure the two pre-2026 accountings shipped);
+    //   3. the uncited id's recall_misses stays 0 — misses are FROZEN under
+    //      self-reported markers, because silence is not yet evidence.
+    const cwd = '/tmp/realproject';
+    const projectName = mirrorProjectName(cwd);
+
+    // Schema-complete seeding without duplicating migrations: let the hook
+    // itself create the DB once (a plain qualifying capture), then insert
+    // the two entities under test.
+    writeQualifyingTranscript();
+    runHook({ session_id: 'seed-session', transcript_path: transcriptPath, cwd });
+    const db = new Database(dbPath);
+    db.prepare("INSERT INTO entities (name, type) VALUES ('cited-decision', 'decision')").run();
+    db.prepare("INSERT INTO entities (name, type) VALUES ('silent-decision', 'decision')").run();
+    const citedId = (db.prepare("SELECT id FROM entities WHERE name = 'cited-decision'").get() as { id: number }).id;
+    const silentId = (db.prepare("SELECT id FROM entities WHERE name = 'silent-decision'").get() as { id: number }).id;
+    db.close();
+
+    // The injected-set record session-start would have written. The hook
+    // derives its memesh dir from MEMESH_DB_PATH (env-only — the function
+    // ignores arguments), which runHook sets to dbPath; mirror that here.
+    const sessionsDir = path.join(path.dirname(dbPath), 'sessions');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(path.join(sessionsDir, 'cite-1.json'), JSON.stringify({
+      injectedAt: new Date().toISOString(),
+      project: projectName,
+      entityIds: [citedId, silentId],
+      entityNames: ['cited-decision', 'silent-decision'],
+      injectedContext: 'unused-by-the-accounting',
+    }));
+
+    // A transcript that (a) clears the low-signal guard, (b) carries the
+    // silent entity's handle INSIDE a hook echo only, (c) cites the other.
+    writeTranscript([
+      { type: 'user', message: { role: 'user', content: 'fix the parser' } },
+      {
+        type: 'attachment',
+        attachment: {
+          type: 'hook_additional_context', hookName: 'SessionStart',
+          content: [`- [decision] silent thing [mem:${silentId}]\n- [decision] cited thing [mem:${citedId}]`],
+        },
+      },
+      ...['parser.ts', 'lexer.ts', 'ast.ts', 'tokens.ts'].map((f) => ({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/repo/src/' + f } }] },
+      })),
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: `per [mem:${citedId}] we keep the parser split` }] } },
+    ]);
+
+    runHook({ session_id: 'cite-session', transcript_path: transcriptPath, cwd });
+
+    const check = new Database(dbPath, { readOnly: true });
+    try {
+      const row = (name: string) => check.prepare(
+        'SELECT COALESCE(recall_hits, 0) AS hits, COALESCE(recall_misses, 0) AS misses FROM entities WHERE name = ?'
+      ).get(name) as { hits: number; misses: number };
+      expect(row('cited-decision')).toEqual({ hits: 1, misses: 0 });
+      expect(row('silent-decision')).toEqual({ hits: 0, misses: 0 });
+
+      const meta = (key: string) => (check.prepare(
+        'SELECT value FROM memesh_metadata WHERE key = ?'
+      ).get(key) as { value: string } | undefined)?.value;
+      expect(meta('recall_accounting_mode')).toContain('citation-v1');
+      expect(meta('citation_sessions_total')).toBe('1');
+      expect(meta('citation_sessions_cited')).toBe('1');
+    } finally {
+      check.close();
+    }
+  });
+
   it('Scenario: the hook does not load sqlite-vec — it has never used it', () => {
     // Not a style rule. This hook runs two statements, neither of them a
     // vector query, and `captureEntity` touches no vectors either — but it
