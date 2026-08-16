@@ -18,6 +18,26 @@
 
 **MeMesh** — 給 Claude Code 和 MCP 程式開發代理的開源**代理式記憶**：從代理的實際工作中擷取，在它行動的當下注入，記憶自相矛盾時保持誠實。一個 SQLite 檔案。不需要雲端。
 
+## 安裝
+
+**在 Claude Code 裡** — 在對話框輸入這兩行（hooks、記憶工具和 `/memesh` skill 會自動接好）：
+
+```
+/plugin marketplace add PCIRCLE-AI/memesh
+/plugin install memesh@pcircle-memesh
+```
+
+重開 Claude Code。下一個 session 開頭出現 `◉ MeMesh` 狀態列，就代表它在記了。
+
+**在終端機裡** — `memesh` CLI、儀表板，以及給 Codex / Gemini / Cursor 用的 `memesh-mcp` server（需要 [Node 22.13+](https://nodejs.org)）：
+
+```bash
+npm install -g @pcircle/memesh
+memesh doctor        # 端到端驗證這份安裝
+```
+
+大多數 Claude Code 使用者最後兩種都會裝 — 它們共用同一個資料庫、永不衝突。細節、其他代理、升級方式：見下方「60 秒快速開始」。
+
 ## 問題所在
 
 你的程式開發代理在對話之間不只是忘記事實 — 它會**重複做過的工作**。它會重新提出你上個月否決過的做法，被同一個失敗的測試絆倒，重新發現三月那次弄壞 production 的限制條件，還要你重新解釋那個它自己參與設計的架構。
@@ -103,7 +123,9 @@ npm install -g @pcircle/memesh
 /plugin install memesh@pcircle-memesh
 ```
 
-Claude Code 會自動接好 hooks、skills 和 MCP server。你會獲得對話內自動擷取、主動回憶、可在 Claude Code 對話中使用的 `/memesh` skill（remember / recall / learn / forget），以及代理可呼叫的 `remember` / `recall` / `forget` / `learn` MCP 工具。CLI 與本地儀表板無需任何額外的全域安裝就能完整使用 — `npx @pcircle/memesh <command>` 可執行所有 CLI 指令，`npx @pcircle/memesh` 可在 `localhost:3737` 啟動儀表板。MCP server 直接從外掛內建的編譯產物啟動 — 不需要 `npx` 查找、不需要 `npm install -g`、不需要本地建置步驟。memesh 透過 Node 內建的 `node:sqlite`（22.13+）存放資料，所以升級 Node 不會留下一個為錯誤 runtime 編譯的二進位檔。
+Claude Code 會自動接好 hooks、skills 和 MCP server。你會獲得對話內自動擷取、主動回憶、可在 Claude Code 對話中使用的 `/memesh` skill（remember / recall / learn / forget），以及代理可呼叫的 `remember` / `recall` / `forget` / `learn` MCP 工具。
+
+**驗證方式：**重開 Claude Code、開任何 session。開頭出現像 `◉ MeMesh ready · no memories for "your-project" yet` 的狀態列 — 那一行就是外掛在運作的證明，不需要另外跑指令。（有記憶之後會改顯示數量。）CLI 與本地儀表板無需任何額外的全域安裝就能完整使用 — `npx @pcircle/memesh <command>` 可執行所有 CLI 指令，`npx @pcircle/memesh` 可在 `localhost:3737` 啟動儀表板。MCP server 直接從外掛內建的編譯產物啟動 — 不需要 `npx` 查找、不需要 `npm install -g`、不需要本地建置步驟。memesh 透過 Node 內建的 `node:sqlite`（22.13+）存放資料，所以升級 Node 不會留下一個為錯誤 runtime 編譯的二進位檔。
 
 ### 選項 B — npm 全域安裝（可選最佳化）
 
@@ -121,7 +143,7 @@ npm install -g @pcircle/memesh
 
 如果你透過**選項 A**（`/plugin install memesh@pcircle-memesh`）安裝，請略過此步驟 — Claude Code 會自動接好外掛 hooks。
 
-如果你透過**選項 B**（`npm install -g`）安裝，CLI 已在 PATH 上、MCP server 也已註冊，但 Claude Code session hooks 並未自動接上。沒有這些 hooks 還是可以手動使用 `memesh remember` / `recall`，但**自動擷取迴路**（session → 教訓 → 下次 session 主動回憶）就會靜默不動。
+如果你透過**選項 B**（`npm install -g`）安裝，CLI 已在 PATH 上 — 但**還沒有任何東西接進 Claude Code**：npm 套件刻意不執行安裝腳本，把 MCP server 和 hooks 接進 Claude Code 的是外掛（選項 A）。npm 路徑自己能接的是 session hooks。沒有這些 hooks 還是可以手動使用 `memesh remember` / `recall`，但**自動擷取迴路**（session → 教訓 → 下次 session 主動回憶）就會靜默不動。
 
 ```bash
 memesh install-hooks         # 把 memesh hooks 加進 ~/.claude/settings.json
@@ -129,6 +151,27 @@ memesh doctor                # 確認「Hooks wired into Claude Code」過了
 ```
 
 這些 hooks 會跟你既有的 `~/.claude/hooks/` 自訂 hooks 共存 — `install-hooks` 用追加方式寫入，從不覆寫你的東西。要移除：`memesh uninstall-hooks`。
+
+### 從 Codex CLI 和 Gemini CLI 用同一份記憶
+
+`memesh-mcp` 是標準的 stdio MCP server，任何支援 MCP 的主機都能用 — 不限 Claude Code。裝好選項 B（`memesh-mcp` 在 `PATH` 上）之後，每個主機註冊一次：
+
+```bash
+# OpenAI Codex CLI — 會把 [mcp_servers.memesh] 寫進 ~/.codex/config.toml
+codex mcp add memesh -- memesh-mcp
+
+# Google Gemini CLI — user 範圍，每個資料夾都能用
+gemini mcp add -s user memesh memesh-mcp
+```
+
+每個主機讀寫的都是同一個 `~/.memesh/knowledge-graph.db`，所以在 Claude Code session 存的記憶，Codex 和 Gemini 都回憶得到，反之亦然。驗證：
+
+```bash
+codex mcp list       # memesh 應顯示為 enabled
+gemini mcp list      # memesh 應顯示 "Connected"
+```
+
+> **設定的指令要用 `memesh-mcp`，不要用 `npx -p @pcircle/memesh`。**當主機的工作目錄在這個 repo 的 checkout 裡時，`npx -p` 會解析到*本地*套件，靜默執行工作樹當下的狀態而不是安裝好的正式版。
 
 ### 原生整合：Hermes Agent
 
@@ -188,6 +231,32 @@ memesh serve
 <p align="center">
   <img src="docs/images/dashboard-graph.png" alt="MeMesh 圖表 — 互動式知識圖，具有類型篩選和自我中心模式" width="100%" />
 </p>
+
+### 看看它幫你記了什麼
+
+任何時候一條指令，就能印出你的代理對目前專案知道什麼 — 工作做到哪、決策、教訓、近期活動（以參考資料的形式包好）：
+
+```bash
+memesh briefing
+```
+
+```text
+Where "your-project" was left off (today):
+- Goal: Ship the payment retry logic
+- Next: Open the PR once CI is green
+
+Decisions and direction for "your-project":
+- [decision] Use FTS5 as the retrieval baseline
+```
+
+Claude Code 在 session 開始時自動收到的就是同一個區塊，其他 MCP 用戶端呼叫 `briefing` 工具也拿到同一份 — 代理一開場就有方向，不用重讀整個 repo，你也不用再重講上禮拜的事。儀表板（`memesh serve`）是完整的視覺化版本。
+
+### 你的資料
+
+- **就一個本機檔案。**所有東西都在 `~/.memesh/knowledge-graph.db` — SQLite、在你的硬碟上。沒有雲端帳號；除非你自己設定雲端 embedder 或 LLM，否則什麼都不會離開你的機器。
+- **備份 = 複製那個檔案。**還原 = 複製回去。
+- **隨時暫停擷取**：`export MEMESH_AUTO_CAPTURE=false`。
+- **全部刪除**：移除 `~/.memesh/`。
 
 ---
 

@@ -18,6 +18,26 @@
 
 **MeMesh** — open-source **agentic memory** for Claude Code & MCP coding agents: captured from the agent's real work, injected at the moment it acts, kept honest when it contradicts itself. One SQLite file. No cloud.
 
+## Install
+
+**In Claude Code** — type these in the chat (hooks, memory tools and the `/memesh` skill are wired automatically):
+
+```
+/plugin marketplace add PCIRCLE-AI/memesh
+/plugin install memesh@pcircle-memesh
+```
+
+Restart Claude Code. A `◉ MeMesh` status line at the top of your next session means it is capturing.
+
+**In a terminal** — the `memesh` CLI, the dashboard, and the `memesh-mcp` server for Codex / Gemini / Cursor (needs [Node 22.13+](https://nodejs.org)):
+
+```bash
+npm install -g @pcircle/memesh
+memesh doctor        # verifies this install end to end
+```
+
+Most Claude Code users eventually want **both** — they share one database and never conflict. Details, other agents, and upgrades: [Get Started](#get-started-in-60-seconds).
+
 ## The Problem
 
 Your coding agent doesn't just forget facts between sessions — it **repeats work**. It re-proposes the approach you rejected last month, trips over the same failing test, re-discovers the constraint that broke production in March, and asks you to re-explain the architecture it helped design.
@@ -103,6 +123,8 @@ If you use Claude Code, install MeMesh as a plugin from inside the CLI:
 
 Claude Code wires hooks, skills, and the MCP server automatically. You get in-session auto-capture, proactive recall, the `/memesh` skill (remember / recall / learn / forget) inside the Claude Code conversation, and `remember` / `recall` / `forget` / `learn` available as MCP tools to the agent.
 
+**Verify it:** restart Claude Code and start any session. A status line like `◉ MeMesh ready · no memories for "your-project" yet` appears at the top — that line IS the plugin working; no separate command needed. (Once you have memories, it shows counts instead.)
+
 The MCP server runs directly from the plugin's bundled compiled output — no `npx` lookup, no build step, and nothing to compile. memesh stores its data through `node:sqlite`, which is part of Node itself (22.13+), so a Node upgrade cannot leave it with a binary built for the wrong runtime.
 
 > **This installs the plugin only.** You can run CLI commands via `npx @pcircle/memesh <command>` if you absolutely don't want a global install, but typing plain `memesh` in a terminal will report `command not found`. To get a real shell `memesh` command, also run **Option B** below — both paths coexist and share the same memory database. The "Install paths at a glance" diagram above covers this.
@@ -123,7 +145,7 @@ npm install -g @pcircle/memesh
 
 If you installed via **Option A** (`/plugin install memesh@pcircle-memesh`), skip this step — Claude Code wires plugin hooks automatically.
 
-If you installed via **Option B** (`npm install -g`), the CLI is on your PATH and the MCP server is registered, but the Claude Code session hooks are not auto-wired. Without them you can still use `memesh remember` / `recall` manually, but the **auto-capture loop** (sessions → lessons → recall on next session) is silent.
+If you installed via **Option B** (`npm install -g`), the CLI is on your PATH — but nothing is wired into Claude Code yet: the npm package deliberately runs no install scripts, and the plugin (Option A) is what registers the MCP server and hooks inside Claude Code. What the npm path can wire by itself is the session hooks. Without them you can still use `memesh remember` / `recall` manually, but the **auto-capture loop** (sessions → lessons → recall on next session) is silent.
 
 ```bash
 memesh install-hooks         # adds memesh's hooks to ~/.claude/settings.json
@@ -211,6 +233,32 @@ memesh serve
 <p align="center">
   <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — interactive knowledge graph with type filters and ego mode" width="100%" />
 </p>
+
+### See what it remembered
+
+At any moment, one command prints what your agent knows about the current project — where work was left off, decisions, lessons, recent activity (wrapped as reference data):
+
+```bash
+memesh briefing
+```
+
+```text
+Where "your-project" was left off (today):
+- Goal: Ship the payment retry logic
+- Next: Open the PR once CI is green
+
+Decisions and direction for "your-project":
+- [decision] Use FTS5 as the retrieval baseline
+```
+
+This same block is what Claude Code receives automatically at session start, and what any other MCP client gets from the `briefing` tool — the agent starts oriented instead of re-reading the repository, and you stop re-explaining last week. The dashboard (`memesh serve`) is the full visual view.
+
+### Your data
+
+- **One local file.** Everything lives in `~/.memesh/knowledge-graph.db` — SQLite, on your disk. No cloud account; nothing leaves your machine unless you configure a cloud embedder or LLM yourself.
+- **Back up = copy that one file.** Restore = copy it back.
+- **Pause capture anytime**: `export MEMESH_AUTO_CAPTURE=false`.
+- **Delete everything**: remove `~/.memesh/`.
 
 ---
 

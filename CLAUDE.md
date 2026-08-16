@@ -18,6 +18,7 @@ So — **read the real documents.** Do not restate them here.
 | What does the product do, how is it installed | [README.md](README.md) |
 | Colour, type, spacing, interaction — before ANY dashboard change | [DESIGN.md](DESIGN.md) |
 | How do I report a vulnerability | [SECURITY.md](SECURITY.md) |
+| What changed, and what is merged but unreleased | [CHANGELOG.md](CHANGELOG.md) (`[Unreleased]`) |
 
 ---
 
@@ -94,6 +95,41 @@ grep -E 'Test Files|Tests |Errors ' /tmp/t.log
 When you fix a bug, **revert the fix and confirm the test goes red.** A green
 suite is not evidence that a fix is protected: three tests in this repository
 have passed while the thing they guarded was removed.
+
+### Working policy
+
+How much process a change deserves is decided by its blast radius, not by
+habit. Two modes:
+
+- **Lightweight** — the change is confined to one module or one clear path,
+  needs no multi-surface verification, and touches nothing security-sensitive
+  or destructive. Do it directly: implement, run the affected tests plus
+  `npm run typecheck`, read your own diff, done. Most fixes are this.
+- **Full** — anything that changes behaviour across surfaces (hook + MCP +
+  CLI + docs move together here), touches persistence, security boundaries,
+  or user-facing contracts. Then: understand → plan → implement with tests →
+  the full gate (`verify:release`) → break-test the guards you added
+  (revert the fix, watch the test go red) → docs in the same PR.
+
+Rules that hold in both modes:
+
+- **Findings first, evidence over warnings.** A review or QA report leads
+  with what is wrong and proves it (file:line, actual output), not with
+  broad concerns. Gate verdicts use the same vocabulary `memesh doctor`
+  uses: `PASS`, `PASS_WITH_CONCERNS`, `FAIL`.
+- **No runtime claim without runtime evidence.** "It works" requires having
+  run it — the verification section above is the how.
+- **Delegating to subagents**: split ownership into disjoint file scopes so
+  two writers never touch one file; isolate file-editing agents in
+  worktrees; the orchestrator reads every diff before it lands. Do not
+  delegate the critical path reflexively — coordination has a cost.
+- **Internal working notes stay local.** Plans, scratch analyses, agent
+  transcripts, private TODOs — never committed, never in commit messages or
+  release notes. The repository carries only what reproduces shipped
+  behaviour: source, tests, schemas, configuration, and the public docs
+  above. (This is also why this file is a pointer.)
+- **Docs move with the change** — a capability the docs do not describe, or
+  describe wrongly, fails `check-doc-claims` and is not done.
 
 ### Git
 
