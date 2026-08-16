@@ -109,6 +109,22 @@ All notable changes to MeMesh are documented here.
 
 ### Changed
 
+- **The `/memesh` skill leads with the continuity loop.** The skill now opens
+  with the four moments that make memory pay for itself: session start →
+  load the briefing once (with the explicit Claude Code exception — the
+  session-start hook has ALREADY injected that block, and the old skill was
+  actively instructing double-injection by listing `memesh briefing` under
+  "you need context" with no host distinction); user states a goal / next /
+  blocker → record it via `memesh task` immediately, only what was said;
+  session end → make the task state match reality; "what do you remember?"
+  → briefing, then relay. Also fixed against the real surface: the
+  SessionStart hook row described the pre-A1 injection, the PreToolUse
+  matcher said `Edit` only (it is `Edit|Write`), and `--title` /
+  `--supersedes` / `--contradicts` were absent from the remember recipe. New
+  memory-hygiene section: stable names append, `supersedes` retires,
+  `contradicts` flags, prefer observation-level forgetting.
+
+
 - **The topology assembly has one owner; the review that found it also found
   two real defects.** A four-angle cleanup pass over the A1 arc (reuse /
   simplification / efficiency / altitude) converged on the same seam from
