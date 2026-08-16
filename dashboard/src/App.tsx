@@ -167,9 +167,18 @@ export function App() {
   return (
     <div class="shell">
       <Header health={health} error={error} />
-      <DoctorBanner />
-      <InsightsBanner currentTab={tab} onNavigateToInsights={() => setTab('Home')} />
-      <OnboardingBanner health={health} />
+      {/* The notice slot: one banner at a time. Each banner self-decides
+          eligibility (ineligible = no DOM), and DOM order IS the priority —
+          Doctor (broken install) > Onboarding (empty library) > Insights
+          (pending proposals). The stylesheet shows only the slot's first
+          rendered child; the rest wait in the tree for the winner to clear
+          (dismissal or the condition resolving). Three banners could
+          previously stack into a wall above the nav. */}
+      <div class="notice-slot">
+        <DoctorBanner />
+        <OnboardingBanner health={health} />
+        <InsightsBanner currentTab={tab} onNavigateToInsights={() => setTab('Home')} />
+      </div>
       <TabNav tabs={tabLabels} active={tab} onSelect={(k) => setTab(k as Tab)} />
       {/* Each panel is the tabpanel for its TabNav tab: id + role +
           aria-labelledby wire the roving-tablist relationship (see TabNav). */}
