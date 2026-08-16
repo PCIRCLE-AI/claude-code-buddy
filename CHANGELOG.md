@@ -65,6 +65,33 @@ All notable changes to MeMesh are documented here.
   `mcp get` subcommand (its probe reads `~/.gemini/settings.json`, the
   shape verified against a real machine). Absent hosts are informational,
   never failures; an unprobeable host is UNKNOWN, never "wired".
+- **`memesh doctor --fix` — doctor now repairs what it prescribes, within a
+  deliberately short whitelist.** Fixable prescriptions carry a machine
+  `fixId` attached at the diagnosing BRANCH (never parsed out of the human
+  fix string): hook wiring (runs the same `installHooks()` as
+  `memesh install-hooks` — backs up settings.json, refuses on
+  plugin-managed machines), the keyword-index rebuild (free, local), and
+  the database chmod. Deliberately NOT fixable: `memesh reindex` for the
+  vector index (re-embeds the whole database — real money on a paid
+  provider) and the rm/mv database branches (destroy or move user data) —
+  those stay human decisions. Asks per fix on a terminal; `--yes` applies
+  silently; non-interactive without `--yes` changes nothing and exits 1.
+  The after-state is a fresh doctor run diffed per check ("hook-wiring:
+  warn → pass"), not trust in the fixes.
+
+### Fixed
+
+- **doctor and install-hooks no longer contradict each other on a
+  plugin-managed machine.** With the plugin managing hooks and the npm CLI
+  also installed (the README's own recommended setup), `memesh
+  install-hooks` correctly bailed with "Hooks are active" while `memesh
+  doctor` WARNed "memesh is not connected to Claude Code" in the same
+  minute — the wiring check only trusted its own copy's marker file. The
+  check now consults Claude Code's plugin registry
+  (installed_plugins.json, machine-level truth) before claiming the
+  machine is unwired, through an injectable seam — without which every
+  no-marker unit test would silently flip on any developer machine that
+  has the plugin installed (measured: two did, on first run).
 
 
 - **`briefing` — the assembled work topology for clients that run no hooks, and the 9th MCP tool (A1c).**

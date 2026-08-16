@@ -939,6 +939,9 @@ describe('doctor', () => {
       getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
       getUpdateCheckImpl: async () => makeUpdateCheck(),
       getCurrentInstallChannelImpl: () => 'npm-global',
+      // The registry consult reads the REAL machine by default; a dev box
+      // with the plugin installed would flip this test without the seam.
+      installedPluginsPathImpl: path.join(packageRoot, 'no-such-registry.json'),
       getInstallChannelSupportImpl: () => ({
         channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
         recommendedCommand: 'memesh update',
@@ -955,6 +958,78 @@ describe('doctor', () => {
     expect(wiring!.summary).toMatch(/not connected to Claude Code/i);
     expect(wiring!.fix).toMatch(/memesh install-hooks/);
     expect(wiring!.code).toBe('hook-wiring.no-marker');
+  });
+
+  it('hook-wiring: PASS from the npm copy when the PLUGIN registry has memesh (the contradiction fix)', async () => {
+    // The real-machine shape this repairs: plugin manages hooks, user also
+    // has the npm CLI. install-hooks correctly bails with "hooks are
+    // active"; doctor used to WARN "not connected" from the same machine —
+    // one machine, two answers. The registry is machine-level truth.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const registry = path.join(packageRoot, 'installed_plugins.json');
+    fs.writeFileSync(registry, JSON.stringify({
+      plugins: { 'memesh@pcircle-memesh': [{ installPath: '/x', version: '9.9.9', scope: 'user' }] },
+    }));
+    const env = setupMemeshDir({}); // no marker — npm copy never ran install-hooks
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.4',
+      openDatabaseImpl: () => makeDatabase(0) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update',
+        guidance: 'This installation can be updated directly from MeMesh.',
+      }),
+      installedPluginsPathImpl: registry,
+    });
+    env.restoreEnv();
+
+    const wiring = result.checks.find(c => c.id === 'hook-wiring');
+    expect(wiring!.status).toBe('pass');
+    expect(wiring!.summary).toMatch(/plugin runtime/i);
+    // No i18n code on a PASS row — the catalogue gate only covers warn/fail.
+    expect(wiring!.code).toBeUndefined();
+  });
+
+  it('fixId rides only the branches --fix may act on', async () => {
+    // The identifier is attached at the diagnosing branch, never parsed from
+    // the human fix string. The no-marker WARN carries install-hooks; the
+    // plugin-managed PASS carries nothing.
+    const packageRoot = createPackageRoot();
+    tempRoots.push(packageRoot);
+    const env = setupMemeshDir({});
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.1.4',
+      openDatabaseImpl: () => makeDatabase(0) as never,
+      closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 0, llm: null, embeddings: 'tfidf' }),
+      getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck(),
+      getCurrentInstallChannelImpl: () => 'npm-global',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
+        recommendedCommand: 'memesh update',
+        guidance: 'This installation can be updated directly from MeMesh.',
+      }),
+      installedPluginsPathImpl: path.join(packageRoot, 'no-such-registry.json'),
+    });
+    env.restoreEnv();
+
+    const wiring = result.checks.find(c => c.id === 'hook-wiring');
+    expect(wiring!.status).toBe('warn');
+    expect(wiring!.fixId).toBe('install-hooks');
+    // Nothing else in this run may carry a fixId the whitelist would act on
+    // unprompted — vector_index in particular must never (paid re-embed).
+    const vector = result.checks.find(c => c.id === 'vector_index');
+    if (vector) expect(vector.fixId).toBeUndefined();
   });
 
   it('hook-wiring: PASS when marker + settings + memesh hook entry all present', async () => {
@@ -1075,6 +1150,10 @@ describe('doctor', () => {
         recommendedCommand: 'memesh update',
         guidance: 'This installation can be updated directly from MeMesh.',
       }),
+      // The wiring check consults the plugin registry, and its default path
+      // reads the REAL machine — a dev box with the plugin installed would
+      // silently flip every no-marker branch here.
+      installedPluginsPathImpl: path.join(packageRoot, 'no-such-registry.json'),
     };
   }
 
@@ -1925,6 +2004,9 @@ describe('database failure diagnostics (F15)', () => {
         getConfigPathImpl: () => path.join(packageRoot, 'config.json'),
         getUpdateCheckImpl: async () => makeUpdateCheck(),
         getCurrentInstallChannelImpl: () => 'npm-global',
+      // The registry consult reads the REAL machine by default; a dev box
+      // with the plugin installed would flip this test without the seam.
+      installedPluginsPathImpl: path.join(packageRoot, 'no-such-registry.json'),
         getInstallChannelSupportImpl: () => ({
           channel: 'npm-global', label: 'npm global', canSelfUpdate: true,
           recommendedCommand: 'memesh update', guidance: '',

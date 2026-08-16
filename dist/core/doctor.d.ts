@@ -12,6 +12,7 @@ export interface DoctorCheck {
     status: DoctorCheckStatus;
     summary: string;
     fix?: string;
+    fixId?: 'install-hooks' | 'fts-rebuild' | 'chmod-db';
     informational?: boolean;
     code?: string;
     params?: Record<string, string | number>;
@@ -36,6 +37,7 @@ interface DoctorOptions {
     getConfigPathImpl?: typeof getConfigPath;
     getUpdateCheckImpl?: typeof getUpdateCheck;
     getCurrentInstallChannelImpl?: typeof getCurrentInstallChannel;
+    installedPluginsPathImpl?: string;
     getInstallChannelSupportImpl?: typeof getInstallChannelSupport;
     existsSyncImpl?: typeof fs.existsSync;
     readFileSyncImpl?: typeof fs.readFileSync;

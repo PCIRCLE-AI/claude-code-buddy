@@ -10,7 +10,8 @@ import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } fr
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport, type InstallChannel } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
-import { getDbPath, memeshDir, getProjectName } from './paths.js';
+import { getDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
+import { detectPluginRuntime } from './install-hooks.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
 import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
 import { MemeshDatabase } from '../storage/sqlite.js';
@@ -27,6 +28,14 @@ export interface DoctorCheck {
   status: DoctorCheckStatus;
   summary: string;
   fix?: string;
+  /**
+   * Machine identifier for `doctor --fix`, attached at the BRANCH that
+   * diagnosed the problem — never parsed out of the human `fix` string.
+   * Orthogonal to `code` (i18n): a fixId claims no catalogue entry.
+   * Only prescriptions on --fix's whitelist carry one; everything else
+   * stays advice for a human.
+   */
+  fixId?: 'install-hooks' | 'fts-rebuild' | 'chmod-db';
   /**
    * True for rows that REPORT a value rather than ASSERT a fact.
    *
@@ -112,6 +121,9 @@ interface DoctorOptions {
   getConfigPathImpl?: typeof getConfigPath;
   getUpdateCheckImpl?: typeof getUpdateCheck;
   getCurrentInstallChannelImpl?: typeof getCurrentInstallChannel;
+  /** Test override for Claude Code's plugin registry — the default reads the
+   *  real machine, which would make hook-wiring tests host-state-dependent. */
+  installedPluginsPathImpl?: string;
   getInstallChannelSupportImpl?: typeof getInstallChannelSupport;
   existsSyncImpl?: typeof fs.existsSync;
   readFileSyncImpl?: typeof fs.readFileSync;
@@ -271,8 +283,9 @@ function createCheck(
   // catalogue entry — the i18n scan only covers codes, which is correct,
   // because codeless params never render through a locale template.
   i18n?: { code?: string; params?: Record<string, string | number> },
+  fixId?: DoctorCheck['fixId'],
 ): DoctorCheck {
-  return { id, label, status, summary, fix, code: i18n?.code, params: i18n?.params };
+  return { id, label, status, summary, fix, code: i18n?.code, params: i18n?.params, fixId };
 }
 
 /**
@@ -591,6 +604,7 @@ function inspectHookWiring(
   readFileSyncImpl: typeof fs.readFileSync,
   memeshDir: string,
   installChannel?: InstallChannel,
+  installedPluginsPath?: string,
 ): DoctorCheck {
   const markerPath = path.join(memeshDir, 'install-hooks.json');
   if (!existsSyncImpl(markerPath)) {
@@ -618,6 +632,22 @@ function inspectHookWiring(
         'Wired via the Claude Code plugin runtime (this is a plugin-marketplace install). The install-hooks marker is not used on this install path.',
       );
     }
+    // A DIFFERENT copy may still be wired: on a plugin-managed machine the
+    // npm-global doctor used to WARN "not connected" here while
+    // install-hooks' own guard said "hooks are active" — one report, two
+    // answers. The plugin registry is machine-level truth, so consult it
+    // before claiming the machine is unwired. Injectable
+    // (installedPluginsPathImpl) because the default path reads the REAL
+    // machine — without the seam, every unit test of this branch would
+    // flip on any developer box with the plugin installed.
+    if (detectPluginRuntime(installedPluginsPath)) {
+      return createCheck(
+        'hook-wiring',
+        'Hooks wired into Claude Code',
+        'pass',
+        'Wired via the Claude Code plugin runtime (found in installed_plugins.json). This copy is not the one doing the capturing — the plugin manages the hooks.',
+      );
+    }
     return createCheck(
       'hook-wiring',
       'Hooks wired into Claude Code',
@@ -625,6 +655,7 @@ function inspectHookWiring(
       'memesh is not connected to Claude Code yet, so nothing gets remembered automatically from your sessions.',
       'Run `memesh install-hooks` once to connect it, then `memesh doctor` to confirm.',
       { code: 'hook-wiring.no-marker' },
+      'install-hooks',
     );
   }
   const parsed = parseJsonFile(markerPath, readFileSyncImpl);
@@ -1935,6 +1966,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     getConfigPathImpl = getConfigPath,
     getUpdateCheckImpl = getUpdateCheck,
     getCurrentInstallChannelImpl = getCurrentInstallChannel,
+    installedPluginsPathImpl,
     getInstallChannelSupportImpl = getInstallChannelSupport,
     existsSyncImpl = fs.existsSync,
     readFileSyncImpl = fs.readFileSync,
@@ -2055,6 +2087,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
               `automatic rebuild cannot notice. Re-run doctor after the rebuild: this count should be 0.`,
             `Run 'memesh reindex --fts' to rebuild the keyword index.`,
             { code: 'fts.unsegmented', params: { count: unsegmented.c } },
+            'fts-rebuild',
           ),
         );
       }
@@ -2079,6 +2112,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     // F15: Provide actionable diagnosis for common database failures
     let diagnosis: string;
     let fix: string;
+    let fixId: DoctorCheck['fixId'];
 
     // Check if database file exists but can't be opened
     if (existsSyncImpl(databasePath)) {
@@ -2090,6 +2124,9 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
         if (!canRead || !canWrite) {
           diagnosis = `Database file exists but has insufficient permissions (${(stat.mode & 0o777).toString(8)})`;
           fix = `Fix permissions: chmod 600 "${databasePath}"`;
+          // The ONLY database branch --fix may act on. The rm/mv branches
+          // below destroy or move user data — those stay human decisions.
+          fixId = 'chmod-db';
         } else if (stat.size === 0) {
           diagnosis = 'Database file is empty (0 bytes) — likely corrupted';
           fix = `Delete and recreate: rm "${databasePath}" && memesh recall (will create fresh DB)`;
@@ -2138,6 +2175,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
         // fix stays untranslated (it is itself diagnosis-specific text);
         // the dashboard translates the summary frame and shows fix raw.
         { code: 'database.broken', params: { detail: diagnosis } },
+        fixId,
       ),
     );
   } finally {
@@ -2155,7 +2193,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   // Runtime wiring + activity (#25 — file existence isn't enough;
   // doctor used to PASS for users whose Claude Code never loaded
   // memesh's hooks at all).
-  const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install);
+  const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl ?? path.join(homeDir(), '.claude', 'plugins', 'installed_plugins.json'));
   checks.push(wiring);
   // hook-activity's never-ran verdict only reds when wiring is actually in
   // place — otherwise the wiring row above already tells the story, and an

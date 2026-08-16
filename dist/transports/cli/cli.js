@@ -1155,15 +1155,82 @@ program
     .option('--probe-http', 'Also probe the local HTTP server health endpoint')
     .option('--probe', 'Make one small live call to the configured LLM to confirm it actually answers')
     .option('--url <url>', 'Base URL for --probe-http', 'http://127.0.0.1:3737')
+    .option('--fix', 'Apply the whitelisted fixes doctor prescribes (asks per fix; --yes skips asking)')
+    .option('--yes', 'With --fix: apply without asking')
     .action(async (opts) => {
     const { formatDoctorReport, runDoctor } = await import('../../core/doctor.js');
-    const result = await runDoctor({
+    let result = await runDoctor({
         packageRoot,
         packageVersion: pkg.version,
         probeHttp: opts.probeHttp,
         probeCapabilities: opts.probe,
         httpBaseUrl: opts.url,
     });
+    if (opts.fix) {
+        const fixable = result.checks.filter((c) => c.fixId && (c.status === 'warn' || c.status === 'fail'));
+        if (fixable.length === 0) {
+            console.log('Nothing on the --fix whitelist to apply.');
+        }
+        else {
+            if (!opts.yes && !process.stdin.isTTY) {
+                console.error('Not a terminal and --yes not given — nothing was changed. Re-run with: memesh doctor --fix --yes');
+                process.exit(1);
+            }
+            let rl = null;
+            if (!opts.yes) {
+                const { createInterface } = await import('node:readline/promises');
+                rl = createInterface({ input: process.stdin, output: process.stdout });
+            }
+            for (const check of fixable) {
+                console.log(`\n${check.label}: ${check.summary}`);
+                if (rl) {
+                    const answer = (await rl.question(`Apply fix (${check.fixId})? [y/N] `)).trim().toLowerCase();
+                    if (answer !== 'y' && answer !== 'yes') {
+                        console.log('  skipped');
+                        continue;
+                    }
+                }
+                try {
+                    if (check.fixId === 'install-hooks') {
+                        const { installHooks } = await import('../../core/install-hooks.js');
+                        const r = installHooks({ pluginRoot: packageRoot, pluginVersion: pkg.version, scope: 'user' });
+                        console.log(`  ✅ hooks: added ${r.added}, skipped ${r.skipped}${r.backupPath ? ` (backup: ${r.backupPath})` : ''}`);
+                    }
+                    else if (check.fixId === 'fts-rebuild') {
+                        openDatabase();
+                        try {
+                            console.log(`  ✅ keyword index rebuilt (${reindexFts().entities} entities)`);
+                        }
+                        finally {
+                            closeDatabase();
+                        }
+                    }
+                    else if (check.fixId === 'chmod-db') {
+                        fs.chmodSync(getDbPath(), 0o600);
+                        console.log(`  ✅ permissions restored: chmod 600 ${getDbPath()}`);
+                    }
+                }
+                catch (err) {
+                    console.error(`  ❌ ${err instanceof Error ? err.message : String(err)}`);
+                }
+            }
+            rl?.close();
+            console.log('\nAfter fixes:');
+            const before = new Map(result.checks.map((c) => [c.id, c.status]));
+            result = await runDoctor({
+                packageRoot,
+                packageVersion: pkg.version,
+                probeHttp: opts.probeHttp,
+                probeCapabilities: opts.probe,
+                httpBaseUrl: opts.url,
+            });
+            for (const c of result.checks) {
+                const was = before.get(c.id);
+                if (was && was !== c.status)
+                    console.log(`  ${c.label}: ${was} → ${c.status}`);
+            }
+        }
+    }
     if (opts.json) {
         console.log(JSON.stringify(result, null, 2));
     }

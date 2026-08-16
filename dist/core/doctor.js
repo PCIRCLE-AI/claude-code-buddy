@@ -10,7 +10,8 @@ import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } fr
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
-import { getDbPath, memeshDir, getProjectName } from './paths.js';
+import { getDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
+import { detectPluginRuntime } from './install-hooks.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
 import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
 import { MemeshDatabase } from '../storage/sqlite.js';
@@ -88,8 +89,8 @@ function inspectLocaleReadmeParity(packageRoot, existsSyncImpl, readFileSyncImpl
 function resolveDatabasePath() {
     return getDbPath();
 }
-function createCheck(id, label, status, summary, fix, i18n) {
-    return { id, label, status, summary, fix, code: i18n?.code, params: i18n?.params };
+function createCheck(id, label, status, summary, fix, i18n, fixId) {
+    return { id, label, status, summary, fix, code: i18n?.code, params: i18n?.params, fixId };
 }
 function createInfo(id, label, summary, fix) {
     return { id, label, status: 'pass', summary, fix, informational: true };
@@ -217,13 +218,16 @@ function inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncI
         createCheck('hook-scripts', 'Hook scripts', 'pass', `All ${scriptPaths.length} hook scripts are present${platform === 'win32' ? '' : ' and executable'}.`),
     ];
 }
-function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, installChannel) {
+function inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir, installChannel, installedPluginsPath) {
     const markerPath = path.join(memeshDir, 'install-hooks.json');
     if (!existsSyncImpl(markerPath)) {
         if (installChannel === 'plugin-marketplace') {
             return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'pass', 'Wired via the Claude Code plugin runtime (this is a plugin-marketplace install). The install-hooks marker is not used on this install path.');
         }
-        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'warn', 'memesh is not connected to Claude Code yet, so nothing gets remembered automatically from your sessions.', 'Run `memesh install-hooks` once to connect it, then `memesh doctor` to confirm.', { code: 'hook-wiring.no-marker' });
+        if (detectPluginRuntime(installedPluginsPath)) {
+            return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'pass', 'Wired via the Claude Code plugin runtime (found in installed_plugins.json). This copy is not the one doing the capturing — the plugin manages the hooks.');
+        }
+        return createCheck('hook-wiring', 'Hooks wired into Claude Code', 'warn', 'memesh is not connected to Claude Code yet, so nothing gets remembered automatically from your sessions.', 'Run `memesh install-hooks` once to connect it, then `memesh doctor` to confirm.', { code: 'hook-wiring.no-marker' }, 'install-hooks');
     }
     const parsed = parseJsonFile(markerPath, readFileSyncImpl);
     if (!parsed.ok) {
@@ -731,7 +735,7 @@ function summarizeOverallStatus(checks) {
     return 'PASS';
 }
 export async function runDoctor(options) {
-    const { packageRoot, packageVersion, probeHttp = false, probeCapabilities = false, embedTextImpl = embedText, probeProviderImpl = probeProvider, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, nativeBindingProbeImpl, resolveShellMemeshImpl = defaultResolveShellMemesh, } = options;
+    const { packageRoot, packageVersion, probeHttp = false, probeCapabilities = false, embedTextImpl = embedText, probeProviderImpl = probeProvider, httpBaseUrl = 'http://127.0.0.1:3737', platform = process.platform, openDatabaseImpl = openDatabase, closeDatabaseImpl = closeDatabase, isDatabaseOpenImpl = isDatabaseOpen, detectCapabilitiesImpl = detectCapabilities, getConfigPathImpl = getConfigPath, getUpdateCheckImpl = getUpdateCheck, getCurrentInstallChannelImpl = getCurrentInstallChannel, installedPluginsPathImpl, getInstallChannelSupportImpl = getInstallChannelSupport, existsSyncImpl = fs.existsSync, readFileSyncImpl = fs.readFileSync, statSyncImpl = fs.statSync, fetchImpl = fetch, nativeBindingProbeImpl, resolveShellMemeshImpl = defaultResolveShellMemesh, } = options;
     const wasDbOpenBeforeUs = isDatabaseOpenImpl();
     const safeCloseDatabaseImpl = wasDbOpenBeforeUs
         ? () => undefined
@@ -761,7 +765,7 @@ export async function runDoctor(options) {
                 dbChecks.push(createCheck('fts_segmentation', 'Keyword index segmentation', 'warn', `The keyword index holds ${unsegmented.c} unsegmented term(s), so some memories are only ` +
                     `findable by their exact full text. This happens when an older build wrote to a database ` +
                     `that a newer one had already migrated — the version marker only moves forward, so the ` +
-                    `automatic rebuild cannot notice. Re-run doctor after the rebuild: this count should be 0.`, `Run 'memesh reindex --fts' to rebuild the keyword index.`, { code: 'fts.unsegmented', params: { count: unsegmented.c } }));
+                    `automatic rebuild cannot notice. Re-run doctor after the rebuild: this count should be 0.`, `Run 'memesh reindex --fts' to rebuild the keyword index.`, { code: 'fts.unsegmented', params: { count: unsegmented.c } }, 'fts-rebuild'));
             }
         }
         const pendingReindex = getPendingReindexInfo();
@@ -773,6 +777,7 @@ export async function runDoctor(options) {
         const message = err instanceof Error ? err.message : 'unknown database error';
         let diagnosis;
         let fix;
+        let fixId;
         if (existsSyncImpl(databasePath)) {
             try {
                 const stat = statSyncImpl(databasePath);
@@ -781,6 +786,7 @@ export async function runDoctor(options) {
                 if (!canRead || !canWrite) {
                     diagnosis = `Database file exists but has insufficient permissions (${(stat.mode & 0o777).toString(8)})`;
                     fix = `Fix permissions: chmod 600 "${databasePath}"`;
+                    fixId = 'chmod-db';
                 }
                 else if (stat.size === 0) {
                     diagnosis = 'Database file is empty (0 bytes) — likely corrupted';
@@ -822,7 +828,7 @@ export async function runDoctor(options) {
             }
         }
         dbChecks.length = 0;
-        dbChecks.push(createCheck('database', 'Database', 'fail', diagnosis, fix, { code: 'database.broken', params: { detail: diagnosis } }));
+        dbChecks.push(createCheck('database', 'Database', 'fail', diagnosis, fix, { code: 'database.broken', params: { detail: diagnosis } }, fixId));
     }
     finally {
         checks.push(...dbChecks);
@@ -835,7 +841,7 @@ export async function runDoctor(options) {
     checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl));
     checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
     checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
-    const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install);
+    const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl ?? path.join(homeDir(), '.claude', 'plugins', 'installed_plugins.json'));
     checks.push(wiring);
     const captureWired = wiring.status === 'pass'
         && (wiring.params === undefined || wiring.params.captureWired === 1);
