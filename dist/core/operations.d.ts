@@ -2,10 +2,19 @@ import type { EmbedOutcome } from './embedder.js';
 import type { RememberInput, RememberResult, RecallInput, ForgetInput, ForgetResult, LearnInput, LearnResult, Entity } from './types.js';
 export declare function remember(args: RememberInput): RememberResult;
 export declare function recall(args: RecallInput): Entity[];
-export declare function recallEnhanced(args: RecallInput): Promise<Entity[]>;
+export interface RetrievalMeta {
+    mode: 'fts' | 'hybrid';
+    degraded: boolean;
+    truncated: boolean;
+}
+export declare function recallEnhanced(args: RecallInput): Promise<{
+    entities: Entity[];
+    retrieval: RetrievalMeta;
+}>;
 export declare function recallWithConflicts(args: RecallInput): Promise<{
     entities: Entity[];
     conflicts: string[];
+    retrieval: RetrievalMeta;
 }>;
 export { exportMemories, importMemories } from './serializer.js';
 export declare function learn(args: LearnInput): LearnResult;

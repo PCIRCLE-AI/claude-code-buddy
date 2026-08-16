@@ -73,7 +73,9 @@ describe('Feature: an unsearchable query reaches no vector supplement', () => {
     'does not embed %s, and returns nothing',
     async (query) => {
       const out = await recallEnhanced({ query });
-      expect(out).toEqual([]);
+      expect(out.entities).toEqual([]);
+      // Honest metadata: the vector side never ran, so this is not "hybrid".
+      expect(out.retrieval).toEqual({ mode: 'fts', degraded: false, truncated: false });
       // The gate is upstream of the embedder, so it is never asked.
       expect(embedText).not.toHaveBeenCalled();
     }
@@ -97,7 +99,7 @@ describe('Feature: an unsearchable query reaches no vector supplement', () => {
     //
     // Measured before the fix, all five: hasSearchableTerms=true, search()->0.
     const out = await recallEnhanced({ query });
-    expect(out).toEqual([]);
+    expect(out.entities).toEqual([]);
     expect(embedText).not.toHaveBeenCalled();
   });
 
@@ -140,7 +142,7 @@ describe('Feature: an unsearchable query reaches no vector supplement', () => {
     // emptiness. Getting this backwards would break the no-argument recall the
     // SessionStart hook depends on.
     const out = await recallEnhanced({});
-    expect(out.map((e) => e.name)).toContain('auth-decision');
+    expect(out.entities.map((e) => e.name)).toContain('auth-decision');
     expect(embedText).not.toHaveBeenCalled();
   });
 });

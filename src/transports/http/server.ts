@@ -539,10 +539,11 @@ app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, (data)
 app.post('/v1/recall', (req, res) => handlePost(RecallBody, req, res, async (data) => {
   // recallWithConflicts: FTS5 + sqlite-vec recall + conflict annotation,
   // owned by core so the transports can't drift on the wrapping rule.
-  const { entities, conflicts } = await recallWithConflicts(data);
-  // Always return object envelope {entities, conflicts?} to match API_REFERENCE.md
-  // and MCP transport's documented guarantee. Fixes issue #159.
-  return conflicts.length > 0 ? { entities, conflicts } : { entities };
+  const { entities, conflicts, retrieval } = await recallWithConflicts(data);
+  // Always return object envelope {entities, retrieval, conflicts?} to match
+  // API_REFERENCE.md and MCP transport's documented guarantee (issue #159);
+  // `retrieval` reports mode / degraded / truncated in-band.
+  return conflicts.length > 0 ? { entities, retrieval, conflicts } : { entities, retrieval };
 }));
 
 // --- Forget / Consolidate / Export / Import / Learn / Verify ---

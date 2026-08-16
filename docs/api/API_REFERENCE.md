@@ -148,9 +148,25 @@ Returns an object whose `entities` array holds the matching entities ranked by m
       ],
       "match": {"source": "keyword", "relevance": 0.42}
     }
-  ]
+  ],
+  "retrieval": {"mode": "hybrid", "degraded": false, "truncated": false}
 }
 ```
+
+**Retrieval metadata (`retrieval`)**: every recall envelope says HOW it was
+answered — the three things the rows themselves cannot tell you. `mode` is
+`"hybrid"` when the vector supplement actually ran and `"fts"` when the
+answer is keyword-only (either because embeddings are not configured, or
+because there was no searchable query). `degraded: true` means embeddings
+ARE configured but the vector side could not run right now — provider
+failure or missing sqlite-vec — so keyword-only results are a degradation,
+not the configured behaviour (`memesh doctor` diagnoses why; before this
+field, that condition was silent). `truncated: true` means the results
+filled `limit` and more may exist — a small hit count is a window, not a
+graph-wide count, and this flag is the difference between "that is all"
+and "that is all I was allowed to return". The CLI prints a warning line
+when degraded and a `(limit reached — more may exist)` note when
+truncated.
 
 **Provenance (`match`)**: when the call has a query, every result says how it
 was found. `"source": "keyword"` means the full-text index matched your words;
@@ -173,13 +189,14 @@ characters are capped on display with `… (+N more chars)`; storage and
 ```json
 {
   "entities": [...],
+  "retrieval": {"mode": "hybrid", "degraded": false, "truncated": false},
   "conflicts": [
     "\"no-jwt\" contradicts \"use-jwt\""
   ]
 }
 ```
 
-The CLI prints conflict warnings below the results; the `--json` flag outputs the wrapped form.
+The CLI prints conflict warnings below the results; the `--json` flag outputs the same object envelope (`entities` + `retrieval`, plus `conflicts` when any exist).
 
 **Examples**:
 

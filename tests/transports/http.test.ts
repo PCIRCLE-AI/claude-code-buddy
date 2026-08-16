@@ -198,6 +198,10 @@ describe('HTTP Transport: POST /v1/recall', () => {
     expect(res.body.data.entities.length).toBeGreaterThanOrEqual(1);
     const found = res.body.data.entities.find((e: any) => e.name === 'recall-target');
     expect(found).toBeDefined();
+    // R2: every recall envelope reports how it was answered.
+    expect(['fts', 'hybrid']).toContain(res.body.data.retrieval.mode);
+    expect(typeof res.body.data.retrieval.degraded).toBe('boolean');
+    expect(typeof res.body.data.retrieval.truncated).toBe('boolean');
   });
 
   it('returns array (possibly empty) for no-match query', async () => {

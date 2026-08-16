@@ -260,6 +260,13 @@ describe('recall', () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(Array.isArray(parsed), 'bare-array payload breaks Gemini CLI').toBe(false);
     expect(Array.isArray(parsed.entities)).toBe(true);
+    // R2: the envelope always says HOW it was answered — mode (fts|hybrid),
+    // degraded (configured vector side could not run), truncated (window
+    // filled). A caller must never have to guess whether keyword-only
+    // results are the configured behaviour or a silent degradation.
+    expect(['fts', 'hybrid']).toContain(parsed.retrieval.mode);
+    expect(typeof parsed.retrieval.degraded).toBe('boolean');
+    expect(typeof parsed.retrieval.truncated).toBe('boolean');
   });
 
   it('treats explicit null optional params as absent, the way Gemini CLI sends them', async () => {

@@ -47,7 +47,7 @@ describe('recall provenance: results say how they were found', () => {
       observations: ['lorem-ipsum-token lorem-ipsum-token dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore'],
     });
 
-    const keyword = await recallEnhanced({ query: 'lorem ipsum dolor' });
+    const { entities: keyword } = await recallEnhanced({ query: 'lorem ipsum dolor' });
     expect(keyword.length).toBeGreaterThan(0);
     expect(keyword[0].match?.source).toBe('keyword');
 
@@ -55,7 +55,7 @@ describe('recall provenance: results say how they were found', () => {
     // vector index surfaces must be LABELLED as semantic — and if the
     // embedder is unavailable in this environment, the honest answer is
     // zero results, which also passes (absence, not a mislabelled match).
-    const nonsense = await recallEnhanced({ query: 'xyzzyplughfrobozz quux' });
+    const { entities: nonsense } = await recallEnhanced({ query: 'xyzzyplughfrobozz quux' });
     for (const e of nonsense) {
       expect(e.match?.source, `${e.name} surfaced without keyword evidence`).toBe('semantic');
       expect(e.match!.relevance).toBeGreaterThan(0);
@@ -69,7 +69,7 @@ describe('recall provenance: results say how they were found', () => {
     openDatabase();
     await remember({ name: 'plain-note', type: 'note', observations: ['hello world'] });
 
-    const listed = await recallEnhanced({});
+    const listed = (await recallEnhanced({})).entities;
     expect(listed.length).toBeGreaterThan(0);
     for (const e of listed) expect(e.match).toBeUndefined();
   });

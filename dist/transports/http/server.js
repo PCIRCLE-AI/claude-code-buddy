@@ -286,8 +286,8 @@ function handleGet(res, produce) {
 }
 app.post('/v1/remember', (req, res) => handlePost(RememberBody, req, res, (data) => remember({ ...data, sourceHost: 'http' })));
 app.post('/v1/recall', (req, res) => handlePost(RecallBody, req, res, async (data) => {
-    const { entities, conflicts } = await recallWithConflicts(data);
-    return conflicts.length > 0 ? { entities, conflicts } : { entities };
+    const { entities, conflicts, retrieval } = await recallWithConflicts(data);
+    return conflicts.length > 0 ? { entities, retrieval, conflicts } : { entities, retrieval };
 }));
 app.post('/v1/forget', (req, res) => handlePost(ForgetBody, req, res, forget));
 app.post('/v1/consolidate', (_req, res) => {

@@ -53,6 +53,22 @@ describe('recall presentation: disclose what geometry cannot certify', () => {
     expect(j.stdout).toContain('needle-omega');
   });
 
+  it('--json is one object envelope carrying retrieval metadata, never a bare array', () => {
+    // R2: the old output was a bare array normally and an object when
+    // conflicts existed — bimodal, and with nowhere to say HOW the recall
+    // was answered. The envelope now matches MCP/HTTP: {entities, retrieval,
+    // conflicts?}, where retrieval reports mode / degraded / truncated.
+    runCli(['remember', 'envelope-check unique-envelope-token', '--name', 'envelope-note', '--type', 'note']);
+    const j = runCli(['recall', 'unique-envelope-token', '--json']);
+    expect(j.exitCode).toBe(0);
+    const parsed = JSON.parse(j.stdout);
+    expect(Array.isArray(parsed)).toBe(false);
+    expect(Array.isArray(parsed.entities)).toBe(true);
+    expect(['fts', 'hybrid']).toContain(parsed.retrieval.mode);
+    expect(typeof parsed.retrieval.degraded).toBe('boolean');
+    expect(typeof parsed.retrieval.truncated).toBe('boolean');
+  });
+
   it('a semantic-only result set announces itself instead of posing as a match', () => {
     runCli(['remember', 'lorem-ipsum-token lorem-ipsum-token dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore']);
     const r = runCli(['recall', 'xyzzyplughfrobozz quux']);
