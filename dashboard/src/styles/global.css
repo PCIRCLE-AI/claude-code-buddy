@@ -155,6 +155,16 @@ body {
 }
 .theme-btn:hover { border-color: var(--text-3); }
 
+/* ---- Notice slot ---- */
+/* One notice at a time. The banners inside self-decide eligibility (an
+   ineligible banner renders no DOM node), so the slot's FIRST rendered
+   child is the highest-priority applicable notice — App.tsx orders them
+   Doctor > Onboarding > Insights. display:none keeps the losers out of
+   the accessibility tree as well as the viewport; they surface the
+   moment the winner clears. tests/dashboard/notice-slot.test.tsx pins
+   both this rule and the DOM order. */
+.notice-slot > * ~ * { display: none; }
+
 /* Nav */
 .nav {
   display: flex;
