@@ -47,6 +47,11 @@ All notable changes to MeMesh are documented here.
   its own **Project** tab. Old `?tab=` deep links and stored tab choices
   migrate to the surface that absorbed them, so a bookmarked
   `?tab=Browse` opens Memories instead of nothing.
+- **One notice at a time.** The Doctor, Onboarding and Insights banners
+  could stack three deep above the nav. They now share a priority slot —
+  Doctor (broken install) > Onboarding (empty library) > Insights
+  (pending proposals) — showing exactly one; the next in line surfaces
+  the moment the winner is dismissed or its condition clears.
 
 ## [4.6.0] — 2026-08-16
 
