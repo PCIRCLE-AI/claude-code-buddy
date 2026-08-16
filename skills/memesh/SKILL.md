@@ -56,6 +56,13 @@ clear it.
 Run `memesh briefing` (or `--project <name>`) and answer from it. For specific
 follow-up questions, use `recall`.
 
+**MEMESH UNAVAILABLE or RECALL EMPTY → say so, never invent.** Report that
+memory is unavailable (or found nothing) and continue without it. Never
+fabricate a memory or cite a `[mem:id]` that was not actually returned.
+Recall is bounded by `limit` — a small hit count is not a graph-wide count,
+and an empty result is not proof nothing was stored: vary the wording or
+narrow by tag before concluding.
+
 ## What's Already Automatic (Claude Code Plugin Hooks)
 
 If MeMesh is installed as a Claude Code plugin, these happen **without any action from you**:
