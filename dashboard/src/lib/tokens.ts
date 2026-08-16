@@ -1,5 +1,5 @@
 /**
- * Canvas cannot read a CSS custom property: `ctx.fillStyle = 'var(--accent)'`
+ * Canvas cannot read a CSS custom property: `ctx.fillStyle = 'var(--life)'`
  * is invalid and silently paints black. A canvas renderer must resolve the
  * tokens it needs to concrete values, once, from the live stylesheet — so a
  * palette change still reaches the canvas. See DESIGN.md "Canvas cannot read a
@@ -23,7 +23,7 @@ export function resolveTokens(el: Element, names: readonly string[]): ResolvedTo
 /**
  * Build an `rgba()` string from a resolved token colour at a given alpha — for
  * the canvas glows/fills whose alpha is not the token's own (e.g. accent at
- * 40%). The token supplies the hue; hardcoding `rgba(0,214,180,0.4)` in a draw
+ * 40%). The token supplies the hue; hardcoding `rgba(143,242,92,0.4)` in a draw
  * call would be the exact drift the resolver exists to prevent.
  *
  * `resolved` is a 6-digit hex (what the palette defines). Anything else — an

@@ -158,11 +158,21 @@ describe('Feature: the dashboard design system is actually followed', () => {
     }
     expect(tokenRgb.size).toBeGreaterThan(5);
 
-    // Off-palette hues the redesign removed — one base colour each (alpha-
-    // agnostic). NOT here: #4ADE80 / #F87171 (sanctioned categorical/drift hues).
+    // Off-palette hues the redesigns removed — one base colour each (alpha-
+    // agnostic). The 2026-08 VIVARIUM swap retired the whole Precision
+    // Engineer brand (cyan accent + old semantic hues) and the hand-picked
+    // categorical palette (replaced by the oklch species formula) — writing
+    // any of them again is a regression to a dead system, not a new colour.
+    // NOT here: #F87171 — it is the drift ramp's stale endpoint, still live
+    // in GraphTab's legend gradient (the gradient IS the data).
     const offPaletteRgb = new Set(
       ['#ef4444', '#f59e0b', '#22c55e', '#ff5050', '#ffc800',
-       'rgb(255,200,87)', 'rgb(160,160,160)'].map((h) => rgbKey(parseColor(h)!)),
+       'rgb(255,200,87)', 'rgb(160,160,160)',
+       // Precision Engineer brand + semantics (superseded 2026-08-16)
+       '#00d6b4', '#00f0ca', '#ff6b6b', '#ffb84d', '#60a5fa',
+       // pre-formula categorical hues
+       '#a78bfa', '#4ade80', '#f472b6', '#38bdf8', '#fb923c',
+       '#818cf8', '#e879f9', '#94a3b8'].map((h) => rgbKey(parseColor(h)!)),
     );
 
     const exempt = new Set(['lib/type-palette.ts', 'lib/tokens.ts']);

@@ -101,15 +101,15 @@ export function KnowledgeRadar({ data }: KnowledgeRadarProps) {
           {/* Data polygon */}
           <path
             d={dataPath}
-            fill="rgba(0,214,180,0.15)"
-            stroke="var(--accent)"
+            fill="rgba(143,242,92,0.15)"
+            stroke="var(--life)"
             strokeWidth={1.5}
             strokeLinejoin="round"
           />
 
           {/* Data points */}
           {dataPoints.map(([x, y], i) => (
-            <circle key={i} cx={x.toFixed(1)} cy={y.toFixed(1)} r={3} fill="var(--accent)" />
+            <circle key={i} cx={x.toFixed(1)} cy={y.toFixed(1)} r={3} fill="var(--life)" />
           ))}
 
           {/* Axis labels */}
@@ -126,7 +126,7 @@ export function KnowledgeRadar({ data }: KnowledgeRadarProps) {
                 dominantBaseline="middle"
                 fontSize={9}
                 fill="var(--text-2)"
-                fontFamily="var(--font)"
+                fontFamily="var(--font-ui)"
               >
                 {label}
               </text>
@@ -147,7 +147,7 @@ export function KnowledgeRadar({ data }: KnowledgeRadarProps) {
                   marginBottom: 3,
                 }}>
                   <span style={{ color: 'var(--text-1)' }}>{axisLabel(d.axis)}</span>
-                  <span style={{ color: 'var(--accent)', fontFamily: 'var(--mono)', fontSize: 10 }}>
+                  <span style={{ color: 'var(--life)', fontFamily: 'var(--mono)', fontSize: 10 }}>
                     {d.count}
                   </span>
                 </div>
@@ -160,7 +160,7 @@ export function KnowledgeRadar({ data }: KnowledgeRadarProps) {
                   <div style={{
                     width: `${(ratio * 100).toFixed(1)}%`,
                     height: '100%',
-                    background: 'var(--accent)',
+                    background: 'var(--life)',
                     borderRadius: 'var(--radius-hairline)',
                     transition: 'width 0.3s',
                   }} />

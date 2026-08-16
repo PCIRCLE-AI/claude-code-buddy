@@ -112,9 +112,9 @@ export function LlmTelemetryPanel() {
               style={{
                 padding: '2px 8px',
                 fontSize: 11,
-                border: '1px solid ' + (window === d ? 'var(--accent)' : 'var(--border)'),
-                color: window === d ? 'var(--accent)' : 'var(--text-2)',
-                background: window === d ? 'rgba(0,214,180,0.10)' : 'transparent',
+                border: '1px solid ' + (window === d ? 'var(--life)' : 'var(--border)'),
+                color: window === d ? 'var(--life)' : 'var(--text-2)',
+                background: window === d ? 'rgba(143,242,92,0.10)' : 'transparent',
               }}
               onClick={() => setWindow(d)}
             >
@@ -150,7 +150,7 @@ export function LlmTelemetryPanel() {
                 padding: 12,
                 background: 'var(--bg-1)',
                 borderRadius: 'var(--radius-xs)',
-                borderLeft: `2px solid ${successRate >= 0.9 ? 'var(--accent)' : successRate >= 0.5 ? 'var(--warning)' : 'var(--danger)'}`,
+                borderLeft: `2px solid ${successRate >= 0.9 ? 'var(--life)' : successRate >= 0.5 ? 'var(--warning)' : 'var(--danger)'}`,
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
                   <span style={{ fontWeight: 600 }}>{flowLabel(s.flow)}</span>
@@ -161,7 +161,7 @@ export function LlmTelemetryPanel() {
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, marginBottom: 6 }}>
                   <span>
                     <span style={{ color: 'var(--text-3)' }}>{t('telemetry.successRate')}: </span>
-                    <strong style={{ color: successRate >= 0.9 ? 'var(--accent)' : successRate >= 0.5 ? 'var(--warning)' : 'var(--danger)' }}>
+                    <strong style={{ color: successRate >= 0.9 ? 'var(--life)' : successRate >= 0.5 ? 'var(--warning)' : 'var(--danger)' }}>
                       {fmtPct(successRate)}
                     </strong>
                   </span>
