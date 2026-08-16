@@ -216,16 +216,14 @@ The primary dashboard is now the packaged Preact single-page app served by `GET 
 - preferred over the legacy HTML generator path
 - used for live local inspection and settings/config flows
 
-**Dashboard tabs (v4.1.4+)**:
+**Dashboard tabs**:
 
 | Tab | Feature |
 |-----|---------|
-| Search | Full-text + vector-assisted recall UI |
-| Browse | Paginated entity list |
-| Analytics | Health score, 30-day timeline, **MemoryAgeMatrix** (type × age heat map), **KnowledgeRadar** (6-axis SVG), work patterns |
+| Home | Dreamer insights (weekly recaps, pattern proposals, accept/reject) leading; the analytics stack — health score, 30-day timeline, **MemoryAgeMatrix** (type × age heat map), **KnowledgeRadar** (6-axis SVG), work patterns — folded into a lazy expander that defers its fetches until first opened |
+| Memories | The whole library behind one surface: instant client filter + Enter for server-ranked recall, work-layer / evidence / all / archived scope chips (`layerOf()` over the shared `WORK_LAYER_TYPES` whitelist), cluster composition bar, per-row expandable detail (structured lesson bodies via `LessonCards`), inline archive/restore |
+| Project | One project's roadmap (phases, milestones, key lessons) behind a project selector |
 | Graph | Interactive knowledge graph with **signal-first node loading**, **access_count node sizing**, and **Drift Mode** (recency coloring) |
-| Lessons | Structured lessons learned from failures |
-| Manage | Archive / restore and memory management via browse flow |
 | Settings | LLM provider setup, capabilities, and language selection |
 
 The dashboard talks to `/v1/health`, `/v1/config`, `/v1/analytics`, `/v1/graph`, `/v1/entities`, `/v1/patterns`, and `/v1/recall`. When the packaged build is unavailable, the HTTP server falls back to the legacy `cli/view.ts` HTML generator for compatibility.
