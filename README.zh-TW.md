@@ -146,8 +146,14 @@ npm install -g @pcircle/memesh
 如果你透過**選項 B**（`npm install -g`）安裝，CLI 已在 PATH 上 — 但**還沒有任何東西接進 Claude Code**：npm 套件刻意不執行安裝腳本，把 MCP server 和 hooks 接進 Claude Code 的是外掛（選項 A）。npm 路徑自己能接的是 session hooks。沒有這些 hooks 還是可以手動使用 `memesh remember` / `recall`，但**自動擷取迴路**（session → 教訓 → 下次 session 主動回憶）就會靜默不動。
 
 ```bash
+memesh setup                 # 偵測 Claude Code / Codex / Gemini、逐一詢問接線、接完驗證
+```
+
+或手動逐步：
+
+```bash
 memesh install-hooks         # 把 memesh hooks 加進 ~/.claude/settings.json
-memesh doctor                # 確認「Hooks wired into Claude Code」過了
+memesh setup --check         # 機器層級驗證：讀各主機自己的設定，什麼都不改
 ```
 
 這些 hooks 會跟你既有的 `~/.claude/hooks/` 自訂 hooks 共存 — `install-hooks` 用追加方式寫入，從不覆寫你的東西。要移除：`memesh uninstall-hooks`。
@@ -511,18 +517,22 @@ Claude Code 的 plugin marketplace 在安裝時把版本釘住，**不會**自�
 
 **方法 A — `/plugin` 介面**：先 uninstall `memesh@pcircle-memesh`，再重新安裝。Claude Code 會抓 marketplace 最新版。
 
-**方法 B — 一行指令**（不用點 UI、可重複執行）：
+**方法 B — 一行指令**（不用點 UI、可重複執行；需要 npm CLI，`npm install -g @pcircle/memesh`）：
 
 ```bash
-# 如果 plugin 已經是 v4.2.5 或更新，腳本已經內建：
+memesh upgrade-plugin
+```
+
+它會自己找到已安裝的 plugin 版本、確認前置工具都在，再幫你執行內建的升級腳本。前置工具：PATH 上要有 `node`、`npm`、`rsync`（macOS 內建 rsync；Debian/Ubuntu：`sudo apt install rsync`）。
+
+只裝了 plugin、沒裝 npm CLI 的人，仍然可以手動執行腳本 — 把路徑裡的版本換成你安裝的版本：
+
+```bash
 bash ~/.claude/plugins/cache/pcircle-memesh/memesh/<current-version>/scripts/upgrade-plugin.sh
 
-# 如果是 v4.2.5 之前的版本（也就是 v4.2.4 或 v4.2.3），
-# 腳本還沒在你的 plugin 裡，改用 npm-global 的副本：
+# v4.2.5 之前的安裝還沒內建這個腳本，改用 npm-global 的副本
+# （參考上面「安裝路徑一覽」）：
 bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"
-
-# （這假設你也跑過 `npm install -g @pcircle/memesh`。如果還沒，
-# 現在正好可以一起裝 — 參考上面「安裝路徑一覽」說明為什麼大部分人兩條路徑都裝。）
 ```
 
 腳本會 fast-forward marketplace cache、把新版本放進 `~/.claude/plugins/cache/`、安裝 runtime deps，然後把 `installed_plugins.json` 重指向新版本。執行完請重啟 Claude Code 讓 MCP server 重連。

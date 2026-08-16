@@ -140,8 +140,14 @@ npm install -g @pcircle/memesh
 `npm install -g` legt die CLI in den PATH — aber nichts ist damit in Claude Code eingebunden: Das npm-Paket führt bewusst keine Install-Skripte aus; MCP-Server und Hooks in Claude Code registriert das Plugin (Option A). Was der npm-Pfad selbst verdrahten kann, sind die Session-Hooks. Ohne diese Hooks können Sie `memesh remember` / `recall` manuell verwenden, aber die **Auto-Capture-Schleife** (Session → Lektionen → proaktive Erinnerung in der nächsten Session) bleibt stumm.
 
 ```bash
+memesh setup                 # erkennt Claude Code / Codex / Gemini, bietet die Verdrahtung an, prüft danach
+```
+
+Oder die Einzelschritte von Hand:
+
+```bash
 memesh install-hooks         # fügt memesh-Hooks zu ~/.claude/settings.json hinzu
-memesh doctor                # bestätigt, dass „Hooks wired into Claude Code" PASST
+memesh setup --check         # Prüfung auf Maschinenebene: liest die Host-Configs, ändert nichts
 ```
 
 Die Hooks existieren neben Ihren bestehenden Custom-Hooks unter `~/.claude/hooks/` — `install-hooks` schreibt additiv und überschreibt nie Ihre Einträge. Zum Entfernen: `memesh uninstall-hooks`.
@@ -502,19 +508,22 @@ Der Plugin-Marketplace von Claude Code fixiert Versionen zum Installationszeitpu
 
 **Option A — `/plugin` UI**: `memesh@pcircle-memesh` deinstallieren, dann neu installieren. Claude Code holt die neueste Marketplace-Version.
 
-**Option B — Einzeiler-Skript** (kein UI-Klicken, idempotent):
+**Option B — ein Befehl** (kein UI-Klicken, idempotent; braucht die npm-CLI, `npm install -g @pcircle/memesh`):
 
 ```bash
-# Wenn deine Plugin-Installation v4.2.5 oder neuer ist, ist das Skript enthalten:
+memesh upgrade-plugin
+```
+
+Der Befehl findet die installierte Plugin-Version, prüft die Voraussetzungen und führt das mitgelieferte Upgrade-Skript aus. Voraussetzungen: `node`, `npm` und `rsync` im PATH (macOS bringt rsync mit; Debian/Ubuntu: `sudo apt install rsync`).
+
+Nur-Plugin-Nutzer ohne npm-CLI können das Skript weiter von Hand starten — die installierte Version in den Pfad einsetzen:
+
+```bash
 bash ~/.claude/plugins/cache/pcircle-memesh/memesh/<current-version>/scripts/upgrade-plugin.sh
 
-# Bei Installationen vor v4.2.5 (also v4.2.4 oder v4.2.3)
-# ist das Skript noch nicht im Plugin. Nutze stattdessen die npm-global-Kopie:
+# Installationen vor v4.2.5 enthalten das Skript noch nicht; nutze
+# stattdessen die npm-global-Kopie (siehe oben „Installationspfade auf einen Blick"):
 bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"
-
-# (Das setzt voraus, dass du auch `npm install -g @pcircle/memesh` ausgeführt hast.
-# Falls nicht, ist jetzt ein guter Moment dafür — siehe oben „Installationspfade auf
-# einen Blick" für die Gründe, warum die meisten Nutzer beide Pfade wollen.)
 ```
 
 Das Skript fast-forwarded den Marketplace-Cache, legt die neue Version unter `~/.claude/plugins/cache/` ab, installiert Runtime-Dependencies und zeigt `installed_plugins.json` neu. Starte danach Claude Code neu, damit der MCP-Server sich neu verbindet.

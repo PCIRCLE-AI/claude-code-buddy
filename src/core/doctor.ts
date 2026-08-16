@@ -155,15 +155,12 @@ const EXPECTED_HOOK_TYPES = ['PreToolUse', 'SessionStart', 'PostToolUse', 'Stop'
 // Locale READMEs that MUST stay in lockstep with README.md. Order matters
 // only for the doctor output — alphabetised for readability.
 const LOCALE_README_FILES = [
+  // The locale set was reduced to English + 繁體中文 + Deutsch (commit
+  // bc6d8553) — eleven hand-synced copies of a fast-moving front page
+  // drifted faster than they were read. This list must track that set:
+  // listing a removed locale here made every source-checkout doctor run
+  // WARN about eight files that are gone on purpose.
   'README.de.md',
-  'README.es.md',
-  'README.fr.md',
-  'README.ja.md',
-  'README.ko.md',
-  'README.pt.md',
-  'README.th.md',
-  'README.vi.md',
-  'README.zh-CN.md',
   'README.zh-TW.md',
 ];
 

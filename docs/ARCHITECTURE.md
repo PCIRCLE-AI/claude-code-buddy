@@ -57,7 +57,7 @@ MeMesh separates concerns into two layers:
 - `version-check.ts` — npm registry version check for update notifications
 
 **Transports** (`src/transports/`) — thin adapters that expose core operations:
-- `cli/cli.ts` — Commander CLI (`memesh` command, 25 top-level commands; `config`, `kg`, and `dream` have subcommands)
+- `cli/cli.ts` — Commander CLI (`memesh` command, 27 top-level commands; `config`, `kg`, and `dream` have subcommands)
 - `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, 32 endpoints, bearer-auth gate when bound non-loopback)
 - `src/mcp/server.ts` + `src/transports/mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 9 tools); `src/mcp/tools.ts` is a re-export shim
 

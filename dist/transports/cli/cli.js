@@ -8,10 +8,12 @@ import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexR
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
-import { getDbPath, redactSecrets, redactUserPaths } from '../../core/paths.js';
+import { getDbPath, homeDir, redactSecrets, redactUserPaths } from '../../core/paths.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 import { NAMESPACES } from '../../core/types.js';
 import { assembleBriefing } from '../../core/briefing.js';
+import { inspectHosts, allWired } from '../../core/setup.js';
+import { installHooks } from '../../core/install-hooks.js';
 import { getTaskState, setTaskState } from '../../core/task-state-store.js';
 import { TASK_STATE_FIELDS, taskStateLines } from '../../core/task-state.js';
 async function withDatabase(fn) {
@@ -28,6 +30,23 @@ function requireOneOf(value, allowed, flag) {
         return;
     console.error(`Error: ${flag} "${value}" is not valid. Use one of: ${allowed.join(', ')}.`);
     process.exit(1);
+}
+function isOnPath(tool) {
+    const exts = process.platform === 'win32'
+        ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean)
+        : [''];
+    for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+        if (!dir)
+            continue;
+        for (const ext of exts) {
+            try {
+                fs.accessSync(path.join(dir, tool + ext), fs.constants.X_OK);
+                return true;
+            }
+            catch { }
+        }
+    }
+    return false;
 }
 const packageJsonPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../package.json');
 const packageRoot = path.dirname(packageJsonPath);
@@ -428,6 +447,112 @@ program
     });
 });
 program
+    .command('setup')
+    .description('Detect Claude Code / Codex / Gemini on this machine, wire memesh into each, and verify')
+    .option('--check', 'Only report wiring status per host; change nothing (exit 1 if a present host is unwired)')
+    .option('--yes', 'Apply every wiring action without asking')
+    .action(async (opts) => {
+    const { spawnSync, execFileSync } = await import('child_process');
+    const isOnPathSeam = (bin) => {
+        try {
+            const finder = process.platform === 'win32' ? 'where' : 'which';
+            execFileSync(finder, [bin], { stdio: 'pipe' });
+            return true;
+        }
+        catch {
+            return false;
+        }
+    };
+    const runSeam = (cmd, args) => {
+        try {
+            let target = cmd;
+            let useShell = false;
+            if (process.platform === 'win32') {
+                const resolved = execFileSync('where', [cmd], { encoding: 'utf8' }).split(/\r?\n/)[0]?.trim();
+                if (resolved) {
+                    target = resolved;
+                    useShell = /\.(cmd|bat)$/i.test(resolved);
+                }
+            }
+            const r = spawnSync(target, args, { encoding: 'utf8', shell: useShell });
+            return { status: r.status, stderr: r.stderr ?? '' };
+        }
+        catch (err) {
+            return { status: null, stderr: err instanceof Error ? err.message : String(err) };
+        }
+    };
+    const seams = { home: () => homeDir(), isOnPath: isOnPathSeam, run: runSeam };
+    const render = (statuses) => {
+        for (const st of statuses) {
+            if (!st.present) {
+                console.log(`   ${st.title}: not found (looked for ${st.presenceDetail}) — skipped`);
+                continue;
+            }
+            const mark = st.wired === true ? '✅' : st.wired === false ? '❌' : '❓';
+            console.log(`${mark} ${st.title}: ${st.wiredDetail}`);
+        }
+    };
+    let statuses = inspectHosts(seams);
+    if (opts.check) {
+        render(statuses);
+        process.exit(allWired(statuses) ? 0 : 1);
+    }
+    const pending = statuses.filter((st) => st.present && st.actions.length > 0);
+    if (pending.length === 0) {
+        render(statuses);
+        console.log(allWired(statuses)
+            ? '\nEverything present is wired. Nothing to do.'
+            : '\nNothing to wire automatically — see the lines above.');
+        process.exit(allWired(statuses) ? 0 : 1);
+    }
+    render(statuses);
+    console.log('\nPlanned actions:');
+    for (const st of pending)
+        for (const a of st.actions) {
+            console.log(`  • [${st.title}] ${a.label}${a.cmd ? `\n      ${a.cmd} ${(a.args ?? []).join(' ')}` : ''}`);
+        }
+    if (!opts.yes && !process.stdin.isTTY) {
+        console.error('\nNot a terminal and --yes not given — nothing was changed. Re-run with: memesh setup --yes');
+        process.exit(1);
+    }
+    const confirmAll = Boolean(opts.yes);
+    let rl = null;
+    if (!confirmAll) {
+        const { createInterface } = await import('node:readline/promises');
+        rl = createInterface({ input: process.stdin, output: process.stdout });
+    }
+    let failed = false;
+    for (const st of pending) {
+        for (const action of st.actions) {
+            if (!confirmAll && rl) {
+                const answer = (await rl.question(`\n[${st.title}] ${action.label} — proceed? [y/N] `)).trim().toLowerCase();
+                if (answer !== 'y' && answer !== 'yes') {
+                    console.log('  skipped');
+                    continue;
+                }
+            }
+            if (action.kind === 'install-hooks') {
+                const result = installHooks({ pluginRoot: packageRoot, pluginVersion: pkg.version, scope: 'user' });
+                console.log(`  ✅ hooks: added ${result.added}, skipped ${result.skipped} already-installed${result.backupPath ? ` (backup: ${result.backupPath})` : ''}`);
+            }
+            else if (action.cmd) {
+                const r = runSeam(action.cmd, action.args ?? []);
+                if (r.status === 0)
+                    console.log(`  ✅ done (${action.cmd} ${(action.args ?? []).join(' ')})`);
+                else {
+                    console.error(`  ❌ ${action.cmd} exited ${r.status ?? 'without running'}${r.stderr ? `: ${r.stderr.trim()}` : ''}`);
+                    failed = true;
+                }
+            }
+        }
+    }
+    rl?.close();
+    console.log('\nAfter wiring:');
+    statuses = inspectHosts(seams);
+    render(statuses);
+    process.exit(failed || !allWired(statuses) ? 1 : 0);
+});
+program
     .command('task')
     .description('Show or update where the work stands on this project')
     .option('--project <name>', 'Project name (default: the current directory’s project)')
@@ -754,6 +879,53 @@ program
         console.error('   Try manually: npm install -g @pcircle/memesh@latest');
         process.exit(1);
     }
+});
+program
+    .command('upgrade-plugin')
+    .description('Upgrade the Claude Code plugin install (finds and runs its bundled upgrade script)')
+    .action(async () => {
+    const { spawnSync } = await import('child_process');
+    const cacheRoot = path.join(homeDir(), '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh');
+    let versions = [];
+    try {
+        versions = fs.readdirSync(cacheRoot, { withFileTypes: true })
+            .filter((entry) => entry.isDirectory() && /^\d+\.\d+\.\d+/.test(entry.name))
+            .map((entry) => entry.name);
+    }
+    catch { }
+    if (versions.length === 0) {
+        console.error('No Claude Code plugin install found (looked in ~/.claude/plugins/cache/pcircle-memesh).');
+        console.error('If you installed via npm, upgrade with: memesh update');
+        process.exit(1);
+    }
+    versions.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const newest = versions[versions.length - 1];
+    const script = path.join(cacheRoot, newest, 'scripts', 'upgrade-plugin.sh');
+    if (!fs.existsSync(script)) {
+        console.error(`Plugin install found (v${newest}), but it has no scripts/upgrade-plugin.sh — plugin versions before 4.2.5 shipped without it.`);
+        console.error('Reinstall once from the Claude Code /plugin UI, or run the npm-global copy directly:');
+        console.error('  bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"');
+        process.exit(1);
+    }
+    const installHints = {
+        node: 'node is required by the upgrade script. Install Node.js from https://nodejs.org',
+        npm: 'npm is required by the upgrade script. It ships with Node.js — reinstall from https://nodejs.org',
+        rsync: 'rsync is required by the upgrade script. macOS: already installed; Debian/Ubuntu: sudo apt install rsync',
+    };
+    const missing = Object.keys(installHints).filter((tool) => !isOnPath(tool));
+    if (missing.length > 0) {
+        for (const tool of missing)
+            console.error(installHints[tool]);
+        process.exit(1);
+    }
+    const run = spawnSync('bash', [script], { stdio: 'inherit' });
+    if (run.error) {
+        console.error(`Could not run the upgrade script: ${run.error.message}`);
+        console.error('bash is required to run it. If bash is available under another name, run it yourself:');
+        console.error(`  bash ${script}`);
+        process.exit(1);
+    }
+    process.exit(run.status ?? 1);
 });
 program
     .command('telemetry')

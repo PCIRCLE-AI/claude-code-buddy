@@ -1896,7 +1896,9 @@ describe('README locale parity (doctor sub-check)', () => {
     }
     return lines.join('\n');
   }
-  const LOCALES = ['de', 'es', 'fr', 'ja', 'ko', 'pt', 'th', 'vi', 'zh-CN', 'zh-TW'];
+  // Must mirror doctor.ts LOCALE_README_FILES — the locale set was reduced
+  // to en + zh-TW + de in commit bc6d8553.
+  const LOCALES = ['de', 'zh-TW'];
 
   async function doctorOn(packageRoot: string) {
     return runDoctor({
@@ -1915,7 +1917,7 @@ describe('README locale parity (doctor sub-check)', () => {
     });
   }
 
-  it('passes when all 10 locale READMEs match the English H2 count', async () => {
+  it('passes when all locale READMEs match the English H2 count', async () => {
     const root = createPackageRoot();
     tempRoots.push(root);
     fs.writeFileSync(path.join(root, 'README.md'), buildReadme(15));
@@ -1925,7 +1927,7 @@ describe('README locale parity (doctor sub-check)', () => {
     const check = result.checks.find(c => c.id === 'readme_locale_parity')!;
     expect(check).toBeDefined();
     expect(check.status).toBe('pass');
-    expect(check.summary).toContain('All 10 locale READMEs');
+    expect(check.summary).toContain('All 2 locale READMEs');
   });
 
   it('tolerates ±1 H2 drift (locale translators sometimes collapse a heading)', async () => {
@@ -1944,14 +1946,14 @@ describe('README locale parity (doctor sub-check)', () => {
     tempRoots.push(root);
     fs.writeFileSync(path.join(root, 'README.md'), buildReadme(15));
     for (const loc of LOCALES) {
-      const count = loc === 'ja' ? 12 : 15; // Japanese is stale by 3 sections
+      const count = loc === 'de' ? 12 : 15; // German is stale by 3 sections
       fs.writeFileSync(path.join(root, `README.${loc}.md`), buildReadme(count));
     }
 
     const result = await doctorOn(root);
     const check = result.checks.find(c => c.id === 'readme_locale_parity')!;
     expect(check.status).toBe('warn');
-    expect(check.summary).toMatch(/README\.ja\.md=12/);
+    expect(check.summary).toMatch(/README\.de\.md=12/);
     expect(check.fix).toBeTruthy();
   });
 
@@ -1959,15 +1961,15 @@ describe('README locale parity (doctor sub-check)', () => {
     const root = createPackageRoot();
     tempRoots.push(root);
     fs.writeFileSync(path.join(root, 'README.md'), buildReadme(15));
-    // omit Korean
-    for (const loc of LOCALES.filter(l => l !== 'ko')) {
+    // omit 繁體中文
+    for (const loc of LOCALES.filter(l => l !== 'zh-TW')) {
       fs.writeFileSync(path.join(root, `README.${loc}.md`), buildReadme(15));
     }
 
     const result = await doctorOn(root);
     const check = result.checks.find(c => c.id === 'readme_locale_parity')!;
     expect(check.status).toBe('warn');
-    expect(check.summary).toMatch(/missing: README\.ko\.md/);
+    expect(check.summary).toMatch(/missing: README\.zh-TW\.md/);
   });
 
   it('skips silently when README.md is not present (packaged install)', async () => {

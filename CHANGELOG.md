@@ -6,6 +6,65 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **`memesh upgrade-plugin` — the CLI front door to the plugin upgrade script (P6).**
+  Upgrading a Claude Code plugin install used to mean hand-substituting the
+  installed version into
+  `~/.claude/plugins/cache/pcircle-memesh/memesh/<current-version>/scripts/upgrade-plugin.sh`
+  — a path shape most users get wrong on the first try — and the script then
+  died partway through when `rsync` was missing, a prerequisite the README
+  never named. The new command finds the newest installed plugin version
+  itself, checks the script's prerequisites (`node`, `npm`, `rsync`) up front
+  — a missing one is a plain sentence naming what to install, before anything
+  runs — and executes the bundled script with its exit code passed through
+  unchanged. With no plugin cache present it points npm users at
+  `memesh update` instead. READMEs (en / zh-TW / de) now lead with the
+  command and keep the hand-run path as the fallback for plugin-only
+  installs without the npm CLI.
+- **Agent-facing install and usage docs: `llms-install.md` and `AGENTS.md`.**
+  Many users have their AI agent install and operate memesh; until now the
+  agent's only source was the human README, 668 words to the first command
+  and with the contradictions the install audit catalogued. `llms-install.md`
+  is deterministic per-host instructions — exact command, expected output,
+  failure→remedy table — for Claude Code (typed in chat, verified by the
+  `◉ MeMesh` session-start line), terminal (Node floor checked first),
+  Codex CLI and Gemini CLI. `AGENTS.md` is how to use it well: the
+  token-economy loop first, the 9-tool table, memory hygiene, what Claude
+  Code hooks already do (so agents do not double-write), and — for agents
+  working ON this repository — the working policy in compressed form. Both
+  ship in the npm package, and `check-doc-claims` gained a machine gate:
+  every `memesh <subcommand>` in these docs must be a registered CLI
+  command, the AGENTS.md tool table must match TOOL_DEFINITIONS name-for-
+  name both directions, and the documented Node floor must equal
+  `engines.node` (gate break-tested 5/5 KILLED).
+
+### Fixed
+
+- **`memesh doctor` warned about eight locale READMEs that were removed on
+  purpose.** `LOCALE_README_FILES` still listed the ten-locale set from
+  before the reduction to English + 繁體中文 + Deutsch, so every source
+  checkout ran `readme_locale_parity` into a WARN — "missing 8 files" —
+  and the overall verdict degraded to PASS_WITH_CONCERNS on a healthy tree.
+  The list now tracks the real set (with a comment tying it to the
+  reduction), and the parity tests exercise the real locales instead of
+  eight deleted ones.
+- **`memesh setup` — one command from installed to wired, per host, verified
+  at machine level.** The install audit's core finding was that no tool
+  could answer "is this MACHINE wired?": `memesh doctor` scopes every check
+  to the copy being invoked, so a plugin-only user has no copy that can see
+  the plugin, and a both-paths user gets a report that contradicts
+  install-hooks' own bail message. `memesh setup` reads the HOSTS' own
+  state — Claude Code's plugin registry and settings.json markers, Codex's
+  and Gemini's MCP registries — detects which hosts exist, offers to wire
+  each (through the host CLI's own `mcp add`; memesh never writes their
+  config files), and verifies by re-reading, not by trusting its own
+  actions. `memesh setup --check` is the read-only verdict (exit 1 when a
+  present host is unwired). Design went through an adversarial engineering
+  review first, which caught — before implementation — that
+  `claude mcp add` defaults to LOCAL scope (would have wired only the
+  directory setup ran in; it uses `-s user`), and that Gemini has no
+  `mcp get` subcommand (its probe reads `~/.gemini/settings.json`, the
+  shape verified against a real machine). Absent hosts are informational,
+  never failures; an unprobeable host is UNKNOWN, never "wired".
 - **`memesh doctor --fix` — doctor now repairs what it prescribes, within a
   deliberately short whitelist.** Fixable prescriptions carry a machine
   `fixId` attached at the diagnosing BRANCH (never parsed out of the human
