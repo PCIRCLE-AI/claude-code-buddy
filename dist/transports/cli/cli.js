@@ -8,7 +8,7 @@ import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexR
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
-import { getDbPath, redactSecrets, redactUserPaths } from '../../core/paths.js';
+import { getDbPath, homeDir, redactSecrets, redactUserPaths } from '../../core/paths.js';
 import { flushPendingEmbeddings, canRefillVectorIndex } from '../../core/embedder.js';
 import { NAMESPACES } from '../../core/types.js';
 import { assembleBriefing } from '../../core/briefing.js';
@@ -28,6 +28,23 @@ function requireOneOf(value, allowed, flag) {
         return;
     console.error(`Error: ${flag} "${value}" is not valid. Use one of: ${allowed.join(', ')}.`);
     process.exit(1);
+}
+function isOnPath(tool) {
+    const exts = process.platform === 'win32'
+        ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean)
+        : [''];
+    for (const dir of (process.env.PATH ?? '').split(path.delimiter)) {
+        if (!dir)
+            continue;
+        for (const ext of exts) {
+            try {
+                fs.accessSync(path.join(dir, tool + ext), fs.constants.X_OK);
+                return true;
+            }
+            catch { }
+        }
+    }
+    return false;
 }
 const packageJsonPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../package.json');
 const packageRoot = path.dirname(packageJsonPath);
@@ -754,6 +771,53 @@ program
         console.error('   Try manually: npm install -g @pcircle/memesh@latest');
         process.exit(1);
     }
+});
+program
+    .command('upgrade-plugin')
+    .description('Upgrade the Claude Code plugin install (finds and runs its bundled upgrade script)')
+    .action(async () => {
+    const { spawnSync } = await import('child_process');
+    const cacheRoot = path.join(homeDir(), '.claude', 'plugins', 'cache', 'pcircle-memesh', 'memesh');
+    let versions = [];
+    try {
+        versions = fs.readdirSync(cacheRoot, { withFileTypes: true })
+            .filter((entry) => entry.isDirectory() && /^\d+\.\d+\.\d+/.test(entry.name))
+            .map((entry) => entry.name);
+    }
+    catch { }
+    if (versions.length === 0) {
+        console.error('No Claude Code plugin install found (looked in ~/.claude/plugins/cache/pcircle-memesh).');
+        console.error('If you installed via npm, upgrade with: memesh update');
+        process.exit(1);
+    }
+    versions.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const newest = versions[versions.length - 1];
+    const script = path.join(cacheRoot, newest, 'scripts', 'upgrade-plugin.sh');
+    if (!fs.existsSync(script)) {
+        console.error(`Plugin install found (v${newest}), but it has no scripts/upgrade-plugin.sh — plugin versions before 4.2.5 shipped without it.`);
+        console.error('Reinstall once from the Claude Code /plugin UI, or run the npm-global copy directly:');
+        console.error('  bash "$(npm prefix -g)/lib/node_modules/@pcircle/memesh/scripts/upgrade-plugin.sh"');
+        process.exit(1);
+    }
+    const installHints = {
+        node: 'node is required by the upgrade script. Install Node.js from https://nodejs.org',
+        npm: 'npm is required by the upgrade script. It ships with Node.js — reinstall from https://nodejs.org',
+        rsync: 'rsync is required by the upgrade script. macOS: already installed; Debian/Ubuntu: sudo apt install rsync',
+    };
+    const missing = Object.keys(installHints).filter((tool) => !isOnPath(tool));
+    if (missing.length > 0) {
+        for (const tool of missing)
+            console.error(installHints[tool]);
+        process.exit(1);
+    }
+    const run = spawnSync('bash', [script], { stdio: 'inherit' });
+    if (run.error) {
+        console.error(`Could not run the upgrade script: ${run.error.message}`);
+        console.error('bash is required to run it. If bash is available under another name, run it yourself:');
+        console.error(`  bash ${script}`);
+        process.exit(1);
+    }
+    process.exit(run.status ?? 1);
 });
 program
     .command('telemetry')

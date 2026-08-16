@@ -6,6 +6,21 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **`memesh upgrade-plugin` — the CLI front door to the plugin upgrade script (P6).**
+  Upgrading a Claude Code plugin install used to mean hand-substituting the
+  installed version into
+  `~/.claude/plugins/cache/pcircle-memesh/memesh/<current-version>/scripts/upgrade-plugin.sh`
+  — a path shape most users get wrong on the first try — and the script then
+  died partway through when `rsync` was missing, a prerequisite the README
+  never named. The new command finds the newest installed plugin version
+  itself, checks the script's prerequisites (`node`, `npm`, `rsync`) up front
+  — a missing one is a plain sentence naming what to install, before anything
+  runs — and executes the bundled script with its exit code passed through
+  unchanged. With no plugin cache present it points npm users at
+  `memesh update` instead. READMEs (en / zh-TW / de) now lead with the
+  command and keep the hand-run path as the fallback for plugin-only
+  installs without the npm CLI.
+
 - **`briefing` — the assembled work topology for clients that run no hooks, and the 9th MCP tool (A1c).**
   Claude Code gets the work topology pushed by the session-start hook. Every
   other MCP client — Gemini, Codex, anything speaking the protocol — could
