@@ -55,10 +55,11 @@ MeMesh separates concerns into two layers:
 - `prompt-safety.ts` — F7 prompt-injection hardening (delimiter escaping for 3 LLM call sites)
 - `failure-analyzer.ts` / `auto-tagger.ts` / `digest-validator.ts` — Smart-Mode LLM flows (all use `callLLM` failover + telemetry)
 - `version-check.ts` — npm registry version check for update notifications
+- `why.ts` — file attribution (`memesh why` / `POST /v1/why`): a git half (`resolveFileCommits`, CLI-only — the HTTP route never shells out) and a DB half (`explainCommits`) joining full SHAs to the abbreviated-hash `commit-*` entity names, walking `metadata.session_id` to session entities, and collecting `file:<basename>`-tagged memories; every gap is a typed abstention
 
 **Transports** (`src/transports/`) — thin adapters that expose core operations:
-- `cli/cli.ts` — Commander CLI (`memesh` command, 27 top-level commands; `config`, `kg`, and `dream` have subcommands)
-- `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, 32 endpoints, bearer-auth gate when bound non-loopback)
+- `cli/cli.ts` — Commander CLI (`memesh` command, 28 top-level commands; `config`, `kg`, and `dream` have subcommands)
+- `http/server.ts` — Express REST API server (`memesh serve`, default port 3737, 33 endpoints, bearer-auth gate when bound non-loopback)
 - `src/mcp/server.ts` + `src/transports/mcp/handlers.ts` — stdio MCP server (`memesh-mcp`, 9 tools); `src/mcp/tools.ts` is a re-export shim
 
 This separation means the same `remember`/`recall`/`forget` logic runs identically whether invoked from a terminal, an HTTP request, or an MCP tool call.
@@ -406,7 +407,7 @@ MeMesh supports three integration tiers:
 | | Claude Desktop | MCP server config |
 | | Codex CLI / Gemini CLI | MCP server (`memesh-mcp` in client config) |
 | | Custom apps | Direct stdio MCP connection |
-| **HTTP API** | Custom apps/scripts | HTTP REST API (`memesh serve`, 32 endpoints) |
+| **HTTP API** | Custom apps/scripts | HTTP REST API (`memesh serve`, 33 endpoints) |
 
 See [docs/platforms/](../platforms/) for platform-specific integration guides.
 

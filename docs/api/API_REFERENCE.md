@@ -606,6 +606,7 @@ The limit protects the server from accidentally parsing large payloads (e.g. an 
 | POST | /v1/export | Export memories as JSON bundle |
 | POST | /v1/import | Import memories from JSON bundle with merge strategy |
 | POST | /v1/learn | Record structured lesson from mistake or discovery |
+| POST | /v1/why | File attribution: join caller-resolved commit hashes to commit entities, their sessions, and file-tag memories |
 | GET | /v1/entities | List entities (pagination); supports `?type=<type>` and `?limit=<n>` |
 | GET | /v1/entities/:name | Get single entity |
 | GET | /v1/config | Get current config and detected capabilities |
@@ -911,6 +912,59 @@ On failure: `{ valid: false, error: "<provider message>", errorCode: "<stable co
 
 The `suggested` model picks the first entry whose id contains a small-tier hint (`mini`, `nano`, `haiku`, `flash`, `lite`, `small`, `8b`, `7b`, `3b`), preferring the most recently `created`. Falls back to the first entry when no hint matches.
 
+### POST /v1/why
+
+The graph half of `memesh why` (see the CLI section): join commit hashes to
+the commit entities the hooks captured, walk each entity's
+`metadata.session_id` to its session entities, and collect the memories
+associated with the file by `file:<basename>` tag.
+
+The route runs **no git, ever** — commit hashes come from the caller, and
+the strict schema has no repo-path field on purpose: the server is never
+handed a directory to execute anything in. A caller without a working tree
+(e.g. the dashboard) simply omits `commits` and gets the file-tag half.
+
+```json
+{
+  "file": "src/auth.ts",          // required
+  "commits": ["<hex sha, 7-40>"], // optional, max 50 — resolved by the caller
+  "project": "myapp",             // optional scope for the file-tag half
+  "limit": 10                     // optional, 1-50
+}
+```
+
+Response `data`:
+
+```json
+{
+  "file": "src/auth.ts",
+  "basename": "auth.ts",
+  "project": "myapp",
+  "commits": [
+    {
+      "commit": { "hash": "…" },
+      "entity": { "id": 12, "name": "commit-abc1234", "observations": ["…"], "…": "…" },
+      "session": { "session_id": "…", "entities": [ { "name": "session-…-files", "…": "…" } ] },
+      "abstentions": []
+    }
+  ],
+  "file_memories": { "basis": "file-tag", "entities": [ … ] },
+  "abstentions": []
+}
+```
+
+Every gap in the chain is a **typed abstention**, never a guess:
+`no_commit_entity` (the graph has no memory of that hash — it predates
+capture, or was made without hooks / on another machine) and
+`no_session_link` (the commit entity was captured before commits recorded
+their session id) appear per commit; git-side codes (`not_a_git_repo`,
+`file_not_tracked`, `git_unavailable`, `line_out_of_range`,
+`line_uncommitted`) can only be produced by the CLI, which passes them
+through in the top-level `abstentions`. The `file_memories` block is
+labelled `basis: "file-tag"` because it is associated by basename tag —
+not derived from the commits — and the two must not be read as the same
+kind of evidence.
+
 ### GET /dashboard
 
 Returns the full interactive MeMesh Dashboard as a self-contained HTML page. Served by the HTTP server — no separate build step needed.
@@ -1035,6 +1089,28 @@ outstanding.
 An incomplete run prints `⚠️  Reindex incomplete` with a per-reason breakdown.
 Earlier versions printed `✅ Reindex complete` and exited `0` in every case,
 including runs that wrote no vectors at all.
+
+### memesh why
+
+```bash
+memesh why src/auth.ts              # which commits touched this file, and what memesh remembers about them
+memesh why src/auth.ts --line 42    # attribute ONE line via git blame instead of file history
+memesh why src/auth.ts --limit 5    # cap the commits inspected (default 10)
+memesh why src/auth.ts --json       # the full structured result (same shape as POST /v1/why)
+```
+
+Local git answers *which* commits touched the file (`git log --follow`, or
+`git blame` for `--line`); the graph answers *what memesh remembers* about
+them: the commit entity the post-commit hook captured, the session it was
+made in (commits record `metadata.session_id` going forward), and the
+memories associated with the file by `file:<basename>` tag — printed under
+an explicit "associated, not commit-derived" label.
+
+What the chain cannot prove is said outright, never guessed: a commit with
+no entity ("memesh has no memory of this commit"), an entity with no
+session link, an untracked file, a line not yet committed. Run it from
+inside the repository — the current directory picks both the git repo and
+the project scope.
 
 ### memesh pin / memesh unpin
 

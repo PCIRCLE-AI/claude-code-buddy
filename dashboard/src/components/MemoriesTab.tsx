@@ -6,8 +6,7 @@ import { Chip } from './Chip';
 import { ExpandedBody, SeverityBadge } from './LessonCards';
 import { t, getLocale } from '../lib/i18n';
 import { actionFailureMessage, classifyLoadError, failureMessage } from '../lib/failure';
-import { clusterOf, timeBucket, extractProject, type TypeCluster, type TimeBucket } from '../lib/entity-display';
-import { CATEGORICAL_TYPE_COLORS } from '../lib/type-palette';
+import { clusterOf, timeBucket, extractProject, CLUSTER_DOT, type TypeCluster, type TimeBucket } from '../lib/entity-display';
 import { useSignalMode } from '../lib/signalMode';
 import { layerOf } from '../../../src/core/work-topology.js';
 
@@ -40,16 +39,6 @@ type ValueKey = 'all' | 'recalled' | 'never';
 type SortKey = 'recent' | 'most-recalled' | 'created';
 
 const CLUSTERS: TypeCluster[] = ['knowledge', 'activity', 'session', 'reference'];
-
-/** Composition-bar swatches: each cluster wears its representative
- *  species' colour (same palette the graph draws with, so the bar and the
- *  graph tell one story). */
-const CLUSTER_DOT: Record<TypeCluster, string> = {
-  knowledge: CATEGORICAL_TYPE_COLORS.lesson_learned,
-  activity: CATEGORICAL_TYPE_COLORS.commit,
-  session: CATEGORICAL_TYPE_COLORS.session_keypoint,
-  reference: CATEGORICAL_TYPE_COLORS.note,
-};
 
 function isArchivedEntity(e: Entity): boolean {
   return Boolean(e.archived) || e.status === 'archived';

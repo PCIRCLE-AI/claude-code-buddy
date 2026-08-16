@@ -9,18 +9,55 @@ import { extractProject } from '../lib/entity-display';
 
 const FETCH_LIMIT = 2000;
 
+/** `?project=` deep-link read. Unvalidated on purpose: a stale name renders
+ *  the roadmap's own honest empty state, and the chip row is still there to
+ *  recover with — better than silently ignoring the link. */
+function urlProject(): string | null {
+  try { return new URLSearchParams(window.location.search).get('project'); } catch { return null; }
+}
+
+function writeUrlProject(name: string): void {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set('project', name);
+    history.replaceState(null, '', url);
+  } catch { /* private mode / no history — the view still works */ }
+}
+
+/**
+ * The roadmap's entity set for one project: active entities of the project,
+ * PLUS the archived entities an active one points at with a lineage edge.
+ * `supersedes` ARCHIVES its target on write (operations.ts), so a plain
+ * active filter hides exactly the node every supersession edge points at —
+ * the roadmap could never show a chain. The fetch already carries archived
+ * rows (status=all); general archived noise stays out. Exported for the
+ * unit test — the readmission rule is the load-bearing part of this tab.
+ */
+export function selectProjectEntities(entities: Entity[], selected: string | null): Entity[] {
+  if (!selected) return [];
+  const isArchived = (e: Entity) => Boolean(e.archived) || e.status === 'archived';
+  const active = entities.filter((e) => !isArchived(e) && extractProject(e) === selected);
+  const referenced = new Set<string>();
+  for (const e of active) {
+    for (const r of e.relations ?? []) {
+      if (r.type === 'supersedes' || r.type === 'contradicts') referenced.add(r.to);
+    }
+  }
+  const readmitted = entities.filter((e) => isArchived(e) && referenced.has(e.name));
+  return [...active, ...readmitted].sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
 /**
  * The Project tab — a thin host for ProjectRoadmap, which is 100%
- * parent-fed (it fetches nothing itself). This tab owns the fetch and a
- * project selector; deep-linking, the capture-coverage band and the ADR
- * views arrive with the project-history PR (UX-3 in the work-topology
- * plan). No `memesh:data-changed` dispatch here: this surface is
- * read-only, and the event exists to sync the header after mutations.
+ * parent-fed (it fetches nothing itself). This tab owns the fetch, the
+ * project selector and the `?project=` deep link. No `memesh:data-changed`
+ * dispatch here: this surface is read-only, and the event exists to sync
+ * the header after mutations.
  */
 export function ProjectTab({ health }: { health?: HealthData | null }) {
   const [entities, setEntities] = useState<Entity[]>([]);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(urlProject);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const loadGen = useRef(0);
@@ -40,8 +77,10 @@ export function ProjectTab({ health }: { health?: HealthData | null }) {
           setEntities(data);
         }
         setProjects(projs);
-        // One project = no choice to make; walk straight in.
-        if (projs.length === 1) setSelected(projs[0].name);
+        // One project = no choice to make; walk straight in — unless a
+        // ?project= deep link already chose (even a stale one: overriding
+        // it would make the shared URL silently show something else).
+        if (projs.length === 1) setSelected((cur) => cur ?? projs[0].name);
       })
       .catch((e) => {
         if (gen !== loadGen.current) return;
@@ -52,12 +91,10 @@ export function ProjectTab({ health }: { health?: HealthData | null }) {
       });
   }, []);
 
-  const projectEntities = useMemo(() => {
-    if (!selected) return [];
-    return entities
-      .filter((e) => !e.archived && e.status !== 'archived' && extractProject(e) === selected)
-      .sort((a, b) => b.created_at.localeCompare(a.created_at));
-  }, [entities, selected]);
+  const projectEntities = useMemo(
+    () => selectProjectEntities(entities, selected),
+    [entities, selected],
+  );
 
   if (loading) return <div class="empty"><div class="loading" /></div>;
   if (error) return <div class="error-box" role="alert">{error}</div>;
@@ -82,7 +119,7 @@ export function ProjectTab({ health }: { health?: HealthData | null }) {
             label={p.name}
             count={p.count}
             active={selected === p.name}
-            onClick={() => setSelected(p.name)}
+            onClick={() => { setSelected(p.name); writeUrlProject(p.name); }}
           />
         ))}
       </div>

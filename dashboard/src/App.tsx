@@ -89,6 +89,17 @@ export function App() {
   // storage) are silent — the default kicks in next session.
   useEffect(() => {
     try { localStorage.setItem(TAB_STORAGE_KEY, tab); } catch { /* no-op */ }
+    // Write the tab back to the URL. The read side (initialTab) has
+    // honoured ?tab= deep links since the 5-tab shell, but nothing ever
+    // wrote the param — so copying the address bar always shared "wherever
+    // the reader's own storage lands them", never the view being looked
+    // at. replaceState, not pushState: tab switches are view state, not
+    // navigation history.
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', tab);
+      history.replaceState(null, '', url);
+    } catch { /* no-op — same private-mode tolerance as storage */ }
   }, [tab]);
   const [health, setHealth] = useState<HealthData | null>(null);
   const [error, setError] = useState('');
