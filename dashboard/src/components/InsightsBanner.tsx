@@ -13,30 +13,30 @@ interface ProposalSummary {
 
 interface Props {
   /**
-   * Current active tab. The banner self-suppresses when the user is
-   * already on Insights — there's no point nudging someone who's
-   * already looking at the list.
+   * Current active tab. The banner self-suppresses on Home — insights
+   * lead that tab, so there's no point nudging someone who's already
+   * looking at the list.
    */
   currentTab: string;
   /**
-   * Click handler that switches the active tab to 'Insights'.
-   * Wired from App.tsx so the banner doesn't need to know about the
-   * tab-state machine.
+   * Click handler that switches the active tab to Home (where insights
+   * live). Wired from App.tsx so the banner doesn't need to know about
+   * the tab-state machine.
    */
   onNavigateToInsights: () => void;
 }
 
 /**
  * Global onboarding banner that surfaces pending dream proposals from
- * any tab. Without this, users only see proposals if they navigate to
- * the Insights tab — which a fresh user may never discover.
+ * any tab. Without this, users only see proposals if they land on Home
+ * — which a user parked on another tab may not revisit for days.
  *
  * Visual style mirrors `OnboardingBanner` (accent-tinted gradient) so
  * it reads as a friendly nudge rather than an error/warn (those slots
  * are owned by `DoctorBanner`).
  *
  * Hide rules (in order):
- *   1. Already on the Insights tab → no point nudging.
+ *   1. Already on Home (where insights lead) → no point nudging.
  *   2. User dismissed this session via the × button.
  *   3. No pending proposals.
  *
@@ -73,7 +73,7 @@ export function InsightsBanner({ currentTab, onNavigateToInsights }: Props) {
     return () => { mounted = false; window.removeEventListener('memesh:data-changed', handler); };
   }, []);
 
-  if (currentTab === 'Insights') return null;
+  if (currentTab === 'Home') return null;
   if (dismissed) return null;
   if (pendingCount === 0) return null;
 
