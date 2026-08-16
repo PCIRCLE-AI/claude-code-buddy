@@ -10,7 +10,7 @@ import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } fr
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport, type InstallChannel } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
-import { getDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
+import { getDbPath, memeshDir, getProjectName } from './paths.js';
 import { detectPluginRuntime } from './install-hooks.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
 import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
@@ -2193,7 +2193,9 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   // Runtime wiring + activity (#25 — file existence isn't enough;
   // doctor used to PASS for users whose Claude Code never loaded
   // memesh's hooks at all).
-  const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl ?? path.join(homeDir(), '.claude', 'plugins', 'installed_plugins.json'));
+  // installedPluginsPathImpl may be undefined — detectPluginRuntime owns the
+  // default path; restating it here was a second copy of the same location.
+  const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl);
   checks.push(wiring);
   // hook-activity's never-ran verdict only reds when wiring is actually in
   // place — otherwise the wiring row above already tells the story, and an

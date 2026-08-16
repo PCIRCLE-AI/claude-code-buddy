@@ -3,7 +3,7 @@ import { getProjectName } from './paths.js';
 import { rankEntities } from './scoring.js';
 import { getTaskState } from './task-state-store.js';
 import { taskStateLines } from './task-state.js';
-import { DEFAULT_TOPOLOGY_BUDGET, SNIPPET_FETCH_CHARS, TOPOLOGY_CANDIDATE_CAP, assembleTopologyBlock, buildReferenceContext, isAutoInjectable, } from './work-topology.js';
+import { SNIPPET_FETCH_CHARS, TOPOLOGY_CANDIDATE_CAP, assembleTopologyBlock, buildReferenceContext, isAutoInjectable, } from './work-topology.js';
 const PROJECT_LIMIT = 30;
 const RECENT_LIMIT = 5;
 const CANDIDATE_COLUMNS = 'e.id, e.name, e.type, e.title, e.metadata, e.access_count, e.last_accessed_at, e.confidence, e.recall_hits, e.recall_misses';
@@ -80,7 +80,7 @@ export function assembleBriefing(project) {
     const lines = assembleTopologyBlock(stateLines, [
         { entities: toEntities(projectPool), foreign: false },
         { entities: toEntities(recentPool), foreign: true },
-    ], projectName, DEFAULT_TOPOLOGY_BUDGET);
+    ], projectName);
     return {
         project: projectName,
         text: lines.length > 0 ? buildReferenceContext(lines) : '',

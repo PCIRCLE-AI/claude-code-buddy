@@ -197,6 +197,44 @@ All notable changes to MeMesh are documented here.
 
 ### Changed
 
+- **Release-prep simplification pass (two independent reviews over the
+  install-UX arc; fixed and skipped items recorded in the PR).** One PATH
+  predicate instead of two in the same file; `settingsHaveMemeshHooks`
+  exported from install-hooks (the module that stamps the marker) instead
+  of a third private walker in setup; doctor passes the plugin-registry
+  seam through and lets `detectPluginRuntime` own its default path;
+  doctor --fix dispatches through an exhaustiveness-checked Record (a new
+  fixId now fails to compile rather than prompting and silently doing
+  nothing), shares `wireUserHooks()` with setup, forces probes OFF on its
+  verification re-run (`--probe --fix` was paying the live LLM probe
+  twice), and scopes the after-diff to the checks it actually fixed; the
+  session-start hook stops restating the topology budget and now imports
+  the shared candidate cap (fulfilling the "both sides agree" contract its
+  comment claimed); check-doc-claims states the agent-docs list and the
+  tool-name extraction once each.
+
+
+- **Every tool schema is now `.strict()` — the runtime finally enforces the
+  `additionalProperties: false` every tool's MCP inputSchema has advertised
+  all along.** Zod's default silently strips unknown keys; the gap graduated
+  from cosmetic to destructive twice (forget's plural typo archived whole
+  entities; task_state's stripped key flipped a write into a read), and the
+  "harmless" cases were still silent data loss — `titel:` for `title:`
+  dropped the title while reporting success. A mistyped key is now rejected
+  with its name, on MCP and on the HTTP routes that share these schemas.
+  One deliberate exception, documented in place: `ExportResultSchema`, the
+  portable file format — a newer memesh may add export fields and an older
+  install must still import them, so tolerance there is forward
+  compatibility. The provenance-spoof tests were updated to pin the new,
+  stronger outcome: a smuggled `sourceHost` is rejected outright and
+  nothing is stored, instead of being silently stripped.
+
+- **`memesh update` / `status` / doctor / the session-start banner now
+  recommend `memesh upgrade-plugin`** for plugin-marketplace installs
+  (previously: a bash path the user had to complete by hand;
+  plugin-only users are pointed at `npx @pcircle/memesh upgrade-plugin`).
+
+
 - **The README answers "install it" in the first screen, and stops making a
   false claim.** An install-path audit (all eleven paths, stepped through
   against the actual code) found the first working command 668 words into the

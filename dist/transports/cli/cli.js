@@ -48,6 +48,10 @@ function isOnPath(tool) {
     }
     return false;
 }
+function wireUserHooks() {
+    const r = installHooks({ pluginRoot: packageRoot, pluginVersion: pkg.version, scope: 'user' });
+    return `hooks: added ${r.added}, skipped ${r.skipped} already-installed${r.backupPath ? ` (backup: ${r.backupPath})` : ''}`;
+}
 const packageJsonPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../package.json');
 const packageRoot = path.dirname(packageJsonPath);
 const pkg = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
@@ -453,16 +457,6 @@ program
     .option('--yes', 'Apply every wiring action without asking')
     .action(async (opts) => {
     const { spawnSync, execFileSync } = await import('child_process');
-    const isOnPathSeam = (bin) => {
-        try {
-            const finder = process.platform === 'win32' ? 'where' : 'which';
-            execFileSync(finder, [bin], { stdio: 'pipe' });
-            return true;
-        }
-        catch {
-            return false;
-        }
-    };
     const runSeam = (cmd, args) => {
         try {
             let target = cmd;
@@ -481,7 +475,7 @@ program
             return { status: null, stderr: err instanceof Error ? err.message : String(err) };
         }
     };
-    const seams = { home: () => homeDir(), isOnPath: isOnPathSeam, run: runSeam };
+    const seams = { home: () => homeDir(), isOnPath, run: runSeam };
     const render = (statuses) => {
         for (const st of statuses) {
             if (!st.present) {
@@ -532,8 +526,7 @@ program
                 }
             }
             if (action.kind === 'install-hooks') {
-                const result = installHooks({ pluginRoot: packageRoot, pluginVersion: pkg.version, scope: 'user' });
-                console.log(`  ✅ hooks: added ${result.added}, skipped ${result.skipped} already-installed${result.backupPath ? ` (backup: ${result.backupPath})` : ''}`);
+                console.log(`  ✅ ${wireUserHooks()}`);
             }
             else if (action.cmd) {
                 const r = runSeam(action.cmd, action.args ?? []);
@@ -1167,6 +1160,22 @@ program
         httpBaseUrl: opts.url,
     });
     if (opts.fix) {
+        const FIX_ACTIONS = {
+            'install-hooks': wireUserHooks,
+            'fts-rebuild': () => {
+                openDatabase();
+                try {
+                    return `keyword index rebuilt (${reindexFts().entities} entities)`;
+                }
+                finally {
+                    closeDatabase();
+                }
+            },
+            'chmod-db': () => {
+                fs.chmodSync(getDbPath(), 0o600);
+                return `permissions restored: chmod 600 ${getDbPath()}`;
+            },
+        };
         const fixable = result.checks.filter((c) => c.fixId && (c.status === 'warn' || c.status === 'fail'));
         if (fixable.length === 0) {
             console.log('Nothing on the --fix whitelist to apply.');
@@ -1191,24 +1200,7 @@ program
                     }
                 }
                 try {
-                    if (check.fixId === 'install-hooks') {
-                        const { installHooks } = await import('../../core/install-hooks.js');
-                        const r = installHooks({ pluginRoot: packageRoot, pluginVersion: pkg.version, scope: 'user' });
-                        console.log(`  ✅ hooks: added ${r.added}, skipped ${r.skipped}${r.backupPath ? ` (backup: ${r.backupPath})` : ''}`);
-                    }
-                    else if (check.fixId === 'fts-rebuild') {
-                        openDatabase();
-                        try {
-                            console.log(`  ✅ keyword index rebuilt (${reindexFts().entities} entities)`);
-                        }
-                        finally {
-                            closeDatabase();
-                        }
-                    }
-                    else if (check.fixId === 'chmod-db') {
-                        fs.chmodSync(getDbPath(), 0o600);
-                        console.log(`  ✅ permissions restored: chmod 600 ${getDbPath()}`);
-                    }
+                    console.log(`  ✅ ${FIX_ACTIONS[check.fixId]()}`);
                 }
                 catch (err) {
                     console.error(`  ❌ ${err instanceof Error ? err.message : String(err)}`);
@@ -1217,16 +1209,17 @@ program
             rl?.close();
             console.log('\nAfter fixes:');
             const before = new Map(result.checks.map((c) => [c.id, c.status]));
+            const fixedIds = new Set(fixable.map((c) => c.id));
             result = await runDoctor({
                 packageRoot,
                 packageVersion: pkg.version,
-                probeHttp: opts.probeHttp,
-                probeCapabilities: opts.probe,
+                probeHttp: false,
+                probeCapabilities: false,
                 httpBaseUrl: opts.url,
             });
             for (const c of result.checks) {
                 const was = before.get(c.id);
-                if (was && was !== c.status)
+                if (fixedIds.has(c.id) && was && was !== c.status)
                     console.log(`  ${c.label}: ${was} → ${c.status}`);
             }
         }

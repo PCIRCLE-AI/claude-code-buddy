@@ -1,3 +1,4 @@
+export declare function settingsHaveMemeshHooks(settingsPath: string): boolean;
 export interface InstallOptions {
     pluginRoot: string;
     pluginVersion: string;

@@ -172,9 +172,13 @@ export function getInstallChannelSupport(channel: InstallChannel): InstallChanne
         // deps, and patches installed_plugins.json to point at the new
         // version. It's the missing piece that bridges Claude Code's
         // version-pinned plugin layout to a single one-liner upgrade.
-        recommendedCommand: 'bash scripts/upgrade-plugin.sh',
+        // `memesh upgrade-plugin` finds the plugin cache and the script's
+        // prerequisites itself — the old prescription asked the user to
+        // hand-substitute the installed version into a path. Plugin-only
+        // users (no npm CLI on PATH) reach the same command via npx.
+        recommendedCommand: 'memesh upgrade-plugin',
         guidance:
-          'Run `bash <plugin-root>/scripts/upgrade-plugin.sh` (or reinstall the plugin from the Claude Code /plugin UI). The plugin marketplace pins versions, so a new release does not auto-update.',
+          'Run `memesh upgrade-plugin` (no npm CLI? `npx @pcircle/memesh upgrade-plugin`), or reinstall the plugin from the Claude Code /plugin UI. The plugin marketplace pins versions, so a new release does not auto-update.',
       };
     default:
       return {

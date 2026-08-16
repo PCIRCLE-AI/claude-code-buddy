@@ -93,7 +93,7 @@ describe('install channel support', () => {
 
     expect(getInstallChannelSupport('plugin-marketplace')).toMatchObject({
       canSelfUpdate: false,
-      recommendedCommand: 'bash scripts/upgrade-plugin.sh',
+      recommendedCommand: 'memesh upgrade-plugin',
     });
   });
 });

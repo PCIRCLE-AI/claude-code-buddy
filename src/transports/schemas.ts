@@ -27,6 +27,16 @@ const titleField = z
   .transform(s => (s.length > 0 ? s : undefined))
   .optional();
 
+// Every tool schema here is `.strict()`. Zod's default silently STRIPS
+// unknown keys, and every tool's published MCP inputSchema has said
+// `additionalProperties: false` all along — the runtime just didn't enforce
+// what the contract advertised. The gap graduated from cosmetic to
+// destructive twice (forget's plural typo archived whole entities;
+// task_state's stripped key flipped a write into a read), and the
+// non-destructive cases were still silent data loss: `titel:` for `title:`
+// dropped the title while reporting success. Rejection names the wrong key.
+// The ONE deliberate exception is ExportResultSchema below — a portable FILE
+// format, where tolerance of unknown fields is forward compatibility.
 export const RememberSchema = z.object({
   name: nameField,
   type: z.string().min(1).max(100),
@@ -34,11 +44,11 @@ export const RememberSchema = z.object({
   observations: z.array(z.string().max(10000)).max(100).optional(),
   tags: z.array(z.string().max(255)).max(50).optional(),
   relations: z
-    .array(z.object({ to: z.string().min(1).max(255), type: z.string().min(1).max(100) }))
+    .array(z.object({ to: z.string().min(1).max(255), type: z.string().min(1).max(100) }).strict())
     .max(50)
     .optional(),
   namespace: z.enum(NAMESPACES).optional(),
-});
+}).strict();
 
 export const RecallSchema = z.object({
   query: z.string().max(1000).optional(),
@@ -47,13 +57,13 @@ export const RecallSchema = z.object({
   include_archived: z.boolean().optional(),
   namespace: z.enum(NAMESPACES).optional(),
   cross_project: z.boolean().optional(),
-});
+}).strict();
 // Deliberately NO refine requiring query/tag: `{}` is the documented
 // list-recent mode (tests/transports/http.test.ts pins it). The P7 audit
 // initially read the empty-DB `[]` answer as a silent failure; it is the
 // list mode listing an empty database.
 
-// `.strict()` because on THIS tool a stripped key is destructive. Zod drops
+// The first schema to go strict, and the reason the rest followed. Zod drops
 // unknown properties by default, and `forget` branches on whether
 // `observation` is present: absent means "archive the whole entity". So
 // `{name, observations: "one fact"}` — the plural, which is exactly the word
@@ -75,8 +85,13 @@ export const ExportSchema = z.object({
   // why these two were the loose ones.
   namespace: z.enum(NAMESPACES).optional(),
   limit: z.number().int().min(1).max(10000).optional(),
-});
+}).strict();
 
+// NOT strict, deliberately: this is the portable FILE format `memesh export`
+// writes and `memesh import` reads. A newer memesh may add fields to its
+// exports; an older install must still import them. Tolerance here is
+// forward compatibility, not sloppiness — the tool ARGUMENT schemas around
+// it stay strict.
 export const ExportResultSchema = z.object({
   version: z.string(),
   exported_at: z.string(),
@@ -101,7 +116,7 @@ export const ImportSchema = z.object({
   // refuses the same value in `importMemories`, so the CLI is covered too.
   namespace: z.enum(NAMESPACES).optional(),
   merge_strategy: z.enum(['skip', 'overwrite', 'append']),
-});
+}).strict();
 
 export const LearnSchema = z.object({
   error: z.string().min(1).max(5000),
@@ -109,7 +124,7 @@ export const LearnSchema = z.object({
   root_cause: z.string().max(5000).optional(),
   prevention: z.string().max(5000).optional(),
   severity: z.enum(['critical', 'major', 'minor']).optional(),
-});
+}).strict();
 
 // Every field optional, including the project: a call with no fields at all is
 // the READ. Empty string is meaningful and therefore allowed — it is how a
@@ -121,21 +136,19 @@ export const TaskStateSchema = z.object({
   next: z.string().max(1000).optional(),
   blocked: z.string().max(1000).optional(),
   done: z.string().max(1000).optional(),
-// `.strict()`, alone among the schemas here, because on THIS tool a stripped
-// key changes the operation. "No recognised field" is what marks a call as a
-// read, so a model that writes `blocker:` for `blocked:` would have its key
-// dropped, fall through to the read branch, and get a success-shaped response
-// back with nothing recorded. Everywhere else an unknown key still leaves the
-// intended write intact. It also makes the runtime agree with the
-// `additionalProperties: false` this tool already publishes.
+// `.strict()` is doubly load-bearing here: beyond the blanket rule above, a
+// stripped key CHANGES THE OPERATION on this tool. "No recognised field" is
+// what marks a call as a read, so a model that writes `blocker:` for
+// `blocked:` would have its key dropped, fall through to the read branch,
+// and get a success-shaped response back with nothing recorded.
 }).strict();
 
 export const BriefingSchema = z.object({
   project: z.string().min(1).max(200).optional(),
-});
+}).strict();
 
 export const UserPatternsSchema = z.object({
   categories: z.array(z.enum(['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
     .describe('Specific categories to return. Omit for all.'),
-});
+}).strict();
 

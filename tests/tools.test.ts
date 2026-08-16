@@ -45,30 +45,29 @@ describe('source_host provenance', () => {
   });
 
   it('the model cannot smuggle source_host in as a tool argument', async () => {
-    // RememberSchema strips unknown keys, so a spoofed sourceHost never
-    // reaches core. If this ever starts passing through, provenance is no
-    // longer provenance.
-    await handleTool('remember', {
+    // Since every schema went strict, a spoofed sourceHost is REJECTED
+    // outright — stronger than the old silent strip, and it names the key.
+    // If this ever starts being accepted (a .passthrough() refactor),
+    // provenance is no longer provenance.
+    const result = await handleTool('remember', {
       name: 'prov-spoof', type: 'decision', observations: ['spoof attempt'],
       sourceHost: 'gemini-cli',
     } as Record<string, unknown>, 'codex');
+    expect(JSON.stringify(result)).toMatch(/sourceHost|unrecognized/i);
+
+    // And nothing was stored under the spoofed call.
     const recall = await handleTool('recall', { query: 'prov-spoof' });
-    const hit = recallEntities(recall).find((e: any) => e.name === 'prov-spoof');
-    expect(hit.metadata.provenance.source_host).toBe('codex');
+    expect(recallEntities(recall).find((e: any) => e.name === 'prov-spoof')).toBeUndefined();
   });
 
-  it('a smuggled sourceHost with NO transport name still stamps nothing', async () => {
-    // The anonymous-transport variant of the spoof: today this is blocked by
-    // two independent lines (zod strip + the dispatch spreading an explicit
-    // undefined last), and a refactor to a conditional spread plus a schema
-    // .passthrough() would silently reopen it. Pin the observable outcome.
-    await handleTool('remember', {
+  it('a smuggled sourceHost with NO transport name is rejected the same way', async () => {
+    const result = await handleTool('remember', {
       name: 'prov-anon-spoof', type: 'decision', observations: ['anon spoof'],
       sourceHost: 'gemini-cli',
     } as Record<string, unknown>);
+    expect(JSON.stringify(result)).toMatch(/sourceHost|unrecognized/i);
     const recall = await handleTool('recall', { query: 'prov-anon-spoof' });
-    const hit = recallEntities(recall).find((e: any) => e.name === 'prov-anon-spoof');
-    expect(hit.metadata.provenance.source_host).toBeUndefined();
+    expect(recallEntities(recall).find((e: any) => e.name === 'prov-anon-spoof')).toBeUndefined();
   });
 
   it('re-remember from another host does NOT overwrite the first writer', async () => {

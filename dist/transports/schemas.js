@@ -18,11 +18,11 @@ export const RememberSchema = z.object({
     observations: z.array(z.string().max(10000)).max(100).optional(),
     tags: z.array(z.string().max(255)).max(50).optional(),
     relations: z
-        .array(z.object({ to: z.string().min(1).max(255), type: z.string().min(1).max(100) }))
+        .array(z.object({ to: z.string().min(1).max(255), type: z.string().min(1).max(100) }).strict())
         .max(50)
         .optional(),
     namespace: z.enum(NAMESPACES).optional(),
-});
+}).strict();
 export const RecallSchema = z.object({
     query: z.string().max(1000).optional(),
     tag: z.string().max(255).optional(),
@@ -30,7 +30,7 @@ export const RecallSchema = z.object({
     include_archived: z.boolean().optional(),
     namespace: z.enum(NAMESPACES).optional(),
     cross_project: z.boolean().optional(),
-});
+}).strict();
 export const ForgetSchema = z.object({
     name: nameField,
     observation: z.string().max(10000).optional(),
@@ -39,7 +39,7 @@ export const ExportSchema = z.object({
     tag: z.string().max(255).optional(),
     namespace: z.enum(NAMESPACES).optional(),
     limit: z.number().int().min(1).max(10000).optional(),
-});
+}).strict();
 export const ExportResultSchema = z.object({
     version: z.string(),
     exported_at: z.string(),
@@ -57,14 +57,14 @@ export const ImportSchema = z.object({
     data: ExportResultSchema,
     namespace: z.enum(NAMESPACES).optional(),
     merge_strategy: z.enum(['skip', 'overwrite', 'append']),
-});
+}).strict();
 export const LearnSchema = z.object({
     error: z.string().min(1).max(5000),
     fix: z.string().min(1).max(5000),
     root_cause: z.string().max(5000).optional(),
     prevention: z.string().max(5000).optional(),
     severity: z.enum(['critical', 'major', 'minor']).optional(),
-});
+}).strict();
 export const TaskStateSchema = z.object({
     project: z.string().min(1).max(200).optional(),
     goal: z.string().max(1000).optional(),
@@ -74,9 +74,9 @@ export const TaskStateSchema = z.object({
 }).strict();
 export const BriefingSchema = z.object({
     project: z.string().min(1).max(200).optional(),
-});
+}).strict();
 export const UserPatternsSchema = z.object({
     categories: z.array(z.enum(['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
         .describe('Specific categories to return. Omit for all.'),
-});
+}).strict();
 //# sourceMappingURL=schemas.js.map

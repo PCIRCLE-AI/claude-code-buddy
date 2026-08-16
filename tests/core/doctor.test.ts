@@ -493,7 +493,7 @@ describe('doctor', () => {
       getCurrentInstallChannelImpl: () => 'plugin-marketplace',
       getInstallChannelSupportImpl: () => ({
         channel: 'plugin-marketplace', label: 'Claude Code plugin marketplace',
-        canSelfUpdate: false, recommendedCommand: 'bash scripts/upgrade-plugin.sh', guidance: '',
+        canSelfUpdate: false, recommendedCommand: 'memesh upgrade-plugin', guidance: '',
       }),
       nativeBindingProbeImpl: () => ({ ok: true }),
     });
@@ -913,7 +913,7 @@ describe('doctor', () => {
       getCurrentInstallChannelImpl: () => 'plugin-marketplace',
       getInstallChannelSupportImpl: () => ({
         channel: 'plugin-marketplace', label: 'Claude Code plugin marketplace', canSelfUpdate: false,
-        recommendedCommand: 'bash scripts/upgrade-plugin.sh',
+        recommendedCommand: 'memesh upgrade-plugin',
         guidance: 'Reinstall the plugin from the Claude Code /plugin UI.',
       }),
     });
@@ -2234,7 +2234,7 @@ describe('SQLite and vector-search probe', () => {
         channel: 'plugin-marketplace',
         label: 'Claude Code plugin marketplace',
         canSelfUpdate: false,
-        recommendedCommand: 'bash scripts/upgrade-plugin.sh',
+        recommendedCommand: 'memesh upgrade-plugin',
         guidance: '',
       }),
       nativeBindingProbeImpl: () => ({ ok: false, message: 'vec0.dylib could not be loaded' }),
@@ -2362,7 +2362,7 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       getCurrentInstallChannelImpl: () => 'plugin-marketplace',
       getInstallChannelSupportImpl: () => ({
         channel: 'plugin-marketplace', label: 'Claude Code plugin marketplace', canSelfUpdate: false,
-        recommendedCommand: 'bash scripts/upgrade-plugin.sh', guidance: '',
+        recommendedCommand: 'memesh upgrade-plugin', guidance: '',
       }),
       nativeBindingProbeImpl: () => ({ ok: true }),
       resolveShellMemeshImpl: () => null,
@@ -2389,7 +2389,7 @@ describe('shell CLI on PATH check (plugin-without-global gotcha)', () => {
       getCurrentInstallChannelImpl: () => 'plugin-marketplace',
       getInstallChannelSupportImpl: () => ({
         channel: 'plugin-marketplace', label: 'Claude Code plugin marketplace', canSelfUpdate: false,
-        recommendedCommand: 'bash scripts/upgrade-plugin.sh', guidance: '',
+        recommendedCommand: 'memesh upgrade-plugin', guidance: '',
       }),
       nativeBindingProbeImpl: () => ({ ok: true }),
       resolveShellMemeshImpl: () => '/usr/local/bin/memesh',

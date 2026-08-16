@@ -10,7 +10,7 @@ import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } fr
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
-import { getDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
+import { getDbPath, memeshDir, getProjectName } from './paths.js';
 import { detectPluginRuntime } from './install-hooks.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
 import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
@@ -841,7 +841,7 @@ export async function runDoctor(options) {
     checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl));
     checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
     checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
-    const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl ?? path.join(homeDir(), '.claude', 'plugins', 'installed_plugins.json'));
+    const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl);
     checks.push(wiring);
     const captureWired = wiring.status === 'pass'
         && (wiring.params === undefined || wiring.params.captureWired === 1);

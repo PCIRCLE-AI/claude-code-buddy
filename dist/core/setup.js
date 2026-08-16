@@ -1,23 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { detectPluginRuntime } from './install-hooks.js';
-function hasMemeshHookMarker(settingsPath) {
-    try {
-        const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-        for (const entries of Object.values(parsed.hooks ?? {})) {
-            if (!Array.isArray(entries))
-                continue;
-            for (const entry of entries) {
-                for (const hook of entry.hooks ?? []) {
-                    if (hook?._memesh === true)
-                        return true;
-                }
-            }
-        }
-    }
-    catch { }
-    return false;
-}
+import { detectPluginRuntime, settingsHaveMemeshHooks } from './install-hooks.js';
 function inspectClaudeCode(seams) {
     const claudeDir = path.join(seams.home(), '.claude');
     const present = fs.existsSync(claudeDir);
@@ -41,7 +24,7 @@ function inspectClaudeCode(seams) {
         return status;
     }
     const settingsPath = path.join(claudeDir, 'settings.json');
-    const hooksWired = hasMemeshHookMarker(settingsPath);
+    const hooksWired = settingsHaveMemeshHooks(settingsPath);
     let mcpWired = null;
     let mcpDetail;
     if (seams.isOnPath('claude')) {
@@ -52,7 +35,7 @@ function inspectClaudeCode(seams) {
     else {
         mcpDetail = 'claude CLI not on PATH — cannot probe MCP registration';
     }
-    status.wired = !hooksWired ? false : mcpWired === null ? null : mcpWired;
+    status.wired = hooksWired ? mcpWired : false;
     status.wiredDetail = `${hooksWired ? 'hooks wired (settings.json)' : 'hooks NOT wired (no _memesh marker in settings.json)'}; ${mcpDetail}`;
     if (!hooksWired) {
         status.actions.push({
