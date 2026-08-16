@@ -4,6 +4,32 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **Lesson guards: a recorded mistake can now warn at the moment it is
+  about to repeat.** The dreamer gained a guard stage: for each
+  failure-shaped lesson (the Error / Root cause / Fix structure) it
+  proposes a `{tool, pattern, message}` trigger — a regex over the Bash
+  command or the Edit/Write content about to run — and every proposal is
+  verified mechanically before staging: the pattern must compile, must
+  not match a benign-input probe list (`git status`, `npm test`, …), and
+  must pass its own attached evidence (at least two inputs that trigger,
+  two that stay silent — executed, not trusted). A human accepts or
+  rejects in the same review queue as every other proposal; acceptance
+  writes `metadata.guard` onto the source lesson (nothing is created or
+  archived, and the spec is re-verified with no model in the loop). At
+  runtime a new `guard-check` hook (PreToolUse Bash — MeMesh's seventh
+  hook) and the existing pre-edit-recall hook (Edit/Write, deliberately
+  outside its recall throttle: a dangerous edit is dangerous every time)
+  evaluate accepted guards as plain regex tests — no LLM, no network —
+  and a hit injects the lesson's warning as a fenced reference block
+  carrying the lesson's `[mem:id]` citation handle. v1 guards only WARN;
+  the schema carries `action` so per-guard blocking can arrive once
+  measured fire accuracy justifies it, and every fire is counted on the
+  guard (`fires`, `last_fired_at`) so a guard that never fires or fires
+  constantly surfaces for review. Guard failure of any kind degrades to
+  silence — the guard system can never block or break the user's work.
+
 ### Changed
 
 - **Dashboard design system: VIVARIUM supersedes Precision Engineer.** The

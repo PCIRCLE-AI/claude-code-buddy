@@ -68,6 +68,7 @@ If MeMesh is installed as a Claude Code plugin, these happen **without any actio
 | **PostToolUse (Bash)** | After `git commit` | Auto-tracks the commit with diff stats as a memory entity |
 | **Stop** | Session ends | Auto-captures session knowledge + runs LLM failure analysis → lessons |
 | **PreCompact** | Before context compaction | Saves important knowledge before history is compressed |
+| **PreToolUse (Bash)** | Before a command runs | Fires accepted lesson-guards — warns when a recorded mistake is about to repeat |
 
 Because of the SessionStart hook: **in Claude Code, do NOT call `briefing` at
 session start — it is already in your context.** Call it only mid-session

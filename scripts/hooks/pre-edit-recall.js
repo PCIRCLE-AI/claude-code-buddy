@@ -3,6 +3,12 @@
 // Continuous Recall — PreToolUse hook for Edit/Write
 // When editing a file, checks if MeMesh has relevant memories
 // and injects them as context. Throttled: max 1 recall per file per session.
+//
+// Also the Edit/Write evaluation point for lesson guards (G1): accepted
+// guards match against the path plus the content about to be written, and
+// a hit injects the lesson's warning at the exact moment its mistake is
+// about to repeat. Guards are NOT throttled — a dangerous edit is
+// dangerous every time.
 
 import { basename, join } from 'path';
 import { existsSync, readFileSync } from 'fs';
@@ -15,6 +21,10 @@ import {
   isTrustedForAutoContext,
   writePrivateJson,
   hookMatchExpression,
+  loadActiveGuards,
+  matchingGuards,
+  guardWarningLines,
+  recordGuardFires,
 } from './_shared.js';
 import { MemeshDatabase } from './_generated/sqlite.js';
 
@@ -43,7 +53,9 @@ process.stdin.on('end', () => {
       return pass();
     }
 
-    // Throttle: skip if we already recalled for this file
+    // Throttle — the RECALL half runs once per file per session. The guard
+    // half is deliberately outside it, so a throttled call still opens the
+    // database for the guard pass.
     const fileKey = filePath.toLowerCase();
     let seenFiles = [];
     try {
@@ -54,151 +66,175 @@ process.stdin.on('end', () => {
     } catch {
       seenFiles = [];
     }
-
-    if (seenFiles.includes(fileKey)) {
-      return pass();
-    }
+    const throttled = seenFiles.includes(fileKey);
 
     if (!existsSync(dbPath)) return pass();
 
-    // Get project name from cwd for project-scoped filtering.
-    // After the throttle/db checks: this spawns 1-2 git subprocesses, and the
-    // throttled path (every repeat edit of the same file) must not pay for it.
-    const projectName = getProjectName(data.cwd);
+    // Get project name from cwd for project-scoped RECALL filtering — this
+    // spawns 1-2 git subprocesses, and the throttled path (every repeat
+    // edit of the same file) must not pay for it. Guards are global by
+    // design: a mistake recorded in one project is usually a mistake
+    // everywhere (the pipe-eats-exit-code shape), and the warning names
+    // its source lesson either way.
+    const projectName = throttled ? null : getProjectName(data.cwd);
 
     // `readOnly`, not `readonly`: node:sqlite ignores the lowercase spelling
-    // and hands back a WRITABLE handle. This hook only reads.
+    // and hands back a WRITABLE handle. This hook only reads; the guard
+    // fire counter opens its own writable handle for its one UPDATE.
     const db = new MemeshDatabase(dbPath, { readOnly: true });
+    let guardMatches = [];
+    const recallLines = [];
     try {
+      // Guard pass (G1) — matched against the path plus the content about
+      // to land, which is what the mistake would be made OF.
+      const toolName = data.tool_name === 'Write' ? 'Write' : 'Edit';
+      const guardHaystack = `${filePath}\n${toolInput.new_string ?? toolInput.content ?? ''}`;
+      guardMatches = matchingGuards(loadActiveGuards(db, toolName), toolName, guardHaystack);
 
-      // Check if entities table exists
-      // Both tables, not just `entities`. Strategy 2 below joins entities_fts,
-      // and this hook opens the database READ-ONLY without going through
-      // openHookDb, so it never creates that table. Checking only `entities`
-      // meant a structurally-absent index reached the query and failed there —
-      // which, now that the failure is no longer swallowed, would print on
-      // every single Edit.
-      const tables = new Set(
-        db.prepare(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('entities','entities_fts')"
-        ).all().map((r) => r.name)
-      );
-      if (!tables.has('entities')) return pass();
-      const hasFts = tables.has('entities_fts');
+      // Recall pass — throttled, project-scoped.
+      if (!throttled) {
+        // Check if entities table exists
+        // Both tables, not just `entities`. Strategy 2 below joins entities_fts,
+        // and this hook opens the database READ-ONLY without going through
+        // openHookDb, so it never creates that table. Checking only `entities`
+        // meant a structurally-absent index reached the query and failed there —
+        // which, now that the failure is no longer swallowed, would print on
+        // every single Edit.
+        const tables = new Set(
+          db.prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('entities','entities_fts')"
+          ).all().map((r) => r.name)
+        );
+        if (tables.has('entities')) {
+          const hasFts = tables.has('entities_fts');
 
-      const hasStatus = db.prepare("PRAGMA table_info(entities)").all()
-        .some(c => c.name === 'status');
-      const statusFilter = hasStatus ? "AND e.status = 'active'" : '';
+          const hasStatus = db.prepare("PRAGMA table_info(entities)").all()
+            .some(c => c.name === 'status');
+          const statusFilter = hasStatus ? "AND e.status = 'active'" : '';
 
-      // Search strategies:
-      // 1. Entities tagged with the file's basename (e.g., "file:auth.ts")
-      // 2. Entities with name matching the file's basename (without extension)
-      // 3. FTS5 search on the basename (without extension)
-      const fileName = basename(filePath);
-      const fileNameNoExt = fileName.replace(/\.[^.]+$/, '');
+          // Search strategies:
+          // 1. Entities tagged with the file's basename (e.g., "file:auth.ts")
+          // 2. Entities with name matching the file's basename (without extension)
+          // 3. FTS5 search on the basename (without extension)
+          const fileName = basename(filePath);
+          const fileNameNoExt = fileName.replace(/\.[^.]+$/, '');
 
-      const results = [];
+          const results = [];
 
-      // Strategy 1: Tag-based search (file:name or mentions of the file)
-      // CRITICAL: Filter by project to prevent cross-project memory injection
-      const projectTag = `project:${projectName}`;
-      const tagResults = db.prepare(`
-        SELECT DISTINCT e.id, e.name, e.type, e.metadata
-        FROM entities e
-        JOIN tags t1 ON t1.entity_id = e.id
-        JOIN tags t2 ON t2.entity_id = e.id
-        WHERE (t1.tag = ? OR t1.tag = ?)
-          AND t2.tag = ?
-        ${statusFilter}
-        LIMIT ?
-      `).all(`file:${fileName}`, `file:${fileNameNoExt}`, projectTag, MAX_RESULTS * 3);
-      results.push(...tagResults.filter((row) => isTrustedForAutoContext(row.metadata)));
-
-      // Strategy 2: FTS5 search on file name (if not enough results)
-      // CRITICAL: Filter by project to prevent cross-project memory injection
-      if (hasFts && results.length < MAX_RESULTS && fileNameNoExt.length >= 4) {
-        // Built by the same function core uses, so this query asks for the
-        // tokens the index actually holds. Quoting the raw basename here meant
-        // a CJK or decomposed-Unicode filename matched nothing at all against
-        // the segmented index — and the catch below made that invisible.
-        const matchExpr = hookMatchExpression(fileNameNoExt);
-        try {
-          // ORDER BY rank is load-bearing now that terms are OR-ed.
-          //
-          // The match expression used to be a single phrase, so `LIMIT` picked
-          // from a handful of rows that all genuinely contained the basename and
-          // arbitrary selection was tolerable. `hookMatchExpression` now emits
-          // `"knowledge" OR "graph"` for `knowledge-graph.ts` — necessary,
-          // because a CJK basename has to be reachable by its bigrams — which
-          // makes the match set large and unranked selection IS the result:
-          // editing that file in a project whose memories merely mention
-          // "graph" injected whatever the scan happened to reach first, where
-          // the old code correctly injected nothing. BM25 is what makes the OR
-          // safe; without it the fix trades a CJK miss for an ASCII false hit.
-          const ftsResults = matchExpr === null ? [] : db.prepare(`
+          // Strategy 1: Tag-based search (file:name or mentions of the file)
+          // CRITICAL: Filter by project to prevent cross-project memory injection
+          const projectTag = `project:${projectName}`;
+          const tagResults = db.prepare(`
             SELECT DISTINCT e.id, e.name, e.type, e.metadata
             FROM entities e
-            JOIN entities_fts fts ON fts.rowid = e.id
-            JOIN tags t ON t.entity_id = e.id
-            WHERE entities_fts MATCH ?
-              AND t.tag = ?
+            JOIN tags t1 ON t1.entity_id = e.id
+            JOIN tags t2 ON t2.entity_id = e.id
+            WHERE (t1.tag = ? OR t1.tag = ?)
+              AND t2.tag = ?
             ${statusFilter}
-            ORDER BY fts.rank, e.id DESC
             LIMIT ?
-          `).all(matchExpr, projectTag, (MAX_RESULTS - results.length) * 3);
-          // Deduplicate
-          for (const r of ftsResults) {
-            if (!isTrustedForAutoContext(r.metadata)) continue;
-            if (!results.some(existing => existing.id === r.id)) {
-              results.push(r);
+          `).all(`file:${fileName}`, `file:${fileNameNoExt}`, projectTag, MAX_RESULTS * 3);
+          results.push(...tagResults.filter((row) => isTrustedForAutoContext(row.metadata)));
+
+          // Strategy 2: FTS5 search on file name (if not enough results)
+          // CRITICAL: Filter by project to prevent cross-project memory injection
+          if (hasFts && results.length < MAX_RESULTS && fileNameNoExt.length >= 4) {
+            // Built by the same function core uses, so this query asks for the
+            // tokens the index actually holds. Quoting the raw basename here meant
+            // a CJK or decomposed-Unicode filename matched nothing at all against
+            // the segmented index — and the catch below made that invisible.
+            const matchExpr = hookMatchExpression(fileNameNoExt);
+            try {
+              // ORDER BY rank is load-bearing now that terms are OR-ed.
+              //
+              // The match expression used to be a single phrase, so `LIMIT` picked
+              // from a handful of rows that all genuinely contained the basename and
+              // arbitrary selection was tolerable. `hookMatchExpression` now emits
+              // `"knowledge" OR "graph"` for `knowledge-graph.ts` — necessary,
+              // because a CJK basename has to be reachable by its bigrams — which
+              // makes the match set large and unranked selection IS the result:
+              // editing that file in a project whose memories merely mention
+              // "graph" injected whatever the scan happened to reach first, where
+              // the old code correctly injected nothing. BM25 is what makes the OR
+              // safe; without it the fix trades a CJK miss for an ASCII false hit.
+              const ftsResults = matchExpr === null ? [] : db.prepare(`
+                SELECT DISTINCT e.id, e.name, e.type, e.metadata
+                FROM entities e
+                JOIN entities_fts fts ON fts.rowid = e.id
+                JOIN tags t ON t.entity_id = e.id
+                WHERE entities_fts MATCH ?
+                  AND t.tag = ?
+                ${statusFilter}
+                ORDER BY fts.rank, e.id DESC
+                LIMIT ?
+              `).all(matchExpr, projectTag, (MAX_RESULTS - results.length) * 3);
+              // Deduplicate
+              for (const r of ftsResults) {
+                if (!isTrustedForAutoContext(r.metadata)) continue;
+                if (!results.some(existing => existing.id === r.id)) {
+                  results.push(r);
+                }
+              }
+            } catch (err) {
+              // Never fail the user's edit over a recall miss, but do not pretend
+              // nothing happened either: a silently-skipped FTS query is how this
+              // hook injected zero memories for months without anyone noticing.
+              //
+              // Throttled, because PreToolUse fires a fresh process per Edit/Write
+              // and a persistent fault would otherwise print on every keystroke's
+              // worth of tool calls. Once per distinct message per day is enough to
+              // be noticed without becoming noise the user learns to ignore.
+              reportOnce(`fts:${err?.message || err}`, `filename search failed: ${err?.message || err}`);
             }
           }
-        } catch (err) {
-          // Never fail the user's edit over a recall miss, but do not pretend
-          // nothing happened either: a silently-skipped FTS query is how this
-          // hook injected zero memories for months without anyone noticing.
-          //
-          // Throttled, because PreToolUse fires a fresh process per Edit/Write
-          // and a persistent fault would otherwise print on every keystroke's
-          // worth of tool calls. Once per distinct message per day is enough to
-          // be noticed without becoming noise the user learns to ignore.
-          reportOnce(`fts:${err?.message || err}`, `filename search failed: ${err?.message || err}`);
+
+          if (results.length > 0) {
+            // Fetch first observation for each result
+            const getObs = db.prepare(
+              'SELECT content FROM observations WHERE entity_id = ? ORDER BY id ASC LIMIT 1'
+            );
+
+            recallLines.push(`Relevant memories for ${fileName}:`);
+            for (const r of results.slice(0, MAX_RESULTS)) {
+              const obs = getObs.get(r.id);
+              const snippet = obs ? obs.content.slice(0, 120) : '';
+              recallLines.push(snippet
+                ? `• ${r.name} (${r.type}): ${snippet}`
+                : `• ${r.name} (${r.type})`
+              );
+            }
+          }
+
+          // Record as seen either way (avoid re-querying a no-result file)
+          recordSeen(seenFiles, fileKey);
         }
       }
-
-      if (results.length === 0) {
-        // Record as seen even with no results (avoid re-querying)
-        recordSeen(seenFiles, fileKey);
-        return pass();
-      }
-
-      // Fetch first observation for each result
-      const getObs = db.prepare(
-        'SELECT content FROM observations WHERE entity_id = ? ORDER BY id ASC LIMIT 1'
-      );
-
-      const lines = [`Relevant memories for ${fileName}:`];
-      for (const r of results.slice(0, MAX_RESULTS)) {
-        const obs = getObs.get(r.id);
-        const snippet = obs ? obs.content.slice(0, 120) : '';
-        lines.push(snippet
-          ? `• ${r.name} (${r.type}): ${snippet}`
-          : `• ${r.name} (${r.type})`
-        );
-      }
-
-      // Record as seen
-      recordSeen(seenFiles, fileKey);
-
-      console.log(JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          additionalContext: buildReferenceContext(lines),
-        },
-      }));
     } finally {
       db.close();
     }
+
+    if (guardMatches.length === 0 && recallLines.length === 0) {
+      return pass();
+    }
+
+    if (guardMatches.length > 0) {
+      recordGuardFires(dbPath, guardMatches.map((g) => g.lessonId));
+    }
+
+    // One fenced block, guards first — the warning about the edit at hand
+    // outranks background recall. Both halves are memory content, so both
+    // ride the same "background data" fence.
+    const toolLabel = data.tool_name === 'Write' ? 'Write' : 'Edit';
+    const lines = guardMatches.length > 0
+      ? [...guardWarningLines(guardMatches, toolLabel), ...(recallLines.length > 0 ? ['', ...recallLines] : [])]
+      : recallLines;
+
+    console.log(JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        additionalContext: buildReferenceContext(lines),
+      },
+    }));
   } catch (err) {
     // Never crash Claude Code, but trace — peer hooks (post-commit,
     // pre-compact, session-summary) all stderr-trace their outer

@@ -64,6 +64,10 @@ Under Claude Code with the MeMesh plugin, hooks capture automatically:
 - **Stop** captures session knowledge and turns failures into lessons.
 - **PreCompact** saves important knowledge before history is compressed.
 - **UserPromptSubmit** detects "remember this" intent in the prompt.
+- **PreToolUse (Bash)** fires accepted lesson-guards: a fenced warning
+  citing the source lesson (`[mem:id]`) when a command matches a mistake
+  the graph has recorded. Heed it, and cite the lesson if it changes what
+  you do.
 
 So under Claude Code: skip step 1 of the loop (the topology is already
 injected), and do not `remember` commits or session summaries by hand. Manual

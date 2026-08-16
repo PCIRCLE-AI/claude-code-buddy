@@ -13,8 +13,8 @@
     },
     {
       "path": "hooks/hooks.json",
-      "sha256": "a382a07ea95a4bf593042faeabb685e520e254b70280bfd86ee1020068ee9a59",
-      "bytes": 1520
+      "sha256": "63b75c9dcf89ae52d13dcae10fe4b2af8d8ba60954c2b2f6ab059a94a265b703",
+      "bytes": 1750
     },
     {
       "path": "scripts/hooks/_generated/capture-flag.js",
@@ -30,6 +30,11 @@
       "path": "scripts/hooks/_generated/fts-index.js",
       "sha256": "989b5970d61088188a30d7f007efea783eb83b6f3f855184eb27cacf9d9f27b0",
       "bytes": 4037
+    },
+    {
+      "path": "scripts/hooks/_generated/guards.js",
+      "sha256": "a05325ec1a5e93c924219485bbe62bba7e7478a276fb31af4b4e5ffab83e675f",
+      "bytes": 3987
     },
     {
       "path": "scripts/hooks/_generated/schema.js",
@@ -63,8 +68,13 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "08ff1ec3d590217c7a228c5f2d1d55dddfca5c857f8013055c5f9023971aa3ce",
-      "bytes": 35218
+      "sha256": "a8fa38272f55065d31332941a52be7f6b1f1c2b96127d4d1eb4847b9dd86a43b",
+      "bytes": 37663
+    },
+    {
+      "path": "scripts/hooks/guard-check.js",
+      "sha256": "30ebfcd68bcff19a29b02783b9f9a69abdc2de5d62e580f6b40fb6a3641193c7",
+      "bytes": 2677
     },
     {
       "path": "scripts/hooks/post-commit.js",
@@ -78,8 +88,8 @@
     },
     {
       "path": "scripts/hooks/pre-edit-recall.js",
-      "sha256": "a55355c05751ed2195af10b1402b6c731cca752be9df51d5f166b3b212a7000d",
-      "bytes": 10365
+      "sha256": "f2a5dbc37c4968ee05ea441465191e3f7fda0aa16832dc50847a71f64ff20f3a",
+      "bytes": 12673
     },
     {
       "path": "scripts/hooks/session-start.js",
@@ -103,8 +113,8 @@
     },
     {
       "path": "skills/memesh/SKILL.md",
-      "sha256": "5f5df41e580f6b9ead0efcc73367a182bee54f7c787ee474df81c90074870600",
-      "bytes": 8958
+      "sha256": "ad76b477c74434f533cc786838fdd6645d734623475c917d5a24326b8c5c83e7",
+      "bytes": 9092
     }
   ]
 }
