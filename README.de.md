@@ -18,6 +18,26 @@
 
 **MeMesh** — Open-Source-**agentischer Speicher** für Claude Code & MCP-Coding-Agenten: erfasst aus der echten Arbeit des Agenten, injiziert in dem Moment, in dem er handelt, ehrlich gehalten, wenn er sich selbst widerspricht. Eine SQLite-Datei. Keine Cloud.
 
+## Installation
+
+**In Claude Code** — diese zwei Zeilen im Chat eingeben (Hooks, Memory-Tools und der `/memesh`-Skill werden automatisch verdrahtet):
+
+```
+/plugin marketplace add PCIRCLE-AI/memesh
+/plugin install memesh@pcircle-memesh
+```
+
+Claude Code neu starten. Eine `◉ MeMesh`-Statuszeile am Anfang der nächsten Session bedeutet: es zeichnet auf.
+
+**Im Terminal** — die `memesh`-CLI, das Dashboard und der `memesh-mcp`-Server für Codex / Gemini / Cursor (braucht [Node 22.13+](https://nodejs.org)):
+
+```bash
+npm install -g @pcircle/memesh
+memesh doctor        # prüft diese Installation Ende-zu-Ende
+```
+
+Die meisten Claude-Code-Nutzer wollen am Ende **beides** — gemeinsame Datenbank, kein Konflikt. Details, weitere Agenten, Upgrades: siehe „In 60 Sekunden starten" unten.
+
 ## Das Problem
 
 Ihr Coding-Agent vergisst nicht nur Fakten zwischen Sessions — er **wiederholt Arbeit**. Er schlägt erneut den Ansatz vor, den Sie letzten Monat abgelehnt haben, stolpert über denselben fehlschlagenden Test, entdeckt die Constraint wieder, die im März die Produktion kaputt gemacht hat, und bittet Sie, die Architektur erneut zu erklären, die er selbst mitentworfen hat.
@@ -105,6 +125,8 @@ Wenn Sie Claude Code nutzen, installieren Sie MeMesh als Plugin direkt in der CL
 
 Claude Code verdrahtet Hooks, Skills und den MCP-Server automatisch. Sie erhalten Auto-Capture in der Session, proaktives Recall, den `/memesh`-Skill in der Unterhaltung und `remember` / `recall` / `forget` / `learn` als MCP-Tools für den Agenten.
 
+**Prüfen:** Claude Code neu starten und eine beliebige Session beginnen. Eine Statuszeile wie `◉ MeMesh ready · no memories for "your-project" yet` erscheint oben — diese Zeile IST das funktionierende Plugin; kein separater Befehl nötig. (Mit vorhandenen Memories zeigt sie stattdessen Zähler.)
+
 ### Option B — npm global (optionale Optimierung)
 
 Wenn Sie das Binary direkt im `PATH` möchten (damit `memesh` in jedem Terminal ohne `npx`-Verzögerung läuft) oder `memesh-mcp` als stdio-Befehl mit festem Pfad für MCP-Clients außerhalb von Claude Code (Cursor, Cline) bereitstellen wollen:
@@ -115,7 +137,7 @@ npm install -g @pcircle/memesh
 
 ### Schritt 1.5: MeMesh in Claude Code einbinden (empfohlen, einmalig)
 
-`npm install -g` legt die CLI in den PATH und registriert den MCP-Server, aber MeMeshs Claude-Code-Session-Hooks werden **nicht** automatisch verdrahtet. Ohne diese Hooks können Sie `memesh remember` / `recall` manuell verwenden, aber die **Auto-Capture-Schleife** (Session → Lektionen → proaktive Erinnerung in der nächsten Session) bleibt stumm.
+`npm install -g` legt die CLI in den PATH — aber nichts ist damit in Claude Code eingebunden: Das npm-Paket führt bewusst keine Install-Skripte aus; MCP-Server und Hooks in Claude Code registriert das Plugin (Option A). Was der npm-Pfad selbst verdrahten kann, sind die Session-Hooks. Ohne diese Hooks können Sie `memesh remember` / `recall` manuell verwenden, aber die **Auto-Capture-Schleife** (Session → Lektionen → proaktive Erinnerung in der nächsten Session) bleibt stumm.
 
 ```bash
 memesh install-hooks         # fügt memesh-Hooks zu ~/.claude/settings.json hinzu
@@ -123,6 +145,27 @@ memesh doctor                # bestätigt, dass „Hooks wired into Claude Code"
 ```
 
 Die Hooks existieren neben Ihren bestehenden Custom-Hooks unter `~/.claude/hooks/` — `install-hooks` schreibt additiv und überschreibt nie Ihre Einträge. Zum Entfernen: `memesh uninstall-hooks`.
+
+### Dieselben Memories aus Codex CLI und Gemini CLI
+
+`memesh-mcp` ist ein gewöhnlicher stdio-MCP-Server — jeder MCP-fähige Host kann ihn nutzen, nicht nur Claude Code. Mit installierter Option B (`memesh-mcp` im `PATH`) einmal pro Host registrieren:
+
+```bash
+# OpenAI Codex CLI — schreibt [mcp_servers.memesh] in ~/.codex/config.toml
+codex mcp add memesh -- memesh-mcp
+
+# Google Gemini CLI — User-Scope, funktioniert in jedem Ordner
+gemini mcp add -s user memesh memesh-mcp
+```
+
+Jeder Host liest und schreibt dieselbe `~/.memesh/knowledge-graph.db` — eine in Claude Code gespeicherte Memory ist aus Codex oder Gemini abrufbar, und umgekehrt. Prüfen:
+
+```bash
+codex mcp list       # memesh sollte als enabled gelistet sein
+gemini mcp list      # memesh sollte "Connected" zeigen
+```
+
+> **Als konfigurierten Befehl `memesh-mcp` verwenden, NICHT `npx -p @pcircle/memesh`.** `npx -p` löst zum *lokalen* Paket auf, sobald das Arbeitsverzeichnis des Hosts in einem Checkout dieses Repositories liegt — und führt dann stillschweigend dessen aktuellen Stand statt des installierten Release aus.
 
 ### Native Integration: Hermes Agent
 
@@ -180,6 +223,32 @@ memesh serve
 <p align="center">
   <img src="docs/images/dashboard-graph.png" alt="MeMesh Graph — interactive knowledge graph with type filters and ego mode" width="100%" />
 </p>
+
+### Sehen, was es sich gemerkt hat
+
+Ein Befehl zeigt jederzeit, was Ihr Agent über das aktuelle Projekt weiß — wo die Arbeit stand, Entscheidungen, Lektionen, jüngste Aktivität (verpackt als Referenzdaten):
+
+```bash
+memesh briefing
+```
+
+```text
+Where "your-project" was left off (today):
+- Goal: Ship the payment retry logic
+- Next: Open the PR once CI is green
+
+Decisions and direction for "your-project":
+- [decision] Use FTS5 as the retrieval baseline
+```
+
+Denselben Block erhält Claude Code automatisch beim Session-Start, und jeder andere MCP-Client über das `briefing`-Tool — der Agent startet orientiert, statt das Repository neu zu lesen, und Sie erklären letzte Woche nicht noch einmal. Das Dashboard (`memesh serve`) ist die vollständige visuelle Ansicht.
+
+### Ihre Daten
+
+- **Eine lokale Datei.** Alles liegt in `~/.memesh/knowledge-graph.db` — SQLite, auf Ihrer Festplatte. Kein Cloud-Konto; nichts verlässt Ihren Rechner, außer Sie konfigurieren selbst einen Cloud-Embedder oder ein LLM.
+- **Backup = diese eine Datei kopieren.** Wiederherstellen = zurückkopieren.
+- **Aufzeichnung jederzeit pausieren**: `export MEMESH_AUTO_CAPTURE=false`.
+- **Alles löschen**: `~/.memesh/` entfernen.
 
 ---
 
