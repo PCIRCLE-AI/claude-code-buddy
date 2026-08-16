@@ -310,7 +310,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     el.style.transition = 'background 0.2s';
-    el.style.background = 'var(--accent-soft)';
+    el.style.background = 'var(--life-soft)';
     window.setTimeout(() => { el.style.background = ''; }, 1400);
   };
 
@@ -336,7 +336,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
         style={{
           padding: '14px 16px',
           background: 'var(--border-subtle)',
-          border: '1px solid rgba(0, 214, 180, 0.12)',
+          border: '1px solid rgba(143, 242, 92, 0.12)',
           borderRadius: 'var(--radius-sm)',
           marginBottom: 14,
         }}
@@ -344,7 +344,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-0)', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true" style={{ color: 'var(--accent)' }}>
+              <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true" style={{ color: 'var(--life)' }}>
                 <path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
               </svg>
               <span>{projectName}</span>
@@ -367,7 +367,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
               aria-label={t('roadmap.viewToggle')}
               style={{
                 display: 'inline-flex',
-                background: 'rgba(255,255,255,0.04)',
+                background: 'var(--border-subtle)',
                 borderRadius: 'var(--radius-xs)',
                 padding: 2,
                 border: '1px solid var(--border-subtle)',
@@ -383,8 +383,8 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                     onClick={() => setView(v)}
                     style={{
                       padding: '4px 10px',
-                      background: active ? 'rgba(0,214,180,0.15)' : 'transparent',
-                      color: active ? 'var(--accent)' : 'var(--text-2)',
+                      background: active ? 'rgba(143,242,92,0.15)' : 'transparent',
+                      color: active ? 'var(--life)' : 'var(--text-2)',
                       border: 'none',
                       borderRadius: 'var(--radius-hairline)',
                       fontSize: 11,
@@ -413,7 +413,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
               <span
                 key={type}
                 class="tag"
-                style={{ fontSize: 11, background: 'rgba(255,255,255,0.04)' }}
+                style={{ fontSize: 11, background: 'var(--border-subtle)' }}
               >
                 {typeLabel(type)} <span style={{ opacity: 0.6, fontFamily: 'var(--mono)' }}>{count}</span>
               </span>
@@ -439,7 +439,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
             gap: 8,
             marginBottom: 14,
             padding: '12px 14px',
-            border: '1px solid rgba(255, 255, 255, 0.04)',
+            border: '1px solid var(--border-subtle)',
             borderRadius: 'var(--radius-sm)',
             background: 'rgba(255, 255, 255, 0.02)',
             overflowX: 'auto',
@@ -469,9 +469,9 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                 alignItems: 'flex-start',
                 gap: 2,
                 padding: '6px 10px',
-                background: i === phases.length - 1 ? 'var(--accent-soft)' : 'transparent',
+                background: i === phases.length - 1 ? 'var(--life-soft)' : 'transparent',
                 border: '1px solid',
-                borderColor: i === phases.length - 1 ? 'rgba(0, 214, 180, 0.3)' : 'var(--border-subtle)',
+                borderColor: i === phases.length - 1 ? 'rgba(143, 242, 92, 0.3)' : 'var(--border-subtle)',
                 borderRadius: 'var(--radius-xs)',
                 color: 'var(--text-1)',
                 cursor: phase.anchorId !== undefined ? 'pointer' : 'default',
@@ -586,8 +586,8 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                               width: 14,
                               height: 14,
                               borderRadius: '50%',
-                              background: isActive ? 'transparent' : 'var(--accent)',
-                              border: `2px solid var(--accent)`,
+                              background: isActive ? 'transparent' : 'var(--life)',
+                              border: `2px solid var(--life)`,
                               boxSizing: 'border-box',
                             }}
                           />
@@ -627,7 +627,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                                   style={{
                                     marginLeft: 8,
                                     fontSize: 10,
-                                    color: 'var(--accent)',
+                                    color: 'var(--life)',
                                     fontFamily: 'var(--mono)',
                                     fontWeight: 500,
                                   }}
@@ -775,7 +775,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                       textTransform: 'uppercase',
                       letterSpacing: '0.08em',
                       fontWeight: 600,
-                      color: 'var(--accent)',
+                      color: 'var(--life)',
                       fontFamily: 'var(--mono)',
                     }}
                   >
@@ -833,7 +833,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                     fontFamily: 'inherit',
                   }}
                 >
-                  <span style={{ flexShrink: 0, color: 'var(--accent)' }}><EntityIcon type={m.type} size={14} /></span>
+                  <span style={{ flexShrink: 0, color: 'var(--life)' }}><EntityIcon type={m.type} size={14} /></span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, color: 'var(--text-1)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {displayTitle(m)}
@@ -878,7 +878,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                       <div style={{ fontSize: 12, color: 'var(--text-1)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {displayTitle(l)}
                       </div>
-                      <div style={{ fontSize: 10, color: sig.tone === 'high' ? 'var(--accent)' : 'var(--text-3)', marginTop: 2, fontFamily: 'var(--mono)' }}>
+                      <div style={{ fontSize: 10, color: sig.tone === 'high' ? 'var(--life)' : 'var(--text-3)', marginTop: 2, fontFamily: 'var(--mono)' }}>
                         {sig.tone !== 'none' ? sig.label : t('memory.access.never')}
                       </div>
                     </div>
@@ -1141,7 +1141,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
               key={`p-${i}`}
               d={`M ${cx} ${cy} Q ${(cx + px) / 2} ${(cy + py) / 2 - 10} ${px} ${py}`}
               fill="none"
-              stroke="rgba(0, 214, 180, 0.4)"
+              stroke="rgba(143, 242, 92, 0.4)"
               strokeWidth={1.5}
             />
           );
@@ -1172,7 +1172,7 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
 
         {/* Project node — centre */}
         <g>
-          <circle cx={cx} cy={cy} r={42} fill="rgba(0, 214, 180, 0.18)" stroke="var(--accent)" strokeWidth={1.5} />
+          <circle cx={cx} cy={cy} r={42} fill="rgba(143, 242, 92, 0.18)" stroke="var(--life)" strokeWidth={1.5} />
           <text
             x={cx}
             y={cy}
@@ -1212,8 +1212,8 @@ function RoadmapMindmap({ projectName, phases, entities, onNodeClick }: MindmapP
                 cx={px}
                 cy={py}
                 r={28}
-                fill="rgba(0, 214, 180, 0.10)"
-                stroke="var(--accent)"
+                fill="rgba(143, 242, 92, 0.10)"
+                stroke="var(--life)"
                 strokeWidth={1.25}
               />
               <text

@@ -54,24 +54,23 @@ interface GEdge {
 /**
  * The entity types whose colour coincides with a design token. They are NOT
  * written as literals: DOM reads the token via `var()`, canvas via the value
- * resolved at mount — so a palette change reaches both. The category-only hues
- * (which map to no token) live in `type-palette.ts`. See DESIGN.md
- * "Entity-type colours are a separate categorical palette".
+ * resolved at mount — so a palette change reaches both. `decision` IS the
+ * life colour (decisions are this brain's main produce); `session-insight`
+ * stays grey (weak signal must not read as alive). Every other species hue
+ * comes from the formula-derived palette in `type-palette.ts`. See DESIGN.md
+ * "Species palette".
  */
 const TOKEN_TYPE_VARS: Record<string, string> = {
-  decision: '--accent',
-  concept: '--accent',
-  pattern: '--info',
-  lesson_learned: '--warning',
+  decision: '--life',
   'session-insight': '--text-2',
 };
 const DEFAULT_TYPE_VAR = '--text-1';
 
 /** The tokens the canvas resolves once at mount (canvas cannot read `var()`). */
 const CANVAS_TOKENS = [
-  '--accent', '--accent-hover', '--info', '--warning',
+  '--life', '--life-hover',
   '--text-0', '--text-1', '--text-2', '--text-3',
-  '--bg-0', '--bg-1', '--font', '--mono',
+  '--bg-0', '--bg-1', '--font-ui', '--mono',
 ] as const;
 
 /** DOM swatch/legend colour — a CSS value (`var()` for token types, else the
@@ -91,14 +90,14 @@ function typeColorCanvas(type: string, r: ResolvedTokens): string {
   return CATEGORICAL_TYPE_COLORS[type] ?? (r[DEFAULT_TYPE_VAR] ?? '');
 }
 
-/** Drift Mode: interpolate stale (danger-ish red) → fresh (accent) by recency
- *  0.15–1.0. A fixed semantic ramp, drawn on canvas; the endpoints are the
- *  drift scale itself, not palette tokens. */
+/** Drift Mode: interpolate stale (danger-ish red) → fresh (life green) by
+ *  recency 0.15–1.0. A fixed semantic ramp, drawn on canvas; the endpoints
+ *  are the drift scale itself, not palette tokens. */
 function getDriftColor(recency: number): string {
   const t = Math.max(0, Math.min(1, (recency - 0.15) / 0.85));
-  const r = Math.round(248 + (0 - 248) * t);
-  const g = Math.round(113 + (214 - 113) * t);
-  const b = Math.round(113 + (180 - 113) * t);
+  const r = Math.round(248 + (143 - 248) * t);
+  const g = Math.round(113 + (242 - 113) * t);
+  const b = Math.round(113 + (92 - 113) * t);
   return `rgb(${r},${g},${b})`;
 }
 
@@ -759,7 +758,7 @@ export function GraphTab() {
         } else {
           ctx.globalAlpha = Math.min(a.recency, b.recency) * 0.7;
         }
-        ctx.strokeStyle = rgbaFrom(tk['--accent'], onBackbone || isEgoView ? 0.5 : 0.35);
+        ctx.strokeStyle = rgbaFrom(tk['--life'], onBackbone || isEgoView ? 0.5 : 0.35);
         ctx.lineWidth = 1;
         ctx.setLineDash([]);
         ctx.beginPath();
@@ -777,7 +776,7 @@ export function GraphTab() {
           const my = (a.y + b.y) / 2;
           const edgeAlpha = ctx.globalAlpha;
           ctx.globalAlpha = Math.max(0.6, Math.min(a.recency, b.recency));
-          ctx.font = `${9 / vp.scale}px ${tk['--font']}`;
+          ctx.font = `${9 / vp.scale}px ${tk['--font-ui']}`;
           ctx.fillStyle = tk['--text-2'];
           ctx.fillText(relationLabel(edge.type), mx + 2, my - 2);
           ctx.globalAlpha = edgeAlpha;
@@ -857,18 +856,20 @@ export function GraphTab() {
         // Search match glow ring
         if (matched) {
           ctx.globalAlpha = 1;
-          ctx.strokeStyle = tk['--accent-hover'];
+          ctx.strokeStyle = tk['--life-hover'];
           ctx.lineWidth = 2;
           ctx.beginPath();
           ctx.arc(n.x, n.y, r + 3, 0, Math.PI * 2);
           ctx.stroke();
         }
 
-        // Hover ring — pure white on purpose: brighter than any text token, so
-        // the hovered node reads as "live" against the palette.
+        // Hover ring — the brightest life tone: hovering is the user's hand
+        // on the living graph, and interaction states belong to the life
+        // colour (DESIGN.md "Life, amber, and status"). Resolved, not
+        // hardcoded, so a palette change reaches it.
         if (isHovered && !matched) {
           ctx.globalAlpha = 1;
-          ctx.strokeStyle = '#fff';
+          ctx.strokeStyle = tk['--life-hover'];
           ctx.lineWidth = 2;
           ctx.beginPath();
           ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
@@ -888,7 +889,7 @@ export function GraphTab() {
           // transform, so divide by scale — otherwise zooming out shrinks
           // the zoomed-out tier's 3 labels to unreadable specks and zooming
           // in blows 20px text and 6px halos over the graph.
-          ctx.font = `${10 / vp.scale}px ${tk['--font']}`;
+          ctx.font = `${10 / vp.scale}px ${tk['--font-ui']}`;
           const label =
             matched || isFocusCenter
               ? n.id
@@ -925,16 +926,16 @@ export function GraphTab() {
         const ageTxt = formatAge(tip.node.lastDate);
         const line1 = tip.node.title?.trim() || `${typeTxt} · ${ageTxt}`;
         const line2 = tip.node.title?.trim() ? `${typeTxt}  |  ${ageTxt}` : '';
-        ctx.font = `11px ${tk['--font']}`;
+        ctx.font = `11px ${tk['--font-ui']}`;
         const w1 = ctx.measureText(line1).width;
         const w2 = line2 ? ctx.measureText(line2).width : 0;
         const boxW = Math.max(w1, w2) + 12;
         const boxH = line2 ? 34 : 20;  // Single-line when untitled
         // Tooltip panel: translucent panel bg + accent hairline, both built from
-        // the resolved tokens (--bg-1 / --accent) so a palette change reaches the
+        // the resolved tokens (--bg-1 / --life) so a palette change reaches the
         // canvas — semi-transparent so the graph shows through.
         ctx.fillStyle = rgbaFrom(tk['--bg-1'], 0.92);
-        ctx.strokeStyle = rgbaFrom(tk['--accent'], 0.3);
+        ctx.strokeStyle = rgbaFrom(tk['--life'], 0.3);
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.roundRect(tx - 4, ty - 18, boxW, boxH, 4);
@@ -1418,7 +1419,7 @@ export function GraphTab() {
               borderRadius: 'var(--radius-xs)',
               color: 'var(--text-0)',
               fontSize: 12,
-              fontFamily: 'var(--font)',
+              fontFamily: 'var(--font-ui)',
             }}
           />
           {searchQuery && (
@@ -1438,8 +1439,8 @@ export function GraphTab() {
             style={{
               marginLeft: 'auto',
               padding: '3px 10px',
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.08)',
+              background: 'var(--border-subtle)',
+              border: '1px solid var(--border)',
               borderRadius: 'var(--radius-xs)',
               color: 'var(--text-2)',
               fontSize: 11,
@@ -1454,10 +1455,10 @@ export function GraphTab() {
             aria-pressed={driftMode}
             style={{
               padding: '3px 10px',
-              background: driftMode ? 'rgba(0,214,180,0.15)' : 'rgba(255,255,255,0.04)',
-              border: `1px solid ${driftMode ? 'rgba(0,214,180,0.4)' : 'rgba(255,255,255,0.08)'}`,
+              background: driftMode ? 'rgba(143,242,92,0.15)' : 'var(--border-subtle)',
+              border: `1px solid ${driftMode ? 'rgba(143,242,92,0.4)' : 'var(--border)'}`,
               borderRadius: 'var(--radius-xs)',
-              color: driftMode ? 'var(--accent)' : 'var(--text-2)',
+              color: driftMode ? 'var(--life)' : 'var(--text-2)',
               fontSize: 11,
               cursor: 'pointer',
               display: 'flex',
@@ -1472,7 +1473,7 @@ export function GraphTab() {
               width: 32,
               height: 6,
               borderRadius: 'var(--radius-hairline)',
-              background: 'linear-gradient(to right, #F87171, var(--accent))',
+              background: 'linear-gradient(to right, #F87171, var(--life))',
             }} />
             {t('graph.drift')}
           </button>
@@ -1487,12 +1488,12 @@ export function GraphTab() {
               gap: 8,
               marginBottom: 8,
               padding: '4px 10px',
-              background: 'var(--accent-soft)',
+              background: 'var(--life-soft)',
               borderRadius: 'var(--radius-xs)',
               fontSize: 12,
             }}
           >
-            <span style={{ color: 'var(--accent)', fontWeight: 600 }}>
+            <span style={{ color: 'var(--life)', fontWeight: 600 }}>
               {t('graph.focusMode')}:
             </span>
             <span style={{ color: 'var(--text-0)' }}>{egoEntity.name}</span>
@@ -1501,10 +1502,10 @@ export function GraphTab() {
               style={{
                 marginLeft: 'auto',
                 padding: '2px 8px',
-                background: 'rgba(0, 214, 180, 0.12)',
-                border: '1px solid rgba(0, 214, 180, 0.2)',
+                background: 'rgba(143, 242, 92, 0.12)',
+                border: '1px solid rgba(143, 242, 92, 0.2)',
                 borderRadius: 'var(--radius-hairline)',
-                color: 'var(--accent)',
+                color: 'var(--life)',
                 fontSize: 11,
                 cursor: 'pointer',
               }}

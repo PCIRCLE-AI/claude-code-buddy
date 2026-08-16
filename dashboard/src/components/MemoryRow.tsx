@@ -32,10 +32,12 @@ interface Props {
 }
 
 const TONE_COLORS = {
-  high:   { bg: 'rgba(0, 214, 180, 0.18)', fg: 'var(--accent)' },
-  medium: { bg: 'rgba(0, 214, 180, 0.10)', fg: 'var(--accent)' },
-  low:    { bg: 'rgba(255, 255, 255, 0.04)', fg: 'var(--text-2)' },
-  none:   { bg: 'rgba(255, 255, 255, 0.03)', fg: 'var(--text-3)' },
+  // Fills use the -soft pair (DESIGN.md pair rule); high is told apart by
+  // the life-coloured text at weight 600, not a louder fill.
+  high:   { bg: 'var(--life-soft)', fg: 'var(--life)' },
+  medium: { bg: 'var(--life-soft)', fg: 'var(--life)' },
+  low:    { bg: 'var(--border-subtle)', fg: 'var(--text-2)' },
+  none:   { bg: 'var(--border-subtle)', fg: 'var(--text-3)' },
 } as const;
 
 export function MemoryRow({ entity: e, actions, highlight }: Props) {
@@ -70,7 +72,7 @@ export function MemoryRow({ entity: e, actions, highlight }: Props) {
           {project && (
             <span
               class="tag"
-              style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              style={{ background: 'var(--life-soft)', color: 'var(--life)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
               title={translate('memory.tooltip.project')}
             >
               <svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style={{ flexShrink: 0 }}>

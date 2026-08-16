@@ -57,7 +57,7 @@ export function UserPatterns({ data }: Props) {
                   height: 18,
                   borderRadius: 'var(--radius-xs)',
                   background: intensity > 0
-                    ? `rgba(0, 214, 180, ${0.1 + intensity * 0.7})`
+                    ? `rgba(143, 242, 92, ${0.1 + intensity * 0.7})`
                     : 'var(--bg-0)',
                   border: '1px solid var(--border-subtle)',
                   fontSize: 9,
@@ -182,7 +182,7 @@ export function UserPatterns({ data }: Props) {
               <div key={s.type} style={{ marginBottom: 6 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
                   <span style={{ fontSize: 12, color: 'var(--text-1)' }}>{typeLabel(s.type)}</span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--accent)' }}>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--life)' }}>
                     {Math.round(s.avgConfidence * 100)}%
                   </span>
                 </div>
@@ -191,7 +191,7 @@ export function UserPatterns({ data }: Props) {
                     height: '100%',
                     width: `${Math.round(s.avgConfidence * 100)}%`,
                     borderRadius: 'var(--radius-hairline)',
-                    background: 'rgba(0, 214, 180, 0.5)',
+                    background: 'rgba(143, 242, 92, 0.5)',
                     transition: 'width 600ms ease-out',
                   }} />
                 </div>

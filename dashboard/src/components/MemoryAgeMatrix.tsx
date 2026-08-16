@@ -36,7 +36,7 @@ function cellStyle(count: number, max: number): string {
   if (count === 0 || max === 0) return 'rgba(255,255,255,0.03)';
   const intensity = Math.min(count / max, 1);
   const alpha = 0.12 + intensity * 0.55;
-  return `rgba(0, 214, 180, ${alpha.toFixed(2)})`;
+  return `rgba(143, 242, 92, ${alpha.toFixed(2)})`;
 }
 
 export function MemoryAgeMatrix({ data }: MemoryAgeMatrixProps) {
@@ -109,7 +109,7 @@ export function MemoryAgeMatrix({ data }: MemoryAgeMatrixProps) {
                         padding: '5px 6px',
                         background: cellStyle(count, maxCount),
                         borderRadius: 'var(--radius-xs)',
-                        color: count > 0 ? 'var(--accent)' : 'var(--text-3)',
+                        color: count > 0 ? 'var(--life)' : 'var(--text-3)',
                         fontFamily: 'var(--mono)',
                         fontWeight: count > 0 ? 600 : 400,
                         fontSize: 11,
@@ -140,7 +140,7 @@ export function MemoryAgeMatrix({ data }: MemoryAgeMatrixProps) {
             width: 14,
             height: 10,
             borderRadius: 'var(--radius-hairline)',
-            background: `rgba(0,214,180,${a})`,
+            background: `rgba(143,242,92,${a})`,
           }} />
         ))}
         <span>{t('ageMatrix.high')}</span>

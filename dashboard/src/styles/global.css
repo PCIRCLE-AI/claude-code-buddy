@@ -1,49 +1,59 @@
 /* =================================================================
-   MeMesh Design System — Precision Engineer
-   Satoshi + Geist Mono · Cyan #00D6B4 · Zero decoration
+   MeMesh Design System — VIVARIUM
+   Bricolage Grotesque + Newsreader + Geist Mono · Life #8FF25C
+   The night is neutral; green is reserved for what is alive.
    See DESIGN.md for full specification
    ================================================================= */
 
 :root {
-  /* Backgrounds */
-  --bg-0: #080A0C;
-  --bg-1: #0D1014;
-  --bg-2: #14181D;
-  --bg-card: rgba(20, 24, 29, 0.9);
-  --bg-hover: #1A1F26;
-  --bg-input: #0D1014;
+  /* Backgrounds — the neutral night */
+  --bg-0: #09090A;
+  --bg-1: #0F0F11;
+  --bg-2: #151518;
+  --bg-card: rgba(15, 15, 17, 0.9);
+  --bg-hover: #1B1B1F;
+  --bg-input: #0F0F11;
 
-  /* Borders */
-  --border: rgba(0, 214, 180, 0.08);
-  --border-subtle: rgba(0, 214, 180, 0.04);
-  --border-focus: #00D6B4;
+  /* Borders — neutral, so green can mean something. Focus is the one
+     green edge (a statement, not a default). See DESIGN.md. */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.04);
+  --border-focus: #8FF25C;
 
-  /* Text */
-  --text-0: #F0F2F4;
-  --text-1: #B8BEC6;
-  --text-2: #7A828E;
-  --text-3: #4A5260;
+  /* Text — neutral, slightly cool */
+  --text-0: #EDEDEE;
+  --text-1: #B4B5B7;
+  --text-2: #7E8083;
+  --text-3: #4B4D51;
 
-  /* Accent */
-  --accent: #00D6B4;
-  --accent-soft: rgba(0, 214, 180, 0.08);
-  --accent-hover: #00F0CA;
+  /* Life — bioluminescent green. Alive, machine-grown, recently touched.
+     Actions, focus, active state. Luminance carries information or it
+     does not appear. */
+  --life: #8FF25C;
+  --life-soft: rgba(143, 242, 92, 0.08);
+  --life-hover: #A9FF75;
+
+  /* Amber — the human seal: pinned, human-judged, human-preserved.
+     Rings and small labels ONLY; the -soft pair is its one fill. */
+  --amber: #E4C590;
+  --amber-soft: rgba(228, 197, 144, 0.08);
 
   /* Semantic */
-  --success: #00D6B4;
-  --success-soft: rgba(0, 214, 180, 0.08);
-  --danger: #FF6B6B;
-  --danger-soft: rgba(255, 107, 107, 0.08);
-  --warning: #FFB84D;
-  --warning-soft: rgba(255, 184, 77, 0.08);
-  --info: #60A5FA;
-  --info-soft: rgba(96, 165, 250, 0.08);
-  /* Neutral / unknown status fill — deliberately grey, not accent-tinted:
-     "no signal" must not read as the accent. See DESIGN.md. */
+  --success: #8FF25C; /* success is the normal state — same as life, by design */
+  --success-soft: rgba(143, 242, 92, 0.08);
+  --danger: #FF7A6B;
+  --danger-soft: rgba(255, 122, 107, 0.08);
+  --warning: #FFAB40;
+  --warning-soft: rgba(255, 171, 64, 0.08);
+  --info: #6FB7D9;
+  --info-soft: rgba(111, 183, 217, 0.08);
+  /* Neutral / unknown status fill — deliberately grey, not life-tinted:
+     "no signal" must not read as alive. See DESIGN.md. */
   --neutral-soft: rgba(160, 160, 160, 0.10);
 
-  /* Typography */
-  --font: 'Satoshi', -apple-system, system-ui, sans-serif;
+  /* Typography — three voices: UI chrome, memory content, data */
+  --font-ui: 'Bricolage Grotesque', -apple-system, system-ui, sans-serif;
+  --font-memory: 'Newsreader', 'Songti TC', Georgia, serif;
   --mono: 'Geist Mono', 'JetBrains Mono', ui-monospace, monospace;
 
   /* Spacing */
@@ -52,6 +62,12 @@
   --radius-xs: 4px;
   /* Hairline radius for data-viz bars/tracks and 1–3px decorations. See DESIGN.md. */
   --radius-hairline: 2px;
+
+  /* Motion — every duration maps to one real-event animation. See DESIGN.md. */
+  --t-heartbeat: 3200ms;
+  --t-germinate: 450ms;
+  --t-replay-max: 2500ms;
+  --t-pulse: 600ms;
 }
 
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -59,7 +75,7 @@
 html { font-size: 14px; }
 
 body {
-  font-family: var(--font);
+  font-family: var(--font-ui);
   background: var(--bg-0);
   color: var(--text-1);
   line-height: 1.55;
@@ -104,7 +120,18 @@ body {
 .header-meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-2); }
 
 .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 4px; }
-.dot-ok { background: var(--success); box-shadow: 0 0 6px rgba(0, 214, 180, 0.4); }
+/* The heartbeat — the ONE sanctioned idle animation (see DESIGN.md "The
+   living mechanics"). It runs only while the dashboard is actually
+   connected (.dot-ok renders only on a live /v1/health); disconnected
+   renders .dot-err, which is perfectly still. Stillness IS the alarm. */
+.dot-ok { background: var(--life); animation: heartbeat var(--t-heartbeat) ease-in-out infinite; }
+@keyframes heartbeat {
+  0%, 100% { box-shadow: 0 0 2px 0 rgba(143, 242, 92, 0.35); }
+  50% { box-shadow: 0 0 8px 2px rgba(143, 242, 92, 0.5); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot-ok { animation: none; box-shadow: 0 0 6px rgba(143, 242, 92, 0.4); }
+}
 .dot-err { background: var(--danger); }
 
 .badge-version {
@@ -144,7 +171,7 @@ body {
   border: none;
   background: none;
   cursor: pointer;
-  font: 500 12px/1 var(--font);
+  font: 500 12px/1 var(--font-ui);
   color: var(--text-3);
   border-bottom: 2px solid transparent;
   transition: color 150ms, border-color 150ms;
@@ -153,7 +180,7 @@ body {
   min-height: 44px;
 }
 .nav-btn:hover { color: var(--text-2); }
-.nav-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.nav-btn.active { color: var(--life); border-bottom-color: var(--life); }
 /* Right-edge scroll affordance for the horizontally-scrolling nav. The gradient
    IS the "more tabs, scroll right" signal (informational, sanctioned in
    DESIGN.md), shown by TabNav only while the strip is scrollable. */
@@ -184,7 +211,7 @@ body {
   backdrop-filter: blur(8px);
   transition: border-color 200ms, box-shadow 200ms;
 }
-.card:hover { border-color: rgba(0, 214, 180, 0.2); box-shadow: 0 4px 20px rgba(0, 214, 180, 0.04); }
+.card:hover { border-color: rgba(143, 242, 92, 0.2); box-shadow: 0 4px 20px rgba(143, 242, 92, 0.04); }
 .card-title {
   font-size: 13px;
   font-weight: 600;
@@ -201,11 +228,11 @@ input[type="text"], input[type="password"], input[type="search"], textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text-0);
-  font: 13px/1.4 var(--font);
+  font: 13px/1.4 var(--font-ui);
   outline: none;
   transition: border-color 150ms;
 }
-input:focus, textarea:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--accent-soft); }
+input:focus, textarea:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--life-soft); }
 input::placeholder, textarea::placeholder { color: var(--text-3); }
 
 /* Buttons */
@@ -218,16 +245,16 @@ input::placeholder, textarea::placeholder { color: var(--text-3); }
   border-radius: var(--radius-sm);
   background: var(--bg-2);
   color: var(--text-1);
-  font: 600 12px/1 var(--font);
+  font: 600 12px/1 var(--font-ui);
   cursor: pointer;
   transition: all 150ms;
   white-space: nowrap;
 }
 .btn:hover { border-color: var(--text-3); background: var(--bg-hover); }
 .btn:disabled { opacity: 0.35; cursor: not-allowed; }
-.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--bg-0); }
-.btn-primary:hover { background: var(--accent-hover); }
-.btn-danger { color: var(--danger); border-color: rgba(255, 107, 107, 0.2); background: transparent; }
+.btn-primary { background: var(--life); border-color: var(--life); color: var(--bg-0); }
+.btn-primary:hover { background: var(--life-hover); }
+.btn-danger { color: var(--danger); border-color: rgba(255, 122, 107, 0.2); background: transparent; }
 .btn-danger:hover { background: var(--danger-soft); }
 .btn-sm { padding: 8px 14px; font-size: 11px; min-height: 36px; }
 
@@ -265,9 +292,9 @@ tbody tr:last-child td { border-bottom: none; }
   font-weight: 500;
   letter-spacing: .01em;
 }
-.badge-active { background: var(--success-soft); color: var(--accent); }
+.badge-active { background: var(--success-soft); color: var(--life); }
 .badge-archived { background: var(--danger-soft); color: var(--danger); }
-.badge-type { background: var(--accent-soft); color: var(--accent); }
+.badge-type { background: var(--life-soft); color: var(--life); }
 
 .tag {
   display: inline-block;
@@ -289,9 +316,9 @@ tbody tr:last-child td { border-bottom: none; }
   padding: 16px;
   transition: border-color 150ms;
 }
-.stat:hover { border-color: rgba(0, 214, 180, 0.2); box-shadow: 0 2px 12px rgba(0, 214, 180, 0.04); }
-.stat-val { font: 700 24px/1.1 var(--mono); color: var(--accent); letter-spacing: -0.02em; }
-.stat-lbl { font: 500 10px/1 var(--font); color: var(--text-3); text-transform: uppercase; letter-spacing: .08em; margin-top: 4px; }
+.stat:hover { border-color: rgba(143, 242, 92, 0.2); box-shadow: 0 2px 12px rgba(143, 242, 92, 0.04); }
+.stat-val { font: 700 24px/1.1 var(--mono); color: var(--life); letter-spacing: -0.02em; }
+.stat-lbl { font: 500 10px/1 var(--font-ui); color: var(--text-3); text-transform: uppercase; letter-spacing: .08em; margin-top: 4px; }
 
 /* Search */
 .search-bar { display: flex; gap: 8px; margin-bottom: 16px; }
@@ -308,7 +335,10 @@ tbody tr:last-child td { border-bottom: none; }
   line-height: 1.4;
 }
 .mem-body { flex: 1; min-width: 0; }
-.mem-preview { font-size: 13px; line-height: 1.5; color: var(--text-1); word-break: break-word; }
+/* Memory content is READ, not scanned — it speaks in the serif voice
+   (--font-memory), one pixel larger than UI text because a serif needs
+   it to read at the same optical size. See DESIGN.md "Type — three voices". */
+.mem-preview { font-family: var(--font-memory); font-size: 15px; line-height: 1.6; color: var(--text-1); word-break: break-word; }
 .mem-meta {
   margin-top: 3px;
   font: 400 11px var(--mono);
@@ -325,33 +355,33 @@ tbody tr:last-child td { border-bottom: none; }
 .insight:last-child { border-bottom: none; }
 .insight-icon { font-size: 18px; flex-shrink: 0; }
 .insight-text { font-size: 13px; color: var(--text-1); }
-.insight-val { font: 600 13px var(--mono); color: var(--accent); }
+.insight-val { font: 600 13px var(--mono); color: var(--life); }
 
 /* Empty / loading */
 .empty { text-align: center; padding: 48px 20px; color: var(--text-3); font-size: 13px; }
 .empty-icon { font-size: 28px; margin-bottom: 8px; display: block; }
-.loading { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; margin: 0 auto; }
+.loading { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--life); border-radius: 50%; animation: spin .6s linear infinite; margin: 0 auto; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.error-box { background: var(--danger-soft); border: 1px solid rgba(255, 107, 107, 0.12); border-radius: var(--radius-sm); padding: 10px 14px; color: var(--danger); font-size: 13px; }
+.error-box { background: var(--danger-soft); border: 1px solid rgba(255, 122, 107, 0.12); border-radius: var(--radius-sm); padding: 10px 14px; color: var(--danger); font-size: 13px; }
 
 /* Feedback widget */
 .fb-btn {
   position: fixed;
   bottom: 20px;
   right: 20px;
-  background: var(--accent);
+  background: var(--life);
   color: var(--bg-0);
   border: none;
   padding: 9px 16px;
   border-radius: 9999px; /* pill — sanctioned for the FAB, see DESIGN.md */
   cursor: pointer;
-  font: 600 12px var(--font);
-  box-shadow: 0 4px 14px rgba(0, 214, 180, 0.25);
+  font: 600 12px var(--font-ui);
+  box-shadow: 0 4px 14px rgba(143, 242, 92, 0.25);
   transition: transform 150ms, box-shadow 150ms;
   z-index: 50;
 }
-.fb-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0, 214, 180, 0.35); }
+.fb-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(143, 242, 92, 0.35); }
 
 .fb-panel {
   position: fixed;
@@ -367,36 +397,36 @@ tbody tr:last-child td { border-bottom: none; }
   animation: fb-slide-up 150ms ease-out;
 }
 @keyframes fb-slide-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-.fb-title { font: 600 14px var(--font); color: var(--text-0); margin-bottom: 14px; }
+.fb-title { font: 600 14px var(--font-ui); color: var(--text-0); margin-bottom: 14px; }
 .fb-types { display: flex; gap: 6px; margin-bottom: 12px; }
 .fb-type {
   display: flex; align-items: center; gap: 5px;
   padding: 5px 10px; border: 1px solid var(--border);
   border-radius: var(--radius-sm); cursor: pointer;
-  font: 500 12px var(--font); color: var(--text-2);
+  font: 500 12px var(--font-ui); color: var(--text-2);
   transition: border-color 150ms, background 150ms;
 }
 .fb-type:hover { border-color: var(--text-3); }
-.fb-type.selected { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
-.fb-type input { accent-color: var(--accent); }
+.fb-type.selected { border-color: var(--life); background: var(--life-soft); color: var(--life); }
+.fb-type input { accent-color: var(--life); }
 .fb-desc {
   width: 100%; height: 80px; padding: 9px 12px;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
-  font: 400 13px var(--font); resize: vertical; outline: none;
+  font: 400 13px var(--font-ui); resize: vertical; outline: none;
   margin-bottom: 10px; background: var(--bg-0); color: var(--text-0);
 }
-.fb-desc:focus { border-color: var(--accent); }
+.fb-desc:focus { border-color: var(--life); }
 .fb-desc::placeholder { color: var(--text-3); }
 .fb-sys-row {
   display: flex; align-items: center; gap: 6px;
-  font: 400 12px var(--font); color: var(--text-2);
+  font: 400 12px var(--font-ui); color: var(--text-2);
   margin-bottom: 12px; cursor: pointer;
 }
-.fb-sys-row input { accent-color: var(--accent); }
+.fb-sys-row input { accent-color: var(--life); }
 .fb-submit { width: 100%; justify-content: center; }
 
 /* Highlight */
-mark { background: rgba(0, 214, 180, 0.15); color: inherit; padding: 1px 2px; border-radius: var(--radius-hairline); }
+mark { background: rgba(143, 242, 92, 0.15); color: inherit; padding: 1px 2px; border-radius: var(--radius-hairline); }
 
 /* Modal overlay */
 .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: center; justify-content: center; z-index: 200; }

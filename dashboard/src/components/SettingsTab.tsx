@@ -686,9 +686,9 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
                 padding: '8px 10px',
                 borderRadius: 'var(--radius-xs)',
                 fontSize: 12,
-                background: testResult.valid ? 'var(--accent-soft)' : 'var(--danger-soft)',
-                border: `1px solid ${testResult.valid ? 'rgba(0, 214, 180, 0.4)' : 'rgba(255, 107, 107, 0.4)'}`,
-                color: testResult.valid ? 'var(--accent)' : 'var(--danger)',
+                background: testResult.valid ? 'var(--life-soft)' : 'var(--danger-soft)',
+                border: `1px solid ${testResult.valid ? 'rgba(143, 242, 92, 0.4)' : 'rgba(255, 122, 107, 0.4)'}`,
+                color: testResult.valid ? 'var(--life)' : 'var(--danger)',
               }}
             >
               {testResult.valid
@@ -703,7 +703,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
                 {t('settings.model')}
                 {testResult.suggested && (
                   <span style={{ marginLeft: 6, color: 'var(--text-3)', fontWeight: 400 }}>
-                    ({t('settings.suggested')}: <span style={{ color: 'var(--accent)' }}>{testResult.suggested}</span>)
+                    ({t('settings.suggested')}: <span style={{ color: 'var(--life)' }}>{testResult.suggested}</span>)
                   </span>
                 )}
               </label>
@@ -797,7 +797,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
             padding: '10px 12px',
             marginBottom: 14,
             background: 'var(--warning-soft)',
-            border: '1px solid rgba(255, 184, 77, 0.4)',
+            border: '1px solid rgba(255, 171, 64, 0.4)',
             borderRadius: 'var(--radius-sm)',
             fontSize: 12,
             lineHeight: 1.55,
@@ -976,7 +976,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
           <div
             style={{
               background: 'var(--danger-soft)',
-              border: '1px solid rgba(255, 107, 107, 0.4)',
+              border: '1px solid rgba(255, 122, 107, 0.4)',
               borderRadius: 'var(--radius-xs)',
               padding: '10px 12px',
               marginBottom: 12,
@@ -996,7 +996,7 @@ export function SettingsTab({ locale, onLocaleChange }: SettingsTabProps) {
           <div
             style={{
               background: 'var(--warning-soft)',
-              border: '1px solid rgba(255, 184, 77, 0.4)',
+              border: '1px solid rgba(255, 171, 64, 0.4)',
               borderRadius: 'var(--radius-xs)',
               padding: '10px 12px',
               marginBottom: 12,

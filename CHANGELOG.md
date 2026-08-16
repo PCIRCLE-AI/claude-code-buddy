@@ -4,6 +4,30 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Dashboard design system: VIVARIUM supersedes Precision Engineer.** The
+  dashboard's visual language is rebuilt around one idea — a second brain
+  that is *alive*: what glows is recent, what is sealed in amber was
+  preserved by a human, and total stillness is the alarm. Concretely: the
+  ground becomes a neutral night (`#09090A` family) so the new
+  bioluminescent-green accent (`--life`, `#8FF25C`) is reserved for what is
+  actually alive — active state, focus, and the header heartbeat, the one
+  sanctioned idle animation, which breathes only while the dashboard is
+  connected and falls perfectly still when it is not (honest by
+  construction, and static under `prefers-reduced-motion`). Memory content
+  now speaks in its own serif voice (Newsreader) distinct from UI chrome
+  (Bricolage Grotesque) and data (Geist Mono, unchanged). Entity-type
+  colours are no longer nine hand-picked hexes: every species hue is the
+  output of one formula, `oklch(0.78 0.12 H)`, at equal lightness so no
+  type shouts over another — the luminance channel is reserved for the
+  vitality mechanics the UX arc ships next. The old cyan brand and the
+  retired hues joined the design-token test's blacklist, so writing any of
+  them again fails CI. `DESIGN.md` is rewritten as the constitution of the
+  new system, including the laws ("luminance carries information or it
+  does not appear", "every moving pixel tells a truth") and the component
+  patterns the coming tab consolidation must follow.
+
 ## [4.6.0] — 2026-08-16
 
 ### Added

@@ -116,7 +116,7 @@ function FailureCard({ entity }: { entity: Entity }) {
           <GlyphLabel type="lesson_learned">{displayTitle(entity)}</GlyphLabel>
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
-          {project && <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style={{ flexShrink: 0 }}><path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>{project}</span>}
+          {project && <span class="tag" style={{ background: 'rgba(143, 242, 92, 0.12)', color: 'var(--life)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style={{ flexShrink: 0 }}><path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>{project}</span>}
           {severity && (
             <span class="badge" style={{ background: `${SEVERITY_COLORS[severity]}18`, color: SEVERITY_COLORS[severity] }}>
               {t(`lessons.severity.${severity}`)}
@@ -124,8 +124,8 @@ function FailureCard({ entity }: { entity: Entity }) {
           )}
           {access.tone !== 'none' && (
             <span class="tag" style={{
-              background: access.tone === 'high' ? 'rgba(0, 214, 180, 0.18)' : 'rgba(0, 214, 180, 0.10)',
-              color: 'var(--accent)',
+              background: access.tone === 'high' ? 'rgba(143, 242, 92, 0.18)' : 'rgba(143, 242, 92, 0.10)',
+              color: 'var(--life)',
               fontWeight: access.tone === 'high' ? 600 : 400,
             }}>
               ✓ {access.label}
@@ -190,9 +190,9 @@ function PlanCard({ entity }: { entity: Entity }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-          {project && <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style={{ flexShrink: 0 }}><path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>{project}</span>}
+          {project && <span class="tag" style={{ background: 'rgba(143, 242, 92, 0.12)', color: 'var(--life)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style={{ flexShrink: 0 }}><path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>{project}</span>}
           {access.tone !== 'none' && (
-            <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.10)', color: 'var(--accent)' }}>
+            <span class="tag" style={{ background: 'rgba(143, 242, 92, 0.10)', color: 'var(--life)' }}>
               ✓ {access.label}
             </span>
           )}
@@ -226,9 +226,9 @@ function FreeformCard({ entity }: { entity: Entity }) {
           <GlyphLabel type="note">{displayTitle(entity)}</GlyphLabel>
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-          {project && <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.12)', color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style={{ flexShrink: 0 }}><path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>{project}</span>}
+          {project && <span class="tag" style={{ background: 'rgba(143, 242, 92, 0.12)', color: 'var(--life)', display: 'inline-flex', alignItems: 'center', gap: 4 }}><svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true" style={{ flexShrink: 0 }}><path d="M2 4 a1 1 0 0 1 1 -1 h4 l2 2 h5 a1 1 0 0 1 1 1 v6 a1 1 0 0 1 -1 1 H3 a1 1 0 0 1 -1 -1 z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" /></svg>{project}</span>}
           {access.tone !== 'none' && (
-            <span class="tag" style={{ background: 'rgba(0, 214, 180, 0.10)', color: 'var(--accent)' }}>
+            <span class="tag" style={{ background: 'rgba(143, 242, 92, 0.10)', color: 'var(--life)' }}>
               ✓ {access.label}
             </span>
           )}
@@ -337,9 +337,9 @@ export function LessonsTab({ health }: { health?: HealthData | null }) {
           <button
             class="btn btn-sm"
             style={{
-              background: tab === 'failure' ? 'rgba(0, 214, 180, 0.18)' : 'transparent',
-              borderColor: tab === 'failure' ? 'rgba(0, 214, 180, 0.5)' : 'rgba(255,255,255,0.08)',
-              color: tab === 'failure' ? 'var(--accent)' : 'var(--text-2)',
+              background: tab === 'failure' ? 'rgba(143, 242, 92, 0.18)' : 'transparent',
+              borderColor: tab === 'failure' ? 'rgba(143, 242, 92, 0.5)' : 'var(--border)',
+              color: tab === 'failure' ? 'var(--life)' : 'var(--text-2)',
             }}
             onClick={() => setTab('failure')}
           >
@@ -348,9 +348,9 @@ export function LessonsTab({ health }: { health?: HealthData | null }) {
           <button
             class="btn btn-sm"
             style={{
-              background: tab === 'plan-completion' ? 'rgba(0, 214, 180, 0.18)' : 'transparent',
-              borderColor: tab === 'plan-completion' ? 'rgba(0, 214, 180, 0.5)' : 'rgba(255,255,255,0.08)',
-              color: tab === 'plan-completion' ? 'var(--accent)' : 'var(--text-2)',
+              background: tab === 'plan-completion' ? 'rgba(143, 242, 92, 0.18)' : 'transparent',
+              borderColor: tab === 'plan-completion' ? 'rgba(143, 242, 92, 0.5)' : 'var(--border)',
+              color: tab === 'plan-completion' ? 'var(--life)' : 'var(--text-2)',
             }}
             onClick={() => setTab('plan-completion')}
           >
@@ -359,9 +359,9 @@ export function LessonsTab({ health }: { health?: HealthData | null }) {
           <button
             class="btn btn-sm"
             style={{
-              background: tab === 'freeform' ? 'rgba(0, 214, 180, 0.18)' : 'transparent',
-              borderColor: tab === 'freeform' ? 'rgba(0, 214, 180, 0.5)' : 'rgba(255,255,255,0.08)',
-              color: tab === 'freeform' ? 'var(--accent)' : 'var(--text-2)',
+              background: tab === 'freeform' ? 'rgba(143, 242, 92, 0.18)' : 'transparent',
+              borderColor: tab === 'freeform' ? 'rgba(143, 242, 92, 0.5)' : 'var(--border)',
+              color: tab === 'freeform' ? 'var(--life)' : 'var(--text-2)',
             }}
             onClick={() => setTab('freeform')}
           >

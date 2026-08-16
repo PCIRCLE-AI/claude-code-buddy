@@ -20,7 +20,7 @@ const CANVAS_HEIGHT = 120;
 
 // Accent at 30% — a glow alpha (no 8% token fits), sanctioned by DESIGN.md and
 // shared by the bars and the DOM legend swatch so they stay identical.
-const BAR_FILL = 'rgba(0, 214, 180, 0.3)';
+const BAR_FILL = 'rgba(143, 242, 92, 0.3)';
 const LINE_WIDTH = 1.5;
 // The line, label colour and font are palette tokens; canvas cannot read
 // var(), so they are resolved from the live stylesheet inside drawTimeline.
@@ -56,10 +56,10 @@ function drawTimeline(
 
   // Resolve the tokens this draw needs (empty when no stylesheet, e.g. a test —
   // a visible signal, never a literal fallback). See lib/tokens.ts.
-  const tk = resolveTokens(canvas, ['--accent', '--text-3', '--font']);
-  const lineStroke = tk['--accent'];
+  const tk = resolveTokens(canvas, ['--life', '--text-3', '--font-ui']);
+  const lineStroke = tk['--life'];
   const labelColor = tk['--text-3'];
-  const labelFont = `9px ${tk['--font']}`;
+  const labelFont = `9px ${tk['--font-ui']}`;
 
   const maxCreated = Math.max(1, ...data.map((d) => d.created));
   const maxRecalled = Math.max(1, ...data.map((d) => d.recalled));
@@ -175,7 +175,7 @@ export function MemoryTimeline({ data }: MemoryTimelineProps) {
               width: 10,
               height: 2,
               borderRadius: 'var(--radius-hairline)',
-              background: 'var(--accent)',
+              background: 'var(--life)',
             }} />
             {t('timeline.recalled')}
             <span style={{

@@ -8,7 +8,7 @@ interface Props {
 
 function scoreColor(value: number): string {
   if (value >= 80) return 'var(--success)';
-  if (value >= 60) return 'var(--accent)';
+  if (value >= 60) return 'var(--life)';
   if (value >= 40) return 'var(--warning)';
   return 'var(--danger)';
 }

@@ -98,7 +98,7 @@ function statusBadgeStyle(status: string): JSX.CSSProperties {
     case 'pending':
       return { background: 'var(--warning-soft)', color: 'var(--warning)' };
     case 'applied':
-      return { background: 'rgba(0,214,180,0.12)', color: 'var(--accent)' };
+      return { background: 'rgba(143,242,92,0.12)', color: 'var(--life)' };
     case 'rejected':
       return { background: 'var(--danger-soft)', color: 'var(--danger)' };
     default:
@@ -281,7 +281,7 @@ export function InsightsTab() {
           <span style={{ color: 'var(--text-2)', fontSize: 13 }}>{t('insights.subtitle')}</span>
         </div>
         <div style={{ marginTop: 10, display: 'flex', gap: 16, flexWrap: 'wrap', color: 'var(--text-2)', fontSize: 13 }}>
-          <span><strong style={{ color: 'var(--accent)', fontFamily: 'var(--mono)' }}>{pendingCount}</strong> {t('insights.statPending')}</span>
+          <span><strong style={{ color: 'var(--life)', fontFamily: 'var(--mono)' }}>{pendingCount}</strong> {t('insights.statPending')}</span>
           <span><strong style={{ fontFamily: 'var(--mono)' }}>{appliedCount}</strong> {t('insights.statApplied')}</span>
           <span><strong style={{ fontFamily: 'var(--mono)' }}>{rejectedCount}</strong> {t('insights.statRejected')}</span>
         </div>
@@ -325,9 +325,9 @@ export function InsightsTab() {
                 padding: '4px 10px',
                 borderRadius: 'var(--radius-xs)',
                 cursor: 'pointer',
-                border: '1px solid ' + (active ? 'var(--accent)' : 'var(--border)'),
-                background: active ? 'rgba(0,214,180,0.12)' : 'transparent',
-                color: active ? 'var(--accent)' : 'var(--text-2)',
+                border: '1px solid ' + (active ? 'var(--life)' : 'var(--border)'),
+                background: active ? 'rgba(143,242,92,0.12)' : 'transparent',
+                color: active ? 'var(--life)' : 'var(--text-2)',
               }}
               onClick={() => setFilter(f)}
             >
