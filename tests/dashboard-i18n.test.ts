@@ -54,15 +54,17 @@ describe('dashboard i18n', () => {
   });
 
   it('does not keep known hardcoded English UI strings in dashboard sources', () => {
-    const browseSource = readFileSync('dashboard/src/components/BrowseTab.tsx', 'utf8');
+    // MemoriesTab absorbed BrowseTab's archive/restore actions in the tab
+    // merge, so it inherits the guard against their old English literals.
+    const memoriesSource = readFileSync('dashboard/src/components/MemoriesTab.tsx', 'utf8');
     const memoryRowSource = readFileSync('dashboard/src/components/MemoryRow.tsx', 'utf8');
     const analyticsSource = readFileSync('dashboard/src/components/AnalyticsTab.tsx', 'utf8');
     const graphSource = readFileSync('dashboard/src/components/GraphTab.tsx', 'utf8');
     const settingsSource = readFileSync('dashboard/src/components/SettingsTab.tsx', 'utf8');
     const apiSource = readFileSync('dashboard/src/lib/api.ts', 'utf8');
 
-    expect(browseSource).not.toContain('Failed to archive:');
-    expect(browseSource).not.toContain('Failed to restore:');
+    expect(memoriesSource).not.toContain('Failed to archive:');
+    expect(memoriesSource).not.toContain('Failed to restore:');
     expect(memoryRowSource).not.toContain('(no content)');
     expect(memoryRowSource).not.toContain('>archived<');
     expect(memoryRowSource).not.toContain(' facts</span>');
@@ -303,13 +305,27 @@ describe('dashboard i18n', () => {
       expectAllPresent(classes.map((c) => `telemetry.errorClass.${c}`));
     });
 
-    // LessonsTab: t(`lessons.severity.${severity}`) — severities are the
-    // severity:* tags severityOf() recognises.
+    // LessonCards (SeverityBadge, extracted from the retired LessonsTab):
+    // t(`lessons.severity.${severity}`) — severities are the severity:* tags
+    // severityOf() recognises.
     it('covers every lesson severity', () => {
-      const lessonsSrc = readFileSync('dashboard/src/components/LessonsTab.tsx', 'utf8');
-      const severities = [...new Set([...lessonsSrc.matchAll(/severity:(\w+)/g)].map((m) => m[1]))];
+      const lessonCardsSrc = readFileSync('dashboard/src/components/LessonCards.tsx', 'utf8');
+      const severities = [...new Set([...lessonCardsSrc.matchAll(/severity:(\w+)/g)].map((m) => m[1]))];
       expect(severities.sort()).toEqual(['critical', 'major', 'minor']);
       expectAllPresent(severities.map((s) => `lessons.severity.${s}`));
+    });
+
+    // MemoriesTab: t(`cluster.${c}`) — the composition legend iterates the
+    // TypeCluster union, parsed from its declaration in entity-display.ts so
+    // a new cluster fails this test until its translation lands. `cluster.all`
+    // rides along: it is the project-filter's "All" chip in the same tab.
+    it('covers every type cluster', () => {
+      const entityDisplay = readFileSync('dashboard/src/lib/entity-display.ts', 'utf8');
+      const unionMatch = entityDisplay.match(/export type TypeCluster =([^;]+);/);
+      expect(unionMatch, 'entity-display.ts stopped declaring the TypeCluster union').not.toBeNull();
+      const clusters = [...unionMatch![1].matchAll(/'(\w+)'/g)].map((m) => m[1]);
+      expect(clusters.sort()).toEqual(['activity', 'knowledge', 'reference', 'session']);
+      expectAllPresent([...clusters, 'all'].map((c) => `cluster.${c}`));
     });
 
     // PatternCard: t(`pattern.severity.${severity}`) — high/medium/low from
