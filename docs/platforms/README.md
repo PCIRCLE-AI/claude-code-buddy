@@ -8,13 +8,14 @@ MeMesh is designed for local coding-agent memory first. The preferred path is MC
 
 | Client | Best Mode | Setup | Guide |
 |--------|-----------|-------|-------|
-| **Claude Code / Claude Desktop** | MCP Server | Add `memesh-mcp` to your MCP config | See root [README](../../README.md) |
-| **MCP-compatible coding agents** | MCP Server | Point the client at `memesh-mcp` | See root [README](../../README.md) |
+| **Claude Code** | Plugin (hooks + MCP + skills, wired automatically) | `/plugin marketplace add PCIRCLE-AI/memesh` → `/plugin install memesh@pcircle-memesh` | See root [README](../../README.md) |
+| **Codex CLI / Gemini CLI** | MCP Server | `codex mcp add memesh -- memesh-mcp` / `gemini mcp add -s user memesh memesh-mcp` (needs `npm install -g @pcircle/memesh`) | See root [README](../../README.md) |
+| **Other MCP coding agents (Cursor, Cline…)** | MCP Server | Point the client at `memesh-mcp` | See root [README](../../README.md) |
 | **Hermes Agent (NousResearch)** | Native `MemoryProvider` plugin | Drop `plugins/memory/memesh/` into a Hermes Agent checkout; `hermes memory setup memesh` | [hermes-agent.md](./hermes-agent.md) |
 | **OpenClaw** | Native memory plugin | `openclaw plugins install <package>` or drop into OpenClaw checkout; configure `plugins.slots.memory` | [openclaw.md](./openclaw.md) |
 | **Custom apps / scripts** | HTTP API | Run `memesh serve` and call `/v1/*` | [universal.md](./universal.md) |
 | **ChatGPT / Custom GPT experiments** | HTTP API | Use a local connector/proxy that can reach localhost | [chatgpt.md](./chatgpt.md) |
-| **Google Gemini experiments** | HTTP API | Use a local connector/proxy that can reach localhost | [gemini.md](./gemini.md) |
+| **Gemini web / AI Studio experiments** | HTTP API | Use a local connector/proxy that can reach localhost (the Gemini **CLI** uses MCP above instead) | [gemini.md](./gemini.md) |
 
 ---
 

@@ -109,6 +109,28 @@ All notable changes to MeMesh are documented here.
 
 ### Changed
 
+- **The README answers "install it" in the first screen, and stops making a
+  false claim.** An install-path audit (all eleven paths, stepped through
+  against the actual code) found the first working command 668 words into the
+  README — inside a warning box — and one sentence that was simply untrue:
+  Option B claimed "the MCP server is registered" when the npm package
+  deliberately runs no install scripts and registers nothing. Now: a compact
+  `## Install` section right under the intro (both paths, with the
+  verification for each — the plugin's verification is the `◉ MeMesh`
+  session-start line, which was previously documented nowhere); the false
+  sentence corrected in all three languages; the Codex/Gemini wiring section
+  added to 繁體中文 and Deutsch (both previously omitted it entirely); the
+  platforms guide table aligned with the root README (it told Claude Code
+  users to hand-edit MCP config and listed Gemini as HTTP-only); and two new
+  subsections — "See what it remembered" (`memesh briefing` as the one-command
+  answer) and "Your data" (one local file, backup = copy it, capture opt-out,
+  delete = remove the directory).
+
+- **CLAUDE.md carries the working policy.** Lightweight vs full-process
+  criteria, findings-first review with `PASS`/`PASS_WITH_CONCERNS`/`FAIL`
+  verdicts, no runtime claims without runtime evidence, disjoint-scope
+  delegation, and internal-notes-stay-local — stated once, in the pointer
+  file assistants actually read.
 - **The `/memesh` skill leads with the continuity loop.** The skill now opens
   with the four moments that make memory pay for itself: session start →
   load the briefing once (with the explicit Claude Code exception — the
