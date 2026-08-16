@@ -162,6 +162,34 @@ describe('Feature: Post-Commit Hook', () => {
     expect(JSON.parse(entity.metadata as string).title_source).toBe('heuristic');
   });
 
+  it('Scenario: session id and touched files land in metadata — the hop `memesh why` walks', () => {
+    // Metadata, not tags, deliberately: a `file:*` tag on a commit entity
+    // would make pre-edit-recall inject commit noise into every edit of a
+    // touched file (its Strategy 1 joins on exactly that tag).
+    fs.writeFileSync(path.join(repoDir, 'auth.ts'), 'export const a = 1;\n');
+    git(['add', '--', 'auth.ts']);
+    git(['commit', '-q', '-m', 'feat: add auth', '--no-verify']);
+    const hash = git(['rev-parse', '--short', 'HEAD']).trim();
+
+    runHook({
+      tool_name: 'Bash',
+      session_id: 'sess-why-1',
+      cwd: repoDir,
+      tool_input: { command: 'git commit -m "feat: add auth"' },
+      tool_output: `[main (root-commit) ${hash}] feat: add auth\n 1 file changed, 1 insertion(+)\n`,
+    });
+
+    const db = openDb();
+    const entity = db.prepare('SELECT metadata FROM entities WHERE name = ?').get(`commit-${hash}`) as Row;
+    db.close();
+    const meta = JSON.parse(entity.metadata as string);
+    expect(meta.session_id).toBe('sess-why-1');
+    expect(meta.files).toContain('auth.ts');
+    // The extra metadata must not displace the stamps captureEntity owns.
+    expect(meta.provenance.source_host).toBe('claude-code');
+    expect(meta.title_source).toBe('heuristic');
+  });
+
   it('Scenario: output that LOOKS like a commit, from a command that was not one -> nothing written', () => {
     // The P7 defect, pinned. Reading a changelog whose text happens to contain
     // git's `[branch hash] message` line used to write a permanent memory for a

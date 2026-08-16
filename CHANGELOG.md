@@ -6,6 +6,41 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **`memesh why <file>` + `POST /v1/why`: file attribution with typed
+  abstentions.** Local git resolves which commits touched a file
+  (`git log --follow`, or `git blame` for `--line N`); the graph answers
+  what memesh remembers about them — the captured commit entity, the
+  session it was made in, and the memories associated with the file by
+  `file:<basename>` tag (labelled "associated, not commit-derived").
+  Every gap in the chain is a machine-readable abstention rendered as a
+  sentence — `no_commit_entity`, `no_session_link`, `not_a_git_repo`,
+  `file_not_tracked`, `line_uncommitted`, `line_out_of_range` — never a
+  guess. The join is prefix-based in both directions because post-commit
+  names entities `commit-<abbreviated hash>` while git emits full SHAs.
+  The HTTP route takes commit hashes from the caller and never shells out
+  to git: its strict schema has no repo-path field on purpose. To make
+  the commit→session hop real going forward, the post-commit hook now
+  records `metadata.session_id` and `metadata.files` (capped at 50) on
+  commit entities — metadata rather than tags, so pre-edit-recall's
+  file-tag join cannot start injecting commit noise into edits.
+- **Project tab: history, honestly told.** Four additions to the roadmap:
+  (1) a **capture-density band** — per-category (`knowledge` / `activity`
+  / `session` / `reference`) histogram of when memories were captured,
+  bucketed on `created_at`, the same axis the phase strip segments on,
+  and named for what it measures: what memesh captured, not everything
+  that happened; (2) a **lineage overlay** — `supersedes` (solid,
+  neutral) and `contradicts` (dashed, warning) arcs drawn on the
+  timeline between rows actually on screen, with a visible text legend
+  counting only the drawn arcs; the superseded (auto-archived) targets
+  of active entities are re-admitted into the roadmap so a chain always
+  has both ends — general archived noise stays out; (3) an **ADR-style
+  Decisions view** — one card per decision entity with an honest
+  two-state status (`active` / `superseded`, derived from the graph, no
+  invented lifecycle) and its supersession chain spelled out with jump
+  links; (4) **URL deep links** — the dashboard now writes `?tab=` back
+  to the address bar and the Project tab reads and writes `?project=`,
+  so a copied URL shows the reader the view being looked at.
+
 - **Lesson guards: a recorded mistake can now warn at the moment it is
   about to repeat.** The dreamer gained a guard stage: for each
   failure-shaped lesson (the Error / Root cause / Fix structure) it

@@ -760,6 +760,41 @@ describe('HTTP Transport: POST /v1/learn', () => {
   });
 });
 
+describe('HTTP Transport: POST /v1/why', () => {
+  it('joins caller-resolved hashes to commit entities and reports typed abstentions', async () => {
+    // The route runs NO git — hashes come from the caller (WhySchema's
+    // documented contract). Seed an abbrev-named commit entity the way
+    // post-commit does, then query with the full sha.
+    const fullSha = 'abcdef0123456789abcdef0123456789abcdef01';
+    await req('POST', '/v1/remember', {
+      name: `commit-${fullSha.slice(0, 7)}`,
+      type: 'commit',
+      observations: ['feat: why over http'],
+    });
+    const res = await req('POST', '/v1/why', { file: 'src/auth.ts', commits: [fullSha, 'f'.repeat(40)] });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.basename).toBe('auth.ts');
+    expect(res.body.data.commits).toHaveLength(2);
+    expect(res.body.data.commits[0].entity.name).toBe(`commit-${fullSha.slice(0, 7)}`);
+    expect(res.body.data.commits[1].entity).toBeNull();
+    expect(res.body.data.commits[1].abstentions).toEqual(['no_commit_entity']);
+    expect(res.body.data.file_memories.basis).toBe('file-tag');
+  });
+
+  it('rejects a non-hex hash and an unknown key (strict schema)', async () => {
+    const bad = await req('POST', '/v1/why', { file: 'a.ts', commits: ['not-a-sha'] });
+    expect(bad.status).toBe(400);
+    expect(bad.body.success).toBe(false);
+
+    // No repo-path key exists on purpose — the server must never be handed
+    // a directory to run git in. Strictness is what keeps that true.
+    const sneaky = await req('POST', '/v1/why', { file: 'a.ts', cwd: '/tmp/somewhere' });
+    expect(sneaky.status).toBe(400);
+    expect(sneaky.body.success).toBe(false);
+  });
+});
+
 describe('HTTP Transport: startServer host guard', () => {
   it('rejects non-loopback binds without explicit opt-in', () => {
     expect(() => startServer('0.0.0.0', 0)).toThrow(/Refusing to bind MeMesh HTTP server/);

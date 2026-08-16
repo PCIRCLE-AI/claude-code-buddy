@@ -75,6 +75,12 @@ export const TaskStateSchema = z.object({
 export const BriefingSchema = z.object({
     project: z.string().min(1).max(200).optional(),
 }).strict();
+export const WhySchema = z.object({
+    file: z.string().min(1).max(500),
+    commits: z.array(z.string().regex(/^[a-f0-9]{7,40}$/)).max(50).optional(),
+    project: z.string().min(1).max(200).optional(),
+    limit: z.number().int().min(1).max(50).optional(),
+}).strict();
 export const UserPatternsSchema = z.object({
     categories: z.array(z.enum(['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
         .describe('Specific categories to return. Omit for all.'),

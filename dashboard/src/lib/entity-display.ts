@@ -8,6 +8,7 @@
 import type { Entity } from './api';
 import { t, getLocale } from './i18n';
 import { isBoilerplateObservation } from '../../../src/core/title.js';
+import { CATEGORICAL_TYPE_COLORS } from './type-palette';
 
 /* ---------- type clustering ---------- */
 
@@ -36,6 +37,18 @@ const TYPE_CLUSTER: Record<string, TypeCluster> = {
 export function clusterOf(type: string): TypeCluster {
   return TYPE_CLUSTER[type] ?? 'reference';
 }
+
+/** Cluster swatches: each cluster wears its representative species' colour
+ *  (same palette the graph draws with, so every composition/density surface
+ *  tells one story). Single owner — MemoriesTab's composition bar and the
+ *  Project tab's capture-density band both read THIS map; a second copy is
+ *  how the two surfaces drift apart. */
+export const CLUSTER_DOT: Record<TypeCluster, string> = {
+  knowledge: CATEGORICAL_TYPE_COLORS.lesson_learned,
+  activity: CATEGORICAL_TYPE_COLORS.commit,
+  session: CATEGORICAL_TYPE_COLORS.session_keypoint,
+  reference: CATEGORICAL_TYPE_COLORS.note,
+};
 
 /* ---------- localised type / relation labels ---------- */
 // (Type icons live in components/icons/EntityIcon.tsx — the emoji map that

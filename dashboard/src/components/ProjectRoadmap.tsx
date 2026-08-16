@@ -5,6 +5,17 @@ import { MemoryRow } from './MemoryRow';
 import { t, getLocale } from '../lib/i18n';
 import { relativeDate, timeBucket, accessSignal, typeLabel, displayTitle } from '../lib/entity-display';
 import { EntityIcon } from './icons/EntityIcon';
+import { CaptureDensityBand } from './CaptureDensityBand';
+
+/** The decision species, for the ADR view. `architecture` alone is a
+ *  structure description, not a choice — it stays out. */
+const DECISION_TYPES = new Set(['decision', 'design_decision', 'architecture_decision']);
+
+/** Relation types the timeline overlay draws. ONLY the two behavioural
+ *  types that actually exist in this codebase (BEHAVIOURAL_RELATION_TYPES);
+ *  `caused` appears in MCP prose but no writer emits it — drawing a legend
+ *  for it would be advertising an edge that cannot occur. */
+const LINEAGE_EDGE_TYPES = new Set(['supersedes', 'contradicts']);
 
 /** Type set that qualifies as a milestone for the rail. Releases are the
  *  primary signal; workflow_checkpoint and weekly-summary are optional
@@ -244,7 +255,7 @@ function groupByDate(entities: Entity[], now: Date = new Date()): DateGroup[] {
   return groups;
 }
 
-type RoadmapView = 'tree' | 'mindmap';
+type RoadmapView = 'tree' | 'mindmap' | 'decisions';
 
 export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props) {
   const [view, setView] = useState<RoadmapView>('tree');
@@ -314,6 +325,70 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
     window.setTimeout(() => { el.style.background = ''; }, 1400);
   };
 
+  /* ---------- lineage overlay (supersedes / contradicts arcs) ---------- */
+
+  const idByName = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const e of entities) m.set(e.name, e.id);
+    return m;
+  }, [entities]);
+
+  // Edges where BOTH endpoints are in this project view. Relations are
+  // outgoing-only in the payload, so this is the complete set for entities
+  // on screen — no reverse pass needed for drawing.
+  const lineageEdges = useMemo(() => {
+    const edges: Array<{ from: number; to: number; type: string }> = [];
+    for (const e of entities) {
+      for (const r of e.relations ?? []) {
+        if (!LINEAGE_EDGE_TYPES.has(r.type)) continue;
+        const to = idByName.get(r.to);
+        if (to !== undefined && to !== e.id) edges.push({ from: e.id, to, type: r.type });
+      }
+    }
+    return edges;
+  }, [entities, idByName]);
+
+  const trunkRef = useRef<HTMLDivElement | null>(null);
+  const [edgePaths, setEdgePaths] = useState<Array<{ d: string; type: string }>>([]);
+  // Measured off the DOM after render — an edge is only drawn between rows
+  // that are actually on screen ("every moving pixel tells a truth" applies
+  // to static pixels too: no arc to an element that is not there). The
+  // every-render effect below converges via the equality guard.
+  const computeEdgePathsRef = useRef<() => void>(() => {});
+  computeEdgePathsRef.current = () => {
+    const container = trunkRef.current;
+    if (!container || lineageEdges.length === 0 || view !== 'tree') {
+      setEdgePaths((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
+    const cTop = container.getBoundingClientRect().top;
+    const next: Array<{ d: string; type: string }> = [];
+    for (const edge of lineageEdges) {
+      const fromEl = entryRefs.current.get(edge.from);
+      const toEl = entryRefs.current.get(edge.to);
+      if (!fromEl || !toEl) continue;
+      const fr = fromEl.getBoundingClientRect();
+      const tr = toEl.getBoundingClientRect();
+      const y1 = Math.round(fr.top - cTop + fr.height / 2);
+      const y2 = Math.round(tr.top - cTop + tr.height / 2);
+      next.push({ d: `M 14 ${y1} C 0 ${y1}, 0 ${y2}, 14 ${y2}`, type: edge.type });
+    }
+    setEdgePaths((prev) => {
+      const same = prev.length === next.length
+        && prev.every((p, i) => p.d === next[i].d && p.type === next[i].type);
+      return same ? prev : next;
+    });
+  };
+  useEffect(() => { computeEdgePathsRef.current(); });
+  useEffect(() => {
+    const onResize = () => computeEdgePathsRef.current();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const drawnSupersedes = edgePaths.filter((p) => p.type === 'supersedes').length;
+  const drawnContradicts = edgePaths.filter((p) => p.type === 'contradicts').length;
+
   if (entities.length === 0) {
     return (
       <div class="empty">
@@ -373,8 +448,13 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                 border: '1px solid var(--border-subtle)',
               }}
             >
-              {(['tree', 'mindmap'] as const).map((v) => {
+              {(['tree', 'mindmap', 'decisions'] as const).map((v) => {
                 const active = view === v;
+                const label = v === 'tree'
+                  ? `🌲 ${t('roadmap.viewTree')}`
+                  : v === 'mindmap'
+                    ? `🧠 ${t('roadmap.viewMindmap')}`
+                    : `⚖️ ${t('roadmap.viewDecisions')}`;
                 return (
                   <button
                     key={v}
@@ -393,7 +473,7 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                       fontWeight: active ? 600 : 400,
                     }}
                   >
-                    {v === 'tree' ? `🌲 ${t('roadmap.viewTree')}` : `🧠 ${t('roadmap.viewMindmap')}`}
+                    {label}
                   </button>
                 );
               })}
@@ -427,11 +507,16 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
         )}
       </div>
 
+      {/* Capture density by category — created_at buckets, the same axis
+          the phase strip below segments on. Honestly named: it shows what
+          memesh captured, not everything that happened. */}
+      <CaptureDensityBand entities={entities} />
+
       {/* v2: Auto-phase strip. Renders only when the project has enough
           density (≥3 entities within ≤7-day windows) to make phases
           meaningful. Click a phase chip to scroll the corresponding
           anchor entity into view. */}
-      {phases.length > 0 && (
+      {view !== 'decisions' && phases.length > 0 && (
         <div
           style={{
             display: 'flex',
@@ -511,6 +596,15 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
         </div>
       )}
 
+      {/* ADR view — the project's decisions as a record, with their
+          supersession lineage spelled out. */}
+      {view === 'decisions' && (
+        <DecisionsView
+          entities={entities}
+          onJump={(id) => { setView('tree'); window.requestAnimationFrame(() => focusEntry(id)); }}
+        />
+      )}
+
       {/* Two-column layout on wide screens: timeline + rails sidebar */}
       {view === 'tree' && (
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 280px', gap: 16, alignItems: 'start' }}>
@@ -521,8 +615,22 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
             results (project below density threshold), fall through to
             the date-grouped flat list so small projects still render. */}
         <div style={{ position: 'relative', minWidth: 0 }}>
+          {/* Lineage legend — the visible text carrier for the aria-hidden
+              arcs below; counts are of DRAWN arcs, never of edges that
+              could not be placed. */}
+          {(drawnSupersedes > 0 || drawnContradicts > 0) && (
+            <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 6, fontFamily: 'var(--font-ui)' }}>
+              {drawnSupersedes > 0 && (
+                <span style={{ marginRight: 10 }}>— {t('roadmap.lineageSupersedes', { n: drawnSupersedes })}</span>
+              )}
+              {drawnContradicts > 0 && (
+                <span style={{ color: 'var(--warning)' }}>⋯ {t('roadmap.lineageConflicts', { n: drawnContradicts })}</span>
+              )}
+            </div>
+          )}
           {phases.length > 0 ? (
             <div
+              ref={trunkRef}
               style={{
                 position: 'relative',
                 paddingLeft: 28,
@@ -540,6 +648,27 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
                   background: 'var(--border-subtle)',
                 }}
               />
+              {/* Lineage arcs — supersedes (solid, neutral: history) and
+                  contradicts (dashed, warning: unresolved) between rows on
+                  screen. Decorative twin of the legend above. */}
+              {edgePaths.length > 0 && (
+                <svg
+                  aria-hidden="true"
+                  style={{ position: 'absolute', left: 0, top: 0, width: 28, height: '100%', overflow: 'visible', pointerEvents: 'none' }}
+                >
+                  {edgePaths.map((p, i) => (
+                    <path
+                      key={i}
+                      d={p.d}
+                      fill="none"
+                      stroke={p.type === 'contradicts' ? 'var(--warning)' : 'var(--text-3)'}
+                      strokeWidth={1.5}
+                      strokeDasharray={p.type === 'contradicts' ? '3 3' : undefined}
+                      opacity={0.8}
+                    />
+                  ))}
+                </svg>
+              )}
               {(() => {
                 // Bucket entities into their derived phase by date range.
                 // Entities outside any phase window (single-day micro-runs
@@ -890,6 +1019,152 @@ export function ProjectRoadmap({ projectName, entities, onSwitchToList }: Props)
         </div>
       </div>
       )}
+    </div>
+  );
+}
+
+/* ============================================================================
+ * DecisionsView — the project's decisions as an ADR-style record.
+ * ----------------------------------------------------------------------------
+ * One card per decision-type entity, newest first: title (memory voice),
+ * date, an honest two-state status derived from the graph — `superseded`
+ * when a supersedes edge points AT it (or it arrived archived), `active`
+ * otherwise. No invented lifecycle (proposed/accepted/…): the graph does
+ * not record one, so the view does not display one.
+ *
+ * The lineage is spelled out per card: what this decision supersedes, and
+ * what superseded it (reverse edges computed here — the payload only
+ * carries outgoing relations). Chain targets inside the project jump to
+ * the tree view; targets outside it render as plain names.
+ * ========================================================================= */
+function DecisionsView({ entities, onJump }: { entities: Entity[]; onJump: (id: number) => void }) {
+  const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => new Set<number>());
+  const toggle = (id: number) => setExpanded((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const decisions = useMemo(
+    () => entities
+      .filter((e) => DECISION_TYPES.has(e.type))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    [entities],
+  );
+
+  const byName = useMemo(() => {
+    const m = new Map<string, Entity>();
+    for (const e of entities) m.set(e.name, e);
+    return m;
+  }, [entities]);
+
+  // Reverse supersession index: target name -> the entities that replaced it.
+  const supersededBy = useMemo(() => {
+    const m = new Map<string, Entity[]>();
+    for (const e of entities) {
+      for (const r of e.relations ?? []) {
+        if (r.type !== 'supersedes') continue;
+        const list = m.get(r.to) ?? [];
+        list.push(e);
+        m.set(r.to, list);
+      }
+    }
+    return m;
+  }, [entities]);
+
+  if (decisions.length === 0) {
+    return <div class="empty" style={{ padding: 24 }}>{t('adr.empty')}</div>;
+  }
+
+  const chainLink = (name: string) => {
+    const target = byName.get(name);
+    if (!target) return <span style={{ color: 'var(--text-2)' }}>{name}</span>;
+    return (
+      <button
+        onClick={() => onJump(target.id)}
+        style={{
+          background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+          color: 'var(--life)', fontSize: 'inherit', fontFamily: 'inherit', textDecoration: 'underline',
+        }}
+      >
+        {displayTitle(target)}
+      </button>
+    );
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {decisions.map((e) => {
+        const replacedBy = supersededBy.get(e.name) ?? [];
+        const isSuperseded = replacedBy.length > 0 || Boolean(e.archived) || e.status === 'archived';
+        const isOpen = expanded.has(e.id);
+        const bodyId = `adr-body-${e.id}`;
+        const supersedesTargets = (e.relations ?? []).filter((r) => r.type === 'supersedes').map((r) => r.to);
+        return (
+          <div
+            key={e.id}
+            style={{
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '10px 12px',
+              opacity: isSuperseded ? 0.75 : 1,
+            }}
+          >
+            <button
+              aria-expanded={isOpen}
+              aria-controls={bodyId}
+              onClick={() => toggle(e.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                background: 'transparent', border: 'none', padding: 0,
+                cursor: 'pointer', color: 'inherit', textAlign: 'left', fontFamily: 'inherit',
+              }}
+            >
+              <span aria-hidden="true" style={{ color: 'var(--text-3)', fontSize: 10, width: 10, flexShrink: 0 }}>
+                {isOpen ? '▾' : '▸'}
+              </span>
+              <EntityIcon type={e.type} size={14} />
+              <span style={{ fontFamily: 'var(--font-memory)', fontSize: 15, color: 'var(--text-0)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {displayTitle(e)}
+              </span>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-3)', flexShrink: 0 }}>
+                {e.created_at.slice(0, 10)}
+              </span>
+              <span
+                style={{
+                  fontSize: 10,
+                  padding: '2px 8px',
+                  borderRadius: 9999,
+                  flexShrink: 0,
+                  background: isSuperseded ? 'var(--neutral-soft)' : 'var(--life-soft)',
+                  color: isSuperseded ? 'var(--text-2)' : 'var(--life)',
+                }}
+              >
+                {isSuperseded ? t('adr.statusSuperseded') : t('adr.statusActive')}
+              </span>
+            </button>
+            {isOpen && (
+              <div id={bodyId} style={{ marginTop: 8, paddingLeft: 18 }}>
+                {e.observations.map((obs, i) => (
+                  <p key={i} style={{ fontFamily: 'var(--font-memory)', fontSize: 15, lineHeight: 1.6, color: 'var(--text-1)', margin: '0 0 6px' }}>
+                    {obs}
+                  </p>
+                ))}
+                {(supersedesTargets.length > 0 || replacedBy.length > 0) && (
+                  <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {supersedesTargets.map((name) => (
+                      <span key={`s-${name}`}>{t('adr.supersedes')} → {chainLink(name)}</span>
+                    ))}
+                    {replacedBy.map((winner) => (
+                      <span key={`b-${winner.id}`}>{t('adr.supersededBy')} → {chainLink(winner.name)}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

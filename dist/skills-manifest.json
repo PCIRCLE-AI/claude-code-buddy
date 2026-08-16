@@ -68,8 +68,8 @@
     },
     {
       "path": "scripts/hooks/_shared.js",
-      "sha256": "a8fa38272f55065d31332941a52be7f6b1f1c2b96127d4d1eb4847b9dd86a43b",
-      "bytes": 37663
+      "sha256": "f12eac50863669b044345707725e8a1c4cf0c2fefab0ea5755adca250a9026a1",
+      "bytes": 38023
     },
     {
       "path": "scripts/hooks/guard-check.js",
@@ -78,8 +78,8 @@
     },
     {
       "path": "scripts/hooks/post-commit.js",
-      "sha256": "da50568994b91984029cf077a03dc99e8441b1942f4c31fc641f5c36b43970f7",
-      "bytes": 8220
+      "sha256": "6f7e4e66dcbf731aaa01074ec7e27fbf06945c0333e34671468efdc50f3fe711",
+      "bytes": 9537
     },
     {
       "path": "scripts/hooks/pre-compact.js",

@@ -21,6 +21,7 @@ import {
   ForgetSchema as ForgetBody,
   ExportSchema as ExportBody, ImportSchema as ImportBody,
   LearnSchema as LearnBody,
+  WhySchema as WhyBody,
 } from '../schemas.js';
 import { checkForUpdate, getLastUpdateCheck, getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
@@ -564,6 +565,17 @@ app.post('/v1/consolidate', (_req, res) => {
 app.post('/v1/export',      (req, res) => handlePost(ExportBody, req, res, exportMemories));
 app.post('/v1/import',      (req, res) => handlePost(ImportBody, req, res, importMemories));
 app.post('/v1/learn',       (req, res) => handlePost(LearnBody, req, res, (data) => learn({ ...data, sourceHost: 'http' })));
+// --- Why --- file attribution from the graph side only. Commit hashes come
+// from the caller (see WhySchema) — this route runs no git, ever.
+app.post('/v1/why', (req, res) => handlePost(WhyBody, req, res, async (data) => {
+  const { explainCommits } = await import('../../core/why.js');
+  return explainCommits(getDatabase(), {
+    file: data.file,
+    commits: (data.commits ?? []).map((hash) => ({ hash })),
+    project: data.project ?? null,
+    limit: data.limit,
+  });
+}));
 app.post('/v1/verify', (_req, res) => {
   res.status(410).json({ success: false, errorCode: 'route.retired' satisfies ErrorCode, error: RETIRED_ROUTES['/v1/verify'] });
 });
