@@ -4,6 +4,8 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+## [4.6.0] — 2026-08-16
+
 ### Added
 
 - **`memesh upgrade-plugin` — the CLI front door to the plugin upgrade script (P6).**
@@ -426,8 +428,6 @@ All notable changes to MeMesh are documented here.
   dashboard — every dashboard change was potentially a three-place edit, and
   the HTTP server never used it. `memesh serve` is the dashboard;
   `view-live.ts` remains as its no-build fallback.
-
-## [4.6.0] - 2026-08-15
 
 ### Changed
 
