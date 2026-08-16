@@ -90,9 +90,10 @@ describe('CLI: flags reject values they do not understand', () => {
       // observation rather than quietly doing nothing. Without a non-zero count
       // asserted somewhere, every "exit code 0" check in this file would pass
       // just as happily against a command that did not run at all.
-      const after = JSON.parse(runCli(['recall', 'alpha', '--json']).stdout) as Array<{ observations: string[] }>;
-      expect(after.length).toBe(1);
-      expect(after[0].observations.length).toBeGreaterThanOrEqual(1);
+      // R2: recall --json is the object envelope {entities, retrieval, ...}.
+      const after = JSON.parse(runCli(['recall', 'alpha', '--json']).stdout) as { entities: Array<{ observations: string[] }> };
+      expect(after.entities.length).toBe(1);
+      expect(after.entities[0].observations.length).toBeGreaterThanOrEqual(1);
     });
   });
 
