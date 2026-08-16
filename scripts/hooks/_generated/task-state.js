@@ -12,16 +12,6 @@ export const MAX_FIELD_CHARS = 300;
 export function taskStateName(project) {
     return `${TASK_STATE_TYPE}:${project}`;
 }
-export function projectOfTaskStateName(name) {
-    const prefix = `${TASK_STATE_TYPE}:`;
-    if (!name.startsWith(prefix))
-        return null;
-    const project = name.slice(prefix.length);
-    return project.length > 0 ? project : null;
-}
-export function isTaskStateField(value) {
-    return TASK_STATE_FIELDS.includes(value);
-}
 export function parseTaskState(metadata) {
     const state = {};
     if (!metadata || typeof metadata !== 'object')

@@ -63,18 +63,6 @@ export function taskStateName(project: string): string {
   return `${TASK_STATE_TYPE}:${project}`;
 }
 
-/** Inverse of taskStateName; null when the name is not a task-state key. */
-export function projectOfTaskStateName(name: string): string | null {
-  const prefix = `${TASK_STATE_TYPE}:`;
-  if (!name.startsWith(prefix)) return null;
-  const project = name.slice(prefix.length);
-  return project.length > 0 ? project : null;
-}
-
-export function isTaskStateField(value: string): value is TaskStateField {
-  return (TASK_STATE_FIELDS as readonly string[]).includes(value);
-}
-
 /**
  * Read the current state out of an entity's parsed metadata.
  *

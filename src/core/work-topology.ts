@@ -25,11 +25,15 @@
  * between layers should not move when A1b starts writing them, or the
  * before/after numbers stop being comparable.
  */
+/** The lesson-ish subset of the work layer — the types groupTopology files
+ *  under "do not repeat these" rather than "decisions and direction". Stated
+ *  once and composed into the whitelist, so a future lesson-ish type cannot
+ *  join the layer without also choosing its section. */
+const LESSON_TYPES: ReadonlySet<string> = new Set(['lesson_learned', 'lesson', 'mistake']);
+
 export const WORK_LAYER_TYPES: ReadonlySet<string> = new Set([
+  ...LESSON_TYPES,
   'decision',
-  'lesson_learned',
-  'lesson',
-  'mistake',
   'milestone',
   'pattern',
   'technical_pattern',
@@ -45,7 +49,7 @@ export const WORK_LAYER_TYPES: ReadonlySet<string> = new Set([
  * above it leave room, which is the empty-state fallback both reviews asked
  * for: never an empty injection.
  */
-export const EVIDENCE_LAYER_TYPES: ReadonlySet<string> = new Set([
+const EVIDENCE_LAYER_TYPES: ReadonlySet<string> = new Set([
   'commit',
   'session-insight',
   'session-summary',
@@ -179,13 +183,21 @@ export function groupTopology(entities: TopologyEntity[], projectName: string): 
   const foreign: TopologyEntity[] = [];
 
   for (const e of entities) {
+    // task-state rows are never listed: taskStateLines is that type's sole
+    // sanctioned renderer, and it leads the block. Dropped by TYPE here —
+    // not by name in each consumer — because the name check only protects
+    // the current project's exact key: a foreign project's task-state
+    // arriving through a recent pool, or a stale `task-state:<old-name>`
+    // left behind by a project rename, would otherwise render its goal
+    // under "Decisions and direction" as though it were a decision.
+    if (e.type === 'task-state') continue;
     // Scope is checked before layer: a memory from another project must never
     // land under a heading that names this one, whatever its type.
     if (e.foreign) { foreign.push(e); continue; }
     const layer = layerOf(e.type);
     if (layer === 'evidence') { evidence.push(e); continue; }
     if (layer === 'knowledge') { knowledge.push(e); continue; }
-    if (e.type === 'lesson_learned' || e.type === 'lesson' || e.type === 'mistake') lessons.push(e);
+    if (LESSON_TYPES.has(e.type)) lessons.push(e);
     else decisions.push(e);
   }
 
@@ -205,9 +217,26 @@ export interface TopologyBudget {
   maxChars: number;
   /** Per-line ceiling for the display text. */
   maxLineChars?: number;
-  /** Ceiling per section, so one crowded section cannot eat the budget. */
-  maxPerSection?: number;
 }
+
+/** Ceiling per section, so one crowded section cannot eat the budget. */
+const MAX_PER_SECTION = 8;
+
+/**
+ * The budget both injection surfaces use, and the candidate window their
+ * selection queries fetch before the trust gate. Exported from the leaf —
+ * the one module both sides already import — because "the same block"
+ * (A1c's acceptance criterion) quietly depends on these agreeing, and the
+ * parity test's small fixture cannot detect a constant drift.
+ */
+export const DEFAULT_TOPOLOGY_BUDGET: Readonly<Required<TopologyBudget>> = {
+  maxChars: 4000,
+  maxLineChars: 160,
+};
+export const TOPOLOGY_CANDIDATE_CAP = 400;
+/** Fetch snippets a few line-widths long, so clip() still finds a word
+ *  boundary; a hard cut at exactly maxLineChars would defeat it. */
+export const SNIPPET_FETCH_CHARS = DEFAULT_TOPOLOGY_BUDGET.maxLineChars * 4;
 
 /**
  * Assemble the injected lines, newest concern first, within budget.
@@ -220,8 +249,8 @@ export function buildTopologyLines(
   projectName: string,
   budget: TopologyBudget,
 ): string[] {
-  const maxLineChars = budget.maxLineChars ?? 150;
-  const maxPerSection = budget.maxPerSection ?? 8;
+  const maxLineChars = budget.maxLineChars ?? DEFAULT_TOPOLOGY_BUDGET.maxLineChars;
+  const maxPerSection = MAX_PER_SECTION;
   const lines: string[] = [];
   let used = 0;
 
@@ -243,6 +272,67 @@ export function buildTopologyLines(
 
   // Drop the trailing spacer so the block does not end on a blank line.
   if (lines[lines.length - 1] === '') lines.pop();
+  return lines;
+}
+
+/** A pool of candidates plus the one fact the assembler needs about it. */
+export interface TopologyPool {
+  entities: TopologyEntity[];
+  /** True when this pool is NOT scoped to the current project. */
+  foreign: boolean;
+}
+
+/**
+ * The whole assembly, owned once.
+ *
+ * Both injection surfaces — the session-start hook and the MCP `briefing`
+ * tool — used to repeat this sequence line for line: dedupe candidates
+ * across pools, put the stated task-state block first, spacer, topology
+ * sections, trim the tail. Their parity was held only by a test on a small
+ * fixture; the phrasing (which this file's charter says exists exactly once)
+ * had two owners. Now each consumer owns only what the A1a design assigns
+ * it: its database access and its row→TopologyEntity mapping.
+ *
+ * `stateLines` is the already-rendered task-state block (taskStateLines) —
+ * taken as lines, not as state, so this leaf keeps its no-imports charter.
+ * It is charged against the same budget as everything else: the stated block
+ * leads, and whatever it uses the ranked sections no longer have.
+ *
+ * Pools are claimed in order — an entity present in an earlier pool is not
+ * re-added by a later one, which is how a project-scoped row avoids being
+ * marked foreign by the cross-project recent pool. Dedup is by `name`, the
+ * schema's own unique key.
+ */
+export function assembleTopologyBlock(
+  stateLines: readonly string[],
+  pools: readonly TopologyPool[],
+  projectName: string,
+  budget: TopologyBudget = DEFAULT_TOPOLOGY_BUDGET,
+): string[] {
+  const seen = new Set<string>();
+  const candidates: TopologyEntity[] = [];
+  for (const pool of pools) {
+    for (const e of pool.entities) {
+      if (seen.has(e.name)) continue;
+      seen.add(e.name);
+      candidates.push(pool.foreign && !e.foreign ? { ...e, foreign: true } : e);
+    }
+  }
+
+  const lines: string[] = [];
+  let stateChars = 0;
+  for (const line of stateLines) {
+    lines.push(line);
+    stateChars += line.length + 1;
+  }
+
+  const remaining = Math.max(0, budget.maxChars - stateChars);
+  const topologyLines = remaining > 0
+    ? buildTopologyLines(candidates, projectName, { ...budget, maxChars: remaining })
+    : [];
+  // The spacer exists only between the two blocks — never as a dangling tail.
+  if (lines.length > 0 && topologyLines.length > 0) lines.push('');
+  lines.push(...topologyLines);
   return lines;
 }
 
