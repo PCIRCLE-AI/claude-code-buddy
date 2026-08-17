@@ -384,7 +384,7 @@ function inspectHookActivity(openDatabaseImpl, closeDatabaseImpl, existsSyncImpl
     }
     catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
-        return createCheck('hook-activity', TITLE, 'fail', `Could not read hook activity from the database: ${detail}. Capture health is unknown, which is not the same as healthy.`, 'Run `memesh doctor --verbose` for the full error, and check that ~/.memesh is readable and not out of disk.', { code: 'hook-activity.query-failed', params: { detail } });
+        return createCheck('hook-activity', TITLE, 'fail', `Could not read hook activity from the database: ${detail}. Capture health is unknown, which is not the same as healthy.`, 'The error is quoted above. Check that ~/.memesh is readable and that the disk is not full.', { code: 'hook-activity.query-failed', params: { detail } });
     }
     finally {
         try {

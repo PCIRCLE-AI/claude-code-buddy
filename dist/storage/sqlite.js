@@ -22,7 +22,7 @@ function loadNodeSqlite() {
     }
 }
 const { DatabaseSync } = loadNodeSqlite();
-const BUSY_TIMEOUT_MS = 5000;
+const BUSY_TIMEOUT_MS = 30_000;
 export class MemeshDatabase extends DatabaseSync {
     #depth = 0;
     constructor(path, options = {}) {

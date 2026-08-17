@@ -5,7 +5,7 @@ import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { openDatabase, closeDatabase, getDatabase, reindexFts, allowVectorIndexRebuild } from '../../db.js';
+import { openDatabase, closeDatabase, getDatabase, reindexFts } from '../../db.js';
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
@@ -2285,11 +2285,6 @@ program
   .description('Regenerate vector embeddings for all entities (--fts rebuilds the keyword index instead)')
   .option('--namespace <namespace>', 'Reindex only entities in this namespace')
   .option('--fts', 'Rebuild the full-text keyword index instead of the vector index')
-  .option(
-    '--vectors',
-    'Also rebuild the vector index at the configured dimension. DESTRUCTIVE: drops every ' +
-      'stored embedding first. Needed only when switching embedding providers.'
-  )
   .option('--json', 'Output as JSON')
   .action(async (opts) => {
     requireOneOf(opts.namespace, NAMESPACES, '--namespace');
@@ -2307,10 +2302,6 @@ program
       // from a bad release. This is the way out, and `memesh doctor` points
       // here when it detects it.
       if (opts.fts) {
-        if (opts.vectors) {
-          console.error('❌ --fts and --vectors rebuild different indexes. Run them separately.');
-          process.exit(1);
-        }
         await withDatabase(async () => {
           const { entities } = reindexFts();
           if (opts.json) {
@@ -2322,47 +2313,24 @@ program
         return;
       }
 
-      if (opts.vectors) {
-        if (opts.namespace) {
-          // `entities_vec` is one table for the whole database, so the rebuild
-          // drops EVERY namespace's vectors — while `--namespace` would refill
-          // only one. The other namespaces would lose their embeddings
-          // permanently and silently, outside anything the user asked for.
-          // Same family as dropping without a way to refill: the destruction
-          // is wider than the repair.
-          console.error(
-            '❌ --vectors rebuilds the whole vector index, which is shared by every\n' +
-            '   namespace, so it cannot be limited to one. Combining it with\n' +
-            '   --namespace would delete the other namespaces\' embeddings and never\n' +
-            '   regenerate them. Run `memesh reindex --vectors` on its own, or drop\n' +
-            '   --vectors to reindex just this namespace at the current dimension.'
-          );
-          process.exit(1);
-        }
-        // The drop happens inside openDatabase, so consent has to be recorded
-        // before the database is opened. `allowVectorIndexRebuild` refuses to
-        // record it unless something can refill the index afterwards — see
-        // there for why that check is its argument rather than ours.
-        //
-        // `canRefillVectorIndex`, not `isEmbeddingAvailable`: the latter
-        // reports which provider the config NAMES, and says yes for openai and
-        // ollama without checking a key, reaching an endpoint, or comparing a
-        // dimension. Authorising a drop on that answer is how an expired key
-        // turns this command into permanent data loss. The probe embeds one
-        // string and measures it.
-        //
-        // `getDbPath()` is the same path `withDatabase` below opens with; the
-        // consent is refused inside `openDatabase` if they ever disagree.
-        if (!(await allowVectorIndexRebuild(getDbPath(), canRefillVectorIndex))) {
-          console.error(
-            '❌ Could not produce a test embedding at this database\'s vector width, so\n' +
-            '   the index was left untouched. Rebuilding it deletes every stored\n' +
-            '   embedding, and nothing here could regenerate them.\n' +
-            '   Check that Ollama is running (or that your OpenAI API key is valid) —\n' +
-            '   then run this again. `memesh doctor` reports which provider is configured.'
-          );
-          process.exit(1);
-        }
+      // A full rebuild builds a new generation before anything is replaced, so
+      // it is no longer destructive — but a provider that cannot produce a
+      // vector at the configured width will fill nothing, and the run would
+      // spend its whole length discovering that. `canRefillVectorIndex`
+      // embeds one probe string and measures it, which is the only honest
+      // form of the question. `isEmbeddingAvailable` cannot answer it: it
+      // reports which provider the CONFIG names and says yes for openai and
+      // ollama without checking a key, reaching an endpoint or comparing a
+      // width.
+      if (!opts.namespace && !(await canRefillVectorIndex())) {
+        console.error(
+          '❌ Could not produce a test embedding at the configured vector width, so\n' +
+          '   nothing was rebuilt. Your existing index is untouched and still\n' +
+          '   answering queries.\n' +
+          '   Check that Ollama is running (or that your OpenAI API key is valid) —\n' +
+          '   then run this again. `memesh doctor` reports which provider is configured.'
+        );
+        process.exit(1);
       }
 
       await withDatabase(async () => {

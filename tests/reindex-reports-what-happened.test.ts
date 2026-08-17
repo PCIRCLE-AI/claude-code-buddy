@@ -71,7 +71,7 @@ describe('Feature: reindex reports what it actually wrote', () => {
   function markReindexPending(): void {
     getDatabase()
       .prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)")
-      .run(JSON.stringify({ from: 384, to: OPENAI_DIM, droppedAt: '2026-01-01T00:00:00.000Z' }));
+      .run(JSON.stringify({ from: 384, to: OPENAI_DIM, reason: 'dimension-change', noticedAt: '2026-01-01T00:00:00.000Z' }));
   }
 
   function pendingReindexRow(): unknown {
@@ -82,6 +82,16 @@ describe('Feature: reindex reports what it actually wrote', () => {
 
   function vectorCount(): number {
     return (getDatabase().prepare('SELECT count(*) AS c FROM entities_vec').get() as { c: number }).c;
+  }
+
+  /** Rows in the staging generation. Absent table means zero — a rebuild that
+   *  completed swapped it away, which is the successful outcome. */
+  function stagedVectorCount(): number {
+    try {
+      return (getDatabase().prepare('SELECT count(*) AS c FROM entities_vec_next').get() as { c: number }).c;
+    } catch {
+      return 0;
+    }
   }
 
   beforeEach(() => {
@@ -164,10 +174,18 @@ describe('Feature: reindex reports what it actually wrote', () => {
     expect(pendingReindexRow()).toBeUndefined();
   });
 
-  it('a partial run keeps the flag', async () => {
+  it('a partial run leaves the LIVE index untouched and keeps its work for a resume', async () => {
     // Half the corpus embedded is not the same as all of it, and it is the
     // case most likely to happen for real: a provider that rate-limits or
     // drops connections part way through a long run.
+    //
+    // The contract this asserts is the generation one, and it is stronger than
+    // what came before. A rebuild now writes into a staging table and is
+    // promoted only when complete, so a partial run publishes NOTHING: the
+    // live index still holds exactly what it held before, rather than becoming
+    // a half-new, half-old mix whose distances are no longer comparable. The
+    // embeddings that did succeed are kept in staging so the next run does not
+    // ask a paid provider for them twice.
     seedEntity('alpha', 'first memory');
     seedEntity('beta', 'second memory');
     markReindexPending();
@@ -177,10 +195,32 @@ describe('Feature: reindex reports what it actually wrote', () => {
 
     expect(result.embedded).toBe(1);
     expect(result.outcomes.dimension_mismatch).toBe(1);
-    expect(vectorCount()).toBe(1);
-    expect(result.missingVectors).toBe(1);
+    expect(vectorCount(), 'a partial rebuild published into the live index').toBe(0);
+    expect(stagedVectorCount(), 'the embedding that succeeded was thrown away').toBe(1);
+    expect(result.missingVectors).toBe(2);
     expect(result.pendingReindexCleared).toBe(false);
     expect(pendingReindexRow()).toBeDefined();
+  });
+
+  it('a resumed run asks the provider only for what the first run did not get', async () => {
+    // The money half of the guarantee: on a paid provider, the embeddings a
+    // failed run already bought must not be bought again.
+    seedEntity('alpha', 'first memory');
+    seedEntity('beta', 'second memory');
+    let requests = 0;
+    serveEmbeddings((input) => { requests++; return input.includes('first') ? OPENAI_DIM : 8; });
+    await reindex();
+    expect(requests).toBe(2);
+    expect(stagedVectorCount()).toBe(1);
+
+    // Second run: the provider now works for both, but only ONE new request
+    // should be made — alpha is already staged.
+    requests = 0;
+    serveEmbeddings(() => { requests++; return OPENAI_DIM; });
+    const second = await reindex();
+    expect(requests, 'a resume re-bought an embedding it already had').toBe(1);
+    expect(vectorCount(), 'the completed generation was not switched in').toBe(2);
+    expect(second.pendingReindexCleared).toBe(true);
   });
 
   it('an entity with nothing to embed does not hold the flag open forever', async () => {
@@ -237,8 +277,13 @@ describe('Feature: reindex reports what it actually wrote', () => {
 
     const result = await reindex();
 
-    expect(result.missingVectors).toBe(1);
-    expect(result.missingVectorsDatabaseWide).toBe(1);
+    // Both, not one: the entity that embedded went into the staging
+    // generation, and a run with a failure is not promoted — so the live index
+    // published nothing and neither namespace has a vector in it yet. The
+    // guard still does its job, which is what this test is for: a genuine
+    // shortfall shows rather than being rounded to success.
+    expect(result.missingVectors).toBe(2);
+    expect(result.missingVectorsDatabaseWide).toBe(2);
     expect(result.pendingReindexCleared).toBe(false);
   });
 

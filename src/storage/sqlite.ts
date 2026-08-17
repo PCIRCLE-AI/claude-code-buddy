@@ -107,8 +107,19 @@ export interface OpenOptions {
  *
  * Set through PRAGMA rather than the constructor's `timeout` option, which is
  * Node >= 24 and would raise the floor for nothing.
+ *
+ * Raised from 5000 once one bounded maintenance operation grew past it.
+ * `swapVectorGeneration` copies every embedding inside a single transaction —
+ * that copy IS the atomicity guarantee, because a `vec0` table cannot be
+ * renamed — and the copy is O(rows): measured at ~272-302us per row (768-dim,
+ * vec0-only database on an SSD, so a floor), i.e. 5.4s at 20k vectors and 9.1s
+ * at 30k. Against the old 5s a rebuild on a graph past roughly 16.5k vectors
+ * did not make concurrent writers WAIT, it made them FAIL — reproduced, a hook
+ * writing during a 30k swap lost its capture after 5213ms. 30s holds for a
+ * graph around 100k vectors, and a writer that waits is the whole point of this
+ * number.
  */
-const BUSY_TIMEOUT_MS = 5000;
+const BUSY_TIMEOUT_MS = 30_000;
 
 /** What a `transaction()` wrapper can be called as. */
 export interface TransactionFunction<A extends unknown[], R> {
