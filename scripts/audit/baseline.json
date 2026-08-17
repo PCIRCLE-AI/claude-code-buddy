@@ -536,12 +536,12 @@
       "reason": "client-side search haystack only (absorbs the retired BrowseTab:169 and LessonsTab:298 hay statements)",
       "triaged": "2026-08-16 (tab consolidation: statement moved verbatim from the retired LessonsTab/BrowseTab; original triage 2026-08-04); re-keyed 2026-08-16 (UX-3: local CLUSTER_DOT block removed above, statement unchanged — verified)"
     },
-    "C5 src/core/why.ts:238": {
+    "C5 src/core/why.ts:261": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`input.commits ?? []` — WhySchema documents commits as optional (a caller without a working tree resolves none); the result carries commits: [] visibly, and every real gap in the chain is a typed abstention, never a default.",
       "triaged": "2026-08-16 (UX-3 memesh why)"
     },
-    "C5 src/core/why.ts:295": {
+    "C5 src/core/why.ts:318": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`input.abstentions ?? []` — pass-through of caller-declared git-side abstentions into the response verbatim; absence means the caller declared none, and nothing here can convert a failure into silence (the CLI always passes its resolveFileCommits abstention in).",
       "triaged": "2026-08-16 (UX-3 memesh why)"
@@ -611,27 +611,27 @@
       "reason": "`data.commits ?? []` — same optional-commits contract as core/why.ts:238; the route never runs git, so an absent list IS the input, not a swallowed failure.",
       "triaged": "2026-08-16 (UX-3 memesh why); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
     },
-    "C5 src/core/kg-backfill.ts:732": {
+    "C5 src/core/kg-backfill.ts:740": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "session tag index; empty means the entity carries no session tag, which is a real state — it falls through to the temporal project match",
       "triaged": "2026-08-17 (UX-4 Rule 5)"
     },
-    "C5 src/core/kg-backfill.ts:746": {
+    "C5 src/core/kg-backfill.ts:754": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "project tag index; empty means the work item is untagged and simply joins no project bucket",
       "triaged": "2026-08-17 (UX-4 Rule 5)"
     },
-    "C5 src/core/kg-backfill.ts:780": {
+    "C5 src/core/kg-backfill.ts:804": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "session bucket lookup; empty means no work item shares that session, and the fallback branch below handles it",
       "triaged": "2026-08-17 (UX-4 Rule 5)"
     },
-    "C5 src/core/kg-backfill.ts:809": {
+    "C5 src/core/kg-backfill.ts:834": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "project tag index for the evidence row; empty means no project fallback is possible and no edge is proposed",
       "triaged": "2026-08-17 (UX-4 Rule 5)"
     },
-    "C5 src/core/kg-backfill.ts:810": {
+    "C5 src/core/kg-backfill.ts:835": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "project bucket lookup; empty means the project has no work items, so `.find` yields undefined and no edge is proposed",
       "triaged": "2026-08-17 (UX-4 Rule 5)"

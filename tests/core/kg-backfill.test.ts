@@ -876,6 +876,46 @@ describe('kg-backfill integration', () => {
     expect(toUntrusted, 'an unparseable timestamp was treated as a real date').toBeFalsy();
   });
 
+  it('R5: a shared session does not link evidence across projects', () => {
+    // One Claude Code session routinely touches two repos, and both get the
+    // same session: tag. Linking alpha's commit to bravo's decision is a
+    // false statement about what supports that decision — and in UX-4 it
+    // renders as bravo's evidence badge counting alpha's work.
+    const ev = insertEntity('commit-alpha', 'commit');
+    insertTag(ev, 'session:shared-1');
+    insertTag(ev, 'project:alpha');
+    const alphaWork = insertEntity('alpha-decision', 'decision');
+    insertTag(alphaWork, 'session:shared-1');
+    insertTag(alphaWork, 'project:alpha');
+    const bravoWork = insertEntity('bravo-decision', 'decision');
+    insertTag(bravoWork, 'session:shared-1');
+    insertTag(bravoWork, 'project:bravo');
+
+    const result = backfillRelations({});
+    expect(result.byRule.evidenceLinks).toBe(1);
+    expect(db.prepare(
+      "SELECT 1 FROM relations WHERE from_entity_id=? AND to_entity_id=? AND relation_type='evidences'"
+    ).get(ev, alphaWork)).toBeTruthy();
+    expect(db.prepare(
+      "SELECT 1 FROM relations WHERE from_entity_id=? AND to_entity_id=? AND relation_type='evidences'"
+    ).get(ev, bravoWork), 'a cross-project edge was drawn from a shared session').toBeFalsy();
+  });
+
+  it('R5: --project scopes the work side too, not just the evidence side', () => {
+    const ev = insertEntity('commit-scoped', 'commit');
+    insertTag(ev, 'session:shared-2');
+    insertTag(ev, 'project:alpha');
+    const bravoWork = insertEntity('bravo-goal', 'goal');
+    insertTag(bravoWork, 'session:shared-2');
+    insertTag(bravoWork, 'project:bravo');
+
+    const result = backfillRelations({ project: 'alpha' });
+    expect(result.byRule.evidenceLinks).toBe(0);
+    expect(db.prepare(
+      "SELECT COUNT(*) AS c FROM relations WHERE relation_type='evidences'"
+    ).get() as { c: number }).toEqual({ c: 0 });
+  });
+
   it('R5: --max-per-source 0 writes no evidence edges, fallback included', () => {
     // A cap of 0 leaves the session loop at added=0, which is precisely the
     // condition that arms the project fallback — so the fallback used to

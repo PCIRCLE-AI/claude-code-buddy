@@ -697,13 +697,21 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Memes
     `).all(...evidenceTypeList, ...projectArgs) as Array<OrphanRow & { created_at: string }>;
 
     if (evidenceRows.length > 0) {
+      // `projectClause` belongs on BOTH sides. It was on the evidence query
+      // only, so `--project alpha` scoped which commits were considered and
+      // then let them link into any project's work: measured on a seeded
+      // graph where two projects shared one session tag, a run scoped to
+      // alpha wrote 3 edges of which 2 pointed at bravo's decision and goal.
+      // In UX-4 that renders as bravo's decision carrying alpha's commit in
+      // its evidence badge and drill-down.
       const workTypeList = [...WORK_LAYER_TYPES];
       const workRows = conn.prepare(`
         SELECT e.id, e.name, e.type, e.metadata, e.created_at
         FROM entities e
         WHERE e.type IN (${workTypeList.map(() => '?').join(',')})
           ${statusFilter}
-      `).all(...workTypeList) as Array<OrphanRow & { created_at: string }>;
+          ${projectClause}
+      `).all(...workTypeList, ...projectArgs) as Array<OrphanRow & { created_at: string }>;
 
       // Session/project keys come from tags (the hook norm) plus
       // metadata.session_id (what post-commit stamps on commit entities —
@@ -773,6 +781,22 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Memes
         list.sort((a, b) => (ts(b.created_at) ?? -Infinity) - (ts(a.created_at) ?? -Infinity));
       }
 
+      // A shared session id is not a shared project. One Claude Code session
+      // routinely touches two repos, and both get the same `session:` tag —
+      // so the session match alone would draw a commit in repo A as evidence
+      // for a decision in repo B, which is a false statement about what
+      // supports that decision. Require agreement only when BOTH sides
+      // actually carry project tags: an untagged entity has no project to
+      // disagree with, and dropping those links would lose the ordinary case
+      // where hooks tagged one side and a manual `remember` did not.
+      const sameProjectOrUntagged = (a: number, b: number): boolean => {
+        const pa = projectTagsById.get(a);
+        const pb = projectTagsById.get(b);
+        if (!pa?.size || !pb?.size) return true;
+        for (const p of pa) if (pb.has(p)) return true;
+        return false;
+      };
+
       for (const ev of evidenceRows) {
         let added = 0;
         const proposedWork = new Set<number>();
@@ -780,6 +804,7 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Memes
           for (const w of workBySession.get(key) ?? []) {
             if (added >= maxPerSource) break;
             if (w.id === ev.id || proposedWork.has(w.id)) continue;
+            if (!sameProjectOrUntagged(ev.id, w.id)) continue;
             candidates.push({
               fromEntityId: ev.id,
               fromName: ev.name,

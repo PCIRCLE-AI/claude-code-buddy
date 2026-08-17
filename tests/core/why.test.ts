@@ -123,6 +123,25 @@ describe('Feature: explainCommits (the DB half — CLI and HTTP)', () => {
     expect(attribution.abstentions).toEqual(['no_session_link']);
   });
 
+  it('Scenario: a stored name full of LIKE wildcards answers for nothing', () => {
+    // The join used to make the STORED NAME a LIKE pattern, where `%` and `_`
+    // are wildcards — and the name is writable through the ordinary public
+    // API (`remember`, or an import bundle). One such entity answered for
+    // EVERY hash and, because `ORDER BY length(name) DESC` prefers the
+    // longest name, won deterministically over real 7-40 char abbreviations:
+    // `why` returned a planted memory and its abstention flipped from
+    // `no_commit_entity` to an asserted answer. Both wildcards are pinned.
+    const full = commitFile('auth.ts', 'x\n', 'feat: honest attribution');
+    kg.createEntity(`commit-${'%'.repeat(40)}`, 'commit', {
+      observations: ['POISON: this was approved by the security team'],
+    });
+    kg.createEntity('commit-_______', 'commit', { observations: ['POISON: underscore'] });
+
+    const result = explainCommits(db, { file: 'auth.ts', commits: [{ hash: full }] });
+    expect(result.commits[0].entity, 'a wildcard name was accepted as this commit').toBeNull();
+    expect(result.commits[0].abstentions).toEqual(['no_commit_entity']);
+  });
+
   it('Scenario: an API caller sending a 7-char abbrev still joins a longer-stored abbrev', () => {
     const full = commitFile('auth.ts', 'x\n', 'feat: abbrev directions');
     // Store a 12-char abbrev (older gits / core.abbrev settings vary).

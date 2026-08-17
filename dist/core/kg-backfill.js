@@ -428,7 +428,8 @@ export function proposeBackfillCandidates(opts = {}, db) {
         FROM entities e
         WHERE e.type IN (${workTypeList.map(() => '?').join(',')})
           ${statusFilter}
-      `).all(...workTypeList);
+          ${projectClause}
+      `).all(...workTypeList, ...projectArgs);
             const metaSessionId = (meta) => {
                 try {
                     const parsed = JSON.parse(meta ?? '{}');
@@ -489,6 +490,16 @@ export function proposeBackfillCandidates(opts = {}, db) {
             for (const list of workByProject.values()) {
                 list.sort((a, b) => (ts(b.created_at) ?? -Infinity) - (ts(a.created_at) ?? -Infinity));
             }
+            const sameProjectOrUntagged = (a, b) => {
+                const pa = projectTagsById.get(a);
+                const pb = projectTagsById.get(b);
+                if (!pa?.size || !pb?.size)
+                    return true;
+                for (const p of pa)
+                    if (pb.has(p))
+                        return true;
+                return false;
+            };
             for (const ev of evidenceRows) {
                 let added = 0;
                 const proposedWork = new Set();
@@ -497,6 +508,8 @@ export function proposeBackfillCandidates(opts = {}, db) {
                         if (added >= maxPerSource)
                             break;
                         if (w.id === ev.id || proposedWork.has(w.id))
+                            continue;
+                        if (!sameProjectOrUntagged(ev.id, w.id))
                             continue;
                         candidates.push({
                             fromEntityId: ev.id,

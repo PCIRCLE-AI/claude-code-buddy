@@ -78,8 +78,12 @@ function findCommitEntity(db, hash) {
     const rows = db.prepare(`SELECT id, name, type, title, created_at, metadata FROM entities
      WHERE type = 'commit' AND name LIKE 'commit-%'
        AND length(substr(name, 8)) >= 7
-       AND (? LIKE substr(name, 8) || '%' OR substr(name, 8) LIKE ? || '%')
-     ORDER BY length(name) DESC`).all(hash, hash);
+       AND substr(name, 8) GLOB '[0-9a-fA-F]*'
+       AND (
+         substr(?, 1, length(substr(name, 8))) = substr(name, 8)
+         OR substr(substr(name, 8), 1, length(?)) = ?
+       )
+     ORDER BY length(name) DESC`).all(hash, hash, hash);
     if (rows.length === 0)
         return null;
     const row = rows[0];

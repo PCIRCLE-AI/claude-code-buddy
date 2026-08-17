@@ -185,13 +185,36 @@ function findCommitEntity(
   db: MemeshDatabase,
   hash: string,
 ): (WhyEntityRef & { metadata: Record<string, unknown> | null }) | null {
+  // The prefix join is a substring comparison, NOT a LIKE match, and the
+  // difference is the whole security of this lookup.
+  //
+  // The query used to read `? LIKE substr(name, 8) || '%'`, which makes the
+  // STORED NAME the pattern. `%` and `_` are wildcards there, and the name is
+  // writable through the ordinary public API: `remember` accepts
+  // `commit-%%%%…` (nameField only strips control characters), and so does an
+  // import bundle. One such entity answers for EVERY hash, and
+  // `ORDER BY length(name) DESC` makes it win deterministically — real
+  // abbreviations are 7-40 characters and a name may be 255. Measured: a
+  // seeded `commit-_______` was returned for an unrelated 40-char hash, and
+  // the caller's abstention flipped from `no_commit_entity` to a confidently
+  // asserted memory. The parameters were always bound correctly; binding does
+  // not constrain LIKE semantics over attacker-writable data.
+  //
+  // `substr(?, 1, length(substr(name,8))) = substr(name,8)` compares text,
+  // so a stored `%` matches only a literal `%` — which no real hash contains.
+  // The hex guard is belt-and-braces: it also keeps a junk name out of the
+  // candidate set entirely.
   const rows = db.prepare(
     `SELECT id, name, type, title, created_at, metadata FROM entities
      WHERE type = 'commit' AND name LIKE 'commit-%'
        AND length(substr(name, 8)) >= 7
-       AND (? LIKE substr(name, 8) || '%' OR substr(name, 8) LIKE ? || '%')
+       AND substr(name, 8) GLOB '[0-9a-fA-F]*'
+       AND (
+         substr(?, 1, length(substr(name, 8))) = substr(name, 8)
+         OR substr(substr(name, 8), 1, length(?)) = ?
+       )
      ORDER BY length(name) DESC`,
-  ).all(hash, hash) as unknown as Array<WhyEntityRef & { metadata: string | null }>;
+  ).all(hash, hash, hash) as unknown as Array<WhyEntityRef & { metadata: string | null }>;
   if (rows.length === 0) return null;
   // Longest stored abbrev wins if several match (same commit captured twice
   // at different abbreviation lengths).
