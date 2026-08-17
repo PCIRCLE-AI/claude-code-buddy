@@ -294,7 +294,22 @@ export type EmbedOutcome =
  * progress MUST branch on it; treating a non-throw as a write is the defect
  * this return value exists to remove.
  */
-export async function embedAndStore(entityId: number, text: string, caps?: Capabilities): Promise<EmbedOutcome> {
+export async function embedAndStore(
+  entityId: number,
+  text: string,
+  caps?: Capabilities,
+  /**
+   * Which table to write into, and which dimension to accept.
+   *
+   * A reindex builds the NEXT generation in a staging table while the live one
+   * keeps answering queries, so during a rebuild the width being written is
+   * not the width `memesh_metadata.embedding_dimension` records — that still
+   * describes the live index, and comparing against it would reject every
+   * vector of the new generation as a mismatch. The caller that opened the
+   * generation is the one that knows both, so it passes both.
+   */
+  target?: { table: string; dimension: number },
+): Promise<EmbedOutcome> {
   try {
     const embedding = await embedText(text, caps);
     if (!embedding) return 'no_embedding';
@@ -313,7 +328,7 @@ export async function embedAndStore(entityId: number, text: string, caps?: Capab
       "SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'"
     ).get() as { value: string } | undefined;
 
-    const expectedDim = storedDim ? parseInt(storedDim.value, 10) : 0;
+    const expectedDim = target ? target.dimension : (storedDim ? parseInt(storedDim.value, 10) : 0);
     const actualDim = embedding.length;
 
     if (expectedDim > 0 && actualDim !== expectedDim) {
@@ -335,15 +350,17 @@ export async function embedAndStore(entityId: number, text: string, caps?: Capab
       'SELECT status FROM entities WHERE id = ?'
     ).get(entityId) as { status: string } | undefined;
 
+    const table = target?.table ?? 'entities_vec';
+
     if (!entity || entity.status === 'archived') {
-      db.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(rowId);
+      db.prepare(`DELETE FROM ${table} WHERE rowid = ?`).run(rowId);
       return 'removed';
     }
 
     const writeVector = db.transaction(() => {
       // sqlite-vec does not reliably honor INSERT OR REPLACE for vec0 primary keys.
-      db.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(rowId);
-      db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)').run(
+      db.prepare(`DELETE FROM ${table} WHERE rowid = ?`).run(rowId);
+      db.prepare(`INSERT INTO ${table} (rowid, embedding) VALUES (?, ?)`).run(
         rowId,
         toVectorBlob(embedding)
       );
@@ -401,6 +418,78 @@ async function embedWithProvider(text: string, config: LLMConfig): Promise<Float
   }
 }
 
+/**
+ * One provider request, bounded in time and retried only where retrying can
+ * help.
+ *
+ * The bare `fetch` these calls used had no timeout, no retry and no backoff.
+ * Two consequences, both measured against the reindex path that depends on
+ * this returning: a provider that accepts the connection and never answers
+ * hung the whole run indefinitely — a rebuild of 900 entities with no way to
+ * finish and no way to know why — and a 429 was indistinguishable from a 500
+ * or a 401, so hitting a rate limit produced the same silent `null` as a bad
+ * API key and the run continued burning through entities that would all fail
+ * the same way.
+ *
+ * Retries are deliberately narrow. 429 and 5xx are transient and worth one
+ * more attempt; 401/403/404 are configuration and retrying them just spends
+ * the user's rate budget on a certainty. `Retry-After` is honoured when the
+ * server sends it, because guessing a backoff against a server that told us
+ * the answer is its own small dishonesty.
+ */
+const PROVIDER_TIMEOUT_MS = 30_000;
+const PROVIDER_MAX_ATTEMPTS = 3;
+const PROVIDER_BASE_BACKOFF_MS = 500;
+
+async function providerFetch(url: string, init: RequestInit, label: string): Promise<Response | null> {
+  for (let attempt = 1; attempt <= PROVIDER_MAX_ATTEMPTS; attempt++) {
+    const timeout = AbortSignal.timeout(PROVIDER_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch(url, { ...init, signal: timeout });
+    } catch (err) {
+      // A timeout and a dead socket are both worth one more try; on the last
+      // attempt say which it was rather than returning a bare null.
+      const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+      if (attempt === PROVIDER_MAX_ATTEMPTS) {
+        process.stderr.write(
+          `MeMesh: ${label} embedding request ${timedOut ? `timed out after ${PROVIDER_TIMEOUT_MS}ms` : 'failed'} `
+          + `on attempt ${attempt}/${PROVIDER_MAX_ATTEMPTS}.\n`,
+        );
+        return null;
+      }
+      await sleep(PROVIDER_BASE_BACKOFF_MS * attempt);
+      continue;
+    }
+
+    if (res.ok) return res;
+
+    const retryable = res.status === 429 || res.status >= 500;
+    if (!retryable) {
+      // Configuration, not weather. Name the status so the user can act.
+      process.stderr.write(`MeMesh: ${label} embedding request refused with HTTP ${res.status}.\n`);
+      return null;
+    }
+    if (attempt === PROVIDER_MAX_ATTEMPTS) {
+      process.stderr.write(
+        `MeMesh: ${label} embedding request still failing with HTTP ${res.status} `
+        + `after ${PROVIDER_MAX_ATTEMPTS} attempts.\n`,
+      );
+      return null;
+    }
+    const retryAfter = Number(res.headers.get('retry-after'));
+    const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+      ? Math.min(retryAfter * 1000, 30_000)
+      : PROVIDER_BASE_BACKOFF_MS * attempt;
+    await sleep(waitMs);
+  }
+  return null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function embedWithOpenAI(text: string, config: LLMConfig): Promise<Float32Array | null> {
   // SECURITY (CodeQL js/file-access-to-http): this function intentionally
   // sends entity text content to the OpenAI embeddings API. That data flow
@@ -413,15 +502,15 @@ async function embedWithOpenAI(text: string, config: LLMConfig): Promise<Float32
   const apiKey = config.apiKey || process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 
-  const res = await fetch('https://api.openai.com/v1/embeddings', {
+  const res = await providerFetch('https://api.openai.com/v1/embeddings', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: 'text-embedding-3-small',
       input: text.slice(0, 8000), // API input limit
     }),
-  });
-  if (!res.ok) return null;
+  }, 'OpenAI');
+  if (!res) return null;
 
   const data = await res.json() as { data?: Array<{ embedding?: number[] }> };
   const embedding = data.data?.[0]?.embedding;
@@ -434,12 +523,12 @@ async function embedWithOllama(text: string, config: LLMConfig): Promise<Float32
   const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
   const model = config.model || 'nomic-embed-text';
 
-  const res = await fetch(`${host}/api/embed`, {
+  const res = await providerFetch(`${host}/api/embed`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, input: text.slice(0, 8000) }),
-  });
-  if (!res.ok) return null;
+  }, 'Ollama');
+  if (!res) return null;
 
   const data = await res.json() as { embeddings?: number[][] };
   const embedding = data.embeddings?.[0];
