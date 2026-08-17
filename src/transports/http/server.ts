@@ -14,7 +14,7 @@ import { computePatterns } from '../../core/patterns.js';
 import { computeAnalytics, computePmAnalytics } from '../../core/analytics.js';
 import { computeStats } from '../../core/stats.js';
 import { computeProjects } from '../../core/projects.js';
-import { computeGraph } from '../../core/graph.js';
+import { computeGraph, computeWorkGraph, computeNodeEvidence } from '../../core/graph.js';
 import type { CountRow } from '../../core/types.js';
 import {
   RememberSchema as RememberBody, RecallSchema as RecallBody,
@@ -854,7 +854,40 @@ app.get('/v1/update-status', (req, res) => handleGet(res, async () => {
 // shapes used to be inlined here; they now live in src/core/{graph,stats,
 // analytics}.ts so CLI/MCP can call the same logic without re-implementing
 // the SQL.
-app.get('/v1/graph', (_req, res) => handleGet(res, () => computeGraph(getDatabase())));
+// `?layer=work` answers the two-layer view: work-layer entities only, their
+// internal relations, and per-node incoming-`evidences` counts. Evidence
+// nodes load on drill-down via /v1/graph/evidence — the full evidence layer
+// is never shipped up front.
+app.get('/v1/graph', (req, res) => {
+  const layer = req.query.layer;
+  if (layer !== undefined && layer !== 'work') {
+    res.status(400).json({
+      success: false,
+      errorCode: 'validation.bad-param' satisfies ErrorCode,
+      error: "layer must be 'work' (omit the parameter for the full graph)",
+    });
+    return;
+  }
+  handleGet(res, () => (layer === 'work' ? computeWorkGraph(getDatabase()) : computeGraph(getDatabase())));
+});
+app.get('/v1/graph/evidence', (req, res) => {
+  const node = req.query.node;
+  if (typeof node !== 'string' || node.length === 0) {
+    res.status(400).json({
+      success: false,
+      errorCode: 'validation.bad-param' satisfies ErrorCode,
+      error: 'node query parameter is required (the work-node entity name)',
+    });
+    return;
+  }
+  handleGet(res, () => {
+    const result = computeNodeEvidence(getDatabase(), node);
+    if (result === null) {
+      throw new HttpError(404, 'resource.not-found', `Entity "${node}" not found`);
+    }
+    return result;
+  });
+});
 app.get('/v1/stats', (_req, res) => handleGet(res, () => computeStats(getDatabase())));
 app.get('/v1/analytics', (_req, res) => handleGet(res, () => computeAnalytics(getDatabase())));
 app.get('/v1/analytics/pm', (req, res) => {

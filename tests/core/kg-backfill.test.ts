@@ -728,6 +728,136 @@ describe('kg-backfill integration', () => {
     const run = backfillRelations({ minSharedTags: 2 });
     expect(run.orphansSkippedIdempotent).toBeGreaterThanOrEqual(1);
   });
+
+  // ---------------------------------------------------------------------------
+  // Rule 5: evidence → work-node linking (default ON)
+  // ---------------------------------------------------------------------------
+  //
+  // The two-layer graph (UX-4) counts incoming `evidences` edges for its
+  // badges. Three match paths are pinned: shared session: tag, commit
+  // metadata.session_id (post-commit stamps metadata, not tags — see the
+  // pre-edit-recall noise rationale in scripts/hooks/post-commit.js), and
+  // the temporal project fallback (most recent same-project work node
+  // created BEFORE the evidence — never one created after it).
+
+  function setCreatedAt(entityId: number, iso: string): void {
+    db.prepare('UPDATE entities SET created_at = ? WHERE id = ?').run(iso, entityId);
+  }
+
+  it('R5: links evidence to a work node sharing its session: tag', () => {
+    const ev = insertEntity('insight-x', 'session-insight');
+    insertTag(ev, 'session:sess-42');
+    const work = insertEntity('decision-x', 'decision');
+    insertTag(work, 'session:sess-42');
+
+    const result = backfillRelations({});
+    expect(result.byRule.evidenceLinks).toBe(1);
+    const rel = db.prepare(
+      "SELECT * FROM relations WHERE from_entity_id=? AND to_entity_id=? AND relation_type='evidences'"
+    ).get(ev, work);
+    expect(rel).toBeTruthy();
+  });
+
+  it('R5: matches a commit via metadata.session_id against a work node session: tag', () => {
+    const ev = insertEntity('commit-abc1234', 'commit');
+    setMetadata(ev, { session_id: 'sess-77' });
+    const work = insertEntity('lesson-y', 'lesson_learned');
+    insertTag(work, 'session:sess-77');
+
+    const result = backfillRelations({});
+    expect(result.byRule.evidenceLinks).toBe(1);
+    const rel = db.prepare(
+      "SELECT * FROM relations WHERE from_entity_id=? AND to_entity_id=? AND relation_type='evidences'"
+    ).get(ev, work);
+    expect(rel).toBeTruthy();
+  });
+
+  it('R5: temporal project fallback links to the newest work node created BEFORE the evidence', () => {
+    const older = insertEntity('older-plan', 'plan');
+    insertTag(older, 'project:demo');
+    setCreatedAt(older, '2026-08-01 10:00:00');
+    const newerButAfter = insertEntity('later-decision', 'decision');
+    insertTag(newerButAfter, 'project:demo');
+    setCreatedAt(newerButAfter, '2026-08-10 10:00:00');
+
+    const ev = insertEntity('commit-mid', 'commit');
+    insertTag(ev, 'project:demo');
+    setCreatedAt(ev, '2026-08-05 10:00:00');
+
+    backfillRelations({});
+    // The evidence sits between the two work nodes in time: it must link to
+    // `older-plan` (current at capture time), never to the node created after.
+    const toOlder = db.prepare(
+      "SELECT * FROM relations WHERE from_entity_id=? AND to_entity_id=? AND relation_type='evidences'"
+    ).get(ev, older);
+    const toNewer = db.prepare(
+      "SELECT * FROM relations WHERE from_entity_id=? AND to_entity_id=? AND relation_type='evidences'"
+    ).get(ev, newerButAfter);
+    expect(toOlder).toBeTruthy();
+    expect(toNewer).toBeFalsy();
+  });
+
+  it('R5: session match wins over the project fallback and respects maxEdgesPerSource', () => {
+    const ev = insertEntity('insight-cap', 'session-insight');
+    insertTag(ev, 'session:sess-cap');
+    insertTag(ev, 'project:demo');
+    // Four session-matched work nodes; cap is 3.
+    for (let i = 0; i < 4; i++) {
+      const w = insertEntity(`decision-cap-${i}`, 'decision');
+      insertTag(w, 'session:sess-cap');
+    }
+    // A project-only work node that must NOT be linked (session match exists).
+    const fallbackOnly = insertEntity('fallback-plan', 'plan');
+    insertTag(fallbackOnly, 'project:demo');
+    setCreatedAt(fallbackOnly, '2020-01-01 00:00:00');
+
+    const result = backfillRelations({ maxEdgesPerSource: 3 });
+    expect(result.byRule.evidenceLinks).toBe(3);
+    const toFallback = db.prepare(
+      "SELECT * FROM relations WHERE from_entity_id=? AND to_entity_id=? AND relation_type='evidences'"
+    ).get(ev, fallbackOnly);
+    expect(toFallback).toBeFalsy();
+  });
+
+  it('R5: runs even when there are zero orphans (linked evidence still counts)', () => {
+    const ev = insertEntity('insight-linked', 'session-insight');
+    insertTag(ev, 'session:sess-orph');
+    const work = insertEntity('decision-orph', 'decision');
+    insertTag(work, 'session:sess-orph');
+    // Give BOTH endpoints an unrelated edge so the graph has no orphans at
+    // all — the old early-return would have skipped Rule 5 entirely.
+    const other = insertEntity('other-node', 'knowledge');
+    insertRelation(ev, other, 'related-to');
+    insertRelation(work, other, 'related-to');
+
+    const result = backfillRelations({});
+    expect(result.byRule.evidenceLinks).toBe(1);
+  });
+
+  it('R5: second run writes nothing new (no-outgoing-edge filter + INSERT OR IGNORE)', () => {
+    const ev = insertEntity('insight-idem', 'session-insight');
+    insertTag(ev, 'session:sess-idem');
+    const work = insertEntity('decision-idem', 'decision');
+    insertTag(work, 'session:sess-idem');
+
+    const run1 = backfillRelations({});
+    expect(run1.byRule.evidenceLinks).toBe(1);
+    const run2 = backfillRelations({});
+    expect(run2.byRule.evidenceLinks).toBe(0);
+    expect(run2.candidatesProposed).toBe(0);
+  });
+
+  it('R5: includeEvidenceLinks:false disables the rule', () => {
+    const ev = insertEntity('insight-off', 'session-insight');
+    insertTag(ev, 'session:sess-off');
+    const work = insertEntity('decision-off', 'decision');
+    insertTag(work, 'session:sess-off');
+
+    const result = backfillRelations({ includeEvidenceLinks: false });
+    expect(result.byRule.evidenceLinks).toBe(0);
+    const rel = db.prepare("SELECT COUNT(*) AS c FROM relations WHERE relation_type='evidences'").get() as { c: number };
+    expect(rel.c).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
