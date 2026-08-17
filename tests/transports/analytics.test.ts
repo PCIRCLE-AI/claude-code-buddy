@@ -33,6 +33,27 @@ describe('/v1/analytics computation', () => {
     // With 0 entities, all ratios = 0, score = 0
   });
 
+  // The loop metric's honesty label. `reusedThisWeek` and `trend` are both
+  // derived from `last_accessed_at`; the dashboard reads `computedFrom` to
+  // decide whether to SHOW the "this is an approximation" caveat, so claiming
+  // the precise mode does not mislabel a number — it hides the sentence that
+  // explains it. The old gate flipped on "the column exists and some entity
+  // has an in-window hit", which is not evidence that these queries read hits.
+  // Measured on a real graph: 21 in-window hits, all written by the retired
+  // literal-matching accounting, caveat hidden.
+  it('never claims the precise mode while the numbers come from last_accessed_at', () => {
+    remember({ name: 'reused-lesson', type: 'lesson_learned', observations: ['a lesson'] });
+    // Exactly the state that used to flip the badge: an in-window hit count
+    // from the retired accounting era (no `recall_accounting_mode` stamp).
+    db.prepare(
+      "UPDATE entities SET recall_hits = 5, last_accessed_at = datetime('now', '-1 day') WHERE name = ?",
+    ).run('reused-lesson');
+
+    const analytics = computeAnalytics(db);
+    expect(analytics.loopMetric.reusedThisWeek).toBeGreaterThan(0);
+    expect(analytics.loopMetric.computedFrom).toBe('last_accessed_at_approximation');
+  });
+
   it('health score increases with high-confidence entities', () => {
     remember({ name: 'test-entity', type: 'concept', observations: ['test obs'] });
     // Default confidence is 1.0 which is > 0.7

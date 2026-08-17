@@ -8,7 +8,7 @@
 // directly without re-implementing the SQL.
 
 import type { MemeshDatabase } from '../storage/sqlite.js';
-import type { CountRow, PragmaColumnRow } from './types.js';
+import type { CountRow } from './types.js';
 
 export interface HealthFactor {
   score: number;
@@ -240,30 +240,31 @@ export function computeAnalytics(db: MemeshDatabase): AnalyticsResult {
     ORDER BY day
   `).all(...KNOWLEDGE_TYPE_LIST) as Array<{ day: string; count: number }>;
 
-  // Detect whether instrumentation is producing data that overlaps the
-  // 30-day window we're displaying. If recall_hits has only stale data
-  // outside the window, the badge would lie — say "precise mode" while
-  // the rendered numbers (reusedThisWeek + trend) still come from the
-  // last_accessed_at approximation. Gate the mode flip on a hit whose
-  // entity was last accessed within the same 30-day window we render.
-  let loopComputedFrom: LoopMetric['computedFrom'] = 'last_accessed_at_approximation';
-  try {
-    const recallColCheck = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
-    if (recallColCheck.some((c) => c.name === 'recall_hits')) {
-      const hitsInWindow = (db.prepare(
-        `SELECT COUNT(*) as c FROM entities
-         WHERE type IN (${knowledgeTypePlaceholders})
-           AND recall_hits > 0
-           AND last_accessed_at >= datetime('now', '-30 days')`,
-      ).get(...KNOWLEDGE_TYPE_LIST) as CountRow).c;
-      if (hitsInWindow > 0) loopComputedFrom = 'recall_hits';
-    }
-  } catch { /* recall_hits column missing — stay in approximation mode */ }
-
+  // `computedFrom` describes THESE numbers, and both queries above read
+  // `last_accessed_at`. Nothing here reads `recall_hits`, so the only honest
+  // value is the approximation — and the dashboard uses this field to decide
+  // whether to SHOW the "this is an approximation" caveat, which means a wrong
+  // value here does not mislabel a number, it hides the sentence that explains
+  // it.
+  //
+  // This used to flip to 'recall_hits' whenever the column existed and any
+  // knowledge entity had a hit inside the 30-day window. The comment on that
+  // gate named the exact failure it was meant to prevent — "the badge would
+  // lie: say precise mode while the rendered numbers still come from the
+  // approximation" — and the gate did not prevent it, because a hit in the
+  // window is not evidence that these queries read hits. Measured on a real
+  // graph 2026-08-17: 21 knowledge entities carried in-window `recall_hits`,
+  // every one written by the literal-content matching that R1 retired at 0%
+  // measured signal, and `recall_accounting_mode` (the stamp that separates
+  // the two accounting eras) was absent. The caveat was hidden on that graph.
+  //
+  // Earning 'recall_hits' takes a schema change, not a probe: `recall_hits` is
+  // a running total per entity, so a per-DAY reuse series cannot be derived
+  // from it. Set this field where that query lands.
   const loopMetric: LoopMetric = {
     reusedThisWeek,
     trend: loopTrendRows.map((r) => ({ date: r.day, count: r.count })),
-    computedFrom: loopComputedFrom,
+    computedFrom: 'last_accessed_at_approximation',
   };
 
   return {

@@ -117,23 +117,10 @@ export function computeAnalytics(db) {
     GROUP BY DATE(last_accessed_at)
     ORDER BY day
   `).all(...KNOWLEDGE_TYPE_LIST);
-    let loopComputedFrom = 'last_accessed_at_approximation';
-    try {
-        const recallColCheck = db.prepare("PRAGMA table_info(entities)").all();
-        if (recallColCheck.some((c) => c.name === 'recall_hits')) {
-            const hitsInWindow = db.prepare(`SELECT COUNT(*) as c FROM entities
-         WHERE type IN (${knowledgeTypePlaceholders})
-           AND recall_hits > 0
-           AND last_accessed_at >= datetime('now', '-30 days')`).get(...KNOWLEDGE_TYPE_LIST).c;
-            if (hitsInWindow > 0)
-                loopComputedFrom = 'recall_hits';
-        }
-    }
-    catch { }
     const loopMetric = {
         reusedThisWeek,
         trend: loopTrendRows.map((r) => ({ date: r.day, count: r.count })),
-        computedFrom: loopComputedFrom,
+        computedFrom: 'last_accessed_at_approximation',
     };
     return {
         healthScore,
