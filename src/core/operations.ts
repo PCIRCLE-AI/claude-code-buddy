@@ -12,6 +12,8 @@
 import {
   getDatabase,
   clearPendingReindexFlag,
+  markReindexOwed,
+  getStoredEmbeddingDimension,
   beginVectorGeneration,
   generationRowIds,
   swapVectorGeneration,
@@ -291,6 +293,17 @@ async function supplementWithVectors(
   try {
     const queryEmb = await embedText(query, caps);
     if (!queryEmb) return 'degraded';
+
+    // A query vector of a width the index was not built for cannot be matched
+    // against it. sqlite-vec raises, `vectorSearch`'s catch turns that into an
+    // empty array, and an empty array is indistinguishable from "searched and
+    // found nothing" — so the envelope reported mode 'hybrid' and
+    // degraded false for a vector side that answered nothing at all. That is
+    // not a corner: it is the entire window between switching embedder and
+    // finishing a rebuild, which lasts until the user runs `memesh reindex`.
+    const storedDim = getStoredEmbeddingDimension();
+    if (storedDim !== 0 && queryEmb.length !== storedDim) return 'degraded';
+
     const vectorHits = vectorSearch(queryEmb, args.limit ?? 20);
     if (vectorHits.length === 0) return 'used';
 
@@ -796,8 +809,9 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
   if (outcomes.dimension_mismatch > 0) {
     process.stderr.write(
       `MeMesh: ${outcomes.dimension_mismatch} entities were skipped because the provider's ` +
-      `embedding dimension does not match this database's vector index. Rebuild it with ` +
-      `'memesh reindex --vectors'.\n`
+      `embedding dimension does not match this database's vector index. Rebuild it by ` +
+      `running 'memesh reindex' with no --namespace: a full run builds the new width ` +
+      `in a staging index and switches over once it is complete.\n`
     );
   }
 
@@ -811,6 +825,14 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
   if (pendingReindexCleared) {
     clearPendingReindexFlag();
   } else if (missingVectorsDatabaseWide > 0) {
+    // WRITE the marker, do not merely claim it is set. On a same-width rebuild
+    // nothing had set it, so the old wording announced a flag that did not
+    // exist and `memesh doctor` — whose only vector check reads this row —
+    // reported a healthy install over a graph still owed vectors. The swap used
+    // to delete this key itself, which pre-empted this decision on the
+    // width-change path; it no longer touches it, so this is the one owner.
+    const owedWidth = getStoredEmbeddingDimension();
+    markReindexOwed(owedWidth, owedWidth, 'vectors-missing');
     process.stderr.write(
       `MeMesh: ${missingVectorsDatabaseWide} active memories still have no vector` +
       `${opts?.namespace ? ' (across all namespaces)' : ''}, so the ` +

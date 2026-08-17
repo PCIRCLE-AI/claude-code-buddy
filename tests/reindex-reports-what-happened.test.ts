@@ -71,7 +71,7 @@ describe('Feature: reindex reports what it actually wrote', () => {
   function markReindexPending(): void {
     getDatabase()
       .prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)")
-      .run(JSON.stringify({ from: 384, to: OPENAI_DIM, droppedAt: '2026-01-01T00:00:00.000Z' }));
+      .run(JSON.stringify({ from: 384, to: OPENAI_DIM, reason: 'dimension-change', noticedAt: '2026-01-01T00:00:00.000Z' }));
   }
 
   function pendingReindexRow(): unknown {

@@ -21,9 +21,9 @@ All notable changes to MeMesh are documented here.
   different provider or at a different width is discarded rather than
   resumed, because vectors from two embedding spaces must not share an index.
 
-  Switching embedding provider needs no special flag any more. `--vectors`
-  existed to consent to that first destructive drop, so it is retired rather
-  than kept as a no-op: change the provider and run `memesh reindex`. The
+  Switching embedding provider needs no special flag any more — change the
+  provider and run `memesh reindex` (see **Removed** for the retired
+  `--vectors`). The
   `DROP` is gone from the database-open path entirely — a dimension
   disagreement now keeps the working index and records that a rebuild is
   owed. Three sqlite-vec behaviours were measured before this was designed
@@ -144,6 +144,70 @@ All notable changes to MeMesh are documented here.
   guard (`fires`, `last_fired_at`) so a guard that never fires or fires
   constantly surfaces for review. Guard failure of any kind degrades to
   silence — the guard system can never block or break the user's work.
+
+### Removed
+
+- **`memesh reindex --vectors` is removed. Scripts that pass it will fail**
+  with `error: unknown option '--vectors'` and exit 1. The flag existed only to
+  grant consent for dropping every stored embedding before the refill began,
+  and generations removed that step, so there is no longer any consent to ask
+  for. To rebuild the index at a new width — which is what the flag was used
+  for — change the embedder in your config and run plain `memesh reindex`. It
+  is rejected rather than accepted as a no-op, and rejecting it destroys
+  nothing.
+
+### Fixed
+
+- **A rebuild no longer discards a memory captured while it ran.** The swap
+  installed exactly the staging index, and every writer other than the rebuild
+  itself — the seven capture hooks, `remember`, the dreamer, the MCP server —
+  writes the live index, which the rebuild had snapshotted before it started.
+  So a memory captured mid-rebuild lost its vector, and one whose text was
+  *edited* mid-rebuild had its fresh vector silently replaced by the older
+  staged one, which the missing-vector count cannot detect because the row is
+  present. Rows still active and absent from staging are now carried across the
+  swap. Conversely a memory deleted mid-rebuild could be resurrected, because
+  `forget` clears the live row and knows nothing about a staging index; staged
+  rows for entities that are no longer active are now pruned before the swap.
+- **`memesh doctor` can no longer report a healthy install over a graph that is
+  owed vectors.** The swap deleted the reindex-needed marker itself, which
+  pre-empted the check that runs afterwards against the finished index — so a
+  rebuild that completed while vectors were still missing printed "the
+  reindex-needed flag was left set" and then left nothing set. The marker now
+  has one owner, the post-rebuild measurement, which either clears it or writes
+  it.
+- **Semantic search being off during a width change is reported instead of
+  hidden.** A query embedded at the new width cannot be matched against an index
+  built at the old one; sqlite-vec raised, the error was swallowed into an empty
+  result, and "no matches" is indistinguishable from "no search happened" — so
+  `recall` reported `mode: "hybrid"`, `degraded: false` for a vector side that
+  answered nothing, for the entire window between switching provider and
+  finishing the rebuild. It now reports `mode: "fts"` and `degraded: true`, and
+  the message printed on open says semantic search is off until the rebuild
+  finishes rather than claiming the index "still answers queries".
+- **A rebuild no longer costs concurrent writers their captures.** The swap
+  copies every embedding inside one transaction — that copy *is* the atomicity
+  guarantee, because a `vec0` table cannot be renamed — and the copy is O(rows):
+  measured at 5.4s for 20,000 vectors and 9.1s for 30,000. Against the 5-second
+  busy timeout that meant a rebuild on a graph past roughly 16,500 vectors made
+  concurrent writers *fail* rather than wait, losing hook captures. The busy
+  timeout is now 30 seconds, which covers a graph around 100,000 vectors.
+- **Two runtime messages told users to run the removed `--vectors` flag** on a
+  dimension mismatch — the exact situation the new mechanism exists to handle —
+  so the only remedy offered exited 1. Both now name `memesh reindex`. A test
+  scans every source file that prints advice and fails on any `memesh <cmd>
+  --flag` the CLI does not register; it immediately caught a second, older
+  instance, `memesh doctor --verbose`, a flag that never existed.
+- **An embedding provider can no longer redirect the request carrying your
+  memory text.** The provider fetch used the default redirect behaviour; a 307
+  forwards the POST body to the redirect target, and the Ollama base URL is an
+  unvalidated environment variable. Redirects are now refused.
+- **A failed read of the staging index is no longer reported as "nothing is
+  staged".** That number decides whether a finished rebuild is promoted and
+  which entities a resume re-buys from the provider, so a locked database or a
+  corrupt shadow table must not arrive as an empty result. The staging index's
+  start time also survives a resume now, instead of being overwritten on every
+  attempt.
 
 ### Changed
 

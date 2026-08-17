@@ -43,8 +43,8 @@
     },
     {
       "path": "scripts/hooks/_generated/sqlite.js",
-      "sha256": "e03ec8e4268b4176d9947513a788ba99a22fbdf9326a6b6e1f978e4a2086f6e3",
-      "bytes": 2838
+      "sha256": "445d3fe3058e2f0bf4fb5359a3a6e9584e377a0794880859ba9cafdddedde9a6",
+      "bytes": 2840
     },
     {
       "path": "scripts/hooks/_generated/task-state.js",

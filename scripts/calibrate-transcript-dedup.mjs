@@ -161,7 +161,7 @@ const DISTINCT_PAIRS = [
   ],
   [
     { name: 'dimension-mismatch-skip', observations: ['embedAndStore skips the vector write when the provider dimension differs from the stored table dimension.'] },
-    { name: 'reindex-vectors-flag', observations: ['Switching embedders needs reindex --vectors to rebuild the table at the new dimension; plain reindex cannot.'] },
+    { name: 'reindex-generation-swap', observations: ['Switching embedders needs a plain reindex; it builds the new width in a staging generation and swaps once complete.'] },
   ],
 ];
 

@@ -89,18 +89,20 @@ export function isEmbeddingAvailable(caps: Capabilities = detectCapabilities()):
  * `true` unconditionally: no key is checked, no endpoint is reached, no
  * dimension is compared. A user whose key has expired, or who typed the
  * provider name before pasting the key, or whose Ollama is not running, gets
- * `true` — and `memesh reindex --vectors` then drops every embedding in the
- * database and finds it cannot write a single one back. That is the
- * unrecoverable loss the refusal exists to prevent, caused by the command
- * offered as the safe way through it.
+ * `true` — and a whole rebuild then runs to the end discovering, one entity at
+ * a time, that it cannot write a single vector. Nothing is destroyed by that
+ * any more (a generation is built beside the live index and only a complete one
+ * is promoted), so what this guard saves is the run itself: the wall clock, the
+ * provider bill on a paid embedder, and a staging table full of nothing.
  *
  * One real embedding call answers both halves that matter: whether anything
  * responds, and whether what it returns is the width `entities_vec` is about to
  * be declared with. A provider that answers at the wrong width would leave the
  * rebuilt index just as empty as no provider at all.
  *
- * Deliberately not cached: it is called once, immediately before a destructive
- * step, and a stale yes is exactly what must not happen here.
+ * Deliberately not cached: it is called once, immediately before committing to
+ * a long and possibly expensive run, and a stale yes is exactly what must not
+ * happen here.
  */
 export async function canRefillVectorIndex(): Promise<boolean> {
   const target = getEmbeddingDimension();
@@ -333,14 +335,15 @@ export async function embedAndStore(
 
     if (expectedDim > 0 && actualDim !== expectedDim) {
       // A deliberate embedder switch (e.g. onto ollama at 768-dim against a
-      // table built at 384) lands here: plain `reindex` cannot change the
-      // table's dimension, so it would keep hitting this same branch forever.
-      // That is what `--vectors` is for.
+      // table built at 384) lands here. A full `memesh reindex` resolves it by
+      // building the new width in a staging generation and switching over once
+      // it is complete; a namespace-scoped run cannot, because a staging table
+      // holding one namespace would drop every other namespace's vectors.
       process.stderr.write(
         `MeMesh: Embedding dimension mismatch (got ${actualDim}, expected ${expectedDim}). ` +
         `Skipping vector write for entity ${entityId}. ` +
         `If you switched embedders, the vector index has to be rebuilt at the new ` +
-        `dimension: 'memesh reindex --vectors'.\n`
+        `dimension: run 'memesh reindex' with no --namespace.\n`
       );
       return 'dimension_mismatch';
     }
@@ -446,7 +449,13 @@ async function providerFetch(url: string, init: RequestInit, label: string): Pro
     const timeout = AbortSignal.timeout(PROVIDER_TIMEOUT_MS);
     let res: Response;
     try {
-      res = await fetch(url, { ...init, signal: timeout });
+      // `redirect: 'error'` rather than fetch's default 'follow'. Both shipped
+      // providers answer 200 directly, so nothing legitimate is lost — and the
+      // Ollama base URL is an unvalidated env var, so following a redirect
+      // would let whatever answers for OLLAMA_HOST steer the request. undici
+      // strips Authorization across origins, but a 307 forwards the POST body,
+      // and that body is the user's memory text.
+      res = await fetch(url, { ...init, signal: timeout, redirect: 'error' });
     } catch (err) {
       // A timeout and a dead socket are both worth one more try; on the last
       // attempt say which it was rather than returning a bare null.

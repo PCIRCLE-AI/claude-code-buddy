@@ -102,7 +102,7 @@ export async function embedAndStore(entityId, text, caps, target) {
             process.stderr.write(`MeMesh: Embedding dimension mismatch (got ${actualDim}, expected ${expectedDim}). ` +
                 `Skipping vector write for entity ${entityId}. ` +
                 `If you switched embedders, the vector index has to be rebuilt at the new ` +
-                `dimension: 'memesh reindex --vectors'.\n`);
+                `dimension: run 'memesh reindex' with no --namespace.\n`);
             return 'dimension_mismatch';
         }
         const rowId = toVectorRowId(entityId);
@@ -162,7 +162,7 @@ async function providerFetch(url, init, label) {
         const timeout = AbortSignal.timeout(PROVIDER_TIMEOUT_MS);
         let res;
         try {
-            res = await fetch(url, { ...init, signal: timeout });
+            res = await fetch(url, { ...init, signal: timeout, redirect: 'error' });
         }
         catch (err) {
             const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');

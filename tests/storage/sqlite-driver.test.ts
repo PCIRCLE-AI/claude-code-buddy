@@ -85,7 +85,7 @@ describe('Feature: the SQLite driver', () => {
       // this number turns every overlap into a lost capture, silently.
       const db = new MemeshDatabase(dbPath);
       try {
-        expect(db.prepare('PRAGMA busy_timeout').get()).toMatchObject({ timeout: 5000 });
+        expect(db.prepare('PRAGMA busy_timeout').get()).toMatchObject({ timeout: 30_000 });
       } finally {
         db.close();
       }
@@ -97,7 +97,7 @@ describe('Feature: the SQLite driver', () => {
       seed();
       const db = new MemeshDatabase(dbPath, { readOnly: true });
       try {
-        expect(db.prepare('PRAGMA busy_timeout').get()).toMatchObject({ timeout: 5000 });
+        expect(db.prepare('PRAGMA busy_timeout').get()).toMatchObject({ timeout: 30_000 });
       } finally {
         db.close();
       }

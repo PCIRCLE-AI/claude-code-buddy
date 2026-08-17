@@ -17,11 +17,15 @@ export declare function beginVectorGeneration(dimension: number, provider: strin
 };
 export declare function discardVectorGeneration(): void;
 export declare function swapVectorGeneration(dimension: number): void;
-export declare function getPendingReindexInfo(): {
+export declare function getStoredEmbeddingDimension(): number;
+export interface PendingReindexInfo {
     from: number;
     to: number;
-    droppedAt: string;
-} | null;
+    noticedAt: string;
+    reason: 'dimension-change' | 'vectors-missing';
+}
+export declare function getPendingReindexInfo(): PendingReindexInfo | null;
+export declare function markReindexOwed(from: number, to: number, reason: PendingReindexInfo['reason']): void;
 export declare function clearPendingReindexFlag(): void;
 export declare function closeDatabase(): void;
 export declare function getDatabase(): MemeshDatabase;

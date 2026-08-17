@@ -1,15 +1,23 @@
 /**
- * `memesh reindex --vectors` destroys data on purpose, so the two ways it can
- * destroy MORE than the user asked for are refused at the CLI, before anything
- * opens the database.
+ * `memesh reindex` refuses before it destroys anything, and nothing points a
+ * user at a flag that no longer exists.
  *
- *   1. `--vectors --namespace X` — `entities_vec` is ONE table for the whole
- *      database, so the rebuild drops every namespace's vectors, while
- *      `--namespace` would refill only X. The other namespaces lose their
- *      embeddings permanently and silently, outside anything the user asked
- *      for: the destruction is wider than the repair.
+ * `--vectors` used to consent to dropping every stored embedding before the
+ * refill began. Generations removed that step — a rebuild now happens beside
+ * the live index and replaces it only when complete — so the flag has no
+ * meaning left and is gone rather than kept as a no-op. Three properties
+ * survive that removal and are pinned here:
  *
- *   2. `--vectors --fts` — two different indexes, one flag each.
+ *   1. The retired flag is refused AS AN UNKNOWN OPTION, and refuses before
+ *      anything opens the database. The status code alone cannot show this: a
+ *      plain `reindex` also exits 1 in this fixture (the pre-flight probe finds
+ *      no usable provider), so only the parser's own message distinguishes
+ *      "retired" from "failed for some other reason" — and without that
+ *      assertion the test passed even with the flag re-added as a no-op.
+ *   2. A run that regenerated nothing does not print a tick or exit 0.
+ *   3. No shipped source file tells a user to run a flag the CLI rejects. That
+ *      is a scan, not a spawn, because the two offending strings lived in
+ *      `src/core/*` where the existing CLI-hint detector never looked.
  *
  * Spawns the built CLI with HOME pointed at a tmpdir, because the guards live
  * in the command's action and the ordering relative to `openDatabase` is the
@@ -26,7 +34,7 @@ import { MemeshDatabase as Database } from '../src/storage/sqlite.js';
 
 const require = createRequire(import.meta.url);
 
-describe('memesh reindex --vectors refuses to destroy more than asked', () => {
+describe('memesh reindex refuses before it destroys anything', () => {
   let home: string;
   let dbPath: string;
 
@@ -134,6 +142,12 @@ describe('memesh reindex --vectors refuses to destroy more than asked', () => {
     const result = run(['reindex', '--vectors']);
 
     expect(result.status, 'an unknown flag must not exit 0').toBe(1);
+    // The discriminating assertion. `reindex` with NO flag also exits 1 here,
+    // so without this line the test passes whether or not the flag was retired.
+    expect(
+      result.stderr,
+      'the flag was accepted rather than refused by the parser',
+    ).toContain("unknown option '--vectors'");
     expect(vectorCount(), 'a rejected command destroyed vectors').toBe(1);
   });
 
@@ -192,5 +206,52 @@ describe('memesh reindex --vectors refuses to destroy more than asked', () => {
     // Exit 0 or a genuine "no embedding provider" failure are both fine here;
     // what must NOT happen is the argument refusal.
     expect(result.stderr).not.toContain('unknown option');
+  });
+});
+
+describe('no shipped source tells a user to run a flag the CLI rejects', () => {
+  // The two worst defects of the --vectors removal were not in the CLI at all.
+  // `src/core/embedder.ts` and `src/core/operations.ts` each printed "run
+  // 'memesh reindex --vectors'" on a dimension mismatch — the exact situation
+  // the generation mechanism exists to handle — so the user was handed a
+  // command that exits 1 with `error: unknown option '--vectors'`. The existing
+  // detector (tests/cli-hints-name-real-commands.test.ts) could not see it: it
+  // reads only cli.ts and matches only `.command('name')` registrations, never
+  // options and never src/core/*. This closes both gaps: options, everywhere
+  // that prints advice.
+  const ADVICE_SOURCES = [
+    'src/transports/cli/cli.ts',
+    'src/core/embedder.ts',
+    'src/core/operations.ts',
+    'src/core/doctor.ts',
+    'src/db.ts',
+  ];
+
+  it('every "memesh <cmd> --flag" in a user-facing string is a flag cli.ts registers', () => {
+    const repoRoot = path.resolve(__dirname, '..');
+    const cli = fs.readFileSync(path.join(repoRoot, 'src/transports/cli/cli.ts'), 'utf8');
+    const registered = new Set(
+      [...cli.matchAll(/\.option\(\s*'(--[a-z][a-z0-9-]*)/g)].map((m) => m[1]),
+    );
+    expect(
+      registered.size,
+      'the .option() extraction stopped matching cli.ts — fix the pattern, do not delete the test',
+    ).toBeGreaterThan(5);
+
+    const offenders: string[] = [];
+    for (const rel of ADVICE_SOURCES) {
+      const text = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
+      text.split('\n').forEach((line, i) => {
+        // Comments talk to maintainers, not users; only shipped strings count.
+        if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;
+        for (const m of line.matchAll(/memesh\s+[a-z][a-z-]*\s+(--[a-z][a-z0-9-]*)/g)) {
+          if (!registered.has(m[1])) offenders.push(`${rel}:${i + 1} recommends ${m[1]}`);
+        }
+      });
+    }
+    expect(
+      offenders,
+      `these lines tell a user to run a flag the CLI would reject:\n${offenders.join('\n')}`,
+    ).toEqual([]);
   });
 });

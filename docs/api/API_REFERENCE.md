@@ -1154,8 +1154,14 @@ vector has one and nothing failed. The swap is a single transaction.
 
 What that means in practice:
 
-- **The old index keeps answering queries** for the whole rebuild. There is no
-  window where semantic search is degraded.
+- **The old index keeps answering queries** for the whole rebuild, when the
+  rebuild is at the same width. Rebuilding at a **new** width is different and
+  the difference matters: a query embedded at the new width cannot be matched
+  against an index built at the old one, so from the moment you switch provider
+  until the rebuild completes, **semantic search is off and recall runs on
+  keyword search alone**. That window is reported honestly rather than hidden —
+  `recall` returns `retrieval.mode: "fts"` and `retrieval.degraded: true` for
+  it, and the message printed on open says so.
 - **A run that dies part way changes nothing.** Provider rate limit, network
   drop, `Ctrl-C`, a killed process — the live index is byte-for-byte what it
   was. It is never left as a half-new, half-old mix, whose distances are no
@@ -1167,6 +1173,17 @@ What that means in practice:
 - **A half-built generation is discarded, not resumed, if the provider or the
   width changed** since it was started. Vectors from two different embedding
   spaces must not end up in one index.
+- **A memory captured while the rebuild runs keeps its vector.** Only the
+  rebuild writes to the staging index; every other writer — the capture hooks,
+  `remember`, the dreamer, the MCP server — writes the live one, and the rebuild
+  works from a list of entities taken before it started. So at swap time, rows
+  that are still active and absent from the staging index are carried across
+  rather than dropped. (This applies to a same-width rebuild. During a width
+  change a concurrent write is refused as a dimension mismatch, so there is
+  nothing of the new width to carry.)
+- **A memory you deleted stays deleted.** `forget` clears the live row, but it
+  does not know about a staging index, so a row staged before the deletion is
+  pruned at swap time instead of being promoted back into the live index.
 
 **Switching embedding provider needs no special flag.** Each provider emits a
 different width — 768 for Ollama, 1536 for OpenAI, 384 for the keyword-only
@@ -1181,11 +1198,12 @@ because a stale index still works.
 > flag is rejected rather than accepted as a no-op, and rejecting it destroys
 > nothing.
 
-A full reindex refuses up front in one case:
+A full reindex refuses up front in two cases:
 
 | Refused | Why |
 |---------|-----|
 | A test embedding could not be produced at the configured width | The run would fill nothing, and would spend its whole length discovering that. The check embeds one string and measures the result, rather than trusting the provider name in the config: `openai` and `ollama` are "available" the moment they are named, so an expired key, a typo'd key or a stopped Ollama would otherwise be found out one entity at a time. Your existing index is untouched. |
+| sqlite-vec is not loaded | There is no vector index to rebuild, so there is nothing this command can do. Recall is running on FTS5 keyword search alone. `memesh doctor`'s "SQLite and vector search" row explains why the extension did not load on this machine. |
 
 Namespace-scoped runs (`--namespace X`) write in place rather than through a
 generation, because a staging table holding one namespace would drop every other

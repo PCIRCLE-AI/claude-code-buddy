@@ -129,11 +129,13 @@ function ensureVecTable(db, resolvedPath, targetDim, dimensionKnown = true) {
     }
     if (vecExists && currentDim !== 0 && currentDim !== targetDim) {
         process.stderr.write(`MeMesh: this database records ${currentDim}-dim embeddings but the current ` +
-            `configuration asks for ${targetDim}. The existing index is kept and still ` +
-            `answers queries. Run 'memesh reindex' to build a ${targetDim}-dim index ` +
-            `alongside it and switch over once it is complete — nothing is deleted ` +
-            `until the new index is verified.\n`);
-        db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)").run(JSON.stringify({ from: currentDim, to: targetDim, droppedAt: new Date().toISOString() }));
+            `configuration asks for ${targetDim}. Nothing is deleted — the index is kept ` +
+            `so a rebuild can resume — but semantic search is OFF until the rebuild ` +
+            `finishes, because a ${targetDim}-dim query cannot be matched against a ` +
+            `${currentDim}-dim index; recall is on keyword search alone meanwhile. ` +
+            `Run 'memesh reindex' to build the ${targetDim}-dim index alongside it and ` +
+            `switch over once it is complete.\n`);
+        markReindexOwed(currentDim, targetDim, 'dimension-change');
         return;
     }
     db.transaction(() => {
@@ -167,16 +169,18 @@ export function generationRowIds() {
     const out = new Set();
     if (!db)
         return out;
-    try {
-        const rows = db.prepare(`SELECT rowid AS id FROM ${GENERATION_TABLE}`).all();
-        for (const r of rows)
-            out.add(Number(r.id));
-    }
-    catch {
-    }
+    const exists = db.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type IN ('table','view') AND name = ?").get(GENERATION_TABLE).c > 0;
+    if (!exists)
+        return out;
+    const rows = db.prepare(`SELECT rowid AS id FROM ${GENERATION_TABLE}`).all();
+    for (const r of rows)
+        out.add(Number(r.id));
     return out;
 }
 export function beginVectorGeneration(dimension, provider) {
+    if (!Number.isInteger(dimension) || dimension <= 0 || dimension > 65536) {
+        throw new Error(`Refusing to build a vector index at width ${String(dimension)}.`);
+    }
     const conn = getDatabase();
     const existing = getVectorGenerationInfo();
     const stagingExists = conn.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type IN ('table','view') AND name = ?").get(GENERATION_TABLE).c > 0;
@@ -185,9 +189,10 @@ export function beginVectorGeneration(dimension, provider) {
     if (stagingExists && !compatible) {
         discardVectorGeneration();
     }
+    const startedAt = compatible && existing ? existing.startedAt : new Date().toISOString();
     conn.transaction(() => {
         conn.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS ${GENERATION_TABLE} USING vec0(embedding float[${dimension}])`);
-        conn.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(GENERATION_KEY, JSON.stringify({ dimension, provider, startedAt: new Date().toISOString() }));
+        conn.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(GENERATION_KEY, JSON.stringify({ dimension, provider, startedAt }));
     }).immediate();
     return { resumed: compatible };
 }
@@ -199,16 +204,33 @@ export function discardVectorGeneration() {
     }).immediate();
 }
 export function swapVectorGeneration(dimension) {
+    if (!Number.isInteger(dimension) || dimension <= 0 || dimension > 65536) {
+        throw new Error(`Refusing to build a vector index at width ${String(dimension)}.`);
+    }
     const conn = getDatabase();
     conn.transaction(() => {
+        conn.exec(`DELETE FROM ${GENERATION_TABLE} WHERE rowid NOT IN `
+            + `(SELECT id FROM entities WHERE status = 'active')`);
+        const storedDim = Number(conn.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get()?.value ?? 0);
+        if (storedDim === dimension) {
+            conn.exec(`INSERT INTO ${GENERATION_TABLE} (rowid, embedding) `
+                + `SELECT v.rowid, v.embedding FROM entities_vec v `
+                + `WHERE v.rowid IN (SELECT id FROM entities WHERE status = 'active') `
+                + `AND v.rowid NOT IN (SELECT rowid FROM ${GENERATION_TABLE})`);
+        }
         conn.exec('DROP TABLE IF EXISTS entities_vec');
         conn.exec(`CREATE VIRTUAL TABLE entities_vec USING vec0(embedding float[${dimension}])`);
         conn.exec(`INSERT INTO entities_vec (rowid, embedding) SELECT rowid, embedding FROM ${GENERATION_TABLE}`);
         conn.exec(`DROP TABLE ${GENERATION_TABLE}`);
         conn.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run('embedding_dimension', String(dimension));
         conn.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(GENERATION_KEY);
-        conn.prepare('DELETE FROM memesh_metadata WHERE key = ?').run('pending_reindex');
     }).immediate();
+}
+export function getStoredEmbeddingDimension() {
+    if (!db)
+        return 0;
+    const row = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get();
+    return row ? Number(row.value) || 0 : 0;
 }
 export function getPendingReindexInfo() {
     if (!db)
@@ -220,6 +242,20 @@ export function getPendingReindexInfo() {
     catch {
         return null;
     }
+}
+export function markReindexOwed(from, to, reason) {
+    if (!db)
+        return;
+    const existing = getPendingReindexInfo();
+    if (existing && existing.from === from && existing.to === to && existing.reason === reason) {
+        return;
+    }
+    db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)").run(JSON.stringify({
+        from,
+        to,
+        reason,
+        noticedAt: existing?.noticedAt ?? new Date().toISOString(),
+    }));
 }
 export function clearPendingReindexFlag() {
     if (!db)

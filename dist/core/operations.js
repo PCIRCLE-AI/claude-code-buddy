@@ -1,4 +1,4 @@
-import { getDatabase, clearPendingReindexFlag, beginVectorGeneration, generationRowIds, swapVectorGeneration, } from '../db.js';
+import { getDatabase, clearPendingReindexFlag, markReindexOwed, getStoredEmbeddingDimension, beginVectorGeneration, generationRowIds, swapVectorGeneration, } from '../db.js';
 import { hasSearchableTerms } from '../storage/fts-index.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { rankEntities } from './scoring.js';
@@ -123,6 +123,9 @@ async function supplementWithVectors(query, args, kg, merged, relevanceMap) {
     try {
         const queryEmb = await embedText(query, caps);
         if (!queryEmb)
+            return 'degraded';
+        const storedDim = getStoredEmbeddingDimension();
+        if (storedDim !== 0 && queryEmb.length !== storedDim)
             return 'degraded';
         const vectorHits = vectorSearch(queryEmb, args.limit ?? 20);
         if (vectorHits.length === 0)
@@ -344,14 +347,17 @@ export async function reindex(opts) {
     process.stderr.write(`MeMesh: Reindex complete. ${embedded}/${processed} entities embedded.\n`);
     if (outcomes.dimension_mismatch > 0) {
         process.stderr.write(`MeMesh: ${outcomes.dimension_mismatch} entities were skipped because the provider's ` +
-            `embedding dimension does not match this database's vector index. Rebuild it with ` +
-            `'memesh reindex --vectors'.\n`);
+            `embedding dimension does not match this database's vector index. Rebuild it by ` +
+            `running 'memesh reindex' with no --namespace: a full run builds the new width ` +
+            `in a staging index and switches over once it is complete.\n`);
     }
     const pendingReindexCleared = missingVectorsDatabaseWide === 0 && failed === 0;
     if (pendingReindexCleared) {
         clearPendingReindexFlag();
     }
     else if (missingVectorsDatabaseWide > 0) {
+        const owedWidth = getStoredEmbeddingDimension();
+        markReindexOwed(owedWidth, owedWidth, 'vectors-missing');
         process.stderr.write(`MeMesh: ${missingVectorsDatabaseWide} active memories still have no vector` +
             `${opts?.namespace ? ' (across all namespaces)' : ''}, so the ` +
             `reindex-needed flag was left set.\n`);
