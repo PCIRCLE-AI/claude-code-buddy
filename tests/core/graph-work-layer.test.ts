@@ -135,8 +135,62 @@ describe('graph work layer', () => {
     expect(result!.truncated).toBe(false);
   });
 
+  it('orders by real time even though the two timestamp columns are stored differently', () => {
+    // `last_accessed_at` is written as `new Date().toISOString()` and
+    // `created_at` is SQLite's CURRENT_TIMESTAMP, so a bare string ORDER BY
+    // over COALESCE(last_accessed_at, created_at) compares 'T' (0x54) with
+    // ' ' (0x20) once the date prefixes match — and among entities touched on
+    // the same day every recalled one then sorts above every never-recalled
+    // one, whatever the real times were.
+    const recalledEarlier = insertEntity('recalled-9am', 'decision');
+    db.prepare('UPDATE entities SET created_at = ?, last_accessed_at = ? WHERE id = ?')
+      .run('2026-08-01 00:00:00', '2026-08-17T09:00:00.000Z', recalledEarlier);
+    const freshLater = insertEntity('fresh-11pm', 'decision');
+    db.prepare('UPDATE entities SET created_at = ?, last_accessed_at = NULL WHERE id = ?')
+      .run('2026-08-17 23:00:00', freshLater);
+
+    const g = computeWorkGraph(db);
+    expect(
+      g.entities.map((e) => e.name),
+      'the 14-hours-older recalled entity was ranked as the newest',
+    ).toEqual(['fresh-11pm', 'recalled-9am']);
+  });
+
+  it('drops a relation whose other endpoint is archived, not just the archived entity', () => {
+    // The entity list filters on status; the relation list did not, so the
+    // payload carried an edge to a node that is not in it. The dashboard
+    // hides the edge but derives "orphan" from the RAW relation list, so the
+    // live node rendered as connected with no visible edge.
+    const live = insertEntity('live-d', 'decision');
+    const dead = insertEntity('dead-d', 'decision', 'archived');
+    insertRelation(live, dead, 'related-to');
+
+    const g = computeWorkGraph(db);
+    expect(g.entities.map((e) => e.name)).toEqual(['live-d']);
+    expect(g.relations, 'a dangling edge to an archived node was shipped').toEqual([]);
+  });
+
   it('drill-down returns null for a missing node (404, not an empty list)', () => {
     expect(computeNodeEvidence(db, 'no-such-node')).toBeNull();
+  });
+
+  it('drill-down reports truncation at the boundary, and does not claim it one row early', () => {
+    // Every existing assertion took the false branch, so an off-by-one in the
+    // cap+1 overflow probe would have shipped green — and `truncated` is the
+    // honesty half of this endpoint: a full page that says nothing is
+    // indistinguishable from a complete answer.
+    const node = insertEntity('busy-decision', 'decision');
+    for (let i = 0; i < 200; i++) {
+      insertRelation(insertEntity(`ev-${i}`, 'commit'), node, 'evidences');
+    }
+    const exact = computeNodeEvidence(db, 'busy-decision');
+    expect(exact!.entities).toHaveLength(200);
+    expect(exact!.truncated, 'exactly at the cap is not truncated').toBe(false);
+
+    insertRelation(insertEntity('ev-200', 'commit'), node, 'evidences');
+    const over = computeNodeEvidence(db, 'busy-decision');
+    expect(over!.entities).toHaveLength(200);
+    expect(over!.truncated, 'one past the cap must say so').toBe(true);
   });
 
   it('drill-down of a node with no evidence returns empty lists, not null', () => {

@@ -8,7 +8,7 @@
 // decisions, and re-run after LLM titling ships:
 //
 //   1. Work-layer share — what fraction of active entities are work-layer
-//      types (decision/lesson/milestone/pattern/goal/plan/task-state)?
+//      types? The whitelist is imported, never restated (see below).
 //      Decides whether the empty-state/evidence-fallback design is an edge
 //      case or the norm.
 //   2. Recall-hit false-negative rate — of the entities session-start
@@ -30,17 +30,21 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+// The work-layer whitelist, IMPORTED — src/core/work-topology.ts says of
+// itself that "that whitelist must exist exactly once", and this file used to
+// hold the second copy. It had already drifted: it omitted `mistake` and
+// `technical_pattern`, so every share this script printed measured a narrower
+// layer than the product uses, and was therefore wrong in the direction
+// nobody checks (too low). Imported from the committed hook leaf rather than
+// dist/ — the same copy the hooks import, byte-locked to core by
+// scripts/generate-hook-core.mjs — so this script still needs no build.
+//
+// Numbers printed before this change are not comparable with numbers printed
+// after it, for exactly the reason the drift mattered.
+import { WORK_LAYER_TYPES } from '../hooks/_generated/work-topology.js';
 
 const home = process.env.HOME || os.homedir();
 const dbPath = process.env.MEMESH_DB_PATH || path.join(home, '.memesh', 'knowledge-graph.db');
-
-// The work-layer whitelist. Deliberately the PLANNED set (goal/plan/
-// task-state included even though today they count zero) so re-runs after
-// those types ship measure against the same line.
-const WORK_LAYER_TYPES = new Set([
-  'decision', 'lesson_learned', 'lesson', 'milestone', 'pattern',
-  'goal', 'plan', 'task-state',
-]);
 
 const EXPLORE_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch', 'ToolSearch']);
 

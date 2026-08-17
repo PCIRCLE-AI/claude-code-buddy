@@ -47,6 +47,7 @@ export declare const ExportResultSchema: z.ZodObject<{
     entities: z.ZodArray<z.ZodObject<{
         name: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
         type: z.ZodString;
+        title: z.ZodOptional<z.ZodNullable<z.ZodString>>;
         namespace: z.ZodString;
         observations: z.ZodArray<z.ZodString>;
         tags: z.ZodArray<z.ZodString>;
@@ -64,6 +65,7 @@ export declare const ImportSchema: z.ZodObject<{
         entities: z.ZodArray<z.ZodObject<{
             name: z.ZodPipe<z.ZodString, z.ZodTransform<string, string>>;
             type: z.ZodString;
+            title: z.ZodOptional<z.ZodNullable<z.ZodString>>;
             namespace: z.ZodString;
             observations: z.ZodArray<z.ZodString>;
             tags: z.ZodArray<z.ZodString>;

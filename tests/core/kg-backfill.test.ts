@@ -847,6 +847,92 @@ describe('kg-backfill integration', () => {
     expect(run2.candidatesProposed).toBe(0);
   });
 
+  it('R5: a timestamp parseSqliteUtcMs cannot trust is never chosen as an anchor', () => {
+    // The column can hold a value SQLite did not write — src/core/demo.ts
+    // puts a real ISO string in it. `new Date()` accepts that happily and
+    // reads it as true UTC while reading its CURRENT_TIMESTAMP siblings as
+    // LOCAL, so the two are an offset apart and the wrong one wins. The
+    // repo's own parser anchors both ends and returns null instead, and an
+    // untrusted timestamp must not become a number that sorts.
+    const trusted = insertEntity('trusted-plan', 'plan');
+    insertTag(trusted, 'project:demo');
+    setCreatedAt(trusted, '2026-08-01 09:00:00');
+    const untrusted = insertEntity('iso-plan', 'plan');
+    insertTag(untrusted, 'project:demo');
+    setCreatedAt(untrusted, '2026-08-02T09:00:00.000Z');   // newer, but unparseable
+
+    const ev = insertEntity('commit-tz', 'commit');
+    insertTag(ev, 'project:demo');
+    setCreatedAt(ev, '2026-08-03 09:00:00');
+
+    backfillRelations({});
+    const toTrusted = db.prepare(
+      "SELECT 1 FROM relations WHERE from_entity_id=? AND to_entity_id=? AND relation_type='evidences'"
+    ).get(ev, trusted);
+    const toUntrusted = db.prepare(
+      "SELECT 1 FROM relations WHERE from_entity_id=? AND to_entity_id=? AND relation_type='evidences'"
+    ).get(ev, untrusted);
+    expect(toTrusted, 'the parseable anchor must win').toBeTruthy();
+    expect(toUntrusted, 'an unparseable timestamp was treated as a real date').toBeFalsy();
+  });
+
+  it('R5: a shared session does not link evidence across projects', () => {
+    // One Claude Code session routinely touches two repos, and both get the
+    // same session: tag. Linking alpha's commit to bravo's decision is a
+    // false statement about what supports that decision — and in UX-4 it
+    // renders as bravo's evidence badge counting alpha's work.
+    const ev = insertEntity('commit-alpha', 'commit');
+    insertTag(ev, 'session:shared-1');
+    insertTag(ev, 'project:alpha');
+    const alphaWork = insertEntity('alpha-decision', 'decision');
+    insertTag(alphaWork, 'session:shared-1');
+    insertTag(alphaWork, 'project:alpha');
+    const bravoWork = insertEntity('bravo-decision', 'decision');
+    insertTag(bravoWork, 'session:shared-1');
+    insertTag(bravoWork, 'project:bravo');
+
+    const result = backfillRelations({});
+    expect(result.byRule.evidenceLinks).toBe(1);
+    expect(db.prepare(
+      "SELECT 1 FROM relations WHERE from_entity_id=? AND to_entity_id=? AND relation_type='evidences'"
+    ).get(ev, alphaWork)).toBeTruthy();
+    expect(db.prepare(
+      "SELECT 1 FROM relations WHERE from_entity_id=? AND to_entity_id=? AND relation_type='evidences'"
+    ).get(ev, bravoWork), 'a cross-project edge was drawn from a shared session').toBeFalsy();
+  });
+
+  it('R5: --project scopes the work side too, not just the evidence side', () => {
+    const ev = insertEntity('commit-scoped', 'commit');
+    insertTag(ev, 'session:shared-2');
+    insertTag(ev, 'project:alpha');
+    const bravoWork = insertEntity('bravo-goal', 'goal');
+    insertTag(bravoWork, 'session:shared-2');
+    insertTag(bravoWork, 'project:bravo');
+
+    const result = backfillRelations({ project: 'alpha' });
+    expect(result.byRule.evidenceLinks).toBe(0);
+    expect(db.prepare(
+      "SELECT COUNT(*) AS c FROM relations WHERE relation_type='evidences'"
+    ).get() as { c: number }).toEqual({ c: 0 });
+  });
+
+  it('R5: --max-per-source 0 writes no evidence edges, fallback included', () => {
+    // A cap of 0 leaves the session loop at added=0, which is precisely the
+    // condition that arms the project fallback — so the fallback used to
+    // write one edge per evidence entity while every other rule wrote none.
+    const work = insertEntity('capped-plan', 'plan');
+    insertTag(work, 'project:demo');
+    setCreatedAt(work, '2026-08-01 09:00:00');
+    const ev = insertEntity('commit-capped', 'commit');
+    insertTag(ev, 'project:demo');
+    setCreatedAt(ev, '2026-08-02 09:00:00');
+
+    const result = backfillRelations({ maxEdgesPerSource: 0 });
+    expect(result.byRule.evidenceLinks).toBe(0);
+    const rows = db.prepare("SELECT COUNT(*) AS c FROM relations WHERE relation_type='evidences'").get() as { c: number };
+    expect(rows.c).toBe(0);
+  });
+
   it('R5: includeEvidenceLinks:false disables the rule', () => {
     const ev = insertEntity('insight-off', 'session-insight');
     insertTag(ev, 'session:sess-off');

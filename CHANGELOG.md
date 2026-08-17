@@ -152,6 +152,13 @@ All notable changes to MeMesh are documented here.
   its own **Project** tab. Old `?tab=` deep links and stored tab choices
   migrate to the surface that absorbed them, so a bookmarked
   `?tab=Browse` opens Memories instead of nothing.
+  Three of the retired Lessons tab's four counters were **dropped on
+  purpose, not migrated**: total failures, plan records and total recalls
+  answered no question a reader acts on, and the recall total was built on
+  the literal-content matching that measured 0% signal and has since been
+  retired. The fourth — how many lessons are marked `severity:critical` —
+  is the one a reader does act on ("mistakes I have already paid for,
+  waiting to be repeated"), and it moves to Home rather than disappearing.
 - **One notice at a time.** The Doctor, Onboarding and Insights banners
   could stack three deep above the nav. They now share a priority slot —
   Doctor (broken install) > Onboarding (empty library) > Insights

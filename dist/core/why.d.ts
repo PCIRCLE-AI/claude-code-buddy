@@ -1,5 +1,5 @@
 import type { MemeshDatabase } from '../storage/sqlite.js';
-export type WhyAbstention = 'git_unavailable' | 'not_a_git_repo' | 'file_not_tracked' | 'line_out_of_range' | 'line_uncommitted' | 'no_commit_entity' | 'no_session_link';
+export type WhyAbstention = 'git_unavailable' | 'not_a_git_repo' | 'file_not_tracked' | 'history_unreadable' | 'line_out_of_range' | 'line_uncommitted' | 'no_commits_supplied' | 'no_commit_entity' | 'no_session_link';
 export interface WhyGitCommit {
     hash: string;
     subject?: string;
@@ -20,6 +20,7 @@ export interface WhyCommitAttribution {
     session: {
         session_id: string;
         entities: WhyEntityRef[];
+        truncated: boolean;
     } | null;
     abstentions: WhyAbstention[];
 }

@@ -99,6 +99,12 @@ export const ExportResultSchema = z.object({
   entities: z.array(z.object({
     name: nameField,
     type: z.string().min(1).max(100),
+    // Without this the MCP and HTTP import paths STRIP the title Zod does
+    // not know about, so a bundle exported with human-readable headlines
+    // imported without them — losing exactly the field UX-1 exists to
+    // provide, silently, on two of the three surfaces. `.nullable()`
+    // because the export writes `title: null` for an untitled entity.
+    title: z.string().max(TITLE_MAX_LENGTH).nullable().optional(),
     namespace: z.string(),
     observations: z.array(z.string().max(10000)),
     tags: z.array(z.string().max(255)),

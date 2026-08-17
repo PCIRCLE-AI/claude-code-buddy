@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks';
 import { InsightsTab } from './InsightsTab';
 import { AnalyticsTab } from './AnalyticsTab';
+import { MetricsRow } from './MetricsRow';
 import { t } from '../lib/i18n';
 
 /**
@@ -23,6 +24,10 @@ export function HomeTab() {
 
   return (
     <div>
+      {/* Numbers first, then what needs a decision, then what was applied —
+          the order the work-topology plan asked for. The row degrades per
+          tile: one unmeasured metric says so and the others still show. */}
+      <MetricsRow />
       <InsightsTab />
       <div class="card" style={{ marginTop: 8 }}>
         <button

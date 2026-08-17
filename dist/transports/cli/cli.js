@@ -453,6 +453,8 @@ const WHY_ABSTENTION_TEXT = {
     git_unavailable: 'git is not installed or not on PATH — commit attribution unavailable.',
     not_a_git_repo: 'Not inside a git repository — commit attribution unavailable.',
     file_not_tracked: 'File is not tracked by git — commit attribution unavailable.',
+    history_unreadable: "git could not read this file's history (too much output, too slow, or the repository has no commits yet) — nothing is listed because the question went unanswered, not because no commit touched the file.",
+    no_commits_supplied: 'No commit hashes were supplied — only the file-tag half of this answer ran.',
     line_out_of_range: 'That line does not exist in the tracked file.',
     line_uncommitted: 'That line is not committed yet — nothing to attribute.',
     no_commit_entity: 'memesh has no memory of this commit (it predates capture, or was made without hooks / on another machine).',
@@ -469,8 +471,14 @@ program
     await withDatabase(async () => {
         const { resolveFileCommits, explainCommits } = await import('../../core/why.js');
         const cwd = process.cwd();
-        const limit = parseInt(opts.limit);
-        const line = opts.line !== undefined ? parseInt(opts.line) : undefined;
+        const limit = parseInt(opts.limit, 10);
+        const line = opts.line !== undefined ? parseInt(opts.line, 10) : undefined;
+        for (const [flag, value] of [['--limit', limit], ['--line', line]]) {
+            if (value !== undefined && (!Number.isInteger(value) || value < 1)) {
+                console.error(`Error: ${flag} needs a whole number of 1 or more.`);
+                process.exit(1);
+            }
+        }
         const resolved = resolveFileCommits(cwd, file, { line, limit });
         const result = explainCommits(getDatabase(), {
             file,
@@ -502,6 +510,9 @@ program
                 console.log(`    session: ${c.session.session_id}`);
                 for (const s of c.session.entities)
                     console.log(`      - ${s.name} (${s.type})`);
+                if (c.session.truncated) {
+                    console.log(`      … first ${c.session.entities.length} of a larger session — more exist`);
+                }
             }
             for (const code of c.abstentions) {
                 console.log(`    ! ${WHY_ABSTENTION_TEXT[code] ?? code}`);

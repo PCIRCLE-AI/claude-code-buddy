@@ -31,26 +31,6 @@
       "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
       "triaged": "2026-08-04"
     },
-    "C1 tests/core/conflict-judge.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness assertions (no proposals staged, no judged rows, no relations) are each paired with positive assertions on the same flow in the same test",
-      "triaged": "2026-08-14 (conflict pipeline P2)"
-    },
-    "C1 tests/core/config.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
-      "triaged": "2026-08-04"
-    },
-    "C1 tests/core/export-import.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
-      "triaged": "2026-08-04"
-    },
-    "C1 tests/core/llm-telemetry.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
-      "triaged": "2026-08-04"
-    },
     "C1 tests/core/memory-tool.test.ts": {
       "class": "SAFE",
       "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
@@ -76,22 +56,12 @@
       "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
       "triaged": "2026-08-04"
     },
-    "C1 tests/knowledge-graph-batch.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
-      "triaged": "2026-08-04"
-    },
     "C1 tests/recall-empty-query-vectors.test.ts": {
       "class": "SAFE",
       "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
       "triaged": "2026-08-04"
     },
     "C1 tests/recall-relevance.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
-      "triaged": "2026-08-04"
-    },
-    "C1 tests/reindex-reports-what-happened.test.ts": {
       "class": "SAFE",
       "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
       "triaged": "2026-08-04"
@@ -191,7 +161,7 @@
       "reason": "the .toBe(0)/exit-code assertions are paired with positive stdout content checks in the same tests (needle text, headers)",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/demo.ts:180": {
+    "C5 src/core/demo.ts:185": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "spreads an in-repo literal DEMO_DATA entry (line shifted by the DEMO_RELATIONS insert; same code as the prior demo.ts entry)",
       "triaged": "2026-08-04"
@@ -231,16 +201,6 @@
       "reason": "next line rejects the absent case",
       "triaged": "2026-08-04; re-keyed 2026-08-10 (the AUTO_CAPTURE_TAG import shifted it +1; same statement, classification unchanged)"
     },
-    "C1 tests/hooks/pre-compact.test.ts": {
-      "class": "SAFE",
-      "reason": "the toHaveLength(0) is 'a crashed capture run leaves NO heartbeat', paired in the same test with positive anti-vacuity pins: the capture failure is asserted visible on stderr (toContain('metadata')) and the sibling success test asserts the stamp exists with run_count 1 — the heuristic's pin regex just does not match toBe(1) on run_count",
-      "triaged": "2026-08-13 (PR #142 review round)"
-    },
-    "C1 tests/hooks/write-hook-invariants.test.ts": {
-      "class": "SAFE",
-      "reason": "the toHaveLength(0) is 'openHookDb alone never stamps', followed in the same test by recordHookRun and positive pins (toHaveLength(1), run_count 1 then 2) — emptiness and its non-vacuous counterpart live in one test body",
-      "triaged": "2026-08-13 (PR #142 review round)"
-    },
     "C1 tests/cli/doctor-honest-pass.test.ts": {
       "class": "SAFE",
       "reason": "the zeros are exit codes and a \"warn, not pass\" status, each paired in the same test with a positive assertion (the entity exists, the opposite verdict fires)",
@@ -261,37 +221,32 @@
       "reason": "the zeros are exit codes, and the refusal cases are paired with an import that must still succeed",
       "triaged": "2026-08-10 (P7 batch 2)"
     },
-    "C1 tests/core/dreamer-semantic-clustering.test.ts": {
-      "class": "SAFE",
-      "reason": "llmCalls toBe(0) is the assertion under test (the cluster was skipped before the network) and is backed by a second assertion that no LLM attempt appears among the skip reasons",
-      "triaged": "2026-08-10 (P7 batch 2)"
-    },
     "C6 tests/relation-types-documented.test.ts": {
       "class": "WIRING-PIN",
       "reason": "reads cli.ts to assert each behavioural relation type has a flag whose help carries the consequence — the flags' behaviour is tested against a real database in tests/cli/remember-relations.test.ts",
       "triaged": "2026-08-10 (P7 batch 2)"
     },
-    "C5 src/core/kg-backfill.ts:436": {
+    "C5 src/core/kg-backfill.ts:437": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "index lookups where empty means no peers",
       "triaged": "2026-08-04 (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
     },
-    "C5 src/core/kg-backfill.ts:581": {
+    "C5 src/core/kg-backfill.ts:582": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "index lookups where empty means no peers",
       "triaged": "2026-08-04 (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
     },
-    "C5 src/core/kg-backfill.ts:588": {
+    "C5 src/core/kg-backfill.ts:589": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "index lookups where empty means no peers",
       "triaged": "2026-08-04 (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
     },
-    "C5 src/core/serializer.ts:22": {
+    "C5 src/core/serializer.ts:23": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "provenance spread identity; trust written unconditionally",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/serializer.ts:25": {
+    "C5 src/core/serializer.ts:26": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "provenance spread identity; trust written unconditionally",
       "triaged": "2026-08-04"
@@ -386,11 +341,6 @@
       "reason": "write-time signal-score inputs; empty means the caller passed no observations/tags, which is the correct identity for scoring",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content)"
     },
-    "C1 tests/db.test.ts": {
-      "class": "SAFE",
-      "reason": "the .toBe(0) is PRAGMA table_info notnull flag equality (0 = nullable column), not a set-emptiness assertion; the column presence it depends on is pinned by toBeDefined on the line above",
-      "triaged": "2026-08-14 (UX-1 title-column migration tests)"
-    },
     "C5 src/knowledge-graph.ts:431": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "batch-hydrate lookups; confidence bump fails closed",
@@ -461,7 +411,7 @@
       "reason": "the `toEqual([])` assertions on `actions` are each pinned by non-empty counterparts asserting exact action kinds and arg arrays; emptiness is the positive claim (nothing to prescribe on a wired host), not vacuity.",
       "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline)"
     },
-    "C5 dashboard/src/components/GraphTab.tsx:334": {
+    "C5 dashboard/src/components/GraphTab.tsx:372": {
       "class": "SAFE-GUARDED",
       "reason": "computeGraph always returns noiseTypes; same-origin fetch",
       "triaged": "2026-08-04 (re-keyed: the Batch-D token-resolver + palette refactor shifted 208→233; same code verified before re-keying); re-keyed 2026-08-13 233->276 (graph visual-hierarchy helpers added above; same statement, classification unchanged — verified); re-keyed 2026-08-14 276->285 (review-fix comments above shifted it; same statement — verified); re-keyed 2026-08-15 285→286 (merge main shifted lines +1; same statement — verified) (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
@@ -531,17 +481,17 @@
       "reason": "classification falls through to the freeform bucket",
       "triaged": "2026-08-04; re-keyed 2026-08-14 (displayTitle helper added above; same statement — verified); re-keyed 2026-08-16 (UX-3: CLUSTER_DOT block added above; same statement — verified)"
     },
-    "C5 dashboard/src/components/MemoriesTab.tsx:171": {
+    "C5 dashboard/src/components/MemoriesTab.tsx:244": {
       "class": "SAFE-DISPLAY",
       "reason": "client-side search haystack only (absorbs the retired BrowseTab:169 and LessonsTab:298 hay statements)",
       "triaged": "2026-08-16 (tab consolidation: statement moved verbatim from the retired LessonsTab/BrowseTab; original triage 2026-08-04); re-keyed 2026-08-16 (UX-3: local CLUSTER_DOT block removed above, statement unchanged — verified)"
     },
-    "C5 src/core/why.ts:238": {
+    "C5 src/core/why.ts:312": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`input.commits ?? []` — WhySchema documents commits as optional (a caller without a working tree resolves none); the result carries commits: [] visibly, and every real gap in the chain is a typed abstention, never a default.",
       "triaged": "2026-08-16 (UX-3 memesh why)"
     },
-    "C5 src/core/why.ts:295": {
+    "C5 src/core/why.ts:308": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`input.abstentions ?? []` — pass-through of caller-declared git-side abstentions into the response verbatim; absence means the caller declared none, and nothing here can convert a failure into silence (the CLI always passes its resolveFileCommits abstention in).",
       "triaged": "2026-08-16 (UX-3 memesh why)"
@@ -571,70 +521,100 @@
       "reason": "`(e.relations ?? []).filter` listing outgoing supersedes chain lines — absence renders no chain section at all rather than an empty claim.",
       "triaged": "2026-08-16 (UX-3 ADR view)"
     },
-    "C5 dashboard/src/components/ProjectTab.tsx:42": {
+    "C5 dashboard/src/components/ProjectTab.tsx:43": {
       "class": "SAFE-DISPLAY",
       "reason": "`e.relations ?? []` in selectProjectEntities — an entity without relations simply readmits nothing; the readmission rule is pinned by tests/dashboard/ProjectTab.select.test.ts including the no-relations path.",
       "triaged": "2026-08-16 (UX-3 readmission rule)"
-    },
-    "C1 tests/cli/why.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness (stderr ''/no-stack regex) paired with positive assertions in the same test file: exit 0, parsed JSON fields, entity name, abstention sentence",
-      "triaged": "2026-08-16 (UX-3 memesh why)"
-    },
-    "C1 tests/core/why.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness (empty commits/abstention sets) paired with positive assertions in the same test file: exact hashes, entity ids, typed abstention codes, prefix-join both directions",
-      "triaged": "2026-08-16 (UX-3 memesh why)"
     },
     "C1 tests/dashboard/ProjectTab.select.test.ts": {
       "class": "SAFE",
       "reason": "the empty-result assertions ARE the contract under test (archived pointer readmits nothing), and every scenario pairs them with positive name-list assertions",
       "triaged": "2026-08-16 (UX-3 readmission rule)"
     },
-    "C5 src/transports/cli/cli.ts:753": {
+    "C5 src/transports/cli/cli.ts:773": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`(a.args ?? []).join` in the planned-actions RENDER only; execution re-reads args itself.",
       "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
     },
-    "C5 src/transports/cli/cli.ts:781": {
+    "C5 src/transports/cli/cli.ts:801": {
       "class": "SAFE-GUARDED",
       "reason": "`action.args ?? []` when spawning: run-kind actions are constructed in core/setup.ts with args always set (pinned by unit tests asserting exact arrays); a hypothetical argless command would run as-is with its exit code reported honestly.",
       "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
     },
-    "C5 src/transports/cli/cli.ts:782": {
+    "C5 src/transports/cli/cli.ts:802": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`(action.args ?? []).join` in the success-echo of the command that just ran on the line above (694, same triage); the exit-code branch is the verdict.",
       "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
     },
-    "C5 src/transports/http/server.ts:575": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`data.commits ?? []` — same optional-commits contract as core/why.ts:238; the route never runs git, so an absent list IS the input, not a swallowed failure.",
-      "triaged": "2026-08-16 (UX-3 memesh why); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
-    },
-    "C5 src/core/kg-backfill.ts:731": {
+    "C5 src/core/kg-backfill.ts:740": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "session tag index; empty means the entity carries no session tag, which is a real state — it falls through to the temporal project match",
       "triaged": "2026-08-17 (UX-4 Rule 5)"
     },
-    "C5 src/core/kg-backfill.ts:745": {
+    "C5 src/core/kg-backfill.ts:754": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "project tag index; empty means the work item is untagged and simply joins no project bucket",
       "triaged": "2026-08-17 (UX-4 Rule 5)"
     },
-    "C5 src/core/kg-backfill.ts:762": {
+    "C5 src/core/kg-backfill.ts:804": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "session bucket lookup; empty means no work item shares that session, and the fallback branch below handles it",
       "triaged": "2026-08-17 (UX-4 Rule 5)"
     },
-    "C5 src/core/kg-backfill.ts:783": {
+    "C5 src/core/kg-backfill.ts:834": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "project tag index for the evidence row; empty means no project fallback is possible and no edge is proposed",
       "triaged": "2026-08-17 (UX-4 Rule 5)"
     },
-    "C5 src/core/kg-backfill.ts:784": {
+    "C5 src/core/kg-backfill.ts:835": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "project bucket lookup; empty means the project has no work items, so `.find` yields undefined and no edge is proposed",
       "triaged": "2026-08-17 (UX-4 Rule 5)"
+    },
+    "C5 src/cli/view-live.ts:668": {
+      "class": "SAFE-GUARDED",
+      "reason": "the `|| []` fires only when the request SUCCEEDED but the field is absent; a failed request is caught by the explicit `if (!data.success)` guard on the line above and rendered as an error. Surfaced for the first time when the C5 `||` regex was fixed (its trailing \\b could never match after `]` or `}`), not by a code change.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/cli/view-live.ts:689": {
+      "class": "SAFE-GUARDED",
+      "reason": "the `|| []` fires only when the request SUCCEEDED but the field is absent; a failed request is caught by the explicit `if (!data.success)` guard on the line above and rendered as an error. Surfaced for the first time when the C5 `||` regex was fixed (its trailing \\b could never match after `]` or `}`), not by a code change.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/cli/view-live.ts:720": {
+      "class": "SAFE-GUARDED",
+      "reason": "the `|| []` fires only when the request SUCCEEDED but the field is absent; a failed request is caught by the explicit `if (!data.success)` guard on the line above and rendered as an error. Surfaced for the first time when the C5 `||` regex was fixed (its trailing \\b could never match after `]` or `}`), not by a code change.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/cli/view-live.ts:1139": {
+      "class": "SAFE-GUARDED",
+      "reason": "the `|| []` fires only when the request SUCCEEDED but the field is absent; a failed request is caught by the explicit `if (!data.success)` guard on the line above and rendered as an error. Surfaced for the first time when the C5 `||` regex was fixed (its trailing \\b could never match after `]` or `}`), not by a code change.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/cli/view-live.ts:1262": {
+      "class": "SAFE-GUARDED",
+      "reason": "the `|| []` fires only when the request SUCCEEDED but the field is absent; a failed request is caught by the explicit `if (!data.success)` guard on the line above and rendered as an error. Surfaced for the first time when the C5 `||` regex was fixed (its trailing \\b could never match after `]` or `}`), not by a code change.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/cli/view-live.ts:1553": {
+      "class": "SAFE-GUARDED",
+      "reason": "the `|| {}` is the else-arm of an explicit success+presence conjunction on the same line; config absence renders defaults, and the failure path returned earlier. Newly visible after the C5 `||` regex fix.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/cli/view-live.ts:1554": {
+      "class": "SAFE-GUARDED",
+      "reason": "the `|| {}` is the else-arm of an explicit success+presence conjunction on the same line; capability absence renders defaults, and the failure path returned earlier. Newly visible after the C5 `||` regex fix.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/core/serializer.ts:68": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "`relations` is optional on Entity; empty means the entity has none, which is what the export should record. Newly visible after the C5 `||` regex fix.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/core/serializer.ts:254": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "`relations` is optional on the imported bundle entry; empty means none to re-create. Newly visible after the C5 `||` regex fix.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
     }
   }
 }

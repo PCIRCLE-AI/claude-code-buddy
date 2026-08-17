@@ -12,7 +12,7 @@ export const RADAR_AXES = [
 ];
 export function computeAnalytics(db) {
     const totalActive = db.prepare("SELECT COUNT(*) as c FROM entities WHERE status = 'active'").get().c;
-    const recentlyAccessed = db.prepare(`SELECT COUNT(*) as c FROM entities WHERE status = 'active' AND last_accessed_at >= datetime('now', '-30 days')`).get().c;
+    const recentlyAccessed = db.prepare(`SELECT COUNT(*) as c FROM entities WHERE status = 'active' AND datetime(last_accessed_at) >= datetime('now', '-30 days')`).get().c;
     const activityRatio = totalActive > 0 ? recentlyAccessed / totalActive : 0;
     const highConfidence = db.prepare("SELECT COUNT(*) as c FROM entities WHERE status = 'active' AND confidence > 0.7").get().c;
     const qualityRatio = totalActive > 0 ? highConfidence / totalActive : 0;
@@ -53,7 +53,7 @@ export function computeAnalytics(db) {
     const recalledTimeline = db.prepare(`
     SELECT DATE(last_accessed_at) as day, COUNT(*) as recalled
     FROM entities
-    WHERE last_accessed_at >= datetime('now', '-30 days')
+    WHERE datetime(last_accessed_at) >= datetime('now', '-30 days')
     GROUP BY DATE(last_accessed_at)
     ORDER BY day
   `).all();
@@ -107,38 +107,56 @@ export function computeAnalytics(db) {
     const reusedThisWeek = db.prepare(`SELECT COUNT(*) as c FROM entities
      WHERE type IN (${knowledgeTypePlaceholders})
        AND status = 'active'
-       AND last_accessed_at >= datetime('now', '-7 days')`).get(...KNOWLEDGE_TYPE_LIST).c;
+       AND datetime(last_accessed_at) >= datetime('now', '-7 days')`).get(...KNOWLEDGE_TYPE_LIST).c;
     const loopTrendRows = db.prepare(`
     SELECT DATE(last_accessed_at) as day, COUNT(*) as count
     FROM entities
     WHERE type IN (${knowledgeTypePlaceholders})
       AND status = 'active'
-      AND last_accessed_at >= datetime('now', '-30 days')
+      AND datetime(last_accessed_at) >= datetime('now', '-30 days')
     GROUP BY DATE(last_accessed_at)
     ORDER BY day
   `).all(...KNOWLEDGE_TYPE_LIST);
-    let loopComputedFrom = 'last_accessed_at_approximation';
-    try {
-        const recallColCheck = db.prepare("PRAGMA table_info(entities)").all();
-        if (recallColCheck.some((c) => c.name === 'recall_hits')) {
-            const hitsInWindow = db.prepare(`SELECT COUNT(*) as c FROM entities
-         WHERE type IN (${knowledgeTypePlaceholders})
-           AND recall_hits > 0
-           AND last_accessed_at >= datetime('now', '-30 days')`).get(...KNOWLEDGE_TYPE_LIST).c;
-            if (hitsInWindow > 0)
-                loopComputedFrom = 'recall_hits';
-        }
-    }
-    catch { }
     const loopMetric = {
         reusedThisWeek,
         trend: loopTrendRows.map((r) => ({ date: r.day, count: r.count })),
-        computedFrom: loopComputedFrom,
+        computedFrom: 'last_accessed_at_approximation',
     };
+    const LESSON_TYPES = ['lesson_learned', 'lesson', 'mistake'];
+    const lessonPlaceholders = LESSON_TYPES.map(() => '?').join(',');
+    const lessonTotal = db.prepare(`SELECT COUNT(*) as c FROM entities
+     WHERE status = 'active' AND type IN (${lessonPlaceholders})`).get(...LESSON_TYPES).c;
+    const severityTagged = db.prepare(`SELECT COUNT(DISTINCT e.id) as c FROM entities e
+     JOIN tags t ON t.entity_id = e.id
+     WHERE e.status = 'active' AND e.type IN (${lessonPlaceholders})
+       AND t.tag LIKE 'severity:%'`).get(...LESSON_TYPES).c;
+    const criticalCount = db.prepare(`SELECT COUNT(DISTINCT e.id) as c FROM entities e
+     JOIN tags t ON t.entity_id = e.id
+     WHERE e.status = 'active' AND e.type IN (${lessonPlaceholders})
+       AND t.tag = 'severity:critical'`).get(...LESSON_TYPES).c;
+    const criticalLessons = { critical: criticalCount, severityTagged, total: lessonTotal };
+    const readCounter = (key) => {
+        try {
+            const row = db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(key);
+            if (!row)
+                return null;
+            const n = parseInt(row.value, 10);
+            return Number.isInteger(n) && n >= 0 ? n : null;
+        }
+        catch {
+            return null;
+        }
+    };
+    const citationTotal = readCounter('citation_sessions_total');
+    const citationCompliance = citationTotal === null || citationTotal === 0
+        ? null
+        : { cited: readCounter('citation_sessions_cited') ?? 0, total: citationTotal };
     return {
         healthScore,
         healthFactors,
         loopMetric,
+        criticalLessons,
+        citationCompliance,
         timeline,
         ageMatrix,
         knowledgeRadar,

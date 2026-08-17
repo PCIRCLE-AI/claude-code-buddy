@@ -5,6 +5,7 @@
 
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
+import { truncateTitle } from './title.js';
 import { NAMESPACES } from './types.js';
 import type { ExportInput, ExportResult, ImportInput, ImportResult } from './types.js';
 
@@ -54,6 +55,13 @@ export function exportMemories(args: ExportInput): ExportResult {
     entities: entities.map((e) => ({
       name: e.name,
       type: e.type,
+      // The bundle carries `title` because without it the round trip is not a
+      // round trip: export → import silently dropped every human-readable
+      // title, and the import reported the entity as imported while it came
+      // back with nothing but its slug-shaped name in every surface that shows
+      // a title. Written explicitly as `null` when absent rather than omitted,
+      // so a reader can tell "no title" from "this bundle predates titles".
+      title: e.title ?? null,
       namespace: e.namespace ?? 'personal',
       observations: e.observations,
       tags: e.tags,
@@ -167,6 +175,23 @@ export function importMemories(args: ImportInput): ImportResult {
     }
     try {
       const existing = kg.getEntity(entity.name);
+      // The import never read a title, because the export never wrote one —
+      // the two halves of the same gap, and together they made every
+      // export→import a silent rename of each memory to its slug-shaped
+      // `name`. Read defensively, the way describeInvalidEntity reads the rest
+      // of the bundle: this is a FILE, possibly written by a memesh that had
+      // no titles at all, so the field is present-or-not rather than
+      // guaranteed. Absent, blank or non-string becomes `undefined`, which is
+      // createEntity's "leave whatever title is already there alone" — an
+      // older bundle's missing title must not wipe one off a memory the
+      // importer already had. `truncateTitle` because this is a generator-side
+      // writer with nobody to bounce bad input back to (schemas.ts REJECTS
+      // over-long titles; createEntity itself caps nothing), and one
+      // hand-edited 10,000-character title should not become a stored one.
+      const bundledTitle = (entity as Record<string, unknown>).title;
+      const title = typeof bundledTitle === 'string' && bundledTitle.trim().length > 0
+        ? truncateTitle(bundledTitle)
+        : undefined;
       // The caller's `--namespace` override applies to everything, existing
       // entities included — that is what "force all imported entities into
       // this namespace" means. The namespace stored IN the bundle only places
@@ -192,6 +217,7 @@ export function importMemories(args: ImportInput): ImportResult {
           // updateEntityMetadata AFTER createEntity returned, so the
           // gate read undefined → defaulted to trusted → bumped.
           kg.createEntity(entity.name, entity.type, {
+            title,
             observations: entity.observations,
             tags: entity.tags,
             namespace,
@@ -213,6 +239,7 @@ export function importMemories(args: ImportInput): ImportResult {
       }
 
       kg.createEntity(entity.name, entity.type, {
+        title,
         observations: entity.observations,
         tags: entity.tags,
         metadata: importedMetadata,

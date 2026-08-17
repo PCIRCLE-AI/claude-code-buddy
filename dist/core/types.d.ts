@@ -114,6 +114,7 @@ export interface ExportResult {
     entities: Array<{
         name: string;
         type: string;
+        title?: string | null;
         namespace: string;
         observations: string[];
         tags: string[];

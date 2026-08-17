@@ -1,5 +1,6 @@
 import { getDatabase } from '../db.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
+import { truncateTitle } from './title.js';
 import { NAMESPACES } from './types.js';
 function buildImportedMetadata(existingMetadata, args) {
     return {
@@ -31,6 +32,7 @@ export function exportMemories(args) {
         entities: entities.map((e) => ({
             name: e.name,
             type: e.type,
+            title: e.title ?? null,
             namespace: e.namespace ?? 'personal',
             observations: e.observations,
             tags: e.tags,
@@ -88,6 +90,10 @@ export function importMemories(args) {
         }
         try {
             const existing = kg.getEntity(entity.name);
+            const bundledTitle = entity.title;
+            const title = typeof bundledTitle === 'string' && bundledTitle.trim().length > 0
+                ? truncateTitle(bundledTitle)
+                : undefined;
             const namespace = args.namespace ?? (existing ? undefined : (entity.namespace || 'personal'));
             const importedMetadata = buildImportedMetadata(existing?.metadata, {
                 exportedAt: args.data.exported_at,
@@ -101,6 +107,7 @@ export function importMemories(args) {
                 }
                 if (args.merge_strategy === 'append') {
                     kg.createEntity(entity.name, entity.type, {
+                        title,
                         observations: entity.observations,
                         tags: entity.tags,
                         namespace,
@@ -113,6 +120,7 @@ export function importMemories(args) {
                 kg.clearEntityData(entity.name);
             }
             kg.createEntity(entity.name, entity.type, {
+                title,
                 observations: entity.observations,
                 tags: entity.tags,
                 metadata: importedMetadata,

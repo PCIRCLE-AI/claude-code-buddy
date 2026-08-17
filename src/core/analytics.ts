@@ -8,7 +8,7 @@
 // directly without re-implementing the SQL.
 
 import type { MemeshDatabase } from '../storage/sqlite.js';
-import type { CountRow, PragmaColumnRow } from './types.js';
+import type { CountRow } from './types.js';
 
 export interface HealthFactor {
   score: number;
@@ -71,6 +71,36 @@ export interface AnalyticsResult {
     lessons: HealthFactor;
   };
   loopMetric: LoopMetric;
+  /**
+   * How many lessons are marked `severity:critical` — the one counter the
+   * retired Lessons tab carried that a reader acts on ("mistakes already
+   * paid for, waiting to be repeated"). Its three siblings were dropped.
+   *
+   * All three numbers travel together because `critical` alone is a
+   * half-truth: on the graph this was written against, 29 lessons were
+   * active, 12 carried any severity tag and 5 were critical — so "5" is 5
+   * of 12 classified, not 5 of 29, and a tile that prints 5 without the
+   * denominator overstates what was measured. `severityTagged === 0` is the
+   * not-measured case and must render as such, never as a zero.
+   */
+  criticalLessons: {
+    critical: number;
+    severityTagged: number;
+    total: number;
+  };
+  /**
+   * How often an agent that was given memories actually cited one, from the
+   * two counters the Stop hook keeps (`citation_sessions_cited` /
+   * `citation_sessions_total`).
+   *
+   * `null` when the counters do not exist, and that is a THIRD state, not a
+   * zero: it means no session has yet run the citation-era accounting, which
+   * is true of every install until the release carrying it lands. A tile
+   * that renders `null` as 0% would report perfect non-compliance from an
+   * instrument that has never been switched on — the exact failure
+   * `retrieval.degraded` exists to prevent on the recall side.
+   */
+  citationCompliance: { cited: number; total: number } | null;
   timeline: Array<{ date: string; created: number; recalled: number }>;
   ageMatrix: AgeMatrixEntry[];
   knowledgeRadar: KnowledgeRadarEntry[];
@@ -88,7 +118,7 @@ export function computeAnalytics(db: MemeshDatabase): AnalyticsResult {
   ).get() as CountRow).c;
 
   const recentlyAccessed = (db.prepare(
-    `SELECT COUNT(*) as c FROM entities WHERE status = 'active' AND last_accessed_at >= datetime('now', '-30 days')`,
+    `SELECT COUNT(*) as c FROM entities WHERE status = 'active' AND datetime(last_accessed_at) >= datetime('now', '-30 days')`,
   ).get() as CountRow).c;
   const activityRatio = totalActive > 0 ? recentlyAccessed / totalActive : 0;
 
@@ -146,7 +176,7 @@ export function computeAnalytics(db: MemeshDatabase): AnalyticsResult {
   const recalledTimeline = db.prepare(`
     SELECT DATE(last_accessed_at) as day, COUNT(*) as recalled
     FROM entities
-    WHERE last_accessed_at >= datetime('now', '-30 days')
+    WHERE datetime(last_accessed_at) >= datetime('now', '-30 days')
     GROUP BY DATE(last_accessed_at)
     ORDER BY day
   `).all() as Array<{ day: string; recalled: number }>;
@@ -227,7 +257,7 @@ export function computeAnalytics(db: MemeshDatabase): AnalyticsResult {
     `SELECT COUNT(*) as c FROM entities
      WHERE type IN (${knowledgeTypePlaceholders})
        AND status = 'active'
-       AND last_accessed_at >= datetime('now', '-7 days')`,
+       AND datetime(last_accessed_at) >= datetime('now', '-7 days')`,
   ).get(...KNOWLEDGE_TYPE_LIST) as CountRow).c;
 
   const loopTrendRows = db.prepare(`
@@ -235,41 +265,90 @@ export function computeAnalytics(db: MemeshDatabase): AnalyticsResult {
     FROM entities
     WHERE type IN (${knowledgeTypePlaceholders})
       AND status = 'active'
-      AND last_accessed_at >= datetime('now', '-30 days')
+      AND datetime(last_accessed_at) >= datetime('now', '-30 days')
     GROUP BY DATE(last_accessed_at)
     ORDER BY day
   `).all(...KNOWLEDGE_TYPE_LIST) as Array<{ day: string; count: number }>;
 
-  // Detect whether instrumentation is producing data that overlaps the
-  // 30-day window we're displaying. If recall_hits has only stale data
-  // outside the window, the badge would lie — say "precise mode" while
-  // the rendered numbers (reusedThisWeek + trend) still come from the
-  // last_accessed_at approximation. Gate the mode flip on a hit whose
-  // entity was last accessed within the same 30-day window we render.
-  let loopComputedFrom: LoopMetric['computedFrom'] = 'last_accessed_at_approximation';
-  try {
-    const recallColCheck = db.prepare("PRAGMA table_info(entities)").all() as PragmaColumnRow[];
-    if (recallColCheck.some((c) => c.name === 'recall_hits')) {
-      const hitsInWindow = (db.prepare(
-        `SELECT COUNT(*) as c FROM entities
-         WHERE type IN (${knowledgeTypePlaceholders})
-           AND recall_hits > 0
-           AND last_accessed_at >= datetime('now', '-30 days')`,
-      ).get(...KNOWLEDGE_TYPE_LIST) as CountRow).c;
-      if (hitsInWindow > 0) loopComputedFrom = 'recall_hits';
-    }
-  } catch { /* recall_hits column missing — stay in approximation mode */ }
-
+  // `computedFrom` describes THESE numbers, and both queries above read
+  // `last_accessed_at`. Nothing here reads `recall_hits`, so the only honest
+  // value is the approximation — and the dashboard uses this field to decide
+  // whether to SHOW the "this is an approximation" caveat, which means a wrong
+  // value here does not mislabel a number, it hides the sentence that explains
+  // it.
+  //
+  // This used to flip to 'recall_hits' whenever the column existed and any
+  // knowledge entity had a hit inside the 30-day window. The comment on that
+  // gate named the exact failure it was meant to prevent — "the badge would
+  // lie: say precise mode while the rendered numbers still come from the
+  // approximation" — and the gate did not prevent it, because a hit in the
+  // window is not evidence that these queries read hits. Measured on a real
+  // graph 2026-08-17: 21 knowledge entities carried in-window `recall_hits`,
+  // every one written by the literal-content matching that R1 retired at 0%
+  // measured signal, and `recall_accounting_mode` (the stamp that separates
+  // the two accounting eras) was absent. The caveat was hidden on that graph.
+  //
+  // Earning 'recall_hits' takes a schema change, not a probe: `recall_hits` is
+  // a running total per entity, so a per-DAY reuse series cannot be derived
+  // from it. Set this field where that query lands.
   const loopMetric: LoopMetric = {
     reusedThisWeek,
     trend: loopTrendRows.map((r) => ({ date: r.day, count: r.count })),
-    computedFrom: loopComputedFrom,
+    computedFrom: 'last_accessed_at_approximation',
   };
+
+  // --- Critical lessons ---
+  //
+  // The lesson types are the ones `severity:*` is written onto (see
+  // `learn`), and severity lives in tags, not a column. `severityTagged` is
+  // the denominator that keeps `critical` honest: a lesson nobody classified
+  // is not a lesson that is not critical.
+  const LESSON_TYPES = ['lesson_learned', 'lesson', 'mistake'];
+  const lessonPlaceholders = LESSON_TYPES.map(() => '?').join(',');
+  const lessonTotal = (db.prepare(
+    `SELECT COUNT(*) as c FROM entities
+     WHERE status = 'active' AND type IN (${lessonPlaceholders})`,
+  ).get(...LESSON_TYPES) as CountRow).c;
+  const severityTagged = (db.prepare(
+    `SELECT COUNT(DISTINCT e.id) as c FROM entities e
+     JOIN tags t ON t.entity_id = e.id
+     WHERE e.status = 'active' AND e.type IN (${lessonPlaceholders})
+       AND t.tag LIKE 'severity:%'`,
+  ).get(...LESSON_TYPES) as CountRow).c;
+  const criticalCount = (db.prepare(
+    `SELECT COUNT(DISTINCT e.id) as c FROM entities e
+     JOIN tags t ON t.entity_id = e.id
+     WHERE e.status = 'active' AND e.type IN (${lessonPlaceholders})
+       AND t.tag = 'severity:critical'`,
+  ).get(...LESSON_TYPES) as CountRow).c;
+  const criticalLessons = { critical: criticalCount, severityTagged, total: lessonTotal };
+
+  // --- Citation compliance (R1) ---
+  //
+  // Read as a pair, and only when the TOTAL exists: `cited` without `total`
+  // is a numerator with no denominator. A missing total means the hook that
+  // keeps these has not run its citation branch on this install yet, which
+  // is "not measured", not "0%".
+  const readCounter = (key: string): number | null => {
+    try {
+      const row = db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(key) as
+        | { value: string } | undefined;
+      if (!row) return null;
+      const n = parseInt(row.value, 10);
+      return Number.isInteger(n) && n >= 0 ? n : null;
+    } catch { return null; }
+  };
+  const citationTotal = readCounter('citation_sessions_total');
+  const citationCompliance = citationTotal === null || citationTotal === 0
+    ? null
+    : { cited: readCounter('citation_sessions_cited') ?? 0, total: citationTotal };
 
   return {
     healthScore,
     healthFactors,
     loopMetric,
+    criticalLessons,
+    citationCompliance,
     timeline,
     ageMatrix,
     knowledgeRadar,

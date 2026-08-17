@@ -287,6 +287,13 @@ export interface AnalyticsData {
     lessons: HealthFactor;
   };
   loopMetric: LoopMetric;
+  /** Critical lessons WITH their denominators: `critical` alone overstates
+   *  what was classified, because an untagged lesson is not a non-critical
+   *  one. `severityTagged === 0` is the not-measured case. */
+  criticalLessons: { critical: number; severityTagged: number; total: number };
+  /** How often an agent that was given memories cited one. `null` means the
+   *  counters do not exist yet — a third state, not 0%. */
+  citationCompliance: { cited: number; total: number } | null;
   timeline: Array<{ date: string; created: number; recalled: number }>;
   ageMatrix: Array<{ type: string; bucket: 'week' | 'month' | 'quarter' | 'older'; count: number }>;
   knowledgeRadar: Array<{ axis: string; count: number; types: string[] }>;
@@ -322,7 +329,16 @@ export interface ProjectInfo {
 
 export async function fetchProjects(): Promise<ProjectInfo[]> {
   const data = await api<ProjectInfo[]>('GET', '/v1/projects');
-  return Array.isArray(data) ? data : [];
+  // Throw, do not return []. ProjectTab now tells a failed fetch apart from
+  // an empty one and says which happened — but only if this layer lets the
+  // failure through. `Array.isArray(data) ? data : []` converted version
+  // skew into "No project memories yet", a claim about the user's data made
+  // from a response nobody could read.
+  if (!Array.isArray(data)) {
+    console.warn('[memesh dashboard] /v1/projects answered with a shape this bundle cannot read:', data);
+    throw new Error('unreadable projects payload');
+  }
+  return data;
 }
 
 export async function fetchGraph(): Promise<GraphData> {

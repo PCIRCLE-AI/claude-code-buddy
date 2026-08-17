@@ -300,7 +300,7 @@ app.post('/v1/why', (req, res) => handlePost(WhyBody, req, res, async (data) => 
     const { explainCommits } = await import('../../core/why.js');
     return explainCommits(getDatabase(), {
         file: data.file,
-        commits: (data.commits ?? []).map((hash) => ({ hash })),
+        commits: data.commits?.map((hash) => ({ hash })),
         project: data.project ?? null,
         limit: data.limit,
     });

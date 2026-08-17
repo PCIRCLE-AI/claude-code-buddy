@@ -47,6 +47,7 @@ export const ExportResultSchema = z.object({
     entities: z.array(z.object({
         name: nameField,
         type: z.string().min(1).max(100),
+        title: z.string().max(TITLE_MAX_LENGTH).nullable().optional(),
         namespace: z.string(),
         observations: z.array(z.string().max(10000)),
         tags: z.array(z.string().max(255)),

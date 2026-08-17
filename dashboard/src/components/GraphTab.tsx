@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks';
 import { fetchGraph, fetchWorkGraph, type GraphData, type WorkGraphData, type Entity } from '../lib/api';
 import { EvidencePanel } from './EvidencePanel';
 import { t, getLocale } from '../lib/i18n';
-import { typeLabel, relationLabel } from '../lib/entity-display';
+import { typeLabel, relationLabel, displayTitle } from '../lib/entity-display';
 import { classifyLoadError, failureMessage, type LoadFailure } from '../lib/failure';
 import { useSignalMode } from '../lib/signalMode';
 import { EmptyLibraryState } from './EmptyLibraryState';
@@ -60,7 +60,19 @@ const BADGE_R = 5;
 
 interface GNode {
   id: string;
-  title: string | null;     // Human-readable title for tooltip display
+  /** The headline a human reads, from `displayTitle`'s chain (title → best
+   *  observation → type + date). NOT `id`: `id` is `entity.name`, a machine
+   *  dedup key (`pre-compact-<sessionId>`, `commit-a1b2c3d`), and the canvas
+   *  was drawing those keys on screen — the one thing entity-display.ts says
+   *  the chain must never fall back to. Precomputed with the node set so the
+   *  draw loop does no string work per frame; the cost is that the type+date
+   *  branch keeps the locale it was built with until the data or the layer
+   *  changes (title and observation headlines carry no locale at all). */
+  display: string;
+  /** `name + headline`, lowercased — the search haystack. Search used to test
+   *  the machine name alone, so typing the headline the user just read (in
+   *  Memories, or in this graph's own tooltip) matched nothing. */
+  searchText: string;
   type: string;
   x: number;
   y: number;
@@ -78,6 +90,15 @@ interface GNode {
    *  radius silently made recency the primary key for every
    *  well-trafficked node. */
   accessCount: number;
+  /** Where the draw loop PUT the evidence badge this frame (world coords), or
+   *  null on a frame that drew none. The hit-test reads this rather than
+   *  recomputing the geometry, because the second copy drifted twice over:
+   *  it used `n.radius` while the draw grows the radius to 9px on hover and
+   *  10px on focus (visible badge, unclickable — and a clickable circle over
+   *  empty canvas), and it ran unconditionally while the draw only places a
+   *  badge inside the label budget (an invisible target on every unlabelled
+   *  node, swallowing the click-empty-canvas gesture that exits ego mode). */
+  badge: { x: number; y: number } | null;
 }
 
 interface GEdge {
@@ -209,6 +230,15 @@ function formatAge(dateStr: string): string {
   return t('graph.ageDaysAgo', { count: days });
 }
 
+/** Cap a headline for canvas drawing. Canvas text is drawn, not wrapped, and a
+ *  headline is a title (up to TITLE_MAX_LENGTH = 200) or a whole observation
+ *  (unbounded) — the machine name the canvas used to draw was short by
+ *  construction, so nothing capped it. Uncapped, a label runs clear across the
+ *  stage and a tooltip line makes its box wider than the canvas. */
+function ellipsize(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max - 2) + '...' : s;
+}
+
 declare global {
   interface Window { __graphReheat?: () => void; }
 }
@@ -322,6 +352,14 @@ export function GraphTab() {
   const searchQueryRef = useRef(searchQuery);
   const egoNodeIdRef = useRef(egoNodeId);
   const driftModeRef = useRef(driftMode);
+  // Signal Mode is READ when a payload is applied (it seeds the type filters)
+  // and must never TRIGGER a load. Read from state, it made `applyGraph` a new
+  // function on every toggle, and `applyGraph` is a dependency of the loader —
+  // so the header's Signal/All button refetched the graph over HTTP, blanked
+  // the canvas through the loading gate and closed an open evidence
+  // drill-down, for a toggle the `[signalMode, data]` effect below already
+  // applies in place.
+  const signalModeRef = useRef(signalMode);
   useEffect(() => { typeFiltersRef.current = typeFilters; }, [typeFilters]);
 
   // When the global Signal Mode toggles, snap the NOISE-type filters
@@ -348,6 +386,7 @@ export function GraphTab() {
   useEffect(() => { searchQueryRef.current = searchQuery; }, [searchQuery]);
   useEffect(() => { egoNodeIdRef.current = egoNodeId; }, [egoNodeId]);
   useEffect(() => { driftModeRef.current = driftMode; }, [driftMode]);
+  useEffect(() => { signalModeRef.current = signalMode; }, [signalMode]);
 
   // Everything both layers do with a payload once it has arrived: the shape
   // guard, the physics cap, and the initial type filters. A shape mismatch
@@ -380,11 +419,14 @@ export function GraphTab() {
     // every type starts checked.
     const noise = new Set(Array.isArray(d.noiseTypes) ? d.noiseTypes : []);
     const types: Record<string, boolean> = {};
+    const hideNoise = signalModeRef.current;
     capped.forEach((e) => {
-      types[e.type] = types[e.type] ?? (signalMode ? !noise.has(e.type) : true);
+      types[e.type] = types[e.type] ?? (hideNoise ? !noise.has(e.type) : true);
     });
     setTypeFilters(types);
-  }, [signalMode]);
+    // Empty deps on purpose — see signalModeRef above. This callback is a
+    // dependency of the loader, so anything it closes over becomes a refetch.
+  }, []);
 
   /* ----- data fetch ----- */
   // One loader for both layers. The work layer is tried first (it is the
@@ -436,10 +478,26 @@ export function GraphTab() {
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-    // applyGraph is defined below with useCallback on [signalMode]; the
-    // loader re-runs when the user switches layer.
+    // Complete deps, and deliberately cheap: `applyGraph` is stable (empty
+    // deps), so the only thing that re-runs this loader is a layer switch.
   }, [layer, applyGraph]);
 
+
+  // ONE derivation of the human-readable headline for the whole tab: the
+  // canvas labels, the tooltip, the search predicates and the match count all
+  // read this map. A second copy of the chain is how the match count and the
+  // highlighted nodes drift apart — and it is how the tooltip ended up with a
+  // hand-rolled `title || type · age`, skipping the middle step and hiding the
+  // observation Memories shows for the same entity.
+  const displayIndex = useMemo(() => {
+    const index = new Map<string, { display: string; search: string }>();
+    if (!data) return index;
+    for (const e of data.entities) {
+      const display = displayTitle(e);
+      index.set(e.name, { display, search: `${e.name} ${display}`.toLowerCase() });
+    }
+    return index;
+  }, [data]);
 
   /* ----- build graph & start simulation ----- */
   useEffect(() => {
@@ -522,9 +580,13 @@ export function GraphTab() {
       const hash = hashString(e.name);
       const angle = k * GOLDEN_ANGLE + (hash % 100) / 100;
       const spread = Math.min(spreadCap, 14 + Math.sqrt(k) * 16 + (hash % 7));
+      // Non-null: `displayIndex` is keyed off THIS entity list and rebuilt
+      // with it, so a miss would mean the two came from different payloads.
+      const shown = displayIndex.get(e.name)!;
       nodeMap.set(e.name, {
         id: e.name,
-        title: e.title ?? null,
+        display: shown.display,
+        searchText: shown.search,
         type: e.type,
         x: Math.min(w - 16, Math.max(16, centre.x + Math.cos(angle) * spread)),
         y: Math.min(h - 16, Math.max(16, centre.y + Math.sin(angle) * spread)),
@@ -536,6 +598,7 @@ export function GraphTab() {
         lastDate,
         accessCount: Math.max(0, e.access_count ?? 0),
         evidenceCount: evidenceCounts[e.name] ?? 0,
+        badge: null,
       });
     });
     // Label-budget order: RAW traffic first, recency as the tiebreak, name
@@ -646,10 +709,13 @@ export function GraphTab() {
       return isNodeVisible(fromNode) && isNodeVisible(toNode);
     };
 
+    // Name AND headline — the same haystack the match count reads. Testing
+    // the machine name alone meant a user who typed the words they can SEE on
+    // this canvas got "0 matches" back from it.
     const isSearchMatch = (n: GNode): boolean => {
       const q = searchQueryRef.current.toLowerCase();
       if (!q) return false;
-      return n.id.toLowerCase().includes(q);
+      return n.searchText.includes(q);
     };
 
     /* ---------- simulation loop ---------- */
@@ -790,7 +856,10 @@ export function GraphTab() {
       // --- Auto-center on single search match ---
       const q = searchQueryRef.current.toLowerCase();
       if (q) {
-        const matches = nodes.filter((n) => n.id.toLowerCase().includes(q));
+        // Same haystack as isSearchMatch: a query that highlights exactly one
+        // node must be the query that centres it, or the auto-centre fires on
+        // a different set than the glow ring.
+        const matches = nodes.filter((n) => n.searchText.includes(q));
         if (matches.length === 1) {
           const target = matches[0];
           const shiftX = cx - target.x;
@@ -928,6 +997,11 @@ export function GraphTab() {
         const matched = isSearchMatch(n);
         const isFocusCenter = egoNodeIdRef.current === n.id;
         const r = isFocusCenter ? 10 : isHovered ? 9 : n.radius;
+        // The badge's position is per-frame state, so clear it BEFORE the
+        // draw decides whether to place one. Assigning only inside the badge
+        // block would leave a node that drops out of the label budget
+        // carrying a click target where nothing is drawn.
+        n.badge = null;
 
         // Recency alpha: full for hovered/matched
         const alpha = isHovered || matched ? 1.0 : n.recency;
@@ -1000,12 +1074,14 @@ export function GraphTab() {
           // the zoomed-out tier's 3 labels to unreadable specks and zooming
           // in blows 20px text and 6px halos over the graph.
           ctx.font = `${10 / vp.scale}px ${tk['--font-ui']}`;
+          // The headline, not the machine name — see GNode.display. Searched
+          // and focused nodes get a wider cap because they are the node the
+          // user asked about; both are capped now, which the old code did not
+          // need to do when it was drawing a name.
           const label =
             matched || isFocusCenter
-              ? n.id
-              : n.id.length > 20
-                ? n.id.slice(0, 18) + '...'
-                : n.id;
+              ? ellipsize(n.display, 48)
+              : ellipsize(n.display, 20);
           // Halo: the label stroked in the canvas background colour
           // (--bg-0 — the canvas element's actual background) before the
           // fill, so text stays legible when it crosses nodes or edges.
@@ -1029,6 +1105,11 @@ export function GraphTab() {
           const br = BADGE_R / vp.scale;
           const bx = n.x + r * 0.8;
           const by = n.y - r * 0.8;
+          // Publish where it landed. The hit-test reads this instead of
+          // recomputing `n.radius * 0.8` — `r` above is 9 or 10px on a hovered
+          // or focused node, so the recomputed copy pointed at a badge that
+          // was not there.
+          n.badge = { x: bx, y: by };
           ctx.globalAlpha = 1;
           ctx.beginPath();
           ctx.arc(bx, by, br, 0, Math.PI * 2);
@@ -1059,18 +1140,23 @@ export function GraphTab() {
         ctx.setTransform(curDpr, 0, 0, curDpr, 0, 0);
         const tx = tip.x + 12;
         const ty = tip.y - 10;
-        // Display title if available; never the machine name (id).
-        // Fallback to type label + age when untitled (same data as line2, but
-        // avoids showing raw entity.name like "session-summary-a3f5e").
+        // Headline, then the metadata line. This used to reimplement the
+        // display chain as `title || type · age` and skip its middle step, so
+        // an untitled entity showed its best observation in Memories and only
+        // "type · age" here — and the one-line branch existed precisely
+        // because line1 was then a copy of line2. With a real headline in
+        // line1 that branch is dead. (When the headline IS the type+date
+        // fallback — an entity with no title and no observations — line2 still
+        // adds the age, so the two lines never say the same thing twice.)
         const typeTxt = typeLabel(tip.node.type);
         const ageTxt = formatAge(tip.node.lastDate);
-        const line1 = tip.node.title?.trim() || `${typeTxt} · ${ageTxt}`;
-        const line2 = tip.node.title?.trim() ? `${typeTxt}  |  ${ageTxt}` : '';
+        const line1 = ellipsize(tip.node.display, 64);
+        const line2 = `${typeTxt}  |  ${ageTxt}`;
         ctx.font = `11px ${tk['--font-ui']}`;
         const w1 = ctx.measureText(line1).width;
-        const w2 = line2 ? ctx.measureText(line2).width : 0;
+        const w2 = ctx.measureText(line2).width;
         const boxW = Math.max(w1, w2) + 12;
-        const boxH = line2 ? 34 : 20;  // Single-line when untitled
+        const boxH = 34;
         // Tooltip panel: translucent panel bg + accent hairline, both built from
         // the resolved tokens (--bg-1 / --life) so a palette change reaches the
         // canvas — semi-transparent so the graph shows through.
@@ -1083,11 +1169,9 @@ export function GraphTab() {
         ctx.stroke();
         ctx.fillStyle = tk['--text-0'];
         ctx.fillText(line1, tx, ty - 4);
-        if (line2) {
-          ctx.fillStyle = tk['--text-2'];
-          ctx.font = `10px ${tk['--mono']}`;
-          ctx.fillText(line2, tx, ty + 10);
-        }
+        ctx.fillStyle = tk['--text-2'];
+        ctx.font = `10px ${tk['--mono']}`;
+        ctx.fillText(line2, tx, ty + 10);
       }
 
       animRef.current = requestAnimationFrame(simulate);
@@ -1097,8 +1181,9 @@ export function GraphTab() {
     return () => cancelAnimationFrame(animRef.current);
     // activeLayer/evidenceCounts are read when the nodes are built (badge
     // counts) and when they are ranked, so the simulation must rebuild when
-    // the layer changes — not only when `data` does.
-  }, [data, loading, activeLayer, evidenceCounts]);
+    // the layer changes — not only when `data` does. displayIndex is derived
+    // from `data` alone, so it adds no rebuild of its own.
+  }, [data, loading, activeLayer, evidenceCounts, displayIndex]);
 
   /* ---------- hit-test (only visible nodes) ----------
    * `wx`/`wy` are WORLD coords (already inverse-transformed). Hit radius
@@ -1123,14 +1208,19 @@ export function GraphTab() {
       const dx = n.x - wx;
       const dy = n.y - wy;
       if (dx * dx + dy * dy < hitR2) return n;
-      // The evidence badge is a visible part of the node and must be
-      // clickable as one — a target you can see and cannot hit is worse
-      // than no target. Same geometry the draw call uses, so the two
-      // cannot drift.
-      if (n.evidenceCount > 0) {
+      // The evidence badge is a visible part of the node and must be clickable
+      // as one — a target you can see and cannot hit is worse than no target.
+      // The reverse is worse still, and both used to happen: this recomputed
+      // the badge's place from `n.radius` while the draw call grows the radius
+      // on hover and focus, and it ran for every node with evidence while the
+      // draw only places a badge inside the label budget — so an unlabelled
+      // node carried an invisible target that ate the click-empty-canvas
+      // gesture. Reading the drawn position removes the copy rather than
+      // syncing it: `n.badge` is null on every frame no badge was drawn.
+      if (n.badge) {
         const br = BADGE_R / scale;
-        const bdx = n.x + n.radius * 0.8 - wx;
-        const bdy = n.y - n.radius * 0.8 - wy;
+        const bdx = n.badge.x - wx;
+        const bdy = n.badge.y - wy;
         if (bdx * bdx + bdy * bdy < br * br) return n;
       }
     }
@@ -1413,10 +1503,12 @@ export function GraphTab() {
   });
   const orphanCount = data.entities.filter((e) => !connectedSet.has(e.name)).length;
 
-  // Search match count
+  // Search match count — over the SAME haystack the canvas highlights on
+  // (name + headline). Counted over the machine name alone it reported "0
+  // matches" for a query that the user took straight off this canvas.
   const matchCount = searchQuery
-    ? data.entities.filter((e) =>
-        e.name.toLowerCase().includes(searchQuery.toLowerCase()),
+    ? [...displayIndex.values()].filter((d) =>
+        d.search.includes(searchQuery.toLowerCase()),
       ).length
     : 0;
 
@@ -1692,7 +1784,10 @@ export function GraphTab() {
             <span style={{ color: 'var(--life)', fontWeight: 600 }}>
               {t('graph.focusMode')}:
             </span>
-            <span style={{ color: 'var(--text-0)' }}>{egoEntity.name}</span>
+            {/* The headline, not `egoEntity.name`: this banner names the node
+                the user is focused on, and a dedup key like
+                `pre-compact-<sessionId>` does not name anything to a human. */}
+            <span style={{ color: 'var(--text-0)' }}>{displayTitle(egoEntity)}</span>
             <button
               onClick={() => setEgoNodeId(null)}
               style={{
@@ -1759,9 +1854,13 @@ export function GraphTab() {
             not a work item, so "what evidence supports it" is not a question
             that view can answer. */}
         {activeLayer === 'work' && evidenceNode && (
+          /* `node` is the API key (the entity name); `nodeTitle` is what the
+             panel heading reads out, so it takes the headline. The old
+             `title || id` fallback put the machine key in the heading of
+             every untitled node. */
           <EvidencePanel
             node={evidenceNode.id}
-            nodeTitle={evidenceNode.title?.trim() || evidenceNode.id}
+            nodeTitle={evidenceNode.display}
             onClose={() => setEvidenceNode(null)}
           />
         )}

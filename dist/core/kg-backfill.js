@@ -1,5 +1,6 @@
 import { getDatabase } from '../db.js';
 import { WORK_LAYER_TYPES, EVIDENCE_LAYER_TYPES } from './work-topology.js';
+import { parseSqliteUtcMs } from './time-utils.js';
 const SYSTEM_TAG_PREFIXES = [
     'project:', 'week:', 'cluster:', 'severity:', 'scope:', 'source:', 'date:',
     'type:', 'urgency:', 'host:', 'session:', 'release:',
@@ -427,7 +428,8 @@ export function proposeBackfillCandidates(opts = {}, db) {
         FROM entities e
         WHERE e.type IN (${workTypeList.map(() => '?').join(',')})
           ${statusFilter}
-      `).all(...workTypeList);
+          ${projectClause}
+      `).all(...workTypeList, ...projectArgs);
             const metaSessionId = (meta) => {
                 try {
                     const parsed = JSON.parse(meta ?? '{}');
@@ -484,10 +486,20 @@ export function proposeBackfillCandidates(opts = {}, db) {
                     list.push(w);
                 }
             }
-            const ts = (v) => new Date(v).getTime();
+            const ts = (v) => parseSqliteUtcMs(v);
             for (const list of workByProject.values()) {
-                list.sort((a, b) => ts(b.created_at) - ts(a.created_at));
+                list.sort((a, b) => (ts(b.created_at) ?? -Infinity) - (ts(a.created_at) ?? -Infinity));
             }
+            const sameProjectOrUntagged = (a, b) => {
+                const pa = projectTagsById.get(a);
+                const pb = projectTagsById.get(b);
+                if (!pa?.size || !pb?.size)
+                    return true;
+                for (const p of pa)
+                    if (pb.has(p))
+                        return true;
+                return false;
+            };
             for (const ev of evidenceRows) {
                 let added = 0;
                 const proposedWork = new Set();
@@ -496,6 +508,8 @@ export function proposeBackfillCandidates(opts = {}, db) {
                         if (added >= maxPerSource)
                             break;
                         if (w.id === ev.id || proposedWork.has(w.id))
+                            continue;
+                        if (!sameProjectOrUntagged(ev.id, w.id))
                             continue;
                         candidates.push({
                             fromEntityId: ev.id,
@@ -512,11 +526,16 @@ export function proposeBackfillCandidates(opts = {}, db) {
                     if (added >= maxPerSource)
                         break;
                 }
-                if (added === 0) {
+                if (added === 0 && maxPerSource > 0) {
                     const evTime = ts(ev.created_at);
-                    if (!Number.isNaN(evTime)) {
+                    if (evTime !== null) {
                         for (const proj of projectTagsById.get(ev.id) ?? []) {
-                            const anchor = (workByProject.get(proj) ?? []).find((w) => w.id !== ev.id && !Number.isNaN(ts(w.created_at)) && ts(w.created_at) <= evTime);
+                            const anchor = (workByProject.get(proj) ?? []).find((w) => {
+                                if (w.id === ev.id)
+                                    return false;
+                                const wTime = ts(w.created_at);
+                                return wTime !== null && wTime <= evTime;
+                            });
                             if (anchor) {
                                 candidates.push({
                                     fromEntityId: ev.id,

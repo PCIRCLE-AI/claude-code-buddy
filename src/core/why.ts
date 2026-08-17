@@ -30,8 +30,14 @@ export type WhyAbstention =
   | 'git_unavailable'
   | 'not_a_git_repo'
   | 'file_not_tracked'
+  /** `git log` did not answer — see the catch in resolveFileCommits. An empty
+   *  commit list under this code means "unknown", never "none". */
+  | 'history_unreadable'
   | 'line_out_of_range'
   | 'line_uncommitted'
+  /** Nobody resolved any commit hashes for this query — the graph half ran
+   *  alone. Distinct from a caller who resolved and found none. */
+  | 'no_commits_supplied'
   | 'no_commit_entity'
   | 'no_session_link';
 
@@ -55,8 +61,9 @@ export interface WhyCommitAttribution {
   /** The commit entity the hooks captured, or null (see abstentions). */
   entity: (WhyEntityRef & { observations: string[] }) | null;
   /** Session the commit was made in — only known for commits captured after
-   *  post-commit started recording `metadata.session_id`. */
-  session: { session_id: string; entities: WhyEntityRef[] } | null;
+   *  post-commit started recording `metadata.session_id`. `truncated` is true
+   *  when the session held more entities than SESSION_ENTITY_CAP returned. */
+  session: { session_id: string; entities: WhyEntityRef[]; truncated: boolean } | null;
   abstentions: WhyAbstention[];
 }
 
@@ -72,7 +79,8 @@ export interface WhyResult {
     basis: 'file-tag';
     entities: WhyEntityRef[];
   };
-  /** Abstentions about the query as a whole (git-side failures). */
+  /** Abstentions about the query as a whole: git-side failures the CLI passes
+   *  through, plus the caller-side gap when no commits were supplied at all. */
   abstentions: WhyAbstention[];
 }
 
@@ -142,9 +150,18 @@ export function resolveFileCommits(
       'log', '-n', String(limit), '--follow', '--format=%H%x09%ad%x09%s', '--date=short', '--', file,
     ]);
   } catch {
-    // Tracked file, git present — a log failure means no history is
-    // answerable (e.g. an empty repo). Report the honest empty set.
-    return { commits: [], abstention: null };
+    // `git log` did not answer, and an empty list with no abstention is not
+    // the answer "nothing touched this file" — it is no answer at all. This
+    // branch used to return `{ commits: [], abstention: null }`, reasoning
+    // about the empty-repository case only, so EVERY other way the command
+    // fails printed "No commits touch this file." for a file with a full
+    // history: output past execFileSync's 1 MB default maxBuffer (ENOBUFS),
+    // the 5-second GIT_TIMEOUT_MS that `--follow` over long history is quite
+    // capable of spending, and any other non-zero exit. The unborn-branch
+    // case lands here too and the same sentence is still true of it — the
+    // question went unanswered, which this module must never dress up as an
+    // answer of none.
+    return { commits: [], abstention: 'history_unreadable' };
   }
   const commits: WhyGitCommit[] = [];
   for (const line of out.split('\n')) {
@@ -185,13 +202,36 @@ function findCommitEntity(
   db: MemeshDatabase,
   hash: string,
 ): (WhyEntityRef & { metadata: Record<string, unknown> | null }) | null {
+  // The prefix join is a substring comparison, NOT a LIKE match, and the
+  // difference is the whole security of this lookup.
+  //
+  // The query used to read `? LIKE substr(name, 8) || '%'`, which makes the
+  // STORED NAME the pattern. `%` and `_` are wildcards there, and the name is
+  // writable through the ordinary public API: `remember` accepts
+  // `commit-%%%%…` (nameField only strips control characters), and so does an
+  // import bundle. One such entity answers for EVERY hash, and
+  // `ORDER BY length(name) DESC` makes it win deterministically — real
+  // abbreviations are 7-40 characters and a name may be 255. Measured: a
+  // seeded `commit-_______` was returned for an unrelated 40-char hash, and
+  // the caller's abstention flipped from `no_commit_entity` to a confidently
+  // asserted memory. The parameters were always bound correctly; binding does
+  // not constrain LIKE semantics over attacker-writable data.
+  //
+  // `substr(?, 1, length(substr(name,8))) = substr(name,8)` compares text,
+  // so a stored `%` matches only a literal `%` — which no real hash contains.
+  // The hex guard is belt-and-braces: it also keeps a junk name out of the
+  // candidate set entirely.
   const rows = db.prepare(
     `SELECT id, name, type, title, created_at, metadata FROM entities
      WHERE type = 'commit' AND name LIKE 'commit-%'
        AND length(substr(name, 8)) >= 7
-       AND (? LIKE substr(name, 8) || '%' OR substr(name, 8) LIKE ? || '%')
+       AND substr(name, 8) GLOB '[0-9a-fA-F]*'
+       AND (
+         substr(?, 1, length(substr(name, 8))) = substr(name, 8)
+         OR substr(substr(name, 8), 1, length(?)) = ?
+       )
      ORDER BY length(name) DESC`,
-  ).all(hash, hash) as unknown as Array<WhyEntityRef & { metadata: string | null }>;
+  ).all(hash, hash, hash) as unknown as Array<WhyEntityRef & { metadata: string | null }>;
   if (rows.length === 0) return null;
   // Longest stored abbrev wins if several match (same commit captured twice
   // at different abbreviation lengths).
@@ -206,13 +246,32 @@ function observationsOf(db: MemeshDatabase, entityId: number): string[] {
   return rows.map((r) => r.content);
 }
 
-function sessionEntities(db: MemeshDatabase, sessionId: string): WhyEntityRef[] {
-  return db.prepare(
+/** Per-session page size. The same number and the same honesty flag as
+ *  `computeNodeEvidence`'s EVIDENCE_CAP in core/graph.ts, because it is the
+ *  same question: how much of one node's neighbourhood to serialise. */
+const SESSION_ENTITY_CAP = 200;
+
+function sessionEntities(
+  db: MemeshDatabase,
+  sessionId: string,
+): { entities: WhyEntityRef[]; truncated: boolean } {
+  // This query had no LIMIT and runs ONCE PER COMMIT, and `WhySchema` accepts
+  // 50 commits — so one request could serialise 50 × (however large a session
+  // grew) rows, with no ceiling on the response and no field telling the
+  // caller it had been handed everything there was. Fetch cap+1 so
+  // `truncated` reports OBSERVED overflow rather than the guess "we returned
+  // exactly the cap, so there is probably more".
+  const rows = db.prepare(
     `SELECT DISTINCT e.id, e.name, e.type, e.title, e.created_at
      FROM entities e JOIN tags t ON t.entity_id = e.id
      WHERE t.tag = ? AND e.status != 'archived'
-     ORDER BY e.created_at`,
+     ORDER BY e.created_at
+     LIMIT ${SESSION_ENTITY_CAP + 1}`,
   ).all(`session:${sessionId}`) as unknown as WhyEntityRef[];
+  return {
+    entities: rows.slice(0, SESSION_ENTITY_CAP),
+    truncated: rows.length > SESSION_ENTITY_CAP,
+  };
 }
 
 /**
@@ -234,6 +293,21 @@ export function explainCommits(
   const limit = input.limit ?? 10;
   const project = input.project ?? null;
 
+  // An ABSENT `commits` and an empty `commits: []` are different facts, and
+  // the answer used to be identical for both. `commits` is optional on
+  // `WhySchema`, so a caller who simply forgot the field got
+  // `{commits: [], abstentions: []}` — byte-identical to the honest "this
+  // file has no remembered commits". Absent means nobody resolved any hashes
+  // (the server never runs git, by design, so an HTTP caller without a
+  // working tree is in this state permanently); empty means the caller DID
+  // resolve and found none. Only the first is a gap, so only the first
+  // abstains. The CLI always passes an array and is unaffected.
+  // Named for the whole query, not shortened to `abstentions`: the per-commit
+  // list inside the loop below carries that name, and one of the two silently
+  // shadowing the other is how a push lands in the wrong list.
+  const queryAbstentions: WhyAbstention[] = [...(input.abstentions ?? [])];
+  if (input.commits === undefined) queryAbstentions.push('no_commits_supplied');
+
   const commits: WhyCommitAttribution[] = [];
   for (const commit of (input.commits ?? []).slice(0, limit)) {
     const abstentions: WhyAbstention[] = [];
@@ -252,7 +326,7 @@ export function explainCommits(
       };
       const sessionId = found.metadata?.session_id;
       if (typeof sessionId === 'string' && sessionId.length > 0) {
-        session = { session_id: sessionId, entities: sessionEntities(db, sessionId) };
+        session = { session_id: sessionId, ...sessionEntities(db, sessionId) };
       } else {
         // Captured before post-commit recorded session ids (or the payload
         // had none). The link does not exist — say so, do not guess one.
@@ -292,6 +366,6 @@ export function explainCommits(
     project,
     commits,
     file_memories: { basis: 'file-tag', entities: fileMemories },
-    abstentions: input.abstentions ?? [],
+    abstentions: queryAbstentions,
   };
 }

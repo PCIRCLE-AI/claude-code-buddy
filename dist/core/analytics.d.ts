@@ -37,6 +37,15 @@ export interface AnalyticsResult {
         lessons: HealthFactor;
     };
     loopMetric: LoopMetric;
+    criticalLessons: {
+        critical: number;
+        severityTagged: number;
+        total: number;
+    };
+    citationCompliance: {
+        cited: number;
+        total: number;
+    } | null;
     timeline: Array<{
         date: string;
         created: number;

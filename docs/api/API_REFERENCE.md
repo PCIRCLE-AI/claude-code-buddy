@@ -26,6 +26,7 @@ If `remember` is called again with an existing `name`, MeMesh treats it as an ap
 |-----------|------|----------|-------------|
 | `name` | string | Yes | Unique entity name (e.g., `"auth-decision"`, `"jwt-pattern"`) |
 | `type` | string | Yes | Entity type (e.g., `"decision"`, `"pattern"`, `"lesson"`, `"commit"`) |
+| `title` | string | No | Short human-readable label shown wherever the memory is listed (e.g. `"Why we dropped JWT"`), max 200 characters — longer is **rejected**, not truncated, so the caller can shorten it themselves. On an entity that already exists, supplying this replaces the title; omitting it leaves the title it already has. Whitespace-only counts as omitted. |
 | `observations` | string[] | No | Key facts or observations about this entity |
 | `tags` | string[] | No | Tags for filtering (e.g., `"project:myapp"`, `"type:decision"`) |
 | `relations` | object[] | No | Relations to other entities |
@@ -136,6 +137,7 @@ Returns an object whose `entities` array holds the matching entities ranked by m
     {
       "id": 1,
       "name": "auth-decision",
+      "title": "Why we chose JWT",
       "type": "decision",
       "created_at": "2026-03-09 12:00:00",
       "observations": [
@@ -152,6 +154,11 @@ Returns an object whose `entities` array holds the matching entities ranked by m
   "retrieval": {"mode": "hybrid", "degraded": false, "truncated": false}
 }
 ```
+
+`title` is present on every entity that has one and `null` on the ones that do
+not — a memory written before titles existed, or by a caller that sent none.
+Show it where you would otherwise show `name`; `name` is the identifier the
+other tools address the memory by, not a label meant to be read.
 
 **Retrieval metadata (`retrieval`)**: every recall envelope says HOW it was
 answered — the three things the rows themselves cannot tell you. `mode` is
@@ -269,6 +276,7 @@ Export memories to a portable JSON bundle. Use for backup, sharing with teammate
   "entities": [
     {
       "name": "auth-decision",
+      "title": "Why we chose OAuth 2.0",
       "type": "decision",
       "namespace": "team",
       "observations": ["Use OAuth 2.0"],
@@ -278,6 +286,8 @@ Export memories to a portable JSON bundle. Use for backup, sharing with teammate
   ]
 }
 ```
+
+`title` is `null` for an entity that has none. Bundles written before titles existed carry no `title` key at all, and `import` reads that as "this bundle says nothing about the title" — it leaves an existing entity's title alone rather than clearing it.
 
 **Examples**:
 
@@ -319,6 +329,12 @@ Imported entities are marked with import provenance and treated as untrusted for
 nothing that is already there, and a namespace move is a change — it takes the
 memory out of every scoped recall that used to return it. An import asking to
 skip existing entities does not get to relocate them as a side effect.
+
+A bundle's `title` is applied to the entities the import creates, and replaces
+the title of one it updates (`overwrite`, `append`). A bundle entry with no
+title — or a blank one — leaves an existing title as it was; over-long titles
+are truncated rather than refused, because one bad row must not cost the whole
+bundle.
 
 **Response**:
 
@@ -996,7 +1012,11 @@ associated with the file by `file:<basename>` tag.
 The route runs **no git, ever** — commit hashes come from the caller, and
 the strict schema has no repo-path field on purpose: the server is never
 handed a directory to execute anything in. A caller without a working tree
-(e.g. the dashboard) simply omits `commits` and gets the file-tag half.
+(e.g. the dashboard) omits `commits` and gets the file-tag half, plus the
+`no_commits_supplied` abstention saying so — omitting the field is a gap in
+the question, and the response must not look like the answer "this file has
+no remembered commits". A caller that resolved commits itself and found none
+sends `"commits": []` and gets no such abstention.
 
 ```json
 {
@@ -1018,7 +1038,7 @@ Response `data`:
     {
       "commit": { "hash": "…" },
       "entity": { "id": 12, "name": "commit-abc1234", "observations": ["…"], "…": "…" },
-      "session": { "session_id": "…", "entities": [ { "name": "session-…-files", "…": "…" } ] },
+      "session": { "session_id": "…", "entities": [ { "name": "session-…-files", "…": "…" } ], "truncated": false },
       "abstentions": []
     }
   ],
@@ -1027,14 +1047,25 @@ Response `data`:
 }
 ```
 
+`session.truncated` is `true` when the session held more than 200 entities
+and only the first 200 were returned — the same cap and the same flag
+`GET /v1/graph/evidence` uses, and for the same reason: this query runs once
+per commit and the schema accepts 50 of them, so the response needs both a
+ceiling and a way to say the ceiling was hit.
+
 Every gap in the chain is a **typed abstention**, never a guess:
 `no_commit_entity` (the graph has no memory of that hash — it predates
 capture, or was made without hooks / on another machine) and
 `no_session_link` (the commit entity was captured before commits recorded
-their session id) appear per commit; git-side codes (`not_a_git_repo`,
-`file_not_tracked`, `git_unavailable`, `line_out_of_range`,
-`line_uncommitted`) can only be produced by the CLI, which passes them
-through in the top-level `abstentions`. The `file_memories` block is
+their session id) appear per commit; `no_commits_supplied` (the request
+carried no `commits` field at all) and the git-side codes (`not_a_git_repo`,
+`file_not_tracked`, `git_unavailable`, `history_unreadable`,
+`line_out_of_range`, `line_uncommitted`) appear in the top-level
+`abstentions` — the git-side ones only from the CLI, which resolves commits
+locally and passes its own abstention through. `history_unreadable` means
+`git log` did not answer (its output outgrew the read buffer, it exceeded the
+5-second timeout, or the repository has no commits yet): the empty commit
+list under that code means *unknown*, never *none*. The `file_memories` block is
 labelled `basis: "file-tag"` because it is associated by basename tag —
 not derived from the commits — and the two must not be read as the same
 kind of evidence.
@@ -1182,7 +1213,9 @@ an explicit "associated, not commit-derived" label.
 
 What the chain cannot prove is said outright, never guessed: a commit with
 no entity ("memesh has no memory of this commit"), an entity with no
-session link, an untracked file, a line not yet committed. Run it from
+session link, an untracked file, a line not yet committed, and a history
+git could not read at all (`history_unreadable` — the empty list means
+unknown, not none). Run it from
 inside the repository — the current directory picks both the git repo and
 the project scope.
 

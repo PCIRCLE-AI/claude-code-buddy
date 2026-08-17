@@ -227,7 +227,7 @@ The primary dashboard is now the packaged Preact single-page app served by `GET 
 | Graph | Interactive knowledge graph with **signal-first node loading**, **access_count node sizing**, and **Drift Mode** (recency coloring) |
 | Settings | LLM provider setup, capabilities, and language selection |
 
-The dashboard talks to `/v1/health`, `/v1/config`, `/v1/analytics`, `/v1/graph`, `/v1/entities`, `/v1/patterns`, and `/v1/recall`. When the packaged build is unavailable, the HTTP server falls back to the legacy `cli/view.ts` HTML generator for compatibility.
+The dashboard is a client of the ordinary HTTP API — no private endpoints — so the endpoint list lives in exactly one place: the route table in [API_REFERENCE.md](api/API_REFERENCE.md#http-rest-api), which `scripts/check-doc-claims.mjs` checks against `server.ts`'s registrations. A copy of it used to sit here and had already rotted: it named seven endpoints and missed `/v1/graph/evidence` and `/v1/projects`, both of which the dashboard calls. A second list nothing gates is a list that goes quietly wrong. When the packaged build is unavailable, the HTTP server falls back to the legacy `cli/view.ts` HTML generator for compatibility.
 
 **Graph data contract**: `/v1/graph` returns `{ entities, relations, noiseTypes }` — `noiseTypes` is the server-supplied list of high-volume / low-diagnostic types (`session_keypoint`, `commit`, etc.) the dashboard default-hides. Single source of truth lives in `src/core/analytics.ts NOISE_TYPES`.
 
