@@ -271,17 +271,17 @@
       "reason": "reads cli.ts to assert each behavioural relation type has a flag whose help carries the consequence — the flags' behaviour is tested against a real database in tests/cli/remember-relations.test.ts",
       "triaged": "2026-08-10 (P7 batch 2)"
     },
-    "C5 src/core/kg-backfill.ts:436": {
+    "C5 src/core/kg-backfill.ts:437": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "index lookups where empty means no peers",
       "triaged": "2026-08-04 (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
     },
-    "C5 src/core/kg-backfill.ts:581": {
+    "C5 src/core/kg-backfill.ts:582": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "index lookups where empty means no peers",
       "triaged": "2026-08-04 (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
     },
-    "C5 src/core/kg-backfill.ts:588": {
+    "C5 src/core/kg-backfill.ts:589": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "index lookups where empty means no peers",
       "triaged": "2026-08-04 (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
@@ -591,17 +591,17 @@
       "reason": "the empty-result assertions ARE the contract under test (archived pointer readmits nothing), and every scenario pairs them with positive name-list assertions",
       "triaged": "2026-08-16 (UX-3 readmission rule)"
     },
-    "C5 src/transports/cli/cli.ts:753": {
+    "C5 src/transports/cli/cli.ts:767": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`(a.args ?? []).join` in the planned-actions RENDER only; execution re-reads args itself.",
       "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
     },
-    "C5 src/transports/cli/cli.ts:781": {
+    "C5 src/transports/cli/cli.ts:795": {
       "class": "SAFE-GUARDED",
       "reason": "`action.args ?? []` when spawning: run-kind actions are constructed in core/setup.ts with args always set (pinned by unit tests asserting exact arrays); a hypothetical argless command would run as-is with its exit code reported honestly.",
       "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
     },
-    "C5 src/transports/cli/cli.ts:782": {
+    "C5 src/transports/cli/cli.ts:796": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`(action.args ?? []).join` in the success-echo of the command that just ran on the line above (694, same triage); the exit-code branch is the verdict.",
       "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
@@ -611,30 +611,75 @@
       "reason": "`data.commits ?? []` — same optional-commits contract as core/why.ts:238; the route never runs git, so an absent list IS the input, not a swallowed failure.",
       "triaged": "2026-08-16 (UX-3 memesh why); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
     },
-    "C5 src/core/kg-backfill.ts:731": {
+    "C5 src/core/kg-backfill.ts:732": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "session tag index; empty means the entity carries no session tag, which is a real state — it falls through to the temporal project match",
       "triaged": "2026-08-17 (UX-4 Rule 5)"
     },
-    "C5 src/core/kg-backfill.ts:745": {
+    "C5 src/core/kg-backfill.ts:746": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "project tag index; empty means the work item is untagged and simply joins no project bucket",
       "triaged": "2026-08-17 (UX-4 Rule 5)"
     },
-    "C5 src/core/kg-backfill.ts:762": {
+    "C5 src/core/kg-backfill.ts:780": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "session bucket lookup; empty means no work item shares that session, and the fallback branch below handles it",
       "triaged": "2026-08-17 (UX-4 Rule 5)"
     },
-    "C5 src/core/kg-backfill.ts:783": {
+    "C5 src/core/kg-backfill.ts:809": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "project tag index for the evidence row; empty means no project fallback is possible and no edge is proposed",
       "triaged": "2026-08-17 (UX-4 Rule 5)"
     },
-    "C5 src/core/kg-backfill.ts:784": {
+    "C5 src/core/kg-backfill.ts:810": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "project bucket lookup; empty means the project has no work items, so `.find` yields undefined and no edge is proposed",
       "triaged": "2026-08-17 (UX-4 Rule 5)"
+    },
+    "C5 src/cli/view-live.ts:668": {
+      "class": "SAFE-GUARDED",
+      "reason": "the `|| []` fires only when the request SUCCEEDED but the field is absent; a failed request is caught by the explicit `if (!data.success)` guard on the line above and rendered as an error. Surfaced for the first time when the C5 `||` regex was fixed (its trailing \\b could never match after `]` or `}`), not by a code change.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/cli/view-live.ts:689": {
+      "class": "SAFE-GUARDED",
+      "reason": "the `|| []` fires only when the request SUCCEEDED but the field is absent; a failed request is caught by the explicit `if (!data.success)` guard on the line above and rendered as an error. Surfaced for the first time when the C5 `||` regex was fixed (its trailing \\b could never match after `]` or `}`), not by a code change.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/cli/view-live.ts:720": {
+      "class": "SAFE-GUARDED",
+      "reason": "the `|| []` fires only when the request SUCCEEDED but the field is absent; a failed request is caught by the explicit `if (!data.success)` guard on the line above and rendered as an error. Surfaced for the first time when the C5 `||` regex was fixed (its trailing \\b could never match after `]` or `}`), not by a code change.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/cli/view-live.ts:1139": {
+      "class": "SAFE-GUARDED",
+      "reason": "the `|| []` fires only when the request SUCCEEDED but the field is absent; a failed request is caught by the explicit `if (!data.success)` guard on the line above and rendered as an error. Surfaced for the first time when the C5 `||` regex was fixed (its trailing \\b could never match after `]` or `}`), not by a code change.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/cli/view-live.ts:1262": {
+      "class": "SAFE-GUARDED",
+      "reason": "the `|| []` fires only when the request SUCCEEDED but the field is absent; a failed request is caught by the explicit `if (!data.success)` guard on the line above and rendered as an error. Surfaced for the first time when the C5 `||` regex was fixed (its trailing \\b could never match after `]` or `}`), not by a code change.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/cli/view-live.ts:1553": {
+      "class": "SAFE-GUARDED",
+      "reason": "the `|| {}` is the else-arm of an explicit success+presence conjunction on the same line; config absence renders defaults, and the failure path returned earlier. Newly visible after the C5 `||` regex fix.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/cli/view-live.ts:1554": {
+      "class": "SAFE-GUARDED",
+      "reason": "the `|| {}` is the else-arm of an explicit success+presence conjunction on the same line; capability absence renders defaults, and the failure path returned earlier. Newly visible after the C5 `||` regex fix.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/core/serializer.ts:60": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "`relations` is optional on Entity; empty means the entity has none, which is what the export should record. Newly visible after the C5 `||` regex fix.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+    },
+    "C5 src/core/serializer.ts:227": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "`relations` is optional on the imported bundle entry; empty means none to re-create. Newly visible after the C5 `||` regex fix.",
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
     }
   }
 }

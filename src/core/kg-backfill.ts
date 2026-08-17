@@ -30,6 +30,7 @@
 import type { MemeshDatabase } from '../storage/sqlite.js';
 import { getDatabase } from '../db.js';
 import { WORK_LAYER_TYPES, EVIDENCE_LAYER_TYPES } from './work-topology.js';
+import { parseSqliteUtcMs } from './time-utils.js';
 
 const SYSTEM_TAG_PREFIXES = [
   // `cluster:` is the dreamer's digest label. It replaced `week:` when
@@ -750,9 +751,26 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Memes
       }
       // Newest first, so the temporal fallback's "most recent node created
       // before the evidence" is the first match in the scan.
-      const ts = (v: string): number => new Date(v).getTime();
+      //
+      // parseSqliteUtcMs, not `new Date(v)`: SQLite writes
+      // `YYYY-MM-DD HH:MM:SS` in UTC, which is not ISO-8601, and the engines
+      // that accept it read it as LOCAL time. A uniform offset would cancel
+      // out in a comparison of two values from the same column — but it is
+      // not uniform. Measured under TZ=America/New_York on the spring-forward
+      // day, '2026-03-08 02:30:00' parses to 07:30Z and '2026-03-08 03:00:00'
+      // to 07:00Z, so the ORDER INVERTS across that hour and the fallback
+      // anchors on the wrong work item. The same column can also hold a real
+      // ISO value (src/core/demo.ts writes one), which `new Date` reads as
+      // true UTC while reading its CURRENT_TIMESTAMP siblings as local — an
+      // offset-sized skew between two rows of one table.
+      //
+      // time-utils.ts is the single owner of this parse and says so; this
+      // was a fourth copy of it, and the wrong one. `null` means the value
+      // cannot be trusted, and an untrusted timestamp must not become a
+      // number that sorts — it sorts LAST and is never chosen as an anchor.
+      const ts = (v: string): number | null => parseSqliteUtcMs(v);
       for (const list of workByProject.values()) {
-        list.sort((a, b) => ts(b.created_at) - ts(a.created_at));
+        list.sort((a, b) => (ts(b.created_at) ?? -Infinity) - (ts(a.created_at) ?? -Infinity));
       }
 
       for (const ev of evidenceRows) {
@@ -777,13 +795,23 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Memes
           if (added >= maxPerSource) break;
         }
 
-        if (added === 0) {
+        // `maxPerSource > 0` is not redundant with `added === 0`: a cap of 0
+        // leaves the session loop at added=0, which is exactly the condition
+        // that arms this fallback — so `--max-per-source 0` used to write one
+        // edge per evidence entity while every other rule correctly wrote
+        // none. The rule's worst case is N_evidence x maxPerSource again,
+        // not N_evidence x max(maxPerSource, 1).
+        if (added === 0 && maxPerSource > 0) {
           const evTime = ts(ev.created_at);
-          if (!Number.isNaN(evTime)) {
+          // null means the evidence row's own timestamp is untrustworthy;
+          // there is no honest "before" to compare against, so no fallback.
+          if (evTime !== null) {
             for (const proj of projectTagsById.get(ev.id) ?? []) {
-              const anchor = (workByProject.get(proj) ?? []).find(
-                (w) => w.id !== ev.id && !Number.isNaN(ts(w.created_at)) && ts(w.created_at) <= evTime,
-              );
+              const anchor = (workByProject.get(proj) ?? []).find((w) => {
+                if (w.id === ev.id) return false;
+                const wTime = ts(w.created_at);
+                return wTime !== null && wTime <= evTime;
+              });
               if (anchor) {
                 candidates.push({
                   fromEntityId: ev.id,

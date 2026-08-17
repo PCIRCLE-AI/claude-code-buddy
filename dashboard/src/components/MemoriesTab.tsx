@@ -204,7 +204,17 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
       const data = await api<Entity[] | { entities?: Entity[] }>(
         'POST', '/v1/recall', { query, limit: RECALL_LIMIT }
       );
-      setRecallResults(Array.isArray(data) ? data : data.entities || []);
+      // `data.entities || []` here turned an unreadable payload into a
+      // successful search that found nothing — the same masquerade the load()
+      // path above refuses by name ("a false empty"). Ranked search reads as
+      // "no memory matches that", which is a claim, not an absence of data.
+      const ranked = Array.isArray(data) ? data : data.entities;
+      if (!Array.isArray(ranked)) {
+        console.warn('[memesh dashboard] /v1/recall answered with a shape this bundle cannot read:', data);
+        setError(failureMessage('unreadable'));
+        return;
+      }
+      setRecallResults(ranked);
     } catch (e) {
       setError(actionFailureMessage(e));
     } finally {

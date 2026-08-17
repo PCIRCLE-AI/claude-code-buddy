@@ -469,8 +469,14 @@ program
     await withDatabase(async () => {
         const { resolveFileCommits, explainCommits } = await import('../../core/why.js');
         const cwd = process.cwd();
-        const limit = parseInt(opts.limit);
-        const line = opts.line !== undefined ? parseInt(opts.line) : undefined;
+        const limit = parseInt(opts.limit, 10);
+        const line = opts.line !== undefined ? parseInt(opts.line, 10) : undefined;
+        for (const [flag, value] of [['--limit', limit], ['--line', line]]) {
+            if (value !== undefined && (!Number.isInteger(value) || value < 1)) {
+                console.error(`Error: ${flag} needs a whole number of 1 or more.`);
+                process.exit(1);
+            }
+        }
         const resolved = resolveFileCommits(cwd, file, { line, limit });
         const result = explainCommits(getDatabase(), {
             file,

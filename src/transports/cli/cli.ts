@@ -639,8 +639,22 @@ program
     await withDatabase(async () => {
       const { resolveFileCommits, explainCommits } = await import('../../core/why.js');
       const cwd = process.cwd();
-      const limit = parseInt(opts.limit);
-      const line = opts.line !== undefined ? parseInt(opts.line) : undefined;
+      // Both flags reach code that cannot defend itself against NaN, and each
+      // failed differently and badly. `--limit abc` put NaN in a SQL LIMIT
+      // and crashed with a raw `ERR_SQLITE_ERROR` stack trace carrying the
+      // absolute install path. `--line abc` was worse than a crash: NaN
+      // reached `git blame -L NaN,NaN`, the failure was caught, and the user
+      // was told "That line does not exist in the tracked file." — an
+      // affirmatively false statement from the one command whose whole
+      // contract is that it abstains rather than guesses.
+      const limit = parseInt(opts.limit, 10);
+      const line = opts.line !== undefined ? parseInt(opts.line, 10) : undefined;
+      for (const [flag, value] of [['--limit', limit], ['--line', line]] as const) {
+        if (value !== undefined && (!Number.isInteger(value) || value < 1)) {
+          console.error(`Error: ${flag} needs a whole number of 1 or more.`);
+          process.exit(1);
+        }
+      }
       const resolved = resolveFileCommits(cwd, file, { line, limit });
       const result = explainCommits(getDatabase(), {
         file,

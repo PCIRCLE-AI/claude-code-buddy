@@ -127,7 +127,14 @@ function record(cls, denominator, hits, note) {
     read(f).split('\n').forEach((line, i) => {
       const t = line.trim();
       if (t.startsWith('//') || t.startsWith('*')) return;
-      if (/\?\?\s*(true|\[\]|\{\})/.test(line) || /\|\|\s*(\[\]|\{\}|true)\b/.test(line)) {
+      // The `||` half used to end in `\b`, which cannot match after `]` or
+// `}` — a word boundary needs a word character on one side. So `|| true`
+      // was detected and `|| []` / `|| {}` never were, for this detector's
+      // whole existence. Measured when the hole was found: 10 occurrences in
+      // src/ + dashboard/src/ that C5 had never once reported, including a
+      // recall path that turned an unreadable payload into "no results".
+      // The `??` half was always correct because it has no trailing `\b`.
+      if (/\?\?\s*(true|\[\]|\{\})/.test(line) || /\|\|\s*(\[\]|\{\}|true\b)/.test(line)) {
         hits.push(`${f}:${i + 1}`);
       }
     });
