@@ -1070,7 +1070,8 @@ kgCmd
     .option('--session-cooccurrence', 'Rule 3: link high-signal orphans co-created in the same session')
     .option('--name-tokens', 'Rule 4: link orphans sharing ≥3 name content tokens (or Jaccard ≥ 0.50)')
     .option('--min-jaccard <n>', 'Jaccard threshold for name similarity (default 0.50)', parseFloat)
-    .option('--all-rules', 'Enable all heuristic rules (Rules 1–4)')
+    .option('--all-rules', 'Enable all heuristic rules (Rules 1–5)')
+    .option('--no-evidence-links', 'Disable Rule 5: evidence → work-item links via shared session id (on by default — these edges feed the graph\'s evidence badges)')
     .option('--reset-idempotency', 'Clear the persistent "already-attempted" orphan cache before running (use after schema changes or to reconsider every orphan)')
     .option('--json', 'Output as JSON')
     .action(async (opts) => {
@@ -1085,6 +1086,7 @@ kgCmd
             dryRun: !!opts.dryRun,
             includeSessionCooccurrence: allRules || !!opts.sessionCooccurrence,
             includeNameTokenSimilarity: allRules || !!opts.nameTokens,
+            includeEvidenceLinks: opts.evidenceLinks !== false,
             minNameJaccard: opts.minJaccard,
             resetIdempotency: !!opts.resetIdempotency,
         };
@@ -1124,6 +1126,7 @@ kgCmd
         console.log(`  project clustering: ${result.byRule.projectClustering}`);
         console.log(`  session co-occurrence: ${result.byRule.sessionCooccurrence}`);
         console.log(`  name token similarity: ${result.byRule.nameTokenSimilarity}`);
+        console.log(`  evidence links: ${result.byRule.evidenceLinks}`);
         if (result.candidatesProposed > result.edgesWritten) {
             console.log(`  (${result.candidatesProposed - result.edgesWritten} candidates were already-existing edges; INSERT OR IGNORE skipped them.)`);
         }

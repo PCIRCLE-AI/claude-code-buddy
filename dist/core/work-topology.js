@@ -9,7 +9,7 @@ export const WORK_LAYER_TYPES = new Set([
     'plan',
     'task-state',
 ]);
-const EVIDENCE_LAYER_TYPES = new Set([
+export const EVIDENCE_LAYER_TYPES = new Set([
     'commit',
     'session-insight',
     'session-summary',

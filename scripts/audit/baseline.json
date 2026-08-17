@@ -271,20 +271,20 @@
       "reason": "reads cli.ts to assert each behavioural relation type has a flag whose help carries the consequence — the flags' behaviour is tested against a real database in tests/cli/remember-relations.test.ts",
       "triaged": "2026-08-10 (P7 batch 2)"
     },
-    "C5 src/core/kg-backfill.ts:402": {
+    "C5 src/core/kg-backfill.ts:436": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "index lookups where empty means no peers",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04 (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
     },
-    "C5 src/core/kg-backfill.ts:547": {
+    "C5 src/core/kg-backfill.ts:581": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "index lookups where empty means no peers",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04 (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
     },
-    "C5 src/core/kg-backfill.ts:554": {
+    "C5 src/core/kg-backfill.ts:588": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "index lookups where empty means no peers",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04 (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
     },
     "C5 src/core/serializer.ts:22": {
       "class": "SAFE-ACCUMULATOR",
@@ -461,10 +461,10 @@
       "reason": "the `toEqual([])` assertions on `actions` are each pinned by non-empty counterparts asserting exact action kinds and arg arrays; emptiness is the positive claim (nothing to prescribe on a wired host), not vacuity.",
       "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline)"
     },
-    "C5 dashboard/src/components/GraphTab.tsx:285": {
+    "C5 dashboard/src/components/GraphTab.tsx:334": {
       "class": "SAFE-GUARDED",
       "reason": "computeGraph always returns noiseTypes; same-origin fetch",
-      "triaged": "2026-08-04 (re-keyed: the Batch-D token-resolver + palette refactor shifted 208→233; same code verified before re-keying); re-keyed 2026-08-13 233->276 (graph visual-hierarchy helpers added above; same statement, classification unchanged — verified); re-keyed 2026-08-14 276->285 (review-fix comments above shifted it; same statement — verified); re-keyed 2026-08-15 285→286 (merge main shifted lines +1; same statement — verified)"
+      "triaged": "2026-08-04 (re-keyed: the Batch-D token-resolver + palette refactor shifted 208→233; same code verified before re-keying); re-keyed 2026-08-13 233->276 (graph visual-hierarchy helpers added above; same statement, classification unchanged — verified); re-keyed 2026-08-14 276->285 (review-fix comments above shifted it; same statement — verified); re-keyed 2026-08-15 285→286 (merge main shifted lines +1; same statement — verified) (re-keyed: UX-4 inserted Rule 5 above it; statement unchanged)"
     },
     "C5 dashboard/src/components/LessonCards.tsx:59": {
       "class": "SAFE-DISPLAY",
@@ -610,6 +610,31 @@
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`data.commits ?? []` — same optional-commits contract as core/why.ts:238; the route never runs git, so an absent list IS the input, not a swallowed failure.",
       "triaged": "2026-08-16 (UX-3 memesh why); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
+    },
+    "C5 src/core/kg-backfill.ts:731": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "session tag index; empty means the entity carries no session tag, which is a real state — it falls through to the temporal project match",
+      "triaged": "2026-08-17 (UX-4 Rule 5)"
+    },
+    "C5 src/core/kg-backfill.ts:745": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "project tag index; empty means the work item is untagged and simply joins no project bucket",
+      "triaged": "2026-08-17 (UX-4 Rule 5)"
+    },
+    "C5 src/core/kg-backfill.ts:762": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "session bucket lookup; empty means no work item shares that session, and the fallback branch below handles it",
+      "triaged": "2026-08-17 (UX-4 Rule 5)"
+    },
+    "C5 src/core/kg-backfill.ts:783": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "project tag index for the evidence row; empty means no project fallback is possible and no edge is proposed",
+      "triaged": "2026-08-17 (UX-4 Rule 5)"
+    },
+    "C5 src/core/kg-backfill.ts:784": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "project bucket lookup; empty means the project has no work items, so `.find` yields undefined and no edge is proposed",
+      "triaged": "2026-08-17 (UX-4 Rule 5)"
     }
   }
 }

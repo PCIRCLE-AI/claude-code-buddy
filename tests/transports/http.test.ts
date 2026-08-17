@@ -716,6 +716,52 @@ describe('HTTP Transport: GET /v1/graph', () => {
     expect(res.body.data.entities).toBeDefined();
     expect(res.body.data.relations).toBeDefined();
   });
+
+  it('?layer=work returns the work layer with evidence counts', async () => {
+    const res = await req('GET', '/v1/graph?layer=work');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data.entities)).toBe(true);
+    expect(Array.isArray(res.body.data.relations)).toBe(true);
+    // Present even when empty — the dashboard reads it unconditionally, and
+    // an absent map would read as "no badges" indistinguishably from zero.
+    expect(res.body.data.evidenceCounts).toBeDefined();
+    // The full-graph payload's noiseTypes has no meaning in this view.
+    expect(res.body.data.noiseTypes).toBeUndefined();
+  });
+
+  it('rejects an unknown layer value rather than silently serving the full graph', async () => {
+    const res = await req('GET', '/v1/graph?layer=evidence');
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.errorCode).toBe('validation.bad-param');
+  });
+});
+
+describe('HTTP Transport: GET /v1/graph/evidence', () => {
+  it('requires the node parameter', async () => {
+    const res = await req('GET', '/v1/graph/evidence');
+    expect(res.status).toBe(400);
+    expect(res.body.errorCode).toBe('validation.bad-param');
+  });
+
+  it('answers 404 for a node that does not exist', async () => {
+    const res = await req('GET', '/v1/graph/evidence?node=no-such-entity-xyz');
+    expect(res.status).toBe(404);
+    expect(res.body.errorCode).toBe('resource.not-found');
+  });
+
+  it('returns the drill-down envelope for an existing node', async () => {
+    await req('POST', '/v1/remember', {
+      name: 'evidence-drilldown-target', type: 'decision', observations: ['seeded by the test'],
+    });
+    const res = await req('GET', '/v1/graph/evidence?node=evidence-drilldown-target');
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.entities).toEqual([]);
+    expect(res.body.data.relations).toEqual([]);
+    expect(res.body.data.truncated).toBe(false);
+  });
 });
 
 // ── Learn ─────────────────────────────────────────────────────────────────────

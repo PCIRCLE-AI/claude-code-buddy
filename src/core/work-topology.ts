@@ -49,7 +49,7 @@ export const WORK_LAYER_TYPES: ReadonlySet<string> = new Set([
  * above it leave room, which is the empty-state fallback both reviews asked
  * for: never an empty injection.
  */
-const EVIDENCE_LAYER_TYPES: ReadonlySet<string> = new Set([
+export const EVIDENCE_LAYER_TYPES: ReadonlySet<string> = new Set([
   'commit',
   'session-insight',
   'session-summary',

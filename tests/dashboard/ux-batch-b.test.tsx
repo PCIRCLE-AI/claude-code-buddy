@@ -276,7 +276,7 @@ describe('GraphTab scale guard', () => {
     const many = Array.from({ length: GRAPH_NODE_CAP + 10 }, (_, i) =>
       entity(i + 1, { access_count: i }));
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      jsonResponse({ success: true, data: { entities: many, relations: [], noiseTypes: [] } }),
+      jsonResponse({ success: true, data: { entities: many, relations: [], noiseTypes: [], evidenceCounts: {} } }),
     );
     const { container } = render(<GraphTab />);
     const expected = t('graph.cappedNote', {
@@ -289,9 +289,13 @@ describe('GraphTab scale guard', () => {
   });
 
   it('an empty database renders the instructive empty state, not a bare canvas', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      jsonResponse({ success: true, data: { entities: [], relations: [], noiseTypes: [] } }),
-    );
+    // mockImplementation, not mockResolvedValue: an empty work layer makes the
+    // tab fall back to the full graph, so this path fetches TWICE. One shared
+    // Response object throws "Body has already been used" on the second read —
+    // a real fetch hands back a fresh body per call, and the fixture has to.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() => Promise.resolve(
+      jsonResponse({ success: true, data: { entities: [], relations: [], noiseTypes: [], evidenceCounts: {} } }),
+    ) as ReturnType<typeof fetch>);
     const { container } = render(<GraphTab />);
     await waitFor(() => {
       expect(container.textContent).toContain(t('emptyLibrary.title'));
@@ -315,7 +319,7 @@ describe('GraphTab scale guard', () => {
       { from: 'lonely', to: 'capped-partner', type: 'relates-to' }, // partner capped → not drawn
     ];
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      jsonResponse({ success: true, data: { entities: all, relations, noiseTypes: [] } }),
+      jsonResponse({ success: true, data: { entities: all, relations, noiseTypes: [], evidenceCounts: {} } }),
     );
     const { container } = render(<GraphTab />);
     await waitFor(() => {

@@ -632,6 +632,8 @@ The limit protects the server from accidentally parsing large payloads (e.g. an 
 | POST | /v1/config/test | Validate provider+apiKey against the live `/v1/models` endpoint and return the available model list |
 | GET | /v1/stats | Aggregate counts: entities, observations, relations, tags; type/tag/status distributions |
 | GET | /v1/graph | Signal entities (all non-noise types) + up to 200 recent noise entities + all relations |
+| GET | /v1/graph?layer=work | The work layer only: decisions, lessons, plans — plus per-node evidence counts |
+| GET | /v1/graph/evidence?node=NAME | The evidence supporting one work node, loaded on drill-down |
 | GET | /v1/analytics | Health score, memory-loop metric, 30-day timeline, ageMatrix, knowledgeRadar |
 | GET | /v1/patterns | User work patterns: schedule, tools, focus areas, workflow, strengths, learning |
 | POST | /v1/verify | **Retired** — answers `410 Gone`. Removed with the agentic-orchestration experiment. |
@@ -767,6 +769,61 @@ Returns entities prioritized for graph visualization: all non-noise entities (de
   "data": {
     "entities": [...],
     "relations": [{"from": "auth-decision", "to": "api-design", "type": "related-to"}, ...]
+  }
+}
+```
+
+### GET /v1/graph?layer=work
+
+The two-layer view. Returns only work-layer entities — the types
+`src/core/work-topology.ts` lists as `WORK_LAYER_TYPES` (`decision`,
+`lesson_learned`, `lesson`, `mistake`, `milestone`, `pattern`,
+`technical_pattern`, `goal`, `plan`, `task-state`) — with the relations whose
+BOTH endpoints are in that layer, and a count of the evidence supporting each
+node. Archived entities are excluded.
+
+`evidenceCounts` maps a work-node name to its number of incoming `evidences`
+edges; a node with no such edge is absent from the map. Those edges are drawn
+by `memesh kg backfill`, not by the hooks — a graph where every count is zero
+means the backfill has not run, not that the work happened without evidence.
+
+Any other `layer` value is a `400` with `errorCode: "validation.bad-param"`.
+There is no `layer=evidence`: the evidence layer is an order of magnitude
+larger than the work layer and is fetched one node at a time, below.
+
+**Response**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "entities": [...],
+    "relations": [{"from": "auth-decision", "to": "api-design", "type": "supersedes"}],
+    "evidenceCounts": {"auth-decision": 12}
+  }
+}
+```
+
+### GET /v1/graph/evidence?node=NAME
+
+The drill-down: the evidence entities carrying an `evidences` edge to one work
+node, newest first, with the edges themselves. `node` is the entity NAME and is
+required (`400`, `validation.bad-param` without it); a name that matches no
+entity is a `404` with `errorCode: "resource.not-found"` — distinct from a node
+that exists and has no evidence, which is a `200` with empty arrays.
+
+At most 200 entities are returned. `truncated: true` says the page filled and
+more exist — the same in-band honesty rule `recall`'s `retrieval` block follows.
+
+**Response**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "entities": [...],
+    "relations": [{"from": "commit-a1b2c3d", "to": "auth-decision", "type": "evidences"}],
+    "truncated": false
   }
 }
 ```
@@ -1251,19 +1308,20 @@ memesh telemetry [--window <days>] [--prune <days>] [--json]
 
 ### memesh kg backfill-relations
 
-Heuristic non-LLM relation backfill for orphan entities. Four rules:
+Heuristic non-LLM relation backfill for orphan entities. Five rules:
 
 1. **Tag co-occurrence**: two active entities sharing ≥ 2 topical tags get a `related-to` edge. Topical filter excludes auto-capture noise (`session_end`, `auto_saved`, `commit`, `completed`, `lesson`, etc.) to prevent cartesian explosion.
 2. **Project clustering**: orphan lessons / decisions / bug-fixes / patterns in a project get a `belongs-to-project` edge to the most recent release / feature / architecture / plan in the same project.
 3. **Session co-occurrence** (`--session-cooccurrence`): high-signal orphans (signal_score ≥ 0.6) sharing a `session:*` tag get a `co-created` edge. Eligible types: lesson_learned, decision, architecture, feature, bug_fix, etc.
 4. **Name-token similarity** (`--name-tokens`): orphans whose tokenized names share ≥ 3 content tokens or Jaccard similarity ≥ 0.50 get a `shares-name-tokens` edge. Stopword list excludes generic qualifiers and month abbreviations to prevent cartesian explosion.
+5. **Evidence links** (on by default; `--no-evidence-links` disables): evidence-layer captures — commits, session insights, session summaries — get an `evidences` edge to the work item they support. Matched by exact session id (a `session:*` tag, or `metadata.session_id` for commits, which carry no session tag by design); with no session match, to the most recent same-project work item created BEFORE the capture. This is the edge `GET /v1/graph?layer=work` counts for its evidence badges, so the dashboard's two-layer graph shows zero badges until this has run. Unlike the other rules, its sources are evidence entities rather than orphans — a commit that already relates to something else is still evidence.
 
 **Usage**:
 
 ```bash
 memesh kg backfill-relations [--project <name>] [--dry-run] [--max-per-source <n>] \
   [--min-shared-tags <n>] [--session-cooccurrence] [--name-tokens] \
-  [--min-jaccard <n>] [--all-rules] [--include-archived] \
+  [--min-jaccard <n>] [--all-rules] [--no-evidence-links] [--include-archived] \
   [--reset-idempotency] [--json]
 ```
 
@@ -1278,7 +1336,8 @@ memesh kg backfill-relations [--project <name>] [--dry-run] [--max-per-source <n
 | `--session-cooccurrence` | off | Enable Rule 3: session co-occurrence |
 | `--name-tokens` | off | Enable Rule 4: name-token similarity |
 | `--min-jaccard <n>` | 0.50 | Jaccard threshold for Rule 4 |
-| `--all-rules` | off | Enable all four rules in one pass |
+| `--all-rules` | off | Enable all five rules in one pass |
+| `--no-evidence-links` | (Rule 5 is on) | Disable Rule 5: evidence → work-item links |
 | `--include-archived` | off | Also process archived entities |
 | `--reset-idempotency` | off | Clear the persistent "already-attempted" orphan cache (`memesh_metadata.kg_backfill_processed_v1`) before running, so every orphan is reconsidered |
 | `--json` | off | Output as JSON |

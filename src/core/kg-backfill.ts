@@ -29,6 +29,7 @@
 
 import type { MemeshDatabase } from '../storage/sqlite.js';
 import { getDatabase } from '../db.js';
+import { WORK_LAYER_TYPES, EVIDENCE_LAYER_TYPES } from './work-topology.js';
 
 const SYSTEM_TAG_PREFIXES = [
   // `cluster:` is the dreamer's digest label. It replaced `week:` when
@@ -115,12 +116,32 @@ export function isTopicalTag(tag: string): boolean {
   return true;
 }
 
+/**
+ * The relation types this module DERIVES from heuristics — as opposed to the
+ * ones a human or a model states deliberately (`supersedes`, `contradicts`;
+ * see `BEHAVIOURAL_RELATION_TYPES` in core/types.ts).
+ *
+ * The distinction is not cosmetic and this list is what makes it checkable.
+ * `tests/relation-types-documented.test.ts` requires every relation type the
+ * source branches on to be documented where the model reads — because a type
+ * with a consequence the model can trigger must be one the model was told
+ * about. A derived type is the other case: nothing asks the model to write it,
+ * and its consequence is what the dashboard DRAWS, not what memesh DOES to a
+ * memory. That test consults this list, so adding a type here is the explicit
+ * act of claiming "backfill draws this; a model is not expected to."
+ */
+export const DERIVED_RELATION_TYPES = [
+  'related-to', 'belongs-to-project', 'co-created', 'shares-name-tokens', 'evidences',
+] as const;
+
+export type DerivedRelationType = (typeof DERIVED_RELATION_TYPES)[number];
+
 export interface RelationCandidate {
   fromEntityId: number;
   fromName: string;
   toEntityId: number;
   toName: string;
-  relationType: 'related-to' | 'belongs-to-project' | 'co-created' | 'shares-name-tokens';
+  relationType: DerivedRelationType;
   /** Why we proposed this edge — for the CLI dry-run preview. */
   reason: string;
   /** Strength signal — number of shared topical tags or recency in days. */
@@ -150,6 +171,13 @@ export interface BackfillOptions {
   /** Alt gate for Rule 4: ≥N shared tokens also qualifies. Default 3. */
   minSharedNameTokens?: number;
   /**
+   * Rule 5: link evidence-layer captures (commits, session insights) to the
+   * work items they support, via shared session id — the edge the two-layer
+   * graph counts for its evidence badges. Default TRUE (unlike Rules 3/4):
+   * the match key is an exact session id, so false positives are near zero.
+   */
+  includeEvidenceLinks?: boolean;
+  /**
    * Idempotency cache — clear the persistent "already-attempted" set before
    * running. Useful after a schema change or rule-set change where you want
    * to reconsider every orphan from scratch. Default false (preserve cache).
@@ -172,6 +200,7 @@ export interface BackfillResult {
     projectClustering: number;
     sessionCooccurrence: number;
     nameTokenSimilarity: number;
+    evidenceLinks: number;
   };
   /** Number of orphans skipped because they were already attempted in a prior run. */
   orphansSkippedIdempotent: number;
@@ -261,7 +290,7 @@ export function backfillRelations(opts: BackfillOptions = {}, db?: MemeshDatabas
     candidatesProposed: candidates.length,
     edgesWritten: 0,
     dryRun: !!opts.dryRun,
-    byRule: { tagCooccurrence: 0, projectClustering: 0, sessionCooccurrence: 0, nameTokenSimilarity: 0 },
+    byRule: { tagCooccurrence: 0, projectClustering: 0, sessionCooccurrence: 0, nameTokenSimilarity: 0, evidenceLinks: 0 },
     orphansSkippedIdempotent: skippedOrphanIds.length,
     orphansMarkedProcessed: 0,
   };
@@ -283,6 +312,7 @@ export function backfillRelations(opts: BackfillOptions = {}, db?: MemeshDatabas
         else if (c.relationType === 'belongs-to-project') result.byRule.projectClustering++;
         else if (c.relationType === 'co-created') result.byRule.sessionCooccurrence++;
         else if (c.relationType === 'shares-name-tokens') result.byRule.nameTokenSimilarity++;
+        else if (c.relationType === 'evidences') result.byRule.evidenceLinks++;
       }
     }
   });
@@ -344,7 +374,11 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Memes
     : allOrphans.filter((o) => processed.has(o.id)).map((o) => o.id);
   const consideredOrphanIds = orphans.map((o) => o.id);
 
-  if (orphans.length === 0) {
+  // Zero orphans used to be a full early-out. Rule 5's sources are NOT
+  // orphans (linked evidence still counts), so the shortcut only applies
+  // when that rule is off too — otherwise a fully-connected graph would
+  // silently skip evidence linking.
+  if (orphans.length === 0 && opts.includeEvidenceLinks === false) {
     return { candidates: [], consideredOrphanIds, skippedOrphanIds };
   }
 
@@ -626,6 +660,145 @@ export function proposeBackfillCandidates(opts: BackfillOptions = {}, db?: Memes
           reason: `${shared} shared name token(s), Jaccard=${jaccard.toFixed(2)}`,
           strength: shared,
         });
+      }
+    }
+  }
+
+  // ---- Rule 5: evidence → work-node linking ----
+  // The two-layer graph counts incoming `evidences` edges for its badges;
+  // hooks capture evidence but never draw this edge, so without this rule
+  // every work node renders zero-badge. Matching is session-first: an exact
+  // session id shared between the capture and the work item is the strongest
+  // "this happened while that work was being done" signal we store. Evidence
+  // with no session match falls back to the most recent SAME-PROJECT work
+  // node created BEFORE it — temporal causality, so a bulk first run
+  // distributes history across the work items that were current at the time
+  // instead of piling every old commit onto whatever node is newest today.
+  if (opts.includeEvidenceLinks !== false) {
+    // Sources are independent of the orphan loop on purpose: a commit that
+    // already relates to something else still counts as evidence. They are
+    // also NOT marked in the orphan idempotency cache — new evidence arrives
+    // every session, and the no-outgoing-`evidences`-edge filter below keeps
+    // re-runs cheap. Accepted consequence: once an evidence entity carries
+    // any `evidences` edge it is never revisited, even if a better session
+    // match appears later.
+    const evidenceTypeList = [...EVIDENCE_LAYER_TYPES];
+    const evidenceRows = conn.prepare(`
+      SELECT e.id, e.name, e.type, e.metadata, e.created_at
+      FROM entities e
+      WHERE e.type IN (${evidenceTypeList.map(() => '?').join(',')})
+        ${statusFilter}
+        ${projectClause}
+        AND NOT EXISTS (
+          SELECT 1 FROM relations r
+          WHERE r.from_entity_id = e.id AND r.relation_type = 'evidences'
+        )
+    `).all(...evidenceTypeList, ...projectArgs) as Array<OrphanRow & { created_at: string }>;
+
+    if (evidenceRows.length > 0) {
+      const workTypeList = [...WORK_LAYER_TYPES];
+      const workRows = conn.prepare(`
+        SELECT e.id, e.name, e.type, e.metadata, e.created_at
+        FROM entities e
+        WHERE e.type IN (${workTypeList.map(() => '?').join(',')})
+          ${statusFilter}
+      `).all(...workTypeList) as Array<OrphanRow & { created_at: string }>;
+
+      // Session/project keys come from tags (the hook norm) plus
+      // metadata.session_id (what post-commit stamps on commit entities —
+      // commits carry no session: tag precisely so pre-edit recall does not
+      // inject commit noise; see scripts/hooks/post-commit.js).
+      const metaSessionId = (meta: string | null): string | null => {
+        try {
+          const parsed = JSON.parse(meta ?? '{}') as { session_id?: unknown };
+          return typeof parsed?.session_id === 'string' && parsed.session_id ? parsed.session_id : null;
+        } catch { return null; }
+      };
+      const sessionTagsById = new Map<number, Set<string>>();
+      const projectTagsById = new Map<number, Set<string>>();
+      for (const row of allTagRows) {
+        if (row.tag.startsWith('session:')) {
+          let s = sessionTagsById.get(row.entity_id);
+          if (!s) { s = new Set(); sessionTagsById.set(row.entity_id, s); }
+          s.add(row.tag.slice('session:'.length));
+        } else if (row.tag.startsWith('project:')) {
+          let s = projectTagsById.get(row.entity_id);
+          if (!s) { s = new Set(); projectTagsById.set(row.entity_id, s); }
+          s.add(row.tag.slice('project:'.length));
+        }
+      }
+      const sessionKeysOf = (id: number, meta: string | null): Set<string> => {
+        const keys = new Set(sessionTagsById.get(id) ?? []);
+        const ms = metaSessionId(meta);
+        if (ms) keys.add(ms);
+        return keys;
+      };
+
+      const workBySession = new Map<string, Array<OrphanRow & { created_at: string }>>();
+      const workByProject = new Map<string, Array<OrphanRow & { created_at: string }>>();
+      for (const w of workRows) {
+        for (const key of sessionKeysOf(w.id, w.metadata)) {
+          let list = workBySession.get(key);
+          if (!list) { list = []; workBySession.set(key, list); }
+          list.push(w);
+        }
+        for (const proj of projectTagsById.get(w.id) ?? []) {
+          let list = workByProject.get(proj);
+          if (!list) { list = []; workByProject.set(proj, list); }
+          list.push(w);
+        }
+      }
+      // Newest first, so the temporal fallback's "most recent node created
+      // before the evidence" is the first match in the scan.
+      const ts = (v: string): number => new Date(v).getTime();
+      for (const list of workByProject.values()) {
+        list.sort((a, b) => ts(b.created_at) - ts(a.created_at));
+      }
+
+      for (const ev of evidenceRows) {
+        let added = 0;
+        const proposedWork = new Set<number>();
+        for (const key of sessionKeysOf(ev.id, ev.metadata)) {
+          for (const w of workBySession.get(key) ?? []) {
+            if (added >= maxPerSource) break;
+            if (w.id === ev.id || proposedWork.has(w.id)) continue;
+            candidates.push({
+              fromEntityId: ev.id,
+              fromName: ev.name,
+              toEntityId: w.id,
+              toName: w.name,
+              relationType: 'evidences',
+              reason: `captured in same session as ${w.type} (session ${key.slice(0, 8)})`,
+              strength: 2,
+            });
+            proposedWork.add(w.id);
+            added++;
+          }
+          if (added >= maxPerSource) break;
+        }
+
+        if (added === 0) {
+          const evTime = ts(ev.created_at);
+          if (!Number.isNaN(evTime)) {
+            for (const proj of projectTagsById.get(ev.id) ?? []) {
+              const anchor = (workByProject.get(proj) ?? []).find(
+                (w) => w.id !== ev.id && !Number.isNaN(ts(w.created_at)) && ts(w.created_at) <= evTime,
+              );
+              if (anchor) {
+                candidates.push({
+                  fromEntityId: ev.id,
+                  fromName: ev.name,
+                  toEntityId: anchor.id,
+                  toName: anchor.name,
+                  relationType: 'evidences',
+                  reason: `most recent work item in project:${proj} at capture time (${anchor.type})`,
+                  strength: 1,
+                });
+                break;
+              }
+            }
+          }
+        }
       }
     }
   }

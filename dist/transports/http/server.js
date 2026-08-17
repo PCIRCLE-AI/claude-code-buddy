@@ -12,7 +12,7 @@ import { computePatterns } from '../../core/patterns.js';
 import { computeAnalytics, computePmAnalytics } from '../../core/analytics.js';
 import { computeStats } from '../../core/stats.js';
 import { computeProjects } from '../../core/projects.js';
-import { computeGraph } from '../../core/graph.js';
+import { computeGraph, computeWorkGraph, computeNodeEvidence } from '../../core/graph.js';
 import { RememberSchema as RememberBody, RecallSchema as RecallBody, ForgetSchema as ForgetBody, ExportSchema as ExportBody, ImportSchema as ImportBody, LearnSchema as LearnBody, WhySchema as WhyBody, } from '../schemas.js';
 import { checkForUpdate, getLastUpdateCheck, getUpdateCheck } from '../../core/version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from '../../core/install-channel.js';
@@ -430,7 +430,36 @@ app.get('/v1/update-status', (req, res) => handleGet(res, async () => {
         deprecationMessage: update?.deprecationMessage ?? null,
     };
 }));
-app.get('/v1/graph', (_req, res) => handleGet(res, () => computeGraph(getDatabase())));
+app.get('/v1/graph', (req, res) => {
+    const layer = req.query.layer;
+    if (layer !== undefined && layer !== 'work') {
+        res.status(400).json({
+            success: false,
+            errorCode: 'validation.bad-param',
+            error: "layer must be 'work' (omit the parameter for the full graph)",
+        });
+        return;
+    }
+    handleGet(res, () => (layer === 'work' ? computeWorkGraph(getDatabase()) : computeGraph(getDatabase())));
+});
+app.get('/v1/graph/evidence', (req, res) => {
+    const node = req.query.node;
+    if (typeof node !== 'string' || node.length === 0) {
+        res.status(400).json({
+            success: false,
+            errorCode: 'validation.bad-param',
+            error: 'node query parameter is required (the work-node entity name)',
+        });
+        return;
+    }
+    handleGet(res, () => {
+        const result = computeNodeEvidence(getDatabase(), node);
+        if (result === null) {
+            throw new HttpError(404, 'resource.not-found', `Entity "${node}" not found`);
+        }
+        return result;
+    });
+});
 app.get('/v1/stats', (_req, res) => handleGet(res, () => computeStats(getDatabase())));
 app.get('/v1/analytics', (_req, res) => handleGet(res, () => computeAnalytics(getDatabase())));
 app.get('/v1/analytics/pm', (req, res) => {

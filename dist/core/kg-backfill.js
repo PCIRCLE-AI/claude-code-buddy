@@ -1,4 +1,5 @@
 import { getDatabase } from '../db.js';
+import { WORK_LAYER_TYPES, EVIDENCE_LAYER_TYPES } from './work-topology.js';
 const SYSTEM_TAG_PREFIXES = [
     'project:', 'week:', 'cluster:', 'severity:', 'scope:', 'source:', 'date:',
     'type:', 'urgency:', 'host:', 'session:', 'release:',
@@ -56,6 +57,9 @@ export function isTopicalTag(tag) {
         return false;
     return true;
 }
+export const DERIVED_RELATION_TYPES = [
+    'related-to', 'belongs-to-project', 'co-created', 'shares-name-tokens', 'evidences',
+];
 const IDEMPOTENCY_KEY = 'kg_backfill_processed_v1';
 function readProcessedSet(conn) {
     try {
@@ -85,7 +89,7 @@ export function backfillRelations(opts = {}, db) {
         candidatesProposed: candidates.length,
         edgesWritten: 0,
         dryRun: !!opts.dryRun,
-        byRule: { tagCooccurrence: 0, projectClustering: 0, sessionCooccurrence: 0, nameTokenSimilarity: 0 },
+        byRule: { tagCooccurrence: 0, projectClustering: 0, sessionCooccurrence: 0, nameTokenSimilarity: 0, evidenceLinks: 0 },
         orphansSkippedIdempotent: skippedOrphanIds.length,
         orphansMarkedProcessed: 0,
     };
@@ -105,6 +109,8 @@ export function backfillRelations(opts = {}, db) {
                     result.byRule.sessionCooccurrence++;
                 else if (c.relationType === 'shares-name-tokens')
                     result.byRule.nameTokenSimilarity++;
+                else if (c.relationType === 'evidences')
+                    result.byRule.evidenceLinks++;
             }
         }
     });
@@ -144,7 +150,7 @@ export function proposeBackfillCandidates(opts = {}, db) {
         ? []
         : allOrphans.filter((o) => processed.has(o.id)).map((o) => o.id);
     const consideredOrphanIds = orphans.map((o) => o.id);
-    if (orphans.length === 0) {
+    if (orphans.length === 0 && opts.includeEvidenceLinks === false) {
         return { candidates: [], consideredOrphanIds, skippedOrphanIds };
     }
     const allTagRows = conn.prepare(`
@@ -398,6 +404,134 @@ export function proposeBackfillCandidates(opts = {}, db) {
                     reason: `${shared} shared name token(s), Jaccard=${jaccard.toFixed(2)}`,
                     strength: shared,
                 });
+            }
+        }
+    }
+    if (opts.includeEvidenceLinks !== false) {
+        const evidenceTypeList = [...EVIDENCE_LAYER_TYPES];
+        const evidenceRows = conn.prepare(`
+      SELECT e.id, e.name, e.type, e.metadata, e.created_at
+      FROM entities e
+      WHERE e.type IN (${evidenceTypeList.map(() => '?').join(',')})
+        ${statusFilter}
+        ${projectClause}
+        AND NOT EXISTS (
+          SELECT 1 FROM relations r
+          WHERE r.from_entity_id = e.id AND r.relation_type = 'evidences'
+        )
+    `).all(...evidenceTypeList, ...projectArgs);
+        if (evidenceRows.length > 0) {
+            const workTypeList = [...WORK_LAYER_TYPES];
+            const workRows = conn.prepare(`
+        SELECT e.id, e.name, e.type, e.metadata, e.created_at
+        FROM entities e
+        WHERE e.type IN (${workTypeList.map(() => '?').join(',')})
+          ${statusFilter}
+      `).all(...workTypeList);
+            const metaSessionId = (meta) => {
+                try {
+                    const parsed = JSON.parse(meta ?? '{}');
+                    return typeof parsed?.session_id === 'string' && parsed.session_id ? parsed.session_id : null;
+                }
+                catch {
+                    return null;
+                }
+            };
+            const sessionTagsById = new Map();
+            const projectTagsById = new Map();
+            for (const row of allTagRows) {
+                if (row.tag.startsWith('session:')) {
+                    let s = sessionTagsById.get(row.entity_id);
+                    if (!s) {
+                        s = new Set();
+                        sessionTagsById.set(row.entity_id, s);
+                    }
+                    s.add(row.tag.slice('session:'.length));
+                }
+                else if (row.tag.startsWith('project:')) {
+                    let s = projectTagsById.get(row.entity_id);
+                    if (!s) {
+                        s = new Set();
+                        projectTagsById.set(row.entity_id, s);
+                    }
+                    s.add(row.tag.slice('project:'.length));
+                }
+            }
+            const sessionKeysOf = (id, meta) => {
+                const keys = new Set(sessionTagsById.get(id) ?? []);
+                const ms = metaSessionId(meta);
+                if (ms)
+                    keys.add(ms);
+                return keys;
+            };
+            const workBySession = new Map();
+            const workByProject = new Map();
+            for (const w of workRows) {
+                for (const key of sessionKeysOf(w.id, w.metadata)) {
+                    let list = workBySession.get(key);
+                    if (!list) {
+                        list = [];
+                        workBySession.set(key, list);
+                    }
+                    list.push(w);
+                }
+                for (const proj of projectTagsById.get(w.id) ?? []) {
+                    let list = workByProject.get(proj);
+                    if (!list) {
+                        list = [];
+                        workByProject.set(proj, list);
+                    }
+                    list.push(w);
+                }
+            }
+            const ts = (v) => new Date(v).getTime();
+            for (const list of workByProject.values()) {
+                list.sort((a, b) => ts(b.created_at) - ts(a.created_at));
+            }
+            for (const ev of evidenceRows) {
+                let added = 0;
+                const proposedWork = new Set();
+                for (const key of sessionKeysOf(ev.id, ev.metadata)) {
+                    for (const w of workBySession.get(key) ?? []) {
+                        if (added >= maxPerSource)
+                            break;
+                        if (w.id === ev.id || proposedWork.has(w.id))
+                            continue;
+                        candidates.push({
+                            fromEntityId: ev.id,
+                            fromName: ev.name,
+                            toEntityId: w.id,
+                            toName: w.name,
+                            relationType: 'evidences',
+                            reason: `captured in same session as ${w.type} (session ${key.slice(0, 8)})`,
+                            strength: 2,
+                        });
+                        proposedWork.add(w.id);
+                        added++;
+                    }
+                    if (added >= maxPerSource)
+                        break;
+                }
+                if (added === 0) {
+                    const evTime = ts(ev.created_at);
+                    if (!Number.isNaN(evTime)) {
+                        for (const proj of projectTagsById.get(ev.id) ?? []) {
+                            const anchor = (workByProject.get(proj) ?? []).find((w) => w.id !== ev.id && !Number.isNaN(ts(w.created_at)) && ts(w.created_at) <= evTime);
+                            if (anchor) {
+                                candidates.push({
+                                    fromEntityId: ev.id,
+                                    fromName: ev.name,
+                                    toEntityId: anchor.id,
+                                    toName: anchor.name,
+                                    relationType: 'evidences',
+                                    reason: `most recent work item in project:${proj} at capture time (${anchor.type})`,
+                                    strength: 1,
+                                });
+                                break;
+                            }
+                        }
+                    }
+                }
             }
         }
     }

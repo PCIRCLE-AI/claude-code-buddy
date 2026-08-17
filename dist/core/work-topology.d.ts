@@ -1,4 +1,5 @@
 export declare const WORK_LAYER_TYPES: ReadonlySet<string>;
+export declare const EVIDENCE_LAYER_TYPES: ReadonlySet<string>;
 export declare function isAutoInjectable(metadata: unknown): boolean;
 export type TopologyLayer = 'work' | 'knowledge' | 'evidence';
 export declare function layerOf(type: string): TopologyLayer;

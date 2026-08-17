@@ -308,7 +308,7 @@ function stubOptionalExtrasHollowApi(): void {
       staleness: { stalePlanCount: 0, openDecisionCount: 0 },
       connectedness: { orphanRate: 0, totalRelations: 0, activeEntities: 0 },
       summaries: [], window_days: 7,
-      entities: [], relations: [], noiseTypes: [],
+      entities: [], relations: [], noiseTypes: [], evidenceCounts: {},
       checks: [],
     },
   }));
@@ -437,6 +437,7 @@ const CASES: Array<{ name: string; node: () => ComponentChildren }> = [
 const INTENTIONALLY_EXCLUDED: Record<string, string> = {
   AuthPrompt: 'tests/dashboard/AuthPrompt.test.tsx — rendered only from a 401 path, takes no API-backed props',
   CaptureDensityBand: 'tests/dashboard/CaptureDensityBand.test.tsx covers its degenerate inputs directly',
+  EvidencePanel: 'tests/dashboard/EvidencePanel.test.tsx covers its four states (loading / empty / truncated / failed) directly',
   LessonCards: 'helper renderers (severity badge, expanded bodies) with no top-level surface — exercised through MemoriesTab rows',
   MemoryLoopCard: 'tests/dashboard/MemoryLoopCard.test.tsx covers its degenerate inputs directly',
   MemoryRow: 'tests/dashboard/MemoryRow.test.tsx covers its degenerate inputs directly',

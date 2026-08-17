@@ -35,6 +35,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { BEHAVIOURAL_RELATION_TYPES } from '../src/core/types.js';
+import { DERIVED_RELATION_TYPES } from '../src/core/kg-backfill.js';
 import { TOOL_DEFINITIONS } from '../src/transports/mcp/handlers.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -98,13 +99,35 @@ describe('relation types with consequences are documented where the model reads'
       'no relation-type comparison was found anywhere in src/ — the patterns stopped matching'
     ).toBeGreaterThanOrEqual(2);
 
-    const documented = Object.keys(BEHAVIOURAL_RELATION_TYPES);
+    // Two ways a branched-on type can be legitimate, and they are different
+    // claims. BEHAVIOURAL: a model can write it and something happens to a
+    // memory, so the model has to be told (the rest of this file enforces
+    // where). DERIVED: `memesh kg backfill` draws it from heuristics, nothing
+    // asks a model to write it, and its consequence is what the dashboard
+    // DRAWS rather than what memesh does to a memory. Reading the derived
+    // list from the module that owns it keeps the escape hatch honest — a
+    // type only qualifies by actually being one backfill produces, not by
+    // being added to a list in a test file.
+    const documented = [
+      ...Object.keys(BEHAVIOURAL_RELATION_TYPES),
+      ...DERIVED_RELATION_TYPES,
+    ];
     for (const branch of branches) {
       expect(
         documented,
-        `${branch.where} changes behaviour for relation type "${branch.type}", which BEHAVIOURAL_RELATION_TYPES does not list — so nothing forces it into the schema the model reads`
+        `${branch.where} changes behaviour for relation type "${branch.type}", which neither BEHAVIOURAL_RELATION_TYPES nor DERIVED_RELATION_TYPES lists — so nothing forces it into the schema the model reads`
       ).toContain(branch.type);
     }
+  });
+
+  it('the two lists are disjoint — a type cannot be both model-written and derived', () => {
+    // Without this, the derived list becomes a way to retire a behavioural
+    // type from the schema the model reads: add it here, and the check above
+    // stops requiring the description. The overlap is the failure, not the
+    // membership.
+    const behavioural = new Set<string>(Object.keys(BEHAVIOURAL_RELATION_TYPES));
+    const overlap = DERIVED_RELATION_TYPES.filter((t) => behavioural.has(t));
+    expect(overlap, 'a relation type is listed as both behavioural and derived').toEqual([]);
   });
 
   it('names every behavioural relation type, and its consequence, in the MCP schema', () => {
