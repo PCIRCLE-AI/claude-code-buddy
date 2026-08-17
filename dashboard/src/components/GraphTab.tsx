@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
-import { fetchGraph, type GraphData, type Entity } from '../lib/api';
+import { fetchGraph, fetchWorkGraph, type GraphData, type WorkGraphData, type Entity } from '../lib/api';
+import { EvidencePanel } from './EvidencePanel';
 import { t, getLocale } from '../lib/i18n';
 import { typeLabel, relationLabel } from '../lib/entity-display';
 import { classifyLoadError, failureMessage, type LoadFailure } from '../lib/failure';
@@ -12,15 +13,50 @@ import { CATEGORICAL_TYPE_COLORS } from '../lib/type-palette';
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
+/** What both graph payloads have in common — the two arrays every read in
+ *  this component iterates. `noiseTypes` is NOT part of it: the work layer
+ *  has no noise types, because every type in it is signal by definition. */
+type RenderableGraph = { entities: Entity[]; relations: Array<{ from: string; to: string; type: string }> };
+
 /**
  * The two arrays every read in this component iterates. Exported so the
  * contract suite can test it leaf by leaf — a component-level stub can only
  * pin the leaves it happens to omit, and this predicate rejecting for the
  * WRONG missing field is invisible at that level.
  */
-export function isGraphRenderable(d: GraphData | null | undefined): d is GraphData {
+export function isGraphRenderable<T extends Partial<RenderableGraph>>(
+  d: T | null | undefined,
+): d is T & RenderableGraph {
   return Array.isArray(d?.entities) && Array.isArray(d.relations);
 }
+
+/**
+ * The work-layer payload additionally carries `evidenceCounts`, and its
+ * absence must NOT be defaulted away. `?? {}` would render every badge as
+ * zero — "nothing supports this decision" — from a response that never
+ * answered the question. Missing counts are a shape mismatch (version skew),
+ * which the tab already knows how to report; a fabricated zero is the silent
+ * degradation `retrieval.degraded` exists to prevent on the recall side.
+ */
+export function isWorkGraphRenderable(
+  d: Partial<WorkGraphData> | null | undefined,
+): d is WorkGraphData {
+  return isGraphRenderable(d)
+    && typeof d.evidenceCounts === 'object'
+    && d.evidenceCounts !== null
+    && !Array.isArray(d.evidenceCounts);
+}
+
+/** The two-layer view's fallback threshold. A graph of one or two nodes is
+ *  not a graph; below this the tab shows the full graph instead and SAYS it
+ *  did (measured on the live graph 2026-08-17: 53 work entities of 361
+ *  active, so the real case renders the work layer, and the fallback is for
+ *  a young install — where it is the normal state, not an error). */
+export const WORK_LAYER_MIN_NODES = 3;
+
+/** Badge radius in SCREEN pixels — divided by scale at draw and hit-test so
+ *  both agree at every zoom. */
+const BADGE_R = 5;
 
 interface GNode {
   id: string;
@@ -34,6 +70,9 @@ interface GNode {
   recency: number;          // 0.15–1.0
   isOrphan: boolean;
   lastDate: string;         // ISO string for tooltip age
+  /** Incoming `evidences` edges. 0 in the full-graph view, and 0 is honest
+   *  in the work view too: `memesh kg backfill` is what draws those edges. */
+  evidenceCount: number;
   /** Raw access_count (clamped to ≥0), kept because RANKING must use it:
    *  the radius clamps at 9px from access_count ≈ 23 up, so sorting on
    *  radius silently made recency the primary key for every
@@ -210,6 +249,16 @@ export function capGraphEntities(entities: Entity[], cap: number = GRAPH_NODE_CA
 
 export function GraphTab() {
   const [data, setData] = useState<GraphData | null>(null);
+  // Two-layer state (UX-4). `layer` is what the user asked for; `activeLayer`
+  // is what is actually on screen — they differ exactly when the work layer
+  // was too small to draw and the tab fell back, which the note below the
+  // toggle reports. A silent fallback would be the same defect R2 removed
+  // from recall.
+  const [layer, setLayer] = useState<'work' | 'all'>('work');
+  const [activeLayer, setActiveLayer] = useState<'work' | 'all'>('work');
+  const [fellBack, setFellBack] = useState(false);
+  const [evidenceCounts, setEvidenceCounts] = useState<Record<string, number>>({});
+  const [evidenceNode, setEvidenceNode] = useState<GNode | null>(null);
   // The pre-cap count. `data.entities` holds at most GRAPH_NODE_CAP nodes;
   // the stats row keeps reporting the real library size next to the cap note.
   const [totalEntities, setTotalEntities] = useState(0);
@@ -300,52 +349,97 @@ export function GraphTab() {
   useEffect(() => { egoNodeIdRef.current = egoNodeId; }, [egoNodeId]);
   useEffect(() => { driftModeRef.current = driftMode; }, [driftMode]);
 
+  // Everything both layers do with a payload once it has arrived: the shape
+  // guard, the physics cap, and the initial type filters. A shape mismatch
+  // used to reach the user as "Cannot read properties of undefined (reading
+  // 'forEach')" — every read below is unconditional and the loader's own
+  // `.catch` swallowed the TypeError, so CI saw no unhandled rejection. The
+  // guard makes a bad payload read as "did not load" instead.
+  const applyGraph = useCallback((d: GraphData) => {
+    if (!isGraphRenderable(d)) {
+      // Loudly: the request succeeded, so nothing else will ever log this.
+      console.warn('[memesh dashboard] /v1/graph answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', d);
+      setFailure('unreadable');
+      setData(null);
+      return;
+    }
+    setFailure(null);
+    // The physics budget: everything below (filters, counts, canvas)
+    // works on the capped set; only the stats row knows the real total.
+    const capped = capGraphEntities(d.entities);
+    if (capped.length < d.entities.length) {
+      console.info(
+        `[memesh dashboard] graph capped at ${capped.length} of ${d.entities.length} entities — the O(n²) simulation freezes the tab beyond this; showing the most-recalled nodes.`,
+      );
+    }
+    setTotalEntities(d.entities.length);
+    setData({ ...d, entities: capped });
+    // Init type filters from the server-supplied noise list. When
+    // global Signal Mode is ON we hide noise by default; when it
+    // is OFF the user explicitly opted into "show everything," so
+    // every type starts checked.
+    const noise = new Set(Array.isArray(d.noiseTypes) ? d.noiseTypes : []);
+    const types: Record<string, boolean> = {};
+    capped.forEach((e) => {
+      types[e.type] = types[e.type] ?? (signalMode ? !noise.has(e.type) : true);
+    });
+    setTypeFilters(types);
+  }, [signalMode]);
+
   /* ----- data fetch ----- */
+  // One loader for both layers. The work layer is tried first (it is the
+  // question the tab exists to answer — "what was decided / learned"); when
+  // it holds too few nodes to be a graph the full graph is fetched instead
+  // and `fellBack` makes that visible. `evidenceCounts` only has meaning in
+  // the work view, so it is cleared on the way into the full one.
   useEffect(() => {
-    fetchGraph()
-      .then((d) => {
-        // `d.entities.forEach` and every read below it are unconditional, and
-        // this component's own `.catch` swallows the TypeError they throw and
-        // paints the raw JS message on screen — so a shape mismatch surfaced
-        // to the user as "Cannot read properties of undefined (reading
-        // 'forEach')" and produced no unhandled rejection for CI to notice.
-        // A payload that is not the graph reads as "did not load": `!data`
-        // below already renders the no-data box.
-        if (!isGraphRenderable(d)) {
-          // Loudly: the request succeeded, so nothing else will ever log this.
-          console.warn('[memesh dashboard] /v1/graph answered, but with a shape this bundle cannot render — stale bundle or version skew, not an outage:', d);
-          setFailure('unreadable');
-          setData(null);
-          return;
-        }
-        setFailure(null);
-        // The physics budget: everything below (filters, counts, canvas)
-        // works on the capped set; only the stats row knows the real total.
-        const capped = capGraphEntities(d.entities);
-        if (capped.length < d.entities.length) {
-          console.info(
-            `[memesh dashboard] graph capped at ${capped.length} of ${d.entities.length} entities — the O(n²) simulation freezes the tab beyond this; showing the most-recalled nodes.`,
-          );
-        }
-        setTotalEntities(d.entities.length);
-        setData({ ...d, entities: capped });
-        // Init type filters from the server-supplied noise list. When
-        // global Signal Mode is ON we hide noise by default; when it
-        // is OFF the user explicitly opted into "show everything," so
-        // every type starts checked.
-        const noise = new Set(Array.isArray(d.noiseTypes) ? d.noiseTypes : []);
-        const types: Record<string, boolean> = {};
-        capped.forEach((e) => {
-          types[e.type] = types[e.type] ?? (signalMode ? !noise.has(e.type) : true);
+    let cancelled = false;
+    setLoading(true);
+    setEvidenceNode(null);
+    const loadFull = () => fetchGraph().then((d) => {
+      if (cancelled) return;
+      setActiveLayer('all');
+      setEvidenceCounts({});
+      applyGraph(d);
+    });
+
+    const run = layer === 'all'
+      ? (setFellBack(false), loadFull())
+      : fetchWorkGraph().then((wg: WorkGraphData) => {
+          if (cancelled) return undefined;
+          if (!isWorkGraphRenderable(wg)) {
+            console.warn('[memesh dashboard] /v1/graph?layer=work answered with a shape this bundle cannot render:', wg);
+            setFailure('unreadable');
+            setData(null);
+            return undefined;
+          }
+          if (wg.entities.length < WORK_LAYER_MIN_NODES) {
+            setFellBack(true);
+            return loadFull();
+          }
+          setFellBack(false);
+          setActiveLayer('work');
+          setEvidenceCounts(wg.evidenceCounts);
+          // The work layer carries no noise types — every type in it is
+          // signal by definition — so the full-graph shape is completed
+          // with an empty list rather than leaving the field undefined for
+          // the filter code to read.
+          applyGraph({ ...wg, noiseTypes: [] });
+          return undefined;
         });
-        setTypeFilters(types);
-      })
+
+    Promise.resolve(run)
       .catch((e) => {
-        console.warn('[memesh dashboard] /v1/graph failed to load:', e);
+        if (cancelled) return;
+        console.warn('[memesh dashboard] graph failed to load:', e);
         setFailure(classifyLoadError(e));
       })
-      .finally(() => setLoading(false));
-  }, []);
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+    // applyGraph is defined below with useCallback on [signalMode]; the
+    // loader re-runs when the user switches layer.
+  }, [layer, applyGraph]);
+
 
   /* ----- build graph & start simulation ----- */
   useEffect(() => {
@@ -441,6 +535,7 @@ export function GraphTab() {
         isOrphan: !connectedNodes.has(e.name),
         lastDate,
         accessCount: Math.max(0, e.access_count ?? 0),
+        evidenceCount: evidenceCounts[e.name] ?? 0,
       });
     });
     // Label-budget order: RAW traffic first, recency as the tiebreak, name
@@ -448,11 +543,26 @@ export function GraphTab() {
     // 9px from access_count ≈ 23 up, and ranking on it made recency the
     // primary key for every well-trafficked node (a 24-recall newcomer
     // outranked a 10 000-recall hub).
+    //
+    // The work layer ranks differently, and the reason is measured. Traffic
+    // is a proxy for "has been useful for a while", which is exactly wrong
+    // for a decision made this morning: on the live graph the newest
+    // decisions carry access_count 0 and would be the LAST thing named. The
+    // work layer ranks by recency, then by how much evidence supports the
+    // node, then name. Status is deliberately not a key here: of 53 active
+    // work entities measured 2026-08-17, zero were the target of a
+    // `supersedes` edge — supersession archives the loser, and this view is
+    // active-only, so a status axis would rank on a field that is constant.
     const rankedNodes = Array.from(nodeMap.values()).sort(
-      (a, b) =>
-        b.accessCount - a.accessCount
-        || b.recency - a.recency
-        || a.id.localeCompare(b.id),
+      activeLayer === 'work'
+        ? (a, b) =>
+            b.recency - a.recency
+            || b.evidenceCount - a.evidenceCount
+            || a.id.localeCompare(b.id)
+        : (a, b) =>
+            b.accessCount - a.accessCount
+            || b.recency - a.recency
+            || a.id.localeCompare(b.id),
     );
     nodesRef.current = Array.from(nodeMap.values());
     edgesRef.current = data.relations.filter(
@@ -907,6 +1017,36 @@ export function GraphTab() {
           ctx.fillText(label, n.x + r + 4, n.y + 3);
           ctx.globalAlpha = alpha;
         }
+
+        // Evidence badge — how much mechanical capture supports this work
+        // item. Drawn under the SAME budget as the label (plus interaction),
+        // because a badge on every node at zoomed-out scale is the same
+        // unreadable field the label budget exists to prevent. Screen-
+        // constant size, like the label, so zoom does not change its meaning.
+        // Kept off the full-graph view: there `evidenceCount` is 0 for every
+        // node and a universal "0" is noise, not information.
+        if (n.evidenceCount > 0 && showLabel) {
+          const br = BADGE_R / vp.scale;
+          const bx = n.x + r * 0.8;
+          const by = n.y - r * 0.8;
+          ctx.globalAlpha = 1;
+          ctx.beginPath();
+          ctx.arc(bx, by, br, 0, Math.PI * 2);
+          ctx.fillStyle = tk['--bg-0'];
+          ctx.fill();
+          ctx.strokeStyle = tk['--life'];
+          ctx.lineWidth = 1 / vp.scale;
+          ctx.stroke();
+          ctx.font = `${7 / vp.scale}px ${tk['--mono']}`;
+          ctx.fillStyle = tk['--life'];
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          // Three digits do not fit a 5px badge; 99+ is the honest cap.
+          ctx.fillText(n.evidenceCount > 99 ? '99+' : String(n.evidenceCount), bx, by);
+          ctx.textAlign = 'start';
+          ctx.textBaseline = 'alphabetic';
+          ctx.globalAlpha = alpha;
+        }
       }
 
       ctx.globalAlpha = 1;
@@ -955,7 +1095,10 @@ export function GraphTab() {
 
     animRef.current = requestAnimationFrame(simulate);
     return () => cancelAnimationFrame(animRef.current);
-  }, [data, loading]);
+    // activeLayer/evidenceCounts are read when the nodes are built (badge
+    // counts) and when they are ranked, so the simulation must rebuild when
+    // the layer changes — not only when `data` does.
+  }, [data, loading, activeLayer, evidenceCounts]);
 
   /* ---------- hit-test (only visible nodes) ----------
    * `wx`/`wy` are WORLD coords (already inverse-transformed). Hit radius
@@ -980,6 +1123,16 @@ export function GraphTab() {
       const dx = n.x - wx;
       const dy = n.y - wy;
       if (dx * dx + dy * dy < hitR2) return n;
+      // The evidence badge is a visible part of the node and must be
+      // clickable as one — a target you can see and cannot hit is worse
+      // than no target. Same geometry the draw call uses, so the two
+      // cannot drift.
+      if (n.evidenceCount > 0) {
+        const br = BADGE_R / scale;
+        const bdx = n.x + n.radius * 0.8 - wx;
+        const bdy = n.y - n.radius * 0.8 - wy;
+        if (bdx * bdx + bdy * bdy < br * br) return n;
+      }
     }
     return null;
   }, []);
@@ -1119,11 +1272,17 @@ export function GraphTab() {
       if (drag.node && !drag.dragged) {
         // Click on a node — toggle ego mode.
         setEgoNodeId((prev) => (prev === drag.node!.id ? null : drag.node!.id));
+        // …and in the work view, open (or switch) the evidence drill-down.
+        // Clicking the SAME node again closes both, so one gesture never
+        // leaves the panel showing a node that is no longer focused.
+        const clicked = drag.node;
+        setEvidenceNode((prev) => (prev?.id === clicked.id ? null : clicked));
       } else if (!drag.node && pan.active && !pan.moved) {
         // Click on empty canvas (no pan happened) — exit ego mode.
         const nodeAtPos = findNodeAt(world.x, world.y);
         if (!nodeAtPos) {
           setEgoNodeId(null);
+          setEvidenceNode(null);
         }
       }
 
@@ -1323,6 +1482,43 @@ export function GraphTab() {
             shown: data.entities.length.toLocaleString(getLocale()),
             total: totalEntities.toLocaleString(getLocale()),
           })}
+        </div>
+      )}
+
+      {/* Layer switch. Two questions, not two styles: "what was decided and
+          learned" (work) versus "everything memesh has stored" (all). */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 8px' }}>
+        <div role="group" aria-label={t('graph.layerLabel')} style={{ display: 'flex', gap: 4 }}>
+          {(['work', 'all'] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={layer === v}
+              onClick={() => setLayer(v)}
+              style={{
+                fontSize: 11,
+                padding: '3px 10px',
+                borderRadius: 'var(--radius)',
+                cursor: 'pointer',
+                border: `1px solid ${layer === v ? 'var(--life)' : 'var(--border)'}`,
+                background: layer === v ? 'var(--life-soft)' : 'transparent',
+                color: layer === v ? 'var(--life)' : 'var(--text-2)',
+              }}
+            >
+              {v === 'work' ? t('graph.layerWork') : t('graph.layerAll')}
+            </button>
+          ))}
+        </div>
+        <span style={{ fontSize: 11, color: 'var(--text-2)' }}>
+          {activeLayer === 'work' ? t('graph.layerWorkHint') : t('graph.layerAllHint')}
+        </span>
+      </div>
+
+      {/* The fallback is announced, never silent: the user asked for the
+          work layer and is looking at something else. */}
+      {fellBack && (
+        <div role="status" style={{ fontSize: 11, color: 'var(--text-2)', margin: '0 0 8px' }}>
+          {t('graph.layerFellBack', { min: WORK_LAYER_MIN_NODES })}
         </div>
       )}
 
@@ -1558,6 +1754,17 @@ export function GraphTab() {
           onPointerCancel={onPointerLeave}
           onPointerLeave={onPointerLeave}
         />
+
+        {/* Drill-down. Work view only: in the full graph a clicked node is
+            not a work item, so "what evidence supports it" is not a question
+            that view can answer. */}
+        {activeLayer === 'work' && evidenceNode && (
+          <EvidencePanel
+            node={evidenceNode.id}
+            nodeTitle={evidenceNode.title?.trim() || evidenceNode.id}
+            onClose={() => setEvidenceNode(null)}
+          />
+        )}
       </div>
     </div>
   );

@@ -328,3 +328,27 @@ export async function fetchProjects(): Promise<ProjectInfo[]> {
 export async function fetchGraph(): Promise<GraphData> {
   return api<GraphData>('GET', '/v1/graph');
 }
+
+/** The work layer: what was decided / learned / aimed at. No `noiseTypes` —
+ *  the whole layer is signal, so the concept has no meaning here. */
+export interface WorkGraphData {
+  entities: Entity[];
+  relations: Array<{ from: string; to: string; type: string }>;
+  /** Work-node name → incoming `evidences` count. Absent name means zero. */
+  evidenceCounts: Record<string, number>;
+}
+
+export interface NodeEvidenceData {
+  entities: Entity[];
+  relations: Array<{ from: string; to: string; type: string }>;
+  /** True when more evidence exists than the server's page returned. */
+  truncated: boolean;
+}
+
+export async function fetchWorkGraph(): Promise<WorkGraphData> {
+  return api<WorkGraphData>('GET', '/v1/graph?layer=work');
+}
+
+export async function fetchNodeEvidence(node: string): Promise<NodeEvidenceData> {
+  return api<NodeEvidenceData>('GET', `/v1/graph/evidence?node=${encodeURIComponent(node)}`);
+}

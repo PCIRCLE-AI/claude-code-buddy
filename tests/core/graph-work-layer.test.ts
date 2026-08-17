@@ -55,6 +55,10 @@ describe('graph work layer', () => {
     ).run(fromId, toId, relType);
   }
 
+  function setCreatedAt(entityId: number, iso: string): void {
+    db.prepare('UPDATE entities SET created_at = ? WHERE id = ?').run(iso, entityId);
+  }
+
   it('returns only work-layer entities', () => {
     insertEntity('a-decision', 'decision');
     insertEntity('a-commit', 'commit');
@@ -106,18 +110,24 @@ describe('graph work layer', () => {
 
   it('drill-down returns the evidence entities and their edges, newest first', () => {
     const d1 = insertEntity('d1', 'decision');
-    const e1 = insertEntity('e1', 'commit');
-    const e2 = insertEntity('e2', 'session-insight');
-    insertRelation(e1, d1, 'evidences');
-    insertRelation(e2, d1, 'evidences');
+    // Distinct created_at, inserted OUT of order, and asserted WITHOUT a
+    // sort — otherwise the "newest first" in this test's name is a claim
+    // nothing checks.
+    const oldest = insertEntity('e-oldest', 'commit');
+    setCreatedAt(oldest, '2026-08-01 09:00:00');
+    const newest = insertEntity('e-newest', 'session-insight');
+    setCreatedAt(newest, '2026-08-09 09:00:00');
+    const middle = insertEntity('e-middle', 'commit');
+    setCreatedAt(middle, '2026-08-05 09:00:00');
+    for (const ev of [oldest, newest, middle]) insertRelation(ev, d1, 'evidences');
     // An unrelated relation type must not leak into the drill-down.
     const other = insertEntity('other', 'note');
     insertRelation(other, d1, 'related-to');
 
     const result = computeNodeEvidence(db, 'd1');
     expect(result).not.toBeNull();
-    expect(result!.entities.map((e) => e.name).sort()).toEqual(['e1', 'e2']);
-    expect(result!.relations).toHaveLength(2);
+    expect(result!.entities.map((e) => e.name)).toEqual(['e-newest', 'e-middle', 'e-oldest']);
+    expect(result!.relations).toHaveLength(3);
     for (const rel of result!.relations) {
       expect(rel.to).toBe('d1');
       expect(rel.type).toBe('evidences');

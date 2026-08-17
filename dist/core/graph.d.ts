@@ -11,4 +11,16 @@ export interface GraphResult {
     noiseTypes: string[];
 }
 export declare function computeGraph(db: MemeshDatabase): GraphResult;
+export interface WorkGraphResult {
+    entities: Entity[];
+    relations: GraphRelation[];
+    evidenceCounts: Record<string, number>;
+}
+export declare function computeWorkGraph(db: MemeshDatabase): WorkGraphResult;
+export interface NodeEvidenceResult {
+    entities: Entity[];
+    relations: GraphRelation[];
+    truncated: boolean;
+}
+export declare function computeNodeEvidence(db: MemeshDatabase, nodeName: string): NodeEvidenceResult | null;
 //# sourceMappingURL=graph.d.ts.map

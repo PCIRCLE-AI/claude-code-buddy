@@ -116,12 +116,32 @@ export function isTopicalTag(tag: string): boolean {
   return true;
 }
 
+/**
+ * The relation types this module DERIVES from heuristics — as opposed to the
+ * ones a human or a model states deliberately (`supersedes`, `contradicts`;
+ * see `BEHAVIOURAL_RELATION_TYPES` in core/types.ts).
+ *
+ * The distinction is not cosmetic and this list is what makes it checkable.
+ * `tests/relation-types-documented.test.ts` requires every relation type the
+ * source branches on to be documented where the model reads — because a type
+ * with a consequence the model can trigger must be one the model was told
+ * about. A derived type is the other case: nothing asks the model to write it,
+ * and its consequence is what the dashboard DRAWS, not what memesh DOES to a
+ * memory. That test consults this list, so adding a type here is the explicit
+ * act of claiming "backfill draws this; a model is not expected to."
+ */
+export const DERIVED_RELATION_TYPES = [
+  'related-to', 'belongs-to-project', 'co-created', 'shares-name-tokens', 'evidences',
+] as const;
+
+export type DerivedRelationType = (typeof DERIVED_RELATION_TYPES)[number];
+
 export interface RelationCandidate {
   fromEntityId: number;
   fromName: string;
   toEntityId: number;
   toName: string;
-  relationType: 'related-to' | 'belongs-to-project' | 'co-created' | 'shares-name-tokens' | 'evidences';
+  relationType: DerivedRelationType;
   /** Why we proposed this edge — for the CLI dry-run preview. */
   reason: string;
   /** Strength signal — number of shared topical tags or recency in days. */

@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { RADAR_AXES } from '../src/core/analytics.js';
+import { DERIVED_RELATION_TYPES } from '../src/core/kg-backfill.js';
 
 const i18nSource = readFileSync('dashboard/src/lib/i18n.ts', 'utf8');
 
@@ -262,10 +263,12 @@ describe('dashboard i18n', () => {
       const demoRelations = [...demoSrc.matchAll(/\['[^']+', '([a-z_-]+)', '[^']+'\]/g)].map((m) => m[1]);
       expect(demoRelations.length).toBeGreaterThanOrEqual(5);
 
-      const backfillSrc = readFileSync('src/core/kg-backfill.ts', 'utf8');
-      const unionMatch = backfillSrc.match(/relationType:\s*((?:'[a-z-]+'\s*\|\s*)+'[a-z-]+')/);
-      expect(unionMatch).not.toBeNull();
-      const backfillRelations = [...unionMatch![1].matchAll(/'([a-z-]+)'/g)].map((m) => m[1]);
+      // The exported constant, not a regex over the interface: the union used
+      // to be written inline and this scan read it as text, so naming it
+      // `DerivedRelationType` — a refactor that changed no behaviour — made
+      // the match null and the check vacuous. Importing the list means it
+      // cannot silently stop finding them.
+      const backfillRelations = [...DERIVED_RELATION_TYPES];
       expect(backfillRelations.length).toBeGreaterThanOrEqual(4);
 
       const all = [...new Set([...demoRelations, ...backfillRelations, 'supersedes', 'contradicts'])];

@@ -6,6 +6,34 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **The graph has two layers: the work, and the evidence under it.** The
+  Knowledge Graph tab opens on the work layer — decisions, lessons,
+  plans, milestones (`WORK_LAYER_TYPES`, the one whitelist in
+  `src/core/work-topology.ts`) — with a badge on each node counting the
+  mechanical capture that supports it. Clicking a node loads that
+  evidence, and only then: measured on a real graph the evidence layer is
+  246 entities against 53 work items, so shipping it up front would pay
+  for a payload almost nobody expands (`GET /v1/graph?layer=work` and
+  `GET /v1/graph/evidence?node=`). Two rules keep it honest. Work nodes
+  rank by recency, not by recall traffic: a decision made this morning
+  has an access count of zero and was the LAST thing the old ranking
+  named. And when there are fewer than three work items — a young
+  install, where an empty work layer is the normal state rather than an
+  error — the tab shows the full graph and says that it did, instead of
+  presenting an almost-empty canvas as the answer.
+
+- **`memesh kg backfill` draws the evidence→work edges (Rule 5, on by
+  default).** Commits and session captures get an `evidences` edge to the
+  work item they support, matched on an exact session id — the
+  `session:*` tag, or `metadata.session_id` for commit entities, which
+  carry no session tag by design. With no session match it falls back to
+  the most recent same-project work item created BEFORE the capture, so a
+  first run over months of history distributes it across the items that
+  were current at the time instead of piling everything onto today's
+  newest node. Disable with `--no-evidence-links`. Until this runs, every
+  badge in the two-layer graph reads zero — which is the honest number:
+  the hooks capture evidence but have never drawn this edge.
+
 - **Honest retrieval metadata: every recall says how it was answered.**
   The envelope (MCP, HTTP and `--json` alike) now carries
   `retrieval: { mode, degraded, truncated }` — `mode` is `hybrid` when the
