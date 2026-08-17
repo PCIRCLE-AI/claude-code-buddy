@@ -10,7 +10,7 @@ export declare function entityEmbedText(name: string, observations: string[]): s
 export declare function embedText(text: string, caps?: Capabilities): Promise<Float32Array | null>;
 export type EmbedOutcome = 'stored' | 'removed' | 'no_embedding' | 'dimension_mismatch' | 'write_failed' | 'database_closed' | 'no_vector_index';
 export declare function embedAndStore(entityId: number, text: string, caps?: Capabilities, target?: {
-    table: string;
+    table: 'entities_vec' | 'entities_vec_next';
     dimension: number;
 }): Promise<EmbedOutcome>;
 export declare function vectorSearch(queryEmbedding: Float32Array, limit?: number): Array<{

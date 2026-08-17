@@ -456,10 +456,11 @@ memesh serve  # 開啟儀表板 → Settings 分頁
 
 ```bash
 memesh config set embedder.provider openai          # or: ollama
-memesh config set embedder.model text-embedding-3-small
 ```
 
-嵌入器**獨立於對話 LLM** 設定 —— 更改 `llm.provider` 絕不會悄悄改變你的嵌入。如果切換到不同維度(如 768 → 1536),MeMesh 會在下次寫入時自動重建向量索引。支援的 `embedder.provider` 取值:`ollama`(本地)、`openai`(託管)。兩者都不設定時,召回保持關鍵字搜尋。
+嵌入器**獨立於對話 LLM** 設定 —— 更改 `llm.provider` 絕不會悄悄改變你的嵌入。每個 provider 自己固定模型與維度(`ollama` → nomic-embed-text 768 維、`openai` → text-embedding-3-small 1536 維);模型不另外提供選項,因為一個向量索引的維度是固定的,換第二個模型會把另一個嵌入空間的向量寫進同一個索引。
+
+如果切換到不同維度(如 768 → 1536),**不會刪掉任何東西**。MeMesh 保留現有索引,並在開啟時提示你執行 `memesh reindex`:新索引會建在舊索引旁邊,等到每一筆記憶都有向量才切換過去 —— 所以重建中途被打斷不會損失任何東西,下次會從斷點繼續。這段期間語意搜尋是關閉的,召回只走關鍵字搜尋;`recall` 會回報 `degraded`,不會假裝搜過了。支援的 `embedder.provider` 取值:`ollama`(本地)、`openai`(託管)。兩者都不設定時,召回保持關鍵字搜尋。
 
 | | 等級 0（預設） | 等級 1（智慧模式） |
 |---|---|---|

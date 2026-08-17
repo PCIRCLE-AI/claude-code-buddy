@@ -1204,6 +1204,27 @@ A full reindex refuses up front in two cases:
 |---------|-----|
 | A test embedding could not be produced at the configured width | The run would fill nothing, and would spend its whole length discovering that. The check embeds one string and measures the result, rather than trusting the provider name in the config: `openai` and `ollama` are "available" the moment they are named, so an expired key, a typo'd key or a stopped Ollama would otherwise be found out one entity at a time. Your existing index is untouched. |
 | sqlite-vec is not loaded | There is no vector index to rebuild, so there is nothing this command can do. Recall is running on FTS5 keyword search alone. `memesh doctor`'s "SQLite and vector search" row explains why the extension did not load on this machine. |
+| A half-built index is present and its marker cannot be read | Resuming it could merge vectors from two different embedding spaces; discarding it would destroy embeddings a previous run already produced. Neither is done silently. Clear it with `memesh reindex --discard-generation`, then rebuild. |
+
+**`memesh reindex --discard-generation`** throws away a half-built index without
+rebuilding, and never touches the live one. Two situations call for it: a rebuild
+you have decided to abandon (the staging index otherwise holds a full second copy
+of your vectors on disk — `memesh doctor` reports its size), and the unreadable
+marker above. It prints what it discarded, and exits 0 when there was nothing to
+discard.
+
+**A resumed rebuild only reuses a staged vector while it still matches.** Each
+staged row records a hash of the text it was built from, so an entity edited
+between an interrupted run and its resume is re-embedded rather than promoted with
+a stale vector. An entity that has not changed is never sent to the provider
+twice, and the result reports those separately as `already_staged` — `embedded`
+counts only what this run wrote.
+
+**A rebuild gives up after five consecutive provider failures.** A provider that
+has stopped answering answers for every remaining entity too, so continuing costs
+the whole graph at up to ~91.5 seconds each and tells the user nothing new.
+Everything embedded so far is kept, the run reports `abortedAfter`, and the next
+`memesh reindex` continues from there.
 
 Namespace-scoped runs (`--namespace X`) write in place rather than through a
 generation, because a staging table holding one namespace would drop every other

@@ -399,4 +399,101 @@ describe('Feature: reindex reports what it actually wrote', () => {
     // Stated positively too: dropping the name is the exact regression.
     expect(viaRemember[0]).toBe('alpha first memory');
   });
+
+  it('a resume re-embeds an entity whose text changed, instead of promoting a stale vector', async () => {
+    // Skipping on presence alone promoted a vector built from text that no
+    // longer existed, and nothing downstream could detect it because the row WAS
+    // there — `countMissingVectors` only asks whether a row exists. The staged
+    // row now carries a hash of what it was built from.
+    seedEntity('alpha', 'first memory');
+    seedEntity('beta', 'second memory');
+
+    // Run 1: alpha succeeds, beta fails, so the generation survives half-built.
+    serveEmbeddings((input) => (input.includes('first') ? OPENAI_DIM : 8));
+    const first = await reindex();
+    expect(first.generationSwapped, 'setup: an incomplete run must not swap').toBe(false);
+    expect(stagedVectorCount(), 'setup: exactly one row is staged').toBe(1);
+
+    // alpha's text changes between the runs.
+    const db = getDatabase();
+    const alphaId = (db.prepare("SELECT id FROM entities WHERE name = 'alpha'")
+      .get() as { id: number }).id;
+    db.prepare('INSERT INTO observations (entity_id, content) VALUES (?, ?)')
+      .run(alphaId, 'a fact that changes what alpha means entirely');
+
+    // Run 2: both should be requested — beta because it was never done, alpha
+    // because what it was built from no longer matches.
+    let requests = 0;
+    serveEmbeddings(() => { requests++; return OPENAI_DIM; });
+    const second = await reindex();
+
+    expect(
+      requests,
+      'a resume promoted a vector built from text that had since been edited',
+    ).toBe(2);
+    expect(second.generationSwapped).toBe(true);
+    expect(second.outcomes.already_staged, 'nothing should have been reused here').toBe(0);
+  });
+
+  it('a resume still reuses a row whose text did NOT change', async () => {
+    // The other direction, and the reason the whole mechanism exists: an
+    // unchanged entity must not be bought twice.
+    seedEntity('alpha', 'first memory');
+    seedEntity('beta', 'second memory');
+
+    serveEmbeddings((input) => (input.includes('first') ? OPENAI_DIM : 8));
+    await reindex();
+    expect(stagedVectorCount()).toBe(1);
+
+    let requests = 0;
+    serveEmbeddings(() => { requests++; return OPENAI_DIM; });
+    const second = await reindex();
+
+    expect(requests, 'a resume re-bought an embedding it already had').toBe(1);
+    expect(second.outcomes.already_staged, 'the reused row was not counted as reused').toBe(1);
+    expect(
+      second.embedded,
+      'embedded counted a vector a PREVIOUS run bought — it is documented as what THIS run wrote',
+    ).toBe(1);
+    expect(
+      Object.values(second.outcomes).reduce((a, b) => a + b, 0),
+      'the outcomes no longer sum to processed',
+    ).toBe(second.processed);
+  });
+
+  it('stops early when the provider fails repeatedly, instead of burning the whole graph', async () => {
+    // A provider that has stopped answering answers for every remaining entity
+    // too. Without a breaker the run ground through all of them at up to ~91.5s
+    // each, printing one identical failure per entity. Six entities, limit five.
+    for (let i = 1; i <= 6; i++) seedEntity(`e${i}`, `memory ${i}`);
+
+    let requests = 0;
+    serveEmbeddings(() => { requests++; return 8; });   // always the wrong width
+    const result = await reindex();
+
+    expect(result.abortedAfter, 'the run did not stop early').not.toBeNull();
+    expect(result.abortedAfter, 'it stopped at the wrong point').toBe(5);
+    expect(requests, 'the provider was asked about entities past the breaker').toBe(5);
+    expect(result.generationSwapped, 'a run that gave up must not publish').toBe(false);
+    expect(result.processed, 'processed should reflect only what was reached').toBe(5);
+  });
+
+  it('counts an observation of only whitespace the same way in the loop and in the database', async () => {
+    // SQLite's TRIM strips U+0020 only; JS `.trim()` also strips tab and
+    // newline. So a tab-only observation was permanently `nothing_to_embed` to
+    // the loop AND permanently owed to countMissingVectors — every full reindex
+    // reported "1 active memory still has no vector" forever.
+    seedEntity('real', 'a genuine memory');
+    seedEntity('tab-only', '\t\n  ');
+
+    serveEmbeddings(() => OPENAI_DIM);
+    const result = await reindex();
+
+    expect(result.outcomes.nothing_to_embed, 'the loop did not recognise the blank entity').toBe(1);
+    expect(
+      result.missingVectorsDatabaseWide,
+      'the database still considers a whitespace-only memory owed a vector',
+    ).toBe(0);
+    expect(result.pendingReindexCleared, 'the flag was held open by work nobody can do').toBe(true);
+  });
 });

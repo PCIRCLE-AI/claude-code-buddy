@@ -6,7 +6,10 @@ import { pathToFileURL } from 'url';
 import { detectCapabilities, getConfigPath, isTranscriptMiningEnabled, readConfig, type Capabilities } from './config.js';
 import { embedText } from './embedder.js';
 import { probeProvider } from './llm-validator.js';
-import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen } from '../db.js';
+import {
+  openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen,
+  readVectorGeneration, generationRowIds,
+} from '../db.js';
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport, type InstallChannel } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
@@ -2095,14 +2098,43 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
 
     const pendingReindex = getPendingReindexInfo();
     if (pendingReindex) {
+      const owed = pendingReindex.reason === 'vectors-missing'
+        ? 'Some memories have no search vector'
+        : 'Search index needs rebuilding (embedding configuration changed)';
       dbChecks.push(
         createCheck(
           'vector_index',
           'Vector Index',
           'warn',
-          `Search index needs rebuilding (embedding configuration changed)`,
+          owed,
           `Run 'memesh reindex' to fix. This will restore full search functionality.`,
           { code: 'vector-index.stale' },
+        ),
+      );
+    }
+
+    // A half-built index is a normal outcome of an interrupted rebuild, and it
+    // was invisible: nothing reclaimed it and no diagnostic mentioned it, so a
+    // user who abandoned a rebuild carried a second full copy of their vectors
+    // on disk indefinitely without being told.
+    const generation = readVectorGeneration();
+    if (generation.state !== 'none') {
+      const staged = generationRowIds().size;
+      const detail = generation.state === 'open'
+        ? `${staged} vectors staged at ${generation.info.dimension} dimensions `
+          + `(provider ${generation.info.provider}, started ${generation.info.startedAt})`
+        : `${staged} vectors staged, but the marker cannot be read (${generation.detail})`;
+      dbChecks.push(
+        createCheck(
+          'vector_generation',
+          'Half-built search index',
+          'warn',
+          `An unfinished index rebuild is holding disk space: ${detail}.`,
+          generation.state === 'open'
+            ? `Run 'memesh reindex' to finish it (the vectors already produced are reused), `
+              + `or 'memesh reindex --discard-generation' to reclaim the space.`
+            : `Run 'memesh reindex --discard-generation' to clear it, then 'memesh reindex'.`,
+          { code: 'vector-generation.open', params: { staged } },
         ),
       );
     }

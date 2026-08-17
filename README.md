@@ -512,13 +512,13 @@ By default MeMesh does **keyword-only** recall (FTS5) — no API key, no model d
 
 ```bash
 memesh config set embedder.provider ollama          # local, needs `ollama serve`
-memesh config set embedder.model nomic-embed-text
 # or, for a hosted embedder:
 memesh config set embedder.provider openai
-memesh config set embedder.model text-embedding-3-small
 ```
 
-The embedder is configured **independently of the chat LLM** — changing `llm.provider` never silently changes your embeddings. If you switch to an embedder with a different dimension (e.g. 768 → 1536), MeMesh rebuilds the vector index automatically on the next write. Supported `embedder.provider` values: `ollama` (local), `openai` (hosted). With none set, recall stays on keyword search.
+The embedder is configured **independently of the chat LLM** — changing `llm.provider` never silently changes your embeddings. Each provider pins its own model and width (`ollama` → nomic-embed-text at 768, `openai` → text-embedding-3-small at 1536); the model is not separately selectable, because a vector index is fixed at one width and a second model would put vectors from a different embedding space into it.
+
+If you switch to an embedder with a different dimension (e.g. 768 → 1536), **nothing is deleted**. MeMesh keeps the existing index and tells you on open to run `memesh reindex`, which builds the new index beside the old one and switches over only once every memory has a vector — so an interrupted rebuild costs you nothing and resumes where it stopped. During that window semantic search is off and recall runs on keyword search alone; `recall` reports this as `degraded` rather than implying it searched. Supported `embedder.provider` values: `ollama` (local), `openai` (hosted). With none set, recall stays on keyword search.
 
 | | Level 0 (default) | Level 1 (Smart Mode) |
 |---|---|---|

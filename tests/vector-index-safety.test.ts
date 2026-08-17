@@ -34,7 +34,7 @@ import {
   beginVectorGeneration,
   swapVectorGeneration,
   discardVectorGeneration,
-  getVectorGenerationInfo,
+  readVectorGeneration,
   generationRowIds,
 } from '../src/db.js';
 
@@ -163,7 +163,7 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     // designed on.
     expect((db.prepare('SELECT count(*) AS c FROM entities_vec').get() as { c: number }).c).toBe(1);
     expect(generationRowIds().has(1)).toBe(true);
-    expect(getVectorGenerationInfo()).toMatchObject({ dimension: 768, provider: 'ollama' });
+    expect(readVectorGeneration()).toMatchObject({ state: 'open', info: { dimension: 768, provider: 'ollama' } });
   });
 
   it('a discarded generation leaves the live index untouched', () => {
@@ -179,7 +179,7 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     discardVectorGeneration();
 
     expect((db.prepare('SELECT count(*) AS c FROM entities_vec').get() as { c: number }).c).toBe(1);
-    expect(getVectorGenerationInfo()).toBeNull();
+    expect(readVectorGeneration()).toEqual({ state: 'none' });
     expect(generationRowIds().size).toBe(0);
   });
 
@@ -196,7 +196,7 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     const again = beginVectorGeneration(1536, 'openai');
     expect(again.resumed, 'a 768-dim ollama generation was resumed as 1536-dim openai').toBe(false);
     expect(generationRowIds().size, 'incompatible staged vectors survived').toBe(0);
-    expect(getVectorGenerationInfo()).toMatchObject({ dimension: 1536, provider: 'openai' });
+    expect(readVectorGeneration()).toMatchObject({ state: 'open', info: { dimension: 1536, provider: 'openai' } });
   });
 
   it('a compatible half-built generation IS resumed, so paid embeddings are not re-bought', () => {
@@ -259,7 +259,7 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     const row = db.prepare('SELECT embedding FROM entities_vec WHERE rowid = 1').get() as { embedding: Uint8Array };
     expect(row.embedding.length / 4, 'the new generation was not switched in').toBe(768);
     expect(storedDimension()).toBe(768);
-    expect(getVectorGenerationInfo(), 'the generation marker outlived its generation').toBeNull();
+    expect(readVectorGeneration(), 'the generation marker outlived its generation').toEqual({ state: 'none' });
     expect(generationRowIds().size, 'the staging table survived the swap').toBe(0);
   });
 });

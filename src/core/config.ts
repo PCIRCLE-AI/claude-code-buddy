@@ -33,7 +33,16 @@ export interface LLMConfig {
  */
 export interface EmbedderConfig {
   provider: 'openai' | 'ollama';
-  model?: string;
+  // No `model`. There used to be one, settable via `memesh config set
+  // embedder.model` and documented in three READMEs, and it never reached the
+  // embedding call — `embedText` built its provider config with `model:
+  // undefined`, so the only models ever used were the per-provider defaults.
+  // It is removed rather than wired through: a vec0 table is fixed at one width
+  // and `getEmbeddingDimension()` resolves the width from the provider, so a
+  // model of a DIFFERENT width can never be rebuilt against, and one of the SAME
+  // width would put vectors from a second embedding space into the index with no
+  // width signal to catch it. Honouring the setting would have introduced the
+  // silent drift the generation mechanism exists to prevent.
 }
 
 export interface MeMeshConfig {

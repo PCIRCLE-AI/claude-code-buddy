@@ -16,8 +16,12 @@ import {
   getStoredEmbeddingDimension,
   beginVectorGeneration,
   generationRowIds,
+  generationRowHashes,
+  recordGenerationRow,
   swapVectorGeneration,
+  GENERATION_TABLE,
 } from '../db.js';
+import { createHash } from 'node:crypto';
 import { hasSearchableTerms } from '../storage/fts-index.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { rankEntities } from './scoring.js';
@@ -535,8 +539,19 @@ export interface ReindexResult {
   embedded: number;
   /** Every processed entity that did not get a vector written. */
   skipped: number;
-  /** Why each one was skipped. The counts sum to `processed`. */
-  outcomes: Record<EmbedOutcome | 'entity_missing' | 'nothing_to_embed', number>;
+  /**
+   * Why each one was skipped. The counts sum to `processed`.
+   *
+   * `already_staged` is its own key rather than borrowing `stored`. A resumed
+   * run reported `900/900 entities embedded` after issuing one provider
+   * request, because reusing a row a PREVIOUS run bought was counted as this
+   * run writing one — which contradicts what {@link embedded} documents itself
+   * to mean, and what the CLI prints.
+   */
+  outcomes: Record<
+    EmbedOutcome | 'entity_missing' | 'nothing_to_embed' | 'already_staged',
+    number
+  >;
   /**
    * Entities this run tried to embed and could not: the provider produced no
    * vector, produced one of the wrong width, or the write failed.
@@ -574,6 +589,24 @@ export interface ReindexResult {
   missingVectorsDatabaseWide: number;
   /** Whether `pending_reindex` was cleared. False means work remains. */
   pendingReindexCleared: boolean;
+  /**
+   * Whether the staging generation replaced the live index.
+   *
+   * `null` for a namespace-scoped run, which writes in place and has no
+   * generation to swap — not `false`, which would claim a swap was withheld.
+   *
+   * Without this, no caller could tell "the new index is live" from "the new
+   * index was refused and the OLD one is still answering". `missingVectors` is
+   * counted against whatever is live, so on a refused swap it measures the old,
+   * complete-by-construction index and reads as success.
+   */
+  generationSwapped: boolean | null;
+  /**
+   * How many entities the loop had processed when a run gave up early after
+   * consecutive provider failures, or `null` if it ran to the end. A run that
+   * stopped early is incomplete no matter what the other counters say.
+   */
+  abortedAfter: number | null;
 }
 
 /**
@@ -599,7 +632,8 @@ function countMissingVectors(
     SELECT COUNT(*) AS n FROM entities e
     WHERE e.status = 'active'
       ${namespace ? 'AND e.namespace = ?' : ''}
-      AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND TRIM(o.content) <> '')
+      AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id
+                    AND TRIM(o.content, ' ' || char(9) || char(10) || char(13) || char(11) || char(12) || char(160)) <> '')
       AND NOT EXISTS (SELECT 1 FROM entities_vec v WHERE v.rowid = e.id)
   `).get(...(namespace ? [namespace] : [])) as { n: number };
   return row.n;
@@ -646,14 +680,16 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
   const targetDim = getEmbeddingDimension();
   const useGeneration = !opts?.namespace;
   const provider = detectCapabilities().embeddings;
-  let generation: { table: string; dimension: number } | undefined;
+  let generation: { table: typeof GENERATION_TABLE; dimension: number } | undefined;
   let alreadyStaged = new Set<number>();
+  let stagedHashes = new Map<number, string>();
 
   if (useGeneration) {
     const { resumed } = beginVectorGeneration(targetDim, provider);
-    generation = { table: 'entities_vec_next', dimension: targetDim };
+    generation = { table: GENERATION_TABLE, dimension: targetDim };
     if (resumed) {
       alreadyStaged = generationRowIds();
+      stagedHashes = generationRowHashes();
       process.stderr.write(
         `MeMesh: resuming an unfinished ${targetDim}-dim rebuild — ${alreadyStaged.size} entities already embedded, `
         + `so the provider is only asked for the rest.\n`,
@@ -678,12 +714,22 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     database_closed: 0,
     entity_missing: 0,
     nothing_to_embed: 0,
+    already_staged: 0,
     // reindex() refuses to start without an index, so this counter stays 0
     // here. It is in the map because the type is the full EmbedOutcome set and
     // a missing key would be a silent hole the next time an outcome is added.
     no_vector_index: 0,
   };
   let processed = 0;
+
+  /**
+   * Consecutive non-`stored` outcomes that end a run. Five, not one: a single
+   * entity can legitimately fail (one oversized text, one transient write), and
+   * five in a row is not bad luck, it is a provider that has stopped working.
+   */
+  const CONSECUTIVE_FAILURE_LIMIT = 5;
+  let consecutiveFailures = 0;
+  let abortedAfter: number | null = null;
 
   process.stderr.write(`MeMesh: Reindexing ${entities.length} entities...\n`);
 
@@ -733,13 +779,41 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     // remember() or reindex() wrote it last.
     const text = entityEmbedText(entity.name, observations);
 
+    const textHash = createHash('sha256').update(text).digest('hex').slice(0, 32);
+
     try {
-      // Already bought in a previous, unfinished run of this same generation.
-      if (alreadyStaged.has(entity.id)) {
-        outcomes.stored++;
+      // Already bought in a previous, unfinished run of this same generation —
+      // but only reusable while the row still matches the entity's CURRENT text.
+      // Skipping on presence alone promoted a vector built from text that had
+      // since been edited, and nothing downstream could detect it because the
+      // row was there. A missing hash means we cannot prove freshness, so it
+      // re-embeds: the failure direction that costs a request, not correctness.
+      if (alreadyStaged.has(entity.id) && stagedHashes.get(entity.id) === textHash) {
+        outcomes.already_staged++;
         continue;
       }
-      outcomes[await embedAndStore(entity.id, text, undefined, generation)]++;
+      const outcome = await embedAndStore(entity.id, text, undefined, generation);
+      outcomes[outcome]++;
+      if (outcome === 'stored' && generation) recordGenerationRow(entity.id, textHash);
+
+      // A provider that has stopped answering answers for every remaining
+      // entity too. Without this the run ground through all of them — worst
+      // case ~91.5s each — printing one identical failure per entity, and the
+      // 401 branch's own reasoning ("retrying spends the rate budget on a
+      // certainty") applied to the loop as much as to the retries. Stopping is
+      // free here: the generation survives, so the next run resumes.
+      if (outcome === 'stored') {
+        consecutiveFailures = 0;
+      } else if (outcome !== 'removed' && ++consecutiveFailures >= CONSECUTIVE_FAILURE_LIMIT) {
+        abortedAfter = processed;
+        process.stderr.write(
+          `MeMesh: stopping after ${CONSECUTIVE_FAILURE_LIMIT} consecutive failures at entity `
+          + `${processed}/${entities.length} — the provider is not answering usefully, and the `
+          + `remaining ${entities.length - processed} would fail the same way. Everything embedded `
+          + `so far is kept; run 'memesh reindex' again to continue from here.\n`,
+        );
+        break;
+      }
 
       // Progress logging every 10 entities
       if (processed % 10 === 0) {
@@ -776,10 +850,16 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
   // throughout, and it is strictly better than a fresh index missing rows.
   // The staging table survives on purpose so the next run resumes instead of
   // paying a provider twice for the same embeddings.
+  let generationSwapped: boolean | null = null;
   if (generation) {
     const stagedRows = generationRowIds().size;
     const expected = entities.length - outcomes.entity_missing - outcomes.nothing_to_embed - outcomes.removed;
-    const complete = failed === 0 && stagedRows >= expected;
+    // `abortedAfter` is named explicitly rather than relied on through
+    // `expected`: a run that stopped early leaves entities unprocessed, so the
+    // count would refuse the swap anyway, but a reader should not have to derive
+    // "we gave up" from arithmetic.
+    const complete = failed === 0 && abortedAfter === null && stagedRows >= expected;
+    generationSwapped = complete;
 
     if (complete) {
       swapVectorGeneration(generation.dimension);
@@ -858,5 +938,7 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     missingVectors,
     missingVectorsDatabaseWide,
     pendingReindexCleared,
+    generationSwapped,
+    abortedAfter,
   };
 }

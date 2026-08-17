@@ -475,7 +475,11 @@ function ensureVecTable(
 // rows across and drops the staging table. Every reader keeps the name it
 // already hardcodes; none of them needs to know generations exist.
 
-const GENERATION_TABLE = 'entities_vec_next';
+/** Exported so no caller has to repeat the literal. `operations.ts` used to
+ *  hardcode its own copy, one module boundary away from the constant, so a
+ *  rename here would have surfaced as "no such table" mid-rebuild. */
+export const GENERATION_TABLE = 'entities_vec_next';
+const GENERATION_HASH_TABLE = 'entities_vec_next_source';
 const GENERATION_KEY = 'vector_generation';
 
 /** What a half-built generation records about itself, so a resume can tell
@@ -488,18 +492,48 @@ export interface VectorGenerationInfo {
   startedAt: string;
 }
 
-export function getVectorGenerationInfo(): VectorGenerationInfo | null {
-  if (!db) return null;
+/**
+ * Three states, not two.
+ *
+ * This used to return `info | null`, collapsing "there is no generation" and
+ * "the marker exists but I could not read it" into one answer — and the caller
+ * treats a null as licence to DROP the staging table. So a `JSON.parse` failure,
+ * a field of the wrong type, or any SQLite read error silently threw away every
+ * embedding a previous run had already produced (and, on a paid provider, paid
+ * for). Absence of a readable answer is not absence of work.
+ */
+export type VectorGenerationRead =
+  | { state: 'none' }
+  | { state: 'unreadable'; detail: string }
+  | { state: 'open'; info: VectorGenerationInfo };
+
+export function readVectorGeneration(): VectorGenerationRead {
+  if (!db) return { state: 'none' };
+  let raw: string;
   try {
     const row = db.prepare(
       'SELECT value FROM memesh_metadata WHERE key = ?'
     ).get(GENERATION_KEY) as { value: string } | undefined;
-    if (!row) return null;
-    const parsed = JSON.parse(row.value) as Partial<VectorGenerationInfo>;
-    if (typeof parsed.dimension !== 'number' || typeof parsed.provider !== 'string') return null;
-    return { dimension: parsed.dimension, provider: parsed.provider, startedAt: String(parsed.startedAt ?? '') };
-  } catch {
-    return null;
+    if (!row) return { state: 'none' };
+    raw = row.value;
+  } catch (err) {
+    return { state: 'unreadable', detail: err instanceof Error ? err.message : String(err) };
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<VectorGenerationInfo>;
+    if (typeof parsed.dimension !== 'number' || typeof parsed.provider !== 'string') {
+      return { state: 'unreadable', detail: 'the marker is missing its dimension or provider' };
+    }
+    return {
+      state: 'open',
+      info: {
+        dimension: parsed.dimension,
+        provider: parsed.provider,
+        startedAt: String(parsed.startedAt ?? ''),
+      },
+    };
+  } catch (err) {
+    return { state: 'unreadable', detail: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -533,11 +567,28 @@ export function beginVectorGeneration(dimension: number, provider: string): { re
     throw new Error(`Refusing to build a vector index at width ${String(dimension)}.`);
   }
   const conn = getDatabase();
-  const existing = getVectorGenerationInfo();
+  const read = readVectorGeneration();
   const stagingExists = (conn.prepare(
     "SELECT COUNT(*) AS c FROM sqlite_master WHERE type IN ('table','view') AND name = ?"
   ).get(GENERATION_TABLE) as { c: number }).c > 0;
 
+  // An unreadable marker over a POPULATED staging table is the one case where
+  // neither choice is safe to make silently. Resuming could merge two embedding
+  // spaces, which is the exact drift this mechanism exists to prevent; discarding
+  // throws away work a previous run already did and, on a paid provider, already
+  // paid for. So refuse, say which it is, and hand over the deliberate way out.
+  if (read.state === 'unreadable' && stagingExists) {
+    throw new Error(
+      'A half-built vector index is present but its marker cannot be read '
+      + `(${read.detail}). Resuming it risks mixing vectors from two different `
+      + 'embedding spaces, and discarding it throws away embeddings a previous run '
+      + 'already produced, so neither is done automatically. Run '
+      + '`memesh reindex --discard-generation` to throw the half-built index away '
+      + 'and start clean.',
+    );
+  }
+
+  const existing = read.state === 'open' ? read.info : null;
   const compatible = stagingExists && existing !== null
     && existing.dimension === dimension && existing.provider === provider;
 
@@ -549,14 +600,20 @@ export function beginVectorGeneration(dimension: number, provider: string): { re
   }
 
   // `startedAt` is the generation's ORIGINAL start, kept across a resume. It
-  // used to be rewritten on every call, including the resume path, which
-  // destroyed the only datum able to answer "is this staged vector older than
-  // the entity's newest observation" — the question a resume has to ask before
-  // it trusts a row it did not write.
+  // used to be rewritten on every call, including the resume path.
   const startedAt = compatible && existing ? existing.startedAt : new Date().toISOString();
 
   conn.transaction(() => {
     conn.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS ${GENERATION_TABLE} USING vec0(embedding float[${dimension}])`);
+    // What each staged row was built FROM. A resume that skips a row because
+    // "it is already staged" is only right while the row still matches the
+    // entity's current text; without this it promoted a vector for text that no
+    // longer existed, and nothing could detect it afterwards because the row was
+    // present. Plain table, dropped with the generation it describes.
+    conn.exec(
+      `CREATE TABLE IF NOT EXISTS ${GENERATION_HASH_TABLE} (`
+      + 'rowid_ref INTEGER PRIMARY KEY, text_hash TEXT NOT NULL)',
+    );
     conn.prepare(
       'INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)'
     ).run(GENERATION_KEY, JSON.stringify({ dimension, provider, startedAt }));
@@ -565,11 +622,35 @@ export function beginVectorGeneration(dimension: number, provider: string): { re
   return { resumed: compatible };
 }
 
+/** What each staged row was embedded from, so a resume can tell fresh from stale. */
+export function generationRowHashes(): Map<number, string> {
+  const out = new Map<number, string>();
+  if (!db) return out;
+  const exists = (db.prepare(
+    "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name = ?"
+  ).get(GENERATION_HASH_TABLE) as { c: number }).c > 0;
+  if (!exists) return out;
+  const rows = db.prepare(
+    `SELECT rowid_ref AS id, text_hash AS h FROM ${GENERATION_HASH_TABLE}`
+  ).all() as Array<{ id: number | bigint; h: string }>;
+  for (const r of rows) out.set(Number(r.id), r.h);
+  return out;
+}
+
+/** Record what a row was just embedded from. Called only for staged writes. */
+export function recordGenerationRow(entityId: number, textHash: string): void {
+  const conn = getDatabase();
+  conn.prepare(
+    `INSERT OR REPLACE INTO ${GENERATION_HASH_TABLE} (rowid_ref, text_hash) VALUES (?, ?)`
+  ).run(BigInt(entityId), textHash);
+}
+
 /** Throw away a half-built generation, leaving the live index untouched. */
 export function discardVectorGeneration(): void {
   const conn = getDatabase();
   conn.transaction(() => {
     conn.exec(`DROP TABLE IF EXISTS ${GENERATION_TABLE}`);
+    conn.exec(`DROP TABLE IF EXISTS ${GENERATION_HASH_TABLE}`);
     conn.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(GENERATION_KEY);
   }).immediate();
 }
@@ -643,10 +724,34 @@ export function swapVectorGeneration(dimension: number): void {
       );
     }
 
+    // The row count is re-read HERE, inside the transaction. The figure the
+    // caller printed as "verified (N vectors)" was read outside it, so between
+    // the two a second process could have changed the set being installed.
+    const staged = (conn.prepare(
+      `SELECT COUNT(*) AS c FROM ${GENERATION_TABLE}`
+    ).get() as { c: number }).c;
+
     conn.exec('DROP TABLE IF EXISTS entities_vec');
     conn.exec(`CREATE VIRTUAL TABLE entities_vec USING vec0(embedding float[${dimension}])`);
     conn.exec(`INSERT INTO entities_vec (rowid, embedding) SELECT rowid, embedding FROM ${GENERATION_TABLE}`);
+
+    const installed = (conn.prepare(
+      'SELECT COUNT(*) AS c FROM entities_vec'
+    ).get() as { c: number }).c;
+    // UNPINNED, deliberately: no test covers this branch, because the condition
+    // it guards — `INSERT … SELECT` copying fewer rows than the source holds —
+    // has no reachable trigger to construct from outside. It is defence in depth
+    // for the one step that cannot be undone, kept and labelled rather than
+    // dropped for being untestable or given a test that proves nothing.
+    if (installed !== staged) {
+      // Rolls the whole swap back, previous index intact.
+      throw new Error(
+        `Vector index swap copied ${installed} of ${staged} staged rows; refusing to publish a short index.`,
+      );
+    }
+
     conn.exec(`DROP TABLE ${GENERATION_TABLE}`);
+    conn.exec(`DROP TABLE IF EXISTS ${GENERATION_HASH_TABLE}`);
     conn.prepare(
       'INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)'
     ).run('embedding_dimension', String(dimension));

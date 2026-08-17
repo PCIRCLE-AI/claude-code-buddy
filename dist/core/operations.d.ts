@@ -28,11 +28,13 @@ export interface ReindexResult {
     processed: number;
     embedded: number;
     skipped: number;
-    outcomes: Record<EmbedOutcome | 'entity_missing' | 'nothing_to_embed', number>;
+    outcomes: Record<EmbedOutcome | 'entity_missing' | 'nothing_to_embed' | 'already_staged', number>;
     failed: number;
     missingVectors: number;
     missingVectorsDatabaseWide: number;
     pendingReindexCleared: boolean;
+    generationSwapped: boolean | null;
+    abortedAfter: number | null;
 }
 export declare function reindex(opts?: {
     namespace?: string;

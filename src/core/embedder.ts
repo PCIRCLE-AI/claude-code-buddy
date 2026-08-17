@@ -310,7 +310,7 @@ export async function embedAndStore(
    * vector of the new generation as a mismatch. The caller that opened the
    * generation is the one that knows both, so it passes both.
    */
-  target?: { table: string; dimension: number },
+  target?: { table: 'entities_vec' | 'entities_vec_next'; dimension: number },
 ): Promise<EmbedOutcome> {
   try {
     const embedding = await embedText(text, caps);
@@ -413,7 +413,7 @@ export function vectorSearch(
 async function embedWithProvider(text: string, config: LLMConfig): Promise<Float32Array | null> {
   try {
     if (config.provider === 'openai') return await embedWithOpenAI(text, config);
-    if (config.provider === 'ollama') return await embedWithOllama(text, config);
+    if (config.provider === 'ollama') return await embedWithOllama(text);
     // Anthropic has no embedding API — no vector, recall stays on FTS5.
     return null;
   } catch {
@@ -443,11 +443,27 @@ async function embedWithProvider(text: string, config: LLMConfig): Promise<Float
 const PROVIDER_TIMEOUT_MS = 30_000;
 const PROVIDER_MAX_ATTEMPTS = 3;
 const PROVIDER_BASE_BACKOFF_MS = 500;
+/** Ceiling on a `Retry-After` the provider asks for. Its own constant, not a
+ *  second use of PROVIDER_TIMEOUT_MS: a request timeout and a maximum backoff
+ *  are unrelated quantities that happened to share the number 30_000, so tuning
+ *  either silently moved the other. */
+const PROVIDER_MAX_BACKOFF_MS = 30_000;
 
-async function providerFetch(url: string, init: RequestInit, label: string): Promise<Response | null> {
+/**
+ * One bounded provider request, parsed.
+ *
+ * Returns the PARSED body, not the `Response`. The body read used to happen in
+ * the caller, outside this function's try — so a provider that returned headers
+ * and then stalled the body was aborted correctly at 30s, but the AbortError was
+ * thrown from `res.json()` where there is no retry and no attempt counter, and
+ * arrived at the caller as an indistinguishable `null`. A body-phase stall is
+ * exactly the failure this timeout exists to catch, so the parse belongs inside.
+ */
+async function providerFetch<T>(url: string, init: RequestInit, label: string): Promise<T | null> {
   for (let attempt = 1; attempt <= PROVIDER_MAX_ATTEMPTS; attempt++) {
     const timeout = AbortSignal.timeout(PROVIDER_TIMEOUT_MS);
     let res: Response;
+    let parsed: T | undefined;
     try {
       // `redirect: 'error'` rather than fetch's default 'follow'. Both shipped
       // providers answer 200 directly, so nothing legitimate is lost — and the
@@ -456,22 +472,25 @@ async function providerFetch(url: string, init: RequestInit, label: string): Pro
       // strips Authorization across origins, but a 307 forwards the POST body,
       // and that body is the user's memory text.
       res = await fetch(url, { ...init, signal: timeout, redirect: 'error' });
+      // Read the body under the SAME signal and the same retry.
+      if (res.ok) parsed = await res.json() as T;
     } catch (err) {
-      // A timeout and a dead socket are both worth one more try; on the last
-      // attempt say which it was rather than returning a bare null.
+      // A timeout, a dead socket and a truncated body are all worth one more
+      // try; on the last attempt say which it was rather than a bare null.
       const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
       if (attempt === PROVIDER_MAX_ATTEMPTS) {
         process.stderr.write(
           `MeMesh: ${label} embedding request ${timedOut ? `timed out after ${PROVIDER_TIMEOUT_MS}ms` : 'failed'} `
-          + `on attempt ${attempt}/${PROVIDER_MAX_ATTEMPTS}.\n`,
+          + `on attempt ${attempt}/${PROVIDER_MAX_ATTEMPTS}`
+          + `${!timedOut && err instanceof Error ? `: ${err.message}` : ''}.\n`,
         );
         return null;
       }
-      await sleep(PROVIDER_BASE_BACKOFF_MS * attempt);
+      await sleep(backoffFor(attempt));
       continue;
     }
 
-    if (res.ok) return res;
+    if (res.ok) return parsed ?? null;
 
     const retryable = res.status === 429 || res.status >= 500;
     if (!retryable) {
@@ -488,11 +507,17 @@ async function providerFetch(url: string, init: RequestInit, label: string): Pro
     }
     const retryAfter = Number(res.headers.get('retry-after'));
     const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
-      ? Math.min(retryAfter * 1000, 30_000)
-      : PROVIDER_BASE_BACKOFF_MS * attempt;
+      ? Math.min(retryAfter * 1000, PROVIDER_MAX_BACKOFF_MS)
+      : backoffFor(attempt);
     await sleep(waitMs);
   }
   return null;
+}
+
+/** Exponential, not linear. A rate limit answered at a near-constant interval is
+ *  re-arrived at rather than escaped. Capped by the same ceiling as Retry-After. */
+function backoffFor(attempt: number): number {
+  return Math.min(PROVIDER_BASE_BACKOFF_MS * 2 ** (attempt - 1), PROVIDER_MAX_BACKOFF_MS);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -511,35 +536,37 @@ async function embedWithOpenAI(text: string, config: LLMConfig): Promise<Float32
   const apiKey = config.apiKey || process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 
-  const res = await providerFetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'text-embedding-3-small',
-      input: text.slice(0, 8000), // API input limit
-    }),
-  }, 'OpenAI');
-  if (!res) return null;
-
-  const data = await res.json() as { data?: Array<{ embedding?: number[] }> };
+  const data = await providerFetch<{ data?: Array<{ embedding?: number[] }> }>(
+    'https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'text-embedding-3-small',
+        input: text.slice(0, 8000), // API input limit
+      }),
+    }, 'OpenAI');
+  if (!data) return null;
   const embedding = data.data?.[0]?.embedding;
   if (!embedding || !Array.isArray(embedding)) return null;
 
   return new Float32Array(embedding);
 }
 
-async function embedWithOllama(text: string, config: LLMConfig): Promise<Float32Array | null> {
+async function embedWithOllama(text: string): Promise<Float32Array | null> {
   const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
-  const model = config.model || 'nomic-embed-text';
+  // Fixed, not configurable. The width a `vec0` table is built at is resolved
+  // from the PROVIDER (`getEmbeddingDimension()`), so a model of another width
+  // could never be rebuilt against, and one of the same width would quietly mix
+  // two embedding spaces in one index. `config.model` here is the LLM config's
+  // model, which embeddings must not inherit — that cascade is what #36 split.
+  const model = 'nomic-embed-text';
 
-  const res = await providerFetch(`${host}/api/embed`, {
+  const data = await providerFetch<{ embeddings?: number[][] }>(`${host}/api/embed`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, input: text.slice(0, 8000) }),
   }, 'Ollama');
-  if (!res) return null;
-
-  const data = await res.json() as { embeddings?: number[][] };
+  if (!data) return null;
   const embedding = data.embeddings?.[0];
   if (!embedding || !Array.isArray(embedding)) return null;
 
