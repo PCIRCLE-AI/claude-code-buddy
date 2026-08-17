@@ -561,6 +561,42 @@ if (!hasBearerAuth) {
   else if (badCommands.length) fail(`agent docs name CLI subcommands that do not exist:\n      ${badCommands.join('\n      ')}`);
   else if (agentDocs.length) ok(`${mentions} \`memesh <subcommand>\` mentions in agent docs all resolve to registered CLI commands`);
 
+  // (a2) every CLI flag an option table documents is a flag cli.ts registers.
+  //
+  // The missing direction. A sibling test already scans SOURCE files so no
+  // stderr message can recommend a flag the CLI would reject — it caught two
+  // real ones the day it was added. Nothing looked the other way, so an option
+  // table left listing a removed flag passed this gate silently, which is
+  // exactly what happened to `--vectors`: retired from the parser while three
+  // documents and two runtime messages still told people to run it.
+  //
+  // Doc → code only. The reverse would flag every deliberately undocumented
+  // flag, which is a different decision and not one a gate should make.
+  const registeredFlags = new Set(
+    [...cliSrc.matchAll(/\.option\(\s*'(--[a-z][a-z0-9-]*)/g)].map(m => m[1]),
+  );
+  if (registeredFlags.size < 10) {
+    fail(`CLI option extraction matched only ${registeredFlags.size} — the pattern stopped matching cli.ts`);
+  }
+  const documentedFlags = new Map();   // flag → first doc:line that names it
+  for (const doc of ['docs/api/API_REFERENCE.md']) {
+    read(doc).split('\n').forEach((line, i) => {
+      const m = line.match(/^\|\s*`(--[a-z][a-z0-9-]*)/);
+      if (m && !documentedFlags.has(m[1])) documentedFlags.set(m[1], `${doc}:${i + 1}`);
+    });
+  }
+  if (documentedFlags.size < 10) {
+    fail(`option-table extraction matched only ${documentedFlags.size} flags — the table format changed`);
+  }
+  const ghostFlags = [...documentedFlags]
+    .filter(([flag]) => !registeredFlags.has(flag))
+    .map(([flag, where]) => `${where} → \`${flag}\``);
+  if (ghostFlags.length) {
+    fail(`docs document CLI flags that cli.ts does not register:\n      ${ghostFlags.join('\n      ')}`);
+  } else {
+    ok(`${documentedFlags.size} documented CLI flags all resolve to registered options`);
+  }
+
   // (b) any "`x` tool" phrase names a registered MCP tool.
   const badTools = [];
   for (const doc of agentDocs) {

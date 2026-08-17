@@ -1133,6 +1133,7 @@ Regenerate vector embeddings for all entities.
 |--------|-------------|
 | `--namespace <namespace>` | Reindex only entities in this namespace. |
 | `--fts` | Rebuild the full-text keyword index instead of the vector index. |
+| `--discard-generation` | Throw away a half-built index left by an interrupted rebuild, without rebuilding. Never touches the live index. |
 | `--json` | Output the result as JSON. |
 
 `--fts` rebuilds the full-text keyword index instead. The keyword index

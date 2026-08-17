@@ -49,12 +49,16 @@ describe('memesh reindex refuses before it destroys anything', () => {
     fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
-  function run(args: string[]): { status: number; stderr: string; stdout: string } {
+  function run(
+    args: string[],
+    extraEnv: NodeJS.ProcessEnv = {},
+  ): { status: number; stderr: string; stdout: string } {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       HOME: home,
       MEMESH_DIR: path.join(home, '.memesh'),
       MEMESH_DB_PATH: dbPath,
+      ...extraEnv,
     };
     // A real key in the developer's shell would send these test entities to
     // OpenAI and make the offline cases below depend on the network.
@@ -198,6 +202,17 @@ describe('memesh reindex refuses before it destroys anything', () => {
     // a refused rebuild never publishes at all.
     expect(vectorCount()).toBe(1);
   });
+
+  // NOT PINNED, and here is why, so the next attempt does not repeat the dead end:
+  // the CLI verdict (the incomplete banner + `process.exitCode = 1`) has been
+  // unguarded since the pre-flight probe was added — the test above stops AT the
+  // probe and never calls `reindex()`. Reaching the loop without a network needs a
+  // provider that answers the probe at the configured width and the corpus at the
+  // wrong one. An in-process `http.createServer` CANNOT do that: `run()` uses
+  // `execFileSync`, which blocks this process’s event loop, so the stub never
+  // answers the child and every request times out (measured: "Ollama embedding
+  // request timed out"). A working version has to spawn the stub as its OWN
+  // process — a small script plus `spawn` — before invoking the CLI.
 
   it('--discard-generation reclaims a half-built index without touching the live one', () => {
     // The deliberate way out. Two situations need it: a rebuild the user has
