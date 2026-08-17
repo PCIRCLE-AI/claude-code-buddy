@@ -6,6 +6,22 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **Honest retrieval metadata: every recall says how it was answered.**
+  The envelope (MCP, HTTP and `--json` alike) now carries
+  `retrieval: { mode, degraded, truncated }` — `mode` is `hybrid` when the
+  vector supplement actually ran and `fts` when the answer is
+  keyword-only; `degraded: true` means embeddings ARE configured but the
+  vector side could not run right now (provider failure or missing
+  sqlite-vec), which until now silently served keyword-only results with
+  nothing in the response saying so; `truncated: true` means the results
+  filled `limit` and more may exist — the difference between "that is
+  all" and "that is all I was allowed to return". The CLI prints a
+  degraded warning and a "(limit reached — more may exist)" note in human
+  output. One shape change rides along: `memesh recall --json` now always
+  prints the object envelope (`{entities, retrieval, conflicts?}`) instead
+  of a bare array normally and an object only when conflicts existed —
+  the bimodal shape MCP and HTTP already abandoned.
+
 - **`memesh why <file>` + `POST /v1/why`: file attribution with typed
   abstentions.** Local git resolves which commits touched a file
   (`git log --follow`, or `git blame` for `--line N`); the graph answers

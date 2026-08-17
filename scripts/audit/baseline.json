@@ -531,21 +531,6 @@
       "reason": "classification falls through to the freeform bucket",
       "triaged": "2026-08-04; re-keyed 2026-08-14 (displayTitle helper added above; same statement — verified); re-keyed 2026-08-16 (UX-3: CLUSTER_DOT block added above; same statement — verified)"
     },
-    "C5 src/transports/cli/cli.ts:744": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`(a.args ?? []).join` in the planned-actions RENDER only; execution re-reads args itself.",
-      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified)"
-    },
-    "C5 src/transports/cli/cli.ts:772": {
-      "class": "SAFE-GUARDED",
-      "reason": "`action.args ?? []` when spawning: run-kind actions are constructed in core/setup.ts with args always set (pinned by unit tests asserting exact arrays); a hypothetical argless command would run as-is with its exit code reported honestly.",
-      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified)"
-    },
-    "C5 src/transports/cli/cli.ts:773": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`(action.args ?? []).join` in the success-echo of the command that just ran on the line above (694, same triage); the exit-code branch is the verdict.",
-      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified)"
-    },
     "C5 dashboard/src/components/MemoriesTab.tsx:171": {
       "class": "SAFE-DISPLAY",
       "reason": "client-side search haystack only (absorbs the retired BrowseTab:169 and LessonsTab:298 hay statements)",
@@ -559,11 +544,6 @@
     "C5 src/core/why.ts:295": {
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`input.abstentions ?? []` — pass-through of caller-declared git-side abstentions into the response verbatim; absence means the caller declared none, and nothing here can convert a failure into silence (the CLI always passes its resolveFileCommits abstention in).",
-      "triaged": "2026-08-16 (UX-3 memesh why)"
-    },
-    "C5 src/transports/http/server.ts:574": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`data.commits ?? []` — same optional-commits contract as core/why.ts:238; the route never runs git, so an absent list IS the input, not a swallowed failure.",
       "triaged": "2026-08-16 (UX-3 memesh why)"
     },
     "C5 dashboard/src/components/ProjectRoadmap.tsx:342": {
@@ -610,6 +590,26 @@
       "class": "SAFE",
       "reason": "the empty-result assertions ARE the contract under test (archived pointer readmits nothing), and every scenario pairs them with positive name-list assertions",
       "triaged": "2026-08-16 (UX-3 readmission rule)"
+    },
+    "C5 src/transports/cli/cli.ts:753": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "`(a.args ?? []).join` in the planned-actions RENDER only; execution re-reads args itself.",
+      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
+    },
+    "C5 src/transports/cli/cli.ts:781": {
+      "class": "SAFE-GUARDED",
+      "reason": "`action.args ?? []` when spawning: run-kind actions are constructed in core/setup.ts with args always set (pinned by unit tests asserting exact arrays); a hypothetical argless command would run as-is with its exit code reported honestly.",
+      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
+    },
+    "C5 src/transports/cli/cli.ts:782": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "`(action.args ?? []).join` in the success-echo of the command that just ran on the line above (694, same triage); the exit-code branch is the verdict.",
+      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
+    },
+    "C5 src/transports/http/server.ts:575": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "`data.commits ?? []` — same optional-commits contract as core/why.ts:238; the route never runs git, so an absent list IS the input, not a swallowed failure.",
+      "triaged": "2026-08-16 (UX-3 memesh why); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
     }
   }
 }

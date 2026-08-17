@@ -242,7 +242,7 @@ program
     await withDatabase(async () => {
       // recallWithConflicts: FTS5 + sqlite-vec recall + conflict annotation,
       // owned by core so the transports can't drift on the wrapping rule.
-      const { entities, conflicts } = await recallWithConflicts({
+      const { entities, conflicts, retrieval } = await recallWithConflicts({
         query: query || undefined,
         tag: opts.tag,
         limit: parseInt(opts.limit),
@@ -252,11 +252,14 @@ program
       });
 
       if (opts.json) {
-        if (conflicts.length > 0) {
-          console.log(JSON.stringify({ entities, conflicts }));
-        } else {
-          console.log(JSON.stringify(entities));
-        }
+        // One envelope shape, always — the old output was a bare array
+        // normally and an object when conflicts existed, so every consumer
+        // had to special-case it; and it had nowhere to carry `retrieval`,
+        // which is the point (a degraded or limit-full recall must say so
+        // in-band). MCP and HTTP already answer with this object envelope.
+        console.log(JSON.stringify(
+          conflicts.length > 0 ? { entities, retrieval, conflicts } : { entities, retrieval },
+        ));
       } else if (entities.length === 0) {
         console.log('No results found.');
       } else {
@@ -291,7 +294,13 @@ program
             console.log(`    ... +${e.observations.length - 3} more`);
           }
         }
-        console.log(`\n${entities.length} result(s)`);
+        const truncatedNote = retrieval.truncated ? ' (limit reached — more may exist)' : '';
+        console.log(`\n${entities.length} result(s)${truncatedNote}`);
+        if (retrieval.degraded) {
+          // Embeddings are configured but the vector side could not run —
+          // silence here is exactly the fake-working shape this line removes.
+          console.log('Warning: semantic search unavailable right now — keyword-only results (degraded). Run `memesh doctor` to see why.');
+        }
         if (conflicts.length > 0) {
           console.log('\nWarning: Conflicts detected:');
           for (const c of conflicts) {

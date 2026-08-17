@@ -370,8 +370,11 @@ export async function handleTool(name: string, args: Record<string, unknown> | u
       // the same payload fine. An object envelope also removes the old bimodal
       // shape (array normally, object when conflicts exist) that every
       // consumer otherwise has to special-case.
-      const { entities, conflicts } = await recallWithConflicts(r.data);
-      return ok(conflicts.length > 0 ? { entities, conflicts } : { entities });
+      // `retrieval` rides every envelope: how the results were found (fts vs
+      // hybrid), whether the vector side silently degraded, and whether the
+      // window filled — the three things a caller cannot see from the rows.
+      const { entities, conflicts, retrieval } = await recallWithConflicts(r.data);
+      return ok(conflicts.length > 0 ? { entities, retrieval, conflicts } : { entities, retrieval });
     }
     if (name === 'forget') {
       const r = parseOrFail(ForgetSchema, args);

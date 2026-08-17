@@ -159,7 +159,7 @@ program
     .action(async (query, opts) => {
     requireOneOf(opts.namespace, NAMESPACES, '--namespace');
     await withDatabase(async () => {
-        const { entities, conflicts } = await recallWithConflicts({
+        const { entities, conflicts, retrieval } = await recallWithConflicts({
             query: query || undefined,
             tag: opts.tag,
             limit: parseInt(opts.limit),
@@ -168,12 +168,7 @@ program
             cross_project: opts.crossProject,
         });
         if (opts.json) {
-            if (conflicts.length > 0) {
-                console.log(JSON.stringify({ entities, conflicts }));
-            }
-            else {
-                console.log(JSON.stringify(entities));
-            }
+            console.log(JSON.stringify(conflicts.length > 0 ? { entities, retrieval, conflicts } : { entities, retrieval }));
         }
         else if (entities.length === 0) {
             console.log('No results found.');
@@ -203,7 +198,11 @@ program
                     console.log(`    ... +${e.observations.length - 3} more`);
                 }
             }
-            console.log(`\n${entities.length} result(s)`);
+            const truncatedNote = retrieval.truncated ? ' (limit reached — more may exist)' : '';
+            console.log(`\n${entities.length} result(s)${truncatedNote}`);
+            if (retrieval.degraded) {
+                console.log('Warning: semantic search unavailable right now — keyword-only results (degraded). Run `memesh doctor` to see why.');
+            }
             if (conflicts.length > 0) {
                 console.log('\nWarning: Conflicts detected:');
                 for (const c of conflicts) {

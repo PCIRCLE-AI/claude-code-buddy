@@ -61,7 +61,10 @@ memory is unavailable (or found nothing) and continue without it. Never
 fabricate a memory or cite a `[mem:id]` that was not actually returned.
 Recall is bounded by `limit` — a small hit count is not a graph-wide count,
 and an empty result is not proof nothing was stored: vary the wording or
-narrow by tag before concluding.
+narrow by tag before concluding. Every recall answer includes a `retrieval`
+block — `truncated: true` means the window filled (more may exist);
+`degraded: true` means semantic search could not run and these are
+keyword-only results right now (`memesh doctor` explains why).
 
 ## What's Already Automatic (Claude Code Plugin Hooks)
 

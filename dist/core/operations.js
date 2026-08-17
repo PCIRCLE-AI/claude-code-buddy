@@ -119,18 +119,18 @@ function searchAndScore(args) {
 async function supplementWithVectors(query, args, kg, merged, relevanceMap) {
     const caps = detectCapabilities();
     if (!isEmbeddingAvailable(caps))
-        return;
+        return 'unconfigured';
     try {
         const queryEmb = await embedText(query, caps);
         if (!queryEmb)
-            return;
+            return 'degraded';
         const vectorHits = vectorSearch(queryEmb, args.limit ?? 20);
         if (vectorHits.length === 0)
-            return;
+            return 'used';
         const alreadyMerged = new Set(merged.map(e => e.id));
         const hitIds = vectorHits.map(h => h.id).filter(id => !alreadyMerged.has(id));
         if (hitIds.length === 0)
-            return;
+            return 'used';
         const hitEntities = kg.getEntitiesByIds(hitIds, {
             includeArchived: args.include_archived === true,
             namespace: args.namespace,
@@ -146,8 +146,10 @@ async function supplementWithVectors(query, args, kg, merged, relevanceMap) {
             merged.push(entity);
             relevanceMap.set(entity.name, relevance);
         }
+        return 'used';
     }
     catch {
+        return 'degraded';
     }
 }
 export async function recallEnhanced(args) {
@@ -158,16 +160,26 @@ export async function recallEnhanced(args) {
         }
     }
     const mergedEntities = [...entities];
+    let vectorOutcome = 'unconfigured';
     if (args.query && hasSearchableTerms(args.query)) {
-        await supplementWithVectors(args.query, args, kg, mergedEntities, relevanceMap);
+        vectorOutcome = await supplementWithVectors(args.query, args, kg, mergedEntities, relevanceMap);
     }
-    return rankEntities(mergedEntities, relevanceMap).slice(0, args.limit ?? 20);
+    const limit = args.limit ?? 20;
+    const ranked = rankEntities(mergedEntities, relevanceMap).slice(0, limit);
+    return {
+        entities: ranked,
+        retrieval: {
+            mode: vectorOutcome === 'used' ? 'hybrid' : 'fts',
+            degraded: vectorOutcome === 'degraded',
+            truncated: ranked.length === limit,
+        },
+    };
 }
 export async function recallWithConflicts(args) {
-    const entities = await recallEnhanced(args);
+    const { entities, retrieval } = await recallEnhanced(args);
     const kg = new KnowledgeGraph(getDatabase());
     const conflicts = kg.findConflicts(entities.map((e) => e.name));
-    return { entities, conflicts };
+    return { entities, conflicts, retrieval };
 }
 export { exportMemories, importMemories } from './serializer.js';
 export function learn(args) {

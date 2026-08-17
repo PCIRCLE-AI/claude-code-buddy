@@ -261,8 +261,8 @@ export async function handleTool(name, args, sourceHost) {
             const r = parseOrFail(RecallSchema, args);
             if (!r.ok)
                 return r.result;
-            const { entities, conflicts } = await recallWithConflicts(r.data);
-            return ok(conflicts.length > 0 ? { entities, conflicts } : { entities });
+            const { entities, conflicts, retrieval } = await recallWithConflicts(r.data);
+            return ok(conflicts.length > 0 ? { entities, retrieval, conflicts } : { entities, retrieval });
         }
         if (name === 'forget') {
             const r = parseOrFail(ForgetSchema, args);

@@ -63,6 +63,11 @@ host is recallable from all of them. Not installed yet? Follow
   number of hits one query returns. Absence of results is absence of
   results, not evidence of absence — vary the wording or narrow by tag
   before concluding anything.
+- Every recall answer carries a `retrieval` block that says how it was
+  produced — read it instead of guessing: `truncated: true` means the
+  window filled and more may exist; `degraded: true` means semantic search
+  is configured but could not run, so you are seeing keyword-only results
+  right now (worth telling the user, and `memesh doctor` explains why).
 
 ## What Claude Code already does — do not double-write
 

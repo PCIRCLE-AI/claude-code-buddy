@@ -263,23 +263,30 @@ function searchAndScore(args: RecallInput): { kg: KnowledgeGraph; entities: Enti
  * is the wrong corpus to tune fusion on. Revisiting needs a set of personal
  * notes where the question's vocabulary differs from the note's.
  */
+/** How the vector half of a recall actually went — the input to the honest
+ *  `retrieval` metadata. `unconfigured` is the expected keyword-only setup;
+ *  `degraded` means embeddings ARE configured but the vector side could not
+ *  run right now (provider failure, missing sqlite-vec) — the silent branch
+ *  this reporting exists to make visible. */
+type VectorOutcome = 'used' | 'unconfigured' | 'degraded';
+
 async function supplementWithVectors(
   query: string,
   args: RecallInput,
   kg: KnowledgeGraph,
   merged: Entity[],
   relevanceMap: Map<string, number>,
-): Promise<void> {
+): Promise<VectorOutcome> {
   // One caps snapshot for the availability check AND the embed call — two
   // separate detectCapabilities() reads meant two config.json disk reads per
   // enhanced recall on the MCP/HTTP hot path.
   const caps = detectCapabilities();
-  if (!isEmbeddingAvailable(caps)) return;
+  if (!isEmbeddingAvailable(caps)) return 'unconfigured';
   try {
     const queryEmb = await embedText(query, caps);
-    if (!queryEmb) return;
+    if (!queryEmb) return 'degraded';
     const vectorHits = vectorSearch(queryEmb, args.limit ?? 20);
-    if (vectorHits.length === 0) return;
+    if (vectorHits.length === 0) return 'used';
 
     // Drop the overlap BEFORE hydrating. getEntitiesByIds issues four batched
     // queries per call (entities, observations, tags, relations), and FTS and
@@ -291,7 +298,7 @@ async function supplementWithVectors(
     // receives the full k.
     const alreadyMerged = new Set(merged.map(e => e.id));
     const hitIds = vectorHits.map(h => h.id).filter(id => !alreadyMerged.has(id));
-    if (hitIds.length === 0) return;
+    if (hitIds.length === 0) return 'used';
 
     const hitEntities = kg.getEntitiesByIds(hitIds, {
       includeArchived: args.include_archived === true,
@@ -314,8 +321,11 @@ async function supplementWithVectors(
       merged.push(entity);
       relevanceMap.set(entity.name, relevance);
     }
+    return 'used';
   } catch {
-    // Vector search failed — FTS5 results still valid.
+    // Vector search failed — FTS5 results still valid, but the caller must
+    // hear about the degradation instead of the old silent swallow.
+    return 'degraded';
   }
 }
 
@@ -336,7 +346,29 @@ async function supplementWithVectors(
  * (dreamer, failure-analyzer, auto-tagger, llm-validator)
  * are unaffected.
  */
-export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
+/**
+ * How a recall's results were actually retrieved — returned with every
+ * recall so no transport has to guess. The silent shape this replaces:
+ * sqlite-vec missing or the embed provider failing degraded recall to
+ * keyword-only with NOTHING in the response saying so, and a `limit`-full
+ * window was indistinguishable from a complete answer.
+ */
+export interface RetrievalMeta {
+  /** 'hybrid' = the vector supplement ran; 'fts' = keyword-only (either by
+   *  configuration, or because there was no searchable query). */
+  mode: 'fts' | 'hybrid';
+  /** true = embeddings ARE configured but the vector side could not run
+   *  (provider failure or missing sqlite-vec) — results are keyword-only
+   *  right now, which is a degradation, not the configured behaviour. */
+  degraded: boolean;
+  /** true = results filled `limit`; more may exist beyond the window. A
+   *  small hit count is a window, not a graph-wide count. */
+  truncated: boolean;
+}
+
+export async function recallEnhanced(
+  args: RecallInput,
+): Promise<{ entities: Entity[]; retrieval: RetrievalMeta }> {
   const { kg, entities, relevanceMap } = searchAndScore(args);
 
   // Keyword provenance for the FTS side; the vector supplement below tags
@@ -356,10 +388,20 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
   // matched" on the one path the fix did not cover. An EMPTY query still means
   // "show me what you have" and is handled by search()'s recent-list branch,
   // which is why the check is on searchable terms rather than on emptiness.
+  let vectorOutcome: VectorOutcome = 'unconfigured';
   if (args.query && hasSearchableTerms(args.query)) {
-    await supplementWithVectors(args.query, args, kg, mergedEntities, relevanceMap);
+    vectorOutcome = await supplementWithVectors(args.query, args, kg, mergedEntities, relevanceMap);
   }
-  return rankEntities(mergedEntities, relevanceMap).slice(0, args.limit ?? 20);
+  const limit = args.limit ?? 20;
+  const ranked = rankEntities(mergedEntities, relevanceMap).slice(0, limit);
+  return {
+    entities: ranked,
+    retrieval: {
+      mode: vectorOutcome === 'used' ? 'hybrid' : 'fts',
+      degraded: vectorOutcome === 'degraded',
+      truncated: ranked.length === limit,
+    },
+  };
 }
 
 /**
@@ -370,10 +412,10 @@ export async function recallEnhanced(args: RecallInput): Promise<Entity[]> {
  * to present them (omit when empty, render inline, etc.) stays a transport call.
  */
 export async function recallWithConflicts(args: RecallInput) {
-  const entities = await recallEnhanced(args);
+  const { entities, retrieval } = await recallEnhanced(args);
   const kg = new KnowledgeGraph(getDatabase());
   const conflicts = kg.findConflicts(entities.map((e) => e.name));
-  return { entities, conflicts };
+  return { entities, conflicts, retrieval };
 }
 
 // --- Serialization (extracted to serializer.ts) ---
