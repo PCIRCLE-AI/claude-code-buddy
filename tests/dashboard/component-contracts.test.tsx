@@ -438,6 +438,7 @@ const INTENTIONALLY_EXCLUDED: Record<string, string> = {
   AuthPrompt: 'tests/dashboard/AuthPrompt.test.tsx — rendered only from a 401 path, takes no API-backed props',
   CaptureDensityBand: 'tests/dashboard/CaptureDensityBand.test.tsx covers its degenerate inputs directly',
   EvidencePanel: 'tests/dashboard/EvidencePanel.test.tsx covers its four states (loading / empty / truncated / failed) directly',
+  MetricsRow: 'tests/dashboard/MetricsRow.test.tsx tests buildTiles directly — the distinction under test is null-vs-number, which a rendered tile cannot express',
   LessonCards: 'helper renderers (severity badge, expanded bodies) with no top-level surface — exercised through MemoriesTab rows',
   MemoryLoopCard: 'tests/dashboard/MemoryLoopCard.test.tsx covers its degenerate inputs directly',
   MemoryRow: 'tests/dashboard/MemoryRow.test.tsx covers its degenerate inputs directly',
