@@ -37,6 +37,7 @@ import {
   beginVectorGeneration,
   swapVectorGeneration,
   generationRowIds,
+  readVectorGeneration,
   getPendingReindexInfo,
   markReindexOwed,
 } from '../src/db.js';
@@ -206,6 +207,60 @@ describe('Feature: the swap carries the live index forward, and prunes what is g
       'a vector of the old width was carried into an index of the new width',
     ).toBe(1);
     expect(generationRowIds().size, 'the staging table survived the swap').toBe(0);
+  });
+
+  it('refuses to guess when the marker is unreadable and work is staged', () => {
+    // The bug: an unreadable marker was indistinguishable from "no generation",
+    // and the caller treats that as licence to DROP — so a JSON.parse failure
+    // silently threw away every embedding a previous run had produced. Neither
+    // resuming (could merge two embedding spaces) nor discarding (throws away
+    // paid work) is safe to choose silently, so it refuses and names the way out.
+    const id = seed('alpha');
+    beginVectorGeneration(DIM, 'ollama');
+    putStaged(id, 11);
+    expect(generationRowIds().has(id), 'fixture: work is staged').toBe(true);
+
+    getDatabase()
+      .prepare("UPDATE memesh_metadata SET value = '{not json' WHERE key = 'vector_generation'")
+      .run();
+    expect(readVectorGeneration().state, 'fixture: the marker is now unreadable').toBe('unreadable');
+
+    expect(() => beginVectorGeneration(DIM, 'ollama')).toThrow(/--discard-generation/);
+    expect(
+      generationRowIds().has(id),
+      'a staged embedding was thrown away because a marker would not parse',
+    ).toBe(true);
+  });
+
+  it('an unreadable marker with NOTHING staged is not an obstacle', () => {
+    // The refusal must be about protecting work, not about the marker itself.
+    // With no staging table there is nothing to lose, so a fresh start proceeds.
+    getDatabase()
+      .prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('vector_generation', '{not json')")
+      .run();
+    expect(readVectorGeneration().state).toBe('unreadable');
+
+    expect(() => beginVectorGeneration(DIM, 'ollama')).not.toThrow();
+    expect(readVectorGeneration()).toMatchObject({ state: 'open' });
+  });
+
+  it('discards a generation from a DIFFERENT provider at the SAME width', () => {
+    // Width alone does not identify an embedding space. openai and azure both
+    // emit 1536, and resuming across them would put two spaces in one index —
+    // silently, because no width check can see it. A mutation removing the
+    // provider comparison used to survive the whole suite.
+    const id = seed('alpha');
+    beginVectorGeneration(1536, 'openai');
+    getDatabase()
+      .prepare('INSERT INTO entities_vec_next (rowid, embedding) VALUES (?, ?)')
+      .run(BigInt(id), Buffer.alloc(1536 * 4));
+    expect(generationRowIds().size, 'fixture: a row is staged under openai').toBe(1);
+
+    const again = beginVectorGeneration(1536, 'azure');
+
+    expect(again.resumed, "another provider's generation was resumed at the same width").toBe(false);
+    expect(generationRowIds().size, "another provider's staged vectors survived").toBe(0);
+    expect(readVectorGeneration()).toMatchObject({ state: 'open', info: { provider: 'azure' } });
   });
 
   it('refuses a width that is not a positive integer instead of interpolating it into DDL', () => {

@@ -5,7 +5,6 @@ export interface LLMConfig {
 }
 export interface EmbedderConfig {
     provider: 'openai' | 'ollama';
-    model?: string;
 }
 export interface MeMeshConfig {
     llm?: LLMConfig;

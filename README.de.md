@@ -447,10 +447,11 @@ Standardmäßig macht MeMesh reines Keyword-Recall (FTS5) — kein API-Schlüsse
 
 ```bash
 memesh config set embedder.provider openai          # or: ollama
-memesh config set embedder.model text-embedding-3-small
 ```
 
-Der Embedder wird **unabhängig vom Chat-LLM** konfiguriert — `llm.provider` zu ändern ändert nie stillschweigend deine Embeddings. Wechselst du zu einer anderen Dimension (z. B. 768 → 1536), baut MeMesh den Vektorindex beim nächsten Schreibvorgang automatisch neu auf. Unterstützte `embedder.provider`-Werte: `ollama` (lokal), `openai` (gehostet). Ohne Einstellung bleibt das Recall bei der Keyword-Suche.
+Der Embedder wird **unabhängig vom Chat-LLM** konfiguriert — `llm.provider` zu ändern ändert nie stillschweigend deine Embeddings. Jeder Anbieter legt sein Modell und seine Dimension selbst fest (`ollama` → nomic-embed-text mit 768, `openai` → text-embedding-3-small mit 1536); das Modell ist nicht separat wählbar, weil ein Vektorindex auf eine Dimension festgelegt ist und ein zweites Modell Vektoren aus einem anderen Embedding-Raum hineinschreiben würde.
+
+Wechselst du zu einer anderen Dimension (z. B. 768 → 1536), wird **nichts gelöscht**. MeMesh behält den bestehenden Index und weist beim Öffnen darauf hin, `memesh reindex` auszuführen: der neue Index wird neben dem alten aufgebaut und erst übernommen, wenn jede Erinnerung einen Vektor hat — ein abgebrochener Neuaufbau kostet dich also nichts und wird an der Abbruchstelle fortgesetzt. In diesem Zeitraum ist die semantische Suche aus und das Recall läuft nur über die Keyword-Suche; `recall` meldet das als `degraded`, statt eine Suche vorzugeben. Unterstützte `embedder.provider`-Werte: `ollama` (lokal), `openai` (gehostet). Ohne Einstellung bleibt das Recall bei der Keyword-Suche.
 
 | | Stufe 0 (Standard) | Stufe 1 (Smart Mode) |
 |---|---|---|

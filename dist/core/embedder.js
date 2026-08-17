@@ -147,7 +147,7 @@ async function embedWithProvider(text, config) {
         if (config.provider === 'openai')
             return await embedWithOpenAI(text, config);
         if (config.provider === 'ollama')
-            return await embedWithOllama(text, config);
+            return await embedWithOllama(text);
         return null;
     }
     catch {
@@ -157,25 +157,30 @@ async function embedWithProvider(text, config) {
 const PROVIDER_TIMEOUT_MS = 30_000;
 const PROVIDER_MAX_ATTEMPTS = 3;
 const PROVIDER_BASE_BACKOFF_MS = 500;
+const PROVIDER_MAX_BACKOFF_MS = 30_000;
 async function providerFetch(url, init, label) {
     for (let attempt = 1; attempt <= PROVIDER_MAX_ATTEMPTS; attempt++) {
         const timeout = AbortSignal.timeout(PROVIDER_TIMEOUT_MS);
         let res;
+        let parsed;
         try {
             res = await fetch(url, { ...init, signal: timeout, redirect: 'error' });
+            if (res.ok)
+                parsed = await res.json();
         }
         catch (err) {
             const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
             if (attempt === PROVIDER_MAX_ATTEMPTS) {
                 process.stderr.write(`MeMesh: ${label} embedding request ${timedOut ? `timed out after ${PROVIDER_TIMEOUT_MS}ms` : 'failed'} `
-                    + `on attempt ${attempt}/${PROVIDER_MAX_ATTEMPTS}.\n`);
+                    + `on attempt ${attempt}/${PROVIDER_MAX_ATTEMPTS}`
+                    + `${!timedOut && err instanceof Error ? `: ${err.message}` : ''}.\n`);
                 return null;
             }
-            await sleep(PROVIDER_BASE_BACKOFF_MS * attempt);
+            await sleep(backoffFor(attempt));
             continue;
         }
         if (res.ok)
-            return res;
+            return parsed ?? null;
         const retryable = res.status === 429 || res.status >= 500;
         if (!retryable) {
             process.stderr.write(`MeMesh: ${label} embedding request refused with HTTP ${res.status}.\n`);
@@ -188,11 +193,14 @@ async function providerFetch(url, init, label) {
         }
         const retryAfter = Number(res.headers.get('retry-after'));
         const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
-            ? Math.min(retryAfter * 1000, 30_000)
-            : PROVIDER_BASE_BACKOFF_MS * attempt;
+            ? Math.min(retryAfter * 1000, PROVIDER_MAX_BACKOFF_MS)
+            : backoffFor(attempt);
         await sleep(waitMs);
     }
     return null;
+}
+function backoffFor(attempt) {
+    return Math.min(PROVIDER_BASE_BACKOFF_MS * 2 ** (attempt - 1), PROVIDER_MAX_BACKOFF_MS);
 }
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -201,7 +209,7 @@ async function embedWithOpenAI(text, config) {
     const apiKey = config.apiKey || process.env.OPENAI_API_KEY;
     if (!apiKey)
         return null;
-    const res = await providerFetch('https://api.openai.com/v1/embeddings', {
+    const data = await providerFetch('https://api.openai.com/v1/embeddings', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -209,25 +217,23 @@ async function embedWithOpenAI(text, config) {
             input: text.slice(0, 8000),
         }),
     }, 'OpenAI');
-    if (!res)
+    if (!data)
         return null;
-    const data = await res.json();
     const embedding = data.data?.[0]?.embedding;
     if (!embedding || !Array.isArray(embedding))
         return null;
     return new Float32Array(embedding);
 }
-async function embedWithOllama(text, config) {
+async function embedWithOllama(text) {
     const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
-    const model = config.model || 'nomic-embed-text';
-    const res = await providerFetch(`${host}/api/embed`, {
+    const model = 'nomic-embed-text';
+    const data = await providerFetch(`${host}/api/embed`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, input: text.slice(0, 8000) }),
     }, 'Ollama');
-    if (!res)
+    if (!data)
         return null;
-    const data = await res.json();
     const embedding = data.embeddings?.[0];
     if (!embedding || !Array.isArray(embedding))
         return null;

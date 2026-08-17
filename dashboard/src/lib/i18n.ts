@@ -408,6 +408,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.fts.unsegmented.fix': 'Run `memesh reindex --fts` to rebuild the index.',
     'doctor.msg.vector-index.stale.summary': 'The search index needs a rebuild (the search settings changed).',
     'doctor.msg.vector-index.stale.fix': 'Run `memesh reindex` to rebuild it.',
+    'doctor.msg.vector-generation.open.summary': 'An unfinished index rebuild is holding disk space.',
+    'doctor.msg.vector-generation.open.fix': 'Run `memesh reindex` to finish it, or `memesh reindex --discard-generation` to reclaim the space.',
     'doctor.msg.database.broken.summary': 'The database is not usable: {detail}',
     // Doctor checks - complete coverage for all 15 checks
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -1091,6 +1093,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.fts.unsegmented.fix': '執行 `memesh reindex --fts` 重建索引。',
     'doctor.msg.vector-index.stale.summary': '搜尋索引需要重建（搜尋設定變更過）。',
     'doctor.msg.vector-index.stale.fix': '執行 `memesh reindex` 重建。',
+    'doctor.msg.vector-generation.open.summary': '有一個未完成的索引重建正佔著磁碟空間。',
+    'doctor.msg.vector-generation.open.fix': '執行 `memesh reindex` 完成它，或 `memesh reindex --discard-generation` 回收空間。',
     'doctor.msg.database.broken.summary': '資料庫無法使用：{detail}',
     // Doctor 檢查項目 - 完整覆蓋所有 15 項檢查
     'doctor.update_status.prerelease': '正在使用預發布版本（{current}），npm 最新版為 {latest}',
@@ -1774,6 +1778,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.fts.unsegmented.fix': '运行 `memesh reindex --fts` 重建索引。',
     'doctor.msg.vector-index.stale.summary': '搜索索引需要重建（搜索设置变更过）。',
     'doctor.msg.vector-index.stale.fix': '运行 `memesh reindex` 重建。',
+    'doctor.msg.vector-generation.open.summary': '有一个未完成的索引重建正占着磁盘空间。',
+    'doctor.msg.vector-generation.open.fix': '执行 `memesh reindex` 完成它，或 `memesh reindex --discard-generation` 回收空间。',
     'doctor.msg.database.broken.summary': '数据库无法使用：{detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -2457,6 +2463,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.fts.unsegmented.fix': '`memesh reindex --fts` を実行して索引を作り直してください。',
     'doctor.msg.vector-index.stale.summary': '検索インデックスの再構築が必要です（検索設定が変わりました）。',
     'doctor.msg.vector-index.stale.fix': '`memesh reindex` を実行して再構築してください。',
+    'doctor.msg.vector-generation.open.summary': '未完了のインデックス再構築がディスク領域を占有しています。',
+    'doctor.msg.vector-generation.open.fix': '`memesh reindex` で完了させるか、`memesh reindex --discard-generation` で領域を解放してください。',
     'doctor.msg.database.broken.summary': 'データベースが使えません: {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -3140,6 +3148,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.fts.unsegmented.fix': '`memesh reindex --fts`를 실행해 색인을 다시 만드세요.',
     'doctor.msg.vector-index.stale.summary': '검색 색인을 다시 만들어야 합니다(검색 설정이 바뀌었습니다).',
     'doctor.msg.vector-index.stale.fix': '`memesh reindex`를 실행해 다시 만드세요.',
+    'doctor.msg.vector-generation.open.summary': '완료되지 않은 색인 재구성이 디스크 공간을 차지하고 있습니다.',
+    'doctor.msg.vector-generation.open.fix': '`memesh reindex`로 마무리하거나 `memesh reindex --discard-generation`으로 공간을 회수하세요.',
     'doctor.msg.database.broken.summary': '데이터베이스를 사용할 수 없습니다: {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -3823,6 +3833,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.fts.unsegmented.fix': 'Execute `memesh reindex --fts` para reconstruir o índice.',
     'doctor.msg.vector-index.stale.summary': 'O índice de busca precisa ser reconstruído (as configurações de busca mudaram).',
     'doctor.msg.vector-index.stale.fix': 'Execute `memesh reindex` para reconstruí-lo.',
+    'doctor.msg.vector-generation.open.summary': 'Uma reconstrução de índice inacabada está ocupando espaço em disco.',
+    'doctor.msg.vector-generation.open.fix': 'Execute `memesh reindex` para concluí-la, ou `memesh reindex --discard-generation` para liberar o espaço.',
     'doctor.msg.database.broken.summary': 'O banco de dados não está utilizável: {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -4506,6 +4518,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.fts.unsegmented.fix': 'Exécutez `memesh reindex --fts` pour reconstruire l\'index.',
     'doctor.msg.vector-index.stale.summary': 'L\'index de recherche doit être reconstruit (les réglages de recherche ont changé).',
     'doctor.msg.vector-index.stale.fix': 'Exécutez `memesh reindex` pour le reconstruire.',
+    'doctor.msg.vector-generation.open.summary': 'Une reconstruction d\'index inachevée occupe de l\'espace disque.',
+    'doctor.msg.vector-generation.open.fix': 'Lancez `memesh reindex` pour la terminer, ou `memesh reindex --discard-generation` pour libérer l\'espace.',
     'doctor.msg.database.broken.summary': 'La base de données est inutilisable : {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -5189,6 +5203,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.fts.unsegmented.fix': 'Führen Sie `memesh reindex --fts` aus, um den Index neu aufzubauen.',
     'doctor.msg.vector-index.stale.summary': 'Der Suchindex muss neu aufgebaut werden (die Sucheinstellungen haben sich geändert).',
     'doctor.msg.vector-index.stale.fix': 'Führen Sie `memesh reindex` aus, um ihn neu aufzubauen.',
+    'doctor.msg.vector-generation.open.summary': 'Ein unvollendeter Index-Neuaufbau belegt Speicherplatz.',
+    'doctor.msg.vector-generation.open.fix': 'Führe `memesh reindex` aus, um ihn abzuschließen, oder `memesh reindex --discard-generation`, um den Platz freizugeben.',
     'doctor.msg.database.broken.summary': 'Die Datenbank ist nicht nutzbar: {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -5872,6 +5888,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.fts.unsegmented.fix': 'Chạy `memesh reindex --fts` để xây lại chỉ mục.',
     'doctor.msg.vector-index.stale.summary': 'Chỉ mục tìm kiếm cần được xây lại (thiết lập tìm kiếm đã thay đổi).',
     'doctor.msg.vector-index.stale.fix': 'Chạy `memesh reindex` để xây lại.',
+    'doctor.msg.vector-generation.open.summary': 'Một lần xây lại chỉ mục chưa hoàn tất đang chiếm dung lượng đĩa.',
+    'doctor.msg.vector-generation.open.fix': 'Chạy `memesh reindex` để hoàn tất, hoặc `memesh reindex --discard-generation` để thu hồi dung lượng.',
     'doctor.msg.database.broken.summary': 'Cơ sở dữ liệu không dùng được: {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -6555,6 +6573,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.fts.unsegmented.fix': 'Ejecuta `memesh reindex --fts` para reconstruir el índice.',
     'doctor.msg.vector-index.stale.summary': 'El índice de búsqueda necesita reconstruirse (cambiaron los ajustes de búsqueda).',
     'doctor.msg.vector-index.stale.fix': 'Ejecuta `memesh reindex` para reconstruirlo.',
+    'doctor.msg.vector-generation.open.summary': 'Una reconstrucción de índice sin terminar está ocupando espacio en disco.',
+    'doctor.msg.vector-generation.open.fix': 'Ejecuta `memesh reindex` para terminarla, o `memesh reindex --discard-generation` para liberar el espacio.',
     'doctor.msg.database.broken.summary': 'La base de datos no se puede usar: {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',
@@ -7238,6 +7258,8 @@ const translations: Record<Locale, Record<string, string>> = {
     'doctor.msg.fts.unsegmented.fix': 'รัน `memesh reindex --fts` เพื่อสร้างดัชนีใหม่',
     'doctor.msg.vector-index.stale.summary': 'ดัชนีการค้นหาต้องสร้างใหม่ (การตั้งค่าการค้นหาเปลี่ยนไป)',
     'doctor.msg.vector-index.stale.fix': 'รัน `memesh reindex` เพื่อสร้างใหม่',
+    'doctor.msg.vector-generation.open.summary': 'การสร้างดัชนีใหม่ที่ยังไม่เสร็จกำลังใช้พื้นที่ดิสก์อยู่',
+    'doctor.msg.vector-generation.open.fix': 'รัน `memesh reindex` เพื่อทำให้เสร็จ หรือ `memesh reindex --discard-generation` เพื่อคืนพื้นที่',
     'doctor.msg.database.broken.summary': 'ฐานข้อมูลใช้งานไม่ได้: {detail}',
     // Doctor checks - English fallback (translate when locale-specific copy is ready)
     'doctor.update_status.prerelease': 'Running pre-release version ({current}), npm latest is {latest}',

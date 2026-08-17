@@ -147,6 +147,20 @@ All notable changes to MeMesh are documented here.
 
 ### Removed
 
+- **`embedder.model` is removed from the config.** It was settable
+  (`memesh config set embedder.model …`), documented in three READMEs, and it
+  never reached the embedding call — `embedText` built its provider config with
+  `model: undefined`, so the only models ever used were each provider's default.
+  It is removed rather than wired through, because honouring it would have
+  introduced the exact fault the rest of this release closes: a vector index is
+  fixed at one width and the width is resolved from the *provider*, so a model of
+  a different width could never be rebuilt against, and one of the *same* width
+  would have put vectors from a second embedding space into the index with no
+  width signal to catch it. Each provider pins its own model and dimension
+  (`ollama` → nomic-embed-text at 768, `openai` → text-embedding-3-small at
+  1536). Setting the key now reports an unknown key instead of printing "✅ Set"
+  and doing nothing.
+
 - **`memesh reindex --vectors` is removed. Scripts that pass it will fail**
   with `error: unknown option '--vectors'` and exit 1. The flag existed only to
   grant consent for dropping every stored embedding before the refill began,
@@ -158,6 +172,53 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **A resumed rebuild no longer promotes a vector for text that has since
+  changed.** It skipped an entity whenever a row for it was already staged, on
+  presence alone — so an entity edited between an interrupted run and its resume
+  kept the vector built from its old text, and nothing downstream could detect it
+  because the row *was* there (the missing-vector count only asks whether a row
+  exists). Each staged row now records a hash of what it was embedded from, and a
+  resume reuses it only while that still matches. An unchanged entity is still
+  never bought twice, and `already_staged` is now its own count instead of being
+  folded into `stored` — a resumed run used to report "900/900 entities embedded"
+  after issuing one request.
+- **A half-built index whose marker cannot be read is no longer thrown away
+  silently.** "The marker is unreadable" and "there is no rebuild in progress"
+  were the same answer, and the caller treats the second as licence to delete —
+  so a marker that failed to parse discarded every embedding a previous run had
+  produced. Neither choice is safe to make silently (resuming could merge two
+  embedding spaces; discarding destroys work), so it now refuses, says which it
+  is, and points at `memesh reindex --discard-generation`.
+- **A rebuild against a broken provider stops instead of grinding through the
+  whole graph.** There was no circuit breaker: a provider that stopped answering
+  at entity 50 of 20,000 was still asked about the remaining 19,950 — up to ~91.5
+  seconds each — printing one identical failure per entity, even for a 401, where
+  the code's own reasoning is that retrying "spends the rate budget on a
+  certainty". Five consecutive failures now end the run; everything already
+  embedded is kept and the next run resumes. Provider backoff is also exponential
+  rather than linear, so a rate limit is backed away from instead of re-arrived
+  at.
+- **A provider that sends headers and then stalls the body is now retried.** The
+  response was parsed by the caller, outside the retry, so an abort during the
+  body read arrived as an indistinguishable `null` with no attempt counter and no
+  message naming it a timeout — which is precisely the failure the 30-second
+  budget was added to catch.
+- **A whitespace-only memory no longer holds the reindex flag open forever.**
+  SQLite's `TRIM` strips spaces only while JavaScript's `.trim()` also strips tabs
+  and newlines, so the rebuild loop and the database disagreed about the same
+  entity: permanently "nothing to embed" to one and permanently owed a vector to
+  the other. Every full reindex reported "1 active memory still has no vector"
+  and could never resolve it.
+- **`memesh reindex` no longer prints a tick when the new index was refused.**
+  The verdict was built from a count taken against whatever index is *live*, so
+  when a rebuild was withheld that was the old, complete-by-construction index —
+  the run exited 0 while its own output said the new index was not switched in.
+  The result now carries `generationSwapped` and `abortedAfter`, and `--json`
+  publishes both.
+- **`memesh doctor` reports a half-built index.** An interrupted rebuild leaves a
+  full second copy of the vectors on disk; nothing reclaimed it and no diagnostic
+  mentioned it, so it could sit there indefinitely. Doctor now shows its size,
+  width, provider and age, with the two ways out.
 - **A rebuild no longer discards a memory captured while it ran.** The swap
   installed exactly the staging index, and every writer other than the rebuild
   itself — the seven capture hooks, `remember`, the dreamer, the MCP server —

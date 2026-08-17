@@ -31,6 +31,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { MemeshDatabase as Database } from '../src/storage/sqlite.js';
+import type { SqlInputValue } from '../src/storage/sqlite.js';
 
 const require = createRequire(import.meta.url);
 
@@ -196,6 +197,54 @@ describe('memesh reindex refuses before it destroys anything', () => {
     // And the stale vector is still there, for a stronger reason than before:
     // a refused rebuild never publishes at all.
     expect(vectorCount()).toBe(1);
+  });
+
+  it('--discard-generation reclaims a half-built index without touching the live one', () => {
+    // The deliberate way out. Two situations need it: a rebuild the user has
+    // abandoned (the staging index otherwise sits on disk indefinitely and
+    // nothing reclaims it), and a generation whose marker cannot be read, where
+    // the code refuses to choose between resuming and discarding.
+    seedVectorIndex();
+    // vec0 is an extension: a plain handle cannot even CREATE the staging table
+    // ("no such module: vec0"). Same load dance as the helpers above.
+    const sqliteVec = require('sqlite-vec');
+    const db = new Database(dbPath, { allowExtension: true });
+    db.enableLoadExtension(true);
+    try { sqliteVec.load(db); } finally { db.enableLoadExtension(false); }
+    db.exec('CREATE TABLE IF NOT EXISTS memesh_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    db.exec('CREATE VIRTUAL TABLE IF NOT EXISTS entities_vec_next USING vec0(embedding float[1536])');
+    db.prepare('INSERT INTO entities_vec_next (rowid, embedding) VALUES (?, ?)')
+      .run(BigInt(1), Buffer.alloc(1536 * 4) as unknown as SqlInputValue);
+    db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('vector_generation', ?)")
+      .run(JSON.stringify({ dimension: 1536, provider: 'openai', startedAt: '2026-01-01T00:00:00.000Z' }));
+    const stagedBefore = (db.prepare('SELECT count(*) AS c FROM entities_vec_next')
+      .get() as { c: number }).c;
+    db.close();
+    expect(stagedBefore, 'fixture: a half-built index is present').toBe(1);
+
+    const result = run(['reindex', '--discard-generation']);
+
+    expect(result.status, `discarding a generation is not a failure — ${result.stderr}`).toBe(0);
+    expect(result.stdout).toContain('Discarded a half-built vector index');
+
+    const after = new Database(dbPath, { allowExtension: true });
+    after.enableLoadExtension(true);
+    try { sqliteVec.load(after); } finally { after.enableLoadExtension(false); }
+    const stagingGone = (after.prepare(
+      "SELECT count(*) AS c FROM sqlite_master WHERE name = 'entities_vec_next'"
+    ).get() as { c: number }).c;
+    const live = (after.prepare('SELECT count(*) AS c FROM entities_vec').get() as { c: number }).c;
+    after.close();
+
+    expect(stagingGone, 'the staging index survived a discard').toBe(0);
+    expect(live, 'discarding the staging index touched the LIVE index').toBe(1);
+  });
+
+  it('--discard-generation says so plainly when there is nothing to discard', () => {
+    seedVectorIndex();
+    const result = run(['reindex', '--discard-generation']);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Nothing to discard');
   });
 
   it('--namespace on its own is still accepted', () => {

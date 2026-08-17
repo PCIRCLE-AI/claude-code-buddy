@@ -1,4 +1,5 @@
-import { getDatabase, clearPendingReindexFlag, markReindexOwed, getStoredEmbeddingDimension, beginVectorGeneration, generationRowIds, swapVectorGeneration, } from '../db.js';
+import { getDatabase, clearPendingReindexFlag, markReindexOwed, getStoredEmbeddingDimension, beginVectorGeneration, generationRowIds, generationRowHashes, recordGenerationRow, swapVectorGeneration, GENERATION_TABLE, } from '../db.js';
+import { createHash } from 'node:crypto';
 import { hasSearchableTerms } from '../storage/fts-index.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { rankEntities } from './scoring.js';
@@ -241,7 +242,8 @@ function countMissingVectors(db, namespace) {
     SELECT COUNT(*) AS n FROM entities e
     WHERE e.status = 'active'
       ${namespace ? 'AND e.namespace = ?' : ''}
-      AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND TRIM(o.content) <> '')
+      AND EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id
+                    AND TRIM(o.content, ' ' || char(9) || char(10) || char(13) || char(11) || char(12) || char(160)) <> '')
       AND NOT EXISTS (SELECT 1 FROM entities_vec v WHERE v.rowid = e.id)
   `).get(...(namespace ? [namespace] : []));
     return row.n;
@@ -259,11 +261,13 @@ export async function reindex(opts) {
     const provider = detectCapabilities().embeddings;
     let generation;
     let alreadyStaged = new Set();
+    let stagedHashes = new Map();
     if (useGeneration) {
         const { resumed } = beginVectorGeneration(targetDim, provider);
-        generation = { table: 'entities_vec_next', dimension: targetDim };
+        generation = { table: GENERATION_TABLE, dimension: targetDim };
         if (resumed) {
             alreadyStaged = generationRowIds();
+            stagedHashes = generationRowHashes();
             process.stderr.write(`MeMesh: resuming an unfinished ${targetDim}-dim rebuild — ${alreadyStaged.size} entities already embedded, `
                 + `so the provider is only asked for the rest.\n`);
         }
@@ -280,9 +284,13 @@ export async function reindex(opts) {
         database_closed: 0,
         entity_missing: 0,
         nothing_to_embed: 0,
+        already_staged: 0,
         no_vector_index: 0,
     };
     let processed = 0;
+    const CONSECUTIVE_FAILURE_LIMIT = 5;
+    let consecutiveFailures = 0;
+    let abortedAfter = null;
     process.stderr.write(`MeMesh: Reindexing ${entities.length} entities...\n`);
     const obsStmt = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id');
     for (const entity of entities) {
@@ -301,12 +309,27 @@ export async function reindex(opts) {
             continue;
         }
         const text = entityEmbedText(entity.name, observations);
+        const textHash = createHash('sha256').update(text).digest('hex').slice(0, 32);
         try {
-            if (alreadyStaged.has(entity.id)) {
-                outcomes.stored++;
+            if (alreadyStaged.has(entity.id) && stagedHashes.get(entity.id) === textHash) {
+                outcomes.already_staged++;
                 continue;
             }
-            outcomes[await embedAndStore(entity.id, text, undefined, generation)]++;
+            const outcome = await embedAndStore(entity.id, text, undefined, generation);
+            outcomes[outcome]++;
+            if (outcome === 'stored' && generation)
+                recordGenerationRow(entity.id, textHash);
+            if (outcome === 'stored') {
+                consecutiveFailures = 0;
+            }
+            else if (outcome !== 'removed' && ++consecutiveFailures >= CONSECUTIVE_FAILURE_LIMIT) {
+                abortedAfter = processed;
+                process.stderr.write(`MeMesh: stopping after ${CONSECUTIVE_FAILURE_LIMIT} consecutive failures at entity `
+                    + `${processed}/${entities.length} — the provider is not answering usefully, and the `
+                    + `remaining ${entities.length - processed} would fail the same way. Everything embedded `
+                    + `so far is kept; run 'memesh reindex' again to continue from here.\n`);
+                break;
+            }
             if (processed % 10 === 0) {
                 process.stderr.write(`MeMesh: Processed ${processed}/${entities.length} ` +
                     `(${outcomes.stored} embedded, ${processed - outcomes.stored} skipped)\n`);
@@ -323,10 +346,12 @@ export async function reindex(opts) {
         outcomes.dimension_mismatch +
         outcomes.write_failed +
         outcomes.database_closed;
+    let generationSwapped = null;
     if (generation) {
         const stagedRows = generationRowIds().size;
         const expected = entities.length - outcomes.entity_missing - outcomes.nothing_to_embed - outcomes.removed;
-        const complete = failed === 0 && stagedRows >= expected;
+        const complete = failed === 0 && abortedAfter === null && stagedRows >= expected;
+        generationSwapped = complete;
         if (complete) {
             swapVectorGeneration(generation.dimension);
             process.stderr.write(`MeMesh: new ${generation.dimension}-dim index verified (${stagedRows} vectors) and switched in. `
@@ -376,6 +401,8 @@ export async function reindex(opts) {
         missingVectors,
         missingVectorsDatabaseWide,
         pendingReindexCleared,
+        generationSwapped,
+        abortedAfter,
     };
 }
 //# sourceMappingURL=operations.js.map

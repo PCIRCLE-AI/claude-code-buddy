@@ -4,7 +4,7 @@ import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { openDatabase, closeDatabase, getDatabase, reindexFts } from '../../db.js';
+import { openDatabase, closeDatabase, getDatabase, reindexFts, readVectorGeneration, generationRowIds, discardVectorGeneration, } from '../../db.js';
 import { remember, recallWithConflicts, forget, exportMemories, importMemories, learn, reindex, setPinned } from '../../core/operations.js';
 import { readConfig, writeConfig, maskApiKey, detectCapabilities } from '../../core/config.js';
 import { MAX_LANGUAGE_LENGTH, languageValueError } from '../../core/output-language.js';
@@ -691,7 +691,6 @@ const ALLOWED_KEYS = new Set([
     'llm.apiKey',
     'llm.model',
     'embedder.provider',
-    'embedder.model',
     'autoUpdate',
     'sessionLimit',
     'autoCapture',
@@ -1838,9 +1837,29 @@ program
     .description('Regenerate vector embeddings for all entities (--fts rebuilds the keyword index instead)')
     .option('--namespace <namespace>', 'Reindex only entities in this namespace')
     .option('--fts', 'Rebuild the full-text keyword index instead of the vector index')
+    .option('--discard-generation', 'Throw away a half-built vector index left by an interrupted rebuild, without rebuilding')
     .option('--json', 'Output as JSON')
     .action(async (opts) => {
     requireOneOf(opts.namespace, NAMESPACES, '--namespace');
+    if (opts.discardGeneration) {
+        await withDatabase(async () => {
+            const read = readVectorGeneration();
+            const staged = generationRowIds().size;
+            if (read.state === 'none' && staged === 0) {
+                console.log('Nothing to discard: there is no half-built vector index.');
+                return;
+            }
+            const describe = read.state === 'open'
+                ? `${read.info.dimension}-dim, provider ${read.info.provider}, started ${read.info.startedAt}`
+                : read.state === 'unreadable'
+                    ? `marker unreadable (${read.detail})`
+                    : 'no marker';
+            discardVectorGeneration();
+            console.log(`Discarded a half-built vector index: ${staged} staged vectors (${describe}).\n` +
+                '   Your live index was not touched. Run `memesh reindex` to build a new one.');
+        });
+        return;
+    }
     try {
         if (opts.fts) {
             await withDatabase(async () => {
@@ -1864,7 +1883,10 @@ program
         }
         await withDatabase(async () => {
             const result = await reindex({ namespace: opts.namespace });
-            const incomplete = result.missingVectors > 0 || result.failed > 0;
+            const incomplete = result.missingVectors > 0
+                || result.failed > 0
+                || result.generationSwapped === false
+                || result.abortedAfter !== null;
             if (opts.json) {
                 console.log(JSON.stringify(result));
             }
@@ -1873,6 +1895,14 @@ program
                 console.log(`   Processed: ${result.processed}`);
                 console.log(`   Embedded:  ${result.embedded}`);
                 console.log(`   Skipped:   ${result.skipped}`);
+                if (result.abortedAfter !== null) {
+                    console.log(`   Stopped early after ${result.abortedAfter} entities: the provider failed ` +
+                        `repeatedly. Everything embedded so far is kept — run this again to continue.`);
+                }
+                if (result.generationSwapped === false) {
+                    console.log(`   The new index was NOT switched in, so your existing index is untouched ` +
+                        `and still answering queries.`);
+                }
                 if (result.missingVectors > 0) {
                     console.log(`   Still without a vector: ${result.missingVectors}`);
                 }

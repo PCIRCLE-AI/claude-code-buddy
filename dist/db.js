@@ -147,22 +147,38 @@ function ensureVecTable(db, resolvedPath, targetDim, dimensionKnown = true) {
         db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('embedding_dimension', ?)").run(String(targetDim));
     }).immediate();
 }
-const GENERATION_TABLE = 'entities_vec_next';
+export const GENERATION_TABLE = 'entities_vec_next';
+const GENERATION_HASH_TABLE = 'entities_vec_next_source';
 const GENERATION_KEY = 'vector_generation';
-export function getVectorGenerationInfo() {
+export function readVectorGeneration() {
     if (!db)
-        return null;
+        return { state: 'none' };
+    let raw;
     try {
         const row = db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(GENERATION_KEY);
         if (!row)
-            return null;
-        const parsed = JSON.parse(row.value);
-        if (typeof parsed.dimension !== 'number' || typeof parsed.provider !== 'string')
-            return null;
-        return { dimension: parsed.dimension, provider: parsed.provider, startedAt: String(parsed.startedAt ?? '') };
+            return { state: 'none' };
+        raw = row.value;
     }
-    catch {
-        return null;
+    catch (err) {
+        return { state: 'unreadable', detail: err instanceof Error ? err.message : String(err) };
+    }
+    try {
+        const parsed = JSON.parse(raw);
+        if (typeof parsed.dimension !== 'number' || typeof parsed.provider !== 'string') {
+            return { state: 'unreadable', detail: 'the marker is missing its dimension or provider' };
+        }
+        return {
+            state: 'open',
+            info: {
+                dimension: parsed.dimension,
+                provider: parsed.provider,
+                startedAt: String(parsed.startedAt ?? ''),
+            },
+        };
+    }
+    catch (err) {
+        return { state: 'unreadable', detail: err instanceof Error ? err.message : String(err) };
     }
 }
 export function generationRowIds() {
@@ -182,8 +198,17 @@ export function beginVectorGeneration(dimension, provider) {
         throw new Error(`Refusing to build a vector index at width ${String(dimension)}.`);
     }
     const conn = getDatabase();
-    const existing = getVectorGenerationInfo();
+    const read = readVectorGeneration();
     const stagingExists = conn.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type IN ('table','view') AND name = ?").get(GENERATION_TABLE).c > 0;
+    if (read.state === 'unreadable' && stagingExists) {
+        throw new Error('A half-built vector index is present but its marker cannot be read '
+            + `(${read.detail}). Resuming it risks mixing vectors from two different `
+            + 'embedding spaces, and discarding it throws away embeddings a previous run '
+            + 'already produced, so neither is done automatically. Run '
+            + '`memesh reindex --discard-generation` to throw the half-built index away '
+            + 'and start clean.');
+    }
+    const existing = read.state === 'open' ? read.info : null;
     const compatible = stagingExists && existing !== null
         && existing.dimension === dimension && existing.provider === provider;
     if (stagingExists && !compatible) {
@@ -192,14 +217,33 @@ export function beginVectorGeneration(dimension, provider) {
     const startedAt = compatible && existing ? existing.startedAt : new Date().toISOString();
     conn.transaction(() => {
         conn.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS ${GENERATION_TABLE} USING vec0(embedding float[${dimension}])`);
+        conn.exec(`CREATE TABLE IF NOT EXISTS ${GENERATION_HASH_TABLE} (`
+            + 'rowid_ref INTEGER PRIMARY KEY, text_hash TEXT NOT NULL)');
         conn.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(GENERATION_KEY, JSON.stringify({ dimension, provider, startedAt }));
     }).immediate();
     return { resumed: compatible };
+}
+export function generationRowHashes() {
+    const out = new Map();
+    if (!db)
+        return out;
+    const exists = db.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name = ?").get(GENERATION_HASH_TABLE).c > 0;
+    if (!exists)
+        return out;
+    const rows = db.prepare(`SELECT rowid_ref AS id, text_hash AS h FROM ${GENERATION_HASH_TABLE}`).all();
+    for (const r of rows)
+        out.set(Number(r.id), r.h);
+    return out;
+}
+export function recordGenerationRow(entityId, textHash) {
+    const conn = getDatabase();
+    conn.prepare(`INSERT OR REPLACE INTO ${GENERATION_HASH_TABLE} (rowid_ref, text_hash) VALUES (?, ?)`).run(BigInt(entityId), textHash);
 }
 export function discardVectorGeneration() {
     const conn = getDatabase();
     conn.transaction(() => {
         conn.exec(`DROP TABLE IF EXISTS ${GENERATION_TABLE}`);
+        conn.exec(`DROP TABLE IF EXISTS ${GENERATION_HASH_TABLE}`);
         conn.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(GENERATION_KEY);
     }).immediate();
 }
@@ -218,10 +262,16 @@ export function swapVectorGeneration(dimension) {
                 + `WHERE v.rowid IN (SELECT id FROM entities WHERE status = 'active') `
                 + `AND v.rowid NOT IN (SELECT rowid FROM ${GENERATION_TABLE})`);
         }
+        const staged = conn.prepare(`SELECT COUNT(*) AS c FROM ${GENERATION_TABLE}`).get().c;
         conn.exec('DROP TABLE IF EXISTS entities_vec');
         conn.exec(`CREATE VIRTUAL TABLE entities_vec USING vec0(embedding float[${dimension}])`);
         conn.exec(`INSERT INTO entities_vec (rowid, embedding) SELECT rowid, embedding FROM ${GENERATION_TABLE}`);
+        const installed = conn.prepare('SELECT COUNT(*) AS c FROM entities_vec').get().c;
+        if (installed !== staged) {
+            throw new Error(`Vector index swap copied ${installed} of ${staged} staged rows; refusing to publish a short index.`);
+        }
         conn.exec(`DROP TABLE ${GENERATION_TABLE}`);
+        conn.exec(`DROP TABLE IF EXISTS ${GENERATION_HASH_TABLE}`);
         conn.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run('embedding_dimension', String(dimension));
         conn.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(GENERATION_KEY);
     }).immediate();

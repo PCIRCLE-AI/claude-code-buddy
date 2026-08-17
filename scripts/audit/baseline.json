@@ -226,35 +226,10 @@
       "reason": "provenance spread identity; trust written unconditionally",
       "triaged": "2026-08-04"
     },
-    "C5 src/core/doctor.ts:459": {
-      "class": "SAFE-GUARDED",
-      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-13 420->424 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main)"
-    },
-    "C5 src/core/doctor.ts:460": {
-      "class": "SAFE-GUARDED",
-      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +2; same statement, classification unchanged); re-keyed 2026-08-13 421->425 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main)"
-    },
-    "C5 src/core/doctor.ts:505": {
-      "class": "SAFE-GUARDED",
-      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +1; same statement, classification unchanged); re-keyed 2026-08-13 466->470 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main)"
-    },
     "C5 src/core/llm-client.ts:125": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "chain identity; all-providers-failed still throws",
       "triaged": "2026-08-04; re-keyed 2026-08-13 rev3 +1 (the private redactSecrets was replaced by an import from core/paths; same statement, classification unchanged)"
-    },
-    "C5 src/core/config.ts:370": {
-      "class": "SAFE-GUARDED",
-      "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
-      "triaged": "2026-08-04 (re-keyed 353->359->369: the transcriptMining field + isTranscriptMiningEnabled additions shifted the line down 10; same llmFallbacks ?? [] code verified before re-keying); re-keyed 2026-08-10 (the AUTO_CAPTURE_TAG-driven detectCapabilities guard shifted it +7; same statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified)"
-    },
-    "C5 src/core/doctor.ts:1743": {
-      "class": "SAFE-GUARDED",
-      "reason": "verifySkillsManifest: entries ?? [] is followed by entries.length === 0 -> fail (skills-manifest.empty); the ?? cannot convert absence into a pass",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +6; same statement, classification unchanged); re-keyed 2026-08-12 +56 (the hook-activity rewrite and hoursSince); re-keyed 2026-08-13 1446->1560 (the review round's inspectHookActivity per-hook rewrite, isAutoCaptureOff and hoursSince round-trip added 114 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 1560->1616 (rev2: source_host corroboration, stop-silent/never-ran-legacy branches and the staleUnknown/stale helpers added 56 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 1616->1686 (foreign-row exclusion, read-only table probe, stale-unconfirmed/disabled-env branches and the legacy-window query added 70 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main)"
     },
     "C5 src/core/install-hooks.ts:290": {
       "class": "SAFE-GUARDED",
@@ -275,26 +250,6 @@
       "class": "NOT-A-GATE",
       "reason": "calibration tool, not a gate: re-derives the CONFLICT_MAX_COSINE_DISTANCE numbers against a real graph before an embedder or threshold change; its caller is a human, read-only by construction, and wiring it into CI would measure a fixture instead of the graph it exists to measure",
       "triaged": "2026-08-13 (conflict pipeline P1)"
-    },
-    "C5 src/transports/cli/cli.ts:222": {
-      "class": "SAFE-GUARDED",
-      "reason": "remember() sets relationErrors only when non-empty (operations.ts spreads it conditionally), so absent means none at the single producer; the failure path exits 1 off the same field",
-      "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-12 (shifted +1 by the sourceHost field added to the remember() call above, code unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified); re-keyed 2026-08-14 177->183 (UX-1 --title flag + quick-capture title above; same relationErrors statement — verified); re-keyed 2026-08-16 (A1c briefing import added one line above; statement verified at the new line — 145 changed OWNER from contradicts to supersedes, both siblings re-verified); re-keyed 2026-08-16 (+23: upgrade-plugin command and isOnPath helper added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD)"
-    },
-    "C5 src/transports/cli/cli.ts:216": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "remember() spreads relationsCreated only when non-empty, so absent means none were created at the single producer; the empty list correctly prints no conflicts line — this replaced arithmetic that announced conflicts for relations that had failed",
-      "triaged": "2026-08-10 (review pass); re-keyed 2026-08-12 (shifted +1 by the sourceHost field added to the remember() call above, code unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified); re-keyed 2026-08-14 171->177 (UX-1 lines above; same relationsCreated statement — verified; NOTE this key previously belonged to the relationErrors entry, now at 183); re-keyed 2026-08-16 (A1c briefing import added one line above; statement verified at the new line — 145 changed OWNER from contradicts to supersedes, both siblings re-verified); re-keyed 2026-08-16 (+23: upgrade-plugin command and isOnPath helper added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD)"
-    },
-    "C5 src/transports/cli/cli.ts:181": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "commander leaves --supersedes undefined when the flag is absent; the empty list truthfully means no relation was requested, and nothing downstream reports one as created",
-      "triaged": "2026-08-10 (P7 batch 2); corrected 2026-08-13: an earlier re-key attached this entry to the wrong sibling line (supersedes/contradicts pair swapped); reasons now match their statements; re-keyed 2026-08-14 137->142 (UX-1 --title flag/quick-capture lines above; same supersedes statement — verified); re-keyed 2026-08-16 (A1c briefing import added one line above; statement verified at the new line — 145 changed OWNER from contradicts to supersedes, both siblings re-verified); re-keyed 2026-08-16 (+23: upgrade-plugin command and isOnPath helper added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD)"
-    },
-    "C5 src/transports/cli/cli.ts:182": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "commander leaves --contradicts undefined when the flag is absent; the empty list truthfully means no relation was requested",
-      "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); corrected 2026-08-13: an earlier re-key attached this entry to the wrong sibling line (supersedes/contradicts pair swapped); reasons now match their statements; re-keyed 2026-08-14 138->143 (UX-1 lines above; same contradicts statement — verified); re-keyed 2026-08-16 (A1c briefing import added one line above; statement verified at the new line — 145 changed OWNER from contradicts to supersedes, both siblings re-verified); re-keyed 2026-08-16 (+23: upgrade-plugin command and isOnPath helper added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD)"
     },
     "C5 src/transports/mcp/handlers.ts:315": {
       "class": "SAFE-GUARDED",
@@ -501,21 +456,6 @@
       "reason": "the empty-result assertions ARE the contract under test (archived pointer readmits nothing), and every scenario pairs them with positive name-list assertions",
       "triaged": "2026-08-16 (UX-3 readmission rule)"
     },
-    "C5 src/transports/cli/cli.ts:773": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`(a.args ?? []).join` in the planned-actions RENDER only; execution re-reads args itself.",
-      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
-    },
-    "C5 src/transports/cli/cli.ts:801": {
-      "class": "SAFE-GUARDED",
-      "reason": "`action.args ?? []` when spawning: run-kind actions are constructed in core/setup.ts with args always set (pinned by unit tests asserting exact arrays); a hypothetical argless command would run as-is with its exit code reported honestly.",
-      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
-    },
-    "C5 src/transports/cli/cli.ts:802": {
-      "class": "SAFE-BY-CONSTRUCTION",
-      "reason": "`(action.args ?? []).join` in the success-echo of the command that just ran on the line above (694, same triage); the exit-code branch is the verdict.",
-      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified)"
-    },
     "C5 src/core/kg-backfill.ts:740": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "session tag index; empty means the entity carries no session tag, which is a real state — it falls through to the temporal project match",
@@ -586,30 +526,90 @@
       "reason": "`relations` is optional on the imported bundle entry; empty means none to re-create. Newly visible after the C5 `||` regex fix.",
       "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
     },
-    "C5 src/core/operations.ts:53": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "metadata spread identity; trust is set unconditionally after",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements — verified line by line against HEAD~1)"
-    },
-    "C5 src/core/operations.ts:56": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "metadata spread identity; trust is set unconditionally after",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements — verified line by line against HEAD~1)"
-    },
-    "C5 src/core/operations.ts:59": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "metadata spread identity; trust is set unconditionally after",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements — verified line by line against HEAD~1)"
-    },
-    "C5 src/core/operations.ts:134": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "provenance spread identity: absent provenanceOverride means the caller supplied none, and spreading {} correctly leaves the source_host stamped on the line above; a spread of undefined would even be legal JS, so this cannot convert a failure into a default",
-      "triaged": "2026-08-12 (Phase 02 provenance); re-keyed 2026-08-13 (shifted +6 by the first-writer-wins comment added above, statement unchanged); re-keyed 2026-08-14 119->120 (UX-1 title passed into createEntity above; same provenance spread statement — verified) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements — verified line by line against HEAD~1)"
-    },
     "C6 tests/cli-reindex-vectors-guard.test.ts": {
       "class": "SAFE-DATA-EXTRACTION",
       "reason": "the added scan extracts the set of registered .option() flags from cli.ts and asserts that no user-facing advice string names a flag outside it. The text is the DATA (which flags exist), not the behaviour under test — and it caught two real defects on its first run: the two 'reindex --vectors' messages this commit fixes, plus the older 'memesh doctor --verbose', a flag that never existed. The existing cli-hints detector could not see either, because it reads only cli.ts and only .command() registrations.",
       "triaged": "2026-08-18"
+    },
+    "C5 src/core/config.ts:379": {
+      "class": "SAFE-GUARDED",
+      "reason": "absent key truthfully means no failover; corrupt config caught by doctor inspectConfigParse",
+      "triaged": "2026-08-04 (re-keyed 353->359->369: the transcriptMining field + isTranscriptMiningEnabled additions shifted the line down 10; same llmFallbacks ?? [] code verified before re-keying); re-keyed 2026-08-10 (the AUTO_CAPTURE_TAG-driven detectCapabilities guard shifted it +7; same statement, classification unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/core/doctor.ts:462": {
+      "class": "SAFE-GUARDED",
+      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-13 420->424 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/core/doctor.ts:463": {
+      "class": "SAFE-GUARDED",
+      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +2; same statement, classification unchanged); re-keyed 2026-08-13 421->425 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/core/doctor.ts:508": {
+      "class": "SAFE-GUARDED",
+      "reason": "zero extracted scripts now fails before the pass branch (PR #112); the ?? is one route into a set that is length-checked",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +1; same statement, classification unchanged); re-keyed 2026-08-13 466->470 (the DatabaseLike all/run widening added 4 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 +4 (createCheck gained a 4-line comment about optional codes; same statement, classification unchanged); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/core/doctor.ts:1746": {
+      "class": "SAFE-GUARDED",
+      "reason": "verifySkillsManifest: entries ?? [] is followed by entries.length === 0 -> fail (skills-manifest.empty); the ?? cannot convert absence into a pass",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (the InstallChannel import and hook-wiring rewrite shifted it +6; same statement, classification unchanged); re-keyed 2026-08-12 +56 (the hook-activity rewrite and hoursSince); re-keyed 2026-08-13 1446->1560 (the review round's inspectHookActivity per-hook rewrite, isAutoCaptureOff and hoursSince round-trip added 114 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 1560->1616 (rev2: source_host corroboration, stop-silent/never-ran-legacy branches and the staleUnknown/stale helpers added 56 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 rev3 1616->1686 (foreign-row exclusion, read-only table probe, stale-unconfirmed/disabled-env branches and the legacy-window query added 70 lines above; verified byte-identical statement before re-keying); re-keyed 2026-08-13 (review-fix commit shifted lines; same statement, classification unchanged — verified); re-keyed 2026-08-16 (-6: LOCALE_README_FILES list shrank; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (doctor --fix on merged tree: fixId field + registry consult added above; byte-identical vs origin/main) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/core/operations.ts:57": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "metadata spread identity; trust is set unconditionally after",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements — verified line by line against HEAD~1) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/core/operations.ts:60": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "metadata spread identity; trust is set unconditionally after",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements — verified line by line against HEAD~1) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/core/operations.ts:63": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "metadata spread identity; trust is set unconditionally after",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements — verified line by line against HEAD~1) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/core/operations.ts:138": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "provenance spread identity: absent provenanceOverride means the caller supplied none, and spreading {} correctly leaves the source_host stamped on the line above; a spread of undefined would even be legal JS, so this cannot convert a failure into a default",
+      "triaged": "2026-08-12 (Phase 02 provenance); re-keyed 2026-08-13 (shifted +6 by the first-writer-wins comment added above, statement unchanged); re-keyed 2026-08-14 119->120 (UX-1 title passed into createEntity above; same provenance spread statement — verified) re-keyed 2026-08-18 (+2, review fixes added two imports to operations.ts; same statements — verified line by line against HEAD~1) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/transports/cli/cli.ts:184": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "commander leaves --supersedes undefined when the flag is absent; the empty list truthfully means no relation was requested, and nothing downstream reports one as created",
+      "triaged": "2026-08-10 (P7 batch 2); corrected 2026-08-13: an earlier re-key attached this entry to the wrong sibling line (supersedes/contradicts pair swapped); reasons now match their statements; re-keyed 2026-08-14 137->142 (UX-1 --title flag/quick-capture lines above; same supersedes statement — verified); re-keyed 2026-08-16 (A1c briefing import added one line above; statement verified at the new line — 145 changed OWNER from contradicts to supersedes, both siblings re-verified); re-keyed 2026-08-16 (+23: upgrade-plugin command and isOnPath helper added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/transports/cli/cli.ts:185": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "commander leaves --contradicts undefined when the flag is absent; the empty list truthfully means no relation was requested",
+      "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); corrected 2026-08-13: an earlier re-key attached this entry to the wrong sibling line (supersedes/contradicts pair swapped); reasons now match their statements; re-keyed 2026-08-14 138->143 (UX-1 lines above; same contradicts statement — verified); re-keyed 2026-08-16 (A1c briefing import added one line above; statement verified at the new line — 145 changed OWNER from contradicts to supersedes, both siblings re-verified); re-keyed 2026-08-16 (+23: upgrade-plugin command and isOnPath helper added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/transports/cli/cli.ts:219": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "remember() spreads relationsCreated only when non-empty, so absent means none were created at the single producer; the empty list correctly prints no conflicts line — this replaced arithmetic that announced conflicts for relations that had failed",
+      "triaged": "2026-08-10 (review pass); re-keyed 2026-08-12 (shifted +1 by the sourceHost field added to the remember() call above, code unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified); re-keyed 2026-08-14 171->177 (UX-1 lines above; same relationsCreated statement — verified; NOTE this key previously belonged to the relationErrors entry, now at 183); re-keyed 2026-08-16 (A1c briefing import added one line above; statement verified at the new line — 145 changed OWNER from contradicts to supersedes, both siblings re-verified); re-keyed 2026-08-16 (+23: upgrade-plugin command and isOnPath helper added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/transports/cli/cli.ts:225": {
+      "class": "SAFE-GUARDED",
+      "reason": "remember() sets relationErrors only when non-empty (operations.ts spreads it conditionally), so absent means none at the single producer; the failure path exits 1 off the same field",
+      "triaged": "2026-08-10 (P7 batch 2); re-keyed 2026-08-12 (shifted +1 by the sourceHost field added to the remember() call above, code unchanged); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified); re-keyed 2026-08-14 177->183 (UX-1 --title flag + quick-capture title above; same relationErrors statement — verified); re-keyed 2026-08-16 (A1c briefing import added one line above; statement verified at the new line — 145 changed OWNER from contradicts to supersedes, both siblings re-verified); re-keyed 2026-08-16 (+23: upgrade-plugin command and isOnPath helper added above; statements byte-identical — verified against HEAD); re-keyed 2026-08-16 (merge of memesh-setup onto main: +6 README Step 1.5 / +3 install-hooks export comment / +2 cli imports; byte-identical vs origin/main — NOTE C7 339 slid onto a colliding key, whole set re-verified); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/transports/cli/cli.ts:776": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "`(a.args ?? []).join` in the planned-actions RENDER only; execution re-reads args itself.",
+      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/transports/cli/cli.ts:804": {
+      "class": "SAFE-GUARDED",
+      "reason": "`action.args ?? []` when spawning: run-kind actions are constructed in core/setup.ts with args always set (pinned by unit tests asserting exact arrays); a hypothetical argless command would run as-is with its exit code reported honestly.",
+      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C5 src/transports/cli/cli.ts:805": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "`(action.args ?? []).join` in the success-echo of the command that just ran on the line above (694, same triage); the exit-code branch is the verdict.",
+      "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
     }
   }
 }
