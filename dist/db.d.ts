@@ -5,7 +5,18 @@ export declare function openDatabase(dbPath?: string): MemeshDatabase;
 export declare function reindexFts(): {
     entities: number;
 };
-export declare function allowVectorIndexRebuild(dbPath: string, canRefill: () => Promise<boolean>): Promise<boolean>;
+export interface VectorGenerationInfo {
+    dimension: number;
+    provider: string;
+    startedAt: string;
+}
+export declare function getVectorGenerationInfo(): VectorGenerationInfo | null;
+export declare function generationRowIds(): Set<number>;
+export declare function beginVectorGeneration(dimension: number, provider: string): {
+    resumed: boolean;
+};
+export declare function discardVectorGeneration(): void;
+export declare function swapVectorGeneration(dimension: number): void;
 export declare function getPendingReindexInfo(): {
     from: number;
     to: number;

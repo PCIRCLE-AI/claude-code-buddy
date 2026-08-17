@@ -114,20 +114,7 @@ export function reindexFts() {
         .get();
     return { entities: c };
 }
-let vectorRebuildConsentFor = null;
-export async function allowVectorIndexRebuild(dbPath, canRefill) {
-    if (!(await canRefill()))
-        return false;
-    vectorRebuildConsentFor = path.resolve(dbPath);
-    return true;
-}
-function consumeVectorRebuildConsent(resolvedPath) {
-    const granted = vectorRebuildConsentFor;
-    vectorRebuildConsentFor = null;
-    return granted !== null && granted === path.resolve(resolvedPath);
-}
 function ensureVecTable(db, resolvedPath, targetDim, dimensionKnown = true) {
-    const rebuildConsented = consumeVectorRebuildConsent(resolvedPath);
     const storedDim = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get();
     const currentDim = storedDim ? parseInt(storedDim.value, 10) : 0;
     const vecExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='entities_vec'").get();
@@ -140,31 +127,87 @@ function ensureVecTable(db, resolvedPath, targetDim, dimensionKnown = true) {
             `Fix ~/.memesh/config.json to change embedders.\n`);
         return;
     }
-    if (vecExists &&
-        currentDim !== 0 &&
-        currentDim !== targetDim &&
-        !rebuildConsented) {
+    if (vecExists && currentDim !== 0 && currentDim !== targetDim) {
         process.stderr.write(`MeMesh: this database records ${currentDim}-dim embeddings but the current ` +
-            `configuration asks for ${targetDim}. Keeping the existing vector index rather ` +
-            `than rebuilding it, because rebuilding deletes every stored vector. ` +
-            `If the configuration is wrong, fix it. If you meant to switch embedders, run ` +
-            `'memesh reindex --vectors' to rebuild the index at ${targetDim} and regenerate.\n`);
+            `configuration asks for ${targetDim}. The existing index is kept and still ` +
+            `answers queries. Run 'memesh reindex' to build a ${targetDim}-dim index ` +
+            `alongside it and switch over once it is complete — nothing is deleted ` +
+            `until the new index is verified.\n`);
+        db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)").run(JSON.stringify({ from: currentDim, to: targetDim, droppedAt: new Date().toISOString() }));
         return;
     }
     db.transaction(() => {
-        if (vecExists) {
-            process.stderr.write(`MeMesh: Embedding dimension changed (${currentDim} → ${targetDim}). Rebuilding vector index.\n` +
-                `MeMesh: Old embeddings deleted. Run 'memesh reindex' to regenerate vectors for all entities.\n` +
-                `MeMesh: Without reindex, only newly accessed entities will be embedded.\n`);
-            db.exec('DROP TABLE entities_vec');
-            db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)").run(JSON.stringify({ from: currentDim, to: targetDim, droppedAt: new Date().toISOString() }));
-        }
         db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS entities_vec USING vec0(
         embedding float[${targetDim}]
       );
     `);
         db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('embedding_dimension', ?)").run(String(targetDim));
+    }).immediate();
+}
+const GENERATION_TABLE = 'entities_vec_next';
+const GENERATION_KEY = 'vector_generation';
+export function getVectorGenerationInfo() {
+    if (!db)
+        return null;
+    try {
+        const row = db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(GENERATION_KEY);
+        if (!row)
+            return null;
+        const parsed = JSON.parse(row.value);
+        if (typeof parsed.dimension !== 'number' || typeof parsed.provider !== 'string')
+            return null;
+        return { dimension: parsed.dimension, provider: parsed.provider, startedAt: String(parsed.startedAt ?? '') };
+    }
+    catch {
+        return null;
+    }
+}
+export function generationRowIds() {
+    const out = new Set();
+    if (!db)
+        return out;
+    try {
+        const rows = db.prepare(`SELECT rowid AS id FROM ${GENERATION_TABLE}`).all();
+        for (const r of rows)
+            out.add(Number(r.id));
+    }
+    catch {
+    }
+    return out;
+}
+export function beginVectorGeneration(dimension, provider) {
+    const conn = getDatabase();
+    const existing = getVectorGenerationInfo();
+    const stagingExists = conn.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type IN ('table','view') AND name = ?").get(GENERATION_TABLE).c > 0;
+    const compatible = stagingExists && existing !== null
+        && existing.dimension === dimension && existing.provider === provider;
+    if (stagingExists && !compatible) {
+        discardVectorGeneration();
+    }
+    conn.transaction(() => {
+        conn.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS ${GENERATION_TABLE} USING vec0(embedding float[${dimension}])`);
+        conn.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run(GENERATION_KEY, JSON.stringify({ dimension, provider, startedAt: new Date().toISOString() }));
+    }).immediate();
+    return { resumed: compatible };
+}
+export function discardVectorGeneration() {
+    const conn = getDatabase();
+    conn.transaction(() => {
+        conn.exec(`DROP TABLE IF EXISTS ${GENERATION_TABLE}`);
+        conn.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(GENERATION_KEY);
+    }).immediate();
+}
+export function swapVectorGeneration(dimension) {
+    const conn = getDatabase();
+    conn.transaction(() => {
+        conn.exec('DROP TABLE IF EXISTS entities_vec');
+        conn.exec(`CREATE VIRTUAL TABLE entities_vec USING vec0(embedding float[${dimension}])`);
+        conn.exec(`INSERT INTO entities_vec (rowid, embedding) SELECT rowid, embedding FROM ${GENERATION_TABLE}`);
+        conn.exec(`DROP TABLE ${GENERATION_TABLE}`);
+        conn.prepare('INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)').run('embedding_dimension', String(dimension));
+        conn.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(GENERATION_KEY);
+        conn.prepare('DELETE FROM memesh_metadata WHERE key = ?').run('pending_reindex');
     }).immediate();
 }
 export function getPendingReindexInfo() {

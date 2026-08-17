@@ -122,25 +122,19 @@ describe('memesh reindex --vectors refuses to destroy more than asked', () => {
     return n;
   }
 
-  it('refuses --vectors with --namespace, and leaves the index untouched', () => {
+  it('the retired --vectors flag is rejected, and rejects before touching anything', () => {
+    // `--vectors` existed to consent to dropping every stored embedding before
+    // the refill began. Generations removed that step — a rebuild now happens
+    // beside the live index and replaces it only when complete — so the flag
+    // has no meaning left and is gone rather than kept as a no-op. What must
+    // NOT happen is that a script still passing it destroys anything on the
+    // way to the error.
     seedVectorIndex();
 
-    const result = run(['reindex', '--vectors', '--namespace', 'personal']);
+    const result = run(['reindex', '--vectors']);
 
-    expect(result.status, 'a refusal must not exit 0').toBe(1);
-    expect(result.stderr).toContain('--namespace');
-    // The point of the refusal: nothing was dropped on the way to it.
-    expect(vectorCount(), 'vectors were destroyed by a command that refused').toBe(1);
-  });
-
-  it('refuses --vectors with --fts', () => {
-    seedVectorIndex();
-
-    const result = run(['reindex', '--vectors', '--fts']);
-
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('separately');
-    expect(vectorCount()).toBe(1);
+    expect(result.status, 'an unknown flag must not exit 0').toBe(1);
+    expect(vectorCount(), 'a rejected command destroyed vectors').toBe(1);
   });
 
   it('does not print a tick and exit 0 when it regenerated nothing', () => {
@@ -177,12 +171,16 @@ describe('memesh reindex --vectors refuses to destroy more than asked', () => {
     const result = run(['reindex']);
 
     expect(result.status, 'a run that regenerated nothing exited 0').toBe(1);
-    expect(result.stdout).toContain('Reindex incomplete');
     expect(result.stdout, 'a tick over a run that wrote nothing').not.toContain('✅');
-    // The line that tells the user what actually happened, rather than
-    // "0 memories still have no vector" — true, and completely misleading.
-    expect(result.stdout).toContain('Could not be regenerated');
-    // And the stale vector is still there. The run failed; it did not destroy.
+    // It now refuses BEFORE spending the run, and names the actual HTTP status
+    // instead of a generic failure — the pre-flight probe embeds one string,
+    // and a 401 is configuration, not weather. Previously this same setup ran
+    // the whole corpus, failed every write, and reported "0 memories still
+    // have no vector", which was true and completely misleading.
+    expect(result.stderr).toContain('nothing was rebuilt');
+    expect(result.stderr, 'the user was not told their index survived').toContain('untouched');
+    // And the stale vector is still there, for a stronger reason than before:
+    // a refused rebuild never publishes at all.
     expect(vectorCount()).toBe(1);
   });
 
@@ -193,7 +191,6 @@ describe('memesh reindex --vectors refuses to destroy more than asked', () => {
 
     // Exit 0 or a genuine "no embedding provider" failure are both fine here;
     // what must NOT happen is the argument refusal.
-    expect(result.stderr).not.toContain('--vectors rebuilds the whole vector index');
-    expect(result.stderr).not.toContain('rebuild different indexes');
+    expect(result.stderr).not.toContain('unknown option');
   });
 });

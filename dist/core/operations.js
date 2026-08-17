@@ -1,4 +1,4 @@
-import { getDatabase, clearPendingReindexFlag } from '../db.js';
+import { getDatabase, clearPendingReindexFlag, beginVectorGeneration, generationRowIds, swapVectorGeneration, } from '../db.js';
 import { hasSearchableTerms } from '../storage/fts-index.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { rankEntities } from './scoring.js';
@@ -7,7 +7,7 @@ import { createExplicitLesson } from './lesson-engine.js';
 import { embedAndStore, isEmbeddingAvailable, embedText, entityEmbedText, scheduleEmbedAndStore, vectorSearch, vectorSimilarity, MAX_VECTOR_DISTANCE } from './embedder.js';
 import { autoTagAndApply } from './auto-tagger.js';
 import { hasVectorIndex } from '../storage/vector-index.js';
-import { detectCapabilities } from './config.js';
+import { detectCapabilities, getEmbeddingDimension } from './config.js';
 function buildLocalMetadata(existingMetadata, overrides) {
     return {
         ...(existingMetadata ?? {}),
@@ -251,6 +251,20 @@ export async function reindex(opts) {
     if (!hasVectorIndex(db)) {
         throw new Error('sqlite-vec is not loaded, so this database has no vector index to rebuild. Recall is running on FTS5 keyword search alone. Run `memesh doctor` — its "SQLite and vector search" row explains why the extension did not load on this machine.');
     }
+    const targetDim = getEmbeddingDimension();
+    const useGeneration = !opts?.namespace;
+    const provider = detectCapabilities().embeddings;
+    let generation;
+    let alreadyStaged = new Set();
+    if (useGeneration) {
+        const { resumed } = beginVectorGeneration(targetDim, provider);
+        generation = { table: 'entities_vec_next', dimension: targetDim };
+        if (resumed) {
+            alreadyStaged = generationRowIds();
+            process.stderr.write(`MeMesh: resuming an unfinished ${targetDim}-dim rebuild — ${alreadyStaged.size} entities already embedded, `
+                + `so the provider is only asked for the rest.\n`);
+        }
+    }
     const namespaceFilter = opts?.namespace ? 'AND namespace = ?' : '';
     const params = opts?.namespace ? [opts.namespace] : [];
     const entities = db.prepare(`SELECT id, name FROM entities WHERE status = 'active' ${namespaceFilter} ORDER BY id`).all(...params);
@@ -285,7 +299,11 @@ export async function reindex(opts) {
         }
         const text = entityEmbedText(entity.name, observations);
         try {
-            outcomes[await embedAndStore(entity.id, text)]++;
+            if (alreadyStaged.has(entity.id)) {
+                outcomes.stored++;
+                continue;
+            }
+            outcomes[await embedAndStore(entity.id, text, undefined, generation)]++;
             if (processed % 10 === 0) {
                 process.stderr.write(`MeMesh: Processed ${processed}/${entities.length} ` +
                     `(${outcomes.stored} embedded, ${processed - outcomes.stored} skipped)\n`);
@@ -302,6 +320,23 @@ export async function reindex(opts) {
         outcomes.dimension_mismatch +
         outcomes.write_failed +
         outcomes.database_closed;
+    if (generation) {
+        const stagedRows = generationRowIds().size;
+        const expected = entities.length - outcomes.entity_missing - outcomes.nothing_to_embed - outcomes.removed;
+        const complete = failed === 0 && stagedRows >= expected;
+        if (complete) {
+            swapVectorGeneration(generation.dimension);
+            process.stderr.write(`MeMesh: new ${generation.dimension}-dim index verified (${stagedRows} vectors) and switched in. `
+                + `The previous index was replaced only after this check passed.\n`);
+        }
+        else {
+            process.stderr.write(`MeMesh: the new index is incomplete (${stagedRows} of ${expected} vectors`
+                + `${failed > 0 ? `, ${failed} failures` : ''}), so it was NOT switched in — `
+                + `your existing index is untouched and still answering queries. `
+                + `Run 'memesh reindex' again to continue from where this stopped; `
+                + `the ${stagedRows} embeddings already produced are kept and will not be re-requested.\n`);
+        }
+    }
     const missingVectors = countMissingVectors(db, opts?.namespace);
     const missingVectorsDatabaseWide = opts?.namespace
         ? countMissingVectors(db)

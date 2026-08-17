@@ -314,67 +314,13 @@ export function reindexFts(): { entities: number } {
 }
 
 /**
- * One-shot permission to destroy the vector index.
- *
- * `ensureVecTable` runs inside `openDatabase`, long before any command-line
- * flag can be consulted, so the consent has to be recorded before the database
- * is opened and read once when the decision is made. `memesh reindex --vectors`
- * is the only thing that grants it, and only after confirming an embedding
- * provider is actually available — granting it without one would drop the
- * index and then have nothing to refill it with.
- *
- * One-shot on purpose: a long-lived process (the HTTP server) that opened the
- * database once with consent must not carry it to a later reopen.
- */
-let vectorRebuildConsentFor: string | null = null;
-
-/**
- * Grant it, for ONE database. Returns whether the grant took.
- *
- * `canRefill` is a required argument rather than a check the caller is trusted
- * to have already made, because the ordering is the whole safety property:
- * dropping the index without a working embedding provider destroys every vector
- * and leaves nothing able to regenerate them — the exact unrecoverable loss the
- * refusal exists to prevent, caused by the command offered as the safe way
- * through it. Two adjacent statements in the CLI would enforce that ordering
- * only until someone moved one of them. Passed in rather than imported because
- * `embedder.ts` imports this module. It is async because the only honest form
- * of the check is to produce an embedding and measure it — see
- * `canRefillVectorIndex`.
- *
- * `dbPath` narrows the grant to the database the caller meant. Without it the
- * consent was a bare module-level boolean: in the HTTP server, or any process
- * that opens more than one database, a grant recorded for A could be spent by
- * an unrelated `openDatabase(B)` that happened to run first, and B's vectors —
- * never consented to, never asked about — would be the ones dropped.
- * Authorisation as wide as the process, for an action as narrow as one file.
- */
-export async function allowVectorIndexRebuild(
-  dbPath: string,
-  canRefill: () => Promise<boolean>
-): Promise<boolean> {
-  if (!(await canRefill())) return false;
-  vectorRebuildConsentFor = path.resolve(dbPath);
-  return true;
-}
-
-/**
- * Spend it. True only for the database it was granted for; cleared either way,
- * so a grant never survives the open it was meant for.
- */
-function consumeVectorRebuildConsent(resolvedPath: string): boolean {
-  const granted = vectorRebuildConsentFor;
-  vectorRebuildConsentFor = null;
-  return granted !== null && granted === path.resolve(resolvedPath);
-}
-
-/**
  * Ensure entities_vec table exists with the correct dimension.
  *
- * A dimension change drops and recreates the table, destroying every stored
- * vector, so it happens only with explicit consent — see
- * {@link allowVectorIndexRebuild}. Without it the existing table is kept and
- * the mismatch is reported.
+ * A dimension change deletes nothing. The existing index is kept and keeps
+ * answering queries; the mismatch is recorded as a rebuild owed, and
+ * `memesh reindex` builds the new width in a staging generation and swaps it
+ * in only once complete (see `beginVectorGeneration` / `swapVectorGeneration`).
+ * There is no destructive branch here to consent to any more.
  */
 function ensureVecTable(
   db: MemeshDatabase,
@@ -382,12 +328,6 @@ function ensureVecTable(
   targetDim: number,
   dimensionKnown = true
 ): void {
-  // Spend the consent here, before any early return, so it is scoped to ONE
-  // open rather than to one rebuild. Consuming it only on the branch that uses
-  // it would leave it armed whenever the dimensions happened to agree — and
-  // the next open in that process could be a different database.
-  const rebuildConsented = consumeVectorRebuildConsent(resolvedPath);
-
   const storedDim = db.prepare(
     "SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'"
   ).get() as { value: string } | undefined;
@@ -451,19 +391,32 @@ function ensureVecTable(
   // has to be paid for a second time. Anything unrecoverable needs consent, and
   // `memesh reindex --vectors` is where that consent is given — it drops and
   // recreates the table at the new dimension and immediately refills it.
-  if (
-    vecExists &&
-    currentDim !== 0 &&
-    currentDim !== targetDim &&
-    !rebuildConsented
-  ) {
+  // A dimension change no longer drops anything, consented or not.
+  //
+  // This used to be the one destructive step in the whole open path: with
+  // consent recorded by `reindex --vectors`, the DROP committed here — before
+  // the refill loop had even started — so a run that died at 60% left 40% of
+  // the graph with no vector at all, and on a paid provider the finished 60%
+  // had to be bought a second time. The consent flow made that loss deliberate
+  // rather than accidental, which is not the same as making it acceptable.
+  //
+  // Generations replace it (see `beginVectorGeneration` and
+  // `swapVectorGeneration`): the new index is built in a staging table at the
+  // new width while this one keeps answering queries, and the live table is
+  // only ever replaced by a complete, verified generation inside one
+  // transaction. So the honest thing to do on a dimension change is nothing at
+  // all — record that a rebuild is owed and let `reindex` do it safely.
+  if (vecExists && currentDim !== 0 && currentDim !== targetDim) {
     process.stderr.write(
       `MeMesh: this database records ${currentDim}-dim embeddings but the current ` +
-        `configuration asks for ${targetDim}. Keeping the existing vector index rather ` +
-        `than rebuilding it, because rebuilding deletes every stored vector. ` +
-        `If the configuration is wrong, fix it. If you meant to switch embedders, run ` +
-        `'memesh reindex --vectors' to rebuild the index at ${targetDim} and regenerate.\n`
+        `configuration asks for ${targetDim}. The existing index is kept and still ` +
+        `answers queries. Run 'memesh reindex' to build a ${targetDim}-dim index ` +
+        `alongside it and switch over once it is complete — nothing is deleted ` +
+        `until the new index is verified.\n`
     );
+    db.prepare(
+      "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)"
+    ).run(JSON.stringify({ from: currentDim, to: targetDim, droppedAt: new Date().toISOString() }));
     return;
   }
 
@@ -473,21 +426,12 @@ function ensureVecTable(
   // skipped this branch entirely, created an empty one and stamped the new
   // dimension. `memesh doctor` then reported a healthy install over a silently
   // emptied index.
+  // Only two cases reach here now: no table yet, or a table already at the
+  // target width. Both are creation-or-nothing, so there is no DROP left in
+  // the open path at all — the branch that used to drop a mismatched table is
+  // gone rather than commented out, because the dimension-change case returns
+  // above and could never enter it.
   db.transaction(() => {
-    if (vecExists) {
-      process.stderr.write(
-        `MeMesh: Embedding dimension changed (${currentDim} → ${targetDim}). Rebuilding vector index.\n` +
-        `MeMesh: Old embeddings deleted. Run 'memesh reindex' to regenerate vectors for all entities.\n` +
-        `MeMesh: Without reindex, only newly accessed entities will be embedded.\n`
-      );
-      db.exec('DROP TABLE entities_vec');
-      // Persist the reindex-needed state so `memesh doctor` can surface it
-      // even after the process that dropped the table has exited.
-      db.prepare(
-        "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)"
-      ).run(JSON.stringify({ from: currentDim, to: targetDim, droppedAt: new Date().toISOString() }));
-    }
-
     db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS entities_vec USING vec0(
         embedding float[${targetDim}]
@@ -497,6 +441,147 @@ function ensureVecTable(
     db.prepare(
       "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('embedding_dimension', ?)"
     ).run(String(targetDim));
+  }).immediate();
+}
+
+// =============================================================================
+// Vector index generations — build beside, verify, swap atomically
+// =============================================================================
+//
+// `entities_vec` is a vec0 virtual table keyed only on rowid, with its width
+// fixed in the DDL (`float[N]`). Two generations cannot live in one such table,
+// which is why changing embedder used to mean dropping every vector first and
+// hoping the refill finished: a run that died at 60% left 40% of the graph
+// unsearchable, and on a paid provider the completed 60% had to be bought
+// again.
+//
+// A second table is the way out, and three facts were MEASURED against
+// sqlite-vec v0.1.9 before this was built rather than assumed:
+//
+//   1. `ALTER TABLE ... RENAME` does NOT work on a vec0 table. It reports
+//      success and leaves the table unreadable — vec0 keeps four shadow tables
+//      (`_chunks`, `_info`, `_rowids`, `_vector_chunks00`) and the rename
+//      touches none of them, so the first read fails with
+//      `no such table: main.<new>_rowids`. Swapping by rename is not available.
+//   2. Two vec0 tables of DIFFERENT widths coexist happily. So the new
+//      generation can be built at the new dimension while the old one keeps
+//      answering every query.
+//   3. DROP + CREATE + copy inside one transaction really does roll back: with
+//      the swap forced to fail before COMMIT, a FRESH connection still read the
+//      original table at its original width with all rows present. (Checked on
+//      the data, not on `sqlite_master` — a table NAME returning proves
+//      nothing about the vectors.)
+//
+// So: build into `entities_vec_next`, verify it, then one immediate
+// transaction drops the old table, recreates it at the new width, copies the
+// rows across and drops the staging table. Every reader keeps the name it
+// already hardcodes; none of them needs to know generations exist.
+
+const GENERATION_TABLE = 'entities_vec_next';
+const GENERATION_KEY = 'vector_generation';
+
+/** What a half-built generation records about itself, so a resume can tell
+ *  whether it is still resumable. A generation built by a different provider
+ *  or at a different width is not a generation to continue — it is one to
+ *  discard, because its vectors are not comparable with the ones we would add. */
+export interface VectorGenerationInfo {
+  dimension: number;
+  provider: string;
+  startedAt: string;
+}
+
+export function getVectorGenerationInfo(): VectorGenerationInfo | null {
+  if (!db) return null;
+  try {
+    const row = db.prepare(
+      'SELECT value FROM memesh_metadata WHERE key = ?'
+    ).get(GENERATION_KEY) as { value: string } | undefined;
+    if (!row) return null;
+    const parsed = JSON.parse(row.value) as Partial<VectorGenerationInfo>;
+    if (typeof parsed.dimension !== 'number' || typeof parsed.provider !== 'string') return null;
+    return { dimension: parsed.dimension, provider: parsed.provider, startedAt: String(parsed.startedAt ?? '') };
+  } catch {
+    return null;
+  }
+}
+
+/** Rows already embedded into the staging generation, so a resume asks the
+ *  provider only for what it has not paid for yet. */
+export function generationRowIds(): Set<number> {
+  const out = new Set<number>();
+  if (!db) return out;
+  try {
+    const rows = db.prepare(`SELECT rowid AS id FROM ${GENERATION_TABLE}`).all() as Array<{ id: number | bigint }>;
+    for (const r of rows) out.add(Number(r.id));
+  } catch {
+    // No staging table yet — an empty set is the honest answer.
+  }
+  return out;
+}
+
+/**
+ * Open a generation at `dimension`, reusing a compatible half-built one.
+ *
+ * Returns whether the staging table was reused, so the caller can say
+ * "resuming" rather than implying a fresh start it did not make.
+ */
+export function beginVectorGeneration(dimension: number, provider: string): { resumed: boolean } {
+  const conn = getDatabase();
+  const existing = getVectorGenerationInfo();
+  const stagingExists = (conn.prepare(
+    "SELECT COUNT(*) AS c FROM sqlite_master WHERE type IN ('table','view') AND name = ?"
+  ).get(GENERATION_TABLE) as { c: number }).c > 0;
+
+  const compatible = stagingExists && existing !== null
+    && existing.dimension === dimension && existing.provider === provider;
+
+  if (stagingExists && !compatible) {
+    // A leftover from a different provider or width. Its vectors live in a
+    // different space, so mixing them with new ones would be the drift this
+    // whole mechanism exists to prevent.
+    discardVectorGeneration();
+  }
+
+  conn.transaction(() => {
+    conn.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS ${GENERATION_TABLE} USING vec0(embedding float[${dimension}])`);
+    conn.prepare(
+      'INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)'
+    ).run(GENERATION_KEY, JSON.stringify({ dimension, provider, startedAt: new Date().toISOString() }));
+  }).immediate();
+
+  return { resumed: compatible };
+}
+
+/** Throw away a half-built generation, leaving the live index untouched. */
+export function discardVectorGeneration(): void {
+  const conn = getDatabase();
+  conn.transaction(() => {
+    conn.exec(`DROP TABLE IF EXISTS ${GENERATION_TABLE}`);
+    conn.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(GENERATION_KEY);
+  }).immediate();
+}
+
+/**
+ * Promote the staging generation to be the live index, or change nothing.
+ *
+ * One immediate transaction: drop the live table, recreate it at the new
+ * width, copy every staged row, drop the staging table, restamp the dimension
+ * and clear both markers. A failure anywhere rolls the whole thing back and
+ * the previous index is still the live one — measured, not assumed (see the
+ * header note above).
+ */
+export function swapVectorGeneration(dimension: number): void {
+  const conn = getDatabase();
+  conn.transaction(() => {
+    conn.exec('DROP TABLE IF EXISTS entities_vec');
+    conn.exec(`CREATE VIRTUAL TABLE entities_vec USING vec0(embedding float[${dimension}])`);
+    conn.exec(`INSERT INTO entities_vec (rowid, embedding) SELECT rowid, embedding FROM ${GENERATION_TABLE}`);
+    conn.exec(`DROP TABLE ${GENERATION_TABLE}`);
+    conn.prepare(
+      'INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES (?, ?)'
+    ).run('embedding_dimension', String(dimension));
+    conn.prepare('DELETE FROM memesh_metadata WHERE key = ?').run(GENERATION_KEY);
+    conn.prepare('DELETE FROM memesh_metadata WHERE key = ?').run('pending_reindex');
   }).immediate();
 }
 

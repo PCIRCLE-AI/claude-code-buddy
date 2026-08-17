@@ -1133,7 +1133,6 @@ Regenerate vector embeddings for all entities.
 |--------|-------------|
 | `--namespace <namespace>` | Reindex only entities in this namespace. |
 | `--fts` | Rebuild the full-text keyword index instead of the vector index. |
-| `--vectors` | Rebuild the vector index at the configured dimension first. **Destructive**, and cannot be combined with `--namespace` or `--fts` — see below. |
 | `--json` | Output the result as JSON. |
 
 `--fts` rebuilds the full-text keyword index instead. The keyword index
@@ -1147,28 +1146,57 @@ install side by side. `--fts` is the way out of that state.
 memesh reindex --fts
 ```
 
-`--vectors` is for switching embedding providers, and only that. Each provider
-emits vectors of a different width — 768 for Ollama, 1536 for OpenAI (and 384
-for the keyword-only default, which is also the width legacy tables were built
-at) — and a `vec0`
-table is fixed at one width, so changing
-provider means dropping the table and recreating it. **Every stored embedding is
-deleted.** MeMesh will not do that on its own: when the database and the config
-disagree about the dimension, it keeps the existing index and says so, because a
-stale index still works and a deleted one cannot be recovered — on a paid API
-embedder it has to be bought a second time. `--vectors` is how you say yes.
+#### Nothing is deleted until the new index is complete
 
-```bash
-memesh reindex --vectors
-```
+A full reindex builds the new vectors in a **staging generation** beside the
+live index, and replaces the live one only once every entity that should have a
+vector has one and nothing failed. The swap is a single transaction.
 
-It refuses in three cases, all of which would destroy more than was asked for:
+What that means in practice:
+
+- **The old index keeps answering queries** for the whole rebuild. There is no
+  window where semantic search is degraded.
+- **A run that dies part way changes nothing.** Provider rate limit, network
+  drop, `Ctrl-C`, a killed process — the live index is byte-for-byte what it
+  was. It is never left as a half-new, half-old mix, whose distances are no
+  longer comparable against each other or against the dedup threshold.
+- **The embeddings already produced are kept.** Run `memesh reindex` again and
+  it resumes: only the entities the previous run did not reach are sent to the
+  provider. On a paid API this is the difference between finishing the job and
+  paying for it twice.
+- **A half-built generation is discarded, not resumed, if the provider or the
+  width changed** since it was started. Vectors from two different embedding
+  spaces must not end up in one index.
+
+**Switching embedding provider needs no special flag.** Each provider emits a
+different width — 768 for Ollama, 1536 for OpenAI, 384 for the keyword-only
+default — and a `vec0` table is fixed at one width, so the new index really is a
+new table. That is what a generation is. Change the provider in your config and
+run `memesh reindex`; the old index stays live at its old width until the new one
+is verified. Until you do, MeMesh keeps the existing index and says so on open,
+because a stale index still works.
+
+> `--vectors` was retired. It existed to grant consent for dropping every
+> stored embedding before the refill began — the step generations removed. The
+> flag is rejected rather than accepted as a no-op, and rejecting it destroys
+> nothing.
+
+A full reindex refuses up front in one case:
 
 | Refused | Why |
 |---------|-----|
-| A test embedding could not be produced at the configured width | Dropping the index would leave nothing able to refill it. The check embeds one string and measures the result, rather than trusting the provider name in the config: `openai` and `ollama` are "available" the moment they are named, so an expired key, a typo'd key, or a stopped Ollama would otherwise authorise deleting every vector in the database. |
-| `--vectors --namespace X` | `entities_vec` is one table for the whole database, so the rebuild drops *every* namespace's vectors while `--namespace` would refill only `X`. |
-| `--vectors --fts` | Two different indexes; one flag each. |
+| A test embedding could not be produced at the configured width | The run would fill nothing, and would spend its whole length discovering that. The check embeds one string and measures the result, rather than trusting the provider name in the config: `openai` and `ollama` are "available" the moment they are named, so an expired key, a typo'd key or a stopped Ollama would otherwise be found out one entity at a time. Your existing index is untouched. |
+
+Namespace-scoped runs (`--namespace X`) write in place rather than through a
+generation, because a staging table holding one namespace would drop every other
+namespace's vectors when swapped in. In-place is safe for the reason a full
+rebuild is not: each row's old vector survives until its replacement has been
+produced.
+
+**Provider requests** are bounded: a 30-second timeout per request, and up to
+three attempts for a 429 or a 5xx (honouring `Retry-After` when the server sends
+one). A 401, 403 or 404 is configuration rather than weather, so it stops
+immediately and names the status instead of retrying against a certainty.
 
 **Exit codes**:
 

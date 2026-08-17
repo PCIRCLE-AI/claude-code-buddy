@@ -9,7 +9,13 @@
 //   - Returns typed results directly
 // =============================================================================
 
-import { getDatabase, clearPendingReindexFlag } from '../db.js';
+import {
+  getDatabase,
+  clearPendingReindexFlag,
+  beginVectorGeneration,
+  generationRowIds,
+  swapVectorGeneration,
+} from '../db.js';
 import { hasSearchableTerms } from '../storage/fts-index.js';
 import { KnowledgeGraph } from '../knowledge-graph.js';
 import { rankEntities } from './scoring.js';
@@ -19,7 +25,7 @@ import { embedAndStore, isEmbeddingAvailable, embedText, entityEmbedText, schedu
 import type { EmbedOutcome } from './embedder.js';
 import { autoTagAndApply } from './auto-tagger.js';
 import { hasVectorIndex } from '../storage/vector-index.js';
-import { detectCapabilities } from './config.js';
+import { detectCapabilities, getEmbeddingDimension } from './config.js';
 import type {
   RememberInput,
   RememberResult,
@@ -612,6 +618,36 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     throw new Error('sqlite-vec is not loaded, so this database has no vector index to rebuild. Recall is running on FTS5 keyword search alone. Run `memesh doctor` — its "SQLite and vector search" row explains why the extension did not load on this machine.');
   }
 
+  // A rebuild builds the NEXT generation beside the live index and swaps only
+  // when it is complete. Nothing is deleted until then: the old vectors keep
+  // answering every query while this runs, and a run that dies at 60% leaves
+  // the previous index exactly as it was. That matters twice over — a partial
+  // index is unsearchable for the rows it lost, and on a paid provider the
+  // embeddings already bought would have to be bought again.
+  //
+  // Namespace-scoped runs cannot use a generation: the staging table would
+  // hold only that namespace, and swapping it in would drop every other
+  // namespace's vectors — the destruction wider than the repair. So they keep
+  // writing in place, which is safe for exactly the reason a full rebuild is
+  // not: each row's old vector survives until its replacement is proven.
+  const targetDim = getEmbeddingDimension();
+  const useGeneration = !opts?.namespace;
+  const provider = detectCapabilities().embeddings;
+  let generation: { table: string; dimension: number } | undefined;
+  let alreadyStaged = new Set<number>();
+
+  if (useGeneration) {
+    const { resumed } = beginVectorGeneration(targetDim, provider);
+    generation = { table: 'entities_vec_next', dimension: targetDim };
+    if (resumed) {
+      alreadyStaged = generationRowIds();
+      process.stderr.write(
+        `MeMesh: resuming an unfinished ${targetDim}-dim rebuild — ${alreadyStaged.size} entities already embedded, `
+        + `so the provider is only asked for the rest.\n`,
+      );
+    }
+  }
+
   // Get all active entities (optionally filtered by namespace)
   const namespaceFilter = opts?.namespace ? 'AND namespace = ?' : '';
   const params = opts?.namespace ? [opts.namespace] : [];
@@ -685,7 +721,12 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     const text = entityEmbedText(entity.name, observations);
 
     try {
-      outcomes[await embedAndStore(entity.id, text)]++;
+      // Already bought in a previous, unfinished run of this same generation.
+      if (alreadyStaged.has(entity.id)) {
+        outcomes.stored++;
+        continue;
+      }
+      outcomes[await embedAndStore(entity.id, text, undefined, generation)]++;
 
       // Progress logging every 10 entities
       if (processed % 10 === 0) {
@@ -713,6 +754,36 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     outcomes.dimension_mismatch +
     outcomes.write_failed +
     outcomes.database_closed;
+
+  // --- Verify, then swap. Or keep the half-built generation and say so. ---
+  //
+  // The staging table is promoted only when every entity that should have a
+  // vector has one in it AND nothing failed. Anything less and the live index
+  // stays live: it is complete, it is the one that has been answering queries
+  // throughout, and it is strictly better than a fresh index missing rows.
+  // The staging table survives on purpose so the next run resumes instead of
+  // paying a provider twice for the same embeddings.
+  if (generation) {
+    const stagedRows = generationRowIds().size;
+    const expected = entities.length - outcomes.entity_missing - outcomes.nothing_to_embed - outcomes.removed;
+    const complete = failed === 0 && stagedRows >= expected;
+
+    if (complete) {
+      swapVectorGeneration(generation.dimension);
+      process.stderr.write(
+        `MeMesh: new ${generation.dimension}-dim index verified (${stagedRows} vectors) and switched in. `
+        + `The previous index was replaced only after this check passed.\n`,
+      );
+    } else {
+      process.stderr.write(
+        `MeMesh: the new index is incomplete (${stagedRows} of ${expected} vectors`
+        + `${failed > 0 ? `, ${failed} failures` : ''}), so it was NOT switched in — `
+        + `your existing index is untouched and still answering queries. `
+        + `Run 'memesh reindex' again to continue from where this stopped; `
+        + `the ${stagedRows} embeddings already produced are kept and will not be re-requested.\n`,
+      );
+    }
+  }
 
   // The database has the final say. If a vector is missing here, it is missing
   // regardless of what the loop counted.

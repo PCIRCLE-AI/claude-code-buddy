@@ -87,7 +87,7 @@ function rejectNonFinite(vector, provider) {
     }
     return vector;
 }
-export async function embedAndStore(entityId, text, caps) {
+export async function embedAndStore(entityId, text, caps, target) {
     try {
         const embedding = await embedText(text, caps);
         if (!embedding)
@@ -96,7 +96,7 @@ export async function embedAndStore(entityId, text, caps) {
         if (!hasVectorIndex(db))
             return 'no_vector_index';
         const storedDim = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'").get();
-        const expectedDim = storedDim ? parseInt(storedDim.value, 10) : 0;
+        const expectedDim = target ? target.dimension : (storedDim ? parseInt(storedDim.value, 10) : 0);
         const actualDim = embedding.length;
         if (expectedDim > 0 && actualDim !== expectedDim) {
             process.stderr.write(`MeMesh: Embedding dimension mismatch (got ${actualDim}, expected ${expectedDim}). ` +
@@ -107,13 +107,14 @@ export async function embedAndStore(entityId, text, caps) {
         }
         const rowId = toVectorRowId(entityId);
         const entity = db.prepare('SELECT status FROM entities WHERE id = ?').get(entityId);
+        const table = target?.table ?? 'entities_vec';
         if (!entity || entity.status === 'archived') {
-            db.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(rowId);
+            db.prepare(`DELETE FROM ${table} WHERE rowid = ?`).run(rowId);
             return 'removed';
         }
         const writeVector = db.transaction(() => {
-            db.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(rowId);
-            db.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)').run(rowId, toVectorBlob(embedding));
+            db.prepare(`DELETE FROM ${table} WHERE rowid = ?`).run(rowId);
+            db.prepare(`INSERT INTO ${table} (rowid, embedding) VALUES (?, ?)`).run(rowId, toVectorBlob(embedding));
         });
         writeVector();
         return 'stored';
@@ -153,19 +154,62 @@ async function embedWithProvider(text, config) {
         return null;
     }
 }
+const PROVIDER_TIMEOUT_MS = 30_000;
+const PROVIDER_MAX_ATTEMPTS = 3;
+const PROVIDER_BASE_BACKOFF_MS = 500;
+async function providerFetch(url, init, label) {
+    for (let attempt = 1; attempt <= PROVIDER_MAX_ATTEMPTS; attempt++) {
+        const timeout = AbortSignal.timeout(PROVIDER_TIMEOUT_MS);
+        let res;
+        try {
+            res = await fetch(url, { ...init, signal: timeout });
+        }
+        catch (err) {
+            const timedOut = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+            if (attempt === PROVIDER_MAX_ATTEMPTS) {
+                process.stderr.write(`MeMesh: ${label} embedding request ${timedOut ? `timed out after ${PROVIDER_TIMEOUT_MS}ms` : 'failed'} `
+                    + `on attempt ${attempt}/${PROVIDER_MAX_ATTEMPTS}.\n`);
+                return null;
+            }
+            await sleep(PROVIDER_BASE_BACKOFF_MS * attempt);
+            continue;
+        }
+        if (res.ok)
+            return res;
+        const retryable = res.status === 429 || res.status >= 500;
+        if (!retryable) {
+            process.stderr.write(`MeMesh: ${label} embedding request refused with HTTP ${res.status}.\n`);
+            return null;
+        }
+        if (attempt === PROVIDER_MAX_ATTEMPTS) {
+            process.stderr.write(`MeMesh: ${label} embedding request still failing with HTTP ${res.status} `
+                + `after ${PROVIDER_MAX_ATTEMPTS} attempts.\n`);
+            return null;
+        }
+        const retryAfter = Number(res.headers.get('retry-after'));
+        const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+            ? Math.min(retryAfter * 1000, 30_000)
+            : PROVIDER_BASE_BACKOFF_MS * attempt;
+        await sleep(waitMs);
+    }
+    return null;
+}
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
 async function embedWithOpenAI(text, config) {
     const apiKey = config.apiKey || process.env.OPENAI_API_KEY;
     if (!apiKey)
         return null;
-    const res = await fetch('https://api.openai.com/v1/embeddings', {
+    const res = await providerFetch('https://api.openai.com/v1/embeddings', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
             model: 'text-embedding-3-small',
             input: text.slice(0, 8000),
         }),
-    });
-    if (!res.ok)
+    }, 'OpenAI');
+    if (!res)
         return null;
     const data = await res.json();
     const embedding = data.data?.[0]?.embedding;
@@ -176,12 +220,12 @@ async function embedWithOpenAI(text, config) {
 async function embedWithOllama(text, config) {
     const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
     const model = config.model || 'nomic-embed-text';
-    const res = await fetch(`${host}/api/embed`, {
+    const res = await providerFetch(`${host}/api/embed`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model, input: text.slice(0, 8000) }),
-    });
-    if (!res.ok)
+    }, 'Ollama');
+    if (!res)
         return null;
     const data = await res.json();
     const embedding = data.embeddings?.[0];

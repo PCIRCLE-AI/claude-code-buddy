@@ -66,11 +66,6 @@
       "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
       "triaged": "2026-08-04"
     },
-    "C1 tests/vector-index-safety.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
-      "triaged": "2026-08-04"
-    },
     "C3 npm:lint:fix": {
       "class": "NOT-A-GATE",
       "reason": "lint:fix is a developer convenience whose caller is a human",
@@ -176,17 +171,17 @@
       "reason": "secondary greps run after the exit-code gate has already read DOCTOR_EXIT",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-14 222->233 (the timeout-minutes evidence comment above shifted +11; same statement — verified)"
     },
+    "C5 src/core/operations.ts:57": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "metadata spread identity; trust is set unconditionally after",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
+    },
+    "C5 src/core/operations.ts:54": {
+      "class": "SAFE-ACCUMULATOR",
+      "reason": "metadata spread identity; trust is set unconditionally after",
+      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
+    },
     "C5 src/core/operations.ts:51": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "metadata spread identity; trust is set unconditionally after",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
-    },
-    "C5 src/core/operations.ts:48": {
-      "class": "SAFE-ACCUMULATOR",
-      "reason": "metadata spread identity; trust is set unconditionally after",
-      "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
-    },
-    "C5 src/core/operations.ts:45": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "metadata spread identity; trust is set unconditionally after",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification)"
@@ -326,7 +321,7 @@
       "reason": "Zod rejects {} for schemas with required fields",
       "triaged": "2026-08-10 (re-keyed 290->312: the stripNullProps helper added 22 lines above; the statement now wraps args in stripNullProps, which maps {} to {} and null properties to absent — the guard this triage relies on, Zod rejecting {} for required fields, is untouched); re-keyed 2026-08-13 (agentic-orchestration removal shifted lines up; same statement, classification unchanged); re-keyed 2026-08-14 266->268 (causal-convention sentences in the relation-type description; same statement — verified); re-keyed 2026-08-14 268->273 (UX-1 title property in remember inputSchema above; same safeParse statement — verified); re-keyed 2026-08-16 (A1c briefing import added one line above; statement verified at the new line — 145 changed OWNER from contradicts to supersedes, both siblings re-verified)"
     },
-    "C5 src/core/operations.ts:126": {
+    "C5 src/core/operations.ts:132": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "provenance spread identity: absent provenanceOverride means the caller supplied none, and spreading {} correctly leaves the source_host stamped on the line above; a spread of undefined would even be legal JS, so this cannot convert a failure into a default",
       "triaged": "2026-08-12 (Phase 02 provenance); re-keyed 2026-08-13 (shifted +6 by the first-writer-wins comment added above, statement unchanged); re-keyed 2026-08-14 119->120 (UX-1 title passed into createEntity above; same provenance spread statement — verified)"

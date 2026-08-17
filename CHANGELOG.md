@@ -6,6 +6,42 @@ All notable changes to MeMesh are documented here.
 
 ### Added
 
+- **A reindex no longer deletes anything until the new index is complete.**
+  Rebuilding the vector index used to drop every stored embedding first and
+  then refill — so a run that died part way (rate limit, dropped connection,
+  `Ctrl-C`) left the graph half unsearchable, and on a paid API the
+  embeddings it had already produced had to be bought again. The new index is
+  now built in a staging generation beside the live one, which keeps answering
+  queries throughout, and replaces it in a single transaction only once every
+  entity that should have a vector has one and nothing failed. A failed run
+  changes nothing: the live index is byte-for-byte what it was, never a
+  half-new mix whose distances no longer compare. The embeddings already
+  produced are kept, so running `memesh reindex` again resumes and asks the
+  provider only for what it did not reach — a generation started by a
+  different provider or at a different width is discarded rather than
+  resumed, because vectors from two embedding spaces must not share an index.
+
+  Switching embedding provider needs no special flag any more. `--vectors`
+  existed to consent to that first destructive drop, so it is retired rather
+  than kept as a no-op: change the provider and run `memesh reindex`. The
+  `DROP` is gone from the database-open path entirely — a dimension
+  disagreement now keeps the working index and records that a rebuild is
+  owed. Three sqlite-vec behaviours were measured before this was designed
+  rather than assumed: a `vec0` table cannot be renamed (it keeps four shadow
+  tables the rename does not touch, leaving the table unreadable), two `vec0`
+  tables of different widths coexist, and `DROP`+`CREATE`+copy inside one
+  transaction really does roll back — verified on the row data through a
+  fresh connection, not on the table name.
+
+- **Embedding requests are bounded.** The provider calls had no timeout, no
+  retry and no backoff, so a provider that accepted the connection and never
+  answered hung a whole rebuild indefinitely, and a 429 was indistinguishable
+  from a 500 or a 401 — hitting a rate limit produced the same silent `null`
+  as a bad API key. Now: 30 seconds per request, up to three attempts for a
+  429 or 5xx honouring `Retry-After`, and an immediate stop naming the status
+  for a 401/403/404, which is configuration rather than weather and where
+  retrying only spends the user's rate budget on a certainty.
+
 - **The graph has two layers: the work, and the evidence under it.** The
   Knowledge Graph tab opens on the work layer — decisions, lessons,
   plans, milestones (`WORK_LAYER_TYPES`, the one whitelist in
