@@ -120,6 +120,12 @@ describe('Feature: the swap carries the live index forward, and prunes what is g
     // `target`, so it lands in `entities_vec`, not in the generation.
     putLive(concurrent, 22);
 
+    // Anti-vacuity: prove the fixture is real before asserting on the result.
+    // Without this a setup that staged nothing would satisfy the assertions
+    // below for the wrong reason.
+    expect(generationRowIds().has(staged), 'fixture: the staged row exists').toBe(true);
+    expect(generationRowIds().has(concurrent), 'fixture: the live-only row is NOT staged').toBe(false);
+
     swapVectorGeneration(DIM);
 
     expect(liveTag(staged), 'the staged vector was not promoted').toBe(11);
@@ -142,6 +148,10 @@ describe('Feature: the swap carries the live index forward, and prunes what is g
     // staging table exists.
     getDatabase().prepare("UPDATE entities SET status = 'archived' WHERE id = ?").run(forgotten);
     getDatabase().prepare('DELETE FROM entities_vec WHERE rowid = ?').run(BigInt(forgotten));
+
+    // Anti-vacuity: the staged row for the archived entity really is there, so
+    // "it is gone afterwards" cannot pass by never having existed.
+    expect(generationRowIds().has(forgotten), 'fixture: the orphan row is staged').toBe(true);
 
     swapVectorGeneration(DIM);
 
