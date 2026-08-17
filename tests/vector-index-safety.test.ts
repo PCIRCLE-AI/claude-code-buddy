@@ -242,6 +242,28 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     expect(row.embedding.length / 4, 'the swap published a half-built index').toBe(1536);
     expect(storedDimension()).toBe(1536);
     expect(generationRowIds().has(1), 'the staged work was lost to a failed swap').toBe(true);
+
+    // Re-read from a FRESH connection, which is the bar db.ts's own header sets
+    // ("a FRESH connection still read the original table") and the weaker
+    // same-connection read cannot meet. vec0 keeps four shadow tables and
+    // per-connection module state, so the handle that ran the failed swap is
+    // exactly the one most likely to answer from memory a reopen would not
+    // reproduce. A rollback that only holds inside the connection that failed is
+    // not a rollback.
+    closeDatabase();
+    const fresh = openDatabase(dbPath);
+    const reread = fresh.prepare('SELECT embedding FROM entities_vec WHERE rowid = 1')
+      .get() as { embedding: Uint8Array } | undefined;
+    expect(reread, 'the previous index is gone when read from a new connection').toBeDefined();
+    expect(
+      reread!.embedding.length / 4,
+      'the rollback only held inside the connection that failed',
+    ).toBe(1536);
+    expect(
+      (fresh.prepare('SELECT count(*) AS c FROM entities_vec').get() as { c: number }).c,
+      'the row count did not survive a reopen',
+    ).toBe(1);
+    expect(generationRowIds().has(1), 'the staged work did not survive a reopen').toBe(true);
   });
 
   it('a completed swap promotes the generation and clears its marker', () => {

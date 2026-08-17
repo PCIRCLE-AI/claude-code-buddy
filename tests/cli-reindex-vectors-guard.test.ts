@@ -49,12 +49,16 @@ describe('memesh reindex refuses before it destroys anything', () => {
     fs.rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
 
-  function run(args: string[]): { status: number; stderr: string; stdout: string } {
+  function run(
+    args: string[],
+    extraEnv: NodeJS.ProcessEnv = {},
+  ): { status: number; stderr: string; stdout: string } {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       HOME: home,
       MEMESH_DIR: path.join(home, '.memesh'),
       MEMESH_DB_PATH: dbPath,
+      ...extraEnv,
     };
     // A real key in the developer's shell would send these test entities to
     // OpenAI and make the offline cases below depend on the network.
@@ -198,6 +202,118 @@ describe('memesh reindex refuses before it destroys anything', () => {
     // a refused rebuild never publishes at all.
     expect(vectorCount()).toBe(1);
   });
+
+  it('an incomplete rebuild prints no tick and exits 1 — reached through reindex(), not the probe', async () => {
+    // The test above stops AT the pre-flight probe: it exits before
+    // `withDatabase` and never calls `reindex()`. So the verdict rendering —
+    // the incomplete banner and `process.exitCode = 1` — has been unguarded
+    // since that probe was added, and nothing else spawns this CLI.
+    //
+    // Reaching the loop offline needs a provider that answers TWICE,
+    // differently: at the configured width for the one probe string, and at the
+    // wrong width for the corpus. An in-process `http.createServer` CANNOT do
+    // it — `run()` uses `execFileSync`, which blocks this process's event loop,
+    // so the stub never answers the child and every request times out
+    // (measured: "Ollama embedding request timed out"). The stub therefore runs
+    // as its OWN process, which has its own event loop and keeps serving while
+    // this one is blocked.
+    const stubPath = path.join(home, 'embed-stub.mjs');
+    fs.writeFileSync(stubPath, `
+import http from 'node:http';
+const PROBE = 'memesh vector index rebuild probe';
+const server = http.createServer((req, res) => {
+  let body = '';
+  req.on('data', (c) => { body += c; });
+  req.on('end', () => {
+    let input = '';
+    try { input = String(JSON.parse(body || '{}').input ?? ''); } catch {}
+    // Right width for the probe so the pre-flight passes; wrong width for every
+    // real entity so the corpus fails and the run is genuinely incomplete.
+    const n = input === PROBE ? 768 : 8;
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ embeddings: [Array.from({ length: n }, () => 0.1)] }));
+  });
+});
+server.listen(0, '127.0.0.1', () => {
+  process.stdout.write('PORT=' + server.address().port + '\\n');
+});
+`);
+
+    const { spawn } = await import('node:child_process');
+    const stub = spawn(process.execPath, [stubPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const port: number = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('stub server never reported a port')), 10_000);
+      stub.stdout.on('data', (d: Buffer) => {
+        const m = /PORT=(\d+)/.exec(String(d));
+        if (m) { clearTimeout(timer); resolve(Number(m[1])); }
+      });
+      stub.on('error', reject);
+    });
+
+    try {
+      fs.writeFileSync(
+        path.join(home, '.memesh', 'config.json'),
+        JSON.stringify({ embedder: { provider: 'ollama' } }),
+      );
+      // Seed with the provider UNREACHABLE so `remember`'s own embed writes
+      // nothing and the stale vector can be inserted by hand. (`INSERT OR
+      // REPLACE` does not work on a vec0 table — see embedder.ts — so the row
+      // must not already exist, and it would if the stub were reachable here.)
+      const seeded = run(
+        ['remember', '--name', 'stale-note', '--type', 'note', '--obs', 'a memory worth keeping'],
+        { OLLAMA_HOST: 'http://127.0.0.1:1' },
+      );
+      expect(seeded.status, `setup: remember failed — ${seeded.stderr}`).toBe(0);
+
+      const sqliteVec = require('sqlite-vec');
+      const seedDb = new Database(dbPath, { allowExtension: true });
+      seedDb.enableLoadExtension(true);
+      try { sqliteVec.load(seedDb); } finally { seedDb.enableLoadExtension(false); }
+      const seedId = (seedDb.prepare("SELECT id FROM entities WHERE name = 'stale-note'")
+        .get() as { id: number }).id;
+      const seedDim = parseInt(
+        (seedDb.prepare("SELECT value FROM memesh_metadata WHERE key = 'embedding_dimension'")
+          .get() as { value: string }).value,
+        10,
+      );
+      seedDb.prepare('INSERT INTO entities_vec (rowid, embedding) VALUES (?, ?)').run(
+        BigInt(seedId),
+        Buffer.from(new Float32Array(seedDim).fill(0.25).buffer) as unknown as SqlInputValue,
+      );
+      seedDb.close();
+      expect(vectorCount(), 'setup: a stale vector is on disk').toBe(1);
+
+      const result = run(['reindex'], { OLLAMA_HOST: `http://127.0.0.1:${port}` });
+
+      // Anti-vacuity: prove the probe was PASSED and the loop actually ran.
+      // Without these two, the test would be satisfied by the probe refusing —
+      // which is the other test, and the exact way this one used to prove
+      // nothing.
+      expect(
+        result.stderr,
+        'the run never got past the pre-flight probe, so it did not test the verdict',
+      ).not.toContain('nothing was rebuilt');
+      expect(result.stderr, 'the reindex loop never started').toContain('Reindexing');
+
+      expect(result.stdout, 'a tick over a run that embedded nothing').not.toContain('✅');
+      expect(result.stdout, 'the incomplete verdict is not rendered').toContain('Reindex incomplete');
+      expect(result.status, 'an incomplete run exited 0 — `memesh reindex && deploy` would proceed').toBe(1);
+      expect(vectorCount(), 'a failed rebuild published into the live index').toBe(1);
+    } finally {
+      stub.kill();
+    }
+  });
+
+  // Kept for the record:
+  // the CLI verdict (the incomplete banner + `process.exitCode = 1`) has been
+  // unguarded since the pre-flight probe was added — the test above stops AT the
+  // probe and never calls `reindex()`. Reaching the loop without a network needs a
+  // provider that answers the probe at the configured width and the corpus at the
+  // wrong one. An in-process `http.createServer` CANNOT do that: `run()` uses
+  // `execFileSync`, which blocks this process’s event loop, so the stub never
+  // answers the child and every request times out (measured: "Ollama embedding
+  // request timed out"). A working version has to spawn the stub as its OWN
+  // process — a small script plus `spawn` — before invoking the CLI.
 
   it('--discard-generation reclaims a half-built index without touching the live one', () => {
     // The deliberate way out. Two situations need it: a rebuild the user has
