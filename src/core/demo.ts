@@ -67,7 +67,12 @@ const DEMO_DATA: DemoEntity[] = [
 
   // Phase 5 — Recent (~2 days ago)
   { daysAgo: 3, name: 'lesson-bug_fix-canvas-blank', type: 'lesson_learned', observations: ['Error: timeline chart blank after tab switch', 'Root cause: canvas.style.width persisted across display:none -> block', 'Fix: clear inline width before measuring, use ResizeObserver', 'Prevention: never assume CSS width:100% wins over inline style on canvas'], tags: ['error-pattern:other', 'severity:minor'] },
-  { daysAgo: 2, name: 'plan-v3-dashboard', type: 'plan', observations: ['Plan: dashboard-v3', 'Steps: Browse redesign, Lessons categorisation, Project Roadmap, Memory Loop KPI', 'Status: complete; see Lessons tab for execution lessons'] },
+  // This entry used to end "see Lessons tab for execution lessons". There is
+  // no Lessons tab — the dashboard is Home / Memories / Project / Graph /
+  // Settings — and the demo library is the FIRST thing a new user reads, so
+  // the one line that told them where to go next sent them looking for a tab
+  // that does not exist. Names a place that is really there instead.
+  { daysAgo: 2, name: 'plan-v3-dashboard', type: 'plan', observations: ['Plan: dashboard-v3', 'Steps: Browse redesign, Lessons categorisation, Project Roadmap, Memory Loop KPI', 'Status: complete; the execution lessons are the lesson_learned memories in Memories'] },
   { daysAgo: 2, name: 'bugfix-confidence-pump', type: 'bug_fix', observations: ['Symptom: Quality KPI inflated by repeated remember() calls', 'Cause: confidence bumped on every re-assertion regardless of source', 'Fix: gate on (new observation) AND (metadata.trust !== untrusted)'] },
   { daysAgo: 1, name: 'release-v3.0', type: 'release', observations: ['Released as Dashboard v3 milestone', 'Highlights: Lessons-first landing, Project Roadmap, Memory Loop KPI, SVG icon set, Signal Mode toggle'] },
   { daysAgo: 1, name: 'pattern-svg-iconography', type: 'pattern', observations: ['Stroke-based 16x16 SVG glyphs, currentColor', '12 entity-cluster shapes; aria-label per glyph'] },

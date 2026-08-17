@@ -122,10 +122,41 @@ export function computeAnalytics(db) {
         trend: loopTrendRows.map((r) => ({ date: r.day, count: r.count })),
         computedFrom: 'last_accessed_at_approximation',
     };
+    const LESSON_TYPES = ['lesson_learned', 'lesson', 'mistake'];
+    const lessonPlaceholders = LESSON_TYPES.map(() => '?').join(',');
+    const lessonTotal = db.prepare(`SELECT COUNT(*) as c FROM entities
+     WHERE status = 'active' AND type IN (${lessonPlaceholders})`).get(...LESSON_TYPES).c;
+    const severityTagged = db.prepare(`SELECT COUNT(DISTINCT e.id) as c FROM entities e
+     JOIN tags t ON t.entity_id = e.id
+     WHERE e.status = 'active' AND e.type IN (${lessonPlaceholders})
+       AND t.tag LIKE 'severity:%'`).get(...LESSON_TYPES).c;
+    const criticalCount = db.prepare(`SELECT COUNT(DISTINCT e.id) as c FROM entities e
+     JOIN tags t ON t.entity_id = e.id
+     WHERE e.status = 'active' AND e.type IN (${lessonPlaceholders})
+       AND t.tag = 'severity:critical'`).get(...LESSON_TYPES).c;
+    const criticalLessons = { critical: criticalCount, severityTagged, total: lessonTotal };
+    const readCounter = (key) => {
+        try {
+            const row = db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(key);
+            if (!row)
+                return null;
+            const n = parseInt(row.value, 10);
+            return Number.isInteger(n) && n >= 0 ? n : null;
+        }
+        catch {
+            return null;
+        }
+    };
+    const citationTotal = readCounter('citation_sessions_total');
+    const citationCompliance = citationTotal === null || citationTotal === 0
+        ? null
+        : { cited: readCounter('citation_sessions_cited') ?? 0, total: citationTotal };
     return {
         healthScore,
         healthFactors,
         loopMetric,
+        criticalLessons,
+        citationCompliance,
         timeline,
         ageMatrix,
         knowledgeRadar,

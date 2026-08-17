@@ -94,6 +94,35 @@ describe('GraphTab — two layers', () => {
     expect(container.querySelector('canvas')).toBeNull();
   });
 
+  it('names the focused node by its headline, never by the machine key', async () => {
+    // UX-1's chain is `title → best observation → type + date` and it
+    // "Deliberately NEVER falls back to `name`" — name is a dedup key like
+    // `pre-compact-<sessionId>`. The graph rendered that key in its focus
+    // banner, which is the one place the user reads a node's identity in
+    // text. Pinned because the fix was measured to be unprotected: reverting
+    // it to `{egoEntity.name}` left every existing assertion green.
+    const titled = entity(1, { name: 'pre-compact-9f3c2a1b', title: 'Why the graph opens on work' });
+    stubFetch(() => ({
+      entities: [titled, ...WORK_NODES.slice(1)],
+      relations: [],
+      evidenceCounts: {},
+    }));
+    const { container } = render(<GraphTab />);
+    await waitFor(() => { expect(container.querySelector('canvas')).not.toBeNull(); });
+
+    // Enter focus mode the way the component does — clicking is a canvas
+    // gesture, so drive the state through the search box's auto-centre
+    // instead and assert on what the banner would render.
+    const search = container.querySelector(`input[placeholder="${t('graph.search')}"]`) as HTMLInputElement;
+    expect(search, 'the graph search box moved').not.toBeNull();
+    fireEvent.input(search, { target: { value: 'Why the graph' } });
+    await waitFor(() => {
+      expect(container.textContent, 'graph search cannot find a node by its headline')
+        .toContain('1 matches');
+    });
+    expect(container.textContent).not.toContain('pre-compact-9f3c2a1b');
+  });
+
   it('asks for the work layer first and never fetches the full graph when it is big enough', async () => {
     const seen = stubFetch(() => ({
       entities: WORK_NODES,

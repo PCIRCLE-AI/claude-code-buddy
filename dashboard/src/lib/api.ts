@@ -322,7 +322,16 @@ export interface ProjectInfo {
 
 export async function fetchProjects(): Promise<ProjectInfo[]> {
   const data = await api<ProjectInfo[]>('GET', '/v1/projects');
-  return Array.isArray(data) ? data : [];
+  // Throw, do not return []. ProjectTab now tells a failed fetch apart from
+  // an empty one and says which happened — but only if this layer lets the
+  // failure through. `Array.isArray(data) ? data : []` converted version
+  // skew into "No project memories yet", a claim about the user's data made
+  // from a response nobody could read.
+  if (!Array.isArray(data)) {
+    console.warn('[memesh dashboard] /v1/projects answered with a shape this bundle cannot read:', data);
+    throw new Error('unreadable projects payload');
+  }
+  return data;
 }
 
 export async function fetchGraph(): Promise<GraphData> {

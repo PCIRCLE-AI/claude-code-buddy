@@ -46,7 +46,7 @@ export function resolveFileCommits(repoDir, file, opts = {}) {
         ]);
     }
     catch {
-        return { commits: [], abstention: null };
+        return { commits: [], abstention: 'history_unreadable' };
     }
     const commits = [];
     for (const line of out.split('\n')) {
@@ -93,16 +93,25 @@ function observationsOf(db, entityId) {
     const rows = db.prepare('SELECT content FROM observations WHERE entity_id = ? ORDER BY id').all(entityId);
     return rows.map((r) => r.content);
 }
+const SESSION_ENTITY_CAP = 200;
 function sessionEntities(db, sessionId) {
-    return db.prepare(`SELECT DISTINCT e.id, e.name, e.type, e.title, e.created_at
+    const rows = db.prepare(`SELECT DISTINCT e.id, e.name, e.type, e.title, e.created_at
      FROM entities e JOIN tags t ON t.entity_id = e.id
      WHERE t.tag = ? AND e.status != 'archived'
-     ORDER BY e.created_at`).all(`session:${sessionId}`);
+     ORDER BY e.created_at
+     LIMIT ${SESSION_ENTITY_CAP + 1}`).all(`session:${sessionId}`);
+    return {
+        entities: rows.slice(0, SESSION_ENTITY_CAP),
+        truncated: rows.length > SESSION_ENTITY_CAP,
+    };
 }
 export function explainCommits(db, input) {
     const basename = basenameOf(input.file);
     const limit = input.limit ?? 10;
     const project = input.project ?? null;
+    const queryAbstentions = [...(input.abstentions ?? [])];
+    if (input.commits === undefined)
+        queryAbstentions.push('no_commits_supplied');
     const commits = [];
     for (const commit of (input.commits ?? []).slice(0, limit)) {
         const abstentions = [];
@@ -120,7 +129,7 @@ export function explainCommits(db, input) {
             };
             const sessionId = found.metadata?.session_id;
             if (typeof sessionId === 'string' && sessionId.length > 0) {
-                session = { session_id: sessionId, entities: sessionEntities(db, sessionId) };
+                session = { session_id: sessionId, ...sessionEntities(db, sessionId) };
             }
             else {
                 abstentions.push('no_session_link');
@@ -153,7 +162,7 @@ export function explainCommits(db, input) {
         project,
         commits,
         file_memories: { basis: 'file-tag', entities: fileMemories },
-        abstentions: input.abstentions ?? [],
+        abstentions: queryAbstentions,
     };
 }
 //# sourceMappingURL=why.js.map

@@ -26,7 +26,8 @@ function writeUrlProject(name: string): void {
 
 /**
  * The roadmap's entity set for one project: active entities of the project,
- * PLUS the archived entities an active one points at with a lineage edge.
+ * PLUS the archived entities OF THAT SAME PROJECT an active one points at
+ * with a lineage edge.
  * `supersedes` ARCHIVES its target on write (operations.ts), so a plain
  * active filter hides exactly the node every supersession edge points at —
  * the roadmap could never show a chain. The fetch already carries archived
@@ -43,7 +44,19 @@ export function selectProjectEntities(entities: Entity[], selected: string | nul
       if (r.type === 'supersedes' || r.type === 'contradicts') referenced.add(r.to);
     }
   }
-  const readmitted = entities.filter((e) => isArchived(e) && referenced.has(e.name));
+  // Readmission matched on NAME alone, with no project predicate — so an
+  // archived entity belonging to a DIFFERENT project rode in on this
+  // project's chain edge, and the three surfaces fed from this array (the
+  // roadmap, the capture-density band and the Decisions list) counted it as
+  // part of this project's story. The active side has always filtered on the
+  // project; this side has to agree, or the tab silently absorbs work that
+  // was never here. The legitimate case is untouched: archiving flips
+  // `status` and nothing else (knowledge-graph.ts `archiveEntity`), so a
+  // chain target inside this project keeps its `project:` tag and still rides
+  // back in.
+  const readmitted = entities.filter(
+    (e) => isArchived(e) && referenced.has(e.name) && extractProject(e) === selected,
+  );
   return [...active, ...readmitted].sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
@@ -60,13 +73,26 @@ export function ProjectTab({ health }: { health?: HealthData | null }) {
   const [selected, setSelected] = useState<string | null>(urlProject);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [projectsError, setProjectsError] = useState('');
   const loadGen = useRef(0);
 
   useEffect(() => {
     const gen = ++loadGen.current;
     Promise.all([
       api<Entity[]>('GET', `/v1/entities?limit=${FETCH_LIMIT}&status=all`),
-      fetchProjects().catch(() => [] as ProjectInfo[]),
+      // `.catch(() => [])` reported a projects fetch that FAILED as a library
+      // with no projects, and this tab renders that as "No project memories
+      // yet" — a claim about the user's data made from an answer nobody
+      // received. It is not a rare path: `computeProjects` scans with no LIMIT
+      // while api() aborts at 10s, so a large graph produces the false
+      // first-run claim reliably, WHILE the sibling entities fetch beside it
+      // has already loaded thousands of rows. Settled rather than caught, so
+      // the failure survives as a diagnosis instead of an empty list — and so
+      // one dead endpoint still does not take the entities down with it.
+      fetchProjects().then(
+        (list) => ({ ok: true as const, list }),
+        (e: unknown) => ({ ok: false as const, failure: classifyLoadError(e) }),
+      ),
     ])
       .then(([data, projs]) => {
         if (gen !== loadGen.current) return;
@@ -76,11 +102,15 @@ export function ProjectTab({ health }: { health?: HealthData | null }) {
         } else {
           setEntities(data);
         }
-        setProjects(projs);
-        // One project = no choice to make; walk straight in — unless a
-        // ?project= deep link already chose (even a stale one: overriding
-        // it would make the shared URL silently show something else).
-        if (projs.length === 1) setSelected((cur) => cur ?? projs[0].name);
+        if (projs.ok) {
+          setProjects(projs.list);
+          // One project = no choice to make; walk straight in — unless a
+          // ?project= deep link already chose (even a stale one: overriding
+          // it would make the shared URL silently show something else).
+          if (projs.list.length === 1) setSelected((cur) => cur ?? projs.list[0].name);
+        } else {
+          setProjectsError(failureMessage(projs.failure));
+        }
       })
       .catch((e) => {
         if (gen !== loadGen.current) return;
@@ -104,6 +134,13 @@ export function ProjectTab({ health }: { health?: HealthData | null }) {
   // it lands would render a false first-run claim.
   if (entities.length === 0 && health == null) return <div class="empty"><div class="loading" /></div>;
   if (health?.entity_count === 0) return <EmptyLibraryState />;
+
+  // The projects fetch gets the same tri-state as health above, for the same
+  // reason: an empty list because the request failed is not a library without
+  // projects, and `project.empty` speaks about the user's DATA. Named as a
+  // failure it is something the user can act on; folded into `[]` it is a
+  // first-run claim they have no way to see through.
+  if (projectsError) return <div class="error-box" role="alert">{projectsError}</div>;
 
   if (projects.length === 0) {
     return <div class="empty">{t('project.empty')}</div>;

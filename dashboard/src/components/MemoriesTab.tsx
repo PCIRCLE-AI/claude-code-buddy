@@ -9,6 +9,7 @@ import { actionFailureMessage, classifyLoadError, failureMessage } from '../lib/
 import { clusterOf, timeBucket, extractProject, CLUSTER_DOT, type TypeCluster, type TimeBucket } from '../lib/entity-display';
 import { useSignalMode } from '../lib/signalMode';
 import { layerOf } from '../../../src/core/work-topology.js';
+import { parseSqliteUtcMs } from '../../../src/core/time-utils.js';
 
 const PAGE_SIZE = 30;
 
@@ -42,6 +43,60 @@ const CLUSTERS: TypeCluster[] = ['knowledge', 'activity', 'session', 'reference'
 
 function isArchivedEntity(e: Entity): boolean {
   return Boolean(e.archived) || e.status === 'archived';
+}
+
+/* ---------- one timestamp scale for the whole tab ---------- */
+
+/**
+ * A stored timestamp as epoch-milliseconds, or null when it cannot be read.
+ *
+ * The two columns this tab ranks by are stored in two different formats:
+ * `last_accessed_at` is written as `new Date().toISOString()`
+ * (storage/conflicts.ts) and `created_at` is SQLite's `YYYY-MM-DD HH:MM:SS`
+ * (storage/schema.ts). Comparing them as TEXT ranked a recalled memory above
+ * a fresher never-recalled one whenever both fell on the same day —
+ * `'2026-08-17 23:00:00'.localeCompare('2026-08-17T09:00:00.000Z')` is -1,
+ * because a space sorts before a 'T'. Across different days the shared date
+ * prefix still decides correctly, which is exactly why "newest first" looked
+ * right nearly all of the time.
+ *
+ * `parseSqliteUtcMs` first, never `Date.parse` first: SQLite's format is not
+ * ISO-8601, and the engines that accept it anyway read it as LOCAL time, so
+ * probing ISO first would misread every SQLite value by the viewer's offset.
+ */
+function timestampMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const sqlite = parseSqliteUtcMs(value);
+  if (sqlite !== null) return sqlite;
+  const iso = Date.parse(value);
+  return Number.isNaN(iso) ? null : iso;
+}
+
+/** The instant a row is ranked and bucketed by: its last recall, else its
+ *  creation. `||`, not `??`, so a blank `last_accessed_at` falls through to
+ *  `created_at` instead of sinking a row that carries a perfectly good date —
+ *  and so the sort and the time filter read the same field. */
+function recencyMs(e: Entity): number | null {
+  return timestampMs(e.last_accessed_at || e.created_at);
+}
+
+/** Newest first, unknown LAST. An unreadable timestamp stays unknown instead
+ *  of folding into a number: NaN poisons every comparison it touches, and a 0
+ *  default would date the row to 1970 and rank it as if that were measured. */
+function newestFirst(a: number | null, b: number | null): number {
+  if (a === null) return b === null ? 0 : 1;
+  if (b === null) return -1;
+  return b - a;
+}
+
+/** `recencyMs` as an ISO instant, for `timeBucket()` — which reads its
+ *  argument with `new Date()` and therefore takes a SQLite `created_at` as
+ *  LOCAL time, ageing the row by the viewer's UTC offset and pushing it
+ *  across the today/week boundary. (An unreadable timestamp still lands in
+ *  'older' — that is timeBucket's own contract for a date it does not have.) */
+function recencyIso(e: Entity): string | null {
+  const ms = recencyMs(e);
+  return ms === null ? null : new Date(ms).toISOString();
 }
 
 export function MemoriesTab({ health }: { health?: HealthData | null }) {
@@ -78,6 +133,15 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
   // not necessarily the one the user asked for last.
   const loadGen = useRef(0);
 
+  // The same ticket for the ranked search, which had none: a slow /v1/recall
+  // landing after a newer one painted its own stale results over them, with
+  // the `<mark>` highlighting still pointing at the query the user typed
+  // second. And the ticket has to be droppable, not just monotonic — clearing
+  // the box or picking a chip leaves ranked mode with no new request to
+  // out-number the one already in flight, so the answer to a query the user
+  // abandoned came back and reopened ranked mode over an empty search box.
+  const recallGen = useRef(0);
+
   async function load() {
     const gen = ++loadGen.current;
     setLoading(true);
@@ -113,10 +177,19 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
   useEffect(() => { load(); }, []);
   useEffect(() => { setPage(0); }, [filter, scope, time, value, project, sort]);
 
+  // Every "back to browsing" intent goes through here. Dropping the ticket is
+  // the load-bearing half: without it the search already in flight still lands
+  // and drags the user back into ranked mode.
+  function leaveRecallMode() {
+    recallGen.current++;
+    setRecallResults(null);
+    setRecallLoading(false);
+  }
+
   // Picking any chip is a browsing intent — leave ranked-results mode.
   function setScope(next: Scope) {
     setScopeRaw(next);
-    setRecallResults(null);
+    leaveRecallMode();
   }
 
   // When the global Signal Mode toggles, snap the scope to that mode's
@@ -163,7 +236,7 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
     const f = filter.toLowerCase();
     return entities.filter((e) => {
       if (!matchesScope(e)) return false;
-      if (time !== 'all' && timeBucket(e.last_accessed_at || e.created_at) !== time) return false;
+      if (time !== 'all' && timeBucket(recencyIso(e)) !== time) return false;
       if (value === 'recalled' && (e.access_count ?? 0) === 0) return false;
       if (value === 'never' && (e.access_count ?? 0) > 0) return false;
       if (project !== 'all' && extractProject(e) !== project) return false;
@@ -177,14 +250,16 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
 
   const sorted = useMemo(() => {
     const arr = [...filtered];
+    // Every comparison goes through epoch-ms. `localeCompare` on the raw
+    // strings was comparing an ISO `last_accessed_at` against a SQLite
+    // `created_at` — see timestampMs above for what that ranked wrongly.
     if (sort === 'most-recalled') {
       arr.sort((a, b) => (b.access_count ?? 0) - (a.access_count ?? 0)
-        || (b.last_accessed_at ?? b.created_at).localeCompare(a.last_accessed_at ?? a.created_at));
+        || newestFirst(recencyMs(a), recencyMs(b)));
     } else if (sort === 'created') {
-      arr.sort((a, b) => b.created_at.localeCompare(a.created_at));
+      arr.sort((a, b) => newestFirst(timestampMs(a.created_at), timestampMs(b.created_at)));
     } else { // recent (last accessed)
-      arr.sort((a, b) =>
-        (b.last_accessed_at ?? b.created_at).localeCompare(a.last_accessed_at ?? a.created_at));
+      arr.sort((a, b) => newestFirst(recencyMs(a), recencyMs(b)));
     }
     return arr;
   }, [filtered, sort]);
@@ -195,6 +270,7 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
   async function runDeepSearch() {
     const query = filter.trim();
     if (!query) return;
+    const gen = ++recallGen.current;
     setRecallLoading(true);
     setError('');
     try {
@@ -209,6 +285,7 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
       // path above refuses by name ("a false empty"). Ranked search reads as
       // "no memory matches that", which is a claim, not an absence of data.
       const ranked = Array.isArray(data) ? data : data.entities;
+      if (gen !== recallGen.current) return;
       if (!Array.isArray(ranked)) {
         console.warn('[memesh dashboard] /v1/recall answered with a shape this bundle cannot read:', data);
         setError(failureMessage('unreadable'));
@@ -216,9 +293,10 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
       }
       setRecallResults(ranked);
     } catch (e) {
+      if (gen !== recallGen.current) return;
       setError(actionFailureMessage(e));
     } finally {
-      setRecallLoading(false);
+      if (gen === recallGen.current) setRecallLoading(false);
     }
   }
 
@@ -301,13 +379,27 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
                 {/* The header (via /v1/health) shows the true count; this tab
                     holds at most FETCH_LIMIT rows. When the two disagree, say
                     so — two contradicting numbers with no explanation read as
-                    data loss. */}
-                {entities.length >= FETCH_LIMIT
-                  && (health?.entity_count ?? 0) > entities.length && (
-                  <span> · {t('browse.truncated', {
-                    shown: entities.length.toLocaleString(getLocale()),
-                    total: (health!.entity_count).toLocaleString(getLocale()),
-                  })}</span>
+                    data loss.
+
+                    Three states, not two. `health?.entity_count ?? 0` read a
+                    health fetch that had not landed (or had failed) as a
+                    library of zero: `0 > 2000` is false, so a 12,000-memory
+                    graph said "2,000 active" and nothing at all about the
+                    10,000 it had cut. Hitting the limit is itself the evidence
+                    the list is capped — the total is the only part health
+                    knows, so its absence changes the sentence, not whether
+                    there is one. */}
+                {entities.length >= FETCH_LIMIT && (
+                  health == null ? (
+                    <span> · {t('browse.truncatedUnknownTotal', {
+                      shown: entities.length.toLocaleString(getLocale()),
+                    })}</span>
+                  ) : health.entity_count > entities.length ? (
+                    <span> · {t('browse.truncated', {
+                      shown: entities.length.toLocaleString(getLocale()),
+                      total: health.entity_count.toLocaleString(getLocale()),
+                    })}</span>
+                  ) : null
                 )}
               </div>
             )}
@@ -323,7 +415,7 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
             type="search"
             placeholder={t('memories.searchPlaceholder')}
             value={filter}
-            onInput={(e) => { setFilter((e.target as HTMLInputElement).value); setRecallResults(null); }}
+            onInput={(e) => { setFilter((e.target as HTMLInputElement).value); leaveRecallMode(); }}
             onKeyDown={(e) => e.key === 'Enter' && runDeepSearch()}
           />
           <button class="btn" onClick={runDeepSearch} disabled={recallLoading || !filter.trim()}>
@@ -423,7 +515,7 @@ export function MemoriesTab({ health }: { health?: HealthData | null }) {
                 <span style={{ fontFamily: 'var(--mono)' }}>{recallResults!.length}</span>{' '}
                 {recallResults!.length !== 1 ? t('search.results') : t('search.result')} · {t('memories.rankedBy')}
               </span>
-              <button class="btn btn-sm" onClick={() => setRecallResults(null)}>✕ {t('memories.backToList')}</button>
+              <button class="btn btn-sm" onClick={leaveRecallMode}>✕ {t('memories.backToList')}</button>
             </div>
             {recallResults!.length === 0
               ? <div class="empty" role="status">{t('search.noResults')} "{filter}"</div>

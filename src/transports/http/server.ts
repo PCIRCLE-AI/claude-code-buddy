@@ -572,7 +572,13 @@ app.post('/v1/why', (req, res) => handlePost(WhyBody, req, res, async (data) => 
   const { explainCommits } = await import('../../core/why.js');
   return explainCommits(getDatabase(), {
     file: data.file,
-    commits: (data.commits ?? []).map((hash) => ({ hash })),
+    // `(data.commits ?? [])` filled a missing field in, and that erased the
+    // one distinction this route cannot recover: `commits` is OPTIONAL, so a
+    // caller who forgot it got `{commits: [], abstentions: []}` — success
+    // shaped, and indistinguishable from "this file has no remembered
+    // commits". Pass the absence through undefined and core answers
+    // `no_commits_supplied`. The route still runs no git, ever.
+    commits: data.commits?.map((hash) => ({ hash })),
     project: data.project ?? null,
     limit: data.limit,
   });

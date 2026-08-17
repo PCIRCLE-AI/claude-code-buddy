@@ -255,6 +255,9 @@ export interface ExportResult {
   entities: Array<{
     name: string;
     type: string;
+    /** The human-readable headline. `null` for an untitled entity — absent
+     *  in bundles written before titles existed, which import must tolerate. */
+    title?: string | null;
     namespace: string;
     observations: string[];
     tags: string[];

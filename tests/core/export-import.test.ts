@@ -18,6 +18,25 @@ describe('exportMemories', () => {
     expect(result.exported_at).toBeTruthy();
   });
 
+  it('round-trips `title` — export omitted it and import never read it', async () => {
+    // Export is the backup path, and it silently dropped the one field UX-1
+    // exists to provide: a bundle taken after titles shipped restored a
+    // library of machine dedup keys. Both halves are pinned, because fixing
+    // only the export side would still lose the title on the way back in.
+    remember({ name: 'titled', type: 'decision', title: 'Why we chose JWT', observations: ['ctx'] });
+    const bundle = exportMemories({});
+    expect(bundle.entities.find((e) => e.name === 'titled')?.title).toBe('Why we chose JWT');
+
+    // Re-import under a new name, which proves the IMPORT half reads it.
+    const copy = {
+      ...bundle,
+      entities: bundle.entities.map((e) => ({ ...e, name: `${e.name}-copy` })),
+    };
+    importMemories({ data: copy, merge_strategy: 'skip' });
+    const restored = (await recall({ query: 'JWT' })).find((e) => e.name === 'titled-copy');
+    expect(restored?.title, 'the title did not survive the round trip').toBe('Why we chose JWT');
+  });
+
   it('includes version and exported_at fields', () => {
     remember({ name: 'a', type: 'note' });
     const result = exportMemories({});

@@ -23,6 +23,41 @@ afterEach(() => {
 // ── Analytics computation ──────────────────────────────────────────────────
 
 describe('/v1/analytics computation', () => {
+  // The one counter the retired Lessons tab carried that a reader acts on.
+  // All three numbers travel together because `critical` alone overstates
+  // what was measured: an unclassified lesson is not a non-critical one.
+  it('critical lessons report their denominators, so the count cannot overstate', () => {
+    remember({ name: 'crit-1', type: 'lesson_learned', observations: ['bad'], tags: ['severity:critical'] });
+    remember({ name: 'minor-1', type: 'lesson_learned', observations: ['meh'], tags: ['severity:minor'] });
+    remember({ name: 'unclassified', type: 'lesson_learned', observations: ['no severity tag'] });
+
+    const { criticalLessons } = computeAnalytics(db);
+    expect(criticalLessons).toEqual({ critical: 1, severityTagged: 2, total: 3 });
+  });
+
+  it('an unclassified library reports zero TAGGED, which the dashboard renders as not-measured', () => {
+    remember({ name: 'lesson-a', type: 'lesson_learned', observations: ['no severity'] });
+    const { criticalLessons } = computeAnalytics(db);
+    // The distinction the tile depends on: nothing was classified, which is
+    // not the same claim as "nothing is critical".
+    expect(criticalLessons.severityTagged).toBe(0);
+    expect(criticalLessons.total).toBe(1);
+  });
+
+  it('citation compliance is null until the counters exist — not 0%', () => {
+    // The instrument has never been switched on: reporting 0% would be a
+    // measurement claim about an agent that was never observed.
+    expect(computeAnalytics(db).citationCompliance).toBeNull();
+
+    db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('citation_sessions_total', '4')").run();
+    db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('citation_sessions_cited', '1')").run();
+    expect(computeAnalytics(db).citationCompliance).toEqual({ cited: 1, total: 4 });
+
+    // Measured and genuinely zero is a DIFFERENT answer from not measured.
+    db.prepare("UPDATE memesh_metadata SET value = '0' WHERE key = 'citation_sessions_cited'").run();
+    expect(computeAnalytics(db).citationCompliance).toEqual({ cited: 0, total: 4 });
+  });
+
   it('health score is 0 for empty database', () => {
     const total = (
       db

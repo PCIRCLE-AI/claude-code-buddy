@@ -9,8 +9,10 @@
  *
  * Everything the chain cannot prove must surface as a TYPED abstention:
  * no entity for a commit, no session on an entity, no git, no repo, no
- * tracked file, no such line. Guessing around any of these is the defect
- * class this module exists to prevent.
+ * tracked file, no such line, a history git could not read, and a caller
+ * who supplied no commits at all. Guessing around any of these is the
+ * defect class this module exists to prevent — and so is the quieter
+ * version of it: an empty list handed over as though it were an answer.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'child_process';
@@ -91,6 +93,21 @@ describe('Feature: resolveFileCommits (the git half — CLI only)', () => {
     const r2 = resolveFileCommits(repoDir, 'multi.ts', { line: 2 });
     expect(r2.commits[0]?.hash).toBe(h2);
     expect(r2.commits[0]?.subject).toBe('feat: second line');
+  });
+
+  it('Scenario: git log cannot answer -> history_unreadable, never a silent empty list', () => {
+    // A repo with nothing committed yet: the file IS in the index, so
+    // `ls-files --error-unmatch` succeeds and the file-not-tracked branch is
+    // not the one taken, and then `git log` exits non-zero. That is the same
+    // branch as the failures a test cannot stage — output past
+    // execFileSync's 1 MB maxBuffer, the 5-second timeout `--follow` over
+    // long history can spend — and the defect was shared by all of them:
+    // `{commits: [], abstention: null}` made the CLI print "No commits touch
+    // this file." for a file whose history simply could not be read.
+    fs.writeFileSync(path.join(repoDir, 'staged.ts'), 'never committed\n');
+    git(['add', '--', 'staged.ts']);
+    const r = resolveFileCommits(repoDir, 'staged.ts');
+    expect(r).toEqual({ commits: [], abstention: 'history_unreadable' });
   });
 
   it('Scenario: line beyond EOF -> line_out_of_range, uncommitted line -> line_uncommitted', () => {
@@ -176,7 +193,69 @@ describe('Feature: explainCommits (the DB half — CLI and HTTP)', () => {
     const attribution = result.commits[0];
     expect(attribution.session?.session_id).toBe('sess-42');
     expect(attribution.session?.entities.map((e) => e.name)).toEqual(['sess-42-files']);
+    expect(attribution.session?.truncated).toBe(false);
     expect(attribution.abstentions).toEqual([]);
+  });
+
+  it('Scenario: a session larger than the cap is cut and SAYS it was cut', () => {
+    // The session query had no LIMIT and runs once per commit, and the schema
+    // permits 50 commits — so one request could serialise 50 whole sessions
+    // with no ceiling and nothing in the response admitting a ceiling. 201
+    // members: 200 come back, and `truncated` reports the overflow that was
+    // actually observed rather than inferring it from a full page.
+    const full = commitFile('auth.ts', 'x\n', 'feat: a very long session');
+    const abbrev = git(['rev-parse', '--short', 'HEAD']).trim();
+    kg.createEntity(`commit-${abbrev}`, 'commit', {
+      observations: ['feat: a very long session'],
+      metadata: { session_id: 'sess-big' },
+    });
+    for (let i = 0; i < 201; i++) {
+      kg.createEntity(`sess-big-note-${i}`, 'note', {
+        observations: [`step ${i}`],
+        tags: ['session:sess-big'],
+      });
+    }
+
+    // Watch the SQL that actually runs. Slicing 200 out of an UNBOUNDED result
+    // set returns the same 200 rows and the same flag, so an output-only
+    // assertion cannot tell the fix from the defect: the ceiling has to be in
+    // the query, or SQLite still materialises the entire session — once per
+    // commit, up to 50 of them. The real statement is still executed; this
+    // only records what was handed to prepare().
+    const preparedSql: string[] = [];
+    const realPrepare = db.prepare.bind(db);
+    (db as { prepare: typeof db.prepare }).prepare = ((sql: string) => {
+      preparedSql.push(sql);
+      return realPrepare(sql);
+    }) as typeof db.prepare;
+    let result: ReturnType<typeof explainCommits>;
+    try {
+      result = explainCommits(db, { file: 'auth.ts', commits: [{ hash: full }] });
+    } finally {
+      (db as { prepare: typeof db.prepare }).prepare = realPrepare;
+    }
+
+    const sessionQuery = preparedSql.find((s) => /WHERE t\.tag = \?/.test(s));
+    expect(sessionQuery, 'the session query never ran — this test is watching nothing').toBeDefined();
+    expect(sessionQuery, 'the session query is unbounded again').toMatch(/LIMIT \d+/);
+
+    const session = result.commits[0].session;
+    expect(session?.entities).toHaveLength(200);
+    expect(session?.truncated).toBe(true);
+  });
+
+  it('Scenario: "no commits supplied" is a different answer from "no commits found"', () => {
+    // `POST /v1/why` used to fill a missing `commits` field with `[]`, so a
+    // caller who forgot it got the same success-shaped, zero-abstention
+    // answer as a caller who resolved commits and found none. Absent is a
+    // gap in the question; empty is an answer.
+    const notAsked = explainCommits(db, { file: 'auth.ts' });
+    expect(notAsked.abstentions).toEqual(['no_commits_supplied']);
+    expect(notAsked.commits).toEqual([]);
+
+    const askedAndNoneFound = explainCommits(db, { file: 'auth.ts', commits: [] });
+    expect(askedAndNoneFound.abstentions).toEqual([]);
+    expect(askedAndNoneFound.commits).toEqual([]);
   });
 
   it('Scenario: file memories come by basename tag, labelled as such, commits and archived excluded', () => {
@@ -214,7 +293,10 @@ describe('Feature: explainCommits (the DB half — CLI and HTTP)', () => {
   });
 
   it('Scenario: git-side abstentions ride through to the result', () => {
-    const result = explainCommits(db, { file: 'x.ts', abstentions: ['not_a_git_repo'] });
+    // `commits: []` is what the CLI passes when git abstained — it asked and
+    // got nothing, which is not the same as never asking, so no
+    // `no_commits_supplied` joins the git-side code here.
+    const result = explainCommits(db, { file: 'x.ts', commits: [], abstentions: ['not_a_git_repo'] });
     expect(result.abstentions).toEqual(['not_a_git_repo']);
     expect(result.commits).toEqual([]);
   });
