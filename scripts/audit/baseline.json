@@ -31,26 +31,6 @@
       "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
       "triaged": "2026-08-04"
     },
-    "C1 tests/core/conflict-judge.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness assertions (no proposals staged, no judged rows, no relations) are each paired with positive assertions on the same flow in the same test",
-      "triaged": "2026-08-14 (conflict pipeline P2)"
-    },
-    "C1 tests/core/config.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
-      "triaged": "2026-08-04"
-    },
-    "C1 tests/core/export-import.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
-      "triaged": "2026-08-04"
-    },
-    "C1 tests/core/llm-telemetry.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
-      "triaged": "2026-08-04"
-    },
     "C1 tests/core/memory-tool.test.ts": {
       "class": "SAFE",
       "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
@@ -76,22 +56,12 @@
       "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
       "triaged": "2026-08-04"
     },
-    "C1 tests/knowledge-graph-batch.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
-      "triaged": "2026-08-04"
-    },
     "C1 tests/recall-empty-query-vectors.test.ts": {
       "class": "SAFE",
       "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
       "triaged": "2026-08-04"
     },
     "C1 tests/recall-relevance.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
-      "triaged": "2026-08-04"
-    },
-    "C1 tests/reindex-reports-what-happened.test.ts": {
       "class": "SAFE",
       "reason": "emptiness paired with positive assertions in the same test file (per-file detail in the 2026-08-04 triage)",
       "triaged": "2026-08-04"
@@ -231,16 +201,6 @@
       "reason": "next line rejects the absent case",
       "triaged": "2026-08-04; re-keyed 2026-08-10 (the AUTO_CAPTURE_TAG import shifted it +1; same statement, classification unchanged)"
     },
-    "C1 tests/hooks/pre-compact.test.ts": {
-      "class": "SAFE",
-      "reason": "the toHaveLength(0) is 'a crashed capture run leaves NO heartbeat', paired in the same test with positive anti-vacuity pins: the capture failure is asserted visible on stderr (toContain('metadata')) and the sibling success test asserts the stamp exists with run_count 1 — the heuristic's pin regex just does not match toBe(1) on run_count",
-      "triaged": "2026-08-13 (PR #142 review round)"
-    },
-    "C1 tests/hooks/write-hook-invariants.test.ts": {
-      "class": "SAFE",
-      "reason": "the toHaveLength(0) is 'openHookDb alone never stamps', followed in the same test by recordHookRun and positive pins (toHaveLength(1), run_count 1 then 2) — emptiness and its non-vacuous counterpart live in one test body",
-      "triaged": "2026-08-13 (PR #142 review round)"
-    },
     "C1 tests/cli/doctor-honest-pass.test.ts": {
       "class": "SAFE",
       "reason": "the zeros are exit codes and a \"warn, not pass\" status, each paired in the same test with a positive assertion (the entity exists, the opposite verdict fires)",
@@ -259,11 +219,6 @@
     "C1 tests/cli/serve-and-import-errors.test.ts": {
       "class": "SAFE",
       "reason": "the zeros are exit codes, and the refusal cases are paired with an import that must still succeed",
-      "triaged": "2026-08-10 (P7 batch 2)"
-    },
-    "C1 tests/core/dreamer-semantic-clustering.test.ts": {
-      "class": "SAFE",
-      "reason": "llmCalls toBe(0) is the assertion under test (the cluster was skipped before the network) and is backed by a second assertion that no LLM attempt appears among the skip reasons",
       "triaged": "2026-08-10 (P7 batch 2)"
     },
     "C6 tests/relation-types-documented.test.ts": {
@@ -385,11 +340,6 @@
       "class": "SAFE-ACCUMULATOR",
       "reason": "write-time signal-score inputs; empty means the caller passed no observations/tags, which is the correct identity for scoring",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content)"
-    },
-    "C1 tests/db.test.ts": {
-      "class": "SAFE",
-      "reason": "the .toBe(0) is PRAGMA table_info notnull flag equality (0 = nullable column), not a set-emptiness assertion; the column presence it depends on is pinned by toBeDefined on the line above",
-      "triaged": "2026-08-14 (UX-1 title-column migration tests)"
     },
     "C5 src/knowledge-graph.ts:431": {
       "class": "SAFE-ACCUMULATOR",
@@ -575,16 +525,6 @@
       "class": "SAFE-DISPLAY",
       "reason": "`e.relations ?? []` in selectProjectEntities — an entity without relations simply readmits nothing; the readmission rule is pinned by tests/dashboard/ProjectTab.select.test.ts including the no-relations path.",
       "triaged": "2026-08-16 (UX-3 readmission rule)"
-    },
-    "C1 tests/cli/why.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness (stderr ''/no-stack regex) paired with positive assertions in the same test file: exit 0, parsed JSON fields, entity name, abstention sentence",
-      "triaged": "2026-08-16 (UX-3 memesh why)"
-    },
-    "C1 tests/core/why.test.ts": {
-      "class": "SAFE",
-      "reason": "emptiness (empty commits/abstention sets) paired with positive assertions in the same test file: exact hashes, entity ids, typed abstention codes, prefix-join both directions",
-      "triaged": "2026-08-16 (UX-3 memesh why)"
     },
     "C1 tests/dashboard/ProjectTab.select.test.ts": {
       "class": "SAFE",

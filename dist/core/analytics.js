@@ -12,7 +12,7 @@ export const RADAR_AXES = [
 ];
 export function computeAnalytics(db) {
     const totalActive = db.prepare("SELECT COUNT(*) as c FROM entities WHERE status = 'active'").get().c;
-    const recentlyAccessed = db.prepare(`SELECT COUNT(*) as c FROM entities WHERE status = 'active' AND last_accessed_at >= datetime('now', '-30 days')`).get().c;
+    const recentlyAccessed = db.prepare(`SELECT COUNT(*) as c FROM entities WHERE status = 'active' AND datetime(last_accessed_at) >= datetime('now', '-30 days')`).get().c;
     const activityRatio = totalActive > 0 ? recentlyAccessed / totalActive : 0;
     const highConfidence = db.prepare("SELECT COUNT(*) as c FROM entities WHERE status = 'active' AND confidence > 0.7").get().c;
     const qualityRatio = totalActive > 0 ? highConfidence / totalActive : 0;
@@ -53,7 +53,7 @@ export function computeAnalytics(db) {
     const recalledTimeline = db.prepare(`
     SELECT DATE(last_accessed_at) as day, COUNT(*) as recalled
     FROM entities
-    WHERE last_accessed_at >= datetime('now', '-30 days')
+    WHERE datetime(last_accessed_at) >= datetime('now', '-30 days')
     GROUP BY DATE(last_accessed_at)
     ORDER BY day
   `).all();
@@ -107,13 +107,13 @@ export function computeAnalytics(db) {
     const reusedThisWeek = db.prepare(`SELECT COUNT(*) as c FROM entities
      WHERE type IN (${knowledgeTypePlaceholders})
        AND status = 'active'
-       AND last_accessed_at >= datetime('now', '-7 days')`).get(...KNOWLEDGE_TYPE_LIST).c;
+       AND datetime(last_accessed_at) >= datetime('now', '-7 days')`).get(...KNOWLEDGE_TYPE_LIST).c;
     const loopTrendRows = db.prepare(`
     SELECT DATE(last_accessed_at) as day, COUNT(*) as count
     FROM entities
     WHERE type IN (${knowledgeTypePlaceholders})
       AND status = 'active'
-      AND last_accessed_at >= datetime('now', '-30 days')
+      AND datetime(last_accessed_at) >= datetime('now', '-30 days')
     GROUP BY DATE(last_accessed_at)
     ORDER BY day
   `).all(...KNOWLEDGE_TYPE_LIST);

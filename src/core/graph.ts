@@ -28,7 +28,7 @@ export function computeGraph(db: MemeshDatabase): GraphResult {
 
   // All signal entities (non-noise) — typically <500, always include all
   const signalRows = db.prepare(
-    `SELECT id FROM entities WHERE type NOT IN (${placeholders}) ORDER BY COALESCE(last_accessed_at, created_at) DESC`,
+    `SELECT id FROM entities WHERE type NOT IN (${placeholders}) ORDER BY COALESCE(datetime(last_accessed_at), created_at) DESC`,
   ).all(...noiseList) as { id: number }[];
 
   // Recent noise entities — fill up to cap of 200 for those who want to see them
@@ -74,9 +74,18 @@ export function computeWorkGraph(db: MemeshDatabase): WorkGraphResult {
   const workTypes = Array.from(WORK_LAYER_TYPES);
   const placeholders = workTypes.map(() => '?').join(',');
 
+  // `datetime(last_accessed_at)`, not the bare column. The two timestamps in
+  // this COALESCE are stored in DIFFERENT formats: `last_accessed_at` is
+  // written as `new Date().toISOString()` (storage/conflicts.ts) and
+  // `created_at` is SQLite's own `CURRENT_TIMESTAMP`. A string ORDER BY over
+  // the mix compares 'T' (0x54) against ' ' (0x20) once the date prefixes are
+  // equal, so among entities touched on the SAME DAY every recalled one sorts
+  // above every never-recalled one regardless of the real times — the exact
+  // inversion this view exists to avoid. `datetime()` normalises the ISO form
+  // (Z included) to SQLite's format, making the comparison honest.
   const rows = db.prepare(
     `SELECT id FROM entities WHERE type IN (${placeholders}) AND status = 'active'
-     ORDER BY COALESCE(last_accessed_at, created_at) DESC`,
+     ORDER BY COALESCE(datetime(last_accessed_at), created_at) DESC`,
   ).all(...workTypes) as { id: number }[];
   const entities = kg.getEntitiesByIds(rows.map((r) => r.id));
 
@@ -86,6 +95,7 @@ export function computeWorkGraph(db: MemeshDatabase): WorkGraphResult {
     JOIN entities e_from ON r.from_entity_id = e_from.id
     JOIN entities e_to ON r.to_entity_id = e_to.id
     WHERE e_from.type IN (${placeholders}) AND e_to.type IN (${placeholders})
+      AND e_from.status = 'active' AND e_to.status = 'active'
   `).all(...workTypes, ...workTypes) as GraphRelation[];
 
   const countRows = db.prepare(`
@@ -132,7 +142,7 @@ export function computeNodeEvidence(db: MemeshDatabase, nodeName: string): NodeE
     JOIN entities e ON r.from_entity_id = e.id
     WHERE r.relation_type = 'evidences' AND r.to_entity_id = ?
       AND e.status = 'active'
-    ORDER BY e.created_at DESC
+    ORDER BY e.created_at DESC, e.id DESC
     LIMIT ${EVIDENCE_CAP + 1}
   `).all(node.id) as { id: number }[];
 

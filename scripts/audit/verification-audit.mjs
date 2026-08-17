@@ -63,7 +63,12 @@ function record(cls, denominator, hits, note) {
     const emptiness = (src.match(/toEqual\(\[\]\)|toHaveLength\(0\)|\.toBe\(0\)/g) ?? []).length;
     if (!emptiness) continue;
     withEmptiness++;
-    const pins = (src.match(/GreaterThan|toBeGreaterThanOrEqual|\.has\(|length\)\.toBe\([1-9]/g) ?? []).length;
+    // `toHaveLength(N)` is a size pin and the pattern could not see it — it
+    // recognised only the `length).toBe(N)` spelling, so a file that pinned
+    // its sizes the other way read as having none. Same blind-spot class as
+    // the C5 `\b` that hid every `|| []`: the detector was reporting on a
+    // subset of the language and calling it the whole.
+    const pins = (src.match(/GreaterThan|toBeGreaterThanOrEqual|\.has\(|length\)\.toBe\([1-9]|toHaveLength\([1-9]/g) ?? []).length;
     if (pins === 0) hits.push(f);
   }
   record('C1', withEmptiness, hits,

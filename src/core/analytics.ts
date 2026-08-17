@@ -88,7 +88,7 @@ export function computeAnalytics(db: MemeshDatabase): AnalyticsResult {
   ).get() as CountRow).c;
 
   const recentlyAccessed = (db.prepare(
-    `SELECT COUNT(*) as c FROM entities WHERE status = 'active' AND last_accessed_at >= datetime('now', '-30 days')`,
+    `SELECT COUNT(*) as c FROM entities WHERE status = 'active' AND datetime(last_accessed_at) >= datetime('now', '-30 days')`,
   ).get() as CountRow).c;
   const activityRatio = totalActive > 0 ? recentlyAccessed / totalActive : 0;
 
@@ -146,7 +146,7 @@ export function computeAnalytics(db: MemeshDatabase): AnalyticsResult {
   const recalledTimeline = db.prepare(`
     SELECT DATE(last_accessed_at) as day, COUNT(*) as recalled
     FROM entities
-    WHERE last_accessed_at >= datetime('now', '-30 days')
+    WHERE datetime(last_accessed_at) >= datetime('now', '-30 days')
     GROUP BY DATE(last_accessed_at)
     ORDER BY day
   `).all() as Array<{ day: string; recalled: number }>;
@@ -227,7 +227,7 @@ export function computeAnalytics(db: MemeshDatabase): AnalyticsResult {
     `SELECT COUNT(*) as c FROM entities
      WHERE type IN (${knowledgeTypePlaceholders})
        AND status = 'active'
-       AND last_accessed_at >= datetime('now', '-7 days')`,
+       AND datetime(last_accessed_at) >= datetime('now', '-7 days')`,
   ).get(...KNOWLEDGE_TYPE_LIST) as CountRow).c;
 
   const loopTrendRows = db.prepare(`
@@ -235,7 +235,7 @@ export function computeAnalytics(db: MemeshDatabase): AnalyticsResult {
     FROM entities
     WHERE type IN (${knowledgeTypePlaceholders})
       AND status = 'active'
-      AND last_accessed_at >= datetime('now', '-30 days')
+      AND datetime(last_accessed_at) >= datetime('now', '-30 days')
     GROUP BY DATE(last_accessed_at)
     ORDER BY day
   `).all(...KNOWLEDGE_TYPE_LIST) as Array<{ day: string; count: number }>;
