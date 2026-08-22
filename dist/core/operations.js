@@ -256,14 +256,12 @@ export async function reindex(opts) {
     if (!hasVectorIndex(db)) {
         throw new Error('sqlite-vec is not loaded, so this database has no vector index to rebuild. Recall is running on FTS5 keyword search alone. Run `memesh doctor` — its "SQLite and vector search" row explains why the extension did not load on this machine.');
     }
-    const targetDim = getEmbeddingDimension();
-    const useGeneration = !opts?.namespace;
-    const provider = detectCapabilities().embeddings;
     let generation;
     let alreadyStaged = new Set();
     let stagedHashes = new Map();
-    if (useGeneration) {
-        const { resumed } = beginVectorGeneration(targetDim, provider);
+    if (!opts?.namespace) {
+        const targetDim = getEmbeddingDimension();
+        const { resumed } = beginVectorGeneration(targetDim, detectCapabilities().embeddings);
         generation = { table: GENERATION_TABLE, dimension: targetDim };
         if (resumed) {
             alreadyStaged = generationRowIds();
@@ -369,7 +367,7 @@ export async function reindex(opts) {
     const missingVectorsDatabaseWide = opts?.namespace
         ? countMissingVectors(db)
         : missingVectors;
-    process.stderr.write(`MeMesh: Reindex complete. ${embedded}/${processed} entities embedded.\n`);
+    process.stderr.write(`MeMesh: processed ${processed} entities; ${embedded} embedded this run.\n`);
     if (outcomes.dimension_mismatch > 0) {
         process.stderr.write(`MeMesh: ${outcomes.dimension_mismatch} entities were skipped because the provider's ` +
             `embedding dimension does not match this database's vector index. Rebuild it by ` +

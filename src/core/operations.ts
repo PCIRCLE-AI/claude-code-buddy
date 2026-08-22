@@ -677,15 +677,13 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
   // namespace's vectors — the destruction wider than the repair. So they keep
   // writing in place, which is safe for exactly the reason a full rebuild is
   // not: each row's old vector survives until its replacement is proven.
-  const targetDim = getEmbeddingDimension();
-  const useGeneration = !opts?.namespace;
-  const provider = detectCapabilities().embeddings;
   let generation: { table: typeof GENERATION_TABLE; dimension: number } | undefined;
   let alreadyStaged = new Set<number>();
   let stagedHashes = new Map<number, string>();
 
-  if (useGeneration) {
-    const { resumed } = beginVectorGeneration(targetDim, provider);
+  if (!opts?.namespace) {
+    const targetDim = getEmbeddingDimension();
+    const { resumed } = beginVectorGeneration(targetDim, detectCapabilities().embeddings);
     generation = { table: GENERATION_TABLE, dimension: targetDim };
     if (resumed) {
       alreadyStaged = generationRowIds();
@@ -885,7 +883,10 @@ export async function reindex(opts?: { namespace?: string }): Promise<ReindexRes
     ? countMissingVectors(db)
     : missingVectors;
 
-  process.stderr.write(`MeMesh: Reindex complete. ${embedded}/${processed} entities embedded.\n`);
+  // "Processed", not "complete": this line fires whether or not the index is
+  // complete, and the CLI prints "Reindex incomplete" a moment later on a failed
+  // run. Two verdicts with opposite words in one stream read as a contradiction.
+  process.stderr.write(`MeMesh: processed ${processed} entities; ${embedded} embedded this run.\n`);
   if (outcomes.dimension_mismatch > 0) {
     process.stderr.write(
       `MeMesh: ${outcomes.dimension_mismatch} entities were skipped because the provider's ` +
