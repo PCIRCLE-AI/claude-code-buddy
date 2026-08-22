@@ -4,6 +4,8 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+## [4.6.1] — 2026-08-23
+
 ### Added
 
 - **A reindex no longer deletes anything until the new index is complete.**
@@ -58,7 +60,7 @@ All notable changes to MeMesh are documented here.
   error — the tab shows the full graph and says that it did, instead of
   presenting an almost-empty canvas as the answer.
 
-- **`memesh kg backfill` draws the evidence→work edges (Rule 5, on by
+- **`memesh kg backfill-relations` draws the evidence→work edges (Rule 5, on by
   default).** Commits and session captures get an `evidences` edge to the
   work item they support, matched on an exact session id — the
   `session:*` tag, or `metadata.session_id` for commit entities, which
@@ -320,8 +322,6 @@ All notable changes to MeMesh are documented here.
   corrupt shadow table must not arrive as an empty result. The staging index's
   start time also survives a resume now, instead of being overwritten on every
   attempt.
-
-### Changed
 
 - **Dashboard design system: VIVARIUM supersedes Precision Engineer.** The
   dashboard's visual language is rebuilt around one idea — a second brain
