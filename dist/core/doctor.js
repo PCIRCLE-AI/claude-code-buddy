@@ -111,10 +111,14 @@ function parseJsonFile(filePath, readFileSyncImpl) {
         };
     }
 }
-function inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl) {
+function inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl, envLlm) {
     const configPath = getConfigPathImpl();
     if (!existsSyncImpl(configPath)) {
-        return createCheck('config', 'Config', 'pass', `No config file yet (${configPath}). MeMesh will run in Core mode until you configure Smart Mode.`, 'Optional: run `memesh config list` or set an LLM with `memesh config set llm.provider anthropic`.');
+        return createCheck('config', 'Config', 'pass', envLlm
+            ? `No config file yet (${configPath}), but your environment names ${envLlm.provider}${envLlm.apiKey ? ' (via its API key)' : ' (via OLLAMA_HOST)'}, which enables Smart Mode. A file is only needed to pin a provider or change defaults.`
+            : `No config file yet (${configPath}). MeMesh will run in Core mode until you configure Smart Mode.`, envLlm
+            ? `Optional: \`memesh config set llm.provider ${envLlm.provider}\` pins it so it does not depend on which shell you run from.`
+            : 'Optional: run `memesh config list` or set an LLM with `memesh config set llm.provider anthropic`.');
     }
     try {
         const raw = readFileSyncImpl(configPath, 'utf8');
@@ -853,7 +857,7 @@ export async function runDoctor(options) {
         catch {
         }
     }
-    checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl));
+    checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl, detectCapabilitiesImpl().llm));
     checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
     checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
     const wiring = inspectHookWiring(existsSyncImpl, readFileSyncImpl, memeshDir(), install, installedPluginsPathImpl);

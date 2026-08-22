@@ -578,6 +578,14 @@ if (!hasBearerAuth) {
   if (registeredFlags.size < 10) {
     fail(`CLI option extraction matched only ${registeredFlags.size} — the pattern stopped matching cli.ts`);
   }
+  // The retired `--vectors` is registered via `.addOption(new Option(...))`
+  // purely so it can be refused with a real message; the `.option(` pattern
+  // above therefore does not see it, and a doc re-documenting it still fails.
+  // That is correct — but it was accidental. Pin it, so normalising
+  // `.addOption` to `.option` later cannot silently re-admit the flag.
+  if (registeredFlags.has('--vectors')) {
+    fail('`--vectors` is registered as a live option again — it was retired and must stay refused');
+  }
   const documentedFlags = new Map();   // flag → first doc:line that names it
   for (const doc of ['docs/api/API_REFERENCE.md']) {
     read(doc).split('\n').forEach((line, i) => {

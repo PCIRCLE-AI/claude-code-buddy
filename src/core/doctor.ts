@@ -339,15 +339,30 @@ function inspectConfigFile(
   existsSyncImpl: typeof fs.existsSync,
   readFileSyncImpl: typeof fs.readFileSync,
   getConfigPathImpl: typeof getConfigPath,
+  envLlm: { provider: string; apiKey?: string } | null,
 ): DoctorCheck {
   const configPath = getConfigPathImpl();
   if (!existsSyncImpl(configPath)) {
+    // "No config file" is not "Core mode". An API key in the environment is
+    // enough for Smart Mode with no file at all, and this check used to say
+    // Core mode regardless while the Capabilities line two sections later
+    // said Smart Mode — the same report contradicting itself. The dream gate
+    // already learned this (detectCapabilities, not readConfig); doctor's own
+    // Config check had not. Take the level from the one detector, and say
+    // which it is.
     return createCheck(
       'config',
       'Config',
       'pass',
-      `No config file yet (${configPath}). MeMesh will run in Core mode until you configure Smart Mode.`,
-      'Optional: run `memesh config list` or set an LLM with `memesh config set llm.provider anthropic`.',
+      // Name WHAT enabled it. The first version of this sentence said "an API
+      // key in the environment", which is false for OLLAMA_HOST — that sets a
+      // provider with no key at all, and sent the user hunting for one.
+      envLlm
+        ? `No config file yet (${configPath}), but your environment names ${envLlm.provider}${envLlm.apiKey ? ' (via its API key)' : ' (via OLLAMA_HOST)'}, which enables Smart Mode. A file is only needed to pin a provider or change defaults.`
+        : `No config file yet (${configPath}). MeMesh will run in Core mode until you configure Smart Mode.`,
+      envLlm
+        ? `Optional: \`memesh config set llm.provider ${envLlm.provider}\` pins it so it does not depend on which shell you run from.`
+        : 'Optional: run `memesh config list` or set an LLM with `memesh config set llm.provider anthropic`.',
     );
   }
 
@@ -2219,7 +2234,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     }
   }
 
-  checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl));
+  checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl, detectCapabilitiesImpl().llm));
   checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
   checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
   // Runtime wiring + activity (#25 — file existence isn't enough;

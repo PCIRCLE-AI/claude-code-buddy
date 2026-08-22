@@ -152,7 +152,11 @@ describe('memesh reindex refuses before it destroys anything', () => {
     expect(
       result.stderr,
       'the flag was accepted rather than refused by the parser',
-    ).toContain("unknown option '--vectors'");
+    ).toContain('has been retired');
+    // A refusal that does not name the replacement is the bare Commander error
+    // wearing a costume. The user must leave knowing what to run instead.
+    expect(result.stderr, 'the user was not told what to run instead').toContain('memesh reindex');
+    expect(result.stderr, 'the user was not told how to change provider').toContain('embedder.provider');
     expect(vectorCount(), 'a rejected command destroyed vectors').toBe(1);
   });
 
@@ -196,7 +200,12 @@ describe('memesh reindex refuses before it destroys anything', () => {
     // and a 401 is configuration, not weather. Previously this same setup ran
     // the whole corpus, failed every write, and reported "0 memories still
     // have no vector", which was true and completely misleading.
-    expect(result.stderr).toContain('nothing was rebuilt');
+    expect(result.stderr).toContain('Nothing was rebuilt');
+    // This fixture CONFIGURES openai (and deletes the key), so it is the
+    // "configured but not answering" case and the advice must be to check the
+    // provider — not to configure one, which the user already did.
+    expect(result.stderr, 'advice for the wrong problem').toContain('API key is valid');
+    expect(result.stderr, 'advice for the wrong problem').not.toContain('no embedding provider is configured');
     expect(result.stderr, 'the user was not told their index survived').toContain('untouched');
     // And the stale vector is still there, for a stronger reason than before:
     // a refused rebuild never publishes at all.
@@ -292,7 +301,7 @@ server.listen(0, '127.0.0.1', () => {
       expect(
         result.stderr,
         'the run never got past the pre-flight probe, so it did not test the verdict',
-      ).not.toContain('nothing was rebuilt');
+      ).not.toContain('Nothing was rebuilt');
       expect(result.stderr, 'the reindex loop never started').toContain('Reindexing');
 
       expect(result.stdout, 'a tick over a run that embedded nothing').not.toContain('✅');
@@ -356,6 +365,150 @@ server.listen(0, '127.0.0.1', () => {
     expect(live, 'discarding the staging index touched the LIVE index').toBe(1);
   });
 
+  it('with NO embedder configured, says to configure one — not to check a key that does not exist', () => {
+    // QA on the packaged CLI: a fresh install with nothing configured was told
+    // "check that Ollama is running (or that your OpenAI API key is valid)".
+    // There was no key and no server — the advice was for a different problem.
+    // No config file at all; run() deletes OPENAI_API_KEY (the only key it
+    // deletes), and no OLLAMA_HOST is set here: embeddings resolve to tfidf.
+    seedVectorIndex();
+    const result = run(['reindex']);
+    expect(result.status).toBe(1);
+    expect(result.stderr, 'unconfigured install got advice for a configured one')
+      .toContain('no embedding provider is configured');
+    expect(result.stderr, 'the user was not told HOW to configure one')
+      .toContain('config set embedder.provider');
+    expect(result.stderr).not.toContain('API key is valid');
+    expect(vectorCount(), 'a refused run touched the index').toBe(1);
+  });
+
+  it('a complete rebuild prints the tick, exits 0, and --json agrees', async () => {
+    // Review finding M6: the CLI verdict's clean path was asserted nowhere
+    // through the spawned binary — only "Reindex incomplete" was — so a
+    // mutation that deleted the other-namespace-behind branch survived the
+    // suite. Same spawned-stub pattern as the incomplete-path test; the stub
+    // answers EVERY request at the configured width.
+    const stubPath = path.join(home, 'embed-stub-ok.mjs');
+    fs.writeFileSync(stubPath, `
+import http from 'node:http';
+const server = http.createServer((req, res) => {
+  let body = ''; req.on('data', (c) => { body += c; });
+  req.on('end', () => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ embeddings: [Array.from({ length: 768 }, () => 0.1)] }));
+  });
+});
+server.listen(0, '127.0.0.1', () => { process.stdout.write('PORT=' + server.address().port + '\\n'); });
+`);
+    const { spawn } = await import('node:child_process');
+    const stub = spawn(process.execPath, [stubPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const port: number = await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('stub never reported a port')), 10_000);
+      stub.stdout.on('data', (d: Buffer) => { const m = /PORT=(\d+)/.exec(String(d)); if (m) { clearTimeout(t); resolve(Number(m[1])); } });
+      stub.on('error', reject);
+    });
+    try {
+      fs.writeFileSync(path.join(home, '.memesh', 'config.json'), JSON.stringify({ embedder: { provider: 'ollama' } }));
+      const env = { OLLAMA_HOST: `http://127.0.0.1:${port}` };
+      expect(run(['remember', '--name', 'n1', '--type', 'note', '--obs', 'first'], env).status).toBe(0);
+      expect(run(['remember', '--name', 'n2', '--type', 'note', '--obs', 'second'], env).status).toBe(0);
+
+      const text = run(['reindex'], env);
+      expect(text.status, `a complete rebuild exited non-zero: ${text.stderr}`).toBe(0);
+      expect(text.stdout, 'the clean path did not print the tick').toContain('✅ Reindex complete');
+      expect(text.stdout).not.toContain('Reindex incomplete');
+      expect(text.stdout, 'the clean path printed the other-namespace note').not.toContain('other namespaces');
+
+      const json = run(['reindex', '--json'], env);
+      expect(json.status).toBe(0);
+      const parsed = JSON.parse(json.stdout);
+      expect(parsed.generationSwapped, 'a second clean run should still swap').toBe(true);
+      expect(parsed.pendingReindexCleared).toBe(true);
+    } finally {
+      stub.kill();
+    }
+  });
+
+  it('a namespace-scoped success still says the OTHER namespace is behind', async () => {
+    // The verdict's third branch: everything asked for succeeded, but another
+    // namespace still has no vectors, so the database-wide flag stays set and
+    // the tick carries a Note. A mutation deleting this branch survived the
+    // suite in review because nothing drove it through the binary.
+    const stubPath = path.join(home, 'embed-stub-ns.mjs');
+    fs.writeFileSync(stubPath, `
+import http from 'node:http';
+const server = http.createServer((req, res) => {
+  let body = ''; req.on('data', (c) => { body += c; });
+  req.on('end', () => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ embeddings: [Array.from({ length: 768 }, () => 0.1)] }));
+  });
+});
+server.listen(0, '127.0.0.1', () => { process.stdout.write('PORT=' + server.address().port + '\\n'); });
+`);
+    const { spawn } = await import('node:child_process');
+    const stub = spawn(process.execPath, [stubPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const port: number = await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('stub never reported a port')), 10_000);
+      stub.stdout.on('data', (d: Buffer) => { const m = /PORT=(\d+)/.exec(String(d)); if (m) { clearTimeout(t); resolve(Number(m[1])); } });
+      stub.on('error', reject);
+    });
+    try {
+      fs.writeFileSync(path.join(home, '.memesh', 'config.json'), JSON.stringify({ embedder: { provider: 'ollama' } }));
+      const dead = { OLLAMA_HOST: 'http://127.0.0.1:1' };
+      // Seed with the provider UNREACHABLE so neither entity gets a vector.
+      expect(run(['remember', '--name', 'p1', '--type', 'note', '--obs', 'personal one', '--namespace', 'personal'], dead).status).toBe(0);
+      expect(run(['remember', '--name', 'w1', '--type', 'note', '--obs', 'team one', '--namespace', 'team'], dead).status).toBe(0);
+
+      const result = run(['reindex', '--namespace', 'personal'], { OLLAMA_HOST: `http://127.0.0.1:${port}` });
+      expect(result.status, `the scoped run failed: ${result.stderr}`).toBe(0);
+      expect(result.stdout, 'the scoped success did not print the tick').toContain('✅ Reindex complete');
+      expect(result.stdout, 'the other-namespace-behind Note was not printed').toContain('other namespaces');
+    } finally {
+      stub.kill();
+    }
+  });
+
+  it('a typo\'d embedder.provider is reported as INVALID, not as "none configured"', () => {
+    // Review finding: 'olama' resolved to keyword-only, and the message said
+    // "no embedding provider is configured" while `config list` showed one.
+    seedVectorIndex();
+    fs.writeFileSync(path.join(home, '.memesh', 'config.json'), JSON.stringify({ embedder: { provider: 'olama' } }));
+    const result = run(['reindex']);
+    expect(result.status).toBe(1);
+    expect(result.stderr, 'an invalid value was reported as absent').not.toContain('no embedding provider is configured');
+    expect(result.stderr, 'the bad value was not named').toContain("set to 'olama'");
+    expect(result.stderr).toContain('config set embedder.provider');
+  });
+
+  it('--json is honoured on the retired flag, a bad --namespace, and a thrown error too', () => {
+    // Review finding: three exits still printed prose (or nothing) under --json.
+    seedVectorIndex();
+    const retired = run(['reindex', '--vectors', '--json']);
+    expect(retired.status).toBe(1);
+    expect(() => JSON.parse(retired.stdout), `retired flag under --json was not JSON: ${retired.stdout}`).not.toThrow();
+    expect(JSON.parse(retired.stdout)).toMatchObject({ refused: true, indexTouched: false });
+  });
+
+  it('--json is honoured on every reindex path, not only the happy one', () => {
+    // QA on the packaged CLI found `--json` silently ignored on two paths: the
+    // pre-flight refusal printed an emoji banner, and --discard-generation
+    // printed prose. --help documents --json for the whole command, so a script
+    // doing `memesh reindex --json | jq` broke on exactly the paths where it
+    // most needs a machine-readable answer.
+    seedVectorIndex();
+
+    const refused = run(['reindex', '--json']);
+    expect(refused.status, 'a refused run must still exit 1 under --json').toBe(1);
+    expect(() => JSON.parse(refused.stdout), `refusal was not JSON: ${refused.stdout}`).not.toThrow();
+    expect(JSON.parse(refused.stdout)).toMatchObject({ refused: true, indexTouched: false });
+    expect(refused.stdout, 'prose leaked into the JSON channel').not.toContain('❌');
+
+    const nothing = run(['reindex', '--discard-generation', '--json']);
+    expect(nothing.status).toBe(0);
+    expect(JSON.parse(nothing.stdout)).toEqual({ discarded: false, staged: 0 });
+  });
+
   it('--discard-generation says so plainly when there is nothing to discard', () => {
     seedVectorIndex();
     const result = run(['reindex', '--discard-generation']);
@@ -407,6 +560,9 @@ describe('no shipped source tells a user to run a flag the CLI rejects', () => {
     for (const rel of ADVICE_SOURCES) {
       const text = fs.readFileSync(path.join(repoRoot, rel), 'utf8');
       text.split('\n').forEach((line, i) => {
+        // The retirement message names the dead flag on purpose — that is its
+        // whole job. It is fenced by a marker so the scan skips it and nothing else.
+        if (line.includes('retired-flag-message:')) return;
         // Comments talk to maintainers, not users; only shipped strings count.
         if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;
         for (const m of line.matchAll(/memesh\s+[a-z][a-z-]*\s+(--[a-z][a-z0-9-]*)/g)) {

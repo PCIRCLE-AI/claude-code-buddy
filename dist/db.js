@@ -11,6 +11,7 @@ import { SCHEMA_SQL, FTS_SQL, safeAlter, migrateEntitiesSchema, ensureTagsUnique
 export { runOnceMigration, FTS_SEGMENTATION_VERSION };
 import { truncateTitle, isBoilerplateObservation } from './core/title.js';
 let db = null;
+let dimensionMismatchNoticed = false;
 export function openDatabase(dbPath) {
     if (db)
         return db;
@@ -128,14 +129,17 @@ function ensureVecTable(db, resolvedPath, targetDim, dimensionKnown = true) {
         return;
     }
     if (vecExists && currentDim !== 0 && currentDim !== targetDim) {
-        process.stderr.write(`MeMesh: this database records ${currentDim}-dim embeddings but the current ` +
-            `configuration asks for ${targetDim}. Nothing is deleted — the index is kept ` +
-            `so a rebuild can resume — but semantic search is OFF until the rebuild ` +
-            `finishes, because a ${targetDim}-dim query cannot be matched against a ` +
-            `${currentDim}-dim index; recall is on keyword search alone meanwhile. ` +
-            `Run 'memesh reindex' to build the ${targetDim}-dim index alongside it and ` +
-            `switch over once it is complete.\n`);
-        markReindexOwed(currentDim, targetDim, 'dimension-change');
+        if (!dimensionMismatchNoticed) {
+            process.stderr.write(`MeMesh: this database records ${currentDim}-dim embeddings but the current ` +
+                `configuration asks for ${targetDim}. Nothing is deleted — the index is kept ` +
+                `so a rebuild can resume — but semantic search is OFF until the rebuild ` +
+                `finishes, because a ${targetDim}-dim query cannot be matched against a ` +
+                `${currentDim}-dim index; recall is on keyword search alone meanwhile. ` +
+                `Run 'memesh reindex' to build the ${targetDim}-dim index alongside it and ` +
+                `switch over once it is complete.\n`);
+            dimensionMismatchNoticed = true;
+        }
+        markReindexOwed(currentDim, targetDim, 'dimension-change', db);
         return;
     }
     db.transaction(() => {
@@ -150,21 +154,22 @@ function ensureVecTable(db, resolvedPath, targetDim, dimensionKnown = true) {
 export const GENERATION_TABLE = 'entities_vec_next';
 const GENERATION_HASH_TABLE = 'entities_vec_next_source';
 const GENERATION_KEY = 'vector_generation';
+function tableExists(conn, name) {
+    return conn.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type IN ('table','view') AND name = ?").get(name).c > 0;
+}
+function assertVectorWidth(dimension) {
+    if (!Number.isInteger(dimension) || dimension <= 0 || dimension > 65536) {
+        throw new Error(`Refusing to build a vector index at width ${String(dimension)}.`);
+    }
+}
 export function readVectorGeneration() {
     if (!db)
         return { state: 'none' };
-    let raw;
     try {
         const row = db.prepare('SELECT value FROM memesh_metadata WHERE key = ?').get(GENERATION_KEY);
         if (!row)
             return { state: 'none' };
-        raw = row.value;
-    }
-    catch (err) {
-        return { state: 'unreadable', detail: err instanceof Error ? err.message : String(err) };
-    }
-    try {
-        const parsed = JSON.parse(raw);
+        const parsed = JSON.parse(row.value);
         if (typeof parsed.dimension !== 'number' || typeof parsed.provider !== 'string') {
             return { state: 'unreadable', detail: 'the marker is missing its dimension or provider' };
         }
@@ -185,8 +190,7 @@ export function generationRowIds() {
     const out = new Set();
     if (!db)
         return out;
-    const exists = db.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type IN ('table','view') AND name = ?").get(GENERATION_TABLE).c > 0;
-    if (!exists)
+    if (!tableExists(db, GENERATION_TABLE))
         return out;
     const rows = db.prepare(`SELECT rowid AS id FROM ${GENERATION_TABLE}`).all();
     for (const r of rows)
@@ -194,12 +198,10 @@ export function generationRowIds() {
     return out;
 }
 export function beginVectorGeneration(dimension, provider) {
-    if (!Number.isInteger(dimension) || dimension <= 0 || dimension > 65536) {
-        throw new Error(`Refusing to build a vector index at width ${String(dimension)}.`);
-    }
+    assertVectorWidth(dimension);
     const conn = getDatabase();
     const read = readVectorGeneration();
-    const stagingExists = conn.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type IN ('table','view') AND name = ?").get(GENERATION_TABLE).c > 0;
+    const stagingExists = tableExists(conn, GENERATION_TABLE);
     if (read.state === 'unreadable' && stagingExists) {
         throw new Error('A half-built vector index is present but its marker cannot be read '
             + `(${read.detail}). Resuming it risks mixing vectors from two different `
@@ -227,8 +229,7 @@ export function generationRowHashes() {
     const out = new Map();
     if (!db)
         return out;
-    const exists = db.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name = ?").get(GENERATION_HASH_TABLE).c > 0;
-    if (!exists)
+    if (!tableExists(db, GENERATION_HASH_TABLE))
         return out;
     const rows = db.prepare(`SELECT rowid_ref AS id, text_hash AS h FROM ${GENERATION_HASH_TABLE}`).all();
     for (const r of rows)
@@ -248,9 +249,7 @@ export function discardVectorGeneration() {
     }).immediate();
 }
 export function swapVectorGeneration(dimension) {
-    if (!Number.isInteger(dimension) || dimension <= 0 || dimension > 65536) {
-        throw new Error(`Refusing to build a vector index at width ${String(dimension)}.`);
-    }
+    assertVectorWidth(dimension);
     const conn = getDatabase();
     conn.transaction(() => {
         conn.exec(`DELETE FROM ${GENERATION_TABLE} WHERE rowid NOT IN `
@@ -283,24 +282,27 @@ export function getStoredEmbeddingDimension() {
     return row ? Number(row.value) || 0 : 0;
 }
 export function getPendingReindexInfo() {
-    if (!db)
+    return readPendingReindex(db);
+}
+function readPendingReindex(conn) {
+    if (!conn)
         return null;
     try {
-        const row = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'pending_reindex'").get();
+        const row = conn.prepare("SELECT value FROM memesh_metadata WHERE key = 'pending_reindex'").get();
         return row ? JSON.parse(row.value) : null;
     }
     catch {
         return null;
     }
 }
-export function markReindexOwed(from, to, reason) {
-    if (!db)
+export function markReindexOwed(from, to, reason, conn = db) {
+    if (!conn)
         return;
-    const existing = getPendingReindexInfo();
+    const existing = readPendingReindex(conn);
     if (existing && existing.from === from && existing.to === to && existing.reason === reason) {
         return;
     }
-    db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)").run(JSON.stringify({
+    conn.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)").run(JSON.stringify({
         from,
         to,
         reason,
@@ -568,6 +570,7 @@ export function closeDatabase() {
         db.close();
         db = null;
     }
+    dimensionMismatchNoticed = false;
 }
 export function getDatabase() {
     if (!db)

@@ -162,7 +162,8 @@ All notable changes to MeMesh are documented here.
   and doing nothing.
 
 - **`memesh reindex --vectors` is removed. Scripts that pass it will fail**
-  with `error: unknown option '--vectors'` and exit 1. The flag existed only to
+  with a message saying it was retired and naming `memesh reindex` as the
+  replacement, and exit 1. The flag existed only to
   grant consent for dropping every stored embedding before the refill began,
   and generations removed that step, so there is no longer any consent to ask
   for. To rebuild the index at a new width — which is what the flag was used
@@ -171,6 +172,56 @@ All notable changes to MeMesh are documented here.
   nothing.
 
 ### Fixed
+
+- **The reindex-owed marker is now actually written when a dimension change is
+  noticed on open.** `markReindexOwed` guarded on the module-level database
+  singleton, which `openDatabase` assigns only *after* initialisation runs — so
+  during open it was still null and the write silently returned. Measured: 20
+  cold opens of a 384-vs-1536 database printed the "semantic search is OFF"
+  warning every time and recorded nothing, and `memesh doctor` then reported
+  PASS over an index owed a rebuild. The open path now passes its own handle.
+- **`memesh reindex --json` is honoured on the refusal paths.** It was
+  silently ignored on the pre-flight refusal (an emoji banner instead of JSON),
+  on `--discard-generation` (prose), on the retired `--vectors` flag, and on a
+  thrown error — so a script piping the output through `JSON.parse` broke on
+  exactly the paths where it most needed a machine-readable answer. One path
+  still prints prose under `--json`: an invalid `--namespace` value, which is
+  rejected by a validator shared with seven other commands and is out of this
+  change's scope.
+- **`memesh reindex` with no embedder configured now says so.** It told every
+  user to "check that Ollama is running or your OpenAI API key is valid" —
+  advice for a provider the user had never set up. The unconfigured case now
+  names the two `config set embedder.provider` commands and says keyword recall
+  needs no rebuild meanwhile.
+- **`memesh reindex --vectors` now says it was retired and what to run
+  instead.** It answered with Commander's bare `unknown option`, which reads as
+  a typo and teaches nothing — the same dead end the retired `consolidate`
+  command was already given a real message for.
+- **`memesh doctor` no longer contradicts itself about Smart Mode.** With no
+  config file and an API key in the shell environment — a common developer
+  setup — the Config row said "MeMesh will run in Core mode" while the
+  Capabilities row two sections later said "Search level 1 (Smart Mode)". The
+  Config check now takes its answer from the same detector and names what
+  enabled Smart Mode — the provider, and whether it came from an API key or
+  from `OLLAMA_HOST`, which sets a provider with no key at all.
+- **The dimension-mismatch notice prints once per database, not once per
+  open.** `memesh doctor` opens the database twice in one run, so the same
+  paragraph appeared twice back to back and read like a retry loop. The de-dup
+  resets when the database is closed, so a process that then opens a
+  different database is told again.
+
+### Changed
+
+- **Simplification pass over the rebuild code: net −12 lines, no behaviour
+  change.** Three copies of the "does this table exist" query became one
+  helper; two copies of the vector-width guard became one; a two-`try` read
+  became one; and the CLI's three near-identical "Processed / Embedded /
+  Skipped" blocks became one with byte-identical output. No test changed.
+
+- **A failed rebuild no longer prints "Reindex complete" before "Reindex
+  incomplete".** The first line meant "the loop finished", fired regardless of
+  outcome, and sat in the same stream as the real verdict. It now says
+  "processed N entities; M embedded this run".
 
 - **A resumed rebuild no longer promotes a vector for text that has since
   changed.** It skipped an entity whenever a row for it was already staged, on

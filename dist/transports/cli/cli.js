@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -1839,14 +1839,38 @@ program
     .option('--fts', 'Rebuild the full-text keyword index instead of the vector index')
     .option('--discard-generation', 'Throw away a half-built vector index left by an interrupted rebuild, without rebuilding')
     .option('--json', 'Output as JSON')
+    .addOption(new Option('--vectors').hideHelp())
     .action(async (opts) => {
+    if (opts.vectors) {
+        if (opts.json) {
+            console.log(JSON.stringify({
+                refused: true,
+                reason: 'the --vectors flag is retired',
+                fix: 'run plain memesh reindex; to change provider first: memesh config set embedder.provider ollama|openai',
+                indexTouched: false,
+            }));
+            process.exit(1);
+        }
+        console.error('`memesh reindex --vectors` has been retired.');
+        console.error('');
+        console.error('It existed to consent to dropping every stored embedding before a refill.');
+        console.error('A rebuild now happens beside the live index and replaces it only when');
+        console.error('complete, so there is nothing left to consent to.');
+        console.error('');
+        console.error('Run plain `memesh reindex`. To change embedding provider first:');
+        console.error('  memesh config set embedder.provider ollama   (or openai)');
+        process.exit(1);
+    }
     requireOneOf(opts.namespace, NAMESPACES, '--namespace');
     if (opts.discardGeneration) {
         await withDatabase(async () => {
             const read = readVectorGeneration();
             const staged = generationRowIds().size;
             if (read.state === 'none' && staged === 0) {
-                console.log('Nothing to discard: there is no half-built vector index.');
+                if (opts.json)
+                    console.log(JSON.stringify({ discarded: false, staged: 0 }));
+                else
+                    console.log('Nothing to discard: there is no half-built vector index.');
                 return;
             }
             const describe = read.state === 'open'
@@ -1855,8 +1879,13 @@ program
                     ? `marker unreadable (${read.detail})`
                     : 'no marker';
             discardVectorGeneration();
-            console.log(`Discarded a half-built vector index: ${staged} staged vectors (${describe}).\n` +
-                '   Your live index was not touched. Run `memesh reindex` to build a new one.');
+            if (opts.json) {
+                console.log(JSON.stringify({ discarded: true, staged, generation: read, liveIndexTouched: false }));
+            }
+            else {
+                console.log(`Discarded a half-built vector index: ${staged} staged vectors (${describe}).\n` +
+                    '   Your live index was not touched. Run `memesh reindex` to build a new one.');
+            }
         });
         return;
     }
@@ -1874,11 +1903,31 @@ program
             return;
         }
         if (!opts.namespace && !(await canRefillVectorIndex())) {
-            console.error('❌ Could not produce a test embedding at the configured vector width, so\n' +
-                '   nothing was rebuilt. Your existing index is untouched and still\n' +
-                '   answering queries.\n' +
-                '   Check that Ollama is running (or that your OpenAI API key is valid) —\n' +
-                '   then run this again. `memesh doctor` reports which provider is configured.');
+            const embedder = detectCapabilities().embeddings;
+            const written = readConfig().embedder?.provider;
+            const known = embedder === 'openai' || embedder === 'ollama';
+            const invalid = written !== undefined && !known;
+            const unconfigured = written === undefined && !known;
+            const reason = invalid
+                ? `embedder.provider is set to '${written}', which is not a provider MeMesh knows`
+                : unconfigured
+                    ? 'no embedding provider is configured, so there is nothing to build vectors with'
+                    : 'could not produce a test embedding at the configured vector width';
+            const fix = invalid || unconfigured
+                ? (invalid ? 'Set it to one MeMesh knows: ' : 'Pick one first: ') +
+                    '`memesh config set embedder.provider ollama` (local, needs `ollama serve`) ' +
+                    'or `memesh config set embedder.provider openai` (needs OPENAI_API_KEY). Until then, recall ' +
+                    'runs on keyword search, which needs no rebuild.'
+                : 'Check that Ollama is running (or that your OpenAI API key is valid), then run this again. ' +
+                    '`memesh doctor` reports which provider is configured.';
+            if (opts.json) {
+                console.log(JSON.stringify({ refused: true, reason, fix, indexTouched: false }));
+            }
+            else {
+                console.error(`❌ Nothing was rebuilt: ${reason}.\n` +
+                    '   Your existing index is untouched and still answering queries.\n' +
+                    `   ${fix}`);
+            }
             process.exit(1);
         }
         await withDatabase(async () => {
@@ -1890,44 +1939,36 @@ program
             if (opts.json) {
                 console.log(JSON.stringify(result));
             }
-            else if (incomplete) {
-                console.log(`⚠️  Reindex incomplete:`);
-                console.log(`   Processed: ${result.processed}`);
-                console.log(`   Embedded:  ${result.embedded}`);
-                console.log(`   Skipped:   ${result.skipped}`);
-                if (result.abortedAfter !== null) {
-                    console.log(`   Stopped early after ${result.abortedAfter} entities: the provider failed ` +
-                        `repeatedly. Everything embedded so far is kept — run this again to continue.`);
-                }
-                if (result.generationSwapped === false) {
-                    console.log(`   The new index was NOT switched in, so your existing index is untouched ` +
-                        `and still answering queries.`);
-                }
-                if (result.missingVectors > 0) {
-                    console.log(`   Still without a vector: ${result.missingVectors}`);
-                }
-                if (result.failed > 0 && result.missingVectors === 0) {
-                    console.log(`   Could not be regenerated: ${result.failed} ` +
-                        `(these still hold their previous embedding)`);
-                }
-                for (const [outcome, count] of Object.entries(result.outcomes)) {
-                    if (outcome !== 'stored' && count > 0)
-                        console.log(`     ${outcome}: ${count}`);
-                }
-            }
-            else if (!result.pendingReindexCleared) {
-                console.log(`✅ Reindex complete:`);
-                console.log(`   Processed: ${result.processed}`);
-                console.log(`   Embedded:  ${result.embedded}`);
-                console.log(`   Skipped:   ${result.skipped}`);
-                console.log(`   Note: ${result.missingVectorsDatabaseWide} memories in other namespaces still ` +
-                    `have no vector, so the reindex-needed flag stays set.`);
-            }
             else {
-                console.log(`✅ Reindex complete:`);
+                console.log(incomplete ? `⚠️  Reindex incomplete:` : `✅ Reindex complete:`);
                 console.log(`   Processed: ${result.processed}`);
                 console.log(`   Embedded:  ${result.embedded}`);
                 console.log(`   Skipped:   ${result.skipped}`);
+                if (incomplete) {
+                    if (result.abortedAfter !== null) {
+                        console.log(`   Stopped early after ${result.abortedAfter} entities: the provider failed ` +
+                            `repeatedly. Everything embedded so far is kept — run this again to continue.`);
+                    }
+                    if (result.generationSwapped === false) {
+                        console.log(`   The new index was NOT switched in, so your existing index is untouched ` +
+                            `and still answering queries.`);
+                    }
+                    if (result.missingVectors > 0) {
+                        console.log(`   Still without a vector: ${result.missingVectors}`);
+                    }
+                    if (result.failed > 0 && result.missingVectors === 0) {
+                        console.log(`   Could not be regenerated: ${result.failed} ` +
+                            `(these still hold their previous embedding)`);
+                    }
+                    for (const [outcome, count] of Object.entries(result.outcomes)) {
+                        if (outcome !== 'stored' && count > 0)
+                            console.log(`     ${outcome}: ${count}`);
+                    }
+                }
+                else if (!result.pendingReindexCleared) {
+                    console.log(`   Note: ${result.missingVectorsDatabaseWide} memories in other namespaces still ` +
+                        `have no vector, so the reindex-needed flag stays set.`);
+                }
             }
             if (incomplete)
                 process.exitCode = 1;
@@ -1935,7 +1976,10 @@ program
     }
     catch (err) {
         if (err instanceof Error) {
-            console.error(`❌ Reindex failed: ${err.message}`);
+            if (opts.json)
+                console.log(JSON.stringify({ refused: true, reason: err.message, indexTouched: false }));
+            else
+                console.error(`❌ Reindex failed: ${err.message}`);
             process.exit(1);
         }
         throw err;

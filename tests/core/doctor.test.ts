@@ -384,6 +384,85 @@ describe('doctor', () => {
     expect(result.checks.find((check) => check.id === 'update-status')?.status).toBe('warn');
   });
 
+  it('the Config row agrees with the Capabilities row when an env key enables Smart Mode', async () => {
+    // QA on the packaged CLI: with NO config file and an API key in the shell —
+    // a common developer setup — the Config row said "MeMesh will run in Core
+    // mode" while the Capabilities row two sections later said "Search level 1
+    // (Smart Mode)". One report, two answers. The Config check used to hardcode
+    // Core mode whenever the file was absent, never asking the detector that
+    // the Capabilities row already consulted. The dream gate had fixed this
+    // same pattern; doctor's own check had not.
+    const packageRoot = createPackageRoot();
+    const memeshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-smart-'));
+    tempRoots.push(memeshDir);
+    const originalMemeshDir = process.env.MEMESH_DIR;
+    process.env.MEMESH_DIR = memeshDir;
+
+    const result = await runDoctor({
+      packageRoot,
+      packageVersion: '4.0.3',
+      openDatabaseImpl: () => makeDatabase() as never,
+      closeDatabaseImpl: () => undefined,
+      // Env-detected Smart Mode: a key is present, no file names a provider.
+      detectCapabilitiesImpl: () => caps({
+        searchLevel: 1,
+        llm: { provider: 'openai', model: 'gpt-4o-mini', apiKey: 'sk-test' },
+        embeddings: 'tfidf',
+      }),
+      // The file does NOT exist — that is the whole scenario.
+      getConfigPathImpl: () => path.join(memeshDir, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck({
+        latestVersion: null, checkSucceeded: false, freshness: 'unavailable',
+        lastSuccessfulCheckAt: null, lastError: 'registry offline',
+      }),
+      getCurrentInstallChannelImpl: () => 'source-checkout',
+      getInstallChannelSupportImpl: () => ({
+        channel: 'source-checkout', label: 'source checkout', canSelfUpdate: false,
+        recommendedCommand: null, guidance: 'Update this source checkout from its repository and rebuild it.',
+      }),
+      nativeBindingProbeImpl: () => ({ ok: true }),
+    });
+
+    if (originalMemeshDir === undefined) delete process.env.MEMESH_DIR;
+    else process.env.MEMESH_DIR = originalMemeshDir;
+
+    const config = result.checks.find((check) => check.id === 'config');
+    expect(config?.status).toBe('pass');
+    expect(config?.summary, 'the Config row still claims Core mode while the detector says Smart Mode')
+      .not.toContain('Core mode');
+    // Pin the TRUTH of the sentence, not only the absence of the old one. The
+    // first version said "an API key in the environment" — a mutation replacing
+    // that phrase with nonsense survived, because only 'Smart Mode' was asserted.
+    expect(config?.summary, 'the row must name the provider the environment supplied')
+      .toContain('names openai');
+    expect(config?.summary).toContain('via its API key');
+  });
+
+  it('the Config row names OLLAMA_HOST, not an API key, when that is what enabled Smart Mode', async () => {
+    // Review finding: OLLAMA_HOST yields a provider with NO apiKey, and the
+    // sentence sent the user hunting for a key that does not exist.
+    const packageRoot = createPackageRoot();
+    const memeshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-ollama-'));
+    tempRoots.push(memeshDir);
+    const originalMemeshDir = process.env.MEMESH_DIR;
+    process.env.MEMESH_DIR = memeshDir;
+    const result = await runDoctor({
+      packageRoot, packageVersion: '4.0.3',
+      openDatabaseImpl: () => makeDatabase() as never, closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, llm: { provider: 'ollama', model: 'llama3.2' }, embeddings: 'tfidf' }),
+      getConfigPathImpl: () => path.join(memeshDir, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck({ latestVersion: null, checkSucceeded: false, freshness: 'unavailable', lastSuccessfulCheckAt: null, lastError: 'registry offline' }),
+      getCurrentInstallChannelImpl: () => 'source-checkout',
+      getInstallChannelSupportImpl: () => ({ channel: 'source-checkout', label: 'source checkout', canSelfUpdate: false, recommendedCommand: null, guidance: 'Update this source checkout from its repository and rebuild it.' }),
+      nativeBindingProbeImpl: () => ({ ok: true }),
+    });
+    if (originalMemeshDir === undefined) delete process.env.MEMESH_DIR; else process.env.MEMESH_DIR = originalMemeshDir;
+    const config = result.checks.find((check) => check.id === 'config');
+    expect(config?.summary, 'told the user an API key enabled Smart Mode when OLLAMA_HOST did').not.toContain('API key');
+    expect(config?.summary).toContain('names ollama');
+    expect(config?.summary).toContain('via OLLAMA_HOST');
+  });
+
   it('reports a count for an unsegmented index and leaks no memory text', async () => {
     // Only the MESSAGE. Whether the check FINDS anything is pinned against a
     // real FTS5 index in `tests/fts-segmentation-doctor.test.ts` — see the

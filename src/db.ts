@@ -27,6 +27,8 @@ import type { PragmaColumnRow } from './core/types.js';
 import { truncateTitle, isBoilerplateObservation } from './core/title.js';
 
 let db: MemeshDatabase | null = null;
+/** The dimension-mismatch notice has been printed this process. See ensureVecTable. */
+let dimensionMismatchNoticed = false;
 
 // SCHEMA_SQL / FTS_SQL and the whole migration toolkit live in
 // storage/schema.ts — the single owner both this file and the hooks (via
@@ -405,7 +407,14 @@ function ensureVecTable(
   // transaction. So the honest thing to do on a dimension change is nothing at
   // all — record that a rebuild is owed and let `reindex` do it safely.
   if (vecExists && currentDim !== 0 && currentDim !== targetDim) {
-    process.stderr.write(
+    // The marker write below is idempotent, but this notice is for a human and
+    // fires on EVERY open. `memesh doctor` opens the database twice in one run
+    // (the database check and the hook-activity check each take their own
+    // handle), so the same paragraph printed twice back to back and read like
+    // a retry loop. Once per process is the right cadence for a notice whose
+    // content cannot change between opens.
+    if (!dimensionMismatchNoticed) {
+      process.stderr.write(
       `MeMesh: this database records ${currentDim}-dim embeddings but the current ` +
         `configuration asks for ${targetDim}. Nothing is deleted — the index is kept ` +
         `so a rebuild can resume — but semantic search is OFF until the rebuild ` +
@@ -413,8 +422,13 @@ function ensureVecTable(
         `${currentDim}-dim index; recall is on keyword search alone meanwhile. ` +
         `Run 'memesh reindex' to build the ${targetDim}-dim index alongside it and ` +
         `switch over once it is complete.\n`
-    );
-    markReindexOwed(currentDim, targetDim, 'dimension-change');
+      );
+      dimensionMismatchNoticed = true;
+    }
+    // Outside the guard on purpose: the marker is written on EVERY open, the
+    // notice only once. A brace edit that moved this line inside survived the
+    // whole suite in review — hence the structure, and the test that pins it.
+    markReindexOwed(currentDim, targetDim, 'dimension-change', db);
     return;
   }
 
@@ -482,6 +496,28 @@ export const GENERATION_TABLE = 'entities_vec_next';
 const GENERATION_HASH_TABLE = 'entities_vec_next_source';
 const GENERATION_KEY = 'vector_generation';
 
+/** Ask whether a table is there rather than catching the failure of reading it.
+ *  These answers decide whether a finished generation is promoted and which
+ *  entities a resume re-buys, so "the read failed" must not be able to arrive as
+ *  "nothing is staged" — a locked database or a corrupt vec0 shadow table would
+ *  otherwise be laundered into a verdict about work. `view` is included so the
+ *  unreachable edge fails toward found: a false negative is what licenses a DROP. */
+function tableExists(conn: MemeshDatabase, name: string): boolean {
+  return (conn.prepare(
+    "SELECT COUNT(*) AS c FROM sqlite_master WHERE type IN ('table','view') AND name = ?"
+  ).get(name) as { c: number }).c > 0;
+}
+
+/** The width is interpolated into DDL because SQLite cannot parameterise a
+ *  type. Every caller passes a value from a fixed table, but the functions that
+ *  do the interpolating are exported and a TypeScript annotation is not a
+ *  runtime check. */
+function assertVectorWidth(dimension: number): void {
+  if (!Number.isInteger(dimension) || dimension <= 0 || dimension > 65536) {
+    throw new Error(`Refusing to build a vector index at width ${String(dimension)}.`);
+  }
+}
+
 /** What a half-built generation records about itself, so a resume can tell
  *  whether it is still resumable. A generation built by a different provider
  *  or at a different width is not a generation to continue — it is one to
@@ -509,18 +545,12 @@ export type VectorGenerationRead =
 
 export function readVectorGeneration(): VectorGenerationRead {
   if (!db) return { state: 'none' };
-  let raw: string;
   try {
     const row = db.prepare(
       'SELECT value FROM memesh_metadata WHERE key = ?'
     ).get(GENERATION_KEY) as { value: string } | undefined;
     if (!row) return { state: 'none' };
-    raw = row.value;
-  } catch (err) {
-    return { state: 'unreadable', detail: err instanceof Error ? err.message : String(err) };
-  }
-  try {
-    const parsed = JSON.parse(raw) as Partial<VectorGenerationInfo>;
+    const parsed = JSON.parse(row.value) as Partial<VectorGenerationInfo>;
     if (typeof parsed.dimension !== 'number' || typeof parsed.provider !== 'string') {
       return { state: 'unreadable', detail: 'the marker is missing its dimension or provider' };
     }
@@ -542,15 +572,7 @@ export function readVectorGeneration(): VectorGenerationRead {
 export function generationRowIds(): Set<number> {
   const out = new Set<number>();
   if (!db) return out;
-  // Ask whether the table exists rather than catching the failure of reading
-  // it. This number decides whether a finished generation is promoted and
-  // which entities a resume re-buys, so "the read failed" must not be able to
-  // arrive as "nothing is staged" — a locked database or a corrupt vec0 shadow
-  // table would otherwise be laundered into a verdict about work.
-  const exists = (db.prepare(
-    "SELECT COUNT(*) AS c FROM sqlite_master WHERE type IN ('table','view') AND name = ?"
-  ).get(GENERATION_TABLE) as { c: number }).c > 0;
-  if (!exists) return out;
+  if (!tableExists(db, GENERATION_TABLE)) return out;
   const rows = db.prepare(`SELECT rowid AS id FROM ${GENERATION_TABLE}`).all() as Array<{ id: number | bigint }>;
   for (const r of rows) out.add(Number(r.id));
   return out;
@@ -563,14 +585,10 @@ export function generationRowIds(): Set<number> {
  * "resuming" rather than implying a fresh start it did not make.
  */
 export function beginVectorGeneration(dimension: number, provider: string): { resumed: boolean } {
-  if (!Number.isInteger(dimension) || dimension <= 0 || dimension > 65536) {
-    throw new Error(`Refusing to build a vector index at width ${String(dimension)}.`);
-  }
+  assertVectorWidth(dimension);
   const conn = getDatabase();
   const read = readVectorGeneration();
-  const stagingExists = (conn.prepare(
-    "SELECT COUNT(*) AS c FROM sqlite_master WHERE type IN ('table','view') AND name = ?"
-  ).get(GENERATION_TABLE) as { c: number }).c > 0;
+  const stagingExists = tableExists(conn, GENERATION_TABLE);
 
   // An unreadable marker over a POPULATED staging table is the one case where
   // neither choice is safe to make silently. Resuming could merge two embedding
@@ -626,10 +644,7 @@ export function beginVectorGeneration(dimension: number, provider: string): { re
 export function generationRowHashes(): Map<number, string> {
   const out = new Map<number, string>();
   if (!db) return out;
-  const exists = (db.prepare(
-    "SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name = ?"
-  ).get(GENERATION_HASH_TABLE) as { c: number }).c > 0;
-  if (!exists) return out;
+  if (!tableExists(db, GENERATION_HASH_TABLE)) return out;
   const rows = db.prepare(
     `SELECT rowid_ref AS id, text_hash AS h FROM ${GENERATION_HASH_TABLE}`
   ).all() as Array<{ id: number | bigint; h: string }>;
@@ -697,12 +712,7 @@ export function discardVectorGeneration(): void {
  * a graph that was still owed vectors.
  */
 export function swapVectorGeneration(dimension: number): void {
-  // The width is interpolated into DDL because SQLite cannot parameterise a
-  // type. Every caller passes a value from a fixed table, but this function is
-  // exported and a TypeScript annotation is not a runtime check.
-  if (!Number.isInteger(dimension) || dimension <= 0 || dimension > 65536) {
-    throw new Error(`Refusing to build a vector index at width ${String(dimension)}.`);
-  }
+  assertVectorWidth(dimension);
   const conn = getDatabase();
   conn.transaction(() => {
     conn.exec(
@@ -783,9 +793,13 @@ export interface PendingReindexInfo {
 }
 
 export function getPendingReindexInfo(): PendingReindexInfo | null {
-  if (!db) return null;
+  return readPendingReindex(db);
+}
+
+function readPendingReindex(conn: MemeshDatabase | null): PendingReindexInfo | null {
+  if (!conn) return null;
   try {
-    const row = db.prepare(
+    const row = conn.prepare(
       "SELECT value FROM memesh_metadata WHERE key = 'pending_reindex'"
     ).get() as { value: string } | undefined;
     return row ? JSON.parse(row.value) : null;
@@ -808,13 +822,21 @@ export function markReindexOwed(
   from: number,
   to: number,
   reason: PendingReindexInfo['reason'],
+  conn: MemeshDatabase | null = db,
 ): void {
-  if (!db) return;
-  const existing = getPendingReindexInfo();
+  // `conn` defaults to the module singleton, but the open path MUST pass its
+  // own handle: `initialiseDatabase` runs before `db = opening` is assigned,
+  // so during open the singleton is still null and the old `if (!db) return`
+  // silently skipped the write. The marker was therefore never recorded on a
+  // dimension change at open — the exact "doctor reports PASS over a database
+  // owed a rebuild" defect this function exists to prevent. Measured: 20 opens
+  // of a 384-vs-1536 database printed the warning every time and wrote nothing.
+  if (!conn) return;
+  const existing = readPendingReindex(conn);
   if (existing && existing.from === from && existing.to === to && existing.reason === reason) {
     return;
   }
-  db.prepare(
+  conn.prepare(
     "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)"
   ).run(JSON.stringify({
     from,
@@ -1283,6 +1305,12 @@ export function closeDatabase(): void {
     db.close();
     db = null;
   }
+  // The dimension-mismatch notice is once per DATABASE LIFETIME, not once per
+  // process: a process that closes one database and opens another (the test
+  // suite does this hundreds of times; a long-lived server could) must be
+  // told again. Without this reset, the second database's warning was
+  // silently swallowed by the first one's.
+  dimensionMismatchNoticed = false;
 }
 
 export function getDatabase(): MemeshDatabase {

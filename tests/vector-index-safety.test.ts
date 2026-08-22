@@ -36,6 +36,7 @@ import {
   discardVectorGeneration,
   readVectorGeneration,
   generationRowIds,
+  getPendingReindexInfo,
 } from '../src/db.js';
 
 describe('Feature: an unreadable config does not delete embeddings', () => {
@@ -145,6 +146,65 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     expect(rows, 'a dimension change deleted stored vectors').toBe(1);
     expect(storedDimension(), 'the stamp moved before a new index existed').toBe(1536);
     expect(written.join(''), 'the user was not told a rebuild is owed').toContain('reindex');
+
+    // The marker is the ONLY thing `memesh doctor` reads to know a rebuild is
+    // owed. It used to be skipped on open: `markReindexOwed` guarded on the
+    // module-level singleton, which is assigned only AFTER `initialiseDatabase`
+    // returns, so during open it was still null and the write silently returned.
+    // The warning printed every time; the marker was never written; doctor said
+    // PASS. This assertion is what would have caught that.
+    const owed = getPendingReindexInfo();
+    expect(owed, 'a dimension change left no reindex-owed marker, so doctor cannot see it').not.toBeNull();
+    expect(owed).toMatchObject({ from: 1536, to: 768, reason: 'dimension-change' });
+  });
+
+  it('the mismatch notice fires once per database, not once per process', () => {
+    // The notice is de-duplicated so `memesh doctor` (which opens the database
+    // twice) does not print it twice. The de-dup flag lives at module scope, so
+    // without a reset on close a process that opens a SECOND mismatched
+    // database — the test suite, or a long-lived server — would never be told
+    // about it: the second warning was swallowed by the first. Vitest's
+    // per-file process isolation hid this from every other test here.
+    fs.writeFileSync(configPath, BYOK_CONFIG);
+    openDatabase(dbPath); closeDatabase();                       // stamped 1536
+    fs.writeFileSync(configPath, JSON.stringify({ embedder: { provider: 'ollama' } }));
+
+    // Earlier tests in this file may already have tripped the de-dup flag in
+    // this process, so the FIRST open here is not the discriminating one and
+    // is not asserted on. The close that follows it is what the test is about.
+    openDatabase(dbPath); closeDatabase();
+
+    // A second, different database in the same process, same mismatch.
+    const dbPath2 = path.join(dir, 'second.db');
+    fs.writeFileSync(configPath, BYOK_CONFIG);
+    openDatabase(dbPath2); closeDatabase();                      // stamped 1536
+    fs.writeFileSync(configPath, JSON.stringify({ embedder: { provider: 'ollama' } }));
+
+    written.length = 0;
+    openDatabase(dbPath2);
+    expect(
+      written.join(''),
+      'the second database\'s warning was swallowed by the first one\'s de-dup flag',
+    ).toContain('records 1536-dim');
+  });
+
+  it('the marker write sits OUTSIDE the once-only notice guard', () => {
+    // "Notice once, marker always." In review, a brace edit that moved the
+    // marker write INSIDE the once-only guard survived the whole suite. Two
+    // behavioural tests were written to catch it and BOTH passed for the wrong
+    // reason: the scenario — a fresh open while the notice flag is already
+    // set — is unreachable in one process. `openDatabase` returns the existing
+    // singleton (`if (db) return db`), and the only way to get a new open,
+    // `closeDatabase`, resets the flag. So the guard is carried by STRUCTURE,
+    // and structure is what this pins: the call must not be inside the guard.
+    const src = fs.readFileSync(path.resolve(__dirname, '../src/db.ts'), 'utf8');
+    const guardStart = src.indexOf('if (!dimensionMismatchNoticed) {');
+    expect(guardStart, 'the once-only guard is gone or renamed').toBeGreaterThan(0);
+    const guardEnd = src.indexOf('\n    }\n', guardStart);
+    const guardBody = src.slice(guardStart, guardEnd);
+    expect(guardBody, 'the marker write was moved inside the once-only guard').not.toContain('markReindexOwed(');
+    const after = src.slice(guardEnd, guardEnd + 600);
+    expect(after, 'the marker write no longer follows the guard').toContain("markReindexOwed(currentDim, targetDim, 'dimension-change', db)");
   });
 
   it('a generation is built beside the live index, not in place', () => {
