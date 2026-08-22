@@ -413,7 +413,8 @@ function ensureVecTable(
     // handle), so the same paragraph printed twice back to back and read like
     // a retry loop. Once per process is the right cadence for a notice whose
     // content cannot change between opens.
-    if (!dimensionMismatchNoticed) process.stderr.write(
+    if (!dimensionMismatchNoticed) {
+      process.stderr.write(
       `MeMesh: this database records ${currentDim}-dim embeddings but the current ` +
         `configuration asks for ${targetDim}. Nothing is deleted — the index is kept ` +
         `so a rebuild can resume — but semantic search is OFF until the rebuild ` +
@@ -421,8 +422,12 @@ function ensureVecTable(
         `${currentDim}-dim index; recall is on keyword search alone meanwhile. ` +
         `Run 'memesh reindex' to build the ${targetDim}-dim index alongside it and ` +
         `switch over once it is complete.\n`
-    );
-    dimensionMismatchNoticed = true;
+      );
+      dimensionMismatchNoticed = true;
+    }
+    // Outside the guard on purpose: the marker is written on EVERY open, the
+    // notice only once. A brace edit that moved this line inside survived the
+    // whole suite in review — hence the structure, and the test that pins it.
     markReindexOwed(currentDim, targetDim, 'dimension-change', db);
     return;
   }

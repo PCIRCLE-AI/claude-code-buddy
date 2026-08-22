@@ -339,7 +339,7 @@ function inspectConfigFile(
   existsSyncImpl: typeof fs.existsSync,
   readFileSyncImpl: typeof fs.readFileSync,
   getConfigPathImpl: typeof getConfigPath,
-  searchLevel: 0 | 1,
+  envLlm: { provider: string; apiKey?: string } | null,
 ): DoctorCheck {
   const configPath = getConfigPathImpl();
   if (!existsSyncImpl(configPath)) {
@@ -354,11 +354,14 @@ function inspectConfigFile(
       'config',
       'Config',
       'pass',
-      searchLevel === 1
-        ? `No config file yet (${configPath}), but an API key in the environment enables Smart Mode. A file is only needed to pin a provider or change defaults.`
+      // Name WHAT enabled it. The first version of this sentence said "an API
+      // key in the environment", which is false for OLLAMA_HOST — that sets a
+      // provider with no key at all, and sent the user hunting for one.
+      envLlm
+        ? `No config file yet (${configPath}), but your environment names ${envLlm.provider}${envLlm.apiKey ? ' (via its API key)' : ' (via OLLAMA_HOST)'}, which enables Smart Mode. A file is only needed to pin a provider or change defaults.`
         : `No config file yet (${configPath}). MeMesh will run in Core mode until you configure Smart Mode.`,
-      searchLevel === 1
-        ? 'Optional: `memesh config set llm.provider <name>` pins the provider so it does not depend on which shell you run from.'
+      envLlm
+        ? `Optional: \`memesh config set llm.provider ${envLlm.provider}\` pins it so it does not depend on which shell you run from.`
         : 'Optional: run `memesh config list` or set an LLM with `memesh config set llm.provider anthropic`.',
     );
   }
@@ -2231,7 +2234,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     }
   }
 
-  checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl, detectCapabilitiesImpl().searchLevel));
+  checks.push(inspectConfigFile(existsSyncImpl, readFileSyncImpl, getConfigPathImpl, detectCapabilitiesImpl().llm));
   checks.push(inspectMcpConfig(packageRoot, existsSyncImpl, readFileSyncImpl));
   checks.push(...inspectHooksConfig(packageRoot, platform, existsSyncImpl, readFileSyncImpl, statSyncImpl));
   // Runtime wiring + activity (#25 — file existence isn't enough;

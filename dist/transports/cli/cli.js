@@ -1842,6 +1842,15 @@ program
     .addOption(new Option('--vectors').hideHelp())
     .action(async (opts) => {
     if (opts.vectors) {
+        if (opts.json) {
+            console.log(JSON.stringify({
+                refused: true,
+                reason: 'the --vectors flag is retired',
+                fix: 'run plain memesh reindex; to change provider first: memesh config set embedder.provider ollama|openai',
+                indexTouched: false,
+            }));
+            process.exit(1);
+        }
         console.error('`memesh reindex --vectors` has been retired.');
         console.error('');
         console.error('It existed to consent to dropping every stored embedding before a refill.');
@@ -1895,12 +1904,18 @@ program
         }
         if (!opts.namespace && !(await canRefillVectorIndex())) {
             const embedder = detectCapabilities().embeddings;
-            const unconfigured = embedder !== 'openai' && embedder !== 'ollama';
-            const reason = unconfigured
-                ? 'no embedding provider is configured, so there is nothing to build vectors with'
-                : 'could not produce a test embedding at the configured vector width';
-            const fix = unconfigured
-                ? 'Pick one first: `memesh config set embedder.provider ollama` (local, needs `ollama serve`) ' +
+            const written = readConfig().embedder?.provider;
+            const known = embedder === 'openai' || embedder === 'ollama';
+            const invalid = written !== undefined && !known;
+            const unconfigured = written === undefined && !known;
+            const reason = invalid
+                ? `embedder.provider is set to '${written}', which is not a provider MeMesh knows`
+                : unconfigured
+                    ? 'no embedding provider is configured, so there is nothing to build vectors with'
+                    : 'could not produce a test embedding at the configured vector width';
+            const fix = invalid || unconfigured
+                ? (invalid ? 'Set it to one MeMesh knows: ' : 'Pick one first: ') +
+                    '`memesh config set embedder.provider ollama` (local, needs `ollama serve`) ' +
                     'or `memesh config set embedder.provider openai` (needs OPENAI_API_KEY). Until then, recall ' +
                     'runs on keyword search, which needs no rebuild.'
                 : 'Check that Ollama is running (or that your OpenAI API key is valid), then run this again. ' +
@@ -1961,7 +1976,10 @@ program
     }
     catch (err) {
         if (err instanceof Error) {
-            console.error(`❌ Reindex failed: ${err.message}`);
+            if (opts.json)
+                console.log(JSON.stringify({ refused: true, reason: err.message, indexTouched: false }));
+            else
+                console.error(`❌ Reindex failed: ${err.message}`);
             process.exit(1);
         }
         throw err;

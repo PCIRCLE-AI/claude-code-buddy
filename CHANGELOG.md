@@ -180,11 +180,14 @@ All notable changes to MeMesh are documented here.
   cold opens of a 384-vs-1536 database printed the "semantic search is OFF"
   warning every time and recorded nothing, and `memesh doctor` then reported
   PASS over an index owed a rebuild. The open path now passes its own handle.
-- **`memesh reindex --json` is honoured on every path.** It was silently
-  ignored on the pre-flight refusal (an emoji banner instead of JSON) and on
-  `--discard-generation` (prose), so a script piping the output through
-  `JSON.parse` broke on exactly the paths where it most needed a
-  machine-readable answer.
+- **`memesh reindex --json` is honoured on the refusal paths.** It was
+  silently ignored on the pre-flight refusal (an emoji banner instead of JSON),
+  on `--discard-generation` (prose), on the retired `--vectors` flag, and on a
+  thrown error — so a script piping the output through `JSON.parse` broke on
+  exactly the paths where it most needed a machine-readable answer. One path
+  still prints prose under `--json`: an invalid `--namespace` value, which is
+  rejected by a validator shared with seven other commands and is out of this
+  change's scope.
 - **`memesh reindex` with no embedder configured now says so.** It told every
   user to "check that Ollama is running or your OpenAI API key is valid" —
   advice for a provider the user had never set up. The unconfigured case now
@@ -198,8 +201,9 @@ All notable changes to MeMesh are documented here.
   config file and an API key in the shell environment — a common developer
   setup — the Config row said "MeMesh will run in Core mode" while the
   Capabilities row two sections later said "Search level 1 (Smart Mode)". The
-  Config check now takes its answer from the same detector and says that an
-  environment key enables Smart Mode without a file.
+  Config check now takes its answer from the same detector and names what
+  enabled Smart Mode — the provider, and whether it came from an API key or
+  from `OLLAMA_HOST`, which sets a provider with no key at all.
 - **The dimension-mismatch notice prints once per database, not once per
   open.** `memesh doctor` opens the database twice in one run, so the same
   paragraph appeared twice back to back and read like a retry loop. The de-dup
@@ -212,7 +216,7 @@ All notable changes to MeMesh are documented here.
   change.** Three copies of the "does this table exist" query became one
   helper; two copies of the vector-width guard became one; a two-`try` read
   became one; and the CLI's three near-identical "Processed / Embedded /
-  Skipped" blocks became one with byte-identical output. 2244 tests unchanged.
+  Skipped" blocks became one with byte-identical output. No test changed.
 
 - **A failed rebuild no longer prints "Reindex complete" before "Reindex
   incomplete".** The first line meant "the loop finished", fired regardless of

@@ -188,6 +188,25 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     ).toContain('records 1536-dim');
   });
 
+  it('the marker write sits OUTSIDE the once-only notice guard', () => {
+    // "Notice once, marker always." In review, a brace edit that moved the
+    // marker write INSIDE the once-only guard survived the whole suite. Two
+    // behavioural tests were written to catch it and BOTH passed for the wrong
+    // reason: the scenario — a fresh open while the notice flag is already
+    // set — is unreachable in one process. `openDatabase` returns the existing
+    // singleton (`if (db) return db`), and the only way to get a new open,
+    // `closeDatabase`, resets the flag. So the guard is carried by STRUCTURE,
+    // and structure is what this pins: the call must not be inside the guard.
+    const src = fs.readFileSync(path.resolve(__dirname, '../src/db.ts'), 'utf8');
+    const guardStart = src.indexOf('if (!dimensionMismatchNoticed) {');
+    expect(guardStart, 'the once-only guard is gone or renamed').toBeGreaterThan(0);
+    const guardEnd = src.indexOf('\n    }\n', guardStart);
+    const guardBody = src.slice(guardStart, guardEnd);
+    expect(guardBody, 'the marker write was moved inside the once-only guard').not.toContain('markReindexOwed(');
+    const after = src.slice(guardEnd, guardEnd + 600);
+    expect(after, 'the marker write no longer follows the guard').toContain("markReindexOwed(currentDim, targetDim, 'dimension-change', db)");
+  });
+
   it('a generation is built beside the live index, not in place', () => {
     fs.writeFileSync(configPath, BYOK_CONFIG);
     const db = openDatabase(dbPath);

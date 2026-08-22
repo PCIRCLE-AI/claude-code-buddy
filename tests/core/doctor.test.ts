@@ -430,8 +430,37 @@ describe('doctor', () => {
     expect(config?.status).toBe('pass');
     expect(config?.summary, 'the Config row still claims Core mode while the detector says Smart Mode')
       .not.toContain('Core mode');
-    expect(config?.summary, 'the Config row does not say what actually enables Smart Mode')
-      .toContain('Smart Mode');
+    // Pin the TRUTH of the sentence, not only the absence of the old one. The
+    // first version said "an API key in the environment" — a mutation replacing
+    // that phrase with nonsense survived, because only 'Smart Mode' was asserted.
+    expect(config?.summary, 'the row must name the provider the environment supplied')
+      .toContain('names openai');
+    expect(config?.summary).toContain('via its API key');
+  });
+
+  it('the Config row names OLLAMA_HOST, not an API key, when that is what enabled Smart Mode', async () => {
+    // Review finding: OLLAMA_HOST yields a provider with NO apiKey, and the
+    // sentence sent the user hunting for a key that does not exist.
+    const packageRoot = createPackageRoot();
+    const memeshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memesh-doctor-ollama-'));
+    tempRoots.push(memeshDir);
+    const originalMemeshDir = process.env.MEMESH_DIR;
+    process.env.MEMESH_DIR = memeshDir;
+    const result = await runDoctor({
+      packageRoot, packageVersion: '4.0.3',
+      openDatabaseImpl: () => makeDatabase() as never, closeDatabaseImpl: () => undefined,
+      detectCapabilitiesImpl: () => caps({ searchLevel: 1, llm: { provider: 'ollama', model: 'llama3.2' }, embeddings: 'tfidf' }),
+      getConfigPathImpl: () => path.join(memeshDir, 'config.json'),
+      getUpdateCheckImpl: async () => makeUpdateCheck({ latestVersion: null, checkSucceeded: false, freshness: 'unavailable', lastSuccessfulCheckAt: null, lastError: 'registry offline' }),
+      getCurrentInstallChannelImpl: () => 'source-checkout',
+      getInstallChannelSupportImpl: () => ({ channel: 'source-checkout', label: 'source checkout', canSelfUpdate: false, recommendedCommand: null, guidance: 'Update this source checkout from its repository and rebuild it.' }),
+      nativeBindingProbeImpl: () => ({ ok: true }),
+    });
+    if (originalMemeshDir === undefined) delete process.env.MEMESH_DIR; else process.env.MEMESH_DIR = originalMemeshDir;
+    const config = result.checks.find((check) => check.id === 'config');
+    expect(config?.summary, 'told the user an API key enabled Smart Mode when OLLAMA_HOST did').not.toContain('API key');
+    expect(config?.summary).toContain('names ollama');
+    expect(config?.summary).toContain('via OLLAMA_HOST');
   });
 
   it('reports a count for an unsegmented index and leaks no memory text', async () => {

@@ -129,7 +129,7 @@ function ensureVecTable(db, resolvedPath, targetDim, dimensionKnown = true) {
         return;
     }
     if (vecExists && currentDim !== 0 && currentDim !== targetDim) {
-        if (!dimensionMismatchNoticed)
+        if (!dimensionMismatchNoticed) {
             process.stderr.write(`MeMesh: this database records ${currentDim}-dim embeddings but the current ` +
                 `configuration asks for ${targetDim}. Nothing is deleted — the index is kept ` +
                 `so a rebuild can resume — but semantic search is OFF until the rebuild ` +
@@ -137,7 +137,8 @@ function ensureVecTable(db, resolvedPath, targetDim, dimensionKnown = true) {
                 `${currentDim}-dim index; recall is on keyword search alone meanwhile. ` +
                 `Run 'memesh reindex' to build the ${targetDim}-dim index alongside it and ` +
                 `switch over once it is complete.\n`);
-        dimensionMismatchNoticed = true;
+            dimensionMismatchNoticed = true;
+        }
         markReindexOwed(currentDim, targetDim, 'dimension-change', db);
         return;
     }
