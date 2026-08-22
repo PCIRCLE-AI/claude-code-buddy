@@ -1300,6 +1300,12 @@ export function closeDatabase(): void {
     db.close();
     db = null;
   }
+  // The dimension-mismatch notice is once per DATABASE LIFETIME, not once per
+  // process: a process that closes one database and opens another (the test
+  // suite does this hundreds of times; a long-lived server could) must be
+  // told again. Without this reset, the second database's warning was
+  // silently swallowed by the first one's.
+  dimensionMismatchNoticed = false;
 }
 
 export function getDatabase(): MemeshDatabase {

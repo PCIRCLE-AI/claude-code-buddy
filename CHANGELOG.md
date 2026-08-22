@@ -200,9 +200,11 @@ All notable changes to MeMesh are documented here.
   Capabilities row two sections later said "Search level 1 (Smart Mode)". The
   Config check now takes its answer from the same detector and says that an
   environment key enables Smart Mode without a file.
-- **The dimension-mismatch notice prints once per process, not once per
-  database open.** `memesh doctor` opens the database twice in one run, so the
-  same paragraph appeared twice back to back and read like a retry loop.
+- **The dimension-mismatch notice prints once per database, not once per
+  open.** `memesh doctor` opens the database twice in one run, so the same
+  paragraph appeared twice back to back and read like a retry loop. The de-dup
+  resets when the database is closed, so a process that then opens a
+  different database is told again.
 
 ### Changed
 

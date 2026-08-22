@@ -158,6 +158,36 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     expect(owed).toMatchObject({ from: 1536, to: 768, reason: 'dimension-change' });
   });
 
+  it('the mismatch notice fires once per database, not once per process', () => {
+    // The notice is de-duplicated so `memesh doctor` (which opens the database
+    // twice) does not print it twice. The de-dup flag lives at module scope, so
+    // without a reset on close a process that opens a SECOND mismatched
+    // database — the test suite, or a long-lived server — would never be told
+    // about it: the second warning was swallowed by the first. Vitest's
+    // per-file process isolation hid this from every other test here.
+    fs.writeFileSync(configPath, BYOK_CONFIG);
+    openDatabase(dbPath); closeDatabase();                       // stamped 1536
+    fs.writeFileSync(configPath, JSON.stringify({ embedder: { provider: 'ollama' } }));
+
+    // Earlier tests in this file may already have tripped the de-dup flag in
+    // this process, so the FIRST open here is not the discriminating one and
+    // is not asserted on. The close that follows it is what the test is about.
+    openDatabase(dbPath); closeDatabase();
+
+    // A second, different database in the same process, same mismatch.
+    const dbPath2 = path.join(dir, 'second.db');
+    fs.writeFileSync(configPath, BYOK_CONFIG);
+    openDatabase(dbPath2); closeDatabase();                      // stamped 1536
+    fs.writeFileSync(configPath, JSON.stringify({ embedder: { provider: 'ollama' } }));
+
+    written.length = 0;
+    openDatabase(dbPath2);
+    expect(
+      written.join(''),
+      'the second database\'s warning was swallowed by the first one\'s de-dup flag',
+    ).toContain('records 1536-dim');
+  });
+
   it('a generation is built beside the live index, not in place', () => {
     fs.writeFileSync(configPath, BYOK_CONFIG);
     const db = openDatabase(dbPath);

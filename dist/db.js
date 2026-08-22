@@ -569,6 +569,7 @@ export function closeDatabase() {
         db.close();
         db = null;
     }
+    dimensionMismatchNoticed = false;
 }
 export function getDatabase() {
     if (!db)
