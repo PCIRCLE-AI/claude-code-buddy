@@ -610,6 +610,11 @@
       "class": "SAFE-BY-CONSTRUCTION",
       "reason": "`(action.args ?? []).join` in the success-echo of the command that just ran on the line above (694, same triage); the exit-code branch is the verdict.",
       "triaged": "2026-08-16 (P1 memesh setup; re-applied after merge took main baseline); re-keyed 2026-08-16 (release-prep: settingsHaveMemeshHooks added above in install-hooks / wireUserHooks helper above in cli; byte-identical vs HEAD); re-keyed 2026-08-16 (UX-3: memesh why command added above; byte-identical — verified); re-keyed 2026-08-16 (R2: recall retrieval metadata lines added above; same statement — verified) re-keyed 2026-08-18 (guards/bounds round; statement matched by TEXT against HEAD, not by position)"
+    },
+    "C3 scripts/wait-for-checks.mjs": {
+      "class": "NOT-A-GATE",
+      "reason": "CI-wait helper a human (or an agent acting for one) runs interactively after pushing; its caller is the person waiting. It is not a gate because nothing it decides is enforced — its only product is an exit code and a RESULT line for whoever invoked it. Added because every prior way of waiting for checks failed: `gh pr checks --watch` returned 0 with checks pending, `| grep -cv pass` returned grep's status, hand-rolled loops stalled.",
+      "triaged": "2026-08-23"
     }
   }
 }
