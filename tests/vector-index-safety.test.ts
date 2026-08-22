@@ -36,6 +36,7 @@ import {
   discardVectorGeneration,
   readVectorGeneration,
   generationRowIds,
+  getPendingReindexInfo,
 } from '../src/db.js';
 
 describe('Feature: an unreadable config does not delete embeddings', () => {
@@ -145,6 +146,16 @@ describe('Feature: an unreadable config does not delete embeddings', () => {
     expect(rows, 'a dimension change deleted stored vectors').toBe(1);
     expect(storedDimension(), 'the stamp moved before a new index existed').toBe(1536);
     expect(written.join(''), 'the user was not told a rebuild is owed').toContain('reindex');
+
+    // The marker is the ONLY thing `memesh doctor` reads to know a rebuild is
+    // owed. It used to be skipped on open: `markReindexOwed` guarded on the
+    // module-level singleton, which is assigned only AFTER `initialiseDatabase`
+    // returns, so during open it was still null and the write silently returned.
+    // The warning printed every time; the marker was never written; doctor said
+    // PASS. This assertion is what would have caught that.
+    const owed = getPendingReindexInfo();
+    expect(owed, 'a dimension change left no reindex-owed marker, so doctor cannot see it').not.toBeNull();
+    expect(owed).toMatchObject({ from: 1536, to: 768, reason: 'dimension-change' });
   });
 
   it('a generation is built beside the live index, not in place', () => {

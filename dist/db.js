@@ -135,7 +135,7 @@ function ensureVecTable(db, resolvedPath, targetDim, dimensionKnown = true) {
             `${currentDim}-dim index; recall is on keyword search alone meanwhile. ` +
             `Run 'memesh reindex' to build the ${targetDim}-dim index alongside it and ` +
             `switch over once it is complete.\n`);
-        markReindexOwed(currentDim, targetDim, 'dimension-change');
+        markReindexOwed(currentDim, targetDim, 'dimension-change', db);
         return;
     }
     db.transaction(() => {
@@ -283,24 +283,27 @@ export function getStoredEmbeddingDimension() {
     return row ? Number(row.value) || 0 : 0;
 }
 export function getPendingReindexInfo() {
-    if (!db)
+    return readPendingReindex(db);
+}
+function readPendingReindex(conn) {
+    if (!conn)
         return null;
     try {
-        const row = db.prepare("SELECT value FROM memesh_metadata WHERE key = 'pending_reindex'").get();
+        const row = conn.prepare("SELECT value FROM memesh_metadata WHERE key = 'pending_reindex'").get();
         return row ? JSON.parse(row.value) : null;
     }
     catch {
         return null;
     }
 }
-export function markReindexOwed(from, to, reason) {
-    if (!db)
+export function markReindexOwed(from, to, reason, conn = db) {
+    if (!conn)
         return;
-    const existing = getPendingReindexInfo();
+    const existing = readPendingReindex(conn);
     if (existing && existing.from === from && existing.to === to && existing.reason === reason) {
         return;
     }
-    db.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)").run(JSON.stringify({
+    conn.prepare("INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)").run(JSON.stringify({
         from,
         to,
         reason,

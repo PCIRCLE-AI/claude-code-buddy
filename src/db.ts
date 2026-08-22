@@ -414,7 +414,7 @@ function ensureVecTable(
         `Run 'memesh reindex' to build the ${targetDim}-dim index alongside it and ` +
         `switch over once it is complete.\n`
     );
-    markReindexOwed(currentDim, targetDim, 'dimension-change');
+    markReindexOwed(currentDim, targetDim, 'dimension-change', db);
     return;
   }
 
@@ -783,9 +783,13 @@ export interface PendingReindexInfo {
 }
 
 export function getPendingReindexInfo(): PendingReindexInfo | null {
-  if (!db) return null;
+  return readPendingReindex(db);
+}
+
+function readPendingReindex(conn: MemeshDatabase | null): PendingReindexInfo | null {
+  if (!conn) return null;
   try {
-    const row = db.prepare(
+    const row = conn.prepare(
       "SELECT value FROM memesh_metadata WHERE key = 'pending_reindex'"
     ).get() as { value: string } | undefined;
     return row ? JSON.parse(row.value) : null;
@@ -808,13 +812,21 @@ export function markReindexOwed(
   from: number,
   to: number,
   reason: PendingReindexInfo['reason'],
+  conn: MemeshDatabase | null = db,
 ): void {
-  if (!db) return;
-  const existing = getPendingReindexInfo();
+  // `conn` defaults to the module singleton, but the open path MUST pass its
+  // own handle: `initialiseDatabase` runs before `db = opening` is assigned,
+  // so during open the singleton is still null and the old `if (!db) return`
+  // silently skipped the write. The marker was therefore never recorded on a
+  // dimension change at open — the exact "doctor reports PASS over a database
+  // owed a rebuild" defect this function exists to prevent. Measured: 20 opens
+  // of a 384-vs-1536 database printed the warning every time and wrote nothing.
+  if (!conn) return;
+  const existing = readPendingReindex(conn);
   if (existing && existing.from === from && existing.to === to && existing.reason === reason) {
     return;
   }
-  db.prepare(
+  conn.prepare(
     "INSERT OR REPLACE INTO memesh_metadata (key, value) VALUES ('pending_reindex', ?)"
   ).run(JSON.stringify({
     from,

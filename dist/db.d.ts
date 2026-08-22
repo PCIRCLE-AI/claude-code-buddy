@@ -37,7 +37,7 @@ export interface PendingReindexInfo {
     reason: 'dimension-change' | 'vectors-missing';
 }
 export declare function getPendingReindexInfo(): PendingReindexInfo | null;
-export declare function markReindexOwed(from: number, to: number, reason: PendingReindexInfo['reason']): void;
+export declare function markReindexOwed(from: number, to: number, reason: PendingReindexInfo['reason'], conn?: MemeshDatabase | null): void;
 export declare function clearPendingReindexFlag(): void;
 export declare function closeDatabase(): void;
 export declare function getDatabase(): MemeshDatabase;
