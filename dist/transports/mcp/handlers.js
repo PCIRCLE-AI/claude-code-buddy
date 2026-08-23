@@ -237,7 +237,18 @@ function stripNullProps(value) {
     return value;
 }
 function parseOrFail(schema, args) {
-    const parsed = schema.safeParse(stripNullProps(args ?? {}));
+    const raw = args ?? {};
+    const strictPass = schema.safeParse(raw);
+    if (!strictPass.success && strictPass.error instanceof z.ZodError) {
+        const unknownKeys = strictPass.error.issues.filter((i) => i.code === 'unrecognized_keys');
+        if (unknownKeys.length > 0) {
+            return {
+                ok: false,
+                result: fail(unknownKeys.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')),
+            };
+        }
+    }
+    const parsed = schema.safeParse(stripNullProps(raw));
     if (!parsed.success) {
         const message = parsed.error instanceof z.ZodError
             ? parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')

@@ -312,7 +312,33 @@ function stripNullProps(value: unknown): unknown {
 }
 
 function parseOrFail<T>(schema: z.ZodType<T>, args: unknown): { ok: true; data: T } | { ok: false; result: ToolResult } {
-  const parsed = schema.safeParse(stripNullProps(args ?? {}));
+  const raw = args ?? {};
+
+  // Unknown keys are rejected BEFORE any null-stripping.
+  //
+  // `stripNullProps` deletes every null-valued property, and it used to run
+  // first — so `.strict()` never saw a key whose value happened to be null.
+  // `forget({name, observations: null})` (plural: the word `remember` uses)
+  // therefore lost the key entirely, fell through to the archive-the-entity
+  // branch, and reported `{archived:true}`. That is the exact destructive
+  // behaviour `.strict()` was introduced to end, reached by a different door.
+  //
+  // The null-stripping itself stays, and its premise is unchanged: for a
+  // KNOWN optional field, a null from a client that fills blanks with null
+  // (Gemini CLI does) means "left blank". That premise says nothing about a
+  // field the schema does not declare, which is why the check is split.
+  const strictPass = schema.safeParse(raw);
+  if (!strictPass.success && strictPass.error instanceof z.ZodError) {
+    const unknownKeys = strictPass.error.issues.filter((i) => i.code === 'unrecognized_keys');
+    if (unknownKeys.length > 0) {
+      return {
+        ok: false,
+        result: fail(unknownKeys.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')),
+      };
+    }
+  }
+
+  const parsed = schema.safeParse(stripNullProps(raw));
   if (!parsed.success) {
     const message =
       parsed.error instanceof z.ZodError

@@ -203,7 +203,7 @@ export function learn(args) {
 export function forget(args) {
     const db = getDatabase();
     const kg = new KnowledgeGraph(db);
-    if (args.observation) {
+    if (args.observation !== undefined) {
         const result = kg.removeObservation(args.name, args.observation);
         return {
             observation_removed: result.removed,
