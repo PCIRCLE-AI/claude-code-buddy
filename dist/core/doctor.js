@@ -10,7 +10,8 @@ import { openDatabase, closeDatabase, getPendingReindexInfo, isDatabaseOpen, rea
 import { getUpdateCheck } from './version-check.js';
 import { getCurrentInstallChannel, getInstallChannelSupport } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
-import { getDbPath, memeshDir, getProjectName } from './paths.js';
+import { citationRulePath, citationRuleState } from './citation-rule.js';
+import { getDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
 import { detectPluginRuntime } from './install-hooks.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
 import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
@@ -790,6 +791,43 @@ export async function runDoctor(options) {
                 ? `Run 'memesh reindex' to finish it (the vectors already produced are reused), `
                     + `or 'memesh reindex --discard-generation' to reclaim the space.`
                 : `Run 'memesh reindex --discard-generation' to clear it, then 'memesh reindex'.`, { code: 'vector-generation.open', params: { staged } }));
+        }
+        const citationTotalRow = db
+            .prepare(`SELECT value FROM memesh_metadata WHERE key = 'citation_sessions_total'`)
+            .get();
+        const citedRow = db
+            .prepare(`SELECT value FROM memesh_metadata WHERE key = 'citation_sessions_cited'`)
+            .get();
+        const citationTotal = Number.parseInt(String(citationTotalRow?.value ?? ''), 10);
+        if (Number.isInteger(citationTotal) && citationTotal > 0) {
+            const citedKnown = citedRow?.value !== undefined;
+            const cited = Number.parseInt(String(citedRow?.value ?? ''), 10);
+            const rate = citedKnown && Number.isInteger(cited)
+                ? Math.round((cited / citationTotal) * 100)
+                : null;
+            let rule;
+            try {
+                rule = citationRuleState('user', homeDir(), process.cwd(), {
+                    readFileSync: readFileSyncImpl,
+                });
+            }
+            catch {
+                rule = { path: citationRulePath('user', homeDir(), process.cwd()), state: 'unreadable' };
+            }
+            if (rate === null) {
+                dbChecks.push(createInfo('citation_compliance', 'Memory citation rate', `${citationTotal} session(s) received injected memories; how many cited one is not recorded `
+                    + `(this database predates the counter that would say). The rate will be measurable from the next session on.`));
+            }
+            else if (rate === 0) {
+                dbChecks.push(createCheck('citation_compliance', 'Memory citation rate', 'warn', `${citationTotal} session(s) received injected memories and NONE cited one. Every injection is `
+                    + `costing tokens with no evidence any of it was used — and with no citations, ranking cannot `
+                    + `learn which memories are worth injecting.`, rule.state === 'current'
+                    ? `The citation contract is installed at ${rule.path}. If this stays at 0% across several more sessions, the injected memories are not earning their tokens — consider narrowing what is injected.`
+                    : `The citation contract is ${rule.state} at ${rule.path}. Run 'memesh install-hooks' (or start a new session) to write it, then re-check after a few sessions.`, { code: 'citation.none', params: { total: citationTotal } }));
+            }
+            else {
+                dbChecks.push(createInfo('citation_compliance', 'Memory citation rate', `${cited} of ${citationTotal} session(s) with injected memories cited at least one (${rate}%).`));
+            }
         }
     }
     catch (err) {

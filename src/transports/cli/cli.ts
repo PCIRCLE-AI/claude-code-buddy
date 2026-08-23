@@ -2146,6 +2146,20 @@ program
         console.log('Hooks are active. Verify with: memesh doctor');
         console.log('');
         console.log('If you really want a second copy in ~/.claude/settings.json on top of the plugin, re-run with --force-over-plugin. (Not recommended — every session-start / Stop / PreToolUse event will fire memesh\'s hooks twice.)');
+      // The citation contract's fate, reported on BOTH exits. `foreign-file`
+      // is the one that matters: a file already sits at that path without
+      // memesh's marker, so the contract was NOT installed — and the run
+      // otherwise prints success. Swallowing that is the silent-failure shape
+      // this whole feature exists to remove.
+      if (result.citationRule.action === 'foreign-file') {
+        console.log('');
+        console.log(`WARNING: the citation contract was NOT installed — a file memesh did not write already exists at ${result.citationRule.path}.`);
+        console.log('  memesh will not overwrite it. Move or rename that file and re-run, or add the contract to it by hand.');
+        console.log('  Until then, memesh cannot tell whether the memories it injects are ever used.');
+      } else if (result.citationRule.action !== 'unchanged') {
+        console.log(`Citation contract ${result.citationRule.action}: ${result.citationRule.path}`);
+      }
+
         return;
       }
       console.log(`${opts.dryRun ? '[dry-run] ' : ''}Settings: ${result.settingsPath}`);
@@ -2154,6 +2168,20 @@ program
         console.log(`${opts.dryRun ? '[dry-run] Would remove ' : 'Removed '}${result.pruned} retired memesh hook entr${result.pruned === 1 ? 'y' : 'ies'} no longer shipped by this version.`);
       }
       if (result.backupPath) console.log(`Backup: ${result.backupPath}`);
+      // The citation contract's fate, reported on BOTH exits. `foreign-file`
+      // is the one that matters: a file already sits at that path without
+      // memesh's marker, so the contract was NOT installed — and the run
+      // otherwise prints success. Swallowing that is the silent-failure shape
+      // this whole feature exists to remove.
+      if (result.citationRule.action === 'foreign-file') {
+        console.log('');
+        console.log(`WARNING: the citation contract was NOT installed — a file memesh did not write already exists at ${result.citationRule.path}.`);
+        console.log('  memesh will not overwrite it. Move or rename that file and re-run, or add the contract to it by hand.');
+        console.log('  Until then, memesh cannot tell whether the memories it injects are ever used.');
+      } else if (result.citationRule.action !== 'unchanged') {
+        console.log(`Citation contract ${result.citationRule.action}: ${result.citationRule.path}`);
+      }
+
       if (result.conflicts.length > 0) {
         console.log('');
         console.log('Note: memesh hooks now coexist with the following pre-existing entries:');

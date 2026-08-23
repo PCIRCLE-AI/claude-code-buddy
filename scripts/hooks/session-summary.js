@@ -527,6 +527,15 @@ process.stdin.on('end', async () => {
                  ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`
               );
               bump.run('citation_sessions_total');
+              // Initialised unconditionally, then bumped. Writing it only on
+              // a citation made "zero sessions cited" and "this code never
+              // ran" the same absent key — and that is exactly what a real
+              // database showed on 2026-08-24: total=4, cited absent, with
+              // no way to tell a 0% compliance rate from a dead counter.
+              db.prepare(
+                `INSERT INTO memesh_metadata (key, value) VALUES ('citation_sessions_cited', '0')
+                 ON CONFLICT(key) DO NOTHING`
+              ).run();
               if (cited.size > 0) bump.run('citation_sessions_cited');
             }
           }

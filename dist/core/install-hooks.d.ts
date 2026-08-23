@@ -1,3 +1,4 @@
+import { type CitationRuleResult } from './citation-rule.js';
 export declare function settingsHaveMemeshHooks(settingsPath: string): boolean;
 export interface InstallOptions {
     pluginRoot: string;
@@ -25,11 +26,16 @@ export interface InstallResult {
         installPath: string;
         version: string;
     } | null;
+    citationRule: CitationRuleResult;
 }
 export interface UninstallResult {
     settingsPath: string;
     backupPath: string | null;
     removed: number;
+    citationRule: {
+        path: string;
+        action: 'removed' | 'absent' | 'foreign-file';
+    };
 }
 export declare function detectPluginRuntime(installedPluginsPathImpl?: string): {
     installPath: string;
