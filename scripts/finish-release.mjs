@@ -218,11 +218,34 @@ console.log(`\n✓ released: ${releaseUrl}`);
 // Bring the tag into this checkout so `verify:release` here stops failing —
 // the check reads `git tag --list`, and until the tag is fetched, main still
 // looks like it declares an untagged version.
-if (capture('git', ['fetch', '--tags', 'origin']) === null) {
-  console.log('  (could not `git fetch --tags origin` — run it to sync this checkout)');
+//
+// ONE tag, by explicit refspec, not `--tags`. The wide form asks for every tag
+// the remote has and fails if ANY of them cannot be written, so one unrelated
+// divergence anywhere in the repository's history turns this step red.
+//
+// This repository has 26 of them. Measured 2026-08-23 across all 73 tags: 26
+// refs disagree with origin — the 25 version tags from v2.10.1 through v4.1.7,
+// plus `benchmark/longmemeval-public-r1` — while everything from v4.2.0 onward
+// agrees. The cause is a history rewrite that removed internal documents:
+// origin's v4.1.7 tree lacks four files the local v4.1.7 tree still carries.
+// (Their names are deliberately not repeated here — putting them back into a
+// public file would undo part of what the rewrite was for.) Those old refs are
+// not going to converge, so `--tags` fails here on every release — right after
+// writing the new tag it was actually asked for. Measured on v4.6.2, same
+// checkout: `--tags` exited 1 with 26 rejections, while
+// `refs/tags/v4.6.2:refs/tags/v4.6.2` exited 0.
+//
+// Not `--tags --force` either: that would silently rewrite 26 local refs as a
+// side effect of cutting a release. A warning that always fires is a warning
+// nobody reads; the fix is to stop asking a wider question than we need.
+const fetchSpec = `refs/tags/${tag}:refs/tags/${tag}`;
+if (capture('git', ['fetch', 'origin', fetchSpec]) === null) {
+  console.log(`  (could not \`git fetch origin ${fetchSpec}\` — run it to sync this checkout)`);
 }
 const nowTagged = (captureLines('git', ['tag', '--list', 'v*']) ?? []).includes(tag);
-console.log(`  local checkout has ${tag}: ${nowTagged ? 'yes' : 'no — run `git fetch --tags origin`'}`);
+console.log(
+  `  local checkout has ${tag}: ${nowTagged ? 'yes' : `no — run \`git fetch origin ${fetchSpec}\``}`
+);
 
 // Where to look next. The publish is a workflow run, and npm's registry lags
 // that run by minutes: `npm view` answering with the OLD version right after a

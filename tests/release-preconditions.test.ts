@@ -217,6 +217,30 @@ describe('finish-release cuts the release in one call', () => {
     expect(code).toMatch(/'release',\s*'view'/);
   });
 
+  it('fetches the one tag it needs, not every tag the remote has', () => {
+    // `git fetch --tags` asks for every tag origin has and exits non-zero if
+    // ANY of them cannot be written. Measured 2026-08-23 across all 73 tags in
+    // this repository: 26 refs disagree with origin (v2.10.1 through v4.1.7,
+    // plus benchmark/longmemeval-public-r1) because a history rewrite removed
+    // internal documents from those commits. So the wide form fails on every
+    // release, immediately after successfully writing the tag it was asked
+    // for, and the script printed a warning about a fetch that had worked.
+    //
+    // Both halves are pinned. The refspec must be built — delete it and this
+    // goes red. And `--tags` must not come back on the FETCH — the negative
+    // half is break-tested by INSERTING it, not by deleting the refspec,
+    // because a not.toMatch also passes when the thing it forbids has become
+    // impossible to express.
+    //
+    // Scoped to the fetch on purpose. `git ls-remote --tags origin` above is a
+    // different call with the same flag and is correct: listing every remote
+    // tag is exactly what the precondition check needs. A blanket ban on the
+    // string would have failed on it — as the first version of this test did.
+    expect(code).toMatch(/'fetch',\s*'origin',\s*fetchSpec/);
+    expect(code).toMatch(/refs\/tags\/\$\{tag\}:refs\/tags\/\$\{tag\}/);
+    expect(code).not.toMatch(/'fetch'[^\]]*'--tags'/);
+  });
+
   it('is wired to an npm script, so it is the documented way in', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
     expect(pkg.scripts['release:finish']).toContain('scripts/finish-release.mjs');

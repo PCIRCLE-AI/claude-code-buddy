@@ -4,6 +4,26 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`release:finish` no longer warns about a fetch that worked.** Its last step
+  brought the new tag into the local checkout with `git fetch --tags origin` —
+  a command that asks for every tag `origin` has and exits non-zero if any one
+  of them cannot be written. This repository has 26 that cannot: measured
+  across all 73 tags, the version tags from `v2.10.1` through `v4.1.7` plus
+  `benchmark/longmemeval-public-r1` point at different objects locally than on
+  `origin`, while everything from `v4.2.0` onward agrees. The cause is a
+  history rewrite that removed internal documents — `origin`'s `v4.1.7` tree
+  lacks four files the local one still carries. So that step printed
+  ``could not `git fetch --tags origin` `` on every release, immediately after
+  writing the new tag successfully. Measured on the v4.6.2 release, same
+  checkout: `--tags` exited 1 with 26 rejections while
+  `refs/tags/v4.6.2:refs/tags/v4.6.2` exited 0. It now fetches the one tag it
+  needs — not `--tags --force`, which would silently rewrite 26 local refs as a
+  side effect of cutting a release. The line that follows is unchanged and was
+  already sound: it asks whether the tag is in fact present rather than
+  treating the fetch's own report as the answer.
+
 ## [4.6.2] — 2026-08-23
 
 ### Added
