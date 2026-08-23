@@ -272,7 +272,7 @@ function stubHollowApi(): void {
       entities: {}, relations: {}, noiseTypes: {},
       summaries: {}, window_days: 7,
       checks: {},
-      workSchedule: {}, toolPreferences: {}, focusAreas: {}, workflow: {},
+      workSchedule: {}, focusAreas: {}, workflow: {},
       strengths: {}, learningAreas: {},
     },
   }));
@@ -302,8 +302,8 @@ function stubOptionalExtrasHollowApi(): void {
       // The two the component is allowed to tolerate — hollow, not absent.
       ageMatrix: {}, knowledgeRadar: {},
       workSchedule: { hourDistribution: [], dayDistribution: [] },
-      toolPreferences: [], focusAreas: [], strengths: [], learningAreas: [],
-      workflow: { avgSessionMinutes: 0, commitsPerSession: 0, totalSessions: 0, totalCommits: 0 },
+      focusAreas: [], strengths: [], learningAreas: [],
+      workflow: { commitsPerSession: 0, totalSessions: 0, totalCommits: 0 },
       velocity: { decisionsPerWeek: 0, releasesPerMonth: 0, windowDays: 30 },
       staleness: { stalePlanCount: 0, openDecisionCount: 0 },
       connectedness: { orphanRate: 0, totalRelations: 0, activeEntities: 0 },
@@ -389,9 +389,8 @@ const CASES: Array<{ name: string; node: () => ComponentChildren }> = [
       <UserPatterns
         data={{
           workSchedule: { hourDistribution: [], dayDistribution: [] },
-          toolPreferences: [],
           focusAreas: [],
-          workflow: { avgSessionMinutes: 0, commitsPerSession: 0, totalSessions: 0, totalCommits: 0 },
+          workflow: { commitsPerSession: 0, totalSessions: 0, totalCommits: 0 },
           strengths: [],
           learningAreas: [],
         }}
@@ -696,13 +695,13 @@ const GUARD_LEAVES: Array<{
     guard: isPatternsRenderable as (v: unknown) => boolean,
     valid: () => ({
       workSchedule: { hourDistribution: [], dayDistribution: [] },
-      toolPreferences: [], focusAreas: [], strengths: [], learningAreas: [],
-      workflow: { avgSessionMinutes: 0, totalSessions: 0, commitsPerSession: 0 },
+      focusAreas: [], strengths: [], learningAreas: [],
+      workflow: { totalSessions: 0, commitsPerSession: 0 },
     }),
     leaves: [
       'workSchedule.hourDistribution', 'workSchedule.dayDistribution',
-      'toolPreferences', 'focusAreas', 'strengths', 'learningAreas',
-      'workflow.avgSessionMinutes', 'workflow.totalSessions', 'workflow.commitsPerSession',
+      'focusAreas', 'strengths', 'learningAreas',
+      'workflow.totalSessions', 'workflow.commitsPerSession',
     ],
   },
   {

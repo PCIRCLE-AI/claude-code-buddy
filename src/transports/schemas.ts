@@ -170,7 +170,7 @@ export const WhySchema = z.object({
 }).strict();
 
 export const UserPatternsSchema = z.object({
-  categories: z.array(z.enum(['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
+  categories: z.array(z.enum(['workSchedule', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
     .describe('Specific categories to return. Omit for all.'),
 }).strict();
 

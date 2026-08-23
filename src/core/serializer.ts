@@ -46,6 +46,13 @@ export function exportMemories(args: ExportInput): ExportResult {
     limit: args.limit || 1000,
     includeArchived: false,
     namespace: args.namespace,
+    // A backup is not a use. Without this, `memesh export` bumped
+    // `access_count` and stamped `last_accessed_at = now` on up to a
+    // thousand memories — 20% of the ranking — so the act of taking a backup
+    // re-sorted the graph and made every exported memory look freshly
+    // relevant on the day the backup ran. `listByType` draws the same line
+    // by simply never calling trackAccess.
+    countAsAccess: false,
   });
 
   return {

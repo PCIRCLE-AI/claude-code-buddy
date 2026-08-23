@@ -704,11 +704,13 @@ export class KnowledgeGraph {
   search(query?: string, opts?: SearchOptions): Entity[] {
     const limit = opts?.limit ?? 20;
 
+    const countAsAccess = opts?.countAsAccess ?? true;
+
     if (!query || query.trim() === '') {
       if (opts?.tag) {
-        return this.listRecentByTag(opts.tag, limit, opts?.includeArchived, opts?.namespace);
+        return this.listRecentByTag(opts.tag, limit, opts?.includeArchived, opts?.namespace, countAsAccess);
       }
-      return this.listRecent(limit, opts?.includeArchived, opts?.namespace);
+      return this.listRecent(limit, opts?.includeArchived, opts?.namespace, countAsAccess);
     }
 
     // Terms are OR-ed, not space-separated. A space is FTS5's implicit AND,
@@ -851,11 +853,10 @@ export class KnowledgeGraph {
       results.push(...archivedEntities);
     }
 
-    const entityIds = results.map((e) => e.id);
     // Access only. `recall_hits` belongs to the Stop hook, which is the one
     // place that can tell whether an injected memory was USED — see
     // storage/conflicts.ts::trackAccess.
-    this.trackAccess(entityIds);
+    if (countAsAccess) this.trackAccess(results.map((e) => e.id));
     return results;
   }
 
@@ -876,7 +877,7 @@ export class KnowledgeGraph {
     return findConflicts(this.db, entityNames);
   }
 
-  listRecent(limit?: number, includeArchived?: boolean, namespace?: string): Entity[] {
+  listRecent(limit?: number, includeArchived?: boolean, namespace?: string, countAsAccess = true): Entity[] {
     const statusFilter = includeArchived ? '' : "AND status = 'active'";
     const namespaceFilter = namespace ? 'AND namespace = ?' : '';
     const params: (string | number)[] = [];
@@ -894,7 +895,7 @@ export class KnowledgeGraph {
       { includeArchived, namespace }
     );
 
-    this.trackAccess(results.map((e) => e.id));
+    if (countAsAccess) this.trackAccess(results.map((e) => e.id));
     return results;
   }
 
@@ -920,7 +921,7 @@ export class KnowledgeGraph {
     );
   }
 
-  private listRecentByTag(tag: string, limit: number, includeArchived?: boolean, namespace?: string): Entity[] {
+  private listRecentByTag(tag: string, limit: number, includeArchived?: boolean, namespace?: string, countAsAccess = true): Entity[] {
     const statusFilter = includeArchived ? '' : "AND e.status = 'active'";
     const namespaceFilter = namespace ? 'AND e.namespace = ?' : '';
     const params: (string | number)[] = [tag];
@@ -945,7 +946,7 @@ export class KnowledgeGraph {
       { includeArchived, namespace }
     );
 
-    this.trackAccess(results.map((e) => e.id));
+    if (countAsAccess) this.trackAccess(results.map((e) => e.id));
     return results;
   }
 

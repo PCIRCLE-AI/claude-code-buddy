@@ -4,6 +4,34 @@ All notable changes to MeMesh are documented here.
 
 ## [Unreleased]
 
+### Removed
+
+- **`user_patterns` no longer reports `toolPreferences` or
+  `workflow.avgSessionMinutes`.** Both were parsed out of observation text in
+  a format nothing has ever written: `patterns.ts` looked for observations
+  beginning `[FOCUS]` containing `Top tools: …`, and for `[SESSION]` lines
+  containing `Duration: Nm`. Neither string occurs anywhere else in the
+  repository, and `signal-scorer.ts` — which reads the one `[SESSION]` shape
+  that did exist — shows it recorded **seconds**, not minutes. So
+  `toolPreferences` was permanently `[]` and `avgSessionMinutes` permanently
+  `0`, on the MCP tool output, the dashboard's Analytics tab, and in the
+  documented response shape. The dashboard rendered the tool list only when
+  non-empty (never) and the session figure as `—` (always).
+
+  They are removed rather than implemented. The test for them was
+  `expect(result.toolPreferences).toEqual([])` — a test asserting the
+  deadness. `commitsPerSession`, `totalSessions` and `totalCommits` are
+  computed from real rows and are unchanged.
+
+  If you passed `"toolPreferences"` in `categories`, that value is no longer
+  accepted; it previously returned an empty list.
+
+- **`DEFAULT_SIGNAL_THRESHOLD` is gone.** Its docstring described a dashboard
+  filter users could override in Settings. Nothing imported it but its own
+  test, and no such filter exists. The signal score itself is real and widely
+  used — the dreamer's compactable range, `kg-backfill`'s Rule 3 floor, the
+  briefing — and is unchanged.
+
 ### Fixed
 
 - **`memesh doctor` no longer counts the Install ID row as something it

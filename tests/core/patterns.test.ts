@@ -13,11 +13,9 @@ describe('computePatterns', () => {
     expect(result.workSchedule).toBeDefined();
     expect(result.workSchedule.hourDistribution).toEqual([]);
     expect(result.workSchedule.dayDistribution).toEqual([]);
-    expect(result.toolPreferences).toEqual([]);
     expect(result.focusAreas).toEqual([]);
     expect(result.workflow.totalSessions).toBe(0);
     expect(result.workflow.totalCommits).toBe(0);
-    expect(result.workflow.avgSessionMinutes).toBe(0);
     expect(result.workflow.commitsPerSession).toBe(0);
     expect(result.strengths).toEqual([]);
     expect(result.learningAreas).toEqual([]);
@@ -45,7 +43,7 @@ describe('computePatterns', () => {
     expect(result.workflow.totalSessions).toBe(0);
     // Categories not requested should be empty defaults
     expect(result.focusAreas).toEqual([]);
-    expect(result.toolPreferences).toEqual([]);
+    expect(result.strengths).toEqual([]);
   });
 
   it('computes hour distribution ordered by hour', () => {

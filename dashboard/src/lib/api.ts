@@ -306,9 +306,8 @@ export interface PatternsData {
     // names are rendered client-side via the patterns.day.<n> catalogue keys.
     dayDistribution: Array<{ dayNum: number; count: number }>;
   };
-  toolPreferences: Array<{ tool: string; sessions: number }>;
   focusAreas: Array<{ type: string; count: number }>;
-  workflow: { avgSessionMinutes: number; commitsPerSession: number; totalSessions: number; totalCommits: number };
+  workflow: { commitsPerSession: number; totalSessions: number; totalCommits: number };
   strengths: Array<{ type: string; avgConfidence: number; count: number }>;
   learningAreas: Array<{ tag: string; count: number }>;
 }

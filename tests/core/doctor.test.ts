@@ -181,6 +181,10 @@ function makeDatabase(
     /** Opt a test into the citation-compliance row. Absent = no accounted
      *  sessions, which is what every test predating that row assumes. */
     citationCounters?: { total?: number; cited?: number };
+    /** How many active memories the vector index still owes. Default 0 —
+     *  every test predating the measured Vector Index row assumes a graph
+     *  that is fully embedded. */
+    missingVectors?: number;
   } = {},
 ) {
   const sqliteTs = (hoursAgo: number) =>
@@ -195,6 +199,15 @@ function makeDatabase(
   return {
     prepare(sql: string) {
       if (sql.includes('sqlite_master')) return { get: () => ({ present: 1 }) };
+      // Two queries touch the vector table, and they answer different
+      // questions: `SELECT 1 ... LIMIT 1` asks whether THIS PROCESS can use
+      // the index at all (a throw is how absence is reported), and the
+      // COUNT asks how many active memories it still owes.
+      if (sql.includes('entities_vec')) {
+        return sql.includes('COUNT(')
+          ? { get: () => ({ n: opts.missingVectors ?? 0 }) }
+          : { get: () => undefined };
+      }
       if (sql.includes('fts_vocab')) {
         return { get: () => ({ c: opts.unsegmentedCount ?? 0 }) };
       }

@@ -96,10 +96,10 @@
       "reason": "empty tokens yield null match expression and hasSearchableTerms false",
       "triaged": "2026-08-04"
     },
-    "C5 dashboard/src/components/AnalyticsTab.tsx:200": {
+    "C5 dashboard/src/components/AnalyticsTab.tsx:198": {
       "class": "STALE-OR-SAFE",
       "reason": "comment line or Array.isArray-coerced optional extras",
-      "triaged": "2026-08-04"
+      "triaged": "2026-08-04; re-keyed 2026-08-24 (dead toolPreferences/avgSessionMinutes fields removed; export gained countAsAccess — statements byte-identical, classification unchanged)"
     },
     "C5 dashboard/src/components/InsightsBanner.tsx:65": {
       "class": "SAFE-DISPLAY",
@@ -451,15 +451,15 @@
       "reason": "the `|| {}` is the else-arm of an explicit success+presence conjunction on the same line; capability absence renders defaults, and the failure path returned earlier. Newly visible after the C5 `||` regex fix.",
       "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
     },
-    "C5 src/core/serializer.ts:68": {
+    "C5 src/core/serializer.ts:75": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "`relations` is optional on Entity; empty means the entity has none, which is what the export should record. Newly visible after the C5 `||` regex fix.",
-      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix); re-keyed 2026-08-24 (dead toolPreferences/avgSessionMinutes fields removed; export gained countAsAccess — statements byte-identical, classification unchanged)"
     },
-    "C5 src/core/serializer.ts:254": {
+    "C5 src/core/serializer.ts:261": {
       "class": "SAFE-ACCUMULATOR",
       "reason": "`relations` is optional on the imported bundle entry; empty means none to re-create. Newly visible after the C5 `||` regex fix.",
-      "triaged": "2026-08-17 (surfaced by the C5 || regex fix)"
+      "triaged": "2026-08-17 (surfaced by the C5 || regex fix); re-keyed 2026-08-24 (dead toolPreferences/avgSessionMinutes fields removed; export gained countAsAccess — statements byte-identical, classification unchanged)"
     },
     "C6 tests/cli-reindex-vectors-guard.test.ts": {
       "class": "SAFE-DATA-EXTRACTION",
@@ -630,6 +630,11 @@
       "class": "SAFE-ACCUMULATOR",
       "reason": "batch-hydrate lookups; confidence bump fails closed",
       "triaged": "2026-08-09 (re-keyed: review fixes — busy_timeout, vector-index guards and the .mcp.json entry check — shifted these lines; same statements, same classification); re-keyed 2026-08-10 (review pass 2: redactUserPaths moved to core/paths, namespace breadcrumb, dreamer retirement); re-keyed 2026-08-14 (UX-1 title column added lines above; same statement — verified against the line content); re-keyed 2026-08-15 630→648 (merge main shifted lines +18; same statement — verified)"
+    },
+    "C5 src/knowledge-graph.ts:707": {
+      "class": "SAFE-BY-CONSTRUCTION",
+      "reason": "`opts?.countAsAccess ?? true` in search(): the default is the CONSERVATIVE direction, not the convenient one. Absent means 'this is an ordinary recall, count it' — the behaviour every caller had before the option existed. Only the one read that must NOT count (exportMemories: a backup is not a use) says so explicitly, and tests/core/reads-that-were-writes.test.ts pins both directions.",
+      "triaged": "2026-08-24 (full-codebase review, R9-a)"
     }
   }
 }

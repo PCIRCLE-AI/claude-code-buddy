@@ -151,6 +151,19 @@ export interface SearchOptions {
   limit?: number;
   includeArchived?: boolean;
   namespace?: string;  // filter by namespace; omit to search all namespaces
+  /**
+   * Whether this read counts as a use of the memories it returns.
+   *
+   * Default true: a recall IS a use, and `access_count` /
+   * `last_accessed_at` are 20% of the ranking. False for reads that are
+   * ABOUT the memories rather than uses of them — `export` is the one that
+   * had to be corrected, because taking a backup re-ranked up to a thousand
+   * memories toward the top and stamped them all as freshly used on the day
+   * the backup ran. `listByType` already made the same distinction by
+   * simply not calling trackAccess; this is the switch for the paths that
+   * share a query with real recalls.
+   */
+  countAsAccess?: boolean;
 }
 
 // --- Operation Input Types (what transports pass to core) ---

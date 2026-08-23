@@ -8,7 +8,20 @@
 //   6. deterministic: same input → same score every call
 
 import { describe, it, expect } from 'vitest';
-import { computeSignalScore, DEFAULT_SIGNAL_THRESHOLD } from '../../src/core/signal-scorer.js';
+import { computeSignalScore } from '../../src/core/signal-scorer.js';
+
+/**
+ * The yardstick these tests use to mean "surfaced" rather than "demoted".
+ *
+ * It lives here, not in the product. `signal-scorer.ts` exported a
+ * `SURFACED = 0.4` whose docstring described a dashboard
+ * filter users could override in Settings. Nothing imported it but this
+ * file, and no such filter was ever built — so the constant documented a
+ * feature into existence. The score itself is real and widely used (the
+ * dreamer's compactable range, kg-backfill's Rule 3 floor, the briefing);
+ * only the phantom threshold is gone.
+ */
+const SURFACED = 0.4;
 
 describe('signal-scorer', () => {
   it('lesson_learned with substantive content scores at the top', () => {
@@ -46,7 +59,7 @@ describe('signal-scorer', () => {
         name: `entry-${type}`,
         observations: ['some real content describing this concept'],
       });
-      expect(score, `expected ${type} to be ≥ default threshold`).toBeGreaterThanOrEqual(DEFAULT_SIGNAL_THRESHOLD);
+      expect(score, `expected ${type} to be ≥ default threshold`).toBeGreaterThanOrEqual(SURFACED);
     }
   });
 
@@ -78,7 +91,7 @@ describe('signal-scorer', () => {
         'feat(auth): OAuth 2.0 with PKCE for browser flows\n\nReplace the legacy session-cookie flow with OAuth 2.0 + PKCE per the auth-decision lesson. Tokens rotate every 90 days; refresh handled in middleware.',
       ],
     });
-    expect(score).toBeGreaterThan(DEFAULT_SIGNAL_THRESHOLD);
+    expect(score).toBeGreaterThan(SURFACED);
   });
 
   it('session-insight from memesh\'s hook with bugfix tag scores higher than plain', () => {
@@ -141,5 +154,57 @@ describe('signal-scorer', () => {
       name: 'lesson-bad',
       observations: ['oops'],
     })).toBeLessThanOrEqual(0.1);
+  });
+});
+
+describe('a commit is scored from its message, not from the hook\'s annotations', () => {
+  // `post-commit.js` stores THREE observations: the commit message, then
+  // `Branch: x`, then `Diff stats: y`. Every test above passes the message
+  // alone, which is a shape the product never writes — and it is what let
+  // the defect live. `computeSignalScore` joined the three with a SPACE and
+  // then reasoned about the result as if it were a raw commit message.
+  const branch = 'Branch: main';
+  const stats = 'Diff stats: 3 files changed, 45 insertions(+), 12 deletions(-)';
+
+  it('demotes a bodyless conventional commit, annotations and all', () => {
+    // Before the fix this scored 0.6. The joined text has no newline, so
+    // `firstLine` became the whole 80-character string — too long for every
+    // demotion branch — and it fell through to "substantive commit body".
+    const score = computeSignalScore({
+      type: 'commit',
+      name: 'Commit abc: chore: bump version',
+      observations: ['chore: bump version', branch, stats],
+    });
+    expect(score, 'a bodyless commit was scored as substantive').toBeLessThan(SURFACED);
+  });
+
+  it('surfaces a commit that actually has a body, annotations and all', () => {
+    // Before the fix this scored 0.3: `firstLine` was the short subject, so
+    // the length rules demoted the one commit that had earned promotion.
+    const score = computeSignalScore({
+      type: 'commit',
+      name: 'Commit def: fix: the parser',
+      observations: [
+        'fix: the parser\n\nThe tokenizer dropped the final newline, so a file with no trailing\nblank line lost its last statement. Adds a regression test.',
+        branch,
+        stats,
+      ],
+    });
+    expect(score, 'a commit with a real body was scored as noise').toBeGreaterThanOrEqual(SURFACED);
+  });
+
+  it('ranks the two in that order — the comparison the score exists for', () => {
+    // Both assertions above could pass against a constant near the boundary.
+    const mechanical = computeSignalScore({
+      type: 'commit',
+      name: 'a',
+      observations: ['chore: bump version', branch, stats],
+    });
+    const substantive = computeSignalScore({
+      type: 'commit',
+      name: 'b',
+      observations: ['fix: the parser\n\nA real explanation of what changed and why.', branch, stats],
+    });
+    expect(substantive).toBeGreaterThan(mechanical);
   });
 });

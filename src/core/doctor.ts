@@ -2135,12 +2135,26 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     // widen `DatabaseLike`, and rather than re-write the "owed a vector"
     // query here — one definition of what the index owes is the point.
     const vectorDb = db as unknown as MemeshDatabase;
-    const missingVectors = hasVectorIndex(vectorDb) ? countMissingVectors(vectorDb) : 0;
-    if (pendingReindex || missingVectors > 0) {
+    // Three outcomes, not two. `hasVectorIndex` deliberately rethrows
+    // anything that is not "the module or table is absent" — swallowing a
+    // real fault there would report a broken index as a configuration
+    // choice. But a DIAGNOSTIC must not die on the thing it is diagnosing,
+    // and it must not answer 0 either: "measured none missing" and "could
+    // not measure" are different reports, and only one of them means the
+    // graph is fine.
+    let missingVectors: number | null;
+    try {
+      missingVectors = hasVectorIndex(vectorDb) ? countMissingVectors(vectorDb) : 0;
+    } catch {
+      missingVectors = null;
+    }
+    if (pendingReindex || missingVectors === null || missingVectors > 0) {
       const owed = pendingReindex && pendingReindex.reason !== 'vectors-missing'
         ? 'Search index needs rebuilding (embedding configuration changed)'
-        : `${missingVectors} memor${missingVectors === 1 ? 'y has' : 'ies have'} no search vector, `
-          + 'so semantic recall cannot find them (keyword search still works)';
+        : missingVectors === null
+          ? 'The vector index could not be read, so how much of your memory semantic recall can see is unknown'
+          : `${missingVectors} memor${missingVectors === 1 ? 'y has' : 'ies have'} no search vector, `
+            + 'so semantic recall cannot find them (keyword search still works)';
       dbChecks.push(
         createCheck(
           'vector_index',
@@ -2148,7 +2162,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
           'warn',
           owed,
           `Run 'memesh reindex' to fix. This will restore full search functionality.`,
-          { code: 'vector-index.stale', params: { missing: missingVectors } },
+          { code: 'vector-index.stale', params: { missing: missingVectors ?? -1 } },
         ),
       );
     }

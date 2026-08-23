@@ -514,7 +514,7 @@ Analyze user work patterns from existing memory. Returns work schedule (peak hou
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `categories` | string[] | No | Specific categories to return: `"workSchedule"`, `"toolPreferences"`, `"focusAreas"`, `"workflow"`, `"strengths"`, `"learningAreas"`. Omit for all. |
+| `categories` | string[] | No | Specific categories to return: `"workSchedule"`, `"focusAreas"`, `"workflow"`, `"strengths"`, `"learningAreas"`. Omit for all. |
 
 **Response** (MCP returns markdown text; HTTP returns JSON):
 
@@ -524,10 +524,8 @@ Analyze user work patterns from existing memory. Returns work schedule (peak hou
     "hourDistribution": [{"hour": 9, "count": 42}, {"hour": 14, "count": 38}],
     "dayDistribution": [{"dayNum": 1, "count": 50}]
   },
-  "toolPreferences": [{"tool": "Read", "sessions": 15}],
   "focusAreas": [{"type": "decision", "count": 12}],
   "workflow": {
-    "avgSessionMinutes": 45,
     "commitsPerSession": 2.3,
     "totalSessions": 20,
     "totalCommits": 46
@@ -1652,7 +1650,7 @@ MeMesh runs as a stdio MCP server. Claude Code manages the connection automatica
 
 Returns user work patterns extracted from existing memory entities.
 
-**Response fields:** `workSchedule` (hour/day distribution), `toolPreferences`, `focusAreas`, `workflow` (avg session minutes, commits/session), `strengths` (high-confidence types), `learningAreas` (tags from lessons/mistakes).
+**Response fields:** `workSchedule` (hour/day distribution), `focusAreas`, `workflow` (commits/session, totals), `strengths` (high-confidence types), `learningAreas` (tags from lessons/mistakes).
 
 `workSchedule.dayDistribution` entries carry `dayNum` — an integer `0`–`6` from SQLite `strftime('%w')`, where `0` is Sunday and `6` is Saturday. There is no English `day` name field: day names are presentation, so localising `dayNum` into a weekday label is the client's job.
 
