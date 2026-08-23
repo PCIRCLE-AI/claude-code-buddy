@@ -303,7 +303,7 @@
     },
     "C3 scripts/audit/measure-injection-tokens.mjs": {
       "class": "NOT-A-GATE",
-      "reason": "manual measurement tool a human runs to compare session-start injection size before/after a change; spawns the hook against a throwaway HOME and gates nothing. Note: this file's header names measure-work-topology-baseline.mjs, and C3 counts any basename reference — which is why that script stopped appearing as a hit and its entry was pruned. If this cross-reference is ever removed, it becomes an untriaged hit again and needs its own NOT-A-GATE entry.",
+      "reason": "manual measurement tool a human runs to compare session-start injection size before/after a change; spawns the hook against a throwaway HOME and gates nothing. (This reason used to carry a note that its own header's mention of measure-work-topology-baseline.mjs was what kept THAT script from being a C3 hit. The detector no longer counts a filename written in a comment as a caller, so the note is obsolete and the other script now carries its own entry.)",
       "triaged": "2026-08-16"
     },
     "C1 tests/core/task-state.test.ts": {
@@ -619,6 +619,11 @@
     "C6 tests/vector-index-safety.test.ts": {
       "class": "SAFE-DATA-EXTRACTION",
       "reason": "One test reads src/db.ts and asserts that markReindexOwed() is NOT inside the once-only notice brace. That is a structural pin chosen ON PURPOSE: the behavioural scenario (a fresh open while the notice flag is already set) is unreachable in one process — openDatabase returns the existing singleton, and the only reopen path (closeDatabase) resets the flag. Two behavioural tests were written first and both passed for the wrong reason; the review's brace-move mutant survived them. The text IS the property here.",
+      "triaged": "2026-08-23"
+    },
+    "C3 scripts/audit/measure-work-topology-baseline.mjs": {
+      "class": "NOT-A-GATE",
+      "reason": "Read-only measurement tool a human runs once to size three work-topology decisions (work-layer share, recall-hit false negatives, opening-exploration cost). Opens the DB with readOnly and writes no file; it decides nothing and enforces nothing, so having no automated caller is correct. Surfaced 2026-08-23 when C3 stopped counting a filename written in a comment as a caller \u2014 measure-injection-tokens.mjs's header names this file, and that single prose mention had been enough to hide it and to get its entry pruned as stale.",
       "triaged": "2026-08-23"
     },
     "C6 tests/release-preconditions.test.ts": {

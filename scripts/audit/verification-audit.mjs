@@ -17,6 +17,7 @@
 // file stays fast enough for verify:release.
 import fs from 'node:fs';
 import path from 'node:path';
+import { stripComments } from '../lib/reference-corpus.mjs';
 import { fileURLToPath } from 'node:url';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -88,12 +89,15 @@ function record(cls, denominator, hits, note) {
   const scriptFiles = walk('scripts', ['.mjs', '.sh'])
     .filter(f => !f.includes('/lib/') && !f.includes('/hooks/'));
   const candidates = [...gateScripts.map(k => `npm:${k}`), ...scriptFiles];
+  // Comments are stripped before counting: a filename written in prose is not
+  // a caller. See scripts/lib/reference-corpus.mjs for the two times a single
+  // sentence hid an uncalled script from this detector.
   const corpusParts = [
     ...walk('.github/workflows', ['.yml']).map(f => [f, read(f)]),
     ...scriptFiles.map(f => [f, read(f)]),
     ...walk('tests', ['.ts', '.tsx']).map(f => [f, read(f)]),
     ['package.json', read('package.json')],
-  ];
+  ].map(([f, txt]) => [f, stripComments(txt, f)]);
   const hits = [];
   for (const c of candidates) {
     const needle = c.startsWith('npm:') ? `run ${c.slice(4)}` : path.basename(c);
