@@ -1414,6 +1414,10 @@ dreamCmd
                 console.log(`  LLM call failures:   ${result.llmFailures} (sessions not mined — retry when the provider is reachable)`);
             if (result.parseFailures > 0)
                 console.log(`  unparsable replies:  ${result.parseFailures} (chunk reply not valid JSON — likely truncated; those candidates were lost, retry)`);
+            if (result.cappedTurns > 0) {
+                console.log(`  per-turn cap: ${result.cappedTurns} turn(s) were analysed only in part `
+                    + `(the first 4,000 characters); the rest of each was not sent`);
+            }
             if (result.truncatedTurns > 0) {
                 console.log(`  size-cap truncation: ${result.truncatedTurns} conversation turn(s) beyond the cap were NOT analysed`);
                 for (const t of result.truncatedSessions) {

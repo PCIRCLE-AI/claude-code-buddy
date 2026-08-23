@@ -1829,6 +1829,12 @@ dreamCmd
         if (result.parseFailures > 0) console.log(`  unparsable replies:  ${result.parseFailures} (chunk reply not valid JSON — likely truncated; those candidates were lost, retry)`);
         // Never let a size-cap truncation be a silent 0: name each session that
         // lost tail turns (the newest content, likeliest to hold a reversal).
+        if (result.cappedTurns > 0) {
+          console.log(
+            `  per-turn cap: ${result.cappedTurns} turn(s) were analysed only in part `
+            + `(the first 4,000 characters); the rest of each was not sent`,
+          );
+        }
         if (result.truncatedTurns > 0) {
           console.log(`  size-cap truncation: ${result.truncatedTurns} conversation turn(s) beyond the cap were NOT analysed`);
           for (const t of result.truncatedSessions) {

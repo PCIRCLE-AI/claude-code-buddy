@@ -728,8 +728,10 @@ export function applyProposal(db, proposalId, kg) {
         `project:${row.project}`,
     ];
     let ownedSourceIds = sourceIds;
+    const nameTaken = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(digest.name) !== undefined;
+    const entityName = nameTaken ? `${digest.name} (digest #${row.id})` : digest.name;
     const tx = db.transaction(() => {
-        const digestId = kg.createEntity(digest.name, digest.type, {
+        const digestId = kg.createEntity(entityName, digest.type, {
             observations: digest.observations,
             tags,
             trustOverride: 'untrusted',
@@ -849,7 +851,7 @@ export function applyProposal(db, proposalId, kg) {
     }
     return {
         proposalId: row.id,
-        digestEntityName: digest.name,
+        digestEntityName: entityName,
         sourcesArchived: out.archived,
         sourcesLinked: out.linked,
         ...(out.skippedAlreadyCompacted > 0 ? { sourcesAlreadyCompacted: out.skippedAlreadyCompacted } : {}),

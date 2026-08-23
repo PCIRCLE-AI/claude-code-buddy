@@ -1475,8 +1475,27 @@ export function applyProposal(
   // sources it actually took, not the ones it was proposed for.
   let ownedSourceIds: number[] = sourceIds;
 
+  // Name-collision guard — the same one `applyTranscriptProposal` carries,
+  // and the reasoning there applies here word for word: `createEntity` uses
+  // `INSERT OR IGNORE`, so when the name is already taken the insert is
+  // skipped, NONE of the metadata below is written, and the digest's
+  // observations merge into the existing row.
+  //
+  // On this path the consequences are worse than on the transcript one,
+  // because this transaction goes on to ARCHIVE the sources. A digest whose
+  // model-chosen slug happened to match a memory the user wrote by hand
+  // appended LLM prose to it, recorded none of `source_ids`, `proposal_id`
+  // or `signal_score`, archived up to five of the user's memories under it,
+  // and reported success. The extraction prompt asks for short slug names,
+  // which is exactly the shape that collides.
+  //
+  // No status filter on the lookup, deliberately: an ARCHIVED row with this
+  // name is a collision too, because `createEntity` would reactivate it.
+  const nameTaken = db.prepare('SELECT 1 FROM entities WHERE name = ?').get(digest.name) !== undefined;
+  const entityName = nameTaken ? `${digest.name} (digest #${row.id})` : digest.name;
+
   const tx = db.transaction(() => {
-    const digestId = kg.createEntity(digest.name, digest.type, {
+    const digestId = kg.createEntity(entityName, digest.type, {
       observations: digest.observations,
       tags,
       // The write-side half of the old `metadata.trust` marker, stated
@@ -1694,7 +1713,10 @@ export function applyProposal(
   }
   return {
     proposalId: row.id,
-    digestEntityName: digest.name,
+    // The name actually written, which may carry the collision suffix. The
+    // caller prints this, and printing a name that is not in the database is
+    // how a user goes looking for a memory that does not exist.
+    digestEntityName: entityName,
     sourcesArchived: out.archived,
     sourcesLinked: out.linked,
     ...(out.skippedAlreadyCompacted > 0 ? { sourcesAlreadyCompacted: out.skippedAlreadyCompacted } : {}),

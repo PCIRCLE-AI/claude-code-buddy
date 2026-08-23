@@ -1506,11 +1506,35 @@ export function GraphTab() {
   // Search match count — over the SAME haystack the canvas highlights on
   // (name + headline). Counted over the machine name alone it reported "0
   // matches" for a query that the user took straight off this canvas.
-  const matchCount = searchQuery
-    ? [...displayIndex.values()].filter((d) =>
+  const searchMatches = searchQuery
+    ? [...displayIndex.entries()].filter(([, d]) =>
         d.search.includes(searchQuery.toLowerCase()),
-      ).length
-    : 0;
+      )
+    : [];
+  const matchCount = searchMatches.length;
+
+  /**
+   * Select the node the search has narrowed to, from the keyboard.
+   *
+   * Node selection was pointer-only: the click handler was the ONLY way to
+   * enter ego mode or open the evidence drill-down, so a keyboard user could
+   * reach the canvas (it is focusable and labelled) and read the summary,
+   * and could not open a single node. Search highlighted matches and stopped
+   * there.
+   *
+   * Deliberately narrow: only when the query has narrowed to exactly ONE
+   * node, and driven from the search box the user is already typing in. Full
+   * node-to-node traversal is still deferred — it is a large-graph
+   * interaction that needs its own design, as the canvas comment says — but
+   * "find it and open it" is the thing the mouse does that the keyboard
+   * could not do at all.
+   */
+  const selectSoleMatch = useCallback(() => {
+    if (searchMatches.length !== 1) return;
+    const [name, display] = searchMatches[0];
+    setEgoNodeId(name);
+    setEvidenceNode({ id: name, display: display.display } as GNode);
+  }, [searchMatches]);
 
   // Ego node name for banner
   const egoEntity = egoNodeId
@@ -1697,6 +1721,8 @@ export function GraphTab() {
             placeholder={t('graph.search')}
             value={searchQuery}
             onInput={(e) => setSearchQuery((e.target as HTMLInputElement).value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') selectSoleMatch(); }}
+            aria-describedby="graph-search-hint"
             style={{
               flex: '1 1 160px',
               minWidth: 120,
@@ -1712,6 +1738,8 @@ export function GraphTab() {
           />
           {searchQuery && (
             <span
+              id="graph-search-hint"
+              role="status"
               style={{
                 fontSize: 11,
                 fontFamily: 'var(--mono)',
@@ -1719,6 +1747,9 @@ export function GraphTab() {
               }}
             >
               {matchCount} {t('graph.matches')}
+              {/* The hint appears exactly when the action is available, so it
+                  never promises something Enter will not do. */}
+              {matchCount === 1 && ` — ${t('graph.enterToOpen')}`}
             </span>
           )}
           <button

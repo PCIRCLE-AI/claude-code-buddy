@@ -22,6 +22,16 @@ export function isPmAnalyticsRenderable(d: PmAnalytics | null): d is PmAnalytics
 export function PmAnalyticsPanel() {
   const [data, setData] = useState<PmAnalytics | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Three outcomes used to render the same thing — nothing.
+  //
+  // A failed request, a request still in flight, and a reply this bundle
+  // cannot read all ended at `return null`, so the card simply was not
+  // there. The user cannot tell "still loading" from "the server is down"
+  // from "your dashboard is older than your server" when all three look like
+  // an absence, and there is nothing to click, retry or report. The sibling
+  // on the same tab (`AnalyticsTab`) already renders a spinner and an
+  // `role="alert"` box for exactly these two cases.
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     // `api()` already unwraps the {success, data} envelope and returns
@@ -39,12 +49,21 @@ export function PmAnalyticsPanel() {
         }
         setData(r);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(String(e)))
+      .finally(() => setLoading(false));
   }, []);
+
+  if (loading) return <div class="empty"><div class="loading" /></div>;
 
   if (error) {
     console.warn('[PmAnalyticsPanel]', error);
-    return null;
+    // role="alert" per DESIGN.md: a box that stands in for content has to
+    // announce itself to a screen reader rather than repaint silently.
+    return (
+      <div class="error-box" role="alert">
+        {`${t('common.error')}: ${t('analytics.loadFailed')}`}
+      </div>
+    );
   }
   // Guard the LEAVES, not the groups. `{}` is truthy, so checking that
   // `velocity` / `staleness` / `connectedness` merely exist admits a payload
@@ -52,7 +71,17 @@ export function PmAnalyticsPanel() {
   // `data.velocity.decisionsPerWeek.toFixed(1)` on `undefined`. Two earlier
   // versions of this guard tightened one level at a time (`!data`, then the
   // three groups) and each was still one level short of the read.
-  if (!isPmAnalyticsRenderable(data)) return null;
+  if (!isPmAnalyticsRenderable(data)) {
+    // The request SUCCEEDED and the reply is unreadable — a stale bundle
+    // against a newer server, or the reverse. Saying so is the difference
+    // between "reload the page" and "memesh is broken": the console warning
+    // above is for whoever opens the console, and this is for everyone else.
+    return (
+      <div class="error-box" role="alert">
+        {`${t('common.error')}: ${t('analytics.unreadable')}`}
+      </div>
+    );
+  }
 
   const orphanPct = (data.connectedness.orphanRate * 100).toFixed(1);
   const orphanColor =

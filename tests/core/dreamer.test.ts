@@ -146,6 +146,70 @@ describe('dreamer', () => {
     expect(listProposals(db, 'pending')).toEqual([]);
   });
 
+  it('apply: a digest whose name collides never merges into the memory already there', async () => {
+    // `createEntity` uses INSERT OR IGNORE, so a taken name meant the insert
+    // was SKIPPED: none of the digest metadata was written, the LLM's
+    // observations appended to the user's own memory, and this transaction
+    // went on to archive the sources under it — reporting success. The
+    // extraction prompt asks for short slug names, which is exactly the shape
+    // that collides. `applyTranscriptProposal` has carried this guard, with
+    // this reasoning, the whole time; the digest path did not.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(5);
+
+    // A memory the USER wrote, under a name a model might well choose.
+    kg.createEntity('auth-decisions', 'decision', {
+      observations: ['we chose OAuth 2.0 with PKCE'],
+    });
+    const before = kg.getEntity('auth-decisions');
+    expect(before?.observations, 'fixture: the user memory was not created').toHaveLength(1);
+
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES ('memesh', '2026-W19', ?, ?, 'ollama/fake', 'v1')
+    `).run(JSON.stringify(sourceIds), JSON.stringify({
+      name: 'auth-decisions', type: 'digest',
+      observations: ['a model-written summary of five commits'], tags: ['digest'],
+    }));
+    const proposalId = (db.prepare(
+      "SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC",
+    ).get() as { id: number }).id;
+
+    const result = applyProposal(db, proposalId, kg);
+
+    // The user's memory is exactly as it was.
+    const after = kg.getEntity('auth-decisions');
+    expect(after?.observations, "the digest's text merged into the user's memory").toHaveLength(1);
+    expect(after?.observations[0]).toBe('we chose OAuth 2.0 with PKCE');
+    expect(after?.type, 'the user memory changed type').toBe('decision');
+
+    // The digest landed somewhere of its own, and the caller was told where.
+    expect(result.digestEntityName, 'the reported name is the colliding one')
+      .not.toBe('auth-decisions');
+    const digest = kg.getEntity(result.digestEntityName);
+    expect(digest, 'the digest was not created at all').toBeTruthy();
+    expect(digest?.observations).toEqual(['a model-written summary of five commits']);
+    expect(digest?.metadata?.proposal_id, 'the digest metadata was never written').toBe(proposalId);
+  });
+
+  it('apply: a digest with a free name keeps it — the anti-vacuity half', async () => {
+    // A guard that always suffixed would satisfy the test above while making
+    // every digest name unrecognisable.
+    const { applyProposal } = await import('../../src/core/dreamer.js');
+    const sourceIds = seedCommits(5);
+    db.prepare(`
+      INSERT INTO dream_proposals (project, cluster_key, source_ids, proposed_digest, llm_model, prompt_version)
+      VALUES ('memesh', '2026-W20', ?, ?, 'ollama/fake', 'v1')
+    `).run(JSON.stringify(sourceIds), JSON.stringify({
+      name: 'a-free-name', type: 'digest', observations: ['a summary'], tags: ['digest'],
+    }));
+    const proposalId = (db.prepare(
+      "SELECT id FROM dream_proposals WHERE status='pending' ORDER BY id DESC",
+    ).get() as { id: number }).id;
+
+    expect(applyProposal(db, proposalId, kg).digestEntityName).toBe('a-free-name');
+  });
+
   it('apply: refuses a source another digest already compacted, and says so', async () => {
     // `metadata.compacted_into` is a single value, so a source belongs to one
     // digest only. Accepting two overlapping proposals used to overwrite it

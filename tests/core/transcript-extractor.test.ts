@@ -293,6 +293,55 @@ describe('transcript-extractor: extraction pipeline', () => {
     expect(res.truncatedTurns).toBeGreaterThan(0);
     expect(res.truncatedTurns).toBe(20 - res.llmCalls); // turns analysed == chunks == llmCalls
   });
+
+  it('spends the budget on what is SENT, not on what a turn holds', async () => {
+    // The chunker charged `turn.text.length`; the prompt builder sends
+    // `.slice(0, TURN_CHAR_CAP)`. So one pasted file could spend a whole
+    // 48,000-character budget while contributing 4,000 characters of prompt,
+    // and the turns that would have fit beside it were dropped from the
+    // NEWEST end — where a reversal is likeliest.
+    //
+    // The fixture is one huge turn followed by short ones, with a budget that
+    // comfortably holds the capped huge turn plus the rest.
+    const huge = 'x'.repeat(40_000);
+    const entries = [
+      { type: 'user', content: `A decision was made. ${huge}` },
+      ...Array.from({ length: 6 }, (_, i) => ({
+        type: i % 2 === 0 ? 'assistant' : 'user',
+        content: i % 2 === 0
+          ? [{ type: 'text', text: `Turn ${i}: reasoning about the parser decision.` }]
+          : `Turn ${i}: a sentence about the parser decision.`,
+      })),
+    ];
+    const path = writeTranscript(tmp, 'huge-turn', entries);
+    stubLLM(JSON.stringify([]));
+
+    // 6,000 is far below the 40,000 the turn holds and far above the 4,000
+    // that is sent — so the old accounting fits ONE turn per chunk and the
+    // new one fits them all.
+    const res = await extractMemoriesFromTranscript(path, FAKE_LLM, { chunkCharBudget: 6_000 });
+
+    expect(res.truncatedTurns, 'the budget is still being spent on unsent characters').toBe(0);
+    // And the partial read is reported rather than passing as complete.
+    expect(res.cappedTurns, 'a turn cut to 4,000 characters was reported as fully analysed').toBe(1);
+  });
+
+  it('still reports zero capped turns when nothing was capped', async () => {
+    // Anti-vacuity: a counter hardwired positive would put a scary line on
+    // every ordinary run.
+    const entries = Array.from({ length: 4 }, (_, i) => ({
+      type: i % 2 === 0 ? 'user' : 'assistant',
+      content: i % 2 === 0
+        ? `Turn ${i}: a short sentence about the parser decision.`
+        : [{ type: 'text', text: `Turn ${i}: short reasoning.` }],
+    }));
+    const path = writeTranscript(tmp, 'small', entries);
+    stubLLM(JSON.stringify([]));
+
+    const res = await extractMemoriesFromTranscript(path, FAKE_LLM, {});
+    expect(res.cappedTurns).toBe(0);
+    expect(res.truncatedTurns).toBe(0);
+  });
 });
 
 describe('transcript-extractor: staging + apply', () => {

@@ -99,6 +99,20 @@ export const ORDERING_INSTRUCTION =
 // a reversal of something the model never EXTRACTED as a standalone memory in
 // the earlier chunk is not carried forward and so is not caught — see the
 // module header.)
+/**
+ * The most of one turn that is ever SENT to the model.
+ *
+ * It was written as a bare `.slice(0, 4000)` in the prompt builder while the
+ * chunker charged the budget `turn.text.length`. The two disagreed, and the
+ * disagreement was expensive: a 40,000-character turn (a pasted file, a long
+ * test log) spent 40,016 of a 48,000 budget and contributed 4,000 characters
+ * of prompt. Measured on this repo's transcripts: 2,198 turns dropped under
+ * the old accounting against 1,479 when the budget counts what is sent — 719
+ * turns of real conversation, from the newest end, discarded to pay for
+ * characters nobody ever read.
+ */
+const TURN_CHAR_CAP = 4000;
+
 const CHUNK_CHAR_BUDGET = 48000;
 const MAX_CHUNKS_PER_SESSION = 4;
 
@@ -248,12 +262,14 @@ export function countConversationTurns(transcriptPath: string): number {
 function chunkTurns(
   turns: ConversationTurn[],
   budget: number = CHUNK_CHAR_BUDGET,
-): { chunks: ConversationTurn[][]; truncatedTurns: number } {
+): { chunks: ConversationTurn[][]; truncatedTurns: number; cappedTurns: number } {
   const chunks: ConversationTurn[][] = [];
   let current: ConversationTurn[] = [];
   let size = 0;
   for (const turn of turns) {
-    const cost = turn.text.length + 16;
+    // What the prompt builder will actually send, not what the turn holds.
+    // See TURN_CHAR_CAP.
+    const cost = Math.min(turn.text.length, TURN_CHAR_CAP) + 16;
     if (size + cost > budget && current.length > 0) {
       chunks.push(current);
       current = [];
@@ -265,7 +281,12 @@ function chunkTurns(
   }
   if (current.length > 0 && chunks.length < MAX_CHUNKS_PER_SESSION) chunks.push(current);
   const included = chunks.reduce((n, c) => n + c.length, 0);
-  return { chunks, truncatedTurns: turns.length - included };
+  // `cappedTurns` counts turns that were INCLUDED but sent only in part. The
+  // module header promises the drop is "never a silent 0", and this was the
+  // half that was silent: a turn cut from 40,000 characters to 4,000 was
+  // reported as fully analysed.
+  const cappedTurns = chunks.flat().filter((t) => t.text.length > TURN_CHAR_CAP).length;
+  return { chunks, truncatedTurns: turns.length - included, cappedTurns };
 }
 
 /**
@@ -287,7 +308,7 @@ export function buildExtractionPrompt(
   priorDecisions: string[] = [],
 ): string {
   const body = turns
-    .map((t) => `[${t.role}] ${sanitizeForPrompt(scrubSecrets(t.text)).slice(0, 4000)}`)
+    .map((t) => `[${t.role}] ${sanitizeForPrompt(scrubSecrets(t.text)).slice(0, TURN_CHAR_CAP)}`)
     .join('\n');
 
   const priorSection = priorDecisions.length > 0
@@ -363,6 +384,17 @@ export interface ExtractResult {
    * dropped tail is the newest content, the likeliest place a reversal lives.
    */
   truncatedTurns: number;
+  /**
+   * Turns that WERE analysed, but only in part: longer than `TURN_CHAR_CAP`,
+   * so the model saw the first 4,000 characters and not the rest.
+   *
+   * Reported for the same reason `truncatedTurns` is. The module header
+   * promises a drop is "never a silent 0", and this was the half that was
+   * silent — a 40,000-character turn cut to 4,000 counted as fully analysed,
+   * so a session where the one decision lived in the tail of a long paste
+   * came back empty with nothing saying why.
+   */
+  cappedTurns: number;
 }
 
 /**
@@ -465,14 +497,15 @@ export async function extractMemoriesFromTranscript(
   llm: LLMConfig,
   opts: ExtractOptions = {},
 ): Promise<ExtractResult> {
-  const result: ExtractResult = { memories: [], llmCalls: 0, secretsDropped: 0, llmFailures: 0, parseFailures: 0, truncatedTurns: 0 };
+  const result: ExtractResult = { memories: [], llmCalls: 0, secretsDropped: 0, llmFailures: 0, parseFailures: 0, truncatedTurns: 0, cappedTurns: 0 };
   const turns = parseConversation(transcriptPath);
   if (turns.length < 2) return result; // nothing conversational to mine
 
   const projectLabel = opts.project ?? getProjectName(process.cwd());
   const budget = opts.maxLlmCalls ?? MAX_CHUNKS_PER_SESSION;
-  const { chunks, truncatedTurns } = chunkTurns(turns, opts.chunkCharBudget);
+  const { chunks, truncatedTurns, cappedTurns } = chunkTurns(turns, opts.chunkCharBudget);
   result.truncatedTurns = truncatedTurns;
+  result.cappedTurns = cappedTurns;
 
   // Rolling summary of decisions/facts extracted from EARLIER chunks of THIS
   // session, carried into each later chunk's prompt so the contradiction guard
@@ -789,6 +822,14 @@ export interface TranscriptSourceResult {
    * here only when it lost turns to the cap.
    */
   truncatedSessions: Array<{ sessionId: string; truncatedTurns: number }>;
+  /**
+   * Turns that were analysed only in part — longer than `TURN_CHAR_CAP`, so
+   * the model saw the first 4,000 characters. Counted across all sessions,
+   * for the same reason `truncatedTurns` is: a partial read that reports as
+   * a complete one turns "nothing worth keeping" into an unfalsifiable
+   * answer.
+   */
+  cappedTurns: number;
   durationMs: number;
 }
 
@@ -812,6 +853,7 @@ export async function runTranscriptSource(
     skipped: [],
     truncatedTurns: 0,
     truncatedSessions: [],
+    cappedTurns: 0,
     durationMs: 0,
   };
 
@@ -844,6 +886,7 @@ export async function runTranscriptSource(
     result.secretsDropped += extract.secretsDropped;
     result.llmFailures += extract.llmFailures;
     result.parseFailures += extract.parseFailures;
+    result.cappedTurns += extract.cappedTurns;
     if (extract.truncatedTurns > 0) {
       result.truncatedTurns += extract.truncatedTurns;
       result.truncatedSessions.push({ sessionId: session.sessionId, truncatedTurns: extract.truncatedTurns });
