@@ -830,7 +830,7 @@ program
   .option('--done <text>', 'What was just finished')
   .option('--json', 'Output as JSON')
   .action(async (opts) => {
-    await withDatabase(() => {
+    await withDatabase(async () => {
       // Which flags were PASSED, not which have text: `--blocked ""` is a
       // request to clear, and reading truthiness here would silently drop it.
       const patch: Partial<Record<TaskStateField, string>> = {};
@@ -857,6 +857,13 @@ program
       }
 
       const result = setTaskState({ project: opts.project, patch, sourceHost: 'cli' });
+      // `setTaskState` goes through `remember`, which SCHEDULES the embedding
+      // and returns. In the MCP and HTTP servers the process outlives the
+      // promise and it lands on its own; a CLI process exits and the write is
+      // simply lost. `remember` and `dream accept` already await this — `task`
+      // did not, so every task-state memory reached the graph with no vector
+      // and was invisible to semantic recall.
+      await flushPendingEmbeddings();
       if (opts.json) {
         console.log(JSON.stringify(result));
         return;

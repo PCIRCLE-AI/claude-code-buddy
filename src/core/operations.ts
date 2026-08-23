@@ -628,7 +628,7 @@ export interface ReindexResult {
  * Unscoped, it decides `pending_reindex`, which describes the whole database —
  * reindexing one namespace must not clear a flag the others still justify.
  */
-function countMissingVectors(
+export function countMissingVectors(
   db: ReturnType<typeof getDatabase>,
   namespace?: string
 ): number {

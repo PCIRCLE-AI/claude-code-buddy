@@ -953,6 +953,19 @@ export class KnowledgeGraph {
    * Clear all observations and tags for an entity without deleting the entity row.
    * Used by overwrite import to start fresh before re-adding data.
    */
+  /**
+   * Drop an entity's row from the vector index, if this process has one.
+   *
+   * Asked rather than caught: a bare `try {} catch {}` here would swallow a
+   * real delete failure on a database that genuinely HAS an index, and this
+   * runs on the three paths that invalidate an entity's text — archive,
+   * delete, and clear.
+   */
+  private removeVectorRow(id: number): void {
+    if (!hasVectorIndex(this.db)) return;
+    this.db.prepare('DELETE FROM entities_vec WHERE rowid = ?').run(BigInt(id));
+  }
+
   clearEntityData(name: string): void {
     const row = this.db
       .prepare('SELECT id, title FROM entities WHERE name = ?')
@@ -969,11 +982,30 @@ export class KnowledgeGraph {
     // class absorbs the miss.
     const prevObsText = indexedObservationText(this.db, row.id);
 
-    this.db.prepare('DELETE FROM observations WHERE entity_id = ?').run(row.id);
-    this.db.prepare('DELETE FROM tags WHERE entity_id = ?').run(row.id);
-    // Rebuild FTS with empty content (removes old indexed text). title is
-    // untouched by this method, so the same value goes in on both sides.
-    this.rebuildFts(row.id, name, prevObsText, row.title);
+    // One transaction, for the same reason archiveEntity has one: these four
+    // writes are a single act. A throw between the observation delete and the
+    // FTS rebuild leaves indexed text for observations that are gone —
+    // keyword search answering for content nobody can read.
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM observations WHERE entity_id = ?').run(row.id);
+      this.db.prepare('DELETE FROM tags WHERE entity_id = ?').run(row.id);
+      // Rebuild FTS with empty content (removes old indexed text). title is
+      // untouched by this method, so the same value goes in on both sides.
+      this.rebuildFts(row.id, name, prevObsText, row.title);
+      // And drop the vector, for the same reason the FTS text is dropped: it
+      // encodes observations that no longer exist. The keyword index was
+      // cleared here from the start; the vector was not, so every caller of
+      // this method — `--merge overwrite` on import, and the memory tool's
+      // `rewriteObservations` — left the entity semantically matching its OLD
+      // text. A memory edited to say the opposite of what it used to say
+      // still came back for the old query, with the new text attached.
+      //
+      // Deleted rather than re-embedded: embedding is a network call and this
+      // is a synchronous graph mutation. NO vector is a state the system
+      // already knows how to see (`countMissingVectors`) and already knows
+      // how to fix (`memesh reindex`); a WRONG vector is neither.
+      this.removeVectorRow(row.id);
+    })();
   }
 
   archiveEntity(name: string): { archived: boolean; name?: string; previousStatus?: string } {
@@ -1001,13 +1033,7 @@ export class KnowledgeGraph {
     this.db.transaction(() => {
       removeFromFts(this.db, row.id, name, observationText, row.title);
 
-      // Asked rather than caught: a bare catch here would swallow a real
-      // delete failure on a database that genuinely HAS an index.
-      if (hasVectorIndex(this.db)) {
-        this.db
-          .prepare('DELETE FROM entities_vec WHERE rowid = ?')
-          .run(BigInt(row.id));
-      }
+      this.removeVectorRow(row.id);
 
       this.db
         .prepare("UPDATE entities SET status = 'archived' WHERE id = ?")
@@ -1089,11 +1115,7 @@ export class KnowledgeGraph {
 
       // Mirror archiveEntity's cleanup so a hard delete does not leak orphan
       // embeddings.
-      if (hasVectorIndex(this.db)) {
-        this.db
-          .prepare('DELETE FROM entities_vec WHERE rowid = ?')
-          .run(BigInt(row.id));
-      }
+      this.removeVectorRow(row.id);
 
       // CASCADE handles observations, relations, tags.
       this.db.prepare('DELETE FROM entities WHERE id = ?').run(row.id);

@@ -17,6 +17,8 @@ import { citationRulePath, citationRuleState } from './citation-rule.js';
 import { getDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
 import { detectPluginRuntime } from './install-hooks.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
+import { countMissingVectors } from './operations.js';
+import { hasVectorIndex } from '../storage/vector-index.js';
 import { UNSPACED_SCRIPT_GLOB_RUN3 } from '../storage/fts-index.js';
 import { MemeshDatabase } from '../storage/sqlite.js';
 import { AUTO_CAPTURE_TAG } from './types.js';
@@ -2112,11 +2114,33 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
       }
     }
 
+    // Measured, not inferred.
+    //
+    // This row used to read `pending_reindex` alone, and that marker has one
+    // writer: `reindex()`. Every other way an entity reaches the graph
+    // without a vector leaves it unset — the seven capture hooks (which never
+    // embed, because embedding is a network call and a hook has a 2s budget),
+    // `import`, and `clearEntityData`, which now drops a vector whose text is
+    // gone. Measured on a real graph on 2026-08-24: 344 of 499 active
+    // memories had no vector, `pending_reindex` was unset, and doctor called
+    // the database healthy. Semantic recall could not see 69% of it.
+    //
+    // So the count is read from the index itself. The marker still speaks for
+    // the case a count cannot express — a width change, where the vectors
+    // that DO exist are the wrong shape — and it still leads when both are
+    // true, because a rebuild is the wider remedy.
     const pendingReindex = getPendingReindexInfo();
-    if (pendingReindex) {
-      const owed = pendingReindex.reason === 'vectors-missing'
-        ? 'Some memories have no search vector'
-        : 'Search index needs rebuilding (embedding configuration changed)';
+    // `db` is the real handle narrowed to `DatabaseLike` for the test seam
+    // two dozen lines up; both of these need only `prepare`. Cast rather than
+    // widen `DatabaseLike`, and rather than re-write the "owed a vector"
+    // query here — one definition of what the index owes is the point.
+    const vectorDb = db as unknown as MemeshDatabase;
+    const missingVectors = hasVectorIndex(vectorDb) ? countMissingVectors(vectorDb) : 0;
+    if (pendingReindex || missingVectors > 0) {
+      const owed = pendingReindex && pendingReindex.reason !== 'vectors-missing'
+        ? 'Search index needs rebuilding (embedding configuration changed)'
+        : `${missingVectors} memor${missingVectors === 1 ? 'y has' : 'ies have'} no search vector, `
+          + 'so semantic recall cannot find them (keyword search still works)';
       dbChecks.push(
         createCheck(
           'vector_index',
@@ -2124,7 +2148,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
           'warn',
           owed,
           `Run 'memesh reindex' to fix. This will restore full search functionality.`,
-          { code: 'vector-index.stale' },
+          { code: 'vector-index.stale', params: { missing: missingVectors } },
         ),
       );
     }

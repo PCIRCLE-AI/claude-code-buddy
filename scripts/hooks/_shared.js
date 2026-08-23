@@ -104,7 +104,16 @@ export function recordGuardFires(dbPath, lessonIds) {
     } finally {
       db.close();
     }
-  } catch { /* counting must never block the user's work */ }
+  } catch (err) {
+    // Never block the user's work — but say so. A read-only database file, a
+    // lost lock, or a schema drift silently stopped the fire counter, and
+    // guard ROI is judged on exactly this number: a guard that fires often
+    // and a guard whose counter never landed look identical in review. One
+    // line on stderr is what guard-check already does for its own failures.
+    try {
+      process.stderr.write(`[memesh guard-fires] not counted: ${err?.message || err}\n`);
+    } catch { /* stderr gone */ }
+  }
 }
 import { isAutoInjectable } from './_generated/work-topology.js';
 export { parseTaskState, taskStateLines, taskStateName } from './_generated/task-state.js';
@@ -559,6 +568,23 @@ export { truncateTitle } from './_generated/title.js';
  * @returns {{ id: number, isNew: boolean } | null} null if the row could not be resolved
  */
 export function captureEntity(db, { name, type, observations = [], tags = [], title, metadata }) {
+  // One transaction, because this function performs six writes that only
+  // mean anything together: the entity row, its observations, its tags, and
+  // the contentless-FTS delete + insert that make them findable.
+  //
+  // Without it, a throw anywhere in the middle — a lock lost to the CLI, a
+  // full disk, an FTS corruption — committed the prefix and dropped the
+  // rest, and the two most likely resting places are both invisible:
+  // observations inserted with no FTS row (a memory that exists and can
+  // never be recalled), or the old FTS row deleted and the new one not
+  // written (a memory that just stopped being findable). Neither is
+  // retried, because the callers dedupe on the entity NAME existing —
+  // `INSERT OR IGNORE` reports "already there" on the next run and the
+  // half-written state is permanent.
+  return db.transaction(() => captureEntityInner(db, { name, type, observations, tags, title, metadata }))();
+}
+
+function captureEntityInner(db, { name, type, observations, tags, title, metadata }) {
   // source_host provenance: these hooks only ever run under Claude Code (they
   // are wired into ~/.claude/settings.json), so a hook-captured entity is by
   // definition a claude-code capture. Stamped only on the INSERT — an OR
