@@ -24,6 +24,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { MemeshDatabase as Database } from '../../src/storage/sqlite.js';
+import { closeDatabase, openDatabase } from '../../src/db.js';
+import { KnowledgeGraph } from '../../src/knowledge-graph.js';
 
 const CLI_PATH = path.join(__dirname, '..', '..', 'dist', 'transports', 'cli', 'cli.js');
 
@@ -76,10 +78,24 @@ describe('doctor: the memory-citation rate is reported, not left to be found', (
     return report.checks as DoctorCheck[];
   }
 
-  /** A database created by the real code path, holding one memory. */
+  /**
+   * A database built by the real code path, holding one memory.
+   *
+   * `openDatabase` + `KnowledgeGraph`, not a spawned `memesh remember`. Same
+   * schema, same migrations, same write path — the CLI would only add a
+   * process launch, and this file already spawns doctor once per test. On the
+   * Windows runner each launch costs seconds, and a suite that spends them
+   * without buying anything is a suite that eventually trips a hook timeout
+   * in some unrelated file.
+   */
   function seedDatabase(): void {
-    const seeded = run(['remember', '--name', 'a-note', '--type', 'note', '--obs', 'something worth keeping']);
-    expect(seeded.status, `setup: remember failed — ${seeded.stderr}`).toBe(0);
+    try { closeDatabase(); } catch { /* none open */ }
+    const db = openDatabase(dbPath);
+    new KnowledgeGraph(db).createEntity('a-note', 'note', {
+      observations: ['something worth keeping'],
+    });
+    closeDatabase();
+    expect(fs.existsSync(dbPath), 'setup: no database was created').toBe(true);
   }
 
   /** Write the counters the Stop hook keeps, exactly as it writes them. */
