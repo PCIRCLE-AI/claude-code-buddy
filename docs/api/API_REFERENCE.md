@@ -669,6 +669,7 @@ Every `success: false` envelope carries a machine-readable `errorCode` **alongsi
 | `auth.missing-bearer` | 401 | No (or blank) `Authorization: Bearer <token>` header on a remote-bound listener |
 | `auth.invalid-token` | 401 | A bearer token was presented but did not match |
 | `auth.not-configured` | 503 | Remote listener is up but no token was provisioned (server misconfiguration) |
+| `auth.cross-origin` | 403 | The request came from another site, or reached a loopback listener under a non-loopback `Host` (see **The origin boundary** below) |
 | `validation.bad-body` | 400 | Request body missing, not valid JSON, or failed schema validation |
 | `validation.bad-param` | 400 | A path or query parameter is invalid |
 | `route.retired` | 410 | Endpoint retired on purpose; the `error` text names the replacement |
@@ -678,6 +679,32 @@ Every `success: false` envelope carries a machine-readable `errorCode` **alongsi
 | `operation.failed` | 400 | The request was well-formed but the operation itself rejected it |
 | `llm.not-configured` | 400 | The endpoint needs Smart Mode and no LLM provider is configured |
 | `server.internal` | 500/503 | Unexpected server-side failure |
+
+### The origin boundary
+
+The default listener binds to `127.0.0.1` and requires no authentication — the
+boundary is meant to be "only this machine". A browser is on this machine, so
+that is not enough on its own: a page on any site the user happens to visit can
+submit a form to `http://127.0.0.1:3737/v1/demo/reset` without a preflight, and
+the handler would run. The browser blocks the attacking page from reading the
+reply, which hides the result rather than preventing it.
+
+Every `/v1/*` request is therefore checked before anything else runs:
+
+- **`Sec-Fetch-Site`** — set by the browser and unsettable from page script.
+  `same-origin` (the dashboard) and `none` (a typed URL or bookmark) pass;
+  `cross-site` and `same-site` answer `403 auth.cross-origin`.
+- **`Origin`** — the fallback for a browser that sends no `Sec-Fetch-Site`. It
+  must match the `Host` the request arrived on.
+- **`Host`** — on a loopback listener it must be a loopback name. An attacker
+  who points `evil.example` at `127.0.0.1` (DNS rebinding) makes the browser
+  report `same-origin`; the `Host` header is what still names them. A listener
+  bound remotely is exempt from this one, because it requires a bearer token
+  that no browser attaches on its own.
+
+Non-browser clients — the CLI, the MCP server, `curl`, your scripts — send none
+of these headers and are unaffected. Anything able to set headers freely is
+already running locally, where it could open the database directly.
 
 `POST /v1/config/test` is the one surface whose failures travel *inside* a `success: true` envelope (the probe outcome is data, not a transport error); its stable codes are documented with that endpoint below.
 

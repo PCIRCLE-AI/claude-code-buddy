@@ -233,7 +233,15 @@ export function InsightsTab() {
     }
   }, [refresh]);
 
+  // Confirmed, because rejection is one click and permanent. The dreamer
+  // deliberately never re-proposes a rejected cluster (dreamer.ts:226) — that
+  // is what the status is FOR — and there is no un-reject on any surface. So
+  // a mis-click on a ghost button destroys a digest the user paid an LLM call
+  // for, with nothing to undo it. The sibling irreversible action in this
+  // dashboard, `OnboardingBanner.runReset`, already confirms; accept does not
+  // and should not, because an accepted memory can be forgotten.
   const reject = useCallback(async (id: number) => {
+    if (!confirm(t('insights.rejectConfirm'))) return;
     markBusy(id);
     try {
       await api('POST', `/v1/dream/proposals/${id}/reject`, { reason: 'rejected via dashboard' });

@@ -59,6 +59,7 @@ type ErrorCode =
   | 'auth.missing-bearer'   // 401 — no/blank Authorization: Bearer header
   | 'auth.invalid-token'    // 401 — bearer token did not match
   | 'auth.not-configured'   // 503 — remote listener up but no token provisioned
+  | 'auth.cross-origin'     // 403 — request came from another site, or a rebound Host
   | 'validation.bad-body'   // 400 — body missing, not JSON, or failed schema validation
   | 'validation.bad-param'  // 400 — path/query parameter invalid
   | 'route.retired'         // 410 — endpoint retired on purpose; body names the replacement
@@ -193,6 +194,130 @@ function constantTimeEquals(a: Buffer, b: Buffer): boolean {
   return eq && a.length === b.length;
 }
 
+/**
+ * The origin boundary.
+ *
+ * WHAT WAS MISSING
+ * ────────────────
+ * On the default loopback listener `bearerAuth` returns immediately — there
+ * is no token and none is wanted — so "only this machine can reach it" was
+ * the entire boundary. A browser IS this machine. Any page the user visits
+ * while `memesh serve` runs could auto-submit
+ *
+ *     <form method="POST" action="http://127.0.0.1:3737/v1/demo/reset">
+ *
+ * which is a CORS "simple request": no preflight, the handler runs, the whole
+ * knowledge graph is replaced by demo seed data. Same reach for
+ * `POST /v1/dream/run` and the proposal accept/reject routes. The browser
+ * blocks the page from READING the reply, which hides the damage rather than
+ * preventing it.
+ *
+ * HOW IT CLOSES
+ * ─────────────
+ * Two headers, and the point of both is that the BROWSER sets them and page
+ * script cannot — they are forbidden header names, unsettable from `fetch`
+ * or `XMLHttpRequest`:
+ *
+ *   Sec-Fetch-Site   on every request from a current browser.
+ *                    `same-origin` is the dashboard talking to its own
+ *                    server; `none` is a typed URL or a bookmark.
+ *   Origin           the fallback where Sec-Fetch-Site is absent but the
+ *                    request still came from a page.
+ *
+ * A non-browser client — the CLI, the MCP server, curl, a script — sends
+ * neither and is allowed through. That is not a hole left open: the threat
+ * is code running inside the user's browser under someone else's origin, and
+ * that code cannot suppress these headers. Anything that can set headers
+ * freely is already executing locally, where it could read the database
+ * directly.
+ *
+ * WHY SAFE METHODS ARE INCLUDED ANYWAY
+ * ────────────────────────────────────
+ * GET is not exempt. Without CORS headers a cross-origin page cannot read a
+ * GET reply, so the usual reasoning says GET is harmless — but `GET
+ * /v1/export` runs `kg.search`, which bumps `access_count` and stamps
+ * `last_accessed_at` on up to a thousand memories. A read that changes
+ * ranking is a write. Rejecting cross-site GETs costs nothing: there is no
+ * supported cross-origin browser client.
+ */
+const CROSS_SITE_REFUSAL = {
+  success: false,
+  errorCode: 'auth.cross-origin' satisfies ErrorCode,
+  error: 'Cross-site requests are not accepted by the MeMesh API.',
+  hint: 'The dashboard served by this server is same-origin and works normally. Scripts should call the API directly (no Origin header) or use the CLI.',
+} as const;
+
+function sameSiteOnly(req: Request, res: Response, next: NextFunction): void {
+  // The Host check comes FIRST, and the order is the whole point.
+  //
+  // DNS rebinding is how an attacker converts "cross-site" into
+  // "same-origin": `evil.com` is made to resolve to 127.0.0.1, so the browser
+  // considers this server part of evil.com's origin and sends
+  // `Sec-Fetch-Site: same-origin`. Every check below would wave it through.
+  // The Host header still carries `evil.com`, and on the unauthenticated
+  // loopback listener the only legitimate Host values are loopback names.
+  //
+  // On a remote listener the legitimate names are unknown to us — and
+  // unnecessary, because that listener requires a bearer token a
+  // cross-origin page cannot obtain and no browser attaches on its own.
+  const ownerServer = (req.socket as unknown as { server?: import('http').Server }).server;
+  const requiresAuth = ownerServer ? (serverAuthRequired.get(ownerServer) ?? false) : false;
+  const hostHeader = req.headers.host;
+  // No Host at all is HTTP/1.0; it cannot come from a browser.
+  if (!requiresAuth && hostHeader !== undefined && !isLoopbackHost(stripPort(hostHeader))) {
+    res.status(403).json({
+      success: false,
+      errorCode: 'auth.cross-origin' satisfies ErrorCode,
+      error: `Request arrived with Host "${hostHeader}", which is not a loopback name.`,
+      hint: 'This server is bound to loopback and has no authentication. Reach it as 127.0.0.1 or localhost.',
+    });
+    return;
+  }
+
+  const fetchSite = req.header('sec-fetch-site');
+  if (fetchSite !== undefined) {
+    if (fetchSite === 'same-origin' || fetchSite === 'none') {
+      next();
+      return;
+    }
+    res.status(403).json(CROSS_SITE_REFUSAL);
+    return;
+  }
+
+  const origin = req.header('origin');
+  if (origin !== undefined && origin !== 'null') {
+    // A browser old enough to omit Sec-Fetch-Site still sends Origin on
+    // cross-origin requests and on every POST. Same-origin is the only
+    // acceptable value, and "same" is judged against the Host this request
+    // actually arrived on — not against a configured name, which would be
+    // wrong the moment the user reaches the server by a different route.
+    let originHost: string;
+    try {
+      originHost = new URL(origin).host;
+    } catch {
+      res.status(403).json(CROSS_SITE_REFUSAL);
+      return;
+    }
+    if (normalizeHost(originHost) !== normalizeHost(hostHeader ?? '')) {
+      res.status(403).json(CROSS_SITE_REFUSAL);
+      return;
+    }
+  }
+
+  next();
+}
+
+/** `host:port` -> `host`, leaving a bracketed IPv6 literal intact. */
+function stripPort(hostHeader: string): string {
+  const trimmed = hostHeader.trim();
+  if (trimmed.startsWith('[')) {
+    const close = trimmed.indexOf(']');
+    return close < 0 ? trimmed : trimmed.slice(0, close + 1);
+  }
+  const colon = trimmed.lastIndexOf(':');
+  return colon < 0 ? trimmed : trimmed.slice(0, colon);
+}
+
 function bearerAuth(req: Request, res: Response, next: NextFunction): void {
   // Per-listener auth gating. The previous design used a single
   // module-global `remoteToken` and decided on auth by whether it was
@@ -266,6 +391,7 @@ function bearerAuth(req: Request, res: Response, next: NextFunction): void {
 //   3. express.json — body parse only after auth + rate-limit, so
 //                     unauthenticated requests cannot force pre-auth
 //                     CPU/memory work on a 1 MB JSON parse
+app.use('/v1/', sameSiteOnly);
 app.use('/v1/', bearerAuth);
 app.use('/v1/', apiLimiter);
 app.use('/v1/', express.json({ limit: '1mb' }));

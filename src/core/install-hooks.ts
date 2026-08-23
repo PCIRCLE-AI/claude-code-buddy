@@ -320,14 +320,26 @@ export function installHooks(opts: InstallOptions): InstallResult {
   // `memesh install-hooks` — the documented fix for wiring problems — could
   // not heal it. Only memesh's own entries are swept; user hooks are never
   // touched, which is the same boundary uninstallHooks draws.
+  //
+  // The key joins on U+0000 because it is the one code point a Claude Code
+  // event name or matcher pattern cannot contain — a printable separator
+  // would let ("PostToolUse Bash", "*") and ("PostToolUse", "Bash *") produce
+  // the same key, and that key decides whether a live hook entry is pruned.
+  //
+  // Written as the ESCAPE, never as a literal NUL byte. It was a literal one,
+  // and a text file carrying a NUL is a BINARY file to `grep` and `rg`: both
+  // suppress every match in it and exit 1 exactly as they would for a clean
+  // file. So this file — the one that edits the user's `settings.json` —
+  // answered "no matches" to every pattern any grep-based reviewer ran
+  // against it. Identical runtime value; the file is text again.
   const desiredKeys = new Set(
     Object.entries(desired).flatMap(([event, entries]) =>
-      entries.map((e) => `${event} ${e.matcher ?? '*'}`)),
+      entries.map((e) => `${event}\u0000${e.matcher ?? '*'}`)),
   );
   for (const [event, entries] of Object.entries(existing)) {
     if (!Array.isArray(entries)) continue;
     const kept = entries.filter(
-      (e) => !(isMemeshEntry(e) && !desiredKeys.has(`${event} ${e.matcher ?? '*'}`)),
+      (e) => !(isMemeshEntry(e) && !desiredKeys.has(`${event}\u0000${e.matcher ?? '*'}`)),
     );
     pruned += entries.length - kept.length;
     if (kept.length === 0) delete existing[event];
@@ -417,6 +429,16 @@ export function uninstallHooks(opts: UninstallOptions): UninstallResult {
   const cwd = opts.cwd ?? process.cwd();
   const settingsPath = settingsPathFor(opts.scope, cwd);
 
+  // Parse settings FIRST, before anything is deleted.
+  //
+  // `readSettings` throws `refusing to modify` on an unparseable
+  // settings.json, and a refusal has to mean nothing was modified. It did
+  // not: the rule file was removed above this line, so `uninstall-hooks`
+  // printed the refusal, exited 1, and left `.claude/rules/` empty. The
+  // user's remedy for a corrupt settings.json — fix the JSON, re-run — then
+  // ran against a state the failed run had already changed.
+  const settings = fs.existsSync(settingsPath) ? readSettings(settingsPath) : null;
+
   // Removed on BOTH exits, including the one where settings.json does not
   // exist: a plugin install never writes settings.json but does get the rule
   // file, so returning early without this would leave the contract behind on
@@ -425,11 +447,10 @@ export function uninstallHooks(opts: UninstallOptions): UninstallResult {
     ? { path: citationRulePath(opts.scope, homeDir(), cwd), action: 'absent' as const }
     : removeCitationRule(opts.scope, homeDir(), cwd);
 
-  if (!fs.existsSync(settingsPath)) {
+  if (!settings) {
     return { settingsPath, backupPath: null, removed: 0, citationRule };
   }
 
-  const settings = readSettings(settingsPath);
   const existing = settings.hooks ?? {};
   let removed = 0;
 
