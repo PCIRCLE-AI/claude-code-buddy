@@ -2307,11 +2307,16 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   // explicitly opts into sharing via "Include system info".
   try {
     const record = getInstallRecord();
+    // `createInfo`, not `createCheck(..., 'pass', ...)`. This row reports a
+    // value and has no branch that could fail, which is the exact case the
+    // `informational` flag was added for — it was rendering as `[PASS]` and
+    // counting toward Overall, padding "N/N PASS" with a row that verified
+    // nothing. The Capabilities row named in that flag's own docstring was
+    // this same defect; this one was left behind when it was fixed.
     checks.push(
-      createCheck(
+      createInfo(
         'install_id',
         'Install ID',
-        'pass',
         `Anonymous install ID: ${record.install_id} (created ${record.created_at}). Stored locally at ~/.memesh/install.json. Never transmitted automatically; included only in feedback issues you submit with the "Include system info" checkbox on.`,
       ),
     );

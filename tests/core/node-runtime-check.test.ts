@@ -95,6 +95,20 @@ describe('doctor: Node runtime row', () => {
     return inspectNodeRuntime(dir, fs.existsSync, fs.readFileSync, nodeVersion, '137', () => true);
   }
 
+  it('emits the id and label the rest of the system keys on', () => {
+    // Everything below asserts what the row SAYS; nothing asserted what it
+    // IS. The id is the join: the dashboard translates by `code` and looks
+    // rows up by id, so renaming it here would break that silently while
+    // every assertion in this file still passed. Found by the C8 detector,
+    // which reads doctor's ids and asks which of them appear in any test.
+    writePackage({ node: '>=20.0.0' });
+
+    const check = row('v24.15.0');
+
+    expect(check.id).toBe('node-runtime');
+    expect(check.label).toBe('Node runtime');
+  });
+
   it('fails when the runtime is below the declared floor', () => {
     writePackage({ node: '>=20.0.0' });
 

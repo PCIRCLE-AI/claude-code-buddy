@@ -887,7 +887,7 @@ export async function runDoctor(options) {
     checks.push(await inspectUpdateStatus(packageVersion, getUpdateCheckImpl, installSupport));
     try {
         const record = getInstallRecord();
-        checks.push(createCheck('install_id', 'Install ID', 'pass', `Anonymous install ID: ${record.install_id} (created ${record.created_at}). Stored locally at ~/.memesh/install.json. Never transmitted automatically; included only in feedback issues you submit with the "Include system info" checkbox on.`));
+        checks.push(createInfo('install_id', 'Install ID', `Anonymous install ID: ${record.install_id} (created ${record.created_at}). Stored locally at ~/.memesh/install.json. Never transmitted automatically; included only in feedback issues you submit with the "Include system info" checkbox on.`));
     }
     catch {
     }

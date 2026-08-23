@@ -6,6 +6,18 @@ All notable changes to MeMesh are documented here.
 
 ### Fixed
 
+- **`memesh doctor` no longer counts the Install ID row as something it
+  verified.** The row reports a stored value — your anonymous install id and
+  when it was created — and has no branch that could fail, but it was built
+  with `createCheck(..., 'pass', ...)`, so it rendered as `[PASS]` and joined
+  the set of rows `Overall` is computed from. That is the exact case the
+  `informational` flag was added for, and its own docstring names the
+  Capabilities row as the instance that was fixed; this one was left behind.
+  It now renders as `[INFO]`, like the other rows that describe state rather
+  than assert it. No verdict changes as a result — the row was always `pass`,
+  so it could never have moved `Overall` — what changes is that "N/N PASS" no
+  longer counts a row that checked nothing.
+
 - **`release:finish` no longer warns about a fetch that worked.** Its last step
   brought the new tag into the local checkout with `git fetch --tags origin` —
   a command that asks for every tag `origin` has and exits non-zero if any one

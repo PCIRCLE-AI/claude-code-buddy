@@ -166,6 +166,67 @@ function record(cls, denominator, hits, note) {
     'triage: data-extraction (ok) vs asserting-the-text-is-the-behavior (defect)');
 }
 
+/* ---- C8: doctor rows nothing asserts --------------------------------------- */
+{
+  // The class this catches: a defect is fixed, the fix gets a test, and the
+  // DIAGNOSTIC that tells a user the defect is present gets none. `doctor`'s
+  // `vector-generation.open` row shipped that way — `reindex
+  // --discard-generation` (the action) was pinned, the row that names it was
+  // not — so a user could carry a second full copy of their vectors on disk
+  // and be told by nobody, with the whole suite green.
+  //
+  // A row is counted as pinned when its id OR one of its i18n codes appears in
+  // test code (comments stripped). That is deliberately generous: it cannot
+  // tell an assertion from a fixture seed, and `vector_generation` itself
+  // passed that bar for months while only ever being SEEDED. So this detector
+  // finds the rows nobody has even named; reading the hit is still the job.
+  //
+  // Keyed by ID, not by line: these ids are stable identifiers that outlive
+  // any edit above them, so unlike the file:line keys elsewhere in this file,
+  // a triage here survives the rest of the file moving.
+  const src = read('src/core/doctor.ts');
+  const rows = new Map(); // id -> Set(i18n codes)
+  // A call site whose id could not be read is its own hit, not a `continue`.
+  // Otherwise reformatting doctor.ts so the pattern misses half the calls
+  // prints `denominator=12 hits=0` and exits 0 — coverage over rows nobody
+  // examined, which is the shape this detector exists to catch, in the
+  // detector itself.
+  const unparsed = [];
+  // `(?<!function )` skips the two definitions; the comment test skips prose
+  // that names the call — including the note beside `install_id` explaining
+  // why it is not one. Line numbers are taken from the ORIGINAL text, so
+  // comments are recognised in place rather than stripped (stripping replaces
+  // them with a space and collapses the line count with them).
+  for (const m of src.matchAll(/(?<!function )create(?:Check|Info)\(/g)) {
+    const lineStart = src.lastIndexOf('\n', m.index) + 1;
+    const lineEnd = src.indexOf('\n', m.index);
+    const lineText = src.slice(lineStart, lineEnd === -1 ? undefined : lineEnd).trim();
+    if (lineText.startsWith('//') || lineText.startsWith('*')) continue;
+    const after = src.slice(m.index, m.index + 400);
+    // The id may sit on the call's own line or the next one, with a comment
+    // line in between.
+    const lit = after.match(/create(?:Check|Info)\(\s*(?:\/\/[^\n]*\n\s*)*['"`]([\w.-]+)['"`]/);
+    if (!lit) {
+      unparsed.push(`src/core/doctor.ts:${src.slice(0, m.index).split('\n').length} (id unreadable)`);
+      continue;
+    }
+    const codes = rows.get(lit[1]) ?? new Set();
+    const code = after.match(/\bcode:\s*['"`]([\w.-]+)['"`]/);
+    if (code) codes.add(code[1]);
+    rows.set(lit[1], codes);
+  }
+  const testCode = walk('tests', ['.ts', '.tsx'])
+    .map(f => stripComments(read(f), f)).join('\n');
+  const hits = [...unparsed];
+  for (const [id, codes] of rows) {
+    const named = [id, ...codes].some(n =>
+      testCode.includes(`'${n}'`) || testCode.includes(`"${n}"`) || testCode.includes(`\`${n}\``));
+    if (!named) hits.push(`src/core/doctor.ts:${id}`);
+  }
+  record('C8', rows.size, hits,
+    'doctor rows whose id and i18n codes appear in no test; triage: pin it, or record why the row cannot be asserted');
+}
+
 /* ---- C7: numeric claims in English living prose ---------------------------- */
 {
   const files = ['README.md', ...walk('docs', ['.md'])]
