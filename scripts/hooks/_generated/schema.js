@@ -130,28 +130,24 @@ export function safeAlter(db, sql) {
 }
 export function migrateEntitiesSchema(db) {
     const entityColumns = new Set(db.prepare("PRAGMA table_info(entities)").all().map((c) => c.name));
-    if (!entityColumns.has('status')) {
-        safeAlter(db, "ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
-        db.exec("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)");
-    }
-    if (!entityColumns.has('access_count')) {
-        safeAlter(db, "ALTER TABLE entities ADD COLUMN access_count INTEGER DEFAULT 0");
-        safeAlter(db, "ALTER TABLE entities ADD COLUMN last_accessed_at TIMESTAMP");
-        safeAlter(db, "ALTER TABLE entities ADD COLUMN confidence REAL DEFAULT 1.0");
-        safeAlter(db, "ALTER TABLE entities ADD COLUMN valid_from TIMESTAMP");
-        safeAlter(db, "ALTER TABLE entities ADD COLUMN valid_until TIMESTAMP");
-    }
-    if (!entityColumns.has('namespace')) {
-        safeAlter(db, "ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
-        db.exec("CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace)");
-    }
-    if (!entityColumns.has('recall_hits')) {
-        safeAlter(db, "ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
-        safeAlter(db, "ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
-    }
-    if (!entityColumns.has('title')) {
-        safeAlter(db, "ALTER TABLE entities ADD COLUMN title TEXT");
-    }
+    const addColumn = (column, sql) => {
+        if (entityColumns.has(column))
+            return;
+        safeAlter(db, sql);
+        entityColumns.add(column);
+    };
+    addColumn('status', "ALTER TABLE entities ADD COLUMN status TEXT NOT NULL DEFAULT 'active'");
+    addColumn('access_count', "ALTER TABLE entities ADD COLUMN access_count INTEGER DEFAULT 0");
+    addColumn('last_accessed_at', "ALTER TABLE entities ADD COLUMN last_accessed_at TIMESTAMP");
+    addColumn('confidence', "ALTER TABLE entities ADD COLUMN confidence REAL DEFAULT 1.0");
+    addColumn('valid_from', "ALTER TABLE entities ADD COLUMN valid_from TIMESTAMP");
+    addColumn('valid_until', "ALTER TABLE entities ADD COLUMN valid_until TIMESTAMP");
+    addColumn('namespace', "ALTER TABLE entities ADD COLUMN namespace TEXT DEFAULT 'personal'");
+    addColumn('recall_hits', "ALTER TABLE entities ADD COLUMN recall_hits INTEGER DEFAULT 0");
+    addColumn('recall_misses', "ALTER TABLE entities ADD COLUMN recall_misses INTEGER DEFAULT 0");
+    addColumn('title', "ALTER TABLE entities ADD COLUMN title TEXT");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_entities_status ON entities(status)");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_entities_namespace ON entities(namespace)");
 }
 export function ensureTagsUniqueIndex(db) {
     try {

@@ -43,8 +43,8 @@
     },
     {
       "path": "scripts/hooks/_generated/schema.js",
-      "sha256": "7af0e2791213a6a0d5807d8ae5b2b5801bcb408c86cf179ac9d73fff83489423",
-      "bytes": 12700
+      "sha256": "2bbba6b5ef85c1dd3369fa363f9c5c37e0171425f7cb63e124b06770ac842910",
+      "bytes": 12682
     },
     {
       "path": "scripts/hooks/_generated/sqlite.js",

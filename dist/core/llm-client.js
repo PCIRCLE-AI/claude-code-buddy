@@ -45,12 +45,16 @@ export async function callLLM(prompt, config, opts = {}) {
     reportAttempts();
     throw lastErr ?? new Error('callLLM: no providers configured');
 }
+const REQUEST_TIMEOUT_MS = 30_000;
+function fetchWithTimeout(url, init) {
+    return fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+}
 async function callSingle(prompt, config, maxTokens) {
     if (config.provider === 'anthropic') {
         const apiKey = config.apiKey || process.env.ANTHROPIC_API_KEY;
         if (!apiKey)
             throw new Error('Anthropic: no API key configured');
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
+        const res = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
             method: 'POST',
             headers: {
                 'x-api-key': apiKey,
@@ -76,7 +80,7 @@ async function callSingle(prompt, config, maxTokens) {
         const apiKey = config.apiKey || process.env.OPENAI_API_KEY;
         if (!apiKey)
             throw new Error('OpenAI: no API key configured');
-        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        const res = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${apiKey}`,
@@ -99,7 +103,7 @@ async function callSingle(prompt, config, maxTokens) {
     }
     if (config.provider === 'ollama') {
         const host = process.env.OLLAMA_HOST || 'http://localhost:11434';
-        const res = await fetch(`${host}/api/generate`, {
+        const res = await fetchWithTimeout(`${host}/api/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

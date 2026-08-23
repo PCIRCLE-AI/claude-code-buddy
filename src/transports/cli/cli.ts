@@ -27,12 +27,55 @@ import type { LessonSeverity, MergeStrategy, ExportResult } from '../../core/typ
 // withDatabase factors that into one place so future commands cannot
 // forget the close. Async-friendly via Promise return type.
 async function withDatabase<T>(fn: () => T | Promise<T>): Promise<T> {
-  openDatabase();
+  // A database that will not open is the one failure EVERY command shares,
+  // and it reached the user as a fifteen-line Node stack carrying the
+  // absolute install path — from `memesh recall`, from `memesh remember`,
+  // from all of them. `memesh doctor` handles the identical state perfectly
+  // and says what to do about it; it was simply the only command that did.
+  //
+  // Only the OPEN is wrapped. A throw from `fn` is the command's own
+  // business and keeps its own reporting.
+  try {
+    openDatabase();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Error: memesh cannot open its database.`);
+    console.error(`       ${message}`);
+    console.error(`       Run \`memesh doctor\` — it names the file, the likely cause and the way back.`);
+    process.exit(1);
+  }
   try {
     return await fn();
   } finally {
     closeDatabase();
   }
+}
+
+/**
+ * A commander coercion for numeric flags that refuses a value it cannot use.
+ *
+ * `parseInt('abc')` is `NaN`, and `NaN` was carried straight into whatever
+ * the flag fed. Each site failed in its own way and none of them said what
+ * was wrong: `recall --limit abc` put NaN in a SQL LIMIT and died with a raw
+ * `ERR_SQLITE_ERROR` and the install path; `export --limit abc` silently
+ * ignored the flag and exported the default; `config set sessionLimit abc`
+ * stored null and then hid the key from `config list`.
+ *
+ * `why` already guarded its two flags by hand, with a comment explaining
+ * exactly this. One owner now, so a new numeric flag inherits the guard
+ * instead of re-deriving it.
+ */
+function wholeNumber(flag: string, min = 1): (value: string) => number {
+  return (value: string): number => {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < min) {
+      console.error(
+        `Error: ${flag} needs a whole number${min === 0 ? ' of 0 or more' : ' of ' + min + ' or more'}, not "${value}".`,
+      );
+      process.exit(1);
+    }
+    return parsed;
+  };
 }
 
 /**
@@ -235,7 +278,7 @@ program
   .description('Search stored knowledge')
   .argument('[query]', 'Search query')
   .option('--tag <tag>', 'Filter by tag')
-  .option('--limit <n>', 'Max results', '20')
+  .option('--limit <n>', 'Max results', wholeNumber('--limit'), 20)
   .option('--include-archived', 'Include archived entities')
   .option('--namespace <namespace>', 'Filter by namespace: personal, team, or global')
   .option('--cross-project', 'Search across all project tags (ignores --tag filter)')
@@ -248,7 +291,7 @@ program
       const { entities, conflicts, retrieval } = await recallWithConflicts({
         query: query || undefined,
         tag: opts.tag,
-        limit: parseInt(opts.limit),
+        limit: opts.limit,
         include_archived: opts.includeArchived,
         namespace: opts.namespace,
         cross_project: opts.crossProject,
@@ -456,7 +499,7 @@ program
   .description('Export memories as JSON. Defaults to stdout (pipe-friendly); use `-o <file>` to write directly.')
   .option('--tag <tag>', 'Export only entities with this tag')
   .option('--namespace <ns>', 'Export only from this namespace (personal, team, global)')
-  .option('--limit <n>', 'Max entities to export', '1000')
+  .option('--limit <n>', 'Max entities to export', wholeNumber('--limit'), 1000)
   .option('-o, --out <file>', 'Write JSON to <file> instead of stdout. Parent directory must exist.')
   .action(async (opts) => {
     requireOneOf(opts.namespace, NAMESPACES, '--namespace');
@@ -464,7 +507,7 @@ program
       const result = exportMemories({
         tag: opts.tag,
         namespace: opts.namespace,
-        limit: parseInt(opts.limit),
+        limit: opts.limit,
       });
       const json = JSON.stringify(result, null, 2);
       if (opts.out) {
@@ -637,8 +680,8 @@ program
   .command('why')
   .description('Explain a file: commits memesh remembers touching it, their sessions, and related memories')
   .argument('<file>', 'File path (relative to the current directory or absolute)')
-  .option('--line <n>', 'Attribute one line via git blame instead of file history')
-  .option('--limit <n>', 'Max commits to inspect', '10')
+  .option('--line <n>', 'Attribute one line via git blame instead of file history', wholeNumber('--line'))
+  .option('--limit <n>', 'Max commits to inspect', wholeNumber('--limit'), 10)
   .option('--json', 'Output as JSON')
   .action(async (file, opts) => {
     await withDatabase(async () => {
@@ -652,14 +695,12 @@ program
       // was told "That line does not exist in the tracked file." — an
       // affirmatively false statement from the one command whose whole
       // contract is that it abstains rather than guesses.
-      const limit = parseInt(opts.limit, 10);
-      const line = opts.line !== undefined ? parseInt(opts.line, 10) : undefined;
-      for (const [flag, value] of [['--limit', limit], ['--line', line]] as const) {
-        if (value !== undefined && (!Number.isInteger(value) || value < 1)) {
-          console.error(`Error: ${flag} needs a whole number of 1 or more.`);
-          process.exit(1);
-        }
-      }
+      //
+      // The guard that used to live here is now `wholeNumber`, applied at the
+      // option declarations above — because `recall` and `export` had the
+      // same two failures and this was the only command that had noticed.
+      const limit = opts.limit as number;
+      const line = opts.line as number | undefined;
       const resolved = resolveFileCommits(cwd, file, { line, limit });
       const result = explainCommits(getDatabase(), {
         file,
@@ -1322,19 +1363,18 @@ program
 program
   .command('telemetry')
   .description('Show LLM call telemetry (per-flow scorecard for the last N days)')
-  .option('--window <days>', 'Look-back window in days (default 30)', (v) => parseInt(v, 10), 30)
-  .option('--prune <days>', 'Delete rows older than N days BEFORE rendering (closes v4.2.0 retention gap)', (v) => parseInt(v, 10))
+  .option('--window <days>', 'Look-back window in days (default 30)', wholeNumber('--window'), 30)
+  .option('--prune <days>', 'Delete rows older than N days BEFORE rendering (closes v4.2.0 retention gap)', wholeNumber('--prune', 0))
   .option('--json', 'Output as JSON')
   .action(async (opts) => {
     // `--window abc` parses to NaN, which reached `new Date(NaN).toISOString()`
-    // and threw a RangeError with a stack trace. Commander's parser cannot
-    // reject it, so the check belongs here.
-    for (const [flag, value] of [['--window', opts.window], ['--prune', opts.prune]] as const) {
-      if (value !== undefined && !Number.isFinite(value)) {
-        console.error(`Error: ${flag} needs a number of days.`);
-        process.exit(1);
-      }
-    }
+    // and threw a RangeError with a stack trace. The guard that used to sit
+    // here — "Commander's parser cannot reject it, so the check belongs
+    // here" — was right about the OLD parser, which returned NaN and let it
+    // through. `wholeNumber` on the option declarations above rejects it
+    // before the action runs, for these two flags and for every other
+    // numeric flag in the CLI, which is why this block is gone rather than
+    // duplicated.
     await withDatabase(async () => {
       const { summariseTelemetry, pruneTelemetry } = await import('../../core/llm-telemetry.js');
       let pruneResult: { deletedRows: number; cutoffIso: string; totalRowsAfter: number } | null = null;
@@ -1408,8 +1448,8 @@ kgCmd
   .description('Propose / apply heuristic relations to connect orphan entities (no LLM)')
   .option('--project <name>', 'Restrict to one project')
   .option('--dry-run', 'Show proposals without writing (default off — use to preview)')
-  .option('--max-per-source <n>', 'Max edges per orphan (default 3)', (v) => parseInt(v, 10), 3)
-  .option('--min-shared-tags <n>', 'Min shared topical tags to gate co-occurrence rule (default 2)', (v) => parseInt(v, 10), 2)
+  .option('--max-per-source <n>', 'Max edges per orphan (default 3)', wholeNumber('--max-per-source'), 3)
+  .option('--min-shared-tags <n>', 'Min shared topical tags to gate co-occurrence rule (default 2)', wholeNumber('--min-shared-tags'), 2)
   .option('--include-archived', 'Also process archived entities')
   .option('--session-cooccurrence', 'Rule 3: link high-signal orphans co-created in the same session')
   .option('--name-tokens', 'Rule 4: link orphans sharing ≥3 name content tokens (or Jaccard ≥ 0.50)')
@@ -1687,12 +1727,12 @@ dreamCmd
   .description('Run a dream pass — propose digests for clusters of compactable entities')
   .option('--project <name>', 'Restrict to one project')
   .option('--dry-run', 'Compute proposals without writing to dream_proposals')
-  .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 100)', (v) => parseInt(v, 10))
-  .option('--window-days <n>', 'Look-back window in days (default 56 = 8 weeks)', (v) => parseInt(v, 10))
+  .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 100)', wholeNumber('--max-llm-calls'))
+  .option('--window-days <n>', 'Look-back window in days (default 56 = 8 weeks)', wholeNumber('--window-days'))
   .option('--validate', 'Run a second LLM pass to cross-check each digest against its sources (doubles LLM calls per proposal; surfaces under flow=digest_validator in `memesh telemetry`)')
   .option('--from-transcripts', 'EXPERIMENTAL: mine Claude Code session transcripts for this project (decisions/lessons/facts hidden in the conversation) and STAGE them as proposals for `dream accept`, instead of clustering existing entities. Scoped to the current project only — --project does not apply here. With --dry-run, lists sessions and conversation-turn counts without calling an LLM.')
   .option('--if-due', 'For a scheduler (cron/launchd): only mine if `transcriptMining` is enabled in config AND at least --min-interval-hours have passed since this project was last mined; otherwise exit 0 doing nothing. Lets one frequently-firing entry self-throttle. Only meaningful with --from-transcripts.')
-  .option('--min-interval-hours <n>', 'With --if-due: minimum hours between mined runs for this project (default 24).', (v) => parseInt(v, 10))
+  .option('--min-interval-hours <n>', 'With --if-due: minimum hours between mined runs for this project (default 24).', wholeNumber('--min-interval-hours'))
   .action(async (opts) => {
     // --from-transcripts is the transcript-source path (Task #18). B1 shipped
     // discovery; B2 adds extraction + staging (still REVERSIBLE — proposals sit
@@ -1872,8 +1912,8 @@ dreamCmd
   .description('Run pattern detector — surface emerging patterns/conventions/repeated mistakes per project (Phase 3)')
   .option('--project <name>', 'Restrict to one project (default: all projects)')
   .option('--dry-run', 'Compute proposals without writing to dream_proposals')
-  .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 10)', (v) => parseInt(v, 10))
-  .option('--window-days <n>', 'Look-back window in days (default 30)', (v) => parseInt(v, 10))
+  .option('--max-llm-calls <n>', 'Hard cap on LLM calls (default 10)', wholeNumber('--max-llm-calls'))
+  .option('--window-days <n>', 'Look-back window in days (default 30)', wholeNumber('--window-days'))
   .option('--min-signal <n>', 'Minimum signal_score to include in scan (default 0.3)', (v) => parseFloat(v))
   .action(async (opts) => {
     await withDatabase(async () => {
@@ -1962,7 +2002,7 @@ dreamCmd
 dreamCmd
   .command('conflicts')
   .description('Judge semantically-close memory pairs for contradiction / supersession / duplication (LLM) and stage relation proposals for review')
-  .option('--max-pairs <n>', 'Judge at most N of the tightest candidate pairs this run (default 20)', (v) => parseInt(v, 10))
+  .option('--max-pairs <n>', 'Judge at most N of the tightest candidate pairs this run (default 20)', wholeNumber('--max-pairs'))
   .option('--dry-run', 'Show how many candidates are queued without calling an LLM or writing anything')
   .action(async (opts) => {
     await withDatabase(async () => {
