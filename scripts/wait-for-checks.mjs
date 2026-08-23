@@ -252,19 +252,13 @@ async function main(argv) {
     consecutiveFailures = 0;
     const { checks } = result;
 
-    if (checks.length === 0) {
-      log(`${now} pass=0 pending=0 fail=0 (no checks reported yet)`);
-      if (Date.now() >= deadline) {
-        log(resultLine({ pass: 0, fail: 0, pending: 0 }, 2));
-        return 2;
-      }
-      await delay(intervalSec * 1000);
-      continue;
-    }
-
     const tally = tallyChecks(checks);
     const notPassedSuffix = tally.notPassed.length > 0 ? ` not-passed=[${tally.notPassed.join(', ')}]` : '';
-    log(`${now} pass=${tally.pass} pending=${tally.pending} fail=${tally.fail}${notPassedSuffix}`);
+    // A zero-row response used to be handled by its own early return above,
+    // which meant it also had to keep the settle bookkeeping in step — and it
+    // did not. `evaluatePoll` owns that case now; here it is only a label.
+    const emptySuffix = checks.length === 0 ? ' (no checks reported yet)' : '';
+    log(`${now} pass=${tally.pass} pending=${tally.pending} fail=${tally.fail}${notPassedSuffix}${emptySuffix}`);
 
     const namesKey = checkNamesKey(checks);
     const decision = evaluatePoll({
@@ -289,7 +283,7 @@ async function main(argv) {
     // 'wait'. When nothing is pending the reason is the settle guard, and that
     // is worth saying out loud — a silent extra poll after "pending=0" reads
     // like the script is stuck.
-    if (tally.pending === 0) {
+    if (tally.pending === 0 && checks.length > 0) {
       log(`${now} holding: ${decision.reason}`);
     }
     if (Date.now() >= deadline) {

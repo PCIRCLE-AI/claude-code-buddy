@@ -92,6 +92,29 @@ describe('a green tally is only a verdict once the check list holds still', () =
     expect(r.reason).toContain('2 pending');
   });
 
+  it('never passes on a response with no rows, and resets the count', () => {
+    // Right after a push GitHub can report nothing for a few seconds; mid-run,
+    // a response that lost every row is the clearest evidence the list is not
+    // holding still. This used to be a short-circuit in the caller that forgot
+    // to touch the bookkeeping, so "13 green, zero rows, the same 13 green"
+    // counted as two agreeing polls.
+    const r = evaluatePoll({
+      tally: { pass: 0, pending: 0, fail: 0 },
+      namesKey: '',
+      prevNamesKey: '',
+      stablePolls: 1,
+    });
+    expect(r.verdict).toBe('wait');
+    expect(r.stablePolls).toBe(0);
+  });
+
+  it('does not settle across a zero-row poll', () => {
+    const first = evaluatePoll({ tally: green(13), namesKey: 'a b c', prevNamesKey: null, stablePolls: 0 });
+    const empty = evaluatePoll({ tally: { pass: 0, pending: 0, fail: 0 }, namesKey: '', prevNamesKey: 'a b c', stablePolls: first.stablePolls });
+    const third = evaluatePoll({ tally: green(13), namesKey: 'a b c', prevNamesKey: '', stablePolls: empty.stablePolls });
+    expect(third.verdict).toBe('wait');
+  });
+
   it('fails immediately, without waiting for the list to settle', () => {
     // A red leg is red whether or not its siblings have registered. Delaying
     // bad news that cannot improve helps nobody.

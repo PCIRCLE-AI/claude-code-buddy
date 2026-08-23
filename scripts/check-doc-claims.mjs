@@ -40,7 +40,6 @@ import path from 'path';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { listHookFiles } from './lib/hook-files.mjs';
-import { extractChangelogSection } from './lib/release-preconditions.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = p => fs.readFileSync(path.join(repoRoot, p), 'utf8');
@@ -589,39 +588,48 @@ if (!hasBearerAuth) {
     if (kids.size === 0) fail(`\`${parentName}\` matched no subcommands — the nested-command extraction stopped working`);
   }
 
-  // Scanned in prose docs, plus the CHANGELOG sections still being WRITTEN.
-  // Older CHANGELOG sections are frozen history and may legitimately name a
-  // command that has since been retired; `[Unreleased]` and the current
-  // version's section are the ones a typo is still cheap to fix in.
-  const changelogForNested = read('CHANGELOG.md');
-  const liveChangelog = [
-    extractChangelogSection(changelogForNested, 'Unreleased'),
-    extractChangelogSection(changelogForNested, pkg.version),
-  ].filter(Boolean).join('\n');
-  const nestedTargets = [
-    ...livingDocs.map(d => [d, read(d)]),
-    ...(liveChangelog ? [['CHANGELOG.md (live sections)', liveChangelog]] : []),
-  ];
+  // Scanned across EVERY tracked markdown file, whole-document.
+  //
+  // The first version looked only inside single backticks, in a hand-listed
+  // set of documents. Measured against the repository, that missed 19 distinct
+  // nested commands living in fenced code blocks — more than the 25 it saw,
+  // and the fenced ones are what an agent copies out of `llms-install.md` and
+  // runs. It also missed `skills/memesh-review/SKILL.md`, which was not on the
+  // list.
+  //
+  // Whole-document, every tracked `.md`, was then measured too: 89 mentions,
+  // exactly one of them wrong — `memesh dream review` in the 4.5.1 notes, a
+  // command `git log -S` finds no trace of in cli.ts's whole history. So the
+  // narrower rule was not trading coverage for quiet; it was hiding a live
+  // error in published release notes.
+  //
+  // The CHANGELOG is included in full, older sections and all, for the same
+  // reason. If a nested subcommand is ever legitimately retired, its
+  // announcement will fail this gate — and that is the moment to decide what
+  // to do about it, not a reason to stop looking now.
+  const nestedTargets = [...tracked].filter(f => f.endsWith('.md')).map(f => [f, read(f)]);
+  if (nestedTargets.length === 0) fail('no tracked markdown files found — the nested-command scan has nothing to read');
 
-  // Only inside backticks. That is how every document here writes a command,
-  // and it keeps prose like `memesh dream to consolidate` from being read as a
-  // subcommand named `to`.
+  // Same lookbehind as (a): it keeps `@pcircle/memesh`, `memesh-mcp` and
+  // `pcircle-memesh` out, so only a real invocation is read as one.
+  const nestedRe = new RegExp(
+    String.raw`(?<![\w/@.-])memesh\s+(${[...childrenOf.keys()].join('|')})\s+([a-z][a-z-]*)`,
+    'g',
+  );
   let nestedMentions = 0;
   const badNested = [];
   for (const [label, text] of nestedTargets) {
-    for (const m of text.matchAll(/`memesh ([a-z][a-z-]*)(?: ([a-z][a-z-]*))?[^`]*`/g)) {
-      const [, parent, child] = m;
-      if (!childrenOf.has(parent) || !child) continue;
+    for (const m of text.matchAll(nestedRe)) {
       nestedMentions++;
-      if (!childrenOf.get(parent).has(child)) badNested.push(`${label} -> memesh ${parent} ${child}`);
+      if (!childrenOf.get(m[1]).has(m[2])) badNested.push(`${label} -> ${m[0]}`);
     }
   }
-  // Zero mentions is not a pass. If the backtick pattern ever stops matching —
-  // a doc style change, a regex edit — this would print "0 mentions all
-  // resolve" forever, which is the exact shape of gate it was added to close.
+  // Zero mentions is not a pass. If the pattern ever stops matching — a doc
+  // style change, a regex edit — this would print "0 mentions all resolve"
+  // forever, which is the exact shape of gate it was added to close.
   if (nestedMentions === 0) fail('found no nested `memesh <parent> <sub>` mentions in any document — the extraction stopped matching');
   else if (badNested.length) fail(`documents name nested subcommands that do not exist:\n      ${badNested.join('\n      ')}`);
-  else ok(`${nestedMentions} nested \`memesh <${[...childrenOf.keys()].join('|')}> <sub>\` mentions all resolve`);
+  else ok(`${nestedMentions} nested \`memesh <${[...childrenOf.keys()].join('|')}> <sub>\` mentions across ${nestedTargets.length} markdown files all resolve`);
 
   // (a2) every CLI flag an option table documents is a flag cli.ts registers.
   //

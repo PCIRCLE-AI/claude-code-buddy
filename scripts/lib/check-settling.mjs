@@ -58,6 +58,17 @@ export function evaluatePoll({
   stablePolls,
   requiredStablePolls = REQUIRED_STABLE_POLLS,
 }) {
+  // No rows at all is never a verdict, and it resets the count. Right after a
+  // push GitHub can take seconds to register anything; and mid-run, a response
+  // that lost every row is the clearest possible evidence that the list is NOT
+  // holding still. Folding it in here rather than short-circuiting in the
+  // caller is what keeps "13 green, then zero rows, then the same 13 green"
+  // from counting as two consecutive agreeing polls.
+  const total = tally.pass + tally.pending + tally.fail;
+  if (total === 0) {
+    return { verdict: 'wait', stablePolls: 0, reason: 'no checks reported yet' };
+  }
+
   // A red leg is a verdict on its own. Waiting for the set to settle before
   // reporting a failure would only delay bad news that cannot get better.
   if (tally.fail > 0) {
