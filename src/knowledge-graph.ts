@@ -527,7 +527,7 @@ export class KnowledgeGraph {
   getEntity(name: string): Entity | null {
     const row = this.db
       .prepare(
-        'SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace FROM entities WHERE name = ?'
+        'SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace, recall_hits, recall_misses FROM entities WHERE name = ?'
       )
       .get(name) as EntityRow | undefined;
 
@@ -559,6 +559,8 @@ export class KnowledgeGraph {
       access_count: row.access_count ?? 0,
       last_accessed_at: row.last_accessed_at ?? undefined,
       confidence: row.confidence ?? 1.0,
+      recall_hits: row.recall_hits ?? 0,
+      recall_misses: row.recall_misses ?? 0,
       namespace: row.namespace ?? 'personal',
     };
   }
@@ -581,7 +583,14 @@ export class KnowledgeGraph {
     // Batch query 1: entities
     const entityRows = this.db
       .prepare(
-        `SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace
+        // `recall_hits` / `recall_misses` are selected because `rankEntities`
+        // reads them. Without them the hydrator handed the scorer `undefined`
+        // for both, `impactScore(0 ?? 0, 0 ?? 0)` returned 0.5 for every row,
+        // and the impact factor — 10% of the ranking — was a constant. On a
+        // real graph the true range is 0.037 to 0.750. `briefing.ts` hydrates
+        // them and got real values; the recall path did not, so one scorer
+        // behaved differently depending on who called it.
+        `SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace, recall_hits, recall_misses
          FROM entities WHERE id IN (${placeholders}) ${statusFilter} ${namespaceFilter}`
       )
       .all(...params) as EntityRow[];
@@ -663,6 +672,8 @@ export class KnowledgeGraph {
         relations: relations.length > 0 ? relations : undefined,
         ...(row.status === 'archived' ? { archived: true } : {}),
         access_count: row.access_count ?? 0,
+        recall_hits: row.recall_hits ?? 0,
+        recall_misses: row.recall_misses ?? 0,
         last_accessed_at: row.last_accessed_at ?? undefined,
         confidence: row.confidence ?? 1.0,
         namespace: row.namespace ?? 'personal',

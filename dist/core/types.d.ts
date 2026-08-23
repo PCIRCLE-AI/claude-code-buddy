@@ -27,6 +27,8 @@ export interface Entity {
     };
     access_count?: number;
     last_accessed_at?: string;
+    recall_hits?: number;
+    recall_misses?: number;
     confidence?: number;
     namespace: 'personal' | 'team' | 'global' | string;
 }
@@ -159,6 +161,8 @@ export type EntityRow = {
     access_count: number;
     last_accessed_at: string | null;
     confidence: number;
+    recall_hits: number;
+    recall_misses: number;
     namespace: string;
 };
 export type CountRow = {

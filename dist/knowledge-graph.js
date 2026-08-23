@@ -196,7 +196,7 @@ export class KnowledgeGraph {
     }
     getEntity(name) {
         const row = this.db
-            .prepare('SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace FROM entities WHERE name = ?')
+            .prepare('SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace, recall_hits, recall_misses FROM entities WHERE name = ?')
             .get(name);
         if (!row)
             return null;
@@ -223,6 +223,8 @@ export class KnowledgeGraph {
             access_count: row.access_count ?? 0,
             last_accessed_at: row.last_accessed_at ?? undefined,
             confidence: row.confidence ?? 1.0,
+            recall_hits: row.recall_hits ?? 0,
+            recall_misses: row.recall_misses ?? 0,
             namespace: row.namespace ?? 'personal',
         };
     }
@@ -236,7 +238,7 @@ export class KnowledgeGraph {
         if (opts?.namespace)
             params.push(opts.namespace);
         const entityRows = this.db
-            .prepare(`SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace
+            .prepare(`SELECT id, name, title, type, created_at, metadata, status, access_count, last_accessed_at, confidence, namespace, recall_hits, recall_misses
          FROM entities WHERE id IN (${placeholders}) ${statusFilter} ${namespaceFilter}`)
             .all(...params);
         const entityMap = new Map();
@@ -301,6 +303,8 @@ export class KnowledgeGraph {
                 relations: relations.length > 0 ? relations : undefined,
                 ...(row.status === 'archived' ? { archived: true } : {}),
                 access_count: row.access_count ?? 0,
+                recall_hits: row.recall_hits ?? 0,
+                recall_misses: row.recall_misses ?? 0,
                 last_accessed_at: row.last_accessed_at ?? undefined,
                 confidence: row.confidence ?? 1.0,
                 namespace: row.namespace ?? 'personal',

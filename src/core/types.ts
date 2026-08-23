@@ -109,6 +109,11 @@ export interface Entity {
   match?: { source: 'keyword' | 'semantic'; relevance: number };
   access_count?: number;
   last_accessed_at?: string;
+  /** Citation accounting, written by the Stop hook and read by
+   *  `rankEntities`'s impact factor. Optional because catalogue reads
+   *  (`listByType`, exports) do not hydrate them. */
+  recall_hits?: number;
+  recall_misses?: number;
   confidence?: number;
   // Temporal validity (`valid_from` / `valid_until`) was removed in
   // 2026-05; the columns remain in the SQLite schema but no code path
@@ -313,6 +318,11 @@ export type EntityRow = {
   access_count: number;
   last_accessed_at: string | null;
   confidence: number;
+  // Selected because `rankEntities` reads them. They were in the schema and
+  // in the scorer but not in this row type, so the recall hydrator silently
+  // returned `undefined` for both and `impactScore(0,0)` was a constant.
+  recall_hits: number;
+  recall_misses: number;
   // valid_from / valid_until columns retained in SQLite schema for
   // back-compat with older databases but are no longer read or written
   // (SDD G2 cut, 2026-05). Do not add them back here without also
