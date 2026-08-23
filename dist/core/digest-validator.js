@@ -40,7 +40,7 @@ export async function validateDigest(digestObservations, sourceObservations, llm
 }
 export function parseValidatorResponse(text) {
     const fallback = {
-        status: 'pass',
+        status: 'unavailable',
         suspiciousClaims: [],
         rawResponse: text,
     };
@@ -64,7 +64,7 @@ export function parseValidatorResponse(text) {
         status = o.verdict;
     }
     else {
-        status = 'pass';
+        status = 'unavailable';
     }
     let suspiciousClaims = [];
     if (Array.isArray(o.suspicious)) {
@@ -77,7 +77,7 @@ export function parseValidatorResponse(text) {
             .filter((c) => c.claim.length > 0)
             .slice(0, MAX_CLAIMS);
     }
-    if (status !== 'pass' && suspiciousClaims.length === 0) {
+    if ((status === 'soften' || status === 'reject') && suspiciousClaims.length === 0) {
         status = 'pass';
     }
     return { status, suspiciousClaims, rawResponse: text };

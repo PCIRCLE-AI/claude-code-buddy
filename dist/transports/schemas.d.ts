@@ -116,7 +116,6 @@ export declare const WhySchema: z.ZodObject<{
 export declare const UserPatternsSchema: z.ZodObject<{
     categories: z.ZodOptional<z.ZodArray<z.ZodEnum<{
         workSchedule: "workSchedule";
-        toolPreferences: "toolPreferences";
         focusAreas: "focusAreas";
         workflow: "workflow";
         strengths: "strengths";

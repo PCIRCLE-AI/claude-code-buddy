@@ -235,7 +235,7 @@ export function setPinned(name, pinned) {
     });
     return { name, pinned, found: true };
 }
-function countMissingVectors(db, namespace) {
+export function countMissingVectors(db, namespace) {
     if (!hasVectorIndex(db))
         return 0;
     const row = db.prepare(`

@@ -631,7 +631,7 @@ program
     .option('--done <text>', 'What was just finished')
     .option('--json', 'Output as JSON')
     .action(async (opts) => {
-    await withDatabase(() => {
+    await withDatabase(async () => {
         const patch = {};
         for (const field of TASK_STATE_FIELDS) {
             if (opts[field] !== undefined)
@@ -653,6 +653,7 @@ program
             return;
         }
         const result = setTaskState({ project: opts.project, patch, sourceHost: 'cli' });
+        await flushPendingEmbeddings();
         if (opts.json) {
             console.log(JSON.stringify(result));
             return;

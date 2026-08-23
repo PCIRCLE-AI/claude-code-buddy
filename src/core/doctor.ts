@@ -11,11 +11,12 @@ import {
   readVectorGeneration, generationRowIds,
 } from '../db.js';
 import { getUpdateCheck } from './version-check.js';
+import { classifyBump } from './updater.js';
 import { getCurrentInstallChannel, getInstallChannelSupport, type InstallChannel } from './install-channel.js';
 import { getInstallRecord } from './install-id.js';
-import { citationRulePath, citationRuleState } from './citation-rule.js';
+import { citationRulePath, citationRuleState, type CitationRuleScope } from './citation-rule.js';
 import { getDbPath, homeDir, memeshDir, getProjectName } from './paths.js';
-import { detectPluginRuntime } from './install-hooks.js';
+import { detectPluginRuntime, readInstallMarker } from './install-hooks.js';
 import { lastTranscriptMineAt } from './transcript-source.js';
 import { countMissingVectors } from './operations.js';
 import { hasVectorIndex } from '../storage/vector-index.js';
@@ -722,8 +723,13 @@ function inspectHookWiring(
       'hook-wiring',
       'Hooks wired into Claude Code',
       'fail',
-      `${marker.settings_path} is no longer valid JSON.`,
-      'Restore from your ~/.claude backups or re-create with `memesh install-hooks`.',
+      `${marker.settings_path} is no longer valid JSON, so nothing can read your hook wiring — including memesh.`,
+      // NOT "re-run install-hooks" on its own. `installHooks` parses the file
+      // first and throws `refusing to modify` on unparseable JSON, so the
+      // suggested remedy could not succeed: the user runs it, gets a refusal,
+      // and is back where they started. The JSON has to be repaired or moved
+      // aside FIRST; install-hooks writes a fresh file when none exists.
+      `Repair the JSON, or move the file aside (\`mv ${marker.settings_path} ${marker.settings_path}.broken\`) — memesh keeps timestamped \`.bak-pre-memesh-*\` copies next to it. Then run \`memesh install-hooks\`.`,
       { code: 'hook-wiring.settings-invalid', params: { path: String(marker.settings_path) } },
     );
   }
@@ -1649,9 +1655,19 @@ async function inspectUpdateStatus(
   if (update.updateAvailable && update.latestVersion) {
     // F14: User sees confusing "4.1.4 -> 4.1.3" on release branches — the
     // local version (unreleased) is ahead of npm latest. Don't warn unless
-    // the update is actually an upgrade (semantic version comparison would
-    // be more accurate, but a simple string comparison catches 99% of cases).
-    if (packageVersion < update.latestVersion) {
+    // the update is actually an upgrade.
+    //
+    // This was a STRING comparison, with a comment conceding that a semantic
+    // one "would be more accurate" and asserting the string form "catches
+    // 99% of cases". It stops working at the first two-digit component:
+    // `'4.6.9' < '4.6.10'` is FALSE, because '9' sorts after '1'. So at
+    // 4.6.10 doctor would announce "Running pre-release version (4.6.9), npm
+    // latest is 4.6.10" — telling the user they are AHEAD of a release they
+    // are behind — while the session banner, which uses a different
+    // comparison, urged them to upgrade. `classifyBump` is that comparison,
+    // and it already exists: it returns null exactly when `to` is not an
+    // upgrade over `from`.
+    if (classifyBump(packageVersion, update.latestVersion)) {
       return createCheck(
         'update-status',
         'Update status',
@@ -1736,7 +1752,19 @@ function verifySkillsManifest(
   packageRoot: string,
   existsSyncImpl: typeof fs.existsSync,
   readFileSyncImpl: typeof fs.readFileSync,
+  installSupport?: import('./install-channel.js').InstallChannelSupport,
 ): DoctorCheck {
+  // "Reinstall" is not one command. All four fix strings below said
+  // `npm install -g @pcircle/memesh`, which is wrong for three of the four
+  // channels memesh actually ships through: a plugin-marketplace install
+  // reinstalls through Claude Code's `/plugin`, a source checkout rebuilds,
+  // and a project-local install reinstalls in that project. Telling a plugin
+  // user to run the npm command does not repair their install — it creates a
+  // SECOND one beside it, on a different code path, sharing one database.
+  // `getInstallChannelSupport` already knows the right sentence per channel
+  // and the update-status row already uses it.
+  const reinstall = installSupport?.guidance
+    ?? 'Reinstall memesh through whatever you installed it with.';
   const manifestPath = path.join(packageRoot, 'dist', 'skills-manifest.json');
   if (!existsSyncImpl(manifestPath)) {
     return createCheck(
@@ -1744,7 +1772,7 @@ function verifySkillsManifest(
       'Skills + hooks integrity',
       'warn',
       'No skills-manifest.json found. This is normal for source checkouts — packaged installs ship the manifest.',
-      'Run `npm run build` to regenerate, or reinstall via `npm install -g @pcircle/memesh`.',
+      `Run \`npm run build\` to regenerate, or reinstall: ${reinstall}`,
       { code: 'skills-manifest.missing-dev' },
     );
   }
@@ -1757,7 +1785,7 @@ function verifySkillsManifest(
       'Skills + hooks integrity',
       'fail',
       `skills-manifest.json is unreadable (${err instanceof Error ? err.message : 'parse error'}).`,
-      'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem persists open an issue.',
+      `Reinstall the package: ${reinstall} If the problem persists open an issue.`,
       { code: 'skills-manifest.unreadable', params: { detail: err instanceof Error ? err.message : 'parse error' } },
     );
   }
@@ -1768,7 +1796,7 @@ function verifySkillsManifest(
       'Skills + hooks integrity',
       'fail',
       'skills-manifest.json contains zero entries.',
-      'Reinstall the package: `npm install -g @pcircle/memesh`.',
+      `Reinstall the package: ${reinstall}`,
       { code: 'skills-manifest.empty' },
     );
   }
@@ -1804,7 +1832,7 @@ function verifySkillsManifest(
     'Skills + hooks integrity',
     'fail',
     `Manifest verification failed: ${detail}.`,
-    'Reinstall the package: `npm install -g @pcircle/memesh`. If the problem reproduces on a fresh install, open a security issue at https://github.com/PCIRCLE-AI/memesh/security.',
+    `Reinstall the package: ${reinstall} If the problem reproduces on a fresh install, open a security issue at https://github.com/PCIRCLE-AI/memesh/security.`,
     { code: 'skills-manifest.verify-failed', params: { detail } },
   );
 }
@@ -2193,6 +2221,52 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
       );
     }
 
+    // Guard ROI: has any accepted guard ever fired?
+    //
+    // `recordGuardFires` increments `metadata.guard.fires` on every match,
+    // and `applyProposal` initialises it to 0 with the comment "the field
+    // exists so block can arrive per-guard once measured fire accuracy
+    // justifies it". Nothing read it. There was no command, no route and no
+    // panel that showed a guard at all, so the measurement the escalation
+    // was supposed to wait on could not be looked at — the same write-with-
+    // no-reader shape as the citation counters above.
+    //
+    // Informational, not a check: a guard that has never fired is not a
+    // fault. It might be a guard for a mistake nobody has repeated.
+    try {
+      const guardRows = db
+        .prepare(
+          `SELECT name, metadata FROM entities
+           WHERE status = 'active'
+             AND metadata IS NOT NULL
+             AND json_extract(metadata, '$.guard.enabled') = 1`,
+        )
+        .all() as Array<{ name: string; metadata: string }>;
+      if (guardRows.length > 0) {
+        const fired = guardRows
+          .map((r) => {
+            let fires = 0;
+            try {
+              const parsedMeta = JSON.parse(r.metadata) as { guard?: { fires?: unknown } };
+              if (typeof parsedMeta.guard?.fires === 'number') fires = parsedMeta.guard.fires;
+            } catch { /* a guard row with unreadable metadata counts as never fired */ }
+            return { name: r.name, fires };
+          })
+          .sort((a, b) => b.fires - a.fires);
+        const everFired = fired.filter((g) => g.fires > 0);
+        const top = everFired.slice(0, 3).map((g) => `${g.name} (${g.fires})`).join(', ');
+        dbChecks.push(createInfo(
+          'guard_activity',
+          'Guard activity',
+          `${guardRows.length} active guard(s); ${everFired.length} have ever fired`
+          + (top ? `. Most: ${top}.` : '. None has matched yet.'),
+        ));
+      }
+    } catch {
+      // A database without the guard shape (older schema, no json1) simply
+      // has no guards to report. Not a fault, and not worth a row.
+    }
+
     // Injection ROI: is anything the hooks inject actually being cited?
     //
     // This row exists because the numbers behind it were correct, readable,
@@ -2222,16 +2296,25 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
       // try/catch — so an unreadable rule file (wrong permissions, or a
       // directory at that path) would be reported to the user as
       // `database.broken`, sending them to debug a database that is fine.
+      // The scope comes from the install marker, exactly as both WRITERS
+      // resolve it (`session-start.js` and `installHooks`). Hardcoding
+      // 'user' here made doctor look in `~/.claude/rules/` on a
+      // `--scope project` install, where the file is inside the project —
+      // so it reported the contract missing on every project install, and
+      // its suggested fix pointed at a path nothing would ever write.
+      // No marker means a plugin install, which is user-level by
+      // construction.
+      const ruleScope: CitationRuleScope = readInstallMarker()?.scope === 'project' ? 'project' : 'user';
       let rule: { path: string; state: string };
       try {
         // Only readFileSync now — `citationRuleState` reads first and
         // classifies ENOENT rather than checking existence separately, so
         // there is no existsSync seam left to inject.
-        rule = citationRuleState('user', homeDir(), process.cwd(), {
+        rule = citationRuleState(ruleScope, homeDir(), process.cwd(), {
           readFileSync: readFileSyncImpl,
         } as never);
       } catch {
-        rule = { path: citationRulePath('user', homeDir(), process.cwd()), state: 'unreadable' };
+        rule = { path: citationRulePath(ruleScope, homeDir(), process.cwd()), state: 'unreadable' };
       }
 
       if (rate === null) {
@@ -2370,7 +2453,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   checks.push(inspectNodeRuntime(packageRoot, existsSyncImpl, readFileSyncImpl));
   checks.push(inspectNativeBinding(packageRoot, existsSyncImpl, nativeBindingProbeImpl));
   checks.push(inspectShellCli(install, packageRoot, resolveShellMemeshImpl));
-  checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl));
+  checks.push(verifySkillsManifest(packageRoot, existsSyncImpl, readFileSyncImpl, installSupport));
 
   // Capabilities: what the CONFIG says. This row asserts nothing about
   // whether any of it works, so it is informational by construction.

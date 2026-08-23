@@ -9,13 +9,18 @@ export function computeSignalScore(input) {
         return 0.0;
     }
     if (type === 'commit') {
-        const firstLine = obsText.split('\n')[0]?.trim() ?? '';
-        if (firstLine.length < 30 && !/[!:]/.test(firstLine))
-            return 0.2;
-        if (firstLine.length < 30)
-            return 0.3;
-        if (!obsText.includes('\n') && firstLine.length < 60)
-            return 0.4;
+        const message = (observations[0] ?? '').trim();
+        const [subject = '', ...rest] = message.split('\n');
+        const head = subject.trim();
+        const hasBody = rest.join('\n').trim().length > 0;
+        if (!hasBody) {
+            if (head.length < 30 && !/[!:]/.test(head))
+                return 0.2;
+            if (head.length < 30)
+                return 0.3;
+            if (head.length < 60)
+                return 0.4;
+        }
         return Math.min(0.7, base + 0.1);
     }
     if (type === 'session-insight') {
@@ -66,5 +71,4 @@ function baseScoreForType(type) {
         return 0.4;
     return 0.5;
 }
-export const DEFAULT_SIGNAL_THRESHOLD = 0.4;
 //# sourceMappingURL=signal-scorer.js.map

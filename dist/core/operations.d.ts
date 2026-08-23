@@ -1,3 +1,4 @@
+import { getDatabase } from '../db.js';
 import type { EmbedOutcome } from './embedder.js';
 import type { RememberInput, RememberResult, RecallInput, ForgetInput, ForgetResult, LearnInput, LearnResult, Entity } from './types.js';
 export declare function remember(args: RememberInput): RememberResult;
@@ -36,6 +37,7 @@ export interface ReindexResult {
     generationSwapped: boolean | null;
     abortedAfter: number | null;
 }
+export declare function countMissingVectors(db: ReturnType<typeof getDatabase>, namespace?: string): number;
 export declare function reindex(opts?: {
     namespace?: string;
 }): Promise<ReindexResult>;

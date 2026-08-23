@@ -24,6 +24,7 @@ export function exportMemories(args) {
         limit: args.limit || 1000,
         includeArchived: false,
         namespace: args.namespace,
+        countAsAccess: false,
     });
     return {
         version: '3.0.0',

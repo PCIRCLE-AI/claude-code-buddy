@@ -208,7 +208,7 @@ export const TOOL_DEFINITIONS = [
                     type: 'array',
                     items: {
                         type: 'string',
-                        enum: ['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'],
+                        enum: ['workSchedule', 'focusAreas', 'workflow', 'strengths', 'learningAreas'],
                     },
                     description: 'Specific categories to return. Omit for all.',
                 },
@@ -339,17 +339,6 @@ export async function handleTool(name, args, sourceHost) {
                     .join(', ');
                 lines.push(`Busiest days: ${busiestDays || 'No data'}`);
             }
-            if (allCategories || cats.includes('toolPreferences')) {
-                lines.push('', '### Tool Preferences');
-                if (data.toolPreferences.length > 0) {
-                    data.toolPreferences.forEach((tp, i) => {
-                        lines.push(`${i + 1}. ${tp.tool} (${tp.sessions} sessions)`);
-                    });
-                }
-                else {
-                    lines.push('No tool usage data yet.');
-                }
-            }
             if (allCategories || cats.includes('focusAreas')) {
                 lines.push('', '### Focus Areas');
                 if (data.focusAreas.length > 0) {
@@ -363,7 +352,7 @@ export async function handleTool(name, args, sourceHost) {
             }
             if (allCategories || cats.includes('workflow')) {
                 lines.push('', '### Workflow');
-                lines.push(`Avg session: ${data.workflow.avgSessionMinutes} min | Commits per session: ${data.workflow.commitsPerSession}`);
+                lines.push(`Commits per session: ${data.workflow.commitsPerSession}`);
                 lines.push(`Total sessions: ${data.workflow.totalSessions} | Total commits: ${data.workflow.totalCommits}`);
             }
             if (allCategories || cats.includes('strengths')) {

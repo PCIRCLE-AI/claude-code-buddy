@@ -237,7 +237,7 @@ export declare const TOOL_DEFINITIONS: readonly [{
                 readonly type: "array";
                 readonly items: {
                     readonly type: "string";
-                    readonly enum: readonly ["workSchedule", "toolPreferences", "focusAreas", "workflow", "strengths", "learningAreas"];
+                    readonly enum: readonly ["workSchedule", "focusAreas", "workflow", "strengths", "learningAreas"];
                 };
                 readonly description: "Specific categories to return. Omit for all.";
             };

@@ -1,7 +1,7 @@
 import path from 'path';
 import type fs from 'fs';
 import { describe, expect, it } from 'vitest';
-import { detectInstallChannel, getInstallChannelSupport } from '../src/core/install-channel.js';
+import { detectInstallChannel, getGlobalNpmRoot, getInstallChannelSupport } from '../src/core/install-channel.js';
 
 function existsFor(paths: string[]) {
   const normalized = new Set(paths.map((entry) => path.resolve(entry)));
@@ -95,5 +95,54 @@ describe('install channel support', () => {
       canSelfUpdate: false,
       recommendedCommand: 'memesh upgrade-plugin',
     });
+  });
+});
+
+describe('the global npm root when npm is not reachable', () => {
+  // `npm root -g` is authoritative — it honours `prefix` from `.npmrc`, which
+  // nothing derivable can see — but it fails whenever `npm` is not on PATH.
+  // That is not exotic: Claude Code launched from a GUI app, or a shell where
+  // a version manager's shim has not been sourced, both give a process
+  // `node` without `npm`. Detection then fell through to `unknown`, and
+  // `memesh update` refused to run on a real npm-global install.
+  const throwingNpm = (() => { throw new Error('spawn npm ENOENT'); }) as never;
+
+  it('derives it from the running Node binary when the spawn fails', () => {
+    const root = getGlobalNpmRoot({
+      execFileSyncImpl: throwingNpm,
+      execPathImpl: '/opt/homebrew/bin/node',
+    });
+
+    const expected = process.platform === 'win32'
+      ? path.join('/opt/homebrew', 'node_modules')
+      : path.join('/opt/homebrew', 'lib', 'node_modules');
+    expect(root).toBe(expected);
+  });
+
+  it('prefers what npm says when npm answers — the anti-vacuity half', () => {
+    // A derivation that always won would silently override a custom
+    // `prefix` in `.npmrc`, which is the one thing the spawn can see.
+    const root = getGlobalNpmRoot({
+      execFileSyncImpl: (() => '/custom/prefix/lib/node_modules\n') as never,
+      execPathImpl: '/opt/homebrew/bin/node',
+    });
+
+    expect(root).toBe('/custom/prefix/lib/node_modules');
+  });
+
+  it('classifies a global install as npm-global on the derived root', () => {
+    // The end the fix exists for: the same package root that used to come
+    // back `unknown`.
+    const packageRoot = path.join('/opt/homebrew', 'lib', 'node_modules', '@pcircle', 'memesh');
+    const channel = detectInstallChannel({
+      packageRoot,
+      globalNpmRoot: () => getGlobalNpmRoot({
+        execFileSyncImpl: throwingNpm,
+        execPathImpl: '/opt/homebrew/bin/node',
+      }),
+      existsSyncImpl: existsFor([]),
+    });
+
+    expect(channel).toBe(process.platform === 'win32' ? 'unknown' : 'npm-global');
   });
 });

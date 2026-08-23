@@ -83,7 +83,7 @@ export const WhySchema = z.object({
     limit: z.number().int().min(1).max(50).optional(),
 }).strict();
 export const UserPatternsSchema = z.object({
-    categories: z.array(z.enum(['workSchedule', 'toolPreferences', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
+    categories: z.array(z.enum(['workSchedule', 'focusAreas', 'workflow', 'strengths', 'learningAreas'])).optional()
         .describe('Specific categories to return. Omit for all.'),
 }).strict();
 //# sourceMappingURL=schemas.js.map

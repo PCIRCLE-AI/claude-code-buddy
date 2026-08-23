@@ -50,6 +50,7 @@ export interface SearchOptions {
     limit?: number;
     includeArchived?: boolean;
     namespace?: string;
+    countAsAccess?: boolean;
 }
 export interface RememberInput {
     name: string;

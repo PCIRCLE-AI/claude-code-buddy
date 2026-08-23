@@ -99,7 +99,11 @@ describe('validateDigest', () => {
     expect(result.suspiciousClaims[0].claim).toContain('/v9/admin');
   });
 
-  it('defaults to status=pass when LLM returns malformed JSON', async () => {
+  it('reports unavailable — not pass — when the LLM answers with unreadable prose', async () => {
+    // `pass` means "I checked and every claim is supported". A model that
+    // drifts off the JSON format checked nothing, and it does so silently,
+    // which makes it the MORE likely of the two failure modes the caller
+    // already distinguishes. Neither blocks the proposal; only `reject` does.
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       mockAnthropicResponse('this is not JSON at all, just prose'),
     );
@@ -111,7 +115,7 @@ describe('validateDigest', () => {
       validLLM,
     );
 
-    expect(result.status).toBe('pass');
+    expect(result.status).toBe('unavailable');
     expect(result.suspiciousClaims).toEqual([]);
   });
 
@@ -148,14 +152,17 @@ describe('validateDigest', () => {
     expect(result.status).not.toBe('soften');
   });
 
-  it('defaults to status=pass when verdict is missing/unknown', async () => {
+  it('reports unavailable when the JSON parses but names no verdict', async () => {
+    // Readable JSON is not the same as an answer. A body with no `verdict`
+    // has not judged anything, so it lands with the other two "could not
+    // check" outcomes rather than with `pass`.
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       mockAnthropicResponse(JSON.stringify({ suspicious: [] })),
     );
 
     const { validateDigest } = await import('../../src/core/digest-validator.js');
     const result = await validateDigest(['d'], ['s'], validLLM);
-    expect(result.status).toBe('pass');
+    expect(result.status).toBe('unavailable');
   });
 
   it('demotes verdict to pass when claims list is empty (verdict without evidence is unreliable)', async () => {
@@ -255,11 +262,20 @@ describe('parseValidatorResponse', () => {
     expect(result.suspiciousClaims).toHaveLength(1);
   });
 
-  it('returns pass + empty claims for empty string input', async () => {
+  it('returns unavailable + empty claims for empty string input', async () => {
     const { parseValidatorResponse } = await import('../../src/core/digest-validator.js');
     const result = parseValidatorResponse('');
-    expect(result.status).toBe('pass');
+    expect(result.status).toBe('unavailable');
     expect(result.suspiciousClaims).toEqual([]);
+  });
+
+  it('still returns pass for a body that really does say pass', async () => {
+    // The anti-vacuity half: a parser hardwired to `unavailable` would
+    // satisfy both tests above and make the validator unable to approve
+    // anything.
+    const { parseValidatorResponse } = await import('../../src/core/digest-validator.js');
+    const result = parseValidatorResponse('{"verdict": "pass", "suspicious": []}');
+    expect(result.status).toBe('pass');
   });
 
   it('drops claims missing the claim field', async () => {

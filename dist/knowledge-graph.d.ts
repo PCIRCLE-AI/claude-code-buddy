@@ -25,9 +25,10 @@ export declare class KnowledgeGraph {
     search(query?: string, opts?: SearchOptions): Entity[];
     trackAccess(entityIds: number[]): void;
     findConflicts(entityNames: string[]): string[];
-    listRecent(limit?: number, includeArchived?: boolean, namespace?: string): Entity[];
+    listRecent(limit?: number, includeArchived?: boolean, namespace?: string, countAsAccess?: boolean): Entity[];
     listByType(type: string, limit?: number, includeArchived?: boolean, namespace?: string): Entity[];
     private listRecentByTag;
+    private removeVectorRow;
     clearEntityData(name: string): void;
     archiveEntity(name: string): {
         archived: boolean;

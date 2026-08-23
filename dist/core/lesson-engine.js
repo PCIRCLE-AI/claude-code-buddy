@@ -1,9 +1,9 @@
-import { remember, recall } from './operations.js';
+import { remember } from './operations.js';
 import { getDatabase } from '../db.js';
+import { KnowledgeGraph } from '../knowledge-graph.js';
 export function createLesson(lesson, projectName) {
     const name = `lesson-${projectName}-${lesson.errorPattern}`;
-    const existing = recall({ query: name, limit: 1 });
-    const isNew = existing.length === 0 || existing[0].name !== name;
+    const isNew = new KnowledgeGraph(getDatabase()).getEntity(name) === null;
     remember({
         name,
         type: 'lesson_learned',
